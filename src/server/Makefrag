@@ -1,14 +1,25 @@
 OBJDIRS += server
 
 SERVER_SRCFILES := \
-		src/server/server.cc
+		src/server/server.c \
+		src/shared/net.c
 
 SERVER_OBJFILES := $(SERVER_SRCFILES)
+SERVER_OBJFILES := $(patsubst src/server/%.c, $(OBJDIR)/server/%.o, $(SERVER_OBJFILES))
+SERVER_OBJFILES := $(patsubst src/shared/%.c, $(OBJDIR)/shared/%.o, $(SERVER_OBJFILES))
 SERVER_OBJFILES := $(patsubst src/server/%.cc, $(OBJDIR)/server/%.o, $(SERVER_OBJFILES))
 
 $(OBJDIR)/server/server: $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) -o $@ $^
+
+$(OBJDIR)/server/%.o: $(TOP)/src/server/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/shared/%.o: $(TOP)/src/shared/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/server/%.o: $(TOP)/src/server/%.cc
 	@mkdir -p $(@D)

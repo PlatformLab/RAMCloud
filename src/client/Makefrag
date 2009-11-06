@@ -1,0 +1,23 @@
+OBJDIRS += client
+
+CLIENT_SRCFILES := \
+		src/client/client.c \
+		src/shared/net.c
+
+CLIENT_OBJFILES := $(CLIENT_SRCFILES)
+CLIENT_OBJFILES := $(patsubst src/client/%.c, $(OBJDIR)/client/%.o, $(CLIENT_OBJFILES))
+CLIENT_OBJFILES := $(patsubst src/shared/%.c, $(OBJDIR)/shared/%.o, $(CLIENT_OBJFILES))
+
+$(OBJDIR)/client/client: $(CLIENT_OBJFILES)
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -o $@ $^
+
+$(OBJDIR)/client/%.o: $(TOP)/src/client/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/shared/%.o: $(TOP)/src/shared/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+all: $(OBJDIR)/client/client

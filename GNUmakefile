@@ -12,6 +12,10 @@ OBJDIR	:= obj$(OBJSUFFIX)
 
 TOP	:= $(shell echo $${PWD-`pwd`})
 
+BASECFLAGS :=
+OPTFLAG	 := -O3
+COMFLAGS := $(BASECFLAGS) -g $(OPTFLAG) -fno-strict-aliasing \
+	       -Wall -MD
 COMWARNS := -Wformat=2 -Wextra -Wmissing-noreturn \
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute \
             -Wswitch-default -fno-builtin
@@ -20,12 +24,11 @@ CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
 CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 	 	-Wconversion -Wcast-qual -Wunreachable-code  -Winline \
 		-Weffc++ -Wswitch-enum -Wcast-align
-OPTFLAG := -O2
 INCLUDES := -I$(TOP)/src
 
 
-CFLAGS	:= $(OPTFLAG) $(CWARNS) -Werror -std=c99 $(INCLUDES)
-CXXFLAGS    := $(OPTFLAG) $(CXXWARNS) -Werror -std=c++0x $(INCLUDES)
+CFLAGS	:= $(COMFLAGS) $(CWARNS) -std=gnu99 $(INCLUDES)
+CXXFLAGS    := $(COMFLAGS) $(CXXWARNS) -std=c++0x $(INCLUDES)
 
 CC := gcc
 CXX := g++
@@ -37,11 +40,13 @@ all:
 .SUFFIXES:
 
 include src/server/Makefrag
+include src/client/Makefrag
 
 clean:
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
 
-CHKFILES := $(shell find $(TOP)/src -name '*.cc' -or -name '*.h' -or -name '*.c')
+# Lazy rule so this doesn't happen unless make check is invoked
+CHKFILES = $(shell find $(TOP)/src -name '*.cc' -or -name '*.h' -or -name '*.c')
 check:
 	$(LINT) $(CHKFILES)
 
