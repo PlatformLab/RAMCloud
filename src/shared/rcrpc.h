@@ -1,3 +1,6 @@
+#ifndef RAMCLOUD_SHARED_RCRPC_H
+#define RAMCLOUD_SHARED_RCRPC_H
+
 #define RCRPC_OK	0
 #define RCRPC_PING	1
 #define RCRPC_READ100	2
@@ -50,3 +53,6 @@ struct rcrpc {
 		struct write1000 write1000;
 	};
 };
+
+#endif
+
