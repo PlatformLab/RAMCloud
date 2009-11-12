@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include <shared/rcrpc.h>
 #include <shared/net.h>
@@ -79,7 +80,7 @@ recvrpc(struct rcrpc **rpc)
 		exit(1);
 	}
 
-	*rpc = (struct rpcrpc *)recvbuf;
+	*rpc = (struct rcrpc *)recvbuf;
 
 	return (0);
 }

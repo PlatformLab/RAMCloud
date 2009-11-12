@@ -1,23 +1,23 @@
 OBJDIRS += client
 
 CLIENT_SRCFILES := \
-		src/client/client.c \
-		src/shared/net.c
+		src/client/client.cc \
+		src/shared/net.cc
 
 CLIENT_OBJFILES := $(CLIENT_SRCFILES)
-CLIENT_OBJFILES := $(patsubst src/client/%.c, $(OBJDIR)/client/%.o, $(CLIENT_OBJFILES))
-CLIENT_OBJFILES := $(patsubst src/shared/%.c, $(OBJDIR)/shared/%.o, $(CLIENT_OBJFILES))
+CLIENT_OBJFILES := $(patsubst src/client/%.cc, $(OBJDIR)/client/%.o, $(CLIENT_OBJFILES))
+CLIENT_OBJFILES := $(patsubst src/shared/%.cc, $(OBJDIR)/shared/%.o, $(CLIENT_OBJFILES))
 
 $(OBJDIR)/client/client: $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $^
 
-$(OBJDIR)/client/%.o: $(TOP)/src/client/%.c
+$(OBJDIR)/client/%.o: $(TOP)/src/client/%.cc
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(OBJDIR)/shared/%.o: $(TOP)/src/shared/%.c
+$(OBJDIR)/shared/%.o: $(TOP)/src/shared/%.cc
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 all: $(OBJDIR)/client/client

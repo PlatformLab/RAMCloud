@@ -22,8 +22,10 @@ COMWARNS := -Wformat=2 -Wextra -Wmissing-noreturn \
 CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
 		-Wbad-function-cast
 CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
-	 	-Wconversion -Wcast-qual -Wunreachable-code  -Winline \
+		-Wconversion -Wcast-qual -Winline \
 		-Weffc++ -Wswitch-enum -Wcast-align
+# Too many false positives list:
+# -Wunreachable-code
 INCLUDES := -I$(TOP)/src
 
 
@@ -37,10 +39,13 @@ LINT := python cpplint.py
 
 all:
 
+test:
+
 .SUFFIXES:
 
 include src/server/Makefrag
 include src/client/Makefrag
+include src/tests/Makefrag
 
 clean:
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*

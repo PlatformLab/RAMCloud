@@ -6,9 +6,11 @@
 #include <shared/rcrpc.h>
 #include <shared/net.h>
 
+#include <server/server.h>
+
 struct rcrpc blobs[256];
 
-static void
+void
 handlerpc()
 {
 	struct rcrpc *rcrpc;
@@ -64,15 +66,9 @@ handlerpc()
 	sendrpc(resp);
 }
 
-int
-main()
+void
+init()
 {
-	netinit(1);
-
 	memset(blobs, 0, sizeof(blobs));
-
-	while (1)
-		handlerpc();
-
-	return (0);
 }
+
