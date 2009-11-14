@@ -41,8 +41,8 @@ Server::handleRPC()
         case RCRPC_READ100:
             printf("read100 from key %d\n", rcrpc->read100.key);
             resp = &blobs[rcrpc->read100.key];
-            resp->type = RCRPC_READ1000;
-            resp->len  = RCRPC_READ1000LEN;
+            resp->type = RCRPC_READ100;
+            resp->len  = RCRPC_READ100LEN;
             printf("resp key: %d\n", resp->read100.key);
             break;
 
