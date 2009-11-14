@@ -72,9 +72,8 @@ Server::handleRPC()
             fprintf(stderr, "received unknown RPC type 0x%08x\n", rcrpc->type);
             exit(1);
         }
+        net->sendRPC(resp);
     }
-
-    net->sendRPC(resp);
 }
 
 } // namespace RAMCloud

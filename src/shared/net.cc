@@ -71,7 +71,7 @@ DefaultNet::recvRPC(struct rcrpc **rpc)
         struct sockaddr_in sin;
         socklen_t sinlen = sizeof(sin);
 
-        int len = recvfrom(fd, recvbuf, sizeof(recvbuf), 0, (struct sockaddr *)&sin, &sinlen);
+        ssize_t len = recvfrom(fd, recvbuf, sizeof(recvbuf), 0, (struct sockaddr *)&sin, &sinlen);
         if (len == -1) {
                 perror("recvfrom");
                 exit(1);
