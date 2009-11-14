@@ -57,7 +57,7 @@ DefaultClient::read100(int key, char *buf, int len)
 
     //printf("read100\n");
     query.type = RCRPC_READ100;
-    query.len  = RCRPC_READ100LEN;
+    query.len  = RCRPC_READ100LEN - 100;
     query.read100.key = key;
     net->sendRPC(&query);
     net->recvRPC(&resp);
