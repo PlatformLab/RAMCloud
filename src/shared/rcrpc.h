@@ -12,12 +12,12 @@
 #define RCRPC_WRITE100  4
 #define RCRPC_WRITE1000 5
 
-#define RCRPC_OKLEN             8
-#define RCRPC_PINGLEN           8
-#define RCRPC_READ100LEN        108
-#define RCRPC_READ1000LEN       1008
-#define RCRPC_WRITE100LEN       108
-#define RCRPC_WRITE1000LEN      1008
+#define RCRPC_OKLEN         8
+#define RCRPC_PINGLEN       8
+#define RCRPC_READ100LEN    (108 + sizeof(int))
+#define RCRPC_READ1000LEN   (1008 + sizeof(int))
+#define RCRPC_WRITE100LEN   (108 + sizeof(int))
+#define RCRPC_WRITE1000LEN  (1008 + sizeof(int))
 
 namespace RAMCloud {
 
