@@ -32,40 +32,40 @@ Server::handleRPC()
         printf("got rpc type: 0x%08x, len 0x%08x\n", rcrpc->type, rcrpc->len);
 
         switch (rcrpc->type) {
-        case RCRPC_PING:
+        case RCRPC_PING_REQUEST:
             resp = &buf;
-            resp->type = RCRPC_PING;
-            resp->len  = RCRPC_PINGLEN;
+            resp->type = RCRPC_PING_RESPONSE;
+            resp->len  = (uint32_t) RCRPC_PING_RESPONSE_LEN;
             break;
 
-        case RCRPC_READ100:
-            printf("read100 from key %d\n", rcrpc->read100.key);
-            resp = &blobs[rcrpc->read100.key];
-            resp->type = RCRPC_READ100;
-            resp->len  = RCRPC_READ100LEN;
-            printf("resp key: %d\n", resp->read100.key);
+        case RCRPC_READ100_REQUEST:
+            printf("read100 from key %d\n", rcrpc->read100_request.key);
+            resp = &blobs[rcrpc->read100_request.key];
+            resp->type = RCRPC_READ100_RESPONSE;
+            resp->len  = (uint32_t) RCRPC_READ100_RESPONSE_LEN;
+            printf("resp key: %d\n", resp->read100_request.key);
             break;
 
-        case RCRPC_READ1000:
-            resp = &blobs[rcrpc->read1000.key];
-            resp->type = RCRPC_READ1000;
-            resp->len  = RCRPC_READ1000LEN;
+        case RCRPC_READ1000_REQUEST:
+            resp = &blobs[rcrpc->read1000_request.key];
+            resp->type = RCRPC_READ1000_RESPONSE;
+            resp->len  = (uint32_t) RCRPC_READ1000_RESPONSE_LEN;
             break;
 
-        case RCRPC_WRITE100:
-            printf("write100 to key %d, val = %s\n", rcrpc->write100.key, rcrpc->write100.buf);
-            memcpy(&blobs[rcrpc->write100.key], rcrpc, RCRPC_WRITE100LEN);
-            printf("post copy key: %d\n", blobs[rcrpc->write100.key].write100.key);
+        case RCRPC_WRITE100_REQUEST:
+            printf("write100 to key %d, val = %s\n", rcrpc->write100_request.key, rcrpc->write100_request.buf);
+            memcpy(&blobs[rcrpc->write100_request.key], rcrpc, RCRPC_WRITE100_REQUEST_LEN);
+            printf("post copy key: %d\n", blobs[rcrpc->write100_request.key].write100_request.key);
             resp = &buf;
-            resp->type = RCRPC_OK;
-            resp->len  = RCRPC_OKLEN;
+            resp->type = RCRPC_WRITE1000_RESPONSE;
+            resp->len  = (uint32_t) RCRPC_WRITE1000_RESPONSE_LEN;
             break;
 
-        case RCRPC_WRITE1000:
-            memcpy(&blobs[rcrpc->write1000.key], rcrpc, RCRPC_WRITE1000LEN);
+        case RCRPC_WRITE1000_REQUEST:
+            memcpy(&blobs[rcrpc->write1000_request.key], rcrpc, RCRPC_WRITE1000_REQUEST_LEN);
             resp = &buf;
-            resp->type = RCRPC_OK;
-            resp->len  = RCRPC_OKLEN;
+            resp->type = RCRPC_WRITE1000_RESPONSE;
+            resp->len  = (uint32_t) RCRPC_WRITE1000_RESPONSE_LEN;
             break;
 
         default:

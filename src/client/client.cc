@@ -24,8 +24,8 @@ DefaultClient::ping()
 
     /*** DO A PING ***/
 
-    query.type = RCRPC_PING;
-    query.len  = RCRPC_PINGLEN;
+    query.type = RCRPC_PING_REQUEST;
+    query.len  = (uint32_t) RCRPC_PING_REQUEST_LEN;
 
     //printf("sending ping rpc...\n");
     net->sendRPC(&query);
@@ -40,11 +40,11 @@ DefaultClient::write100(int key, const char *buf, int len)
     struct rcrpc query, *resp;
 
     //printf("writing 100\n");
-    memset(query.write100.buf, 0, sizeof(query.write100.buf));
-    memcpy(query.write100.buf, buf, len);
-    query.type = RCRPC_WRITE100;
-    query.len  = RCRPC_WRITE100LEN;
-    query.write100.key = key;
+    memset(query.write100_request.buf, 0, sizeof(query.write100_request.buf));
+    memcpy(query.write100_request.buf, buf, len);
+    query.type = RCRPC_WRITE100_REQUEST;
+    query.len  = (uint32_t) RCRPC_WRITE100_REQUEST_LEN;
+    query.write100_request.key = key;
     net->sendRPC(&query);
     net->recvRPC(&resp);
     //printf("write100 got reply: 0x%08x\n", resp->type);
@@ -56,13 +56,13 @@ DefaultClient::read100(int key, char *buf, int len)
     struct rcrpc query, *resp;
 
     //printf("read100\n");
-    query.type = RCRPC_READ100;
-    query.len  = RCRPC_READ100LEN - 100;
-    query.read100.key = key;
+    query.type = RCRPC_READ100_REQUEST;
+    query.len  = (uint32_t) RCRPC_READ100_REQUEST_LEN;
+    query.read100_request.key = key;
     net->sendRPC(&query);
     net->recvRPC(&resp);
-    //printf("read back [%s]\n", resp->read100.buf);
-    memcpy(buf, resp->read100.buf, len);
+    //printf("read back [%s]\n", resp->read100_response.buf); 
+    memcpy(buf, resp->read100_response.buf, len);
 }
 
 } // namespace RAMCloud

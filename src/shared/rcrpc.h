@@ -5,58 +5,97 @@
 // so we'll go ahead and use the C header
 #include <inttypes.h>
 
-#define RCRPC_OK        0
-#define RCRPC_PING      1
-#define RCRPC_READ100   2
-#define RCRPC_READ1000  3
-#define RCRPC_WRITE100  4
-#define RCRPC_WRITE1000 5
-
-#define RCRPC_OKLEN         8
-#define RCRPC_PINGLEN       8
-#define RCRPC_READ100LEN    (108 + sizeof(int))
-#define RCRPC_READ1000LEN   (1008 + sizeof(int))
-#define RCRPC_WRITE100LEN   (108 + sizeof(int))
-#define RCRPC_WRITE1000LEN  (1008 + sizeof(int))
+#define RCRPC_HEADER_LEN                ((size_t) &(((struct rcrpc *) 0)->ping_request))
+#define RCRPC_PING_REQUEST_LEN          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_ping_request))
+#define RCRPC_PING_RESPONSE_LEN         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_ping_response))
+#define RCRPC_READ100_REQUEST_LEN       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read100_request))
+#define RCRPC_READ100_RESPONSE_LEN      (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read100_response))
+#define RCRPC_READ1000_REQUEST_LEN      (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read1000_request))
+#define RCRPC_READ1000_RESPONSE_LEN     (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read1000_response))
+#define RCRPC_WRITE100_REQUEST_LEN      (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write100_request))
+#define RCRPC_WRITE100_RESPONSE_LEN     (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write100_response))
+#define RCRPC_WRITE1000_REQUEST_LEN     (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write1000_request))
+#define RCRPC_WRITE1000_RESPONSE_LEN    (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write1000_response))
 
 namespace RAMCloud {
 
-struct ok {
+enum RCRPC_TYPE {
+    RCRPC_PING_REQUEST,
+    RCRPC_PING_RESPONSE,
+    RCRPC_READ100_REQUEST,
+    RCRPC_READ100_RESPONSE,
+    RCRPC_READ1000_REQUEST,
+    RCRPC_READ1000_RESPONSE,
+    RCRPC_WRITE100_REQUEST,
+    RCRPC_WRITE100_RESPONSE,
+    RCRPC_WRITE1000_REQUEST,
+    RCRPC_WRITE1000_RESPONSE,
 };
 
-struct ping {
+
+struct rcrpc_ping_request {
 };
 
-struct read100 {
+struct rcrpc_ping_response {
+};
+
+
+struct rcrpc_read100_request {
+    int key;
+};
+
+struct rcrpc_read100_response {
     int key;
     char buf[100];
 };
 
-struct read1000 {
+
+struct rcrpc_read1000_request {
+    int key;
+};
+
+struct rcrpc_read1000_response {
     int key;
     char buf[1000];
 };
 
-struct write100 {
+
+struct rcrpc_write100_request {
     int key;
     char buf[100];
 };
 
-struct write1000 {
+struct rcrpc_write100_response {
+};
+
+
+struct rcrpc_write1000_request {
     int key;
     char buf[1000];
 };
+
+struct rcrpc_write1000_response {
+};
+
 
 struct rcrpc {
     uint32_t type;
     uint32_t len;
     union {
-        struct ok ok;
-        struct ping ping;
-        struct read100 read100;
-        struct read1000 read1000;
-        struct write100 write100;
-        struct write1000 write1000;
+        struct rcrpc_ping_request ping_request;
+        struct rcrpc_ping_response ping_response;
+
+        struct rcrpc_read100_request read100_request;
+        struct rcrpc_read100_response read100_response;
+
+        struct rcrpc_read1000_request read1000_request;
+        struct rcrpc_read1000_response read1000_response;
+
+        struct rcrpc_write100_request write100_request;
+        struct rcrpc_write100_response write100_response;
+
+        struct rcrpc_write1000_request write1000_request;
+        struct rcrpc_write1000_response write1000_response;
     };
 };
 
