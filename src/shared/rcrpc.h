@@ -45,7 +45,6 @@ struct rcrpc_read100_request {
 };
 
 struct rcrpc_read100_response {
-    int key;
     char buf[100];
 };
 
@@ -55,7 +54,6 @@ struct rcrpc_read1000_request {
 };
 
 struct rcrpc_read1000_response {
-    int key;
     char buf[1000];
 };
 

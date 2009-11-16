@@ -12,7 +12,7 @@ namespace RAMCloud {
 
 Server::Server() : net(0)
 {
-    memset(blobs, 0, sizeof(blobs));
+    memset(objects, 0, sizeof(objects));
     net = new DefaultNet(true);
 }
 
@@ -40,29 +40,38 @@ Server::handleRPC()
 
         case RCRPC_READ100_REQUEST:
             printf("read100 from key %d\n", rcrpc->read100_request.key);
-            resp = &blobs[rcrpc->read100_request.key];
+            resp = &buf;
             resp->type = RCRPC_READ100_RESPONSE;
             resp->len  = (uint32_t) RCRPC_READ100_RESPONSE_LEN;
+            memcpy(resp->read100_response.buf,
+                   objects[rcrpc->read100_request.key].blob,
+                   sizeof(objects[rcrpc->read100_request.key].blob));
             printf("resp key: %d\n", resp->read100_request.key);
             break;
 
         case RCRPC_READ1000_REQUEST:
-            resp = &blobs[rcrpc->read1000_request.key];
+            resp = &buf;
             resp->type = RCRPC_READ1000_RESPONSE;
             resp->len  = (uint32_t) RCRPC_READ1000_RESPONSE_LEN;
+            memcpy(resp->read1000_response.buf,
+                   objects[rcrpc->read1000_request.key].blob,
+                   sizeof(objects[rcrpc->read1000_request.key].blob));
             break;
 
         case RCRPC_WRITE100_REQUEST:
             printf("write100 to key %d, val = %s\n", rcrpc->write100_request.key, rcrpc->write100_request.buf);
-            memcpy(&blobs[rcrpc->write100_request.key], rcrpc, RCRPC_WRITE100_REQUEST_LEN);
-            printf("post copy key: %d\n", blobs[rcrpc->write100_request.key].write100_request.key);
+            memcpy(objects[rcrpc->write100_request.key].blob,
+                   rcrpc->write100_request.buf,
+                   RCRPC_WRITE100_REQUEST_LEN);
             resp = &buf;
             resp->type = RCRPC_WRITE1000_RESPONSE;
             resp->len  = (uint32_t) RCRPC_WRITE1000_RESPONSE_LEN;
             break;
 
         case RCRPC_WRITE1000_REQUEST:
-            memcpy(&blobs[rcrpc->write1000_request.key], rcrpc, RCRPC_WRITE1000_REQUEST_LEN);
+            memcpy(objects[rcrpc->write1000_request.key].blob,
+                   rcrpc->write1000_request.buf,
+                   RCRPC_WRITE1000_REQUEST_LEN);
             resp = &buf;
             resp->type = RCRPC_WRITE1000_RESPONSE;
             resp->len  = (uint32_t) RCRPC_WRITE1000_RESPONSE_LEN;

@@ -6,10 +6,15 @@
 
 namespace RAMCloud {
 
+struct object {
+    char blob[1000];
+};
+
+
 class Server {
  private:
     Net *net;
-    struct rcrpc blobs[256];
+    struct object objects[256];
  public:
     explicit Server();
     Server(const Server& server);
