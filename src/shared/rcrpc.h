@@ -16,6 +16,10 @@
 #define RCRPC_WRITE100_RESPONSE_LEN     (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write100_response))
 #define RCRPC_WRITE1000_REQUEST_LEN     (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write1000_request))
 #define RCRPC_WRITE1000_RESPONSE_LEN    (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write1000_response))
+#define RCRPC_INSERT_REQUEST_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_request))
+#define RCRPC_INSERT_RESPONSE_LEN       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_response))
+#define RCRPC_DELETE_REQUEST_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_request))
+#define RCRPC_DELETE_RESPONSE_LEN       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_response))
 
 namespace RAMCloud {
 
@@ -30,6 +34,10 @@ enum RCRPC_TYPE {
     RCRPC_WRITE100_RESPONSE,
     RCRPC_WRITE1000_REQUEST,
     RCRPC_WRITE1000_RESPONSE,
+    RCRPC_INSERT_REQUEST,
+    RCRPC_INSERT_RESPONSE,
+    RCRPC_DELETE_REQUEST,
+    RCRPC_DELETE_RESPONSE,
 };
 
 
@@ -75,6 +83,20 @@ struct rcrpc_write1000_request {
 struct rcrpc_write1000_response {
 };
 
+struct rcrpc_insert_request {
+    char buf[100];
+};
+
+struct rcrpc_insert_response {
+    int key;
+};
+
+struct rcrpc_delete_request {
+    int key;
+};
+
+struct rcrpc_delete_response {
+};
 
 struct rcrpc {
     uint32_t type;
@@ -94,6 +116,12 @@ struct rcrpc {
 
         struct rcrpc_write1000_request write1000_request;
         struct rcrpc_write1000_response write1000_response;
+
+        struct rcrpc_insert_request insert_request;
+        struct rcrpc_insert_response insert_response;
+
+        struct rcrpc_delete_request delete_request;
+        struct rcrpc_delete_response delete_response;
     };
 };
 

@@ -15,6 +15,7 @@ class Server {
  private:
     Net *net;
     struct object objects[256];
+    int next_key;
  public:
     explicit Server();
     Server(const Server& server);

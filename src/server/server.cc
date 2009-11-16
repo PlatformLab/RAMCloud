@@ -14,6 +14,7 @@ Server::Server() : net(0)
 {
     memset(objects, 0, sizeof(objects));
     net = new DefaultNet(true);
+    next_key = 0;
 }
 
 Server::~Server()
@@ -75,6 +76,26 @@ Server::handleRPC()
             resp = &buf;
             resp->type = RCRPC_WRITE1000_RESPONSE;
             resp->len  = (uint32_t) RCRPC_WRITE1000_RESPONSE_LEN;
+            break;
+
+        case RCRPC_INSERT_REQUEST:
+            {
+                int key = ++next_key;
+                memcpy(objects[key].blob,
+                        rcrpc->insert_request.buf,
+                        RCRPC_INSERT_REQUEST_LEN);
+                resp = &buf;
+                resp->type = RCRPC_INSERT_RESPONSE;
+                resp->len = (uint32_t) RCRPC_INSERT_RESPONSE_LEN;
+                resp->insert_response.key = key;
+            }
+            break;
+
+        case RCRPC_DELETE_REQUEST:
+            /* no op */
+            resp = &buf;
+            resp->type = RCRPC_DELETE_RESPONSE;
+            resp->len  = (uint32_t) RCRPC_DELETE_RESPONSE_LEN;
             break;
 
         default:
