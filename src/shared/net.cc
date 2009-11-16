@@ -76,7 +76,7 @@ DefaultNet::recvRPC(struct rcrpc **rpc)
                 perror("recvfrom");
                 exit(1);
         }
-        if (len < 8) {
+        if ((unsigned) len < RCRPC_HEADER_LEN) {
                 fprintf(stderr, "%s: impossibly small rpc received: %d bytes\n", __func__, len);
                 exit(1);
         }
