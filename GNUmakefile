@@ -43,6 +43,7 @@ test:
 
 .SUFFIXES:
 
+include src/shared/Makefrag
 include src/server/Makefrag
 include src/client/Makefrag
 include src/tests/Makefrag

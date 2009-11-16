@@ -18,7 +18,7 @@ class DefaultNet : public Net {
     int fd;
     void connect();
  public:
- DefaultNet(bool isServer) : isServer_(isServer), connected(false), fd(-1) {};
+    DefaultNet(bool isServer) : isServer_(isServer), connected(false), fd(-1) {};
     virtual ~DefaultNet() {}
     int sendRPC(struct rcrpc *);
     int recvRPC(struct rcrpc **);
