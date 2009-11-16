@@ -11,76 +11,79 @@
 #include <shared/rcrpc.h>
 #include <shared/net.h>
 
-//#define SVRADDR	"171.66.3.211"
-#define SVRADDR	"192.168.25.1"
-#define SVRPORT	 11111
+#define SVRADDR "127.0.0.1"
+#define SVRPORT  11111
 
-//#define CLNTADDR "171.66.3.208"
-#define CLNTADDR "192.168.25.2"
+#define CLNTADDR "127.0.0.1"
 #define CLNTPORT 22222
 
-static int is_server;
-static int fd;
+namespace RAMCloud {
 
 void
-netinit(int is_srv)
+DefaultNet::connect()
 {
-	struct sockaddr_in sin;
+    struct sockaddr_in sin;
 
-	is_server = is_srv;
+        sin.sin_family = AF_INET;
+        sin.sin_port = htons(isServer() ? SVRPORT : CLNTPORT);
+        inet_aton(isServer() ? SVRADDR : CLNTADDR, &sin.sin_addr);
 
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(is_server ? SVRPORT : CLNTPORT);
-	inet_aton(is_server ? SVRADDR : CLNTADDR, &sin.sin_addr);
+        fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (fd == -1) {
+                perror("socket");
+                exit(1);
+        }
 
-	fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (fd == -1) {
-		perror("socket");
-		exit(1);
-	}
-
-	if (bind(fd, (struct sockaddr *)&sin, sizeof(sin)) == -1) {
-		perror("bind");
-		exit(1);
-	}
-	
+        if (bind(fd, (struct sockaddr *)&sin, sizeof(sin)) == -1) {
+                perror("bind");
+                exit(1);
+        }
+        connected = true;
 }
 
 int
-sendrpc(struct rcrpc *rpc)
+DefaultNet::sendRPC(struct rcrpc *rpc)
 {
-	struct sockaddr_in sin;
+    if (!connected)
+        connect();
 
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(is_server ? CLNTPORT : SVRPORT); 
-	inet_aton(is_server ? CLNTADDR : SVRADDR, &sin.sin_addr);
+        struct sockaddr_in sin;
 
-	if (sendto(fd, rpc, rpc->len, 0, (struct sockaddr *)&sin, sizeof(sin)) == -1) {
-		perror("sendto");
-		exit(1);
-	}
+        sin.sin_family = AF_INET;
+        sin.sin_port = htons(isServer() ? CLNTPORT : SVRPORT); 
+        inet_aton(isServer() ? CLNTADDR : SVRADDR, &sin.sin_addr);
 
-	return (0);
+        if (sendto(fd, rpc, rpc->len, 0, (struct sockaddr *)&sin, sizeof(sin)) == -1) {
+                perror("sendto");
+                exit(1);
+        }
+
+        return (0);
 }
 
 int
-recvrpc(struct rcrpc **rpc)
+DefaultNet::recvRPC(struct rcrpc **rpc)
 {
-	static char recvbuf[1500];
-	struct sockaddr_in sin;
-	socklen_t sinlen = sizeof(sin);
+    if (!connected)
+        connect();
 
-	int len = recvfrom(fd, recvbuf, sizeof(recvbuf), 0, (struct sockaddr *)&sin, &sinlen);
-	if (len == -1) {
-		perror("recvfrom");
-		exit(1);
-	}
-	if (len < 8) {
-		fprintf(stderr, "%s: impossibly small rpc received: %d bytes\n", __func__, len);
-		exit(1);
-	}
+        static char recvbuf[1500];
+        struct sockaddr_in sin;
+        socklen_t sinlen = sizeof(sin);
 
-	*rpc = (struct rcrpc *)recvbuf;
+        int len = recvfrom(fd, recvbuf, sizeof(recvbuf), 0, (struct sockaddr *)&sin, &sinlen);
+        if (len == -1) {
+                perror("recvfrom");
+                exit(1);
+        }
+        if (len < 8) {
+                fprintf(stderr, "%s: impossibly small rpc received: %d bytes\n", __func__, len);
+                exit(1);
+        }
 
-	return (0);
+        *rpc = (struct rcrpc *)recvbuf;
+
+        return (0);
 }
+
+} // namespace RAMCloud

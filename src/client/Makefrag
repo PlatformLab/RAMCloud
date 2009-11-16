@@ -2,6 +2,7 @@ OBJDIRS += client
 
 CLIENT_SRCFILES := \
 		src/client/client.cc \
+		src/client/main.cc \
 		src/shared/net.cc
 
 CLIENT_OBJFILES := $(CLIENT_SRCFILES)

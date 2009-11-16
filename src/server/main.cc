@@ -4,12 +4,10 @@
 int
 main()
 {
-	netinit(1);
+    RAMCloud::Server *server = new RAMCloud::Server();
 
-	init();
+    while (1)
+        server->handleRPC();
 
-	while (1)
-		handlerpc();
-
-	return (0);
+    return (0);
 }
