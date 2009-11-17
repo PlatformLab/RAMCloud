@@ -20,6 +20,12 @@
 #define RCRPC_INSERT_RESPONSE_LEN       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_response))
 #define RCRPC_DELETE_REQUEST_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_request))
 #define RCRPC_DELETE_RESPONSE_LEN       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_response))
+#define RCRPC_CREATE_TABLE_REQUEST_LEN  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_table_request))
+#define RCRPC_CREATE_TABLE_RESPONSE_LEN (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_table_response))
+#define RCRPC_OPEN_TABLE_REQUEST_LEN    (RCRPC_HEADER_LEN + sizeof(struct rcrpc_open_table_request))
+#define RCRPC_OPEN_TABLE_RESPONSE_LEN   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_open_table_response))
+#define RCRPC_DROP_TABLE_REQUEST_LEN    (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_request))
+#define RCRPC_DROP_TABLE_RESPONSE_LEN   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_response))
 
 namespace RAMCloud {
 
@@ -38,6 +44,12 @@ enum RCRPC_TYPE {
     RCRPC_INSERT_RESPONSE,
     RCRPC_DELETE_REQUEST,
     RCRPC_DELETE_RESPONSE,
+    RCRPC_CREATE_TABLE_REQUEST,
+    RCRPC_CREATE_TABLE_RESPONSE,
+    RCRPC_OPEN_TABLE_REQUEST,
+    RCRPC_OPEN_TABLE_RESPONSE,
+    RCRPC_DROP_TABLE_REQUEST,
+    RCRPC_DROP_TABLE_RESPONSE,
 };
 
 
@@ -49,6 +61,7 @@ struct rcrpc_ping_response {
 
 
 struct rcrpc_read100_request {
+    uint64_t table;
     int key;
 };
 
@@ -58,6 +71,7 @@ struct rcrpc_read100_response {
 
 
 struct rcrpc_read1000_request {
+    uint64_t table;
     int key;
 };
 
@@ -67,6 +81,7 @@ struct rcrpc_read1000_response {
 
 
 struct rcrpc_write100_request {
+    uint64_t table;
     int key;
     char buf[100];
 };
@@ -76,6 +91,7 @@ struct rcrpc_write100_response {
 
 
 struct rcrpc_write1000_request {
+    uint64_t table;
     int key;
     char buf[1000];
 };
@@ -84,6 +100,7 @@ struct rcrpc_write1000_response {
 };
 
 struct rcrpc_insert_request {
+    uint64_t table;
     char buf[100];
 };
 
@@ -92,11 +109,38 @@ struct rcrpc_insert_response {
 };
 
 struct rcrpc_delete_request {
+    uint64_t table;
     int key;
 };
 
 struct rcrpc_delete_response {
 };
+
+
+struct rcrpc_create_table_request {
+    char name[64];
+};
+
+struct rcrpc_create_table_response {
+};
+
+
+struct rcrpc_open_table_request {
+    char name[64];
+};
+
+struct rcrpc_open_table_response {
+    uint64_t handle;
+};
+
+
+struct rcrpc_drop_table_request {
+    char name[64];
+};
+
+struct rcrpc_drop_table_response {
+};
+
 
 struct rcrpc {
     uint32_t type;
@@ -122,6 +166,15 @@ struct rcrpc {
 
         struct rcrpc_delete_request delete_request;
         struct rcrpc_delete_response delete_response;
+
+        struct rcrpc_create_table_request create_table_request;
+        struct rcrpc_create_table_response create_table_response;
+
+        struct rcrpc_open_table_request open_table_request;
+        struct rcrpc_open_table_response open_table_response;
+
+        struct rcrpc_drop_table_request drop_table_request;
+        struct rcrpc_drop_table_response drop_table_response;
     };
 };
 

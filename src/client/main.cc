@@ -22,20 +22,28 @@ main()
 {
     RAMCloud::Client *client = new RAMCloud::DefaultClient();
     uint64_t b;
+    uint64_t table;
+
+    b = rdtsc();
+    client->create_table("test");
+    table = client->open_table("test");
+    printf("create+open table took %lu ticks\n", rdtsc() - b);
 
     b = rdtsc();
     client->ping();
     printf("ping took %lu ticks\n", rdtsc() - b);
 
     b = rdtsc();
-    client->write100(42, "Hello, World!", 14);
+    client->write100(table, 42, "Hello, World!", 14);
     printf("write100 took %lu ticks\n", rdtsc() - b);
 
     char buf[100];
     b = rdtsc();
-    client->read100(42, buf, 100);
+    client->read100(table, 42, buf, 100);
     printf("read100 took %lu ticks\n", rdtsc() - b);
     printf("Got back [%s]\n", buf);
+
+    client->drop_table("test");
 
     delete client;
     return (0);
