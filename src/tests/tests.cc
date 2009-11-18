@@ -10,5 +10,5 @@ main(int ac, char *av[])
 {
     CppUnit::TextUi::TestRunner runner;
     runner.addTest(ServerTest::suite());
-    return runner.run("", false);
+    return runner.run("", false) ? 0 : -1;
 }
