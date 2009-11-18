@@ -74,8 +74,8 @@ Server::write100(const struct rcrpc *req, struct rcrpc *resp)
            req->write100_request.buf,
            RCRPC_WRITE100_REQUEST_LEN);
 
-    resp->type = RCRPC_WRITE1000_RESPONSE;
-    resp->len  = (uint32_t) RCRPC_WRITE1000_RESPONSE_LEN;
+    resp->type = RCRPC_WRITE100_RESPONSE;
+    resp->len  = (uint32_t) RCRPC_WRITE100_RESPONSE_LEN;
 }
 
 void
