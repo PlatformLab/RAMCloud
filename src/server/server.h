@@ -23,6 +23,17 @@ class Server {
     Net *net;
     struct table tables[RC_NUM_TABLES];
  public:
+    void ping(const struct rcrpc *req, struct rcrpc *resp);
+    void read100(const struct rcrpc *req, struct rcrpc *resp);
+    void read1000(const struct rcrpc *req, struct rcrpc *resp);
+    void write100(const struct rcrpc *req, struct rcrpc *resp);
+    void write1000(const struct rcrpc *req, struct rcrpc *resp);
+    void insertKey(const struct rcrpc *req, struct rcrpc *resp);
+    void deleteKey(const struct rcrpc *req, struct rcrpc *resp);
+    void createTable(const struct rcrpc *req, struct rcrpc *resp);
+    void openTable(const struct rcrpc *req, struct rcrpc *resp);
+    void dropTable(const struct rcrpc *req, struct rcrpc *resp);
+
     explicit Server();
     Server(const Server& server);
     Server& operator=(const Server& server);
