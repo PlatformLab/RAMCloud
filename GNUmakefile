@@ -34,6 +34,7 @@ CXXFLAGS    := $(COMFLAGS) $(CXXWARNS) -std=c++98 $(INCLUDES)
 
 CC := gcc
 CXX := g++
+AR := ar
 PERL := perl
 LINT := python cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments
 
