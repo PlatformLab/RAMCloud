@@ -8,7 +8,10 @@
 int
 main(int ac, char *av[])
 {
-    CppUnit::TextUi::TestRunner runner;
-    runner.addTest(ServerTest::suite());
-    return runner.run("", false) ? 0 : -1;
+    using namespace CppUnit;
+
+    TextUi::TestRunner runner;
+    TestFactoryRegistry &registry = TestFactoryRegistry::getRegistry();
+    runner.addTest(registry.makeTest());
+    return !runner.run("", false);
 }

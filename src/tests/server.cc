@@ -7,6 +7,8 @@
 
 #include <tests/server.h>
 
+CPPUNIT_TEST_SUITE_REGISTRATION(ServerTest);
+
 void
 ServerTest::setUp()
 {

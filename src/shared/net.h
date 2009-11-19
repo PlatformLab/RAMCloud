@@ -1,30 +1,34 @@
 #ifndef RAMCLOUD_SHARED_NET_H
 #define RAMCLOUD_SHARED_NET_H
 
-namespace RAMCloud {
-
-class Net {
- public:
-    virtual ~Net() {}
-    virtual bool isServer() = 0;
-    virtual int sendRPC(struct rcrpc *) = 0;
-    virtual int recvRPC(struct rcrpc **) = 0;
+struct Net {
+    void (*connect)(struct Net *);
+    int (*close)(struct Net *);
+    int (*is_server)(struct Net *);
+    int (*is_connected)(struct Net *);
+    int (*send_rpc)(struct Net *, struct rcrpc *);
+    int (*recv_rpc)(struct Net *, struct rcrpc **);
 };
 
-class DefaultNet : public Net {
- private:
-    bool isServer_;
-    bool connected;
-    int fd;
-    void connect();
- public:
-    DefaultNet(bool isServer) : isServer_(isServer), connected(false), fd(-1) {};
-    virtual ~DefaultNet() {}
-    int sendRPC(struct rcrpc *);
-    int recvRPC(struct rcrpc **);
-    bool isServer() { return isServer_; }
+struct LoopbackNet {
+    struct Net net;
+    int _is_server;
+    int _fd;
+    int _connected;
 };
 
-} // namespace RAMCloud
+#ifdef __cplusplus
+extern "C" {
+#endif
+void rc_loopback_net_init(struct LoopbackNet *ret, int is_server);
+int rc_loopback_net_connect(struct LoopbackNet *net);
+int rc_loopback_net_close(struct LoopbackNet *net);
+int rc_loopback_net_is_server(struct LoopbackNet *net);
+int rc_loopback_net_is_connected(struct LoopbackNet *net);
+int rc_loopback_net_send_rpc(struct LoopbackNet *net, struct rcrpc *);
+int rc_loopback_net_recv_rpc(struct LoopbackNet *net, struct rcrpc **);
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -2,15 +2,12 @@ OBJDIRS += tests
 
 TESTS_SRCFILES := \
 		src/tests/tests.cc \
-		src/server/server.c \
-		src/shared/net.c \
 		src/tests/server.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
 TESTS_OBJFILES := $(patsubst src/tests/%.c, $(OBJDIR)/tests/%.o, $(TESTS_OBJFILES))
-TESTS_OBJFILES := $(patsubst src/shared/%.c, $(OBJDIR)/shared/%.o, $(TESTS_OBJFILES))
-TESTS_OBJFILES := $(patsubst src/server/%.c, $(OBJDIR)/server/%.o, $(TESTS_OBJFILES))
 TESTS_OBJFILES := $(patsubst src/tests/%.cc, $(OBJDIR)/tests/%.o, $(TESTS_OBJFILES))
+TESTS_OBJFILES := $(TESTS_OBJFILES) $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 
 TESTS_LIB := -lcppunit
 
@@ -19,10 +16,6 @@ $(OBJDIR)/tests/tests: $(TESTS_OBJFILES)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 
 $(OBJDIR)/tests/%.o: $(TOP)/src/tests/%.c
-	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(OBJDIR)/shared/%.o: $(TOP)/src/shared/%.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c -o $@ $<
 

@@ -27,7 +27,7 @@
 #define RCRPC_DROP_TABLE_REQUEST_LEN    (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_request))
 #define RCRPC_DROP_TABLE_RESPONSE_LEN   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_response))
 
-namespace RAMCloud {
+//namespace RAMCloud {
 
 enum RCRPC_TYPE {
     RCRPC_PING_REQUEST,
@@ -178,7 +178,7 @@ struct rcrpc {
     };
 };
 
-} // namespace RAMCloud
+//} // namespace RAMCloud
 
 #endif
 

@@ -29,7 +29,7 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 INCLUDES := -I$(TOP)/src
 
 
-CFLAGS	:= $(COMFLAGS) $(CWARNS) -std=c99 $(INCLUDES)
+CFLAGS	:= $(COMFLAGS) $(CWARNS) -std=gnu99 $(INCLUDES)
 CXXFLAGS    := $(COMFLAGS) $(CXXWARNS) -std=c++98 $(INCLUDES)
 
 CC := gcc

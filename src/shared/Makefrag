@@ -1,11 +1,16 @@
 OBJDIRS += shared
 
 SHARED_SRCFILES := \
-		src/shared/net.cc
+		src/shared/net.c
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)
 SHARED_OBJFILES := $(patsubst src/shared/%.cc, $(OBJDIR)/shared/%.o, $(SHARED_OBJFILES))
+SHARED_OBJFILES := $(patsubst src/shared/%.c, $(OBJDIR)/shared/%.o, $(SHARED_OBJFILES))
 
 $(OBJDIR)/shared/%.o: $(TOP)/src/shared/%.cc
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJDIR)/shared/%.o: $(TOP)/src/shared/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
