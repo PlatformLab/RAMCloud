@@ -1,17 +1,17 @@
 #ifndef RAMCLOUD_SHARED_NET_H
 #define RAMCLOUD_SHARED_NET_H
 
-struct Net {
-    void (*connect)(struct Net *);
-    int (*close)(struct Net *);
-    int (*is_server)(struct Net *);
-    int (*is_connected)(struct Net *);
-    int (*send_rpc)(struct Net *, struct rcrpc *);
-    int (*recv_rpc)(struct Net *, struct rcrpc **);
+struct rc_net {
+    void (*connect)(struct rc_net *);
+    int (*close)(struct rc_net *);
+    int (*is_server)(struct rc_net *);
+    int (*is_connected)(struct rc_net *);
+    int (*send_rpc)(struct rc_net *, struct rcrpc *);
+    int (*recv_rpc)(struct rc_net *, struct rcrpc **);
 };
 
-struct LoopbackNet {
-    struct Net net;
+struct rc_udp_net {
+    struct rc_net net;
     int _is_server;
     int _fd;
     int _connected;
@@ -20,13 +20,13 @@ struct LoopbackNet {
 #ifdef __cplusplus
 extern "C" {
 #endif
-void rc_loopback_net_init(struct LoopbackNet *ret, int is_server);
-int rc_loopback_net_connect(struct LoopbackNet *net);
-int rc_loopback_net_close(struct LoopbackNet *net);
-int rc_loopback_net_is_server(struct LoopbackNet *net);
-int rc_loopback_net_is_connected(struct LoopbackNet *net);
-int rc_loopback_net_send_rpc(struct LoopbackNet *net, struct rcrpc *);
-int rc_loopback_net_recv_rpc(struct LoopbackNet *net, struct rcrpc **);
+void rc_udp_net_init(struct rc_udp_net *ret, int is_server);
+int rc_udp_net_connect(struct rc_udp_net *net);
+int rc_udp_net_close(struct rc_udp_net *net);
+int rc_udp_net_is_server(struct rc_udp_net *net);
+int rc_udp_net_is_connected(struct rc_udp_net *net);
+int rc_udp_net_send_rpc(struct rc_udp_net *net, struct rcrpc *);
+int rc_udp_net_recv_rpc(struct rc_udp_net *net, struct rcrpc **);
 #ifdef __cplusplus
 }
 #endif

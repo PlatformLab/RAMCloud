@@ -10,9 +10,9 @@ namespace RAMCloud {
 
 DefaultClient::DefaultClient() : net(0)
 {
-    LoopbackNet *lbnet = new LoopbackNet();
-    rc_loopback_net_init(lbnet, 0);
-    net = reinterpret_cast<Net*>(lbnet);
+    rc_udp_net *udpnet = new rc_udp_net();
+    rc_udp_net_init(udpnet, 0);
+    net = reinterpret_cast<rc_net*>(udpnet);
 }
 
 DefaultClient::~DefaultClient()

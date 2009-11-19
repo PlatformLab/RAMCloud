@@ -7,24 +7,19 @@
 #include <cassert>
 
 #include <shared/rcrpc.h>
-#include <shared/net.h>
 
 #include <server/server.h>
+#include <server/net.h>
 
 namespace RAMCloud {
 
-Server::Server() : net(0)
+Server::Server(Net *net_impl) : net(net_impl)
 {
     memset(tables, 0, sizeof(tables));
-    LoopbackNet *lbnet = new LoopbackNet();
-    rc_loopback_net_init(lbnet, 1);
-    net = reinterpret_cast<Net*>(lbnet);
 }
 
 Server::~Server()
 {
-    // eh, not sure this works after a reinterpret cast
-    delete net;
 }
 
 void
@@ -212,7 +207,7 @@ Server::handleRPC()
 
     void (Server::*handler)(const struct rcrpc *, struct rcrpc *) = 0;
 
-    if (net->recv_rpc(net, &req) == 0) {
+    if (net->RecvRPC(&req) == 0) {
         printf("got rpc type: 0x%08x, len 0x%08x\n", req->type, req->len);
 
         if (req->type >= sizeof(handlers))
@@ -222,7 +217,7 @@ Server::handleRPC()
 
         assert(handler);
         (this->*handler)(req, &resp);
-        net->send_rpc(net, &resp);
+        net->SendRPC(&resp);
     }
 }
 

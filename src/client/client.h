@@ -19,7 +19,7 @@ class Client {
 
 class DefaultClient : public Client {
  private:
-    Net *net;
+    rc_net *net;
  public:
     explicit DefaultClient();
     DefaultClient(const DefaultClient& client);

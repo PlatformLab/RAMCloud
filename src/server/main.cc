@@ -4,10 +4,13 @@
 int
 main()
 {
-    RAMCloud::Server *server = new RAMCloud::Server();
+    Net *net = new UDPNet(true);
+    RAMCloud::Server *server = new RAMCloud::Server(net);
 
-    while (1)
+    while (true)
         server->handleRPC();
 
-    return (0);
+    delete net;
+
+    return 0;
 }

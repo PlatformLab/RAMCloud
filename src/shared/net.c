@@ -20,12 +20,12 @@
 #define CLNTPORT 22222
 
 void
-rc_loopback_net_init(struct LoopbackNet *ret, int is_server) {
+rc_udp_net_init(struct rc_udp_net *ret, int is_server) {
     // TODO create typedefs and actually make this type safe
-    ret->net.close = (void*)&rc_loopback_net_close;
-    ret->net.is_server = (void*)&rc_loopback_net_is_server;
-    ret->net.send_rpc = (void*)&rc_loopback_net_send_rpc;
-    ret->net.recv_rpc = (void*)&rc_loopback_net_recv_rpc;
+    ret->net.close = (void*)&rc_udp_net_close;
+    ret->net.is_server = (void*)&rc_udp_net_is_server;
+    ret->net.send_rpc = (void*)&rc_udp_net_send_rpc;
+    ret->net.recv_rpc = (void*)&rc_udp_net_recv_rpc;
     assert(is_server == 0 || is_server == 1);
     ret->_is_server = is_server;
     ret->_fd = 0;
@@ -33,7 +33,7 @@ rc_loopback_net_init(struct LoopbackNet *ret, int is_server) {
 }
 
 int
-rc_loopback_net_connect(struct LoopbackNet *net)
+rc_udp_net_connect(struct rc_udp_net *net)
 {
     struct sockaddr_in sin;
     
@@ -61,22 +61,22 @@ rc_loopback_net_connect(struct LoopbackNet *net)
 }
 
 int
-rc_loopback_net_close(struct LoopbackNet *net)
+rc_udp_net_close(struct rc_udp_net *net)
 {
     return close(net->_fd);
 }
 
 int
-rc_loopback_net_is_server(struct LoopbackNet *net)
+rc_udp_net_is_server(struct rc_udp_net *net)
 {
     return net->_is_server;
 }
 
 int
-rc_loopback_net_send_rpc(struct LoopbackNet *net, struct rcrpc *rpc)
+rc_udp_net_send_rpc(struct rc_udp_net *net, struct rcrpc *rpc)
 {
     if (!net->_connected)
-        assert(!rc_loopback_net_connect(net));
+        assert(!rc_udp_net_connect(net));
 
     struct sockaddr_in sin;
 
@@ -95,10 +95,10 @@ rc_loopback_net_send_rpc(struct LoopbackNet *net, struct rcrpc *rpc)
 
 
 int
-rc_loopback_net_recv_rpc(struct LoopbackNet *net, struct rcrpc **rpc)
+rc_udp_net_recv_rpc(struct rc_udp_net *net, struct rcrpc **rpc)
 {
     if (!net->_connected)
-        assert(!rc_loopback_net_connect(net));
+        assert(!rc_udp_net_connect(net));
 
     static char recvbuf[1500];
     struct sockaddr_in sin;
