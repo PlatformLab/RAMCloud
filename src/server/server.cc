@@ -175,48 +175,42 @@ Server::dropTable(const struct rcrpc *req, struct rcrpc *resp)
     resp->len  = (uint32_t) RCRPC_DROP_TABLE_RESPONSE_LEN;
 }
 
-
-static void (Server::*handlers[])(const struct rcrpc *, struct rcrpc *) = {
-    &Server::ping               // request
-  , 0                           // response type, illegal as a request
-  , &Server::read100
-  , 0
-  , &Server::read1000
-  , 0
-  , &Server::write100
-  , 0
-  , &Server::write1000
-  , 0
-  , &Server::insertKey
-  , 0
-  , &Server::deleteKey
-  , 0
-  , &Server::createTable
-  , 0
-  , &Server::openTable
-  , 0
-  , &Server::dropTable
-  , 0
-};
-
 void
 Server::handleRPC()
 {
     struct rcrpc *req;
     struct rcrpc resp;
 
-    void (Server::*handler)(const struct rcrpc *, struct rcrpc *) = 0;
-
     if (net->RecvRPC(&req) == 0) {
         printf("got rpc type: 0x%08x, len 0x%08x\n", req->type, req->len);
 
-        if (req->type >= sizeof(handlers))
-            throw "received unknown RPC type";
+        switch((enum RCRPC_TYPE) req->type) {
+            case RCRPC_PING_REQUEST:          Server::ping(req, &resp);        break;
+            case RCRPC_READ100_REQUEST:       Server::read100(req, &resp);     break;
+            case RCRPC_READ1000_REQUEST:      Server::read1000(req, &resp);    break;
+            case RCRPC_WRITE100_REQUEST:      Server::write100(req, &resp);    break;
+            case RCRPC_WRITE1000_REQUEST:     Server::write1000(req, &resp);   break;
+            case RCRPC_INSERT_REQUEST:        Server::insertKey(req, &resp);   break;
+            case RCRPC_DELETE_REQUEST:        Server::deleteKey(req, &resp);   break;
+            case RCRPC_CREATE_TABLE_REQUEST:  Server::createTable(req, &resp); break;
+            case RCRPC_OPEN_TABLE_REQUEST:    Server::openTable(req, &resp);   break;
+            case RCRPC_DROP_TABLE_REQUEST:    Server::dropTable(req, &resp);   break;
 
-        handler = handlers[req->type];
+            case RCRPC_PING_RESPONSE:
+            case RCRPC_READ100_RESPONSE:
+            case RCRPC_READ1000_RESPONSE:
+            case RCRPC_WRITE100_RESPONSE:
+            case RCRPC_WRITE1000_RESPONSE:
+            case RCRPC_INSERT_RESPONSE:
+            case RCRPC_DELETE_RESPONSE:
+            case RCRPC_CREATE_TABLE_RESPONSE:
+            case RCRPC_OPEN_TABLE_RESPONSE:
+            case RCRPC_DROP_TABLE_RESPONSE:
+                throw "server received RPC response";
 
-        assert(handler);
-        (this->*handler)(req, &resp);
+            default:
+                throw "received unknown RPC type";
+        };
         net->SendRPC(&resp);
     }
 }
