@@ -3,8 +3,6 @@
 #include <cppunit/ui/text/TestRunner.h>
 #include <cppunit/TestResult.h>
 
-#include <tests/server.h>
-
 int
 main(int ac, char *av[])
 {

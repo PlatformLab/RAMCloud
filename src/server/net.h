@@ -3,6 +3,8 @@
 
 #include <shared/net.h>
 
+namespace RAMCloud {
+
 class Net {
   public:
     virtual void Connect() = 0;
@@ -33,5 +35,7 @@ class UDPNet : public Net {
   private:
     rc_udp_net net;
 };
+
+} // namespace RAMCloud
 
 #endif

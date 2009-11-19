@@ -3,22 +3,39 @@
 #include <cstring>
 
 #include <server/server.h>
+#include <server/net.h>
 #include <shared/rcrpc.h>
 
-#include <tests/server.h>
-
+class ServerTest : public CppUnit::TestFixture  {
+    CPPUNIT_TEST_SUITE(ServerTest);
+    CPPUNIT_TEST(testPing);
+    CPPUNIT_TEST(testWriteRead100);
+    CPPUNIT_TEST(testCreateTable);
+    CPPUNIT_TEST_SUITE_END();
+private:
+    RAMCloud::Net *net;
+    RAMCloud::Server *server;
+public:
+    void setUp();
+    void tearDown();
+    void testPing();
+    void testWriteRead100();
+    void testCreateTable();
+};
 CPPUNIT_TEST_SUITE_REGISTRATION(ServerTest);
 
 void
 ServerTest::setUp()
 {
-    server = new RAMCloud::Server();
+    net = new RAMCloud::UDPNet(true);
+    server = new RAMCloud::Server(net);
 }
 
 void
 ServerTest::tearDown()
 {
     delete server;
+    delete net;
 }
 
 void
