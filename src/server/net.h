@@ -1,27 +1,47 @@
 #ifndef RAMCLOUD_SERVER_NET_H
 #define RAMCLOUD_SERVER_NET_H
 
+#include <shared/common.h>
 #include <shared/net.h>
 
 namespace RAMCloud {
 
+class NetException {};
+
 class Net {
   public:
-    Net(bool is_server) : net(rc_net()) {
-        rc_net_init(&net, is_server);
+    Net(const char* srcaddr, uint16_t srcport,
+        const char* dstaddr, uint16_t dstport)
+            : net(rc_net()) {
+        rc_net_init(&net,
+                    const_cast<char*>(srcaddr), srcport,
+                    const_cast<char*>(dstaddr), dstport);
     }
-    virtual void Connect() { rc_net_connect((rc_net*)&net); }
-    virtual int Close() { return rc_net_close((rc_net*)&net); }
-    virtual int IsServer() { return net.is_server; }
-    virtual int IsConnected() { return net.connected; }
-    virtual int SendRPC(struct rcrpc *msg) {
-        return rc_net_send_rpc((rc_net*)&net, msg);
+    void Connect() { rc_net_connect(&net); }
+    int Close() { return rc_net_close(&net); }
+    int IsConnected() { return net.connected; }
+    void Send(const void *buf, size_t len) {
+        // const ok - C code doesn't modify but can't accept const
+        int r = rc_net_send(&net, const_cast<void *>(buf), len);
+        if (r < 0)
+            throw NetException();
     }
-    virtual int RecvRPC(struct rcrpc **msg) {
-        return rc_net_recv_rpc((rc_net*)&net, msg);
+    size_t Recv(void **buf) {
+        size_t len;
+        int r = rc_net_recv(&net, buf, &len);
+        if (r < 0)
+            throw NetException();
+        return len;
     }
-    virtual ~Net() {}
+    int SendRPC(struct rcrpc *msg) {
+        return rc_net_send_rpc(&net, msg);
+    }
+    int RecvRPC(struct rcrpc **msg) {
+        return rc_net_recv_rpc(&net, msg);
+    }
+    ~Net() {}
   private:
+    DISALLOW_COPY_AND_ASSIGN(Net);
     rc_net net;
 };
 

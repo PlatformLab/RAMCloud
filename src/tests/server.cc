@@ -34,6 +34,12 @@
 #include <string>
 #include <cstring>
 
+#define SVRADDR "127.0.0.1"
+#define SVRPORT  11111
+
+#define CLNTADDR "127.0.0.1"
+#define CLNTPORT  11111
+
 class ServerTest : public CppUnit::TestFixture {
   public:
     void setUp();
@@ -55,7 +61,8 @@ CPPUNIT_TEST_SUITE_REGISTRATION(ServerTest);
 void
 ServerTest::setUp()
 {
-    net = new RAMCloud::Net(true);
+    net = new RAMCloud::Net(SVRADDR, SVRPORT,
+                            CLNTADDR, CLNTPORT);
     server = new RAMCloud::Server(net);
 }
 

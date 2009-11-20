@@ -1,6 +1,8 @@
 #ifndef RAMCLOUD_SHARED_NET_H
 #define RAMCLOUD_SHARED_NET_H
 
+#include <string.h>
+
 #include <shared/rcrpc.h>
 
 #ifdef USERSPACE_NET
@@ -12,11 +14,15 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-void rc_net_init(struct rc_net *ret, int is_server);
+void rc_net_init(struct rc_net *ret,
+                 char *srcaddr, uint16_t srcport,
+                 char *dstaddr, uint16_t dstport);
 int rc_net_connect(struct rc_net *net);
 int rc_net_close(struct rc_net *net);
 int rc_net_is_server(struct rc_net *net);
 int rc_net_is_connected(struct rc_net *net);
+int rc_net_send(struct rc_net *net, void *, size_t);
+int rc_net_recv(struct rc_net *net, void **, size_t *);
 int rc_net_send_rpc(struct rc_net *net, struct rcrpc *);
 int rc_net_recv_rpc(struct rc_net *net, struct rcrpc **);
 #ifdef __cplusplus

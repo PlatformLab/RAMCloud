@@ -13,27 +13,26 @@
 #include <shared/rcrpc.h>
 #include <shared/net.h>
 
-#define SVRADDR "127.0.0.1"
-#define SVRPORT  11111
-
-#define CLNTADDR "127.0.0.1"
-#define CLNTPORT 22222
-
 void
-rc_net_init(struct rc_net *ret, int is_server) {
-    ret->is_server = is_server;
+rc_net_init(struct rc_net *ret,
+            char *srcaddr, uint16_t srcport,
+            char *dstaddr, uint16_t dstport)
+{
     ret->fd = 0;
     ret->connected = 0;
+
+    ret->srcsin.sin_family = AF_INET;
+    ret->srcsin.sin_port = htons(srcport);
+    inet_aton(srcaddr, &ret->srcsin.sin_addr);
+
+    ret->dstsin.sin_family = AF_INET;
+    ret->dstsin.sin_port = htons(dstport);
+    inet_aton(dstaddr, &ret->dstsin.sin_addr);
 }
 
 int
 rc_net_connect(struct rc_net *net)
 {
-    struct sockaddr_in sin;
-    
-    sin.sin_family = AF_INET;
-    sin.sin_port = htons(net->is_server ? SVRPORT : CLNTPORT);
-    inet_aton(net->is_server ? SVRADDR : CLNTADDR, &sin.sin_addr);
     
     int fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (fd == -1) {
@@ -41,7 +40,7 @@ rc_net_connect(struct rc_net *net)
         return -1;
     }
     
-    if (bind(fd, (struct sockaddr *)&sin, sizeof(sin)) == -1) {
+    if (bind(fd, (struct sockaddr *)&net->srcsin, sizeof(net->srcsin)) == -1) {
         // store errno in case close fails
         int e = errno;
         close(fd);
@@ -61,18 +60,13 @@ rc_net_close(struct rc_net *net)
 }
 
 int
-rc_net_send_rpc(struct rc_net *net, struct rcrpc *rpc)
+rc_net_send(struct rc_net *net, void *buf, size_t len)
 {
     if (!net->connected)
         assert(!rc_net_connect(net));
 
-    struct sockaddr_in sin;
-
-    sin.sin_family = AF_INET;
-    sin.sin_port = htons(net->is_server ? CLNTPORT : SVRPORT); 
-    inet_aton(net->is_server ? CLNTADDR : SVRADDR, &sin.sin_addr);
-
-    if (sendto(net->fd, rpc, rpc->len, 0, (struct sockaddr *)&sin, sizeof(sin)) == -1) {
+    if (sendto(net->fd, buf, len, 0,
+               (struct sockaddr *)&net->dstsin, sizeof(net->dstsin)) == -1) {
         // errno already set from sendto
         fprintf(stderr, "sendto failure %s:%d\n", __FILE__, __LINE__);
         return -1;
@@ -81,9 +75,15 @@ rc_net_send_rpc(struct rc_net *net, struct rcrpc *rpc)
     return 0;
 }
 
+int
+rc_net_send_rpc(struct rc_net *net, struct rcrpc *rpc)
+{
+    return rc_net_send(net, rpc, rpc->len);
+}
+
 
 int
-rc_net_recv_rpc(struct rc_net *net, struct rcrpc **rpc)
+rc_net_recv(struct rc_net *net, void **buf, size_t *buflen)
 {
     if (!net->connected)
         assert(!rc_net_connect(net));
@@ -92,7 +92,8 @@ rc_net_recv_rpc(struct rc_net *net, struct rcrpc **rpc)
     struct sockaddr_in sin;
     socklen_t sinlen = sizeof(sin);
 
-    ssize_t len = recvfrom(net->fd, recvbuf, sizeof(recvbuf), 0, (struct sockaddr *)&sin, &sinlen);
+    ssize_t len = recvfrom(net->fd, recvbuf, sizeof(recvbuf), 0,
+                           (struct sockaddr *)&sin, &sinlen);
     if (len == -1) {
         // errno already set from recvfrom
         return -1;
@@ -103,7 +104,15 @@ rc_net_recv_rpc(struct rc_net *net, struct rcrpc **rpc)
         return -1;
     }
 
-    *rpc = (struct rcrpc *)recvbuf;
+    *buf = (void *)recvbuf;
+    *buflen = len;
 
     return 0;
+}
+
+int
+rc_net_recv_rpc(struct rc_net *net, struct rcrpc **rpc)
+{
+    size_t len;
+    return rc_net_recv(net, (void **)rpc, &len);
 }

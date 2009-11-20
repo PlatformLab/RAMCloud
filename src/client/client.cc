@@ -6,12 +6,18 @@
 
 #include <client/client.h>
 
+#define SVRADDR "127.0.0.1"
+#define SVRPORT  11111
+
+#define CLNTADDR "127.0.0.1"
+#define CLNTPORT 22222
+
 namespace RAMCloud {
 
 DefaultClient::DefaultClient() : net(0)
 {
     rc_net *udpnet = new rc_net();
-    rc_net_init(udpnet, 0);
+    rc_net_init(udpnet, CLNTADDR, CLNTPORT, SVRADDR, SVRPORT);
     net = reinterpret_cast<rc_net*>(udpnet);
 }
 
