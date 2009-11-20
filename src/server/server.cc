@@ -9,13 +9,24 @@
 #include <shared/rcrpc.h>
 
 #include <server/server.h>
+#include <server/backup_client.h>
 #include <server/net.h>
 
 namespace RAMCloud {
 
+#define BACKSVRADDR "127.0.0.1"
+#define BACKSVRPORT  33333
+
+#define BACKCLNTADDR "127.0.0.1"
+#define BACKCLNTPORT  44444
+
 Server::Server(Net *net_impl) : net(net_impl)
 {
     memset(tables, 0, sizeof(tables));
+
+    Net *backup_net = new Net(BACKCLNTADDR, BACKCLNTPORT,
+                              BACKSVRADDR, BACKSVRPORT);
+    backup = new BackupClient(backup_net);
 }
 
 Server::~Server()
@@ -176,7 +187,7 @@ Server::dropTable(const struct rcrpc *req, struct rcrpc *resp)
 }
 
 void
-Server::handleRPC()
+Server::HandleRPC()
 {
     struct rcrpc *req;
     struct rcrpc resp;
@@ -212,6 +223,15 @@ Server::handleRPC()
                 throw "received unknown RPC type";
         };
         net->SendRPC(&resp);
+    }
+}
+
+void __attribute__ ((noreturn))
+Server::Run()
+{
+    while (true) {
+        HandleRPC();
+        backup->Heartbeat();
     }
 }
 

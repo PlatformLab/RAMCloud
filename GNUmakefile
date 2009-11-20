@@ -47,6 +47,7 @@ test:
 
 include src/shared/Makefrag
 include src/server/Makefrag
+include src/backup/Makefrag
 include src/client/Makefrag
 include src/tests/Makefrag
 

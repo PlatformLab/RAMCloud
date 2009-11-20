@@ -3,6 +3,7 @@
 
 #include <shared/rcrpc.h>
 
+#include <server/backup_client.h>
 #include <server/net.h>
 
 #define RC_NUM_TABLES 256
@@ -36,10 +37,12 @@ class Server {
     Server(const Server& server);
     Server& operator=(const Server& server);
     ~Server();
-    void handleRPC();
+    void Run();
   private:
+    void HandleRPC();
     explicit Server();
     Net *net;
+    BackupClient *backup;
     struct table tables[RC_NUM_TABLES];
 };
 

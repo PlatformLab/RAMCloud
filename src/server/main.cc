@@ -14,8 +14,7 @@ main()
                                            CLNTADDR, CLNTPORT);
     RAMCloud::Server *server = new RAMCloud::Server(net);
 
-    while (true)
-        server->handleRPC();
+    server->Run();
 
     delete net;
 
