@@ -20,26 +20,20 @@
 #define CLNTPORT 22222
 
 void
-rc_udp_net_init(struct rc_udp_net *ret, int is_server) {
-    // TODO create typedefs and actually make this type safe
-    ret->net.close = (void*)&rc_udp_net_close;
-    ret->net.is_server = (void*)&rc_udp_net_is_server;
-    ret->net.send_rpc = (void*)&rc_udp_net_send_rpc;
-    ret->net.recv_rpc = (void*)&rc_udp_net_recv_rpc;
-    assert(is_server == 0 || is_server == 1);
-    ret->_is_server = is_server;
-    ret->_fd = 0;
-    ret->_connected = 0;
+rc_net_init(struct rc_net *ret, int is_server) {
+    ret->is_server = is_server;
+    ret->fd = 0;
+    ret->connected = 0;
 }
 
 int
-rc_udp_net_connect(struct rc_udp_net *net)
+rc_net_connect(struct rc_net *net)
 {
     struct sockaddr_in sin;
     
     sin.sin_family = AF_INET;
-    sin.sin_port = htons(net->_is_server ? SVRPORT : CLNTPORT);
-    inet_aton(net->_is_server ? SVRADDR : CLNTADDR, &sin.sin_addr);
+    sin.sin_port = htons(net->is_server ? SVRPORT : CLNTPORT);
+    inet_aton(net->is_server ? SVRADDR : CLNTADDR, &sin.sin_addr);
     
     int fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (fd == -1) {
@@ -54,37 +48,31 @@ rc_udp_net_connect(struct rc_udp_net *net)
         errno = e;
         return -1;
     }
-    net->_fd = fd;
-    net->_connected = 1;
+    net->fd = fd;
+    net->connected = 1;
 
     return 0;
 }
 
 int
-rc_udp_net_close(struct rc_udp_net *net)
+rc_net_close(struct rc_net *net)
 {
-    return close(net->_fd);
+    return close(net->fd);
 }
 
 int
-rc_udp_net_is_server(struct rc_udp_net *net)
+rc_net_send_rpc(struct rc_net *net, struct rcrpc *rpc)
 {
-    return net->_is_server;
-}
-
-int
-rc_udp_net_send_rpc(struct rc_udp_net *net, struct rcrpc *rpc)
-{
-    if (!net->_connected)
-        assert(!rc_udp_net_connect(net));
+    if (!net->connected)
+        assert(!rc_net_connect(net));
 
     struct sockaddr_in sin;
 
     sin.sin_family = AF_INET;
-    sin.sin_port = htons(net->_is_server ? CLNTPORT : SVRPORT); 
-    inet_aton(net->_is_server ? CLNTADDR : SVRADDR, &sin.sin_addr);
+    sin.sin_port = htons(net->is_server ? CLNTPORT : SVRPORT); 
+    inet_aton(net->is_server ? CLNTADDR : SVRADDR, &sin.sin_addr);
 
-    if (sendto(net->_fd, rpc, rpc->len, 0, (struct sockaddr *)&sin, sizeof(sin)) == -1) {
+    if (sendto(net->fd, rpc, rpc->len, 0, (struct sockaddr *)&sin, sizeof(sin)) == -1) {
         // errno already set from sendto
         fprintf(stderr, "sendto failure %s:%d\n", __FILE__, __LINE__);
         return -1;
@@ -95,16 +83,16 @@ rc_udp_net_send_rpc(struct rc_udp_net *net, struct rcrpc *rpc)
 
 
 int
-rc_udp_net_recv_rpc(struct rc_udp_net *net, struct rcrpc **rpc)
+rc_net_recv_rpc(struct rc_net *net, struct rcrpc **rpc)
 {
-    if (!net->_connected)
-        assert(!rc_udp_net_connect(net));
+    if (!net->connected)
+        assert(!rc_net_connect(net));
 
     static char recvbuf[1500];
     struct sockaddr_in sin;
     socklen_t sinlen = sizeof(sin);
 
-    ssize_t len = recvfrom(net->_fd, recvbuf, sizeof(recvbuf), 0, (struct sockaddr *)&sin, &sinlen);
+    ssize_t len = recvfrom(net->fd, recvbuf, sizeof(recvbuf), 0, (struct sockaddr *)&sin, &sinlen);
     if (len == -1) {
         // errno already set from recvfrom
         return -1;

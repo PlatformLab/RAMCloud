@@ -10,8 +10,8 @@ namespace RAMCloud {
 
 DefaultClient::DefaultClient() : net(0)
 {
-    rc_udp_net *udpnet = new rc_udp_net();
-    rc_udp_net_init(udpnet, 0);
+    rc_net *udpnet = new rc_net();
+    rc_net_init(udpnet, 0);
     net = reinterpret_cast<rc_net*>(udpnet);
 }
 
@@ -31,9 +31,9 @@ DefaultClient::ping()
     query.len  = (uint32_t) RCRPC_PING_REQUEST_LEN;
 
     //printf("sending ping rpc...\n");
-    assert(!net->send_rpc(net, &query));
+    assert(!rc_net_send_rpc(net, &query));
 
-    assert(!net->recv_rpc(net, &resp));
+    assert(!rc_net_recv_rpc(net, &resp));
     //printf("received reply, type = 0x%08x\n", resp->type);
 }
 
@@ -49,8 +49,8 @@ DefaultClient::write100(uint64_t table, int key, const char *buf, int len)
     query.len  = (uint32_t) RCRPC_WRITE100_REQUEST_LEN;
     query.write100_request.table = table;
     query.write100_request.key = key;
-    assert(!net->send_rpc(net, &query));
-    assert(!net->recv_rpc(net, &resp));
+    assert(!rc_net_send_rpc(net, &query));
+    assert(!rc_net_recv_rpc(net, &resp));
     //printf("write100 got reply: 0x%08x\n", resp->type);
 }
 
@@ -64,8 +64,8 @@ DefaultClient::read100(uint64_t table, int key, char *buf, int len)
     query.len  = (uint32_t) RCRPC_READ100_REQUEST_LEN;
     query.read100_request.table = table;
     query.read100_request.key = key;
-    assert(!net->send_rpc(net, &query));
-    assert(!net->recv_rpc(net, &resp));
+    assert(!rc_net_send_rpc(net, &query));
+    assert(!rc_net_recv_rpc(net, &resp));
     //printf("read back [%s]\n", resp->read100_response.buf); 
     memcpy(buf, resp->read100_response.buf, len);
 }
@@ -79,8 +79,8 @@ DefaultClient::create_table(const char *name)
     query.len  = (uint32_t) RCRPC_CREATE_TABLE_REQUEST_LEN;
     strncpy(query.create_table_request.name, name, sizeof(query.create_table_request.name));
     query.create_table_request.name[sizeof(query.create_table_request.name) - 1] = '\0';
-    assert(!net->send_rpc(net, &query));
-    assert(!net->recv_rpc(net, &resp));
+    assert(!rc_net_send_rpc(net, &query));
+    assert(!rc_net_recv_rpc(net, &resp));
 }
 
 uint64_t
@@ -92,8 +92,8 @@ DefaultClient::open_table(const char *name)
     query.len  = (uint32_t) RCRPC_OPEN_TABLE_REQUEST_LEN;
     strncpy(query.open_table_request.name, name, sizeof(query.open_table_request.name));
     query.open_table_request.name[sizeof(query.open_table_request.name) - 1] = '\0';
-    assert(!net->send_rpc(net, &query));
-    assert(!net->recv_rpc(net, &resp));
+    assert(!rc_net_send_rpc(net, &query));
+    assert(!rc_net_recv_rpc(net, &resp));
     return resp->open_table_response.handle;
 }
 
@@ -106,8 +106,8 @@ DefaultClient::drop_table(const char *name)
     query.len  = (uint32_t) RCRPC_DROP_TABLE_REQUEST_LEN;
     strncpy(query.drop_table_request.name, name, sizeof(query.drop_table_request.name));
     query.drop_table_request.name[sizeof(query.drop_table_request.name) - 1] = '\0';
-    assert(!net->send_rpc(net, &query));
-    assert(!net->recv_rpc(net, &resp));
+    assert(!rc_net_send_rpc(net, &query));
+    assert(!rc_net_recv_rpc(net, &resp));
 }
 
 

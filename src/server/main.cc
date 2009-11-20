@@ -4,7 +4,7 @@
 int
 main()
 {
-    RAMCloud::Net *net = new RAMCloud::UDPNet(true);
+    RAMCloud::Net *net = new RAMCloud::Net(true);
     RAMCloud::Server *server = new RAMCloud::Server(net);
 
     while (true)

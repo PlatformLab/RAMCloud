@@ -1,7 +1,7 @@
 OBJDIRS += shared
 
 SHARED_SRCFILES := \
-		src/shared/net.c
+		src/shared/net_udp.c
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)
 SHARED_OBJFILES := $(patsubst src/shared/%.cc, $(OBJDIR)/shared/%.o, $(SHARED_OBJFILES))

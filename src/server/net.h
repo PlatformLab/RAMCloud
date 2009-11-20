@@ -7,33 +7,22 @@ namespace RAMCloud {
 
 class Net {
   public:
-    virtual void Connect() = 0;
-    virtual int Close() = 0;
-    virtual int IsServer() = 0;
-    virtual int IsConnected() = 0;
-    virtual int SendRPC(struct rcrpc *) = 0;
-    virtual int RecvRPC(struct rcrpc **) = 0;
-    virtual ~Net() {}
-};
-
-class UDPNet : public Net {
-  public:
-    UDPNet(bool is_server) : net(rc_udp_net()) {
-        rc_udp_net_init(&net, is_server);
+    Net(bool is_server) : net(rc_net()) {
+        rc_net_init(&net, is_server);
     }
-    virtual void Connect() { net.net.connect((rc_net*)&net); }
-    virtual int Close() { return net.net.close((rc_net*)&net); }
-    virtual int IsServer() { return net.net.is_server((rc_net*)&net); }
-    virtual int IsConnected() { return net.net.is_connected((rc_net*)&net); }
+    virtual void Connect() { rc_net_connect((rc_net*)&net); }
+    virtual int Close() { return rc_net_close((rc_net*)&net); }
+    virtual int IsServer() { return net.is_server; }
+    virtual int IsConnected() { return net.connected; }
     virtual int SendRPC(struct rcrpc *msg) {
-        return net.net.send_rpc((rc_net*)&net, msg);
+        return rc_net_send_rpc((rc_net*)&net, msg);
     }
     virtual int RecvRPC(struct rcrpc **msg) {
-        return net.net.recv_rpc((rc_net*)&net, msg);
+        return rc_net_recv_rpc((rc_net*)&net, msg);
     }
-    virtual ~UDPNet() {}
+    virtual ~Net() {}
   private:
-    rc_udp_net net;
+    rc_net net;
 };
 
 } // namespace RAMCloud
