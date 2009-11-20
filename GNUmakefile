@@ -40,6 +40,7 @@ LINT := python cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-
 
 all:
 
+tests: test
 test:
 
 .SUFFIXES:
@@ -70,4 +71,4 @@ $(OBJDIR)/.deps: $(foreach dir, $(OBJDIRS), $(wildcard $(OBJDIR)/$(dir)/*.d))
 always:
 	@:
 
-.PHONY: all always clean check
+.PHONY: all always clean check test tests

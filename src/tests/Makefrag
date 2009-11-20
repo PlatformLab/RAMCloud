@@ -23,5 +23,5 @@ $(OBJDIR)/tests/%.o: $(TOP)/src/tests/%.cc
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-tests: $(OBJDIR)/tests/tests
+test: $(OBJDIR)/tests/tests
 	$(OBJDIR)/tests/tests
