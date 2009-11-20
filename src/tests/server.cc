@@ -55,7 +55,7 @@ CPPUNIT_TEST_SUITE_REGISTRATION(ServerTest);
 void
 ServerTest::setUp()
 {
-    net = new RAMCloud::UDPNet(true);
+    net = new RAMCloud::Net(true);
     server = new RAMCloud::Server(net);
 }
 
