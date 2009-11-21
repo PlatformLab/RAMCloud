@@ -8,14 +8,10 @@
 #define RCRPC_HEADER_LEN                ((size_t) &(((struct rcrpc *) 0)->ping_request))
 #define RCRPC_PING_REQUEST_LEN          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_ping_request))
 #define RCRPC_PING_RESPONSE_LEN         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_ping_response))
-#define RCRPC_READ100_REQUEST_LEN       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read100_request))
-#define RCRPC_READ100_RESPONSE_LEN      (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read100_response))
-#define RCRPC_READ1000_REQUEST_LEN      (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read1000_request))
-#define RCRPC_READ1000_RESPONSE_LEN     (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read1000_response))
-#define RCRPC_WRITE100_REQUEST_LEN      (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write100_request))
-#define RCRPC_WRITE100_RESPONSE_LEN     (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write100_response))
-#define RCRPC_WRITE1000_REQUEST_LEN     (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write1000_request))
-#define RCRPC_WRITE1000_RESPONSE_LEN    (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write1000_response))
+#define RCRPC_READ_REQUEST_LEN          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read_request))
+#define RCRPC_READ_RESPONSE_LEN_WODATA  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read_response))
+#define RCRPC_WRITE_REQUEST_LEN_WODATA  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write_request))
+#define RCRPC_WRITE_RESPONSE_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write_response))
 #define RCRPC_INSERT_REQUEST_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_request))
 #define RCRPC_INSERT_RESPONSE_LEN       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_response))
 #define RCRPC_DELETE_REQUEST_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_request))
@@ -32,14 +28,10 @@
 enum RCRPC_TYPE {
     RCRPC_PING_REQUEST,
     RCRPC_PING_RESPONSE,
-    RCRPC_READ100_REQUEST,
-    RCRPC_READ100_RESPONSE,
-    RCRPC_READ1000_REQUEST,
-    RCRPC_READ1000_RESPONSE,
-    RCRPC_WRITE100_REQUEST,
-    RCRPC_WRITE100_RESPONSE,
-    RCRPC_WRITE1000_REQUEST,
-    RCRPC_WRITE1000_RESPONSE,
+    RCRPC_READ_REQUEST,
+    RCRPC_READ_RESPONSE,
+    RCRPC_WRITE_REQUEST,
+    RCRPC_WRITE_RESPONSE,
     RCRPC_INSERT_REQUEST,
     RCRPC_INSERT_RESPONSE,
     RCRPC_DELETE_REQUEST,
@@ -60,43 +52,24 @@ struct rcrpc_ping_response {
 };
 
 
-struct rcrpc_read100_request {
+struct rcrpc_read_request {
     uint64_t table;
-    int key;
+    uint64_t key;
 };
 
-struct rcrpc_read100_response {
-    char buf[100];
+struct rcrpc_read_response {
+    uint64_t buf_len;
+    char buf[0];                        /* Variable length */
 };
 
-
-struct rcrpc_read1000_request {
+struct rcrpc_write_request {
     uint64_t table;
-    int key;
+    uint64_t key;
+    uint64_t buf_len;
+    char buf[0];                        /* Variable length */
 };
 
-struct rcrpc_read1000_response {
-    char buf[1000];
-};
-
-
-struct rcrpc_write100_request {
-    uint64_t table;
-    int key;
-    char buf[100];
-};
-
-struct rcrpc_write100_response {
-};
-
-
-struct rcrpc_write1000_request {
-    uint64_t table;
-    int key;
-    char buf[1000];
-};
-
-struct rcrpc_write1000_response {
+struct rcrpc_write_response {
 };
 
 struct rcrpc_insert_request {
@@ -105,12 +78,12 @@ struct rcrpc_insert_request {
 };
 
 struct rcrpc_insert_response {
-    int key;
+    uint64_t key;
 };
 
 struct rcrpc_delete_request {
     uint64_t table;
-    int key;
+    uint64_t key;
 };
 
 struct rcrpc_delete_response {
@@ -149,17 +122,11 @@ struct rcrpc {
         struct rcrpc_ping_request ping_request;
         struct rcrpc_ping_response ping_response;
 
-        struct rcrpc_read100_request read100_request;
-        struct rcrpc_read100_response read100_response;
+        struct rcrpc_read_request read_request;
+        struct rcrpc_read_response read_response;
 
-        struct rcrpc_read1000_request read1000_request;
-        struct rcrpc_read1000_response read1000_response;
-
-        struct rcrpc_write100_request write100_request;
-        struct rcrpc_write100_response write100_response;
-
-        struct rcrpc_write1000_request write1000_request;
-        struct rcrpc_write1000_response write1000_response;
+        struct rcrpc_write_request write_request;
+        struct rcrpc_write_response write_response;
 
         struct rcrpc_insert_request insert_request;
         struct rcrpc_insert_response insert_response;

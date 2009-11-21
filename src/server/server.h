@@ -11,6 +11,7 @@
 namespace RAMCloud {
 
 struct object {
+    chunk_hdr hdr;
     char blob[1000];
 };
 
@@ -22,16 +23,14 @@ struct table {
 
 class Server {
   public:
-    void ping(const struct rcrpc *req, struct rcrpc *resp);
-    void read100(const struct rcrpc *req, struct rcrpc *resp);
-    void read1000(const struct rcrpc *req, struct rcrpc *resp);
-    void write100(const struct rcrpc *req, struct rcrpc *resp);
-    void write1000(const struct rcrpc *req, struct rcrpc *resp);
-    void insertKey(const struct rcrpc *req, struct rcrpc *resp);
-    void deleteKey(const struct rcrpc *req, struct rcrpc *resp);
-    void createTable(const struct rcrpc *req, struct rcrpc *resp);
-    void openTable(const struct rcrpc *req, struct rcrpc *resp);
-    void dropTable(const struct rcrpc *req, struct rcrpc *resp);
+    void Ping(const struct rcrpc *req, struct rcrpc *resp);
+    void Read(const struct rcrpc *req, struct rcrpc *resp);
+    void Write(const struct rcrpc *req, struct rcrpc *resp);
+    void InsertKey(const struct rcrpc *req, struct rcrpc *resp);
+    void DeleteKey(const struct rcrpc *req, struct rcrpc *resp);
+    void CreateTable(const struct rcrpc *req, struct rcrpc *resp);
+    void OpenTable(const struct rcrpc *req, struct rcrpc *resp);
+    void DropTable(const struct rcrpc *req, struct rcrpc *resp);
 
     explicit Server(Net *net_impl);
     Server(const Server& server);

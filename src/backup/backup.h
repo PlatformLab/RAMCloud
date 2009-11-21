@@ -21,6 +21,8 @@ class BackupServer {
   private:
     DISALLOW_COPY_AND_ASSIGN(BackupServer);
     void Heartbeat(const backup_rpc *req, backup_rpc *resp);
+    void Write(const backup_rpc *req, backup_rpc *resp);
+    void Commit(const backup_rpc *req, backup_rpc *resp);
     void HandleRPC();
     void SendRPC(struct backup_rpc *rpc);
     void RecvRPC(struct backup_rpc **rpc);

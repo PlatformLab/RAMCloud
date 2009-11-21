@@ -27,7 +27,7 @@ DefaultClient::~DefaultClient()
 }
 
 void
-DefaultClient::ping()
+DefaultClient::Ping()
 {
     struct rcrpc query, *resp;
 
@@ -44,40 +44,38 @@ DefaultClient::ping()
 }
 
 void
-DefaultClient::write100(uint64_t table, int key, const char *buf, int len)
+DefaultClient::Write(uint64_t table, uint64_t key, const char *buf, uint64_t len)
 {
     struct rcrpc query, *resp;
 
-    //printf("writing 100\n");
-    memset(query.write100_request.buf, 0, sizeof(query.write100_request.buf));
-    memcpy(query.write100_request.buf, buf, len);
-    query.type = RCRPC_WRITE100_REQUEST;
-    query.len  = (uint32_t) RCRPC_WRITE100_REQUEST_LEN;
-    query.write100_request.table = table;
-    query.write100_request.key = key;
+    memset(query.write_request.buf, 0, sizeof(query.write_request.buf));
+    memcpy(query.write_request.buf, buf, len);
+    query.type = RCRPC_WRITE_REQUEST;
+    query.len  = (uint32_t) RCRPC_WRITE_REQUEST_LEN_WODATA + len;
+    query.write_request.table = table;
+    query.write_request.key = key;
+    query.write_request.buf_len = len;
     assert(!rc_net_send_rpc(net, &query));
     assert(!rc_net_recv_rpc(net, &resp));
-    //printf("write100 got reply: 0x%08x\n", resp->type);
 }
 
 void
-DefaultClient::read100(uint64_t table, int key, char *buf, int len)
+DefaultClient::Read(uint64_t table, uint64_t key, char *buf, uint64_t *len)
 {
     struct rcrpc query, *resp;
 
-    //printf("read100\n");
-    query.type = RCRPC_READ100_REQUEST;
-    query.len  = (uint32_t) RCRPC_READ100_REQUEST_LEN;
-    query.read100_request.table = table;
-    query.read100_request.key = key;
+    query.type = RCRPC_READ_REQUEST;
+    query.len  = (uint32_t) RCRPC_READ_REQUEST_LEN;
+    query.read_request.table = table;
+    query.read_request.key = key;
     assert(!rc_net_send_rpc(net, &query));
     assert(!rc_net_recv_rpc(net, &resp));
-    //printf("read back [%s]\n", resp->read100_response.buf); 
-    memcpy(buf, resp->read100_response.buf, len);
+    *len = resp->read_response.buf_len;
+    memcpy(buf, resp->read_response.buf, *len);
 }
 
 void
-DefaultClient::create_table(const char *name)
+DefaultClient::CreateTable(const char *name)
 {
     struct rcrpc query, *resp;
 
@@ -90,7 +88,7 @@ DefaultClient::create_table(const char *name)
 }
 
 uint64_t
-DefaultClient::open_table(const char *name)
+DefaultClient::OpenTable(const char *name)
 {
     struct rcrpc query, *resp;
 
@@ -104,7 +102,7 @@ DefaultClient::open_table(const char *name)
 }
 
 void
-DefaultClient::drop_table(const char *name)
+DefaultClient::DropTable(const char *name)
 {
     struct rcrpc query, *resp;
 

@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cassert>
 
+#include <shared/object.h>
 #include <shared/rcrpc.h>
 
 #include <server/server.h>
@@ -20,7 +21,9 @@ namespace RAMCloud {
 #define BACKCLNTADDR "127.0.0.1"
 #define BACKCLNTPORT  44444
 
-Server::Server(Net *net_impl) : net(net_impl)
+#define MAX_RPC_LEN 2048
+
+Server::Server(Net *net_impl) : net(net_impl), backup(0)
 {
     memset(tables, 0, sizeof(tables));
 
@@ -34,76 +37,64 @@ Server::~Server()
 }
 
 void
-Server::ping(const struct rcrpc *req, struct rcrpc *resp)
+Server::Ping(const struct rcrpc *req, struct rcrpc *resp)
 {
     resp->type = RCRPC_PING_RESPONSE;
     resp->len = (uint32_t) RCRPC_PING_RESPONSE_LEN;
 }
 
 void
-Server::read100(const struct rcrpc *req, struct rcrpc *resp)
+Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 {
-    printf("read100 from table %d key %d\n",
-           req->read100_request.table,
-           req->read100_request.key);
+    const rcrpc_read_request * const rreq = &req->read_request;
+    
+    printf("Read from table %d key %d\n",
+           rreq->table,
+           rreq->key);
 
-    resp->type = RCRPC_READ100_RESPONSE;
-    resp->len = (uint32_t) RCRPC_READ100_RESPONSE_LEN;
+    table *t = &tables[rreq->table];
+    object *o = &t->objects[rreq->key];
+    // TODO(stutsman) should worry about huge objects later
+    uint32_t olen = static_cast<uint32_t>(o->hdr.entries[0].len);
+    printf("\treturning %u bytes\n", olen);
 
-    struct table *t = &tables[req->read100_request.table];
-    memcpy(resp->read100_response.buf,
-           t->objects[req->read100_request.key].blob,
-           sizeof(((struct object*) 0)->blob));
+    resp->type = RCRPC_READ_RESPONSE;
+    resp->len = static_cast<uint32_t>(RCRPC_READ_RESPONSE_LEN_WODATA) + olen;
 
-    printf("resp key: %d\n", resp->read100_request.key);
-}
-
-
-void
-Server::read1000(const struct rcrpc *req, struct rcrpc *resp)
-{
-    resp->type = RCRPC_READ1000_RESPONSE;
-    resp->len  = (uint32_t) RCRPC_READ1000_RESPONSE_LEN;
-
-    struct table *t = &tables[req->read1000_request.table];
-    memcpy(resp->read1000_response.buf,
-           t->objects[req->read1000_request.key].blob,
+    resp->read_response.buf_len = olen;
+    memcpy(resp->read_response.buf,
+           o->blob,
            sizeof(((struct object*) 0)->blob));
 }
 
 void
-Server::write100(const struct rcrpc *req, struct rcrpc *resp)
+Server::Write(const struct rcrpc *req, struct rcrpc *resp)
 {
-    printf("write100 to key %d, val = %s\n",
-           req->write100_request.key,
-           req->write100_request.buf);
+    const rcrpc_write_request * const wreq = &req->write_request;
 
-    struct table *t = &tables[req->write100_request.table];
-    memcpy(t->objects[req->write100_request.key].blob,
-           req->write100_request.buf,
-           RCRPC_WRITE100_REQUEST_LEN);
+    printf("Write %lu bytes to key %lu\n",
+           wreq->buf_len,
+           wreq->key);
 
-    resp->type = RCRPC_WRITE100_RESPONSE;
-    resp->len  = (uint32_t) RCRPC_WRITE100_RESPONSE_LEN;
+    table *t = &tables[wreq->table];
+    object *o = &t->objects[wreq->key];
+
+    o->hdr.type = STORAGE_CHUNK_HDR_TYPE;
+    o->hdr.key = wreq->key;
+    // TODO
+    o->hdr.checksum = 0x0BE70BE70BE70BE7; // dm's super-fast checksum here
+
+    o->hdr.entries[0].len = wreq->buf_len;
+    memcpy(o->blob, wreq->buf, wreq->buf_len);
+
+    resp->type = RCRPC_WRITE_RESPONSE;
+    resp->len = static_cast<uint32_t>(RCRPC_WRITE_RESPONSE_LEN);
 }
 
 void
-Server::write1000(const struct rcrpc *req, struct rcrpc *resp)
+Server::InsertKey(const struct rcrpc *req, struct rcrpc *resp)
 {
-    struct table *t = &tables[req->write1000_request.table];
-    memcpy(t->objects[req->write1000_request.key].blob,
-           req->write1000_request.buf,
-           RCRPC_WRITE1000_REQUEST_LEN);
-
-    resp->type = RCRPC_WRITE1000_RESPONSE;
-    resp->len  = (uint32_t) RCRPC_WRITE1000_RESPONSE_LEN;
-}
-
-
-void
-Server::insertKey(const struct rcrpc *req, struct rcrpc *resp)
-{
-    int key = ++tables[req->insert_request.table].next_key;
+    uint64_t key = ++tables[req->insert_request.table].next_key;
     memcpy(tables[req->insert_request.table].objects[key].blob,
            req->insert_request.buf,
            RCRPC_INSERT_REQUEST_LEN);
@@ -113,7 +104,7 @@ Server::insertKey(const struct rcrpc *req, struct rcrpc *resp)
 }
 
 void
-Server::deleteKey(const struct rcrpc *req, struct rcrpc *resp)
+Server::DeleteKey(const struct rcrpc *req, struct rcrpc *resp)
 {
     // no op
     resp->type = RCRPC_DELETE_RESPONSE;
@@ -121,7 +112,7 @@ Server::deleteKey(const struct rcrpc *req, struct rcrpc *resp)
 }
 
 void
-Server::createTable(const struct rcrpc *req, struct rcrpc *resp)
+Server::CreateTable(const struct rcrpc *req, struct rcrpc *resp)
 {
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
@@ -148,7 +139,7 @@ Server::createTable(const struct rcrpc *req, struct rcrpc *resp)
 }
 
 void
-Server::openTable(const struct rcrpc *req, struct rcrpc *resp)
+Server::OpenTable(const struct rcrpc *req, struct rcrpc *resp)
 {
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
@@ -167,7 +158,7 @@ Server::openTable(const struct rcrpc *req, struct rcrpc *resp)
 }
 
 void
-Server::dropTable(const struct rcrpc *req, struct rcrpc *resp)
+Server::DropTable(const struct rcrpc *req, struct rcrpc *resp)
 {
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
@@ -189,41 +180,41 @@ Server::dropTable(const struct rcrpc *req, struct rcrpc *resp)
 void
 Server::HandleRPC()
 {
-    struct rcrpc *req;
-    struct rcrpc resp;
-
-    if (net->RecvRPC(&req) == 0) {
-        printf("got rpc type: 0x%08x, len 0x%08x\n", req->type, req->len);
-
-        switch((enum RCRPC_TYPE) req->type) {
-            case RCRPC_PING_REQUEST:          Server::ping(req, &resp);        break;
-            case RCRPC_READ100_REQUEST:       Server::read100(req, &resp);     break;
-            case RCRPC_READ1000_REQUEST:      Server::read1000(req, &resp);    break;
-            case RCRPC_WRITE100_REQUEST:      Server::write100(req, &resp);    break;
-            case RCRPC_WRITE1000_REQUEST:     Server::write1000(req, &resp);   break;
-            case RCRPC_INSERT_REQUEST:        Server::insertKey(req, &resp);   break;
-            case RCRPC_DELETE_REQUEST:        Server::deleteKey(req, &resp);   break;
-            case RCRPC_CREATE_TABLE_REQUEST:  Server::createTable(req, &resp); break;
-            case RCRPC_OPEN_TABLE_REQUEST:    Server::openTable(req, &resp);   break;
-            case RCRPC_DROP_TABLE_REQUEST:    Server::dropTable(req, &resp);   break;
-
-            case RCRPC_PING_RESPONSE:
-            case RCRPC_READ100_RESPONSE:
-            case RCRPC_READ1000_RESPONSE:
-            case RCRPC_WRITE100_RESPONSE:
-            case RCRPC_WRITE1000_RESPONSE:
-            case RCRPC_INSERT_RESPONSE:
-            case RCRPC_DELETE_RESPONSE:
-            case RCRPC_CREATE_TABLE_RESPONSE:
-            case RCRPC_OPEN_TABLE_RESPONSE:
-            case RCRPC_DROP_TABLE_RESPONSE:
-                throw "server received RPC response";
-
-            default:
-                throw "received unknown RPC type";
-        };
-        net->SendRPC(&resp);
+    rcrpc *req;
+    if (net->RecvRPC(&req) != 0) {
+        printf("Failure receiving rpc\n");
+        return;
     }
+
+    char rpcbuf[MAX_RPC_LEN];
+    rcrpc *resp = reinterpret_cast<rcrpc *>(rpcbuf);
+
+    printf("got rpc type: 0x%08x, len 0x%08x\n", req->type, req->len);
+    
+    switch((enum RCRPC_TYPE) req->type) {
+        case RCRPC_PING_REQUEST:         Server::Ping(req, resp);        break;
+        case RCRPC_READ_REQUEST:         Server::Read(req, resp);        break;
+        case RCRPC_WRITE_REQUEST:        Server::Write(req, resp);       break;
+        case RCRPC_INSERT_REQUEST:       Server::InsertKey(req, resp);   break;
+        case RCRPC_DELETE_REQUEST:       Server::DeleteKey(req, resp);   break;
+        case RCRPC_CREATE_TABLE_REQUEST: Server::CreateTable(req, resp); break;
+        case RCRPC_OPEN_TABLE_REQUEST:   Server::OpenTable(req, resp);   break;
+        case RCRPC_DROP_TABLE_REQUEST:   Server::DropTable(req, resp);   break;
+            
+        case RCRPC_PING_RESPONSE:
+        case RCRPC_READ_RESPONSE:
+        case RCRPC_WRITE_RESPONSE:
+        case RCRPC_INSERT_RESPONSE:
+        case RCRPC_DELETE_RESPONSE:
+        case RCRPC_CREATE_TABLE_RESPONSE:
+        case RCRPC_OPEN_TABLE_RESPONSE:
+        case RCRPC_DROP_TABLE_RESPONSE:
+            throw "server received RPC response";
+            
+        default:
+            throw "received unknown RPC type";
+    };
+    net->SendRPC(resp);
 }
 
 void __attribute__ ((noreturn))

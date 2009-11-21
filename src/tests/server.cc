@@ -81,7 +81,7 @@ ServerTest::TestPing()
     req.type = RCRPC_PING_REQUEST;
     req.len  = static_cast<uint32_t>(RCRPC_PING_REQUEST_LEN);
 
-    server->ping(&req, &resp);
+    server->Ping(&req, &resp);
 
     CPPUNIT_ASSERT(resp.type == RCRPC_PING_RESPONSE);
     CPPUNIT_ASSERT(resp.len == RCRPC_PING_RESPONSE_LEN);
@@ -90,34 +90,42 @@ ServerTest::TestPing()
 void
 ServerTest::TestWriteRead100()
 {
-    struct rcrpc req, resp;
+
+    char reqbuf[1024];
+    char respbuf[1024];
+    rcrpc *req = reinterpret_cast<rcrpc *>(reqbuf);
+    rcrpc *resp = reinterpret_cast<rcrpc *>(respbuf);
 
     std::string value = "God hates ponies";
     uint64_t table = 0;
     int key = 0;
 
-    memset(req.write100_request.buf, 0, sizeof(req.write100_request.buf));
-    memcpy(req.write100_request.buf, value.c_str(), value.length());
-    req.type = RCRPC_WRITE100_REQUEST;
-    req.len  = static_cast<uint32_t>(RCRPC_WRITE100_REQUEST_LEN);
-    req.write100_request.table = table;
-    req.write100_request.key = key;
-    server->write100(&req, &resp);
+    memset(req->write_request.buf, 0, sizeof(req->write_request.buf));
+    memcpy(req->write_request.buf, value.c_str(), value.length());
+    req->type = RCRPC_WRITE_REQUEST;
+    req->len = static_cast<uint32_t>(RCRPC_WRITE_REQUEST_LEN_WODATA) +
+            value.length();
+    req->write_request.table = table;
+    req->write_request.key = key;
+    req->write_request.buf_len = value.length() + 1;
+    strcpy(req->write_request.buf, value.c_str());
+    server->Write(req, resp);
 
-    CPPUNIT_ASSERT(resp.type == RCRPC_WRITE100_RESPONSE);
-    CPPUNIT_ASSERT(resp.len == RCRPC_WRITE100_RESPONSE_LEN);
+    CPPUNIT_ASSERT(resp->type == RCRPC_WRITE_RESPONSE);
+    CPPUNIT_ASSERT(resp->len == RCRPC_WRITE_RESPONSE_LEN);
 
     // --- read ---
 
-    req.type = RCRPC_READ100_REQUEST;
-    req.len  = static_cast<uint32_t>(RCRPC_READ100_REQUEST_LEN);
-    req.read100_request.table = table;
-    req.read100_request.key = key;
-    server->read100(&req, &resp);
+    req->type = RCRPC_READ_REQUEST;
+    req->len  = static_cast<uint32_t>(RCRPC_READ_REQUEST_LEN);
+    req->read_request.table = table;
+    req->read_request.key = key;
+    server->Read(req, resp);
 
-    CPPUNIT_ASSERT(resp.type == RCRPC_READ100_RESPONSE);
-    CPPUNIT_ASSERT(resp.len == RCRPC_READ100_RESPONSE_LEN);
-    CPPUNIT_ASSERT(value == resp.read100_response.buf);
+    CPPUNIT_ASSERT(resp->type == RCRPC_READ_RESPONSE);
+    CPPUNIT_ASSERT(resp->len == RCRPC_READ_RESPONSE_LEN_WODATA +
+                   resp->read_response.buf_len);
+    CPPUNIT_ASSERT(value == resp->read_response.buf);
 
 }
 
@@ -135,7 +143,7 @@ ServerTest::TestCreateTable()
     int i = sizeof(req.create_table_request.name) - 1;
     req.create_table_request.name[i] = '\0';
 
-    server->createTable(&req, &resp);
+    server->CreateTable(&req, &resp);
 
     CPPUNIT_ASSERT(resp.type == RCRPC_CREATE_TABLE_RESPONSE);
     CPPUNIT_ASSERT(resp.len == RCRPC_CREATE_TABLE_RESPONSE_LEN);

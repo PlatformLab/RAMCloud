@@ -1,5 +1,6 @@
 #include <server/backup_client.h>
 
+#include <shared/object.h>
 #include <shared/backuprpc.h>
 
 #include <cassert>
@@ -43,7 +44,7 @@ BackupClient::Heartbeat()
 }
 
 void
-BackupClient::Write(char *buf, size_t len)
+BackupClient::Write(const chunk_hdr *hdr)
 {
 }
 

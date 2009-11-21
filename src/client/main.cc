@@ -25,25 +25,26 @@ main()
     uint64_t table;
 
     b = rdtsc();
-    client->create_table("test");
-    table = client->open_table("test");
+    client->CreateTable("test");
+    table = client->OpenTable("test");
     printf("create+open table took %lu ticks\n", rdtsc() - b);
 
     b = rdtsc();
-    client->ping();
+    client->Ping();
     printf("ping took %lu ticks\n", rdtsc() - b);
 
     b = rdtsc();
-    client->write100(table, 42, "Hello, World!", 14);
-    printf("write100 took %lu ticks\n", rdtsc() - b);
+    client->Write(table, 42, "Hello, World!", 14);
+    printf("write took %lu ticks\n", rdtsc() - b);
 
     char buf[100];
     b = rdtsc();
-    client->read100(table, 42, buf, 100);
-    printf("read100 took %lu ticks\n", rdtsc() - b);
-    printf("Got back [%s]\n", buf);
+    uint64_t buf_len;
+    client->Read(table, 42, buf, &buf_len);
+    printf("read took %lu ticks\n", rdtsc() - b);
+    printf("Got back [%s] len %lu\n", buf, buf_len);
 
-    client->drop_table("test");
+    client->DropTable("test");
 
     delete client;
     return (0);
