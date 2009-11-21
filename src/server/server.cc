@@ -68,6 +68,22 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 }
 
 void
+Server::StoreData(object *o,
+                  uint64_t key,
+                  const char *buf,
+                  uint64_t buf_len)
+{
+
+    o->hdr.type = STORAGE_CHUNK_HDR_TYPE;
+    o->hdr.key = key;
+    // TODO dm's super-fast checksum here
+    o->hdr.checksum = 0x0BE70BE70BE70BE7;
+
+    o->hdr.entries[0].len = buf_len;
+    memcpy(o->blob, buf, buf_len);
+}
+
+void
 Server::Write(const struct rcrpc *req, struct rcrpc *resp)
 {
     const rcrpc_write_request * const wreq = &req->write_request;
@@ -76,16 +92,8 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
            wreq->buf_len,
            wreq->key);
 
-    table *t = &tables[wreq->table];
-    object *o = &t->objects[wreq->key];
-
-    o->hdr.type = STORAGE_CHUNK_HDR_TYPE;
-    o->hdr.key = wreq->key;
-    // TODO
-    o->hdr.checksum = 0x0BE70BE70BE70BE7; // dm's super-fast checksum here
-
-    o->hdr.entries[0].len = wreq->buf_len;
-    memcpy(o->blob, wreq->buf, wreq->buf_len);
+    object *o = &tables[wreq->table].objects[wreq->key];
+    StoreData(o, wreq->key, wreq->buf, wreq->buf_len);
 
     resp->type = RCRPC_WRITE_RESPONSE;
     resp->len = static_cast<uint32_t>(RCRPC_WRITE_RESPONSE_LEN);
@@ -94,10 +102,16 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
 void
 Server::InsertKey(const struct rcrpc *req, struct rcrpc *resp)
 {
+    const rcrpc_insert_request * const ireq = &req->insert_request;
+
     uint64_t key = ++tables[req->insert_request.table].next_key;
     memcpy(tables[req->insert_request.table].objects[key].blob,
            req->insert_request.buf,
-           RCRPC_INSERT_REQUEST_LEN);
+           RCRPC_INSERT_REQUEST_LEN_WODATA);
+
+    object *o = &tables[ireq->table].objects[key];
+    StoreData(o, key, ireq->buf, ireq->buf_len);
+
     resp->type = RCRPC_INSERT_RESPONSE;
     resp->len = (uint32_t) RCRPC_INSERT_RESPONSE_LEN;
     resp->insert_response.key = key;

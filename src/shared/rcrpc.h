@@ -12,7 +12,7 @@
 #define RCRPC_READ_RESPONSE_LEN_WODATA  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read_response))
 #define RCRPC_WRITE_REQUEST_LEN_WODATA  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write_request))
 #define RCRPC_WRITE_RESPONSE_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write_response))
-#define RCRPC_INSERT_REQUEST_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_request))
+#define RCRPC_INSERT_REQUEST_LEN_WODATA (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_request))
 #define RCRPC_INSERT_RESPONSE_LEN       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_response))
 #define RCRPC_DELETE_REQUEST_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_request))
 #define RCRPC_DELETE_RESPONSE_LEN       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_response))
@@ -74,7 +74,8 @@ struct rcrpc_write_response {
 
 struct rcrpc_insert_request {
     uint64_t table;
-    char buf[100];
+    uint64_t buf_len;
+    char buf[0];                        /* Variable length */
 };
 
 struct rcrpc_insert_response {

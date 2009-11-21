@@ -44,6 +44,17 @@ main()
     printf("read took %lu ticks\n", rdtsc() - b);
     printf("Got back [%s] len %lu\n", buf, buf_len);
 
+    b = rdtsc();
+    uint64_t key = 0xfffffff;
+    client->Insert(table, "Hello, World?", 14, &key);
+    printf("insert took %lu ticks\n", rdtsc() - b);
+    printf("Got back [%lu] key\n", key);
+
+    b = rdtsc();
+    client->Read(table, key, buf, &buf_len);
+    printf("read took %lu ticks\n", rdtsc() - b);
+    printf("Got back [%s] len %lu\n", buf, buf_len);
+
     client->DropTable("test");
 
     delete client;

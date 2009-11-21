@@ -17,7 +17,7 @@ struct object {
 
 struct table {
     char name[64];
-    int next_key;
+    uint64_t next_key;
     struct object objects[256];
 };
 
@@ -39,6 +39,10 @@ class Server {
     void Run();
   private:
     void HandleRPC();
+    void StoreData(object *o,
+                   uint64_t key,
+                   const char *buf,
+                   uint64_t buf_len);
     explicit Server();
     Net *net;
     BackupClient *backup;

@@ -60,6 +60,25 @@ DefaultClient::Write(uint64_t table, uint64_t key, const char *buf, uint64_t len
 }
 
 void
+DefaultClient::Insert(uint64_t table,
+                      const char *buf,
+                      uint64_t len,
+                      uint64_t *key)
+{
+    struct rcrpc query, *resp;
+
+    memset(query.insert_request.buf, 0, sizeof(query.insert_request.buf));
+    memcpy(query.insert_request.buf, buf, len);
+    query.type = RCRPC_INSERT_REQUEST;
+    query.len  = (uint32_t) RCRPC_INSERT_REQUEST_LEN_WODATA + len;
+    query.insert_request.table = table;
+    query.insert_request.buf_len = len;
+    assert(!rc_net_send_rpc(net, &query));
+    assert(!rc_net_recv_rpc(net, &resp));
+    *key = resp->insert_response.key;
+}
+
+void
 DefaultClient::Read(uint64_t table, uint64_t key, char *buf, uint64_t *len)
 {
     struct rcrpc query, *resp;
