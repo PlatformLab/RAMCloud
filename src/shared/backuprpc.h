@@ -4,8 +4,16 @@
 // #include <cinttypes> // this requires c++0x support because it's c99
 // so we'll go ahead and use the C header
 #include <inttypes.h>
+#include <string>
 
 namespace RAMCloud {
+
+enum { MAX_BACKUP_RPC_LEN = 2048 };
+
+struct BackupRPCException {
+    BackupRPCException(std::string msg) : message(msg) {}
+    std::string message;
+};
 
 struct backup_rpc_hdr {
     uint32_t type;
@@ -20,7 +28,7 @@ struct backup_rpc_heartbeat_resp {
 };
 
 struct backup_rpc_write_req {
-    char *data[0];
+    char data[0];
 };
 
 struct backup_rpc_write_resp {
@@ -38,7 +46,7 @@ enum rc_backup_rpc_len {
     BACKUP_RPC_HDR_LEN                = (sizeof(struct backup_rpc_hdr)),
     BACKUP_RPC_HEARTBEAT_REQ_LEN      = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_heartbeat_req)),
     BACKUP_RPC_HEARTBEAT_RESP_LEN     = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_heartbeat_resp)),
-    BACKUP_RPC_WRITE_REQ_LEN          = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_write_req)),
+    BACKUP_RPC_WRITE_REQ_LEN_WODATA   = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_write_req)),
     BACKUP_RPC_WRITE_RESP_LEN         = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_write_resp)),
     BACKUP_RPC_COMMIT_REQ_LEN          = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_req)),
     BACKUP_RPC_COMMIT_RESP_LEN         = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_resp)),

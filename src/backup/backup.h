@@ -17,6 +17,7 @@ class BackupServer {
   public:
     explicit BackupServer();
     explicit BackupServer(Net *net_impl);
+    ~BackupServer();
     void Run();
   private:
     DISALLOW_COPY_AND_ASSIGN(BackupServer);
@@ -27,6 +28,7 @@ class BackupServer {
     void SendRPC(struct backup_rpc *rpc);
     void RecvRPC(struct backup_rpc **rpc);
     Net *net;
+    int log_fd;
 };
 
 } // namespace RAMCloud

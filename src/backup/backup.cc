@@ -5,12 +5,31 @@
 #include <cstdio>
 #include <cassert>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#include <error.h>
+#include <errno.h>
+
 namespace RAMCloud {
 
 BackupServer::BackupServer(Net *net_impl)
-        : net(net_impl)
+        : net(net_impl), log_fd(-1)
 {
-    
+    log_fd = open("backup.log",
+                  O_CREAT | O_NOATIME | O_TRUNC | O_WRONLY,
+                  S_IRUSR | S_IWUSR);
+    if (log_fd == -1)
+        throw "God hates ponies";
+}
+
+BackupServer::~BackupServer()
+{
+    int r = close(log_fd);
+    if (r == -1)
+        throw "God hates ponies";
 }
 
 void
@@ -37,16 +56,20 @@ BackupServer::Heartbeat(const backup_rpc *req, backup_rpc *resp)
 void
 BackupServer::Write(const backup_rpc *req, backup_rpc *resp)
 {
+    printf("Handling Write - total msg len %lu\n", req->hdr.len);
+
+    int data_len = req->hdr.len - BACKUP_RPC_HDR_LEN;
+
+    debug_dump64(&req->write_req.data[0], data_len);
+    ssize_t r = write(log_fd, &req->write_req.data[0], data_len);
+    if (r != data_len) {
+        assert(r == -1);
+        error(-1, errno, "Failed to write log");
+    }
+
     resp->hdr.type = BACKUP_RPC_WRITE_RESP;
     resp->hdr.len = (uint32_t) BACKUP_RPC_WRITE_RESP_LEN;
     resp->write_resp.ok = 1;
-
-    printf("Handling Write - total msg len %z\n", req->hdr.len);
-    int data_len = req->hdr.len - BACKUP_RPC_HDR_LEN;
-    char buf[16384];
-    const char *src = req->write_req.data[0];
-    strncpy(&buf[0], src, 16384);
-    buf[16383] = '\0';
 }
 
 void
