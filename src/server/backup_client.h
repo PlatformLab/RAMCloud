@@ -16,7 +16,7 @@ class BackupClient {
     explicit BackupClient(Net *net_impl);
     void Heartbeat();
     void Write(const chunk_hdr *hdr);
-    void Commit(std::vector<uintptr_t> freed);
+    void Commit();//std::vector<uintptr_t> freed);
   private:
     DISALLOW_COPY_AND_ASSIGN(BackupClient);
     void SendRPC(struct backup_rpc *rpc);

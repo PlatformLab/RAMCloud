@@ -81,6 +81,10 @@ Server::StoreData(object *o,
 
     o->hdr.entries[0].len = buf_len;
     memcpy(o->blob, buf, buf_len);
+
+    backup->Write(&o->hdr);
+    backup->Commit();
+
 }
 
 void
@@ -94,8 +98,6 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
 
     object *o = &tables[wreq->table].objects[wreq->key];
     StoreData(o, wreq->key, wreq->buf, wreq->buf_len);
-
-    backup->Write(&o->hdr);
 
     resp->type = RCRPC_WRITE_RESPONSE;
     resp->len = static_cast<uint32_t>(RCRPC_WRITE_RESPONSE_LEN);
@@ -236,10 +238,8 @@ Server::HandleRPC()
 void __attribute__ ((noreturn))
 Server::Run()
 {
-    while (true) {
+    while (true)
         HandleRPC();
-        backup->Heartbeat();
-    }
 }
 
 } // namespace RAMCloud

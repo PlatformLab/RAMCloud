@@ -33,7 +33,7 @@ BackupClient::Heartbeat()
     req.hdr.type = BACKUP_RPC_HEARTBEAT_REQ;
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_HEARTBEAT_REQ_LEN);
 
-    printf("Sending heartbeat to backup\n");
+    printf("Sending Heartbeat to backup\n");
     SendRPC(&req);
 
     backup_rpc *resp;
@@ -71,8 +71,20 @@ BackupClient::Write(const chunk_hdr *obj)
 }
 
 void
-BackupClient::Commit(std::vector<uintptr_t> freed)
+BackupClient::Commit()//std::vector<uintptr_t> freed)
 {
+    backup_rpc req;
+    req.hdr.type = BACKUP_RPC_COMMIT_REQ;
+    req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_COMMIT_REQ_LEN);
+
+    printf("Sending Commit to backup\n");
+    SendRPC(&req);
+
+    backup_rpc *resp;
+    RecvRPC(&resp);
+
+    assert(resp->commit_resp.ok = 1);
+    printf("Commit ok\n");
 }
 
 } // namespace RAMCloud

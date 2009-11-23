@@ -5,13 +5,45 @@
 #include <shared/common.h>
 #include <shared/backuprpc.h>
 
+#include <cerrno>
+#include <cstring>
+
+#include <string>
+
 namespace RAMCloud {
 
-/* What do I need to know?  I don't care much about what's in
- * segments, but is the server going to repack these oddly?  Maybe I
- * don't care - I'm not even trying to mimck its layout exactly ---
- * do I really even need to keep fix segment sizes?  Could be helpful
- * on flash at least */
+struct BackupException {
+    /// Automatically captures errno and places string in message
+    explicit BackupException()
+            : message(""), errNo(0) {
+        errNo = errno;
+        message = strerror(errNo);
+    }
+    BackupException(std::string msg)
+            : message(msg), errNo(0) {}
+    BackupException(const BackupException &e)
+            : message(e.message), errNo(e.errNo) {}
+    BackupException &operator=(const BackupException &e) {
+        if (&e == this)
+            return *this;
+        message = e.message;
+        errNo = e.errNo;
+        return *this;
+    }
+    virtual ~BackupException();
+    std::string message;
+    int errNo;
+};
+
+struct BackupLogIOException : public BackupException {};
+struct BackupInvalidRPCOpException : public BackupException {};
+struct BackupSegmentOverflowException : public BackupException {
+    // no automatic pull-in of errno
+    explicit BackupSegmentOverflowException() {
+        message = "";
+        errNo = 0;
+    }
+};
 
 class BackupServer {
   public:
@@ -24,11 +56,20 @@ class BackupServer {
     void Heartbeat(const backup_rpc *req, backup_rpc *resp);
     void Write(const backup_rpc *req, backup_rpc *resp);
     void Commit(const backup_rpc *req, backup_rpc *resp);
+
     void HandleRPC();
     void SendRPC(struct backup_rpc *rpc);
     void RecvRPC(struct backup_rpc **rpc);
+
+    void DoWrite(const char *data, size_t data_len);
+    void DoCommit();
+    void Flush();
+
     Net *net;
     int log_fd;
+    char *seg;
+    /// Length of data in seg and next free pos in seg
+    size_t seg_off;
 };
 
 } // namespace RAMCloud

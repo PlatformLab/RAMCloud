@@ -55,6 +55,15 @@ main()
     printf("read took %lu ticks\n", rdtsc() - b);
     printf("Got back [%s] len %lu\n", buf, buf_len);
 
+    b = rdtsc();
+    int count = 256;
+    key = 0xfffffff;
+    for (int j = 0; j < count; j++) {
+        client->Insert(table, "Hello, World?", 14, &key);
+    }
+    printf("%d inserts took %lu ticks\n", count, rdtsc() - b);
+    printf("avg insert took %lu ticks\n", (rdtsc() - b) / count);
+
     client->DropTable("test");
 
     delete client;
