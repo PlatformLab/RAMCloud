@@ -1,3 +1,5 @@
+#include <config.h>
+
 #include <backup/backup.h>
 
 #include <shared/backuprpc.h>
@@ -10,23 +12,20 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include <error.h>
-#include <errno.h>
+#include <cerrno>
 
 namespace RAMCloud {
 
-enum { SEGMENT_SIZE = 1 <<  23 };
-
 BackupException::~BackupException() {}
 
-BackupServer::BackupServer(Net *net_impl)
+BackupServer::BackupServer(Net *net_impl, const char *logPath)
         : net(net_impl), log_fd(-1), seg(0), seg_off(0)
 {
-    log_fd = open("backup.log",
-                  O_CREAT | O_NOATIME | O_TRUNC | O_WRONLY,
-                  S_IRUSR | S_IWUSR);
+    log_fd = open(logPath,
+                  O_CREAT | O_TRUNC | O_WRONLY,
+                  0666);
     if (log_fd == -1)
-        throw BackupLogIOException();
+        throw BackupLogIOException(errno);
 
     seg = new char[SEGMENT_SIZE];
 }
@@ -37,8 +36,11 @@ BackupServer::~BackupServer()
     delete[] seg;
 
     int r = close(log_fd);
-    if (r == -1)
-        throw BackupLogIOException();
+    if (r == -1) {
+        // TODO(stutsman) need to check to see if we are aborting already
+        // is this really worth throwing over?  It'll likely cause an abort
+        throw BackupLogIOException(errno);
+    }
 }
 
 void
@@ -91,7 +93,7 @@ BackupServer::Flush()
     printf("Flushing active segment to disk\n");
     ssize_t r = write(log_fd, seg, seg_off);
     if (r != static_cast<ssize_t>(seg_off))
-        throw BackupLogIOException();
+        throw BackupLogIOException(errno);
 }
 
 void

@@ -1,13 +1,17 @@
 OBJDIRS += tests
 
 TESTS_SRCFILES := \
-		src/tests/tests.cc \
-		src/tests/server.cc
+		src/tests/server.cc \
+		src/tests/backup.cc \
+		src/tests/tests.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
 TESTS_OBJFILES := $(patsubst src/tests/%.c, $(OBJDIR)/tests/%.o, $(TESTS_OBJFILES))
 TESTS_OBJFILES := $(patsubst src/tests/%.cc, $(OBJDIR)/tests/%.o, $(TESTS_OBJFILES))
-TESTS_OBJFILES := $(TESTS_OBJFILES) $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+TESTS_OBJFILES := $(TESTS_OBJFILES) \
+               $(SHARED_OBJFILES) \
+               $(SERVER_OBJFILES) \
+               $(BACKUP_OBJFILES)
 
 TESTS_LIB := -lcppunit -ldl
 

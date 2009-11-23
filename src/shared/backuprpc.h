@@ -8,8 +8,6 @@
 
 namespace RAMCloud {
 
-enum { MAX_BACKUP_RPC_LEN = 2048 };
-
 struct BackupRPCException {
     BackupRPCException(std::string msg) : message(msg) {}
     std::string message;
