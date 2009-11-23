@@ -5,7 +5,6 @@
 #include <shared/common.h>
 #include <shared/backuprpc.h>
 
-#include <cerrno>
 #include <cstring>
 
 #include <string>
@@ -14,12 +13,8 @@ namespace RAMCloud {
 
 struct BackupException {
     /// Automatically captures errno and places string in message
-    explicit BackupException()
-            : message(""), errNo(0) {
-        errNo = errno;
-        message = strerror(errNo);
-    }
-    BackupException(std::string msg)
+    explicit BackupException() : message(""), errNo(0) {}
+    explicit BackupException(std::string msg)
             : message(msg), errNo(0) {}
     BackupException(const BackupException &e)
             : message(e.message), errNo(e.errNo) {}
@@ -30,25 +25,27 @@ struct BackupException {
         errNo = e.errNo;
         return *this;
     }
+    static void FromErrno(BackupException &e, int errn) {
+        e.message = strerror(errn);
+        e.errNo = errn;
+    }
     virtual ~BackupException();
     std::string message;
     int errNo;
 };
 
-struct BackupLogIOException : public BackupException {};
-struct BackupInvalidRPCOpException : public BackupException {};
-struct BackupSegmentOverflowException : public BackupException {
-    // no automatic pull-in of errno
-    explicit BackupSegmentOverflowException() {
-        message = "";
-        errNo = 0;
+struct BackupLogIOException : public BackupException {
+    BackupLogIOException(int errn) {
+        BackupException::FromErrno(*this, errn);
     }
 };
+struct BackupInvalidRPCOpException : public BackupException {};
+struct BackupSegmentOverflowException : public BackupException {};
 
 class BackupServer {
   public:
     explicit BackupServer();
-    explicit BackupServer(Net *net_impl);
+    explicit BackupServer(Net *net_impl, const char *logPath);
     ~BackupServer();
     void Run();
   private:
@@ -70,6 +67,7 @@ class BackupServer {
     char *seg;
     /// Length of data in seg and next free pos in seg
     size_t seg_off;
+    friend class BackupTest;
 };
 
 } // namespace RAMCloud

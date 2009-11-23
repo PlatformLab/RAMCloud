@@ -1,0 +1,4 @@
+$(TOP)/src/config.h:
+	cp $(TOP)/src/config.h.tmpl $@
+
+all: $(TOP)/src/config.h
