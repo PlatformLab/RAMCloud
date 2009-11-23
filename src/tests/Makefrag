@@ -9,7 +9,7 @@ TESTS_OBJFILES := $(patsubst src/tests/%.c, $(OBJDIR)/tests/%.o, $(TESTS_OBJFILE
 TESTS_OBJFILES := $(patsubst src/tests/%.cc, $(OBJDIR)/tests/%.o, $(TESTS_OBJFILES))
 TESTS_OBJFILES := $(TESTS_OBJFILES) $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 
-TESTS_LIB := -lcppunit
+TESTS_LIB := -lcppunit -ldl
 
 $(OBJDIR)/tests/tests: $(TESTS_OBJFILES)
 	@mkdir -p $(@D)
