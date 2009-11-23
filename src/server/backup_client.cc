@@ -39,7 +39,7 @@ BackupClient::Heartbeat()
     backup_rpc *resp;
     RecvRPC(&resp);
 
-    assert(resp->heartbeat_resp.ok = 1);
+    assert(resp->heartbeat_resp.ok == 1);
     printf("Heartbeat ok\n");
 }
 
@@ -66,7 +66,7 @@ BackupClient::Write(const chunk_hdr *obj)
     backup_rpc *resp;
     RecvRPC(&resp);
 
-    assert(resp->write_resp.ok = 1);
+    assert(resp->write_resp.ok == 1);
     printf("Write ok\n");
 }
 
@@ -83,7 +83,7 @@ BackupClient::Commit()//std::vector<uintptr_t> freed)
     backup_rpc *resp;
     RecvRPC(&resp);
 
-    assert(resp->commit_resp.ok = 1);
+    assert(resp->commit_resp.ok == 1);
     printf("Commit ok\n");
 }
 
