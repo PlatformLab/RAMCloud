@@ -1,11 +1,7 @@
+#include <config.h>
+
 #include <server/server.h>
 #include <shared/net.h>
-
-#define SVRADDR "127.0.0.1"
-#define SVRPORT  11111
-
-#define CLNTADDR "127.0.0.1"
-#define CLNTPORT 22222
 
 int
 main()

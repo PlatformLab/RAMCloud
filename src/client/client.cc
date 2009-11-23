@@ -1,16 +1,12 @@
 #include <cstring>
 #include <cassert>
 
+#include <config.h>
+
 #include <shared/rcrpc.h>
 #include <shared/net.h>
 
 #include <client/client.h>
-
-#define SVRADDR "127.0.0.1"
-#define SVRPORT  11111
-
-#define CLNTADDR "127.0.0.1"
-#define CLNTPORT 22222
 
 namespace RAMCloud {
 

@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cassert>
 
+#include <config.h>
 #include <shared/object.h>
 #include <shared/rcrpc.h>
 
@@ -14,14 +15,6 @@
 #include <server/net.h>
 
 namespace RAMCloud {
-
-#define BACKSVRADDR "127.0.0.1"
-#define BACKSVRPORT  33333
-
-#define BACKCLNTADDR "127.0.0.1"
-#define BACKCLNTPORT  44444
-
-#define MAX_RPC_LEN 2048
 
 Server::Server(Net *net_impl) : net(net_impl), backup(0)
 {

@@ -1,12 +1,12 @@
 #ifndef RAMCLOUD_SERVER_SERVER_H
 #define RAMCLOUD_SERVER_SERVER_H
 
+#include <config.h>
+
 #include <shared/rcrpc.h>
 
 #include <server/backup_client.h>
 #include <server/net.h>
-
-#define RC_NUM_TABLES 256
 
 namespace RAMCloud {
 
