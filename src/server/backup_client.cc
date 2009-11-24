@@ -61,22 +61,25 @@ BackupClient::Heartbeat()
 }
 
 void
-BackupClient::Write(const chunk_hdr *obj)
+BackupClient::Write(const void *buf, uint32_t offset, uint32_t len)
 {
+    // TODO(stutsman) For the moment we don't have a choice here
+    // we have to build this thing up in memory until the network
+    // interface is changed so we can gather the header and the
+    // data from two different places
     char reqbuf[MAX_RPC_LEN];
     backup_rpc *req = reinterpret_cast<backup_rpc *>(reqbuf);
 
-    uint64_t obj_size = sizeof(chunk_hdr) + obj->entries[0].len;
-
     req->hdr.type = BACKUP_RPC_WRITE_REQ;
-    req->hdr.len = BACKUP_RPC_WRITE_REQ_LEN_WODATA + obj_size;
+    req->hdr.len = BACKUP_RPC_WRITE_REQ_LEN_WODATA + len;
     if (req->hdr.len > MAX_RPC_LEN)
         throw BackupRPCException("Write RPC would be too long");
 
     printf("Sending Write to backup\n");
-    memcpy(&req->write_req.data[0],
-           obj,
-           obj_size);
+    req->write_req.off = offset;
+    req->write_req.len = len;
+    memcpy(&req->write_req.data[0], buf, len);
+
     debug_dump64(req, req->hdr.len);
     SendRPC(req);
 

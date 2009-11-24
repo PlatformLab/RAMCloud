@@ -18,6 +18,7 @@
 
 #include <config.h>
 
+#include <shared/object.h>
 #include <shared/rcrpc.h>
 
 #include <server/backup_client.h>
@@ -62,6 +63,7 @@ class Server {
     Net *net;
     BackupClient *backup;
     struct table tables[RC_NUM_TABLES];
+    uint32_t seg_off;
 };
 
 } // namespace RAMCloud

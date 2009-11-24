@@ -31,7 +31,7 @@
 
 namespace RAMCloud {
 
-Server::Server(Net *net_impl) : net(net_impl), backup(0)
+Server::Server(Net *net_impl) : net(net_impl), backup(0), seg_off(0)
 {
     memset(tables, 0, sizeof(tables));
 
@@ -90,7 +90,9 @@ Server::StoreData(object *o,
     o->hdr.entries[0].len = buf_len;
     memcpy(o->blob, buf, buf_len);
 
-    backup->Write(&o->hdr);
+    size_t len = sizeof(o->hdr) + buf_len;
+    backup->Write(&o->hdr, seg_off, len);
+    seg_off += len;
     backup->Commit();
 
 }

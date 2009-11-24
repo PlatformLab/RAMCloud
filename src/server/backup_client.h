@@ -17,7 +17,6 @@
 #define RAMCLOUD_SERVER_BACKUP_CLIENT_H
 
 #include <shared/common.h>
-#include <shared/object.h>
 #include <server/net.h>
 
 // requires 0x for cstdint
@@ -30,7 +29,7 @@ class BackupClient {
   public:
     explicit BackupClient(Net *net_impl);
     void Heartbeat();
-    void Write(const chunk_hdr *hdr);
+    void Write(const void *buf, uint32_t offset, uint32_t len);
     void Commit();//std::vector<uintptr_t> freed);
   private:
     DISALLOW_COPY_AND_ASSIGN(BackupClient);

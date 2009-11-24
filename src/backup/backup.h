@@ -73,15 +73,13 @@ class BackupServer {
     void SendRPC(struct backup_rpc *rpc);
     void RecvRPC(struct backup_rpc **rpc);
 
-    void DoWrite(const char *data, size_t data_len);
+    void DoWrite(const char *data, uint32_t off, uint32_t len);
     void DoCommit();
     void Flush();
 
     Net *net;
     int log_fd;
     char *seg;
-    /// Length of data in seg and next free pos in seg
-    size_t seg_off;
     friend class BackupTest;
 };
 

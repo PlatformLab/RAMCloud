@@ -41,6 +41,8 @@ struct backup_rpc_heartbeat_resp {
 };
 
 struct backup_rpc_write_req {
+    uint32_t off;
+    uint32_t len;
     char data[0];
 };
 

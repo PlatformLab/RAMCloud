@@ -33,7 +33,7 @@ namespace RAMCloud {
 BackupException::~BackupException() {}
 
 BackupServer::BackupServer(Net *net_impl, const char *logPath)
-        : net(net_impl), log_fd(-1), seg(0), seg_off(0)
+        : net(net_impl), log_fd(-1), seg(0)
 {
     log_fd = open(logPath,
                   O_CREAT | O_TRUNC | O_WRONLY,
@@ -79,22 +79,24 @@ BackupServer::Heartbeat(const backup_rpc *req, backup_rpc *resp)
 }
 
 void
-BackupServer::DoWrite(const char *data, size_t data_len)
+BackupServer::DoWrite(const char *data, uint32_t off, uint32_t len)
 {
-    debug_dump64(data, data_len);
-    if (data_len + seg_off > SEGMENT_SIZE)
+    debug_dump64(data, len);
+    if (len > SEGMENT_SIZE ||
+        off > SEGMENT_SIZE ||
+        len + off > SEGMENT_SIZE)
         throw BackupSegmentOverflowException();
-    memcpy(&seg[seg_off], data, data_len);
-    seg_off += data_len;
+    memcpy(&seg[off], data, len);
 }
 
 void
 BackupServer::Write(const backup_rpc *req, backup_rpc *resp)
 {
-    printf("Handling Write - total msg len %lu\n", req->hdr.len);
 
-    int data_len = req->hdr.len - BACKUP_RPC_HDR_LEN;
-    DoWrite(&req->write_req.data[0], data_len);
+    uint32_t off = req->write_req.off;
+    uint32_t len = req->write_req.len;
+    printf("Handling Write to offset Ox%x length %d\n", off, len);
+    DoWrite(&req->write_req.data[0], off, len);
 
     resp->hdr.type = BACKUP_RPC_WRITE_RESP;
     resp->hdr.len = (uint32_t) BACKUP_RPC_WRITE_RESP_LEN;
@@ -105,8 +107,8 @@ void
 BackupServer::Flush()
 {
     printf("Flushing active segment to disk\n");
-    ssize_t r = write(log_fd, seg, seg_off);
-    if (r != static_cast<ssize_t>(seg_off))
+    ssize_t r = write(log_fd, seg, SEGMENT_SIZE);
+    if (r != SEGMENT_SIZE)
         throw BackupLogIOException(errno);
 }
 
@@ -114,7 +116,6 @@ void
 BackupServer::DoCommit()
 {
     Flush();
-    seg_off = 0;
 }
 
 void
