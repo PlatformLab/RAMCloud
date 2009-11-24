@@ -960,8 +960,9 @@ def GetHeaderGuardCPPVariable(filename):
 
   """
 
-  fileinfo = FileInfo(filename)
-  return re.sub(r'[-./\s]', '_', fileinfo.RepositoryName()).upper() + '_'
+  fileinfo = FileInfo(filename).RepositoryName()
+  fileinfo = re.sub(r'^src', 'ramcloud', fileinfo)
+  return re.sub(r'[-./\s]', '_', fileinfo).upper()
 
 
 def CheckForHeaderGuard(filename, lines, error):
@@ -1020,8 +1021,8 @@ def CheckForHeaderGuard(filename, lines, error):
     if endif != ('#endif  // %s' % (cppvar + '_')):
       error_level = 5
 
-    error(filename, endif_linenum, 'build/header_guard', error_level,
-          '#endif line should be "#endif  // %s"' % cppvar)
+    #error(filename, endif_linenum, 'build/header_guard', error_level,
+    #      '#endif line should be "#endif  // %s"' % cppvar)
 
 
 def CheckForUnicodeReplacementCharacters(filename, lines, error):
@@ -1428,7 +1429,7 @@ def CheckSpacingForFunctionCall(filename, line, linenum, error):
       error(filename, linenum, 'whitespace/parens', 2,
             'Extra space after (')
     if (Search(r'\w\s+\(', fncall) and
-        not Search(r'#\s*define|typedef', fncall)):
+        not Search(r'#\s*define|typedef|catch|__attribute__', fncall)):
       error(filename, linenum, 'whitespace/parens', 4,
             'Extra space before ( in function call')
     # If the ) is followed only by a newline or a { + newline, assume it's
