@@ -14,6 +14,7 @@
  */
 
 #include <backup/backup.h>
+
 #include <shared/backuprpc.h>
 #include <server/net.h>
 
@@ -62,7 +63,7 @@ try
     Net net(BACKUPSVRADDR, BACKUPSVRPORT,
             BACKUPCLNTADDR, BACKUPCLNTPORT);
     BackupServer backup(&net, LOG_PATH);
-    
+
     backup_rpc req, resp;
 
     req.hdr.type = BACKUP_RPC_HEARTBEAT_REQ;

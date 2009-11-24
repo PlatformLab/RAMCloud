@@ -14,7 +14,7 @@
  */
 
 #include <cstdio>
-#define __STDC_FORMAT_MACROS	// Required for inttypes.h in C++. Ugh.
+#define __STDC_FORMAT_MACROS   // Required for inttypes.h in C++. Ugh.
 #include <inttypes.h>
 #include <stdint.h>
 #include <string.h>

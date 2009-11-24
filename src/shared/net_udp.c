@@ -48,13 +48,12 @@ rc_net_init(struct rc_net *ret,
 int
 rc_net_connect(struct rc_net *net)
 {
-    
     int fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (fd == -1) {
         // errno already set from socket
         return -1;
     }
-    
+
     if (bind(fd, (struct sockaddr *)&net->srcsin, sizeof(net->srcsin)) == -1) {
         // store errno in case close fails
         int e = errno;
@@ -114,7 +113,8 @@ rc_net_recv(struct rc_net *net, void **buf, size_t *buflen)
         return -1;
     }
     if ((unsigned) len < RCRPC_HEADER_LEN) {
-        fprintf(stderr, "%s: impossibly small rpc received: %d bytes\n", __func__, len);
+        fprintf(stderr, "%s: impossibly small rpc received: %d bytes\n",
+                __func__, len);
         // errno already set from recvfrom
         return -1;
     }

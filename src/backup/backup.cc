@@ -13,6 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <config.h>
 
 #include <backup/backup.h>
@@ -21,11 +25,6 @@
 
 #include <cstdio>
 #include <cassert>
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
 
 #include <cerrno>
 
@@ -139,9 +138,9 @@ BackupServer::HandleRPC()
     RecvRPC(&req);
 
     printf("got rpc type: 0x%08x, len 0x%08x\n", req->hdr.type, req->hdr.len);
-    
+
     try {
-        switch((enum backup_rpc_type) req->hdr.type) {
+        switch ((enum backup_rpc_type) req->hdr.type) {
             case BACKUP_RPC_HEARTBEAT_REQ: Heartbeat(req, &resp); break;
             case BACKUP_RPC_WRITE_REQ:     Write(req, &resp);     break;
             case BACKUP_RPC_COMMIT_REQ:    Commit(req, &resp);    break;

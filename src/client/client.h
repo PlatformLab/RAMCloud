@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_CLIENT_H
-#define RAMCLOUD_CLIENT_H
+#ifndef RAMCLOUD_CLIENT_CLIENT_H
+#define RAMCLOUD_CLIENT_CLIENT_H
 
 #include <inttypes.h>
 #include <shared/net.h>
