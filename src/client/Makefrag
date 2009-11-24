@@ -50,11 +50,25 @@ $(OBJDIR)/client/client: $(OBJDIR)/client/main.o $(OBJDIR)/client/libramcloud.a
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -o $@ $< -L$(OBJDIR)/client -lramcloud
 
-.PHONY: client client-lib client-lib-static client-lib-shared
+.PHONY: client client-lib client-lib-static client-lib-shared client-lib-install
 
 client-lib-static: $(OBJDIR)/client/libramcloud.a
 client-lib-shared: $(OBJDIR)/client/libramcloud.so
 client-lib: client-lib-static client-lib-shared
+
+# TODO(stutsman) need to rethink includes because right now this requires
+# -lramcloud -I/usr/local/include/ramcloud
+CLIENT_LIB_INSTALL_PREFIX := /usr/local
+client-lib-install:
+	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/lib
+	install -m 644 $(OBJDIR)/client/libramcloud.a $(CLIENT_LIB_INSTALL_PREFIX)/lib
+	install -m 644 $(OBJDIR)/client/libramcloud.so $(CLIENT_LIB_INSTALL_PREFIX)/lib
+	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
+	install -m 644 $(TOP)/src/client/client.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
+	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
+	install -m 644 $(TOP)/src/shared/net.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
+	install -m 644 $(TOP)/src/shared/net_udp.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
+	install -m 644 $(TOP)/src/shared/rcrpc.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
 
 client: $(OBJDIR)/client/client $(OBJDIR)/client/libramcloud.a $(OBJDIR)/client/libramcloud.so
 
