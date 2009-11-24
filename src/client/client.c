@@ -13,8 +13,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <cstring>
-#include <cassert>
+#include <string.h>
+#include <assert.h>
+#include <malloc.h>
 
 #include <config.h>
 
@@ -23,39 +24,37 @@
 
 #include <client/client.h>
 
-namespace RAMCloud {
-
-DefaultClient::DefaultClient() : net(0)
+int
+rc_connect(struct rc_client *client)
 {
-    rc_net *udpnet = new rc_net();
-    rc_net_init(udpnet, CLNTADDR, CLNTPORT, SVRADDR, SVRPORT);
-    net = reinterpret_cast<rc_net*>(udpnet);
-}
-
-DefaultClient::~DefaultClient()
-{
-    delete net;
+    rc_net_init(&client->net, CLNTADDR, CLNTPORT, SVRADDR, SVRPORT);
+    return 0;
 }
 
 void
-DefaultClient::Ping()
+rc_disconnect(struct rc_client *client)
+{
+}
+
+int
+rc_ping(struct rc_client *client)
 {
     struct rcrpc query, *resp;
-
-    /*** DO A PING ***/
 
     query.type = RCRPC_PING_REQUEST;
     query.len  = (uint32_t) RCRPC_PING_REQUEST_LEN;
 
-    //printf("sending ping rpc...\n");
-    assert(!rc_net_send_rpc(net, &query));
-
-    assert(!rc_net_recv_rpc(net, &resp));
-    //printf("received reply, type = 0x%08x\n", resp->type);
+    assert(!rc_net_send_rpc(&client->net, &query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
+    return 0;
 }
 
-void
-DefaultClient::Write(uint64_t table, uint64_t key, const char *buf, uint64_t len)
+int
+rc_write(struct rc_client *client,
+         uint64_t table,
+         uint64_t key,
+         const char *buf,
+         uint64_t len)
 {
     struct rcrpc query, *resp;
 
@@ -66,15 +65,17 @@ DefaultClient::Write(uint64_t table, uint64_t key, const char *buf, uint64_t len
     query.write_request.table = table;
     query.write_request.key = key;
     query.write_request.buf_len = len;
-    assert(!rc_net_send_rpc(net, &query));
-    assert(!rc_net_recv_rpc(net, &resp));
+    assert(!rc_net_send_rpc(&client->net, &query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
+    return 0;
 }
 
-void
-DefaultClient::Insert(uint64_t table,
-                      const char *buf,
-                      uint64_t len,
-                      uint64_t *key)
+int
+rc_insert(struct rc_client *client,
+          uint64_t table,
+          const char *buf,
+          uint64_t len,
+          uint64_t *key)
 {
     struct rcrpc query, *resp;
 
@@ -84,13 +85,18 @@ DefaultClient::Insert(uint64_t table,
     query.len  = (uint32_t) RCRPC_INSERT_REQUEST_LEN_WODATA + len;
     query.insert_request.table = table;
     query.insert_request.buf_len = len;
-    assert(!rc_net_send_rpc(net, &query));
-    assert(!rc_net_recv_rpc(net, &resp));
+    assert(!rc_net_send_rpc(&client->net, &query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
     *key = resp->insert_response.key;
+    return 0;
 }
 
-void
-DefaultClient::Read(uint64_t table, uint64_t key, char *buf, uint64_t *len)
+int
+rc_read(struct rc_client *client,
+        uint64_t table,
+        uint64_t key,
+        char *buf,
+        uint64_t *len)
 {
     struct rcrpc query, *resp;
 
@@ -98,52 +104,56 @@ DefaultClient::Read(uint64_t table, uint64_t key, char *buf, uint64_t *len)
     query.len  = (uint32_t) RCRPC_READ_REQUEST_LEN;
     query.read_request.table = table;
     query.read_request.key = key;
-    assert(!rc_net_send_rpc(net, &query));
-    assert(!rc_net_recv_rpc(net, &resp));
+    assert(!rc_net_send_rpc(&client->net, &query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
     *len = resp->read_response.buf_len;
     memcpy(buf, resp->read_response.buf, *len);
+    return 0;
 }
 
-void
-DefaultClient::CreateTable(const char *name)
+int
+rc_create_table(struct rc_client *client, const char *name)
 {
     struct rcrpc query, *resp;
 
     query.type = RCRPC_CREATE_TABLE_REQUEST;
     query.len  = (uint32_t) RCRPC_CREATE_TABLE_REQUEST_LEN;
-    strncpy(query.create_table_request.name, name, sizeof(query.create_table_request.name));
-    query.create_table_request.name[sizeof(query.create_table_request.name) - 1] = '\0';
-    assert(!rc_net_send_rpc(net, &query));
-    assert(!rc_net_recv_rpc(net, &resp));
+    char *table_name = query.open_table_request.name;
+    strncpy(table_name, name, sizeof(table_name));
+    table_name[sizeof(table_name) - 1] = '\0';
+    assert(!rc_net_send_rpc(&client->net, &query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
+    return 0;
 }
 
-uint64_t
-DefaultClient::OpenTable(const char *name)
+int
+rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
 {
     struct rcrpc query, *resp;
 
     query.type = RCRPC_OPEN_TABLE_REQUEST;
     query.len  = (uint32_t) RCRPC_OPEN_TABLE_REQUEST_LEN;
-    strncpy(query.open_table_request.name, name, sizeof(query.open_table_request.name));
-    query.open_table_request.name[sizeof(query.open_table_request.name) - 1] = '\0';
-    assert(!rc_net_send_rpc(net, &query));
-    assert(!rc_net_recv_rpc(net, &resp));
-    return resp->open_table_response.handle;
+    char *table_name = query.open_table_request.name;
+    strncpy(table_name, name, sizeof(table_name));
+    table_name[sizeof(table_name) - 1] = '\0';
+    assert(!rc_net_send_rpc(&client->net, &query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
+    *table_id = resp->open_table_response.handle;
+    return 0;
 }
 
-void
-DefaultClient::DropTable(const char *name)
+int
+rc_drop_table(struct rc_client *client, const char *name)
 {
     struct rcrpc query, *resp;
 
     query.type = RCRPC_DROP_TABLE_REQUEST;
     query.len  = (uint32_t) RCRPC_DROP_TABLE_REQUEST_LEN;
-    strncpy(query.drop_table_request.name, name, sizeof(query.drop_table_request.name));
-    query.drop_table_request.name[sizeof(query.drop_table_request.name) - 1] = '\0';
-    assert(!rc_net_send_rpc(net, &query));
-    assert(!rc_net_recv_rpc(net, &resp));
+    char *table_name = query.open_table_request.name;
+    strncpy(table_name, name, sizeof(table_name));
+    table_name[sizeof(table_name) - 1] = '\0';
+    assert(!rc_net_send_rpc(&client->net, &query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
+    return 0;
 }
-
-
-} // namespace RAMCloud
 

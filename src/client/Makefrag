@@ -1,10 +1,10 @@
 OBJDIRS += client
 
 CLIENT_SRCFILES := \
-		src/client/client.cc
+		src/client/client.c
 
 CLIENT_OBJFILES := $(CLIENT_SRCFILES)
-CLIENT_OBJFILES := $(patsubst src/client/%.cc, $(OBJDIR)/client/%.o, $(CLIENT_OBJFILES))
+CLIENT_OBJFILES := $(patsubst src/client/%.c, $(OBJDIR)/client/%.o, $(CLIENT_OBJFILES))
 CLIENT_OBJFILES := $(CLIENT_OBJFILES) $(SHARED_OBJFILES)
 
 $(OBJDIR)/client/libramcloud.a: $(CLIENT_OBJFILES)
@@ -15,8 +15,8 @@ $(OBJDIR)/client/client: $(OBJDIR)/client/main.o $(OBJDIR)/client/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -o $@ $< -L$(OBJDIR)/client -lramcloud
 
-$(OBJDIR)/client/%.o: $(TOP)/src/client/%.cc
+$(OBJDIR)/client/%.o: $(TOP)/src/client/%.c
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 all: $(OBJDIR)/client/client

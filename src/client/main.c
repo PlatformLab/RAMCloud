@@ -18,6 +18,8 @@
 #include <stdio.h>
 #include <inttypes.h>
 
+#include <assert.h>
+
 static uint64_t
 rdtsc()
 {
@@ -35,38 +37,40 @@ rdtsc()
 int
 main()
 {
-    RAMCloud::Client *client = new RAMCloud::DefaultClient();
+    struct rc_client client;
+    rc_connect(&client);
+
     uint64_t b;
-    uint64_t table;
 
     b = rdtsc();
-    client->CreateTable("test");
-    table = client->OpenTable("test");
+    assert(!rc_create_table(&client, "test"));
+    uint64_t table;
+    assert(!rc_open_table(&client, "test", &table));
     printf("create+open table took %lu ticks\n", rdtsc() - b);
 
     b = rdtsc();
-    client->Ping();
+    assert(!rc_ping(&client));
     printf("ping took %lu ticks\n", rdtsc() - b);
 
     b = rdtsc();
-    client->Write(table, 42, "Hello, World!", 14);
+    assert(!rc_write(&client, table, 42, "Hello, World!", 14));
     printf("write took %lu ticks\n", rdtsc() - b);
 
     char buf[100];
     b = rdtsc();
     uint64_t buf_len;
-    client->Read(table, 42, buf, &buf_len);
+    assert(!rc_read(&client, table, 42, buf, &buf_len));
     printf("read took %lu ticks\n", rdtsc() - b);
     printf("Got back [%s] len %lu\n", buf, buf_len);
 
     b = rdtsc();
     uint64_t key = 0xfffffff;
-    client->Insert(table, "Hello, World?", 14, &key);
+    assert(!rc_insert(&client, table, "Hello, World?", 14, &key));
     printf("insert took %lu ticks\n", rdtsc() - b);
     printf("Got back [%lu] key\n", key);
 
     b = rdtsc();
-    client->Read(table, key, buf, &buf_len);
+    assert(!rc_read(&client, table, key, buf, &buf_len));
     printf("read took %lu ticks\n", rdtsc() - b);
     printf("Got back [%s] len %lu\n", buf, buf_len);
 
@@ -74,13 +78,14 @@ main()
     int count = 256;
     key = 0xfffffff;
     for (int j = 0; j < count; j++) {
-        client->Insert(table, "Hello, World?", 14, &key);
+        assert(!rc_insert(&client, table, "Hello, World?", 14, &key));
     }
     printf("%d inserts took %lu ticks\n", count, rdtsc() - b);
     printf("avg insert took %lu ticks\n", (rdtsc() - b) / count);
 
-    client->DropTable("test");
+    assert(!rc_drop_table(&client, "test"));
 
-    delete client;
-    return (0);
+    rc_disconnect(&client);
+
+    return 0;
 }

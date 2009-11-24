@@ -19,47 +19,28 @@
 #include <inttypes.h>
 #include <shared/net.h>
 
-namespace RAMCloud {
-
-class Client {
- public:
-    virtual ~Client() {}
-    virtual void Ping() = 0;
-    virtual void Write(uint64_t table, uint64_t key,
-                       const char *buf, uint64_t len) = 0;
-    virtual void Read(uint64_t table, uint64_t key,
-                      char *buf, uint64_t *buf_len) = 0;
-    virtual void Insert(uint64_t table,
-                        const char *buf,
-                        uint64_t len,
-                        uint64_t *key) = 0;
-    virtual void CreateTable(const char *name) = 0;
-    virtual uint64_t OpenTable(const char *name) = 0;
-    virtual void DropTable(const char *name) = 0;
+struct rc_client {
+    struct rc_net net;
 };
 
-class DefaultClient : public Client {
- private:
-    rc_net *net;
- public:
-    explicit DefaultClient();
-    DefaultClient(const DefaultClient& client);
-    DefaultClient& operator=(const DefaultClient& client);
-    ~DefaultClient();
-    virtual void Ping();
-    virtual void Write(uint64_t table, uint64_t key,
-                       const char *buf, uint64_t len);
-    virtual void Read(uint64_t table, uint64_t key,
-                      char *buf, uint64_t *buf_len);
-    virtual void Insert(uint64_t table,
-                        const char *buf,
-                        uint64_t len,
-                        uint64_t *key);
-    virtual void CreateTable(const char *name);
-    virtual uint64_t OpenTable(const char *name);
-    virtual void DropTable(const char *name);
-};
-
+#ifdef __cplusplus
+extern "C" {
+#endif
+int rc_connect(struct rc_client *client);
+void rc_disconnect(struct rc_client *client);
+int rc_ping(struct rc_client *client);
+int rc_write(struct rc_client *client, uint64_t table, uint64_t key,
+             const char *buf, uint64_t len);
+int rc_insert(struct rc_client *client, uint64_t table, const char *buf,
+              uint64_t len, uint64_t *key);
+int rc_read(struct rc_client *client, uint64_t table,
+            uint64_t key, char *buf, uint64_t *len);
+int rc_create_table(struct rc_client *client, const char *name);
+int rc_open_table(struct rc_client *client, const char *name,
+                  uint64_t *table_id);
+int rc_drop_table(struct rc_client *client, const char *name);
+#ifdef __cplusplus
 }
+#endif
 
 #endif

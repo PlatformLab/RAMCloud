@@ -30,8 +30,8 @@
 
 void
 rc_net_init(struct rc_net *ret,
-            char *srcaddr, uint16_t srcport,
-            char *dstaddr, uint16_t dstport)
+            const char *srcaddr, uint16_t srcport,
+            const char *dstaddr, uint16_t dstport)
 {
     ret->fd = 0;
     ret->connected = 0;

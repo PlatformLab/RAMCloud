@@ -30,8 +30,8 @@
 extern "C" {
 #endif
 void rc_net_init(struct rc_net *ret,
-                 char *srcaddr, uint16_t srcport,
-                 char *dstaddr, uint16_t dstport);
+                 const char *srcaddr, uint16_t srcport,
+                 const char *dstaddr, uint16_t dstport);
 int rc_net_connect(struct rc_net *net);
 int rc_net_close(struct rc_net *net);
 int rc_net_is_server(struct rc_net *net);
