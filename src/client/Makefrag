@@ -1,22 +1,61 @@
-OBJDIRS += client
+OBJDIRS += client client/client_static client/client_shared \
+	client/shared_static client/shared_shared
 
 CLIENT_SRCFILES := \
 		src/client/client.c
 
-CLIENT_OBJFILES := $(CLIENT_SRCFILES)
-CLIENT_OBJFILES := $(patsubst src/client/%.c, $(OBJDIR)/client/%.o, $(CLIENT_OBJFILES))
-CLIENT_OBJFILES := $(CLIENT_OBJFILES) $(SHARED_OBJFILES)
+CLIENT_STATIC_OBJFILES := $(CLIENT_SRCFILES)
+CLIENT_STATIC_OBJFILES := $(patsubst src/client/%.c, $(OBJDIR)/client/client_static/%.o, $(CLIENT_STATIC_OBJFILES))
+# CAREFUL - this implies that .o file names from src/client and
+# SHARED_NET_SRC_FILES cannot collide or all hell will break loose
+CLIENT_NET_STATIC_OBJFILES := $(patsubst src/shared/%.c, $(OBJDIR)/client/shared_static/%.o, $(SHARED_NET_SRCFILES))
+CLIENT_STATIC_OBJFILES := $(CLIENT_STATIC_OBJFILES) $(CLIENT_NET_STATIC_OBJFILES)
 
-$(OBJDIR)/client/libramcloud.a: $(CLIENT_OBJFILES)
-	@mkdir -p $(@D)
-	$(AR) rcs $@ $^
+CLIENT_SHARED_OBJFILES := $(CLIENT_SRCFILES)
+CLIENT_SHARED_OBJFILES := $(patsubst src/client/%.c, $(OBJDIR)/client/client_shared/%.o, $(CLIENT_SHARED_OBJFILES))
+# CAREFUL - this implies that .o file names from src/client and
+# SHARED_NET_SRC_FILES cannot collide or all hell will break loose
+CLIENT_NET_SHARED_OBJFILES := $(patsubst src/shared/%.c, $(OBJDIR)/client/shared_shared/%.o, $(SHARED_NET_SRCFILES))
+CLIENT_SHARED_OBJFILES := $(CLIENT_SHARED_OBJFILES) $(CLIENT_NET_SHARED_OBJFILES)
 
-$(OBJDIR)/client/client: $(OBJDIR)/client/main.o $(OBJDIR)/client/libramcloud.a
+$(OBJDIR)/client/client_static/%.o: $(TOP)/src/client/%.c
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -o $@ $< -L$(OBJDIR)/client -lramcloud
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/client/client_shared/%.o: $(TOP)/src/client/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+
+$(OBJDIR)/client/shared_static/%.o: $(TOP)/src/shared/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/client/shared_shared/%.o: $(TOP)/src/shared/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
 
 $(OBJDIR)/client/%.o: $(TOP)/src/client/%.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-all: $(OBJDIR)/client/client
+$(OBJDIR)/client/libramcloud.a: $(CLIENT_STATIC_OBJFILES)
+	@mkdir -p $(@D)
+	$(AR) rcs $@ $^
+
+$(OBJDIR)/client/libramcloud.so: $(CLIENT_SHARED_OBJFILES)
+	@mkdir -p $(@D)
+	$(CC) -shared -o $@ $^
+
+$(OBJDIR)/client/client: $(OBJDIR)/client/main.o $(OBJDIR)/client/libramcloud.a
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -o $@ $< -L$(OBJDIR)/client -lramcloud
+
+.PHONY: client client-lib client-lib-static client-lib-shared
+
+client-lib-static: $(OBJDIR)/client/libramcloud.a
+client-lib-shared: $(OBJDIR)/client/libramcloud.so
+client-lib: client-lib-static client-lib-shared
+
+client: $(OBJDIR)/client/client $(OBJDIR)/client/libramcloud.a $(OBJDIR)/client/libramcloud.so
+
+all: client
