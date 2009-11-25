@@ -26,7 +26,7 @@ main()
     Net *net = new Net(BACKSVRADDR, BACKSVRPORT,
                        BACKCLNTADDR, BACKCLNTPORT);
     BackupServer *server = new BackupServer(net,
-                                            "backup.log");
+                                            BACKUP_LOG_PATH);
 
     server->Run();
 

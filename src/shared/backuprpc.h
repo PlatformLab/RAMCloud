@@ -48,6 +48,8 @@ struct backup_rpc_write_req {
 
 struct backup_rpc_write_resp {
     uint8_t ok;
+    uint32_t len;
+    char message[0];
 };
 
 struct backup_rpc_commit_req {
@@ -55,6 +57,8 @@ struct backup_rpc_commit_req {
 
 struct backup_rpc_commit_resp {
     uint8_t ok;
+    uint32_t len;
+    char message[0];
 };
 
 enum rc_backup_rpc_len {
@@ -62,9 +66,9 @@ enum rc_backup_rpc_len {
     BACKUP_RPC_HEARTBEAT_REQ_LEN      = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_heartbeat_req)),
     BACKUP_RPC_HEARTBEAT_RESP_LEN     = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_heartbeat_resp)),
     BACKUP_RPC_WRITE_REQ_LEN_WODATA   = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_write_req)),
-    BACKUP_RPC_WRITE_RESP_LEN         = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_write_resp)),
-    BACKUP_RPC_COMMIT_REQ_LEN          = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_req)),
-    BACKUP_RPC_COMMIT_RESP_LEN         = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_resp)),
+    BACKUP_RPC_WRITE_RESP_LEN_WODATA  = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_write_resp)),
+    BACKUP_RPC_COMMIT_REQ_LEN         = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_req)),
+   BACKUP_RPC_COMMIT_RESP_LEN_WODATA  = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_resp)),
 };
 
 enum backup_rpc_type {

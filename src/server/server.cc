@@ -221,8 +221,8 @@ Server::HandleRPC()
     char rpcbuf[MAX_RPC_LEN];
     rcrpc *resp = reinterpret_cast<rcrpc *>(rpcbuf);
 
-    printf("got rpc type: 0x%08x, len 0x%08x\n", req->type, req->len);
-    
+    //printf("got rpc type: 0x%08x, len 0x%08x\n", req->type, req->len);
+
     switch((enum RCRPC_TYPE) req->type) {
         case RCRPC_PING_REQUEST:         Server::Ping(req, resp);        break;
         case RCRPC_READ_REQUEST:         Server::Read(req, resp);        break;
@@ -232,7 +232,7 @@ Server::HandleRPC()
         case RCRPC_CREATE_TABLE_REQUEST: Server::CreateTable(req, resp); break;
         case RCRPC_OPEN_TABLE_REQUEST:   Server::OpenTable(req, resp);   break;
         case RCRPC_DROP_TABLE_REQUEST:   Server::DropTable(req, resp);   break;
-            
+
         case RCRPC_PING_RESPONSE:
         case RCRPC_READ_RESPONSE:
         case RCRPC_WRITE_RESPONSE:
@@ -242,7 +242,7 @@ Server::HandleRPC()
         case RCRPC_OPEN_TABLE_RESPONSE:
         case RCRPC_DROP_TABLE_RESPONSE:
             throw "server received RPC response";
-            
+
         default:
             throw "received unknown RPC type";
     };

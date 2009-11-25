@@ -80,13 +80,17 @@ BackupClient::Write(const void *buf, uint32_t offset, uint32_t len)
     req->write_req.len = len;
     memcpy(&req->write_req.data[0], buf, len);
 
-    debug_dump64(req, req->hdr.len);
     SendRPC(req);
 
     backup_rpc *resp;
     RecvRPC(&resp);
 
-    assert(resp->write_resp.ok == 1);
+    if (resp->write_resp.ok != 1) {
+        resp->write_resp.message[resp->write_resp.len - 1] = '\0';
+        char *m = resp->write_resp.message;
+        printf("Exception on Write >>> %s\n", m);
+        throw BackupRPCException(m);
+    }
     printf("Write ok\n");
 }
 
@@ -103,7 +107,12 @@ BackupClient::Commit()//std::vector<uintptr_t> freed)
     backup_rpc *resp;
     RecvRPC(&resp);
 
-    assert(resp->commit_resp.ok == 1);
+    if (resp->commit_resp.ok != 1) {
+        resp->commit_resp.message[resp->commit_resp.len - 1] = '\0';
+        char *m = resp->commit_resp.message;
+        printf("Exception on Commit >>> %s\n", m);
+        throw BackupRPCException(m);
+    }
     printf("Commit ok\n");
 }
 

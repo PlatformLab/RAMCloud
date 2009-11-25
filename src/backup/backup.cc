@@ -13,11 +13,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <config.h>
+#include <malloc.h>
 
 #include <backup/backup.h>
 
@@ -33,23 +35,29 @@ namespace RAMCloud {
 BackupException::~BackupException() {}
 
 BackupServer::BackupServer(Net *net_impl, const char *logPath)
-    : net(net_impl), log_fd(-1), seg(0), free_map(true), last_seg_written(0)
+    : net(net_impl), log_fd(-1), seg(0), unaligned_seg(0),
+      free_map(true), last_seg_written(0)
 {
     log_fd = open(logPath,
-                  O_CREAT | O_TRUNC | O_WRONLY,
+                  O_CREAT | O_WRONLY | BACKUP_LOG_FLAGS,
                   0666);
     if (log_fd == -1)
         throw BackupLogIOException(errno);
 
-    seg = new char[SEGMENT_SIZE];
+    const int pagesize = getpagesize();
+    unaligned_seg = (char *) malloc(SEGMENT_SIZE + pagesize);
+    assert(unaligned_seg);
+    seg = (char *)((((intptr_t)unaligned_seg + pagesize - 1)/
+                    pagesize) * pagesize);
 
-    ReserveSpace();
+    if (!(BACKUP_LOG_FLAGS & O_DIRECT))
+        ReserveSpace();
 }
 
 BackupServer::~BackupServer()
 {
     Flush();
-    delete[] seg;
+    free(unaligned_seg);
 
     int r = close(log_fd);
     if (r == -1) {
@@ -102,17 +110,28 @@ BackupServer::DoWrite(const char *data, uint64_t off, uint64_t len)
 
 void
 BackupServer::Write(const backup_rpc *req, backup_rpc *resp)
+try
 {
 
     uint64_t off = req->write_req.off;
     uint64_t len = req->write_req.len;
-    printf("Handling Write to offset Ox%x length %d\n", off, len);
+    //printf("Handling Write to offset Ox%x length %d\n", off, len);
+    printf("<");
     DoWrite(&req->write_req.data[0], off, len);
 
     resp->hdr.type = BACKUP_RPC_WRITE_RESP;
-    resp->hdr.len = (uint32_t) BACKUP_RPC_WRITE_RESP_LEN;
+    resp->hdr.len = (uint32_t) BACKUP_RPC_WRITE_RESP_LEN_WODATA;
     resp->write_resp.ok = 1;
+} catch (BackupException e) {
+    resp->hdr.type = BACKUP_RPC_WRITE_RESP;
+    resp->hdr.len = static_cast<uint32_t>(BACKUP_RPC_WRITE_RESP_LEN_WODATA +
+                                          e.message.length() + 1);
+    resp->write_resp.ok = 0;
+    resp->write_resp.len = static_cast<uint32_t>(e.message.length() + 1);
+    strcpy(&resp->write_resp.message[0], e.message.c_str());
+    fprintf(stderr, ">>> BackupException: %s\n", e.message.c_str());
 }
+
 
 static inline int64_t
 SegFrameOff(int64_t segnum)
@@ -130,12 +149,17 @@ BackupServer::Flush()
         throw BackupLogIOException("Out of free segment frames");
     printf("Write active segment to frame %ld\n", next);
 
+    struct timeval start, end, res;
+    gettimeofday(&start, NULL);
     off_t off = lseek(log_fd, SegFrameOff(next), SEEK_SET);
     if (off == -1)
         throw BackupLogIOException(errno);
     ssize_t r = write(log_fd, seg, SEGMENT_SIZE);
     if (r != SEGMENT_SIZE)
         throw BackupLogIOException(errno);
+    gettimeofday(&end, NULL);
+    timersub(&end, &start, &res);
+    printf("Flush in %d s %d us\n", res.tv_sec, res.tv_usec);
 
     free_map.Clear(next);
     last_seg_written = next;
@@ -149,14 +173,24 @@ BackupServer::DoCommit()
 
 void
 BackupServer::Commit(const backup_rpc *req, backup_rpc *resp)
+try
 {
     printf(">>> Handling Commit - total msg len %lu\n", req->hdr.len);
 
     DoCommit();
 
     resp->hdr.type = BACKUP_RPC_COMMIT_RESP;
-    resp->hdr.len = (uint32_t) BACKUP_RPC_COMMIT_RESP_LEN;
+    // No data when there's no exception
+    resp->hdr.len = (uint32_t) BACKUP_RPC_COMMIT_RESP_LEN_WODATA;
     resp->commit_resp.ok = 1;
+} catch (BackupException e) {
+    resp->hdr.type = BACKUP_RPC_COMMIT_RESP;
+    resp->hdr.len = static_cast<uint32_t>(BACKUP_RPC_COMMIT_RESP_LEN_WODATA +
+                                          e.message.length() + 1);
+    resp->commit_resp.ok = 0;
+    resp->commit_resp.len = static_cast<uint32_t>(e.message.length() + 1);
+    strcpy(&resp->commit_resp.message[0], e.message.c_str());
+    fprintf(stderr, ">>> BackupException: %s\n", e.message.c_str());
 }
 
 void
@@ -182,7 +216,7 @@ BackupServer::HandleRPC()
                 throw BackupInvalidRPCOpException();
         };
     } catch (BackupException e) {
-        fprintf(stderr, ">>> BackupException: %s\n", e.message.c_str());
+    fprintf(stderr, ">>> Unhandled BackupException: %s\n", e.message.c_str());
     }
     SendRPC(&resp);
 }

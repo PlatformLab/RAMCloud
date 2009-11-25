@@ -135,6 +135,7 @@ class BackupServer {
     Net *net;
     int log_fd;
     char *seg;
+    char *unaligned_seg;
 
     FreeBitmap<SEGMENT_COUNT * 2> free_map;
     int64_t last_seg_written;

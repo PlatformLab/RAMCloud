@@ -21,7 +21,6 @@
 
 // requires 0x for cstdint
 #include <stdint.h>
-#include <vector>
 
 namespace RAMCloud {
 
@@ -30,7 +29,7 @@ class BackupClient {
     explicit BackupClient(Net *net_impl);
     void Heartbeat();
     void Write(const void *buf, uint32_t offset, uint32_t len);
-    void Commit();//std::vector<uintptr_t> freed);
+    void Commit();
   private:
     DISALLOW_COPY_AND_ASSIGN(BackupClient);
     void SendRPC(struct backup_rpc *rpc);
