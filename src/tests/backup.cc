@@ -36,9 +36,11 @@ class BackupTest : public CppUnit::TestFixture {
     void setUp();
     void tearDown();
     void TestHeartbeat();
+    void TestFreeBitmap();
   private:
     CPPUNIT_TEST_SUITE(BackupTest);
     CPPUNIT_TEST(TestHeartbeat);
+    CPPUNIT_TEST(TestFreeBitmap);
     CPPUNIT_TEST_SUITE_END();
     Net *net;
     BackupServer *backup;
@@ -82,6 +84,66 @@ try
 } catch (...) {
     CPPUNIT_ASSERT(false);
     unlink(LOG_PATH);
+}
+
+void
+BackupTest::TestFreeBitmap()
+{
+    FreeBitmap<8192> free(false);
+
+    free.Set(63);
+    CPPUNIT_ASSERT(!free.Get(62));
+    CPPUNIT_ASSERT(free.Get(63));
+    free.Clear(63);
+
+    free.Set(0);
+    CPPUNIT_ASSERT(free.NextFree(0) == 0);
+    CPPUNIT_ASSERT(free.NextFree(1) == 0);
+    free.Set(0);
+    free.Clear(1);
+    CPPUNIT_ASSERT(free.NextFree(1) == 0);
+    CPPUNIT_ASSERT(free.NextFree(2) == 0);
+    CPPUNIT_ASSERT(free.NextFree(63) == 0);
+    CPPUNIT_ASSERT(free.NextFree(64) == 0);
+    free.Set(64);
+    free.Clear(0);
+    CPPUNIT_ASSERT(free.NextFree(64) == 64);
+    CPPUNIT_ASSERT(free.NextFree(1) == 64);
+    free.Clear(0);
+    free.Set(1);
+    CPPUNIT_ASSERT(free.NextFree(1) == 1);
+    CPPUNIT_ASSERT(free.NextFree(64) == 1);
+    free.Set(0);
+    for (uint32_t i = 1; i < 8192; i++)
+        free.Clear(i);
+    CPPUNIT_ASSERT(free.NextFree(8191) == 0);
+    free.Clear(0);
+    CPPUNIT_ASSERT(free.NextFree(0) == -1);
+    CPPUNIT_ASSERT(free.NextFree(2812) == -1);
+    CPPUNIT_ASSERT(free.NextFree(8191) == -1);
+
+
+    free.Clear(0);
+    CPPUNIT_ASSERT(!free.Get(0));
+    free.Set(0);
+    free.Set(1);
+    CPPUNIT_ASSERT(free.Get(0));
+
+    free.Clear(0);
+    CPPUNIT_ASSERT(!free.Get(0));
+    free.Set(0);
+    CPPUNIT_ASSERT(free.Get(0));
+
+    FreeBitmap<8> f(true);
+
+    CPPUNIT_ASSERT(f.Get(0));
+    CPPUNIT_ASSERT(f.Get(7));
+    CPPUNIT_ASSERT(f.NextFree(0) == 0);
+    CPPUNIT_ASSERT(f.NextFree(1) == 0);
+    f.ClearAll();
+    CPPUNIT_ASSERT(f.NextFree(0) == -1);
+    f.Set(5);
+    CPPUNIT_ASSERT(f.NextFree(0) == 5);
 }
 
 } // namespace RAMCloud

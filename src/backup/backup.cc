@@ -33,7 +33,7 @@ namespace RAMCloud {
 BackupException::~BackupException() {}
 
 BackupServer::BackupServer(Net *net_impl, const char *logPath)
-        : net(net_impl), log_fd(-1), seg(0)
+    : net(net_impl), log_fd(-1), seg(0), free_map(true), last_seg_written(0)
 {
     log_fd = open(logPath,
                   O_CREAT | O_TRUNC | O_WRONLY,
@@ -42,6 +42,8 @@ BackupServer::BackupServer(Net *net_impl, const char *logPath)
         throw BackupLogIOException(errno);
 
     seg = new char[SEGMENT_SIZE];
+
+    ReserveSpace();
 }
 
 BackupServer::~BackupServer()
@@ -55,6 +57,15 @@ BackupServer::~BackupServer()
         // is this really worth throwing over?  It'll likely cause an abort
         throw BackupLogIOException(errno);
     }
+}
+
+void
+BackupServer::ReserveSpace()
+{
+    printf("Reserving %d bytes of log space\n", LOG_SPACE);
+    int r = ftruncate(log_fd, LOG_SPACE);
+    if (r == -1)
+        throw BackupLogIOException(errno);
 }
 
 void
@@ -79,9 +90,9 @@ BackupServer::Heartbeat(const backup_rpc *req, backup_rpc *resp)
 }
 
 void
-BackupServer::DoWrite(const char *data, uint32_t off, uint32_t len)
+BackupServer::DoWrite(const char *data, uint64_t off, uint64_t len)
 {
-    debug_dump64(data, len);
+    //debug_dump64(data, len);
     if (len > SEGMENT_SIZE ||
         off > SEGMENT_SIZE ||
         len + off > SEGMENT_SIZE)
@@ -93,8 +104,8 @@ void
 BackupServer::Write(const backup_rpc *req, backup_rpc *resp)
 {
 
-    uint32_t off = req->write_req.off;
-    uint32_t len = req->write_req.len;
+    uint64_t off = req->write_req.off;
+    uint64_t len = req->write_req.len;
     printf("Handling Write to offset Ox%x length %d\n", off, len);
     DoWrite(&req->write_req.data[0], off, len);
 
@@ -103,13 +114,31 @@ BackupServer::Write(const backup_rpc *req, backup_rpc *resp)
     resp->write_resp.ok = 1;
 }
 
+static inline int64_t
+SegFrameOff(int64_t segnum)
+{
+    return segnum * SEGMENT_SIZE;
+}
+
 void
 BackupServer::Flush()
 {
     printf("Flushing active segment to disk\n");
+
+    int64_t next = free_map.NextFree(last_seg_written);
+    if (next == -1)
+        throw BackupLogIOException("Out of free segment frames");
+    printf("Write active segment to frame %ld\n", next);
+
+    off_t off = lseek(log_fd, SegFrameOff(next), SEEK_SET);
+    if (off == -1)
+        throw BackupLogIOException(errno);
     ssize_t r = write(log_fd, seg, SEGMENT_SIZE);
     if (r != SEGMENT_SIZE)
         throw BackupLogIOException(errno);
+
+    free_map.Clear(next);
+    last_seg_written = next;
 }
 
 void
@@ -121,7 +150,7 @@ BackupServer::DoCommit()
 void
 BackupServer::Commit(const backup_rpc *req, backup_rpc *resp)
 {
-    printf("Handling Commit - total msg len %lu\n", req->hdr.len);
+    printf(">>> Handling Commit - total msg len %lu\n", req->hdr.len);
 
     DoCommit();
 
@@ -138,7 +167,7 @@ BackupServer::HandleRPC()
 
     RecvRPC(&req);
 
-    printf("got rpc type: 0x%08x, len 0x%08x\n", req->hdr.type, req->hdr.len);
+    //printf("got rpc type: 0x%08x, len 0x%08x\n", req->hdr.type, req->hdr.len);
 
     try {
         switch ((enum backup_rpc_type) req->hdr.type) {
@@ -153,7 +182,7 @@ BackupServer::HandleRPC()
                 throw BackupInvalidRPCOpException();
         };
     } catch (BackupException e) {
-        fprintf(stderr, e.message.c_str());
+        fprintf(stderr, ">>> BackupException: %s\n", e.message.c_str());
     }
     SendRPC(&resp);
 }

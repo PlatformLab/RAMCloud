@@ -21,10 +21,12 @@
 int
 main()
 {
-    RAMCloud::Net *net = new RAMCloud::Net(BACKSVRADDR, BACKSVRPORT,
-                                           BACKCLNTADDR, BACKCLNTPORT);
-    RAMCloud::BackupServer *server = new RAMCloud::BackupServer(net,
-                                                                "/dev/null");
+    using ::RAMCloud::Net;
+    using ::RAMCloud::BackupServer;
+    Net *net = new Net(BACKSVRADDR, BACKSVRPORT,
+                       BACKCLNTADDR, BACKCLNTPORT);
+    BackupServer *server = new BackupServer(net,
+                                            "backup.log");
 
     server->Run();
 

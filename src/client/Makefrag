@@ -48,7 +48,7 @@ $(OBJDIR)/client/libramcloud.so: $(CLIENT_SHARED_OBJFILES)
 
 $(OBJDIR)/client/client: $(OBJDIR)/client/main.o $(OBJDIR)/client/libramcloud.a
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -o $@ $< -L$(OBJDIR)/client -lramcloud
+	$(CC) $(CFLAGS) -o $@ $< -L$(OBJDIR)/client $(OBJDIR)/client/libramcloud.a
 
 .PHONY: client client-lib client-lib-static client-lib-shared client-lib-install
 

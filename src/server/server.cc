@@ -55,7 +55,7 @@ void
 Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 {
     const rcrpc_read_request * const rreq = &req->read_request;
-    
+
     printf("Read from table %d key %d\n",
            rreq->table,
            rreq->key);
@@ -92,9 +92,13 @@ Server::StoreData(object *o,
 
     size_t len = sizeof(o->hdr) + buf_len;
     backup->Write(&o->hdr, seg_off, len);
-    seg_off += len;
-    backup->Commit();
 
+    seg_off += len;
+    if (seg_off < SEGMENT_SIZE * 3 / 4)
+        return;
+
+    backup->Commit();
+    seg_off = 0;
 }
 
 void

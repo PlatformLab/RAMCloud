@@ -26,7 +26,7 @@
 namespace RAMCloud {
 
 BackupClient::BackupClient(Net *net_impl)
-        : net(net_impl)
+    : net(net_impl)
 {
 }
 
