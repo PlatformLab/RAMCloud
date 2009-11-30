@@ -25,5 +25,6 @@
     void operator=(const TypeName&)
 
 void debug_dump64(const void *buf, uint64_t bytes);
+uint64_t rdtsc();
 
 #endif

@@ -60,3 +60,17 @@ debug_dump64(const void *buf, uint64_t bytes)
             hex[12], hex[13], hex[14], hex[15], ascii);
     }
 }
+
+uint64_t
+rdtsc()
+{
+    uint32_t lo, hi;
+
+#ifdef __GNUC__
+    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+#else
+    asm("rdtsc" : "=a" (lo), "=d" (hi));
+#endif
+
+    return (((uint64_t)hi << 32) | lo);
+}
