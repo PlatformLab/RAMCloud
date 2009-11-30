@@ -217,7 +217,8 @@ Server::HandleRPC()
 
     //printf("got rpc type: 0x%08x, len 0x%08x\n", req->type, req->len);
 
-    switch((enum RCRPC_TYPE) req->type) {
+    try {
+        switch((enum RCRPC_TYPE) req->type) {
         case RCRPC_PING_REQUEST:         Server::Ping(req, resp);        break;
         case RCRPC_READ_REQUEST:         Server::Read(req, resp);        break;
         case RCRPC_WRITE_REQUEST:        Server::Write(req, resp);       break;
@@ -239,7 +240,10 @@ Server::HandleRPC()
 
         default:
             throw "received unknown RPC type";
-    };
+        }
+    } catch (const char *msg) {
+        fprintf(stderr, "Error while processing RPC: %s\n", msg);
+    }
     net->SendRPC(resp);
 }
 
