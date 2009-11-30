@@ -56,10 +56,20 @@ main()
     assert(!rc_write(&client, table, 42, "Hello, World!", 14));
     printf("write took %lu ticks\n", rdtsc() - b);
 
-    char buf[100];
+    b = rdtsc();
+    const char *value = "0123456789001234567890012345678901234567890123456789012345678901234567890";
+    assert(!rc_write(&client, table, 43, value, strlen(value) + 1));
+    printf("write took %lu ticks\n", rdtsc() - b);
+
+    char buf[2048];
     b = rdtsc();
     uint64_t buf_len;
-    assert(!rc_read(&client, table, 42, buf, &buf_len));
+
+    assert(!rc_read(&client, table, 43, &buf[0], &buf_len));
+    printf("read took %lu ticks\n", rdtsc() - b);
+    printf("Got back [%s] len %lu\n", buf, buf_len);
+
+    assert(!rc_read(&client, table, 42, &buf[0], &buf_len));
     printf("read took %lu ticks\n", rdtsc() - b);
     printf("Got back [%s] len %lu\n", buf, buf_len);
 

@@ -28,6 +28,7 @@ int
 rc_connect(struct rc_client *client)
 {
     rc_net_init(&client->net, CLNTADDR, CLNTPORT, SVRADDR, SVRPORT);
+    rc_net_connect(&client->net);
     return 0;
 }
 
@@ -56,16 +57,18 @@ rc_write(struct rc_client *client,
          const char *buf,
          uint64_t len)
 {
-    struct rcrpc query, *resp;
+    char query_buf[16384];
+    struct rcrpc *query, *resp;
+    query = (struct rcrpc *) query_buf;
 
-    memset(query.write_request.buf, 0, sizeof(query.write_request.buf));
-    memcpy(query.write_request.buf, buf, len);
-    query.type = RCRPC_WRITE_REQUEST;
-    query.len  = (uint32_t) RCRPC_WRITE_REQUEST_LEN_WODATA + len;
-    query.write_request.table = table;
-    query.write_request.key = key;
-    query.write_request.buf_len = len;
-    assert(!rc_net_send_rpc(&client->net, &query));
+    query->type = RCRPC_WRITE_REQUEST;
+    query->len  = (uint32_t) RCRPC_WRITE_REQUEST_LEN_WODATA + len;
+    query->write_request.table = table;
+    query->write_request.key = key;
+    query->write_request.buf_len = len;
+    memcpy(query->write_request.buf, buf, len);
+
+    assert(!rc_net_send_rpc(&client->net, query));
     assert(!rc_net_recv_rpc(&client->net, &resp));
     return 0;
 }
@@ -157,3 +160,13 @@ rc_drop_table(struct rc_client *client, const char *name)
     return 0;
 }
 
+struct rc_client *
+rc_new() {
+    return malloc(sizeof(struct rc_client *));
+}
+
+void
+rc_free(struct rc_client *client)
+{
+    free(client);
+}

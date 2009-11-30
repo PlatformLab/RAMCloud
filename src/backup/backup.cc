@@ -116,7 +116,6 @@ try
     uint64_t off = req->write_req.off;
     uint64_t len = req->write_req.len;
     //printf("Handling Write to offset Ox%x length %d\n", off, len);
-    printf("<");
     DoWrite(&req->write_req.data[0], off, len);
 
     resp->hdr.type = BACKUP_RPC_WRITE_RESP;

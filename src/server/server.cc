@@ -106,9 +106,9 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
 {
     const rcrpc_write_request * const wreq = &req->write_request;
 
-    printf("Write %lu bytes to key %lu\n",
-           wreq->buf_len,
-           wreq->key);
+    //printf("Write %lu bytes to key %lu\n",
+    //       wreq->buf_len,
+    //       wreq->key);
 
     object *o = &tables[wreq->table].objects[wreq->key];
     StoreData(o, wreq->key, wreq->buf, wreq->buf_len);

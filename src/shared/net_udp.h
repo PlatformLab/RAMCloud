@@ -19,7 +19,6 @@
 #include <arpa/inet.h>
 
 struct rc_net {
-    int is_server;
     int fd;
     int connected;
     struct sockaddr_in srcsin;

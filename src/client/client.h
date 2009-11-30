@@ -39,6 +39,12 @@ int rc_create_table(struct rc_client *client, const char *name);
 int rc_open_table(struct rc_client *client, const char *name,
                   uint64_t *table_id);
 int rc_drop_table(struct rc_client *client, const char *name);
+
+/* These aren't strictly necessary, but they make life easier for
+ * foreign languages because they don't have to know how to allocate a
+ * structure of the correct size */
+struct rc_client *rc_new();
+void rc_free(struct rc_client *client);
 #ifdef __cplusplus
 }
 #endif

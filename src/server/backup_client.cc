@@ -75,7 +75,6 @@ BackupClient::Write(const void *buf, uint32_t offset, uint32_t len)
     if (req->hdr.len > MAX_RPC_LEN)
         throw BackupRPCException("Write RPC would be too long");
 
-    printf("Sending Write to backup\n");
     req->write_req.off = offset;
     req->write_req.len = len;
     memcpy(&req->write_req.data[0], buf, len);
@@ -91,7 +90,6 @@ BackupClient::Write(const void *buf, uint32_t offset, uint32_t len)
         printf("Exception on Write >>> %s\n", m);
         throw BackupRPCException(m);
     }
-    printf("Write ok\n");
 }
 
 void

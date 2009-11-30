@@ -31,10 +31,10 @@ class Net {
         rc_net_init(&net,
                     const_cast<char*>(srcaddr), srcport,
                     const_cast<char*>(dstaddr), dstport);
+        Connect();
     }
     void Connect() { rc_net_connect(&net); }
     int Close() { return rc_net_close(&net); }
-    int IsConnected() { return net.connected; }
     void Send(const void *buf, size_t len) {
         // const ok - C code doesn't modify but can't accept const
         int r = rc_net_send(&net, const_cast<void *>(buf), len);
