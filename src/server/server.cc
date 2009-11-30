@@ -56,15 +56,9 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 {
     const rcrpc_read_request * const rreq = &req->read_request;
 
-    printf("Read from table %d key %d\n",
-           rreq->table,
-           rreq->key);
-
     table *t = &tables[rreq->table];
     object *o = &t->objects[rreq->key];
-    // TODO(stutsman) should worry about huge objects later
     uint32_t olen = static_cast<uint32_t>(o->hdr.entries[0].len);
-    printf("\treturning %u bytes\n", olen);
 
     resp->type = RCRPC_READ_RESPONSE;
     resp->len = static_cast<uint32_t>(RCRPC_READ_RESPONSE_LEN_WODATA) + olen;

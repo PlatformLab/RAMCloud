@@ -57,7 +57,8 @@ rc_write(struct rc_client *client,
          const char *buf,
          uint64_t len)
 {
-    char query_buf[16384];
+    assert(len <= MAX_DATA_WRITE_LEN);
+    char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
     struct rcrpc *query, *resp;
     query = (struct rcrpc *) query_buf;
 
@@ -80,15 +81,17 @@ rc_insert(struct rc_client *client,
           uint64_t len,
           uint64_t *key)
 {
-    struct rcrpc query, *resp;
+    assert(len <= MAX_DATA_WRITE_LEN);
+    char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
+    struct rcrpc *query, *resp;
+    query = (struct rcrpc *) query_buf;
 
-    memset(query.insert_request.buf, 0, sizeof(query.insert_request.buf));
-    memcpy(query.insert_request.buf, buf, len);
-    query.type = RCRPC_INSERT_REQUEST;
-    query.len  = (uint32_t) RCRPC_INSERT_REQUEST_LEN_WODATA + len;
-    query.insert_request.table = table;
-    query.insert_request.buf_len = len;
-    assert(!rc_net_send_rpc(&client->net, &query));
+    query->type = RCRPC_INSERT_REQUEST;
+    query->len  = (uint32_t) RCRPC_INSERT_REQUEST_LEN_WODATA + len;
+    query->insert_request.table = table;
+    query->insert_request.buf_len = len;
+    memcpy(query->insert_request.buf, buf, len);
+    assert(!rc_net_send_rpc(&client->net, query));
     assert(!rc_net_recv_rpc(&client->net, &resp));
     *key = resp->insert_response.key;
     return 0;
