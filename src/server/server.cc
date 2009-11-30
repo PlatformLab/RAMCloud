@@ -85,7 +85,7 @@ Server::StoreData(object *o,
     o->hdr.type = STORAGE_CHUNK_HDR_TYPE;
     o->hdr.key = key;
     // TODO dm's super-fast checksum here
-    o->hdr.checksum = 0x0BE70BE70BE70BE7;
+    o->hdr.checksum = 0x0BE70BE70BE70BE7ULL;
 
     o->hdr.entries[0].len = buf_len;
     memcpy(o->blob, buf, buf_len);
