@@ -31,6 +31,8 @@
 
 namespace RAMCloud {
 
+enum { server_debug = 0 };
+
 Server::Server(Net *net_impl) : net(net_impl), backup(0), seg_off(0)
 {
     Net *backup_net = new Net(BACKCLNTADDR, BACKCLNTPORT,
@@ -54,11 +56,12 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 {
     const rcrpc_read_request * const rreq = &req->read_request;
 
-    printf("Read from key %lu\n",
-           rreq->key);
+    if (server_debug)
+        printf("Read from key %lu\n",
+               rreq->key);
 
     Table *t = &tables[rreq->table];
-    object *o = t->Lookup(rreq->key);
+    object *o = t->Get(rreq->key);
     assert(o);
     uint32_t olen = static_cast<uint32_t>(o->hdr.entries[0].len);
 
@@ -101,12 +104,13 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
 {
     const rcrpc_write_request * const wreq = &req->write_request;
 
-    printf("Write %lu bytes to key %lu\n",
-           wreq->buf_len,
-           wreq->key);
+    if (server_debug)
+        printf("Write %lu bytes to key %lu\n",
+               wreq->buf_len,
+               wreq->key);
 
     Table *t = &tables[wreq->table];
-    object *o = t->Lookup(wreq->key);
+    object *o = t->Get(wreq->key);
 
     if (o)
         delete o;
@@ -114,9 +118,7 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
     assert(o);
 
     StoreData(o, wreq->key, wreq->buf, wreq->buf_len);
-    // careful - we actually need to delete the old value from the ht
-    // first
-    t->Insert(wreq->key, o);
+    t->Put(wreq->key, o);
 
     resp->type = RCRPC_WRITE_RESPONSE;
     resp->len = static_cast<uint32_t>(RCRPC_WRITE_RESPONSE_LEN);
@@ -129,12 +131,12 @@ Server::InsertKey(const struct rcrpc *req, struct rcrpc *resp)
 
     Table *t = &tables[ireq->table];
     uint64_t key = t->AllocateKey();
-    object *o = t->Lookup(key);
+    object *o = t->Get(key);
     assert(!o);
     o = new object();
 
     StoreData(o, key, ireq->buf, ireq->buf_len);
-    t->Insert(key, o);
+    t->Put(key, o);
 
     resp->type = RCRPC_INSERT_RESPONSE;
     resp->len = (uint32_t) RCRPC_INSERT_RESPONSE_LEN;
@@ -155,8 +157,8 @@ Server::CreateTable(const struct rcrpc *req, struct rcrpc *resp)
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
         if (strcmp(tables[i].GetName(), req->create_table_request.name) == 0) {
-            fprintf(stderr, "Table exists\n");
-            exit(1);
+            // TODO Need to do better than this
+            throw "Table exists";
         }
     }
     for (i = 0; i < RC_NUM_TABLES; i++) {
@@ -169,7 +171,8 @@ Server::CreateTable(const struct rcrpc *req, struct rcrpc *resp)
         // TODO Need to do better than this
         throw "Out of tables";
     }
-    printf("create table -> %d\n", i);
+    if (server_debug)
+        printf("create table -> %d\n", i);
 
     resp->type = RCRPC_CREATE_TABLE_RESPONSE;
     resp->len  = (uint32_t) RCRPC_CREATE_TABLE_RESPONSE_LEN;
@@ -187,7 +190,8 @@ Server::OpenTable(const struct rcrpc *req, struct rcrpc *resp)
         // TODO Need to do better than this
         throw "No such table";
     }
-    printf("open table -> %d\n", i);
+    if (server_debug)
+        printf("open table -> %d\n", i);
 
     resp->type = RCRPC_OPEN_TABLE_RESPONSE;
     resp->len  = (uint32_t) RCRPC_OPEN_TABLE_RESPONSE_LEN;
@@ -208,7 +212,8 @@ Server::DropTable(const struct rcrpc *req, struct rcrpc *resp)
         // TODO Need to do better than this
         throw "No such table";
     }
-    printf("drop table -> %d\n", i);
+    if (server_debug)
+        printf("drop table -> %d\n", i);
 
     resp->type = RCRPC_DROP_TABLE_RESPONSE;
     resp->len  = (uint32_t) RCRPC_DROP_TABLE_RESPONSE_LEN;

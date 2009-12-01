@@ -119,8 +119,8 @@ Hashtable::InitTable(uint64_t lines)
     }
 }
 
-void *
-Hashtable::Lookup(uint64_t key)
+uint64_t *
+Hashtable::LookupKeyPtr(uint64_t key)
 {
     uint64_t b = rdtsc();
     uint64_t h;
@@ -143,7 +143,7 @@ Hashtable::Lookup(uint64_t key)
                     uint64_t diff = rdtsc() - b;
                     lup_total += diff;
                     StoreSample(diff);
-                    return (obj);
+                    return kp;
                 } else {
                     lup_mkfails++;
                 }
@@ -155,12 +155,40 @@ Hashtable::Lookup(uint64_t key)
             uint64_t diff = rdtsc() - b;
             lup_total += diff;
             StoreSample(diff);
-            return (NULL);
+            return NULL;
         }
 
         cl = (cacheline *)GETCHAINPTR(cl, 7);
         lup_nexts++;
     }
+}
+
+void *
+Hashtable::Lookup(uint64_t key)
+{
+    uint64_t *kp = LookupKeyPtr(key);
+    return kp ? (void *) ADDR(*kp) : NULL;
+}
+
+bool
+Hashtable::Delete(uint64_t key) {
+    uint64_t *kp = LookupKeyPtr(key);
+    if (!kp)
+        return false;
+    *kp = UNUSED;
+    return true;
+}
+
+bool
+Hashtable::Replace(uint64_t key, void *ptr) {
+    uint64_t h;
+    uint16_t mk;
+    uint64_t *kp = LookupKeyPtr(key);
+    if (!kp)
+        return false;
+    hash(key, &h, &mk);
+    *kp = MKENTRY(mk, ptr);
+    return true;
 }
 
 void

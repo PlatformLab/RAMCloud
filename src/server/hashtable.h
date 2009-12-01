@@ -25,6 +25,8 @@ public:
     }
     void *Lookup(uint64_t key);
     void Insert(uint64_t key, void *ptr);
+    bool Delete(uint64_t key);
+    bool Replace(uint64_t key, void *ptr);
     // performance counter accessors
     uint64_t GetInsertCount() { return ins_total; }
     uint64_t GetLookupCount() { return lup_total; }
@@ -34,6 +36,7 @@ public:
     uint64_t GetMinTicks() { return min_ticks; }
     uint64_t GetMaxTicks() { return max_ticks; }
 private:
+    uint64_t *LookupKeyPtr(uint64_t key);
     // helper functions
     void InitTable(uint64_t lines);
     void StoreSample(uint64_t ticks);

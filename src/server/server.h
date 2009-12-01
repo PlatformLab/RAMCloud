@@ -42,14 +42,16 @@ class Table {
         name[TABLE_NAME_MAX_LEN - 1] = '\0';
     }
     uint64_t AllocateKey() {
-        while (Lookup(++next_key)) {}
+        while (Get(next_key))
+            ++next_key;
         return next_key;
     }
-    object *Lookup(uint64_t key) {
+    object *Get(uint64_t key) {
         void *val = object_map.Lookup(key);
         return static_cast<object *>(val);
     }
-    void Insert(uint64_t key, object *o) {
+    void Put(uint64_t key, object *o) {
+        bool b = object_map.Delete(key);
         object_map.Insert(key, o);
     }
   private:
