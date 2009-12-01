@@ -35,9 +35,11 @@ struct chunk_entry {
 };
 
 struct chunk_hdr {
+    // WARNING: The hashtable code (for the moment) assumes that the
+    // object's key is the first 64 bits of the struct
+    uint64_t key;
     uint64_t checksum;
     enum storage_type type;
-    uint64_t key;
     // TODO(stutsman) - only leaving enough room here for the data entry
     // with no indexes - this is enough to let me hack the 0.1 impl into
     // something that is compatible with the backup format, once we have

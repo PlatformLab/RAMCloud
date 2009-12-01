@@ -23,18 +23,40 @@
 
 #include <server/backup_client.h>
 #include <server/net.h>
+#include <server/hashtable.h>
 
 namespace RAMCloud {
 
 struct object {
     chunk_hdr hdr;
-    char blob[1000];
+    char blob[1024];
 };
 
-struct table {
+class Table {
+  public:
+    static const int TABLE_NAME_MAX_LEN = 64;
+    explicit Table() : next_key(0), object_map(HASH_NLINES) {}
+    const char *GetName() { return &name[0]; }
+    void SetName(const char *new_name) {
+        strncpy(&name[0], new_name, TABLE_NAME_MAX_LEN);
+        name[TABLE_NAME_MAX_LEN - 1] = '\0';
+    }
+    uint64_t AllocateKey() {
+        while (Lookup(++next_key)) {}
+        return next_key;
+    }
+    object *Lookup(uint64_t key) {
+        void *val = object_map.Lookup(key);
+        return static_cast<object *>(val);
+    }
+    void Insert(uint64_t key, object *o) {
+        object_map.Insert(key, o);
+    }
+  private:
     char name[64];
     uint64_t next_key;
-    struct object objects[256];
+    Hashtable object_map;
+    DISALLOW_COPY_AND_ASSIGN(Table);
 };
 
 class Server {
@@ -62,7 +84,7 @@ class Server {
     explicit Server();
     Net *net;
     BackupClient *backup;
-    struct table tables[RC_NUM_TABLES];
+    Table tables[RC_NUM_TABLES];
     uint32_t seg_off;
 };
 

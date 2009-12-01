@@ -33,8 +33,6 @@ namespace RAMCloud {
 
 Server::Server(Net *net_impl) : net(net_impl), backup(0), seg_off(0)
 {
-    memset(tables, 0, sizeof(tables));
-
     Net *backup_net = new Net(BACKCLNTADDR, BACKCLNTPORT,
                               BACKSVRADDR, BACKSVRPORT);
     backup = new BackupClient(backup_net);
@@ -56,8 +54,12 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 {
     const rcrpc_read_request * const rreq = &req->read_request;
 
-    table *t = &tables[rreq->table];
-    object *o = &t->objects[rreq->key];
+    printf("Read from key %lu\n",
+           rreq->key);
+
+    Table *t = &tables[rreq->table];
+    object *o = t->Lookup(rreq->key);
+    assert(o);
     uint32_t olen = static_cast<uint32_t>(o->hdr.entries[0].len);
 
     resp->type = RCRPC_READ_RESPONSE;
@@ -75,7 +77,6 @@ Server::StoreData(object *o,
                   const char *buf,
                   uint64_t buf_len)
 {
-
     o->hdr.type = STORAGE_CHUNK_HDR_TYPE;
     o->hdr.key = key;
     // TODO dm's super-fast checksum here
@@ -84,7 +85,7 @@ Server::StoreData(object *o,
     o->hdr.entries[0].len = buf_len;
     memcpy(o->blob, buf, buf_len);
 
-    size_t len = sizeof(o->hdr) + buf_len;
+    uint32_t len = static_cast<uint32_t>(sizeof(o->hdr) + buf_len);
     backup->Write(&o->hdr, seg_off, len);
 
     seg_off += len;
@@ -100,12 +101,22 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
 {
     const rcrpc_write_request * const wreq = &req->write_request;
 
-    //printf("Write %lu bytes to key %lu\n",
-    //       wreq->buf_len,
-    //       wreq->key);
+    printf("Write %lu bytes to key %lu\n",
+           wreq->buf_len,
+           wreq->key);
 
-    object *o = &tables[wreq->table].objects[wreq->key];
+    Table *t = &tables[wreq->table];
+    object *o = t->Lookup(wreq->key);
+
+    if (o)
+        delete o;
+    o = new object();
+    assert(o);
+
     StoreData(o, wreq->key, wreq->buf, wreq->buf_len);
+    // careful - we actually need to delete the old value from the ht
+    // first
+    t->Insert(wreq->key, o);
 
     resp->type = RCRPC_WRITE_RESPONSE;
     resp->len = static_cast<uint32_t>(RCRPC_WRITE_RESPONSE_LEN);
@@ -116,13 +127,14 @@ Server::InsertKey(const struct rcrpc *req, struct rcrpc *resp)
 {
     const rcrpc_insert_request * const ireq = &req->insert_request;
 
-    uint64_t key = ++tables[req->insert_request.table].next_key;
-    memcpy(tables[req->insert_request.table].objects[key].blob,
-           req->insert_request.buf,
-           RCRPC_INSERT_REQUEST_LEN_WODATA);
+    Table *t = &tables[ireq->table];
+    uint64_t key = t->AllocateKey();
+    object *o = t->Lookup(key);
+    assert(!o);
+    o = new object();
 
-    object *o = &tables[ireq->table].objects[key];
     StoreData(o, key, ireq->buf, ireq->buf_len);
+    t->Insert(key, o);
 
     resp->type = RCRPC_INSERT_RESPONSE;
     resp->len = (uint32_t) RCRPC_INSERT_RESPONSE_LEN;
@@ -142,15 +154,14 @@ Server::CreateTable(const struct rcrpc *req, struct rcrpc *resp)
 {
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].name, req->create_table_request.name) == 0) {
+        if (strcmp(tables[i].GetName(), req->create_table_request.name) == 0) {
             fprintf(stderr, "Table exists\n");
             exit(1);
         }
     }
     for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].name, "") == 0) {
-            strncpy(tables[i].name, req->create_table_request.name, sizeof(tables[i].name));
-            tables[i].name[sizeof(tables[i].name) - 1] = '\0';
+        if (strcmp(tables[i].GetName(), "") == 0) {
+            tables[i].SetName(req->create_table_request.name);
             break;
         }
     }
@@ -169,7 +180,7 @@ Server::OpenTable(const struct rcrpc *req, struct rcrpc *resp)
 {
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].name, req->open_table_request.name) == 0)
+        if (strcmp(tables[i].GetName(), req->open_table_request.name) == 0)
             break;
     }
     if (i == RC_NUM_TABLES) {
@@ -188,8 +199,8 @@ Server::DropTable(const struct rcrpc *req, struct rcrpc *resp)
 {
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].name, req->drop_table_request.name) == 0) {
-            strncpy(tables[i].name, "", sizeof(tables[i].name));
+        if (strcmp(tables[i].GetName(), req->drop_table_request.name) == 0) {
+            tables[i].SetName("");
             break;
         }
     }

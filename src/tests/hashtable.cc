@@ -28,16 +28,18 @@ class HashtableTest : public CppUnit::TestFixture {
   public:
     void setUp();
     void tearDown();
+    void TestSimple();
     void TestMain();
   private:
     CPPUNIT_TEST_SUITE(HashtableTest);
+    CPPUNIT_TEST(TestSimple);
     CPPUNIT_TEST(TestMain);
     CPPUNIT_TEST_SUITE_END();
     RAMCloud::Hashtable *ht;
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(HashtableTest);
 
-#define NLINES 30 * 1000 * 1000
+#define NLINES 1024
 void
 HashtableTest::setUp()
 {
@@ -51,10 +53,28 @@ HashtableTest::tearDown()
 }
 
 void
+HashtableTest::TestSimple()
+{
+    RAMCloud::Hashtable ht(1024);
+
+    uint64_t a = 0;
+    uint64_t b = 10;
+    uint64_t c = 11;
+
+    CPPUNIT_ASSERT(ht.Lookup(0) == NULL);
+    ht.Insert(0, &a);
+    CPPUNIT_ASSERT(ht.Lookup(0) == &a);
+    CPPUNIT_ASSERT(ht.Lookup(10) == NULL);
+    ht.Insert(10, &b);
+    CPPUNIT_ASSERT(ht.Lookup(10) == &b);
+    CPPUNIT_ASSERT(ht.Lookup(0) == &a);
+}
+
+void
 HashtableTest::TestMain()
 {
     uint64_t i;
-    uint64_t nkeys = 1 * 1000 * 1000;
+    uint64_t nkeys = NLINES * 4;
     uint64_t nlines = NLINES;
 
     printf("cache line size: %d\n", sizeof(RAMCloud::cacheline));
