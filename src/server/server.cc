@@ -62,7 +62,9 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 
     Table *t = &tables[rreq->table];
     object *o = t->Get(rreq->key);
-    assert(o);
+    if (!o)
+        throw "Object not found";
+
     uint32_t olen = static_cast<uint32_t>(o->hdr.entries[0].len);
 
     resp->type = RCRPC_READ_RESPONSE;
@@ -258,7 +260,14 @@ Server::HandleRPC()
             throw "received unknown RPC type";
         }
     } catch (const char *msg) {
+        rcrpc_error_response *error_rpc = &resp->error_response;
         fprintf(stderr, "Error while processing RPC: %s\n", msg);
+        int msglen = strlen(msg);
+        assert(RCRPC_ERROR_RESPONSE_LEN_WODATA + msglen + 1 < MAX_RPC_LEN);
+        strcpy(&error_rpc->message[0], msg);
+        resp->type = RCRPC_ERROR_RESPONSE;
+        resp->len = static_cast<uint32_t>(RCRPC_ERROR_RESPONSE_LEN_WODATA) +
+            msglen + 1;
     }
     net->SendRPC(resp);
 }

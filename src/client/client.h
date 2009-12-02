@@ -45,6 +45,7 @@ int rc_drop_table(struct rc_client *client, const char *name);
  * structure of the correct size */
 struct rc_client *rc_new();
 void rc_free(struct rc_client *client);
+const char* rc_last_error();
 #ifdef __cplusplus
 }
 #endif

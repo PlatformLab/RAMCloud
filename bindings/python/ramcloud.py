@@ -66,6 +66,9 @@ class CLIENT(ctypes.Structure):
     def __repr__(self):
         return "CLIENT{'net': %s}" % repr(self.net)
 
+class RCException(Exception):
+    pass
+
 class RAMCloud(object):
     def __init__(self):
         path = find_library('ramcloud')
@@ -74,17 +77,22 @@ class RAMCloud(object):
         installed that you have registered it with /sbin/ldconfig"""
 
         self.so = ctypes.cdll.LoadLibrary(path)
+        self.so.rc_last_error.restype = ctypes.c_char_p
         self.client = CLIENT()
+
+    def raise_error(self):
+        msg = self.so.rc_last_error()
+        raise RCException(msg)
 
     def connect(self):
         r = self.so.rc_connect(ctypes.byref(self.client))
         if r != 0:
-            raise "error connecting"
+            self.raise_error()
     
     def ping(self):
         r = self.so.rc_ping(ctypes.byref(self.client))
         if r != 0:
-            raise "error creating table"
+            self.raise_error()
 
     def write(self, table_id, key, data):
         r = self.so.rc_write(ctypes.byref(self.client),
@@ -93,7 +101,7 @@ class RAMCloud(object):
                              data,
                              len(data))
         if r != 0:
-            raise "error reading"
+            self.raise_error()
 
     def insert(self, table_id, data):
         key = ctypes.c_uint()
@@ -103,7 +111,7 @@ class RAMCloud(object):
                              len(data),
                              ctypes.byref(key))
         if r != 0:
-            raise "error reading"
+            self.raise_error()
         return key.value
 
     def read(self, table_id, key):
@@ -115,25 +123,25 @@ class RAMCloud(object):
                             ctypes.byref(buf),
                             ctypes.byref(l))
         if r != 0:
-            raise "error reading"
+            self.raise_error()
         return buf.value[0:l.value]
 
     def create_table(self, name):
         r = self.so.rc_create_table(ctypes.byref(self.client), name)
         if r != 0:
-            raise "error creating table"
+            self.raise_error()
         return r
 
     def open_table(self, name):
         r = self.so.rc_open_table(ctypes.byref(self.client), name)
         if r != 0:
-            raise "error opening table"
+            self.raise_error()
         return r
 
     def drop_table(self, name):
         r = self.so.rc_drop_table(ctypes.byref(self.client), name)
         if r != 0:
-            raise "error dropping table"
+            self.raise_error()
 
 def main():
     r = RAMCloud()

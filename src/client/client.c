@@ -37,6 +37,26 @@ rc_disconnect(struct rc_client *client)
 {
 }
 
+// TODO(stutsman) we should put this in the client struct
+enum { ERROR_MSG_LEN = 256 };
+static char rc_error_message[ERROR_MSG_LEN];
+
+const char*
+rc_last_error()
+{
+    return &rc_error_message[0];
+}
+
+static int
+rc_handle_errors(struct rcrpc *resp)
+{
+    if (resp->type != RCRPC_ERROR_RESPONSE)
+        return 0;
+    printf("... '%s'\n", resp->error_response.message);
+    strncpy(&rc_error_message[0], resp->error_response.message, ERROR_MSG_LEN);
+    return -1;
+}
+
 int
 rc_ping(struct rc_client *client)
 {
@@ -47,7 +67,8 @@ rc_ping(struct rc_client *client)
 
     assert(!rc_net_send_rpc(&client->net, &query));
     assert(!rc_net_recv_rpc(&client->net, &resp));
-    return 0;
+
+    return rc_handle_errors(resp);
 }
 
 int
@@ -71,7 +92,8 @@ rc_write(struct rc_client *client,
 
     assert(!rc_net_send_rpc(&client->net, query));
     assert(!rc_net_recv_rpc(&client->net, &resp));
-    return 0;
+
+    return rc_handle_errors(resp);
 }
 
 int
@@ -112,8 +134,13 @@ rc_read(struct rc_client *client,
     query.read_request.key = key;
     assert(!rc_net_send_rpc(&client->net, &query));
     assert(!rc_net_recv_rpc(&client->net, &resp));
+    int r = rc_handle_errors(resp);
+    if (r)
+        return r;
+
     *len = resp->read_response.buf_len;
     memcpy(buf, resp->read_response.buf, *len);
+
     return 0;
 }
 
@@ -129,7 +156,8 @@ rc_create_table(struct rc_client *client, const char *name)
     table_name[sizeof(table_name) - 1] = '\0';
     assert(!rc_net_send_rpc(&client->net, &query));
     assert(!rc_net_recv_rpc(&client->net, &resp));
-    return 0;
+
+    return rc_handle_errors(resp);
 }
 
 int
@@ -144,7 +172,11 @@ rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
     table_name[sizeof(table_name) - 1] = '\0';
     assert(!rc_net_send_rpc(&client->net, &query));
     assert(!rc_net_recv_rpc(&client->net, &resp));
+    int r = rc_handle_errors(resp);
+    if (r)
+        return r;
     *table_id = resp->open_table_response.handle;
+
     return 0;
 }
 
@@ -160,7 +192,8 @@ rc_drop_table(struct rc_client *client, const char *name)
     table_name[sizeof(table_name) - 1] = '\0';
     assert(!rc_net_send_rpc(&client->net, &query));
     assert(!rc_net_recv_rpc(&client->net, &resp));
-    return 0;
+
+    return rc_handle_errors(resp);
 }
 
 struct rc_client *

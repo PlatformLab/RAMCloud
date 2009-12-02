@@ -87,10 +87,9 @@ main()
     b = rdtsc();
     int count = 16384;
     key = 0xfffffff;
-    for (int j = 0; j < count; j++) {
-        assert(!rc_insert(&client, table, "ABCDEFGHIJKLMNO", 16, &key));
-        printf("Got back [%lu] key\n", key);
-    }
+    const char *val = "0123456789ABCDEF";
+    for (int j = 0; j < count; j++)
+        assert(!rc_insert(&client, table, val, strlen(val) + 1, &key));
     printf("%d inserts took %lu ticks\n", count, rdtsc() - b);
     printf("avg insert took %lu ticks\n", (rdtsc() - b) / count);
 

@@ -37,6 +37,7 @@
 #define RCRPC_OPEN_TABLE_RESPONSE_LEN   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_open_table_response))
 #define RCRPC_DROP_TABLE_REQUEST_LEN    (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_request))
 #define RCRPC_DROP_TABLE_RESPONSE_LEN   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_response))
+#define RCRPC_ERROR_RESPONSE_LEN_WODATA (RCRPC_HEADER_LEN + sizeof(struct rcrpc_error_response))
 
 //namespace RAMCloud {
 
@@ -57,6 +58,7 @@ enum RCRPC_TYPE {
     RCRPC_OPEN_TABLE_RESPONSE,
     RCRPC_DROP_TABLE_REQUEST,
     RCRPC_DROP_TABLE_RESPONSE,
+    RCRPC_ERROR_RESPONSE,
 };
 
 
@@ -130,6 +132,9 @@ struct rcrpc_drop_table_request {
 struct rcrpc_drop_table_response {
 };
 
+struct rcrpc_error_response {
+    char message[0];                    /* Variable length */
+};
 
 struct rcrpc {
     uint32_t type;
@@ -158,6 +163,8 @@ struct rcrpc {
 
         struct rcrpc_drop_table_request drop_table_request;
         struct rcrpc_drop_table_response drop_table_response;
+
+        struct rcrpc_error_response error_response;
     };
 };
 

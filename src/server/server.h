@@ -51,7 +51,7 @@ class Table {
         return static_cast<object *>(val);
     }
     void Put(uint64_t key, object *o) {
-        bool b = object_map.Delete(key);
+        object_map.Delete(key);
         object_map.Insert(key, o);
     }
   private:
