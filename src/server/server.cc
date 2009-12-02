@@ -254,6 +254,7 @@ Server::HandleRPC()
         case RCRPC_CREATE_TABLE_RESPONSE:
         case RCRPC_OPEN_TABLE_RESPONSE:
         case RCRPC_DROP_TABLE_RESPONSE:
+        case RCRPC_ERROR_RESPONSE:
             throw "server received RPC response";
 
         default:
