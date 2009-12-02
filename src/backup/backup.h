@@ -121,6 +121,7 @@ class BackupServer {
     void Heartbeat(const backup_rpc *req, backup_rpc *resp);
     void Write(const backup_rpc *req, backup_rpc *resp);
     void Commit(const backup_rpc *req, backup_rpc *resp);
+    void Retrieve(const backup_rpc *req, backup_rpc *resp);
 
     void HandleRPC();
     void SendRPC(struct backup_rpc *rpc);
@@ -128,6 +129,8 @@ class BackupServer {
 
     void DoWrite(const char *data, uint64_t off, uint64_t len);
     void DoCommit();
+    void DoRetrieve(uint64_t seg_num, char *buf, uint64_t *len);
+
     void Flush();
 
     void ReserveSpace();
@@ -137,7 +140,7 @@ class BackupServer {
     char *seg;
     char *unaligned_seg;
 
-    FreeBitmap<SEGMENT_COUNT * 2> free_map;
+    FreeBitmap<SEGMENT_COUNT> free_map;
     int64_t last_seg_written;
 
     friend class BackupTest;

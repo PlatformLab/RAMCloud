@@ -70,7 +70,7 @@ BackupServer::~BackupServer()
 void
 BackupServer::ReserveSpace()
 {
-    printf("Reserving %d bytes of log space\n", LOG_SPACE);
+    printf("Reserving %llu bytes of log space\n", LOG_SPACE);
     int r = ftruncate(log_fd, LOG_SPACE);
     if (r == -1)
         throw BackupLogIOException(errno);
@@ -94,7 +94,6 @@ BackupServer::Heartbeat(const backup_rpc *req, backup_rpc *resp)
 {
     resp->hdr.type = BACKUP_RPC_HEARTBEAT_RESP;
     resp->hdr.len = (uint32_t) BACKUP_RPC_HEARTBEAT_RESP_LEN;
-    resp->heartbeat_resp.ok = 1;
 }
 
 void
@@ -112,7 +111,6 @@ void
 BackupServer::Write(const backup_rpc *req, backup_rpc *resp)
 try
 {
-
     uint64_t off = req->write_req.off;
     uint64_t len = req->write_req.len;
     //printf("Handling Write to offset Ox%x length %d\n", off, len);
@@ -120,17 +118,14 @@ try
 
     resp->hdr.type = BACKUP_RPC_WRITE_RESP;
     resp->hdr.len = (uint32_t) BACKUP_RPC_WRITE_RESP_LEN_WODATA;
-    resp->write_resp.ok = 1;
 } catch (BackupException e) {
     resp->hdr.type = BACKUP_RPC_WRITE_RESP;
     resp->hdr.len = static_cast<uint32_t>(BACKUP_RPC_WRITE_RESP_LEN_WODATA +
                                           e.message.length() + 1);
-    resp->write_resp.ok = 0;
     resp->write_resp.len = static_cast<uint32_t>(e.message.length() + 1);
     strcpy(&resp->write_resp.message[0], e.message.c_str());
     fprintf(stderr, ">>> BackupException: %s\n", e.message.c_str());
 }
-
 
 static inline int64_t
 SegFrameOff(int64_t segnum)
@@ -192,6 +187,56 @@ try
     fprintf(stderr, ">>> BackupException: %s\n", e.message.c_str());
 }
 
+static inline uint64_t
+FrameForSegNum(uint64_t seg_num)
+{
+    return seg_num % SEGMENT_COUNT;
+}
+
+void
+BackupServer::DoRetrieve(uint64_t seg_num, char *buf, uint64_t *len)
+{
+    printf("Retrieving segment %llu from disk\n", seg_num);
+
+    uint64_t seg_frame = FrameForSegNum(seg_num);
+
+    struct timeval start, end, res;
+    gettimeofday(&start, NULL);
+
+    off_t off = lseek(log_fd, SegFrameOff(seg_frame), SEEK_SET);
+    if (off == -1)
+        throw BackupLogIOException(errno);
+
+    ssize_t r = read(log_fd, buf, SEGMENT_SIZE);
+    if (r != SEGMENT_SIZE)
+        throw BackupLogIOException(errno);
+    *len = r;
+
+    gettimeofday(&end, NULL);
+    timersub(&end, &start, &res);
+    printf("Retrieve in %d s %d us\n", res.tv_sec, res.tv_usec);
+}
+
+void
+BackupServer::Retrieve(const backup_rpc *req, backup_rpc *resp)
+try
+{
+    const backup_rpc_retrieve_req *rreq = &req->retrieve_req;
+    backup_rpc_retrieve_resp *rresp = &resp->retrieve_resp;
+    printf(">>> Handling Retrieve - seg_num %lu\n", rreq->seg_num);
+
+    DoRetrieve(rreq->seg_num, &rresp->data[0], &rresp->data_len);
+
+    resp->hdr.type = BACKUP_RPC_RETRIEVE_RESP;
+    // No data when there's no exception
+    resp->hdr.len = (uint32_t) (BACKUP_RPC_RETRIEVE_RESP_LEN_WODATA +
+                                rresp->data_len);
+} catch (BackupException e) {
+    // TODO(stutsman) just unify errors into a single type
+    // and handle the problem in the client
+    fprintf(stderr, ">>> BackupException: %s\n", e.message.c_str());
+}
+
 void
 BackupServer::HandleRPC()
 {
@@ -204,18 +249,21 @@ BackupServer::HandleRPC()
 
     try {
         switch ((enum backup_rpc_type) req->hdr.type) {
-            case BACKUP_RPC_HEARTBEAT_REQ: Heartbeat(req, &resp); break;
-            case BACKUP_RPC_WRITE_REQ:     Write(req, &resp);     break;
-            case BACKUP_RPC_COMMIT_REQ:    Commit(req, &resp);    break;
+        case BACKUP_RPC_HEARTBEAT_REQ: Heartbeat(req, &resp); break;
+        case BACKUP_RPC_WRITE_REQ:     Write(req, &resp);     break;
+        case BACKUP_RPC_COMMIT_REQ:    Commit(req, &resp);    break;
+        case BACKUP_RPC_RETRIEVE_REQ:  Retrieve(req, &resp);  break;
 
-            case BACKUP_RPC_HEARTBEAT_RESP:
-            case BACKUP_RPC_WRITE_RESP:
-            case BACKUP_RPC_COMMIT_RESP:
-            default:
-                throw BackupInvalidRPCOpException();
+        case BACKUP_RPC_HEARTBEAT_RESP:
+        case BACKUP_RPC_WRITE_RESP:
+        case BACKUP_RPC_COMMIT_RESP:
+        case BACKUP_RPC_RETRIEVE_RESP:
+        case BACKUP_RPC_ERROR_RESP:
+        default:
+            throw BackupInvalidRPCOpException();
         };
     } catch (BackupException e) {
-    fprintf(stderr, ">>> Unhandled BackupException: %s\n", e.message.c_str());
+        fprintf(stderr, ">>> Unhandled BackupException: %s\n", e.message.c_str());
     }
     SendRPC(&resp);
 }

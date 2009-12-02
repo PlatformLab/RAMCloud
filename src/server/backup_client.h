@@ -30,6 +30,7 @@ class BackupClient {
     void Heartbeat();
     void Write(const void *buf, uint32_t offset, uint32_t len);
     void Commit();
+    void Retrieve(uint64_t seg_num);
   private:
     DISALLOW_COPY_AND_ASSIGN(BackupClient);
     void SendRPC(struct backup_rpc *rpc);

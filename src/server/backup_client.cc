@@ -41,6 +41,11 @@ BackupClient::RecvRPC(struct backup_rpc **rpc)
 {
     size_t len = net->Recv(reinterpret_cast<void**>(rpc));
     assert(len == (*rpc)->hdr.len);
+    if ((*rpc)->hdr.type == BACKUP_RPC_ERROR_RESP) {
+        char *m = (*rpc)->error_resp.message;
+        printf("Exception on backup operation >>> %s\n", m);
+        throw BackupRPCException(m);
+    }
 }
 
 void
@@ -56,7 +61,6 @@ BackupClient::Heartbeat()
     backup_rpc *resp;
     RecvRPC(&resp);
 
-    assert(resp->heartbeat_resp.ok == 1);
     printf("Heartbeat ok\n");
 }
 
@@ -83,13 +87,6 @@ BackupClient::Write(const void *buf, uint32_t offset, uint32_t len)
 
     backup_rpc *resp;
     RecvRPC(&resp);
-
-    if (resp->write_resp.ok != 1) {
-        resp->write_resp.message[resp->write_resp.len - 1] = '\0';
-        char *m = resp->write_resp.message;
-        printf("Exception on Write >>> %s\n", m);
-        throw BackupRPCException(m);
-    }
 }
 
 void
@@ -105,13 +102,27 @@ BackupClient::Commit()//std::vector<uintptr_t> freed)
     backup_rpc *resp;
     RecvRPC(&resp);
 
-    if (resp->commit_resp.ok != 1) {
-        resp->commit_resp.message[resp->commit_resp.len - 1] = '\0';
-        char *m = resp->commit_resp.message;
-        printf("Exception on Commit >>> %s\n", m);
-        throw BackupRPCException(m);
-    }
     printf("Commit ok\n");
+}
+
+void
+BackupClient::Retrieve(uint64_t seg_num)
+{
+    backup_rpc req;
+    req.hdr.type = BACKUP_RPC_RETRIEVE_REQ;
+    req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_RETRIEVE_REQ_LEN);
+
+    printf("Sending Retrieve to backup\n");
+    SendRPC(&req);
+
+    backup_rpc *resp;
+    RecvRPC(&resp);
+
+    printf("Retrieved segment %llu of length %llu\n",
+           seg_num, resp->retrieve_resp.data_len);
+    debug_dump64(resp->retrieve_resp.data, resp->retrieve_resp.data_len);
+
+    printf("Retrieve ok\n");
 }
 
 } // namespace RAMCloud
