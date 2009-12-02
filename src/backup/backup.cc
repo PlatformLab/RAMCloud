@@ -197,6 +197,9 @@ void
 BackupServer::DoRetrieve(uint64_t seg_num, char *buf, uint64_t *len)
 {
     printf("Retrieving segment %llu from disk\n", seg_num);
+    if (seg_num > SEGMENT_COUNT)
+        throw BackupException("Master requested a "
+                              "ridiculous segment number");
 
     uint64_t seg_frame = FrameForSegNum(seg_num);
 
@@ -219,7 +222,6 @@ BackupServer::DoRetrieve(uint64_t seg_num, char *buf, uint64_t *len)
 
 void
 BackupServer::Retrieve(const backup_rpc *req, backup_rpc *resp)
-try
 {
     const backup_rpc_retrieve_req *rreq = &req->retrieve_req;
     backup_rpc_retrieve_resp *rresp = &resp->retrieve_resp;
@@ -231,10 +233,6 @@ try
     // No data when there's no exception
     resp->hdr.len = (uint32_t) (BACKUP_RPC_RETRIEVE_RESP_LEN_WODATA +
                                 rresp->data_len);
-} catch (BackupException e) {
-    // TODO(stutsman) just unify errors into a single type
-    // and handle the problem in the client
-    fprintf(stderr, ">>> BackupException: %s\n", e.message.c_str());
 }
 
 void
@@ -263,7 +261,13 @@ BackupServer::HandleRPC()
             throw BackupInvalidRPCOpException();
         };
     } catch (BackupException e) {
-        fprintf(stderr, ">>> Unhandled BackupException: %s\n", e.message.c_str());
+        fprintf(stderr, "Error while processing RPC: %s\n", e.message.c_str());
+        size_t msglen = e.message.length();
+        assert(BACKUP_RPC_ERROR_RESP_LEN_WODATA + msglen + 1 < MAX_RPC_LEN);
+        strcpy(&resp.error_resp.message[0], e.message.c_str());
+        resp.hdr.type = BACKUP_RPC_ERROR_RESP;
+        resp.hdr.len = static_cast<uint32_t>(BACKUP_RPC_ERROR_RESP_LEN_WODATA +
+                                             msglen + 1);
     }
     SendRPC(&resp);
 }
