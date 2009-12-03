@@ -3,6 +3,7 @@ OBJDIRS += server
 SERVER_SRCFILES := \
 		src/server/backup_client.cc \
 		src/server/hashtable.cc \
+		src/server/index.cc \
 		src/server/server.cc
 
 SERVER_OBJFILES := $(SERVER_SRCFILES)
