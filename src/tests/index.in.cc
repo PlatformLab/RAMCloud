@@ -47,6 +47,7 @@ class UniqueRangeIndexTest : public UniqueIndexTest {
     void TestRangeQuery();
     void TestRangeQueryNoKeys();
     void TestRangeQueryLimit();
+    void TestRangeQueryContinuation() { /* TODO */ }
   protected:
     virtual RAMCloud::UniqueRangeIndex<int, double> * getIndex() = 0;
   private:
@@ -54,6 +55,7 @@ class UniqueRangeIndexTest : public UniqueIndexTest {
     CPPUNIT_TEST(TestRangeQuery);
     CPPUNIT_TEST(TestRangeQueryNoKeys);
     CPPUNIT_TEST(TestRangeQueryLimit);
+    CPPUNIT_TEST(TestRangeQueryContinuation);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 };
 
@@ -81,6 +83,7 @@ class MultiRangeIndexTest : public MultiIndexTest {
     void TestRangeQuery();
     void TestRangeQueryNoKeys();
     void TestRangeQueryLimit();
+    void TestRangeQueryContinuation() { /* TODO */ }
   protected:
     virtual RAMCloud::MultiRangeIndex<int, double> * getIndex() = 0;
   private:
@@ -88,6 +91,7 @@ class MultiRangeIndexTest : public MultiIndexTest {
     CPPUNIT_TEST(TestRangeQuery);
     CPPUNIT_TEST(TestRangeQueryNoKeys);
     CPPUNIT_TEST(TestRangeQueryLimit);
+    CPPUNIT_TEST(TestRangeQueryContinuation);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 };
 
@@ -169,7 +173,15 @@ UniqueRangeIndexTest::TestRangeQueryNoKeys()
     {
         double valbuf[4];
         memset(valbuf, 0xCD, sizeof(valbuf));
-        CPPUNIT_ASSERT(index->RangeQuery(1, true, 2, true, 3, valbuf + 1) == 2);
+        RAMCloud::RangeQueryArgs<int, double> rq;
+        bool more;
+        rq.setKeyStart(1, true);
+        rq.setKeyEnd(2, true);
+        rq.setLimit(3);
+        rq.setResultBuf(valbuf + 1);
+        rq.setResultMore(&more);
+        CPPUNIT_ASSERT(index->RangeQuery(&rq) == 2);
+        CPPUNIT_ASSERT(!more);
         CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[0]) == \
                        0xCDCDCDCDCDCDCDCD);
         CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[3]) == \
@@ -183,14 +195,24 @@ void
 UniqueRangeIndexTest::TestRangeQueryLimit()
 {
     RAMCloud::UniqueRangeIndex<int, double> *index = getIndex();
-
+    RAMCloud::RangeQueryArgs<int, double> rq;
     double valbuf[100];
+
+    rq.setKeyStart(1, true);
+    rq.setKeyEnd(2, true);
+    rq.setResultBuf(valbuf + 1);
+
     index->Insert(1, 4.3);
     index->Insert(2, 7.9);
-    CPPUNIT_ASSERT(index->RangeQuery(1, true, 2, true, 0, valbuf + 1) == 0);
-    CPPUNIT_ASSERT(index->RangeQuery(1, true, 2, true, 1, valbuf + 1) == 1);
-    CPPUNIT_ASSERT(index->RangeQuery(1, true, 2, true, 2, valbuf + 1) == 2);
-    CPPUNIT_ASSERT(index->RangeQuery(1, true, 2, true, 100, valbuf + 1) == 2);
+
+    rq.setLimit(0);
+    CPPUNIT_ASSERT(index->RangeQuery(&rq) == 0);
+    rq.setLimit(1);
+    CPPUNIT_ASSERT(index->RangeQuery(&rq) == 1);
+    rq.setLimit(2);
+    CPPUNIT_ASSERT(index->RangeQuery(&rq) == 2);
+    rq.setLimit(100);
+    CPPUNIT_ASSERT(index->RangeQuery(&rq) == 2);
 }
 
 
@@ -309,9 +331,14 @@ MultiRangeIndexTest::TestRangeQueryNoKeys()
     index->Insert(2, 7.9);
 
     {
+        RAMCloud::RangeQueryArgs<int, double> rq;
         double valbuf[5];
         memset(valbuf, 0xCD, sizeof(valbuf));
-        CPPUNIT_ASSERT(index->RangeQuery(1, true, 2, true, 4, valbuf + 1) == 3);
+        rq.setKeyStart(1, true);
+        rq.setKeyEnd(2, true);
+        rq.setResultBuf(valbuf + 1);
+        rq.setLimit(4);
+        CPPUNIT_ASSERT(index->RangeQuery(&rq) == 3);
         CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[0]) ==
                        0xCDCDCDCDCDCDCDCD);
         CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[4]) ==
@@ -326,16 +353,27 @@ void
 MultiRangeIndexTest::TestRangeQueryLimit()
 {
     RAMCloud::MultiRangeIndex<int, double> *index = getIndex();
+    RAMCloud::RangeQueryArgs<int, double> rq;
+    double valbuf[100];
 
-    double buf[100];
+    rq.setKeyStart(1, true);
+    rq.setKeyEnd(2, true);
+    rq.setResultBuf(valbuf + 1);
+
     index->Insert(1, 4.3);
     index->Insert(1, 9.5);
     index->Insert(2, 7.9);
-    CPPUNIT_ASSERT(index->RangeQuery(1, true, 2, true, 0,   buf) == 0);
-    CPPUNIT_ASSERT(index->RangeQuery(1, true, 2, true, 1,   buf) == 1);
-    CPPUNIT_ASSERT(index->RangeQuery(1, true, 2, true, 2,   buf) == 2);
-    CPPUNIT_ASSERT(index->RangeQuery(1, true, 2, true, 3,   buf) == 3);
-    CPPUNIT_ASSERT(index->RangeQuery(1, true, 2, true, 100, buf) == 3);
+
+    rq.setLimit(0);
+    CPPUNIT_ASSERT(index->RangeQuery(&rq) == 0);
+    rq.setLimit(1);
+    CPPUNIT_ASSERT(index->RangeQuery(&rq) == 1);
+    rq.setLimit(2);
+    CPPUNIT_ASSERT(index->RangeQuery(&rq) == 2);
+    rq.setLimit(3);
+    CPPUNIT_ASSERT(index->RangeQuery(&rq) == 3);
+    rq.setLimit(100);
+    CPPUNIT_ASSERT(index->RangeQuery(&rq) == 3);
 }
 
 class STLUniqueRangeIndexTest : public UniqueRangeIndexTest {

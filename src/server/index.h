@@ -19,6 +19,8 @@
 #include <config.h>
 #include <shared/common.h>
 
+#include <assert.h>
+
 #include <list>
 #include <map>
 #include <string>
@@ -65,42 +67,121 @@ class MultiIndex : public Index<K, V> {
 };
 
 template<class K, class V>
-class UniqueRangeIndex : public UniqueIndex<K, V> {
+struct RangeQueryArgs {
+
   public:
 
-    virtual unsigned int
-    RangeQuery(K key_start, bool start_inclusive,
-               K key_end,   bool end_inclusive,
-               unsigned int limit,
-               K *keys,
-               V *values) const = 0;
+    RangeQueryArgs() : start_(),
+                       start_present_(false),
+                       start_inclusive_(false),
+                       end_(),
+                       end_present_(false),
+                       end_inclusive_(false),
+                       start_following_(),
+                       start_following_present_(false),
+                       limit_(static_cast<unsigned int>(-1)),
+                       result_buf_keys_(NULL),
+                       result_buf_values_(NULL),
+                       result_more_(NULL) {
+    }
 
-    virtual unsigned int
-    RangeQuery(K key_start, bool start_inclusive,
-               K key_end,   bool end_inclusive,
-               unsigned int limit,
-               V *values) const = 0;
+    /* optional */
+    void
+    setKeyStart(K start, bool inclusive) {
+        start_ = start;
+        start_present_ = true;
+        start_inclusive_ = inclusive;
+    }
 
+    /* optional */
+    void
+    setKeyEnd(K end, bool inclusive) {
+        end_ = end;
+        end_present_ = true;
+        end_inclusive_ = inclusive;
+    }
+
+    /* optional */
+    void
+    setStartFollowing(V value) {
+        start_following_present_ = true;
+        start_following_ = value;
+    }
+
+    /* required */
+    void
+    setLimit(unsigned int limit) {
+        limit_ = limit;
+    }
+
+    /* pick one of the following */
+    void
+    setResultBuf(K *keys, V *values) {
+        result_buf_keys_ = keys;
+        result_buf_values_ = values;
+    }
+
+    void
+    setResultBuf(V *values) {
+        result_buf_values_ = values;
+    }
+
+    /* optional */
+    void
+    setResultMore(bool *more) {
+        result_more_ = more;
+    }
+
+    ////////////////////
+
+    bool
+    IsValid() const {
+        if (limit_ == static_cast<unsigned int>(-1)) {
+            return false;
+        }
+        if (result_buf_values_ == NULL) {
+            return false;
+        }
+        if (start_following_present_) {
+            if (!start_present_ || !start_inclusive_) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    K start_;
+    bool start_present_;
+    bool start_inclusive_;
+
+    K end_;
+    bool end_present_;
+    bool end_inclusive_;
+
+    V start_following_;
+    bool start_following_present_;
+
+    unsigned int limit_;
+
+    K *result_buf_keys_;
+    V *result_buf_values_;
+
+    bool *result_more_;
+};
+
+template<class K, class V>
+class UniqueRangeIndex : public UniqueIndex<K, V> {
+  public:
+    virtual unsigned int
+    RangeQuery(const RangeQueryArgs<K, V> *args) const = 0;
   private:
 };
 
 template<class K, class V>
 class MultiRangeIndex : public MultiIndex<K, V> {
   public:
-
     virtual unsigned int
-    RangeQuery(K key_start, bool start_inclusive,
-               K key_end,   bool end_inclusive,
-               unsigned int limit,
-               K *keys,
-               V *values) const = 0;
-
-    virtual unsigned int
-    RangeQuery(K key_start, bool start_inclusive,
-               K key_end,   bool end_inclusive,
-               unsigned int limit,
-               V *values) const = 0;
-
+    RangeQuery(const RangeQueryArgs<K, V> *args) const = 0;
   private:
 };
 
@@ -150,43 +231,48 @@ class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
     }
 
     unsigned int
-    RangeQuery(K key_start, bool start_inclusive,
-               K key_end,   bool end_inclusive,
-               unsigned int limit,
-               V *values) const {
+    RangeQuery(const RangeQueryArgs<K, V> *args) const {
         CMI map_iter;
         CMIP range;
         unsigned int count;
+        bool more;
 
-        range = RangeQueryRange(key_start, start_inclusive,
-                                key_end,   end_inclusive);
-        for (count = 0,       map_iter = range.first;
-             count < limit && map_iter != range.second;
-             ++count,         ++map_iter) {
+        assert(args->IsValid());
 
-            values[count] = map_iter->second;
+        range = RangeQueryRange(args);
+        map_iter = range.first;
+        count = 0;
+        more = false;
+
+        if (map_iter != range.second) {
+            if (args->start_following_present_) {
+                // this flag doesn't make that much sense for unique indexes
+                // start following present implies both start present and
+                // start inclusive
+                if (map_iter->first == args->start_ &&
+                    map_iter->second <= args->start_following_) {
+                    ++map_iter;
+                }
+            }
+
+            // stream result from map_iter through range.second
+            while (map_iter != range.second) {
+                if (count == args->limit_) {
+                    more = true;
+                    break;
+                }
+                if (args->result_buf_keys_ != NULL) {
+                    args->result_buf_keys_[count] = map_iter->first;
+                }
+                args->result_buf_values_[count] = map_iter->second;
+
+                ++count;
+                ++map_iter;
+            }
         }
-        return count;
-    }
 
-    unsigned int
-    RangeQuery(K key_start, bool start_inclusive,
-               K key_end,   bool end_inclusive,
-               unsigned int limit,
-               K *keys,
-               V *values) const {
-        CMI map_iter;
-        CMIP range;
-        unsigned int count;
-
-        range = RangeQueryRange(key_start, start_inclusive,
-                                key_end,   end_inclusive);
-        for (count = 0,       map_iter = range.first;
-             count < limit && map_iter != range.second;
-             ++count,         ++map_iter) {
-
-            keys[count] = map_iter->first;
-            values[count] = map_iter->second;
+        if (args->result_more_ != NULL) {
+            *args->result_more_ = more;
         }
         return count;
     }
@@ -194,25 +280,31 @@ class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
   private:
 
     CMIP
-    RangeQueryRange(K key_start, bool start_inclusive,
-                    K key_end,   bool end_inclusive) const
-    {
+    RangeQueryRange(const RangeQueryArgs<K, V> *args) const {
         CMI start;
         CMI stop;
 
-        if (start_inclusive) {
-            start = map_.lower_bound(key_start);
+        if (args->start_present_) {
+            if (args->start_inclusive_) {
+                start = map_.lower_bound(args->start_);
+            } else {
+                start = map_.upper_bound(args->start_);
+            }
+            if (start == map_.end()) {
+                return CMIP(map_.end(), map_.end());
+            }
         } else {
-            start = map_.upper_bound(key_start);
-        }
-        if (start == map_.end()) {
-            return CMIP(map_.end(), map_.end());
+            start = map_.begin();
         }
 
-        if (end_inclusive) {
-            stop = map_.upper_bound(key_end);
+        if (args->end_present_) {
+            if (args->end_inclusive_) {
+                stop = map_.upper_bound(args->end_);
+            } else {
+                stop = map_.lower_bound(args->end_);
+            }
         } else {
-            stop = map_.lower_bound(key_end);
+            stop = map_.end();
         }
 
         if (stop == map_.end() || start->first <= stop->first) {
@@ -325,81 +417,95 @@ class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
     }
 
     unsigned int
-    RangeQuery(K key_start, bool start_inclusive,
-               K key_end,   bool end_inclusive,
-               unsigned int limit,
-               V *values) const {
+    RangeQuery(const RangeQueryArgs<K, V> *args) const {
         CMI map_iter;
         CMIP range;
         const LV *vlist;
         CLVI vlist_iter;
         unsigned int count;
+        bool more;
 
-        range = RangeQueryRange(key_start, start_inclusive,
-                                key_end,   end_inclusive);
+        assert(args->IsValid());
+
+        range = RangeQueryRange(args);
+        map_iter = range.first;
         count = 0;
-        for (map_iter = range.first; map_iter != range.second; ++map_iter) {
-            vlist = &map_iter->second;
-            for (                 vlist_iter = vlist->begin();
-                 count < limit && vlist_iter != vlist->end();
-                 ++count,         ++vlist_iter) {
+        more = false;
 
-                values[count] = *vlist_iter;
+        if (map_iter != map_.end()) {
+            vlist = &map_iter->second;
+            vlist_iter = vlist->begin();
+
+            if (args->start_following_present_) {
+                // start following present implies both start present and
+                // start inclusive
+                if (map_iter->first == args->start_) {
+                    while (vlist_iter != vlist->end() &&
+                           *vlist_iter <= args->start_following_) {
+                        ++vlist_iter;
+                    }
+                }
             }
+
+            // stream result from map_iter, vlist_iter
+            // through map_iter=range.second, vlist_iter=map_iter->second.end()
+            while (map_iter != range.second) {
+                while (vlist_iter != vlist->end()) {
+                    if (count == args->limit_) {
+                        more = true;
+                        goto OOM;
+                    }
+
+                    if (args->result_buf_keys_ != NULL) {
+                        args->result_buf_keys_[count] = map_iter->first;
+                    }
+                    args->result_buf_values_[count] = *vlist_iter;
+
+                    ++count;
+                    ++vlist_iter;
+                }
+
+                ++map_iter;
+                vlist = &map_iter->second;
+                vlist_iter = vlist->begin();
+            }
+        OOM:
+            /*pass*/;
         }
-        return count;
-    }
 
-    unsigned int
-    RangeQuery(K key_start, bool start_inclusive,
-               K key_end,   bool end_inclusive,
-               unsigned int limit,
-               K *keys,
-               V *values) const {
-        CMI map_iter;
-        CMIP range;
-        const LV *vlist;
-        CLVI vlist_iter;
-        unsigned int count;
-
-        range = RangeQueryRange(key_start, start_inclusive,
-                                key_end,   end_inclusive);
-        count = 0;
-        for (map_iter = range.first; map_iter != range.second; ++map_iter) {
-            vlist = &map_iter->second;
-            for (                 vlist_iter = vlist->begin();
-                 count < limit && vlist_iter != vlist->end();
-                 ++count,         ++vlist_iter) {
-
-                values[count] = *vlist_iter;
-                keys[count] = map_iter->first;
-            }
+        if (args->result_more_ != NULL) {
+            *args->result_more_ = more;
         }
         return count;
     }
 
   private:
-
     CMIP
-    RangeQueryRange(K key_start, bool start_inclusive,
-                    K key_end,   bool end_inclusive) const
-    {
+    RangeQueryRange(const RangeQueryArgs<K, V> *args) const {
         CMI start;
         CMI stop;
 
-        if (start_inclusive) {
-            start = map_.lower_bound(key_start);
+        if (args->start_present_) {
+            if (args->start_inclusive_) {
+                start = map_.lower_bound(args->start_);
+            } else {
+                start = map_.upper_bound(args->start_);
+            }
+            if (start == map_.end()) {
+                return CMIP(map_.end(), map_.end());
+            }
         } else {
-            start = map_.upper_bound(key_start);
-        }
-        if (start == map_.end()) {
-            return CMIP(map_.end(), map_.end());
+            start = map_.begin();
         }
 
-        if (end_inclusive) {
-            stop = map_.upper_bound(key_end);
+        if (args->end_present_) {
+            if (args->end_inclusive_) {
+                stop = map_.upper_bound(args->end_);
+            } else {
+                stop = map_.lower_bound(args->end_);
+            }
         } else {
-            stop = map_.lower_bound(key_end);
+            stop = map_.end();
         }
 
         if (stop == map_.end() || start->first <= stop->first) {

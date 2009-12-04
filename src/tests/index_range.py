@@ -60,11 +60,15 @@ def range_query_assert(line):
     out.line('memset(valbuf, 0xCD, sizeof(valbuf));')
 
     # execute RangeQuery, make sure it returned the right number of pairs
-    out.line('CPPUNIT_ASSERT(index->RangeQuery(%d, %s, %d, %s, %d, keybuf + 1, valbuf + 1) == %d);' % (
-           start, 'true' if left  == '[' else 'false',
-           stop,  'true' if right == ']' else 'false',
-           len(result_set) + 1,
-           len(result_set)))
+    out.line('RAMCloud::RangeQueryArgs<int, double> rq;')
+    out.line('bool more;')
+    out.line('rq.setKeyStart(%d, %s);' % (start, 'true' if left  == '[' else 'false'))
+    out.line('rq.setKeyEnd(%d, %s);'  % (stop,  'true' if right == ']' else 'false'))
+    out.line('rq.setLimit(%d);' % (len(result_set) + 1))
+    out.line('rq.setResultBuf(keybuf + 1, valbuf + 1);')
+    out.line('rq.setResultMore(&more);')
+    out.line('CPPUNIT_ASSERT(index->RangeQuery(&rq) == %d);' % len(result_set))
+    out.line('CPPUNIT_ASSERT(!more);')
 
     # make sure the result didn't clobber the first or last element
     out.line('CPPUNIT_ASSERT(keybuf[0]  == static_cast<int>(0xABABABAB));')
