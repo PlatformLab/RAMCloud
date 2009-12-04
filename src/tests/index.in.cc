@@ -67,6 +67,7 @@ class MultiIndexTest : public CppUnit::TestFixture {
     void TestRemove();
     void TestLookup();
     void TestLookupLimit();
+    void TestLookupContinuation() { /* TODO */ }
   protected:
     virtual RAMCloud::MultiIndex<int, double> * getIndex() = 0;
   private:
@@ -75,6 +76,7 @@ class MultiIndexTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(TestRemove);
     CPPUNIT_TEST(TestLookup);
     CPPUNIT_TEST(TestLookupLimit);
+    CPPUNIT_TEST(TestLookupContinuation);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 };
 
@@ -266,17 +268,32 @@ void
 MultiIndexTest::TestLookupLimit()
 {
     RAMCloud::MultiIndex<int, double> *index = getIndex();
-
+    RAMCloud::MultiLookupArgs<int, double> ml;
     double buf[100];
+    bool more;
+
+    ml.setKey(1);
+    ml.setResultBuf(buf);
+    ml.setResultMore(&more);
 
     index->Insert(1, 4.3);
     index->Insert(1, 9.5);
     index->Insert(1, 0.5);
-    CPPUNIT_ASSERT(index->Lookup(1, 0,   buf) == 0);
-    CPPUNIT_ASSERT(index->Lookup(1, 1,   buf) == 1);
-    CPPUNIT_ASSERT(index->Lookup(1, 2,   buf) == 2);
-    CPPUNIT_ASSERT(index->Lookup(1, 3,   buf) == 3);
-    CPPUNIT_ASSERT(index->Lookup(1, 100, buf) == 3);
+
+    ml.setLimit(0);
+    CPPUNIT_ASSERT(index->Lookup(&ml) == 0);
+
+    ml.setLimit(1);
+    CPPUNIT_ASSERT(index->Lookup(&ml) == 1);
+
+    ml.setLimit(2);
+    CPPUNIT_ASSERT(index->Lookup(&ml) == 2);
+
+    ml.setLimit(3);
+    CPPUNIT_ASSERT(index->Lookup(&ml) == 3);
+
+    ml.setLimit(100);
+    CPPUNIT_ASSERT(index->Lookup(&ml) == 3);
 }
 
 void

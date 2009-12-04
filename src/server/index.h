@@ -57,13 +57,92 @@ class UniqueIndex : public Index<K, V> {
 };
 
 template<class K, class V>
+struct MultiLookupArgs;
+
+template<class K, class V>
 class MultiIndex : public Index<K, V> {
   public:
     virtual void Insert(K key, V value) = 0;
     virtual void Remove(K key, V value) = 0; // throws IndexException if (key, value) not found
-    virtual unsigned int Lookup(K key, unsigned int limit, V *values) const = 0;
+    virtual unsigned int Lookup(const MultiLookupArgs<K, V> *args) const = 0;
     virtual ~MultiIndex(){}
+
   private:
+};
+
+template<class K, class V>
+struct MultiLookupArgs {
+
+  public:
+
+    MultiLookupArgs() : key_(),
+                        key_present_(false),
+                        start_following_(),
+                        start_following_present_(false),
+                        limit_(static_cast<unsigned int>(-1)),
+                        result_buf_values_(NULL),
+                        result_more_(NULL) {
+    }
+
+    /* required */
+    void
+    setKey(K key) {
+        key_ = key;
+        key_present_ = true;
+    }
+
+    /* optional */
+    void
+    setStartFollowing(V value) {
+        start_following_present_ = true;
+        start_following_ = value;
+    }
+
+    /* required */
+    void
+    setLimit(unsigned int limit) {
+        limit_ = limit;
+    }
+
+    /* required */
+    void
+    setResultBuf(V *values) {
+        result_buf_values_ = values;
+    }
+
+    /* optional */
+    void
+    setResultMore(bool *more) {
+        result_more_ = more;
+    }
+
+    ////////////////////
+
+    bool
+    IsValid() const {
+        if (!key_present_) {
+            return false;
+        }
+        if (limit_ == static_cast<unsigned int>(-1)) {
+            return false;
+        }
+        if (result_buf_values_ == NULL) {
+            return false;
+        }
+        return true;
+    }
+
+    K key_;
+    bool key_present_;
+
+    V start_following_;
+    bool start_following_present_;
+
+    unsigned int limit_;
+
+    V *result_buf_values_;
+
+    bool *result_more_;
 };
 
 template<class K, class V>
@@ -395,23 +474,43 @@ class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
     }
 
     unsigned int
-    Lookup(K key, unsigned int limit, V *values) const {
+    Lookup(const MultiLookupArgs<K, V> *args) const {
         CMI map_iter;
         const LV *vlist;
         CLVI vlist_iter;
         unsigned int count;
+        bool more;
 
-        map_iter = map_.find(key);
-        if (map_iter == map_.end()) {
-            return 0;
+        assert(args->IsValid());
+
+        count = 0;
+        more = false;
+
+        map_iter = map_.find(args->key_);
+        if (map_iter != map_.end()) {
+            vlist = &map_iter->second;
+            vlist_iter = vlist->begin();
+
+            if (args->start_following_present_) {
+                while (vlist_iter != vlist->end() &&
+                       *vlist_iter < args->start_following_) {
+                    ++vlist_iter;
+                }
+            }
+
+            while (vlist_iter != vlist->end()) {
+                if (count == args->limit_) {
+                    more = true;
+                    break;
+                }
+                args->result_buf_values_[count] = *vlist_iter;
+                ++count;
+                ++vlist_iter;
+            }
         }
-        vlist = &map_iter->second;
 
-        for (count = 0,       vlist_iter = vlist->begin();
-             count < limit && vlist_iter != vlist->end();
-             ++count,         ++vlist_iter) {
-
-            values[count] = *vlist_iter;
+        if (args->result_more_ != NULL) {
+            *args->result_more_ = more;
         }
         return count;
     }

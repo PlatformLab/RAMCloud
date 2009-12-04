@@ -96,10 +96,14 @@ def multi_lookup_assert(line):
     out.line('memset(valbuf, 0xCD, sizeof(valbuf));')
 
     # execute Lookup, make sure it returned the right number of values
-    out.line('CPPUNIT_ASSERT(index->Lookup(%d, %d, valbuf + 1) == %d);' % (
-           key,
-           len(result_set) + 1,
-           len(result_set)))
+    out.line('RAMCloud::MultiLookupArgs<int, double> ml;')
+    out.line('bool more;')
+    out.line('ml.setKey(%d);' % key)
+    out.line('ml.setLimit(%d);' % (len(result_set) + 1))
+    out.line('ml.setResultBuf(valbuf + 1);')
+    out.line('ml.setResultMore(&more);')
+    out.line('CPPUNIT_ASSERT(index->Lookup(&ml) == %d);' % len(result_set))
+    out.line('CPPUNIT_ASSERT(!more);')
 
     # make sure the result didn't clobber the first or last element
     out.line('CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[0])  == 0xCDCDCDCDCDCDCDCD);')
