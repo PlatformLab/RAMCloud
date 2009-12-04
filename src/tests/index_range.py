@@ -20,32 +20,27 @@ class Output:
     def contents(self):
         return '\n'.join(self.buffer + [''])
 
-class MultiDict:
-    def __init__(self, s):
-        self.buckets = {}
-        self.nitems = 0
+def list_kv_tuples(s):
+    items = []
+    s = s.strip()
+    if not s:
+        return []
+    for item in s.split(','):
+        key, value = item.split(':')
+        key = key.strip()
+        value = value.strip()
+        items.append((key, value))
+    return items
 
-        s = s.strip()
-        if s:
-            for item in s.split(','):
-                key, value = item.split(':')
-                key = key.strip()
-                value = value.strip()
-                if key in self.buckets:
-                    self.buckets[key].append(value)
-                else:
-                    self.buckets[key] = [value]
-                self.nitems += 1
-
-    def __len__(self):
-        return self.nitems
-
-    def items(self):
-        r = []
-        for key, bucket in self.buckets.items():
-            for value in bucket:
-                r.append((key, value))
-        return r
+def list_v(s):
+    items = []
+    s = s.strip()
+    if not s:
+        return []
+    for value in s.split(','):
+        value = value.strip()
+        items.append(value)
+    return items
 
 def range_query_assert(line):
     m = re.search('^\s*RANGE_QUERY_ASSERT\s*\(\s*"\s*(\[|\()\s*(-?\d+)\s*,\s*(-?\d+)(\]|\))\s*=>\s*{(.*)}\s*"\s*\)\s*;\s*$', line)
@@ -55,7 +50,7 @@ def range_query_assert(line):
     start = int(m.group(2))
     stop = int(m.group(3))
     right = m.group(4)
-    result_set = MultiDict(m.group(5))
+    result_set = list_kv_tuples(m.group(5))
     buf_size = len(result_set) + 2
 
     # buffers
@@ -77,22 +72,19 @@ def range_query_assert(line):
     out.line('CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[0])  == 0xCDCDCDCDCDCDCDCD);')
     out.line('CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[%d]) == 0xCDCDCDCDCDCDCDCD);' % (len(result_set) + 1))
 
-    # make sure the buffers contain all the pairs
-    out.line('std::multimap<int, double> expected;')
-    out.line('std::multimap<int, double> actual;')
-    for (k,v) in result_set.items():
-        out.line('expected.insert(std::pair<int, double>(%s, %s));' % (k,v))
-    out.line('for (int i = 1; i <= %d; i++) {' % (len(result_set)))
-    out.line('    actual.insert(std::pair<int, double>(keybuf[i], valbuf[i]));')
-    out.line('}')
-    out.line('CPPUNIT_ASSERT(multimaps_equal(&expected, &actual));')
+    # make sure the buffers contain the right pairs in the right order
+    i = 1
+    for (k,v) in result_set:
+        out.line('CPPUNIT_ASSERT(%s == keybuf[%d]);' % (k, i))
+        out.line('CPPUNIT_ASSERT_DOUBLES_EQUAL(%s, valbuf[%d], D);' % (v, i))
+        i += 1
 
 def multi_lookup_assert(line):
     m = re.search('^\s*MULTI_LOOKUP_ASSERT\s*\(\s*"\s*(-?\d+)\s*=>\s*{(.*)}\s*"\s*\)\s*;\s*$', line)
     assert m is not None, line
 
     key = int(m.group(1))
-    result_set = eval('set([%s])' % m.group(2))
+    result_set = list_v(m.group(2))
     buf_size = len(result_set) + 2
 
     # buffers
@@ -109,15 +101,11 @@ def multi_lookup_assert(line):
     out.line('CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[0])  == 0xCDCDCDCDCDCDCDCD);')
     out.line('CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[%d]) == 0xCDCDCDCDCDCDCDCD);' % (len(result_set) + 1))
 
-    # make sure the buffers contain all the pairs
-    out.line('std::set<double> expected;')
-    out.line('std::set<double> actual;')
+    # make sure the buffers contain the right values in the right order
+    i = 1
     for v in result_set:
-        out.line('expected.insert(%s);' % v)
-    out.line('for (int i = 1; i <= %d; i++) {' % (len(result_set)))
-    out.line('    actual.insert(valbuf[i]);')
-    out.line('}')
-    out.line('CPPUNIT_ASSERT(sets_equal(&expected, &actual));')
+        out.line('CPPUNIT_ASSERT_DOUBLES_EQUAL(%s, valbuf[%d], D);' % (v, i))
+        i += 1
 
 out = Output()
 out.indentlevel += 1

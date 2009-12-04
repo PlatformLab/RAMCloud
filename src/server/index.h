@@ -19,6 +19,7 @@
 #include <config.h>
 #include <shared/common.h>
 
+#include <list>
 #include <map>
 #include <string>
 
@@ -106,11 +107,12 @@ class MultiRangeIndex : public MultiIndex<K, V> {
 template<class K, class V>
 class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
 
-  typedef std::map<K, V> mkv;
-  typedef std::pair<typename mkv::iterator,
-                    typename mkv::iterator> mipair;
-  typedef std::pair<typename mkv::const_iterator,
-                    typename mkv::const_iterator> micpair;
+  typedef std::map<K, V> M;
+  typedef typename M::iterator MI;
+  typedef typename M::const_iterator CMI;
+
+  typedef std::pair<MI,  MI>  MIP;
+  typedef std::pair<CMI, CMI> CMIP;
 
   public:
     STLUniqueRangeIndex() : map_() {
@@ -137,12 +139,14 @@ class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
 
     V
     Lookup(K key) const {
-        typename mkv::const_iterator i = map_.find(key);
-        if (i != map_.end()) {
-            return i->second;
-        } else {
+        CMI map_iter;
+
+        map_iter = map_.find(key);
+        if (map_iter == map_.end()) {
             throw IndexException("Not found");
         }
+
+        return map_iter->second;
     }
 
     unsigned int
@@ -150,17 +154,17 @@ class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
                K key_end,   bool end_inclusive,
                unsigned int limit,
                V *values) const {
-        typename mkv::const_iterator i;
-        micpair range;
+        CMI map_iter;
+        CMIP range;
         unsigned int count;
 
         range = RangeQueryRange(key_start, start_inclusive,
                                 key_end,   end_inclusive);
-        for (count = 0, i = range.first;
-             count < limit && i != range.second;
-             ++count, ++i) {
+        for (count = 0,       map_iter = range.first;
+             count < limit && map_iter != range.second;
+             ++count,         ++map_iter) {
 
-            values[count] = i->second;
+            values[count] = map_iter->second;
         }
         return count;
     }
@@ -171,30 +175,30 @@ class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
                unsigned int limit,
                K *keys,
                V *values) const {
-        typename mkv::const_iterator i;
-        micpair range;
+        CMI map_iter;
+        CMIP range;
         unsigned int count;
 
         range = RangeQueryRange(key_start, start_inclusive,
                                 key_end,   end_inclusive);
-        for (count = 0, i = range.first;
-             count < limit && i != range.second;
-             ++count, ++i) {
+        for (count = 0,       map_iter = range.first;
+             count < limit && map_iter != range.second;
+             ++count,         ++map_iter) {
 
-            keys[count] = i->first;
-            values[count] = i->second;
+            keys[count] = map_iter->first;
+            values[count] = map_iter->second;
         }
         return count;
     }
 
   private:
 
-    micpair
+    CMIP
     RangeQueryRange(K key_start, bool start_inclusive,
                     K key_end,   bool end_inclusive) const
     {
-        typename mkv::const_iterator start;
-        typename mkv::const_iterator stop;
+        CMI start;
+        CMI stop;
 
         if (start_inclusive) {
             start = map_.lower_bound(key_start);
@@ -202,7 +206,7 @@ class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
             start = map_.upper_bound(key_start);
         }
         if (start == map_.end()) {
-            return micpair(map_.end(), map_.end());
+            return CMIP(map_.end(), map_.end());
         }
 
         if (end_inclusive) {
@@ -212,13 +216,13 @@ class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
         }
 
         if (stop == map_.end() || start->first <= stop->first) {
-            return micpair(start, stop);
+            return CMIP(start, stop);
         } else {
-            return micpair(map_.end(), map_.end());
+            return CMIP(map_.end(), map_.end());
         }
     }
 
-    mkv map_;
+    M map_;
 
     DISALLOW_COPY_AND_ASSIGN(STLUniqueRangeIndex);
 };
@@ -226,11 +230,16 @@ class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
 template<class K, class V>
 class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
 
-  typedef std::multimap<K, V> mmkv;
-  typedef std::pair<typename mmkv::iterator,
-                    typename mmkv::iterator> mmipair;
-  typedef std::pair<typename mmkv::const_iterator,
-                    typename mmkv::const_iterator> mmicpair;
+  typedef std::list<V> LV;
+  typedef typename LV::iterator LVI;
+  typedef typename LV::const_iterator CLVI;
+
+  typedef std::map<K, LV> M;
+  typedef typename M::iterator MI;
+  typedef typename M::const_iterator CMI;
+
+  typedef std::pair<MI,  MI>  MIP;
+  typedef std::pair<CMI, CMI> CMIP;
 
   public:
     STLMultiRangeIndex() : map_() {
@@ -241,18 +250,52 @@ class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
 
     void
     Insert(K key, V value) {
-        map_.insert(std::pair<K, V>(key, value));
+        std::pair<MI, bool> ret;
+        MI map_iter;
+        bool inserted;
+
+        LV *vlist;
+        LVI vlist_iter;
+
+        ret = map_.insert(std::pair<K, LV>(key, LV(1, value)));
+        map_iter = ret.first;
+        inserted = ret.second;
+
+        if (!inserted) {
+            vlist = &map_iter->second;
+            for (vlist_iter = vlist->begin();
+                 vlist_iter != vlist->end();
+                 ++vlist_iter) {
+
+                if (*vlist_iter > value) {
+                    break;
+                }
+            }
+            vlist->insert(vlist_iter, value);
+        }
     }
 
     void
     Remove(K key, V value) {
-        typename mmkv::iterator i;
-        mmipair range;
+        MI map_iter;
+        LV *vlist;
+        LVI vlist_iter;
 
-        range = map_.equal_range(key);
-        for (i = range.first; i != range.second; ++i) {
-            if (i->second == value) {
-                map_.erase(i);
+        map_iter = map_.find(key);
+        if (map_iter == map_.end()) {
+            throw IndexException("Not found");
+        }
+        vlist = &map_iter->second;
+
+        for (vlist_iter = vlist->begin();
+             vlist_iter != vlist->end();
+             ++vlist_iter) {
+
+            if (*vlist_iter == value) {
+                vlist->erase(vlist_iter);
+                if (vlist->size() == 0) {
+                    map_.erase(map_iter);
+                }
                 return;
             }
         }
@@ -261,17 +304,22 @@ class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
 
     unsigned int
     Lookup(K key, unsigned int limit, V *values) const {
-        typename mmkv::const_iterator i;
-        mmicpair range;
+        CMI map_iter;
+        const LV *vlist;
+        CLVI vlist_iter;
         unsigned int count;
 
-        range = map_.equal_range(key);
-        for (count = 0, i = range.first;
-             count < limit && i != range.second;
-             ++count, ++i) {
+        map_iter = map_.find(key);
+        if (map_iter == map_.end()) {
+            return 0;
+        }
+        vlist = &map_iter->second;
 
-            *values = i->second;
-            ++values;
+        for (count = 0,       vlist_iter = vlist->begin();
+             count < limit && vlist_iter != vlist->end();
+             ++count,         ++vlist_iter) {
+
+            values[count] = *vlist_iter;
         }
         return count;
     }
@@ -281,17 +329,23 @@ class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
                K key_end,   bool end_inclusive,
                unsigned int limit,
                V *values) const {
-        typename mmkv::const_iterator i;
-        mmicpair range;
+        CMI map_iter;
+        CMIP range;
+        const LV *vlist;
+        CLVI vlist_iter;
         unsigned int count;
 
         range = RangeQueryRange(key_start, start_inclusive,
                                 key_end,   end_inclusive);
-        for (count = 0, i = range.first;
-             count < limit && i != range.second;
-             ++count, ++i) {
+        count = 0;
+        for (map_iter = range.first; map_iter != range.second; ++map_iter) {
+            vlist = &map_iter->second;
+            for (                 vlist_iter = vlist->begin();
+                 count < limit && vlist_iter != vlist->end();
+                 ++count,         ++vlist_iter) {
 
-            values[count] = i->second;
+                values[count] = *vlist_iter;
+            }
         }
         return count;
     }
@@ -302,30 +356,36 @@ class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
                unsigned int limit,
                K *keys,
                V *values) const {
-        typename mmkv::const_iterator i;
-        mmicpair range;
+        CMI map_iter;
+        CMIP range;
+        const LV *vlist;
+        CLVI vlist_iter;
         unsigned int count;
 
         range = RangeQueryRange(key_start, start_inclusive,
                                 key_end,   end_inclusive);
-        for (count = 0, i = range.first;
-             count < limit && i != range.second;
-             ++count, ++i) {
+        count = 0;
+        for (map_iter = range.first; map_iter != range.second; ++map_iter) {
+            vlist = &map_iter->second;
+            for (                 vlist_iter = vlist->begin();
+                 count < limit && vlist_iter != vlist->end();
+                 ++count,         ++vlist_iter) {
 
-            keys[count] = i->first;
-            values[count] = i->second;
+                values[count] = *vlist_iter;
+                keys[count] = map_iter->first;
+            }
         }
         return count;
     }
 
   private:
 
-    mmicpair
+    CMIP
     RangeQueryRange(K key_start, bool start_inclusive,
                     K key_end,   bool end_inclusive) const
     {
-        typename mmkv::const_iterator start;
-        typename mmkv::const_iterator stop;
+        CMI start;
+        CMI stop;
 
         if (start_inclusive) {
             start = map_.lower_bound(key_start);
@@ -333,7 +393,7 @@ class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
             start = map_.upper_bound(key_start);
         }
         if (start == map_.end()) {
-            return mmicpair(map_.end(), map_.end());
+            return CMIP(map_.end(), map_.end());
         }
 
         if (end_inclusive) {
@@ -343,13 +403,13 @@ class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
         }
 
         if (stop == map_.end() || start->first <= stop->first) {
-            return mmicpair(start, stop);
+            return CMIP(start, stop);
         } else {
-            return mmicpair(map_.end(), map_.end());
+            return CMIP(map_.end(), map_.end());
         }
     }
 
-    mmkv map_;
+    M map_;
 
     DISALLOW_COPY_AND_ASSIGN(STLMultiRangeIndex);
 };

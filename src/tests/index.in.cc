@@ -24,56 +24,6 @@
 
 #define D 0.0001
 
-/* helper for RANGE QUERY ASSERT */
-static bool
-multimaps_equal(std::multimap<int, double> *expected,
-                std::multimap<int, double> *actual)
-{
-    std::multimap<int, double>::iterator i;
-    std::multimap<int, double>::iterator e;
-    std::pair<std::multimap<int, double>::iterator,
-              std::multimap<int, double>::iterator> ret;
-
-    if (expected->size() != actual->size()) {
-        return false;
-    }
-
-    for (i = actual->begin(); i != actual->end(); ++i) {
-        ret = expected->equal_range(i->first);
-        for (e = ret.first; e != ret.second; ++e) {
-            if (e->second == i->second) {
-                goto next;
-            }
-        }
-        return false;
-  next:
-        continue;
-    }
-
-    return true;
-}
-
-/* helper for MULTI LOOKUP ASSERT */
-static bool
-sets_equal(std::set<double> *expected,
-           std::set<double> *actual)
-{
-    std::set<double>::iterator i;
-    std::set<double>::iterator e;
-
-    if (expected->size() != actual->size()) {
-        return false;
-    }
-
-    for (i = actual->begin(); i != actual->end(); ++i) {
-        if (expected->find(*i) == expected->end()) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 class UniqueIndexTest : public CppUnit::TestFixture {
   public:
     virtual void setUp() = 0;
@@ -224,13 +174,8 @@ UniqueRangeIndexTest::TestRangeQueryNoKeys()
                        0xCDCDCDCDCDCDCDCD);
         CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[3]) == \
                        0xCDCDCDCDCDCDCDCD);
-        std::set<double> expected;
-        std::set<double> actual;
-        expected.insert(4.3);
-        expected.insert(7.9);
-        actual.insert(valbuf[1]);
-        actual.insert(valbuf[2]);
-        CPPUNIT_ASSERT(sets_equal(&expected, &actual));
+        CPPUNIT_ASSERT_DOUBLES_EQUAL(4.3, valbuf[1], D);
+        CPPUNIT_ASSERT_DOUBLES_EQUAL(7.9, valbuf[2], D);
     }
 }
 
@@ -346,9 +291,9 @@ MultiRangeIndexTest::TestRangeQuery()
 
     index->Insert(3, 60.6);
     index->Insert(8, 921.0);
-    index->Insert(1, 10.9);
     index->Insert(1, 22.2);
     index->Insert(1, 33.3);
+    index->Insert(1, 10.9);
     RANGE_QUERY_ASSERT(" [0, 10]    =>  {1: 4.3, 1: 10.9, 1: 22.2, 1: 33.3, "\
                                         "2: 58.4, 3: 60.6, 8: 921.0}");
     RANGE_QUERY_ASSERT(" (1, 8)     =>  {2: 58.4, 3: 60.6}");
@@ -371,15 +316,9 @@ MultiRangeIndexTest::TestRangeQueryNoKeys()
                        0xCDCDCDCDCDCDCDCD);
         CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[4]) ==
                        0xCDCDCDCDCDCDCDCD);
-        std::set<double> expected;
-        std::set<double> actual;
-        expected.insert(4.3);
-        expected.insert(9.5);
-        expected.insert(7.9);
-        actual.insert(valbuf[1]);
-        actual.insert(valbuf[2]);
-        actual.insert(valbuf[3]);
-        CPPUNIT_ASSERT(sets_equal(&expected, &actual));
+        CPPUNIT_ASSERT_DOUBLES_EQUAL(4.3, valbuf[1], D);
+        CPPUNIT_ASSERT_DOUBLES_EQUAL(9.5, valbuf[2], D);
+        CPPUNIT_ASSERT_DOUBLES_EQUAL(7.9, valbuf[3], D);
     }
 }
 
