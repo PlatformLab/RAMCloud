@@ -203,6 +203,9 @@ UniqueRangeIndexTest::TestRangeQuery()
     RANGE_QUERY_ASSERT(" [-1, 10]   => {1: 4.3, 2: 7.9}");
     RANGE_QUERY_ASSERT(" [1, 10]    => {1: 4.3, 2: 7.9}");
     RANGE_QUERY_ASSERT(" (1, 10]    => {2: 7.9}");
+    RANGE_QUERY_ASSERT(" [3, 0]     => {}");
+    RANGE_QUERY_ASSERT(" [2, 0]     => {}");
+    RANGE_QUERY_ASSERT(" [2, 1]     => {}");
 }
 
 void
@@ -336,6 +339,9 @@ MultiRangeIndexTest::TestRangeQuery()
     RANGE_QUERY_ASSERT(" [-1, 10]   => {1: 4.3, 2: 58.4}");
     RANGE_QUERY_ASSERT(" [1, 10]    => {1: 4.3, 2: 58.4}");
     RANGE_QUERY_ASSERT(" (1, 10]    => {2: 58.4}");
+    RANGE_QUERY_ASSERT(" [3, 0]     => {}");
+    RANGE_QUERY_ASSERT(" [2, 0]     => {}");
+    RANGE_QUERY_ASSERT(" [2, 1]     => {}");
 
 
     index->Insert(3, 60.6);

@@ -202,7 +202,7 @@ class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
             start = map_.upper_bound(key_start);
         }
         if (start == map_.end()) {
-            return micpair(start, start);
+            return micpair(map_.end(), map_.end());
         }
 
         if (end_inclusive) {
@@ -211,7 +211,11 @@ class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
             stop = map_.lower_bound(key_end);
         }
 
-        return micpair(start, stop);
+        if (stop == map_.end() || start->first <= stop->first) {
+            return micpair(start, stop);
+        } else {
+            return micpair(map_.end(), map_.end());
+        }
     }
 
     mkv map_;
@@ -329,7 +333,7 @@ class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
             start = map_.upper_bound(key_start);
         }
         if (start == map_.end()) {
-            return mmicpair(start, start);
+            return mmicpair(map_.end(), map_.end());
         }
 
         if (end_inclusive) {
@@ -338,7 +342,11 @@ class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
             stop = map_.lower_bound(key_end);
         }
 
-        return mmicpair(start, stop);
+        if (stop == map_.end() || start->first <= stop->first) {
+            return mmicpair(start, stop);
+        } else {
+            return mmicpair(map_.end(), map_.end());
+        }
     }
 
     mmkv map_;
