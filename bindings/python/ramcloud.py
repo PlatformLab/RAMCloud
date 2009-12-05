@@ -195,8 +195,8 @@ def main():
     table = r.open_table("test")
     print "with id %s" % table
 
-    #index_id = r.create_index(table, RCRPC_INDEX_TYPE.UINT64, True, False)
-    #print "Created index id %d" % index_id
+    index_id = r.create_index(table, RCRPC_INDEX_TYPE.UINT16, True, False)
+    print "Created index id %d" % index_id
 
     r.write(table, 0, "Hello, World, from Python")
     print "Wrote key 0 to table"
@@ -205,7 +205,7 @@ def main():
     key = r.insert(table, "test")
     print "Inserted value and got back key %d" % key
 
-    #r.drop_index(table, index_id)
+    r.drop_index(table, index_id)
     r.drop_table("test")
 
 if __name__ == '__main__': main()

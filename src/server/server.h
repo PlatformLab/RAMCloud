@@ -24,6 +24,7 @@
 #include <server/backup_client.h>
 #include <server/net.h>
 #include <server/hashtable.h>
+#include <server/index.h>
 
 namespace RAMCloud {
 
@@ -35,7 +36,9 @@ struct object {
 class Table {
   public:
     static const int TABLE_NAME_MAX_LEN = 64;
-    explicit Table() : next_key(0), object_map(HASH_NLINES) {}
+    explicit Table() : next_key(0), object_map(HASH_NLINES) {
+        memset(indexes, 0, sizeof(indexes));
+    }
     const char *GetName() { return &name[0]; }
     void SetName(const char *new_name) {
         strncpy(&name[0], new_name, TABLE_NAME_MAX_LEN);
@@ -54,10 +57,52 @@ class Table {
         object_map.Delete(key);
         object_map.Insert(key, o);
     }
+    template<class K>
+    uint16_t CreateIndex(bool unique, bool range_queryable) {
+        uint16_t index_id;
+
+        index_id = 0;
+        while (indexes[index_id] != NULL) {
+            if (index_id == 65535) {
+                throw "Out of index ids";
+            }
+            ++index_id;
+        }
+
+        if (unique) {
+            if (range_queryable) {
+                /* unique tree */
+                indexes[index_id] = new STLUniqueRangeIndex<K, uint64_t>();
+            } else {
+                /* unique hash table */
+                indexes[index_id] = new STLUniqueRangeIndex<K, uint64_t>();
+            }
+        } else {
+            if (range_queryable) {
+                /* multi tree */
+                indexes[index_id] = new STLMultiRangeIndex<K, uint64_t>();
+            } else {
+                /* multi hash table */
+                indexes[index_id] = new STLMultiRangeIndex<K, uint64_t>();
+            }
+        }
+
+        return index_id;
+    }
+
+    void DropIndex(uint16_t index_id) {
+        if (indexes[index_id] == NULL) {
+            throw "Invalid index";
+        }
+        delete indexes[index_id];
+        indexes[index_id] = NULL;
+    }
+
   private:
     char name[64];
     uint64_t next_key;
     Hashtable object_map;
+    Index *indexes[65536];
     DISALLOW_COPY_AND_ASSIGN(Table);
 };
 

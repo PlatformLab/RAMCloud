@@ -40,14 +40,13 @@ struct IndexException {
     std::string message;
 };
 
-template<class K, class V>
 class Index {
   public:
     virtual ~Index(){}
 };
 
 template<class K, class V>
-class UniqueIndex : public Index<K, V> {
+class UniqueIndex : public Index {
   public:
     virtual void Insert(K key, V value) = 0; // throws IndexException if key exists
     virtual void Remove(K key, V value) = 0; // throws IndexException if key not found or if (key, value) not found
@@ -60,7 +59,7 @@ template<class K, class V>
 struct MultiLookupArgs;
 
 template<class K, class V>
-class MultiIndex : public Index<K, V> {
+class MultiIndex : public Index {
   public:
     virtual void Insert(K key, V value) = 0;
     virtual void Remove(K key, V value) = 0; // throws IndexException if (key, value) not found
@@ -143,6 +142,8 @@ struct MultiLookupArgs {
     V *result_buf_values_;
 
     bool *result_more_;
+
+    DISALLOW_COPY_AND_ASSIGN(MultiLookupArgs);
 };
 
 template<class K, class V>
@@ -246,6 +247,8 @@ struct RangeQueryArgs {
     V *result_buf_values_;
 
     bool *result_more_;
+
+    DISALLOW_COPY_AND_ASSIGN(RangeQueryArgs);
 };
 
 template<class K, class V>

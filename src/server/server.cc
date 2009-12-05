@@ -224,6 +224,11 @@ Server::DropTable(const struct rcrpc *req, struct rcrpc *resp)
 void
 Server::CreateIndex(const struct rcrpc *req, struct rcrpc *resp)
 {
+    Table *table;
+    uint16_t index_id;
+    bool unique;
+    bool range_queryable;
+
     if (server_debug) {
         printf("CreateIndex(table=%d, type=%d, "
                            "unique=%d, range_queryable=%d)\n",
@@ -232,20 +237,66 @@ Server::CreateIndex(const struct rcrpc *req, struct rcrpc *resp)
                (bool) req->create_index_request.unique,
                (bool) req->create_index_request.range_queryable);
     }
-    throw "Not implemented";
-    //resp->create_index_response.id = ...;
+
+    table = &tables[req->create_index_request.table];
+    unique = (bool) req->create_index_request.unique;
+    range_queryable = (bool) req->create_index_request.range_queryable;
+
+    switch ((enum RCRPC_INDEX_TYPE) req->create_index_request.type) {
+        case RCRPC_INDEX_TYPE_SINT8:
+            index_id = table->CreateIndex<int8_t>(unique, range_queryable);
+            break;
+        case RCRPC_INDEX_TYPE_UINT8:
+            index_id = table->CreateIndex<uint8_t>(unique, range_queryable);
+            break;
+        case RCRPC_INDEX_TYPE_SINT16:
+            index_id = table->CreateIndex<int16_t>(unique, range_queryable);
+            break;
+        case RCRPC_INDEX_TYPE_UINT16:
+            index_id = table->CreateIndex<uint16_t>(unique, range_queryable);
+            break;
+        case RCRPC_INDEX_TYPE_SINT32:
+            index_id = table->CreateIndex<int32_t>(unique, range_queryable);
+            break;
+        case RCRPC_INDEX_TYPE_UINT32:
+            index_id = table->CreateIndex<uint32_t>(unique, range_queryable);
+            break;
+        case RCRPC_INDEX_TYPE_SINT64:
+            index_id = table->CreateIndex<int64_t>(unique, range_queryable);
+            break;
+        case RCRPC_INDEX_TYPE_UINT64:
+            index_id = table->CreateIndex<uint64_t>(unique, range_queryable);
+            break;
+        case RCRPC_INDEX_TYPE_FLOAT32:
+            index_id = table->CreateIndex<float>(unique, range_queryable);
+            break;
+        case RCRPC_INDEX_TYPE_FLOAT64:
+            index_id = table->CreateIndex<double>(unique, range_queryable);
+            break;
+        case RCRPC_INDEX_TYPE_STRING:
+            index_id = table->CreateIndex<std::string>(unique, range_queryable);
+            break;
+        default:
+            throw "Unknown index type";
+    }
+
+    resp->create_index_response.id = index_id;
 }
 
 
 void
 Server::DropIndex(const struct rcrpc *req, struct rcrpc *resp)
 {
+    Table *table;
+
     if (server_debug) {
         printf("DropIndex(table=%d, id=%d)\n",
                req->drop_index_request.table,
                req->drop_index_request.id);
     }
-    throw "Not implemented";
+
+    table = &tables[req->create_index_request.table];
+    table->DropIndex(req->drop_index_request.id);
 }
 
 void
