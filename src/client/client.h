@@ -17,6 +17,7 @@
 #define RAMCLOUD_CLIENT_CLIENT_H
 
 #include <inttypes.h>
+#include <stdbool.h>
 #include <shared/net.h>
 
 struct rc_client {
@@ -39,6 +40,11 @@ int rc_create_table(struct rc_client *client, const char *name);
 int rc_open_table(struct rc_client *client, const char *name,
                   uint64_t *table_id);
 int rc_drop_table(struct rc_client *client, const char *name);
+int rc_create_index(struct rc_client *client, uint64_t table_id,
+                    enum RCRPC_INDEX_TYPE type, bool unique,
+                    bool range_queryable, uint16_t *index_id);
+int rc_drop_index(struct rc_client *client, uint64_t table_id,
+                  uint16_t index_id);
 
 /* These aren't strictly necessary, but they make life easier for
  * foreign languages because they don't have to know how to allocate a

@@ -222,6 +222,33 @@ Server::DropTable(const struct rcrpc *req, struct rcrpc *resp)
 }
 
 void
+Server::CreateIndex(const struct rcrpc *req, struct rcrpc *resp)
+{
+    if (server_debug) {
+        printf("CreateIndex(table=%d, type=%d, "
+                           "unique=%d, range_queryable=%d)\n",
+               req->create_index_request.table,
+               req->create_index_request.type,
+               (bool) req->create_index_request.unique,
+               (bool) req->create_index_request.range_queryable);
+    }
+    throw "Not implemented";
+    //resp->create_index_response.id = ...;
+}
+
+
+void
+Server::DropIndex(const struct rcrpc *req, struct rcrpc *resp)
+{
+    if (server_debug) {
+        printf("DropIndex(table=%d, id=%d)\n",
+               req->drop_index_request.table,
+               req->drop_index_request.id);
+    }
+    throw "Not implemented";
+}
+
+void
 Server::HandleRPC()
 {
     rcrpc *req;
@@ -245,6 +272,8 @@ Server::HandleRPC()
         case RCRPC_CREATE_TABLE_REQUEST: Server::CreateTable(req, resp); break;
         case RCRPC_OPEN_TABLE_REQUEST:   Server::OpenTable(req, resp);   break;
         case RCRPC_DROP_TABLE_REQUEST:   Server::DropTable(req, resp);   break;
+        case RCRPC_CREATE_INDEX_REQUEST: Server::CreateIndex(req, resp); break;
+        case RCRPC_DROP_INDEX_REQUEST:   Server::DropIndex(req, resp);   break;
 
         case RCRPC_PING_RESPONSE:
         case RCRPC_READ_RESPONSE:
@@ -254,6 +283,8 @@ Server::HandleRPC()
         case RCRPC_CREATE_TABLE_RESPONSE:
         case RCRPC_OPEN_TABLE_RESPONSE:
         case RCRPC_DROP_TABLE_RESPONSE:
+        case RCRPC_CREATE_INDEX_RESPONSE:
+        case RCRPC_DROP_INDEX_RESPONSE:
         case RCRPC_ERROR_RESPONSE:
             throw "server received RPC response";
 

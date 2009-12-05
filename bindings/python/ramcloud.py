@@ -66,6 +66,28 @@ class CLIENT(ctypes.Structure):
     def __repr__(self):
         return "CLIENT{'net': %s}" % repr(self.net)
 
+class RCRPC_INDEX_TYPE:
+
+    def _gen():
+        i = 0
+        while True:
+            yield i
+            i += 1
+    _assn = _gen()
+
+    # Keep this in sync with src/shared/rcrpc.h
+    SINT8   = _assn.next()
+    UINT8   = _assn.next()
+    SINT16  = _assn.next()
+    UINT16  = _assn.next()
+    SINT32  = _assn.next()
+    UINT32  = _assn.next()
+    SINT64  = _assn.next()
+    UINT64  = _assn.next()
+    FLOAT32 = _assn.next()
+    FLOAT64 = _assn.next()
+    STRING  = _assn.next()
+
 class RCException(Exception):
     pass
 
@@ -143,6 +165,25 @@ class RAMCloud(object):
         if r != 0:
             self.raise_error()
 
+    def create_index(self, table_id, type, unique, range_queryable):
+        index_id = ctypes.c_int()
+        r = self.so.rc_create_index(ctypes.byref(self.client),
+                                    int(table_id),
+                                    int(type),
+                                    bool(unique),
+                                    bool(range_queryable),
+                                    ctypes.byref(index_id))
+        if r != 0:
+            self.raise_error()
+        return index_id.value
+
+    def drop_index(self, table_id, index_id):
+        r = self.so.rc_drop_index(ctypes.byref(self.client),
+                                  int(table_id),
+                                  int(index_id))
+        if r != 0:
+            self.raise_error()
+
 def main():
     r = RAMCloud()
     r.connect()
@@ -154,12 +195,17 @@ def main():
     table = r.open_table("test")
     print "with id %s" % table
 
+    #index_id = r.create_index(table, RCRPC_INDEX_TYPE.UINT64, True, False)
+    #print "Created index id %d" % index_id
+
     r.write(table, 0, "Hello, World, from Python")
     print "Wrote key 0 to table"
     value = r.read(table, 0)
     print value
     key = r.insert(table, "test")
     print "Inserted value and got back key %d" % key
+
+    #r.drop_index(table, index_id)
     r.drop_table("test")
 
 if __name__ == '__main__': main()

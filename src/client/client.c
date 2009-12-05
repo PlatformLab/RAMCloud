@@ -196,6 +196,45 @@ rc_drop_table(struct rc_client *client, const char *name)
     return rc_handle_errors(resp);
 }
 
+int
+rc_create_index(struct rc_client *client,
+                uint64_t table_id,
+                enum RCRPC_INDEX_TYPE type,
+                bool unique, bool range_queryable,
+                uint16_t *index_id)
+{
+    struct rcrpc query, *resp;
+
+    query.type = RCRPC_CREATE_INDEX_REQUEST;
+    query.len  = (uint32_t) RCRPC_CREATE_INDEX_REQUEST_LEN;
+    query.create_index_request.table = table_id;
+    query.create_index_request.type = (uint8_t) type;
+    query.create_index_request.unique = unique;
+    query.create_index_request.range_queryable = range_queryable;
+    assert(!rc_net_send_rpc(&client->net, &query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
+    int r = rc_handle_errors(resp);
+    if (r)
+        return r;
+    *index_id = resp->create_index_response.id;
+
+    return 0;
+}
+
+int
+rc_drop_index(struct rc_client *client, uint64_t table_id, uint16_t index_id)
+{
+    struct rcrpc query, *resp;
+
+    query.type = RCRPC_DROP_INDEX_REQUEST;
+    query.len  = (uint32_t) RCRPC_DROP_INDEX_REQUEST_LEN;
+    query.drop_index_request.table = table_id;
+    query.drop_index_request.id = index_id;
+    assert(!rc_net_send_rpc(&client->net, &query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
+    return rc_handle_errors(resp);
+}
+
 struct rc_client *
 rc_new() {
     return malloc(sizeof(struct rc_client *));

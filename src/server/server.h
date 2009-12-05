@@ -71,6 +71,8 @@ class Server {
     void CreateTable(const struct rcrpc *req, struct rcrpc *resp);
     void OpenTable(const struct rcrpc *req, struct rcrpc *resp);
     void DropTable(const struct rcrpc *req, struct rcrpc *resp);
+    void CreateIndex(const struct rcrpc *req, struct rcrpc *resp);
+    void DropIndex(const struct rcrpc *req, struct rcrpc *resp);
 
     explicit Server(Net *net_impl);
     Server(const Server& server);

@@ -37,6 +37,10 @@
 #define RCRPC_OPEN_TABLE_RESPONSE_LEN   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_open_table_response))
 #define RCRPC_DROP_TABLE_REQUEST_LEN    (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_request))
 #define RCRPC_DROP_TABLE_RESPONSE_LEN   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_response))
+#define RCRPC_CREATE_INDEX_REQUEST_LEN  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_index_request))
+#define RCRPC_CREATE_INDEX_RESPONSE_LEN (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_index_response))
+#define RCRPC_DROP_INDEX_REQUEST_LEN    (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_index_request))
+#define RCRPC_DROP_INDEX_RESPONSE_LEN   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_index_response))
 #define RCRPC_ERROR_RESPONSE_LEN_WODATA (RCRPC_HEADER_LEN + sizeof(struct rcrpc_error_response))
 
 //namespace RAMCloud {
@@ -58,7 +62,27 @@ enum RCRPC_TYPE {
     RCRPC_OPEN_TABLE_RESPONSE,
     RCRPC_DROP_TABLE_REQUEST,
     RCRPC_DROP_TABLE_RESPONSE,
+    RCRPC_CREATE_INDEX_REQUEST,
+    RCRPC_CREATE_INDEX_RESPONSE,
+    RCRPC_DROP_INDEX_REQUEST,
+    RCRPC_DROP_INDEX_RESPONSE,
     RCRPC_ERROR_RESPONSE,
+};
+
+enum RCRPC_INDEX_TYPE {
+    // If you modify this, you should also update the equivalent in
+    // bindings/python/ramcloud.py
+    RCRPC_INDEX_TYPE_SINT8,
+    RCRPC_INDEX_TYPE_UINT8,
+    RCRPC_INDEX_TYPE_SINT16,
+    RCRPC_INDEX_TYPE_UINT16,
+    RCRPC_INDEX_TYPE_SINT32,
+    RCRPC_INDEX_TYPE_UINT32,
+    RCRPC_INDEX_TYPE_SINT64,
+    RCRPC_INDEX_TYPE_UINT64,
+    RCRPC_INDEX_TYPE_FLOAT32,
+    RCRPC_INDEX_TYPE_FLOAT64,
+    RCRPC_INDEX_TYPE_STRING,
 };
 
 
@@ -132,6 +156,25 @@ struct rcrpc_drop_table_request {
 struct rcrpc_drop_table_response {
 };
 
+struct rcrpc_create_index_request {
+    uint64_t table;
+    uint8_t type; /* from RCRPC_INDEX_TYPE */
+    int unique:1;
+    int range_queryable:1;
+};
+
+struct rcrpc_create_index_response {
+    uint16_t id;
+};
+
+struct rcrpc_drop_index_request {
+    uint64_t table;
+    uint16_t id;
+};
+
+struct rcrpc_drop_index_response {
+};
+
 struct rcrpc_error_response {
     char message[0];                    /* Variable length */
 };
@@ -163,6 +206,12 @@ struct rcrpc {
 
         struct rcrpc_drop_table_request drop_table_request;
         struct rcrpc_drop_table_response drop_table_response;
+
+        struct rcrpc_create_index_request create_index_request;
+        struct rcrpc_create_index_response create_index_response;
+
+        struct rcrpc_drop_index_request drop_index_request;
+        struct rcrpc_drop_index_response drop_index_response;
 
         struct rcrpc_error_response error_response;
     };
