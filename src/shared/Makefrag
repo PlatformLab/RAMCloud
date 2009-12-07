@@ -7,6 +7,8 @@ endif
 
 SHARED_SRCFILES := \
                 src/shared/common.cc \
+                src/shared/Log.cc \
+                src/shared/Segment.cc \
                 $(SHARED_NET_SRCFILES)
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)
