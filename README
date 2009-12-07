@@ -4,18 +4,39 @@
 
 Using GNU make, type:
 	make
+        sudo make install
 
-If it doesn't work, blame Ryan.
-
+This will build the client, server, and backups.  The install step
+simply installs the RAMCloud client library and headers in /usr/local.
 
 ====================================
 2. Running
 ====================================
 
-2.1 Using the Python bindings:
+To run you must have 3 things.  A running server, a running backup,
+and some kind of client.
 
-2.2 Using the libramcloud.so library:
+2.1 Starting a server
 
+$ ./obj.master/server/server
+
+2.2 Starting a backup
+
+$ ./obj.master/backup/backup
+
+2.3 Using the libramcloud.so library
+
+Write a client application using the interface described in
+/usr/local/include/ramcloud/client.h.  Compile with:
+
+$ gcc -lramcloud -I/usr/local/include/ramcloud -o test-client test-client.c
+
+2.2 Using the Python bindings:
+
+$ PYTHONPATH=bindings/python python
+>>> import ramcloud
+>>> c.connect()
+>>> c.write(0, 0, 'Hello from Python!')
 
 ====================================
 3. Testing

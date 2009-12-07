@@ -60,6 +60,8 @@ CHKFILES = $(shell find $(TOP)/src -name '*.cc' -or -name '*.h' -or -name '*.c')
 check:
 	$(LINT) $(CHKFILES)
 
+install: client-lib-install
+
 # This magic automatically generates makefile dependencies
 # for header files included from C source files we compile,
 # and keeps those dependencies up-to-date every time we recompile.
@@ -73,4 +75,4 @@ $(OBJDIR)/.deps: $(foreach dir, $(OBJDIRS), $(wildcard $(OBJDIR)/$(dir)/*.d))
 always:
 	@:
 
-.PHONY: all always clean check test tests
+.PHONY: all always clean check test tests install
