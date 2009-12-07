@@ -130,13 +130,13 @@ class RAMCloud(object):
         r = self.so.rc_create_table(ctypes.byref(self.client), name)
         if r != 0:
             self.raise_error()
-        return r
 
     def open_table(self, name):
-        r = self.so.rc_open_table(ctypes.byref(self.client), name)
+        handle = ctypes.c_int()
+        r = self.so.rc_open_table(ctypes.byref(self.client), name, ctypes.byref(handle))
         if r != 0:
             self.raise_error()
-        return r
+        return handle.value
 
     def drop_table(self, name):
         r = self.so.rc_drop_table(ctypes.byref(self.client), name)
@@ -148,9 +148,14 @@ def main():
     r.connect()
     print r.client
     r.ping()
-    table = r.create_table("test")
-    print "Created table with id %s" % table
+
+    r.create_table("test")
+    print "Created table 'test'",
+    table = r.open_table("test")
+    print "with id %s" % table
+
     r.write(table, 0, "Hello, World, from Python")
+    print "Wrote key 0 to table"
     value = r.read(table, 0)
     print value
     key = r.insert(table, "test")
