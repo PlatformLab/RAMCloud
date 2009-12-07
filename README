@@ -1,0 +1,24 @@
+====================================
+1. Building
+====================================
+
+Using GNU make, type:
+	make
+
+If it doesn't work, blame Ryan.
+
+
+====================================
+2. Running
+====================================
+
+2.1 Using the Python bindings:
+
+2.2 Using the libramcloud.so library:
+
+
+====================================
+3. Testing
+====================================
+
+XXX 
