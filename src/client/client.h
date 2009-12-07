@@ -56,6 +56,58 @@ int rc_create_index(struct rc_client *client, uint64_t table_id,
                     bool range_queryable, uint16_t *index_id);
 int rc_drop_index(struct rc_client *client, uint64_t table_id,
                   uint16_t index_id);
+int rc_lookup(struct rc_client *client, uint64_t table, uint16_t index_id,
+              const char *key, uint64_t key_len,
+              uint64_t *oid);
+int rc_multi_lookup(struct rc_client *client, uint64_t table, uint16_t index_id,
+                   uint64_t limit, const char *key, uint64_t key_len,
+                   const uint64_t *start_following_oid,
+                   uint64_t *oid_buf, uint64_t *oid_len, bool *more);
+
+struct rc_range_query_args {
+    // please consider this struct opaque
+    // stack allocation is OK if you memset it to 0
+
+    struct rcrpc_range_query_request rpc;
+
+    // IN
+    const char *key_start;
+    uint64_t key_start_len;
+    const char *key_end;
+    uint64_t key_end_len;
+    uint64_t start_following_oid;
+
+    // *IN, *OUT
+    uint32_t *count;
+    uint64_t *oids_buf_len;
+    uint64_t *keys_buf_len;
+
+    // *OUT
+    bool *more;
+    uint64_t *oids_buf;
+    char *keys_buf;
+
+};
+
+struct rc_range_query_args *rc_range_query_args_new();
+void rc_range_query_args_free(struct rc_range_query_args *args);
+void rc_range_query_set_index(struct rc_range_query_args *args, uint64_t table,
+                              uint16_t index_id);
+void rc_range_query_set_key_start(struct rc_range_query_args *args,
+                                  const char *key, uint64_t len,
+                                  bool inclusive);
+void rc_range_query_set_key_end(struct rc_range_query_args *args,
+                                const char *key, uint64_t len,
+                                bool inclusive);
+void rc_range_query_set_start_following_oid(struct rc_range_query_args *args,
+                                            uint64_t oid);
+void rc_range_query_set_result_bufs(struct rc_range_query_args *args,
+                                    uint32_t *count, uint64_t *oids_buf,
+                                    uint64_t *oids_buf_len, char *keys_buf,
+                                    uint64_t *keys_buf_len, bool *more);
+int rc_range_query(struct rc_client *client,
+                   const struct rc_range_query_args *args);
+
 
 /* These aren't strictly necessary, but they make life easier for
  * foreign languages because they don't have to know how to allocate a

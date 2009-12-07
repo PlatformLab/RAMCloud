@@ -147,6 +147,133 @@ Server::StoreData(object *o,
     seg_off = 0;
 }
 
+static void
+die_helper(Table *table, uint16_t index_id, enum RCRPC_INDEX_TYPE index_type,
+           const void *data, uint64_t len, uint64_t oid) {
+    switch (index_type) {
+        case RCRPC_INDEX_TYPE_SINT8:
+            table->DeleteIndexEntry<int8_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_UINT8:
+            table->DeleteIndexEntry<uint8_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_SINT16:
+            table->DeleteIndexEntry<int16_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_UINT16:
+            table->DeleteIndexEntry<uint16_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_SINT32:
+            table->DeleteIndexEntry<int32_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_UINT32:
+            table->DeleteIndexEntry<uint32_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_SINT64:
+            table->DeleteIndexEntry<int64_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_UINT64:
+            table->DeleteIndexEntry<uint64_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_FLOAT32:
+            table->DeleteIndexEntry<float>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_FLOAT64:
+            table->DeleteIndexEntry<double>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_STRING:
+            throw "Not implemented";
+            break;
+        default:
+            throw "Unknown index type";
+    }
+}
+
+
+static void
+aie_helper(Table *table, uint16_t index_id, enum RCRPC_INDEX_TYPE index_type,
+           const void *data, uint64_t len, uint64_t oid) {
+    switch (index_type) {
+        case RCRPC_INDEX_TYPE_SINT8:
+            table->AddIndexEntry<int8_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_UINT8:
+            table->AddIndexEntry<uint8_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_SINT16:
+            table->AddIndexEntry<int16_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_UINT16:
+            table->AddIndexEntry<uint16_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_SINT32:
+            table->AddIndexEntry<int32_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_UINT32:
+            table->AddIndexEntry<uint32_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_SINT64:
+            table->AddIndexEntry<int64_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_UINT64:
+            table->AddIndexEntry<uint64_t>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_FLOAT32:
+            table->AddIndexEntry<float>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_FLOAT64:
+            table->AddIndexEntry<double>(index_id, index_type, data, len, oid);
+            break;
+        case RCRPC_INDEX_TYPE_STRING:
+            throw "Not implemented";
+            break;
+        default:
+            throw "Unknown index type";
+    }
+}
+
+static void
+DeleteIndexEntries(Table *table, object *o)
+{
+    chunk_entry *chunk;
+
+    chunk = o->hdr.entries;
+    while (reinterpret_cast<char*>(chunk) -
+           reinterpret_cast<char*>(o->hdr.entries) < o->hdr.entries_len) {
+        uint64_t chunk_size = chunk->total_size();
+        if (!chunk->is_data()) {
+            die_helper(table, chunk->index_id,
+                static_cast<enum RCRPC_INDEX_TYPE>(chunk->index_type),
+                chunk->data, chunk->len,
+                o->hdr.key);
+        }
+        chunk = chunk->next();
+    }
+    assert(reinterpret_cast<char*>(chunk) -
+           reinterpret_cast<char*>(o->hdr.entries) == o->hdr.entries_len);
+}
+
+static void
+AddIndexEntries(Table *table, object *o)
+{
+    chunk_entry *chunk;
+
+    chunk = o->hdr.entries;
+    while (reinterpret_cast<char*>(chunk) -
+           reinterpret_cast<char*>(o->hdr.entries) < o->hdr.entries_len) {
+        uint64_t chunk_size = chunk->total_size();
+        if (!chunk->is_data()) {
+            aie_helper(table, chunk->index_id,
+                static_cast<enum RCRPC_INDEX_TYPE>(chunk->index_type),
+                chunk->data, chunk->len,
+                o->hdr.key);
+        }
+        chunk = chunk->next();
+    }
+    assert(reinterpret_cast<char*>(chunk) -
+           reinterpret_cast<char*>(o->hdr.entries) == o->hdr.entries_len);
+}
+
 void
 Server::Write(const struct rcrpc *req, struct rcrpc *resp)
 {
@@ -162,8 +289,10 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
     Table *t = &tables[wreq->table];
     object *o = t->Get(wreq->key);
 
-    if (o)
+    if (o) {
+        DeleteIndexEntries(t, o);
         delete o;
+    }
     o = new object();
     assert(o);
 
@@ -173,6 +302,7 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
               buf, wreq->buf_len,
               index_entries_buf, wreq->index_entries_len);
     t->Put(wreq->key, o);
+    AddIndexEntries(t, o);
 
     resp->type = RCRPC_WRITE_RESPONSE;
     resp->len = static_cast<uint32_t>(RCRPC_WRITE_RESPONSE_LEN);
@@ -195,6 +325,7 @@ Server::InsertKey(const struct rcrpc *req, struct rcrpc *resp)
               buf, ireq->buf_len,
               index_entries_buf, ireq->index_entries_len);
     t->Put(key, o);
+    AddIndexEntries(t, o);
 
     resp->type = RCRPC_INSERT_RESPONSE;
     resp->len = (uint32_t) RCRPC_INSERT_RESPONSE_LEN;
@@ -284,6 +415,7 @@ Server::CreateIndex(const struct rcrpc *req, struct rcrpc *resp)
     uint16_t index_id;
     bool unique;
     bool range_queryable;
+    enum RCRPC_INDEX_TYPE type;
 
     if (server_debug) {
         printf("CreateIndex(table=%d, type=%d, "
@@ -295,42 +427,43 @@ Server::CreateIndex(const struct rcrpc *req, struct rcrpc *resp)
     }
 
     table = &tables[req->create_index_request.table];
-    unique = (bool) req->create_index_request.unique;
-    range_queryable = (bool) req->create_index_request.range_queryable;
+    unique = static_cast<bool>(req->create_index_request.unique);
+    range_queryable = static_cast<bool>(req->create_index_request.range_queryable);
+    type = static_cast<enum RCRPC_INDEX_TYPE>(req->create_index_request.type);
 
-    switch ((enum RCRPC_INDEX_TYPE) req->create_index_request.type) {
+    switch (type) {
         case RCRPC_INDEX_TYPE_SINT8:
-            index_id = table->CreateIndex<int8_t>(unique, range_queryable);
+            index_id = table->CreateIndex<int8_t>(unique, range_queryable, type);
             break;
         case RCRPC_INDEX_TYPE_UINT8:
-            index_id = table->CreateIndex<uint8_t>(unique, range_queryable);
+            index_id = table->CreateIndex<uint8_t>(unique, range_queryable, type);
             break;
         case RCRPC_INDEX_TYPE_SINT16:
-            index_id = table->CreateIndex<int16_t>(unique, range_queryable);
+            index_id = table->CreateIndex<int16_t>(unique, range_queryable, type);
             break;
         case RCRPC_INDEX_TYPE_UINT16:
-            index_id = table->CreateIndex<uint16_t>(unique, range_queryable);
+            index_id = table->CreateIndex<uint16_t>(unique, range_queryable, type);
             break;
         case RCRPC_INDEX_TYPE_SINT32:
-            index_id = table->CreateIndex<int32_t>(unique, range_queryable);
+            index_id = table->CreateIndex<int32_t>(unique, range_queryable, type);
             break;
         case RCRPC_INDEX_TYPE_UINT32:
-            index_id = table->CreateIndex<uint32_t>(unique, range_queryable);
+            index_id = table->CreateIndex<uint32_t>(unique, range_queryable, type);
             break;
         case RCRPC_INDEX_TYPE_SINT64:
-            index_id = table->CreateIndex<int64_t>(unique, range_queryable);
+            index_id = table->CreateIndex<int64_t>(unique, range_queryable, type);
             break;
         case RCRPC_INDEX_TYPE_UINT64:
-            index_id = table->CreateIndex<uint64_t>(unique, range_queryable);
+            index_id = table->CreateIndex<uint64_t>(unique, range_queryable, type);
             break;
         case RCRPC_INDEX_TYPE_FLOAT32:
-            index_id = table->CreateIndex<float>(unique, range_queryable);
+            index_id = table->CreateIndex<float>(unique, range_queryable, type);
             break;
         case RCRPC_INDEX_TYPE_FLOAT64:
-            index_id = table->CreateIndex<double>(unique, range_queryable);
+            index_id = table->CreateIndex<double>(unique, range_queryable, type);
             break;
         case RCRPC_INDEX_TYPE_STRING:
-            index_id = table->CreateIndex<std::string>(unique, range_queryable);
+            index_id = table->CreateIndex<std::string>(unique, range_queryable, type);
             break;
         default:
             throw "Unknown index type";
@@ -354,6 +487,126 @@ Server::DropIndex(const struct rcrpc *req, struct rcrpc *resp)
     table = &tables[req->create_index_request.table];
     table->DropIndex(req->drop_index_request.id);
 }
+
+template<class K>
+void
+srq_helper(const struct rcrpc *req, struct rcrpc *resp,
+           Table *table) {
+    const struct rcrpc_range_query_request *rqreq = &req->range_query_request;
+    struct rcrpc_range_query_response *rqresp = &resp->range_query_response;
+    uint16_t index_id;
+    char keys_buf[1024];
+    char oids_buf[1024];
+    bool more;
+    unsigned int count;
+    const char *reqvar;
+    char *respvar;
+    RangeQueryArgs<K, uint64_t> args;
+
+    index_id = rqreq->index_id;
+
+    reqvar = rqreq->var;
+
+    if (static_cast<bool>(rqreq->start_following_oid_present)) {
+        uint64_t start_following_oid = *reinterpret_cast<const uint64_t*>(reqvar);
+        reqvar += sizeof(uint64_t);
+        args.setStartFollowing(start_following_oid);
+    }
+
+    if (static_cast<bool>(rqreq->key_start_present)) {
+        K key_start = *reinterpret_cast<const K*>(reqvar);
+        reqvar += sizeof(K);
+        args.setKeyStart(key_start, static_cast<bool>(rqreq->key_start_inclusive));
+    }
+
+    if (static_cast<bool>(rqreq->key_end_present)) {
+        K key_end = *reinterpret_cast<const K*>(reqvar);
+        reqvar += sizeof(K);
+        args.setKeyEnd(key_end, static_cast<bool>(rqreq->key_end_inclusive));
+    }
+
+    args.setLimit(static_cast<unsigned int>(rqreq->limit));
+
+    if (static_cast<bool>(rqreq->request_keys)) {
+        args.setResultBuf((K*) keys_buf, (uint64_t*) oids_buf);
+    } else {
+        args.setResultBuf((uint64_t*) oids_buf);
+    }
+
+    args.setResultMore(&more);
+
+    count = table->RangeQueryIndex<K>(index_id, &args);
+
+    rqresp->len = static_cast<uint32_t>(count);
+    rqresp->more = more;
+
+    respvar = rqresp->var;
+    memcpy(respvar, oids_buf, sizeof(uint64_t) * count);
+    respvar += sizeof(uint64_t) * count;
+    if (static_cast<bool>(rqreq->request_keys)) {
+        memcpy(respvar, keys_buf, sizeof(K) * count); // TODO(ongaro) this won't work for strings
+        respvar += sizeof(K) * count;
+    }
+
+    resp->type = RCRPC_RANGE_QUERY_RESPONSE;
+    resp->len  = RCRPC_RANGE_QUERY_RESPONSE_LEN_WODATA +
+                 (respvar - rqresp->var);
+}
+
+void
+Server::RangeQuery(const struct rcrpc *req, struct rcrpc *resp)
+{
+    Table *table;
+
+    if (server_debug) {
+        printf("RangeQuery(table=%d, id=%d)\n",
+               req->range_query_request.table,
+               req->range_query_request.index_id);
+    }
+
+    table = &tables[req->range_query_request.table];
+
+    switch (table->IndexType(req->range_query_request.index_id)) {
+        case RCRPC_INDEX_TYPE_SINT8:
+            srq_helper<int8_t>(req, resp, table);
+            break;
+        case RCRPC_INDEX_TYPE_UINT8:
+            srq_helper<uint8_t>(req, resp, table);
+            break;
+        case RCRPC_INDEX_TYPE_SINT16:
+            srq_helper<int16_t>(req, resp, table);
+            break;
+        case RCRPC_INDEX_TYPE_UINT16:
+            srq_helper<uint16_t>(req, resp, table);
+            break;
+        case RCRPC_INDEX_TYPE_SINT32:
+            srq_helper<int32_t>(req, resp, table);
+            break;
+        case RCRPC_INDEX_TYPE_UINT32:
+            srq_helper<uint32_t>(req, resp, table);
+            break;
+        case RCRPC_INDEX_TYPE_SINT64:
+            srq_helper<int64_t>(req, resp, table);
+            break;
+        case RCRPC_INDEX_TYPE_UINT64:
+            srq_helper<uint64_t>(req, resp, table);
+            break;
+        case RCRPC_INDEX_TYPE_FLOAT32:
+            srq_helper<float>(req, resp, table);
+            break;
+        case RCRPC_INDEX_TYPE_FLOAT64:
+            srq_helper<double>(req, resp, table);
+            break;
+        case RCRPC_INDEX_TYPE_STRING:
+            throw "Not implemented";
+            //srq_helper<std::string>(req, resp, table);
+            break;
+        default:
+            throw "Unknown index type";
+    }
+
+}
+
 
 void
 Server::HandleRPC()
@@ -381,6 +634,7 @@ Server::HandleRPC()
         case RCRPC_DROP_TABLE_REQUEST:   Server::DropTable(req, resp);   break;
         case RCRPC_CREATE_INDEX_REQUEST: Server::CreateIndex(req, resp); break;
         case RCRPC_DROP_INDEX_REQUEST:   Server::DropIndex(req, resp);   break;
+        case RCRPC_RANGE_QUERY_REQUEST:  Server::RangeQuery(req, resp);  break;
 
         case RCRPC_PING_RESPONSE:
         case RCRPC_READ_RESPONSE:
@@ -392,6 +646,7 @@ Server::HandleRPC()
         case RCRPC_DROP_TABLE_RESPONSE:
         case RCRPC_CREATE_INDEX_RESPONSE:
         case RCRPC_DROP_INDEX_RESPONSE:
+        case RCRPC_RANGE_QUERY_RESPONSE:
         case RCRPC_ERROR_RESPONSE:
             throw "server received RPC response";
 

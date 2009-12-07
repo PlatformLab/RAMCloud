@@ -264,6 +264,121 @@ rc_drop_index(struct rc_client *client, uint64_t table_id, uint16_t index_id)
     return rc_handle_errors(resp);
 }
 
+struct rc_range_query_args *
+rc_range_query_args_new() {
+    return calloc(1, sizeof(struct rc_range_query_args));
+}
+
+void
+rc_range_query_args_free(struct rc_range_query_args *args)
+{
+    free(args);
+}
+
+void
+rc_range_query_set_index(struct rc_range_query_args *args, uint64_t table,
+                         uint16_t index_id) {
+    args->rpc.table = table;
+    args->rpc.index_id = index_id;
+}
+
+void
+rc_range_query_set_key_start(struct rc_range_query_args *args, const char *key,
+                             uint64_t len, bool inclusive) {
+    args->rpc.key_start_present = true;
+    args->rpc.key_start_inclusive = inclusive;
+    args->key_start = key;
+    args->key_start_len = len;
+}
+
+void rc_range_query_set_key_end(struct rc_range_query_args *args, const char *key,
+                                uint64_t len, bool inclusive) {
+    args->rpc.key_end_present = true;
+    args->rpc.key_end_inclusive = inclusive;
+    args->key_end = key;
+    args->key_end_len = len;
+}
+
+void
+rc_range_query_set_start_following_oid(struct rc_range_query_args *args,
+                                       uint64_t oid) {
+    args->rpc.start_following_oid_present = true;
+    args->start_following_oid = oid;
+}
+
+void
+rc_range_query_set_result_bufs(struct rc_range_query_args *args,
+                               uint32_t *count, uint64_t *oids_buf,
+                               uint64_t *oids_buf_len, char *keys_buf,
+                               uint64_t *keys_buf_len, bool *more) {
+    args->rpc.limit = *count;
+    args->rpc.request_keys = (keys_buf != NULL);
+    args->more = more;
+    args->count = count;
+    args->oids_buf = oids_buf;
+    args->oids_buf_len = oids_buf_len;
+    args->keys_buf = keys_buf;
+    args->keys_buf_len = keys_buf_len;
+}
+
+int
+rc_range_query(struct rc_client *client,
+               const struct rc_range_query_args *args) {
+    struct rcrpc *query, *resp;
+    char *var;
+
+    int query_buf_len;
+    query_buf_len = RCRPC_RANGE_QUERY_REQUEST_LEN_WODATA;
+    if (args->rpc.start_following_oid_present) {
+        query_buf_len += sizeof(uint64_t);
+    }
+    query_buf_len += args->key_start_len;
+    query_buf_len += args->key_end_len;
+
+    char query_buf[query_buf_len];
+    query = (struct rcrpc*) query_buf;
+
+    query->type = RCRPC_RANGE_QUERY_REQUEST;
+    query->len = (uint32_t) query_buf_len;
+    memcpy(&query->range_query_request, &args->rpc, sizeof(args->rpc));
+    var = query->range_query_request.var;
+    if (args->rpc.start_following_oid_present) {
+        *((uint64_t*) var) = args->start_following_oid;
+        var += sizeof(uint64_t);
+    }
+    if (args->rpc.key_start_present) {
+        memcpy(var, args->key_start, args->key_start_len);
+        var += args->key_start_len;
+    }
+    if (args->rpc.key_end_present) {
+        memcpy(var, args->key_end, args->key_end_len);
+        var += args->key_end_len;
+    }
+
+    assert(!rc_net_send_rpc(&client->net, query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
+    int r = rc_handle_errors(resp);
+    if (r) {
+        return r;
+    }
+
+    //TODO(ongaro): I hope your buffer is large enough.
+    *args->count = resp->range_query_response.len;
+    *args->more = (bool) resp->range_query_response.more;
+    var = resp->range_query_response.var;
+    *args->oids_buf_len = (*args->count) * sizeof(uint64_t);
+    memcpy(args->oids_buf, var, *args->oids_buf_len);
+    var += *args->oids_buf_len;
+    if (args->rpc.request_keys) {
+        *args->keys_buf_len = resp->len -
+                              RCRPC_RANGE_QUERY_RESPONSE_LEN_WODATA -
+                              *args->oids_buf_len;
+        memcpy(args->keys_buf, var, *args->keys_buf_len);
+    }
+
+    return 0;
+}
+
 struct rc_client *
 rc_new() {
     return malloc(sizeof(struct rc_client *));

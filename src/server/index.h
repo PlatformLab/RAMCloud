@@ -18,6 +18,7 @@
 
 #include <config.h>
 #include <shared/common.h>
+#include <shared/rcrpc.h>
 
 #include <assert.h>
 
@@ -42,6 +43,10 @@ struct IndexException {
 
 class Index {
   public:
+    Index() : range_queryable(false), unique(false), type(RCRPC_INDEX_TYPE_UINT8) {}
+    bool range_queryable;
+    bool unique;
+    enum RCRPC_INDEX_TYPE type; // TODO(ongaro) shouldn't depend on rcrpc.h
     virtual ~Index(){}
 };
 
@@ -278,7 +283,10 @@ class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
   typedef std::pair<CMI, CMI> CMIP;
 
   public:
-    STLUniqueRangeIndex() : map_() {
+    STLUniqueRangeIndex(enum RCRPC_INDEX_TYPE type) : map_() {
+        this->range_queryable = true;
+        this->unique = true;
+        this->type = type;
     }
 
     ~STLUniqueRangeIndex() {
@@ -416,7 +424,10 @@ class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
   typedef std::pair<CMI, CMI> CMIP;
 
   public:
-    STLMultiRangeIndex() : map_() {
+    STLMultiRangeIndex(enum RCRPC_INDEX_TYPE type) : map_() {
+        this->range_queryable = true;
+        this->unique = false;
+        this->type = type;
     }
 
     ~STLMultiRangeIndex() {

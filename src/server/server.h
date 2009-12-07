@@ -57,8 +57,9 @@ class Table {
         object_map.Delete(key);
         object_map.Insert(key, o);
     }
+
     template<class K>
-    uint16_t CreateIndex(bool unique, bool range_queryable) {
+    uint16_t CreateIndex(bool unique, bool range_queryable, enum RCRPC_INDEX_TYPE type) {
         uint16_t index_id;
 
         index_id = 0;
@@ -72,18 +73,18 @@ class Table {
         if (unique) {
             if (range_queryable) {
                 /* unique tree */
-                indexes[index_id] = new STLUniqueRangeIndex<K, uint64_t>();
+                indexes[index_id] = new STLUniqueRangeIndex<K, uint64_t>(type);
             } else {
                 /* unique hash table */
-                indexes[index_id] = new STLUniqueRangeIndex<K, uint64_t>();
+                indexes[index_id] = new STLUniqueRangeIndex<K, uint64_t>(type);
             }
         } else {
             if (range_queryable) {
                 /* multi tree */
-                indexes[index_id] = new STLMultiRangeIndex<K, uint64_t>();
+                indexes[index_id] = new STLMultiRangeIndex<K, uint64_t>(type);
             } else {
                 /* multi hash table */
-                indexes[index_id] = new STLMultiRangeIndex<K, uint64_t>();
+                indexes[index_id] = new STLMultiRangeIndex<K, uint64_t>(type);
             }
         }
 
@@ -96,6 +97,63 @@ class Table {
         }
         delete indexes[index_id];
         indexes[index_id] = NULL;
+    }
+
+    template<class K>
+    unsigned int RangeQueryIndex(uint16_t index_id,
+                                 const RangeQueryArgs<K, uint64_t> *args) {
+        Index *i = indexes[index_id];
+        if (!i->range_queryable) {
+            throw "Not range queryable";
+        }
+        if (i->unique) {
+            UniqueRangeIndex<K, uint64_t> *index =
+                dynamic_cast<UniqueRangeIndex<K, uint64_t>*>(i);
+            return index->RangeQuery(args);
+        }else {
+            MultiRangeIndex<K, uint64_t> *index =
+                dynamic_cast<MultiRangeIndex<K, uint64_t>*>(i);
+            return index->RangeQuery(args);
+        }
+    }
+
+    template<class K>
+    void DeleteIndexEntry(uint16_t index_id, enum RCRPC_INDEX_TYPE index_type,
+                          const void *data, uint64_t len,
+                          uint64_t oid) {
+        Index *i = indexes[index_id];
+        assert(sizeof(K) == len);
+        if (i->unique) {
+            UniqueIndex<K, uint64_t> *index =
+                dynamic_cast<UniqueIndex<K, uint64_t>*>(i);
+            return index->Remove(*reinterpret_cast<const K*>(data), oid);
+        }else {
+            MultiIndex<K, uint64_t> *index =
+                dynamic_cast<MultiIndex<K, uint64_t>*>(i);
+            return index->Remove(*reinterpret_cast<const K*>(data), oid);
+        }
+    }
+
+    template<class K>
+    void AddIndexEntry(uint16_t index_id, enum RCRPC_INDEX_TYPE index_type,
+                       const void *data, uint64_t len,
+                       uint64_t oid) {
+        Index *i = indexes[index_id];
+        assert(sizeof(K) == len);
+        if (i->unique) {
+            UniqueIndex<K, uint64_t> *index =
+                dynamic_cast<UniqueIndex<K, uint64_t>*>(i);
+            return index->Insert(*reinterpret_cast<const K*>(data), oid);
+        }else {
+            MultiIndex<K, uint64_t> *index =
+                dynamic_cast<MultiIndex<K, uint64_t>*>(i);
+            return index->Insert(*reinterpret_cast<const K*>(data), oid);
+        }
+    }
+
+
+    enum RCRPC_INDEX_TYPE IndexType(uint16_t index_id) {
+        return indexes[index_id]->type;
     }
 
   private:
@@ -118,6 +176,7 @@ class Server {
     void DropTable(const struct rcrpc *req, struct rcrpc *resp);
     void CreateIndex(const struct rcrpc *req, struct rcrpc *resp);
     void DropIndex(const struct rcrpc *req, struct rcrpc *resp);
+    void RangeQuery(const struct rcrpc *req, struct rcrpc *resp);
 
     explicit Server(Net *net_impl);
     Server(const Server& server);

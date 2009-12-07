@@ -123,6 +123,14 @@ class RAMCloud(object):
 
         self.so = ctypes.cdll.LoadLibrary(path)
         self.so.rc_last_error.restype = ctypes.c_char_p
+        self.so.rc_range_query_args_new.restype = ctypes.c_void_p
+        self.so.rc_range_query_args_free.restype = None
+        self.so.rc_range_query_set_index.restype = None
+        self.so.rc_range_query_set_key_start.restype = None
+        self.so.rc_range_query_set_key_end.restype = None
+        self.so.rc_range_query_set_start_following_oid.restype = None
+        self.so.rc_range_query_set_result_bufs.restype = None
+
         self.client = CLIENT()
 
     def raise_error(self):
@@ -302,6 +310,84 @@ class RAMCloud(object):
         if r != 0:
             self.raise_error()
 
+    def lookup(self, table_id, index_id, key):
+        # TODO(ongaro)
+        raise NotImplementedError
+        # return oid or self.raise_error()
+
+    def multi_lookup(self, table_id, index_id, limit, key,
+                     start_following_oid=None):
+        # TODO(ongaro)
+        raise NotImplementedError
+        #return ([oid], more)
+
+    def range_query(self, table_id, index_id, index_type, limit,
+                    key_start=None, key_start_inclusive=True,
+                    key_end=None, key_end_inclusive=False,
+                    start_following_oid=None):
+        args = self.so.rc_range_query_args_new()
+        self.so.rc_range_query_set_index(args, ctypes.c_uint64(table_id),
+                                         ctypes.c_uint16(index_id))
+        if key_start is not None:
+            if index_type.width:
+                width = index_type.width
+                key = index_type.ctype(key_start)
+            else:
+                # variable-length key type (STRING)
+                key = ctypes.create_string_buffer(key_start)
+                width = len(key)
+            self.so.rc_range_query_set_key_start(args, ctypes.byref(key),
+                                                 ctypes.c_uint64(width),
+                                                 bool(key_start_inclusive))
+        if key_end is not None:
+            if index_type.width:
+                width = index_type.width
+                key = index_type.ctype(key_end)
+            else:
+                # variable-length key type (STRING)
+                key = ctypes.create_string_buffer(key_end)
+                width = len(key)
+            self.so.rc_range_query_set_key_end(args, ctypes.byref(key),
+                                               ctypes.c_uint64(width),
+                                               ctypes.c_int(bool(key_end_inclusive)))
+        if start_following_oid is not None:
+            self.so.rc_range_query_set_start_following_oid(args,
+                    ctypes.c_uint64(start_following_oid))
+
+        more = ctypes.c_int()
+        count = ctypes.c_uint32(limit)
+        oids = (ctypes.c_uint64 * limit)()
+        oids_buf_len = ctypes.c_uint64(limit * 8)
+        if index_type.width:
+            keys = (index_type.ctype * limit)()
+            keys_buf_len = ctypes.c_uint64(index_type.width * limit)
+        else:
+            # variable-length key type (STRING)
+            keys = ctypes.create_string_buffer(256 * limit)
+            keys_buf_len = ctypes.c_uint64(len(keys))
+            # TODO(ongaro): should we limit strings to 255 characters in general?
+        self.so.rc_range_query_set_result_bufs(args, ctypes.byref(count),
+                                               ctypes.byref(oids), ctypes.byref(oids_buf_len),
+                                               ctypes.byref(keys), ctypes.byref(keys_buf_len),
+                                               ctypes.byref(more))
+        r = self.so.rc_range_query(ctypes.byref(self.client), args)
+        self.so.rc_range_query_args_free(args)
+        if r != 0:
+            self.raise_error()
+
+        pairs = [] # (key, oid)
+        addr = ctypes.addressof(keys)
+        for i in range(count.value):
+            if index_type.width:
+                key = keys[i]
+            else:
+                # variable-length key type (STRING)
+                key = ctypes.c_char_p(addr).value
+                addr += len(key) + 1
+            oid = oids[i]
+            pairs.append((key, oid))
+        return (pairs, bool(more.value))
+
 def main():
     r = RAMCloud()
     r.connect()
@@ -313,25 +399,30 @@ def main():
     table = r.open_table("test")
     print "with id %s" % table
 
-    index_id = r.create_index(table, RCRPC_INDEX_TYPE.UINT16, True, False)
+    index_id = r.create_index(table, RCRPC_INDEX_TYPE.UINT64, True, False)
     print "Created index id %d" % index_id
 
-    index_id2 = r.create_index(table, RCRPC_INDEX_TYPE.STRING, False, True)
-    print "Created index2 id %d" % index_id2
-
     r.write(table, 0, "Hello, World, from Python", [
-        (index_id, (RCRPC_INDEX_TYPE.UINT16, 4592)),
-        (index_id2, (RCRPC_INDEX_TYPE.STRING, 'roflctoper'))
+        (index_id, (RCRPC_INDEX_TYPE.UINT64, 4592)),
     ])
-    print "Wrote key 0 to table"
+    print "Inserted to table"
     value, indexes = r.read_full(table, 0)
     print value
     print indexes
-    key = r.insert(table, "test")
+    key = r.insert(table, "test", [
+        (index_id, (RCRPC_INDEX_TYPE.UINT64, 4723)),
+    ])
     print "Inserted value and got back key %d" % key
 
+    pairs, more = r.range_query(table_id=table, index_id=index_id,
+                                index_type=RCRPC_INDEX_TYPE.UINT64,
+                                limit=5,
+                                key_start=4000, key_start_inclusive=True,
+                                key_end=5000, key_end_inclusive=True,
+                                start_following_oid=None)
+    print pairs, more
+
     r.drop_index(table, index_id)
-    r.drop_index(table, index_id2)
     r.drop_table("test")
 
 if __name__ == '__main__': main()
