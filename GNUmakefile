@@ -13,7 +13,7 @@ OBJDIR	:= obj$(OBJSUFFIX)
 TOP	:= $(shell echo $${PWD-`pwd`})
 
 BASECFLAGS :=
-OPTFLAG	 := -O3
+#OPTFLAG	 := -O3
 COMFLAGS := $(BASECFLAGS) -g $(OPTFLAG) -fno-strict-aliasing \
 	       -Wall -MD
 COMWARNS := -Wformat=2 -Wextra -Wmissing-noreturn \

@@ -31,13 +31,14 @@ Write a client application using the interface described in
 
 $ gcc -lramcloud -I/usr/local/include/ramcloud -o test-client test-client.c
 
-2.2 Using the Python bindings:
+2.4 Using the Python bindings:
 
 $ PYTHONPATH=bindings/python python
 >>> import ramcloud
 >>> c = ramcloud.RAMCloud()
 >>> c.connect()
 >>> c.write(0, 0, 'Hello from Python!')
+>>> c.read(0, 0)
 
 ====================================
 3. Testing

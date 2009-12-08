@@ -22,6 +22,7 @@
 #include <cassert>
 
 #include <config.h>
+#include <shared/Log.h>
 #include <shared/object.h>
 #include <shared/rcrpc.h>
 
@@ -33,8 +34,12 @@ namespace RAMCloud {
 
 enum { server_debug = 0 };
 
-Server::Server(Net *net_impl) : net(net_impl), backup(0), seg_off(0)
+Server::Server(Net *net_impl) : net(net_impl), backup(0)
 {
+    void *p = malloc(SEGMENT_SIZE * SEGMENT_COUNT);
+    assert(p != NULL);
+    log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT);
+
     Net *backup_net = new Net(BACKCLNTADDR, BACKCLNTPORT,
                               BACKSVRADDR, BACKSVRPORT);
     backup = new BackupClient(backup_net);
@@ -61,7 +66,7 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
                rreq->key);
 
     Table *t = &tables[rreq->table];
-    object *o = t->Get(rreq->key);
+    const object *o = t->Get(rreq->key);
     if (!o)
         throw "Object not found";
 
@@ -76,29 +81,138 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
            sizeof(((struct object*) 0)->blob));
 }
 
+// The log code is cleaning a segment and telling us that this object is
+// getting evicted. If we care about it, we must re-write it to the head
+// of the log and update any pointers to it. If we don't care, we do not
+// write it back out, but may have to update some metadata.
+//
+// We care to preserve the object when one of the following holds:
+//   1) This is a live object (is referenced by the hash table).
+//   2) This is a live tombstone (is referenced by the hash table, which
+//      implies that the reference count is > 0).
+//
+// We don't care to preserve it in all other cases, however:
+//   i) If this is an older version of an object, we need to fix the
+//      reference count of what's in the hash table (whether it be an object,
+//      or a tombstone).
+//  ii) If the hash table points to a tombstone and the reference count drops
+//      to 0, after i) above, remove the entry from the hash table. The log
+//      will clean the tombstone eventually.
 void
-Server::StoreData(object *o,
+Server::LogEvictionCallback(log_entry_type_t type,
+			    const void *p,
+			    uint64_t len,
+			    void *cookie)
+{
+    const object *evict_obj = reinterpret_cast<const object *>(p);
+    Table *tbl = reinterpret_cast<Table *>(cookie); 
+
+    assert(evict_obj != NULL);
+    assert(tbl != NULL);
+
+    int save = -1;
+
+    const object *tbl_obj = tbl->Get(evict_obj->hdr.key);
+    if (tbl_obj == NULL) {
+        assert(evict_obj->is_tombstone);
+        save = 0;
+    } else {
+        assert(tbl_obj->mut == evict_obj->mut);
+        object_mutable *tbl_objm = tbl_obj->mut;
+        assert(tbl_objm);
+
+        if (tbl_obj == evict_obj) {
+	    // same object/tombstone
+
+            if (tbl_obj->is_tombstone) {
+                assert(tbl_objm->refcnt > 0);
+                save = 1;
+            } else {
+                save = 1;
+            }
+        } else {
+	    // different object/tombstone
+
+            uint64_t musthave = 0;
+            if (!tbl_obj->is_tombstone)
+                musthave++;
+            if (!evict_obj->is_tombstone)
+                musthave++;
+            assert(tbl_objm->refcnt >= musthave);
+
+            if (tbl_objm->refcnt > 0)
+                --tbl_objm->refcnt;
+            save = 0;
+        }
+    }
+
+    // ensure we covered all cases
+    assert(save == 0 || save == 1);
+
+    if (save) {
+        const object *objp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, evict_obj, sizeof(*evict_obj));
+        assert(objp != NULL);
+        tbl->Put(evict_obj->hdr.key, objp);
+    } else {
+        assert(evict_obj->mut != NULL);
+
+        // once the refcnt drops to 0, we drop the tombstone, so if we're
+        // trying to evict a tombstone, there'd better be a > 0 refcnt. 
+        if (evict_obj->is_tombstone) {
+            assert(evict_obj->mut->refcnt > 0);
+        } else {
+            assert(evict_obj->mut->refcnt > 0 || tbl_obj->is_tombstone);
+
+            if (tbl_obj->is_tombstone && tbl_obj->mut->refcnt == 0) {
+                log->free(LOG_ENTRY_TYPE_OBJECT, tbl_obj, sizeof(*tbl_obj));
+                tbl->Delete(tbl_obj->hdr.key);
+                delete tbl_obj->mut;
+            }
+        }
+    }
+}
+
+void
+Server::StoreData(uint64_t table,
                   uint64_t key,
                   const char *buf,
                   uint64_t buf_len)
 {
-    o->hdr.type = STORAGE_CHUNK_HDR_TYPE;
-    o->hdr.key = key;
+    Table *t = &tables[table];
+    const object *o = t->Get(key);
+    object_mutable *om = NULL;
+
+    if (o != NULL) {
+        // steal the extant guy's mutable space. this will contain the proper
+        // reference count.
+        om = o->mut;
+        assert(om != NULL);
+        assert(om->refcnt > 0 || o->is_tombstone);
+    } else {
+        om = new object_mutable;
+        assert(om);
+        om->refcnt = 0;
+    }
+
+    object new_o;
+    new_o.mut = om;
+    om->refcnt++;
+
+    new_o.hdr.type = STORAGE_CHUNK_HDR_TYPE;
+    new_o.hdr.key = key;
+    new_o.is_tombstone = false;
     // TODO dm's super-fast checksum here
-    o->hdr.checksum = 0x0BE70BE70BE70BE7ULL;
+    new_o.hdr.checksum = 0x0BE70BE70BE70BE7ULL;
 
-    o->hdr.entries[0].len = buf_len;
-    memcpy(o->blob, buf, buf_len);
+    new_o.hdr.entries[0].len = buf_len;
+    memcpy(new_o.blob, buf, buf_len);
 
-    uint32_t len = static_cast<uint32_t>(sizeof(o->hdr) + buf_len);
-    backup->Write(&o->hdr, seg_off, len);
+    const object *objp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, &new_o, sizeof(new_o));
+    assert(objp != NULL);
+    t->Put(key, objp);
 
-    seg_off += len;
-    if (seg_off < SEGMENT_SIZE * 3 / 4)
-        return;
-
-    backup->Commit();
-    seg_off = 0;
+    if (o != NULL)
+        log->free(LOG_ENTRY_TYPE_OBJECT, o, sizeof(*o));
 }
 
 void
@@ -111,16 +225,7 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
                wreq->buf_len,
                wreq->key);
 
-    Table *t = &tables[wreq->table];
-    object *o = t->Get(wreq->key);
-
-    if (o)
-        delete o;
-    o = new object();
-    assert(o);
-
-    StoreData(o, wreq->key, wreq->buf, wreq->buf_len);
-    t->Put(wreq->key, o);
+    StoreData(wreq->table, wreq->key, wreq->buf, wreq->buf_len);
 
     resp->type = RCRPC_WRITE_RESPONSE;
     resp->len = static_cast<uint32_t>(RCRPC_WRITE_RESPONSE_LEN);
@@ -133,12 +238,9 @@ Server::InsertKey(const struct rcrpc *req, struct rcrpc *resp)
 
     Table *t = &tables[ireq->table];
     uint64_t key = t->AllocateKey();
-    object *o = t->Get(key);
-    assert(!o);
-    o = new object();
-
-    StoreData(o, key, ireq->buf, ireq->buf_len);
-    t->Put(key, o);
+    const object *o = t->Get(key);
+    assert(o == NULL);
+    StoreData(ireq->table, key, ireq->buf, ireq->buf_len);
 
     resp->type = RCRPC_INSERT_RESPONSE;
     resp->len = (uint32_t) RCRPC_INSERT_RESPONSE_LEN;
@@ -148,6 +250,23 @@ Server::InsertKey(const struct rcrpc *req, struct rcrpc *resp)
 void
 Server::DeleteKey(const struct rcrpc *req, struct rcrpc *resp)
 {
+    const rcrpc_delete_request * const dreq = &req->delete_request;
+
+    Table *t = &tables[dreq->table];
+    const object *o = t->Get(dreq->key);
+    if (!o)
+        throw "Object not found";
+
+    object tomb_o;
+    tomb_o.hdr = o->hdr;
+    tomb_o.mut = o->mut;
+    tomb_o.is_tombstone = 1;
+    const object *tombp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, &tomb_o, sizeof(tomb_o));
+    assert(tombp);
+    log->free(LOG_ENTRY_TYPE_OBJECT, o, sizeof(*o));
+
+    t->Put(dreq->key, tombp);
+
     // no op
     resp->type = RCRPC_DELETE_RESPONSE;
     resp->len  = (uint32_t) RCRPC_DELETE_RESPONSE_LEN;

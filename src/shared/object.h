@@ -38,6 +38,7 @@ struct chunk_hdr {
     // WARNING: The hashtable code (for the moment) assumes that the
     // object's key is the first 64 bits of the struct
     uint64_t key;
+    uint64_t table;
     uint64_t checksum;
     enum storage_type type;
     // TODO(stutsman) - only leaving enough room here for the data entry
