@@ -35,6 +35,7 @@ $ gcc -lramcloud -I/usr/local/include/ramcloud -o test-client test-client.c
 
 $ PYTHONPATH=bindings/python python
 >>> import ramcloud
+>>> c = ramcloud.RAMCloud()
 >>> c.connect()
 >>> c.write(0, 0, 'Hello from Python!')
 
