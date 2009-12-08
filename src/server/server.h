@@ -30,7 +30,7 @@ namespace RAMCloud {
 
 struct object {
     chunk_hdr hdr;
-    char blob[1024];
+    char padding[10240];
 };
 
 class Table {
@@ -129,7 +129,9 @@ class Server {
     void StoreData(object *o,
                    uint64_t key,
                    const char *buf,
-                   uint64_t buf_len);
+                   uint64_t buf_len,
+                   const char *index_entries_buf,
+                   uint64_t index_entries_buf_len);
     explicit Server();
     Net *net;
     BackupClient *backup;

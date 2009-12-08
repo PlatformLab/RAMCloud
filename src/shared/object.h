@@ -19,6 +19,7 @@
 #include <shared/common.h>
 
 #include <inttypes.h>
+#include <stdio.h>
 
 namespace RAMCloud {
 
@@ -30,8 +31,27 @@ enum storage_type {
 
 struct chunk_entry {
     uint64_t len;
-    uint64_t index_id;
+    uint32_t index_id;   /* static_cast<uint32_t>(-1) for data */
+    uint32_t index_type; /* static_cast<uint32_t>(-1) for data */
     char data[0];                       // Variable length, but contiguous
+
+    chunk_entry *
+    next() const {
+        const char *this_ptr = reinterpret_cast<const char*>(this);
+        char *next_ptr = const_cast<char*>(this_ptr + this->total_size());
+        return reinterpret_cast<chunk_entry*>(next_ptr);
+    }
+
+    uint64_t
+    total_size() const {
+        return sizeof(*this) + this->len;
+    }
+
+    bool
+    is_data() const {
+        return this->index_id == static_cast<uint32_t>(-1) &&
+               this->index_type == static_cast<uint32_t>(-1);
+    }
 };
 
 struct chunk_hdr {
@@ -40,11 +60,8 @@ struct chunk_hdr {
     uint64_t key;
     uint64_t checksum;
     enum storage_type type;
-    // TODO(stutsman) - only leaving enough room here for the data entry
-    // with no indexes - this is enough to let me hack the 0.1 impl into
-    // something that is compatible with the backup format, once we have
-    // real memory allocation this will change to a 0-ary array again
-    struct chunk_entry entries[1];
+    uint64_t entries_len;
+    struct chunk_entry entries[0];
 };
 
 } // namespace RAMCloud

@@ -99,15 +99,25 @@ struct rcrpc_read_request {
 };
 
 struct rcrpc_read_response {
+    uint64_t index_entries_len;
     uint64_t buf_len;
-    char buf[0];                        /* Variable length */
+
+    // var[] is the concatenation of the following:
+    // char index_entries[index_entries_len]
+    // char buf[buf_len]
+    char var[0];                        /* Variable length */
 };
 
 struct rcrpc_write_request {
     uint64_t table;
     uint64_t key;
+    uint64_t index_entries_len;
     uint64_t buf_len;
-    char buf[0];                        /* Variable length */
+
+    // var[] is the concatenation of the following:
+    // char index_entries[index_entries_len]
+    // char buf[buf_len]
+    char var[0];                        /* Variable length */
 };
 
 struct rcrpc_write_response {
@@ -115,8 +125,13 @@ struct rcrpc_write_response {
 
 struct rcrpc_insert_request {
     uint64_t table;
+    uint64_t index_entries_len;
     uint64_t buf_len;
-    char buf[0];                        /* Variable length */
+
+    // var[] is the concatenation of the following:
+    // char index_entries[index_entries_len]
+    // char buf[buf_len]
+    char var[0];                        /* Variable length */
 };
 
 struct rcrpc_insert_response {

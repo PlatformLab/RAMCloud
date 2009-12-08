@@ -55,6 +55,7 @@ void
 Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 {
     const rcrpc_read_request * const rreq = &req->read_request;
+    chunk_entry *chunk;
 
     if (server_debug)
         printf("Read from key %lu\n",
@@ -65,32 +66,77 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
     if (!o)
         throw "Object not found";
 
-    uint32_t olen = static_cast<uint32_t>(o->hdr.entries[0].len);
-
     resp->type = RCRPC_READ_RESPONSE;
-    resp->len = static_cast<uint32_t>(RCRPC_READ_RESPONSE_LEN_WODATA) + olen;
+    resp->len = static_cast<uint32_t>(RCRPC_READ_RESPONSE_LEN_WODATA);
+    // (will be updated below with var-length data)
+    resp->read_response.index_entries_len = 0;
+    resp->read_response.buf_len = 0;
 
-    resp->read_response.buf_len = olen;
-    memcpy(resp->read_response.buf,
-           o->blob,
-           sizeof(((struct object*) 0)->blob));
+    char *index_entries_buf = resp->read_response.var;
+    chunk = o->hdr.entries;
+    while (reinterpret_cast<char*>(chunk) -
+           reinterpret_cast<char*>(o->hdr.entries) < o->hdr.entries_len) {
+        uint64_t chunk_size = chunk->total_size();
+        if (!chunk->is_data()) {
+            memcpy(index_entries_buf, chunk, chunk_size);
+            index_entries_buf += chunk_size;
+            resp->read_response.index_entries_len += chunk_size;
+        }
+        chunk = chunk->next();
+    }
+    assert(reinterpret_cast<char*>(chunk) -
+           reinterpret_cast<char*>(o->hdr.entries) == o->hdr.entries_len);
+
+    char *buf = index_entries_buf;
+    chunk = o->hdr.entries;
+    while (reinterpret_cast<char*>(chunk) -
+           reinterpret_cast<char*>(o->hdr.entries) < o->hdr.entries_len) {
+        if (chunk->is_data()) {
+            memcpy(buf, chunk->data, chunk->len);
+            buf += chunk->len;
+            resp->read_response.buf_len += chunk->len;
+        }
+        chunk = chunk->next();
+    }
+    assert(reinterpret_cast<char*>(chunk) -
+           reinterpret_cast<char*>(o->hdr.entries) == o->hdr.entries_len);
+
+    resp->len += resp->read_response.index_entries_len;
+    resp->len += resp->read_response.buf_len;
 }
 
 void
 Server::StoreData(object *o,
                   uint64_t key,
                   const char *buf,
-                  uint64_t buf_len)
+                  uint64_t buf_len,
+                  const char *index_entries_buf,
+                  uint64_t index_entries_buf_len)
 {
+    chunk_entry *chunk;
+
     o->hdr.type = STORAGE_CHUNK_HDR_TYPE;
     o->hdr.key = key;
     // TODO dm's super-fast checksum here
     o->hdr.checksum = 0x0BE70BE70BE70BE7ULL;
+    o->hdr.entries_len = 0;
 
-    o->hdr.entries[0].len = buf_len;
-    memcpy(o->blob, buf, buf_len);
+    chunk = o->hdr.entries;
 
-    uint32_t len = static_cast<uint32_t>(sizeof(o->hdr) + buf_len);
+    // index entries buf has same format as chunk entries for now
+    memcpy(chunk, index_entries_buf, index_entries_buf_len);
+    o->hdr.entries_len += index_entries_buf_len;
+    chunk = reinterpret_cast<chunk_entry*>(reinterpret_cast<char*>(chunk) +
+                                           index_entries_buf_len);
+
+    chunk->len = buf_len;
+    chunk->index_id = static_cast<uint32_t>(-1);
+    chunk->index_type = static_cast<uint32_t>(-1);
+    memcpy(chunk->data, buf, buf_len);
+    o->hdr.entries_len += chunk->total_size();
+    chunk = chunk->next();
+
+    uint32_t len = static_cast<uint32_t>(sizeof(o->hdr) + o->hdr.entries_len);
     backup->Write(&o->hdr, seg_off, len);
 
     seg_off += len;
@@ -106,10 +152,12 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
 {
     const rcrpc_write_request * const wreq = &req->write_request;
 
-    if (server_debug)
-        printf("Write %lu bytes to key %lu\n",
+    if (server_debug) {
+        printf("Write %lu bytes of data and %lu index bytes to key %lu\n",
                wreq->buf_len,
+               wreq->index_entries_len,
                wreq->key);
+    }
 
     Table *t = &tables[wreq->table];
     object *o = t->Get(wreq->key);
@@ -119,7 +167,11 @@ Server::Write(const struct rcrpc *req, struct rcrpc *resp)
     o = new object();
     assert(o);
 
-    StoreData(o, wreq->key, wreq->buf, wreq->buf_len);
+    const char *buf = wreq->var + wreq->index_entries_len;
+    const char *index_entries_buf = wreq->var;
+    StoreData(o, wreq->key,
+              buf, wreq->buf_len,
+              index_entries_buf, wreq->index_entries_len);
     t->Put(wreq->key, o);
 
     resp->type = RCRPC_WRITE_RESPONSE;
@@ -137,7 +189,11 @@ Server::InsertKey(const struct rcrpc *req, struct rcrpc *resp)
     assert(!o);
     o = new object();
 
-    StoreData(o, key, ireq->buf, ireq->buf_len);
+    const char *buf = ireq->var + ireq->index_entries_len;
+    const char *index_entries_buf = ireq->var;
+    StoreData(o, key,
+              buf, ireq->buf_len,
+              index_entries_buf, ireq->index_entries_len);
     t->Put(key, o);
 
     resp->type = RCRPC_INSERT_RESPONSE;

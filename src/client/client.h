@@ -24,6 +24,14 @@ struct rc_client {
     struct rc_net net;
 };
 
+struct rc_index_entry {
+    // keep this identical to shared/object.h's chunk_entry for now 
+    uint64_t len;
+    uint32_t index_id;
+    uint32_t index_type;
+    char data[0];                       // Variable length, but contiguous
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,11 +39,14 @@ int rc_connect(struct rc_client *client);
 void rc_disconnect(struct rc_client *client);
 int rc_ping(struct rc_client *client);
 int rc_write(struct rc_client *client, uint64_t table, uint64_t key,
-             const char *buf, uint64_t len);
+             const char *buf, uint64_t len,
+             const char *index_entries_buf, uint64_t index_entries_len);
 int rc_insert(struct rc_client *client, uint64_t table, const char *buf,
-              uint64_t len, uint64_t *key);
+              uint64_t len, uint64_t *key,
+              const char *index_entries_buf, uint64_t index_entries_len);
 int rc_read(struct rc_client *client, uint64_t table,
-            uint64_t key, char *buf, uint64_t *len);
+            uint64_t key, char *buf, uint64_t *len,
+            char *index_entries_buf, uint64_t *index_entries_len);
 int rc_create_table(struct rc_client *client, const char *name);
 int rc_open_table(struct rc_client *client, const char *name,
                   uint64_t *table_id);

@@ -76,19 +76,28 @@ rc_write(struct rc_client *client,
          uint64_t table,
          uint64_t key,
          const char *buf,
-         uint64_t len)
+         uint64_t len,
+         const char *index_entries_buf,
+         uint64_t index_entries_len)
 {
     assert(len <= MAX_DATA_WRITE_LEN);
     char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
     struct rcrpc *query, *resp;
     query = (struct rcrpc *) query_buf;
+    char *var;
 
     query->type = RCRPC_WRITE_REQUEST;
-    query->len  = (uint32_t) RCRPC_WRITE_REQUEST_LEN_WODATA + len;
+    query->len  = (uint32_t) RCRPC_WRITE_REQUEST_LEN_WODATA + len +
+                  index_entries_len;
     query->write_request.table = table;
     query->write_request.key = key;
+    query->write_request.index_entries_len = index_entries_len;
     query->write_request.buf_len = len;
-    memcpy(query->write_request.buf, buf, len);
+    var = query->write_request.var;
+    memcpy(var, index_entries_buf, index_entries_len);
+    var += index_entries_len;
+    memcpy(var, buf, len);
+    var += len;
 
     assert(!rc_net_send_rpc(&client->net, query));
     assert(!rc_net_recv_rpc(&client->net, &resp));
@@ -101,18 +110,28 @@ rc_insert(struct rc_client *client,
           uint64_t table,
           const char *buf,
           uint64_t len,
-          uint64_t *key)
+          uint64_t *key,
+          const char *index_entries_buf,
+          uint64_t index_entries_len)
 {
     assert(len <= MAX_DATA_WRITE_LEN);
     char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
     struct rcrpc *query, *resp;
     query = (struct rcrpc *) query_buf;
+    char *var;
 
     query->type = RCRPC_INSERT_REQUEST;
-    query->len  = (uint32_t) RCRPC_INSERT_REQUEST_LEN_WODATA + len;
+    query->len  = (uint32_t) RCRPC_INSERT_REQUEST_LEN_WODATA + len +
+                  index_entries_len;
     query->insert_request.table = table;
+    query->insert_request.index_entries_len = index_entries_len;
     query->insert_request.buf_len = len;
-    memcpy(query->insert_request.buf, buf, len);
+    var = query->insert_request.var;
+    memcpy(var, index_entries_buf, index_entries_len);
+    var += index_entries_len;
+    memcpy(var, buf, len);
+    var += len;
+
     assert(!rc_net_send_rpc(&client->net, query));
     assert(!rc_net_recv_rpc(&client->net, &resp));
     *key = resp->insert_response.key;
@@ -124,9 +143,12 @@ rc_read(struct rc_client *client,
         uint64_t table,
         uint64_t key,
         char *buf,
-        uint64_t *len)
+        uint64_t *len,
+        char *index_entries_buf,
+        uint64_t *index_entries_len)
 {
     struct rcrpc query, *resp;
+    char *var;
 
     query.type = RCRPC_READ_REQUEST;
     query.len  = (uint32_t) RCRPC_READ_REQUEST_LEN;
@@ -138,8 +160,15 @@ rc_read(struct rc_client *client,
     if (r)
         return r;
 
+    var = resp->read_response.var;
+    if (index_entries_buf != NULL) {
+        *index_entries_len = resp->read_response.index_entries_len;
+        memcpy(index_entries_buf, var, *index_entries_len);
+    }
+    var += resp->read_response.index_entries_len;
     *len = resp->read_response.buf_len;
-    memcpy(buf, resp->read_response.buf, *len);
+    memcpy(buf, var, *len);
+    var += resp->read_response.buf_len;
 
     return 0;
 }
