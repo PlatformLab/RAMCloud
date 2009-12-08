@@ -102,7 +102,7 @@ rc_net_recv(struct rc_net *net, void **buf, size_t *buflen)
     if (!net->connected)
         assert(!rc_net_connect(net));
 
-    static char recvbuf[1500];
+    static char recvbuf[16384];
     struct sockaddr_in sin;
     socklen_t sinlen = sizeof(sin);
 

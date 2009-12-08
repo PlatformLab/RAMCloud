@@ -90,11 +90,13 @@ BackupClient::Write(const void *buf, uint32_t offset, uint32_t len)
 }
 
 void
-BackupClient::Commit()//std::vector<uintptr_t> freed)
+BackupClient::Commit(uint64_t new_seg_num)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_COMMIT_REQ;
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_COMMIT_REQ_LEN);
+
+    req.commit_req.new_seg_num = new_seg_num;
 
     printf("Sending Commit to backup\n");
     SendRPC(&req);
@@ -106,11 +108,21 @@ BackupClient::Commit()//std::vector<uintptr_t> freed)
 }
 
 void
+BackupClient::GetSegmentMetadata(uint64_t prev_seg_num,
+                                 uint64_t *seg_num,
+                                 uint64_t *seg_list,
+                                 uint64_t *seg_list_count)
+{
+}
+
+void
 BackupClient::Retrieve(uint64_t seg_num)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_RETRIEVE_REQ;
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_RETRIEVE_REQ_LEN);
+
+    req.retrieve_req.seg_num = seg_num;
 
     printf("Sending Retrieve to backup\n");
     SendRPC(&req);

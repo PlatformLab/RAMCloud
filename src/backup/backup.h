@@ -111,6 +111,8 @@ class FreeBitmap {
 enum { SEGMENT_FRAMES = SEGMENT_COUNT * 2 };
 enum { LOG_SPACE = SEGMENT_FRAMES * SEGMENT_SIZE };
 
+const uint64_t INVALID_SEGMENT_NUM = ~(0ull);
+
 class BackupServer {
   public:
     explicit BackupServer();
@@ -118,18 +120,22 @@ class BackupServer {
     ~BackupServer();
     void Run();
   private:
-    void Heartbeat(const backup_rpc *req, backup_rpc *resp);
-    void Write(const backup_rpc *req, backup_rpc *resp);
-    void Commit(const backup_rpc *req, backup_rpc *resp);
-    void Retrieve(const backup_rpc *req, backup_rpc *resp);
+    void HandleHeartbeat(const backup_rpc *req, backup_rpc *resp);
+    void HandleWrite(const backup_rpc *req, backup_rpc *resp);
+    void HandleCommit(const backup_rpc *req, backup_rpc *resp);
+    void HandleFree(const backup_rpc *req, backup_rpc *resp);
+    void HandleGetSegmentList(const backup_rpc *req, backup_rpc *resp);
+    void HandleRetrieve(const backup_rpc *req, backup_rpc *resp);
 
     void HandleRPC();
     void SendRPC(struct backup_rpc *rpc);
     void RecvRPC(struct backup_rpc **rpc);
 
-    void DoWrite(const char *data, uint64_t off, uint64_t len);
-    void DoCommit();
-    void DoRetrieve(uint64_t seg_num, char *buf, uint64_t *len);
+    void Write(const char *data, uint64_t off, uint64_t len);
+    void Commit(uint64_t new_seg_num);
+    void Free(uint64_t seg_num);
+    void GetSegmentList(uint64_t *list, uint64_t *count);
+    void Retrieve(uint64_t seg_num, char *buf, uint64_t *len);
 
     void Flush();
 
@@ -139,9 +145,15 @@ class BackupServer {
     int log_fd;
     char *seg;
     char *unaligned_seg;
+    // segment number of the active segment
+    uint64_t seg_num;
+
+    // An array corresponding to the segment frames in the system.
+    // This array, given a segment frame, produces the current segment
+    // number that is stored there.
+    uint64_t segments[SEGMENT_COUNT];
 
     FreeBitmap<SEGMENT_COUNT> free_map;
-    int64_t last_seg_written;
 
     friend class BackupTest;
     DISALLOW_COPY_AND_ASSIGN(BackupServer);
