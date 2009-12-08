@@ -20,7 +20,8 @@
 
 namespace RAMCloud {
 
-Segment::Segment(uint64_t init_id, void *buf, const uint64_t len)
+Segment::Segment(uint64_t init_id, void *buf, const uint64_t len, BackupClient *backup_client)
+	: backup(backup_client)
 {
 	assert(buf != NULL);
 	assert(len > 0);
@@ -61,9 +62,11 @@ Segment::append(const void *buf, uint64_t len)
 
 	assert(free_bytes >= len);
 
-	void *loc = (uint8_t *)base + (total_bytes - tail_bytes);
+	uint64_t offset = total_bytes - tail_bytes;
+	void *loc = (uint8_t *)base + offset;
 
 	memcpy(loc, buf, len);
+	backup->Write(offset, buf, len);
 	free_bytes -= len;
 	tail_bytes -= len;
 

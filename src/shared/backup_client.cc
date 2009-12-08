@@ -15,8 +15,7 @@
 
 #include <config.h>
 
-#include <server/backup_client.h>
-
+#include <shared/backup_client.h>
 #include <shared/object.h>
 #include <shared/backuprpc.h>
 
@@ -65,7 +64,7 @@ BackupClient::Heartbeat()
 }
 
 void
-BackupClient::Write(const void *buf, uint32_t offset, uint32_t len)
+BackupClient::Write(uint32_t offset, const void *buf, uint32_t len)
 {
     // TODO(stutsman) For the moment we don't have a choice here
     // we have to build this thing up in memory until the network

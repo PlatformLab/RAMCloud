@@ -18,11 +18,14 @@
 
 #include <stdint.h>
 
+#include <shared/common.h>
+#include <shared/backup_client.h>
+
 namespace RAMCloud {
 
 class Segment {
   public:
-	Segment(uint64_t, void *, const uint64_t);
+	Segment(uint64_t, void *, const uint64_t, BackupClient *);
        ~Segment();
 	void        reset(uint64_t);
 	const void *append(const void *, const uint64_t);
@@ -43,7 +46,11 @@ class Segment {
 	uint64_t  free_bytes;		// bytes free in segment (anywhere)
 	uint64_t  tail_bytes;		// bytes free in tail of segment (i.e. never written to)
 	bool      isMutable;
+
+	BackupClient *backup;
+
 	Segment  *next, *prev;
+	DISALLOW_COPY_AND_ASSIGN(Segment);
 };
 
 } // namespace

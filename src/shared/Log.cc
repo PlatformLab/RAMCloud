@@ -22,6 +22,7 @@
 #include <shared/Segment.h>
 #include <shared/LogTypes.h>
 #include <shared/Log.h>
+#include <shared/backup_client.h>
 
 static const uint64_t cleaner_hiwat = 20;
 static const uint64_t cleaner_lowat = 10;
@@ -88,7 +89,8 @@ class LogEntryIterator {
  /**** Public Interface ****/
 /**************************/
 
-Log::Log(const uint64_t segsize, void *buf, const uint64_t len)
+Log::Log(const uint64_t segsize, void *buf, const uint64_t len, BackupClient *backup_client)
+	: backup(backup_client)
 {
 	segment_size = segsize;
 
@@ -106,7 +108,7 @@ Log::Log(const uint64_t segsize, void *buf, const uint64_t len)
 	segments = (Segment **)malloc(nsegments * sizeof(segments[0]));
 	for (uint64_t i = 0; i < nsegments; i++) {
 		void *base  = (uint8_t *)buf + (i * segment_size);
-		segments[i] = new Segment(i, base, segment_size);
+		segments[i] = new Segment(i, base, segment_size, backup);
 		free_list   = segments[i]->link(free_list);
 		nfree_list++;
 	}
@@ -123,6 +125,8 @@ Log::Log(const uint64_t segsize, void *buf, const uint64_t len)
 
 	const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER, &sh, sizeof(sh));
 	assert(r != NULL);
+
+	backup->Commit(head->getId());
 }
 
 const void *

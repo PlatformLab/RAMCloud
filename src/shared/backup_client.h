@@ -28,7 +28,7 @@ class BackupClient {
   public:
     explicit BackupClient(Net *net_impl);
     void Heartbeat();
-    void Write(const void *buf, uint32_t offset, uint32_t len);
+    void Write(uint32_t offset, const void *buf, uint32_t len);
     void Commit(uint64_t new_seg_num);
     void Free(uint64_t seg_num);
     // TODO - what do we want here?  Somekind of stateful get next seg

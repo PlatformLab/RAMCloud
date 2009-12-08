@@ -19,6 +19,8 @@
 #include <stdint.h>
 #include <shared/LogTypes.h>
 #include <shared/Segment.h>
+#include <shared/common.h>
+#include <shared/backup_client.h>
 
 namespace RAMCloud {
 
@@ -29,7 +31,7 @@ typedef void (*log_eviction_cb_t)(log_entry_type_t, const void *, const uint64_t
 
 class Log {
   public:
-	Log(const uint64_t, void *, const uint64_t);
+	Log(const uint64_t, void *, const uint64_t, BackupClient *);
        ~Log();
 	const void *append(log_entry_type_t, const void *, uint64_t);
 	void        free(log_entry_type_t, const void *, uint64_t);
@@ -61,6 +63,8 @@ class Log {
 	uint64_t nfree_list;		// number of segments in free list
 	uint64_t bytes_stored;		// bytes stored in the log (non-metadata only)
 	bool     cleaning;		// presently cleaning the log
+	BackupClient *backup;
+	DISALLOW_COPY_AND_ASSIGN(Log);
 };
 
 } // namespace
