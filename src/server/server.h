@@ -18,6 +18,7 @@
 
 #include <config.h>
 
+#include <shared/Log.h>
 #include <shared/object.h>
 #include <shared/rcrpc.h>
 
@@ -27,8 +28,14 @@
 
 namespace RAMCloud {
 
+struct object_mutable {
+    uint64_t refcnt;
+};
+
 struct object {
     chunk_hdr hdr;
+    bool is_tombstone;
+    object_mutable *mut;
     char blob[1024];
 };
 
@@ -46,13 +53,16 @@ class Table {
             ++next_key;
         return next_key;
     }
-    object *Get(uint64_t key) {
+    const object *Get(uint64_t key) {
         void *val = object_map.Lookup(key);
-        return static_cast<object *>(val);
+        return static_cast<const object *>(val);
     }
-    void Put(uint64_t key, object *o) {
+    void Put(uint64_t key, const object *o) {
         object_map.Delete(key);
-        object_map.Insert(key, o);
+        object_map.Insert(key, const_cast<object *>(o));
+    }
+    void Delete(uint64_t key) {
+        object_map.Delete(key);
     }
   private:
     char name[64];
@@ -77,17 +87,23 @@ class Server {
     Server& operator=(const Server& server);
     ~Server();
     void Run();
+
   private:
     void HandleRPC();
-    void StoreData(object *o,
+    void LogEvictionCallback(log_entry_type_t type,
+			     const void *p,
+			     uint64_t len,
+			     void *cookie);
+    void StoreData(uint64_t table,
                    uint64_t key,
                    const char *buf,
                    uint64_t buf_len);
     explicit Server();
+
+    Log *log;
     Net *net;
     BackupClient *backup;
     Table tables[RC_NUM_TABLES];
-    uint32_t seg_off;
 };
 
 } // namespace RAMCloud
