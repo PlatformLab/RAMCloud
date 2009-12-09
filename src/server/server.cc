@@ -34,7 +34,12 @@ namespace RAMCloud {
 
 enum { server_debug = 0 };
 
-Server::Server(Net *net_impl) : log(0), net(net_impl), backup(0)
+static void LogEvictionCallback(log_entry_type_t type,
+		                const void *p,
+		                uint64_t len,
+		                void *cookie);
+
+Server::Server(Net *net_impl) : net(net_impl), backup(0)
 {
     void *p = malloc(SEGMENT_SIZE * SEGMENT_COUNT);
     assert(p != NULL);
@@ -44,6 +49,7 @@ Server::Server(Net *net_impl) : log(0), net(net_impl), backup(0)
     backup = new BackupClient(backup_net);
 
     log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, backup);
+    log->registerType(LOG_ENTRY_TYPE_OBJECT, LogEvictionCallback, this);
 }
 
 Server::~Server()
@@ -99,17 +105,23 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 //  ii) If the hash table points to a tombstone and the reference count drops
 //      to 0, after i) above, remove the entry from the hash table. The log
 //      will clean the tombstone eventually.
-void
-Server::LogEvictionCallback(log_entry_type_t type,
+static void 
+LogEvictionCallback(log_entry_type_t type,
 			    const void *p,
 			    uint64_t len,
 			    void *cookie)
 {
     const object *evict_obj = reinterpret_cast<const object *>(p);
-    Table *tbl = reinterpret_cast<Table *>(cookie); 
+    Server *svr = reinterpret_cast<Server *>(cookie); 
 
     assert(evict_obj != NULL);
+    assert(svr != NULL);
+
+    Table *tbl = svr->GetTable(evict_obj->hdr.table);
     assert(tbl != NULL);
+
+    Log *log = svr->GetLog();
+    assert(log != NULL);
 
     int save = -1;
 
@@ -201,6 +213,7 @@ Server::StoreData(uint64_t table,
 
     new_o.hdr.type = STORAGE_CHUNK_HDR_TYPE;
     new_o.hdr.key = key;
+    new_o.hdr.table = table;
     new_o.is_tombstone = false;
     // TODO dm's super-fast checksum here
     new_o.hdr.checksum = 0x0BE70BE70BE70BE7ULL;
@@ -208,12 +221,16 @@ Server::StoreData(uint64_t table,
     new_o.hdr.entries[0].len = buf_len;
     memcpy(new_o.blob, buf, buf_len);
 
+    // mark the old object as freed _before_ writing the new object to the log. 
+    // if we do it afterwards, the log cleaner could be triggered and `o' reclaimed
+    // before log->append() returns. The subsequent free breaks, as that segment may
+    // have been reset. 
+    if (o != NULL)
+        log->free(LOG_ENTRY_TYPE_OBJECT, o, sizeof(*o));
+
     const object *objp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, &new_o, sizeof(new_o));
     assert(objp != NULL);
     t->Put(key, objp);
-
-    if (o != NULL)
-        log->free(LOG_ENTRY_TYPE_OBJECT, o, sizeof(*o));
 }
 
 void

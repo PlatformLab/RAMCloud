@@ -82,6 +82,9 @@ class Server {
     void OpenTable(const struct rcrpc *req, struct rcrpc *resp);
     void DropTable(const struct rcrpc *req, struct rcrpc *resp);
 
+    Table *GetTable(uint64_t tid) { return &tables[tid]; }
+    Log   *GetLog() { return log; }
+
     explicit Server(Net *net_impl);
     Server(const Server& server);
     Server& operator=(const Server& server);
@@ -90,10 +93,6 @@ class Server {
 
   private:
     void HandleRPC();
-    void LogEvictionCallback(log_entry_type_t type,
-			     const void *p,
-			     uint64_t len,
-			     void *cookie);
     void StoreData(uint64_t table,
                    uint64_t key,
                    const char *buf,

@@ -22,6 +22,7 @@
 #include <shared/Segment.h>
 #include <shared/LogTypes.h>
 #include <shared/Log.h>
+#include <shared/common.h>
 #include <shared/backup_client.h>
 
 static const uint64_t cleaner_hiwat = 20;
@@ -121,7 +122,7 @@ Log::Log(const uint64_t segsize, void *buf, const uint64_t len, BackupClient *ba
 	nfree_list--;
 
 	struct segment_header sh;
-	sh.id = 1;
+	sh.id = 0;
 
 	const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER, &sh, sizeof(sh));
 	assert(r != NULL);
@@ -157,13 +158,17 @@ Log::free(log_entry_type_t type, const void *buf, const uint64_t len)
 	if (s->getUtilization() == 0) {
 		// XXX- need to handle mutability, inc. segment #, etc
 		// XXX- good idea may be to do this only when segment pulled from free list
+		assert(!cleaning);
 
 		assert(s->unlink() == NULL);
 		free_list = s->link(free_list);
 		assert(free_list->getUtilization() == 0);
 		nfree_list++;
-		if (s == head)
-			head = NULL;
+		if (s == head) {
+			retireHead();
+			assert(head == NULL);
+		}
+		s->reset(s->getId() + nsegments);
 	}
 }
 
@@ -256,7 +261,7 @@ Log::clean()
 			break;
 
 		uint64_t util = s->getUtilization();
-		if (util != 0 && util < 3 * segment_size / 4) {
+		if (util != 0 && util < (3 * segment_size / 4)) {
 			// Note that since our segments are immutable (when not writing to the head)
 			// we may certainly iterate over objects for which log_free() has already
 			// been called. That's fine - it's up to the callback to determine that its
@@ -297,15 +302,26 @@ Log::clean()
 bool
 Log::newHead()
 {
-	if (head != NULL) {
-		checksumHead();
+	if (head != NULL)
 		retireHead();
-	}
 
 	assert(head == NULL);
 
-	if (nfree_list < cleaner_lowat)
+	if (nfree_list < cleaner_lowat) {
 		clean();
+
+		// while cleaning, we may have had to re-write live
+		// objects to the log, which would have allocated
+		// another head. 
+		//
+		// it'd be nice if we didn't waste a mostly-unutilized
+		// segment, but that's for another day 
+
+		if (head != NULL)
+			retireHead();
+	}
+
+	assert(head == NULL);
 
 	if (free_list == NULL) {
 		assert(nfree_list == 0);
@@ -343,7 +359,7 @@ void
 Log::retireHead()
 {
 	assert(head != NULL);
-	
+	checksumHead();
 	head->finalize();
 	head = NULL;
 }
