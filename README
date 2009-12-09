@@ -3,8 +3,8 @@
 ====================================
 
 Using GNU make, type:
-	make
-        sudo make install
+	$ make
+        # make install
 
 This will build the client, server, and backups.  The install step
 simply installs the RAMCloud client library and headers in /usr/local.
@@ -44,4 +44,10 @@ $ PYTHONPATH=bindings/python python
 3. Testing
 ====================================
 
-XXX 
+3.1 Static Style Checking
+
+$ make check
+
+3.2 Unit Testing
+
+$ make test

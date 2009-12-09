@@ -32,6 +32,7 @@
 
 namespace RAMCloud {
 
+enum { debug_rpc = false };
 enum { debug_noisy = false };
 
 BackupException::~BackupException() {}
@@ -47,10 +48,11 @@ BackupServer::BackupServer(Net *net_impl, const char *logPath)
         throw BackupLogIOException(errno);
 
     const int pagesize = getpagesize();
-    unaligned_seg = (char *) malloc(SEGMENT_SIZE + pagesize);
+    unaligned_seg = reinterpret_cast<char *>(malloc(SEGMENT_SIZE + pagesize));
     assert(unaligned_seg);
-    seg = (char *)((((intptr_t)unaligned_seg + pagesize - 1)/
-                    pagesize) * pagesize);
+    seg = reinterpret_cast<char *>(((reinterpret_cast<intptr_t>(unaligned_seg) +
+                                     pagesize - 1) /
+                                    pagesize) * pagesize);
 
     if (!(BACKUP_LOG_FLAGS & O_DIRECT))
         ReserveSpace();
@@ -290,7 +292,7 @@ BackupServer::HandleHeartbeat(const backup_rpc *req, backup_rpc *resp)
 void
 BackupServer::HandleRPC()
 {
-    // TODO if we're goingt to have to malloc this we should just
+    // TODO(stutsman) if we're goingt to have to malloc this we should just
     // always keep one around
     char *resp_buf = static_cast<char *>(malloc(SEGMENT_SIZE +
                                                 sizeof(backup_rpc)));
@@ -299,7 +301,9 @@ BackupServer::HandleRPC()
 
     RecvRPC(&req);
 
-    //printf("got rpc type: 0x%08x, len 0x%08x\n", req->hdr.type, req->hdr.len);
+    if (debug_rpc)
+        printf("got rpc type: 0x%08x, len 0x%08x\n",
+               req->hdr.type, req->hdr.len);
 
     try {
         switch ((enum backup_rpc_type) req->hdr.type) {
@@ -324,8 +328,9 @@ BackupServer::HandleRPC()
         assert(BACKUP_RPC_ERROR_RESP_LEN_WODATA + msglen + 1 < MAX_RPC_LEN);
         strcpy(&resp->error_resp.message[0], e.message.c_str());
         resp->hdr.type = BACKUP_RPC_ERROR_RESP;
-        resp->hdr.len = static_cast<uint32_t>(BACKUP_RPC_ERROR_RESP_LEN_WODATA +
-                                             msglen + 1);
+        resp->hdr.len =
+            static_cast<uint32_t>(BACKUP_RPC_ERROR_RESP_LEN_WODATA +
+                                  msglen + 1);
     }
     SendRPC(resp);
     free(resp_buf);
