@@ -285,7 +285,6 @@ Server::DeleteKey(const struct rcrpc *req, struct rcrpc *resp)
 
     t->Put(dreq->key, tombp);
 
-    // no op
     resp->type = RCRPC_DELETE_RESPONSE;
     resp->len  = (uint32_t) RCRPC_DELETE_RESPONSE_LEN;
 }

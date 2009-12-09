@@ -33,6 +33,7 @@ int rc_write(struct rc_client *client, uint64_t table, uint64_t key,
              const char *buf, uint64_t len);
 int rc_insert(struct rc_client *client, uint64_t table, const char *buf,
               uint64_t len, uint64_t *key);
+int rc_delete(struct rc_client *client, uint64_t table, uint64_t key);
 int rc_read(struct rc_client *client, uint64_t table,
             uint64_t key, char *buf, uint64_t *len);
 int rc_create_table(struct rc_client *client, const char *name);

@@ -114,6 +114,13 @@ class RAMCloud(object):
             self.raise_error()
         return key.value
 
+    def delete(self, table_id, key):
+        r = self.so.rc_delete(ctypes.byref(self.client),
+                              int(table_id),
+                              int(key))
+        if r != 0:
+            self.raise_error()
+
     def read(self, table_id, key):
         buf = ctypes.create_string_buffer(2048)
         l = ctypes.c_int()
