@@ -32,6 +32,8 @@
 
 namespace RAMCloud {
 
+enum { debug_noisy = false };
+
 BackupException::~BackupException() {}
 
 BackupServer::BackupServer(Net *net_impl, const char *logPath)
@@ -115,9 +117,22 @@ BackupServer::Write(uint64_t seg_num,
     memcpy(&seg[off], data, len);
 }
 
+uint64_t
+BackupServer::FrameForSegNum(uint64_t segnum)
+{
+    uint64_t seg_frame = INVALID_SEGMENT_NUM;
+    for (uint64_t i = 0; i < SEGMENT_COUNT; i++)
+        if (segments[i] == seg_num) {
+            seg_frame = i;
+            break;
+        }
+    if (seg_frame != INVALID_SEGMENT_NUM)
+        throw BackupException("No such segment stored on backup");
+    return seg_frame;
+}
 
-static inline int64_t
-SegFrameOff(int64_t segnum)
+static inline uint64_t
+SegFrameOff(uint64_t segnum)
 {
     return segnum * SEGMENT_SIZE;
 }
@@ -179,19 +194,13 @@ BackupServer::Free(uint64_t seg_num)
     throw BackupException("No such segment on backup");
 }
 
-static inline uint64_t
-FrameForSegNum(uint64_t seg_num)
-{
-    return seg_num % SEGMENT_COUNT;
-}
-
 void
 BackupServer::Retrieve(uint64_t seg_num, char *buf, uint64_t *len)
 {
     printf("Retrieving segment %llu from disk\n", seg_num);
-    if (seg_num > SEGMENT_COUNT)
-        throw BackupException("Master requested a "
-                              "ridiculous segment number");
+    if (seg_num != INVALID_SEGMENT_NUM)
+        throw BackupException("What the hell are you feeding me? "
+                              "Bad segment number!");
 
     uint64_t seg_frame = FrameForSegNum(seg_num);
 
@@ -227,7 +236,8 @@ BackupServer::HandleWrite(const backup_rpc *req, backup_rpc *resp)
     uint64_t seg_num = req->write_req.seg_num;
     uint64_t off = req->write_req.off;
     uint64_t len = req->write_req.len;
-    printf(">>> Handling Write to offset 0x%x length %d\n", off, len);
+    if (debug_noisy)
+        printf(">>> Handling Write to offset 0x%x length %d\n", off, len);
     Write(seg_num, off, &req->write_req.data[0], len);
 
     resp->hdr.type = BACKUP_RPC_WRITE_RESP;

@@ -141,6 +141,7 @@ class BackupServer {
     void Flush();
 
     void ReserveSpace();
+    uint64_t FrameForSegNum(uint64_t segnum);
 
     Net *net;
     int log_fd;

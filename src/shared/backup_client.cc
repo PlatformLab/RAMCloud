@@ -24,6 +24,8 @@
 
 namespace RAMCloud {
 
+enum { debug_noisy = false };
+
 BackupClient::BackupClient(Net *net_impl)
     : net(net_impl)
 {
@@ -75,7 +77,8 @@ BackupClient::Write(uint64_t seg_num,
     // data from two different places
     char reqbuf[MAX_RPC_LEN];
     backup_rpc *req = reinterpret_cast<backup_rpc *>(reqbuf);
-    printf("Sending Write to backup\n");
+    if (debug_noisy)
+        printf("Sending Write to backup\n");
 
     req->hdr.type = BACKUP_RPC_WRITE_REQ;
     req->hdr.len = BACKUP_RPC_WRITE_REQ_LEN_WODATA + len;
