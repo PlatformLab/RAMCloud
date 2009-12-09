@@ -126,7 +126,6 @@ Log::Log(const uint64_t segsize, void *buf, const uint64_t len, BackupClient *ba
 	const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER, &sh, sizeof(sh));
 	assert(r != NULL);
 
-	backup->Commit(head->getId());
 }
 
 const void *

@@ -64,7 +64,10 @@ BackupClient::Heartbeat()
 }
 
 void
-BackupClient::Write(uint32_t offset, const void *buf, uint32_t len)
+BackupClient::Write(uint64_t seg_num,
+                    uint32_t offset,
+                    const void *buf,
+                    uint32_t len)
 {
     // TODO(stutsman) For the moment we don't have a choice here
     // we have to build this thing up in memory until the network
@@ -72,12 +75,14 @@ BackupClient::Write(uint32_t offset, const void *buf, uint32_t len)
     // data from two different places
     char reqbuf[MAX_RPC_LEN];
     backup_rpc *req = reinterpret_cast<backup_rpc *>(reqbuf);
+    printf("Sending Write to backup\n");
 
     req->hdr.type = BACKUP_RPC_WRITE_REQ;
     req->hdr.len = BACKUP_RPC_WRITE_REQ_LEN_WODATA + len;
     if (req->hdr.len > MAX_RPC_LEN)
         throw BackupRPCException("Write RPC would be too long");
 
+    req->write_req.seg_num = seg_num;
     req->write_req.off = offset;
     req->write_req.len = len;
     memcpy(&req->write_req.data[0], buf, len);
@@ -89,13 +94,13 @@ BackupClient::Write(uint32_t offset, const void *buf, uint32_t len)
 }
 
 void
-BackupClient::Commit(uint64_t new_seg_num)
+BackupClient::Commit(uint64_t seg_num)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_COMMIT_REQ;
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_COMMIT_REQ_LEN);
 
-    req.commit_req.new_seg_num = new_seg_num;
+    req.commit_req.seg_num = seg_num;
 
     printf("Sending Commit to backup\n");
     SendRPC(&req);

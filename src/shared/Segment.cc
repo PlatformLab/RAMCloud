@@ -66,7 +66,7 @@ Segment::append(const void *buf, uint64_t len)
 	void *loc = (uint8_t *)base + offset;
 
 	memcpy(loc, buf, len);
-	backup->Write(offset, buf, len);
+	backup->Write(id, offset, buf, len);
 	free_bytes -= len;
 	tail_bytes -= len;
 
@@ -123,6 +123,7 @@ void
 Segment::finalize()
 {
 	isMutable = false;
+	backup->Commit(id);
 }
 
 Segment *

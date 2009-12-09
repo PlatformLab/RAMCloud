@@ -44,9 +44,6 @@ Server::Server(Net *net_impl) : log(0), net(net_impl), backup(0)
     backup = new BackupClient(backup_net);
 
     log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, backup);
-    // Open a new segment on backup (segment 0)
-    // TODO fix after log integration
-    // backup->Commit(seg_num);
 }
 
 Server::~Server()
@@ -217,9 +214,6 @@ Server::StoreData(uint64_t table,
 
     if (o != NULL)
         log->free(LOG_ENTRY_TYPE_OBJECT, o, sizeof(*o));
-    // TODO No longer works due to long integration; working on it now
-    // (12/8)
-    //backup->Commit(seg_num);
 }
 
 void

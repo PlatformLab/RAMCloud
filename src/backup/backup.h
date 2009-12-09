@@ -122,6 +122,7 @@ class BackupServer {
   private:
     void HandleHeartbeat(const backup_rpc *req, backup_rpc *resp);
     void HandleWrite(const backup_rpc *req, backup_rpc *resp);
+    void HandleBegin(const backup_rpc *req, backup_rpc *resp);
     void HandleCommit(const backup_rpc *req, backup_rpc *resp);
     void HandleFree(const backup_rpc *req, backup_rpc *resp);
     void HandleGetSegmentList(const backup_rpc *req, backup_rpc *resp);
@@ -131,8 +132,8 @@ class BackupServer {
     void SendRPC(struct backup_rpc *rpc);
     void RecvRPC(struct backup_rpc **rpc);
 
-    void Write(const char *data, uint64_t off, uint64_t len);
-    void Commit(uint64_t new_seg_num);
+    void Write(uint64_t seg_num, uint64_t off, const char *data, uint64_t len);
+    void Commit(uint64_t seg_num);
     void Free(uint64_t seg_num);
     void GetSegmentList(uint64_t *list, uint64_t *count);
     void Retrieve(uint64_t seg_num, char *buf, uint64_t *len);

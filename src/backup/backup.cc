@@ -94,10 +94,19 @@ BackupServer::RecvRPC(struct backup_rpc **rpc)
 
 
 void
-BackupServer::Write(const char *data, uint64_t off, uint64_t len)
+BackupServer::Write(uint64_t seg_num,
+                    uint64_t off,
+                    const char *data,
+                    uint64_t len)
 {
     if (seg_num == INVALID_SEGMENT_NUM)
-        throw BackupException("No backup segment number given through Commit");
+        throw BackupException("Invalid segment number");
+    if (this->seg_num == INVALID_SEGMENT_NUM)
+        this->seg_num = seg_num;
+    else if (this->seg_num != seg_num)
+        throw BackupException("Backup server currently doesn't "
+                              "allow multiple ongoing segments");
+
     //debug_dump64(data, len);
     if (len > SEGMENT_SIZE ||
         off > SEGMENT_SIZE ||
@@ -140,14 +149,20 @@ BackupServer::Flush()
 }
 
 void
-BackupServer::Commit(uint64_t new_seg_num)
+BackupServer::Commit(uint64_t seg_num)
 {
     // Write out the current segment to disk if any
-    if (seg_num != INVALID_SEGMENT_NUM)
-        Flush();
-    // Open a new segment
-    seg_num = new_seg_num;
+    if (seg_num == INVALID_SEGMENT_NUM)
+        throw BackupException("Invalid segment number");
+    else if (seg_num != this->seg_num)
+        throw BackupException("Cannot commit a segment other than the most "
+                              "recently written one at the moment");
+
     printf(">>> Now writing to segment %lu\n", seg_num);
+    Flush();
+
+    // Close the segment
+    this->seg_num = INVALID_SEGMENT_NUM;
 }
 
 void
@@ -209,10 +224,11 @@ BackupServer::Retrieve(uint64_t seg_num, char *buf, uint64_t *len)
 void
 BackupServer::HandleWrite(const backup_rpc *req, backup_rpc *resp)
 {
+    uint64_t seg_num = req->write_req.seg_num;
     uint64_t off = req->write_req.off;
     uint64_t len = req->write_req.len;
-    //printf("Handling Write to offset Ox%x length %d\n", off, len);
-    Write(&req->write_req.data[0], off, len);
+    printf(">>> Handling Write to offset 0x%x length %d\n", off, len);
+    Write(seg_num, off, &req->write_req.data[0], len);
 
     resp->hdr.type = BACKUP_RPC_WRITE_RESP;
     resp->hdr.len = (uint32_t) BACKUP_RPC_WRITE_RESP_LEN;
@@ -237,7 +253,7 @@ BackupServer::HandleCommit(const backup_rpc *req, backup_rpc *resp)
 {
     printf(">>> Handling Commit - total msg len %lu\n", req->hdr.len);
 
-    Commit(req->commit_req.new_seg_num);
+    Commit(req->commit_req.seg_num);
 
     resp->hdr.type = BACKUP_RPC_COMMIT_RESP;
     resp->hdr.len = (uint32_t) BACKUP_RPC_COMMIT_RESP_LEN;

@@ -40,6 +40,7 @@ struct backup_rpc_heartbeat_resp {
 };
 
 struct backup_rpc_write_req {
+    uint64_t seg_num;
     uint32_t off;
     uint32_t len;
     char data[0];
@@ -51,7 +52,7 @@ struct backup_rpc_write_resp {
 };
 
 struct backup_rpc_commit_req {
-    uint64_t new_seg_num;
+    uint64_t seg_num;
 };
 
 struct backup_rpc_commit_resp {
