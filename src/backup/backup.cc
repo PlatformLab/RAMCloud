@@ -36,10 +36,10 @@ BackupException::~BackupException() {}
 
 BackupServer::BackupServer(Net *net_impl, const char *logPath)
     : net(net_impl), log_fd(-1), seg(0), unaligned_seg(0),
-      free_map(true), last_seg_written(0)
+      seg_num(INVALID_SEGMENT_NUM), free_map(true)
 {
     log_fd = open(logPath,
-                  O_CREAT | O_WRONLY | BACKUP_LOG_FLAGS,
+                  O_CREAT | O_RDWR | BACKUP_LOG_FLAGS,
                   0666);
     if (log_fd == -1)
         throw BackupLogIOException(errno);
@@ -52,6 +52,9 @@ BackupServer::BackupServer(Net *net_impl, const char *logPath)
 
     if (!(BACKUP_LOG_FLAGS & O_DIRECT))
         ReserveSpace();
+
+    for (int i = 0; i < SEGMENT_COUNT; i++)
+        segments[i] = INVALID_SEGMENT_NUM;
 }
 
 BackupServer::~BackupServer()
@@ -89,16 +92,21 @@ BackupServer::RecvRPC(struct backup_rpc **rpc)
     assert(len == (*rpc)->hdr.len);
 }
 
-void
-BackupServer::Heartbeat(const backup_rpc *req, backup_rpc *resp)
-{
-    resp->hdr.type = BACKUP_RPC_HEARTBEAT_RESP;
-    resp->hdr.len = (uint32_t) BACKUP_RPC_HEARTBEAT_RESP_LEN;
-}
 
 void
-BackupServer::DoWrite(const char *data, uint64_t off, uint64_t len)
+BackupServer::Write(uint64_t seg_num,
+                    uint64_t off,
+                    const char *data,
+                    uint64_t len)
 {
+    if (seg_num == INVALID_SEGMENT_NUM)
+        throw BackupException("Invalid segment number");
+    if (this->seg_num == INVALID_SEGMENT_NUM)
+        this->seg_num = seg_num;
+    else if (this->seg_num != seg_num)
+        throw BackupException("Backup server currently doesn't "
+                              "allow multiple ongoing segments");
+
     //debug_dump64(data, len);
     if (len > SEGMENT_SIZE ||
         off > SEGMENT_SIZE ||
@@ -107,25 +115,6 @@ BackupServer::DoWrite(const char *data, uint64_t off, uint64_t len)
     memcpy(&seg[off], data, len);
 }
 
-void
-BackupServer::Write(const backup_rpc *req, backup_rpc *resp)
-try
-{
-    uint64_t off = req->write_req.off;
-    uint64_t len = req->write_req.len;
-    //printf("Handling Write to offset Ox%x length %d\n", off, len);
-    DoWrite(&req->write_req.data[0], off, len);
-
-    resp->hdr.type = BACKUP_RPC_WRITE_RESP;
-    resp->hdr.len = (uint32_t) BACKUP_RPC_WRITE_RESP_LEN_WODATA;
-} catch (BackupException e) {
-    resp->hdr.type = BACKUP_RPC_WRITE_RESP;
-    resp->hdr.len = static_cast<uint32_t>(BACKUP_RPC_WRITE_RESP_LEN_WODATA +
-                                          e.message.length() + 1);
-    resp->write_resp.len = static_cast<uint32_t>(e.message.length() + 1);
-    strcpy(&resp->write_resp.message[0], e.message.c_str());
-    fprintf(stderr, ">>> BackupException: %s\n", e.message.c_str());
-}
 
 static inline int64_t
 SegFrameOff(int64_t segnum)
@@ -136,55 +125,58 @@ SegFrameOff(int64_t segnum)
 void
 BackupServer::Flush()
 {
-    printf("Flushing active segment to disk\n");
+    struct timeval start, end, res;
+    gettimeofday(&start, NULL);
 
-    int64_t next = free_map.NextFree(last_seg_written);
+    int64_t next = free_map.NextFree(0);
     if (next == -1)
         throw BackupLogIOException("Out of free segment frames");
     printf("Write active segment to frame %ld\n", next);
 
-    struct timeval start, end, res;
-    gettimeofday(&start, NULL);
     off_t off = lseek(log_fd, SegFrameOff(next), SEEK_SET);
     if (off == -1)
         throw BackupLogIOException(errno);
     ssize_t r = write(log_fd, seg, SEGMENT_SIZE);
     if (r != SEGMENT_SIZE)
         throw BackupLogIOException(errno);
+
+    segments[next] = seg_num;
+    free_map.Clear(next);
+
     gettimeofday(&end, NULL);
     timersub(&end, &start, &res);
     printf("Flush in %d s %d us\n", res.tv_sec, res.tv_usec);
-
-    free_map.Clear(next);
-    last_seg_written = next;
 }
 
 void
-BackupServer::DoCommit()
+BackupServer::Commit(uint64_t seg_num)
 {
+    // Write out the current segment to disk if any
+    if (seg_num == INVALID_SEGMENT_NUM)
+        throw BackupException("Invalid segment number");
+    else if (seg_num != this->seg_num)
+        throw BackupException("Cannot commit a segment other than the most "
+                              "recently written one at the moment");
+
+    printf(">>> Now writing to segment %lu\n", seg_num);
     Flush();
+
+    // Close the segment
+    this->seg_num = INVALID_SEGMENT_NUM;
 }
 
 void
-BackupServer::Commit(const backup_rpc *req, backup_rpc *resp)
-try
+BackupServer::Free(uint64_t seg_num)
 {
-    printf(">>> Handling Commit - total msg len %lu\n", req->hdr.len);
-
-    DoCommit();
-
-    resp->hdr.type = BACKUP_RPC_COMMIT_RESP;
-    // No data when there's no exception
-    resp->hdr.len = (uint32_t) BACKUP_RPC_COMMIT_RESP_LEN_WODATA;
-    resp->commit_resp.ok = 1;
-} catch (BackupException e) {
-    resp->hdr.type = BACKUP_RPC_COMMIT_RESP;
-    resp->hdr.len = static_cast<uint32_t>(BACKUP_RPC_COMMIT_RESP_LEN_WODATA +
-                                          e.message.length() + 1);
-    resp->commit_resp.ok = 0;
-    resp->commit_resp.len = static_cast<uint32_t>(e.message.length() + 1);
-    strcpy(&resp->commit_resp.message[0], e.message.c_str());
-    fprintf(stderr, ">>> BackupException: %s\n", e.message.c_str());
+    if (seg_num != INVALID_SEGMENT_NUM)
+        throw BackupException("What the hell are you feeding me? "
+                              "Bad segment number!");
+    for (uint64_t i = 0; i < SEGMENT_COUNT; i++)
+        if (segments[i] == seg_num) {
+            segments[i] = INVALID_SEGMENT_NUM;
+            return;
+        }
+    throw BackupException("No such segment on backup");
 }
 
 static inline uint64_t
@@ -194,7 +186,7 @@ FrameForSegNum(uint64_t seg_num)
 }
 
 void
-BackupServer::DoRetrieve(uint64_t seg_num, char *buf, uint64_t *len)
+BackupServer::Retrieve(uint64_t seg_num, char *buf, uint64_t *len)
 {
     printf("Retrieving segment %llu from disk\n", seg_num);
     if (seg_num > SEGMENT_COUNT)
@@ -206,12 +198,19 @@ BackupServer::DoRetrieve(uint64_t seg_num, char *buf, uint64_t *len)
     struct timeval start, end, res;
     gettimeofday(&start, NULL);
 
+    printf("Seeking to %llu\n", SegFrameOff(seg_frame));
     off_t off = lseek(log_fd, SegFrameOff(seg_frame), SEEK_SET);
     if (off == -1)
         throw BackupLogIOException(errno);
 
-    ssize_t r = read(log_fd, buf, SEGMENT_SIZE);
-    if (r != SEGMENT_SIZE)
+    uint64_t read_len = SEGMENT_SIZE;
+    printf("About to read %llu bytes at %llu to %p\n",
+           read_len,
+           SegFrameOff(seg_frame),
+           buf);
+    // TODO(stutsman) can only transfer MAX_RPC_LEN
+    ssize_t r = read(log_fd, buf, read_len);
+    if (r != read_len)
         throw BackupLogIOException(errno);
     *len = r;
 
@@ -220,26 +219,73 @@ BackupServer::DoRetrieve(uint64_t seg_num, char *buf, uint64_t *len)
     printf("Retrieve in %d s %d us\n", res.tv_sec, res.tv_usec);
 }
 
+// ---- RPC Dispatch Code ----
+
 void
-BackupServer::Retrieve(const backup_rpc *req, backup_rpc *resp)
+BackupServer::HandleWrite(const backup_rpc *req, backup_rpc *resp)
+{
+    uint64_t seg_num = req->write_req.seg_num;
+    uint64_t off = req->write_req.off;
+    uint64_t len = req->write_req.len;
+    printf(">>> Handling Write to offset 0x%x length %d\n", off, len);
+    Write(seg_num, off, &req->write_req.data[0], len);
+
+    resp->hdr.type = BACKUP_RPC_WRITE_RESP;
+    resp->hdr.len = (uint32_t) BACKUP_RPC_WRITE_RESP_LEN;
+}
+
+void
+BackupServer::HandleRetrieve(const backup_rpc *req, backup_rpc *resp)
 {
     const backup_rpc_retrieve_req *rreq = &req->retrieve_req;
     backup_rpc_retrieve_resp *rresp = &resp->retrieve_resp;
     printf(">>> Handling Retrieve - seg_num %lu\n", rreq->seg_num);
 
-    DoRetrieve(rreq->seg_num, &rresp->data[0], &rresp->data_len);
+    Retrieve(rreq->seg_num, &rresp->data[0], &rresp->data_len);
 
     resp->hdr.type = BACKUP_RPC_RETRIEVE_RESP;
-    // No data when there's no exception
     resp->hdr.len = (uint32_t) (BACKUP_RPC_RETRIEVE_RESP_LEN_WODATA +
                                 rresp->data_len);
 }
 
 void
+BackupServer::HandleCommit(const backup_rpc *req, backup_rpc *resp)
+{
+    printf(">>> Handling Commit - total msg len %lu\n", req->hdr.len);
+
+    Commit(req->commit_req.seg_num);
+
+    resp->hdr.type = BACKUP_RPC_COMMIT_RESP;
+    resp->hdr.len = (uint32_t) BACKUP_RPC_COMMIT_RESP_LEN;
+}
+
+void
+BackupServer::HandleFree(const backup_rpc *req, backup_rpc *resp)
+{
+    printf(">>> Handling Free - total msg len %lu\n", req->hdr.len);
+
+    Free(req->free_req.seg_num);
+
+    resp->hdr.type = BACKUP_RPC_FREE_RESP;
+    resp->hdr.len = (uint32_t) BACKUP_RPC_FREE_RESP_LEN;
+}
+
+void
+BackupServer::HandleHeartbeat(const backup_rpc *req, backup_rpc *resp)
+{
+    resp->hdr.type = BACKUP_RPC_HEARTBEAT_RESP;
+    resp->hdr.len = (uint32_t) BACKUP_RPC_HEARTBEAT_RESP_LEN;
+}
+
+void
 BackupServer::HandleRPC()
 {
-    struct backup_rpc *req;
-    struct backup_rpc resp;
+    // TODO if we're goingt to have to malloc this we should just
+    // always keep one around
+    char *resp_buf = static_cast<char *>(malloc(SEGMENT_SIZE +
+                                                sizeof(backup_rpc)));
+    backup_rpc *req;
+    backup_rpc *resp = reinterpret_cast<backup_rpc *>(&resp_buf[0]);
 
     RecvRPC(&req);
 
@@ -247,14 +293,16 @@ BackupServer::HandleRPC()
 
     try {
         switch ((enum backup_rpc_type) req->hdr.type) {
-        case BACKUP_RPC_HEARTBEAT_REQ: Heartbeat(req, &resp); break;
-        case BACKUP_RPC_WRITE_REQ:     Write(req, &resp);     break;
-        case BACKUP_RPC_COMMIT_REQ:    Commit(req, &resp);    break;
-        case BACKUP_RPC_RETRIEVE_REQ:  Retrieve(req, &resp);  break;
+        case BACKUP_RPC_HEARTBEAT_REQ: HandleHeartbeat(req, resp); break;
+        case BACKUP_RPC_WRITE_REQ:     HandleWrite(req, resp);     break;
+        case BACKUP_RPC_COMMIT_REQ:    HandleCommit(req, resp);    break;
+        case BACKUP_RPC_FREE_REQ:      HandleFree(req, resp);      break;
+        case BACKUP_RPC_RETRIEVE_REQ:  HandleRetrieve(req, resp);  break;
 
         case BACKUP_RPC_HEARTBEAT_RESP:
         case BACKUP_RPC_WRITE_RESP:
         case BACKUP_RPC_COMMIT_RESP:
+        case BACKUP_RPC_FREE_RESP:
         case BACKUP_RPC_RETRIEVE_RESP:
         case BACKUP_RPC_ERROR_RESP:
         default:
@@ -264,12 +312,13 @@ BackupServer::HandleRPC()
         fprintf(stderr, "Error while processing RPC: %s\n", e.message.c_str());
         size_t msglen = e.message.length();
         assert(BACKUP_RPC_ERROR_RESP_LEN_WODATA + msglen + 1 < MAX_RPC_LEN);
-        strcpy(&resp.error_resp.message[0], e.message.c_str());
-        resp.hdr.type = BACKUP_RPC_ERROR_RESP;
-        resp.hdr.len = static_cast<uint32_t>(BACKUP_RPC_ERROR_RESP_LEN_WODATA +
+        strcpy(&resp->error_resp.message[0], e.message.c_str());
+        resp->hdr.type = BACKUP_RPC_ERROR_RESP;
+        resp->hdr.len = static_cast<uint32_t>(BACKUP_RPC_ERROR_RESP_LEN_WODATA +
                                              msglen + 1);
     }
-    SendRPC(&resp);
+    SendRPC(resp);
+    free(resp_buf);
 }
 
 void __attribute__ ((noreturn))

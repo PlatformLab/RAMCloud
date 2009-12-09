@@ -21,8 +21,8 @@
 #include <shared/Log.h>
 #include <shared/object.h>
 #include <shared/rcrpc.h>
+#include <shared/backup_client.h>
 
-#include <server/backup_client.h>
 #include <server/net.h>
 #include <server/hashtable.h>
 

@@ -25,9 +25,9 @@
 #include <shared/Log.h>
 #include <shared/object.h>
 #include <shared/rcrpc.h>
+#include <shared/backup_client.h>
 
 #include <server/server.h>
-#include <server/backup_client.h>
 #include <server/net.h>
 
 namespace RAMCloud {
@@ -43,12 +43,13 @@ Server::Server(Net *net_impl) : net(net_impl), backup(0)
 {
     void *p = malloc(SEGMENT_SIZE * SEGMENT_COUNT);
     assert(p != NULL);
-    log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT);
-    log->registerType(LOG_ENTRY_TYPE_OBJECT, LogEvictionCallback, this);
 
     Net *backup_net = new Net(BACKCLNTADDR, BACKCLNTPORT,
                               BACKSVRADDR, BACKSVRPORT);
     backup = new BackupClient(backup_net);
+
+    log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, backup);
+    log->registerType(LOG_ENTRY_TYPE_OBJECT, LogEvictionCallback, this);
 }
 
 Server::~Server()
@@ -399,7 +400,7 @@ Server::HandleRPC()
     } catch (const char *msg) {
         rcrpc_error_response *error_rpc = &resp->error_response;
         fprintf(stderr, "Error while processing RPC: %s\n", msg);
-        int msglen = strlen(msg);
+        size_t msglen = strlen(msg);
         assert(RCRPC_ERROR_RESPONSE_LEN_WODATA + msglen + 1 < MAX_RPC_LEN);
         strcpy(&error_rpc->message[0], msg);
         resp->type = RCRPC_ERROR_RESPONSE;

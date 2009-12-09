@@ -71,7 +71,7 @@ try
     req.hdr.type = BACKUP_RPC_HEARTBEAT_REQ;
     req.hdr.len  = static_cast<uint32_t>(BACKUP_RPC_HEARTBEAT_REQ_LEN);
 
-    backup.Heartbeat(&req, &resp);
+    backup.HandleHeartbeat(&req, &resp);
 
     CPPUNIT_ASSERT(resp.hdr.type == BACKUP_RPC_HEARTBEAT_RESP);
     CPPUNIT_ASSERT(resp.hdr.len == BACKUP_RPC_HEARTBEAT_RESP_LEN);

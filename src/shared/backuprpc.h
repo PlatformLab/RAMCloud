@@ -40,6 +40,7 @@ struct backup_rpc_heartbeat_resp {
 };
 
 struct backup_rpc_write_req {
+    uint64_t seg_num;
     uint32_t off;
     uint32_t len;
     char data[0];
@@ -51,12 +52,17 @@ struct backup_rpc_write_resp {
 };
 
 struct backup_rpc_commit_req {
+    uint64_t seg_num;
 };
 
 struct backup_rpc_commit_resp {
-    uint8_t ok;
-    uint32_t len;
-    char message[0];
+};
+
+struct backup_rpc_free_req {
+    uint64_t seg_num;
+};
+
+struct backup_rpc_free_resp {
 };
 
 struct backup_rpc_retrieve_req {
@@ -77,9 +83,11 @@ enum rc_backup_rpc_len {
     BACKUP_RPC_HEARTBEAT_REQ_LEN      = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_heartbeat_req)),
     BACKUP_RPC_HEARTBEAT_RESP_LEN     = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_heartbeat_resp)),
     BACKUP_RPC_WRITE_REQ_LEN_WODATA   = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_write_req)),
-    BACKUP_RPC_WRITE_RESP_LEN_WODATA  = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_write_resp)),
+    BACKUP_RPC_WRITE_RESP_LEN         = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_write_resp)),
     BACKUP_RPC_COMMIT_REQ_LEN         = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_req)),
-   BACKUP_RPC_COMMIT_RESP_LEN_WODATA  = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_resp)),
+    BACKUP_RPC_COMMIT_RESP_LEN        = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_resp)),
+    BACKUP_RPC_FREE_REQ_LEN           = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_free_req)),
+    BACKUP_RPC_FREE_RESP_LEN          = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_free_resp)),
     BACKUP_RPC_RETRIEVE_REQ_LEN       = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_retrieve_req)),
     BACKUP_RPC_RETRIEVE_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_retrieve_resp)),
     BACKUP_RPC_ERROR_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_error_resp)),
@@ -92,6 +100,8 @@ enum backup_rpc_type {
     BACKUP_RPC_WRITE_RESP,
     BACKUP_RPC_COMMIT_REQ,
     BACKUP_RPC_COMMIT_RESP,
+    BACKUP_RPC_FREE_REQ,
+    BACKUP_RPC_FREE_RESP,
     BACKUP_RPC_RETRIEVE_REQ,
     BACKUP_RPC_RETRIEVE_RESP,
     BACKUP_RPC_ERROR_RESP,
@@ -108,6 +118,8 @@ struct backup_rpc {
         struct backup_rpc_write_resp write_resp;
         struct backup_rpc_commit_req commit_req;
         struct backup_rpc_commit_resp commit_resp;
+        struct backup_rpc_free_req free_req;
+        struct backup_rpc_free_resp free_resp;
         struct backup_rpc_retrieve_req retrieve_req;
         struct backup_rpc_retrieve_resp retrieve_resp;
         struct backup_rpc_error_resp error_resp;
