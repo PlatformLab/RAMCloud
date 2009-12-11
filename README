@@ -13,16 +13,16 @@ simply installs the RAMCloud client library and headers in /usr/local.
 2. Running
 ====================================
 
-To run you must have 3 things.  A running server, a running backup,
-and some kind of client.
+To run you must have 3 things.  A running backup, a running server,
+and some kind of client. Note that the backup must be started first.
 
-2.1 Starting a server
-
-$ ./obj.master/server/server
-
-2.2 Starting a backup
+2.1 Starting a backup
 
 $ ./obj.master/backup/backup
+
+2.2 Starting a server
+
+$ ./obj.master/server/server
 
 2.3 Using the libramcloud.so library
 

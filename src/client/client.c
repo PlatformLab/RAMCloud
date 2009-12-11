@@ -120,6 +120,24 @@ rc_insert(struct rc_client *client,
 }
 
 int
+rc_delete(struct rc_client *client,
+          uint64_t table,
+          uint64_t key)
+{
+    struct rcrpc query, *resp;
+
+    query.type = RCRPC_DELETE_REQUEST;
+    query.len  = (uint32_t) RCRPC_DELETE_REQUEST_LEN;
+    query.delete_request.table = table;
+    query.delete_request.key = key;
+
+    assert(!rc_net_send_rpc(&client->net, &query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
+
+    return rc_handle_errors(resp);
+}
+
+int
 rc_read(struct rc_client *client,
         uint64_t table,
         uint64_t key,

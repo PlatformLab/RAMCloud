@@ -74,7 +74,7 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 
     Table *t = &tables[rreq->table];
     const object *o = t->Get(rreq->key);
-    if (!o)
+    if (!o || o->is_tombstone)
         throw "Object not found";
 
     uint32_t olen = static_cast<uint32_t>(o->hdr.entries[0].len);
@@ -123,63 +123,55 @@ LogEvictionCallback(log_entry_type_t type,
     Log *log = svr->GetLog();
     assert(log != NULL);
 
-    int save = -1;
-
     const object *tbl_obj = tbl->Get(evict_obj->hdr.key);
-    if (tbl_obj == NULL) {
-        assert(evict_obj->is_tombstone);
-        save = 0;
-    } else {
-        assert(tbl_obj->mut == evict_obj->mut);
-        object_mutable *tbl_objm = tbl_obj->mut;
-        assert(tbl_objm);
+    if (tbl_obj == evict_obj) {
+        // same object/tombstone: be sure to preserve whatever it is
 
-        if (tbl_obj == evict_obj) {
-	    // same object/tombstone
+        if (tbl_obj->is_tombstone)
+            assert(tbl_obj->mut->refcnt > 0);
 
-            if (tbl_obj->is_tombstone) {
-                assert(tbl_objm->refcnt > 0);
-                save = 1;
-            } else {
-                save = 1;
-            }
-        } else {
-	    // different object/tombstone
-
-            uint64_t musthave = 0;
-            if (!tbl_obj->is_tombstone)
-                musthave++;
-            if (!evict_obj->is_tombstone)
-                musthave++;
-            assert(tbl_objm->refcnt >= musthave);
-
-            if (tbl_objm->refcnt > 0)
-                --tbl_objm->refcnt;
-            save = 0;
-        }
-    }
-
-    // ensure we covered all cases
-    assert(save == 0 || save == 1);
-
-    if (save) {
-        const object *objp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, evict_obj, sizeof(*evict_obj));
+        const object *objp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT,
+                                                         evict_obj,
+                                                         sizeof(*evict_obj));
         assert(objp != NULL);
         tbl->Put(evict_obj->hdr.key, objp);
     } else {
-        assert(evict_obj->mut != NULL);
+        // different object/tombstone: drop it, but be careful with bookkeeping 
+        //
+        // 5 cases:
+        //          Evicted Object       Current Table Object
+        //     ----------------------------------------------------
+        //     1)   old tombstone           NULL
+        //     2)   old tombstone           new tombstone
+        //     3)   old tombstone           new object
+        //     4)   old object              new tombstone 
+        //     5)   old object              new object 
 
-        // once the refcnt drops to 0, we drop the tombstone, so if we're
-        // trying to evict a tombstone, there'd better be a > 0 refcnt. 
-        if (evict_obj->is_tombstone) {
-            assert(evict_obj->mut->refcnt > 0);
+        if (tbl_obj == NULL) {
+            // case 1
+            assert(evict_obj->is_tombstone);
         } else {
-            assert(evict_obj->mut->refcnt > 0 || tbl_obj->is_tombstone);
+            if (!evict_obj->is_tombstone) {
+                // cases 4 and 5:
+                //   drop the refcnt and if it equals 0, a tombstone referenced by
+                //   the hash table is freed.
 
-            if (tbl_obj->is_tombstone && tbl_obj->mut->refcnt == 0) {
-                log->free(LOG_ENTRY_TYPE_OBJECT, tbl_obj, sizeof(*tbl_obj));
-                tbl->Delete(tbl_obj->hdr.key);
-                delete tbl_obj->mut;
+                object_mutable *evict_objm = evict_obj->mut;
+                assert(evict_objm != NULL);
+
+                assert(evict_objm->refcnt > 0);
+                evict_objm->refcnt--;
+
+                if (evict_objm->refcnt == 0) {
+                    // case 4 only
+                    assert(tbl_obj->is_tombstone);
+                    log->free(LOG_ENTRY_TYPE_OBJECT, tbl_obj, sizeof(*tbl_obj));
+                    tbl->Delete(tbl_obj->hdr.key);
+                    delete tbl_obj->mut;
+                }
+            } else {
+                // cases 2 and 3:
+                //   nothing to do when evicting old tombstones                
             }
         }
     }
@@ -272,20 +264,25 @@ Server::DeleteKey(const struct rcrpc *req, struct rcrpc *resp)
 
     Table *t = &tables[dreq->table];
     const object *o = t->Get(dreq->key);
-    if (!o)
+    if (!o || o->is_tombstone)
         throw "Object not found";
+
+    assert(o->mut != NULL);
+    assert(o->mut->refcnt > 0);
 
     object tomb_o;
     tomb_o.hdr = o->hdr;
     tomb_o.mut = o->mut;
-    tomb_o.is_tombstone = 1;
+    tomb_o.is_tombstone = true;
+
+    // `o' may be relocated in the log when we append, before the tombstone is written, so
+    // we must either mark the space as free first, or refetch from the hash table afterwards
+    log->free(LOG_ENTRY_TYPE_OBJECT, o, sizeof(*o));
     const object *tombp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, &tomb_o, sizeof(tomb_o));
     assert(tombp);
-    log->free(LOG_ENTRY_TYPE_OBJECT, o, sizeof(*o));
 
     t->Put(dreq->key, tombp);
 
-    // no op
     resp->type = RCRPC_DELETE_RESPONSE;
     resp->len  = (uint32_t) RCRPC_DELETE_RESPONSE_LEN;
 }
