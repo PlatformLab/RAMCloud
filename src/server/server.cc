@@ -32,12 +32,12 @@
 
 namespace RAMCloud {
 
-enum { server_debug = 0 };
+enum { server_debug = false };
 
 static void LogEvictionCallback(log_entry_type_t type,
-		                const void *p,
-		                uint64_t len,
-		                void *cookie);
+                                const void *p,
+                                uint64_t len,
+                                void *cookie);
 
 Server::Server(Net *net_impl) : net(net_impl), backup(0)
 {
@@ -105,14 +105,14 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 //  ii) If the hash table points to a tombstone and the reference count drops
 //      to 0, after i) above, remove the entry from the hash table. The log
 //      will clean the tombstone eventually.
-static void 
+static void
 LogEvictionCallback(log_entry_type_t type,
-			    const void *p,
-			    uint64_t len,
-			    void *cookie)
+                    const void *p,
+                    uint64_t len,
+                    void *cookie)
 {
     const object *evict_obj = reinterpret_cast<const object *>(p);
-    Server *svr = reinterpret_cast<Server *>(cookie); 
+    Server *svr = reinterpret_cast<Server *>(cookie);
 
     assert(evict_obj != NULL);
     assert(svr != NULL);
@@ -136,7 +136,8 @@ LogEvictionCallback(log_entry_type_t type,
         assert(objp != NULL);
         tbl->Put(evict_obj->hdr.key, objp);
     } else {
-        // different object/tombstone: drop it, but be careful with bookkeeping 
+        // different object/tombstone: drop it, but be careful with
+        // bookkeeping
         //
         // 5 cases:
         //          Evicted Object       Current Table Object
@@ -144,8 +145,8 @@ LogEvictionCallback(log_entry_type_t type,
         //     1)   old tombstone           NULL
         //     2)   old tombstone           new tombstone
         //     3)   old tombstone           new object
-        //     4)   old object              new tombstone 
-        //     5)   old object              new object 
+        //     4)   old object              new tombstone
+        //     5)   old object              new object
 
         if (tbl_obj == NULL) {
             // case 1
@@ -171,7 +172,7 @@ LogEvictionCallback(log_entry_type_t type,
                 }
             } else {
                 // cases 2 and 3:
-                //   nothing to do when evicting old tombstones                
+                //   nothing to do when evicting old tombstones
             }
         }
     }
@@ -213,10 +214,10 @@ Server::StoreData(uint64_t table,
     new_o.hdr.entries[0].len = buf_len;
     memcpy(new_o.blob, buf, buf_len);
 
-    // mark the old object as freed _before_ writing the new object to the log. 
+    // mark the old object as freed _before_ writing the new object to the log.
     // if we do it afterwards, the log cleaner could be triggered and `o' reclaimed
     // before log->append() returns. The subsequent free breaks, as that segment may
-    // have been reset. 
+    // have been reset.
     if (o != NULL)
         log->free(LOG_ENTRY_TYPE_OBJECT, o, sizeof(*o));
 
