@@ -20,6 +20,8 @@
 #include <shared/common.h>
 #include <shared/rcrpc.h>
 
+#include <stdlib.h>
+#include <string.h>
 #include <assert.h>
 
 #include <list>
@@ -41,63 +43,118 @@ struct IndexException {
     std::string message;
 };
 
-class Index {
+struct IndexKeyRef {
   public:
-    Index() : range_queryable(false), unique(false), type(RCRPC_INDEX_TYPE_UINT8) {}
-    bool range_queryable;
-    bool unique;
-    enum RCRPC_INDEX_TYPE type; // TODO(ongaro) shouldn't depend on rcrpc.h
-    virtual ~Index(){}
-};
+    IndexKeyRef(void *buf, uint64_t len) : buf(buf), len(len) {}
 
-template<class K, class V>
-class UniqueIndex : public Index {
-  public:
-    virtual void Insert(K key, V value) = 0; // throws IndexException if key exists
-    virtual void Remove(K key, V value) = 0; // throws IndexException if key not found or if (key, value) not found
-    virtual V Lookup(K key) const = 0;       // throws IndexException if key not found
-    virtual ~UniqueIndex(){}
-  private:
-};
+    // TODO(ongaro): this is a little evil
+    IndexKeyRef(const void *buf, uint64_t len) : buf(const_cast<void*>(buf)), len(len) {}
 
-template<class K, class V>
-struct MultiLookupArgs;
+    bool operator==(const IndexKeyRef &other) const {
+        return len == other.len &&
+               memcmp(buf, other.buf, len) == 0;
+    }
 
-template<class K, class V>
-class MultiIndex : public Index {
-  public:
-    virtual void Insert(K key, V value) = 0;
-    virtual void Remove(K key, V value) = 0; // throws IndexException if (key, value) not found
-    virtual unsigned int Lookup(const MultiLookupArgs<K, V> *args) const = 0;
-    virtual ~MultiIndex(){}
+    void *buf;
+    uint64_t len; /* in bytes */
+
+  protected:
+    IndexKeyRef() : buf(NULL), len(0) {}
 
   private:
+    DISALLOW_COPY_AND_ASSIGN(IndexKeyRef);
 };
 
-template<class K, class V>
+struct IndexKeysRef {
+  public:
+    IndexKeysRef(char *buf, uint64_t len) : buf(buf), total(len), used(0) {}
+
+    bool AddFixedLenKey(const IndexKeyRef &key) {
+        if (used + key.len <= total) {
+            memcpy(buf + used, key.buf, key.len);
+            used += key.len;
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool AddVarLenKey(const IndexKeyRef &key) {
+        if (used + 1 + key.len <= total) {
+            assert(key.len < 256);
+            *reinterpret_cast<uint8_t*>(buf + used) = static_cast<uint8_t>(key.len);
+            memcpy(buf + used + 1, key.buf, key.len);
+            used += 1 + key.len;
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool AddKey(const IndexKeyRef &key, bool varlen) {
+        if (varlen) {
+            return AddVarLenKey(key);
+        } else {
+            return AddFixedLenKey(key);
+        }
+    }
+
+    char *buf;
+    uint64_t total; /* total number of bytes that can be stored in buf */
+    uint64_t used;  /* number of bytes that have been stored in buf */
+
+  private:
+    DISALLOW_COPY_AND_ASSIGN(IndexKeysRef);
+};
+
+
+typedef uint64_t IndexOID;
+
+struct IndexOIDsRef {
+  public:
+    IndexOIDsRef(uint64_t *buf, uint64_t len) : buf(buf), total(len), used(0) {}
+    IndexOIDsRef() : buf(NULL), total(0), used(0) {}
+
+    bool AddOID(IndexOID oid) {
+        if (used + 1 <= total) {
+            buf[used++] = oid;
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    uint64_t *buf;
+    uint64_t total; /* total number of OIDs that can be stored in buf */
+    uint64_t used;  /* number of OIDs that have been stored in buf */
+
+  private:
+    DISALLOW_COPY_AND_ASSIGN(IndexOIDsRef);
+};
+
 struct MultiLookupArgs {
 
   public:
 
-    MultiLookupArgs() : key_(),
+    MultiLookupArgs() : key_(NULL),
                         key_present_(false),
                         start_following_(),
                         start_following_present_(false),
                         limit_(static_cast<unsigned int>(-1)),
-                        result_buf_values_(NULL),
+                        result_buf_values_(),
                         result_more_(NULL) {
     }
 
     /* required */
     void
-    setKey(K key) {
-        key_ = key;
+    setKey(const IndexKeyRef &key) {
+        key_ = &key;
         key_present_ = true;
     }
 
     /* optional */
     void
-    setStartFollowing(V value) {
+    setStartFollowing(IndexOID value) {
         start_following_present_ = true;
         start_following_ = value;
     }
@@ -110,8 +167,8 @@ struct MultiLookupArgs {
 
     /* required */
     void
-    setResultBuf(V *values) {
-        result_buf_values_ = values;
+    setResultBuf(IndexOIDsRef &values) {
+        result_buf_values_ = &values;
     }
 
     /* optional */
@@ -136,30 +193,29 @@ struct MultiLookupArgs {
         return true;
     }
 
-    K key_;
+    IndexKeyRef const *key_;
     bool key_present_;
 
-    V start_following_;
+    IndexOID start_following_;
     bool start_following_present_;
 
     unsigned int limit_;
 
-    V *result_buf_values_;
+    IndexOIDsRef *result_buf_values_;
 
     bool *result_more_;
 
     DISALLOW_COPY_AND_ASSIGN(MultiLookupArgs);
 };
 
-template<class K, class V>
 struct RangeQueryArgs {
 
   public:
 
-    RangeQueryArgs() : start_(),
+    RangeQueryArgs() : start_(NULL),
                        start_present_(false),
                        start_inclusive_(false),
-                       end_(),
+                       end_(NULL),
                        end_present_(false),
                        end_inclusive_(false),
                        start_following_(),
@@ -172,23 +228,23 @@ struct RangeQueryArgs {
 
     /* optional */
     void
-    setKeyStart(K start, bool inclusive) {
-        start_ = start;
+    setKeyStart(const IndexKeyRef &start, bool inclusive) {
+        start_ = &start;
         start_present_ = true;
         start_inclusive_ = inclusive;
     }
 
     /* optional */
     void
-    setKeyEnd(K end, bool inclusive) {
-        end_ = end;
+    setKeyEnd(const IndexKeyRef &end, bool inclusive) {
+        end_ = &end;
         end_present_ = true;
         end_inclusive_ = inclusive;
     }
 
     /* optional */
     void
-    setStartFollowing(V value) {
+    setStartFollowing(IndexOID value) {
         start_following_present_ = true;
         start_following_ = value;
     }
@@ -201,14 +257,14 @@ struct RangeQueryArgs {
 
     /* pick one of the following */
     void
-    setResultBuf(K *keys, V *values) {
-        result_buf_keys_ = keys;
-        result_buf_values_ = values;
+    setResultBuf(IndexKeysRef &keys, IndexOIDsRef &values) {
+        result_buf_keys_ = &keys;
+        result_buf_values_ = &values;
     }
 
     void
-    setResultBuf(V *values) {
-        result_buf_values_ = values;
+    setResultBuf(IndexOIDsRef &values) {
+        result_buf_values_ = &values;
     }
 
     /* optional */
@@ -235,399 +291,144 @@ struct RangeQueryArgs {
         return true;
     }
 
-    K start_;
+    IndexKeyRef const *start_;
     bool start_present_;
     bool start_inclusive_;
 
-    K end_;
+    IndexKeyRef const *end_;
     bool end_present_;
     bool end_inclusive_;
 
-    V start_following_;
+    IndexOID start_following_;
     bool start_following_present_;
 
     unsigned int limit_;
 
-    K *result_buf_keys_;
-    V *result_buf_values_;
+    IndexKeysRef *result_buf_keys_;
+    IndexOIDsRef *result_buf_values_;
 
     bool *result_more_;
 
     DISALLOW_COPY_AND_ASSIGN(RangeQueryArgs);
 };
 
-template<class K, class V>
-class UniqueRangeIndex : public UniqueIndex<K, V> {
+class Index {
+  public:
+    Index() : range_queryable(false), unique(false), type(RCRPC_INDEX_TYPE_UINT8) {}
+    bool range_queryable;
+    bool unique;
+    enum RCRPC_INDEX_TYPE type; // TODO(ongaro) shouldn't depend on rcrpc.h
+    virtual ~Index(){}
+};
+
+class UniqueIndex : public Index {
+  public:
+    virtual void Insert(const IndexKeyRef& key, IndexOID value) = 0; // throws IndexException if key exists
+    virtual void Remove(const IndexKeyRef& key, IndexOID value) = 0; // throws IndexException if key not found or if (key, oid) not found
+    virtual IndexOID Lookup(const IndexKeyRef& key) const = 0;       // throws IndexException if key not found
+    virtual ~UniqueIndex(){}
+};
+
+class MultiIndex : public Index {
+  public:
+    virtual void Insert(const IndexKeyRef& key, IndexOID value) = 0;
+    virtual void Remove(const IndexKeyRef& key, IndexOID value) = 0;  // throws IndexException if (key, oid) not found
+    virtual unsigned int Lookup(const MultiLookupArgs *args) const = 0;
+    virtual ~MultiIndex(){}
+};
+
+class UniqueRangeIndex : public UniqueIndex {
   public:
     virtual unsigned int
-    RangeQuery(const RangeQueryArgs<K, V> *args) const = 0;
+    RangeQuery(const RangeQueryArgs *args) const = 0;
   private:
 };
 
-template<class K, class V>
-class MultiRangeIndex : public MultiIndex<K, V> {
+class MultiRangeIndex : public MultiIndex {
   public:
     virtual unsigned int
-    RangeQuery(const RangeQueryArgs<K, V> *args) const = 0;
+    RangeQuery(const RangeQueryArgs *args) const = 0;
   private:
 };
 
-template<class K, class V>
-class STLUniqueRangeIndex : public UniqueRangeIndex<K, V> {
+struct IndexKeyComparator {
+    virtual ~IndexKeyComparator() {}
+    virtual bool operator()(IndexKeyRef* const &x, IndexKeyRef* const &y) const = 0;
+    static IndexKeyComparator* Factory(enum RCRPC_INDEX_TYPE type);
+};
 
-  typedef std::map<K, V> M;
-  typedef typename M::iterator MI;
-  typedef typename M::const_iterator CMI;
+class IndexKeyComparatorWrapper {
+  public:
+    IndexKeyComparatorWrapper(enum RCRPC_INDEX_TYPE type);
 
-  typedef std::pair<MI,  MI>  MIP;
-  typedef std::pair<CMI, CMI> CMIP;
+    IndexKeyComparatorWrapper(const IndexKeyComparatorWrapper& other);
+
+    ~IndexKeyComparatorWrapper();
+
+    const IndexKeyComparatorWrapper&
+    operator=(IndexKeyComparatorWrapper& other);
+
+    bool operator()(IndexKeyRef* const &x, IndexKeyRef* const &y) const;
+
+  private:
+    enum RCRPC_INDEX_TYPE type_;
+    IndexKeyComparator *comparator_;
+};
+
+class STLUniqueRangeIndex : public UniqueRangeIndex {
 
   public:
-    STLUniqueRangeIndex(enum RCRPC_INDEX_TYPE type) : map_() {
-        this->range_queryable = true;
-        this->unique = true;
-        this->type = type;
-    }
-
-    ~STLUniqueRangeIndex() {
-    }
-
-    void
-    Insert(K key, V value) {
-        if (!map_.insert(std::pair<K, V>(key, value)).second) {
-            throw IndexException("Key exists");
-        }
-    }
-
-    void
-    Remove(K key, V value) {
-        if (Lookup(key) == value) {
-            map_.erase(key);
-        } else {
-            throw IndexException("Incorrect value");
-        }
-    }
-
-    V
-    Lookup(K key) const {
-        CMI map_iter;
-
-        map_iter = map_.find(key);
-        if (map_iter == map_.end()) {
-            throw IndexException("Not found");
-        }
-
-        return map_iter->second;
-    }
-
-    unsigned int
-    RangeQuery(const RangeQueryArgs<K, V> *args) const {
-        CMI map_iter;
-        CMIP range;
-        unsigned int count;
-        bool more;
-
-        assert(args->IsValid());
-
-        range = RangeQueryRange(args);
-        map_iter = range.first;
-        count = 0;
-        more = false;
-
-        if (map_iter != range.second) {
-            if (args->start_following_present_) {
-                // this flag doesn't make that much sense for unique indexes
-                // start following present implies both start present and
-                // start inclusive
-                if (map_iter->first == args->start_ &&
-                    map_iter->second <= args->start_following_) {
-                    ++map_iter;
-                }
-            }
-
-            // stream result from map_iter through range.second
-            while (map_iter != range.second) {
-                if (count == args->limit_) {
-                    more = true;
-                    break;
-                }
-                if (args->result_buf_keys_ != NULL) {
-                    args->result_buf_keys_[count] = map_iter->first;
-                }
-                args->result_buf_values_[count] = map_iter->second;
-
-                ++count;
-                ++map_iter;
-            }
-        }
-
-        if (args->result_more_ != NULL) {
-            *args->result_more_ = more;
-        }
-        return count;
-    }
+    STLUniqueRangeIndex(enum RCRPC_INDEX_TYPE type);
+    ~STLUniqueRangeIndex();
+    void Insert(const IndexKeyRef& key, IndexOID value);
+    void Remove(const IndexKeyRef& key, IndexOID value);
+    IndexOID Lookup(const IndexKeyRef& key) const;
+    unsigned int RangeQuery(const RangeQueryArgs *args) const; 
 
   private:
 
-    CMIP
-    RangeQueryRange(const RangeQueryArgs<K, V> *args) const {
-        CMI start;
-        CMI stop;
+    typedef std::map<IndexKeyRef*, IndexOID, IndexKeyComparatorWrapper> M;
+    typedef M::iterator MI;
+    typedef M::const_iterator CMI;
 
-        if (args->start_present_) {
-            if (args->start_inclusive_) {
-                start = map_.lower_bound(args->start_);
-            } else {
-                start = map_.upper_bound(args->start_);
-            }
-            if (start == map_.end()) {
-                return CMIP(map_.end(), map_.end());
-            }
-        } else {
-            start = map_.begin();
-        }
+    typedef std::pair<MI,  MI>  MIP;
+    typedef std::pair<CMI, CMI> CMIP;
 
-        if (args->end_present_) {
-            if (args->end_inclusive_) {
-                stop = map_.upper_bound(args->end_);
-            } else {
-                stop = map_.lower_bound(args->end_);
-            }
-        } else {
-            stop = map_.end();
-        }
+    CMIP RangeQueryRange(const RangeQueryArgs *args) const;
 
-        if (stop == map_.end() || start->first <= stop->first) {
-            return CMIP(start, stop);
-        } else {
-            return CMIP(map_.end(), map_.end());
-        }
-    }
-
+    IndexKeyComparatorWrapper comparator_wrapper_;
     M map_;
 
     DISALLOW_COPY_AND_ASSIGN(STLUniqueRangeIndex);
 };
 
-template<class K, class V>
-class STLMultiRangeIndex : public MultiRangeIndex<K, V> {
 
-  typedef std::list<V> LV;
-  typedef typename LV::iterator LVI;
-  typedef typename LV::const_iterator CLVI;
-
-  typedef std::map<K, LV> M;
-  typedef typename M::iterator MI;
-  typedef typename M::const_iterator CMI;
-
-  typedef std::pair<MI,  MI>  MIP;
-  typedef std::pair<CMI, CMI> CMIP;
+class STLMultiRangeIndex : public MultiRangeIndex {
 
   public:
-    STLMultiRangeIndex(enum RCRPC_INDEX_TYPE type) : map_() {
-        this->range_queryable = true;
-        this->unique = false;
-        this->type = type;
-    }
-
-    ~STLMultiRangeIndex() {
-    }
-
-    void
-    Insert(K key, V value) {
-        std::pair<MI, bool> ret;
-        MI map_iter;
-        bool inserted;
-
-        LV *vlist;
-        LVI vlist_iter;
-
-        ret = map_.insert(std::pair<K, LV>(key, LV(1, value)));
-        map_iter = ret.first;
-        inserted = ret.second;
-
-        if (!inserted) {
-            vlist = &map_iter->second;
-            for (vlist_iter = vlist->begin();
-                 vlist_iter != vlist->end();
-                 ++vlist_iter) {
-
-                if (*vlist_iter > value) {
-                    break;
-                }
-            }
-            vlist->insert(vlist_iter, value);
-        }
-    }
-
-    void
-    Remove(K key, V value) {
-        MI map_iter;
-        LV *vlist;
-        LVI vlist_iter;
-
-        map_iter = map_.find(key);
-        if (map_iter == map_.end()) {
-            throw IndexException("Not found");
-        }
-        vlist = &map_iter->second;
-
-        for (vlist_iter = vlist->begin();
-             vlist_iter != vlist->end();
-             ++vlist_iter) {
-
-            if (*vlist_iter == value) {
-                vlist->erase(vlist_iter);
-                if (vlist->size() == 0) {
-                    map_.erase(map_iter);
-                }
-                return;
-            }
-        }
-        throw IndexException("Not found");
-    }
-
-    unsigned int
-    Lookup(const MultiLookupArgs<K, V> *args) const {
-        CMI map_iter;
-        const LV *vlist;
-        CLVI vlist_iter;
-        unsigned int count;
-        bool more;
-
-        assert(args->IsValid());
-
-        count = 0;
-        more = false;
-
-        map_iter = map_.find(args->key_);
-        if (map_iter != map_.end()) {
-            vlist = &map_iter->second;
-            vlist_iter = vlist->begin();
-
-            if (args->start_following_present_) {
-                while (vlist_iter != vlist->end() &&
-                       *vlist_iter < args->start_following_) {
-                    ++vlist_iter;
-                }
-            }
-
-            while (vlist_iter != vlist->end()) {
-                if (count == args->limit_) {
-                    more = true;
-                    break;
-                }
-                args->result_buf_values_[count] = *vlist_iter;
-                ++count;
-                ++vlist_iter;
-            }
-        }
-
-        if (args->result_more_ != NULL) {
-            *args->result_more_ = more;
-        }
-        return count;
-    }
-
-    unsigned int
-    RangeQuery(const RangeQueryArgs<K, V> *args) const {
-        CMI map_iter;
-        CMIP range;
-        const LV *vlist;
-        CLVI vlist_iter;
-        unsigned int count;
-        bool more;
-
-        assert(args->IsValid());
-
-        range = RangeQueryRange(args);
-        map_iter = range.first;
-        count = 0;
-        more = false;
-
-        if (map_iter != map_.end()) {
-            vlist = &map_iter->second;
-            vlist_iter = vlist->begin();
-
-            if (args->start_following_present_) {
-                // start following present implies both start present and
-                // start inclusive
-                if (map_iter->first == args->start_) {
-                    while (vlist_iter != vlist->end() &&
-                           *vlist_iter <= args->start_following_) {
-                        ++vlist_iter;
-                    }
-                }
-            }
-
-            // stream result from map_iter, vlist_iter
-            // through map_iter=range.second, vlist_iter=map_iter->second.end()
-            while (map_iter != range.second) {
-                while (vlist_iter != vlist->end()) {
-                    if (count == args->limit_) {
-                        more = true;
-                        goto OOM;
-                    }
-
-                    if (args->result_buf_keys_ != NULL) {
-                        args->result_buf_keys_[count] = map_iter->first;
-                    }
-                    args->result_buf_values_[count] = *vlist_iter;
-
-                    ++count;
-                    ++vlist_iter;
-                }
-
-                ++map_iter;
-                vlist = &map_iter->second;
-                vlist_iter = vlist->begin();
-            }
-        OOM:
-            /*pass*/;
-        }
-
-        if (args->result_more_ != NULL) {
-            *args->result_more_ = more;
-        }
-        return count;
-    }
+    STLMultiRangeIndex(enum RCRPC_INDEX_TYPE type);
+    ~STLMultiRangeIndex();
+    void Insert(const IndexKeyRef &key, IndexOID value);
+    void Remove(const IndexKeyRef &key, IndexOID value);
+    unsigned int Lookup(const MultiLookupArgs *args) const;
+    unsigned int RangeQuery(const RangeQueryArgs *args) const;
 
   private:
-    CMIP
-    RangeQueryRange(const RangeQueryArgs<K, V> *args) const {
-        CMI start;
-        CMI stop;
 
-        if (args->start_present_) {
-            if (args->start_inclusive_) {
-                start = map_.lower_bound(args->start_);
-            } else {
-                start = map_.upper_bound(args->start_);
-            }
-            if (start == map_.end()) {
-                return CMIP(map_.end(), map_.end());
-            }
-        } else {
-            start = map_.begin();
-        }
+    typedef std::list<IndexOID> LV;
+    typedef LV::iterator LVI;
+    typedef LV::const_iterator CLVI;
 
-        if (args->end_present_) {
-            if (args->end_inclusive_) {
-                stop = map_.upper_bound(args->end_);
-            } else {
-                stop = map_.lower_bound(args->end_);
-            }
-        } else {
-            stop = map_.end();
-        }
+    typedef std::map<IndexKeyRef*, LV, IndexKeyComparatorWrapper> M;
+    typedef M::iterator MI;
+    typedef M::const_iterator CMI;
 
-        if (stop == map_.end() || start->first <= stop->first) {
-            return CMIP(start, stop);
-        } else {
-            return CMIP(map_.end(), map_.end());
-        }
-    }
+    typedef std::pair<MI,  MI>  MIP;
+    typedef std::pair<CMI, CMI> CMIP;
 
+    CMIP RangeQueryRange(const RangeQueryArgs *args) const;
+
+    IndexKeyComparatorWrapper comparator_wrapper_;
     M map_;
 
     DISALLOW_COPY_AND_ASSIGN(STLMultiRangeIndex);

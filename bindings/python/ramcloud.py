@@ -328,26 +328,28 @@ class RAMCloud(object):
         args = self.so.rc_range_query_args_new()
         self.so.rc_range_query_set_index(args, ctypes.c_uint64(table_id),
                                          ctypes.c_uint16(index_id))
+
         if key_start is not None:
             if index_type.width:
                 width = index_type.width
-                key = index_type.ctype(key_start)
+                key_start_buf = index_type.ctype(key_start)
             else:
                 # variable-length key type (STRING)
-                key = ctypes.create_string_buffer(key_start)
-                width = len(key)
-            self.so.rc_range_query_set_key_start(args, ctypes.byref(key),
+                key_start_buf = ctypes.create_string_buffer(key_start)
+                width = len(key_start_buf)
+            self.so.rc_range_query_set_key_start(args, ctypes.byref(key_start_buf),
                                                  ctypes.c_uint64(width),
                                                  bool(key_start_inclusive))
+
         if key_end is not None:
             if index_type.width:
                 width = index_type.width
-                key = index_type.ctype(key_end)
+                key_end_buf = index_type.ctype(key_end)
             else:
                 # variable-length key type (STRING)
-                key = ctypes.create_string_buffer(key_end)
-                width = len(key)
-            self.so.rc_range_query_set_key_end(args, ctypes.byref(key),
+                key_end_buf = ctypes.create_string_buffer(key_end)
+                width = len(key_end_buf)
+            self.so.rc_range_query_set_key_end(args, ctypes.byref(key_end_buf),
                                                ctypes.c_uint64(width),
                                                ctypes.c_int(bool(key_end_inclusive)))
         if start_following_oid is not None:
@@ -413,6 +415,9 @@ def main():
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4723)),
     ])
     print "Inserted value and got back key %d" % key
+    r.write(table, key, "test", [
+        (index_id, (RCRPC_INDEX_TYPE.UINT64, 4899)),
+    ])
 
     pairs, more = r.range_query(table_id=table, index_id=index_id,
                                 index_type=RCRPC_INDEX_TYPE.UINT64,

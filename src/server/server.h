@@ -58,7 +58,6 @@ class Table {
         object_map.Insert(key, o);
     }
 
-    template<class K>
     uint16_t CreateIndex(bool unique, bool range_queryable, enum RCRPC_INDEX_TYPE type) {
         uint16_t index_id;
 
@@ -73,18 +72,18 @@ class Table {
         if (unique) {
             if (range_queryable) {
                 /* unique tree */
-                indexes[index_id] = new STLUniqueRangeIndex<K, uint64_t>(type);
+                indexes[index_id] = new STLUniqueRangeIndex(type);
             } else {
                 /* unique hash table */
-                indexes[index_id] = new STLUniqueRangeIndex<K, uint64_t>(type);
+                indexes[index_id] = new STLUniqueRangeIndex(type);
             }
         } else {
             if (range_queryable) {
                 /* multi tree */
-                indexes[index_id] = new STLMultiRangeIndex<K, uint64_t>(type);
+                indexes[index_id] = new STLMultiRangeIndex(type);
             } else {
                 /* multi hash table */
-                indexes[index_id] = new STLMultiRangeIndex<K, uint64_t>(type);
+                indexes[index_id] = new STLMultiRangeIndex(type);
             }
         }
 
@@ -99,61 +98,50 @@ class Table {
         indexes[index_id] = NULL;
     }
 
-    template<class K>
     unsigned int RangeQueryIndex(uint16_t index_id,
-                                 const RangeQueryArgs<K, uint64_t> *args) {
+                                 const RangeQueryArgs *args) {
         Index *i = indexes[index_id];
         if (!i->range_queryable) {
             throw "Not range queryable";
         }
         if (i->unique) {
-            UniqueRangeIndex<K, uint64_t> *index =
-                dynamic_cast<UniqueRangeIndex<K, uint64_t>*>(i);
+            UniqueRangeIndex *index = dynamic_cast<UniqueRangeIndex*>(i);
             return index->RangeQuery(args);
         }else {
-            MultiRangeIndex<K, uint64_t> *index =
-                dynamic_cast<MultiRangeIndex<K, uint64_t>*>(i);
+            MultiRangeIndex *index = dynamic_cast<MultiRangeIndex*>(i);
             return index->RangeQuery(args);
         }
     }
 
-    template<class K>
     void DeleteIndexEntry(uint16_t index_id, enum RCRPC_INDEX_TYPE index_type,
                           const void *data, uint64_t len,
                           uint64_t oid) {
         Index *i = indexes[index_id];
-        assert(sizeof(K) == len);
+        assert(i->type == index_type);
+        IndexKeyRef keyref(data, len);
         if (i->unique) {
-            UniqueIndex<K, uint64_t> *index =
-                dynamic_cast<UniqueIndex<K, uint64_t>*>(i);
-            return index->Remove(*reinterpret_cast<const K*>(data), oid);
+            UniqueIndex *index =
+                dynamic_cast<UniqueIndex*>(i);
+            return index->Remove(keyref, oid);
         }else {
-            MultiIndex<K, uint64_t> *index =
-                dynamic_cast<MultiIndex<K, uint64_t>*>(i);
-            return index->Remove(*reinterpret_cast<const K*>(data), oid);
+            MultiIndex *index = dynamic_cast<MultiIndex*>(i);
+            return index->Remove(keyref, oid);
         }
     }
 
-    template<class K>
     void AddIndexEntry(uint16_t index_id, enum RCRPC_INDEX_TYPE index_type,
                        const void *data, uint64_t len,
                        uint64_t oid) {
         Index *i = indexes[index_id];
-        assert(sizeof(K) == len);
+        assert(i->type == index_type);
+        IndexKeyRef keyref(data, len);
         if (i->unique) {
-            UniqueIndex<K, uint64_t> *index =
-                dynamic_cast<UniqueIndex<K, uint64_t>*>(i);
-            return index->Insert(*reinterpret_cast<const K*>(data), oid);
+            UniqueIndex *index = dynamic_cast<UniqueIndex*>(i);
+            return index->Insert(keyref, oid);
         }else {
-            MultiIndex<K, uint64_t> *index =
-                dynamic_cast<MultiIndex<K, uint64_t>*>(i);
-            return index->Insert(*reinterpret_cast<const K*>(data), oid);
+            MultiIndex *index = dynamic_cast<MultiIndex*>(i);
+            return index->Insert(keyref, oid);
         }
-    }
-
-
-    enum RCRPC_INDEX_TYPE IndexType(uint16_t index_id) {
-        return indexes[index_id]->type;
     }
 
   private:

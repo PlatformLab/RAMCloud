@@ -19,6 +19,7 @@
 #include <shared/common.h>
 
 #include <inttypes.h>
+#include <assert.h>
 #include <stdio.h>
 
 namespace RAMCloud {
@@ -62,6 +63,39 @@ struct chunk_hdr {
     enum storage_type type;
     uint64_t entries_len;
     struct chunk_entry entries[0];
+};
+
+class ChunkIter {
+  public:
+
+    ChunkIter(chunk_hdr *hdr) : entry(NULL), hdr_(hdr) {
+        if (hdr_->entries_len > 0) {
+            entry = hdr_->entries;
+        } else {
+            entry = NULL;
+        }
+    }
+
+    ChunkIter& operator++() {
+        if (entry != NULL) {
+            entry = entry->next();
+            size_t moved = reinterpret_cast<char*>(entry) -
+                reinterpret_cast<char*>(hdr_->entries);
+            size_t total = static_cast<size_t>(hdr_->entries_len);
+            if (moved == total) {
+                entry = NULL;
+            } else {
+                assert(moved < total);
+            }
+        }
+        return *this;
+    }
+
+    chunk_entry *entry;
+
+  private:
+    chunk_hdr *hdr_;
+    DISALLOW_COPY_AND_ASSIGN(ChunkIter);
 };
 
 } // namespace RAMCloud

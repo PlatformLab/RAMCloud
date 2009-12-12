@@ -68,25 +68,31 @@ def range_query_assert(line):
     buf_size = len(result_set) + 2
 
     # buffers
-    out.line('int    keybuf[%d];' % (buf_size))
-    out.line('double valbuf[%d];' % (buf_size))
+    out.line('int32_t keybuf[%d];' % (buf_size))
+    out.line('uint64_t valbuf[%d];' % (buf_size))
     out.line('memset(keybuf, 0xAB, sizeof(keybuf));')
     out.line('memset(valbuf, 0xCD, sizeof(valbuf));')
 
     # execute RangeQuery, make sure it returned the right number of pairs
-    out.line('RAMCloud::RangeQueryArgs<int, double> rq;')
+    out.line('RAMCloud::RangeQueryArgs rq;')
     out.line('bool more;')
-    out.line('rq.setKeyStart(%d, %s);' % (start, 'true' if left  == '[' else 'false'))
-    out.line('rq.setKeyEnd(%d, %s);'  % (stop,  'true' if right == ']' else 'false'))
+    out.line('int32_t start = %d;' % start)
+    out.line('RAMCloud::IndexKeyRef skr(&start, sizeof(start));')
+    out.line('rq.setKeyStart(skr, %s);' % ('true' if left  == '[' else 'false'))
+    out.line('int32_t end = %d;' % stop)
+    out.line('RAMCloud::IndexKeyRef ekr(&end, sizeof(end));')
+    out.line('rq.setKeyEnd(ekr, %s);'  % ('true' if right == ']' else 'false'))
     out.line('rq.setLimit(%d);' % (len(result_set) + 1))
-    out.line('rq.setResultBuf(keybuf + 1, valbuf + 1);')
+    out.line('RAMCloud::IndexKeysRef rkr(reinterpret_cast<char*>(keybuf + 1), %d);' % ((buf_size - 2) * 8))
+    out.line('RAMCloud::IndexOIDsRef ror(valbuf + 1, %d);' % (buf_size - 2))
+    out.line('rq.setResultBuf(rkr, ror);')
     out.line('rq.setResultMore(&more);')
     out.line('CPPUNIT_ASSERT(index->RangeQuery(&rq) == %d);' % len(result_set))
     out.line('CPPUNIT_ASSERT(!more);')
 
     # make sure the result didn't clobber the first or last element
-    out.line('CPPUNIT_ASSERT(keybuf[0]  == static_cast<int>(0xABABABAB));')
-    out.line('CPPUNIT_ASSERT(keybuf[%d] == static_cast<int>(0xABABABAB));' % (len(result_set) + 1))
+    out.line('CPPUNIT_ASSERT(keybuf[0]  == static_cast<int32_t>(0xABABABABABABABAB));')
+    out.line('CPPUNIT_ASSERT(keybuf[%d] == static_cast<int32_t>(0xABABABABABABABAB));' % (len(result_set) + 1))
     out.line('CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[0])  == 0xCDCDCDCDCDCDCDCD);')
     out.line('CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[%d]) == 0xCDCDCDCDCDCDCDCD);' % (len(result_set) + 1))
 
@@ -94,7 +100,7 @@ def range_query_assert(line):
     i = 1
     for (k,v) in result_set:
         out.line('CPPUNIT_ASSERT(%s == keybuf[%d]);' % (k, i))
-        out.line('CPPUNIT_ASSERT_DOUBLES_EQUAL(%s, valbuf[%d], D);' % (v, i))
+        out.line('CPPUNIT_ASSERT(%s == valbuf[%d]);' % (v, i))
         i += 1
 
 def multi_lookup_assert(line):
@@ -106,15 +112,18 @@ def multi_lookup_assert(line):
     buf_size = len(result_set) + 2
 
     # buffers
-    out.line('double valbuf[%d];' % (buf_size))
+    out.line('uint64_t valbuf[%d];' % (buf_size))
     out.line('memset(valbuf, 0xCD, sizeof(valbuf));')
 
     # execute Lookup, make sure it returned the right number of values
-    out.line('RAMCloud::MultiLookupArgs<int, double> ml;')
+    out.line('RAMCloud::MultiLookupArgs ml;')
     out.line('bool more;')
-    out.line('ml.setKey(%d);' % key)
+    out.line('int32_t key = %d;' % key)
+    out.line('RAMCloud::IndexKeyRef kr(&key, sizeof(key));')
+    out.line('ml.setKey(kr);')
     out.line('ml.setLimit(%d);' % (len(result_set) + 1))
-    out.line('ml.setResultBuf(valbuf + 1);')
+    out.line('RAMCloud::IndexOIDsRef ror(valbuf + 1, %d);' % (buf_size - 2))
+    out.line('ml.setResultBuf(ror);')
     out.line('ml.setResultMore(&more);')
     out.line('CPPUNIT_ASSERT(index->Lookup(&ml) == %d);' % len(result_set))
     out.line('CPPUNIT_ASSERT(!more);')
@@ -126,7 +135,7 @@ def multi_lookup_assert(line):
     # make sure the buffers contain the right values in the right order
     i = 1
     for v in result_set:
-        out.line('CPPUNIT_ASSERT_DOUBLES_EQUAL(%s, valbuf[%d], D);' % (v, i))
+        out.line('CPPUNIT_ASSERT(%s == valbuf[%d]);' % (v, i))
         i += 1
 
 out = Output()

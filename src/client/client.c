@@ -332,8 +332,8 @@ rc_range_query(struct rc_client *client,
     if (args->rpc.start_following_oid_present) {
         query_buf_len += sizeof(uint64_t);
     }
-    query_buf_len += args->key_start_len;
-    query_buf_len += args->key_end_len;
+    query_buf_len += sizeof(uint64_t) + args->key_start_len;
+    query_buf_len += sizeof(uint64_t) + args->key_end_len;
 
     char query_buf[query_buf_len];
     query = (struct rcrpc*) query_buf;
@@ -347,10 +347,14 @@ rc_range_query(struct rc_client *client,
         var += sizeof(uint64_t);
     }
     if (args->rpc.key_start_present) {
+        *((uint64_t*) var) = args->key_start_len;
+        var += sizeof(uint64_t);
         memcpy(var, args->key_start, args->key_start_len);
         var += args->key_start_len;
     }
     if (args->rpc.key_end_present) {
+        *((uint64_t*) var) = args->key_end_len;
+        var += sizeof(uint64_t);
         memcpy(var, args->key_end, args->key_end_len);
         var += args->key_end_len;
     }

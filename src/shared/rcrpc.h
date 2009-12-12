@@ -19,6 +19,7 @@
 // #include <cinttypes> // this requires c++0x support because it's c99
 // so we'll go ahead and use the C header
 #include <inttypes.h>
+#include <stdbool.h>
 
 #define RCRPC_HEADER_LEN                      ((size_t) &(((struct rcrpc *) 0)->ping_request))
 #define RCRPC_PING_REQUEST_LEN                (RCRPC_HEADER_LEN + sizeof(struct rcrpc_ping_request))
@@ -89,6 +90,15 @@ enum RCRPC_INDEX_TYPE {
     RCRPC_INDEX_TYPE_STRING,
 };
 
+static inline bool
+is_valid_index_type(enum RCRPC_INDEX_TYPE type) {
+    return type <= RCRPC_INDEX_TYPE_STRING;
+}
+
+static inline bool
+is_varlen_index_type(enum RCRPC_INDEX_TYPE type) {
+    return type >= RCRPC_INDEX_TYPE_STRING;
+}
 
 struct rcrpc_ping_request {
 };
@@ -207,7 +217,9 @@ struct rcrpc_range_query_request {
 
     // var[] is the concatenation of the following:
     // uint64_t start_following_oid if start_following_oid_present
+    // uint64_t key_start_len if key_start_present
     // <index_type> key_start if key_start_present
+    // uint64_t key_end_len if key_end_present
     // <index_type> key_end if key_end_present
     char var[0];                        /* Variable length */
 };

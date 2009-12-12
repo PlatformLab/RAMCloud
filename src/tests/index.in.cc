@@ -22,8 +22,6 @@
 #include <cppunit/TestAssert.h>
 #include <cppunit/extensions/HelperMacros.h>
 
-#define D 0.0001
-
 class UniqueIndexTest : public CppUnit::TestFixture {
   public:
     virtual void setUp() = 0;
@@ -32,7 +30,7 @@ class UniqueIndexTest : public CppUnit::TestFixture {
     void TestRemove();
     void TestLookup();
   protected:
-    virtual RAMCloud::UniqueIndex<int, double> * getIndex() = 0;
+    virtual RAMCloud::UniqueIndex * getIndex() = 0;
   private:
     CPPUNIT_TEST_SUITE(UniqueIndexTest);
     CPPUNIT_TEST(TestInsert);
@@ -49,7 +47,7 @@ class UniqueRangeIndexTest : public UniqueIndexTest {
     void TestRangeQueryLimit();
     void TestRangeQueryContinuation() { /* TODO */ }
   protected:
-    virtual RAMCloud::UniqueRangeIndex<int, double> * getIndex() = 0;
+    virtual RAMCloud::UniqueRangeIndex * getIndex() = 0;
   private:
     CPPUNIT_TEST_SUB_SUITE(UniqueRangeIndexTest, UniqueIndexTest);
     CPPUNIT_TEST(TestRangeQuery);
@@ -69,7 +67,7 @@ class MultiIndexTest : public CppUnit::TestFixture {
     void TestLookupLimit();
     void TestLookupContinuation() { /* TODO */ }
   protected:
-    virtual RAMCloud::MultiIndex<int, double> * getIndex() = 0;
+    virtual RAMCloud::MultiIndex * getIndex() = 0;
   private:
     CPPUNIT_TEST_SUITE(MultiIndexTest);
     CPPUNIT_TEST(TestInsert);
@@ -87,7 +85,7 @@ class MultiRangeIndexTest : public MultiIndexTest {
     void TestRangeQueryLimit();
     void TestRangeQueryContinuation() { /* TODO */ }
   protected:
-    virtual RAMCloud::MultiRangeIndex<int, double> * getIndex() = 0;
+    virtual RAMCloud::MultiRangeIndex * getIndex() = 0;
   private:
     CPPUNIT_TEST_SUB_SUITE(MultiRangeIndexTest, MultiIndexTest);
     CPPUNIT_TEST(TestRangeQuery);
@@ -97,68 +95,98 @@ class MultiRangeIndexTest : public MultiIndexTest {
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 };
 
+static void
+Insert(RAMCloud::UniqueIndex *index, int32_t key, uint64_t val) {
+    RAMCloud::IndexKeyRef kr(&key, sizeof(key));
+    index->Insert(kr, val);
+}
+
+static uint64_t
+Lookup(RAMCloud::UniqueIndex *index, int32_t key) {
+    RAMCloud::IndexKeyRef kr(&key, sizeof(key));
+    return index->Lookup(kr);
+}
+
+static void
+Remove(RAMCloud::UniqueIndex *index, int32_t key, uint64_t val) {
+    RAMCloud::IndexKeyRef kr(&key, sizeof(key));
+    index->Remove(kr, val);
+}
+
+static void
+Insert(RAMCloud::MultiIndex *index, int32_t key, uint64_t val) {
+    RAMCloud::IndexKeyRef kr(&key, sizeof(key));
+    index->Insert(kr, val);
+}
+
+static void
+Remove(RAMCloud::MultiIndex *index, int32_t key, uint64_t val) {
+    RAMCloud::IndexKeyRef kr(&key, sizeof(key));
+    index->Remove(kr, val);
+}
+
 void
 UniqueIndexTest::TestInsert()
 {
-    RAMCloud::UniqueIndex<int, double> *index = getIndex();
-    index->Insert(1, 4.3);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(4.3, index->Lookup(1), D);
-    index->Insert(0, 0.9);
-    index->Insert(2, 4.7);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(0.9, index->Lookup(0), D);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(4.3, index->Lookup(1), D);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(4.7, index->Lookup(2), D);
-    CPPUNIT_ASSERT_THROW(index->Insert(2, 50.3), RAMCloud::IndexException);
+    RAMCloud::UniqueIndex *index = getIndex();
+    Insert(index, 1, 43);
+    CPPUNIT_ASSERT(43 == Lookup(index, 1));
+    Insert(index, 0, 9);
+    Insert(index, 2, 47);
+    CPPUNIT_ASSERT(9 == Lookup(index, 0));
+    CPPUNIT_ASSERT(43 == Lookup(index, 1));
+    CPPUNIT_ASSERT(47 == Lookup(index, 2));
+    CPPUNIT_ASSERT_THROW(Insert(index, 2, 503), RAMCloud::IndexException);
 }
 
 void
 UniqueIndexTest::TestRemove()
 {
-    RAMCloud::UniqueIndex<int, double> *index = getIndex();
-    index->Insert(1, 4.3);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(4.3, index->Lookup(1), D);
-    index->Remove(1, 4.3);
-    CPPUNIT_ASSERT_THROW(index->Lookup(1), RAMCloud::IndexException);
-    CPPUNIT_ASSERT_THROW(index->Remove(1, 4.3), RAMCloud::IndexException);
+    RAMCloud::UniqueIndex *index = getIndex();
+    Insert(index, 1, 43);
+    CPPUNIT_ASSERT(43 == Lookup(index, 1));
+    Remove(index, 1, 43);
+    CPPUNIT_ASSERT_THROW(Lookup(index, 1), RAMCloud::IndexException);
+    CPPUNIT_ASSERT_THROW(Remove(index, 1, 43), RAMCloud::IndexException);
 }
 
 void
 UniqueIndexTest::TestLookup()
 {
-    RAMCloud::UniqueIndex<int, double> *index = getIndex();
+    RAMCloud::UniqueIndex *index = getIndex();
 
-    CPPUNIT_ASSERT_THROW(index->Lookup(1), RAMCloud::IndexException);
-    index->Insert(1, 4.3);
-    index->Insert(2, 4.5);
-    index->Insert(3, 4.7);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(4.3, index->Lookup(1), D);
-    CPPUNIT_ASSERT_THROW(index->Lookup(4), RAMCloud::IndexException);
+    CPPUNIT_ASSERT_THROW(Lookup(index, 1), RAMCloud::IndexException);
+    Insert(index, 1, 43);
+    Insert(index, 2, 45);
+    Insert(index, 3, 47);
+    CPPUNIT_ASSERT(43 == Lookup(index, 1));
+    CPPUNIT_ASSERT_THROW(Lookup(index, 4), RAMCloud::IndexException);
 }
 
 void
 UniqueRangeIndexTest::TestRangeQuery()
 {
-    RAMCloud::UniqueRangeIndex<int, double> *index = getIndex();
+    RAMCloud::UniqueRangeIndex *index = getIndex();
 
     RANGE_QUERY_ASSERT(" [-1, 10]   =>  {}");
 
-    index->Insert(1, 4.3);
-    RANGE_QUERY_ASSERT(" [1, 1]     =>  {1: 4.3}");
+    Insert(index, 1, 43);
+    RANGE_QUERY_ASSERT(" [1, 1]     =>  {1: 43}");
     RANGE_QUERY_ASSERT(" (1, 1]     =>  {}");
     RANGE_QUERY_ASSERT(" [1, 1)     =>  {}");
     RANGE_QUERY_ASSERT(" (1, 1)     =>  {}");
 
-    RANGE_QUERY_ASSERT(" [-1, 10]   =>  {1: 4.3}");
-    RANGE_QUERY_ASSERT(" [-1, 1]    =>  {1: 4.3}");
-    RANGE_QUERY_ASSERT(" [1, 10]    =>  {1: 4.3}");
-    RANGE_QUERY_ASSERT(" [1, 2)     =>  {1: 4.3}");
-    RANGE_QUERY_ASSERT(" (0, 1]     =>  {1: 4.3}");
-    RANGE_QUERY_ASSERT(" (0, 2)     =>  {1: 4.3}");
+    RANGE_QUERY_ASSERT(" [-1, 10]   =>  {1: 43}");
+    RANGE_QUERY_ASSERT(" [-1, 1]    =>  {1: 43}");
+    RANGE_QUERY_ASSERT(" [1, 10]    =>  {1: 43}");
+    RANGE_QUERY_ASSERT(" [1, 2)     =>  {1: 43}");
+    RANGE_QUERY_ASSERT(" (0, 1]     =>  {1: 43}");
+    RANGE_QUERY_ASSERT(" (0, 2)     =>  {1: 43}");
 
-    index->Insert(2, 7.9);
-    RANGE_QUERY_ASSERT(" [-1, 10]   => {1: 4.3, 2: 7.9}");
-    RANGE_QUERY_ASSERT(" [1, 10]    => {1: 4.3, 2: 7.9}");
-    RANGE_QUERY_ASSERT(" (1, 10]    => {2: 7.9}");
+    Insert(index, 2, 79);
+    RANGE_QUERY_ASSERT(" [-1, 10]   => {1: 43, 2: 79}");
+    RANGE_QUERY_ASSERT(" [1, 10]    => {1: 43, 2: 79}");
+    RANGE_QUERY_ASSERT(" (1, 10]    => {2: 79}");
     RANGE_QUERY_ASSERT(" [3, 0]     => {}");
     RANGE_QUERY_ASSERT(" [2, 0]     => {}");
     RANGE_QUERY_ASSERT(" [2, 1]     => {}");
@@ -167,45 +195,53 @@ UniqueRangeIndexTest::TestRangeQuery()
 void
 UniqueRangeIndexTest::TestRangeQueryNoKeys()
 {
-    RAMCloud::UniqueRangeIndex<int, double> *index = getIndex();
+    RAMCloud::UniqueRangeIndex *index = getIndex();
 
-    index->Insert(1, 4.3);
-    index->Insert(2, 7.9);
+    Insert(index, 1, 43);
+    Insert(index, 2, 79);
 
     {
-        double valbuf[4];
+        uint64_t valbuf[4];
         memset(valbuf, 0xCD, sizeof(valbuf));
-        RAMCloud::RangeQueryArgs<int, double> rq;
+        RAMCloud::RangeQueryArgs rq;
         bool more;
-        rq.setKeyStart(1, true);
-        rq.setKeyEnd(2, true);
+        int32_t start = 1;
+        RAMCloud::IndexKeyRef skr(&start, sizeof(start));
+        rq.setKeyStart(skr, true);
+        int32_t end = 2;
+        RAMCloud::IndexKeyRef ekr(&end, sizeof(end));
+        rq.setKeyEnd(ekr, true);
         rq.setLimit(3);
-        rq.setResultBuf(valbuf + 1);
+        RAMCloud::IndexOIDsRef ror(valbuf + 1, 2);
+        rq.setResultBuf(ror);
         rq.setResultMore(&more);
         CPPUNIT_ASSERT(index->RangeQuery(&rq) == 2);
         CPPUNIT_ASSERT(!more);
-        CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[0]) == \
-                       0xCDCDCDCDCDCDCDCD);
-        CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[3]) == \
-                       0xCDCDCDCDCDCDCDCD);
-        CPPUNIT_ASSERT_DOUBLES_EQUAL(4.3, valbuf[1], D);
-        CPPUNIT_ASSERT_DOUBLES_EQUAL(7.9, valbuf[2], D);
+        CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[0])  == 0xCDCDCDCDCDCDCDCD);
+        CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[3]) == 0xCDCDCDCDCDCDCDCD);
+        CPPUNIT_ASSERT(43 == valbuf[1]);
+        CPPUNIT_ASSERT(79 == valbuf[2]);
     }
 }
 
 void
 UniqueRangeIndexTest::TestRangeQueryLimit()
 {
-    RAMCloud::UniqueRangeIndex<int, double> *index = getIndex();
-    RAMCloud::RangeQueryArgs<int, double> rq;
-    double valbuf[100];
+    RAMCloud::UniqueRangeIndex *index = getIndex();
+    RAMCloud::RangeQueryArgs rq;
+    uint64_t valbuf[100];
 
-    rq.setKeyStart(1, true);
-    rq.setKeyEnd(2, true);
-    rq.setResultBuf(valbuf + 1);
+    int32_t start = 1;
+    RAMCloud::IndexKeyRef skr(&start, sizeof(start));
+    rq.setKeyStart(skr, true);
+    int32_t end = 2;
+    RAMCloud::IndexKeyRef ekr(&end, sizeof(end));
+    rq.setKeyEnd(ekr, true);
+    RAMCloud::IndexOIDsRef ror(valbuf + 1, 99);
+    rq.setResultBuf(ror);
 
-    index->Insert(1, 4.3);
-    index->Insert(2, 7.9);
+    Insert(index, 1, 43);
+    Insert(index, 2, 79);
 
     rq.setLimit(0);
     CPPUNIT_ASSERT(index->RangeQuery(&rq) == 0);
@@ -221,64 +257,67 @@ UniqueRangeIndexTest::TestRangeQueryLimit()
 void
 MultiIndexTest::TestInsert()
 {
-    RAMCloud::MultiIndex<int, double> *index = getIndex();
+    RAMCloud::MultiIndex *index = getIndex();
 
-    index->Insert(1, 4.3);
-    MULTI_LOOKUP_ASSERT("1 => {4.3}");
+    Insert(index, 1, 43);
+    MULTI_LOOKUP_ASSERT("1 => {43}");
 
-    index->Insert(0, 0.9);
-    index->Insert(2, 4.7);
-    MULTI_LOOKUP_ASSERT("0 => {0.9}");
-    MULTI_LOOKUP_ASSERT("1 => {4.3}");
-    MULTI_LOOKUP_ASSERT("2 => {4.7}");
+    Insert(index, 0, 9);
+    Insert(index, 2, 47);
+    MULTI_LOOKUP_ASSERT("0 => {9}");
+    MULTI_LOOKUP_ASSERT("1 => {43}");
+    MULTI_LOOKUP_ASSERT("2 => {47}");
 }
 
 void
 MultiIndexTest::TestRemove()
 {
-    RAMCloud::MultiIndex<int, double> *index = getIndex();
+    RAMCloud::MultiIndex *index = getIndex();
 
-    CPPUNIT_ASSERT_THROW(index->Remove(1, 4.3), RAMCloud::IndexException);
-    index->Insert(1, 4.3);
-    index->Remove(1, 4.3);
+    CPPUNIT_ASSERT_THROW(Remove(index, 1, 43), RAMCloud::IndexException);
+    Insert(index, 1, 43);
+    Remove(index, 1, 43);
     MULTI_LOOKUP_ASSERT("1 => {}");
-    CPPUNIT_ASSERT_THROW(index->Remove(1, 4.3), RAMCloud::IndexException);
+    CPPUNIT_ASSERT_THROW(Remove(index, 1, 43), RAMCloud::IndexException);
 }
 
 void
 MultiIndexTest::TestLookup()
 {
-    RAMCloud::MultiIndex<int, double> *index = getIndex();
+    RAMCloud::MultiIndex *index = getIndex();
 
     MULTI_LOOKUP_ASSERT("1  => {}");
 
-    index->Insert(1, 4.3);
-    MULTI_LOOKUP_ASSERT("1  => {4.3}");
+    Insert(index, 1, 43);
+    MULTI_LOOKUP_ASSERT("1  => {43}");
     MULTI_LOOKUP_ASSERT("2  => {}");
 
-    index->Insert(1, 10.9);
-    index->Insert(1, 22.2);
-    index->Insert(1, 33.3);
+    Insert(index, 1, 109);
+    Insert(index, 1, 222);
+    Insert(index, 1, 333);
     MULTI_LOOKUP_ASSERT("0 => {}");
-    MULTI_LOOKUP_ASSERT("1 => {4.3, 10.9, 22.2, 33.3}");
+    MULTI_LOOKUP_ASSERT("1 => {43, 109, 222, 333}");
     MULTI_LOOKUP_ASSERT("2 => {}");
 }
 
 void
 MultiIndexTest::TestLookupLimit()
 {
-    RAMCloud::MultiIndex<int, double> *index = getIndex();
-    RAMCloud::MultiLookupArgs<int, double> ml;
-    double buf[100];
+    RAMCloud::MultiIndex *index = getIndex();
+    RAMCloud::MultiLookupArgs ml;
+    uint64_t buf[100];
     bool more;
 
-    ml.setKey(1);
-    ml.setResultBuf(buf);
+    int32_t key = 1;
+    RAMCloud::IndexKeyRef kr(&key, sizeof(key));
+    ml.setKey(kr);
+    RAMCloud::IndexOIDsRef ror(buf, 100);
+    ml.setResultBuf(ror);
     ml.setResultMore(&more);
 
-    index->Insert(1, 4.3);
-    index->Insert(1, 9.5);
-    index->Insert(1, 0.5);
+    Insert(index, 1, 43);
+    Insert(index, 1, 95);
+    Insert(index, 1, 05);
 
     ml.setLimit(0);
     CPPUNIT_ASSERT(index->Lookup(&ml) == 0);
@@ -299,87 +338,100 @@ MultiIndexTest::TestLookupLimit()
 void
 MultiRangeIndexTest::TestRangeQuery()
 {
-    RAMCloud::MultiRangeIndex<int, double> *index = getIndex();
+    RAMCloud::MultiRangeIndex *index = getIndex();
 
     RANGE_QUERY_ASSERT(" [-1, 10]    =>  {}");
 
-    index->Insert(1, 4.3);
-    RANGE_QUERY_ASSERT(" [1, 1]     =>  {1: 4.3}");
+    Insert(index, 1, 43);
+    RANGE_QUERY_ASSERT(" [1, 1]     =>  {1: 43}");
     RANGE_QUERY_ASSERT(" (1, 1]     =>  {}");
     RANGE_QUERY_ASSERT(" [1, 1)     =>  {}");
     RANGE_QUERY_ASSERT(" (1, 1)     =>  {}");
 
 
-    RANGE_QUERY_ASSERT(" [-1, 10]   =>  {1: 4.3}");
-    RANGE_QUERY_ASSERT(" [-1, 1]    =>  {1: 4.3}");
-    RANGE_QUERY_ASSERT(" [1, 10]    =>  {1: 4.3}");
-    RANGE_QUERY_ASSERT(" [1, 2)     =>  {1: 4.3}");
-    RANGE_QUERY_ASSERT(" (0, 1]     =>  {1: 4.3}");
-    RANGE_QUERY_ASSERT(" (0, 2)     =>  {1: 4.3}");
+    RANGE_QUERY_ASSERT(" [-1, 10]   =>  {1: 43}");
+    RANGE_QUERY_ASSERT(" [-1, 1]    =>  {1: 43}");
+    RANGE_QUERY_ASSERT(" [1, 10]    =>  {1: 43}");
+    RANGE_QUERY_ASSERT(" [1, 2)     =>  {1: 43}");
+    RANGE_QUERY_ASSERT(" (0, 1]     =>  {1: 43}");
+    RANGE_QUERY_ASSERT(" (0, 2)     =>  {1: 43}");
     RANGE_QUERY_ASSERT(" (1, 2)     =>  {}");
-    RANGE_QUERY_ASSERT(" (0, 1]     =>  {1: 4.3}");
+    RANGE_QUERY_ASSERT(" (0, 1]     =>  {1: 43}");
 
-    index->Insert(2, 58.4);
-    RANGE_QUERY_ASSERT(" [-1, 10]   => {1: 4.3, 2: 58.4}");
-    RANGE_QUERY_ASSERT(" [1, 10]    => {1: 4.3, 2: 58.4}");
-    RANGE_QUERY_ASSERT(" (1, 10]    => {2: 58.4}");
+    Insert(index, 2, 584);
+    RANGE_QUERY_ASSERT(" [-1, 10]   => {1: 43, 2: 584}");
+    RANGE_QUERY_ASSERT(" [1, 10]    => {1: 43, 2: 584}");
+    RANGE_QUERY_ASSERT(" (1, 10]    => {2: 584}");
     RANGE_QUERY_ASSERT(" [3, 0]     => {}");
     RANGE_QUERY_ASSERT(" [2, 0]     => {}");
     RANGE_QUERY_ASSERT(" [2, 1]     => {}");
 
 
-    index->Insert(3, 60.6);
-    index->Insert(8, 921.0);
-    index->Insert(1, 22.2);
-    index->Insert(1, 33.3);
-    index->Insert(1, 10.9);
-    RANGE_QUERY_ASSERT(" [0, 10]    =>  {1: 4.3, 1: 10.9, 1: 22.2, 1: 33.3, "\
-                                        "2: 58.4, 3: 60.6, 8: 921.0}");
-    RANGE_QUERY_ASSERT(" (1, 8)     =>  {2: 58.4, 3: 60.6}");
+    Insert(index, 3, 606);
+    Insert(index, 8, 9210);
+    Insert(index, 1, 222);
+    Insert(index, 1, 333);
+    Insert(index, 1, 109);
+    RANGE_QUERY_ASSERT(" [0, 10]    =>  {1: 43, 1: 109, 1: 222, 1: 333, "\
+                                        "2: 584, 3: 606, 8: 9210}");
+    RANGE_QUERY_ASSERT(" (1, 8)     =>  {2: 584, 3: 606}");
 }
 
 void
 MultiRangeIndexTest::TestRangeQueryNoKeys()
 {
-    RAMCloud::MultiRangeIndex<int, double> *index = getIndex();
+    RAMCloud::MultiRangeIndex *index = getIndex();
 
-    index->Insert(1, 4.3);
-    index->Insert(1, 9.5);
-    index->Insert(2, 7.9);
+    Insert(index, 1, 43);
+    Insert(index, 1, 95);
+    Insert(index, 2, 79);
 
     {
-        RAMCloud::RangeQueryArgs<int, double> rq;
-        double valbuf[5];
+        uint64_t valbuf[5];
         memset(valbuf, 0xCD, sizeof(valbuf));
-        rq.setKeyStart(1, true);
-        rq.setKeyEnd(2, true);
-        rq.setResultBuf(valbuf + 1);
+        RAMCloud::RangeQueryArgs rq;
+        bool more;
+        int32_t start = 1;
+        RAMCloud::IndexKeyRef skr(&start, sizeof(start));
+        rq.setKeyStart(skr, true);
+        int32_t end = 2;
+        RAMCloud::IndexKeyRef ekr(&end, sizeof(end));
+        rq.setKeyEnd(ekr, true);
         rq.setLimit(4);
+        RAMCloud::IndexOIDsRef ror(valbuf + 1, 3);
+        rq.setResultBuf(ror);
+        rq.setResultMore(&more);
         CPPUNIT_ASSERT(index->RangeQuery(&rq) == 3);
+        CPPUNIT_ASSERT(!more);
         CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[0]) ==
                        0xCDCDCDCDCDCDCDCD);
         CPPUNIT_ASSERT(*reinterpret_cast<uint64_t*>(&valbuf[4]) ==
                        0xCDCDCDCDCDCDCDCD);
-        CPPUNIT_ASSERT_DOUBLES_EQUAL(4.3, valbuf[1], D);
-        CPPUNIT_ASSERT_DOUBLES_EQUAL(9.5, valbuf[2], D);
-        CPPUNIT_ASSERT_DOUBLES_EQUAL(7.9, valbuf[3], D);
+        CPPUNIT_ASSERT(43 == valbuf[1]);
+        CPPUNIT_ASSERT(95 == valbuf[2]);
+        CPPUNIT_ASSERT(79 == valbuf[3]);
     }
 }
 
 void
 MultiRangeIndexTest::TestRangeQueryLimit()
 {
-    RAMCloud::MultiRangeIndex<int, double> *index = getIndex();
-    RAMCloud::RangeQueryArgs<int, double> rq;
-    double valbuf[100];
+    RAMCloud::MultiRangeIndex *index = getIndex();
+    RAMCloud::RangeQueryArgs rq;
+    uint64_t valbuf[100];
 
-    rq.setKeyStart(1, true);
-    rq.setKeyEnd(2, true);
-    rq.setResultBuf(valbuf + 1);
+    int32_t start = 1;
+    RAMCloud::IndexKeyRef skr(&start, sizeof(start));
+    rq.setKeyStart(skr, true);
+    int32_t end = 2;
+    RAMCloud::IndexKeyRef ekr(&end, sizeof(end));
+    rq.setKeyEnd(ekr, true);
+    RAMCloud::IndexOIDsRef ror(valbuf + 1, 99);
+    rq.setResultBuf(ror);
 
-    index->Insert(1, 4.3);
-    index->Insert(1, 9.5);
-    index->Insert(2, 7.9);
+    Insert(index, 1, 43);
+    Insert(index, 1, 95);
+    Insert(index, 2, 79);
 
     rq.setLimit(0);
     CPPUNIT_ASSERT(index->RangeQuery(&rq) == 0);
@@ -399,7 +451,7 @@ class STLUniqueRangeIndexTest : public UniqueRangeIndexTest {
     }
 
     void setUp() {
-        index = new RAMCloud::STLUniqueRangeIndex<int, double>();
+        index = new RAMCloud::STLUniqueRangeIndex(RCRPC_INDEX_TYPE_SINT32);
     }
 
     void tearDown() {
@@ -407,14 +459,14 @@ class STLUniqueRangeIndexTest : public UniqueRangeIndexTest {
     }
 
   protected:
-    RAMCloud::STLUniqueRangeIndex<int, double> * getIndex() {
+    RAMCloud::STLUniqueRangeIndex * getIndex() {
         return index;
     }
 
   private:
     CPPUNIT_TEST_SUB_SUITE(STLUniqueRangeIndexTest, UniqueRangeIndexTest);
     CPPUNIT_TEST_SUITE_END();
-    RAMCloud::STLUniqueRangeIndex<int, double> *index;
+    RAMCloud::STLUniqueRangeIndex *index;
     DISALLOW_COPY_AND_ASSIGN(STLUniqueRangeIndexTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(STLUniqueRangeIndexTest);
@@ -425,7 +477,7 @@ class STLMultiRangeIndexTest : public MultiRangeIndexTest {
     }
 
     void setUp() {
-        index = new RAMCloud::STLMultiRangeIndex<int, double>();
+        index = new RAMCloud::STLMultiRangeIndex(RCRPC_INDEX_TYPE_SINT32);
     }
 
     void tearDown() {
@@ -433,14 +485,14 @@ class STLMultiRangeIndexTest : public MultiRangeIndexTest {
     }
 
   protected:
-    RAMCloud::STLMultiRangeIndex<int, double> * getIndex() {
+    RAMCloud::STLMultiRangeIndex * getIndex() {
         return index;
     }
 
   private:
     CPPUNIT_TEST_SUB_SUITE(STLMultiRangeIndexTest, MultiRangeIndexTest);
     CPPUNIT_TEST_SUITE_END();
-    RAMCloud::STLMultiRangeIndex<int, double> *index;
+    RAMCloud::STLMultiRangeIndex *index;
     DISALLOW_COPY_AND_ASSIGN(STLMultiRangeIndexTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(STLMultiRangeIndexTest);
