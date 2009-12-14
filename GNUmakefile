@@ -52,7 +52,7 @@ include src/backup/Makefrag
 include src/client/Makefrag
 include src/tests/Makefrag
 
-clean:
+clean: tests-clean
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
 
 # Lazy rule so this doesn't happen unless make check is invoked
