@@ -98,15 +98,15 @@ ServerTest::TestWriteRead100()
     uint64_t table = 0;
     int key = 0;
 
-    memset(req->write_request.buf, 0, sizeof(req->write_request.buf));
-    memcpy(req->write_request.buf, value.c_str(), value.length());
+    memcpy(req->write_request.var, value.c_str(), value.length());
     req->type = RCRPC_WRITE_REQUEST;
     req->len = static_cast<uint32_t>(RCRPC_WRITE_REQUEST_LEN_WODATA) +
             value.length();
     req->write_request.table = table;
     req->write_request.key = key;
+    req->write_request.index_entries_len = 0;
     req->write_request.buf_len = value.length() + 1;
-    strcpy(req->write_request.buf, value.c_str());
+    strcpy(req->write_request.var, value.c_str());
     server->Write(req, resp);
 
     CPPUNIT_ASSERT(resp->type == RCRPC_WRITE_RESPONSE);
@@ -123,7 +123,7 @@ ServerTest::TestWriteRead100()
     CPPUNIT_ASSERT(resp->type == RCRPC_READ_RESPONSE);
     CPPUNIT_ASSERT(resp->len == RCRPC_READ_RESPONSE_LEN_WODATA +
                    resp->read_response.buf_len);
-    CPPUNIT_ASSERT(value == resp->read_response.buf);
+    CPPUNIT_ASSERT(value == resp->read_response.var);
 
 }
 
