@@ -446,6 +446,88 @@ Server::RangeQuery(const struct rcrpc *req, struct rcrpc *resp)
 }
 
 void
+Server::UniqueLookup(const struct rcrpc *req, struct rcrpc *resp)
+{
+    Table *table;
+
+    if (server_debug) {
+        printf("UniqueLookup(table=%d, id=%d)\n",
+               req->range_query_request.table,
+               req->range_query_request.index_id);
+    }
+
+    table = &tables[req->range_query_request.table];
+
+    const struct rcrpc_unique_lookup_request *mlreq = &req->unique_lookup_request;
+    struct rcrpc_unique_lookup_response *mlresp = &resp->unique_lookup_response;
+    uint16_t index_id;
+
+    index_id = mlreq->index_id;
+
+    uint64_t key_length = mlreq->key_len;
+    IndexKeyRef keyref(mlreq->key, key_length);
+
+    mlresp->oid_present = table->UniqueLookupIndex(index_id, keyref, &mlresp->oid);
+
+    resp->type = RCRPC_UNIQUE_LOOKUP_RESPONSE;
+    resp->len  = static_cast<uint32_t>(RCRPC_UNIQUE_LOOKUP_RESPONSE_LEN);
+}
+
+void
+Server::MultiLookup(const struct rcrpc *req, struct rcrpc *resp)
+{
+    Table *table;
+
+    if (server_debug) {
+        printf("MultiLookup(table=%d, id=%d)\n",
+               req->range_query_request.table,
+               req->range_query_request.index_id);
+    }
+
+    table = &tables[req->range_query_request.table];
+
+    const struct rcrpc_multi_lookup_request *mlreq = &req->multi_lookup_request;
+    struct rcrpc_multi_lookup_response *mlresp = &resp->multi_lookup_response;
+    uint16_t index_id;
+    uint64_t oids_buf[mlreq->limit];
+    IndexOIDsRef oidsref(oids_buf, sizeof(oids_buf));
+    bool more;
+    unsigned int count;
+    const char *reqvar;
+    MultiLookupArgs args;
+
+    index_id = mlreq->index_id;
+
+    reqvar = mlreq->var;
+
+    if (static_cast<bool>(mlreq->start_following_oid_present)) {
+        uint64_t start_following_oid = *reinterpret_cast<const uint64_t*>(reqvar);
+        reqvar += sizeof(uint64_t);
+        args.setStartFollowing(start_following_oid);
+    }
+
+    uint64_t key_length = mlreq->key_len;
+    IndexKeyRef keyref(reqvar, key_length);
+    reqvar += key_length;
+    args.setKey(keyref);
+
+    args.setLimit(static_cast<unsigned int>(mlreq->limit));
+    args.setResultBuf(oidsref);
+    args.setResultMore(&more);
+
+    count = table->MultiLookupIndex(index_id, &args);
+
+    mlresp->len = static_cast<uint32_t>(count);
+    mlresp->more = more;
+
+    memcpy(mlresp->oids, oidsref.buf, oidsref.used * sizeof(uint64_t));
+
+    resp->type = RCRPC_MULTI_LOOKUP_RESPONSE;
+    resp->len  = static_cast<uint32_t>(RCRPC_MULTI_LOOKUP_RESPONSE_LEN_WODATA) +
+                 static_cast<uint32_t>(oidsref.used * sizeof(uint64_t));
+}
+
+void
 Server::HandleRPC()
 {
     rcrpc *req;
@@ -461,17 +543,19 @@ Server::HandleRPC()
 
     try {
         switch((enum RCRPC_TYPE) req->type) {
-        case RCRPC_PING_REQUEST:         Server::Ping(req, resp);        break;
-        case RCRPC_READ_REQUEST:         Server::Read(req, resp);        break;
-        case RCRPC_WRITE_REQUEST:        Server::Write(req, resp);       break;
-        case RCRPC_INSERT_REQUEST:       Server::InsertKey(req, resp);   break;
-        case RCRPC_DELETE_REQUEST:       Server::DeleteKey(req, resp);   break;
-        case RCRPC_CREATE_TABLE_REQUEST: Server::CreateTable(req, resp); break;
-        case RCRPC_OPEN_TABLE_REQUEST:   Server::OpenTable(req, resp);   break;
-        case RCRPC_DROP_TABLE_REQUEST:   Server::DropTable(req, resp);   break;
-        case RCRPC_CREATE_INDEX_REQUEST: Server::CreateIndex(req, resp); break;
-        case RCRPC_DROP_INDEX_REQUEST:   Server::DropIndex(req, resp);   break;
-        case RCRPC_RANGE_QUERY_REQUEST:  Server::RangeQuery(req, resp);  break;
+        case RCRPC_PING_REQUEST:          Server::Ping(req, resp);         break;
+        case RCRPC_READ_REQUEST:          Server::Read(req, resp);         break;
+        case RCRPC_WRITE_REQUEST:         Server::Write(req, resp);        break;
+        case RCRPC_INSERT_REQUEST:        Server::InsertKey(req, resp);    break;
+        case RCRPC_DELETE_REQUEST:        Server::DeleteKey(req, resp);    break;
+        case RCRPC_CREATE_TABLE_REQUEST:  Server::CreateTable(req, resp);  break;
+        case RCRPC_OPEN_TABLE_REQUEST:    Server::OpenTable(req, resp);    break;
+        case RCRPC_DROP_TABLE_REQUEST:    Server::DropTable(req, resp);    break;
+        case RCRPC_CREATE_INDEX_REQUEST:  Server::CreateIndex(req, resp);  break;
+        case RCRPC_DROP_INDEX_REQUEST:    Server::DropIndex(req, resp);    break;
+        case RCRPC_RANGE_QUERY_REQUEST:   Server::RangeQuery(req, resp);   break;
+        case RCRPC_UNIQUE_LOOKUP_REQUEST: Server::UniqueLookup(req, resp); break;
+        case RCRPC_MULTI_LOOKUP_REQUEST:  Server::MultiLookup(req, resp); break;
 
         case RCRPC_PING_RESPONSE:
         case RCRPC_READ_RESPONSE:
@@ -484,6 +568,8 @@ Server::HandleRPC()
         case RCRPC_CREATE_INDEX_RESPONSE:
         case RCRPC_DROP_INDEX_RESPONSE:
         case RCRPC_RANGE_QUERY_RESPONSE:
+        case RCRPC_UNIQUE_LOOKUP_RESPONSE:
+        case RCRPC_MULTI_LOOKUP_RESPONSE:
         case RCRPC_ERROR_RESPONSE:
             throw "server received RPC response";
 

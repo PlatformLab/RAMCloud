@@ -113,6 +113,27 @@ class Table {
         }
     }
 
+    bool UniqueLookupIndex(uint16_t index_id, const IndexKeyRef &keyref,
+                           uint64_t *oid) {
+        Index *i = indexes[index_id];
+        assert(i->unique);
+        UniqueIndex *index = dynamic_cast<UniqueIndex*>(i);
+        try {
+            *oid = index->Lookup(keyref);
+        } catch (IndexException& e) {
+            return false;
+        }
+        return true;
+    }
+
+    unsigned int MultiLookupIndex(uint16_t index_id,
+                                  const MultiLookupArgs *args) {
+        Index *i = indexes[index_id];
+        assert(!i->unique);
+        MultiIndex *index = dynamic_cast<MultiIndex*>(i);
+        return index->Lookup(args);
+    }
+
     void DeleteIndexEntry(uint16_t index_id, enum RCRPC_INDEX_TYPE index_type,
                           const void *data, uint64_t len,
                           uint64_t oid) {
@@ -165,6 +186,8 @@ class Server {
     void CreateIndex(const struct rcrpc *req, struct rcrpc *resp);
     void DropIndex(const struct rcrpc *req, struct rcrpc *resp);
     void RangeQuery(const struct rcrpc *req, struct rcrpc *resp);
+    void UniqueLookup(const struct rcrpc *req, struct rcrpc *resp);
+    void MultiLookup(const struct rcrpc *req, struct rcrpc *resp);
 
     explicit Server(Net *net_impl);
     Server(const Server& server);

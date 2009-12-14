@@ -21,30 +21,34 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
-#define RCRPC_HEADER_LEN                      ((size_t) &(((struct rcrpc *) 0)->ping_request))
-#define RCRPC_PING_REQUEST_LEN                (RCRPC_HEADER_LEN + sizeof(struct rcrpc_ping_request))
-#define RCRPC_PING_RESPONSE_LEN               (RCRPC_HEADER_LEN + sizeof(struct rcrpc_ping_response))
-#define RCRPC_READ_REQUEST_LEN                (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read_request))
-#define RCRPC_READ_RESPONSE_LEN_WODATA        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read_response))
-#define RCRPC_WRITE_REQUEST_LEN_WODATA        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write_request))
-#define RCRPC_WRITE_RESPONSE_LEN              (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write_response))
-#define RCRPC_INSERT_REQUEST_LEN_WODATA       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_request))
-#define RCRPC_INSERT_RESPONSE_LEN             (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_response))
-#define RCRPC_DELETE_REQUEST_LEN              (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_request))
-#define RCRPC_DELETE_RESPONSE_LEN             (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_response))
-#define RCRPC_CREATE_TABLE_REQUEST_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_table_request))
-#define RCRPC_CREATE_TABLE_RESPONSE_LEN       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_table_response))
-#define RCRPC_OPEN_TABLE_REQUEST_LEN          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_open_table_request))
-#define RCRPC_OPEN_TABLE_RESPONSE_LEN         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_open_table_response))
-#define RCRPC_DROP_TABLE_REQUEST_LEN          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_request))
-#define RCRPC_DROP_TABLE_RESPONSE_LEN         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_response))
-#define RCRPC_CREATE_INDEX_REQUEST_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_index_request))
-#define RCRPC_CREATE_INDEX_RESPONSE_LEN       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_index_response))
-#define RCRPC_DROP_INDEX_REQUEST_LEN          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_index_request))
-#define RCRPC_DROP_INDEX_RESPONSE_LEN         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_index_response))
-#define RCRPC_RANGE_QUERY_REQUEST_LEN_WODATA  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_range_query_request))
-#define RCRPC_RANGE_QUERY_RESPONSE_LEN_WODATA (RCRPC_HEADER_LEN + sizeof(struct rcrpc_range_query_response))
-#define RCRPC_ERROR_RESPONSE_LEN_WODATA       (RCRPC_HEADER_LEN + sizeof(struct rcrpc_error_response))
+#define RCRPC_HEADER_LEN                        ((size_t) &(((struct rcrpc *) 0)->ping_request))
+#define RCRPC_PING_REQUEST_LEN                  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_ping_request))
+#define RCRPC_PING_RESPONSE_LEN                 (RCRPC_HEADER_LEN + sizeof(struct rcrpc_ping_response))
+#define RCRPC_READ_REQUEST_LEN                  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read_request))
+#define RCRPC_READ_RESPONSE_LEN_WODATA          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read_response))
+#define RCRPC_WRITE_REQUEST_LEN_WODATA          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write_request))
+#define RCRPC_WRITE_RESPONSE_LEN                (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write_response))
+#define RCRPC_INSERT_REQUEST_LEN_WODATA         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_request))
+#define RCRPC_INSERT_RESPONSE_LEN               (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_response))
+#define RCRPC_DELETE_REQUEST_LEN                (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_request))
+#define RCRPC_DELETE_RESPONSE_LEN               (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_response))
+#define RCRPC_CREATE_TABLE_REQUEST_LEN          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_table_request))
+#define RCRPC_CREATE_TABLE_RESPONSE_LEN         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_table_response))
+#define RCRPC_OPEN_TABLE_REQUEST_LEN            (RCRPC_HEADER_LEN + sizeof(struct rcrpc_open_table_request))
+#define RCRPC_OPEN_TABLE_RESPONSE_LEN           (RCRPC_HEADER_LEN + sizeof(struct rcrpc_open_table_response))
+#define RCRPC_DROP_TABLE_REQUEST_LEN            (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_request))
+#define RCRPC_DROP_TABLE_RESPONSE_LEN           (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_response))
+#define RCRPC_CREATE_INDEX_REQUEST_LEN          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_index_request))
+#define RCRPC_CREATE_INDEX_RESPONSE_LEN         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_index_response))
+#define RCRPC_DROP_INDEX_REQUEST_LEN            (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_index_request))
+#define RCRPC_DROP_INDEX_RESPONSE_LEN           (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_index_response))
+#define RCRPC_RANGE_QUERY_REQUEST_LEN_WODATA    (RCRPC_HEADER_LEN + sizeof(struct rcrpc_range_query_request))
+#define RCRPC_RANGE_QUERY_RESPONSE_LEN_WODATA   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_range_query_response))
+#define RCRPC_UNIQUE_LOOKUP_REQUEST_LEN_WODATA  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_unique_lookup_request))
+#define RCRPC_UNIQUE_LOOKUP_RESPONSE_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_unique_lookup_response))
+#define RCRPC_MULTI_LOOKUP_REQUEST_LEN_WODATA   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_multi_lookup_request))
+#define RCRPC_MULTI_LOOKUP_RESPONSE_LEN_WODATA  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_multi_lookup_response))
+#define RCRPC_ERROR_RESPONSE_LEN_WODATA         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_error_response))
 
 //namespace RAMCloud {
 
@@ -71,6 +75,10 @@ enum RCRPC_TYPE {
     RCRPC_DROP_INDEX_RESPONSE,
     RCRPC_RANGE_QUERY_REQUEST,
     RCRPC_RANGE_QUERY_RESPONSE,
+    RCRPC_UNIQUE_LOOKUP_REQUEST,
+    RCRPC_UNIQUE_LOOKUP_RESPONSE,
+    RCRPC_MULTI_LOOKUP_REQUEST,
+    RCRPC_MULTI_LOOKUP_RESPONSE,
     RCRPC_ERROR_RESPONSE,
 };
 
@@ -234,6 +242,37 @@ struct rcrpc_range_query_response {
     char var[0];                        /* Variable length */
 };
 
+struct rcrpc_unique_lookup_request {
+    uint64_t table;
+    uint16_t index_id;
+    uint64_t key_len;
+    char key[0];                        /* Variable length */
+};
+
+struct rcrpc_unique_lookup_response {
+    int oid_present:1;
+    uint64_t oid;
+};
+
+struct rcrpc_multi_lookup_request {
+    uint64_t table;
+    uint32_t limit;
+    uint16_t index_id;
+    int start_following_oid_present:1;
+    uint64_t key_len;
+
+    // var[] is the concatenation of the following:
+    // uint64_t start_following_oid if start_following_oid_present
+    // <index_type> key
+    char var[0];                        /* Variable length */
+};
+
+struct rcrpc_multi_lookup_response {
+    uint32_t len; /* number of oids */
+    int more:1;
+    uint64_t oids[0];                        /* Variable length */
+};
+
 struct rcrpc_error_response {
     char message[0];                    /* Variable length */
 };
@@ -274,6 +313,12 @@ struct rcrpc {
 
         struct rcrpc_range_query_request range_query_request;
         struct rcrpc_range_query_response range_query_response;
+
+        struct rcrpc_unique_lookup_request unique_lookup_request;
+        struct rcrpc_unique_lookup_response unique_lookup_response;
+
+        struct rcrpc_multi_lookup_request multi_lookup_request;
+        struct rcrpc_multi_lookup_response multi_lookup_response;
 
         struct rcrpc_error_response error_response;
     };

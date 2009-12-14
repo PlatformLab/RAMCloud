@@ -123,6 +123,14 @@ class RAMCloud(object):
 
         self.so = ctypes.cdll.LoadLibrary(path)
         self.so.rc_last_error.restype = ctypes.c_char_p
+
+        self.so.rc_multi_lookup_args_new.restype = ctypes.c_voidp
+        self.so.rc_multi_lookup_args_free.restype = None
+        self.so.rc_multi_lookup_set_index.restype = None
+        self.so.rc_multi_lookup_set_key.restype = None
+        self.so.rc_multi_lookup_set_start_following_oid.restype = None
+        self.so.rc_multi_lookup_set_result_buf.restype = None
+
         self.so.rc_range_query_args_new.restype = ctypes.c_void_p
         self.so.rc_range_query_args_free.restype = None
         self.so.rc_range_query_set_index.restype = None
@@ -310,16 +318,58 @@ class RAMCloud(object):
         if r != 0:
             self.raise_error()
 
-    def lookup(self, table_id, index_id, key):
-        # TODO(ongaro)
-        raise NotImplementedError
-        # return oid or self.raise_error()
+    def unique_lookup(self, table_id, index_id, index_type, key):
+        if index_type.width:
+            width = index_type.width
+            key_buf = index_type.ctype(key)
+        else:
+            # variable-length key type (STRING)
+            key_buf = ctypes.create_string_buffer(key)
+            width = len(key)
+        oid_present = ctypes.c_int()
+        oid = ctypes.c_uint64()
+        r = self.so.rc_unique_lookup(ctypes.byref(self.client),
+                                     ctypes.c_uint64(table_id),
+                                     ctypes.c_uint16(index_id),
+                                     ctypes.byref(key_buf),
+                                     ctypes.c_uint64(width),
+                                     ctypes.byref(oid_present),
+                                     ctypes.byref(oid))
+        if bool(oid_present.value):
+            return oid.value
+        else:
+            raise KeyError()
 
-    def multi_lookup(self, table_id, index_id, limit, key,
+    def multi_lookup(self, table_id, index_id, index_type, limit, key,
                      start_following_oid=None):
-        # TODO(ongaro)
-        raise NotImplementedError
-        #return ([oid], more)
+        args = self.so.rc_multi_lookup_args_new()
+        self.so.rc_multi_lookup_set_index(args, ctypes.c_uint64(table_id),
+                                          ctypes.c_uint16(index_id))
+        if index_type.width:
+            width = index_type.width
+            key_buf = index_type.ctype(key)
+        else:
+            # variable-length key type (STRING)
+            key_buf = ctypes.create_string_buffer(key)
+            width = len(key)
+        self.so.rc_multi_lookup_set_key(args, ctypes.byref(key_buf),
+                                        ctypes.c_uint64(width))
+
+        if start_following_oid is not None:
+            self.so.rc_multi_lookup_set_start_following_oid(args,
+                    ctypes.c_uint64(start_following_oid))
+
+        more = ctypes.c_int()
+        count = ctypes.c_uint32(limit)
+        oids = (ctypes.c_uint64 * limit)()
+        self.so.rc_multi_lookup_set_result_buf(args, ctypes.byref(count),
+                                               ctypes.byref(oids),
+                                               ctypes.byref(more))
+        r = self.so.rc_multi_lookup(ctypes.byref(self.client), args)
+        self.so.rc_multi_lookup_args_free(args)
+        if r != 0:
+            self.raise_error()
+        return (oids[:count.value], bool(more.value))
 
     def range_query(self, table_id, index_id, index_type, limit,
                     key_start=None, key_start_inclusive=True,
@@ -405,14 +455,17 @@ def main():
     table = r.open_table("test")
     print "with id %s" % table
 
-    index_id = r.create_index(table, RCRPC_INDEX_TYPE.UINT64, True, False)
+    index_id = r.create_index(table, RCRPC_INDEX_TYPE.UINT64, True, True)
     print "Created index id %d" % index_id
-    str_index_id = r.create_index(table, RCRPC_INDEX_TYPE.STRING, True, False)
+    str_index_id = r.create_index(table, RCRPC_INDEX_TYPE.STRING, True, True)
     print "Created index id %d" % str_index_id
+    multi_index_id = r.create_index(table, RCRPC_INDEX_TYPE.SINT32, False, True)
+    print "Created index id %d" % multi_index_id
 
     r.write(table, 0, "Hello, World, from Python", [
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4592)),
         (str_index_id, (RCRPC_INDEX_TYPE.STRING, "write")),
+        (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
     ])
     print "Inserted to table"
     value, indexes = r.read_full(table, 0)
@@ -421,11 +474,13 @@ def main():
     key = r.insert(table, "test", [
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4723)),
         (str_index_id, (RCRPC_INDEX_TYPE.STRING, "insert")),
+        (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
     ])
     print "Inserted value and got back key %d" % key
     r.write(table, key, "test", [
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4899)),
         (str_index_id, (RCRPC_INDEX_TYPE.STRING, "rewrite")),
+        (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
     ])
 
     pairs, more = r.range_query(table_id=table, index_id=index_id,
@@ -440,6 +495,14 @@ def main():
                                 index_type=RCRPC_INDEX_TYPE.STRING,
                                 limit=5, key_start="m")
     print pairs, more
+
+    print r.unique_lookup(table_id=table, index_id=str_index_id,
+                          index_type=RCRPC_INDEX_TYPE.STRING, key="rewrite")
+
+    oids, more = r.multi_lookup(table_id=table, index_id=multi_index_id,
+                                index_type=RCRPC_INDEX_TYPE.SINT32,
+                                limit=10, key=2)
+    print oids, more
 
     r.drop_index(table, str_index_id)
     r.drop_index(table, index_id)

@@ -264,6 +264,128 @@ rc_drop_index(struct rc_client *client, uint64_t table_id, uint16_t index_id)
     return rc_handle_errors(resp);
 }
 
+int
+rc_unique_lookup(struct rc_client *client, uint64_t table,
+                 uint16_t index_id, const char *key, uint64_t key_len,
+                 bool *oid_present, uint64_t *oid)
+{
+    uint32_t query_len = (uint32_t) RCRPC_UNIQUE_LOOKUP_REQUEST_LEN_WODATA +
+                         key_len;
+    struct rcrpc *query, *resp;
+    char query_buf[query_len];
+    query = (struct rcrpc*) query_buf;
+
+    query->type = RCRPC_UNIQUE_LOOKUP_REQUEST;
+    query->len  = query_len;
+    query->unique_lookup_request.table = table;
+    query->unique_lookup_request.index_id = index_id;
+    query->unique_lookup_request.key_len = key_len;
+    memcpy(query->unique_lookup_request.key, key, key_len);
+
+    assert(!rc_net_send_rpc(&client->net, query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
+    int r = rc_handle_errors(resp);
+    if (r) {
+        return r;
+    }
+
+    *oid_present = (bool) resp->unique_lookup_response.oid_present;
+    if (*oid_present) {
+        *oid = resp->unique_lookup_response.oid;
+    }
+    return 0;
+}
+
+struct rc_multi_lookup_args *
+rc_multi_lookup_args_new()
+{
+    return calloc(1, sizeof(struct rc_multi_lookup_args));
+}
+
+void
+rc_multi_lookup_args_free(struct rc_multi_lookup_args *args)
+{
+    free(args);
+}
+
+void
+rc_multi_lookup_set_index(struct rc_multi_lookup_args *args, uint64_t table,
+                          uint16_t index_id)
+{
+    args->rpc.table = table;
+    args->rpc.index_id = index_id;
+}
+
+void
+rc_multi_lookup_set_key(struct rc_multi_lookup_args *args, const char *key,
+                        uint64_t len)
+{
+    args->key = key;
+    args->rpc.key_len = len;
+}
+
+void
+rc_multi_lookup_set_start_following_oid(struct rc_multi_lookup_args *args,
+                                        uint64_t oid)
+{
+    args->rpc.start_following_oid_present = true;
+    args->start_following_oid = oid;
+}
+
+void
+rc_multi_lookup_set_result_buf(struct rc_multi_lookup_args *args,
+                               uint32_t *count, uint64_t *oids_buf,
+                               bool *more)
+{
+    args->rpc.limit = *count;
+    args->more = more;
+    args->count = count;
+    args->oids_buf = oids_buf;
+}
+
+int
+rc_multi_lookup(struct rc_client *client,
+                const struct rc_multi_lookup_args *args)
+{
+    struct rcrpc *query, *resp;
+    char *var;
+
+    int query_buf_len;
+    query_buf_len = RCRPC_MULTI_LOOKUP_REQUEST_LEN_WODATA;
+    if (args->rpc.start_following_oid_present) {
+        query_buf_len += sizeof(uint64_t);
+    }
+    query_buf_len += args->rpc.key_len;
+
+    char query_buf[query_buf_len];
+    query = (struct rcrpc*) query_buf;
+
+    query->type = RCRPC_MULTI_LOOKUP_REQUEST;
+    query->len = (uint32_t) query_buf_len;
+    memcpy(&query->multi_lookup_request, &args->rpc, sizeof(args->rpc));
+    var = query->multi_lookup_request.var;
+    if (args->rpc.start_following_oid_present) {
+        *((uint64_t*) var) = args->start_following_oid;
+        var += sizeof(uint64_t);
+    }
+    memcpy(var, args->key, args->rpc.key_len);
+    var += args->rpc.key_len;
+
+    assert(!rc_net_send_rpc(&client->net, query));
+    assert(!rc_net_recv_rpc(&client->net, &resp));
+    int r = rc_handle_errors(resp);
+    if (r) {
+        return r;
+    }
+
+    *args->count = resp->multi_lookup_response.len;
+    *args->more = (bool) resp->multi_lookup_response.more;
+    memcpy(args->oids_buf, resp->multi_lookup_response.oids,
+           *args->count * sizeof(uint64_t));
+
+    return 0;
+}
+
 struct rc_range_query_args *
 rc_range_query_args_new() {
     return calloc(1, sizeof(struct rc_range_query_args));

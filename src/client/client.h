@@ -56,13 +56,41 @@ int rc_create_index(struct rc_client *client, uint64_t table_id,
                     bool range_queryable, uint16_t *index_id);
 int rc_drop_index(struct rc_client *client, uint64_t table_id,
                   uint16_t index_id);
-int rc_lookup(struct rc_client *client, uint64_t table, uint16_t index_id,
-              const char *key, uint64_t key_len,
-              uint64_t *oid);
-int rc_multi_lookup(struct rc_client *client, uint64_t table, uint16_t index_id,
-                   uint64_t limit, const char *key, uint64_t key_len,
-                   const uint64_t *start_following_oid,
-                   uint64_t *oid_buf, uint64_t *oid_len, bool *more);
+int rc_unique_lookup(struct rc_client *client, uint64_t table,
+                     uint16_t index_id, const char *key, uint64_t key_len,
+                     bool *oid_present, uint64_t *oid);
+
+struct rc_multi_lookup_args {
+    // please consider this struct opaque
+    // stack allocation is OK if you memset it to 0
+
+    struct rcrpc_multi_lookup_request rpc;
+
+    // IN
+    const char *key;
+    uint64_t start_following_oid;
+
+    // *IN, *OUT
+    uint32_t *count;
+
+    // *OUT
+    bool *more;
+    uint64_t *oids_buf;
+};
+
+struct rc_multi_lookup_args *rc_multi_lookup_args_new();
+void rc_multi_lookup_args_free(struct rc_multi_lookup_args *args);
+void rc_multi_lookup_set_index(struct rc_multi_lookup_args *args,
+                               uint64_t table, uint16_t index_id);
+void rc_multi_lookup_set_key(struct rc_multi_lookup_args *args,
+                              const char *key, uint64_t len);
+void rc_multi_lookup_set_start_following_oid(struct rc_multi_lookup_args *args,
+                                             uint64_t oid);
+void rc_multi_lookup_set_result_buf(struct rc_multi_lookup_args *args,
+                                    uint32_t *count, uint64_t *oids_buf,
+                                    bool *more);
+int rc_multi_lookup(struct rc_client *client,
+                    const struct rc_multi_lookup_args *args);
 
 struct rc_range_query_args {
     // please consider this struct opaque
