@@ -154,7 +154,7 @@ class RAMCloud(object):
             if index_type.width: # data
                 buf_len += index_type.width
             else: # string
-                buf_len += len(data) + 1
+                buf_len += len(data)
         return buf_len
 
     def _indexes_fill(self, addr, indexes):
@@ -165,7 +165,7 @@ class RAMCloud(object):
                 ctypes.memmove(addr, ctypes.addressof(ctypes.c_uint64(index_type.width)), 8)
                 addr += 8
             else: # string
-                ctypes.memmove(addr, ctypes.addressof(ctypes.c_uint64(len(data) + 1)), 8)
+                ctypes.memmove(addr, ctypes.addressof(ctypes.c_uint64(len(data))), 8)
                 addr += 8
 
             # index_id
@@ -181,8 +181,8 @@ class RAMCloud(object):
                 ctypes.memmove(addr, ctypes.addressof(index_type.ctype(data)), index_type.width)
                 addr += index_type.width
             else: # string
-                ctypes.memmove(addr, ctypes.addressof(ctypes.create_string_buffer(data)), len(data) + 1)
-                addr += len(data) + 1 # data
+                ctypes.memmove(addr, ctypes.addressof(ctypes.create_string_buffer(data)), len(data))
+                addr += len(data)
 
     def _indexes_to_buf(self, indexes=None):
         if indexes:
@@ -336,7 +336,7 @@ class RAMCloud(object):
             else:
                 # variable-length key type (STRING)
                 key_start_buf = ctypes.create_string_buffer(key_start)
-                width = len(key_start_buf)
+                width = len(key_start)
             self.so.rc_range_query_set_key_start(args, ctypes.byref(key_start_buf),
                                                  ctypes.c_uint64(width),
                                                  bool(key_start_inclusive))
@@ -348,7 +348,7 @@ class RAMCloud(object):
             else:
                 # variable-length key type (STRING)
                 key_end_buf = ctypes.create_string_buffer(key_end)
-                width = len(key_end_buf)
+                width = len(key_end)
             self.so.rc_range_query_set_key_end(args, ctypes.byref(key_end_buf),
                                                ctypes.c_uint64(width),
                                                ctypes.c_int(bool(key_end_inclusive)))
@@ -384,8 +384,12 @@ class RAMCloud(object):
                 key = keys[i]
             else:
                 # variable-length key type (STRING)
-                key = ctypes.c_char_p(addr).value
-                addr += len(key) + 1
+                l = ctypes.c_uint8.from_address(addr).value
+                addr += 1
+                buf = ctypes.create_string_buffer(l)
+                ctypes.memmove(ctypes.addressof(buf), addr, l)
+                addr += l
+                key = buf.value
             oid = oids[i]
             pairs.append((key, oid))
         return (pairs, bool(more.value))
@@ -403,9 +407,12 @@ def main():
 
     index_id = r.create_index(table, RCRPC_INDEX_TYPE.UINT64, True, False)
     print "Created index id %d" % index_id
+    str_index_id = r.create_index(table, RCRPC_INDEX_TYPE.STRING, True, False)
+    print "Created index id %d" % str_index_id
 
     r.write(table, 0, "Hello, World, from Python", [
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4592)),
+        (str_index_id, (RCRPC_INDEX_TYPE.STRING, "write")),
     ])
     print "Inserted to table"
     value, indexes = r.read_full(table, 0)
@@ -413,10 +420,12 @@ def main():
     print indexes
     key = r.insert(table, "test", [
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4723)),
+        (str_index_id, (RCRPC_INDEX_TYPE.STRING, "insert")),
     ])
     print "Inserted value and got back key %d" % key
     r.write(table, key, "test", [
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4899)),
+        (str_index_id, (RCRPC_INDEX_TYPE.STRING, "rewrite")),
     ])
 
     pairs, more = r.range_query(table_id=table, index_id=index_id,
@@ -427,6 +436,12 @@ def main():
                                 start_following_oid=None)
     print pairs, more
 
+    pairs, more = r.range_query(table_id=table, index_id=str_index_id,
+                                index_type=RCRPC_INDEX_TYPE.STRING,
+                                limit=5, key_start="m")
+    print pairs, more
+
+    r.drop_index(table, str_index_id)
     r.drop_index(table, index_id)
     r.drop_table("test")
 
