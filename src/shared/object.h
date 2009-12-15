@@ -24,12 +24,6 @@
 
 namespace RAMCloud {
 
-enum storage_type {
-    STORAGE_INVALID_TYPE = 0,
-    STORAGE_CHUNK_HDR_TYPE = 0x0B1EC7B1750B1EC7ULL, // "OBJECT BITS OBJECT"
-    ___STORAGE_TYPE_MAX___ = 0xFFFFFFFFFFFFFFFFULL
-};
-
 struct chunk_entry {
     uint64_t len;
     uint32_t index_id;   /* static_cast<uint32_t>(-1) for data */
@@ -62,7 +56,6 @@ struct chunk_hdr {
     uint64_t key;
     uint64_t table;
     uint64_t checksum;
-    enum storage_type type;
     uint64_t entries_len;
     struct chunk_entry entries[0];
     char padding[1024];

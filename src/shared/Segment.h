@@ -40,6 +40,9 @@ class Segment {
 	void	 restore(uint64_t restore_seg_id);
 	Segment *link(Segment *n);
 	Segment *unlink();
+        void setUsedBytes(uint64_t ub) {
+            free_bytes = total_bytes - ub;
+        }
   private:
 	void     *base;
 	uint64_t  id;			// segment id

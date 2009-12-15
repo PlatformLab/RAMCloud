@@ -273,7 +273,6 @@ Server::StoreData(uint64_t table,
     new_o.mut = om;
     om->refcnt++;
 
-    new_o.hdr.type = STORAGE_CHUNK_HDR_TYPE;
     new_o.hdr.key = key;
     new_o.hdr.table = table;
     new_o.is_tombstone = false;
@@ -663,7 +662,7 @@ Server::MultiLookup(const struct rcrpc *req, struct rcrpc *resp)
 
 struct obj_replay_cookie {
     Server *server;
-    uint64_t new_free_bytes;
+    uint64_t used_bytes;
 };
 
 void
@@ -675,12 +674,11 @@ ObjectReplayCallback(log_entry_type_t type,
     obj_replay_cookie *cookie = static_cast<obj_replay_cookie *>(cookiep);
     Server *server = cookie->server;
 
-    printf("ObjectReplayCallback: type %llu\n", type);
-    /* TODO(stutsman)
-     *  - insert all objects into hashtable
-     *  - restore free_total
-     *  - NO need to restore tail_bytes
-     */
+    //printf("ObjectReplayCallback: type %llu\n", type);
+
+    // Used to determine free_bytes after passing over the segment
+    cookie->used_bytes += len;
+
     switch (type) {
     case LOG_ENTRY_TYPE_OBJECT: {
         const object *obj = static_cast<const object *>(p);
@@ -689,6 +687,7 @@ ObjectReplayCallback(log_entry_type_t type,
         Table *table = &server->tables[obj->hdr.table];
         assert(table != NULL);
 
+        table->Delete(obj->hdr.key);
         table->Put(obj->hdr.key, obj);
     }
         break;
@@ -703,12 +702,16 @@ ObjectReplayCallback(log_entry_type_t type,
 void
 SegmentReplayCallback(Segment *seg, void *cookie)
 {
+    // TODO(stutsman) we can restore bytes_stored in the log easily
+    // using the same approach as for the individual segments
     Server *server = static_cast<Server *>(cookie);
 
     obj_replay_cookie ocookie;
     ocookie.server = server;
+    ocookie.used_bytes = 0;
 
     server->log->forEachEntry(seg, ObjectReplayCallback, &ocookie);
+    seg->setUsedBytes(ocookie.used_bytes);
 }
 
 void
