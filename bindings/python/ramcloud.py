@@ -256,6 +256,7 @@ class RAMCloud(object):
                 # data
                 if index_type.width:
                     data = index_type.ctype.from_address(addr).value
+                    assert len == index_type.width
                 else:
                     data_buf = ctypes.create_string_buffer(len)
                     ctypes.memmove(ctypes.addressof(data_buf), addr, len)
@@ -282,10 +283,10 @@ class RAMCloud(object):
                             ctypes.byref(l),
                             ctypes.byref(idx_buf),
                             ctypes.byref(idx_buf_len))
-        #print repr(idx_buf.raw[:idx_buf_len.value])
-        indexes = self._buf_to_indexes(ctypes.addressof(idx_buf), idx_buf_len.value)
         if r != 0:
             self.raise_error()
+        #print repr(idx_buf.raw[:idx_buf_len.value])
+        indexes = self._buf_to_indexes(ctypes.addressof(idx_buf), idx_buf_len.value)
         return (buf.value[0:l.value], indexes)
 
     def create_table(self, name):
