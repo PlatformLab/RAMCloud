@@ -229,6 +229,11 @@ class Server {
     Net *net;
     BackupClient *backup;
     Table tables[RC_NUM_TABLES];
+    friend void SegmentReplayCallback(Segment *seg, void *cookie);
+    friend void ObjectReplayCallback(log_entry_type_t type,
+                                     const void *p,
+                                     uint64_t len,
+                                     void *cookie);
 };
 
 } // namespace RAMCloud

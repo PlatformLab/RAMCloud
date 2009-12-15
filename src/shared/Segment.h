@@ -30,12 +30,12 @@ class Segment {
 	void        reset(uint64_t);
 	const void *append(const void *, const uint64_t);
 	void        free(uint64_t);
-	const void *getBase();
+	const void *getBase() const;
 	uint64_t getId() const;
-	uint64_t getFreeTail();
-	uint64_t getLength();
-	uint64_t getUtilization();
-	bool	 checkRange(const void *, uint64_t);
+	uint64_t getFreeTail() const;
+	uint64_t getLength() const;
+	uint64_t getUtilization() const;
+	bool	 checkRange(const void *, uint64_t) const;
 	void	 finalize();
 	void	 restore(uint64_t restore_seg_id);
 	Segment *link(Segment *n);

@@ -46,11 +46,14 @@ namespace RAMCloud {
 // Simple iterator for running through a segment's (log_entry, blob) pairs.
 class LogEntryIterator {
   public:
-	LogEntryIterator(Segment *s) : segment(s), next(0)
+	LogEntryIterator(const Segment *s) : segment(s), next(0)
 	{
 		assert(s != NULL);
 		next = (const struct log_entry *)s->getBase();
 		assert(next != NULL);
+                if (next->type != LOG_ENTRY_TYPE_SEGMENT_HEADER) {
+                    printf("next type is not seg hdr, but %llx\n", next->type);
+                }
 		assert(next->type == LOG_ENTRY_TYPE_SEGMENT_HEADER);
 		assert(next->length == sizeof(struct segment_header));
 	}
@@ -81,7 +84,7 @@ class LogEntryIterator {
 	}
 
   private:
-	Segment *segment;
+	const Segment *segment;
 	const struct log_entry *next;
 };
 
@@ -115,12 +118,17 @@ Log::Log(const uint64_t segsize,
 	assert(min_meta <= len);
 	max_append = segment_size - min_meta;
 
-        //nsegments    = len / segment_size;
-        //base         = buf;
-        //cleaning     = false;
-
+	// Warning: this is a huge hack - the segments are constructed
+	// in reverse so that the free_list will be in the right order
+	// this is the only thing (for the moment) preserving the
+	// invariant that segment numbers on the backup are strictly
+	// increasing.
+	// The restore also counts on it because it simply populates
+	// the head of the free list with active data and expects that
+	// that corresponds to the beginning of the log when it
+	// iterates to restore the hashtable
 	segments = (Segment **)malloc(nsegments * sizeof(segments[0]));
-	for (uint64_t i = 0; i < nsegments; i++) {
+	for (int64_t i = nsegments - 1; i >= 0; i--) {
 		void *base  = (uint8_t *)buf + (i * segment_size);
 		segments[i] = new Segment(i, base, segment_size, backup);
 		free_list   = segments[i]->link(free_list);
@@ -132,16 +140,32 @@ Log::Log(const uint64_t segsize,
 }
 
 void
-Log::forEachSegment(log_foreach_cb_t cb, uint64_t limit)
+Log::forEachEntry(const Segment *seg, log_entry_cb_t cb, void *cookie)
 {
-    for (uint64_t i = 0, limit = 0;
-         i < nsegments && i < limit;
-         i++) {
-        cb(segments[i]);
+    assert(cb);
+
+    LogEntryIterator lei(seg);
+    const log_entry *le;
+    const void *p;
+
+    while (lei.getNext(&le, &p)) {
+        cb((log_entry_type_t)le->type, p, le->length, cookie);
+        // TODO(stutsman) maybe return amount to add to bytes stored?
     }
 }
 
 void
+Log::forEachSegment(log_segment_cb_t cb, uint64_t limit, void *cookie)
+{
+    for (uint64_t i = 0;
+         i < nsegments && i < limit;
+         i++) {
+        cb(segments[i], cookie);
+    }
+}
+
+// Returns the number of segments restored from backup
+uint64_t
 Log::restore()
 {
     // TODO Sort this list?
@@ -165,6 +189,8 @@ Log::restore()
         nfree_list--;
         head->restore(list[i]);
     }
+
+    return count;
 }
 
 void

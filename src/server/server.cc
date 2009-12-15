@@ -78,7 +78,6 @@ AddIndexEntries(Table *table, const object *o)
     }
 }
 
-
 Server::Server(const ServerConfig *sconfig, Net *net_impl)
     : config(sconfig), net(net_impl), backup(0)
 {
@@ -662,19 +661,63 @@ Server::MultiLookup(const struct rcrpc *req, struct rcrpc *resp)
                  static_cast<uint32_t>(oidsref.used * sizeof(uint64_t));
 }
 
-static void
-SegmentRestoreCallback(const Segment *seg)
+struct obj_replay_cookie {
+    Server *server;
+    uint64_t new_free_bytes;
+};
+
+void
+ObjectReplayCallback(log_entry_type_t type,
+                     const void *p,
+                     uint64_t len,
+                     void *cookiep)
 {
-    printf("SegmentRestoreCallback: %llu\n", seg->getId());
+    obj_replay_cookie *cookie = static_cast<obj_replay_cookie *>(cookiep);
+    Server *server = cookie->server;
+
+    printf("ObjectReplayCallback: type %llu\n", type);
+    /* TODO(stutsman)
+     *  - insert all objects into hashtable
+     *  - restore free_total
+     *  - NO need to restore tail_bytes
+     */
+    switch (type) {
+    case LOG_ENTRY_TYPE_OBJECT: {
+        const object *obj = static_cast<const object *>(p);
+        assert(obj);
+
+        Table *table = &server->tables[obj->hdr.table];
+        assert(table != NULL);
+
+        table->Put(obj->hdr.key, obj);
+    }
+        break;
+    case LOG_ENTRY_TYPE_SEGMENT_HEADER:
+    case LOG_ENTRY_TYPE_SEGMENT_CHECKSUM:
+        break;
+    default:
+        assert(false);
+    }
+}
+
+void
+SegmentReplayCallback(Segment *seg, void *cookie)
+{
+    Server *server = static_cast<Server *>(cookie);
+
+    obj_replay_cookie ocookie;
+    ocookie.server = server;
+
+    server->log->forEachEntry(seg, ObjectReplayCallback, &ocookie);
 }
 
 void
 Server::Restore()
 {
-    log->restore();
+    uint64_t restored_segs = log->restore();
+    printf("Log was able to restore %llu segs\n", restored_segs);
     // TODO(stutsman) Walk the log here and rebuild metadata
-    // TODO(stutsman) fix the limit parameter here
-    log->forEachSegment(SegmentRestoreCallback, SEGMENT_COUNT);
+    log->forEachSegment(SegmentReplayCallback, restored_segs, this);
 }
 
 void

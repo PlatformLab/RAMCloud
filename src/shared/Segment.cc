@@ -90,7 +90,7 @@ Segment::free(uint64_t len)
 }
 
 const void *
-Segment::getBase()
+Segment::getBase() const
 {
 	return base;
 }
@@ -102,25 +102,25 @@ Segment::getId() const
 }
 
 uint64_t
-Segment::getFreeTail()
+Segment::getFreeTail() const
 {
 	return tail_bytes;
 }
 
 uint64_t
-Segment::getLength()
+Segment::getLength() const
 {
 	return total_bytes;
 }
 
 uint64_t
-Segment::getUtilization()
+Segment::getUtilization() const
 {
 	return total_bytes - free_bytes;
 }
 
 bool
-Segment::checkRange(const void *p, uint64_t len)
+Segment::checkRange(const void *p, uint64_t len) const
 {
 	uintptr_t up = (uintptr_t)p;
 	uintptr_t ub = (uintptr_t)base;
@@ -141,6 +141,8 @@ Segment::restore(uint64_t restore_seg_id)
     //printf("Segment restoring from %llu:\n", restore_seg_id);
     backup->Retrieve(restore_seg_id, base);
     // TODO restore all sorts of state/invariants
+    // It seems we want to restore this information by making a single
+    // pass which happens in the server to rebuild the hashtable
     id = restore_seg_id;
 }
 

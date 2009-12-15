@@ -28,7 +28,8 @@ namespace RAMCloud {
 //yet and we use log_eviction_cb_t in the class definition below. ugh. is there
 //a solution?
 typedef void (*log_eviction_cb_t)(log_entry_type_t, const void *, const uint64_t, void *);
-typedef void (*log_foreach_cb_t)(const Segment *);
+typedef void (*log_entry_cb_t)(log_entry_type_t, const void *, const uint64_t, void *);
+typedef void (*log_segment_cb_t)(Segment *, void *);
 
 class Log {
   public:
@@ -40,8 +41,9 @@ class Log {
 	void        printStats();
 	uint64_t    getMaximumAppend();
 	void init();
-	void restore();
-	void forEachSegment(log_foreach_cb_t, uint64_t limit);
+	uint64_t restore();
+	void forEachSegment(log_segment_cb_t, uint64_t, void *);
+	void forEachEntry(const Segment *, log_entry_cb_t, void *);
 
   private:
 	void        clean(void);

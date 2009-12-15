@@ -148,10 +148,13 @@ BackupClient::GetSegmentList(uint64_t *list,
 
     uint64_t *tmp_list = &resp->getsegmentlist_resp.seg_list[0];
     uint64_t tmp_count = resp->getsegmentlist_resp.seg_list_count;
+    printf("Backup wants to restore %llu segments\n", tmp_count);
 
     if (*count < tmp_count)
         throw BackupRPCException("Provided a segment id buffer "
                                  "that was too small");
+    // TODO(stutsman) we need to return this sorted and merged with
+    // segs from other backups
     memcpy(list, tmp_list, tmp_count * sizeof(uint64_t));
     *count = tmp_count;
 
