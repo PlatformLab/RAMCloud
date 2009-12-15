@@ -5,6 +5,7 @@ TESTS_SRCFILES := \
 		src/tests/backup.cc \
 		src/tests/hashtable.cc \
 		src/tests/index.cc \
+		src/tests/checksum.cc \
 		src/tests/tests.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
