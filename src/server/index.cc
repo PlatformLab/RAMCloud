@@ -44,6 +44,60 @@ MallocIndexKey::~MallocIndexKey() {
     this->len = 0;
 }
 
+// StrKey
+
+template<class T>
+static void
+ScalarStrKey(const char *fmt, const IndexKeyRef &key, std::string &str) {
+    char buf[100];
+    T val = *reinterpret_cast<T*>(key.buf);
+    assert(static_cast<size_t>(snprintf(buf, sizeof(buf), fmt, val)) <
+           sizeof(buf));
+    str.assign(buf);
+}
+
+static void
+StrKey(enum RCRPC_INDEX_TYPE type, const IndexKeyRef &key, std::string &str) {
+    switch (type) {
+        case RCRPC_INDEX_TYPE_SINT8:
+            ScalarStrKey<int8_t>("%hhd", key, str);
+            break;
+        case RCRPC_INDEX_TYPE_UINT8:
+            ScalarStrKey<uint8_t>("%hhu", key, str);
+            break;
+        case RCRPC_INDEX_TYPE_SINT16:
+            ScalarStrKey<int16_t>("%hd", key, str);
+            break;
+        case RCRPC_INDEX_TYPE_UINT16:
+            ScalarStrKey<uint16_t>("%hu", key, str);
+            break;
+        case RCRPC_INDEX_TYPE_SINT32:
+            ScalarStrKey<int32_t>("%d", key, str);
+            break;
+        case RCRPC_INDEX_TYPE_UINT32:
+            ScalarStrKey<uint32_t>("%u", key, str);
+            break;
+        case RCRPC_INDEX_TYPE_SINT64:
+            ScalarStrKey<int64_t>("%lld", key, str);
+            break;
+        case RCRPC_INDEX_TYPE_UINT64:
+            ScalarStrKey<uint64_t>("%llu", key, str);
+            break;
+        case RCRPC_INDEX_TYPE_FLOAT32:
+            ScalarStrKey<float>("%f", key, str);
+            break;
+        case RCRPC_INDEX_TYPE_FLOAT64:
+            ScalarStrKey<double>("%f", key, str);
+            break;
+        case RCRPC_INDEX_TYPE_STRING:
+            str.assign(reinterpret_cast<char*>(key.buf),
+                       static_cast<size_t>(key.len));
+            break;
+        default:
+            throw "bad index type";
+    }
+}
+
 // struct VarLenKeyComparator
 
 struct VarLenKeyComparator : public IndexKeyComparator {
@@ -158,14 +212,30 @@ STLUniqueRangeIndex::STLUniqueRangeIndex(enum RCRPC_INDEX_TYPE type) :
     this->range_queryable = true;
     this->unique = true;
     this->type = type;
+
+    if (index_tracing) {
+        printf("index: Constructed STLUniqueRangeIndex of type %d at %p\n",
+               type, this);
+    }
 }
 
 STLUniqueRangeIndex::~STLUniqueRangeIndex() {
+    if (index_tracing) {
+        printf("index: ~STLUniqueRangeIndex at %p\n", this);
+    }
 }
 
 void
 STLUniqueRangeIndex::Insert(const IndexKeyRef &key, IndexOID value) {
+    if (index_tracing) {
+        std::string pkey;
+        StrKey(this->type, key, pkey);
+        printf("index: unique insert %s -> %llu\n", pkey.c_str(), value);
+    }
     if (!map_.insert(std::pair<IndexKeyRef*, IndexOID>(new MallocIndexKey(key), value)).second) {
+        if (index_tracing) {
+            printf("index: unique insert - key exists\n");
+        }
         throw IndexException("Key exists");
     }
 }
@@ -174,8 +244,17 @@ void
 STLUniqueRangeIndex::Remove(const IndexKeyRef &key, IndexOID value) {
     MI map_iter;
 
+    if (index_tracing) {
+        std::string pkey;
+        StrKey(this->type, key, pkey);
+        printf("index: unique remove %s -> %llu\n", pkey.c_str(), value);
+    }
+
     map_iter = map_.find(const_cast<IndexKeyRef*>(&key));
     if (map_iter == map_.end()) {
+        if (index_tracing) {
+            printf("index: unique remove - key not found\n");
+        }
         throw IndexException("Not found");
     }
 
@@ -188,6 +267,9 @@ STLUniqueRangeIndex::Remove(const IndexKeyRef &key, IndexOID value) {
          */
         delete static_cast<MallocIndexKey*>(map_iter->first);
     } else {
+        if (index_tracing) {
+            printf("index: unique remove - key has different oid\n");
+        }
         throw IndexException("Incorrect value");
     }
 }
@@ -196,11 +278,23 @@ IndexOID
 STLUniqueRangeIndex::Lookup(const IndexKeyRef &key) const {
     CMI map_iter;
 
+    if (index_tracing) {
+        std::string pkey;
+        StrKey(this->type, key, pkey);
+        printf("index: unique lookup %s\n", pkey.c_str());
+    }
+
     map_iter = map_.find(const_cast<IndexKeyRef*>(&key));
     if (map_iter == map_.end()) {
+        if (index_tracing) {
+            printf("index: unique lookup - key not found\n");
+        }
         throw IndexException("Not found");
     }
 
+    if (index_tracing) {
+        printf("index: unique lookup - oid %llu\n", map_iter->second);
+    }
     return map_iter->second;
 }
 
@@ -213,6 +307,27 @@ STLUniqueRangeIndex::RangeQuery(const RangeQueryArgs *args) const {
     bool varlen;
 
     assert(args->IsValid());
+
+    if (index_tracing) {
+        printf("index: range query\n");
+        if (args->start_present_) {
+            std::string pkey;
+            StrKey(this->type, *args->start_, pkey);
+            printf("index: start at %s %s\n", pkey.c_str(),
+                   args->start_inclusive_ ? "inclusive" : "exclusive");
+            if (args->start_following_present_) {
+                printf("index: start following oid %llu\n",
+                       args->start_following_);
+            }
+        }
+        if (args->end_present_) {
+            std::string pkey;
+            StrKey(this->type, *args->end_, pkey);
+            printf("index: end at %s %s\n", pkey.c_str(),
+                   args->end_inclusive_ ? "inclusive" : "exclusive");
+        }
+        printf("index: limit %u\n", args->limit_);
+    }
 
     range = RangeQueryRange(args);
     map_iter = range.first;
@@ -251,6 +366,11 @@ STLUniqueRangeIndex::RangeQuery(const RangeQueryArgs *args) const {
             ++count;
             ++map_iter;
         }
+    }
+
+    if (index_tracing) {
+        printf("index: range query - returning %d%s values\n",
+               count, more ? "+" : "");
     }
 
     if (args->result_more_ != NULL) {
