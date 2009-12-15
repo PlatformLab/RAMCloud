@@ -479,6 +479,8 @@ Server::CreateIndex(const struct rcrpc *req, struct rcrpc *resp)
 
     index_id = table->CreateIndex(unique, range_queryable, type);
 
+    resp->type = RCRPC_CREATE_INDEX_RESPONSE;
+    resp->len  = static_cast<uint32_t>(RCRPC_CREATE_INDEX_RESPONSE_LEN);
     resp->create_index_response.id = index_id;
 }
 
@@ -496,6 +498,9 @@ Server::DropIndex(const struct rcrpc *req, struct rcrpc *resp)
 
     table = &tables[req->create_index_request.table];
     table->DropIndex(req->drop_index_request.id);
+
+    resp->type = RCRPC_DROP_INDEX_RESPONSE;
+    resp->len  = static_cast<uint32_t>(RCRPC_DROP_INDEX_RESPONSE_LEN);
 }
 
 void
