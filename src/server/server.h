@@ -182,6 +182,12 @@ class Table {
     DISALLOW_COPY_AND_ASSIGN(Table);
 };
 
+struct ServerConfig {
+    // Restore from backups before resuming operation
+    bool restore;
+  ServerConfig() : restore(false) {}
+};
+
 class Server {
   public:
     void Ping(const struct rcrpc *req, struct rcrpc *resp);
@@ -201,13 +207,14 @@ class Server {
     Table *GetTable(uint64_t tid) { return &tables[tid]; }
     Log   *GetLog() { return log; }
 
-    explicit Server(Net *net_impl);
+    explicit Server(const ServerConfig *sconfig, Net *net_impl);
     Server(const Server& server);
     Server& operator=(const Server& server);
     ~Server();
     void Run();
 
   private:
+    void Restore();
     void HandleRPC();
     void StoreData(uint64_t table,
                    uint64_t key,
@@ -217,6 +224,7 @@ class Server {
                    uint64_t index_entries_buf_len);
     explicit Server();
 
+    const ServerConfig *config;
     Log *log;
     Net *net;
     BackupClient *backup;

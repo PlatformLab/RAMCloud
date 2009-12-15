@@ -46,10 +46,9 @@ namespace RAMCloud {
 // Simple iterator for running through a segment's (log_entry, blob) pairs.
 class LogEntryIterator {
   public:
-	LogEntryIterator(Segment *s)
+	LogEntryIterator(Segment *s) : segment(s), next(0)
 	{
 		assert(s != NULL);
-		segment = s;
 		next = (const struct log_entry *)s->getBase();
 		assert(next != NULL);
 		assert(next->type == LOG_ENTRY_TYPE_SEGMENT_HEADER);
@@ -90,11 +89,25 @@ class LogEntryIterator {
  /**** Public Interface ****/
 /**************************/
 
-Log::Log(const uint64_t segsize, void *buf, const uint64_t len, BackupClient *backup_client)
-	: backup(backup_client)
+Log::Log(const uint64_t segsize,
+         void *buf,
+         const uint64_t len,
+         BackupClient *backup_client)
+    : callback(0),
+      callback_type(LOG_ENTRY_TYPE_SEGMENT_HEADER),
+      callback_cookie(0),
+      max_append(0),
+      segment_size(segsize),
+      base(buf),
+      segments(0),
+      head(0),
+      free_list(0),
+      nsegments(len / segment_size),
+      nfree_list(0),
+      bytes_stored(0),
+      cleaning(false),
+      backup(backup_client)
 {
-	segment_size = segsize;
-
 	// at a minimum, we'll have a segment header, one object, and a segment
 	// checksum
 	uint64_t min_meta = (3 * sizeof(struct log_entry)) +
@@ -102,9 +115,9 @@ Log::Log(const uint64_t segsize, void *buf, const uint64_t len, BackupClient *ba
 	assert(min_meta <= len);
 	max_append = segment_size - min_meta;
 
-	nsegments    = len / segment_size;
-	base         = buf;
-	cleaning     = false;
+        //nsegments    = len / segment_size;
+        //base         = buf;
+        //cleaning     = false;
 
 	segments = (Segment **)malloc(nsegments * sizeof(segments[0]));
 	for (uint64_t i = 0; i < nsegments; i++) {
@@ -116,7 +129,47 @@ Log::Log(const uint64_t segsize, void *buf, const uint64_t len, BackupClient *ba
 
 	assert(nsegments == nfree_list);
 	assert(nfree_list > 0);
+}
 
+void
+Log::forEachSegment(log_foreach_cb_t cb, uint64_t limit)
+{
+    for (uint64_t i = 0, limit = 0;
+         i < nsegments && i < limit;
+         i++) {
+        cb(segments[i]);
+    }
+}
+
+void
+Log::restore()
+{
+    // TODO Sort this list?
+    printf("Restoring from backup before service\n");
+    // TODO this is wrong for now - how do we want to determine the
+    // number (or max num) of segment frames on backups?
+    uint64_t list[nsegments];
+    uint64_t count = nsegments;
+    backup->GetSegmentList(&list[0], &count);
+
+    printf("Got segment list from backup (%llu):\n", count);
+    for (uint64_t i = 0; i < count; i++)
+        printf("\t%llu\n", list[i]);
+
+    // The segments condsidered active by the backup had better fit
+    assert(count <= nsegments);
+    for (uint64_t i = 0; i < count; i++) {
+        printf("Restoring %llu:\n", i);
+        head      = free_list;
+        free_list = free_list->unlink();
+        nfree_list--;
+        head->restore(list[i]);
+    }
+}
+
+void
+Log::init()
+{
 	head      = free_list;
 	free_list = free_list->unlink();
 	nfree_list--;
@@ -126,7 +179,6 @@ Log::Log(const uint64_t segsize, void *buf, const uint64_t len, BackupClient *ba
 
 	const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER, &sh, sizeof(sh));
 	assert(r != NULL);
-
 }
 
 const void *

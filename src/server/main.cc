@@ -18,12 +18,45 @@
 #include <server/server.h>
 #include <shared/net.h>
 
+#include <getopt.h>
+
+void usage(char *arg0) {
+    printf("Usage: %s [-r]\n"
+           "\t-r|--restore\t\tRestore from backup before serving\n",
+           arg0);
+}
+
+void
+cmdline(int argc, char *argv[], RAMCloud::ServerConfig *config) {
+    int i = 0;
+    int c;
+    struct option long_options[] = {
+        {"restore", no_argument, NULL, 'r'},
+        {0,0,0,0}
+    };
+
+    while((c = getopt_long(argc, argv, "r", long_options, &i)) >= 0) {
+        switch (c) {
+        case 'r':
+            config->restore = true;
+            break;
+        default:
+            usage(argv[0]);
+            exit(EXIT_FAILURE);
+            break;
+        }
+    }
+}
+
 int
-main()
+main(int argc, char *argv[])
 {
+    RAMCloud::ServerConfig config;
+    cmdline(argc, argv, &config);
+
     RAMCloud::Net *net = new RAMCloud::Net(SVRADDR, SVRPORT,
                                            CLNTADDR, CLNTPORT);
-    RAMCloud::Server *server = new RAMCloud::Server(net);
+    RAMCloud::Server *server = new RAMCloud::Server(&config, net);
 
     server->Run();
 

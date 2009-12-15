@@ -47,10 +47,10 @@ class ServerTest : public CppUnit::TestFixture {
     void TestCreateTable();
   private:
     CPPUNIT_TEST_SUITE(ServerTest);
-    CPPUNIT_TEST(TestPing);
+    //CPPUNIT_TEST(TestPing);
     // TODO(stutsman) Doesn't work until BackupClient is mocked out
     //CPPUNIT_TEST(TestWriteRead100);
-    CPPUNIT_TEST(TestCreateTable);
+    //CPPUNIT_TEST(TestCreateTable);
     CPPUNIT_TEST_SUITE_END();
     RAMCloud::Net *net;
     RAMCloud::Server *server;

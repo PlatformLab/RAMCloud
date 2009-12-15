@@ -136,6 +136,9 @@ class BackupServer {
     void Commit(uint64_t seg_num);
     void Free(uint64_t seg_num);
     void GetSegmentList(uint64_t *list, uint64_t *count);
+    void GetSegmentMetadata(uint64_t seg_num,
+                            uint64_t *id_list,
+                            uint64_t *id_list_count);
     void Retrieve(uint64_t seg_num, char *buf, uint64_t *len);
 
     void Flush();
@@ -153,9 +156,10 @@ class BackupServer {
     // An array corresponding to the segment frames in the system.
     // This array, given a segment frame, produces the current segment
     // number that is stored there.
-    uint64_t segments[SEGMENT_COUNT];
+    static const uint64_t SEGMENT_FRAMES = SEGMENT_COUNT;
+    uint64_t segments[SEGMENT_FRAMES];
 
-    FreeBitmap<SEGMENT_COUNT> free_map;
+    FreeBitmap<SEGMENT_FRAMES> free_map;
 
     friend class BackupTest;
     DISALLOW_COPY_AND_ASSIGN(BackupServer);

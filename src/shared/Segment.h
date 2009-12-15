@@ -31,18 +31,19 @@ class Segment {
 	const void *append(const void *, const uint64_t);
 	void        free(uint64_t);
 	const void *getBase();
-	uint64_t getId();
+	uint64_t getId() const;
 	uint64_t getFreeTail();
 	uint64_t getLength();
 	uint64_t getUtilization();
 	bool	 checkRange(const void *, uint64_t);
 	void	 finalize();
+	void	 restore(uint64_t restore_seg_id);
 	Segment *link(Segment *n);
 	Segment *unlink();
   private:
 	void     *base;
 	uint64_t  id;			// segment id
-	uint64_t  total_bytes;		// capacity of the segment
+	const uint64_t  total_bytes;		// capacity of the segment
 	uint64_t  free_bytes;		// bytes free in segment (anywhere)
 	uint64_t  tail_bytes;		// bytes free in tail of segment (i.e. never written to)
 	bool      isMutable;

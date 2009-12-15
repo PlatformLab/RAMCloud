@@ -65,6 +65,14 @@ struct backup_rpc_free_req {
 struct backup_rpc_free_resp {
 };
 
+struct backup_rpc_getsegmentlist_req {
+};
+
+struct backup_rpc_getsegmentlist_resp {
+    uint64_t seg_list_count;
+    uint64_t seg_list[0];                       /* Variable length */
+};
+
 struct backup_rpc_retrieve_req {
     uint64_t seg_num;
 };
@@ -88,6 +96,8 @@ enum rc_backup_rpc_len {
     BACKUP_RPC_COMMIT_RESP_LEN        = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_resp)),
     BACKUP_RPC_FREE_REQ_LEN           = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_free_req)),
     BACKUP_RPC_FREE_RESP_LEN          = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_free_resp)),
+    BACKUP_RPC_GETSEGMENTLIST_REQ_LEN       = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_getsegmentlist_req)),
+    BACKUP_RPC_GETSEGMENTLIST_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_getsegmentlist_resp)),
     BACKUP_RPC_RETRIEVE_REQ_LEN       = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_retrieve_req)),
     BACKUP_RPC_RETRIEVE_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_retrieve_resp)),
     BACKUP_RPC_ERROR_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_error_resp)),
@@ -102,6 +112,8 @@ enum backup_rpc_type {
     BACKUP_RPC_COMMIT_RESP,
     BACKUP_RPC_FREE_REQ,
     BACKUP_RPC_FREE_RESP,
+    BACKUP_RPC_GETSEGMENTLIST_REQ,
+    BACKUP_RPC_GETSEGMENTLIST_RESP,
     BACKUP_RPC_RETRIEVE_REQ,
     BACKUP_RPC_RETRIEVE_RESP,
     BACKUP_RPC_ERROR_RESP,
@@ -120,6 +132,8 @@ struct backup_rpc {
         struct backup_rpc_commit_resp commit_resp;
         struct backup_rpc_free_req free_req;
         struct backup_rpc_free_resp free_resp;
+        struct backup_rpc_getsegmentlist_req getsegmentlist_req;
+        struct backup_rpc_getsegmentlist_resp getsegmentlist_resp;
         struct backup_rpc_retrieve_req retrieve_req;
         struct backup_rpc_retrieve_resp retrieve_resp;
         struct backup_rpc_error_resp error_resp;

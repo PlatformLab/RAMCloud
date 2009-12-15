@@ -79,7 +79,8 @@ AddIndexEntries(Table *table, const object *o)
 }
 
 
-Server::Server(Net *net_impl) : net(net_impl), backup(0)
+Server::Server(const ServerConfig *sconfig, Net *net_impl)
+    : config(sconfig), net(net_impl), backup(0)
 {
     void *p = malloc(SEGMENT_SIZE * SEGMENT_COUNT);
     assert(p != NULL);
@@ -661,6 +662,21 @@ Server::MultiLookup(const struct rcrpc *req, struct rcrpc *resp)
                  static_cast<uint32_t>(oidsref.used * sizeof(uint64_t));
 }
 
+static void
+SegmentRestoreCallback(const Segment *seg)
+{
+    printf("SegmentRestoreCallback: %llu\n", seg->getId());
+}
+
+void
+Server::Restore()
+{
+    log->restore();
+    // TODO(stutsman) Walk the log here and rebuild metadata
+    // TODO(stutsman) fix the limit parameter here
+    log->forEachSegment(SegmentRestoreCallback, SEGMENT_COUNT);
+}
+
 void
 Server::HandleRPC()
 {
@@ -726,6 +742,11 @@ Server::HandleRPC()
 void __attribute__ ((noreturn))
 Server::Run()
 {
+    if (config->restore) {
+        Restore();
+    }
+    log->init();
+
     while (true)
         HandleRPC();
 }

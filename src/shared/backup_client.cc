@@ -115,15 +115,58 @@ BackupClient::Commit(uint64_t seg_num)
 }
 
 void
-BackupClient::GetSegmentMetadata(uint64_t prev_seg_num,
-                                 uint64_t *seg_num,
-                                 uint64_t *seg_list,
-                                 uint64_t *seg_list_count)
+BackupClient::Free(uint64_t seg_num)
+{
+    backup_rpc req;
+    req.hdr.type = BACKUP_RPC_FREE_REQ;
+    req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_FREE_REQ_LEN);
+
+    req.free_req.seg_num = seg_num;
+
+    printf("Sending Free to backup\n");
+    SendRPC(&req);
+
+    backup_rpc *resp;
+    RecvRPC(&resp);
+
+    printf("Free ok\n");
+}
+
+void
+BackupClient::GetSegmentList(uint64_t *list,
+                             uint64_t *count)
+{
+    backup_rpc req;
+    req.hdr.type = BACKUP_RPC_GETSEGMENTLIST_REQ;
+    req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTLIST_REQ_LEN);
+
+    printf("Sending GetSegmentList to backup\n");
+    SendRPC(&req);
+
+    backup_rpc *resp;
+    RecvRPC(&resp);
+
+    uint64_t *tmp_list = &resp->getsegmentlist_resp.seg_list[0];
+    uint64_t tmp_count = resp->getsegmentlist_resp.seg_list_count;
+
+    if (*count < tmp_count)
+        throw BackupRPCException("Provided a segment id buffer "
+                                 "that was too small");
+    memcpy(list, tmp_list, tmp_count * sizeof(uint64_t));
+    *count = tmp_count;
+
+    printf("GetSegmentList ok\n");
+}
+
+void
+BackupClient::GetSegmentMetadata(uint64_t seg_num,
+                                 uint64_t *id_list,
+                                 uint64_t *id_list_count)
 {
 }
 
 void
-BackupClient::Retrieve(uint64_t seg_num)
+BackupClient::Retrieve(uint64_t seg_num, void *dst)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_RETRIEVE_REQ;
@@ -139,7 +182,7 @@ BackupClient::Retrieve(uint64_t seg_num)
 
     printf("Retrieved segment %llu of length %llu\n",
            seg_num, resp->retrieve_resp.data_len);
-    debug_dump64(resp->retrieve_resp.data, resp->retrieve_resp.data_len);
+    memcpy(dst, resp->retrieve_resp.data, resp->retrieve_resp.data_len);
 
     printf("Retrieve ok\n");
 }

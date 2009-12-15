@@ -39,7 +39,7 @@ class BackupTest : public CppUnit::TestFixture {
     void TestFreeBitmap();
   private:
     CPPUNIT_TEST_SUITE(BackupTest);
-    CPPUNIT_TEST(TestHeartbeat);
+    //CPPUNIT_TEST(TestHeartbeat);
     CPPUNIT_TEST(TestFreeBitmap);
     CPPUNIT_TEST_SUITE_END();
     Net *net;

@@ -34,29 +34,16 @@ class BackupClient {
                uint32_t len);
     void Commit(uint64_t seg_num);
     void Free(uint64_t seg_num);
-    // TODO - what do we want here?  Somekind of stateful get next seg
-    // with ids EXCEPT we need to be careful about
-    /** Input: prev_seg_num: get segment data for most segemnt after
-     *         this
-     *  Output: seg_num: location of return value indicating which
-     *         segment this metadata is for.  If this is
-     *         INVALID_SEGMENT_NUM then all remaining fields are
-     *         invalid.
-     *  Output: seg_list: start of buffer for results
-     *  Input/Ouput: seg_list_count: as input contains the size of the
-     *         buffer, as output contains the number of valid entries
-     *         in seg_list
-     */
-    void GetSegmentMetadata(uint64_t prev_seg_num,
-                            uint64_t *seg_num,
-                            uint64_t *seg_list,
-                            uint64_t *seg_list_count);
-    void Retrieve(uint64_t seg_num);
+    void GetSegmentList(uint64_t *list, uint64_t *count);
+    void GetSegmentMetadata(uint64_t seg_num,
+                            uint64_t *id_list,
+                            uint64_t *id_list_count);
+    void Retrieve(uint64_t seg_num, void *dst);
   private:
-    DISALLOW_COPY_AND_ASSIGN(BackupClient);
     void SendRPC(struct backup_rpc *rpc);
     void RecvRPC(struct backup_rpc **rpc);
     Net *net;
+    DISALLOW_COPY_AND_ASSIGN(BackupClient);
 };
 
 } // namespace RAMCloud

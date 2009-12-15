@@ -17,20 +17,26 @@
 #include <stddef.h>
 #include <string.h>
 #include <shared/Segment.h>
+#include <shared/backup_client.h>
 
 namespace RAMCloud {
 
-Segment::Segment(uint64_t init_id, void *buf, const uint64_t len, BackupClient *backup_client)
-	: backup(backup_client)
+Segment::Segment(uint64_t init_id,
+                 void *buf,
+                 const uint64_t len,
+                 BackupClient *backup_client)
+    : base(buf),
+      id(~(0ull)),
+      total_bytes(len),
+      free_bytes(total_bytes),
+      tail_bytes(total_bytes),
+      isMutable(false),
+      backup(backup_client),
+      next(0),
+      prev(0)
 {
 	assert(buf != NULL);
 	assert(len > 0);
-
-	base        = buf;
-	total_bytes = len;
-	next        = NULL;
-	prev        = NULL;
-	isMutable   = false;
 
 	reset(init_id);
 }
@@ -44,6 +50,9 @@ void
 Segment::reset(uint64_t new_id)
 {
 	assert(!isMutable);
+
+	if (id != ~(0ull))
+		backup->Free(id);
 
 	free_bytes  = total_bytes;
 	tail_bytes  = total_bytes;
@@ -87,7 +96,7 @@ Segment::getBase()
 }
 
 uint64_t
-Segment::getId()
+Segment::getId() const
 {
 	return id;
 }
@@ -124,6 +133,15 @@ Segment::finalize()
 {
 	isMutable = false;
 	backup->Commit(id);
+}
+
+void
+Segment::restore(uint64_t restore_seg_id)
+{
+    //printf("Segment restoring from %llu:\n", restore_seg_id);
+    backup->Retrieve(restore_seg_id, base);
+    // TODO restore all sorts of state/invariants
+    id = restore_seg_id;
 }
 
 Segment *

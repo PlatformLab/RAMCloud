@@ -35,6 +35,8 @@ namespace RAMCloud {
 enum { debug_rpc = false };
 enum { debug_noisy = false };
 
+static const uint64_t RESP_BUF_LEN = SEGMENT_SIZE + sizeof(backup_rpc);
+
 BackupException::~BackupException() {}
 
 BackupServer::BackupServer(Net *net_impl, const char *logPath)
@@ -57,7 +59,7 @@ BackupServer::BackupServer(Net *net_impl, const char *logPath)
     if (!(BACKUP_LOG_FLAGS & O_DIRECT))
         ReserveSpace();
 
-    for (int i = 0; i < SEGMENT_COUNT; i++)
+    for (uint64_t i = 0; i < SEGMENT_FRAMES; i++)
         segments[i] = INVALID_SEGMENT_NUM;
 }
 
@@ -123,12 +125,12 @@ uint64_t
 BackupServer::FrameForSegNum(uint64_t segnum)
 {
     uint64_t seg_frame = INVALID_SEGMENT_NUM;
-    for (uint64_t i = 0; i < SEGMENT_COUNT; i++)
-        if (segments[i] == seg_num) {
+    for (uint64_t i = 0; i < SEGMENT_FRAMES; i++)
+        if (segments[i] == segnum) {
             seg_frame = i;
             break;
         }
-    if (seg_frame != INVALID_SEGMENT_NUM)
+    if (seg_frame == INVALID_SEGMENT_NUM)
         throw BackupException("No such segment stored on backup");
     return seg_frame;
 }
@@ -185,26 +187,53 @@ BackupServer::Commit(uint64_t seg_num)
 void
 BackupServer::Free(uint64_t seg_num)
 {
-    if (seg_num != INVALID_SEGMENT_NUM)
+    printf("Free segment %llu\n", seg_num);
+    if (seg_num == INVALID_SEGMENT_NUM)
         throw BackupException("What the hell are you feeding me? "
                               "Bad segment number!");
-    for (uint64_t i = 0; i < SEGMENT_COUNT; i++)
+    for (uint64_t i = 0; i < SEGMENT_FRAMES; i++)
         if (segments[i] == seg_num) {
+            printf("Freed segment in frame %llu\n", i);
             segments[i] = INVALID_SEGMENT_NUM;
+            free_map.Set(i);
             return;
         }
     throw BackupException("No such segment on backup");
 }
 
 void
+BackupServer::GetSegmentList(uint64_t *list,
+                             uint64_t *count)
+{
+    uint64_t max = *count;
+    printf("Max segs to return %llu\n", max);
+
+    uint64_t c = 0;
+    for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
+        if (segments[i] != INVALID_SEGMENT_NUM) {
+            if (c == max)
+                throw BackupException("Buffer too short to for segment ids");
+            *list = segments[i];
+            list++;
+            c++;
+            printf("counting %llu\n", c);
+        }
+    }
+    printf("Final count to return %llu\n", c);
+    *count = c;
+}
+
+void
 BackupServer::Retrieve(uint64_t seg_num, char *buf, uint64_t *len)
 {
     printf("Retrieving segment %llu from disk\n", seg_num);
-    if (seg_num != INVALID_SEGMENT_NUM)
+    if (seg_num == INVALID_SEGMENT_NUM)
         throw BackupException("What the hell are you feeding me? "
                               "Bad segment number!");
 
     uint64_t seg_frame = FrameForSegNum(seg_num);
+    printf("Found segment %llu in segment frame %llu\n", seg_num,
+           seg_frame);
 
     struct timeval start, end, res;
     gettimeofday(&start, NULL);
@@ -220,9 +249,13 @@ BackupServer::Retrieve(uint64_t seg_num, char *buf, uint64_t *len)
            SegFrameOff(seg_frame),
            buf);
     // TODO(stutsman) can only transfer MAX_RPC_LEN
+    // TODO(stutsman) if we use O_DIRECT this must be an aligned
+    // buffer
     ssize_t r = read(log_fd, buf, read_len);
-    if (r != read_len)
+    if (static_cast<uint64_t>(r) != read_len) {
+        printf("Read %ld bytes\n", r);
         throw BackupLogIOException(errno);
+    }
     *len = r;
 
     gettimeofday(&end, NULL);
@@ -244,6 +277,27 @@ BackupServer::HandleWrite(const backup_rpc *req, backup_rpc *resp)
 
     resp->hdr.type = BACKUP_RPC_WRITE_RESP;
     resp->hdr.len = (uint32_t) BACKUP_RPC_WRITE_RESP_LEN;
+}
+
+void
+BackupServer::HandleGetSegmentList(const backup_rpc *req, backup_rpc *resp)
+{
+    if (debug_noisy)
+        printf(">>> Handling GetSegmentList\n");
+
+    resp->getsegmentlist_resp.seg_list_count =
+        (RESP_BUF_LEN - sizeof(backup_rpc_getsegmentlist_resp)) /
+        sizeof(uint64_t);
+    GetSegmentList(resp->getsegmentlist_resp.seg_list,
+                   &resp->getsegmentlist_resp.seg_list_count);
+    if (debug_noisy)
+        printf(">>>>>> GetSegmentList returning %llu ids\n",
+            resp->getsegmentlist_resp.seg_list_count);
+
+    resp->hdr.type = BACKUP_RPC_GETSEGMENTLIST_RESP;
+    resp->hdr.len = static_cast<uint32_t>(
+        BACKUP_RPC_GETSEGMENTLIST_RESP_LEN_WODATA +
+        sizeof(uint64_t) * resp->getsegmentlist_resp.seg_list_count);
 }
 
 void
@@ -294,8 +348,7 @@ BackupServer::HandleRPC()
 {
     // TODO(stutsman) if we're goingt to have to malloc this we should just
     // always keep one around
-    char *resp_buf = static_cast<char *>(malloc(SEGMENT_SIZE +
-                                                sizeof(backup_rpc)));
+    char *resp_buf = static_cast<char *>(malloc(RESP_BUF_LEN));
     backup_rpc *req;
     backup_rpc *resp = reinterpret_cast<backup_rpc *>(&resp_buf[0]);
 
@@ -311,12 +364,14 @@ BackupServer::HandleRPC()
         case BACKUP_RPC_WRITE_REQ:     HandleWrite(req, resp);     break;
         case BACKUP_RPC_COMMIT_REQ:    HandleCommit(req, resp);    break;
         case BACKUP_RPC_FREE_REQ:      HandleFree(req, resp);      break;
+        case BACKUP_RPC_GETSEGMENTLIST_REQ: HandleGetSegmentList(req, resp); break;
         case BACKUP_RPC_RETRIEVE_REQ:  HandleRetrieve(req, resp);  break;
 
         case BACKUP_RPC_HEARTBEAT_RESP:
         case BACKUP_RPC_WRITE_RESP:
         case BACKUP_RPC_COMMIT_RESP:
         case BACKUP_RPC_FREE_RESP:
+        case BACKUP_RPC_GETSEGMENTLIST_RESP:
         case BACKUP_RPC_RETRIEVE_RESP:
         case BACKUP_RPC_ERROR_RESP:
         default:
