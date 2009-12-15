@@ -35,7 +35,7 @@ namespace RAMCloud {
 enum { debug_rpc = false };
 enum { debug_noisy = false };
 
-static const uint64_t RESP_BUF_LEN = SEGMENT_SIZE + sizeof(backup_rpc);
+static const uint64_t RESP_BUF_LEN = (1 << 20);
 
 BackupException::~BackupException() {}
 
@@ -205,6 +205,11 @@ void
 BackupServer::GetSegmentList(uint64_t *list,
                              uint64_t *count)
 {
+    if (seg_num != INVALID_SEGMENT_NUM) {
+        printf("!!! GetSegmentList: We must be in recovery, writing out "
+               "current active segment before proceeding\n");
+        Commit(seg_num);
+    }
     uint64_t max = *count;
     printf("Max segs to return %llu\n", max);
 
@@ -216,10 +221,9 @@ BackupServer::GetSegmentList(uint64_t *list,
             *list = segments[i];
             list++;
             c++;
-            printf("counting %llu\n", c);
         }
     }
-    printf("Final count to return %llu\n", c);
+    printf("Final active segment count to return %llu\n", c);
     *count = c;
 }
 
@@ -286,7 +290,7 @@ BackupServer::HandleGetSegmentList(const backup_rpc *req, backup_rpc *resp)
         printf(">>> Handling GetSegmentList\n");
 
     resp->getsegmentlist_resp.seg_list_count =
-        (RESP_BUF_LEN - sizeof(backup_rpc_getsegmentlist_resp)) /
+        (RESP_BUF_LEN - sizeof(backup_rpc)) /
         sizeof(uint64_t);
     GetSegmentList(resp->getsegmentlist_resp.seg_list,
                    &resp->getsegmentlist_resp.seg_list_count);

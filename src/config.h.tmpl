@@ -32,8 +32,9 @@
 
 #define RC_NUM_TABLES 256
 
-#define SEGMENT_SIZE (1 << 16)
-#define SEGMENT_COUNT 32
+// 32 KB is the maximum we can recover over UDP
+#define SEGMENT_SIZE (1 << 15)
+#define SEGMENT_COUNT 64
 
 #define BACKUP_LOG_PATH "backup.log"
 #define BACKUP_LOG_FLAGS 0

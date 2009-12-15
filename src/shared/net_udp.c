@@ -82,7 +82,8 @@ rc_net_send(struct rc_net *net, void *buf, size_t len)
     if (sendto(net->fd, buf, len, 0,
                (struct sockaddr *)&net->dstsin, sizeof(net->dstsin)) == -1) {
         // errno already set from sendto
-        fprintf(stderr, "sendto failure %s:%d\n", __FILE__, __LINE__);
+        fprintf(stderr, "sendto failure %s:%d: %s\n", __FILE__,
+                __LINE__, strerror(errno));
         return -1;
     }
 
@@ -102,7 +103,7 @@ rc_net_recv(struct rc_net *net, void **buf, size_t *buflen)
     if (!net->connected)
         assert(!rc_net_connect(net));
 
-    static char recvbuf[16384];
+    static char recvbuf[1 << 20];
     struct sockaddr_in sin;
     socklen_t sinlen = sizeof(sin);
 

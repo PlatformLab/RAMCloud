@@ -41,6 +41,8 @@ void
 BackupClient::RecvRPC(struct backup_rpc **rpc)
 {
     size_t len = net->Recv(reinterpret_cast<void**>(rpc));
+    if (len != (*rpc)->hdr.len)
+        printf("got %lu, expected %lu\n", len, (*rpc)->hdr.len);
     assert(len == (*rpc)->hdr.len);
     if ((*rpc)->hdr.type == BACKUP_RPC_ERROR_RESP) {
         char *m = (*rpc)->error_resp.message;

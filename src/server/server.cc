@@ -695,7 +695,7 @@ ObjectReplayCallback(log_entry_type_t type,
     case LOG_ENTRY_TYPE_SEGMENT_CHECKSUM:
         break;
     default:
-        assert(false);
+        printf("!!! Unknown object type on log replay: 0x%llx", type);
     }
 }
 
