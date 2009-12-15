@@ -30,6 +30,8 @@
 
 namespace RAMCloud {
 
+static const bool index_tracing = true;
+
 struct IndexException {
     explicit IndexException(std::string msg)
             : message(msg) {}
