@@ -19,6 +19,11 @@
 import ctypes
 from ctypes.util import find_library
 
+def _ctype_copy(addr, var, width):
+    ctypes.memmove(addr, ctypes.addressof(var), width)
+    return addr + width
+
+
 class IN_ADDR(ctypes.Structure):
     _fields_ = [('s_addr', ctypes.c_uint)]
 
@@ -170,27 +175,21 @@ class RAMCloud(object):
 
             # len
             if index_type.width:
-                ctypes.memmove(addr, ctypes.addressof(ctypes.c_uint64(index_type.width)), 8)
-                addr += 8
+                addr = _ctype_copy(addr, ctypes.c_uint64(index_type.width), 8)
             else: # string
-                ctypes.memmove(addr, ctypes.addressof(ctypes.c_uint64(len(data))), 8)
-                addr += 8
+                addr = _ctype_copy(addr, ctypes.c_uint64(len(data)), 8)
 
             # index_id
-            ctypes.memmove(addr, ctypes.addressof(ctypes.c_uint32(index_id)), 4)
-            addr += 4
+            addr = _ctype_copy(addr, ctypes.c_uint32(index_id), 4)
 
             # index_type
-            ctypes.memmove(addr, ctypes.addressof(ctypes.c_uint32(index_type.type_id)), 4)
-            addr += 4
+            addr = _ctype_copy(addr, ctypes.c_uint32(index_type.type_id), 4)
 
             # data
             if index_type.width:
-                ctypes.memmove(addr, ctypes.addressof(index_type.ctype(data)), index_type.width)
-                addr += index_type.width
+                addr = _ctype_copy(addr, index_type.ctype(data), index_type.width)
             else: # string
-                ctypes.memmove(addr, ctypes.addressof(ctypes.create_string_buffer(data)), len(data))
-                addr += len(data)
+                addr = _ctype_copy(addr, ctypes.create_string_buffer(data), len(data))
 
     def _indexes_to_buf(self, indexes=None):
         if indexes:
