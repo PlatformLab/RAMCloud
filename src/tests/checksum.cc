@@ -13,47 +13,62 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config.h>
-
-#include <server/server.h>
-#include <server/net.h>
-#include <shared/rcrpc.h>
-#include <backup/backup.h>
+#include <shared/common.h>
+#include <shared/rabinpoly.h>
 
 #include <cppunit/extensions/HelperMacros.h>
 
-#include <string>
-#include <cstring>
-
-// Override settings in config.h
-#define SVRADDR "127.0.0.1"
-#define SVRPORT  11111
-
-#define CLNTADDR "127.0.0.1"
-#define CLNTPORT  11111
-
-#define BACKUPSVRADDR "127.0.0.1"
-#define BACKUPSVRPORT  11111
-
-#define BACKUPCLNTADDR "127.0.0.1"
-#define BACKUPCLNTPORT  11111
-
-class ServerTest : public CppUnit::TestFixture {
+class ChecksumTest : public CppUnit::TestFixture {
   public:
     void setUp();
     void tearDown();
+    void TestSimple();
   private:
-    CPPUNIT_TEST_SUITE(ServerTest);
+    CPPUNIT_TEST_SUITE(ChecksumTest);
+    CPPUNIT_TEST(TestSimple);
     CPPUNIT_TEST_SUITE_END();
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(ServerTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(ChecksumTest);
 
 void
-ServerTest::setUp()
+ChecksumTest::setUp()
 {
 }
 
 void
-ServerTest::tearDown()
+ChecksumTest::tearDown()
 {
+}
+
+
+void
+ChecksumTest::TestSimple()
+{
+    uint64_t poly;
+    uint64_t f, g;
+
+    const char *data = "This is the data to test";
+
+    poly = 0x92d42091a28158a5ull;
+    CPPUNIT_ASSERT(polyirreducible(poly));
+
+    rabinpoly *p = new rabinpoly(poly);
+
+    f = 0;
+    for (uint64_t i = 0; i < strlen(data); i++)
+        f = p->append8(f, data[i]);
+
+    printf("Fingerprint: %llx\n", f);
+    delete p;
+
+    p = new rabinpoly(poly);
+
+    g = 0;
+    for (uint64_t i = 0; i < strlen(data); i++)
+        g = p->append8(g, data[i]);
+
+    printf("Fingerprint: %llx\n", g);
+    delete p;
+
+    CPPUNIT_ASSERT(f == g);
 }
