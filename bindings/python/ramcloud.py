@@ -287,7 +287,7 @@ class RAMCloud(object):
             self.raise_error()
         #print repr(idx_buf.raw[:idx_buf_len.value])
         indexes = self._buf_to_indexes(ctypes.addressof(idx_buf), idx_buf_len.value)
-        return (buf.value[0:l.value], indexes)
+        return (buf.raw[0:l.value], indexes)
 
     def create_table(self, name):
         r = self.so.rc_create_table(ctypes.byref(self.client), name)
@@ -510,6 +510,10 @@ def main():
                                 index_type=RCRPC_INDEX_TYPE.SINT32,
                                 limit=10, key=2)
     print oids, more
+
+    bs = "binary\00safe?"
+    oid = r.insert(table, bs)
+    assert r.read(table, oid) == bs
 
     r.drop_index(table, str_index_id)
     r.drop_index(table, index_id)
