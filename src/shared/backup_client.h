@@ -24,9 +24,10 @@
 
 namespace RAMCloud {
 
-class BackupClient {
+class BackupHost {
   public:
-    explicit BackupClient(Net *net_impl);
+    BackupHost(const char* srcaddr, uint16_t srcport,
+               const char* dstaddr, uint16_t dstport);
     void Heartbeat();
     void Write(uint64_t seg_num,
                uint32_t offset,
@@ -42,7 +43,30 @@ class BackupClient {
   private:
     void SendRPC(struct backup_rpc *rpc);
     void RecvRPC(struct backup_rpc **rpc);
-    Net *net;
+    Net net;
+    DISALLOW_COPY_AND_ASSIGN(BackupHost);
+};
+
+class BackupClient {
+  public:
+    explicit BackupClient();
+    ~BackupClient();
+    void AddHost(const char* srcaddr, uint16_t srcport,
+                 const char* dstaddr, uint16_t dstport);
+    void Heartbeat();
+    void Write(uint64_t seg_num,
+               uint32_t offset,
+               const void *buf,
+               uint32_t len);
+    void Commit(uint64_t seg_num);
+    void Free(uint64_t seg_num);
+    void GetSegmentList(uint64_t *list, uint64_t *count);
+    void GetSegmentMetadata(uint64_t seg_num,
+                            uint64_t *id_list,
+                            uint64_t *id_list_count);
+    void Retrieve(uint64_t seg_num, void *dst);
+  private:
+    BackupHost *host;
     DISALLOW_COPY_AND_ASSIGN(BackupClient);
 };
 

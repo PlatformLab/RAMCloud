@@ -26,21 +26,22 @@ namespace RAMCloud {
 
 enum { debug_noisy = false };
 
-BackupClient::BackupClient(Net *net_impl)
-    : net(net_impl)
+BackupHost::BackupHost(const char* srcaddr, uint16_t srcport,
+                       const char* dstaddr, uint16_t dstport)
+    : net(srcaddr, srcport, dstaddr, dstport)
 {
 }
 
 void
-BackupClient::SendRPC(struct backup_rpc *rpc)
+BackupHost::SendRPC(struct backup_rpc *rpc)
 {
-    net->Send(rpc, rpc->hdr.len);
+    net.Send(rpc, rpc->hdr.len);
 }
 
 void
-BackupClient::RecvRPC(struct backup_rpc **rpc)
+BackupHost::RecvRPC(struct backup_rpc **rpc)
 {
-    size_t len = net->Recv(reinterpret_cast<void**>(rpc));
+    size_t len = net.Recv(reinterpret_cast<void**>(rpc));
     if (len != (*rpc)->hdr.len)
         printf("got %lu, expected %lu\n", len, (*rpc)->hdr.len);
     assert(len == (*rpc)->hdr.len);
@@ -52,7 +53,7 @@ BackupClient::RecvRPC(struct backup_rpc **rpc)
 }
 
 void
-BackupClient::Heartbeat()
+BackupHost::Heartbeat()
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_HEARTBEAT_REQ;
@@ -68,7 +69,7 @@ BackupClient::Heartbeat()
 }
 
 void
-BackupClient::Write(uint64_t seg_num,
+BackupHost::Write(uint64_t seg_num,
                     uint32_t offset,
                     const void *buf,
                     uint32_t len)
@@ -99,7 +100,7 @@ BackupClient::Write(uint64_t seg_num,
 }
 
 void
-BackupClient::Commit(uint64_t seg_num)
+BackupHost::Commit(uint64_t seg_num)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_COMMIT_REQ;
@@ -117,7 +118,7 @@ BackupClient::Commit(uint64_t seg_num)
 }
 
 void
-BackupClient::Free(uint64_t seg_num)
+BackupHost::Free(uint64_t seg_num)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_FREE_REQ;
@@ -135,7 +136,7 @@ BackupClient::Free(uint64_t seg_num)
 }
 
 void
-BackupClient::GetSegmentList(uint64_t *list,
+BackupHost::GetSegmentList(uint64_t *list,
                              uint64_t *count)
 {
     backup_rpc req;
@@ -164,14 +165,14 @@ BackupClient::GetSegmentList(uint64_t *list,
 }
 
 void
-BackupClient::GetSegmentMetadata(uint64_t seg_num,
+BackupHost::GetSegmentMetadata(uint64_t seg_num,
                                  uint64_t *id_list,
                                  uint64_t *id_list_count)
 {
 }
 
 void
-BackupClient::Retrieve(uint64_t seg_num, void *dst)
+BackupHost::Retrieve(uint64_t seg_num, void *dst)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_RETRIEVE_REQ;
@@ -190,6 +191,89 @@ BackupClient::Retrieve(uint64_t seg_num, void *dst)
     memcpy(dst, resp->retrieve_resp.data, resp->retrieve_resp.data_len);
 
     printf("Retrieve ok\n");
+}
+
+// --- BackupClient ---
+
+BackupClient::BackupClient()
+    : host(0)
+{
+}
+
+BackupClient::~BackupClient()
+{
+    if (host)
+        delete host;
+}
+
+void
+BackupClient::AddHost(const char* srcaddr, uint16_t srcport,
+                      const char* dstaddr, uint16_t dstport)
+{
+    if (host)
+        throw BackupRPCException("Only one backup host currently supported");
+    host = new BackupHost(srcaddr, srcport, dstaddr, dstport);
+}
+
+void
+BackupClient::Heartbeat()
+{
+    if (host)
+        host->Heartbeat();
+}
+
+void
+BackupClient::Write(uint64_t seg_num,
+                    uint32_t offset,
+                    const void *buf,
+                    uint32_t len)
+{
+    if (host)
+        host->Write(seg_num, offset, buf, len);
+}
+
+void
+BackupClient::Commit(uint64_t seg_num)
+{
+    if (host)
+        host->Commit(seg_num);
+}
+
+void
+BackupClient::Free(uint64_t seg_num)
+{
+    if (host)
+        host->Free(seg_num);
+}
+
+void
+BackupClient::GetSegmentList(uint64_t *list,
+                             uint64_t *count)
+{
+    if (host) {
+        host->GetSegmentList(list, count);
+        return;
+    }
+    *count = 0;
+}
+
+void
+BackupClient::GetSegmentMetadata(uint64_t seg_num,
+                                 uint64_t *id_list,
+                                 uint64_t *id_list_count)
+{
+    if (host) {
+        host->GetSegmentMetadata(seg_num, id_list, id_list_count);
+        return;
+    }
+    *id_list_count = 0;
+}
+
+void
+BackupClient::Retrieve(uint64_t seg_num, void *dst)
+{
+    if (host)
+        host->Retrieve(seg_num, dst);
 }
 
 } // namespace RAMCloud

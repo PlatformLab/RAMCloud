@@ -227,7 +227,7 @@ class Server {
     const ServerConfig *config;
     Log *log;
     Net *net;
-    BackupClient *backup;
+    BackupClient backup;
     Table tables[RC_NUM_TABLES];
     friend void SegmentReplayCallback(Segment *seg, void *cookie);
     friend void ObjectReplayCallback(log_entry_type_t type,

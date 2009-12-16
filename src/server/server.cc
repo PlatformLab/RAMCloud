@@ -79,16 +79,16 @@ AddIndexEntries(Table *table, const object *o)
 }
 
 Server::Server(const ServerConfig *sconfig, Net *net_impl)
-    : config(sconfig), net(net_impl), backup(0)
+    : config(sconfig), net(net_impl), backup()
 {
     void *p = malloc(SEGMENT_SIZE * SEGMENT_COUNT);
     assert(p != NULL);
 
-    Net *backup_net = new Net(BACKCLNTADDR, BACKCLNTPORT,
-                              BACKSVRADDR, BACKSVRPORT);
-    backup = new BackupClient(backup_net);
+    if (BACKUP)
+        backup.AddHost(BACKCLNTADDR, BACKCLNTPORT,
+                       BACKSVRADDR, BACKSVRPORT);
 
-    log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, backup);
+    log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, &backup);
     log->registerType(LOG_ENTRY_TYPE_OBJECT, LogEvictionCallback, this);
 }
 
