@@ -69,7 +69,7 @@ malloc_aligned_hugetlb(uint64_t len)
 
     if (p == 0) {
         unlink("/mnt/hugetlbshit");
-        int fd = open("/mnt/hugetlbshit", O_CREAT | O_TRUNC | O_RDWR, 600);
+        int fd = open("/mnt/hugetlbshit", O_CREAT | O_TRUNC | O_RDWR, 0600);
         if (fd == -1) {
             perror("open");
             exit(1);
