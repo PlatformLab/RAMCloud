@@ -114,8 +114,11 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 
     Table *t = &tables[rreq->table];
     const object *o = t->Get(rreq->key);
-    if (!o || o->is_tombstone)
+    if (!o || o->is_tombstone) {
+        if (o && o->is_tombstone)
+            assert(o->mut->refcnt > 0); 
         throw "Object not found";
+    }
 
     resp->type = RCRPC_READ_RESPONSE;
     resp->len = static_cast<uint32_t>(RCRPC_READ_RESPONSE_LEN_WODATA);
@@ -355,8 +358,11 @@ Server::DeleteKey(const struct rcrpc *req, struct rcrpc *resp)
 
     Table *t = &tables[dreq->table];
     const object *o = t->Get(dreq->key);
-    if (!o || o->is_tombstone)
+    if (!o || o->is_tombstone) {
+        if (o && o->is_tombstone)
+            assert(o->mut->refcnt > 0); 
         throw "Object not found";
+    }
 
     assert(o->mut != NULL);
     assert(o->mut->refcnt > 0);
