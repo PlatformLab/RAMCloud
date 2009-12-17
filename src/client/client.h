@@ -25,7 +25,7 @@ struct rc_client {
 };
 
 struct rc_index_entry {
-    // keep this identical to shared/object.h's chunk_entry for now 
+    // keep this identical to struct chunk_entry for now 
     uint64_t len;
     uint32_t index_id;
     uint32_t index_type;

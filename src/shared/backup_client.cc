@@ -16,7 +16,6 @@
 #include <config.h>
 
 #include <shared/backup_client.h>
-#include <shared/object.h>
 #include <shared/backuprpc.h>
 
 #include <cassert>

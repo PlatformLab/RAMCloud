@@ -24,7 +24,6 @@
 
 #include <config.h>
 #include <shared/Log.h>
-#include <shared/object.h>
 #include <shared/rcrpc.h>
 #include <shared/backup_client.h>
 
