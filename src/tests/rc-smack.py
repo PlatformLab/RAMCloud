@@ -43,8 +43,8 @@ def delete_smack(c):
 		i += 1
 
 # write a value, then either re-write a new one over it, or delete
-# first and then write out the new one (0.5 probability of each case)
-def rewrite_delete_smack(c):
+# first and then write out the new one (`p' probability of each case)
+def rewrite_delete_smack(c, p):
 	randbuf = getrandbuf(2000)
 
 	c.write(0, 0, randbuf[0:1000])
@@ -54,7 +54,7 @@ def rewrite_delete_smack(c):
 		buf = randbuf[random.randint(0, 2000):]
 		buf = buf[0:1000]
 		
-		if random.random() < 0.5:
+		if random.random() < p:
 			c.write(0, 0, buf)
 		else:
 			c.delete(0, 0)
@@ -63,7 +63,6 @@ def rewrite_delete_smack(c):
 		if c.read(0, 0) != buf:
 			print "HOSED"
 			break 
-
 
 c = ramcloud.RAMCloud()
 c.connect()
@@ -74,5 +73,11 @@ rewrite_smack(c)
 print "Running delete smack"
 delete_smack(c)
 
-print "Running random rewrite/delete smack"
-rewrite_delete_smack(c)
+print "Running random rewrite/delete smack p = 0.3"
+rewrite_delete_smack(c, 0.3)
+
+print "Running random rewrite/delete smack p = 0.5"
+rewrite_delete_smack(c, 0.5)
+
+print "Running random rewrite/delete smack p = 0.8"
+rewrite_delete_smack(c, 0.8)
