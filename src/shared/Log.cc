@@ -487,6 +487,8 @@ Log::appendAnyType(log_entry_type_t type, const void *buf, const uint64_t len)
 		assert(bytes_stored <= (nsegments * segment_size));
 	}
 
+	// TODO(rumble): satisfy 8-byte alignment requirement in log objects
+	assert((reinterpret_cast<uint64_t>(r) & 0x7) == 0);
 	return r;
 }
 
