@@ -278,9 +278,6 @@ class Server {
     void UniqueLookup(const struct rcrpc *req, struct rcrpc *resp);
     void MultiLookup(const struct rcrpc *req, struct rcrpc *resp);
 
-    Table *GetTable(uint64_t tid) { return &tables[tid]; }
-    Log   *GetLog() { return log; }
-
     explicit Server(const ServerConfig *sconfig, Net *net_impl);
     Server(const Server& server);
     Server& operator=(const Server& server);
@@ -303,6 +300,10 @@ class Server {
     Net *net;
     BackupClient backup;
     Table tables[RC_NUM_TABLES];
+    friend void LogEvictionCallback(log_entry_type_t type,
+                                    const void *p,
+                                    uint64_t len,
+                                    void *cookie);
     friend void SegmentReplayCallback(Segment *seg, void *cookie);
     friend void ObjectReplayCallback(log_entry_type_t type,
                                      const void *p,

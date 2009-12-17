@@ -34,10 +34,10 @@ namespace RAMCloud {
 
 enum { server_debug = false };
 
-static void LogEvictionCallback(log_entry_type_t type,
-                                const void *p,
-                                uint64_t len,
-                                void *cookie);
+void LogEvictionCallback(log_entry_type_t type,
+                         const void *p,
+                         uint64_t len,
+                         void *cookie);
 
 static void
 DeleteIndexEntries(Table *table, const object *o)
@@ -169,7 +169,7 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
 //  ii) If the hash table points to a tombstone and the reference count drops
 //      to 0, after i) above, remove the entry from the hash table. The log
 //      will clean the tombstone eventually.
-static void
+void
 LogEvictionCallback(log_entry_type_t type,
                     const void *p,
                     uint64_t len,
@@ -181,10 +181,10 @@ LogEvictionCallback(log_entry_type_t type,
     assert(evict_obj != NULL);
     assert(svr != NULL);
 
-    Table *tbl = svr->GetTable(evict_obj->hdr.table);
+    Table *tbl = &svr->tables[evict_obj->hdr.table];
     assert(tbl != NULL);
 
-    Log *log = svr->GetLog();
+    Log *log = svr->log;
     assert(log != NULL);
 
     const object *tbl_obj = tbl->Get(evict_obj->hdr.key);
