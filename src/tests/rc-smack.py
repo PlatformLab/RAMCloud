@@ -14,7 +14,7 @@ class rpcperf():
         diff = ntime - self.time
         if diff >= 1.0:
             print >> sys.stderr, "%80s" % ("") ,
-            print >> sys.stderr, "\r%.2f rpcs/sec" % (self.rpcs / diff) ,
+            print >> sys.stderr, "\r%.2f RPCs/sec (%.2f usec/RPC)" % (self.rpcs / diff, 1.0e6 / (self.rpcs / diff)) ,
             self.rpcs = 0
             self.time = ntime
 
