@@ -24,9 +24,6 @@
 
 namespace RAMCloud {
 
-//it'd be nice if the callback could take a Log *, but the class isn't defined
-//yet and we use log_eviction_cb_t in the class definition below. ugh. is there
-//a solution?
 typedef void (*log_eviction_cb_t)(log_entry_type_t, const void *, const uint64_t, void *);
 typedef void (*log_entry_cb_t)(log_entry_type_t, const void *, const uint64_t, void *);
 typedef void (*log_segment_cb_t)(Segment *, void *);
