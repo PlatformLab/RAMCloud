@@ -17,6 +17,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <assert.h>
 #include <stdint.h>
 #include <cmath>
 #include <cstring>
@@ -29,12 +30,13 @@
 namespace RAMCloud {
 
 #define UNUSED                  ((uint64_t)0)
-#define ADDR(x)                 (x & 0xfffffffffffeULL)
+#define ADDR(x)                 (x & 0x0000ffffffffffffULL)
 #define GETMINIKEY(x)           (x >> 48)
 #define MKENTRY(mk, p)          (((uint64_t)mk << 48) | ADDR((uint64_t)p))
-#define ISCHAIN(c,x)            (c->keys[x] & 0x1)
-#define GETCHAINPTR(c,x)        (c->keys[x] & ~0x1)
-#define MKCHAINPTR(x)           ((uint64_t)x | 0x1)
+#define ISCHAIN(c,x)            (c->keys[x] &  (0x1ULL << 47))
+#define GETCHAINPTR(c,x)        (c->keys[x] & ~(0x1ULL << 47))
+#define MKCHAINPTR(x)           ((uint64_t)x | (0x1ULL << 47))
+#define ISGOODPTR(x)            (((x) & 0xffff800000000000ULL) == 0)
 
 void
 Hashtable::StoreSample(uint64_t ticks)
@@ -158,6 +160,7 @@ Hashtable::LookupKeyPtr(uint64_t key)
                     uint64_t diff = rdtsc() - b;
                     lup_total += diff;
                     StoreSample(diff);
+                    assert(ISGOODPTR((uint64_t)kp));
                     return kp;
                 } else {
                     lup_mkfails++;
@@ -213,6 +216,8 @@ Hashtable::Insert(uint64_t key, void *ptr)
     uint64_t h;
     uint16_t mk;
     int i;
+
+    assert(ISGOODPTR((uint64_t)ptr));
 
     hash(key, &h, &mk);
     cacheline *cl = &table[h % table_lines];
