@@ -228,8 +228,8 @@ class RAMCloud(object):
 
     def delete(self, table_id, key):
         r = self.so.rc_delete(ctypes.byref(self.client),
-                              int(table_id),
-                              int(key))
+                              ctypes.c_uint64(table_id),
+                              ctypes.c_uint64(key))
         if r != 0:
             self.raise_error()
 
@@ -273,12 +273,12 @@ class RAMCloud(object):
 
     def read_full(self, table_id, key):
         buf = ctypes.create_string_buffer(10240)
-        l = ctypes.c_int()
+        l = ctypes.c_uint64()
         idx_buf = ctypes.create_string_buffer(10240)
-        idx_buf_len = ctypes.c_int(len(idx_buf))
+        idx_buf_len = ctypes.c_uint64(len(idx_buf))
         r = self.so.rc_read(ctypes.byref(self.client),
-                            int(table_id),
-                            int(key),
+                            ctypes.c_uint64(table_id),
+                            ctypes.c_uint64(key),
                             ctypes.byref(buf),
                             ctypes.byref(l),
                             ctypes.byref(idx_buf),
@@ -295,7 +295,7 @@ class RAMCloud(object):
             self.raise_error()
 
     def open_table(self, name):
-        handle = ctypes.c_int()
+        handle = ctypes.c_uint64()
         r = self.so.rc_open_table(ctypes.byref(self.client), name, ctypes.byref(handle))
         if r != 0:
             self.raise_error()
@@ -307,9 +307,9 @@ class RAMCloud(object):
             self.raise_error()
 
     def create_index(self, table_id, type, unique, range_queryable):
-        index_id = ctypes.c_int()
+        index_id = ctypes.c_uint16()
         r = self.so.rc_create_index(ctypes.byref(self.client),
-                                    int(table_id),
+                                    ctypes.c_uint64(table_id),
                                     int(type.type_id),
                                     bool(unique),
                                     bool(range_queryable),
@@ -320,8 +320,8 @@ class RAMCloud(object):
 
     def drop_index(self, table_id, index_id):
         r = self.so.rc_drop_index(ctypes.byref(self.client),
-                                  int(table_id),
-                                  int(index_id))
+                                  ctypes.c_uint64(table_id),
+                                  ctypes.c_uint16(index_id))
         if r != 0:
             self.raise_error()
 
