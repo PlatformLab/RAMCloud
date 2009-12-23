@@ -272,9 +272,9 @@ class RAMCloud(object):
             return []
 
     def read_full(self, table_id, key):
-        buf = ctypes.create_string_buffer(2048)
+        buf = ctypes.create_string_buffer(10240)
         l = ctypes.c_int()
-        idx_buf = ctypes.create_string_buffer(2048)
+        idx_buf = ctypes.create_string_buffer(10240)
         idx_buf_len = ctypes.c_int(len(idx_buf))
         r = self.so.rc_read(ctypes.byref(self.client),
                             int(table_id),
