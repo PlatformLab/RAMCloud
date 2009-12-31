@@ -96,37 +96,36 @@ Server::~Server()
 }
 
 void
-Server::Ping(const struct rcrpc *req, struct rcrpc *resp)
+Server::Ping(const rcrpc_ping_request *req, rcrpc_ping_response *resp)
 {
-    resp->type = RCRPC_PING_RESPONSE;
-    resp->len = (uint32_t) RCRPC_PING_RESPONSE_LEN;
+    resp->header.type = RCRPC_PING_RESPONSE;
+    resp->header.len = (uint32_t) RCRPC_PING_RESPONSE_LEN;
 }
 
 void
-Server::Read(const struct rcrpc *req, struct rcrpc *resp)
+Server::Read(const rcrpc_read_request *req, rcrpc_read_response *resp)
 {
-    const rcrpc_read_request * const rreq = &req->read_request;
     chunk_entry *chunk;
 
     if (server_debug)
         printf("Read from key %lu\n",
-               rreq->key);
+               req->key);
 
-    Table *t = &tables[rreq->table];
-    const object *o = t->Get(rreq->key);
+    Table *t = &tables[req->table];
+    const object *o = t->Get(req->key);
     if (!o || o->is_tombstone) {
         if (o && o->is_tombstone)
             assert(o->mut->refcnt > 0); 
         throw "Object not found";
     }
 
-    resp->type = RCRPC_READ_RESPONSE;
-    resp->len = static_cast<uint32_t>(RCRPC_READ_RESPONSE_LEN_WODATA);
+    resp->header.type = RCRPC_READ_RESPONSE;
+    resp->header.len = static_cast<uint32_t>(RCRPC_READ_RESPONSE_LEN_WODATA);
     // (will be updated below with var-length data)
-    resp->read_response.index_entries_len = 0;
-    resp->read_response.buf_len = 0;
+    resp->index_entries_len = 0;
+    resp->buf_len = 0;
 
-    char *index_entries_buf = resp->read_response.var;
+    char *index_entries_buf = resp->var;
     ChunkIter cidxiter(const_cast<object*>(o));
     while (cidxiter.entry != NULL) {
         chunk = cidxiter.entry;
@@ -134,7 +133,7 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
         if (!chunk->is_data()) {
             memcpy(index_entries_buf, chunk, chunk_size);
             index_entries_buf += chunk_size;
-            resp->read_response.index_entries_len += chunk_size;
+            resp->index_entries_len += chunk_size;
         }
         ++cidxiter;
     }
@@ -146,13 +145,13 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
         if (chunk->is_data()) {
             memcpy(buf, chunk->data, chunk->len);
             buf += chunk->len;
-            resp->read_response.buf_len += chunk->len;
+            resp->buf_len += chunk->len;
         }
         ++cdataiter;
     }
 
-    resp->len += static_cast<uint32_t>(resp->read_response.index_entries_len);
-    resp->len += static_cast<uint32_t>(resp->read_response.buf_len);
+    resp->header.len += static_cast<uint32_t>(resp->index_entries_len);
+    resp->header.len += static_cast<uint32_t>(resp->buf_len);
 }
 
 // The log code is cleaning a segment and telling us that this object is
@@ -312,53 +311,47 @@ Server::StoreData(uint64_t table,
 }
 
 void
-Server::Write(const struct rcrpc *req, struct rcrpc *resp)
+Server::Write(const rcrpc_write_request *req, rcrpc_write_response *resp)
 {
-    const rcrpc_write_request * const wreq = &req->write_request;
-
     if (server_debug) {
         printf("Write %lu bytes of data and %lu index bytes to key %lu\n",
-               wreq->buf_len,
-               wreq->index_entries_len,
-               wreq->key);
+               req->buf_len,
+               req->index_entries_len,
+               req->key);
     }
 
-    const char *buf = wreq->var + wreq->index_entries_len;
-    const char *index_entries_buf = wreq->var;
-    StoreData(wreq->table, wreq->key, buf, wreq->buf_len,
-              index_entries_buf, wreq->index_entries_len);
+    const char *buf = req->var + req->index_entries_len;
+    const char *index_entries_buf = req->var;
+    StoreData(req->table, req->key, buf, req->buf_len,
+              index_entries_buf, req->index_entries_len);
 
-    resp->type = RCRPC_WRITE_RESPONSE;
-    resp->len = static_cast<uint32_t>(RCRPC_WRITE_RESPONSE_LEN);
+    resp->header.type = RCRPC_WRITE_RESPONSE;
+    resp->header.len = static_cast<uint32_t>(RCRPC_WRITE_RESPONSE_LEN);
 }
 
 void
-Server::InsertKey(const struct rcrpc *req, struct rcrpc *resp)
+Server::InsertKey(const rcrpc_insert_request *req, rcrpc_insert_response *resp)
 {
-    const rcrpc_insert_request * const ireq = &req->insert_request;
-
-    Table *t = &tables[ireq->table];
+    Table *t = &tables[req->table];
     uint64_t key = t->AllocateKey();
     const object *o = t->Get(key);
     assert(o == NULL);
 
-    const char *buf = ireq->var + ireq->index_entries_len;
-    const char *index_entries_buf = ireq->var;
-    StoreData(ireq->table, key, buf, ireq->buf_len,
-              index_entries_buf, ireq->index_entries_len);
+    const char *buf = req->var + req->index_entries_len;
+    const char *index_entries_buf = req->var;
+    StoreData(req->table, key, buf, req->buf_len,
+              index_entries_buf, req->index_entries_len);
 
-    resp->type = RCRPC_INSERT_RESPONSE;
-    resp->len = (uint32_t) RCRPC_INSERT_RESPONSE_LEN;
-    resp->insert_response.key = key;
+    resp->header.type = RCRPC_INSERT_RESPONSE;
+    resp->header.len = (uint32_t) RCRPC_INSERT_RESPONSE_LEN;
+    resp->key = key;
 }
 
 void
-Server::DeleteKey(const struct rcrpc *req, struct rcrpc *resp)
+Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
 {
-    const rcrpc_delete_request * const dreq = &req->delete_request;
-
-    Table *t = &tables[dreq->table];
-    const object *o = t->Get(dreq->key);
+    Table *t = &tables[req->table];
+    const object *o = t->Get(req->key);
     if (!o || o->is_tombstone) {
         if (o && o->is_tombstone)
             assert(o->mut->refcnt > 0); 
@@ -384,25 +377,26 @@ Server::DeleteKey(const struct rcrpc *req, struct rcrpc *resp)
     const object *tombp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, tomb_o, tomb_o->size());
     assert(tombp);
 
-    t->Put(dreq->key, tombp);
+    t->Put(req->key, tombp);
 
-    resp->type = RCRPC_DELETE_RESPONSE;
-    resp->len  = (uint32_t) RCRPC_DELETE_RESPONSE_LEN;
+    resp->header.type = RCRPC_DELETE_RESPONSE;
+    resp->header.len  = (uint32_t) RCRPC_DELETE_RESPONSE_LEN;
 }
 
 void
-Server::CreateTable(const struct rcrpc *req, struct rcrpc *resp)
+Server::CreateTable(const rcrpc_create_table_request *req,
+                    rcrpc_create_table_response *resp)
 {
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].GetName(), req->create_table_request.name) == 0) {
+        if (strcmp(tables[i].GetName(), req->name) == 0) {
             // TODO Need to do better than this
             throw "Table exists";
         }
     }
     for (i = 0; i < RC_NUM_TABLES; i++) {
         if (strcmp(tables[i].GetName(), "") == 0) {
-            tables[i].SetName(req->create_table_request.name);
+            tables[i].SetName(req->name);
             break;
         }
     }
@@ -413,16 +407,17 @@ Server::CreateTable(const struct rcrpc *req, struct rcrpc *resp)
     if (server_debug)
         printf("create table -> %d\n", i);
 
-    resp->type = RCRPC_CREATE_TABLE_RESPONSE;
-    resp->len  = (uint32_t) RCRPC_CREATE_TABLE_RESPONSE_LEN;
+    resp->header.type = RCRPC_CREATE_TABLE_RESPONSE;
+    resp->header.len  = (uint32_t) RCRPC_CREATE_TABLE_RESPONSE_LEN;
 }
 
 void
-Server::OpenTable(const struct rcrpc *req, struct rcrpc *resp)
+Server::OpenTable(const rcrpc_open_table_request *req,
+                  rcrpc_open_table_response *resp)
 {
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].GetName(), req->open_table_request.name) == 0)
+        if (strcmp(tables[i].GetName(), req->name) == 0)
             break;
     }
     if (i == RC_NUM_TABLES) {
@@ -432,17 +427,18 @@ Server::OpenTable(const struct rcrpc *req, struct rcrpc *resp)
     if (server_debug)
         printf("open table -> %d\n", i);
 
-    resp->type = RCRPC_OPEN_TABLE_RESPONSE;
-    resp->len  = (uint32_t) RCRPC_OPEN_TABLE_RESPONSE_LEN;
-    resp->open_table_response.handle = i;
+    resp->header.type = RCRPC_OPEN_TABLE_RESPONSE;
+    resp->header.len  = (uint32_t) RCRPC_OPEN_TABLE_RESPONSE_LEN;
+    resp->handle = i;
 }
 
 void
-Server::DropTable(const struct rcrpc *req, struct rcrpc *resp)
+Server::DropTable(const rcrpc_drop_table_request *req,
+                   rcrpc_drop_table_response *resp)
 {
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].GetName(), req->drop_table_request.name) == 0) {
+        if (strcmp(tables[i].GetName(), req->name) == 0) {
             tables[i].SetName("");
             break;
         }
@@ -454,12 +450,13 @@ Server::DropTable(const struct rcrpc *req, struct rcrpc *resp)
     if (server_debug)
         printf("drop table -> %d\n", i);
 
-    resp->type = RCRPC_DROP_TABLE_RESPONSE;
-    resp->len  = (uint32_t) RCRPC_DROP_TABLE_RESPONSE_LEN;
+    resp->header.type = RCRPC_DROP_TABLE_RESPONSE;
+    resp->header.len  = (uint32_t) RCRPC_DROP_TABLE_RESPONSE_LEN;
 }
 
 void
-Server::CreateIndex(const struct rcrpc *req, struct rcrpc *resp)
+Server::CreateIndex(const rcrpc_create_index_request *req,
+                    rcrpc_create_index_response *resp)
 {
     Table *table;
     uint16_t index_id;
@@ -470,61 +467,58 @@ Server::CreateIndex(const struct rcrpc *req, struct rcrpc *resp)
     if (server_debug) {
         printf("CreateIndex(table=%d, type=%d, "
                            "unique=%d, range_queryable=%d)\n",
-               req->create_index_request.table,
-               req->create_index_request.type,
-               (bool) req->create_index_request.unique,
-               (bool) req->create_index_request.range_queryable);
+               req->table,
+               req->type,
+               (bool) req->unique,
+               (bool) req->range_queryable);
     }
 
-    table = &tables[req->create_index_request.table];
-    unique = static_cast<bool>(req->create_index_request.unique);
-    range_queryable = static_cast<bool>(req->create_index_request.range_queryable);
-    type = static_cast<enum RCRPC_INDEX_TYPE>(req->create_index_request.type);
+    table = &tables[req->table];
+    unique = static_cast<bool>(req->unique);
+    range_queryable = static_cast<bool>(req->range_queryable);
+    type = static_cast<enum RCRPC_INDEX_TYPE>(req->type);
     if (!is_valid_index_type(type)) {
         throw "Invalid index type";
     }
 
     index_id = table->CreateIndex(unique, range_queryable, type);
 
-    resp->type = RCRPC_CREATE_INDEX_RESPONSE;
-    resp->len  = static_cast<uint32_t>(RCRPC_CREATE_INDEX_RESPONSE_LEN);
-    resp->create_index_response.id = index_id;
+    resp->header.type = RCRPC_CREATE_INDEX_RESPONSE;
+    resp->header.len  = static_cast<uint32_t>(RCRPC_CREATE_INDEX_RESPONSE_LEN);
+    resp->id = index_id;
 }
 
-
 void
-Server::DropIndex(const struct rcrpc *req, struct rcrpc *resp)
+Server::DropIndex(const rcrpc_drop_index_request *req,
+                  rcrpc_drop_index_response *resp)
 {
     Table *table;
 
     if (server_debug) {
-        printf("DropIndex(table=%d, id=%d)\n",
-               req->drop_index_request.table,
-               req->drop_index_request.id);
+        printf("DropIndex(table=%d, id=%d)\n", req->table, req->id);
     }
 
-    table = &tables[req->create_index_request.table];
-    table->DropIndex(req->drop_index_request.id);
+    table = &tables[req->table];
+    table->DropIndex(req->id);
 
-    resp->type = RCRPC_DROP_INDEX_RESPONSE;
-    resp->len  = static_cast<uint32_t>(RCRPC_DROP_INDEX_RESPONSE_LEN);
+    resp->header.type = RCRPC_DROP_INDEX_RESPONSE;
+    resp->header.len  = static_cast<uint32_t>(RCRPC_DROP_INDEX_RESPONSE_LEN);
 }
 
 void
-Server::RangeQuery(const struct rcrpc *req, struct rcrpc *resp)
+Server::RangeQuery(const rcrpc_range_query_request *req,
+                   rcrpc_range_query_response *resp)
 {
     Table *table;
 
     if (server_debug) {
         printf("RangeQuery(table=%d, id=%d)\n",
-               req->range_query_request.table,
-               req->range_query_request.index_id);
+               req->table,
+               req->index_id);
     }
 
-    table = &tables[req->range_query_request.table];
+    table = &tables[req->table];
 
-    const struct rcrpc_range_query_request *rqreq = &req->range_query_request;
-    struct rcrpc_range_query_response *rqresp = &resp->range_query_response;
     uint16_t index_id;
     char keys_buf[1024];
     uint64_t oids_buf[1024 / sizeof(uint64_t)];
@@ -538,35 +532,35 @@ Server::RangeQuery(const struct rcrpc *req, struct rcrpc *resp)
     std::auto_ptr<IndexKeyRef> start_keyref;
     std::auto_ptr<IndexKeyRef> end_keyref;
 
-    index_id = rqreq->index_id;
+    index_id = req->index_id;
 
-    reqvar = rqreq->var;
+    reqvar = req->var;
 
-    if (static_cast<bool>(rqreq->start_following_oid_present)) {
+    if (static_cast<bool>(req->start_following_oid_present)) {
         uint64_t start_following_oid = *reinterpret_cast<const uint64_t*>(reqvar);
         reqvar += sizeof(uint64_t);
         args.setStartFollowing(start_following_oid);
     }
 
-    if (static_cast<bool>(rqreq->key_start_present)) {
+    if (static_cast<bool>(req->key_start_present)) {
         uint64_t length = *reinterpret_cast<const uint64_t*>(reqvar);
         reqvar += sizeof(uint64_t);
         start_keyref.reset(new IndexKeyRef(reqvar, length));
         reqvar += length;
-        args.setKeyStart(*start_keyref, static_cast<bool>(rqreq->key_start_inclusive));
+        args.setKeyStart(*start_keyref, static_cast<bool>(req->key_start_inclusive));
     }
 
-    if (static_cast<bool>(rqreq->key_end_present)) {
+    if (static_cast<bool>(req->key_end_present)) {
         uint64_t length = *reinterpret_cast<const uint64_t*>(reqvar);
         reqvar += sizeof(uint64_t);
         end_keyref.reset(new IndexKeyRef(reqvar, length));
         reqvar += length;
-        args.setKeyEnd(*end_keyref, static_cast<bool>(rqreq->key_end_inclusive));
+        args.setKeyEnd(*end_keyref, static_cast<bool>(req->key_end_inclusive));
     }
 
-    args.setLimit(static_cast<unsigned int>(rqreq->limit));
+    args.setLimit(static_cast<unsigned int>(req->limit));
 
-    if (static_cast<bool>(rqreq->request_keys)) {
+    if (static_cast<bool>(req->request_keys)) {
         args.setResultBuf(keysref, oidsref);
     } else {
         args.setResultBuf(oidsref);
@@ -576,102 +570,101 @@ Server::RangeQuery(const struct rcrpc *req, struct rcrpc *resp)
 
     count = table->RangeQueryIndex(index_id, &args);
 
-    rqresp->len = static_cast<uint32_t>(count);
-    rqresp->more = more;
+    resp->len = static_cast<uint32_t>(count);
+    resp->more = more;
 
-    respvar = rqresp->var;
+    respvar = resp->var;
     memcpy(respvar, oidsref.buf, oidsref.used * sizeof(uint64_t));
     respvar += oidsref.used * sizeof(uint64_t);
-    if (static_cast<bool>(rqreq->request_keys)) {
+    if (static_cast<bool>(req->request_keys)) {
         memcpy(respvar, keysref.buf, keysref.used);
         respvar += keysref.used;
     }
 
-    resp->type = RCRPC_RANGE_QUERY_RESPONSE;
-    resp->len  = static_cast<uint32_t>(RCRPC_RANGE_QUERY_RESPONSE_LEN_WODATA) +
-                 static_cast<uint32_t>(respvar - rqresp->var);
+    resp->header.type = RCRPC_RANGE_QUERY_RESPONSE;
+    resp->header.len  = static_cast<uint32_t>(
+                            RCRPC_RANGE_QUERY_RESPONSE_LEN_WODATA) +
+                        static_cast<uint32_t>(respvar - resp->var);
 }
 
 void
-Server::UniqueLookup(const struct rcrpc *req, struct rcrpc *resp)
+Server::UniqueLookup(const rcrpc_unique_lookup_request *req,
+                     rcrpc_unique_lookup_response *resp)
 {
     Table *table;
 
     if (server_debug) {
         printf("UniqueLookup(table=%d, id=%d)\n",
-               req->range_query_request.table,
-               req->range_query_request.index_id);
+               req->table,
+               req->index_id);
     }
 
-    table = &tables[req->range_query_request.table];
+    table = &tables[req->table];
 
-    const struct rcrpc_unique_lookup_request *mlreq = &req->unique_lookup_request;
-    struct rcrpc_unique_lookup_response *mlresp = &resp->unique_lookup_response;
     uint16_t index_id;
+    index_id = req->index_id;
 
-    index_id = mlreq->index_id;
+    uint64_t key_length = req->key_len;
+    IndexKeyRef keyref(req->key, key_length);
 
-    uint64_t key_length = mlreq->key_len;
-    IndexKeyRef keyref(mlreq->key, key_length);
+    resp->oid_present = table->UniqueLookupIndex(index_id, keyref, &resp->oid);
 
-    mlresp->oid_present = table->UniqueLookupIndex(index_id, keyref, &mlresp->oid);
-
-    resp->type = RCRPC_UNIQUE_LOOKUP_RESPONSE;
-    resp->len  = static_cast<uint32_t>(RCRPC_UNIQUE_LOOKUP_RESPONSE_LEN);
+    resp->header.type = RCRPC_UNIQUE_LOOKUP_RESPONSE;
+    resp->header.len  = static_cast<uint32_t>(RCRPC_UNIQUE_LOOKUP_RESPONSE_LEN);
 }
 
 void
-Server::MultiLookup(const struct rcrpc *req, struct rcrpc *resp)
+Server::MultiLookup(const rcrpc_multi_lookup_request *req,
+                    rcrpc_multi_lookup_response *resp)
 {
     Table *table;
 
     if (server_debug) {
         printf("MultiLookup(table=%d, id=%d)\n",
-               req->range_query_request.table,
-               req->range_query_request.index_id);
+               req->table,
+               req->index_id);
     }
 
-    table = &tables[req->range_query_request.table];
+    table = &tables[req->table];
 
-    const struct rcrpc_multi_lookup_request *mlreq = &req->multi_lookup_request;
-    struct rcrpc_multi_lookup_response *mlresp = &resp->multi_lookup_response;
     uint16_t index_id;
-    uint64_t oids_buf[mlreq->limit];
+    uint64_t oids_buf[req->limit];
     IndexOIDsRef oidsref(oids_buf, sizeof(oids_buf));
     bool more;
     unsigned int count;
     const char *reqvar;
     MultiLookupArgs args;
 
-    index_id = mlreq->index_id;
+    index_id = req->index_id;
 
-    reqvar = mlreq->var;
+    reqvar = req->var;
 
-    if (static_cast<bool>(mlreq->start_following_oid_present)) {
+    if (static_cast<bool>(req->start_following_oid_present)) {
         uint64_t start_following_oid = *reinterpret_cast<const uint64_t*>(reqvar);
         reqvar += sizeof(uint64_t);
         args.setStartFollowing(start_following_oid);
     }
 
-    uint64_t key_length = mlreq->key_len;
+    uint64_t key_length = req->key_len;
     IndexKeyRef keyref(reqvar, key_length);
     reqvar += key_length;
     args.setKey(keyref);
 
-    args.setLimit(static_cast<unsigned int>(mlreq->limit));
+    args.setLimit(static_cast<unsigned int>(req->limit));
     args.setResultBuf(oidsref);
     args.setResultMore(&more);
 
     count = table->MultiLookupIndex(index_id, &args);
 
-    mlresp->len = static_cast<uint32_t>(count);
-    mlresp->more = more;
+    resp->len = static_cast<uint32_t>(count);
+    resp->more = more;
 
-    memcpy(mlresp->oids, oidsref.buf, oidsref.used * sizeof(uint64_t));
+    memcpy(resp->oids, oidsref.buf, oidsref.used * sizeof(uint64_t));
 
-    resp->type = RCRPC_MULTI_LOOKUP_RESPONSE;
-    resp->len  = static_cast<uint32_t>(RCRPC_MULTI_LOOKUP_RESPONSE_LEN_WODATA) +
-                 static_cast<uint32_t>(oidsref.used * sizeof(uint64_t));
+    resp->header.type = RCRPC_MULTI_LOOKUP_RESPONSE;
+    resp->header.len  = static_cast<uint32_t>(
+                            RCRPC_MULTI_LOOKUP_RESPONSE_LEN_WODATA) +
+                        static_cast<uint32_t>(oidsref.used * sizeof(uint64_t));
 }
 
 struct obj_replay_cookie {
@@ -740,46 +733,48 @@ Server::Restore()
 void
 Server::HandleRPC()
 {
-    rcrpc *req;
+    rcrpc_any *req;
     if (net->RecvRPC(&req) != 0) {
         printf("Failure receiving rpc\n");
         return;
     }
 
     char rpcbuf[MAX_RPC_LEN];
-    rcrpc *resp = reinterpret_cast<rcrpc *>(rpcbuf);
+    rcrpc_any *resp = reinterpret_cast<rcrpc_any*>(rpcbuf);
+    resp->header.type = 0xFFFFFFFF;
+    resp->header.len = 0;
 
     //printf("got rpc type: 0x%08x, len 0x%08x\n", req->type, req->len);
 
     try {
-        switch((enum RCRPC_TYPE) req->type) {
-        case RCRPC_PING_REQUEST:          Server::Ping(req, resp);         break;
-        case RCRPC_READ_REQUEST:          Server::Read(req, resp);         break;
-        case RCRPC_WRITE_REQUEST:         Server::Write(req, resp);        break;
-        case RCRPC_INSERT_REQUEST:        Server::InsertKey(req, resp);    break;
-        case RCRPC_DELETE_REQUEST:        Server::DeleteKey(req, resp);    break;
-        case RCRPC_CREATE_TABLE_REQUEST:  Server::CreateTable(req, resp);  break;
-        case RCRPC_OPEN_TABLE_REQUEST:    Server::OpenTable(req, resp);    break;
-        case RCRPC_DROP_TABLE_REQUEST:    Server::DropTable(req, resp);    break;
-        case RCRPC_CREATE_INDEX_REQUEST:  Server::CreateIndex(req, resp);  break;
-        case RCRPC_DROP_INDEX_REQUEST:    Server::DropIndex(req, resp);    break;
-        case RCRPC_RANGE_QUERY_REQUEST:   Server::RangeQuery(req, resp);   break;
-        case RCRPC_UNIQUE_LOOKUP_REQUEST: Server::UniqueLookup(req, resp); break;
-        case RCRPC_MULTI_LOOKUP_REQUEST:  Server::MultiLookup(req, resp); break;
+        switch((enum RCRPC_TYPE) req->header.type) {
 
-        case RCRPC_PING_RESPONSE:
-        case RCRPC_READ_RESPONSE:
-        case RCRPC_WRITE_RESPONSE:
-        case RCRPC_INSERT_RESPONSE:
-        case RCRPC_DELETE_RESPONSE:
-        case RCRPC_CREATE_TABLE_RESPONSE:
-        case RCRPC_OPEN_TABLE_RESPONSE:
-        case RCRPC_DROP_TABLE_RESPONSE:
-        case RCRPC_CREATE_INDEX_RESPONSE:
-        case RCRPC_DROP_INDEX_RESPONSE:
-        case RCRPC_RANGE_QUERY_RESPONSE:
-        case RCRPC_UNIQUE_LOOKUP_RESPONSE:
-        case RCRPC_MULTI_LOOKUP_RESPONSE:
+#define HANDLE(rcrpc_upper, rcrpc_lower, handler) \
+        case RCRPC_##rcrpc_upper##_REQUEST: \
+            assert(req->header.len >= sizeof(rcrpc_##rcrpc_lower##_request)); \
+            Server::handler(reinterpret_cast<rcrpc_##rcrpc_lower##_request*>(req), \
+                            reinterpret_cast<rcrpc_##rcrpc_lower##_response*>(resp)); \
+            assert(resp->header.type == RCRPC_##rcrpc_upper##_RESPONSE); \
+            assert(resp->header.len >= sizeof(rcrpc_##rcrpc_lower##_response)); \
+            break; \
+        case RCRPC_##rcrpc_upper##_RESPONSE: \
+            throw "server received RPC response"
+
+        HANDLE(PING, ping, Ping);
+        HANDLE(READ, read, Read);
+        HANDLE(WRITE, write, Write);
+        HANDLE(INSERT, insert, InsertKey);
+        HANDLE(DELETE, delete, DeleteKey);
+        HANDLE(CREATE_TABLE, create_table, CreateTable);
+        HANDLE(OPEN_TABLE, open_table, OpenTable);
+        HANDLE(DROP_TABLE, drop_table, DropTable);
+        HANDLE(CREATE_INDEX, create_index, CreateIndex);
+        HANDLE(DROP_INDEX, drop_index, DropIndex);
+        HANDLE(RANGE_QUERY, range_query, RangeQuery);
+        HANDLE(UNIQUE_LOOKUP, unique_lookup, UniqueLookup);
+        HANDLE(MULTI_LOOKUP, multi_lookup, MultiLookup);
+#undef HANDLE
+
         case RCRPC_ERROR_RESPONSE:
             throw "server received RPC response";
 
@@ -787,14 +782,15 @@ Server::HandleRPC()
             throw "received unknown RPC type";
         }
     } catch (const char *msg) {
-        rcrpc_error_response *error_rpc = &resp->error_response;
+        rcrpc_error_response *error_rpc = reinterpret_cast<rcrpc_error_response*>(resp);
         fprintf(stderr, "Error while processing RPC: %s\n", msg);
         size_t msglen = strlen(msg);
         assert(RCRPC_ERROR_RESPONSE_LEN_WODATA + msglen + 1 < MAX_RPC_LEN);
         strcpy(&error_rpc->message[0], msg);
-        resp->type = RCRPC_ERROR_RESPONSE;
-        resp->len = static_cast<uint32_t>(RCRPC_ERROR_RESPONSE_LEN_WODATA) +
-            msglen + 1;
+        resp->header.type = RCRPC_ERROR_RESPONSE;
+        resp->header.len = static_cast<uint32_t>(
+                               RCRPC_ERROR_RESPONSE_LEN_WODATA) +
+                           msglen + 1;
     }
     net->SendRPC(resp);
 }

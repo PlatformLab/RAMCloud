@@ -286,19 +286,32 @@ struct ServerConfig {
 
 class Server {
   public:
-    void Ping(const struct rcrpc *req, struct rcrpc *resp);
-    void Read(const struct rcrpc *req, struct rcrpc *resp);
-    void Write(const struct rcrpc *req, struct rcrpc *resp);
-    void InsertKey(const struct rcrpc *req, struct rcrpc *resp);
-    void DeleteKey(const struct rcrpc *req, struct rcrpc *resp);
-    void CreateTable(const struct rcrpc *req, struct rcrpc *resp);
-    void OpenTable(const struct rcrpc *req, struct rcrpc *resp);
-    void DropTable(const struct rcrpc *req, struct rcrpc *resp);
-    void CreateIndex(const struct rcrpc *req, struct rcrpc *resp);
-    void DropIndex(const struct rcrpc *req, struct rcrpc *resp);
-    void RangeQuery(const struct rcrpc *req, struct rcrpc *resp);
-    void UniqueLookup(const struct rcrpc *req, struct rcrpc *resp);
-    void MultiLookup(const struct rcrpc *req, struct rcrpc *resp);
+    void Ping(const rcrpc_ping_request *req,
+              rcrpc_ping_response *resp);
+    void Read(const rcrpc_read_request *req,
+              rcrpc_read_response *resp);
+    void Write(const rcrpc_write_request *req,
+               rcrpc_write_response *resp);
+    void InsertKey(const rcrpc_insert_request *req,
+                   rcrpc_insert_response *resp);
+    void DeleteKey(const rcrpc_delete_request *req,
+                   rcrpc_delete_response *resp);
+    void CreateTable(const rcrpc_create_table_request *req,
+                     rcrpc_create_table_response *resp);
+    void OpenTable(const rcrpc_open_table_request *req,
+                   rcrpc_open_table_response *resp);
+    void DropTable(const rcrpc_drop_table_request *req,
+                   rcrpc_drop_table_response *resp);
+    void CreateIndex(const rcrpc_create_index_request *req,
+                     rcrpc_create_index_response *resp);
+    void DropIndex(const rcrpc_drop_index_request *req,
+                   rcrpc_drop_index_response *resp);
+    void RangeQuery(const rcrpc_range_query_request *req,
+                    rcrpc_range_query_response *resp);
+    void UniqueLookup(const rcrpc_unique_lookup_request *req,
+                      rcrpc_unique_lookup_response *resp);
+    void MultiLookup(const rcrpc_multi_lookup_request *req,
+                     rcrpc_multi_lookup_response *resp);
 
     Table *GetTable(uint64_t tid) { return &tables[tid]; }
     Log   *GetLog() { return log; }
