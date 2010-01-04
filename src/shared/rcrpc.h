@@ -95,17 +95,20 @@ enum RCRPC_INDEX_TYPE {
     RCRPC_INDEX_TYPE_UINT64,
     RCRPC_INDEX_TYPE_FLOAT32,
     RCRPC_INDEX_TYPE_FLOAT64,
-    RCRPC_INDEX_TYPE_STRING,
+    RCRPC_INDEX_TYPE_BYTES8,
+    RCRPC_INDEX_TYPE_BYTES16,
+    RCRPC_INDEX_TYPE_BYTES32,
+    RCRPC_INDEX_TYPE_BYTES64,
 };
 
 static inline bool
 is_valid_index_type(enum RCRPC_INDEX_TYPE type) {
-    return type <= RCRPC_INDEX_TYPE_STRING;
+    return type <= RCRPC_INDEX_TYPE_BYTES64;
 }
 
 static inline bool
 is_varlen_index_type(enum RCRPC_INDEX_TYPE type) {
-    return type >= RCRPC_INDEX_TYPE_STRING;
+    return type >= RCRPC_INDEX_TYPE_BYTES8;
 }
 
 struct rcrpc_ping_request {

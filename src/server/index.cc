@@ -90,7 +90,10 @@ StrKey(enum RCRPC_INDEX_TYPE type, const IndexKeyRef &key, std::string &str) {
         case RCRPC_INDEX_TYPE_FLOAT64:
             ScalarStrKey<double>("%f", key, str);
             break;
-        case RCRPC_INDEX_TYPE_STRING:
+        case RCRPC_INDEX_TYPE_BYTES8:
+        case RCRPC_INDEX_TYPE_BYTES16:
+        case RCRPC_INDEX_TYPE_BYTES32:
+        case RCRPC_INDEX_TYPE_BYTES64:
             str.assign(reinterpret_cast<char*>(key.buf),
                        static_cast<size_t>(key.len));
             break;
@@ -170,7 +173,10 @@ IndexKeyComparator::Factory(enum RCRPC_INDEX_TYPE type) {
             return new ScalarKeyComparator<float>();
         case RCRPC_INDEX_TYPE_FLOAT64:
             return new ScalarKeyComparator<double>();
-        case RCRPC_INDEX_TYPE_STRING:
+        case RCRPC_INDEX_TYPE_BYTES8:
+        case RCRPC_INDEX_TYPE_BYTES16:
+        case RCRPC_INDEX_TYPE_BYTES32:
+        case RCRPC_INDEX_TYPE_BYTES64:
             return new VarLenKeyComparator();
         default:
             throw "bad index type";
@@ -305,7 +311,6 @@ STLUniqueRangeIndex::RangeQuery(const RangeQueryArgs *args) const {
     CMIP range;
     unsigned int count;
     bool more;
-    bool varlen;
 
     assert(args->IsValid());
 
@@ -334,7 +339,10 @@ STLUniqueRangeIndex::RangeQuery(const RangeQueryArgs *args) const {
     map_iter = range.first;
     count = 0;
     more = false;
-    varlen = is_varlen_index_type(this->type);
+
+    if (args->result_buf_keys_ != NULL) {
+        args->result_buf_keys_->SetType(this->type);
+    }
 
     if (map_iter != range.second) {
         if (args->start_following_present_) {
@@ -354,7 +362,7 @@ STLUniqueRangeIndex::RangeQuery(const RangeQueryArgs *args) const {
                 break;
             }
             if (args->result_buf_keys_ != NULL) {
-                if (!args->result_buf_keys_->AddKey(*map_iter->first, varlen)) {
+                if (!args->result_buf_keys_->AddKey(*map_iter->first)) {
                     more = true;
                     break;
                 }
@@ -542,7 +550,6 @@ STLMultiRangeIndex::RangeQuery(const RangeQueryArgs *args) const {
     CLVI vlist_iter;
     unsigned int count;
     bool more;
-    bool varlen;
 
     assert(args->IsValid());
 
@@ -550,7 +557,10 @@ STLMultiRangeIndex::RangeQuery(const RangeQueryArgs *args) const {
     map_iter = range.first;
     count = 0;
     more = false;
-    varlen = is_varlen_index_type(this->type);
+
+    if (args->result_buf_keys_ != NULL) {
+        args->result_buf_keys_->SetType(this->type);
+    }
 
     if (map_iter != map_.end()) {
         vlist = &map_iter->second;
@@ -576,7 +586,7 @@ STLMultiRangeIndex::RangeQuery(const RangeQueryArgs *args) const {
                     goto OOM;
                 }
                 if (args->result_buf_keys_ != NULL) {
-                    if (!args->result_buf_keys_->AddKey(*map_iter->first, varlen)) {
+                    if (!args->result_buf_keys_->AddKey(*map_iter->first)) {
                         more = true;
                         goto OOM;
                     }

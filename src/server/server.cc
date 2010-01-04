@@ -44,7 +44,7 @@ DeleteIndexEntries(Table *table, const object *o)
 {
     chunk_entry *chunk;
 
-    ChunkIter cidxiter(const_cast<chunk_hdr*>(&o->hdr));
+    ChunkIter cidxiter(const_cast<object*>(o));
     while (cidxiter.entry != NULL) {
         chunk = cidxiter.entry;
         if (!chunk->is_data()) {
@@ -52,7 +52,7 @@ DeleteIndexEntries(Table *table, const object *o)
             table->DeleteIndexEntry(chunk->index_id,
                 static_cast<enum RCRPC_INDEX_TYPE>(chunk->index_type),
                 chunk->data, chunk->len,
-                o->hdr.key);
+                o->key);
         }
         ++cidxiter;
     }
@@ -63,7 +63,7 @@ AddIndexEntries(Table *table, const object *o)
 {
     chunk_entry *chunk;
 
-    ChunkIter cidxiter(const_cast<chunk_hdr*>(&o->hdr));
+    ChunkIter cidxiter(const_cast<object*>(o));
     while (cidxiter.entry != NULL) {
         chunk = cidxiter.entry;
         if (!chunk->is_data()) {
@@ -71,7 +71,7 @@ AddIndexEntries(Table *table, const object *o)
             table->AddIndexEntry(chunk->index_id,
                 static_cast<enum RCRPC_INDEX_TYPE>(chunk->index_type),
                 chunk->data, chunk->len,
-                o->hdr.key);
+                o->key);
         }
         ++cidxiter;
     }
@@ -127,7 +127,7 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
     resp->read_response.buf_len = 0;
 
     char *index_entries_buf = resp->read_response.var;
-    ChunkIter cidxiter(const_cast<chunk_hdr*>(&o->hdr));
+    ChunkIter cidxiter(const_cast<object*>(o));
     while (cidxiter.entry != NULL) {
         chunk = cidxiter.entry;
         uint64_t chunk_size = chunk->total_size();
@@ -140,7 +140,7 @@ Server::Read(const struct rcrpc *req, struct rcrpc *resp)
     }
 
     char *buf = index_entries_buf;
-    ChunkIter cdataiter(const_cast<chunk_hdr*>(&o->hdr));
+    ChunkIter cdataiter(const_cast<object*>(o));
     while (cdataiter.entry != NULL) {
         chunk = cdataiter.entry;
         if (chunk->is_data()) {
@@ -190,7 +190,7 @@ LogEvictionCallback(log_entry_type_t type,
     Log *log = svr->log;
     assert(log != NULL);
 
-    const object *tbl_obj = tbl->Get(evict_obj->hdr.key);
+    const object *tbl_obj = tbl->Get(evict_obj->key);
     if (tbl_obj == evict_obj) {
         // same object/tombstone: be sure to preserve whatever it is
 
@@ -199,9 +199,9 @@ LogEvictionCallback(log_entry_type_t type,
 
         const object *objp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT,
                                                          evict_obj,
-                                                         sizeof(*evict_obj));
+                                                         evict_obj->size());
         assert(objp != NULL);
-        tbl->Put(evict_obj->hdr.key, objp);
+        tbl->Put(evict_obj->key, objp);
     } else {
         // different object/tombstone: drop it, but be careful with
         // bookkeeping
@@ -233,8 +233,8 @@ LogEvictionCallback(log_entry_type_t type,
                 if (evict_objm->refcnt == 0) {
                     // case 4 only
                     assert(tbl_obj->is_tombstone);
-                    log->free(LOG_ENTRY_TYPE_OBJECT, tbl_obj, sizeof(*tbl_obj));
-                    tbl->Delete(tbl_obj->hdr.key);
+                    log->free(LOG_ENTRY_TYPE_OBJECT, tbl_obj, tbl_obj->size());
+                    tbl->Delete(tbl_obj->key);
                     delete tbl_obj->mut;
                 }
             } else {
@@ -271,22 +271,23 @@ Server::StoreData(uint64_t table,
         om->refcnt = 0;
     }
 
-    object new_o;
-    new_o.mut = om;
+    DECLARE_OBJECT(new_o, index_entries_buf_len +
+                          sizeof(chunk_entry) + buf_len);
+    new_o->mut = om;
     om->refcnt++;
 
-    new_o.hdr.key = key;
-    new_o.hdr.table = table;
-    new_o.is_tombstone = false;
+    new_o->key = key;
+    new_o->table = table;
+    new_o->is_tombstone = false;
     // TODO dm's super-fast checksum here
-    new_o.hdr.checksum = 0x0BE70BE70BE70BE7ULL;
-    new_o.hdr.entries_len = 0;
+    new_o->checksum = 0x0BE70BE70BE70BE7ULL;
+    new_o->entries_len = 0;
 
-    chunk = new_o.hdr.entries;
+    chunk = new_o->entries;
 
     // index entries buf has same format as chunk entries for now
     memcpy(chunk, index_entries_buf, index_entries_buf_len);
-    new_o.hdr.entries_len += index_entries_buf_len;
+    new_o->entries_len += index_entries_buf_len;
     chunk = reinterpret_cast<chunk_entry*>(reinterpret_cast<char*>(chunk) +
                                            index_entries_buf_len);
 
@@ -294,7 +295,7 @@ Server::StoreData(uint64_t table,
     chunk->index_id = static_cast<uint32_t>(-1);
     chunk->index_type = static_cast<uint32_t>(-1);
     memcpy(chunk->data, buf, buf_len);
-    new_o.hdr.entries_len += chunk->total_size();
+    new_o->entries_len += chunk->total_size();
     chunk = chunk->next();
 
     // mark the old object as freed _before_ writing the new object to the log.
@@ -302,9 +303,9 @@ Server::StoreData(uint64_t table,
     // before log->append() returns. The subsequent free breaks, as that segment may
     // have been reset.
     if (o != NULL)
-        log->free(LOG_ENTRY_TYPE_OBJECT, o, sizeof(*o));
+        log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
 
-    const object *objp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, &new_o, sizeof(new_o));
+    const object *objp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, new_o, new_o->size());
     assert(objp != NULL);
     t->Put(key, objp);
     AddIndexEntries(t, objp);
@@ -369,15 +370,18 @@ Server::DeleteKey(const struct rcrpc *req, struct rcrpc *resp)
 
     DeleteIndexEntries(t, o);
 
-    object tomb_o;
-    tomb_o.hdr = o->hdr;
-    tomb_o.mut = o->mut;
-    tomb_o.is_tombstone = true;
+    DECLARE_OBJECT(tomb_o, 0);
+    tomb_o->key = o->key;
+    tomb_o->table = o->table;
+    tomb_o->checksum = 0;
+    tomb_o->mut = o->mut;
+    tomb_o->is_tombstone = true;
+    tomb_o->entries_len = 0;
 
     // `o' may be relocated in the log when we append, before the tombstone is written, so
     // we must either mark the space as free first, or refetch from the hash table afterwards
-    log->free(LOG_ENTRY_TYPE_OBJECT, o, sizeof(*o));
-    const object *tombp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, &tomb_o, sizeof(tomb_o));
+    log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
+    const object *tombp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, tomb_o, tomb_o->size());
     assert(tombp);
 
     t->Put(dreq->key, tombp);
@@ -694,11 +698,11 @@ ObjectReplayCallback(log_entry_type_t type,
         const object *obj = static_cast<const object *>(p);
         assert(obj);
 
-        Table *table = &server->tables[obj->hdr.table];
+        Table *table = &server->tables[obj->table];
         assert(table != NULL);
 
-        table->Delete(obj->hdr.key);
-        table->Put(obj->hdr.key, obj);
+        table->Delete(obj->key);
+        table->Put(obj->key, obj);
     }
         break;
     case LOG_ENTRY_TYPE_SEGMENT_HEADER:

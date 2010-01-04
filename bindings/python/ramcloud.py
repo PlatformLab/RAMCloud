@@ -103,7 +103,10 @@ class _RCRPC_INDEX_TYPE(object):
         self.UINT64  = self.IndexType(id.next(), 8,    ctypes.c_uint64)
         self.FLOAT32 = self.IndexType(id.next(), 4,    ctypes.c_float)
         self.FLOAT64 = self.IndexType(id.next(), 8,    ctypes.c_double)
-        self.STRING  = self.IndexType(id.next(), None, ctypes.c_char_p) # \0-terminated
+        self.BYTES8  = self.IndexType(id.next(), None, ctypes.c_char_p)
+        self.BYTES16 = self.IndexType(id.next(), None, ctypes.c_char_p)
+        self.BYTES32 = self.IndexType(id.next(), None, ctypes.c_char_p)
+        self.BYTES64 = self.IndexType(id.next(), None, ctypes.c_char_p)
 
     def __getitem__(self, i):
         return self._lookup[i]
@@ -228,8 +231,8 @@ class RAMCloud(object):
 
     def delete(self, table_id, key):
         r = self.so.rc_delete(ctypes.byref(self.client),
-                              int(table_id),
-                              int(key))
+                              ctypes.c_uint64(table_id),
+                              ctypes.c_uint64(key))
         if r != 0:
             self.raise_error()
 
@@ -272,13 +275,13 @@ class RAMCloud(object):
             return []
 
     def read_full(self, table_id, key):
-        buf = ctypes.create_string_buffer(2048)
-        l = ctypes.c_int()
-        idx_buf = ctypes.create_string_buffer(2048)
-        idx_buf_len = ctypes.c_int(len(idx_buf))
+        buf = ctypes.create_string_buffer(10240)
+        l = ctypes.c_uint64()
+        idx_buf = ctypes.create_string_buffer(10240)
+        idx_buf_len = ctypes.c_uint64(len(idx_buf))
         r = self.so.rc_read(ctypes.byref(self.client),
-                            int(table_id),
-                            int(key),
+                            ctypes.c_uint64(table_id),
+                            ctypes.c_uint64(key),
                             ctypes.byref(buf),
                             ctypes.byref(l),
                             ctypes.byref(idx_buf),
@@ -295,7 +298,7 @@ class RAMCloud(object):
             self.raise_error()
 
     def open_table(self, name):
-        handle = ctypes.c_int()
+        handle = ctypes.c_uint64()
         r = self.so.rc_open_table(ctypes.byref(self.client), name, ctypes.byref(handle))
         if r != 0:
             self.raise_error()
@@ -307,9 +310,9 @@ class RAMCloud(object):
             self.raise_error()
 
     def create_index(self, table_id, type, unique, range_queryable):
-        index_id = ctypes.c_int()
+        index_id = ctypes.c_uint16()
         r = self.so.rc_create_index(ctypes.byref(self.client),
-                                    int(table_id),
+                                    ctypes.c_uint64(table_id),
                                     int(type.type_id),
                                     bool(unique),
                                     bool(range_queryable),
@@ -320,8 +323,8 @@ class RAMCloud(object):
 
     def drop_index(self, table_id, index_id):
         r = self.so.rc_drop_index(ctypes.byref(self.client),
-                                  int(table_id),
-                                  int(index_id))
+                                  ctypes.c_uint64(table_id),
+                                  ctypes.c_uint16(index_id))
         if r != 0:
             self.raise_error()
 
@@ -330,7 +333,7 @@ class RAMCloud(object):
             width = index_type.width
             key_buf = index_type.ctype(key)
         else:
-            # variable-length key type (STRING)
+            # variable-length key type (BYTES)
             key_buf = ctypes.create_string_buffer(key)
             width = len(key)
         oid_present = ctypes.c_int()
@@ -356,7 +359,7 @@ class RAMCloud(object):
             width = index_type.width
             key_buf = index_type.ctype(key)
         else:
-            # variable-length key type (STRING)
+            # variable-length key type (BYTES)
             key_buf = ctypes.create_string_buffer(key)
             width = len(key)
         self.so.rc_multi_lookup_set_key(args, ctypes.byref(key_buf),
@@ -391,7 +394,7 @@ class RAMCloud(object):
                 width = index_type.width
                 key_start_buf = index_type.ctype(key_start)
             else:
-                # variable-length key type (STRING)
+                # variable-length key type (BYTES)
                 key_start_buf = ctypes.create_string_buffer(key_start)
                 width = len(key_start)
             self.so.rc_range_query_set_key_start(args, ctypes.byref(key_start_buf),
@@ -403,7 +406,7 @@ class RAMCloud(object):
                 width = index_type.width
                 key_end_buf = index_type.ctype(key_end)
             else:
-                # variable-length key type (STRING)
+                # variable-length key type (BYTES)
                 key_end_buf = ctypes.create_string_buffer(key_end)
                 width = len(key_end)
             self.so.rc_range_query_set_key_end(args, ctypes.byref(key_end_buf),
@@ -421,10 +424,23 @@ class RAMCloud(object):
             keys = (index_type.ctype * limit)()
             keys_buf_len = ctypes.c_uint64(index_type.width * limit)
         else:
-            # variable-length key type (STRING)
-            keys = ctypes.create_string_buffer(256 * limit)
+            # variable-length key type (BYTES)
+            if index_type == RCRPC_INDEX_TYPE.BYTES8:
+                maxlen = (2**8 - 1) * limit
+            elif index_type == RCRPC_INDEX_TYPE.BYTES16:
+                maxlen = (2**16 - 1) * limit
+            elif index_type == RCRPC_INDEX_TYPE.BYTES32:
+                maxlen = (2**32 - 1) * limit
+            elif index_type == RCRPC_INDEX_TYPE.BYTES64:
+                maxlen = (2**64 - 1) * limit
+            else:
+                assert False, "unknown variable-length key type"
+            if maxlen > 1024 * 1024 * 10:
+                print "warning: possible result size too big..."
+                print "warning: using smaller buffer that may overflow"
+                maxlen = 1024 * 1024 * 10
+            keys = ctypes.create_string_buffer(maxlen)
             keys_buf_len = ctypes.c_uint64(len(keys))
-            # TODO(ongaro): should we limit strings to 255 characters in general?
         self.so.rc_range_query_set_result_bufs(args, ctypes.byref(count),
                                                ctypes.byref(oids), ctypes.byref(oids_buf_len),
                                                ctypes.byref(keys), ctypes.byref(keys_buf_len),
@@ -440,9 +456,21 @@ class RAMCloud(object):
             if index_type.width:
                 key = keys[i]
             else:
-                # variable-length key type (STRING)
-                l = ctypes.c_uint8.from_address(addr).value
-                addr += 1
+                # variable-length key type (BYTES)
+                if index_type == RCRPC_INDEX_TYPE.BYTES8:
+                    l = ctypes.c_uint8.from_address(addr).value
+                    addr += 1
+                elif index_type == RCRPC_INDEX_TYPE.BYTES16:
+                    l = ctypes.c_uint16.from_address(addr).value
+                    addr += 2
+                elif index_type == RCRPC_INDEX_TYPE.BYTES32:
+                    l = ctypes.c_uint32.from_address(addr).value
+                    addr += 4
+                elif index_type == RCRPC_INDEX_TYPE.BYTES64:
+                    l = ctypes.c_uint64.from_address(addr).value
+                    addr += 8
+                else:
+                    assert False, "unknown variable-length key type"
                 buf = ctypes.create_string_buffer(l)
                 ctypes.memmove(ctypes.addressof(buf), addr, l)
                 addr += l
@@ -464,14 +492,14 @@ def main():
 
     index_id = r.create_index(table, RCRPC_INDEX_TYPE.UINT64, True, True)
     print "Created index id %d" % index_id
-    str_index_id = r.create_index(table, RCRPC_INDEX_TYPE.STRING, True, True)
+    str_index_id = r.create_index(table, RCRPC_INDEX_TYPE.BYTES8, True, True)
     print "Created index id %d" % str_index_id
     multi_index_id = r.create_index(table, RCRPC_INDEX_TYPE.SINT32, False, True)
     print "Created index id %d" % multi_index_id
 
     r.write(table, 0, "Hello, World, from Python", [
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4592)),
-        (str_index_id, (RCRPC_INDEX_TYPE.STRING, "write")),
+        (str_index_id, (RCRPC_INDEX_TYPE.BYTES8, "write")),
         (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
     ])
     print "Inserted to table"
@@ -480,13 +508,13 @@ def main():
     print indexes
     key = r.insert(table, "test", [
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4723)),
-        (str_index_id, (RCRPC_INDEX_TYPE.STRING, "insert")),
+        (str_index_id, (RCRPC_INDEX_TYPE.BYTES8, "insert")),
         (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
     ])
     print "Inserted value and got back key %d" % key
     r.write(table, key, "test", [
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4899)),
-        (str_index_id, (RCRPC_INDEX_TYPE.STRING, "rewrite")),
+        (str_index_id, (RCRPC_INDEX_TYPE.BYTES8, "rewrite")),
         (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
     ])
 
@@ -499,12 +527,12 @@ def main():
     print pairs, more
 
     pairs, more = r.range_query(table_id=table, index_id=str_index_id,
-                                index_type=RCRPC_INDEX_TYPE.STRING,
+                                index_type=RCRPC_INDEX_TYPE.BYTES8,
                                 limit=5, key_start="m")
     print pairs, more
 
     print r.unique_lookup(table_id=table, index_id=str_index_id,
-                          index_type=RCRPC_INDEX_TYPE.STRING, key="rewrite")
+                          index_type=RCRPC_INDEX_TYPE.BYTES8, key="rewrite")
 
     oids, more = r.multi_lookup(table_id=table, index_id=multi_index_id,
                                 index_type=RCRPC_INDEX_TYPE.SINT32,
