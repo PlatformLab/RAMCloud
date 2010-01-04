@@ -183,7 +183,7 @@ LogEvictionCallback(log_entry_type_t type,
     assert(evict_obj != NULL);
     assert(svr != NULL);
 
-    Table *tbl = &svr->tables[evict_obj->hdr.table];
+    Table *tbl = &svr->tables[evict_obj->table];
     assert(tbl != NULL);
 
     Log *log = svr->log;
