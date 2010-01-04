@@ -21,34 +21,34 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
-#define RCRPC_HEADER_LEN                        ((size_t) &(((struct rcrpc *) 0)->ping_request))
-#define RCRPC_PING_REQUEST_LEN                  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_ping_request))
-#define RCRPC_PING_RESPONSE_LEN                 (RCRPC_HEADER_LEN + sizeof(struct rcrpc_ping_response))
-#define RCRPC_READ_REQUEST_LEN                  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read_request))
-#define RCRPC_READ_RESPONSE_LEN_WODATA          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_read_response))
-#define RCRPC_WRITE_REQUEST_LEN_WODATA          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write_request))
-#define RCRPC_WRITE_RESPONSE_LEN                (RCRPC_HEADER_LEN + sizeof(struct rcrpc_write_response))
-#define RCRPC_INSERT_REQUEST_LEN_WODATA         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_request))
-#define RCRPC_INSERT_RESPONSE_LEN               (RCRPC_HEADER_LEN + sizeof(struct rcrpc_insert_response))
-#define RCRPC_DELETE_REQUEST_LEN                (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_request))
-#define RCRPC_DELETE_RESPONSE_LEN               (RCRPC_HEADER_LEN + sizeof(struct rcrpc_delete_response))
-#define RCRPC_CREATE_TABLE_REQUEST_LEN          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_table_request))
-#define RCRPC_CREATE_TABLE_RESPONSE_LEN         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_table_response))
-#define RCRPC_OPEN_TABLE_REQUEST_LEN            (RCRPC_HEADER_LEN + sizeof(struct rcrpc_open_table_request))
-#define RCRPC_OPEN_TABLE_RESPONSE_LEN           (RCRPC_HEADER_LEN + sizeof(struct rcrpc_open_table_response))
-#define RCRPC_DROP_TABLE_REQUEST_LEN            (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_request))
-#define RCRPC_DROP_TABLE_RESPONSE_LEN           (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_table_response))
-#define RCRPC_CREATE_INDEX_REQUEST_LEN          (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_index_request))
-#define RCRPC_CREATE_INDEX_RESPONSE_LEN         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_create_index_response))
-#define RCRPC_DROP_INDEX_REQUEST_LEN            (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_index_request))
-#define RCRPC_DROP_INDEX_RESPONSE_LEN           (RCRPC_HEADER_LEN + sizeof(struct rcrpc_drop_index_response))
-#define RCRPC_RANGE_QUERY_REQUEST_LEN_WODATA    (RCRPC_HEADER_LEN + sizeof(struct rcrpc_range_query_request))
-#define RCRPC_RANGE_QUERY_RESPONSE_LEN_WODATA   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_range_query_response))
-#define RCRPC_UNIQUE_LOOKUP_REQUEST_LEN_WODATA  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_unique_lookup_request))
-#define RCRPC_UNIQUE_LOOKUP_RESPONSE_LEN        (RCRPC_HEADER_LEN + sizeof(struct rcrpc_unique_lookup_response))
-#define RCRPC_MULTI_LOOKUP_REQUEST_LEN_WODATA   (RCRPC_HEADER_LEN + sizeof(struct rcrpc_multi_lookup_request))
-#define RCRPC_MULTI_LOOKUP_RESPONSE_LEN_WODATA  (RCRPC_HEADER_LEN + sizeof(struct rcrpc_multi_lookup_response))
-#define RCRPC_ERROR_RESPONSE_LEN_WODATA         (RCRPC_HEADER_LEN + sizeof(struct rcrpc_error_response))
+#define RCRPC_HEADER_LEN                        sizeof(struct rcrpc_header)
+#define RCRPC_PING_REQUEST_LEN                  sizeof(struct rcrpc_ping_request)
+#define RCRPC_PING_RESPONSE_LEN                 sizeof(struct rcrpc_ping_response)
+#define RCRPC_READ_REQUEST_LEN                  sizeof(struct rcrpc_read_request)
+#define RCRPC_READ_RESPONSE_LEN_WODATA          sizeof(struct rcrpc_read_response)
+#define RCRPC_WRITE_REQUEST_LEN_WODATA          sizeof(struct rcrpc_write_request)
+#define RCRPC_WRITE_RESPONSE_LEN                sizeof(struct rcrpc_write_response)
+#define RCRPC_INSERT_REQUEST_LEN_WODATA         sizeof(struct rcrpc_insert_request)
+#define RCRPC_INSERT_RESPONSE_LEN               sizeof(struct rcrpc_insert_response)
+#define RCRPC_DELETE_REQUEST_LEN                sizeof(struct rcrpc_delete_request)
+#define RCRPC_DELETE_RESPONSE_LEN               sizeof(struct rcrpc_delete_response)
+#define RCRPC_CREATE_TABLE_REQUEST_LEN          sizeof(struct rcrpc_create_table_request)
+#define RCRPC_CREATE_TABLE_RESPONSE_LEN         sizeof(struct rcrpc_create_table_response)
+#define RCRPC_OPEN_TABLE_REQUEST_LEN            sizeof(struct rcrpc_open_table_request)
+#define RCRPC_OPEN_TABLE_RESPONSE_LEN           sizeof(struct rcrpc_open_table_response)
+#define RCRPC_DROP_TABLE_REQUEST_LEN            sizeof(struct rcrpc_drop_table_request)
+#define RCRPC_DROP_TABLE_RESPONSE_LEN           sizeof(struct rcrpc_drop_table_response)
+#define RCRPC_CREATE_INDEX_REQUEST_LEN          sizeof(struct rcrpc_create_index_request)
+#define RCRPC_CREATE_INDEX_RESPONSE_LEN         sizeof(struct rcrpc_create_index_response)
+#define RCRPC_DROP_INDEX_REQUEST_LEN            sizeof(struct rcrpc_drop_index_request)
+#define RCRPC_DROP_INDEX_RESPONSE_LEN           sizeof(struct rcrpc_drop_index_response)
+#define RCRPC_RANGE_QUERY_REQUEST_LEN_WODATA    sizeof(struct rcrpc_range_query_request)
+#define RCRPC_RANGE_QUERY_RESPONSE_LEN_WODATA   sizeof(struct rcrpc_range_query_response)
+#define RCRPC_UNIQUE_LOOKUP_REQUEST_LEN_WODATA  sizeof(struct rcrpc_unique_lookup_request)
+#define RCRPC_UNIQUE_LOOKUP_RESPONSE_LEN        sizeof(struct rcrpc_unique_lookup_response)
+#define RCRPC_MULTI_LOOKUP_REQUEST_LEN_WODATA   sizeof(struct rcrpc_multi_lookup_request)
+#define RCRPC_MULTI_LOOKUP_RESPONSE_LEN_WODATA  sizeof(struct rcrpc_multi_lookup_response)
+#define RCRPC_ERROR_RESPONSE_LEN_WODATA         sizeof(struct rcrpc_error_response)
 
 //namespace RAMCloud {
 
@@ -111,19 +111,33 @@ is_varlen_index_type(enum RCRPC_INDEX_TYPE type) {
     return type >= RCRPC_INDEX_TYPE_BYTES8;
 }
 
+struct rcrpc_header {
+    uint32_t type;
+    uint32_t len;
+};
+
+struct rcrpc_any {
+    struct rcrpc_header header;
+    char opaque[0];
+};
+
 struct rcrpc_ping_request {
+    struct rcrpc_header header;
 };
 
 struct rcrpc_ping_response {
+    struct rcrpc_header header;
 };
 
 
 struct rcrpc_read_request {
+    struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
 };
 
 struct rcrpc_read_response {
+    struct rcrpc_header header;
     uint64_t index_entries_len;
     uint64_t buf_len;
 
@@ -134,6 +148,7 @@ struct rcrpc_read_response {
 };
 
 struct rcrpc_write_request {
+    struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
     uint64_t index_entries_len;
@@ -146,9 +161,11 @@ struct rcrpc_write_request {
 };
 
 struct rcrpc_write_response {
+    struct rcrpc_header header;
 };
 
 struct rcrpc_insert_request {
+    struct rcrpc_header header;
     uint64_t table;
     uint64_t index_entries_len;
     uint64_t buf_len;
@@ -160,43 +177,53 @@ struct rcrpc_insert_request {
 };
 
 struct rcrpc_insert_response {
+    struct rcrpc_header header;
     uint64_t key;
 };
 
 struct rcrpc_delete_request {
+    struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
 };
 
 struct rcrpc_delete_response {
+    struct rcrpc_header header;
 };
 
 
 struct rcrpc_create_table_request {
+    struct rcrpc_header header;
     char name[64];
 };
 
 struct rcrpc_create_table_response {
+    struct rcrpc_header header;
 };
 
 
 struct rcrpc_open_table_request {
+    struct rcrpc_header header;
     char name[64];
 };
 
 struct rcrpc_open_table_response {
+    struct rcrpc_header header;
     uint64_t handle;
 };
 
 
 struct rcrpc_drop_table_request {
+    struct rcrpc_header header;
     char name[64];
 };
 
 struct rcrpc_drop_table_response {
+    struct rcrpc_header header;
 };
 
 struct rcrpc_create_index_request {
+    struct rcrpc_header header;
     uint64_t table;
     uint8_t type; /* from RCRPC_INDEX_TYPE */
     int unique:1;
@@ -204,18 +231,22 @@ struct rcrpc_create_index_request {
 };
 
 struct rcrpc_create_index_response {
+    struct rcrpc_header header;
     uint16_t id;
 };
 
 struct rcrpc_drop_index_request {
+    struct rcrpc_header header;
     uint64_t table;
     uint16_t id;
 };
 
 struct rcrpc_drop_index_response {
+    struct rcrpc_header header;
 };
 
 struct rcrpc_range_query_request {
+    struct rcrpc_header header;
     uint64_t table;
     uint32_t limit;
     uint16_t index_id;
@@ -236,6 +267,7 @@ struct rcrpc_range_query_request {
 };
 
 struct rcrpc_range_query_response {
+    struct rcrpc_header header;
     uint32_t len;
     int more:1;
 
@@ -246,6 +278,7 @@ struct rcrpc_range_query_response {
 };
 
 struct rcrpc_unique_lookup_request {
+    struct rcrpc_header header;
     uint64_t table;
     uint16_t index_id;
     uint64_t key_len;
@@ -253,11 +286,13 @@ struct rcrpc_unique_lookup_request {
 };
 
 struct rcrpc_unique_lookup_response {
+    struct rcrpc_header header;
     int oid_present:1;
     uint64_t oid;
 };
 
 struct rcrpc_multi_lookup_request {
+    struct rcrpc_header header;
     uint64_t table;
     uint32_t limit;
     uint16_t index_id;
@@ -271,60 +306,15 @@ struct rcrpc_multi_lookup_request {
 };
 
 struct rcrpc_multi_lookup_response {
+    struct rcrpc_header header;
     uint32_t len; /* number of oids */
     int more:1;
     uint64_t oids[0];                        /* Variable length */
 };
 
 struct rcrpc_error_response {
+    struct rcrpc_header header;
     char message[0];                    /* Variable length */
-};
-
-struct rcrpc {
-    uint32_t type;
-    uint32_t len;
-    union {
-        struct rcrpc_ping_request ping_request;
-        struct rcrpc_ping_response ping_response;
-
-        struct rcrpc_read_request read_request;
-        struct rcrpc_read_response read_response;
-
-        struct rcrpc_write_request write_request;
-        struct rcrpc_write_response write_response;
-
-        struct rcrpc_insert_request insert_request;
-        struct rcrpc_insert_response insert_response;
-
-        struct rcrpc_delete_request delete_request;
-        struct rcrpc_delete_response delete_response;
-
-        struct rcrpc_create_table_request create_table_request;
-        struct rcrpc_create_table_response create_table_response;
-
-        struct rcrpc_open_table_request open_table_request;
-        struct rcrpc_open_table_response open_table_response;
-
-        struct rcrpc_drop_table_request drop_table_request;
-        struct rcrpc_drop_table_response drop_table_response;
-
-        struct rcrpc_create_index_request create_index_request;
-        struct rcrpc_create_index_response create_index_response;
-
-        struct rcrpc_drop_index_request drop_index_request;
-        struct rcrpc_drop_index_response drop_index_response;
-
-        struct rcrpc_range_query_request range_query_request;
-        struct rcrpc_range_query_response range_query_response;
-
-        struct rcrpc_unique_lookup_request unique_lookup_request;
-        struct rcrpc_unique_lookup_response unique_lookup_response;
-
-        struct rcrpc_multi_lookup_request multi_lookup_request;
-        struct rcrpc_multi_lookup_response multi_lookup_response;
-
-        struct rcrpc_error_response error_response;
-    };
 };
 
 //} // namespace RAMCloud

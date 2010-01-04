@@ -48,10 +48,10 @@ class Net {
             throw NetException();
         return len;
     }
-    int SendRPC(struct rcrpc *msg) {
+    int SendRPC(struct rcrpc_any *msg) {
         return rc_net_send_rpc(&net, msg);
     }
-    int RecvRPC(struct rcrpc **msg) {
+    int RecvRPC(struct rcrpc_any **msg) {
         return rc_net_recv_rpc(&net, msg);
     }
     ~Net() {}

@@ -48,27 +48,74 @@ rc_last_error()
 }
 
 static int
-rc_handle_errors(struct rcrpc *resp)
+rc_handle_errors(struct rcrpc_any *resp_any)
 {
-    if (resp->type != RCRPC_ERROR_RESPONSE)
+    struct rcrpc_error_response *resp;
+    if (resp_any->header.type != RCRPC_ERROR_RESPONSE)
         return 0;
-    printf("... '%s'\n", resp->error_response.message);
-    strncpy(&rc_error_message[0], resp->error_response.message, ERROR_MSG_LEN);
+    resp = (struct rcrpc_error_response*) resp_any;
+    printf("... '%s'\n", resp->message);
+    strncpy(&rc_error_message[0], resp->message, ERROR_MSG_LEN);
     return -1;
 }
+
+static int
+sendrcv_rpc(struct rc_net *net,
+            struct rcrpc_any *req,
+            enum RCRPC_TYPE req_type, size_t min_req_size,
+            struct rcrpc_any **respp,
+            enum RCRPC_TYPE resp_type, size_t min_resp_size
+           ) __attribute__ ((warn_unused_result));
+
+static int
+sendrcv_rpc(struct rc_net *net,
+            struct rcrpc_any *req,
+            enum RCRPC_TYPE req_type, size_t min_req_size,
+            struct rcrpc_any **respp,
+            enum RCRPC_TYPE resp_type, size_t min_resp_size)
+{
+    struct rcrpc_any *resp;
+    int r;
+
+    *respp = NULL;
+
+    assert(req->header.type == req_type);
+    assert(req->header.len >= min_req_size);
+
+    assert(!rc_net_send_rpc(net, req));
+    assert(!rc_net_recv_rpc(net, &resp));
+
+    r = rc_handle_errors(resp);
+    if (r == 0) {
+        assert(resp->header.type == resp_type);
+        assert(resp->header.len >= min_resp_size);
+        *respp = resp;
+    }
+    return r;
+}
+
+#define SENDRCV_RPC(rcrpc_upper, rcrpc_lower, query, respp)                    \
+    ({                                                                         \
+        struct rcrpc_##rcrpc_lower##_request* _query = (query);                \
+        struct rcrpc_##rcrpc_lower##_response** _respp = (respp);              \
+        sendrcv_rpc(&client->net,                                              \
+                (struct rcrpc_any*) _query,                                    \
+                RCRPC_##rcrpc_upper##_REQUEST,                                 \
+                sizeof(*_query),                                               \
+                (struct rcrpc_any**) (_respp),                                 \
+                RCRPC_##rcrpc_upper##_RESPONSE,                                \
+                sizeof(**_respp));                                             \
+    })
 
 int
 rc_ping(struct rc_client *client)
 {
-    struct rcrpc query, *resp;
+    struct rcrpc_ping_request query;
+    struct rcrpc_ping_response *resp;
 
-    query.type = RCRPC_PING_REQUEST;
-    query.len  = (uint32_t) RCRPC_PING_REQUEST_LEN;
-
-    assert(!rc_net_send_rpc(&client->net, &query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-
-    return rc_handle_errors(resp);
+    query.header.type = RCRPC_PING_REQUEST;
+    query.header.len  = (uint32_t) RCRPC_PING_REQUEST_LEN;
+    return SENDRCV_RPC(PING, ping, &query, &resp);
 }
 
 int
@@ -82,27 +129,25 @@ rc_write(struct rc_client *client,
 {
     assert(len <= MAX_DATA_WRITE_LEN);
     char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
-    struct rcrpc *query, *resp;
-    query = (struct rcrpc *) query_buf;
+    struct rcrpc_write_request *query;
+    struct rcrpc_write_response *resp;
+    query = (struct rcrpc_write_request *) query_buf;
     char *var;
 
-    query->type = RCRPC_WRITE_REQUEST;
-    query->len  = (uint32_t) RCRPC_WRITE_REQUEST_LEN_WODATA + len +
-                  index_entries_len;
-    query->write_request.table = table;
-    query->write_request.key = key;
-    query->write_request.index_entries_len = index_entries_len;
-    query->write_request.buf_len = len;
-    var = query->write_request.var;
+    query->header.type = RCRPC_WRITE_REQUEST;
+    query->header.len  = (uint32_t) RCRPC_WRITE_REQUEST_LEN_WODATA + len +
+                         index_entries_len;
+    query->table = table;
+    query->key = key;
+    query->index_entries_len = index_entries_len;
+    query->buf_len = len;
+    var = query->var;
     memcpy(var, index_entries_buf, index_entries_len);
     var += index_entries_len;
     memcpy(var, buf, len);
     var += len;
 
-    assert(!rc_net_send_rpc(&client->net, query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-
-    return rc_handle_errors(resp);
+    return SENDRCV_RPC(WRITE, write, query, &resp);
 }
 
 int
@@ -116,25 +161,28 @@ rc_insert(struct rc_client *client,
 {
     assert(len <= MAX_DATA_WRITE_LEN);
     char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
-    struct rcrpc *query, *resp;
-    query = (struct rcrpc *) query_buf;
+    struct rcrpc_insert_request *query;
+    struct rcrpc_insert_response *resp;
+    query = (struct rcrpc_insert_request *) query_buf;
     char *var;
 
-    query->type = RCRPC_INSERT_REQUEST;
-    query->len  = (uint32_t) RCRPC_INSERT_REQUEST_LEN_WODATA + len +
-                  index_entries_len;
-    query->insert_request.table = table;
-    query->insert_request.index_entries_len = index_entries_len;
-    query->insert_request.buf_len = len;
-    var = query->insert_request.var;
+    query->header.type = RCRPC_INSERT_REQUEST;
+    query->header.len  = (uint32_t) RCRPC_INSERT_REQUEST_LEN_WODATA + len +
+                         index_entries_len;
+    query->table = table;
+    query->index_entries_len = index_entries_len;
+    query->buf_len = len;
+    var = query->var;
     memcpy(var, index_entries_buf, index_entries_len);
     var += index_entries_len;
     memcpy(var, buf, len);
     var += len;
 
-    assert(!rc_net_send_rpc(&client->net, query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-    *key = resp->insert_response.key;
+    int r = SENDRCV_RPC(INSERT, insert, query, &resp);
+    if (r) {
+        return r;
+    }
+    *key = resp->key;
     return 0;
 }
 
@@ -143,17 +191,15 @@ rc_delete(struct rc_client *client,
           uint64_t table,
           uint64_t key)
 {
-    struct rcrpc query, *resp;
+    struct rcrpc_delete_request query;
+    struct rcrpc_delete_response *resp;
 
-    query.type = RCRPC_DELETE_REQUEST;
-    query.len  = (uint32_t) RCRPC_DELETE_REQUEST_LEN;
-    query.delete_request.table = table;
-    query.delete_request.key = key;
+    query.header.type = RCRPC_DELETE_REQUEST;
+    query.header.len  = (uint32_t) RCRPC_DELETE_REQUEST_LEN;
+    query.table = table;
+    query.key = key;
 
-    assert(!rc_net_send_rpc(&client->net, &query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-
-    return rc_handle_errors(resp);
+    return SENDRCV_RPC(DELETE, delete, &query, &resp);
 }
 
 int
@@ -165,28 +211,27 @@ rc_read(struct rc_client *client,
         char *index_entries_buf,
         uint64_t *index_entries_len)
 {
-    struct rcrpc query, *resp;
+    struct rcrpc_read_request query;
+    struct rcrpc_read_response *resp;
     char *var;
 
-    query.type = RCRPC_READ_REQUEST;
-    query.len  = (uint32_t) RCRPC_READ_REQUEST_LEN;
-    query.read_request.table = table;
-    query.read_request.key = key;
-    assert(!rc_net_send_rpc(&client->net, &query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-    int r = rc_handle_errors(resp);
+    query.header.type = RCRPC_READ_REQUEST;
+    query.header.len  = (uint32_t) RCRPC_READ_REQUEST_LEN;
+    query.table = table;
+    query.key = key;
+    int r = SENDRCV_RPC(READ, read, &query, &resp);
     if (r)
         return r;
 
-    var = resp->read_response.var;
+    var = resp->var;
     if (index_entries_buf != NULL) {
-        *index_entries_len = resp->read_response.index_entries_len;
+        *index_entries_len = resp->index_entries_len;
         memcpy(index_entries_buf, var, *index_entries_len);
     }
-    var += resp->read_response.index_entries_len;
-    *len = resp->read_response.buf_len;
+    var += resp->index_entries_len;
+    *len = resp->buf_len;
     memcpy(buf, var, *len);
-    var += resp->read_response.buf_len;
+    var += resp->buf_len;
 
     return 0;
 }
@@ -194,35 +239,32 @@ rc_read(struct rc_client *client,
 int
 rc_create_table(struct rc_client *client, const char *name)
 {
-    struct rcrpc query, *resp;
+    struct rcrpc_create_table_request query;
+    struct rcrpc_create_table_response *resp;
 
-    query.type = RCRPC_CREATE_TABLE_REQUEST;
-    query.len  = (uint32_t) RCRPC_CREATE_TABLE_REQUEST_LEN;
-    char *table_name = query.open_table_request.name;
+    query.header.type = RCRPC_CREATE_TABLE_REQUEST;
+    query.header.len  = (uint32_t) RCRPC_CREATE_TABLE_REQUEST_LEN;
+    char *table_name = query.name;
     strncpy(table_name, name, sizeof(table_name));
     table_name[sizeof(table_name) - 1] = '\0';
-    assert(!rc_net_send_rpc(&client->net, &query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-
-    return rc_handle_errors(resp);
+    return SENDRCV_RPC(CREATE_TABLE, create_table, &query, &resp);
 }
 
 int
 rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
 {
-    struct rcrpc query, *resp;
+    struct rcrpc_open_table_request query;
+    struct rcrpc_open_table_response *resp;
 
-    query.type = RCRPC_OPEN_TABLE_REQUEST;
-    query.len  = (uint32_t) RCRPC_OPEN_TABLE_REQUEST_LEN;
-    char *table_name = query.open_table_request.name;
+    query.header.type = RCRPC_OPEN_TABLE_REQUEST;
+    query.header.len  = (uint32_t) RCRPC_OPEN_TABLE_REQUEST_LEN;
+    char *table_name = query.name;
     strncpy(table_name, name, sizeof(table_name));
     table_name[sizeof(table_name) - 1] = '\0';
-    assert(!rc_net_send_rpc(&client->net, &query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-    int r = rc_handle_errors(resp);
+    int r = SENDRCV_RPC(OPEN_TABLE, open_table, &query, &resp);
     if (r)
         return r;
-    *table_id = resp->open_table_response.handle;
+    *table_id = resp->handle;
 
     return 0;
 }
@@ -230,17 +272,15 @@ rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
 int
 rc_drop_table(struct rc_client *client, const char *name)
 {
-    struct rcrpc query, *resp;
+    struct rcrpc_drop_table_request query;
+    struct rcrpc_drop_table_response *resp;
 
-    query.type = RCRPC_DROP_TABLE_REQUEST;
-    query.len  = (uint32_t) RCRPC_DROP_TABLE_REQUEST_LEN;
-    char *table_name = query.open_table_request.name;
+    query.header.type = RCRPC_DROP_TABLE_REQUEST;
+    query.header.len  = (uint32_t) RCRPC_DROP_TABLE_REQUEST_LEN;
+    char *table_name = query.name;
     strncpy(table_name, name, sizeof(table_name));
     table_name[sizeof(table_name) - 1] = '\0';
-    assert(!rc_net_send_rpc(&client->net, &query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-
-    return rc_handle_errors(resp);
+    return SENDRCV_RPC(DROP_TABLE, drop_table, &query, &resp);
 }
 
 int
@@ -250,20 +290,19 @@ rc_create_index(struct rc_client *client,
                 bool unique, bool range_queryable,
                 uint16_t *index_id)
 {
-    struct rcrpc query, *resp;
+    struct rcrpc_create_index_request query;
+    struct rcrpc_create_index_response *resp;
 
-    query.type = RCRPC_CREATE_INDEX_REQUEST;
-    query.len  = (uint32_t) RCRPC_CREATE_INDEX_REQUEST_LEN;
-    query.create_index_request.table = table_id;
-    query.create_index_request.type = (uint8_t) type;
-    query.create_index_request.unique = unique;
-    query.create_index_request.range_queryable = range_queryable;
-    assert(!rc_net_send_rpc(&client->net, &query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-    int r = rc_handle_errors(resp);
+    query.header.type = RCRPC_CREATE_INDEX_REQUEST;
+    query.header.len  = (uint32_t) RCRPC_CREATE_INDEX_REQUEST_LEN;
+    query.table = table_id;
+    query.type = (uint8_t) type;
+    query.unique = unique;
+    query.range_queryable = range_queryable;
+    int r = SENDRCV_RPC(CREATE_INDEX, create_index, &query, &resp);
     if (r)
         return r;
-    *index_id = resp->create_index_response.id;
+    *index_id = resp->id;
 
     return 0;
 }
@@ -271,15 +310,14 @@ rc_create_index(struct rc_client *client,
 int
 rc_drop_index(struct rc_client *client, uint64_t table_id, uint16_t index_id)
 {
-    struct rcrpc query, *resp;
+    struct rcrpc_drop_index_request query;
+    struct rcrpc_drop_index_response *resp;
 
-    query.type = RCRPC_DROP_INDEX_REQUEST;
-    query.len  = (uint32_t) RCRPC_DROP_INDEX_REQUEST_LEN;
-    query.drop_index_request.table = table_id;
-    query.drop_index_request.id = index_id;
-    assert(!rc_net_send_rpc(&client->net, &query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-    return rc_handle_errors(resp);
+    query.header.type = RCRPC_DROP_INDEX_REQUEST;
+    query.header.len  = (uint32_t) RCRPC_DROP_INDEX_REQUEST_LEN;
+    query.table = table_id;
+    query.id = index_id;
+    return SENDRCV_RPC(DROP_INDEX, drop_index, &query, &resp);
 }
 
 int
@@ -289,27 +327,26 @@ rc_unique_lookup(struct rc_client *client, uint64_t table,
 {
     uint32_t query_len = (uint32_t) RCRPC_UNIQUE_LOOKUP_REQUEST_LEN_WODATA +
                          key_len;
-    struct rcrpc *query, *resp;
+    struct rcrpc_unique_lookup_request *query;
+    struct rcrpc_unique_lookup_response *resp;
     char query_buf[query_len];
-    query = (struct rcrpc*) query_buf;
+    query = (struct rcrpc_unique_lookup_request*) query_buf;
 
-    query->type = RCRPC_UNIQUE_LOOKUP_REQUEST;
-    query->len  = query_len;
-    query->unique_lookup_request.table = table;
-    query->unique_lookup_request.index_id = index_id;
-    query->unique_lookup_request.key_len = key_len;
-    memcpy(query->unique_lookup_request.key, key, key_len);
+    query->header.type = RCRPC_UNIQUE_LOOKUP_REQUEST;
+    query->header.len  = query_len;
+    query->table = table;
+    query->index_id = index_id;
+    query->key_len = key_len;
+    memcpy(query->key, key, key_len);
 
-    assert(!rc_net_send_rpc(&client->net, query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-    int r = rc_handle_errors(resp);
+    int r = SENDRCV_RPC(UNIQUE_LOOKUP, unique_lookup, query, &resp);
     if (r) {
         return r;
     }
 
-    *oid_present = (bool) resp->unique_lookup_response.oid_present;
+    *oid_present = (bool) resp->oid_present;
     if (*oid_present) {
-        *oid = resp->unique_lookup_response.oid;
+        *oid = resp->oid;
     }
     return 0;
 }
@@ -365,7 +402,8 @@ int
 rc_multi_lookup(struct rc_client *client,
                 const struct rc_multi_lookup_args *args)
 {
-    struct rcrpc *query, *resp;
+    struct rcrpc_multi_lookup_request *query;
+    struct rcrpc_multi_lookup_response *resp;
     char *var;
 
     int query_buf_len;
@@ -376,12 +414,12 @@ rc_multi_lookup(struct rc_client *client,
     query_buf_len += args->rpc.key_len;
 
     char query_buf[query_buf_len];
-    query = (struct rcrpc*) query_buf;
+    query = (struct rcrpc_multi_lookup_request*) query_buf;
 
-    query->type = RCRPC_MULTI_LOOKUP_REQUEST;
-    query->len = (uint32_t) query_buf_len;
-    memcpy(&query->multi_lookup_request, &args->rpc, sizeof(args->rpc));
-    var = query->multi_lookup_request.var;
+    memcpy(query, &args->rpc, sizeof(args->rpc));
+    query->header.type = RCRPC_MULTI_LOOKUP_REQUEST;
+    query->header.len = (uint32_t) query_buf_len;
+    var = query->var;
     if (args->rpc.start_following_oid_present) {
         *((uint64_t*) var) = args->start_following_oid;
         var += sizeof(uint64_t);
@@ -389,17 +427,14 @@ rc_multi_lookup(struct rc_client *client,
     memcpy(var, args->key, args->rpc.key_len);
     var += args->rpc.key_len;
 
-    assert(!rc_net_send_rpc(&client->net, query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-    int r = rc_handle_errors(resp);
+    int r = SENDRCV_RPC(MULTI_LOOKUP, multi_lookup, query, &resp);
     if (r) {
         return r;
     }
 
-    *args->count = resp->multi_lookup_response.len;
-    *args->more = (bool) resp->multi_lookup_response.more;
-    memcpy(args->oids_buf, resp->multi_lookup_response.oids,
-           *args->count * sizeof(uint64_t));
+    *args->count = resp->len;
+    *args->more = (bool) resp->more;
+    memcpy(args->oids_buf, resp->oids, *args->count * sizeof(uint64_t));
 
     return 0;
 }
@@ -464,7 +499,8 @@ rc_range_query_set_result_bufs(struct rc_range_query_args *args,
 int
 rc_range_query(struct rc_client *client,
                const struct rc_range_query_args *args) {
-    struct rcrpc *query, *resp;
+    struct rcrpc_range_query_request *query;
+    struct rcrpc_range_query_response *resp;
     char *var;
 
     int query_buf_len;
@@ -476,12 +512,12 @@ rc_range_query(struct rc_client *client,
     query_buf_len += sizeof(uint64_t) + args->key_end_len;
 
     char query_buf[query_buf_len];
-    query = (struct rcrpc*) query_buf;
+    query = (struct rcrpc_range_query_request*) query_buf;
 
-    query->type = RCRPC_RANGE_QUERY_REQUEST;
-    query->len = (uint32_t) query_buf_len;
-    memcpy(&query->range_query_request, &args->rpc, sizeof(args->rpc));
-    var = query->range_query_request.var;
+    memcpy(query, &args->rpc, sizeof(args->rpc));
+    query->header.type = RCRPC_RANGE_QUERY_REQUEST;
+    query->header.len = (uint32_t) query_buf_len;
+    var = query->var;
     if (args->rpc.start_following_oid_present) {
         *((uint64_t*) var) = args->start_following_oid;
         var += sizeof(uint64_t);
@@ -499,22 +535,20 @@ rc_range_query(struct rc_client *client,
         var += args->key_end_len;
     }
 
-    assert(!rc_net_send_rpc(&client->net, query));
-    assert(!rc_net_recv_rpc(&client->net, &resp));
-    int r = rc_handle_errors(resp);
+    int r = SENDRCV_RPC(RANGE_QUERY, range_query, query, &resp);
     if (r) {
         return r;
     }
 
     //TODO(ongaro): I hope your buffer is large enough.
-    *args->count = resp->range_query_response.len;
-    *args->more = (bool) resp->range_query_response.more;
-    var = resp->range_query_response.var;
+    *args->count = resp->len;
+    *args->more = (bool) resp->more;
+    var = resp->var;
     *args->oids_buf_len = (*args->count) * sizeof(uint64_t);
     memcpy(args->oids_buf, var, *args->oids_buf_len);
     var += *args->oids_buf_len;
     if (args->rpc.request_keys) {
-        *args->keys_buf_len = resp->len -
+        *args->keys_buf_len = resp->header.len -
                               RCRPC_RANGE_QUERY_RESPONSE_LEN_WODATA -
                               *args->oids_buf_len;
         memcpy(args->keys_buf, var, *args->keys_buf_len);
