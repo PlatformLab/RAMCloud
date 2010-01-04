@@ -36,8 +36,8 @@ int rc_net_connect(struct rc_net *net);
 int rc_net_close(struct rc_net *net);
 int rc_net_send(struct rc_net *net, void *, size_t);
 int rc_net_recv(struct rc_net *net, void **, size_t *);
-int rc_net_send_rpc(struct rc_net *net, struct rcrpc *);
-int rc_net_recv_rpc(struct rc_net *net, struct rcrpc **);
+int rc_net_send_rpc(struct rc_net *net, struct rcrpc_any *);
+int rc_net_recv_rpc(struct rc_net *net, struct rcrpc_any **);
 #ifdef __cplusplus
 }
 #endif

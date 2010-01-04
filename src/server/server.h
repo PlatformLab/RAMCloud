@@ -56,26 +56,57 @@ struct chunk_entry {
         return this->index_id == static_cast<uint32_t>(-1) &&
                this->index_type == static_cast<uint32_t>(-1);
     }
+
+  private:
+    DISALLOW_COPY_AND_ASSIGN(chunk_entry);
 };
 
-struct chunk_hdr {
+struct object_mutable {
+    uint64_t refcnt;
+};
+
+#define DECLARE_OBJECT(name, el) \
+    char name##_buf[sizeof(object) + (el)] __attribute__((aligned (8))); \
+    object *name = new(name##_buf) object(sizeof(name##_buf)); \
+    assert((reinterpret_cast<uint64_t>(name) & 0x7) == 0);
+
+struct object {
+
+    /*
+     * This buf_size parameter is here to annoy you a little bit if you try
+     * stack-allocating one of these. You'll think twice about it, maybe
+     * realize sizeof(entries) is bogus, and proceed to dynamically allocating
+     * a buffer instead.
+     */
+    object(size_t buf_size) : key(-1), table(-1), checksum(0),
+                              is_tombstone(false), mut(NULL), entries_len(0) {
+        assert(buf_size >= sizeof(*this));
+    }
+
+    size_t size() const {
+        return sizeof(*this) + this->entries_len;
+    }
+
     // WARNING: The hashtable code (for the moment) assumes that the
     // object's key is the first 64 bits of the struct
-    // (That's also why the padding is here, and not in struct object.)
     uint64_t key;
     uint64_t table;
     uint64_t checksum;
+    bool is_tombstone;
+    object_mutable *mut;
     uint64_t entries_len;
     struct chunk_entry entries[0];
-    char padding[1024];
+
+  private:
+    DISALLOW_COPY_AND_ASSIGN(object);
 };
 
 class ChunkIter {
   public:
 
-    ChunkIter(chunk_hdr *hdr) : entry(NULL), hdr_(hdr) {
-        if (hdr_->entries_len > 0) {
-            entry = hdr_->entries;
+    ChunkIter(object *obj) : entry(NULL), obj_(obj) {
+        if (obj_->entries_len > 0) {
+            entry = obj_->entries;
         } else {
             entry = NULL;
         }
@@ -85,8 +116,8 @@ class ChunkIter {
         if (entry != NULL) {
             entry = entry->next();
             size_t moved = reinterpret_cast<char*>(entry) -
-                reinterpret_cast<char*>(hdr_->entries);
-            size_t total = static_cast<size_t>(hdr_->entries_len);
+                reinterpret_cast<char*>(obj_->entries);
+            size_t total = static_cast<size_t>(obj_->entries_len);
             if (moved == total) {
                 entry = NULL;
             } else {
@@ -99,18 +130,8 @@ class ChunkIter {
     chunk_entry *entry;
 
   private:
-    chunk_hdr *hdr_;
+    object *obj_;
     DISALLOW_COPY_AND_ASSIGN(ChunkIter);
-};
-
-struct object_mutable {
-    uint64_t refcnt;
-};
-
-struct object {
-    chunk_hdr hdr;
-    bool is_tombstone;
-    object_mutable *mut;
 };
 
 class Table {
@@ -131,7 +152,8 @@ class Table {
     }
     const object *Get(uint64_t key) {
         void *val = object_map.Lookup(key);
-        return static_cast<const object *>(val);
+        const object *o = static_cast<const object *>(val);
+        return o;
     }
     void Put(uint64_t key, const object *o) {
         object_map.Delete(key);
@@ -264,22 +286,32 @@ struct ServerConfig {
 
 class Server {
   public:
-    void Ping(const struct rcrpc *req, struct rcrpc *resp);
-    void Read(const struct rcrpc *req, struct rcrpc *resp);
-    void Write(const struct rcrpc *req, struct rcrpc *resp);
-    void InsertKey(const struct rcrpc *req, struct rcrpc *resp);
-    void DeleteKey(const struct rcrpc *req, struct rcrpc *resp);
-    void CreateTable(const struct rcrpc *req, struct rcrpc *resp);
-    void OpenTable(const struct rcrpc *req, struct rcrpc *resp);
-    void DropTable(const struct rcrpc *req, struct rcrpc *resp);
-    void CreateIndex(const struct rcrpc *req, struct rcrpc *resp);
-    void DropIndex(const struct rcrpc *req, struct rcrpc *resp);
-    void RangeQuery(const struct rcrpc *req, struct rcrpc *resp);
-    void UniqueLookup(const struct rcrpc *req, struct rcrpc *resp);
-    void MultiLookup(const struct rcrpc *req, struct rcrpc *resp);
-
-    Table *GetTable(uint64_t tid) { return &tables[tid]; }
-    Log   *GetLog() { return log; }
+    void Ping(const rcrpc_ping_request *req,
+              rcrpc_ping_response *resp);
+    void Read(const rcrpc_read_request *req,
+              rcrpc_read_response *resp);
+    void Write(const rcrpc_write_request *req,
+               rcrpc_write_response *resp);
+    void InsertKey(const rcrpc_insert_request *req,
+                   rcrpc_insert_response *resp);
+    void DeleteKey(const rcrpc_delete_request *req,
+                   rcrpc_delete_response *resp);
+    void CreateTable(const rcrpc_create_table_request *req,
+                     rcrpc_create_table_response *resp);
+    void OpenTable(const rcrpc_open_table_request *req,
+                   rcrpc_open_table_response *resp);
+    void DropTable(const rcrpc_drop_table_request *req,
+                   rcrpc_drop_table_response *resp);
+    void CreateIndex(const rcrpc_create_index_request *req,
+                     rcrpc_create_index_response *resp);
+    void DropIndex(const rcrpc_drop_index_request *req,
+                   rcrpc_drop_index_response *resp);
+    void RangeQuery(const rcrpc_range_query_request *req,
+                    rcrpc_range_query_response *resp);
+    void UniqueLookup(const rcrpc_unique_lookup_request *req,
+                      rcrpc_unique_lookup_response *resp);
+    void MultiLookup(const rcrpc_multi_lookup_request *req,
+                     rcrpc_multi_lookup_response *resp);
 
     explicit Server(const ServerConfig *sconfig, Net *net_impl);
     Server(const Server& server);
@@ -303,6 +335,10 @@ class Server {
     Net *net;
     BackupClient backup;
     Table tables[RC_NUM_TABLES];
+    friend void LogEvictionCallback(log_entry_type_t type,
+                                    const void *p,
+                                    uint64_t len,
+                                    void *cookie);
     friend void SegmentReplayCallback(Segment *seg, void *cookie);
     friend void ObjectReplayCallback(log_entry_type_t type,
                                      const void *p,

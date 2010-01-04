@@ -287,14 +287,14 @@ UniqueRangeIndexTest::TestRangeQueryString()
     CPPUNIT_ASSERT(ror.used == 2);
     CPPUNIT_ASSERT(valbuf[0] = 43);
     CPPUNIT_ASSERT(valbuf[1] = 79);
-    CPPUNIT_ASSERT(rkr.used == strlen(start) + strlen(end) + sizeof(uint8_t)*2);
+    CPPUNIT_ASSERT(rkr.used == strlen(start) + strlen(end) + sizeof(uint16_t)*2);
     char *var = keybuf;
-    CPPUNIT_ASSERT(*reinterpret_cast<uint8_t*>(var) == strlen(start));
-    var += sizeof(uint8_t);
+    CPPUNIT_ASSERT(*reinterpret_cast<uint16_t*>(var) == strlen(start));
+    var += sizeof(uint16_t);
     CPPUNIT_ASSERT(strncmp(start, var, strlen(start)) == 0);
     var += strlen(start);
-    CPPUNIT_ASSERT(*reinterpret_cast<uint8_t*>(var) == strlen(end));
-    var += sizeof(uint8_t);
+    CPPUNIT_ASSERT(*reinterpret_cast<uint16_t*>(var) == strlen(end));
+    var += sizeof(uint16_t);
     CPPUNIT_ASSERT(strncmp(end, var, strlen(end)) == 0);
 }
 
@@ -517,18 +517,18 @@ MultiRangeIndexTest::TestRangeQueryString()
     CPPUNIT_ASSERT(valbuf[0] = 43);
     CPPUNIT_ASSERT(valbuf[1] = 238);
     CPPUNIT_ASSERT(valbuf[2] = 79);
-    CPPUNIT_ASSERT(rkr.used == strlen(start)*2 + strlen(end) + sizeof(uint8_t)*3);
+    CPPUNIT_ASSERT(rkr.used == strlen(start)*2 + strlen(end) + sizeof(uint16_t)*3);
     char *var = keybuf;
-    CPPUNIT_ASSERT(*reinterpret_cast<uint8_t*>(var) == strlen(start));
-    var += sizeof(uint8_t);
+    CPPUNIT_ASSERT(*reinterpret_cast<uint16_t*>(var) == strlen(start));
+    var += sizeof(uint16_t);
     CPPUNIT_ASSERT(strncmp(start, var, strlen(start)) == 0);
     var += strlen(start);
-    CPPUNIT_ASSERT(*reinterpret_cast<uint8_t*>(var) == strlen(start));
-    var += sizeof(uint8_t);
+    CPPUNIT_ASSERT(*reinterpret_cast<uint16_t*>(var) == strlen(start));
+    var += sizeof(uint16_t);
     CPPUNIT_ASSERT(strncmp(start, var, strlen(start)) == 0);
     var += strlen(start);
-    CPPUNIT_ASSERT(*reinterpret_cast<uint8_t*>(var) == strlen(end));
-    var += sizeof(uint8_t);
+    CPPUNIT_ASSERT(*reinterpret_cast<uint16_t*>(var) == strlen(end));
+    var += sizeof(uint16_t);
     CPPUNIT_ASSERT(strncmp(end, var, strlen(end)) == 0);
 }
 
@@ -539,7 +539,7 @@ class STLUniqueRangeIndexTest : public UniqueRangeIndexTest {
 
     void setUp() {
         index = new RAMCloud::STLUniqueRangeIndex(RCRPC_INDEX_TYPE_SINT32);
-        stringIndex = new RAMCloud::STLUniqueRangeIndex(RCRPC_INDEX_TYPE_STRING);
+        stringIndex = new RAMCloud::STLUniqueRangeIndex(RCRPC_INDEX_TYPE_BYTES16);
     }
 
     void tearDown() {
@@ -572,7 +572,7 @@ class STLMultiRangeIndexTest : public MultiRangeIndexTest {
 
     void setUp() {
         index = new RAMCloud::STLMultiRangeIndex(RCRPC_INDEX_TYPE_SINT32);
-        stringIndex = new RAMCloud::STLMultiRangeIndex(RCRPC_INDEX_TYPE_STRING);
+        stringIndex = new RAMCloud::STLMultiRangeIndex(RCRPC_INDEX_TYPE_BYTES16);
     }
 
     void tearDown() {

@@ -69,7 +69,48 @@ struct IndexKeyRef {
 
 struct IndexKeysRef {
   public:
-    IndexKeysRef(char *buf, uint64_t len) : buf(buf), total(len), used(0) {}
+    IndexKeysRef(char *buf, uint64_t len) : buf(buf), total(len), used(0),
+        type_(static_cast<enum RCRPC_INDEX_TYPE>(-1)) {}
+
+    void SetType(enum RCRPC_INDEX_TYPE type) {
+        type_ = type;
+    }
+
+    bool AddKey(const IndexKeyRef &key) {
+        switch (type_) {
+            case RCRPC_INDEX_TYPE_SINT8:
+            case RCRPC_INDEX_TYPE_UINT8:
+            case RCRPC_INDEX_TYPE_SINT16:
+            case RCRPC_INDEX_TYPE_UINT16:
+            case RCRPC_INDEX_TYPE_SINT32:
+            case RCRPC_INDEX_TYPE_UINT32:
+            case RCRPC_INDEX_TYPE_SINT64:
+            case RCRPC_INDEX_TYPE_UINT64:
+            case RCRPC_INDEX_TYPE_FLOAT32:
+            case RCRPC_INDEX_TYPE_FLOAT64:
+                return AddFixedLenKey(key);
+            case RCRPC_INDEX_TYPE_BYTES8:
+                assert(is_varlen_index_type(type_));
+                return AddVarLenKey<uint8_t>(key);
+            case RCRPC_INDEX_TYPE_BYTES16:
+                assert(is_varlen_index_type(type_));
+                return AddVarLenKey<uint16_t>(key);
+            case RCRPC_INDEX_TYPE_BYTES32:
+                assert(is_varlen_index_type(type_));
+                return AddVarLenKey<uint32_t>(key);
+            case RCRPC_INDEX_TYPE_BYTES64:
+                assert(is_varlen_index_type(type_));
+                return AddVarLenKey<uint64_t>(key);
+            default:
+                throw "bad index type";
+        }
+    }
+
+    char *buf;
+    uint64_t total; /* total number of bytes that can be stored in buf */
+    uint64_t used;  /* number of bytes that have been stored in buf */
+
+  private:
 
     bool AddFixedLenKey(const IndexKeyRef &key) {
         if (used + key.len <= total) {
@@ -81,31 +122,20 @@ struct IndexKeysRef {
         }
     }
 
+    template <class LT>
     bool AddVarLenKey(const IndexKeyRef &key) {
-        if (used + 1 + key.len <= total) {
-            assert(key.len < 256);
-            *reinterpret_cast<uint8_t*>(buf + used) = static_cast<uint8_t>(key.len);
-            memcpy(buf + used + 1, key.buf, key.len);
-            used += 1 + key.len;
+        if (used + sizeof(LT) + key.len <= total) {
+            assert(key.len <= static_cast<LT>(-1));
+            *reinterpret_cast<LT*>(buf + used) = static_cast<LT>(key.len);
+            memcpy(buf + used + sizeof(LT), key.buf, key.len);
+            used += sizeof(LT) + key.len;
             return true;
         } else {
             return false;
         }
     }
 
-    bool AddKey(const IndexKeyRef &key, bool varlen) {
-        if (varlen) {
-            return AddVarLenKey(key);
-        } else {
-            return AddFixedLenKey(key);
-        }
-    }
-
-    char *buf;
-    uint64_t total; /* total number of bytes that can be stored in buf */
-    uint64_t used;  /* number of bytes that have been stored in buf */
-
-  private:
+    enum RCRPC_INDEX_TYPE type_;
     DISALLOW_COPY_AND_ASSIGN(IndexKeysRef);
 };
 

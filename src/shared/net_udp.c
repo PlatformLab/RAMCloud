@@ -91,9 +91,9 @@ rc_net_send(struct rc_net *net, void *buf, size_t len)
 }
 
 int
-rc_net_send_rpc(struct rc_net *net, struct rcrpc *rpc)
+rc_net_send_rpc(struct rc_net *net, struct rcrpc_any *rpc)
 {
-    return rc_net_send(net, rpc, rpc->len);
+    return rc_net_send(net, rpc, rpc->header.len);
 }
 
 
@@ -127,7 +127,7 @@ rc_net_recv(struct rc_net *net, void **buf, size_t *buflen)
 }
 
 int
-rc_net_recv_rpc(struct rc_net *net, struct rcrpc **rpc)
+rc_net_recv_rpc(struct rc_net *net, struct rcrpc_any **rpc)
 {
     size_t len;
     return rc_net_recv(net, (void **)rpc, &len);
