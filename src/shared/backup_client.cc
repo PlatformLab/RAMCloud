@@ -25,22 +25,34 @@ namespace RAMCloud {
 
 enum { debug_noisy = false };
 
-BackupHost::BackupHost(const char* srcaddr, uint16_t srcport,
-                       const char* dstaddr, uint16_t dstport)
-    : net(srcaddr, srcport, dstaddr, dstport)
+/**
+ * NOTICE:  The BackupHost takes care of deleting the Net object
+ * once it is no longer needed.  The host should be considered to
+ * have full ownership of it and the caller should discontinue any use
+ * or responbility for it.
+ */
+BackupHost::BackupHost(Net *netimpl)
+    : net(netimpl)
 {
+}
+
+BackupHost::~BackupHost()
+{
+    // We delete the net we were handed from the constructor so the
+    // creator doesn't need to worry about it.
+    delete net;
 }
 
 void
 BackupHost::SendRPC(struct backup_rpc *rpc)
 {
-    net.Send(rpc, rpc->hdr.len);
+    net->Send(rpc, rpc->hdr.len);
 }
 
 void
 BackupHost::RecvRPC(struct backup_rpc **rpc)
 {
-    size_t len = net.Recv(reinterpret_cast<void**>(rpc));
+    size_t len = net->Recv(reinterpret_cast<void**>(rpc));
     if (len != (*rpc)->hdr.len)
         printf("got %lu, expected %lu\n", len, (*rpc)->hdr.len);
     assert(len == (*rpc)->hdr.len);
@@ -205,13 +217,18 @@ BackupClient::~BackupClient()
         delete host;
 }
 
+/**
+ * NOTICE:  The BackupClient takes care of deleting the Net object
+ * once it is no longer needed.  The client should be considered to
+ * have full ownership of it and the caller should discontinue any use
+ * or responbility for it.
+ */
 void
-BackupClient::AddHost(const char* srcaddr, uint16_t srcport,
-                      const char* dstaddr, uint16_t dstport)
+BackupClient::AddHost(Net *net)
 {
     if (host)
         throw BackupRPCException("Only one backup host currently supported");
-    host = new BackupHost(srcaddr, srcport, dstaddr, dstport);
+    host = new BackupHost(net);
 }
 
 void

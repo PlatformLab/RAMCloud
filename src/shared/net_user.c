@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,16 +13,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_SHARED_NET_USER_H
-#define RAMCLOUD_SHARED_NET_USER_H
-
 #include <config.h>
 
-#ifndef USERSPACE_NET
-#error "Don't include net_user.h"
-#endif
+#ifdef USERSPACE_NET
 
-struct rc_net {
-};
+#include <shared/net_user.h>
+
+// TODO: userspace network implementation goes here
+#error "userspace networking not implemented"
 
 #endif

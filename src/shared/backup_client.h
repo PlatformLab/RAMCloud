@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_SERVER_BACKUP_CLIENT_H
-#define RAMCLOUD_SERVER_BACKUP_CLIENT_H
+#ifndef RAMCLOUD_SHARED_BACKUP_CLIENT_H
+#define RAMCLOUD_SHARED_BACKUP_CLIENT_H
 
 #include <shared/common.h>
 #include <server/net.h>
@@ -26,8 +26,8 @@ namespace RAMCloud {
 
 class BackupHost {
   public:
-    BackupHost(const char* srcaddr, uint16_t srcport,
-               const char* dstaddr, uint16_t dstport);
+    explicit BackupHost(Net *netimpl);
+    ~BackupHost();
     void Heartbeat();
     void Write(uint64_t seg_num,
                uint32_t offset,
@@ -43,7 +43,7 @@ class BackupHost {
   private:
     void SendRPC(struct backup_rpc *rpc);
     void RecvRPC(struct backup_rpc **rpc);
-    Net net;
+    Net *net;
     DISALLOW_COPY_AND_ASSIGN(BackupHost);
 };
 
@@ -51,8 +51,7 @@ class BackupClient {
   public:
     explicit BackupClient();
     ~BackupClient();
-    void AddHost(const char* srcaddr, uint16_t srcport,
-                 const char* dstaddr, uint16_t dstport);
+    void AddHost(Net *net);
     void Heartbeat();
     void Write(uint64_t seg_num,
                uint32_t offset,

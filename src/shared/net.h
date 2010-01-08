@@ -16,14 +16,21 @@
 #ifndef RAMCLOUD_SHARED_NET_H
 #define RAMCLOUD_SHARED_NET_H
 
+#include <config.h>
 #include <string.h>
 
 #include <shared/rcrpc.h>
 
-#ifdef USERSPACE_NET
+#if defined(USERSPACE_NET) + defined(UDP_NET) + defined(TCP_NET) != 1
+#error "You need exactly one network implementation."
+#endif
+
+#if defined(USERSPACE_NET)
 #include <shared/net_user.h>
-#else
+#elif defined(UDP_NET)
 #include <shared/net_udp.h>
+#elif defined(TCP_NET)
+#include <shared/net_tcp.h>
 #endif
 
 #ifdef __cplusplus
@@ -33,6 +40,7 @@ void rc_net_init(struct rc_net *ret,
                  const char *srcaddr, uint16_t srcport,
                  const char *dstaddr, uint16_t dstport);
 int rc_net_connect(struct rc_net *net);
+int rc_net_listen(struct rc_net *net);
 int rc_net_close(struct rc_net *net);
 int rc_net_send(struct rc_net *net, void *, size_t);
 int rc_net_recv(struct rc_net *net, void **, size_t *);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,16 +13,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_SHARED_NET_USER_H
-#define RAMCLOUD_SHARED_NET_USER_H
+#ifndef RAMCLOUD_SHARED_NET_TCP_H
+#define RAMCLOUD_SHARED_NET_TCP_H
 
 #include <config.h>
 
-#ifndef USERSPACE_NET
-#error "Don't include net_user.h"
+#ifndef TCP_NET
+#error "Don't include net_tcp.h"
 #endif
 
+#include <arpa/inet.h>
+
 struct rc_net {
+    bool server;
+    bool client;
+    int listen_fd;
+    int connection_fd;
+    struct sockaddr_in srcsin;
+    struct sockaddr_in dstsin;
 };
 
 #endif

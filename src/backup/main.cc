@@ -22,14 +22,17 @@ int
 main()
 {
     using ::RAMCloud::Net;
+    using ::RAMCloud::CNet;
     using ::RAMCloud::BackupServer;
-    Net *net = new Net(BACKSVRADDR, BACKSVRPORT,
-                       BACKCLNTADDR, BACKCLNTPORT);
+    Net *net = new CNet(BACKSVRADDR, BACKSVRPORT,
+                        BACKCLNTADDR, BACKCLNTPORT);
+    net->Listen();
     BackupServer *server = new BackupServer(net,
                                             BACKUP_LOG_PATH);
 
     server->Run();
 
+    delete server;
     delete net;
 
     return 0;

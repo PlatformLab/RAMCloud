@@ -83,9 +83,13 @@ Server::Server(const ServerConfig *sconfig, Net *net_impl)
     void *p = malloc(SEGMENT_SIZE * SEGMENT_COUNT);
     assert(p != NULL);
 
-    if (BACKUP)
-        backup.AddHost(BACKCLNTADDR, BACKCLNTPORT,
-                       BACKSVRADDR, BACKSVRPORT);
+    if (BACKUP) {
+        Net *net = new CNet(BACKCLNTADDR, BACKCLNTPORT,
+                            BACKSVRADDR, BACKSVRPORT);
+        net->Connect();
+        // NOTE The backup client takes care of freeing the net object
+        backup.AddHost(net);
+    }
 
     log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, &backup);
     log->registerType(LOG_ENTRY_TYPE_OBJECT, LogEvictionCallback, this);
@@ -183,7 +187,7 @@ LogEvictionCallback(log_entry_type_t type,
     assert(evict_obj != NULL);
     assert(svr != NULL);
 
-    Table *tbl = &svr->tables[evict_obj->hdr.table];
+    Table *tbl = &svr->tables[evict_obj->table];
     assert(tbl != NULL);
 
     Log *log = svr->log;
