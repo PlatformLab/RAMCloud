@@ -17,7 +17,8 @@ main = RC.withClient $ \client -> do
          putStrLn $ "Wrote " ++ (show count) ++ " values"
 
          val <- catch (read 1) $ \_ -> return "Read failed"
-         --val' <- read 1
+         val' <- catch (read 1) $ \_ -> return "Read failed"
          -- TODO Still have a problem with multiple reads
          --vals <- mapM read $ take 10 $ iterate (1+) 0
          print val
+         print val'
