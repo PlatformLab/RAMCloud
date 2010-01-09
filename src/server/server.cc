@@ -128,6 +128,13 @@ Server::Read(const rcrpc_read_request *req, rcrpc_read_response *resp)
     // (will be updated below with var-length data)
     resp->index_entries_len = 0;
     resp->buf_len = 0;
+    resp->version = o->version;
+
+    // if we request the wrong version, return the current version number, but
+    // no data (since we may not want to fetch a large object of unexpected version)
+    if (req->version != RCRPC_VERSION_ANY && req->version != o->version) {
+        return;
+    }
 
     char *index_entries_buf = resp->var;
     ChunkIter cidxiter(const_cast<object*>(o));
@@ -248,9 +255,10 @@ LogEvictionCallback(log_entry_type_t type,
     }
 }
 
-void
+uint64_t
 Server::StoreData(uint64_t table,
                   uint64_t key,
+                  uint64_t version,       // vers of replacee or RCRPC_VERSION_ANY
                   const char *buf,
                   uint64_t buf_len,
                   const char *index_entries_buf,
@@ -262,6 +270,9 @@ Server::StoreData(uint64_t table,
     chunk_entry *chunk;
 
     if (o != NULL) {
+        if (version != RCRPC_VERSION_ANY && o->version != version)
+            return o->version;
+
         // steal the extant guy's mutable space. this will contain the proper
         // reference count.
         om = o->mut;
@@ -276,11 +287,14 @@ Server::StoreData(uint64_t table,
 
     DECLARE_OBJECT(new_o, index_entries_buf_len +
                           sizeof(chunk_entry) + buf_len);
+
     new_o->mut = om;
     om->refcnt++;
 
     new_o->key = key;
     new_o->table = table;
+    if (o != NULL)
+        new_o->version = o->version + 1;
     new_o->is_tombstone = false;
     // TODO dm's super-fast checksum here
     new_o->checksum = 0x0BE70BE70BE70BE7ULL;
@@ -312,6 +326,8 @@ Server::StoreData(uint64_t table,
     assert(objp != NULL);
     t->Put(key, objp);
     AddIndexEntries(t, objp);
+
+    return (objp->version);
 }
 
 void
@@ -326,8 +342,8 @@ Server::Write(const rcrpc_write_request *req, rcrpc_write_response *resp)
 
     const char *buf = req->var + req->index_entries_len;
     const char *index_entries_buf = req->var;
-    StoreData(req->table, req->key, buf, req->buf_len,
-              index_entries_buf, req->index_entries_len);
+    resp->version = StoreData(req->table, req->key, req->version, buf, req->buf_len,
+                              index_entries_buf, req->index_entries_len);
 
     resp->header.type = RCRPC_WRITE_RESPONSE;
     resp->header.len = static_cast<uint32_t>(RCRPC_WRITE_RESPONSE_LEN);
@@ -343,8 +359,9 @@ Server::InsertKey(const rcrpc_insert_request *req, rcrpc_insert_response *resp)
 
     const char *buf = req->var + req->index_entries_len;
     const char *index_entries_buf = req->var;
-    StoreData(req->table, key, buf, req->buf_len,
+    resp->version = StoreData(req->table, key, 0, buf, req->buf_len,
               index_entries_buf, req->index_entries_len);
+    assert(resp->version == 0);
 
     resp->header.type = RCRPC_INSERT_RESPONSE;
     resp->header.len = (uint32_t) RCRPC_INSERT_RESPONSE_LEN;

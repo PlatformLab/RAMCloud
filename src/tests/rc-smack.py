@@ -2,21 +2,37 @@ import ramcloud, random, time, sys
 
 class rpcperf():
     def __init__(self):
-        self.time = time.time()
+        self.before_time = None
+        self.total_time = 0
+        self.last_report_time = time.time()
+        self.befores = 0
+        self.afters = 0
         self.rpcs = 0
 
     def __del__(self):
         print >> sys.stderr, ""
 
-    def update(self):
+    def before(self):
+        self.before_time = time.time()
+        self.befores += 1
+
+    def after(self):
+        assert self.before_time != None
+        assert self.befores == (self.afters + 1)
         self.rpcs += 1
         ntime = time.time()
-        diff = ntime - self.time
-        if diff >= 1.0:
-            print >> sys.stderr, "%80s" % ("") ,
-            print >> sys.stderr, "\r%.2f RPCs/sec (%.2f usec/RPC)" % (self.rpcs / diff, 1.0e6 / (self.rpcs / diff)) ,
+        diff = ntime - self.before_time
+        self.total_time += diff
+
+        if (ntime - self.last_report_time) >= 1.0:
+            print >> sys.stderr, "%60s" % ("") ,
+            print >> sys.stderr, "\r%.2f RPCs/sec (%.2f usec/RPC)" % (self.rpcs / self.total_time, 1.0e6 / (self.rpcs / self.total_time)) ,
             self.rpcs = 0
-            self.time = ntime
+            self.total_time = 0
+            self.last_report_time = ntime
+
+        self.before_time = None
+        self.afters += 1
 
 
 # get a buffer of random printable characters
@@ -29,6 +45,54 @@ def getrandbuf(len):
     return randbuf
 
 
+# try to ensure that conditional reads/write work
+# properly
+def version_smack(c, loops):
+    randbuf = getrandbuf(2000)
+
+    p = rpcperf()
+    i = 0
+    while i < loops:
+        buf = randbuf[random.randint(0, 2000):]
+        buf = buf[0:1000]
+
+        p.before()
+        last_version = c.write(0, 0, buf)
+        p.after()
+
+        caught = False
+        p.before()
+        try:
+            try_version = last_version - 1
+            if i & 0x1:
+                try_version = last_version + 1
+            c.write(0, 0, "Will you break for me?", try_version)
+        except:
+            caught = True
+        p.after()
+
+        p.before()
+        rbuf, vers, indexes = c.read(0, 0)
+        p.after()
+        assert vers == last_version
+        assert rbuf == buf
+
+        caught = False
+        p.before()
+        try:
+            try_version = last_version - 1;
+            if i & 0x1:
+                try_version = last_version + 1;
+            rbuf, vers, indexes = c.read(0, 0, try_version)
+        except:
+            caught = True
+        p.after()
+        assert caught
+        #XXX- exception should contain newest version... assert vers == last_version
+
+        i += 1
+        
+
 # re-write random data to the same key over and over,
 # making sure to re-read each time and confirm equality
 def rewrite_smack(c, loops):
@@ -39,12 +103,15 @@ def rewrite_smack(c, loops):
     while i < loops:
         buf = randbuf[random.randint(0, 2000):]
         buf = buf[0:1000]
+
+        p.before()
         c.write(0, 0, buf)
-        p.update()
-        if c.read(0, 0) != buf:
-            print "HOSED"
-            break
-        p.update()
+        p.after()
+
+        p.before()
+        rbuf, vers, indexes = c.read(0, 0)
+        p.after()
+        assert rbuf == buf
         i += 1
 
 
@@ -59,14 +126,19 @@ def delete_smack(c, loops):
     while i < loops:
         buf = randbuf[random.randint(0, 2000):]
         buf = buf[0:1000]
+
+        p.before()
         key = c.insert(0, buf)
-        p.update()
-        if c.read(0, key) != buf:
-            print "HOSED"
-            break
-        p.update()
+        p.after()
+
+        p.before()
+        rbuf, vers, indexes = c.read(0, key)
+        p.after()
+        assert rbuf == buf
+
+        p.before()
         c.delete(0, key)
-        p.update()
+        p.after()
         i += 1
 
 
@@ -77,8 +149,9 @@ def rewrite_delete_smack(c, loops, p):
 
     p = rpcperf()
 
+    p.before()
     c.write(0, 0, randbuf[0:1000])
-    p.update()
+    p.after()
 
     i = 0
     while i < loops:
@@ -86,22 +159,29 @@ def rewrite_delete_smack(c, loops, p):
         buf = buf[0:1000]
         
         if random.random() < p:
+            p.before()
             c.write(0, 0, buf)
-            p.update()
+            p.after()
         else:
+            p.before()
             c.delete(0, 0)
-            p.update()
-            c.write(0, 0, buf)
-            p.update()
+            p.after()
 
-        if c.read(0, 0) != buf:
-            print "HOSED"
-            break 
-        p.update()
+            p.before()
+            c.write(0, 0, buf)
+            p.after()
+
+        p.before()
+        rbuf, vers, indexes = c.read(0, 0)
+        p.after()
+        assert rbuf == buf
 
 
 c = ramcloud.RAMCloud()
 c.connect()
+
+print "Running version smack"
+version_smack(c, 1000000)
 
 print "Running rewrite smack"
 rewrite_smack(c, 1000000)

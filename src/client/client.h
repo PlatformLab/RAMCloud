@@ -35,18 +35,22 @@ struct rc_index_entry {
 #ifdef __cplusplus
 extern "C" {
 #endif
+const uint64_t rcrpc_version_any;
+
 int rc_connect(struct rc_client *client);
 void rc_disconnect(struct rc_client *client);
 int rc_ping(struct rc_client *client);
 int rc_write(struct rc_client *client, uint64_t table, uint64_t key,
+             uint64_t want_version, uint64_t *got_version,
              const char *buf, uint64_t len,
              const char *index_entries_buf, uint64_t index_entries_len);
 int rc_insert(struct rc_client *client, uint64_t table, const char *buf,
               uint64_t len, uint64_t *key,
               const char *index_entries_buf, uint64_t index_entries_len);
 int rc_delete(struct rc_client *client, uint64_t table, uint64_t key);
-int rc_read(struct rc_client *client, uint64_t table,
-            uint64_t key, char *buf, uint64_t *len,
+int rc_read(struct rc_client *client, uint64_t table, uint64_t key,
+            uint64_t want_version, uint64_t *got_version,
+            char *buf, uint64_t *len,
             char *index_entries_buf, uint64_t *index_entries_len);
 int rc_create_table(struct rc_client *client, const char *name);
 int rc_open_table(struct rc_client *client, const char *name,

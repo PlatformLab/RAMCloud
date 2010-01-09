@@ -129,15 +129,22 @@ struct rcrpc_ping_response {
     struct rcrpc_header header;
 };
 
+#ifdef __cplusplus
+#define RCRPC_VERSION_ANY (static_cast<uint64_t>(-1))
+#else
+#define RCRPC_VERSION_ANY ((uint64_t)(-1ULL))
+#endif
 
 struct rcrpc_read_request {
     struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
+    uint64_t version;
 };
 
 struct rcrpc_read_response {
     struct rcrpc_header header;
+    uint64_t version;
     uint64_t index_entries_len;
     uint64_t buf_len;
 
@@ -151,6 +158,7 @@ struct rcrpc_write_request {
     struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
+    uint64_t version;
     uint64_t index_entries_len;
     uint64_t buf_len;
 
@@ -162,6 +170,7 @@ struct rcrpc_write_request {
 
 struct rcrpc_write_response {
     struct rcrpc_header header;
+    uint64_t version;
 };
 
 struct rcrpc_insert_request {
@@ -179,6 +188,7 @@ struct rcrpc_insert_request {
 struct rcrpc_insert_response {
     struct rcrpc_header header;
     uint64_t key;
+    uint64_t version;
 };
 
 struct rcrpc_delete_request {

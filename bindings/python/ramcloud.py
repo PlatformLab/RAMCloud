@@ -149,6 +149,8 @@ class RAMCloud(object):
 
         self.client = CLIENT()
 
+        self.RCRPC_VERSION_ANY = ctypes.c_uint64.in_dll(self.so, "rcrpc_version_any")
+
     def raise_error(self):
         msg = self.so.rc_last_error()
         raise RCException(msg)
@@ -203,17 +205,25 @@ class RAMCloud(object):
         else:
             return ctypes.c_void_p(None), ctypes.c_uint64(0)
 
-    def write(self, table_id, key, data, indexes=None):
+    def write(self, table_id, key, data, want_version=None, indexes=None):
         idx_bufp, idx_buf_len = self._indexes_to_buf(indexes)
+        got_version = ctypes.c_uint64()
+        if want_version != None:
+            want_version = ctypes.c_uint64(want_version)
+        else:
+            want_version = self.RCRPC_VERSION_ANY
         r = self.so.rc_write(ctypes.byref(self.client),
                              ctypes.c_uint64(table_id),
                              ctypes.c_uint64(key),
+                             want_version,
+                             ctypes.byref(got_version),
                              ctypes.c_char_p(data),
                              ctypes.c_uint64(len(data)),
                              idx_bufp,
                              idx_buf_len)
-        if r != 0:
+        if r != 0 or (want_version.value != self.RCRPC_VERSION_ANY.value and got_version.value != want_version.value):
             self.raise_error()
+        return got_version.value
 
     def insert(self, table_id, data, indexes=None):
         idx_bufp, idx_buf_len = self._indexes_to_buf(indexes)
@@ -236,8 +246,8 @@ class RAMCloud(object):
         if r != 0:
             self.raise_error()
 
-    def read(self, table_id, key):
-        return self.read_full(table_id, key)[0]
+    def read(self, table_id, key, want_version=None):
+        return self.read_full(table_id, key, want_version)
 
     def _buf_to_indexes(self, addr, indexes_len):
         if addr and indexes_len:
@@ -274,23 +284,30 @@ class RAMCloud(object):
         else:
             return []
 
-    def read_full(self, table_id, key):
+    def read_full(self, table_id, key, want_version=None):
         buf = ctypes.create_string_buffer(10240)
         l = ctypes.c_uint64()
+        got_version = ctypes.c_uint64()
+        if want_version != None:
+            want_version = ctypes.c_uint64(want_version)
+        else:
+            want_version = self.RCRPC_VERSION_ANY
         idx_buf = ctypes.create_string_buffer(10240)
         idx_buf_len = ctypes.c_uint64(len(idx_buf))
         r = self.so.rc_read(ctypes.byref(self.client),
                             ctypes.c_uint64(table_id),
                             ctypes.c_uint64(key),
+                            want_version,
+                            ctypes.byref(got_version),
                             ctypes.byref(buf),
                             ctypes.byref(l),
                             ctypes.byref(idx_buf),
                             ctypes.byref(idx_buf_len))
-        if r != 0:
+        if r != 0 or (want_version.value != self.RCRPC_VERSION_ANY.value and got_version.value != want_version.value):
             self.raise_error()
         #print repr(idx_buf.raw[:idx_buf_len.value])
         indexes = self._buf_to_indexes(ctypes.addressof(idx_buf), idx_buf_len.value)
-        return (buf.raw[0:l.value], indexes)
+        return (buf.raw[0:l.value], got_version.value, indexes)
 
     def create_table(self, name):
         r = self.so.rc_create_table(ctypes.byref(self.client), name)
@@ -497,13 +514,13 @@ def main():
     multi_index_id = r.create_index(table, RCRPC_INDEX_TYPE.SINT32, False, True)
     print "Created index id %d" % multi_index_id
 
-    r.write(table, 0, "Hello, World, from Python", [
+    r.write(table, 0, "Hello, World, from Python", None, [
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4592)),
         (str_index_id, (RCRPC_INDEX_TYPE.BYTES8, "write")),
         (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
     ])
     print "Inserted to table"
-    value, indexes = r.read_full(table, 0)
+    value, got_version, indexes = r.read_full(table, 0)
     print value
     print indexes
     key = r.insert(table, "test", [
@@ -512,7 +529,7 @@ def main():
         (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
     ])
     print "Inserted value and got back key %d" % key
-    r.write(table, key, "test", [
+    r.write(table, key, "test", None, [
         (index_id, (RCRPC_INDEX_TYPE.UINT64, 4899)),
         (str_index_id, (RCRPC_INDEX_TYPE.BYTES8, "rewrite")),
         (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
@@ -541,7 +558,7 @@ def main():
 
     bs = "binary\00safe?"
     oid = r.insert(table, bs)
-    assert r.read(table, oid) == bs
+    assert r.read(table, oid)[0] == bs
 
     r.drop_index(table, str_index_id)
     r.drop_index(table, index_id)

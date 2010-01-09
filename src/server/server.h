@@ -78,7 +78,7 @@ struct object {
      * realize sizeof(entries) is bogus, and proceed to dynamically allocating
      * a buffer instead.
      */
-    object(size_t buf_size) : key(-1), table(-1), checksum(0),
+    object(size_t buf_size) : key(-1), table(-1), version(0), checksum(0),
                               is_tombstone(false), mut(NULL), entries_len(0) {
         assert(buf_size >= sizeof(*this));
     }
@@ -91,6 +91,7 @@ struct object {
     // object's key is the first 64 bits of the struct
     uint64_t key;
     uint64_t table;
+    uint64_t version;
     uint64_t checksum;
     bool is_tombstone;
     object_mutable *mut;
@@ -322,12 +323,13 @@ class Server {
   private:
     void Restore();
     void HandleRPC();
-    void StoreData(uint64_t table,
-                   uint64_t key,
-                   const char *buf,
-                   uint64_t buf_len,
-                   const char *index_entries_buf,
-                   uint64_t index_entries_buf_len);
+    uint64_t StoreData(uint64_t table,
+                       uint64_t key,
+                       uint64_t prior_version,
+                       const char *buf,
+                       uint64_t buf_len,
+                       const char *index_entries_buf,
+                       uint64_t index_entries_buf_len);
     explicit Server();
 
     const ServerConfig *config;

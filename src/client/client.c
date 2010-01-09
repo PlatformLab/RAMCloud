@@ -24,6 +24,8 @@
 
 #include <client/client.h>
 
+const uint64_t rcrpc_version_any = RCRPC_VERSION_ANY;
+
 int
 rc_connect(struct rc_client *client)
 {
@@ -124,6 +126,8 @@ int
 rc_write(struct rc_client *client,
          uint64_t table,
          uint64_t key,
+         uint64_t want_version,
+         uint64_t *got_version,
          const char *buf,
          uint64_t len,
          const char *index_entries_buf,
@@ -141,6 +145,7 @@ rc_write(struct rc_client *client,
                          index_entries_len;
     query->table = table;
     query->key = key;
+    query->version = want_version;
     query->index_entries_len = index_entries_len;
     query->buf_len = len;
     var = query->var;
@@ -149,7 +154,15 @@ rc_write(struct rc_client *client,
     memcpy(var, buf, len);
     var += len;
 
-    return SENDRCV_RPC(WRITE, write, query, &resp);
+    int r = SENDRCV_RPC(WRITE, write, query, &resp);
+
+    if (got_version != NULL)
+        *got_version = resp->version;
+
+    if (want_version != RCRPC_VERSION_ANY && want_version != resp->version)
+        return 1;
+
+    return r;
 }
 
 int
@@ -208,6 +221,8 @@ int
 rc_read(struct rc_client *client,
         uint64_t table,
         uint64_t key,
+        uint64_t want_version,
+        uint64_t *got_version,
         char *buf,
         uint64_t *len,
         char *index_entries_buf,
@@ -221,9 +236,13 @@ rc_read(struct rc_client *client,
     query.header.len  = (uint32_t) RCRPC_READ_REQUEST_LEN;
     query.table = table;
     query.key = key;
+    query.version = want_version;
     int r = SENDRCV_RPC(READ, read, &query, &resp);
     if (r)
         return r;
+
+    if (got_version != NULL)
+        *got_version = resp->version;
 
     var = resp->var;
     if (index_entries_buf != NULL) {
@@ -234,6 +253,9 @@ rc_read(struct rc_client *client,
     *len = resp->buf_len;
     memcpy(buf, var, *len);
     var += resp->buf_len;
+
+    if (want_version != RCRPC_VERSION_ANY && resp->version != want_version)
+        return 1;
 
     return 0;
 }
