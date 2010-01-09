@@ -63,9 +63,9 @@ def version_smack(c, loops):
         caught = False
         p.before()
         try:
-            try_version = last_version - 1
+            try_version = last_version + 1
             if i & 0x1:
-                try_version = last_version + 1
+                try_version = last_version - 1
             c.write(0, 0, "Will you break for me?", try_version)
         except:
             caught = True
@@ -80,9 +80,9 @@ def version_smack(c, loops):
         caught = False
         p.before()
         try:
-            try_version = last_version - 1;
+            try_version = last_version + 1;
             if i & 0x1:
-                try_version = last_version + 1;
+                try_version = last_version - 1;
             rbuf, vers, indexes = c.read(0, 0, try_version)
         except:
             caught = True
@@ -176,24 +176,30 @@ def rewrite_delete_smack(c, loops, p):
         p.after()
         assert rbuf == buf
 
+        i += 1
+
+smacks = 1000000
+if len(sys.argv) == 2:
+    smacks = int(sys.argv[1])
+print "Using %d iterations/test" % (smacks)
 
 c = ramcloud.RAMCloud()
 c.connect()
 
 print "Running version smack"
-version_smack(c, 1000000)
+version_smack(c, smacks)
 
 print "Running rewrite smack"
-rewrite_smack(c, 1000000)
+rewrite_smack(c, smacks)
 
 print "Running delete smack"
-delete_smack(c, 1000000)
+delete_smack(c, smacks)
 
 print "Running random rewrite/delete smack p = 0.3"
-rewrite_delete_smack(c, 1000000, 0.3)
+rewrite_delete_smack(c, smacks, 0.3)
 
 print "Running random rewrite/delete smack p = 0.5"
-rewrite_delete_smack(c, 1000000, 0.5)
+rewrite_delete_smack(c, smacks, 0.5)
 
 print "Running random rewrite/delete smack p = 0.8"
-rewrite_delete_smack(c, 1000000, 0.8)
+rewrite_delete_smack(c, smacks, 0.8)

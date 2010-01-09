@@ -293,8 +293,8 @@ Server::StoreData(uint64_t table,
 
     new_o->key = key;
     new_o->table = table;
-    if (o != NULL)
-        new_o->version = o->version + 1;
+    new_o->version = t->AllocateVersion();
+    assert(o == NULL || new_o->version > o->version);
     new_o->is_tombstone = false;
     // TODO dm's super-fast checksum here
     new_o->checksum = 0x0BE70BE70BE70BE7ULL;
@@ -361,7 +361,6 @@ Server::InsertKey(const rcrpc_insert_request *req, rcrpc_insert_response *resp)
     const char *index_entries_buf = req->var;
     resp->version = StoreData(req->table, key, 0, buf, req->buf_len,
               index_entries_buf, req->index_entries_len);
-    assert(resp->version == 0);
 
     resp->header.type = RCRPC_INSERT_RESPONSE;
     resp->header.len = (uint32_t) RCRPC_INSERT_RESPONSE_LEN;
@@ -391,6 +390,7 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
     tomb_o->mut = o->mut;
     tomb_o->is_tombstone = true;
     tomb_o->entries_len = 0;
+    tomb_o->version = t->AllocateVersion();
 
     // `o' may be relocated in the log when we append, before the tombstone is written, so
     // we must either mark the space as free first, or refetch from the hash table afterwards

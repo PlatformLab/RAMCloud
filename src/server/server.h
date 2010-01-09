@@ -78,7 +78,7 @@ struct object {
      * realize sizeof(entries) is bogus, and proceed to dynamically allocating
      * a buffer instead.
      */
-    object(size_t buf_size) : key(-1), table(-1), version(0), checksum(0),
+    object(size_t buf_size) : key(-1), table(-1), version(-1), checksum(0),
                               is_tombstone(false), mut(NULL), entries_len(0) {
         assert(buf_size >= sizeof(*this));
     }
@@ -138,7 +138,7 @@ class ChunkIter {
 class Table {
   public:
     static const int TABLE_NAME_MAX_LEN = 64;
-    explicit Table() : next_key(0), object_map(HASH_NLINES) {
+    explicit Table() : next_key(0), next_version(0), object_map(HASH_NLINES) {
         memset(indexes, 0, sizeof(indexes));
     }
     const char *GetName() { return &name[0]; }
@@ -150,6 +150,9 @@ class Table {
         while (Get(next_key))
             ++next_key;
         return next_key;
+    }
+    uint64_t AllocateVersion() {
+        return next_version++;
     }
     const object *Get(uint64_t key) {
         void *val = object_map.Lookup(key);
@@ -274,6 +277,7 @@ class Table {
   private:
     char name[64];
     uint64_t next_key;
+    uint64_t next_version;
     Hashtable object_map;
     Index *indexes[65536];
     DISALLOW_COPY_AND_ASSIGN(Table);
