@@ -239,12 +239,20 @@ class RAMCloud(object):
             self.raise_error()
         return key.value
 
-    def delete(self, table_id, key):
+    def delete(self, table_id, key, want_version=None):
+        got_version = ctypes.c_uint64()
+        if want_version != None:
+            want_version = ctypes.c_uint64(want_version)
+        else:
+            want_version = self.RCRPC_VERSION_ANY
         r = self.so.rc_delete(ctypes.byref(self.client),
                               ctypes.c_uint64(table_id),
-                              ctypes.c_uint64(key))
-        if r != 0:
+                              ctypes.c_uint64(key),
+                              want_version,
+                              ctypes.byref(got_version))
+        if r != 0 or (want_version.value != self.RCRPC_VERSION_ANY.value and got_version.value != want_version.value):
             self.raise_error()
+        return got_version.value
 
     def read(self, table_id, key, want_version=None):
         return self.read_full(table_id, key, want_version)
