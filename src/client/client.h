@@ -24,14 +24,6 @@ struct rc_client {
     struct rc_net net;
 };
 
-struct rc_index_entry {
-    // keep this identical to struct chunk_entry for now 
-    uint64_t len;
-    uint32_t index_id;
-    uint32_t index_type;
-    char data[0];                       // Variable length, but contiguous
-};
-
 #ifdef __cplusplus
 extern "C" {
 #endif
