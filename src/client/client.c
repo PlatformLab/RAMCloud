@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include <malloc.h>
@@ -56,7 +57,7 @@ rc_handle_errors(struct rcrpc_any *resp_any)
     if (resp_any->header.type != RCRPC_ERROR_RESPONSE)
         return 0;
     resp = (struct rcrpc_error_response*) resp_any;
-    printf("... '%s'\n", resp->message);
+    fprintf(stderr, "... '%s'\n", resp->message);
     strncpy(&rc_error_message[0], resp->message, ERROR_MSG_LEN);
     return -1;
 }
@@ -204,7 +205,9 @@ rc_insert(struct rc_client *client,
 int
 rc_delete(struct rc_client *client,
           uint64_t table,
-          uint64_t key)
+          uint64_t key,
+          uint64_t want_version,
+          uint64_t *got_version)
 {
     struct rcrpc_delete_request query;
     struct rcrpc_delete_response *resp;
@@ -213,8 +216,20 @@ rc_delete(struct rc_client *client,
     query.header.len  = (uint32_t) RCRPC_DELETE_REQUEST_LEN;
     query.table = table;
     query.key = key;
+    query.version = want_version;
 
-    return SENDRCV_RPC(DELETE, delete, &query, &resp);
+    int r = SENDRCV_RPC(DELETE, delete, &query, &resp);
+    if (r) {
+        return r;
+    }
+
+    if (got_version != NULL)
+        *got_version = resp->version;
+
+    if (want_version != RCRPC_VERSION_ANY && resp->version != want_version)
+        return 1;
+
+    return 0;
 }
 
 int

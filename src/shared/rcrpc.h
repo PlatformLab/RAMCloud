@@ -195,10 +195,12 @@ struct rcrpc_delete_request {
     struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
+    uint64_t version;
 };
 
 struct rcrpc_delete_response {
     struct rcrpc_header header;
+    uint64_t version;
 };
 
 

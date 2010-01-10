@@ -47,7 +47,8 @@ int rc_write(struct rc_client *client, uint64_t table, uint64_t key,
 int rc_insert(struct rc_client *client, uint64_t table, const char *buf,
               uint64_t len, uint64_t *key,
               const char *index_entries_buf, uint64_t index_entries_len);
-int rc_delete(struct rc_client *client, uint64_t table, uint64_t key);
+int rc_delete(struct rc_client *client, uint64_t table, uint64_t key,
+              uint64_t want_version, uint64_t *got_version);
 int rc_read(struct rc_client *client, uint64_t table, uint64_t key,
             uint64_t want_version, uint64_t *got_version,
             char *buf, uint64_t *len,

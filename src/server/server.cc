@@ -381,6 +381,15 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
     assert(o->mut != NULL);
     assert(o->mut->refcnt > 0);
 
+    resp->header.type = RCRPC_DELETE_RESPONSE;
+    resp->header.len  = (uint32_t) RCRPC_DELETE_RESPONSE_LEN;
+    resp->version = o->version;
+
+    // abort if we're trying to delete the wrong version
+    // the client will note the discrepancy and figure it out
+    if (req->version != RCRPC_VERSION_ANY && req->version != o->version)
+        return;
+
     DeleteIndexEntries(t, o);
 
     DECLARE_OBJECT(tomb_o, 0);
@@ -399,9 +408,6 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
     assert(tombp);
 
     t->Put(req->key, tombp);
-
-    resp->header.type = RCRPC_DELETE_RESPONSE;
-    resp->header.len  = (uint32_t) RCRPC_DELETE_RESPONSE_LEN;
 }
 
 void

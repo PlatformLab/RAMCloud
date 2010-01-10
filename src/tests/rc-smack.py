@@ -10,7 +10,7 @@ class rpcperf():
         self.rpcs = 0
 
     def __del__(self):
-        print >> sys.stderr, ""
+        print ""
 
     def before(self):
         self.before_time = time.time()
@@ -25,8 +25,9 @@ class rpcperf():
         self.total_time += diff
 
         if (ntime - self.last_report_time) >= 1.0:
-            print >> sys.stderr, "%60s" % ("") ,
-            print >> sys.stderr, "\r%.2f RPCs/sec (%.2f usec/RPC)" % (self.rpcs / self.total_time, 1.0e6 / (self.rpcs / self.total_time)) ,
+            print "%60s" % ("") ,
+            print "\r%.2f RPCs/sec (%.2f usec/RPC)" % (self.rpcs / self.total_time, 1.0e6 / (self.rpcs / self.total_time)) ,
+            sys.stdout.flush()
             self.rpcs = 0
             self.total_time = 0
             self.last_report_time = ntime
@@ -70,6 +71,7 @@ def version_smack(c, loops):
         except:
             caught = True
         p.after()
+        assert caught
 
         p.before()
         rbuf, vers, indexes = c.read(0, 0)
@@ -89,6 +91,33 @@ def version_smack(c, loops):
         p.after()
         assert caught
         #XXX- exception should contain newest version... assert vers == last_version
+
+        caught = False
+        p.before()
+        try:
+            try_version = last_version + 1
+            if i & 0x1:
+                try_version = last_version - 1
+            c.delete(0, 0, try_version)
+        except:
+            caught = True
+        p.after()
+        assert caught
+        #XXX- exception should contain newest version... assert vers == last_version
+
+        p.before()
+        deleted_version = c.delete(0, 0, last_version)
+        p.after()
+        assert deleted_version == last_version
+
+        caught = False
+        p.before()
+        try:
+            c.delete(0, 0)
+        except:
+            caught = True 
+        p.after()
+        assert caught
 
         i += 1
         
