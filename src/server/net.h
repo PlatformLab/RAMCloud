@@ -25,9 +25,20 @@ class NetException {};
 
 class Net {
   public:
-    Net(const char* srcaddr, uint16_t srcport,
-        const char* dstaddr, uint16_t dstport)
-            : net(rc_net()) {
+    virtual void Connect() = 0;
+    virtual int Close() = 0;
+    virtual void Send(const void *buf, size_t len) = 0;
+    virtual size_t Recv(void **buf) = 0;
+    virtual int SendRPC(struct rcrpc_any *msg) = 0;
+    virtual int RecvRPC(struct rcrpc_any **msg) = 0;
+    virtual ~Net() {}
+};
+
+class UDPNet : public Net {
+  public:
+    UDPNet(const char* srcaddr, uint16_t srcport,
+           const char* dstaddr, uint16_t dstport) :
+      net() {
         rc_net_init(&net,
                     const_cast<char*>(srcaddr), srcport,
                     const_cast<char*>(dstaddr), dstport);
@@ -54,10 +65,35 @@ class Net {
     int RecvRPC(struct rcrpc_any **msg) {
         return rc_net_recv_rpc(&net, msg);
     }
-    ~Net() {}
+    ~UDPNet() {}
   private:
-    DISALLOW_COPY_AND_ASSIGN(Net);
+    DISALLOW_COPY_AND_ASSIGN(UDPNet);
     rc_net net;
+};
+
+class MockNet : public Net {
+  public:
+    // TODO(stutsman) only partially thoughtout.  Would like to make the mock
+    // dev scriptable
+    MockNet(void (*send_cb)(const char *, size_t)) : cb(send_cb) {}
+    virtual void Connect() {}
+    virtual int Close() { return 0; }
+    virtual void Send(const void *buf, size_t len) {
+        cb(static_cast<const char*>(buf), len);
+    }
+    virtual size_t Recv(void **buf) {
+        return 0;
+    }
+    virtual int SendRPC(struct rcrpc_any *msg) {
+        Send(msg, msg->header.len);
+        return 0;
+    }
+    virtual int RecvRPC(struct rcrpc_any **msg) {
+        return 0;
+    }
+    virtual ~MockNet() {}
+  private:
+    void (*cb)(const char *buf, size_t len);
 };
 
 } // namespace RAMCloud

@@ -54,12 +54,13 @@ main(int argc, char *argv[])
     RAMCloud::ServerConfig config;
     cmdline(argc, argv, &config);
 
-    RAMCloud::Net *net = new RAMCloud::Net(SVRADDR, SVRPORT,
-                                           CLNTADDR, CLNTPORT);
+    RAMCloud::Net *net = new RAMCloud::UDPNet(SVRADDR, SVRPORT,
+                                             CLNTADDR, CLNTPORT);
     RAMCloud::Server *server = new RAMCloud::Server(&config, net);
 
     server->Run();
 
+    delete server;
     delete net;
 
     return 0;

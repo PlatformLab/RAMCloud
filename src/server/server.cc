@@ -83,9 +83,12 @@ Server::Server(const ServerConfig *sconfig, Net *net_impl)
     void *p = malloc(SEGMENT_SIZE * SEGMENT_COUNT);
     assert(p != NULL);
 
-    if (BACKUP)
-        backup.AddHost(BACKCLNTADDR, BACKCLNTPORT,
-                       BACKSVRADDR, BACKSVRPORT);
+    if (BACKUP) {
+        Net *net = new UDPNet(BACKCLNTADDR, BACKCLNTPORT,
+                              BACKSVRADDR, BACKSVRPORT);
+        // NOTE The backup client takes care of freeing the net object
+        backup.AddHost(net);
+    }
 
     log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, &backup);
     log->registerType(LOG_ENTRY_TYPE_OBJECT, LogEvictionCallback, this);

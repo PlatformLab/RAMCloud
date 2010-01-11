@@ -33,7 +33,7 @@
 namespace RAMCloud {
 
 enum { debug_rpc = false };
-enum { debug_noisy = false };
+enum { debug_backup = false };
 
 static const uint64_t RESP_BUF_LEN = (1 << 20);
 
@@ -79,7 +79,8 @@ BackupServer::~BackupServer()
 void
 BackupServer::ReserveSpace()
 {
-    printf("Reserving %llu bytes of log space\n", LOG_SPACE);
+    if (debug_backup)
+        printf("Reserving %llu bytes of log space\n", LOG_SPACE);
     int r = ftruncate(log_fd, LOG_SPACE);
     if (r == -1)
         throw BackupLogIOException(errno);
@@ -150,7 +151,9 @@ BackupServer::Flush()
     int64_t next = free_map.NextFree(0);
     if (next == -1)
         throw BackupLogIOException("Out of free segment frames");
-    printf("Write active segment to frame %ld\n", next);
+
+    if (debug_backup)
+        printf("Write active segment to frame %ld\n", next);
 
     off_t off = lseek(log_fd, SegFrameOff(next), SEEK_SET);
     if (off == -1)
@@ -159,12 +162,16 @@ BackupServer::Flush()
     if (r != SEGMENT_SIZE)
         throw BackupLogIOException(errno);
 
+    // TODO(stutsman) we need to make sure we have a free seg frame
+    // before writes happen - we need to reserve it on open
     segments[next] = seg_num;
     free_map.Clear(next);
 
     gettimeofday(&end, NULL);
     timersub(&end, &start, &res);
-    printf("Flush in %d s %d us\n", res.tv_sec, res.tv_usec);
+
+    if (debug_backup)
+        printf("Flush in %d s %d us\n", res.tv_sec, res.tv_usec);
 }
 
 void
@@ -177,7 +184,8 @@ BackupServer::Commit(uint64_t seg_num)
         throw BackupException("Cannot commit a segment other than the most "
                               "recently written one at the moment");
 
-    printf(">>> Now writing to segment %lu\n", seg_num);
+    if (debug_backup)
+        printf(">>> Now writing to segment %lu\n", seg_num);
     Flush();
 
     // Close the segment
@@ -187,13 +195,15 @@ BackupServer::Commit(uint64_t seg_num)
 void
 BackupServer::Free(uint64_t seg_num)
 {
-    printf("Free segment %llu\n", seg_num);
+    if (debug_backup)
+        printf("Free segment %llu\n", seg_num);
     if (seg_num == INVALID_SEGMENT_NUM)
         throw BackupException("What the hell are you feeding me? "
                               "Bad segment number!");
     for (uint64_t i = 0; i < SEGMENT_FRAMES; i++)
         if (segments[i] == seg_num) {
-            printf("Freed segment in frame %llu\n", i);
+            if (debug_backup)
+                printf("Freed segment in frame %llu\n", i);
             segments[i] = INVALID_SEGMENT_NUM;
             free_map.Set(i);
             return;
@@ -206,12 +216,14 @@ BackupServer::GetSegmentList(uint64_t *list,
                              uint64_t *count)
 {
     if (seg_num != INVALID_SEGMENT_NUM) {
-        printf("!!! GetSegmentList: We must be in recovery, writing out "
-               "current active segment before proceeding\n");
+        if (debug_backup)
+            printf("!!! GetSegmentList: We must be in recovery, writing out "
+                   "current active segment before proceeding\n");
         Commit(seg_num);
     }
     uint64_t max = *count;
-    printf("Max segs to return %llu\n", max);
+    if (debug_backup)
+        printf("Max segs to return %llu\n", max);
 
     uint64_t c = 0;
     for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
@@ -223,48 +235,55 @@ BackupServer::GetSegmentList(uint64_t *list,
             c++;
         }
     }
-    printf("Final active segment count to return %llu\n", c);
+    if (debug_backup)
+        printf("Final active segment count to return %llu\n", c);
     *count = c;
 }
 
 void
 BackupServer::Retrieve(uint64_t seg_num, char *buf, uint64_t *len)
 {
-    printf("Retrieving segment %llu from disk\n", seg_num);
+    if (debug_backup)
+        printf("Retrieving segment %llu from disk\n", seg_num);
     if (seg_num == INVALID_SEGMENT_NUM)
         throw BackupException("What the hell are you feeding me? "
                               "Bad segment number!");
 
     uint64_t seg_frame = FrameForSegNum(seg_num);
-    printf("Found segment %llu in segment frame %llu\n", seg_num,
-           seg_frame);
+    if (debug_backup)
+        printf("Found segment %llu in segment frame %llu\n", seg_num,
+               seg_frame);
 
     struct timeval start, end, res;
     gettimeofday(&start, NULL);
 
-    printf("Seeking to %llu\n", SegFrameOff(seg_frame));
+    if (debug_backup)
+        printf("Seeking to %llu\n", SegFrameOff(seg_frame));
     off_t off = lseek(log_fd, SegFrameOff(seg_frame), SEEK_SET);
     if (off == -1)
         throw BackupLogIOException(errno);
 
     uint64_t read_len = SEGMENT_SIZE;
-    printf("About to read %llu bytes at %llu to %p\n",
-           read_len,
-           SegFrameOff(seg_frame),
-           buf);
+    if (debug_backup)
+        printf("About to read %llu bytes at %llu to %p\n",
+               read_len,
+               SegFrameOff(seg_frame),
+               buf);
     // TODO(stutsman) can only transfer MAX_RPC_LEN
     // TODO(stutsman) if we use O_DIRECT this must be an aligned
     // buffer
     ssize_t r = read(log_fd, buf, read_len);
     if (static_cast<uint64_t>(r) != read_len) {
-        printf("Read %ld bytes\n", r);
+        if (debug_backup)
+            printf("Read %ld bytes\n", r);
         throw BackupLogIOException(errno);
     }
     *len = r;
 
     gettimeofday(&end, NULL);
     timersub(&end, &start, &res);
-    printf("Retrieve in %d s %d us\n", res.tv_sec, res.tv_usec);
+    if (debug_backup)
+        printf("Retrieve in %d s %d us\n", res.tv_sec, res.tv_usec);
 }
 
 // ---- RPC Dispatch Code ----
@@ -275,7 +294,7 @@ BackupServer::HandleWrite(const backup_rpc *req, backup_rpc *resp)
     uint64_t seg_num = req->write_req.seg_num;
     uint64_t off = req->write_req.off;
     uint64_t len = req->write_req.len;
-    if (debug_noisy)
+    if (debug_backup)
         printf(">>> Handling Write to offset 0x%x length %d\n", off, len);
     Write(seg_num, off, &req->write_req.data[0], len);
 
@@ -286,7 +305,7 @@ BackupServer::HandleWrite(const backup_rpc *req, backup_rpc *resp)
 void
 BackupServer::HandleGetSegmentList(const backup_rpc *req, backup_rpc *resp)
 {
-    if (debug_noisy)
+    if (debug_backup)
         printf(">>> Handling GetSegmentList\n");
 
     resp->getsegmentlist_resp.seg_list_count =
@@ -294,7 +313,7 @@ BackupServer::HandleGetSegmentList(const backup_rpc *req, backup_rpc *resp)
         sizeof(uint64_t);
     GetSegmentList(resp->getsegmentlist_resp.seg_list,
                    &resp->getsegmentlist_resp.seg_list_count);
-    if (debug_noisy)
+    if (debug_backup)
         printf(">>>>>> GetSegmentList returning %llu ids\n",
             resp->getsegmentlist_resp.seg_list_count);
 
