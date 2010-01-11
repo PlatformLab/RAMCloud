@@ -33,6 +33,7 @@ void rc_net_init(struct rc_net *ret,
                  const char *srcaddr, uint16_t srcport,
                  const char *dstaddr, uint16_t dstport);
 int rc_net_connect(struct rc_net *net);
+int rc_net_listen(struct rc_net *net);
 int rc_net_close(struct rc_net *net);
 int rc_net_send(struct rc_net *net, void *, size_t);
 int rc_net_recv(struct rc_net *net, void **, size_t *);

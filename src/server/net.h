@@ -26,6 +26,7 @@ class NetException {};
 class Net {
   public:
     virtual void Connect() = 0;
+    virtual void Listen() = 0;
     virtual int Close() = 0;
     virtual void Send(const void *buf, size_t len) = 0;
     virtual size_t Recv(void **buf) = 0;
@@ -34,17 +35,25 @@ class Net {
     virtual ~Net() {}
 };
 
-class UDPNet : public Net {
+class CNet : public Net {
   public:
-    UDPNet(const char* srcaddr, uint16_t srcport,
-           const char* dstaddr, uint16_t dstport) :
+    CNet(const char* srcaddr, uint16_t srcport,
+         const char* dstaddr, uint16_t dstport) :
       net() {
         rc_net_init(&net,
                     const_cast<char*>(srcaddr), srcport,
                     const_cast<char*>(dstaddr), dstport);
-        Connect();
     }
-    void Connect() { rc_net_connect(&net); }
+    void Connect() {
+        int r = rc_net_connect(&net);
+        if (r < 0)
+            throw NetException();
+    }
+    void Listen() {
+        int r = rc_net_listen(&net);
+        if (r < 0)
+            throw NetException();
+    }
     int Close() { return rc_net_close(&net); }
     void Send(const void *buf, size_t len) {
         // const ok - C code doesn't modify but can't accept const
@@ -65,9 +74,9 @@ class UDPNet : public Net {
     int RecvRPC(struct rcrpc_any **msg) {
         return rc_net_recv_rpc(&net, msg);
     }
-    ~UDPNet() {}
+    ~CNet() {}
   private:
-    DISALLOW_COPY_AND_ASSIGN(UDPNet);
+    DISALLOW_COPY_AND_ASSIGN(CNet);
     rc_net net;
 };
 
@@ -77,6 +86,7 @@ class MockNet : public Net {
     // dev scriptable
     MockNet(void (*send_cb)(const char *, size_t)) : cb(send_cb) {}
     virtual void Connect() {}
+    virtual void Listen() {}
     virtual int Close() { return 0; }
     virtual void Send(const void *buf, size_t len) {
         cb(static_cast<const char*>(buf), len);

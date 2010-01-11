@@ -68,6 +68,12 @@ rc_net_connect(struct rc_net *net)
 }
 
 int
+rc_net_listen(struct rc_net *net)
+{
+    return rc_net_connect(net);
+}
+
+int
 rc_net_close(struct rc_net *net)
 {
     return close(net->fd);

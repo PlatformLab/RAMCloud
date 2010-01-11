@@ -84,8 +84,9 @@ Server::Server(const ServerConfig *sconfig, Net *net_impl)
     assert(p != NULL);
 
     if (BACKUP) {
-        Net *net = new UDPNet(BACKCLNTADDR, BACKCLNTPORT,
-                              BACKSVRADDR, BACKSVRPORT);
+        Net *net = new CNet(BACKCLNTADDR, BACKCLNTPORT,
+                            BACKSVRADDR, BACKSVRPORT);
+        net->Connect();
         // NOTE The backup client takes care of freeing the net object
         backup.AddHost(net);
     }
