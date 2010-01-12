@@ -1,7 +1,8 @@
 OBJDIRS += shared
 
 SHARED_NET_SRCFILES := src/shared/net_udp.c \
-                       src/shared/net_user.c
+                       src/shared/net_user.c \
+                       src/shared/net_tcp.c
 
 SHARED_SRCFILES := \
                 src/shared/common.cc \

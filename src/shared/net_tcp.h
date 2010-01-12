@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,38 +13,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_CONFIG_H
-#define RAMCLOUD_CONFIG_H
+#ifndef RAMCLOUD_SHARED_NET_TCP_H
+#define RAMCLOUD_SHARED_NET_TCP_H
 
-#define SVRADDR "127.0.0.1"
-#define SVRPORT  11111
+#include <config.h>
 
-#define CLNTADDR "127.0.0.1"
-#define CLNTPORT 22222
+#ifndef TCP_NET
+#error "Don't include net_tcp.h"
+#endif
 
-#define BACKSVRADDR "127.0.0.1"
-#define BACKSVRPORT  33333
+#include <arpa/inet.h>
 
-#define BACKCLNTADDR "127.0.0.1"
-#define BACKCLNTPORT  44444
-
-#define MAX_RPC_LEN 2048
-
-#define RC_NUM_TABLES 256
-
-// 32 KB is the maximum we can recover over UDP
-#define SEGMENT_SIZE (1 << 15)
-#define SEGMENT_COUNT 64
-
-#define BACKUP_LOG_PATH "backup.log"
-#define BACKUP_LOG_FLAGS 0
-
-// number of cachelines allocated for the hashtable
-#define HASH_NLINES 16384
-
-#define BACKUP false
-
-// define only one of: {USERSPACE_NET, UDP_NET, TCP_NET}
-#define UDP_NET 1
+struct rc_net {
+    bool server;
+    bool client;
+    int listen_fd;
+    int connection_fd;
+    struct sockaddr_in srcsin;
+    struct sockaddr_in dstsin;
+};
 
 #endif

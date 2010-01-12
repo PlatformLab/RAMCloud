@@ -21,7 +21,7 @@
 
 #include <shared/rcrpc.h>
 
-#if defined(USERSPACE_NET) + defined(UDP_NET) != 1
+#if defined(USERSPACE_NET) + defined(UDP_NET) + defined(TCP_NET) != 1
 #error "You need exactly one network implementation."
 #endif
 
@@ -29,6 +29,8 @@
 #include <shared/net_user.h>
 #elif defined(UDP_NET)
 #include <shared/net_udp.h>
+#elif defined(TCP_NET)
+#include <shared/net_tcp.h>
 #endif
 
 #ifdef __cplusplus
