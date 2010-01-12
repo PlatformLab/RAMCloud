@@ -118,6 +118,8 @@ rc_ping(struct rc_client *client)
     return SENDRCV_RPC(PING, ping, &query, &resp);
 }
 
+#define MAX_DATA_WRITE_LEN (MAX_RPC_LEN - RCRPC_WRITE_REQUEST_LEN_WODATA - 256)
+
 int
 rc_write(struct rc_client *client,
          uint64_t table,

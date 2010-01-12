@@ -16,6 +16,13 @@
 #ifndef RAMCLOUD_SHARED_NET_UDP_H
 #define RAMCLOUD_SHARED_NET_UDP_H
 
+#include <config.h>
+
+#ifndef UDP_NET
+#error "Don't include net_udp.h"
+#endif
+
+
 #include <arpa/inet.h>
 
 struct rc_net {

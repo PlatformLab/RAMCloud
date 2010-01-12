@@ -22,10 +22,11 @@ int
 main()
 {
     using ::RAMCloud::Net;
-    using ::RAMCloud::UDPNet;
+    using ::RAMCloud::CNet;
     using ::RAMCloud::BackupServer;
-    Net *net = new UDPNet(BACKSVRADDR, BACKSVRPORT,
-                          BACKCLNTADDR, BACKCLNTPORT);
+    Net *net = new CNet(BACKSVRADDR, BACKSVRPORT,
+                        BACKCLNTADDR, BACKCLNTPORT);
+    net->Listen();
     BackupServer *server = new BackupServer(net,
                                             BACKUP_LOG_PATH);
 
