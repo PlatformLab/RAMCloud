@@ -1,9 +1,7 @@
 OBJDIRS += shared
 
-SHARED_NET_SRCFILES := src/shared/net_udp.c
-ifeq ($(USERSPACE_NET),yes)
-SHARED_NET_SRCFILES := src/shared/net_user.c
-endif
+SHARED_NET_SRCFILES := src/shared/net_udp.c \
+                       src/shared/net_user.c
 
 SHARED_SRCFILES := \
                 src/shared/common.cc \

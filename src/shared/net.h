@@ -16,13 +16,18 @@
 #ifndef RAMCLOUD_SHARED_NET_H
 #define RAMCLOUD_SHARED_NET_H
 
+#include <config.h>
 #include <string.h>
 
 #include <shared/rcrpc.h>
 
-#ifdef USERSPACE_NET
+#if defined(USERSPACE_NET) + defined(UDP_NET) != 1
+#error "You need exactly one network implementation."
+#endif
+
+#if defined(USERSPACE_NET)
 #include <shared/net_user.h>
-#else
+#elif defined(UDP_NET)
 #include <shared/net_udp.h>
 #endif
 

@@ -13,6 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <config.h>
+
+#ifdef UDP_NET
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -27,6 +31,8 @@
 
 #include <shared/rcrpc.h>
 #include <shared/net.h>
+
+#include <shared/net_udp.h>
 
 void
 rc_net_init(struct rc_net *ret,
@@ -138,3 +144,5 @@ rc_net_recv_rpc(struct rc_net *net, struct rcrpc_any **rpc)
     size_t len;
     return rc_net_recv(net, (void **)rpc, &len);
 }
+
+#endif
