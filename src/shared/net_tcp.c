@@ -112,6 +112,9 @@ rc_net_listen(struct rc_net *net)
         return -1;
     }
 
+    int optval = 1;
+    (void) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
+
     if (bind(fd, (struct sockaddr *)&net->srcsin, sizeof(net->srcsin)) == -1) {
         // store errno in case close fails
         int e = errno;
