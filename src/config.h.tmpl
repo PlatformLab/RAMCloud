@@ -39,11 +39,12 @@
 #define BACKUP_LOG_PATH "backup.log"
 #define BACKUP_LOG_FLAGS 0
 
-#define MAX_DATA_WRITE_LEN 16384
-
 // number of cachelines allocated for the hashtable
 #define HASH_NLINES 16384
 
 #define BACKUP false
+
+// define only one of: {USERSPACE_NET, UDP_NET, TCP_NET}
+#define UDP_NET 1
 
 #endif

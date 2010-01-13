@@ -29,7 +29,6 @@ struct MallocIndexKey : public IndexKeyRef {
 };
 
 MallocIndexKey::MallocIndexKey(const IndexKeyRef& key) {
-    assert(key.len != 0);
     this->len = 0;
     this->buf = malloc(key.len);
     assert(this->buf != NULL);
