@@ -43,20 +43,18 @@ connect :: Client -> IO ()
 -- TODO(stutsman) check return and throw an exception if -1
 connect = c_rc_connect
 
-withClient action = do
-  client <- new
+-- TODO(stutsman) fix this allocaBytes to get size of from the library
+withClient action = allocaBytes 4096 $ \client -> do
   connect client
   action client
   disconnect client
-  -- TODO FIX THIS - Shouldn't be too hard given new stack style
-  --free client
 
 write :: Client -> Table -> Key -> String -> IO ()
 -- TODO(stutsman) binary data, exceptions
 write client table key dat = withCStringLen dat $ \(cstr, len) ->
                              -- TODO this will be the index data at some point
-                             withCStringLen "" $ \(icstr, ilen) ->
-                             c_rc_write client table key cstr (fromIntegral len) icstr (fromIntegral ilen)
+                             withCStringLen "" $ \(icstr, ilen) -> do
+                               c_rc_write client table key cstr (fromIntegral len) icstr (fromIntegral ilen)
 
 read :: Client -> Table -> Key -> IO String
 read client table key = withCAStringLen (take max $ repeat ' ') $ \(cstr, cstrlen) ->
