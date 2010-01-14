@@ -121,6 +121,8 @@ struct rcrpc_any {
     char opaque[0];
 };
 
+// ping RPC: no-op
+
 struct rcrpc_ping_request {
     struct rcrpc_header header;
 };
@@ -134,6 +136,34 @@ struct rcrpc_ping_response {
 #else
 #define RCRPC_VERSION_ANY ((uint64_t)(-1ULL))
 #endif
+
+struct rc_index_entry {
+    // keep this identical to struct chunk_entry for now 
+    uint64_t len;
+    uint32_t index_id;
+    uint32_t index_type;
+    char data[0];                       // Variable length, but contiguous
+};
+
+// read RPC: Read an object.
+//
+// Let o be the object identified by in.table, in.key.
+// If o does not exist: an rcrpc_error_response is sent instead.
+// out.version is set to o's version.
+// If in.version == RCRPC_VERSION_ANY || in.version == o's version:
+//     out.index_entries of size in bytes out.index_entries_len is set to o's
+//         index entries. It is an array of rc_index_entry.
+//     out.buf of size out.buf_len is set to o's opaque blob.
+// Else:
+//     out.index_entries_len is 0 and out.index_entries is empty.
+//     out.buf_len is 0 and out.index_entries is empty.
+//
+// Note: A response with an object that has no data and no index entries looks
+// identical to a response to a request with a stale version number. The client
+// should compare in.version with out.version to determine whether the response
+// contains object data.
+//
+// TODO(ongaro): Using rcrpc_error_response for application error
 
 struct rcrpc_read_request {
     struct rcrpc_header header;
@@ -154,6 +184,32 @@ struct rcrpc_read_response {
     char var[0];                        /* Variable length */
 };
 
+// write RPC: Update or create an object at a given key.
+//
+// Let o be the object identified by in.table, in.key.
+// If o exists:
+//     If in.version == RCRPC_VERSION_ANY || in.version == o's version:
+//         o's opaque blob is set to in.buf of size in.buf_len.
+//         o's index entries are set to in.index_entries of size
+//             in.index_entries_len in bytes. It is an array of rc_index_entry.
+//         o's version is increased.
+//         o is sent to the backups and their ack is received.
+//         out.version is set to o's new version.
+//     Else:
+//         out.version is set to o's existing version.
+// Else:
+//     o is created.
+//     o's opaque blob is set to in.buf of size in.buf_len.
+//     o's index entries are set to in.index_entries of size
+//         in.index_entries_len in bytes. It is an array of rc_index_entry.
+//     o's version is set to a value guaranteed to be greater than that of any
+//         previous object that resided at in.table, in.key.
+//     o is sent to the backups and their ack is received.
+//     out.version is set to o's new version.
+//
+// TODO(ongaro): Should o be created if o did not exist and in.version is not
+//               RCRPC_VERSION_ANY?
+
 struct rcrpc_write_request {
     struct rcrpc_header header;
     uint64_t table;
@@ -173,6 +229,21 @@ struct rcrpc_write_response {
     uint64_t version;
 };
 
+// Insert RPC: Create an object at an assigned key.
+//
+// Let o be a new object inside in.table.
+// o is assigned a key based on the table's key allocation strategy.
+// o's version is set to a value guaranteed to be greater than that of any
+//     previous object that resided at in.table with o's key.
+// o's opaque blob is set to in.buf of size in.buf_len.
+// o's index entries are set to in.index_entries of size
+//     in.index_entries_len in bytes. It is an array of rc_index_entry.
+// o is sent to the backups and their ack is received.
+// out.key is set to o's key. 
+// out.version is set to o's version.
+//
+// TODO(ongaro): What is the table's key allocation strategy?
+
 struct rcrpc_insert_request {
     struct rcrpc_header header;
     uint64_t table;
@@ -191,6 +262,16 @@ struct rcrpc_insert_response {
     uint64_t version;
 };
 
+// Delete RPC: Delete an object.
+//
+// Let o be the object identified by in.table, in.key.
+// If o does not exist: an rcrpc_error_response is sent instead.
+// o, including its index entries, is removed from the table.
+// o's deletion is sent to the backups and their ack is received.
+//
+// TODO(ongaro): Using rcrpc_error_response for application error
+// TODO(ongaro): Need conditional deletes
+
 struct rcrpc_delete_request {
     struct rcrpc_header header;
     uint64_t table;
@@ -201,6 +282,9 @@ struct rcrpc_delete_response {
     struct rcrpc_header header;
 };
 
+// Create table RPC: Create a table.
+//
+// TODO(ongaro): Missing documentation.
 
 struct rcrpc_create_table_request {
     struct rcrpc_header header;
@@ -211,6 +295,9 @@ struct rcrpc_create_table_response {
     struct rcrpc_header header;
 };
 
+// Open table RPC: Open a table.
+//
+// TODO(ongaro): Missing documentation.
 
 struct rcrpc_open_table_request {
     struct rcrpc_header header;
@@ -222,6 +309,9 @@ struct rcrpc_open_table_response {
     uint64_t handle;
 };
 
+// Open table RPC: Delete a table.
+//
+// TODO(ongaro): Missing documentation.
 
 struct rcrpc_drop_table_request {
     struct rcrpc_header header;
@@ -231,6 +321,10 @@ struct rcrpc_drop_table_request {
 struct rcrpc_drop_table_response {
     struct rcrpc_header header;
 };
+
+// Create index RPC: Create an index.
+//
+// TODO(ongaro): Missing documentation.
 
 struct rcrpc_create_index_request {
     struct rcrpc_header header;
@@ -245,6 +339,10 @@ struct rcrpc_create_index_response {
     uint16_t id;
 };
 
+// Delete index RPC: Delete an index.
+//
+// TODO(ongaro): Missing documentation.
+
 struct rcrpc_drop_index_request {
     struct rcrpc_header header;
     uint64_t table;
@@ -254,6 +352,10 @@ struct rcrpc_drop_index_request {
 struct rcrpc_drop_index_response {
     struct rcrpc_header header;
 };
+
+// Range query RPC: Range query an index.
+//
+// TODO(ongaro): Missing documentation.
 
 struct rcrpc_range_query_request {
     struct rcrpc_header header;
@@ -287,6 +389,10 @@ struct rcrpc_range_query_response {
     char var[0];                        /* Variable length */
 };
 
+// Unique lookup RPC: Lookup a key in a unique index.
+//
+// TODO(ongaro): Missing documentation.
+
 struct rcrpc_unique_lookup_request {
     struct rcrpc_header header;
     uint64_t table;
@@ -300,6 +406,10 @@ struct rcrpc_unique_lookup_response {
     int oid_present:1;
     uint64_t oid;
 };
+
+// Multi lookup RPC: Lookup a key in a multi index.
+//
+// TODO(ongaro): Missing documentation.
 
 struct rcrpc_multi_lookup_request {
     struct rcrpc_header header;
