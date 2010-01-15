@@ -266,11 +266,12 @@ struct rcrpc_insert_response {
 //
 // Let o be the object identified by in.table, in.key.
 // If o does not exist: an rcrpc_error_response is sent instead.
-// o, including its index entries, is removed from the table.
-// o's deletion is sent to the backups and their ack is received.
+// out.version is set to o's existing version.
+// If in.version == RCRPC_VERSION_ANY || in.version == o's version:
+//     o, including its index entries, is removed from the table.
+//     o's deletion is sent to the backups and their ack is received.
 //
 // TODO(ongaro): Using rcrpc_error_response for application error
-// TODO(ongaro): Need conditional deletes
 
 struct rcrpc_delete_request {
     struct rcrpc_header header;
