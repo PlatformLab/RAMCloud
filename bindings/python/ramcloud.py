@@ -1,4 +1,4 @@
-# Copyright (c) 2009 Stanford University
+# Copyright (c) 2009-2010 Stanford University
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -22,54 +22,6 @@ from ctypes.util import find_library
 def _ctype_copy(addr, var, width):
     ctypes.memmove(addr, ctypes.addressof(var), width)
     return addr + width
-
-
-class IN_ADDR(ctypes.Structure):
-    _fields_ = [('s_addr', ctypes.c_uint)]
-
-    def __repr__(self):
-        return "IN_ADDR{'s_addr': %s}" % repr(self.s_addr)
-
-class SOCKADDR_IN(ctypes.Structure):
-    _fields_ = [('sin_family', ctypes.c_ushort),
-                ('sin_port', ctypes.c_ushort),
-                ('sin_addr', IN_ADDR),
-                ('sin_zero', ctypes.c_char * 8)]
-
-    def __repr__(self):
-        return "SOCKADDR_IN{'sin_family': %s, 'sin_port': %s, 'sin_addr': %s, 'sin_zero': %s}" % (
-            repr(self.sin_family),
-            repr(self.sin_port),
-            repr(self.sin_addr),
-            repr(self.sin_zero))
-
-class NET(ctypes.Structure):
-# TODO(stutsman) wrong widths on c_int, but doesn't matter since data is opaque
-#    _fields_ = [('is_server', ctypes.c_int),
-#                ('fd', ctypes.c_int),
-#                ('connected', ctypes.c_int),
-#                ('srcsin', SOCKADDR_IN),
-#                ('dstsin', SOCKADDR_IN)]
-    _fields_ = [('is_server', ctypes.c_char * 4),
-                ('fd', ctypes.c_char * 4),
-                ('connected', ctypes.c_char * 4),
-                ('srcsin', SOCKADDR_IN),
-                ('dstsin', SOCKADDR_IN)]
-
-    def __repr__(self):
-        return "NET{'is_server': %s, 'fd': %s, 'connected': %s, 'srcsin': %s, 'dstsin': %s}" % (
-            repr(self.is_server),
-            repr(self.fd),
-            repr(self.connected),
-            repr(self.srcsin),
-            repr(self.dstsin))
-
-# size 44 gels up with the C implementation
-class CLIENT(ctypes.Structure):
-    _fields_ = [('net', NET)]
-
-    def __repr__(self):
-        return "CLIENT{'net': %s}" % repr(self.net)
 
 class _RCRPC_INDEX_TYPE(object):
     class IndexType:
@@ -132,6 +84,9 @@ class RAMCloud(object):
         self.so = ctypes.cdll.LoadLibrary(path)
         self.so.rc_last_error.restype = ctypes.c_char_p
 
+        self.so.rc_new.restype = ctypes.c_void_p
+        self.so.rc_free.restype = None
+
         self.so.rc_multi_lookup_args_new.restype = ctypes.c_voidp
         self.so.rc_multi_lookup_args_free.restype = None
         self.so.rc_multi_lookup_set_index.restype = None
@@ -147,21 +102,25 @@ class RAMCloud(object):
         self.so.rc_range_query_set_start_following_oid.restype = None
         self.so.rc_range_query_set_result_bufs.restype = None
 
-        self.client = CLIENT()
-
         self.RCRPC_VERSION_ANY = ctypes.c_uint64.in_dll(self.so, "rcrpc_version_any")
+
+        self.client = ctypes.c_void_p(self.so.rc_new())
+
+    def __del__(self):
+        self.so.rc_free(self.client)
+        self.client = None
 
     def raise_error(self):
         msg = self.so.rc_last_error()
         raise RCException(msg)
 
     def connect(self):
-        r = self.so.rc_connect(ctypes.byref(self.client))
+        r = self.so.rc_connect(self.client)
         if r != 0:
             self.raise_error()
     
     def ping(self):
-        r = self.so.rc_ping(ctypes.byref(self.client))
+        r = self.so.rc_ping(self.client)
         if r != 0:
             self.raise_error()
 
@@ -212,7 +171,7 @@ class RAMCloud(object):
             want_version = ctypes.c_uint64(want_version)
         else:
             want_version = self.RCRPC_VERSION_ANY
-        r = self.so.rc_write(ctypes.byref(self.client),
+        r = self.so.rc_write(self.client,
                              ctypes.c_uint64(table_id),
                              ctypes.c_uint64(key),
                              want_version,
@@ -228,7 +187,7 @@ class RAMCloud(object):
     def insert(self, table_id, data, indexes=None):
         idx_bufp, idx_buf_len = self._indexes_to_buf(indexes)
         key = ctypes.c_uint64()
-        r = self.so.rc_insert(ctypes.byref(self.client),
+        r = self.so.rc_insert(self.client,
                               ctypes.c_uint64(table_id),
                               ctypes.c_char_p(data),
                               ctypes.c_uint64(len(data)),
@@ -245,7 +204,7 @@ class RAMCloud(object):
             want_version = ctypes.c_uint64(want_version)
         else:
             want_version = self.RCRPC_VERSION_ANY
-        r = self.so.rc_delete(ctypes.byref(self.client),
+        r = self.so.rc_delete(self.client,
                               ctypes.c_uint64(table_id),
                               ctypes.c_uint64(key),
                               want_version,
@@ -302,7 +261,7 @@ class RAMCloud(object):
             want_version = self.RCRPC_VERSION_ANY
         idx_buf = ctypes.create_string_buffer(10240)
         idx_buf_len = ctypes.c_uint64(len(idx_buf))
-        r = self.so.rc_read(ctypes.byref(self.client),
+        r = self.so.rc_read(self.client,
                             ctypes.c_uint64(table_id),
                             ctypes.c_uint64(key),
                             want_version,
@@ -318,25 +277,25 @@ class RAMCloud(object):
         return (buf.raw[0:l.value], got_version.value, indexes)
 
     def create_table(self, name):
-        r = self.so.rc_create_table(ctypes.byref(self.client), name)
+        r = self.so.rc_create_table(self.client, name)
         if r != 0:
             self.raise_error()
 
     def open_table(self, name):
         handle = ctypes.c_uint64()
-        r = self.so.rc_open_table(ctypes.byref(self.client), name, ctypes.byref(handle))
+        r = self.so.rc_open_table(self.client, name, ctypes.byref(handle))
         if r != 0:
             self.raise_error()
         return handle.value
 
     def drop_table(self, name):
-        r = self.so.rc_drop_table(ctypes.byref(self.client), name)
+        r = self.so.rc_drop_table(self.client, name)
         if r != 0:
             self.raise_error()
 
     def create_index(self, table_id, type, unique, range_queryable):
         index_id = ctypes.c_uint16()
-        r = self.so.rc_create_index(ctypes.byref(self.client),
+        r = self.so.rc_create_index(self.client,
                                     ctypes.c_uint64(table_id),
                                     int(type.type_id),
                                     bool(unique),
@@ -347,7 +306,7 @@ class RAMCloud(object):
         return index_id.value
 
     def drop_index(self, table_id, index_id):
-        r = self.so.rc_drop_index(ctypes.byref(self.client),
+        r = self.so.rc_drop_index(self.client,
                                   ctypes.c_uint64(table_id),
                                   ctypes.c_uint16(index_id))
         if r != 0:
@@ -363,7 +322,7 @@ class RAMCloud(object):
             width = len(key)
         oid_present = ctypes.c_int()
         oid = ctypes.c_uint64()
-        r = self.so.rc_unique_lookup(ctypes.byref(self.client),
+        r = self.so.rc_unique_lookup(self.client,
                                      ctypes.c_uint64(table_id),
                                      ctypes.c_uint16(index_id),
                                      ctypes.byref(key_buf),
@@ -400,7 +359,7 @@ class RAMCloud(object):
         self.so.rc_multi_lookup_set_result_buf(args, ctypes.byref(count),
                                                ctypes.byref(oids),
                                                ctypes.byref(more))
-        r = self.so.rc_multi_lookup(ctypes.byref(self.client), args)
+        r = self.so.rc_multi_lookup(self.client, args)
         self.so.rc_multi_lookup_args_free(args)
         if r != 0:
             self.raise_error()
@@ -470,7 +429,7 @@ class RAMCloud(object):
                                                ctypes.byref(oids), ctypes.byref(oids_buf_len),
                                                ctypes.byref(keys), ctypes.byref(keys_buf_len),
                                                ctypes.byref(more))
-        r = self.so.rc_range_query(ctypes.byref(self.client), args)
+        r = self.so.rc_range_query(self.client, args)
         self.so.rc_range_query_args_free(args)
         if r != 0:
             self.raise_error()
@@ -506,8 +465,8 @@ class RAMCloud(object):
 
 def main():
     r = RAMCloud()
+    print "Client: 0x%x" % r.client.value
     r.connect()
-    print r.client
     r.ping()
 
     r.create_table("test")
