@@ -598,7 +598,7 @@ rc_range_query(struct rc_client *client,
 
 struct rc_client *
 rc_new() {
-    return malloc(sizeof(struct rc_client *));
+    return malloc(sizeof(struct rc_client));
 }
 
 void
