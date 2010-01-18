@@ -221,9 +221,6 @@ class RAMCloud(object):
             self.raise_error()
         return got_version.value
 
-    def read(self, table_id, key, want_version=None):
-        return self.read_full(table_id, key, want_version)
-
     def _buf_to_indexes(self, addr, indexes_len):
         if addr and indexes_len:
             indexes = []
@@ -259,7 +256,7 @@ class RAMCloud(object):
         else:
             return []
 
-    def read_full(self, table_id, key, want_version=None):
+    def read(self, table_id, key, want_version=None):
         buf = ctypes.create_string_buffer(10240)
         l = ctypes.c_uint64()
         got_version = ctypes.c_uint64()
@@ -495,7 +492,7 @@ def main():
         (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
     ])
     print "Inserted to table"
-    value, got_version, indexes = r.read_full(table, 0)
+    value, got_version, indexes = r.read(table, 0)
     print value
     print indexes
     key = r.insert(table, "test", [
