@@ -340,14 +340,8 @@ class RAMCloud(object):
             want_version = ctypes.c_uint64(want_version)
         else:
             want_version = so.RCRPC_VERSION_ANY
-        so.rc_write(self.client,
-                    ctypes.c_uint64(table_id),
-                    ctypes.c_uint64(key),
-                    want_version,
-                    ctypes.byref(got_version),
-                    ctypes.c_char_p(data),
-                    ctypes.c_uint64(len(data)),
-                    idx_bufp,
+        so.rc_write(self.client, table_id, key, want_version,
+                    ctypes.byref(got_version), data, len(data), idx_bufp,
                     idx_buf_len)
         if (want_version.value != so.RCRPC_VERSION_ANY.value and
             got_version.value != want_version.value):
@@ -357,25 +351,17 @@ class RAMCloud(object):
     def insert(self, table_id, data, indexes=None):
         idx_bufp, idx_buf_len = self._indexes_to_buf(indexes)
         key = ctypes.c_uint64()
-        so.rc_insert(self.client,
-                     ctypes.c_uint64(table_id),
-                     ctypes.c_char_p(data),
-                     ctypes.c_uint64(len(data)),
-                     ctypes.byref(key),
-                     idx_bufp,
-                     idx_buf_len)
+        so.rc_insert(self.client, table_id, data, len(data), ctypes.byref(key),
+                     idx_bufp, idx_buf_len)
         return key.value
 
     def delete(self, table_id, key, want_version=None):
         got_version = ctypes.c_uint64()
         if want_version != None:
-            want_version = ctypes.c_uint64(want_version)
+            want_version = want_version
         else:
             want_version = so.RCRPC_VERSION_ANY
-        so.rc_delete(self.client,
-                     ctypes.c_uint64(table_id),
-                     ctypes.c_uint64(key),
-                     want_version,
+        so.rc_delete(self.client, table_id, key, want_version,
                      ctypes.byref(got_version))
         if (want_version.value != so.RCRPC_VERSION_ANY.value and
             got_version.value != want_version.value):
@@ -422,19 +408,14 @@ class RAMCloud(object):
         l = ctypes.c_uint64()
         got_version = ctypes.c_uint64()
         if want_version != None:
-            want_version = ctypes.c_uint64(want_version)
+            want_version = want_version
         else:
             want_version = so.RCRPC_VERSION_ANY
         idx_buf = ctypes.create_string_buffer(10240)
         idx_buf_len = ctypes.c_uint64(len(idx_buf))
-        so.rc_read(self.client,
-                   ctypes.c_uint64(table_id),
-                   ctypes.c_uint64(key),
-                   want_version,
-                   ctypes.byref(got_version),
-                   ctypes.byref(buf),
-                   ctypes.byref(l),
-                   ctypes.byref(idx_buf),
+        so.rc_read(self.client, table_id, key, want_version,
+                   ctypes.byref(got_version), ctypes.byref(buf),
+                   ctypes.byref(l), ctypes.byref(idx_buf),
                    ctypes.byref(idx_buf_len))
         if (want_version.value != so.RCRPC_VERSION_ANY.value and
             got_version.value != want_version.value):
@@ -456,18 +437,12 @@ class RAMCloud(object):
 
     def create_index(self, table_id, type, unique, range_queryable):
         index_id = ctypes.c_uint16()
-        so.rc_create_index(self.client,
-                           ctypes.c_uint64(table_id),
-                           int(type.type_id),
-                           bool(unique),
-                           bool(range_queryable),
-                           ctypes.byref(index_id))
+        so.rc_create_index(self.client, table_id, type.type_id, unique,
+                           range_queryable, ctypes.byref(index_id))
         return index_id.value
 
     def drop_index(self, table_id, index_id):
-        so.rc_drop_index(self.client,
-                         ctypes.c_uint64(table_id),
-                         ctypes.c_uint16(index_id))
+        so.rc_drop_index(self.client, table_id, index_id)
 
     def unique_lookup(self, table_id, index_id, index_type, key):
         if index_type.width:
@@ -479,14 +454,10 @@ class RAMCloud(object):
             width = len(key)
         oid_present = ctypes.c_bool()
         oid = ctypes.c_uint64()
-        so.rc_unique_lookup(self.client,
-                            ctypes.c_uint64(table_id),
-                            ctypes.c_uint16(index_id),
-                            ctypes.byref(key_buf),
-                            ctypes.c_uint64(width),
-                            ctypes.byref(oid_present),
-                            ctypes.byref(oid))
-        if bool(oid_present.value):
+        so.rc_unique_lookup(self.client, table_id, index_id,
+                            ctypes.byref(key_buf), width,
+                            ctypes.byref(oid_present), ctypes.byref(oid))
+        if oid_present.value:
             return oid.value
         else:
             raise KeyError()
@@ -494,8 +465,7 @@ class RAMCloud(object):
     def multi_lookup(self, table_id, index_id, index_type, limit, key,
                      start_following_oid=None):
         args = so.rc_multi_lookup_args_new()
-        so.rc_multi_lookup_set_index(args, ctypes.c_uint64(table_id),
-                                     ctypes.c_uint16(index_id))
+        so.rc_multi_lookup_set_index(args, table_id, index_id)
         if index_type.width:
             width = index_type.width
             key_buf = index_type.ctype(key)
@@ -503,12 +473,11 @@ class RAMCloud(object):
             # variable-length key type (BYTES)
             key_buf = ctypes.create_string_buffer(key)
             width = len(key)
-        so.rc_multi_lookup_set_key(args, ctypes.byref(key_buf),
-                                   ctypes.c_uint64(width))
+        so.rc_multi_lookup_set_key(args, ctypes.byref(key_buf), width)
 
         if start_following_oid is not None:
             so.rc_multi_lookup_set_start_following_oid(args,
-                    ctypes.c_uint64(start_following_oid))
+                                                       start_following_oid)
 
         more = ctypes.c_bool()
         count = ctypes.c_uint32(limit)
@@ -526,8 +495,7 @@ class RAMCloud(object):
                     key_end=None, key_end_inclusive=False,
                     start_following_oid=None):
         args = so.rc_range_query_args_new()
-        so.rc_range_query_set_index(args, ctypes.c_uint64(table_id),
-                                    ctypes.c_uint16(index_id))
+        so.rc_range_query_set_index(args, table_id, index_id)
 
         if key_start is not None:
             if index_type.width:
@@ -538,8 +506,7 @@ class RAMCloud(object):
                 key_start_buf = ctypes.create_string_buffer(key_start)
                 width = len(key_start)
             so.rc_range_query_set_key_start(args, ctypes.byref(key_start_buf),
-                                            ctypes.c_uint64(width),
-                                            bool(key_start_inclusive))
+                                            width, key_start_inclusive)
 
         if key_end is not None:
             if index_type.width:
@@ -550,11 +517,10 @@ class RAMCloud(object):
                 key_end_buf = ctypes.create_string_buffer(key_end)
                 width = len(key_end)
             so.rc_range_query_set_key_end(args, ctypes.byref(key_end_buf),
-                                          ctypes.c_uint64(width),
-                                          ctypes.c_bool(key_end_inclusive))
+                                          width, key_end_inclusive)
         if start_following_oid is not None:
             so.rc_range_query_set_start_following_oid(args,
-                    ctypes.c_uint64(start_following_oid))
+                                                      start_following_oid)
 
         more = ctypes.c_bool()
         count = ctypes.c_uint32(limit)
@@ -562,6 +528,7 @@ class RAMCloud(object):
         oids_buf_len = ctypes.c_uint64(limit * 8)
         if index_type.width:
             keys = (index_type.ctype * limit)()
+            keys_addr = ctypes.addressof(keys)
             keys_buf_len = ctypes.c_uint64(index_type.width * limit)
         else:
             # variable-length key type (BYTES)
@@ -579,11 +546,13 @@ class RAMCloud(object):
                 print "warning: possible result size too big..."
                 print "warning: using smaller buffer that may overflow"
                 maxlen = 1024 * 1024 * 10
-            keys = ctypes.create_string_buffer(maxlen)
-            keys_buf_len = ctypes.c_uint64(len(keys))
-        so.rc_range_query_set_result_bufs(args, ctypes.byref(count),
-                                          oids, ctypes.byref(oids_buf_len),
-                                          keys, ctypes.byref(keys_buf_len),
+            keysb = ctypes.create_string_buffer(maxlen)
+            keys = ctypes.byref(keysb)
+            keys_addr = ctypes.addressof(keysb)
+            keys_buf_len = ctypes.c_uint64(len(keysb))
+        so.rc_range_query_set_result_bufs(args, ctypes.byref(count), oids,
+                                          ctypes.byref(oids_buf_len), keys,
+                                          ctypes.byref(keys_buf_len),
                                           ctypes.byref(more))
         try:
             so.rc_range_query(self.client, args)
@@ -591,7 +560,7 @@ class RAMCloud(object):
             so.rc_range_query_args_free(args)
 
         pairs = [] # (key, oid)
-        addr = ctypes.addressof(keys)
+        addr = keys_addr
         for i in range(count.value):
             if index_type.width:
                 key = keys[i]
