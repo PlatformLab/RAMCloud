@@ -18,6 +18,7 @@
 
 import ctypes
 from ctypes.util import find_library
+import itertools
 
 def load_so():
     not_found = ImportError("Couldn't find libramcloud.so, ensure it is " +
@@ -71,13 +72,7 @@ class _RCRPC_INDEX_TYPE(object):
             return 'RCRPC_INDEX_TYPE.%s' % self.name
 
     def __init__(self):
-        def gen():
-            i = 0
-            while True:
-                yield i
-                i += 1
-        id = gen()
-
+        id = itertools.count(0)
         self._lookup = {}
 
         # Keep this in sync with src/shared/rcrpc.h
