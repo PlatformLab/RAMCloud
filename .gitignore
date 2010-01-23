@@ -1,6 +1,8 @@
 .*.swp
 \#*#
 *.pyc
+*.o
+*.hi
 
 /docs/doxygen/
 /obj.*/
