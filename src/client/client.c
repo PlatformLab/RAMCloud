@@ -123,6 +123,41 @@ rc_ping(struct rc_client *client)
 
 #define MAX_DATA_WRITE_LEN (MAX_RPC_LEN - RCRPC_WRITE_REQUEST_LEN_WODATA - 256)
 
+/**
+ * Write (create or overwrite) an object in a %RAMCloud.
+ *
+ * This function can be used to create an object at a specified object ID. To
+ * create an object with a server-assigned object ID, see rc_insert().
+ *
+ * If the object is written, the new version of the object is guaranteed to be
+ * greater than that of any previous object that resided at the same \a table
+ * and \a key.
+ *
+ * \param[in]  client   a connected client
+ * \param[in]  table    the table containing the object to be written
+ * \param[in]  key      the object ID of the object to be written
+ * \param[in]  want_version
+ *      ::RCRPC_VERSION_ANY or the version of the object to be written
+ * \param[out] got_version
+ *      the version of the object after the write took effect \n
+ *      If the write did not occur (it must have been an overwrite), this is
+ *      set to the object's current version. \n
+ *      If the caller is not interested, got_version may be \c NULL.
+ * \param[in]  buf      the object's data
+ * \param[in]  len      the size of the object's data in bytes
+ * \param[in]  index_entries_buf
+ *      the object's index entries (array of rc_index_entry)
+ * \param[in]  index_entries_len
+ *      the size of the object's index entries in bytes
+ * \return error code (see values below)
+ * \retval  0 on success
+ * \retval -1 on %RAMCloud error (see rc_last_error())
+ * \retval  1 if requested version was specified in \a want_version and the
+ *      object exists but this is not the object's current version
+ * \retval other reserved for future use
+ * \warning Watch out for the bad semantics of \a got_version when the object
+ *      does not exist.
+ */
 int
 rc_write(struct rc_client *client,
          uint64_t table,
@@ -166,6 +201,34 @@ rc_write(struct rc_client *client,
     return r;
 }
 
+/**
+ * Create an object in a %RAMCloud with a server-assigned object ID.
+ *
+ * The new object is assigned an object ID based on the table's object ID
+ * allocation strategy, which is yet to be officially defined.
+ *
+ * If the object is written, the new version of the object is guaranteed to be
+ * greater than that of any previous object that resided at the same \a table
+ * and \a key.
+ *
+ * \param[in]  client   a connected client
+ * \param[in]  table    the table containing the object to be inserted
+ * \param[in]  buf      the object's data
+ * \param[in]  len      the size of the object's data in bytes
+ * \param[out] key      the object ID of the object that was inserted
+ * \param[in]  index_entries_buf
+ *      the object's index entries (array of rc_index_entry)
+ * \param[in]  index_entries_len
+ *      the size of the object's index entries in bytes
+ * \return error code (see values below)
+ * \retval  0 on success
+ * \retval -1 on %RAMCloud error (see rc_last_error())
+ * \retval other reserved for future use
+ * \bug Currently, the server may assign an object ID that is already in use
+ *      and overwrite an existing object. To work around this, do not use
+ *      rc_insert() on tables that also have objects with small
+ *      application-assigned object IDs (see rc_write()).
+ */
 int
 rc_insert(struct rc_client *client,
           uint64_t table,
@@ -202,6 +265,27 @@ rc_insert(struct rc_client *client,
     return 0;
 }
 
+/**
+ * Delete an object from a %RAMCloud.
+ * 
+ * \param[in]  client   a connected client
+ * \param[in]  table    the table containing the object to be deleted
+ * \param[in]  key      the object ID of the object to be deleted
+ * \param[in]  want_version
+ *      ::RCRPC_VERSION_ANY or the version of the object to be deleted
+ * \param[out] got_version
+ *      the version of the object before the delete took effect \n
+ *      If the delete did not occur, this is set to the object's current
+ *      version.
+ * \return error code (see values below)
+ * \retval  0 on success
+ * \retval -1 on %RAMCloud error (currently including object not found;
+ *      see rc_last_error())
+ * \retval  1 if requested version was specified in \a want_version and not the
+ *      object's current version
+ * \retval other reserved for future use
+ * \todo Object not found should not be a %RAMCloud error.
+ */
 int
 rc_delete(struct rc_client *client,
           uint64_t table,
@@ -232,6 +316,34 @@ rc_delete(struct rc_client *client,
     return 0;
 }
 
+/**
+ * Read an object from a %RAMCloud.
+ *
+ * \param[in]  client   a connected client
+ * \param[in]  table    the table containing the object to be read
+ * \param[in]  key      the object ID of the object to be read
+ * \param[in]  want_version
+ *      ::RCRPC_VERSION_ANY or the version of the object to be read
+ * \param[out] got_version
+ *      the current version of the object \n
+ *      If the caller is not interested, got_version may be \c NULL.
+ * \param[out] buf      the object's data
+ * \param[out] len      the size of the object's data in bytes
+ * \param[out] index_entries_buf
+ *      the object's index entries (array of rc_index_entry) \n
+ *      If the caller is not interested, \a index_entries_buf may be \c NULL.
+ * \param[out] index_entries_len
+ *      the size of the object's index entries in bytes \n
+ *      Will not be set if \a index_entries_buf is \c NULL.
+ * \return error code (see values below)
+ * \retval  0 on success
+ * \retval -1 on %RAMCloud error (currently including object not found;
+ *      see rc_last_error())
+ * \retval  1 if requested version was specified in \a want_version and not the
+ *      object's current version
+ * \retval other reserved for future use
+ * \todo Object not found should not be a %RAMCloud error.
+ */
 int
 rc_read(struct rc_client *client,
         uint64_t table,
