@@ -12,7 +12,7 @@ import Foreign.C
 import Foreign.C.String
 import Foreign.Ptr
 import Foreign.Storable
-import Foreign.Marshal.Alloc hiding (free)
+import Foreign.Marshal.Alloc
 
 data ClientStruct = ClientStruct
 type Client = Ptr ClientStruct
@@ -27,23 +27,17 @@ foreign import ccall safe "rc_disconnect" c_rc_disconnect :: Client -> IO ()
 foreign import ccall safe "rc_ping" c_rc_ping :: Client -> IO ()
 foreign import ccall safe "rc_write" c_rc_write:: Client -> Table -> Key -> CString -> CULong -> CString -> CULong -> IO ()
 foreign import ccall safe "rc_read" c_rc_read :: Client -> Table -> Key -> CString -> Ptr CULong -> CString -> Ptr CULong -> IO CInt
-foreign import ccall safe "rc_new" c_rc_new:: IO Client
-foreign import ccall safe "rc_free" c_rc_free:: Client -> IO ()
-
-new :: IO Client
--- TODO(stutsman) check return for NULL
--- TODO(stutsman) even better, just use malloc or alloca in Haskell
-new = c_rc_new
-
-free :: Client -> IO ()
--- TODO(stutsman) check return for NULL
-free = c_rc_free
 
 connect :: Client -> IO ()
 -- TODO(stutsman) check return and throw an exception if -1
 connect = c_rc_connect
 
+disconnect :: Client -> IO ()
+-- TODO(stutsman) check return and throw an exception if -1
+disconnect = c_rc_disconnect
+
 -- TODO(stutsman) fix this allocaBytes to get size of from the library
+-- TODO(stutsman) use Reader on client?  Own monad with read/write defined?
 withClient action = allocaBytes 4096 $ \client -> do
   connect client
   action client
@@ -72,7 +66,4 @@ read client table key = withCAStringLen (take max $ repeat ' ') $ \(cstr, cstrle
                                peekCAStringLen (cstr, fromIntegral len)
     where max = 4096
                               
-disconnect :: Client -> IO ()
--- TODO(stutsman) check return and throw an exception if -1
-disconnect = c_rc_disconnect
 
