@@ -45,9 +45,9 @@ const char bytemsb[0x100] = {
 };
 
 /* Find last set (most significant bit) */
-static inline u_int fls32 (u_int32_t) __attribute__ ((const));
-static inline u_int
-fls32 (u_int32_t v)
+static inline unsigned int fls32 (uint32_t) __attribute__ ((const));
+static inline unsigned int
+fls32 (uint32_t v)
 {
   if (v & 0xffff0000) {
     if (v & 0xff000000)
@@ -62,27 +62,27 @@ fls32 (u_int32_t v)
 }
 
 /* Ceiling of log base 2 */
-static inline int log2c32 (u_int32_t) __attribute__ ((const));
+static inline int log2c32 (uint32_t) __attribute__ ((const));
 static inline int
-log2c32 (u_int32_t v)
+log2c32 (uint32_t v)
 {
   return v ? (int) fls32 (v - 1) : -1;
 }
 
-static inline u_int fls64 (u_int64_t) __attribute__ ((const));
-static inline u_int
-fls64 (u_int64_t v)
+static inline unsigned int fls64 (uint64_t) __attribute__ ((const));
+static inline unsigned int
+fls64 (uint64_t v)
 {
-  u_int32_t h;
+  uint32_t h;
   if ((h = v >> 32))
     return 32 + fls32 (h);
   else
-    return fls32 ((u_int32_t) v);
+    return fls32 ((uint32_t) v);
 }
 
-static inline int log2c64 (u_int64_t) __attribute__ ((const));
+static inline int log2c64 (uint64_t) __attribute__ ((const));
 static inline int
-log2c64 (u_int64_t v)
+log2c64 (uint64_t v)
 {
   return v ? (int) fls64 (v - 1) : -1;
 }
@@ -97,8 +97,8 @@ log2c64 (u_int64_t v)
 
 EXTERN_C const char bytelsb[];
 
-static inline u_int
-ffs32 (u_int32_t v)
+static inline unsigned int
+ffs32 (uint32_t v)
 {
   if (v & 0xffff) {
     if (int vv = v & 0xff)
@@ -114,10 +114,10 @@ ffs32 (u_int32_t v)
     return 0;
 }
 
-static inline u_int
-ffs64 (u_int64_t v)
+static inline unsigned int
+ffs64 (uint64_t v)
 {
-  u_int32_t l;
+  uint32_t l;
   if ((l = v & 0xffffffff))
     return fls32 (l);
   else if ((l = v >> 32))
