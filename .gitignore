@@ -2,6 +2,7 @@
 \#*#
 *.pyc
 
+/docs/doxygen/
 /obj.*/
 /src/config.h
 /src/tests/index.cc

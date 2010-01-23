@@ -52,7 +52,7 @@ include src/backup/Makefrag
 include src/client/Makefrag
 include src/tests/Makefrag
 
-clean: tests-clean
+clean: tests-clean docs-clean
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
 
 # Lazy rule so this doesn't happen unless make check is invoked
@@ -75,4 +75,11 @@ $(OBJDIR)/.deps: $(foreach dir, $(OBJDIRS), $(wildcard $(OBJDIR)/$(dir)/*.d))
 always:
 	@:
 
-.PHONY: all always clean check test tests install
+doc: docs
+docs:
+	doxygen Doxyfile
+
+docs-clean:
+	rm -rf docs/doxygen/
+
+.PHONY: all always clean check doc docs docs-clean test tests install
