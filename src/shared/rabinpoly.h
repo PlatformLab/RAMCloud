@@ -22,22 +22,21 @@
 #include <sys/types.h>
 #include <string.h>
 
-u_int64_t polymod (u_int64_t nh, u_int64_t nl, u_int64_t d);
-u_int64_t polygcd (u_int64_t x, u_int64_t y);
-void polymult (u_int64_t *php, u_int64_t *plp, u_int64_t x, u_int64_t y);
-u_int64_t polymmult (u_int64_t x, u_int64_t y, u_int64_t d);
-bool polyirreducible (u_int64_t f);
-u_int64_t polygen (u_int degree);
+uint64_t polymod (uint64_t nh, uint64_t nl, uint64_t d);
+uint64_t polygcd (uint64_t x, uint64_t y);
+void polymult (uint64_t *php, uint64_t *plp, uint64_t x, uint64_t y);
+uint64_t polymmult (uint64_t x, uint64_t y, uint64_t d);
+bool polyirreducible (uint64_t f);
 
 class rabinpoly {
   int shift;
-  u_int64_t T[256];		// Lookup table for mod
+  uint64_t T[256];		// Lookup table for mod
   void calcT ();
 public:
-  const u_int64_t poly;		// Actual polynomial
+  const uint64_t poly;		// Actual polynomial
 
-  explicit rabinpoly (u_int64_t poly);
-  u_int64_t append8 (u_int64_t p, u_char m) const
+  explicit rabinpoly (uint64_t poly);
+  uint64_t append8 (uint64_t p, uint8_t m) const
     { return ((p << 8) | m) ^ T[p >> shift]; }
 };
 
@@ -46,17 +45,17 @@ public:
   enum {size = 48};
   //enum {size = 24};
 private:
-  u_int64_t fingerprint;
+  uint64_t fingerprint;
   int bufpos;
-  u_int64_t U[256];
-  u_char buf[size];
+  uint64_t U[256];
+  uint8_t buf[size];
 
 public:
-  window (u_int64_t poly);
-  u_int64_t slide8 (u_char m) {
+  window (uint64_t poly);
+  uint64_t slide8 (uint8_t m) {
     if (++bufpos >= size)
       bufpos = 0;
-    u_char om = buf[bufpos];
+    uint8_t om = buf[bufpos];
     buf[bufpos] = m;
     return fingerprint = append8 (fingerprint ^ U[om], m);
   }
