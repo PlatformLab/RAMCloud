@@ -24,6 +24,29 @@
 
 namespace RAMCloud {
 
+struct log_entry {
+    uint32_t  type;
+    uint32_t  length;
+};
+
+struct segment_header {
+    uint64_t id;
+};
+
+struct segment_checksum {
+    uint64_t checksum;
+};
+
+class LogEntryIterator {
+  public:
+    explicit LogEntryIterator(const Segment *s);
+    bool getNext(const struct log_entry **le, const void **p);
+  private:
+    const Segment *segment;
+    const struct log_entry *next;
+    DISALLOW_COPY_AND_ASSIGN(LogEntryIterator);
+};
+
 typedef void (*log_eviction_cb_t)(log_entry_type_t, const void *, const uint64_t, void *);
 typedef void (*log_entry_cb_t)(log_entry_type_t, const void *, const uint64_t, void *);
 typedef void (*log_segment_cb_t)(Segment *, void *);

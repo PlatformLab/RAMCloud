@@ -28,65 +28,46 @@
 static const uint64_t cleaner_hiwat = 20;
 static const uint64_t cleaner_lowat = 10;
 
-struct log_entry {
-	uint32_t  type;
-	uint32_t  length;
-};
-
-struct segment_header {
-	uint64_t id;
-};
-
-struct segment_checksum {
-	uint64_t checksum;
-};
-
 namespace RAMCloud {
 
 // Simple iterator for running through a segment's (log_entry, blob) pairs.
-class LogEntryIterator {
-  public:
-	LogEntryIterator(const Segment *s) : segment(s), next(0)
-	{
-		assert(s != NULL);
-		next = (const struct log_entry *)s->getBase();
-		assert(next != NULL);
-                if (next->type != LOG_ENTRY_TYPE_SEGMENT_HEADER) {
-                    printf("next type is not seg hdr, but %llx\n", next->type);
-                }
-		assert(next->type == LOG_ENTRY_TYPE_SEGMENT_HEADER);
-		assert(next->length == sizeof(struct segment_header));
-	}
+LogEntryIterator::LogEntryIterator(const Segment *s)
+    : segment(s), next(0)
+{
+    assert(s != NULL);
+    next = (const struct log_entry *)s->getBase();
+    assert(next != NULL);
+    if (next->type != LOG_ENTRY_TYPE_SEGMENT_HEADER) {
+        printf("next type is not seg hdr, but %llx\n", next->type);
+    }
+    assert(next->type == LOG_ENTRY_TYPE_SEGMENT_HEADER);
+    assert(next->length == sizeof(struct segment_header));
+}
 
-	bool
-	getNext(const struct log_entry **le, const void **p)
-	{
-		if (next == NULL)
-			return false;
+bool
+LogEntryIterator::getNext(const struct log_entry **le, const void **p)
+{
+    if (next == NULL)
+        return false;
 
-		if (le != NULL)
-			*le = next;
-		if (p != NULL)
-			*p = (uint8_t *)next + sizeof(*next); 
+    if (le != NULL)
+        *le = next;
+    if (p != NULL)
+        *p = (uint8_t *)next + sizeof(*next);
 
-		const struct log_entry *nle =
-		    (struct log_entry *)((uint8_t *)next + sizeof(*next) + next->length);
-		if (next->length != 0 &&
-		    next->type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM &&
-		    segment->checkRange(nle, sizeof(*nle))) {
-			assert(segment->checkRange(nle, sizeof(*nle) + nle->length));
-			next = nle;
-		} else {
-			next = NULL;
-		} 
+    const struct log_entry *nle =
+        (struct log_entry *)((uint8_t *)next + sizeof(*next) + next->length);
+    if (next->length != 0 &&
+        next->type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM &&
+        segment->checkRange(nle, sizeof(*nle))) {
+        assert(segment->checkRange(nle, sizeof(*nle) + nle->length));
+        next = nle;
+    } else {
+        next = NULL;
+    }
 
-		return true;
-	}
-
-  private:
-	const Segment *segment;
-	const struct log_entry *next;
-};
+    return true;
+}
 
   /**************************/
  /**** Public Interface ****/
