@@ -192,27 +192,34 @@ struct rc_index_entry {
  * Read an object from a %RAMCloud.
  *
  * \li Let \c o be the object identified by \c in.table, \c in.key.
- * \li If \c o does not exist, an rcrpc_error_response is returned instead.
- * \li \c out.version is set to \c o's version.
- * \li If <tt>in.version == RCRPC_VERSION_ANY || in.version == o's version</tt>:
+ * \li If \c o exists:
  *      <ul>
- *      <li> \c out.index_entries of size in bytes \c out.index_entries_len is
- *      set to \c o's index entries. It is an array of rc_index_entry.
- *      <li> \c out.buf of size \c out.buf_len is set to \c o's opaque blob.
+ *      <li> \c out.version is set to \c o's version.
+ *      <li> If <tt>in.version == #RCRPC_VERSION_ANY || in.version == o's
+ *      version</tt>:
+ *          <ul>
+ *          <li> \c out.index_entries of size in bytes \c out.index_entries_len
+ *          is set to \c o's index entries. It is an array of rc_index_entry.
+ *          <li> \c out.buf of size \c out.buf_len is set to \c o's opaque
+ *          blob.
+ *          </ul>
+ *      <li> Else:
+ *          <ul>
+ *          <li> \c out.index_entries_len is \c 0 and \c out.index_entries is
+ *          empty.
+ *          <li> \c out.buf_len is \c 0 and \c out.buf is empty.
+ *          </ul>
  *      </ul>
  * \li Else:
  *      <ul>
+ *      <li> \c out.version is set to #RCRPC_VERSION_ANY
  *      <li> \c out.index_entries_len is \c 0 and \c out.index_entries is
  *      empty.
- *      <li> \c out.buf_len is \c 0 and \c out.index_entries is empty.
+ *      <li> \c out.buf_len is \c 0 and \c out.buf is empty.
  *      </ul>
  *
- * \note A response with an object that has no data and no index entries looks
- * identical to a response to a request with a stale version number. The caller
- * should compare \c in.version with \c out.version to determine whether the
- * response contains object data.
- *
- * \TODO Don't use rcrpc_error_response for an application error.
+ * \warning The caller can not distinguish the cases based on \c out.buf_len or
+ * \c out.index_entries_len. Use \c in.version and \c out.version.
  *
  * \limit This function declaration is only a hook for documentation. The
  * function does not exist and should not be called.
@@ -342,15 +349,21 @@ struct rcrpc_insert_response {
  * Delete an object.
  *
  * \li Let \c o be the object identified by \c in.table, \c in.key.
- * \li If \c o does not exist: an rcrpc_error_response is sent instead.
- * \li \c out.version is set to \c o's existing version.
- * \li If <tt>in.version == RCRPC_VERSION_ANY || in.version == o's version</tt>:
+ * \li If \c o exists:
  *      <ul>
- *      <li> \c o, including its index entries, is removed from the table.
- *      <li> \c o's deletion is sent to the backups and their ack is received.
+ *      <li> \c out.version is set to \c o's existing version.
+ *      <li> If <tt>in.version == #RCRPC_VERSION_ANY || in.version == o's
+ *      version</tt>:
+ *           <ul>
+ *           <li> \c o, including its index entries, is removed from the table.
+ *           <li> \c o's deletion is sent to the backups and their ack is
+ *           received.
+ *           </ul>
  *      </ul>
- *
- * \TODO Don't use rcrpc_error_response for application errors.
+ * \li Else:
+ *      <ul>
+ *      <li> \c out.version is set to #RCRPC_VERSION_ANY
+ *      </ul>
  *
  * \limit This function declaration is only a hook for documentation. The
  * function does not exist and should not be called.

@@ -390,15 +390,15 @@ rc_insert(struct rc_client *client,
  * \param[out] got_version
  *      the version of the object before the delete took effect \n
  *      If the delete did not occur, this is set to the object's current
- *      version.
+ *      version. \n
+ *      If the object does not exist, \a got_version is undefined.
  * \return error code (see values below)
  * \retval  0 on success
- * \retval -1 on %RAMCloud error (currently including object not found;
- *      see rc_last_error())
+ * \retval -1 on %RAMCloud error (see rc_last_error())
  * \retval  1 if requested version was specified in \a want_version and not the
  *      object's current version
+ * \retval  2 if the object does not exist
  * \retval other reserved for future use
- * \TODO Object not found should not be a %RAMCloud error.
  * \see #delete_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
@@ -422,8 +422,8 @@ rc_delete(struct rc_client *client,
         return r;
     }
 
-    if (got_version != NULL)
-        *got_version = resp->version;
+    if (resp->version == RCRPC_VERSION_ANY)
+        return 2;
 
     if (want_version != RCRPC_VERSION_ANY && resp->version != want_version)
         return 1;
@@ -441,7 +441,8 @@ rc_delete(struct rc_client *client,
  *      ::RCRPC_VERSION_ANY or the version of the object to be read
  * \param[out] got_version
  *      the current version of the object \n
- *      If the caller is not interested, got_version may be \c NULL.
+ *      If the caller is not interested, \a got_version may be \c NULL. \n
+ *      If the object does not exist, \a got_version is undefined.
  * \param[out] buf      the object's data
  * \param[out] len      the size of the object's data in bytes
  * \param[out] index_entries_buf
@@ -452,12 +453,11 @@ rc_delete(struct rc_client *client,
  *      Will not be set if \a index_entries_buf is \c NULL.
  * \return error code (see values below)
  * \retval  0 on success
- * \retval -1 on %RAMCloud error (currently including object not found;
- *      see rc_last_error())
+ * \retval -1 on %RAMCloud error (see rc_last_error())
  * \retval  1 if requested version was specified in \a want_version and not the
  *      object's current version
+ * \retval  2 if the object does not exist
  * \retval other reserved for future use
- * \TODO Object not found should not be a %RAMCloud error.
  * \see #read_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
@@ -496,6 +496,9 @@ rc_read(struct rc_client *client,
     *len = resp->buf_len;
     memcpy(buf, var, *len);
     var += resp->buf_len;
+
+    if (resp->version == RCRPC_VERSION_ANY)
+        return 2;
 
     if (want_version != RCRPC_VERSION_ANY && resp->version != want_version)
         return 1;
