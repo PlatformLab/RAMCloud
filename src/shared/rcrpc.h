@@ -52,6 +52,11 @@
 
 //namespace RAMCloud {
 
+/**
+ * The type of an RPC message.
+ *
+ * rcrpc_header.type should be set to one of these.
+ */
 enum RCRPC_TYPE {
     RCRPC_PING_REQUEST,
     RCRPC_PING_RESPONSE,
@@ -82,9 +87,15 @@ enum RCRPC_TYPE {
     RCRPC_ERROR_RESPONSE,
 };
 
+/**
+ * The type of an index entry.
+ *
+ * rc_index_entry.index_type should be set to one of these.
+ *
+ * \attention If you modify this, you should also update the equivalent in
+ *      \c bindings/python/ramcloud.py .
+ */
 enum RCRPC_INDEX_TYPE {
-    // If you modify this, you should also update the equivalent in
-    // bindings/python/ramcloud.py
     RCRPC_INDEX_TYPE_SINT8,
     RCRPC_INDEX_TYPE_UINT8,
     RCRPC_INDEX_TYPE_SINT16,
@@ -101,11 +112,19 @@ enum RCRPC_INDEX_TYPE {
     RCRPC_INDEX_TYPE_BYTES64,
 };
 
+/**
+ * Returns whether the provided index type is within the valid range.
+ */
 static inline bool
 is_valid_index_type(enum RCRPC_INDEX_TYPE type) {
     return type <= RCRPC_INDEX_TYPE_BYTES64;
 }
 
+/**
+ * Returns whether the provided index type is of variable-length.
+ *
+ * \param [in] type a valid index type (see is_valid_index_type())
+ */
 static inline bool
 is_varlen_index_type(enum RCRPC_INDEX_TYPE type) {
     return type >= RCRPC_INDEX_TYPE_BYTES8;
@@ -121,7 +140,28 @@ struct rcrpc_any {
     char opaque[0];
 };
 
-// ping RPC: no-op
+#ifdef DOXYGEN
+/** \cond FALSE */
+/**
+ * An internal hook used to work around technical limitations in the
+ * documentation system.
+ */
+#define DOC_HOOK(rcrpc_lower) \
+    static void \
+    rcrpc_lower##_RPC_doc_hook(struct rcrpc_##rcrpc_lower##_request *in, \
+                               struct rcrpc_##rcrpc_lower##_response *out)
+/** \endcond */
+#else
+#define DOC_HOOK(rcrpc_lower)
+#endif
+
+/**
+ * Verify network connectivity.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(ping);
 
 struct rcrpc_ping_request {
     struct rcrpc_header header;
@@ -132,6 +172,9 @@ struct rcrpc_ping_response {
 };
 
 #ifdef __cplusplus
+/**
+ * A reserved version number representing no particular version.
+ */
 #define RCRPC_VERSION_ANY (static_cast<uint64_t>(-1))
 #else
 #define RCRPC_VERSION_ANY ((uint64_t)(-1ULL))
@@ -145,25 +188,36 @@ struct rc_index_entry {
     char data[0];                       // Variable length, but contiguous
 };
 
-// read RPC: Read an object.
-//
-// Let o be the object identified by in.table, in.key.
-// If o does not exist: an rcrpc_error_response is sent instead.
-// out.version is set to o's version.
-// If in.version == RCRPC_VERSION_ANY || in.version == o's version:
-//     out.index_entries of size in bytes out.index_entries_len is set to o's
-//         index entries. It is an array of rc_index_entry.
-//     out.buf of size out.buf_len is set to o's opaque blob.
-// Else:
-//     out.index_entries_len is 0 and out.index_entries is empty.
-//     out.buf_len is 0 and out.index_entries is empty.
-//
-// Note: A response with an object that has no data and no index entries looks
-// identical to a response to a request with a stale version number. The client
-// should compare in.version with out.version to determine whether the response
-// contains object data.
-//
-// TODO(ongaro): Using rcrpc_error_response for application error
+/**
+ * Read an object from a %RAMCloud.
+ *
+ * \li Let \c o be the object identified by \c in.table, \c in.key.
+ * \li If \c o does not exist, an rcrpc_error_response is returned instead.
+ * \li \c out.version is set to \c o's version.
+ * \li If <tt>in.version == RCRPC_VERSION_ANY || in.version == o's version</tt>:
+ *      <ul>
+ *      <li> \c out.index_entries of size in bytes \c out.index_entries_len is
+ *      set to \c o's index entries. It is an array of rc_index_entry.
+ *      <li> \c out.buf of size \c out.buf_len is set to \c o's opaque blob.
+ *      </ul>
+ * \li Else:
+ *      <ul>
+ *      <li> \c out.index_entries_len is \c 0 and \c out.index_entries is
+ *      empty.
+ *      <li> \c out.buf_len is \c 0 and \c out.index_entries is empty.
+ *      </ul>
+ *
+ * \note A response with an object that has no data and no index entries looks
+ * identical to a response to a request with a stale version number. The caller
+ * should compare \c in.version with \c out.version to determine whether the
+ * response contains object data.
+ *
+ * \TODO Don't use rcrpc_error_response for an application error.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(read);
 
 struct rcrpc_read_request {
     struct rcrpc_header header;
@@ -184,31 +238,47 @@ struct rcrpc_read_response {
     char var[0];                        /* Variable length */
 };
 
-// write RPC: Update or create an object at a given key.
-//
-// Let o be the object identified by in.table, in.key.
-// If o exists:
-//     If in.version == RCRPC_VERSION_ANY || in.version == o's version:
-//         o's opaque blob is set to in.buf of size in.buf_len.
-//         o's index entries are set to in.index_entries of size
-//             in.index_entries_len in bytes. It is an array of rc_index_entry.
-//         o's version is increased.
-//         o is sent to the backups and their ack is received.
-//         out.version is set to o's new version.
-//     Else:
-//         out.version is set to o's existing version.
-// Else:
-//     o is created.
-//     o's opaque blob is set to in.buf of size in.buf_len.
-//     o's index entries are set to in.index_entries of size
-//         in.index_entries_len in bytes. It is an array of rc_index_entry.
-//     o's version is set to a value guaranteed to be greater than that of any
-//         previous object that resided at in.table, in.key.
-//     o is sent to the backups and their ack is received.
-//     out.version is set to o's new version.
-//
-// TODO(ongaro): Should o be created if o did not exist and in.version is not
-//               RCRPC_VERSION_ANY?
+/**
+ * Update or create an object at a given key.
+ *
+ * \li Let \c o be the object identified by \c in.table, \c in.key.
+ * \li If \c o exists:
+ *      <ul>
+ *      <li> If <tt>in.version == #RCRPC_VERSION_ANY ||
+ *                  in.version == o's version</tt>:
+ *          <ul>
+ *          <li> \c o's opaque blob is set to \c in.buf of size \c in.buf_len.
+ *          <li> \c o's index entries are set to \c in.index_entries of size
+ *              \c in.index_entries_len in bytes. It is an array of
+ *              rc_index_entry.
+ *          <li> \c o's version is increased.
+ *          <li> \c o is sent to the backups and their ack is received.
+ *          <li> \c out.version is set to \c o's new version.
+ *          </ul>
+ *      <li> Else:
+ *          <ul>
+ *          <li> \c out.version is set to \c o's existing version.
+ *          </ul>
+ *      </ul>
+ * \li Else:
+ *      <ul>
+ *      <li> \c o is created.
+ *      <li> \c o's opaque blob is set to \c in.buf of size \c in.buf_len.
+ *      <li> \c o's index entries are set to \c in.index_entries of size
+ *          \c in.index_entries_len in bytes. It is an array of rc_index_entry.
+ *      <li> \c o's version is set to a value guaranteed to be greater than
+ *          that of any previous object that resided at \c in.table, \c in.key.
+ *      <li> \c o is sent to the backups and their ack is received.
+ *      <li> \c out.version is set to \c o's new version.
+ *      </ul>
+ *
+ * \TODO Should \c o be created if \c o did not exist and \c in.version is not
+ *      #RCRPC_VERSION_ANY?
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(write);
 
 struct rcrpc_write_request {
     struct rcrpc_header header;
@@ -229,20 +299,26 @@ struct rcrpc_write_response {
     uint64_t version;
 };
 
-// Insert RPC: Create an object at an assigned key.
-//
-// Let o be a new object inside in.table.
-// o is assigned a key based on the table's key allocation strategy.
-// o's version is set to a value guaranteed to be greater than that of any
-//     previous object that resided at in.table with o's key.
-// o's opaque blob is set to in.buf of size in.buf_len.
-// o's index entries are set to in.index_entries of size
-//     in.index_entries_len in bytes. It is an array of rc_index_entry.
-// o is sent to the backups and their ack is received.
-// out.key is set to o's key. 
-// out.version is set to o's version.
-//
-// TODO(ongaro): What is the table's key allocation strategy?
+/**
+ * Create an object at an assigned key.
+ *
+ * \li Let \c o be a new object inside \c in.table.
+ * \li \c o is assigned a key based on the table's key allocation strategy.
+ * \li \c o's version is set to a value guaranteed to be greater than that of
+ *      any previous object that resided at \c in.table with \c o's key.
+ * \li \c o's opaque blob is set to \c in.buf of size \c in.buf_len.
+ * \li \c o's index entries are set to \c in.index_entries of size
+ *      \c in.index_entries_len in bytes. It is an array of rc_index_entry.
+ * \li \c o is sent to the backups and their ack is received.
+ * \li \c out.key is set to \c o's key.
+ * \li \c out.version is set to \c o's version.
+ *
+ * \TODO Define the table's key allocation strategy.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(insert);
 
 struct rcrpc_insert_request {
     struct rcrpc_header header;
@@ -262,16 +338,24 @@ struct rcrpc_insert_response {
     uint64_t version;
 };
 
-// Delete RPC: Delete an object.
-//
-// Let o be the object identified by in.table, in.key.
-// If o does not exist: an rcrpc_error_response is sent instead.
-// out.version is set to o's existing version.
-// If in.version == RCRPC_VERSION_ANY || in.version == o's version:
-//     o, including its index entries, is removed from the table.
-//     o's deletion is sent to the backups and their ack is received.
-//
-// TODO(ongaro): Using rcrpc_error_response for application error
+/**
+ * Delete an object.
+ *
+ * \li Let \c o be the object identified by \c in.table, \c in.key.
+ * \li If \c o does not exist: an rcrpc_error_response is sent instead.
+ * \li \c out.version is set to \c o's existing version.
+ * \li If <tt>in.version == RCRPC_VERSION_ANY || in.version == o's version</tt>:
+ *      <ul>
+ *      <li> \c o, including its index entries, is removed from the table.
+ *      <li> \c o's deletion is sent to the backups and their ack is received.
+ *      </ul>
+ *
+ * \TODO Don't use rcrpc_error_response for application errors.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(delete);
 
 struct rcrpc_delete_request {
     struct rcrpc_header header;
@@ -285,15 +369,21 @@ struct rcrpc_delete_response {
     uint64_t version;
 };
 
-// Create table RPC: Create a table.
-//
-// Let t be the table identified by name.
-// If t exists: an rcrpc_error_response is sent instead.
-// If there system is out of space for tables: an rcrpc_error_response is sent
-//      instead.
-// A table identified by name is created.
-//
-// TODO(ongaro): Using rcrpc_error_response for application errors.
+/**
+ * Create a table.
+ *
+ * \li Let \c t be a new table identified by \c in.name.
+ * \li If \c t exists: an rcrpc_error_response is sent instead.
+ * \li If there system is out of space for tables: an rcrpc_error_response is
+ *      sent instead.
+ * \li A table identified by \c in.name is created.
+ *
+ * \TODO Don't use rcrpc_error_response for application errors.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(create_table);
 
 struct rcrpc_create_table_request {
     struct rcrpc_header header;
@@ -304,13 +394,19 @@ struct rcrpc_create_table_response {
     struct rcrpc_header header;
 };
 
-// Open table RPC: Open a table.
-//
-// Let t be the table identified by name.
-// If t does not exist: an rcrpc_error_response is sent instead.
-// out.handle is set to a handle to t.
-//
-// TODO(ongaro): Using rcrpc_error_response for application errors.
+/**
+ * Open a table.
+ *
+ * \li Let \c t be the table identified by name.
+ * \li If \c t does not exist: an rcrpc_error_response is sent instead.
+ * \li \c out.handle is set to a handle to \c t.
+ *
+ * \TODO Don't use rcrpc_error_response for application errors.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(open_table);
 
 struct rcrpc_open_table_request {
     struct rcrpc_header header;
@@ -322,12 +418,19 @@ struct rcrpc_open_table_response {
     uint64_t handle;
 };
 
-// Drop table RPC: Delete a table.
-//
-// Let t be the table identified by name.
-// If t does not exist: an rcrpc_error_response is sent instead.
-//
-// TODO(ongaro): Using rcrpc_error_response for application errors.
+/**
+ * Delete a table.
+ *
+ * \li Let \c t be the table identified by \c name.
+ * \li If \c t does not exist: an rcrpc_error_response is sent instead.
+ * \li \c t is deleted.
+ *
+ * \TODO Don't use rcrpc_error_response for application errors.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(drop_table);
 
 struct rcrpc_drop_table_request {
     struct rcrpc_header header;
@@ -338,9 +441,15 @@ struct rcrpc_drop_table_response {
     struct rcrpc_header header;
 };
 
-// Create index RPC: Create an index.
-//
-// TODO(ongaro): Missing documentation.
+/**
+ * Create an index.
+ *
+ * \TODO Missing documentation.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(create_index);
 
 struct rcrpc_create_index_request {
     struct rcrpc_header header;
@@ -355,9 +464,15 @@ struct rcrpc_create_index_response {
     uint16_t id;
 };
 
-// Delete index RPC: Delete an index.
-//
-// TODO(ongaro): Missing documentation.
+/**
+ * Delete an index.
+ *
+ * \TODO Missing documentation.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(drop_index);
 
 struct rcrpc_drop_index_request {
     struct rcrpc_header header;
@@ -369,9 +484,15 @@ struct rcrpc_drop_index_response {
     struct rcrpc_header header;
 };
 
-// Range query RPC: Range query an index.
-//
-// TODO(ongaro): Missing documentation.
+/**
+ * Range query an index.
+ *
+ * \TODO Missing documentation.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(range_query);
 
 struct rcrpc_range_query_request {
     struct rcrpc_header header;
@@ -405,9 +526,15 @@ struct rcrpc_range_query_response {
     char var[0];                        /* Variable length */
 };
 
-// Unique lookup RPC: Lookup a key in a unique index.
-//
-// TODO(ongaro): Missing documentation.
+/**
+ * Lookup a key in a unique index.
+ *
+ * \TODO Missing documentation.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(unique_lookup);
 
 struct rcrpc_unique_lookup_request {
     struct rcrpc_header header;
@@ -423,9 +550,15 @@ struct rcrpc_unique_lookup_response {
     uint64_t oid;
 };
 
-// Multi lookup RPC: Lookup a key in a multi index.
-//
-// TODO(ongaro): Missing documentation.
+/**
+ * Lookup a key in a multi index.
+ *
+ * \TODO Missing documentation.
+ *
+ * \limit This function declaration is only a hook for documentation. The
+ * function does not exist and should not be called.
+ */
+DOC_HOOK(multi_lookup);
 
 struct rcrpc_multi_lookup_request {
     struct rcrpc_header header;
@@ -454,6 +587,8 @@ struct rcrpc_error_response {
 };
 
 //} // namespace RAMCloud
+
+#undef DOC_HOOK
 
 #endif
 
