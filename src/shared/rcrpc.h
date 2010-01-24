@@ -287,7 +287,13 @@ struct rcrpc_delete_response {
 
 // Create table RPC: Create a table.
 //
-// TODO(ongaro): Missing documentation.
+// Let t be the table identified by name.
+// If t exists: an rcrpc_error_response is sent instead.
+// If there system is out of space for tables: an rcrpc_error_response is sent
+//      instead.
+// A table identified by name is created.
+//
+// TODO(ongaro): Using rcrpc_error_response for application errors.
 
 struct rcrpc_create_table_request {
     struct rcrpc_header header;
@@ -300,7 +306,11 @@ struct rcrpc_create_table_response {
 
 // Open table RPC: Open a table.
 //
-// TODO(ongaro): Missing documentation.
+// Let t be the table identified by name.
+// If t does not exist: an rcrpc_error_response is sent instead.
+// out.handle is set to a handle to t.
+//
+// TODO(ongaro): Using rcrpc_error_response for application errors.
 
 struct rcrpc_open_table_request {
     struct rcrpc_header header;
@@ -312,9 +322,12 @@ struct rcrpc_open_table_response {
     uint64_t handle;
 };
 
-// Open table RPC: Delete a table.
+// Drop table RPC: Delete a table.
 //
-// TODO(ongaro): Missing documentation.
+// Let t be the table identified by name.
+// If t does not exist: an rcrpc_error_response is sent instead.
+//
+// TODO(ongaro): Using rcrpc_error_response for application errors.
 
 struct rcrpc_drop_table_request {
     struct rcrpc_header header;
