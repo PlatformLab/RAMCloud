@@ -25,8 +25,25 @@
 
 #include <client/client.h>
 
+/**
+ * A reserved version number representing no particular version.
+ *
+ * This constant is mostly a convenience for higher-level language bindings.
+ * Others should use ::RCRPC_VERSION_ANY directly.
+ */
 const uint64_t rcrpc_version_any = RCRPC_VERSION_ANY;
 
+/**
+ * Connect to a %RAMCloud.
+ *
+ * The caller should later use rc_disconnect() to disconnect from the
+ * %RAMCloud.
+ *
+ * \param[in]  client   a newly allocated client
+ * \return error code (see values below)
+ * \retval  0 on success
+ * \retval other reserved for future use
+ */
 int
 rc_connect(struct rc_client *client)
 {
@@ -35,21 +52,57 @@ rc_connect(struct rc_client *client)
     return 0;
 }
 
+/**
+ * Disconnect from a %RAMCloud.
+ *
+ * \param[in]  client   a connected client
+ */
 void
 rc_disconnect(struct rc_client *client)
 {
 }
 
-// TODO(stutsman) we should put this in the client struct
+/**
+ * \var ERROR_MSG_LEN
+ * The maximum length of a %RAMCloud error message.
+ *
+ * \todo The max length of a %RAMCloud error message belongs with the RPC
+ *      definitions.
+ */
 enum { ERROR_MSG_LEN = 256 };
+
+/**
+ * A buffer for the last %RAMCloud error that occurred.
+ *
+ * See rc_last_error() and rc_handle_errors().
+ *
+ * \todo The error message should go in the client struct.
+ */
 static char rc_error_message[ERROR_MSG_LEN];
 
+/**
+ * Return the error message for the last %RAMCloud error that occurred.
+ *
+ * \return error message \n
+ *      The returned pointer is owned by the callee. Do not free it. \n
+ *      This value is undefined if no %RAMCloud error has occurred.
+ * \warning This function is not reentrant.
+ */
 const char*
 rc_last_error()
 {
     return &rc_error_message[0];
 }
 
+/**
+ * Detect a %RAMCloud error in an RPC response.
+ *
+ * See rc_last_error() to retrieve the extracted error message.
+ *
+ * \param[in]  resp_any the RPC response
+ * \retval  0 there was no %RAMCloud error
+ * \retval -1 there was a %RAMCloud error
+ */
 static int
 rc_handle_errors(struct rcrpc_any *resp_any)
 {
@@ -70,6 +123,29 @@ sendrcv_rpc(struct rc_net *net,
             enum RCRPC_TYPE resp_type, size_t min_resp_size
            ) __attribute__ ((warn_unused_result));
 
+/**
+ * Send an RPC request and receive the response.
+ *
+ * This function should not be called directly. Rather, ::SENDRCV_RPC should be
+ * used.
+ *
+ * \param[in] net   the network struct from the rc_client
+ * \param[in] req   a pointer to the request
+ *      The request should have its RPC type and length in the header already
+ *      set.
+ * \param[in] req_type      the RPC type expected in the header of the request
+ * \param[in] min_req_size  the smallest acceptable size of the request
+ * \param[out] respp   a pointer to a pointer to the response
+ *      The response is guaranteed to be of the correct RPC type. \n
+ *      The pointer will be set to \c NULL if a %RAMCloud error occurs.
+ * \param[in] resp_type     the RPC type expected in the header of the response
+ * \param[in] min_resp_size the smallest acceptable size of the response
+ * \return error code (see below)
+ * \retval  0 success
+ * \retval -1 on %RAMCloud error (see rc_last_error())
+ *
+ * \hideinitializer
+ */
 static int
 sendrcv_rpc(struct rc_net *net,
             struct rcrpc_any *req,
@@ -97,6 +173,29 @@ sendrcv_rpc(struct rc_net *net,
     return r;
 }
 
+/**
+ * Send an RPC request and receive the response.
+ *
+ * This is a wrapper around sendrcv_rpc() for convenience.
+ *
+ * The caller is required to have a rc_client struct in its scope under the
+ * identifier \c client.
+ *
+ * \param[in] rcrpc_upper   the name of the RPC in uppercase as a literal
+ * \param[in] rcrpc_lower   the name of the RPC in lowercase as a literal
+ * \param[in] query  a \c struct \c rcrpc_*_request pointer to the request \n
+ *      The request should have its RPC type and length in the header already
+ *      set.
+ * \param[out] respp a pointer to the \c struct \c rcrpc_*_response pointer
+ *      which should point to the response \n
+ *      The response is guaranteed to be of the correct RPC type. \n
+ *      The pointer will be set to \c NULL if a %RAMCloud error occurs.
+ * \return error code as an \c int (see below)
+ * \retval  0 success
+ * \retval -1 on %RAMCloud error (see rc_last_error())
+ *
+ * \hideinitializer
+ */
 #define SENDRCV_RPC(rcrpc_upper, rcrpc_lower, query, respp)                    \
     ({                                                                         \
         struct rcrpc_##rcrpc_lower##_request* _query = (query);                \
@@ -110,6 +209,15 @@ sendrcv_rpc(struct rc_net *net,
                 sizeof(**_respp));                                             \
     })
 
+/**
+ * Verify connectivity with a %RAMCloud.
+ *
+ * \param[in]  client   a connected client
+ * \return error code (see values below)
+ * \retval  0 on success
+ * \retval -1 on %RAMCloud error (see rc_last_error())
+ * \retval other reserved for future use
+ */
 int
 rc_ping(struct rc_client *client)
 {
@@ -121,6 +229,13 @@ rc_ping(struct rc_client *client)
     return SENDRCV_RPC(PING, ping, &query, &resp);
 }
 
+/**
+ * The maximum size of an object's data and index entries together.
+ *
+ * This is estimated as roughly a little smaller than the maximum size of an
+ * RPC.
+ * \todo Define the maximum object size more in a more stable way.
+ */
 #define MAX_DATA_WRITE_LEN (MAX_RPC_LEN - RCRPC_WRITE_REQUEST_LEN_WODATA - 256)
 
 /**
@@ -387,6 +502,20 @@ rc_read(struct rc_client *client,
     return 0;
 }
 
+/**
+ * Create a table in a %RAMCloud.
+ *
+ * \param[in]  client   a connected client
+ * \param[in]  name     a string of no more than 64 characters identifying the
+ *      table
+ * \return error code (see values below)
+ * \retval  0 on success
+ * \retval -1 on %RAMCloud error (currently including table exists and system
+ *      is out of space for tables; see rc_last_error())
+ * \retval other reserved for future use
+ * \bug I don't think the new table is guaranteed to contain no objects yet.
+ * \todo Table exists should not be a %RAMCloud error.
+ */
 int
 rc_create_table(struct rc_client *client, const char *name)
 {
@@ -401,6 +530,20 @@ rc_create_table(struct rc_client *client, const char *name)
     return SENDRCV_RPC(CREATE_TABLE, create_table, &query, &resp);
 }
 
+/**
+ * Open a table in a %RAMCloud.
+ *
+ * \param[in]  client   a connected client
+ * \param[in]  name     a string of no more than 64 characters identifying the
+ *      table
+ * \param[out] table_id a handle for the open table
+ * \return error code (see values below)
+ * \retval  0 on success
+ * \retval -1 on %RAMCloud error (currently including table does not exist; see
+ *      rc_last_error())
+ * \retval other reserved for future use
+ * \todo Table does not exist should not be a %RAMCloud error.
+ */
 int
 rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
 {
@@ -420,6 +563,19 @@ rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
     return 0;
 }
 
+/**
+ * Delete a table in a %RAMCloud.
+ *
+ * \param[in]  client   a connected client
+ * \param[in]  name     a string of no more than 64 characters identifying the
+ *      table
+ * \return error code (see values below)
+ * \retval  0 on success
+ * \retval -1 on %RAMCloud error (currently including table does not exist; see
+ *      rc_last_error())
+ * \retval other reserved for future use
+ * \todo Table does not exist should not be a %RAMCloud error.
+ */
 int
 rc_drop_table(struct rc_client *client, const char *name)
 {
@@ -708,11 +864,30 @@ rc_range_query(struct rc_client *client,
     return 0;
 }
 
+/**
+ * Allocate a new client.
+ *
+ * The caller should later use rc_free() to free the client struct.
+ *
+ * It is also legal for the caller to allocate memory for an rc_client struct
+ * directly. This function is mostly a convenience for higher-level language
+ * bindings.
+ *
+ * \return a newly allocated client, or \c NULL if the system is out of memory
+ */
 struct rc_client *
 rc_new() {
     return malloc(sizeof(struct rc_client));
 }
 
+/**
+ * Free a client.
+ *
+ * This function should only be called on rc_client structs allocated with
+ * rc_new().
+ *
+ * \param[in] client    a client previously allocated with rc_new()
+ */
 void
 rc_free(struct rc_client *client)
 {
