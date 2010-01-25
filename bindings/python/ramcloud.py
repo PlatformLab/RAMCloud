@@ -33,11 +33,12 @@ def load_so():
         raise not_found
 
     def int_errcheck(result, func, arguments):
-        if result != 0:
+        if result == -1:
             # If and when rc_last_error() takes a client pointer,
             # we can use arguments[0].
             msg = so.rc_last_error()
             raise RCException(msg)
+        return result
 
     def malloc_errcheck(result, func, arguments):
         if result == 0:
@@ -278,6 +279,15 @@ RCRPC_INDEX_TYPE = _RCRPC_INDEX_TYPE()
 class RCException(Exception):
     pass
 
+class NoObjectError(Exception):
+    pass
+
+class VersionError(Exception):
+    def __init__(self, want_version, got_version):
+        Exception.__init__(self, "Mismatched version: expected %d but got %d" %
+                (want_version, got_version))
+        self.want_version = want_version
+        self.got_version = got_version
 
 class RAMCloud(object):
     def __init__(self):
@@ -337,15 +347,15 @@ class RAMCloud(object):
         idx_bufp, idx_buf_len = self._indexes_to_buf(indexes)
         got_version = ctypes.c_uint64()
         if want_version != None:
-            want_version = ctypes.c_uint64(want_version)
+            want_version = want_version
         else:
             want_version = so.RCRPC_VERSION_ANY
-        so.rc_write(self.client, table_id, key, want_version,
-                    ctypes.byref(got_version), data, len(data), idx_bufp,
-                    idx_buf_len)
-        if (want_version.value != so.RCRPC_VERSION_ANY.value and
-            got_version.value != want_version.value):
-            raise RCException("mismatched version")
+        r = so.rc_write(self.client, table_id, key, want_version,
+                        ctypes.byref(got_version), data, len(data), idx_bufp,
+                        idx_buf_len)
+        assert r in range(2)
+        if r == 1:
+            raise VersionError(want_version, got_version.value)
         return got_version.value
 
     def insert(self, table_id, data, indexes=None):
@@ -361,11 +371,13 @@ class RAMCloud(object):
             want_version = want_version
         else:
             want_version = so.RCRPC_VERSION_ANY
-        so.rc_delete(self.client, table_id, key, want_version,
-                     ctypes.byref(got_version))
-        if (want_version.value != so.RCRPC_VERSION_ANY.value and
-            got_version.value != want_version.value):
-            raise RCException("mismatched version")
+        r = so.rc_delete(self.client, table_id, key, want_version,
+                         ctypes.byref(got_version))
+        assert r in range(3)
+        if r == 1:
+            raise VersionError(want_version, got_version.value)
+        elif r == 2:
+            raise NoObjectError()
         return got_version.value
 
     def _buf_to_indexes(self, addr, indexes_len):
@@ -413,13 +425,15 @@ class RAMCloud(object):
             want_version = so.RCRPC_VERSION_ANY
         idx_buf = ctypes.create_string_buffer(10240)
         idx_buf_len = ctypes.c_uint64(len(idx_buf))
-        so.rc_read(self.client, table_id, key, want_version,
-                   ctypes.byref(got_version), ctypes.byref(buf),
-                   ctypes.byref(l), ctypes.byref(idx_buf),
-                   ctypes.byref(idx_buf_len))
-        if (want_version.value != so.RCRPC_VERSION_ANY.value and
-            got_version.value != want_version.value):
-            raise RCException("mismatched version")
+        r = so.rc_read(self.client, table_id, key, want_version,
+                       ctypes.byref(got_version), ctypes.byref(buf),
+                       ctypes.byref(l), ctypes.byref(idx_buf),
+                       ctypes.byref(idx_buf_len))
+        assert r in range(3)
+        if r == 1:
+            raise VersionError(want_version, got_version.value)
+        elif r == 2:
+            raise NoObjectError()
         #print repr(idx_buf.raw[:idx_buf_len.value])
         indexes = self._buf_to_indexes(ctypes.addressof(idx_buf), idx_buf_len.value)
         return (buf.raw[0:l.value], got_version.value, indexes)

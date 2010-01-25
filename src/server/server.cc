@@ -115,19 +115,22 @@ Server::Read(const rcrpc_read_request *req, rcrpc_read_response *resp)
         printf("Read from key %lu\n",
                req->key);
 
-    Table *t = &tables[req->table];
-    const object *o = t->Get(req->key);
-    if (!o || o->is_tombstone) {
-        if (o && o->is_tombstone)
-            assert(o->mut->refcnt > 0); 
-        throw "Object not found";
-    }
-
     resp->header.type = RCRPC_READ_RESPONSE;
     resp->header.len = static_cast<uint32_t>(RCRPC_READ_RESPONSE_LEN_WODATA);
     // (will be updated below with var-length data)
     resp->index_entries_len = 0;
     resp->buf_len = 0;
+    resp->version = RCRPC_VERSION_ANY;
+
+    Table *t = &tables[req->table];
+    const object *o = t->Get(req->key);
+    if (!o || o->is_tombstone) {
+        if (o && o->is_tombstone)
+            assert(o->mut->refcnt > 0); 
+        /* leave RCRPC_VERSION_ANY in resp->version */
+        return;
+    }
+
     resp->version = o->version;
 
     // if we request the wrong version, return the current version number, but
@@ -370,19 +373,22 @@ Server::InsertKey(const rcrpc_insert_request *req, rcrpc_insert_response *resp)
 void
 Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
 {
+    resp->header.type = RCRPC_DELETE_RESPONSE;
+    resp->header.len  = (uint32_t) RCRPC_DELETE_RESPONSE_LEN;
+    resp->version = RCRPC_VERSION_ANY;
+
     Table *t = &tables[req->table];
     const object *o = t->Get(req->key);
     if (!o || o->is_tombstone) {
         if (o && o->is_tombstone)
             assert(o->mut->refcnt > 0); 
-        throw "Object not found";
+        /* leave RCRPC_VERSION_ANY in resp->version */
+        return;
     }
 
     assert(o->mut != NULL);
     assert(o->mut->refcnt > 0);
 
-    resp->header.type = RCRPC_DELETE_RESPONSE;
-    resp->header.len  = (uint32_t) RCRPC_DELETE_RESPONSE_LEN;
     resp->version = o->version;
 
     // abort if we're trying to delete the wrong version

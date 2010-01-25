@@ -66,7 +66,7 @@ rc_disconnect(struct rc_client *client)
  * \var ERROR_MSG_LEN
  * The maximum length of a %RAMCloud error message.
  *
- * \todo The max length of a %RAMCloud error message belongs with the RPC
+ * \TODO The max length of a %RAMCloud error message belongs with the RPC
  *      definitions.
  */
 enum { ERROR_MSG_LEN = 256 };
@@ -76,7 +76,7 @@ enum { ERROR_MSG_LEN = 256 };
  *
  * See rc_last_error() and rc_handle_errors().
  *
- * \todo The error message should go in the client struct.
+ * \TODO The error message should go in the client struct.
  */
 static char rc_error_message[ERROR_MSG_LEN];
 
@@ -143,8 +143,6 @@ sendrcv_rpc(struct rc_net *net,
  * \return error code (see below)
  * \retval  0 success
  * \retval -1 on %RAMCloud error (see rc_last_error())
- *
- * \hideinitializer
  */
 static int
 sendrcv_rpc(struct rc_net *net,
@@ -193,8 +191,6 @@ sendrcv_rpc(struct rc_net *net,
  * \return error code as an \c int (see below)
  * \retval  0 success
  * \retval -1 on %RAMCloud error (see rc_last_error())
- *
- * \hideinitializer
  */
 #define SENDRCV_RPC(rcrpc_upper, rcrpc_lower, query, respp)                    \
     ({                                                                         \
@@ -217,6 +213,7 @@ sendrcv_rpc(struct rc_net *net,
  * \retval  0 on success
  * \retval -1 on %RAMCloud error (see rc_last_error())
  * \retval other reserved for future use
+ * \see #ping_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
 rc_ping(struct rc_client *client)
@@ -234,7 +231,7 @@ rc_ping(struct rc_client *client)
  *
  * This is estimated as roughly a little smaller than the maximum size of an
  * RPC.
- * \todo Define the maximum object size more in a more stable way.
+ * \TODO Define the maximum object size more in a more stable way.
  */
 #define MAX_DATA_WRITE_LEN (MAX_RPC_LEN - RCRPC_WRITE_REQUEST_LEN_WODATA - 256)
 
@@ -272,6 +269,7 @@ rc_ping(struct rc_client *client)
  * \retval other reserved for future use
  * \warning Watch out for the bad semantics of \a got_version when the object
  *      does not exist.
+ * \see #write_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
 rc_write(struct rc_client *client,
@@ -343,6 +341,7 @@ rc_write(struct rc_client *client,
  *      and overwrite an existing object. To work around this, do not use
  *      rc_insert() on tables that also have objects with small
  *      application-assigned object IDs (see rc_write()).
+ * \see #insert_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
 rc_insert(struct rc_client *client,
@@ -382,7 +381,7 @@ rc_insert(struct rc_client *client,
 
 /**
  * Delete an object from a %RAMCloud.
- * 
+ *
  * \param[in]  client   a connected client
  * \param[in]  table    the table containing the object to be deleted
  * \param[in]  key      the object ID of the object to be deleted
@@ -391,15 +390,16 @@ rc_insert(struct rc_client *client,
  * \param[out] got_version
  *      the version of the object before the delete took effect \n
  *      If the delete did not occur, this is set to the object's current
- *      version.
+ *      version. \n
+ *      If the object does not exist, \a got_version is undefined.
  * \return error code (see values below)
  * \retval  0 on success
- * \retval -1 on %RAMCloud error (currently including object not found;
- *      see rc_last_error())
+ * \retval -1 on %RAMCloud error (see rc_last_error())
  * \retval  1 if requested version was specified in \a want_version and not the
  *      object's current version
+ * \retval  2 if the object does not exist
  * \retval other reserved for future use
- * \todo Object not found should not be a %RAMCloud error.
+ * \see #delete_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
 rc_delete(struct rc_client *client,
@@ -422,8 +422,8 @@ rc_delete(struct rc_client *client,
         return r;
     }
 
-    if (got_version != NULL)
-        *got_version = resp->version;
+    if (resp->version == RCRPC_VERSION_ANY)
+        return 2;
 
     if (want_version != RCRPC_VERSION_ANY && resp->version != want_version)
         return 1;
@@ -441,7 +441,8 @@ rc_delete(struct rc_client *client,
  *      ::RCRPC_VERSION_ANY or the version of the object to be read
  * \param[out] got_version
  *      the current version of the object \n
- *      If the caller is not interested, got_version may be \c NULL.
+ *      If the caller is not interested, \a got_version may be \c NULL. \n
+ *      If the object does not exist, \a got_version is undefined.
  * \param[out] buf      the object's data
  * \param[out] len      the size of the object's data in bytes
  * \param[out] index_entries_buf
@@ -452,12 +453,12 @@ rc_delete(struct rc_client *client,
  *      Will not be set if \a index_entries_buf is \c NULL.
  * \return error code (see values below)
  * \retval  0 on success
- * \retval -1 on %RAMCloud error (currently including object not found;
- *      see rc_last_error())
+ * \retval -1 on %RAMCloud error (see rc_last_error())
  * \retval  1 if requested version was specified in \a want_version and not the
  *      object's current version
+ * \retval  2 if the object does not exist
  * \retval other reserved for future use
- * \todo Object not found should not be a %RAMCloud error.
+ * \see #read_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
 rc_read(struct rc_client *client,
@@ -496,6 +497,9 @@ rc_read(struct rc_client *client,
     memcpy(buf, var, *len);
     var += resp->buf_len;
 
+    if (resp->version == RCRPC_VERSION_ANY)
+        return 2;
+
     if (want_version != RCRPC_VERSION_ANY && resp->version != want_version)
         return 1;
 
@@ -514,7 +518,8 @@ rc_read(struct rc_client *client,
  *      is out of space for tables; see rc_last_error())
  * \retval other reserved for future use
  * \bug I don't think the new table is guaranteed to contain no objects yet.
- * \todo Table exists should not be a %RAMCloud error.
+ * \TODO Table exists should not be a %RAMCloud error.
+ * \see #create_table_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
 rc_create_table(struct rc_client *client, const char *name)
@@ -542,7 +547,8 @@ rc_create_table(struct rc_client *client, const char *name)
  * \retval -1 on %RAMCloud error (currently including table does not exist; see
  *      rc_last_error())
  * \retval other reserved for future use
- * \todo Table does not exist should not be a %RAMCloud error.
+ * \TODO Table does not exist should not be a %RAMCloud error.
+ * \see #open_table_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
 rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
@@ -574,7 +580,8 @@ rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
  * \retval -1 on %RAMCloud error (currently including table does not exist; see
  *      rc_last_error())
  * \retval other reserved for future use
- * \todo Table does not exist should not be a %RAMCloud error.
+ * \TODO Table does not exist should not be a %RAMCloud error.
+ * \see #drop_table_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
 rc_drop_table(struct rc_client *client, const char *name)
