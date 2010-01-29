@@ -42,9 +42,9 @@ struct BackupException {
         errNo = e.errNo;
         return *this;
     }
-    static void FromErrno(BackupException &e, int errn) {
-        e.message = strerror(errn);
-        e.errNo = errn;
+    static void FromErrno(BackupException *e, int errn) {
+        e->message = strerror(errn);
+        e->errNo = errn;
     }
     virtual ~BackupException();
     std::string message;
@@ -53,7 +53,7 @@ struct BackupException {
 
 struct BackupLogIOException : public BackupException {
     explicit BackupLogIOException(int errn) {
-        BackupException::FromErrno(*this, errn);
+        BackupException::FromErrno(this, errn);
     }
     explicit BackupLogIOException(std::string msg) : BackupException(msg) {}
 };
@@ -108,8 +108,8 @@ class FreeBitmap {
     DISALLOW_COPY_AND_ASSIGN(FreeBitmap);
 };
 
-enum { SEGMENT_FRAMES = SEGMENT_COUNT * 2 };
-enum { LOG_SPACE = SEGMENT_FRAMES * SEGMENT_SIZE };
+const uint64_t SEGMENT_FRAMES = SEGMENT_COUNT * 2;
+const uint64_t LOG_SPACE = SEGMENT_FRAMES * SEGMENT_SIZE;
 
 const uint64_t INVALID_SEGMENT_NUM = ~(0ull);
 
@@ -144,7 +144,7 @@ class BackupServer {
     void Flush();
 
     void ReserveSpace();
-    uint64_t FrameForSegNum(uint64_t segnum);
+    uint64_t& FrameForSegNum(uint64_t segnum);
 
     Net *net;
     int log_fd;

@@ -86,21 +86,34 @@ struct backup_rpc_error_resp {
     char message[0];                    /* Variable length, null terminated */
 };
 
+const uint64_t BACKUP_RPC_HDR_LEN = (sizeof(backup_rpc_hdr));
 enum rc_backup_rpc_len {
-    BACKUP_RPC_HDR_LEN                = (sizeof(struct backup_rpc_hdr)),
-    BACKUP_RPC_HEARTBEAT_REQ_LEN      = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_heartbeat_req)),
-    BACKUP_RPC_HEARTBEAT_RESP_LEN     = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_heartbeat_resp)),
-    BACKUP_RPC_WRITE_REQ_LEN_WODATA   = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_write_req)),
-    BACKUP_RPC_WRITE_RESP_LEN         = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_write_resp)),
-    BACKUP_RPC_COMMIT_REQ_LEN         = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_req)),
-    BACKUP_RPC_COMMIT_RESP_LEN        = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_commit_resp)),
-    BACKUP_RPC_FREE_REQ_LEN           = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_free_req)),
-    BACKUP_RPC_FREE_RESP_LEN          = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_free_resp)),
-    BACKUP_RPC_GETSEGMENTLIST_REQ_LEN       = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_getsegmentlist_req)),
-    BACKUP_RPC_GETSEGMENTLIST_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_getsegmentlist_resp)),
-    BACKUP_RPC_RETRIEVE_REQ_LEN       = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_retrieve_req)),
-    BACKUP_RPC_RETRIEVE_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_retrieve_resp)),
-    BACKUP_RPC_ERROR_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN + sizeof(struct backup_rpc_error_resp)),
+    BACKUP_RPC_HEARTBEAT_REQ_LEN      = (BACKUP_RPC_HDR_LEN +
+                                         sizeof(backup_rpc_heartbeat_req)),
+    BACKUP_RPC_HEARTBEAT_RESP_LEN     = (BACKUP_RPC_HDR_LEN +
+                                         sizeof(backup_rpc_heartbeat_resp)),
+    BACKUP_RPC_WRITE_REQ_LEN_WODATA   = (BACKUP_RPC_HDR_LEN +
+                                         sizeof(backup_rpc_write_req)),
+    BACKUP_RPC_WRITE_RESP_LEN         = (BACKUP_RPC_HDR_LEN +
+                                         sizeof(backup_rpc_write_resp)),
+    BACKUP_RPC_COMMIT_REQ_LEN         = (BACKUP_RPC_HDR_LEN +
+                                         sizeof(backup_rpc_commit_req)),
+    BACKUP_RPC_COMMIT_RESP_LEN        = (BACKUP_RPC_HDR_LEN +
+                                         sizeof(backup_rpc_commit_resp)),
+    BACKUP_RPC_FREE_REQ_LEN           = (BACKUP_RPC_HDR_LEN +
+                                         sizeof(backup_rpc_free_req)),
+    BACKUP_RPC_FREE_RESP_LEN          = (BACKUP_RPC_HDR_LEN +
+                                         sizeof(backup_rpc_free_resp)),
+    BACKUP_RPC_GETSEGMENTLIST_REQ_LEN = (BACKUP_RPC_HDR_LEN +
+                                        sizeof(backup_rpc_getsegmentlist_req)),
+    BACKUP_RPC_GETSEGMENTLIST_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN +
+                                       sizeof(backup_rpc_getsegmentlist_resp)),
+    BACKUP_RPC_RETRIEVE_REQ_LEN       = (BACKUP_RPC_HDR_LEN +
+                                         sizeof(backup_rpc_retrieve_req)),
+    BACKUP_RPC_RETRIEVE_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN +
+                                           sizeof(backup_rpc_retrieve_resp)),
+    BACKUP_RPC_ERROR_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN +
+                                        sizeof(backup_rpc_error_resp)),
 };
 
 enum backup_rpc_type {
