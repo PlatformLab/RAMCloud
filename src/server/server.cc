@@ -71,8 +71,6 @@ Server::Ping(const rcrpc_ping_request *req, rcrpc_ping_response *resp)
 void
 Server::Read(const rcrpc_read_request *req, rcrpc_read_response *resp)
 {
-    chunk_entry *chunk;
-
     if (server_debug)
         printf("Read from key %lu\n",
                req->key);
@@ -100,17 +98,8 @@ Server::Read(const rcrpc_read_request *req, rcrpc_read_response *resp)
         return;
     }
 
-    char *buf = resp->buf;
-    ChunkIter cdataiter(const_cast<object*>(o));
-    while (cdataiter.entry != NULL) {
-        chunk = cdataiter.entry;
-        if (chunk->is_data()) {
-            memcpy(buf, chunk->data, chunk->len);
-            buf += chunk->len;
-            resp->buf_len += chunk->len;
-        }
-        ++cdataiter;
-    }
+    memcpy(resp->buf, o->data, o->data_len);
+    resp->buf_len = o->data_len;
 
     resp->header.len += static_cast<uint32_t>(resp->buf_len);
 }
@@ -215,7 +204,6 @@ Server::StoreData(uint64_t table,
     Table *t = &tables[table];
     const object *o = t->Get(key);
     object_mutable *om = NULL;
-    chunk_entry *chunk;
 
     if (o != NULL) {
         if (version != RCRPC_VERSION_ANY && o->version != version)
@@ -232,7 +220,7 @@ Server::StoreData(uint64_t table,
         om->refcnt = 0;
     }
 
-    DECLARE_OBJECT(new_o, sizeof(chunk_entry) + buf_len);
+    DECLARE_OBJECT(new_o, buf_len);
 
     new_o->mut = om;
     om->refcnt++;
@@ -244,16 +232,8 @@ Server::StoreData(uint64_t table,
     new_o->is_tombstone = false;
     // TODO dm's super-fast checksum here
     new_o->checksum = 0x0BE70BE70BE70BE7ULL;
-    new_o->entries_len = 0;
-
-    chunk = new_o->entries;
-
-    chunk->len = buf_len;
-    chunk->id = static_cast<uint32_t>(-1);
-    chunk->type = static_cast<uint32_t>(-1);
-    memcpy(chunk->data, buf, buf_len);
-    new_o->entries_len += chunk->total_size();
-    chunk = chunk->next();
+    new_o->data_len = buf_len;
+    memcpy(new_o->data, buf, buf_len);
 
     // mark the old object as freed _before_ writing the new object to the log.
     // if we do it afterwards, the log cleaner could be triggered and `o' reclaimed
@@ -331,7 +311,7 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
     tomb_o->checksum = 0;
     tomb_o->mut = o->mut;
     tomb_o->is_tombstone = true;
-    tomb_o->entries_len = 0;
+    tomb_o->data_len = 0;
     tomb_o->version = t->AllocateVersion();
 
     // `o' may be relocated in the log when we append, before the tombstone is written, so

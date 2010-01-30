@@ -32,34 +32,6 @@
 
 namespace RAMCloud {
 
-struct chunk_entry {
-    uint64_t len;
-    uint32_t id;   /* static_cast<uint32_t>(-1) for data */
-    uint32_t type; /* static_cast<uint32_t>(-1) for data */
-    char data[0];                       // Variable length, but contiguous
-
-    chunk_entry *
-    next() const {
-        const char *this_ptr = reinterpret_cast<const char*>(this);
-        char *next_ptr = const_cast<char*>(this_ptr + this->total_size());
-        return reinterpret_cast<chunk_entry*>(next_ptr);
-    }
-
-    uint64_t
-    total_size() const {
-        return sizeof(*this) + this->len;
-    }
-
-    bool
-    is_data() const {
-        return this->id == static_cast<uint32_t>(-1) &&
-               this->type == static_cast<uint32_t>(-1);
-    }
-
-  private:
-    DISALLOW_COPY_AND_ASSIGN(chunk_entry);
-};
-
 struct object_mutable {
     uint64_t refcnt;
 };
@@ -78,12 +50,12 @@ struct object {
      * a buffer instead.
      */
     object(size_t buf_size) : key(-1), table(-1), version(-1), checksum(0),
-                              is_tombstone(false), mut(NULL), entries_len(0) {
+                              is_tombstone(false), mut(NULL), data_len(0) {
         assert(buf_size >= sizeof(*this));
     }
 
     size_t size() const {
-        return sizeof(*this) + this->entries_len;
+        return sizeof(*this) + this->data_len;
     }
 
     // WARNING: The hashtable code (for the moment) assumes that the
@@ -94,44 +66,11 @@ struct object {
     uint64_t checksum;
     bool is_tombstone;
     object_mutable *mut;
-    uint64_t entries_len;
-    struct chunk_entry entries[0];
+    uint64_t data_len;
+    char data[0];
 
   private:
     DISALLOW_COPY_AND_ASSIGN(object);
-};
-
-class ChunkIter {
-  public:
-
-    ChunkIter(object *obj) : entry(NULL), obj_(obj) {
-        if (obj_->entries_len > 0) {
-            entry = obj_->entries;
-        } else {
-            entry = NULL;
-        }
-    }
-
-    ChunkIter& operator++() {
-        if (entry != NULL) {
-            entry = entry->next();
-            size_t moved = reinterpret_cast<char*>(entry) -
-                reinterpret_cast<char*>(obj_->entries);
-            size_t total = static_cast<size_t>(obj_->entries_len);
-            if (moved == total) {
-                entry = NULL;
-            } else {
-                assert(moved < total);
-            }
-        }
-        return *this;
-    }
-
-    chunk_entry *entry;
-
-  private:
-    object *obj_;
-    DISALLOW_COPY_AND_ASSIGN(ChunkIter);
 };
 
 class Table {
