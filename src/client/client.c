@@ -422,6 +422,9 @@ rc_delete(struct rc_client *client,
         return r;
     }
 
+    if (got_version != NULL)
+        *got_version = resp->version;
+
     if (resp->version == RCRPC_VERSION_ANY)
         return 2;
 
