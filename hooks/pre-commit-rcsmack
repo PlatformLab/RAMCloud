@@ -1,0 +1,3 @@
+#!/bin/bash
+export PYTHONPATH=bindings/python
+exec python src/tests/rc-smack.py 10 > /dev/null

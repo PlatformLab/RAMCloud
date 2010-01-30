@@ -1,0 +1,5 @@
+#!/bin/bash
+OBJSUFFIX=$(git symbolic-ref -q HEAD | \
+            sed -e s,refs/heads/,.,)
+OBJDIR=obj$OBJSUFFIX
+exec $OBJDIR/client/client > /dev/null
