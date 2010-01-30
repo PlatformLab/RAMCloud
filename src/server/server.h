@@ -25,7 +25,6 @@
 
 #include <server/net.h>
 #include <server/hashtable.h>
-#include <server/index.h>
 
 #include <inttypes.h>
 #include <assert.h>
@@ -35,8 +34,8 @@ namespace RAMCloud {
 
 struct chunk_entry {
     uint64_t len;
-    uint32_t index_id;   /* static_cast<uint32_t>(-1) for data */
-    uint32_t index_type; /* static_cast<uint32_t>(-1) for data */
+    uint32_t id;   /* static_cast<uint32_t>(-1) for data */
+    uint32_t type; /* static_cast<uint32_t>(-1) for data */
     char data[0];                       // Variable length, but contiguous
 
     chunk_entry *
@@ -53,8 +52,8 @@ struct chunk_entry {
 
     bool
     is_data() const {
-        return this->index_id == static_cast<uint32_t>(-1) &&
-               this->index_type == static_cast<uint32_t>(-1);
+        return this->id == static_cast<uint32_t>(-1) &&
+               this->type == static_cast<uint32_t>(-1);
     }
 
   private:
@@ -139,7 +138,6 @@ class Table {
   public:
     static const int TABLE_NAME_MAX_LEN = 64;
     explicit Table() : next_key(0), next_version(0), object_map(HASH_NLINES) {
-        memset(indexes, 0, sizeof(indexes));
     }
     const char *GetName() { return &name[0]; }
     void SetName(const char *new_name) {
@@ -167,119 +165,11 @@ class Table {
         object_map.Delete(key);
     }
 
-    uint16_t CreateIndex(bool unique, bool range_queryable, enum RCRPC_INDEX_TYPE type) {
-        uint16_t index_id;
-
-        index_id = 0;
-        while (indexes[index_id] != NULL) {
-            if (index_id == 65535) {
-                throw "Out of index ids";
-            }
-            ++index_id;
-        }
-
-        if (unique) {
-            if (range_queryable) {
-                /* unique tree */
-                indexes[index_id] = new STLUniqueRangeIndex(type);
-            } else {
-                /* unique hash table */
-                indexes[index_id] = new STLUniqueRangeIndex(type);
-            }
-        } else {
-            if (range_queryable) {
-                /* multi tree */
-                indexes[index_id] = new STLMultiRangeIndex(type);
-            } else {
-                /* multi hash table */
-                indexes[index_id] = new STLMultiRangeIndex(type);
-            }
-        }
-
-        return index_id;
-    }
-
-    void DropIndex(uint16_t index_id) {
-        if (indexes[index_id] == NULL) {
-            throw "Invalid index";
-        }
-        delete indexes[index_id];
-        indexes[index_id] = NULL;
-    }
-
-    unsigned int RangeQueryIndex(uint16_t index_id,
-                                 const RangeQueryArgs *args) {
-        Index *i = indexes[index_id];
-        if (!i->range_queryable) {
-            throw "Not range queryable";
-        }
-        if (i->unique) {
-            UniqueRangeIndex *index = dynamic_cast<UniqueRangeIndex*>(i);
-            return index->RangeQuery(args);
-        }else {
-            MultiRangeIndex *index = dynamic_cast<MultiRangeIndex*>(i);
-            return index->RangeQuery(args);
-        }
-    }
-
-    bool UniqueLookupIndex(uint16_t index_id, const IndexKeyRef &keyref,
-                           uint64_t *oid) {
-        Index *i = indexes[index_id];
-        assert(i->unique);
-        UniqueIndex *index = dynamic_cast<UniqueIndex*>(i);
-        try {
-            *oid = index->Lookup(keyref);
-        } catch (IndexException& e) {
-            return false;
-        }
-        return true;
-    }
-
-    unsigned int MultiLookupIndex(uint16_t index_id,
-                                  const MultiLookupArgs *args) {
-        Index *i = indexes[index_id];
-        assert(!i->unique);
-        MultiIndex *index = dynamic_cast<MultiIndex*>(i);
-        return index->Lookup(args);
-    }
-
-    void DeleteIndexEntry(uint16_t index_id, enum RCRPC_INDEX_TYPE index_type,
-                          const void *data, uint64_t len,
-                          uint64_t oid) {
-        Index *i = indexes[index_id];
-        assert(i->type == index_type);
-        IndexKeyRef keyref(data, len);
-        if (i->unique) {
-            UniqueIndex *index =
-                dynamic_cast<UniqueIndex*>(i);
-            return index->Remove(keyref, oid);
-        }else {
-            MultiIndex *index = dynamic_cast<MultiIndex*>(i);
-            return index->Remove(keyref, oid);
-        }
-    }
-
-    void AddIndexEntry(uint16_t index_id, enum RCRPC_INDEX_TYPE index_type,
-                       const void *data, uint64_t len,
-                       uint64_t oid) {
-        Index *i = indexes[index_id];
-        assert(i->type == index_type);
-        IndexKeyRef keyref(data, len);
-        if (i->unique) {
-            UniqueIndex *index = dynamic_cast<UniqueIndex*>(i);
-            return index->Insert(keyref, oid);
-        }else {
-            MultiIndex *index = dynamic_cast<MultiIndex*>(i);
-            return index->Insert(keyref, oid);
-        }
-    }
-
   private:
     char name[64];
     uint64_t next_key;
     uint64_t next_version;
     Hashtable object_map;
-    Index *indexes[65536];
     DISALLOW_COPY_AND_ASSIGN(Table);
 };
 
@@ -307,16 +197,6 @@ class Server {
                    rcrpc_open_table_response *resp);
     void DropTable(const rcrpc_drop_table_request *req,
                    rcrpc_drop_table_response *resp);
-    void CreateIndex(const rcrpc_create_index_request *req,
-                     rcrpc_create_index_response *resp);
-    void DropIndex(const rcrpc_drop_index_request *req,
-                   rcrpc_drop_index_response *resp);
-    void RangeQuery(const rcrpc_range_query_request *req,
-                    rcrpc_range_query_response *resp);
-    void UniqueLookup(const rcrpc_unique_lookup_request *req,
-                      rcrpc_unique_lookup_response *resp);
-    void MultiLookup(const rcrpc_multi_lookup_request *req,
-                     rcrpc_multi_lookup_response *resp);
 
     explicit Server(const ServerConfig *sconfig, Net *net_impl);
     Server(const Server& server);
@@ -331,9 +211,7 @@ class Server {
                        uint64_t key,
                        uint64_t prior_version,
                        const char *buf,
-                       uint64_t buf_len,
-                       const char *index_entries_buf,
-                       uint64_t index_entries_buf_len);
+                       uint64_t buf_len);
     explicit Server();
 
     const ServerConfig *config;

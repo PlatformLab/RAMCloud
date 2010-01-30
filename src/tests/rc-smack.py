@@ -74,7 +74,7 @@ def version_smack(c, loops):
         assert caught
 
         p.before()
-        rbuf, vers, indexes = c.read(0, 0)
+        rbuf, vers = c.read(0, 0)
         p.after()
         assert vers == last_version
         assert rbuf == buf
@@ -85,7 +85,7 @@ def version_smack(c, loops):
             try_version = last_version + 1;
             if i & 0x1:
                 try_version = last_version - 1;
-            rbuf, vers, indexes = c.read(0, 0, try_version)
+            rbuf, vers = c.read(0, 0, try_version)
         except:
             caught = True
         p.after()
@@ -108,7 +108,7 @@ def version_smack(c, loops):
         p.before()
         deleted_version = c.delete(0, 0, last_version)
         p.after()
-        assert deleted_version == last_version
+        assert deleted_version == last_version, (deleted_version, last_version)
 
         caught = False
         p.before()
@@ -138,7 +138,7 @@ def rewrite_smack(c, loops):
         p.after()
 
         p.before()
-        rbuf, vers, indexes = c.read(0, 0)
+        rbuf, vers = c.read(0, 0)
         p.after()
         assert rbuf == buf
         i += 1
@@ -161,7 +161,7 @@ def delete_smack(c, loops):
         p.after()
 
         p.before()
-        rbuf, vers, indexes = c.read(0, key)
+        rbuf, vers = c.read(0, key)
         p.after()
         assert rbuf == buf
 
@@ -201,7 +201,7 @@ def rewrite_delete_smack(c, loops, p):
             p.after()
 
         p.before()
-        rbuf, vers, indexes = c.read(0, 0)
+        rbuf, vers = c.read(0, 0)
         p.after()
         assert rbuf == buf
 

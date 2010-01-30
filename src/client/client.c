@@ -227,7 +227,7 @@ rc_ping(struct rc_client *client)
 }
 
 /**
- * The maximum size of an object's data and index entries together.
+ * The maximum size of an object's data.
  *
  * This is estimated as roughly a little smaller than the maximum size of an
  * RPC.
@@ -257,10 +257,6 @@ rc_ping(struct rc_client *client)
  *      If the caller is not interested, got_version may be \c NULL.
  * \param[in]  buf      the object's data
  * \param[in]  len      the size of the object's data in bytes
- * \param[in]  index_entries_buf
- *      the object's index entries (array of rc_index_entry)
- * \param[in]  index_entries_len
- *      the size of the object's index entries in bytes
  * \return error code (see values below)
  * \retval  0 on success
  * \retval -1 on %RAMCloud error (see rc_last_error())
@@ -278,30 +274,21 @@ rc_write(struct rc_client *client,
          uint64_t want_version,
          uint64_t *got_version,
          const char *buf,
-         uint64_t len,
-         const char *index_entries_buf,
-         uint64_t index_entries_len)
+         uint64_t len)
 {
     assert(len <= MAX_DATA_WRITE_LEN);
     char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
     struct rcrpc_write_request *query;
     struct rcrpc_write_response *resp;
     query = (struct rcrpc_write_request *) query_buf;
-    char *var;
 
     query->header.type = RCRPC_WRITE_REQUEST;
-    query->header.len  = (uint32_t) RCRPC_WRITE_REQUEST_LEN_WODATA + len +
-                         index_entries_len;
+    query->header.len  = (uint32_t) RCRPC_WRITE_REQUEST_LEN_WODATA + len;
     query->table = table;
     query->key = key;
     query->version = want_version;
-    query->index_entries_len = index_entries_len;
     query->buf_len = len;
-    var = query->var;
-    memcpy(var, index_entries_buf, index_entries_len);
-    var += index_entries_len;
-    memcpy(var, buf, len);
-    var += len;
+    memcpy(query->buf, buf, len);
 
     int r = SENDRCV_RPC(WRITE, write, query, &resp);
 
@@ -329,10 +316,6 @@ rc_write(struct rc_client *client,
  * \param[in]  buf      the object's data
  * \param[in]  len      the size of the object's data in bytes
  * \param[out] key      the object ID of the object that was inserted
- * \param[in]  index_entries_buf
- *      the object's index entries (array of rc_index_entry)
- * \param[in]  index_entries_len
- *      the size of the object's index entries in bytes
  * \return error code (see values below)
  * \retval  0 on success
  * \retval -1 on %RAMCloud error (see rc_last_error())
@@ -348,28 +331,19 @@ rc_insert(struct rc_client *client,
           uint64_t table,
           const char *buf,
           uint64_t len,
-          uint64_t *key,
-          const char *index_entries_buf,
-          uint64_t index_entries_len)
+          uint64_t *key)
 {
     assert(len <= MAX_DATA_WRITE_LEN);
     char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
     struct rcrpc_insert_request *query;
     struct rcrpc_insert_response *resp;
     query = (struct rcrpc_insert_request *) query_buf;
-    char *var;
 
     query->header.type = RCRPC_INSERT_REQUEST;
-    query->header.len  = (uint32_t) RCRPC_INSERT_REQUEST_LEN_WODATA + len +
-                         index_entries_len;
+    query->header.len  = (uint32_t) RCRPC_INSERT_REQUEST_LEN_WODATA + len;
     query->table = table;
-    query->index_entries_len = index_entries_len;
     query->buf_len = len;
-    var = query->var;
-    memcpy(var, index_entries_buf, index_entries_len);
-    var += index_entries_len;
-    memcpy(var, buf, len);
-    var += len;
+    memcpy(query->buf, buf, len);
 
     int r = SENDRCV_RPC(INSERT, insert, query, &resp);
     if (r) {
@@ -448,12 +422,6 @@ rc_delete(struct rc_client *client,
  *      If the object does not exist, \a got_version is undefined.
  * \param[out] buf      the object's data
  * \param[out] len      the size of the object's data in bytes
- * \param[out] index_entries_buf
- *      the object's index entries (array of rc_index_entry) \n
- *      If the caller is not interested, \a index_entries_buf may be \c NULL.
- * \param[out] index_entries_len
- *      the size of the object's index entries in bytes \n
- *      Will not be set if \a index_entries_buf is \c NULL.
  * \return error code (see values below)
  * \retval  0 on success
  * \retval -1 on %RAMCloud error (see rc_last_error())
@@ -470,13 +438,10 @@ rc_read(struct rc_client *client,
         uint64_t want_version,
         uint64_t *got_version,
         char *buf,
-        uint64_t *len,
-        char *index_entries_buf,
-        uint64_t *index_entries_len)
+        uint64_t *len)
 {
     struct rcrpc_read_request query;
     struct rcrpc_read_response *resp;
-    char *var;
 
     query.header.type = RCRPC_READ_REQUEST;
     query.header.len  = (uint32_t) RCRPC_READ_REQUEST_LEN;
@@ -490,15 +455,8 @@ rc_read(struct rc_client *client,
     if (got_version != NULL)
         *got_version = resp->version;
 
-    var = resp->var;
-    if (index_entries_buf != NULL) {
-        *index_entries_len = resp->index_entries_len;
-        memcpy(index_entries_buf, var, *index_entries_len);
-    }
-    var += resp->index_entries_len;
     *len = resp->buf_len;
-    memcpy(buf, var, *len);
-    var += resp->buf_len;
+    memcpy(buf, resp->buf, *len);
 
     if (resp->version == RCRPC_VERSION_ANY)
         return 2;
@@ -598,280 +556,6 @@ rc_drop_table(struct rc_client *client, const char *name)
     strncpy(table_name, name, sizeof(table_name));
     table_name[sizeof(table_name) - 1] = '\0';
     return SENDRCV_RPC(DROP_TABLE, drop_table, &query, &resp);
-}
-
-int
-rc_create_index(struct rc_client *client,
-                uint64_t table_id,
-                enum RCRPC_INDEX_TYPE type,
-                bool unique, bool range_queryable,
-                uint16_t *index_id)
-{
-    struct rcrpc_create_index_request query;
-    struct rcrpc_create_index_response *resp;
-
-    query.header.type = RCRPC_CREATE_INDEX_REQUEST;
-    query.header.len  = (uint32_t) RCRPC_CREATE_INDEX_REQUEST_LEN;
-    query.table = table_id;
-    query.type = (uint8_t) type;
-    query.unique = unique;
-    query.range_queryable = range_queryable;
-    int r = SENDRCV_RPC(CREATE_INDEX, create_index, &query, &resp);
-    if (r)
-        return r;
-    *index_id = resp->id;
-
-    return 0;
-}
-
-int
-rc_drop_index(struct rc_client *client, uint64_t table_id, uint16_t index_id)
-{
-    struct rcrpc_drop_index_request query;
-    struct rcrpc_drop_index_response *resp;
-
-    query.header.type = RCRPC_DROP_INDEX_REQUEST;
-    query.header.len  = (uint32_t) RCRPC_DROP_INDEX_REQUEST_LEN;
-    query.table = table_id;
-    query.id = index_id;
-    return SENDRCV_RPC(DROP_INDEX, drop_index, &query, &resp);
-}
-
-int
-rc_unique_lookup(struct rc_client *client, uint64_t table,
-                 uint16_t index_id, const char *key, uint64_t key_len,
-                 bool *oid_present, uint64_t *oid)
-{
-    uint32_t query_len = (uint32_t) RCRPC_UNIQUE_LOOKUP_REQUEST_LEN_WODATA +
-                         key_len;
-    struct rcrpc_unique_lookup_request *query;
-    struct rcrpc_unique_lookup_response *resp;
-    char query_buf[query_len];
-    query = (struct rcrpc_unique_lookup_request*) query_buf;
-
-    query->header.type = RCRPC_UNIQUE_LOOKUP_REQUEST;
-    query->header.len  = query_len;
-    query->table = table;
-    query->index_id = index_id;
-    query->key_len = key_len;
-    memcpy(query->key, key, key_len);
-
-    int r = SENDRCV_RPC(UNIQUE_LOOKUP, unique_lookup, query, &resp);
-    if (r) {
-        return r;
-    }
-
-    *oid_present = (bool) resp->oid_present;
-    if (*oid_present) {
-        *oid = resp->oid;
-    }
-    return 0;
-}
-
-struct rc_multi_lookup_args *
-rc_multi_lookup_args_new()
-{
-    return calloc(1, sizeof(struct rc_multi_lookup_args));
-}
-
-void
-rc_multi_lookup_args_free(struct rc_multi_lookup_args *args)
-{
-    free(args);
-}
-
-void
-rc_multi_lookup_set_index(struct rc_multi_lookup_args *args, uint64_t table,
-                          uint16_t index_id)
-{
-    args->rpc.table = table;
-    args->rpc.index_id = index_id;
-}
-
-void
-rc_multi_lookup_set_key(struct rc_multi_lookup_args *args, const char *key,
-                        uint64_t len)
-{
-    args->key = key;
-    args->rpc.key_len = len;
-}
-
-void
-rc_multi_lookup_set_start_following_oid(struct rc_multi_lookup_args *args,
-                                        uint64_t oid)
-{
-    args->rpc.start_following_oid_present = true;
-    args->start_following_oid = oid;
-}
-
-void
-rc_multi_lookup_set_result_buf(struct rc_multi_lookup_args *args,
-                               uint32_t *count, uint64_t *oids_buf,
-                               bool *more)
-{
-    args->rpc.limit = *count;
-    args->more = more;
-    args->count = count;
-    args->oids_buf = oids_buf;
-}
-
-int
-rc_multi_lookup(struct rc_client *client,
-                const struct rc_multi_lookup_args *args)
-{
-    struct rcrpc_multi_lookup_request *query;
-    struct rcrpc_multi_lookup_response *resp;
-    char *var;
-
-    int query_buf_len;
-    query_buf_len = RCRPC_MULTI_LOOKUP_REQUEST_LEN_WODATA;
-    if (args->rpc.start_following_oid_present) {
-        query_buf_len += sizeof(uint64_t);
-    }
-    query_buf_len += args->rpc.key_len;
-
-    char query_buf[query_buf_len];
-    query = (struct rcrpc_multi_lookup_request*) query_buf;
-
-    memcpy(query, &args->rpc, sizeof(args->rpc));
-    query->header.type = RCRPC_MULTI_LOOKUP_REQUEST;
-    query->header.len = (uint32_t) query_buf_len;
-    var = query->var;
-    if (args->rpc.start_following_oid_present) {
-        *((uint64_t*) var) = args->start_following_oid;
-        var += sizeof(uint64_t);
-    }
-    memcpy(var, args->key, args->rpc.key_len);
-    var += args->rpc.key_len;
-
-    int r = SENDRCV_RPC(MULTI_LOOKUP, multi_lookup, query, &resp);
-    if (r) {
-        return r;
-    }
-
-    *args->count = resp->len;
-    *args->more = (bool) resp->more;
-    memcpy(args->oids_buf, resp->oids, *args->count * sizeof(uint64_t));
-
-    return 0;
-}
-
-struct rc_range_query_args *
-rc_range_query_args_new() {
-    return calloc(1, sizeof(struct rc_range_query_args));
-}
-
-void
-rc_range_query_args_free(struct rc_range_query_args *args)
-{
-    free(args);
-}
-
-void
-rc_range_query_set_index(struct rc_range_query_args *args, uint64_t table,
-                         uint16_t index_id) {
-    args->rpc.table = table;
-    args->rpc.index_id = index_id;
-}
-
-void
-rc_range_query_set_key_start(struct rc_range_query_args *args, const char *key,
-                             uint64_t len, bool inclusive) {
-    args->rpc.key_start_present = true;
-    args->rpc.key_start_inclusive = inclusive;
-    args->key_start = key;
-    args->key_start_len = len;
-}
-
-void rc_range_query_set_key_end(struct rc_range_query_args *args, const char *key,
-                                uint64_t len, bool inclusive) {
-    args->rpc.key_end_present = true;
-    args->rpc.key_end_inclusive = inclusive;
-    args->key_end = key;
-    args->key_end_len = len;
-}
-
-void
-rc_range_query_set_start_following_oid(struct rc_range_query_args *args,
-                                       uint64_t oid) {
-    args->rpc.start_following_oid_present = true;
-    args->start_following_oid = oid;
-}
-
-void
-rc_range_query_set_result_bufs(struct rc_range_query_args *args,
-                               uint32_t *count, uint64_t *oids_buf,
-                               uint64_t *oids_buf_len, char *keys_buf,
-                               uint64_t *keys_buf_len, bool *more) {
-    args->rpc.limit = *count;
-    args->rpc.request_keys = (keys_buf != NULL);
-    args->more = more;
-    args->count = count;
-    args->oids_buf = oids_buf;
-    args->oids_buf_len = oids_buf_len;
-    args->keys_buf = keys_buf;
-    args->keys_buf_len = keys_buf_len;
-}
-
-int
-rc_range_query(struct rc_client *client,
-               const struct rc_range_query_args *args) {
-    struct rcrpc_range_query_request *query;
-    struct rcrpc_range_query_response *resp;
-    char *var;
-
-    int query_buf_len;
-    query_buf_len = RCRPC_RANGE_QUERY_REQUEST_LEN_WODATA;
-    if (args->rpc.start_following_oid_present) {
-        query_buf_len += sizeof(uint64_t);
-    }
-    query_buf_len += sizeof(uint64_t) + args->key_start_len;
-    query_buf_len += sizeof(uint64_t) + args->key_end_len;
-
-    char query_buf[query_buf_len];
-    query = (struct rcrpc_range_query_request*) query_buf;
-
-    memcpy(query, &args->rpc, sizeof(args->rpc));
-    query->header.type = RCRPC_RANGE_QUERY_REQUEST;
-    query->header.len = (uint32_t) query_buf_len;
-    var = query->var;
-    if (args->rpc.start_following_oid_present) {
-        *((uint64_t*) var) = args->start_following_oid;
-        var += sizeof(uint64_t);
-    }
-    if (args->rpc.key_start_present) {
-        *((uint64_t*) var) = args->key_start_len;
-        var += sizeof(uint64_t);
-        memcpy(var, args->key_start, args->key_start_len);
-        var += args->key_start_len;
-    }
-    if (args->rpc.key_end_present) {
-        *((uint64_t*) var) = args->key_end_len;
-        var += sizeof(uint64_t);
-        memcpy(var, args->key_end, args->key_end_len);
-        var += args->key_end_len;
-    }
-
-    int r = SENDRCV_RPC(RANGE_QUERY, range_query, query, &resp);
-    if (r) {
-        return r;
-    }
-
-    //TODO(ongaro): I hope your buffer is large enough.
-    *args->count = resp->len;
-    *args->more = (bool) resp->more;
-    var = resp->var;
-    *args->oids_buf_len = (*args->count) * sizeof(uint64_t);
-    memcpy(args->oids_buf, var, *args->oids_buf_len);
-    var += *args->oids_buf_len;
-    if (args->rpc.request_keys) {
-        *args->keys_buf_len = resp->header.len -
-                              RCRPC_RANGE_QUERY_RESPONSE_LEN_WODATA -
-                              *args->oids_buf_len;
-        memcpy(args->keys_buf, var, *args->keys_buf_len);
-    }
-
-    return 0;
 }
 
 /**
