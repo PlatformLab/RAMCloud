@@ -72,12 +72,6 @@ def load_so():
     err                 = ctypes.c_int
     error_msg           = ctypes.c_char_p
     inclusive           = ctypes.c_bool
-    index_entries_buf   = ctypes.c_void_p
-    index_entries_len   = ctypes.c_uint64
-    index_id            = ctypes.c_uint16
-    index_key           = ctypes.c_void_p
-    index_key_len       = ctypes.c_uint64
-    index_type          = ctypes.c_int
     key                 = ctypes.c_uint64
     keys_buf_len        = ctypes.c_uint64
     keys_buf_p          = ctypes.c_void_p
@@ -107,12 +101,11 @@ def load_so():
     so.rc_ping.errcheck = int_errcheck
 
     so.rc_write.argtypes = [client, table, key, version, POINTER(version), buf,
-                            len, index_entries_buf, index_entries_len]
+                            len]
     so.rc_write.restype  = err
     so.rc_write.errcheck = int_errcheck
 
-    so.rc_insert.argtypes = [client, table, buf, len, POINTER(key),
-                             index_entries_buf, index_entries_len]
+    so.rc_insert.argtypes = [client, table, buf, len, POINTER(key)]
     so.rc_insert.restype  = err
     so.rc_insert.errcheck = int_errcheck
 
@@ -121,8 +114,7 @@ def load_so():
     so.rc_delete.errcheck = int_errcheck
 
     so.rc_read.argtypes = [client, table, key, version, POINTER(version), buf,
-                           POINTER(len), index_entries_buf,
-                           POINTER(index_entries_len)]
+                           POINTER(len)]
     so.rc_read.restype  = err
     so.rc_read.errcheck = int_errcheck
 
@@ -137,84 +129,6 @@ def load_so():
     so.rc_drop_table.argtypes = [client, name]
     so.rc_drop_table.restype  = err
     so.rc_drop_table.errcheck = int_errcheck
-
-    so.rc_create_index.argtypes = [client, table, index_type, unique,
-                                   range_queryable, POINTER(index_id)]
-    so.rc_create_index.restype  = err
-    so.rc_create_index.errcheck = int_errcheck
-
-    so.rc_drop_index.argtypes = [client, table, index_id]
-    so.rc_drop_index.restype  = err
-    so.rc_drop_index.errcheck = int_errcheck
-
-    so.rc_unique_lookup.argtypes = [client, table, index_id, index_key,
-                                    index_key_len, POINTER(oid_present),
-                                    POINTER(oid)]
-    so.rc_unique_lookup.restype  = err
-    so.rc_unique_lookup.errcheck = int_errcheck
-
-    so.rc_multi_lookup_args_new.argtypes = []
-    so.rc_multi_lookup_args_new.restype  = multi_lookup_args
-    so.rc_multi_lookup_args_new.errcheck = malloc_errcheck
-
-    so.rc_multi_lookup_args_free.argtypes = [multi_lookup_args]
-    so.rc_multi_lookup_args_free.restype  = None
-
-    so.rc_multi_lookup_set_index.argtypes = [multi_lookup_args, table, index_id]
-    so.rc_multi_lookup_set_index.restype = None
-
-    so.rc_multi_lookup_set_key.argtypes = [multi_lookup_args, index_key,
-                                           index_key_len]
-    so.rc_multi_lookup_set_key.restype = None
-
-    so.rc_multi_lookup_set_start_following_oid.argtypes = [multi_lookup_args,
-                                                           oid]
-    so.rc_multi_lookup_set_start_following_oid.restype = None
-
-    so.rc_multi_lookup_set_result_buf.argtypes = [multi_lookup_args,
-                                                  POINTER(count),
-                                                  oids_buf_p,
-                                                  POINTER(more)]
-    so.rc_multi_lookup_set_result_buf.restype = None
-
-    so.rc_multi_lookup.argtypes = [client, multi_lookup_args]
-    so.rc_multi_lookup.restype  = err
-    so.rc_multi_lookup.errcheck = int_errcheck
-
-    so.rc_range_query_args_new.argtypes = []
-    so.rc_range_query_args_new.restype  = range_query_args
-    so.rc_range_query_args_new.errcheck = malloc_errcheck
-
-    so.rc_range_query_args_free.argtypes = [range_query_args]
-    so.rc_range_query_args_free.restype  = None
-
-    so.rc_range_query_set_index.argtypes = [range_query_args, table, index_id]
-    so.rc_range_query_set_index.restype  = None
-
-    so.rc_range_query_set_key_start.argtypes = [range_query_args, index_key,
-                                                index_key_len, inclusive]
-    so.rc_range_query_set_key_start.restype  = None
-
-    so.rc_range_query_set_key_end.argtypes = [range_query_args, index_key,
-                                              index_key_len, inclusive]
-    so.rc_range_query_set_key_end.restype  = None
-
-    so.rc_range_query_set_start_following_oid.argtypes = [range_query_args, oid]
-    so.rc_range_query_set_start_following_oid.restype  = None
-
-    so.rc_range_query_set_result_bufs.argtypes = [range_query_args,
-                                                  POINTER(count),
-                                                  oids_buf_p,
-                                                  POINTER(oids_buf_len),
-                                                  keys_buf_p,
-                                                  POINTER(keys_buf_len),
-                                                  POINTER(more)]
-    so.rc_range_query_set_result_bufs.restype  = None
-
-    so.rc_range_query.argtypes = [client, range_query_args]
-    so.rc_range_query.restype  = err
-    so.rc_range_query.errcheck = int_errcheck
-
 
     so.rc_new.argtypes = []
     so.rc_new.restype  = client
@@ -233,48 +147,6 @@ def load_so():
 def _ctype_copy(addr, var, width):
     ctypes.memmove(addr, ctypes.addressof(var), width)
     return addr + width
-
-class _RCRPC_INDEX_TYPE(object):
-    class IndexType:
-        def __init__(self, type_id, width, ctype):
-            self.type_id = type_id
-            self.width = width
-            self.ctype = ctype
-            self.name = 'unknown'
-
-        def __repr__(self):
-            return 'RCRPC_INDEX_TYPE.%s' % self.name
-
-    def __init__(self):
-        id = itertools.count(0)
-        self._lookup = {}
-
-        # Keep this in sync with src/shared/rcrpc.h
-        self.SINT8   = self.IndexType(id.next(), 1,    ctypes.c_int8)
-        self.UINT8   = self.IndexType(id.next(), 1,    ctypes.c_uint8)
-        self.SINT16  = self.IndexType(id.next(), 2,    ctypes.c_int16)
-        self.UINT16  = self.IndexType(id.next(), 2,    ctypes.c_uint16)
-        self.SINT32  = self.IndexType(id.next(), 4,    ctypes.c_int32)
-        self.UINT32  = self.IndexType(id.next(), 4,    ctypes.c_uint32)
-        self.SINT64  = self.IndexType(id.next(), 8,    ctypes.c_int64)
-        self.UINT64  = self.IndexType(id.next(), 8,    ctypes.c_uint64)
-        self.FLOAT32 = self.IndexType(id.next(), 4,    ctypes.c_float)
-        self.FLOAT64 = self.IndexType(id.next(), 8,    ctypes.c_double)
-        self.BYTES8  = self.IndexType(id.next(), None, ctypes.c_char_p)
-        self.BYTES16 = self.IndexType(id.next(), None, ctypes.c_char_p)
-        self.BYTES32 = self.IndexType(id.next(), None, ctypes.c_char_p)
-        self.BYTES64 = self.IndexType(id.next(), None, ctypes.c_char_p)
-
-    def __getitem__(self, i):
-        return self._lookup[i]
-
-    def __setattr__(self, name, value):
-        object.__setattr__(self, name, value)
-        if isinstance(value, self.IndexType):
-            value.name = name
-            self._lookup[value.type_id] = value
-
-RCRPC_INDEX_TYPE = _RCRPC_INDEX_TYPE()
 
 class RCException(Exception):
     pass
@@ -303,66 +175,22 @@ class RAMCloud(object):
     def ping(self):
         so.rc_ping(self.client)
 
-    def _indexes_buf_len(self, indexes):
-        buf_len = 0
-        for index_id, (index_type, data) in indexes:
-            buf_len += 8 + 4 + 4 # len, index_id, index_type
-            if index_type.width: # data
-                buf_len += index_type.width
-            else: # string
-                buf_len += len(data)
-        return buf_len
-
-    def _indexes_fill(self, addr, indexes):
-        for index_id, (index_type, data) in indexes:
-
-            # len
-            if index_type.width:
-                addr = _ctype_copy(addr, ctypes.c_uint64(index_type.width), 8)
-            else: # string
-                addr = _ctype_copy(addr, ctypes.c_uint64(len(data)), 8)
-
-            # index_id
-            addr = _ctype_copy(addr, ctypes.c_uint32(index_id), 4)
-
-            # index_type
-            addr = _ctype_copy(addr, ctypes.c_uint32(index_type.type_id), 4)
-
-            # data
-            if index_type.width:
-                addr = _ctype_copy(addr, index_type.ctype(data), index_type.width)
-            else: # string
-                addr = _ctype_copy(addr, ctypes.create_string_buffer(data), len(data))
-
-    def _indexes_to_buf(self, indexes=None):
-        if indexes:
-            buf_len = self._indexes_buf_len(indexes)
-            idx_buf = ctypes.create_string_buffer(buf_len)
-            self._indexes_fill(ctypes.addressof(idx_buf), indexes)
-            return ctypes.byref(idx_buf), ctypes.c_uint64(buf_len)
-        else:
-            return ctypes.c_void_p(None), ctypes.c_uint64(0)
-
-    def write(self, table_id, key, data, want_version=None, indexes=None):
-        idx_bufp, idx_buf_len = self._indexes_to_buf(indexes)
+    def write(self, table_id, key, data, want_version=None):
         got_version = ctypes.c_uint64()
         if want_version != None:
             want_version = want_version
         else:
             want_version = so.RCRPC_VERSION_ANY
         r = so.rc_write(self.client, table_id, key, want_version,
-                        ctypes.byref(got_version), data, len(data), idx_bufp,
-                        idx_buf_len)
+                        ctypes.byref(got_version), data, len(data))
         assert r in range(2)
         if r == 1:
             raise VersionError(want_version, got_version.value)
         return got_version.value
 
-    def insert(self, table_id, data, indexes=None):
-        idx_bufp, idx_buf_len = self._indexes_to_buf(indexes)
+    def insert(self, table_id, data):
         key = ctypes.c_uint64()
-        so.rc_insert(self.client, table_id, data, len(data), ctypes.byref(key),
-                     idx_bufp, idx_buf_len)
+        so.rc_insert(self.client, table_id, data, len(data), ctypes.byref(key))
         return key.value
 
     def delete(self, table_id, key, want_version=None):
@@ -380,41 +208,6 @@ class RAMCloud(object):
             raise NoObjectError()
         return got_version.value
 
-    def _buf_to_indexes(self, addr, indexes_len):
-        if addr and indexes_len:
-            indexes = []
-            while indexes_len > 0:
-                # len
-                len = ctypes.c_uint64.from_address(addr).value
-                addr += 8
-
-                # index_id
-                index_id = ctypes.c_uint32.from_address(addr).value
-                addr += 4
-
-                # index_type
-                type_id = ctypes.c_uint32.from_address(addr).value
-                index_type = RCRPC_INDEX_TYPE[type_id]
-                addr += 4
-
-                # data
-                if index_type.width:
-                    data = index_type.ctype.from_address(addr).value
-                    assert len == index_type.width
-                else:
-                    data_buf = ctypes.create_string_buffer(len)
-                    ctypes.memmove(ctypes.addressof(data_buf), addr, len)
-                    data = data_buf.value
-                addr += len
-
-                indexes.append((index_id, (index_type, data)))
-                indexes_len -= 8 + 4 + 4 + len
-            assert indexes_len == 0
-
-            return indexes
-        else:
-            return []
-
     def read(self, table_id, key, want_version=None):
         buf = ctypes.create_string_buffer(10240)
         l = ctypes.c_uint64()
@@ -423,20 +216,15 @@ class RAMCloud(object):
             want_version = want_version
         else:
             want_version = so.RCRPC_VERSION_ANY
-        idx_buf = ctypes.create_string_buffer(10240)
-        idx_buf_len = ctypes.c_uint64(len(idx_buf))
         r = so.rc_read(self.client, table_id, key, want_version,
                        ctypes.byref(got_version), ctypes.byref(buf),
-                       ctypes.byref(l), ctypes.byref(idx_buf),
-                       ctypes.byref(idx_buf_len))
+                       ctypes.byref(l))
         assert r in range(3)
         if r == 1:
             raise VersionError(want_version, got_version.value)
         elif r == 2:
             raise NoObjectError()
-        #print repr(idx_buf.raw[:idx_buf_len.value])
-        indexes = self._buf_to_indexes(ctypes.addressof(idx_buf), idx_buf_len.value)
-        return (buf.raw[0:l.value], got_version.value, indexes)
+        return (buf.raw[0:l.value], got_version.value)
 
     def create_table(self, name):
         so.rc_create_table(self.client, name)
@@ -449,159 +237,6 @@ class RAMCloud(object):
     def drop_table(self, name):
         so.rc_drop_table(self.client, name)
 
-    def create_index(self, table_id, type, unique, range_queryable):
-        index_id = ctypes.c_uint16()
-        so.rc_create_index(self.client, table_id, type.type_id, unique,
-                           range_queryable, ctypes.byref(index_id))
-        return index_id.value
-
-    def drop_index(self, table_id, index_id):
-        so.rc_drop_index(self.client, table_id, index_id)
-
-    def unique_lookup(self, table_id, index_id, index_type, key):
-        if index_type.width:
-            width = index_type.width
-            key_buf = index_type.ctype(key)
-        else:
-            # variable-length key type (BYTES)
-            key_buf = ctypes.create_string_buffer(key)
-            width = len(key)
-        oid_present = ctypes.c_bool()
-        oid = ctypes.c_uint64()
-        so.rc_unique_lookup(self.client, table_id, index_id,
-                            ctypes.byref(key_buf), width,
-                            ctypes.byref(oid_present), ctypes.byref(oid))
-        if oid_present.value:
-            return oid.value
-        else:
-            raise KeyError()
-
-    def multi_lookup(self, table_id, index_id, index_type, limit, key,
-                     start_following_oid=None):
-        args = so.rc_multi_lookup_args_new()
-        so.rc_multi_lookup_set_index(args, table_id, index_id)
-        if index_type.width:
-            width = index_type.width
-            key_buf = index_type.ctype(key)
-        else:
-            # variable-length key type (BYTES)
-            key_buf = ctypes.create_string_buffer(key)
-            width = len(key)
-        so.rc_multi_lookup_set_key(args, ctypes.byref(key_buf), width)
-
-        if start_following_oid is not None:
-            so.rc_multi_lookup_set_start_following_oid(args,
-                                                       start_following_oid)
-
-        more = ctypes.c_bool()
-        count = ctypes.c_uint32(limit)
-        oids = (ctypes.c_uint64 * limit)()
-        so.rc_multi_lookup_set_result_buf(args, ctypes.byref(count),
-                                          oids, ctypes.byref(more))
-        try:
-            so.rc_multi_lookup(self.client, args)
-        finally:
-            so.rc_multi_lookup_args_free(args)
-        return (oids[:count.value], bool(more.value))
-
-    def range_query(self, table_id, index_id, index_type, limit,
-                    key_start=None, key_start_inclusive=True,
-                    key_end=None, key_end_inclusive=False,
-                    start_following_oid=None):
-        args = so.rc_range_query_args_new()
-        so.rc_range_query_set_index(args, table_id, index_id)
-
-        if key_start is not None:
-            if index_type.width:
-                width = index_type.width
-                key_start_buf = index_type.ctype(key_start)
-            else:
-                # variable-length key type (BYTES)
-                key_start_buf = ctypes.create_string_buffer(key_start)
-                width = len(key_start)
-            so.rc_range_query_set_key_start(args, ctypes.byref(key_start_buf),
-                                            width, key_start_inclusive)
-
-        if key_end is not None:
-            if index_type.width:
-                width = index_type.width
-                key_end_buf = index_type.ctype(key_end)
-            else:
-                # variable-length key type (BYTES)
-                key_end_buf = ctypes.create_string_buffer(key_end)
-                width = len(key_end)
-            so.rc_range_query_set_key_end(args, ctypes.byref(key_end_buf),
-                                          width, key_end_inclusive)
-        if start_following_oid is not None:
-            so.rc_range_query_set_start_following_oid(args,
-                                                      start_following_oid)
-
-        more = ctypes.c_bool()
-        count = ctypes.c_uint32(limit)
-        oids = (ctypes.c_uint64 * limit)()
-        oids_buf_len = ctypes.c_uint64(limit * 8)
-        if index_type.width:
-            keys = (index_type.ctype * limit)()
-            keys_addr = ctypes.addressof(keys)
-            keys_buf_len = ctypes.c_uint64(index_type.width * limit)
-        else:
-            # variable-length key type (BYTES)
-            if index_type == RCRPC_INDEX_TYPE.BYTES8:
-                maxlen = (2**8 - 1) * limit
-            elif index_type == RCRPC_INDEX_TYPE.BYTES16:
-                maxlen = (2**16 - 1) * limit
-            elif index_type == RCRPC_INDEX_TYPE.BYTES32:
-                maxlen = (2**32 - 1) * limit
-            elif index_type == RCRPC_INDEX_TYPE.BYTES64:
-                maxlen = (2**64 - 1) * limit
-            else:
-                assert False, "unknown variable-length key type"
-            if maxlen > 1024 * 1024 * 10:
-                print "warning: possible result size too big..."
-                print "warning: using smaller buffer that may overflow"
-                maxlen = 1024 * 1024 * 10
-            keysb = ctypes.create_string_buffer(maxlen)
-            keys = ctypes.byref(keysb)
-            keys_addr = ctypes.addressof(keysb)
-            keys_buf_len = ctypes.c_uint64(len(keysb))
-        so.rc_range_query_set_result_bufs(args, ctypes.byref(count), oids,
-                                          ctypes.byref(oids_buf_len), keys,
-                                          ctypes.byref(keys_buf_len),
-                                          ctypes.byref(more))
-        try:
-            so.rc_range_query(self.client, args)
-        finally:
-            so.rc_range_query_args_free(args)
-
-        pairs = [] # (key, oid)
-        addr = keys_addr
-        for i in range(count.value):
-            if index_type.width:
-                key = keys[i]
-            else:
-                # variable-length key type (BYTES)
-                if index_type == RCRPC_INDEX_TYPE.BYTES8:
-                    l = ctypes.c_uint8.from_address(addr).value
-                    addr += 1
-                elif index_type == RCRPC_INDEX_TYPE.BYTES16:
-                    l = ctypes.c_uint16.from_address(addr).value
-                    addr += 2
-                elif index_type == RCRPC_INDEX_TYPE.BYTES32:
-                    l = ctypes.c_uint32.from_address(addr).value
-                    addr += 4
-                elif index_type == RCRPC_INDEX_TYPE.BYTES64:
-                    l = ctypes.c_uint64.from_address(addr).value
-                    addr += 8
-                else:
-                    assert False, "unknown variable-length key type"
-                buf = ctypes.create_string_buffer(l)
-                ctypes.memmove(ctypes.addressof(buf), addr, l)
-                addr += l
-                key = buf.value
-            oid = oids[i]
-            pairs.append((key, oid))
-        return (pairs, bool(more.value))
-
 def main():
     r = RAMCloud()
     print "Client: 0x%x" % r.client
@@ -613,61 +248,18 @@ def main():
     table = r.open_table("test")
     print "with id %s" % table
 
-    index_id = r.create_index(table, RCRPC_INDEX_TYPE.UINT64, True, True)
-    print "Created index id %d" % index_id
-    str_index_id = r.create_index(table, RCRPC_INDEX_TYPE.BYTES8, True, True)
-    print "Created index id %d" % str_index_id
-    multi_index_id = r.create_index(table, RCRPC_INDEX_TYPE.SINT32, False, True)
-    print "Created index id %d" % multi_index_id
-
-    r.write(table, 0, "Hello, World, from Python", None, [
-        (index_id, (RCRPC_INDEX_TYPE.UINT64, 4592)),
-        (str_index_id, (RCRPC_INDEX_TYPE.BYTES8, "write")),
-        (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
-    ])
+    r.write(table, 0, "Hello, World, from Python", None)
     print "Inserted to table"
-    value, got_version, indexes = r.read(table, 0)
+    value, got_version = r.read(table, 0)
     print value
-    print indexes
-    key = r.insert(table, "test", [
-        (index_id, (RCRPC_INDEX_TYPE.UINT64, 4723)),
-        (str_index_id, (RCRPC_INDEX_TYPE.BYTES8, "insert")),
-        (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
-    ])
+    key = r.insert(table, "test")
     print "Inserted value and got back key %d" % key
-    r.write(table, key, "test", None, [
-        (index_id, (RCRPC_INDEX_TYPE.UINT64, 4899)),
-        (str_index_id, (RCRPC_INDEX_TYPE.BYTES8, "rewrite")),
-        (multi_index_id, (RCRPC_INDEX_TYPE.SINT32, 2)),
-    ])
-
-    pairs, more = r.range_query(table_id=table, index_id=index_id,
-                                index_type=RCRPC_INDEX_TYPE.UINT64,
-                                limit=5,
-                                key_start=4000, key_start_inclusive=True,
-                                key_end=5000, key_end_inclusive=True,
-                                start_following_oid=None)
-    print pairs, more
-
-    pairs, more = r.range_query(table_id=table, index_id=str_index_id,
-                                index_type=RCRPC_INDEX_TYPE.BYTES8,
-                                limit=5, key_start="m")
-    print pairs, more
-
-    print r.unique_lookup(table_id=table, index_id=str_index_id,
-                          index_type=RCRPC_INDEX_TYPE.BYTES8, key="rewrite")
-
-    oids, more = r.multi_lookup(table_id=table, index_id=multi_index_id,
-                                index_type=RCRPC_INDEX_TYPE.SINT32,
-                                limit=10, key=2)
-    print oids, more
+    r.write(table, key, "test")
 
     bs = "binary\00safe?"
     oid = r.insert(table, bs)
     assert r.read(table, oid)[0] == bs
 
-    r.drop_index(table, str_index_id)
-    r.drop_index(table, index_id)
     r.drop_table("test")
 
 so = load_so()

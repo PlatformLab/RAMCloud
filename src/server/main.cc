@@ -18,6 +18,7 @@
 #include <server/server.h>
 #include <shared/net.h>
 
+#include <stdlib.h>
 #include <getopt.h>
 
 void usage(char *arg0) {

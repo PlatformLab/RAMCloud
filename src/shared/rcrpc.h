@@ -38,16 +38,6 @@
 #define RCRPC_OPEN_TABLE_RESPONSE_LEN           sizeof(struct rcrpc_open_table_response)
 #define RCRPC_DROP_TABLE_REQUEST_LEN            sizeof(struct rcrpc_drop_table_request)
 #define RCRPC_DROP_TABLE_RESPONSE_LEN           sizeof(struct rcrpc_drop_table_response)
-#define RCRPC_CREATE_INDEX_REQUEST_LEN          sizeof(struct rcrpc_create_index_request)
-#define RCRPC_CREATE_INDEX_RESPONSE_LEN         sizeof(struct rcrpc_create_index_response)
-#define RCRPC_DROP_INDEX_REQUEST_LEN            sizeof(struct rcrpc_drop_index_request)
-#define RCRPC_DROP_INDEX_RESPONSE_LEN           sizeof(struct rcrpc_drop_index_response)
-#define RCRPC_RANGE_QUERY_REQUEST_LEN_WODATA    sizeof(struct rcrpc_range_query_request)
-#define RCRPC_RANGE_QUERY_RESPONSE_LEN_WODATA   sizeof(struct rcrpc_range_query_response)
-#define RCRPC_UNIQUE_LOOKUP_REQUEST_LEN_WODATA  sizeof(struct rcrpc_unique_lookup_request)
-#define RCRPC_UNIQUE_LOOKUP_RESPONSE_LEN        sizeof(struct rcrpc_unique_lookup_response)
-#define RCRPC_MULTI_LOOKUP_REQUEST_LEN_WODATA   sizeof(struct rcrpc_multi_lookup_request)
-#define RCRPC_MULTI_LOOKUP_RESPONSE_LEN_WODATA  sizeof(struct rcrpc_multi_lookup_response)
 #define RCRPC_ERROR_RESPONSE_LEN_WODATA         sizeof(struct rcrpc_error_response)
 
 //namespace RAMCloud {
@@ -74,61 +64,8 @@ enum RCRPC_TYPE {
     RCRPC_OPEN_TABLE_RESPONSE,
     RCRPC_DROP_TABLE_REQUEST,
     RCRPC_DROP_TABLE_RESPONSE,
-    RCRPC_CREATE_INDEX_REQUEST,
-    RCRPC_CREATE_INDEX_RESPONSE,
-    RCRPC_DROP_INDEX_REQUEST,
-    RCRPC_DROP_INDEX_RESPONSE,
-    RCRPC_RANGE_QUERY_REQUEST,
-    RCRPC_RANGE_QUERY_RESPONSE,
-    RCRPC_UNIQUE_LOOKUP_REQUEST,
-    RCRPC_UNIQUE_LOOKUP_RESPONSE,
-    RCRPC_MULTI_LOOKUP_REQUEST,
-    RCRPC_MULTI_LOOKUP_RESPONSE,
     RCRPC_ERROR_RESPONSE,
 };
-
-/**
- * The type of an index entry.
- *
- * rc_index_entry.index_type should be set to one of these.
- *
- * \attention If you modify this, you should also update the equivalent in
- *      \c bindings/python/ramcloud.py .
- */
-enum RCRPC_INDEX_TYPE {
-    RCRPC_INDEX_TYPE_SINT8,
-    RCRPC_INDEX_TYPE_UINT8,
-    RCRPC_INDEX_TYPE_SINT16,
-    RCRPC_INDEX_TYPE_UINT16,
-    RCRPC_INDEX_TYPE_SINT32,
-    RCRPC_INDEX_TYPE_UINT32,
-    RCRPC_INDEX_TYPE_SINT64,
-    RCRPC_INDEX_TYPE_UINT64,
-    RCRPC_INDEX_TYPE_FLOAT32,
-    RCRPC_INDEX_TYPE_FLOAT64,
-    RCRPC_INDEX_TYPE_BYTES8,
-    RCRPC_INDEX_TYPE_BYTES16,
-    RCRPC_INDEX_TYPE_BYTES32,
-    RCRPC_INDEX_TYPE_BYTES64,
-};
-
-/**
- * Returns whether the provided index type is within the valid range.
- */
-static inline bool
-is_valid_index_type(enum RCRPC_INDEX_TYPE type) {
-    return type <= RCRPC_INDEX_TYPE_BYTES64;
-}
-
-/**
- * Returns whether the provided index type is of variable-length.
- *
- * \param [in] type a valid index type (see is_valid_index_type())
- */
-static inline bool
-is_varlen_index_type(enum RCRPC_INDEX_TYPE type) {
-    return type >= RCRPC_INDEX_TYPE_BYTES8;
-}
 
 struct rcrpc_header {
     uint32_t type;
@@ -180,14 +117,6 @@ struct rcrpc_ping_response {
 #define RCRPC_VERSION_ANY ((uint64_t)(-1ULL))
 #endif
 
-struct rc_index_entry {
-    // keep this identical to struct chunk_entry for now 
-    uint64_t len;
-    uint32_t index_id;
-    uint32_t index_type;
-    char data[0];                       // Variable length, but contiguous
-};
-
 /**
  * Read an object from a %RAMCloud.
  *
@@ -198,28 +127,22 @@ struct rc_index_entry {
  *      <li> If <tt>in.version == #RCRPC_VERSION_ANY || in.version == o's
  *      version</tt>:
  *          <ul>
- *          <li> \c out.index_entries of size in bytes \c out.index_entries_len
- *          is set to \c o's index entries. It is an array of rc_index_entry.
  *          <li> \c out.buf of size \c out.buf_len is set to \c o's opaque
  *          blob.
  *          </ul>
  *      <li> Else:
  *          <ul>
- *          <li> \c out.index_entries_len is \c 0 and \c out.index_entries is
- *          empty.
  *          <li> \c out.buf_len is \c 0 and \c out.buf is empty.
  *          </ul>
  *      </ul>
  * \li Else:
  *      <ul>
  *      <li> \c out.version is set to #RCRPC_VERSION_ANY
- *      <li> \c out.index_entries_len is \c 0 and \c out.index_entries is
- *      empty.
  *      <li> \c out.buf_len is \c 0 and \c out.buf is empty.
  *      </ul>
  *
- * \warning The caller can not distinguish the cases based on \c out.buf_len or
- * \c out.index_entries_len. Use \c in.version and \c out.version.
+ * \warning The caller can not distinguish the cases based on \c out.buf_len.
+ * Use \c in.version and \c out.version.
  *
  * \limit This function declaration is only a hook for documentation. The
  * function does not exist and should not be called.
@@ -236,13 +159,8 @@ struct rcrpc_read_request {
 struct rcrpc_read_response {
     struct rcrpc_header header;
     uint64_t version;
-    uint64_t index_entries_len;
     uint64_t buf_len;
-
-    // var[] is the concatenation of the following:
-    // char index_entries[index_entries_len]
-    // char buf[buf_len]
-    char var[0];                        /* Variable length */
+    char buf[0];                        /* Variable length (see buf_len) */
 };
 
 /**
@@ -255,9 +173,6 @@ struct rcrpc_read_response {
  *                  in.version == o's version</tt>:
  *          <ul>
  *          <li> \c o's opaque blob is set to \c in.buf of size \c in.buf_len.
- *          <li> \c o's index entries are set to \c in.index_entries of size
- *              \c in.index_entries_len in bytes. It is an array of
- *              rc_index_entry.
  *          <li> \c o's version is increased.
  *          <li> \c o is sent to the backups and their ack is received.
  *          <li> \c out.version is set to \c o's new version.
@@ -271,8 +186,6 @@ struct rcrpc_read_response {
  *      <ul>
  *      <li> \c o is created.
  *      <li> \c o's opaque blob is set to \c in.buf of size \c in.buf_len.
- *      <li> \c o's index entries are set to \c in.index_entries of size
- *          \c in.index_entries_len in bytes. It is an array of rc_index_entry.
  *      <li> \c o's version is set to a value guaranteed to be greater than
  *          that of any previous object that resided at \c in.table, \c in.key.
  *      <li> \c o is sent to the backups and their ack is received.
@@ -292,13 +205,8 @@ struct rcrpc_write_request {
     uint64_t table;
     uint64_t key;
     uint64_t version;
-    uint64_t index_entries_len;
     uint64_t buf_len;
-
-    // var[] is the concatenation of the following:
-    // char index_entries[index_entries_len]
-    // char buf[buf_len]
-    char var[0];                        /* Variable length */
+    char buf[0];                        /* Variable length (see buf_len) */
 };
 
 struct rcrpc_write_response {
@@ -314,8 +222,6 @@ struct rcrpc_write_response {
  * \li \c o's version is set to a value guaranteed to be greater than that of
  *      any previous object that resided at \c in.table with \c o's key.
  * \li \c o's opaque blob is set to \c in.buf of size \c in.buf_len.
- * \li \c o's index entries are set to \c in.index_entries of size
- *      \c in.index_entries_len in bytes. It is an array of rc_index_entry.
  * \li \c o is sent to the backups and their ack is received.
  * \li \c out.key is set to \c o's key.
  * \li \c out.version is set to \c o's version.
@@ -330,13 +236,8 @@ DOC_HOOK(insert);
 struct rcrpc_insert_request {
     struct rcrpc_header header;
     uint64_t table;
-    uint64_t index_entries_len;
     uint64_t buf_len;
-
-    // var[] is the concatenation of the following:
-    // char index_entries[index_entries_len]
-    // char buf[buf_len]
-    char var[0];                        /* Variable length */
+    char buf[0];                        /* Variable length (see buf_len) */
 };
 
 struct rcrpc_insert_response {
@@ -355,7 +256,7 @@ struct rcrpc_insert_response {
  *      <li> If <tt>in.version == #RCRPC_VERSION_ANY || in.version == o's
  *      version</tt>:
  *           <ul>
- *           <li> \c o, including its index entries, is removed from the table.
+ *           <li> \c o is removed from the table.
  *           <li> \c o's deletion is sent to the backups and their ack is
  *           received.
  *           </ul>
@@ -452,146 +353,6 @@ struct rcrpc_drop_table_request {
 
 struct rcrpc_drop_table_response {
     struct rcrpc_header header;
-};
-
-/**
- * Create an index.
- *
- * \TODO Missing documentation.
- *
- * \limit This function declaration is only a hook for documentation. The
- * function does not exist and should not be called.
- */
-DOC_HOOK(create_index);
-
-struct rcrpc_create_index_request {
-    struct rcrpc_header header;
-    uint64_t table;
-    uint8_t type; /* from RCRPC_INDEX_TYPE */
-    int unique:1;
-    int range_queryable:1;
-};
-
-struct rcrpc_create_index_response {
-    struct rcrpc_header header;
-    uint16_t id;
-};
-
-/**
- * Delete an index.
- *
- * \TODO Missing documentation.
- *
- * \limit This function declaration is only a hook for documentation. The
- * function does not exist and should not be called.
- */
-DOC_HOOK(drop_index);
-
-struct rcrpc_drop_index_request {
-    struct rcrpc_header header;
-    uint64_t table;
-    uint16_t id;
-};
-
-struct rcrpc_drop_index_response {
-    struct rcrpc_header header;
-};
-
-/**
- * Range query an index.
- *
- * \TODO Missing documentation.
- *
- * \limit This function declaration is only a hook for documentation. The
- * function does not exist and should not be called.
- */
-DOC_HOOK(range_query);
-
-struct rcrpc_range_query_request {
-    struct rcrpc_header header;
-    uint64_t table;
-    uint32_t limit;
-    uint16_t index_id;
-    int key_start_present:1;
-    int key_end_present:1;
-    int start_following_oid_present:1;
-    int key_start_inclusive:1;
-    int key_end_inclusive:1;
-    int request_keys:1;
-
-    // var[] is the concatenation of the following:
-    // uint64_t start_following_oid if start_following_oid_present
-    // uint64_t key_start_len if key_start_present
-    // <index_type> key_start if key_start_present
-    // uint64_t key_end_len if key_end_present
-    // <index_type> key_end if key_end_present
-    char var[0];                        /* Variable length */
-};
-
-struct rcrpc_range_query_response {
-    struct rcrpc_header header;
-    uint32_t len;
-    int more:1;
-
-    // var is the concatenation of the following:
-    // uint64_t oids[len]
-    // <index_type> keys[len] if request_keys
-    char var[0];                        /* Variable length */
-};
-
-/**
- * Lookup a key in a unique index.
- *
- * \TODO Missing documentation.
- *
- * \limit This function declaration is only a hook for documentation. The
- * function does not exist and should not be called.
- */
-DOC_HOOK(unique_lookup);
-
-struct rcrpc_unique_lookup_request {
-    struct rcrpc_header header;
-    uint64_t table;
-    uint16_t index_id;
-    uint64_t key_len;
-    char key[0];                        /* Variable length */
-};
-
-struct rcrpc_unique_lookup_response {
-    struct rcrpc_header header;
-    int oid_present:1;
-    uint64_t oid;
-};
-
-/**
- * Lookup a key in a multi index.
- *
- * \TODO Missing documentation.
- *
- * \limit This function declaration is only a hook for documentation. The
- * function does not exist and should not be called.
- */
-DOC_HOOK(multi_lookup);
-
-struct rcrpc_multi_lookup_request {
-    struct rcrpc_header header;
-    uint64_t table;
-    uint32_t limit;
-    uint16_t index_id;
-    int start_following_oid_present:1;
-    uint64_t key_len;
-
-    // var[] is the concatenation of the following:
-    // uint64_t start_following_oid if start_following_oid_present
-    // <index_type> key
-    char var[0];                        /* Variable length */
-};
-
-struct rcrpc_multi_lookup_response {
-    struct rcrpc_header header;
-    uint32_t len; /* number of oids */
-    int more:1;
-    uint64_t oids[0];                        /* Variable length */
 };
 
 struct rcrpc_error_response {

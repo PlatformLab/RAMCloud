@@ -4,7 +4,6 @@ TESTS_SRCFILES := \
 		src/tests/server.cc \
 		src/tests/backup.cc \
 		src/tests/hashtable.cc \
-		src/tests/index.cc \
 		src/tests/checksum.cc \
 		src/tests/tests.cc
 
@@ -22,9 +21,6 @@ $(OBJDIR)/tests/tests: $(TESTS_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 
-$(TOP)/src/tests/index.cc: $(TOP)/src/tests/index_range.py $(TOP)/src/tests/index.in.cc
-	$(TOP)/src/tests/index_range.py $@ < $(TOP)/src/tests/index.in.cc
-
 $(OBJDIR)/tests/%.o: $(TOP)/src/tests/%.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -37,4 +33,3 @@ test: $(OBJDIR)/tests/tests
 	$(OBJDIR)/tests/tests
 
 tests-clean:
-	rm -f $(TOP)/src/tests/index.cc
