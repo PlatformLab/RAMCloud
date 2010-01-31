@@ -1,5 +1,5 @@
 #!/bin/bash
-ERRORS=$( make --silent docs 2>&1 | grep Warning | wc -l )
+ERRORS=$( make --silent docs 2>&1 | egrep \(Warning\|Error\) | wc -l )
 if [ $ERRORS -gt 0 ]; then
     echo "Fix your documentation warnings first!"
 fi

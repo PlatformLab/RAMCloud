@@ -1,0 +1,16 @@
+python-docs:
+	epydoc --html -n RAMCloud -o docs/epydoc/ --simple-term -v bindings/python/*.py
+
+python-docs-clean:
+	rm -rf docs/epydoc/
+
+python-test:
+	@ failed=0; \
+	for test in bindings/python/test*.py; do \
+		if [ -x $$test ]; then \
+			echo "Running $$test:"; \
+			python $$test -q || failed=1; \
+			echo; \
+		fi \
+	done; \
+	exit $$failed

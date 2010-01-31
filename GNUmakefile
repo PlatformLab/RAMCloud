@@ -41,7 +41,7 @@ LINT := python cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-
 all:
 
 tests: test
-test:
+test: python-test
 
 .SUFFIXES:
 
@@ -51,6 +51,7 @@ include src/server/Makefrag
 include src/backup/Makefrag
 include src/client/Makefrag
 include src/tests/Makefrag
+include bindings/python/Makefrag
 
 clean: tests-clean docs-clean
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
@@ -76,10 +77,10 @@ always:
 	@:
 
 doc: docs
-docs:
+docs: python-docs
 	doxygen Doxyfile
 
-docs-clean:
+docs-clean: python-docs-clean
 	rm -rf docs/doxygen/
 
 .PHONY: all always clean check doc docs docs-clean test tests install
