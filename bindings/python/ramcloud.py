@@ -80,26 +80,13 @@ def load_so():
     # alphabetical order
     buf                 = ctypes.c_void_p
     client              = ctypes.c_void_p
-    count               = ctypes.c_uint32
     err                 = ctypes.c_int
     error_msg           = ctypes.c_char_p
-    inclusive           = ctypes.c_bool
     key                 = ctypes.c_uint64
-    keys_buf_len        = ctypes.c_uint64
-    keys_buf_p          = ctypes.c_void_p
     len                 = ctypes.c_uint64
-    more                = ctypes.c_bool
-    multi_lookup_args   = ctypes.c_void_p
     name                = ctypes.c_char_p
-    oid                 = key
-    oid_present         = ctypes.c_bool
-    oids_buf_len        = ctypes.c_uint64
-    oids_buf_p          = POINTER(ctypes.c_uint64)
-    range_query_args    = ctypes.c_void_p
-    range_queryable     = ctypes.c_bool
     reject_rules        = POINTER(RejectRules)
     table               = ctypes.c_uint64
-    unique              = ctypes.c_bool
     version             = ctypes.c_uint64
 
     so.rc_connect.argtypes = [client]
