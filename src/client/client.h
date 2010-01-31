@@ -27,21 +27,21 @@ struct rc_client {
 #ifdef __cplusplus
 extern "C" {
 #endif
-const uint64_t rcrpc_version_any;
 
 int rc_connect(struct rc_client *client);
 void rc_disconnect(struct rc_client *client);
 int rc_ping(struct rc_client *client);
 int rc_write(struct rc_client *client, uint64_t table, uint64_t key,
-             uint64_t want_version, uint64_t *got_version,
-             const char *buf, uint64_t len);
+             const struct rcrpc_reject_rules *reject_rules,
+             uint64_t *got_version, const char *buf, uint64_t len);
 int rc_insert(struct rc_client *client, uint64_t table, const char *buf,
               uint64_t len, uint64_t *key);
 int rc_delete(struct rc_client *client, uint64_t table, uint64_t key,
-              uint64_t want_version, uint64_t *got_version);
+             const struct rcrpc_reject_rules *reject_rules,
+             uint64_t *got_version);
 int rc_read(struct rc_client *client, uint64_t table, uint64_t key,
-            uint64_t want_version, uint64_t *got_version,
-            char *buf, uint64_t *len);
+            const struct rcrpc_reject_rules *reject_rules,
+            uint64_t *got_version, char *buf, uint64_t *len);
 int rc_create_table(struct rc_client *client, const char *name);
 int rc_open_table(struct rc_client *client, const char *name,
                   uint64_t *table_id);

@@ -20,6 +20,18 @@ import ctypes
 from ctypes.util import find_library
 import itertools
 
+class RejectRules(ctypes.Structure):
+    _fields_ = [("object_doesnt_exist", ctypes.c_uint8, 1),
+                ("object_exists", ctypes.c_uint8, 1),
+                ("version_eq_given", ctypes.c_uint8, 1),
+                ("version_gt_given", ctypes.c_uint8, 1),
+                ("given_version", ctypes.c_uint64)]
+
+    @staticmethod
+    def exactly(want_version):
+        return RejectRules(object_doesnt_exist=True, version_gt_given=True,
+                           given_version=want_version)
+
 def load_so():
     not_found = ImportError("Couldn't find libramcloud.so, ensure it is " +
                             "installed and that you have registered it with " +
@@ -85,6 +97,7 @@ def load_so():
     oids_buf_p          = POINTER(ctypes.c_uint64)
     range_query_args    = ctypes.c_void_p
     range_queryable     = ctypes.c_bool
+    reject_rules        = POINTER(RejectRules)
     table               = ctypes.c_uint64
     unique              = ctypes.c_bool
     version             = ctypes.c_uint64
@@ -100,8 +113,8 @@ def load_so():
     so.rc_ping.restype  = err
     so.rc_ping.errcheck = int_errcheck
 
-    so.rc_write.argtypes = [client, table, key, version, POINTER(version), buf,
-                            len]
+    so.rc_write.argtypes = [client, table, key, reject_rules, POINTER(version),
+                            buf, len]
     so.rc_write.restype  = err
     so.rc_write.errcheck = int_errcheck
 
@@ -109,12 +122,13 @@ def load_so():
     so.rc_insert.restype  = err
     so.rc_insert.errcheck = int_errcheck
 
-    so.rc_delete.argtypes = [client, table, key, version, POINTER(version)]
+    so.rc_delete.argtypes = [client, table, key, reject_rules,
+                             POINTER(version)]
     so.rc_delete.restype  = err
     so.rc_delete.errcheck = int_errcheck
 
-    so.rc_read.argtypes = [client, table, key, version, POINTER(version), buf,
-                           POINTER(len)]
+    so.rc_read.argtypes = [client, table, key, reject_rules, POINTER(version),
+                           buf, POINTER(len)]
     so.rc_read.restype  = err
     so.rc_read.errcheck = int_errcheck
 
@@ -140,8 +154,6 @@ def load_so():
     so.rc_last_error.argtypes = []
     so.rc_last_error.restype  = error_msg
 
-    so.RCRPC_VERSION_ANY = ctypes.c_uint64.in_dll(so, "rcrpc_version_any")
-
     return so
 
 def _ctype_copy(addr, var, width):
@@ -154,9 +166,19 @@ class RCException(Exception):
 class NoObjectError(Exception):
     pass
 
+class ObjectExistsError(Exception):
+    pass
+
 class VersionError(Exception):
     def __init__(self, want_version, got_version):
-        Exception.__init__(self, "Mismatched version: expected %d but got %d" %
+        Exception.__init__(self, "Bad version: want %d but got %d" %
+                (want_version, got_version))
+        self.want_version = want_version
+        self.got_version = got_version
+
+class FabricatedVersionError(Exception):
+    def __init__(self, want_version, got_version):
+        Exception.__init__(self, "Fabricated version: requested %d but at %d" %
                 (want_version, got_version))
         self.want_version = want_version
         self.got_version = got_version
@@ -175,56 +197,80 @@ class RAMCloud(object):
     def ping(self):
         so.rc_ping(self.client)
 
-    def write(self, table_id, key, data, want_version=None):
+    def write_rr(self, table_id, key, data, reject_rules):
         got_version = ctypes.c_uint64()
-        if want_version != None:
-            want_version = want_version
-        else:
-            want_version = so.RCRPC_VERSION_ANY
-        r = so.rc_write(self.client, table_id, key, want_version,
+        r = so.rc_write(self.client, table_id, key, ctypes.byref(reject_rules),
                         ctypes.byref(got_version), data, len(data))
-        assert r in range(2)
-        if r == 1:
-            raise VersionError(want_version, got_version.value)
+        assert r in range(6)
+        if r == 1: raise NoObjectError()
+        if r == 2: raise ObjectExistsError()
+        if r == 3 or r == 4: raise VersionError(want_version, got_version.value)
+        if r == 5: raise FabricatedVersionError(want_version, got_version.value)
         return got_version.value
+
+    def write(self, table_id, key, data, want_version=None):
+        if want_version:
+            reject_rules = RejectRules(version_gt_given=True,
+                                       given_version=want_version)
+        else:
+            reject_rules = RejectRules()
+        return self.write_rr(table_id, key, data, reject_rules)
+
+    def create(self, table_id, key, data):
+        reject_rules = RejectRules(object_exists=True)
+        return self.write_rr(table_id, key, data, reject_rules)
+
+    def update(self, table_id, key, data, want_version=None):
+        if want_version:
+            reject_rules = RejectRules.exactly(want_version)
+        else:
+            reject_rules = RejectRules(object_doesnt_exist=True)
+        return self.write_rr(table_id, key, data, reject_rules)
 
     def insert(self, table_id, data):
         key = ctypes.c_uint64()
         so.rc_insert(self.client, table_id, data, len(data), ctypes.byref(key))
         return key.value
 
-    def delete(self, table_id, key, want_version=None):
+    def delete_rr(self, table_id, key, reject_rules):
         got_version = ctypes.c_uint64()
-        if want_version != None:
-            want_version = want_version
-        else:
-            want_version = so.RCRPC_VERSION_ANY
-        r = so.rc_delete(self.client, table_id, key, want_version,
-                         ctypes.byref(got_version))
-        assert r in range(3)
-        if r == 1:
-            raise VersionError(want_version, got_version.value)
-        elif r == 2:
-            raise NoObjectError()
+        r = so.rc_delete(self.client, table_id, key,
+                         ctypes.byref(reject_rules), ctypes.byref(got_version))
+        assert r in range(6)
+        if r == 1: raise NoObjectError()
+        if r == 2: raise ObjectExistsError()
+        if r == 3 or r == 4: raise VersionError(want_version, got_version.value)
+        if r == 5: raise FabricatedVersionError(want_version, got_version.value)
         return got_version.value
 
-    def read(self, table_id, key, want_version=None):
+    def delete(self, table_id, key, want_version=None):
+        if want_version:
+            reject_rules = RejectRules.exactly(want_version)
+        else:
+            reject_rules = RejectRules(object_doesnt_exist=True)
+        return self.delete_rr(table_id, key, reject_rules)
+
+    def read_rr(self, table_id, key, reject_rules):
         buf = ctypes.create_string_buffer(10240)
         l = ctypes.c_uint64()
         got_version = ctypes.c_uint64()
-        if want_version != None:
-            want_version = want_version
-        else:
-            want_version = so.RCRPC_VERSION_ANY
-        r = so.rc_read(self.client, table_id, key, want_version,
+        reject_rules.object_doesnt_exist = True
+        r = so.rc_read(self.client, table_id, key, ctypes.byref(reject_rules),
                        ctypes.byref(got_version), ctypes.byref(buf),
                        ctypes.byref(l))
-        assert r in range(3)
-        if r == 1:
-            raise VersionError(want_version, got_version.value)
-        elif r == 2:
-            raise NoObjectError()
+        assert r in range(6)
+        if r == 1: raise NoObjectError()
+        if r == 2: raise ObjectExistsError()
+        if r == 3 or r == 4: raise VersionError(want_version, got_version.value)
+        if r == 5: raise FabricatedVersionError(want_version, got_version.value)
         return (buf.raw[0:l.value], got_version.value)
+
+    def read(self, table_id, key, want_version=None):
+        if want_version:
+            reject_rules = RejectRules.exactly(want_version)
+        else:
+            reject_rules = RejectRules(object_doesnt_exist=True)
+        return self.read_rr(table_id, key, reject_rules)
 
     def create_table(self, name):
         so.rc_create_table(self.client, name)
@@ -248,13 +294,13 @@ def main():
     table = r.open_table("test")
     print "with id %s" % table
 
-    r.write(table, 0, "Hello, World, from Python", None)
+    r.create(table, 0, "Hello, World, from Python")
     print "Inserted to table"
     value, got_version = r.read(table, 0)
     print value
     key = r.insert(table, "test")
     print "Inserted value and got back key %d" % key
-    r.write(table, key, "test")
+    r.update(table, key, "test")
 
     bs = "binary\00safe?"
     oid = r.insert(table, bs)

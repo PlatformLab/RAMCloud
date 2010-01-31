@@ -68,6 +68,32 @@ Server::Ping(const rcrpc_ping_request *req, rcrpc_ping_response *resp)
     resp->header.len = (uint32_t) RCRPC_PING_RESPONSE_LEN;
 }
 
+bool
+Server::RejectOperation(const rcrpc_reject_rules *reject_rules,
+                        uint64_t version)
+{
+    if (version == RCRPC_VERSION_NONE) {
+        return reject_rules->object_doesnt_exist;
+    }
+
+    if (reject_rules->object_exists) {
+        return true;
+    }
+    if (reject_rules->version_eq_given &&
+        version == reject_rules->given_version) {
+        return true;
+    }
+    if (reject_rules->version_gt_given &&
+        version > reject_rules->given_version) {
+        return true;
+    }
+    if ((reject_rules->version_eq_given || reject_rules->version_gt_given) &&
+        version < reject_rules->given_version) {
+        return true;
+    }
+    return false;
+}
+
 void
 Server::Read(const rcrpc_read_request *req, rcrpc_read_response *resp)
 {
@@ -79,29 +105,26 @@ Server::Read(const rcrpc_read_request *req, rcrpc_read_response *resp)
     resp->header.len = static_cast<uint32_t>(RCRPC_READ_RESPONSE_LEN_WODATA);
     // (will be updated below with var-length data)
     resp->buf_len = 0;
-    resp->version = RCRPC_VERSION_ANY;
+    resp->version = RCRPC_VERSION_NONE;
 
     Table *t = &tables[req->table];
     const object *o = t->Get(req->key);
     if (!o || o->is_tombstone) {
         if (o && o->is_tombstone)
             assert(o->mut->refcnt > 0); 
-        /* leave RCRPC_VERSION_ANY in resp->version */
+        /* automatic reject: can't read a non-existent object */
+        /* leave RCRPC_VERSION_NONE in resp->version */
         return;
     }
 
     resp->version = o->version;
 
-    // if we request the wrong version, return the current version number, but
-    // no data (since we may not want to fetch a large object of unexpected version)
-    if (req->version != RCRPC_VERSION_ANY && req->version != o->version) {
-        return;
+    if (!RejectOperation(&req->reject_rules, o->version)) {
+        memcpy(resp->buf, o->data, o->data_len);
+        resp->buf_len = o->data_len;
+
+        resp->header.len += static_cast<uint32_t>(resp->buf_len);
     }
-
-    memcpy(resp->buf, o->data, o->data_len);
-    resp->buf_len = o->data_len;
-
-    resp->header.len += static_cast<uint32_t>(resp->buf_len);
 }
 
 // The log code is cleaning a segment and telling us that this object is
@@ -194,27 +217,33 @@ LogEvictionCallback(log_entry_type_t type,
     }
 }
 
-uint64_t
+bool
 Server::StoreData(uint64_t table,
                   uint64_t key,
-                  uint64_t version,       // vers of replacee or RCRPC_VERSION_ANY
+                  const rcrpc_reject_rules *reject_rules,
                   const char *buf,
-                  uint64_t buf_len)
+                  uint64_t buf_len,
+                  uint64_t *new_version)
 {
     Table *t = &tables[table];
     const object *o = t->Get(key);
     object_mutable *om = NULL;
 
     if (o != NULL) {
-        if (version != RCRPC_VERSION_ANY && o->version != version)
-            return o->version;
-
+        if (RejectOperation(reject_rules, o->version)) {
+            *new_version = o->version;
+            return false;
+        }
         // steal the extant guy's mutable space. this will contain the proper
         // reference count.
         om = o->mut;
         assert(om != NULL);
         assert(om->refcnt > 0 || o->is_tombstone);
     } else {
+        if (RejectOperation(reject_rules, RCRPC_VERSION_NONE)) {
+            *new_version = RCRPC_VERSION_NONE;
+            return false;
+        }
         om = new object_mutable;
         assert(om);
         om->refcnt = 0;
@@ -246,7 +275,8 @@ Server::StoreData(uint64_t table,
     assert(objp != NULL);
     t->Put(key, objp);
 
-    return (objp->version);
+    *new_version = objp->version;
+    return true;
 }
 
 void
@@ -257,8 +287,8 @@ Server::Write(const rcrpc_write_request *req, rcrpc_write_response *resp)
                req->buf_len, req->key);
     }
 
-    resp->version = StoreData(req->table, req->key, req->version, req->buf,
-                              req->buf_len);
+    resp->written = StoreData(req->table, req->key, &req->reject_rules,
+                              req->buf, req->buf_len, &resp->version);
 
     resp->header.type = RCRPC_WRITE_RESPONSE;
     resp->header.len = static_cast<uint32_t>(RCRPC_WRITE_RESPONSE_LEN);
@@ -269,10 +299,13 @@ Server::InsertKey(const rcrpc_insert_request *req, rcrpc_insert_response *resp)
 {
     Table *t = &tables[req->table];
     uint64_t key = t->AllocateKey();
-    const object *o = t->Get(key);
-    assert(o == NULL);
 
-    resp->version = StoreData(req->table, key, 0, req->buf, req->buf_len);
+    rcrpc_reject_rules reject_rules;
+    memset(&reject_rules, 0, sizeof(reject_rules));
+    reject_rules.object_exists = true;
+
+    assert(StoreData(req->table, key, &reject_rules, req->buf, req->buf_len,
+                     &resp->version));
 
     resp->header.type = RCRPC_INSERT_RESPONSE;
     resp->header.len = (uint32_t) RCRPC_INSERT_RESPONSE_LEN;
@@ -284,14 +317,17 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
 {
     resp->header.type = RCRPC_DELETE_RESPONSE;
     resp->header.len  = (uint32_t) RCRPC_DELETE_RESPONSE_LEN;
-    resp->version = RCRPC_VERSION_ANY;
+    resp->version = RCRPC_VERSION_NONE;
+    resp->deleted = false;
 
     Table *t = &tables[req->table];
     const object *o = t->Get(req->key);
     if (!o || o->is_tombstone) {
         if (o && o->is_tombstone)
-            assert(o->mut->refcnt > 0); 
-        /* leave RCRPC_VERSION_ANY in resp->version */
+            assert(o->mut->refcnt > 0);
+        /* leave RCRPC_VERSION_NONE in resp->version */
+        if (!RejectOperation(&req->reject_rules, RCRPC_VERSION_NONE))
+            resp->deleted = true;
         return;
     }
 
@@ -302,8 +338,9 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
 
     // abort if we're trying to delete the wrong version
     // the client will note the discrepancy and figure it out
-    if (req->version != RCRPC_VERSION_ANY && req->version != o->version)
+    if (RejectOperation(&req->reject_rules, o->version))
         return;
+    resp->deleted = true;
 
     DECLARE_OBJECT(tomb_o, 0);
     tomb_o->key = o->key;

@@ -76,7 +76,7 @@ struct object {
 class Table {
   public:
     static const int TABLE_NAME_MAX_LEN = 64;
-    explicit Table() : next_key(0), next_version(0), object_map(HASH_NLINES) {
+    explicit Table() : next_key(0), next_version(1), object_map(HASH_NLINES) {
     }
     const char *GetName() { return &name[0]; }
     void SetName(const char *new_name) {
@@ -144,13 +144,16 @@ class Server {
     void Run();
 
   private:
+    static bool RejectOperation(const rcrpc_reject_rules *reject_rules,
+                                uint64_t version);
     void Restore();
     void HandleRPC();
-    uint64_t StoreData(uint64_t table,
-                       uint64_t key,
-                       uint64_t prior_version,
-                       const char *buf,
-                       uint64_t buf_len);
+    bool StoreData(uint64_t table,
+                   uint64_t key,
+                   const rcrpc_reject_rules *reject_rules,
+                   const char *buf,
+                   uint64_t buf_len,
+                   uint64_t *new_version);
     explicit Server();
 
     const ServerConfig *config;

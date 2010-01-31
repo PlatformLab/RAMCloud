@@ -40,6 +40,14 @@ int
 main()
 {
     struct rc_client client;
+    struct rcrpc_reject_rules read_any;
+    struct rcrpc_reject_rules write_any;
+
+    memset(&read_any, 0, sizeof(read_any));
+    read_any.object_doesnt_exist = true;
+
+    memset(&write_any, 0, sizeof(write_any));
+
     rc_connect(&client);
 
     uint64_t b;
@@ -55,23 +63,23 @@ main()
     printf("ping took %lu ticks\n", rdtsc() - b);
 
     b = rdtsc();
-    assert(!rc_write(&client, table, 42, RCRPC_VERSION_ANY, NULL, "Hello, World!", 14));
+    assert(!rc_write(&client, table, 42, &write_any, NULL, "Hello, World!", 14));
     printf("write took %lu ticks\n", rdtsc() - b);
 
     b = rdtsc();
     const char *value = "0123456789001234567890012345678901234567890123456789012345678901234567890";
-    assert(!rc_write(&client, table, 43, RCRPC_VERSION_ANY, NULL, value, strlen(value) + 1));
+    assert(!rc_write(&client, table, 43, &write_any, NULL, value, strlen(value) + 1));
     printf("write took %lu ticks\n", rdtsc() - b);
 
     char buf[2048];
     b = rdtsc();
     uint64_t buf_len;
 
-    assert(!rc_read(&client, table, 43, RCRPC_VERSION_ANY, NULL, &buf[0], &buf_len));
+    assert(!rc_read(&client, table, 43, &read_any, NULL, &buf[0], &buf_len));
     printf("read took %lu ticks\n", rdtsc() - b);
     printf("Got back [%s] len %lu\n", buf, buf_len);
 
-    assert(!rc_read(&client, table, 42, RCRPC_VERSION_ANY, NULL, &buf[0], &buf_len));
+    assert(!rc_read(&client, table, 42, &read_any, NULL, &buf[0], &buf_len));
     printf("read took %lu ticks\n", rdtsc() - b);
     printf("Got back [%s] len %lu\n", buf, buf_len);
 
@@ -82,7 +90,7 @@ main()
     printf("Got back [%lu] key\n", key);
 
     b = rdtsc();
-    assert(!rc_read(&client, table, key, RCRPC_VERSION_ANY, NULL, buf, &buf_len));
+    assert(!rc_read(&client, table, key, &read_any, NULL, buf, &buf_len));
     printf("read took %lu ticks\n", rdtsc() - b);
     printf("Got back [%s] len %lu\n", buf, buf_len);
 

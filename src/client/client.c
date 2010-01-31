@@ -26,14 +26,6 @@
 #include <client/client.h>
 
 /**
- * A reserved version number representing no particular version.
- *
- * This constant is mostly a convenience for higher-level language bindings.
- * Others should use ::RCRPC_VERSION_ANY directly.
- */
-const uint64_t rcrpc_version_any = RCRPC_VERSION_ANY;
-
-/**
  * Connect to a %RAMCloud.
  *
  * The caller should later use rc_disconnect() to disconnect from the
@@ -206,6 +198,59 @@ sendrcv_rpc(struct rc_net *net,
     })
 
 /**
+ * Determine which reject rule caused an operation to fail.
+ *
+ * \see rcrpc_reject_rules
+ *
+ * \param[in] reject_rules   the reasons for the operation to abort
+ * \param[in] got_version    the version of the object, or #RCRPC_VERSION_NONE
+ *      if it does not exist
+ * \return error code as an \c int (see below)
+ * \retval 0 No reject rule was violated.
+ * \retval 1 The object doesn't exist and
+ *      rcrpc_reject_rules.object_doesnt_exist is set.
+ * \retval 2 The object exists and rcrpc_reject_rules.object_exists is set.
+ * \retval 3 The object exists, rcrpc_reject_rules.version_eq_given is set,
+ *      and \a got_version is equal to rcrpc_reject_rules.given_version.
+ * \retval 4 The object exists, rcrpc_reject_rules.version_gt_given is set,
+ *      and \a got_version is greater than rcrpc_reject_rules.given_version.
+ * \retval 5 The object exists, rcrpc_reject_rules.version_eq_given or
+ *      rcrpc_reject_rules.version_gt_given is set, and \a got_version is less
+ *      than rcrpc_reject_rules.given_version. This should be considered a
+ *      critical application consistency error since applications should never
+ *      fabricate version numbers.
+ * \TODO Try to get rid of the magic values 1-5.
+ */
+static int
+reject_reason(const struct rcrpc_reject_rules *reject_rules,
+              uint64_t got_version)
+{
+    if (got_version == RCRPC_VERSION_NONE) {
+        if (reject_rules->object_doesnt_exist) {
+            return 1;
+        }
+    } else {
+        if (reject_rules->object_exists) {
+            return 2;
+        }
+        if (reject_rules->version_eq_given &&
+            got_version == reject_rules->given_version) {
+            return 3;
+        }
+        if (reject_rules->version_gt_given &&
+            got_version > reject_rules->given_version) {
+            return 4;
+        }
+        if ((reject_rules->version_eq_given ||
+             reject_rules->version_gt_given) &&
+            got_version < reject_rules->given_version) {
+            return 5;
+        }
+    }
+    return 0;
+}
+
+/**
  * Verify connectivity with a %RAMCloud.
  *
  * \param[in]  client   a connected client
@@ -248,30 +293,25 @@ rc_ping(struct rc_client *client)
  * \param[in]  client   a connected client
  * \param[in]  table    the table containing the object to be written
  * \param[in]  key      the object ID of the object to be written
- * \param[in]  want_version
- *      ::RCRPC_VERSION_ANY or the version of the object to be written
+ * \param[in]  reject_rules see reject_reason()
  * \param[out] got_version
  *      the version of the object after the write took effect \n
- *      If the write did not occur (it must have been an overwrite), this is
- *      set to the object's current version. \n
+ *      If the write did not occur, this is set to the object's current
+ *      version. \n
  *      If the caller is not interested, got_version may be \c NULL.
  * \param[in]  buf      the object's data
  * \param[in]  len      the size of the object's data in bytes
  * \return error code (see values below)
  * \retval  0 on success
  * \retval -1 on %RAMCloud error (see rc_last_error())
- * \retval  1 if requested version was specified in \a want_version and the
- *      object exists but this is not the object's current version
- * \retval other reserved for future use
- * \warning Watch out for the bad semantics of \a got_version when the object
- *      does not exist.
+ * \retval  positive on reject by \a reject_rules, see reject_reason()
  * \see #write_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
 rc_write(struct rc_client *client,
          uint64_t table,
          uint64_t key,
-         uint64_t want_version,
+         const struct rcrpc_reject_rules *reject_rules,
          uint64_t *got_version,
          const char *buf,
          uint64_t len)
@@ -286,17 +326,23 @@ rc_write(struct rc_client *client,
     query->header.len  = (uint32_t) RCRPC_WRITE_REQUEST_LEN_WODATA + len;
     query->table = table;
     query->key = key;
-    query->version = want_version;
+    memcpy(&query->reject_rules, reject_rules, sizeof(*reject_rules));
     query->buf_len = len;
     memcpy(query->buf, buf, len);
 
     int r = SENDRCV_RPC(WRITE, write, query, &resp);
+    if (r) {
+        return r;
+    }
 
     if (got_version != NULL)
         *got_version = resp->version;
 
-    if (want_version != RCRPC_VERSION_ANY && want_version != resp->version)
-        return 1;
+    if (!resp->written) {
+        r = reject_reason(reject_rules, resp->version);
+        assert(r > 0);
+        return r;
+    }
 
     return r;
 }
@@ -359,8 +405,7 @@ rc_insert(struct rc_client *client,
  * \param[in]  client   a connected client
  * \param[in]  table    the table containing the object to be deleted
  * \param[in]  key      the object ID of the object to be deleted
- * \param[in]  want_version
- *      ::RCRPC_VERSION_ANY or the version of the object to be deleted
+ * \param[in]  reject_rules see reject_reason()
  * \param[out] got_version
  *      the version of the object before the delete took effect \n
  *      If the delete did not occur, this is set to the object's current
@@ -369,17 +414,14 @@ rc_insert(struct rc_client *client,
  * \return error code (see values below)
  * \retval  0 on success
  * \retval -1 on %RAMCloud error (see rc_last_error())
- * \retval  1 if requested version was specified in \a want_version and not the
- *      object's current version
- * \retval  2 if the object does not exist
- * \retval other reserved for future use
+ * \retval  positive on reject by \a reject_rules, see reject_reason()
  * \see #delete_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
 rc_delete(struct rc_client *client,
           uint64_t table,
           uint64_t key,
-          uint64_t want_version,
+          const struct rcrpc_reject_rules *reject_rules,
           uint64_t *got_version)
 {
     struct rcrpc_delete_request query;
@@ -389,7 +431,7 @@ rc_delete(struct rc_client *client,
     query.header.len  = (uint32_t) RCRPC_DELETE_REQUEST_LEN;
     query.table = table;
     query.key = key;
-    query.version = want_version;
+    memcpy(&query.reject_rules, reject_rules, sizeof(*reject_rules));
 
     int r = SENDRCV_RPC(DELETE, delete, &query, &resp);
     if (r) {
@@ -399,11 +441,11 @@ rc_delete(struct rc_client *client,
     if (got_version != NULL)
         *got_version = resp->version;
 
-    if (resp->version == RCRPC_VERSION_ANY)
-        return 2;
-
-    if (want_version != RCRPC_VERSION_ANY && resp->version != want_version)
-        return 1;
+    if (!resp->deleted) {
+        r = reject_reason(reject_rules, resp->version);
+        assert(r > 0);
+        return r;
+    }
 
     return 0;
 }
@@ -414,8 +456,8 @@ rc_delete(struct rc_client *client,
  * \param[in]  client   a connected client
  * \param[in]  table    the table containing the object to be read
  * \param[in]  key      the object ID of the object to be read
- * \param[in]  want_version
- *      ::RCRPC_VERSION_ANY or the version of the object to be read
+ * \param[in]  reject_rules see reject_reason() \n
+ *      rcrpc_reject_rules.object_doesnt_exist must be set.
  * \param[out] got_version
  *      the current version of the object \n
  *      If the caller is not interested, \a got_version may be \c NULL. \n
@@ -425,17 +467,14 @@ rc_delete(struct rc_client *client,
  * \return error code (see values below)
  * \retval  0 on success
  * \retval -1 on %RAMCloud error (see rc_last_error())
- * \retval  1 if requested version was specified in \a want_version and not the
- *      object's current version
- * \retval  2 if the object does not exist
- * \retval other reserved for future use
+ * \retval  positive on reject by \a reject_rules, see reject_reason()
  * \see #read_RPC_doc_hook(), the underlying RPC which this wraps
  */
 int
 rc_read(struct rc_client *client,
         uint64_t table,
         uint64_t key,
-        uint64_t want_version,
+        const struct rcrpc_reject_rules *reject_rules,
         uint64_t *got_version,
         char *buf,
         uint64_t *len)
@@ -447,7 +486,9 @@ rc_read(struct rc_client *client,
     query.header.len  = (uint32_t) RCRPC_READ_REQUEST_LEN;
     query.table = table;
     query.key = key;
-    query.version = want_version;
+    memcpy(&query.reject_rules, reject_rules, sizeof(*reject_rules));
+    query.reject_rules.object_doesnt_exist = true;
+
     int r = SENDRCV_RPC(READ, read, &query, &resp);
     if (r)
         return r;
@@ -458,13 +499,7 @@ rc_read(struct rc_client *client,
     *len = resp->buf_len;
     memcpy(buf, resp->buf, *len);
 
-    if (resp->version == RCRPC_VERSION_ANY)
-        return 2;
-
-    if (want_version != RCRPC_VERSION_ANY && resp->version != want_version)
-        return 1;
-
-    return 0;
+    return reject_reason(&query.reject_rules, resp->version);
 }
 
 /**

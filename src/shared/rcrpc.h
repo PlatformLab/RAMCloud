@@ -110,39 +110,57 @@ struct rcrpc_ping_response {
 
 #ifdef __cplusplus
 /**
- * A reserved version number representing no particular version.
+ * A reserved version number meaning the object does not exist.
  */
-#define RCRPC_VERSION_ANY (static_cast<uint64_t>(-1))
+#define RCRPC_VERSION_NONE (static_cast<uint64_t>(0))
 #else
-#define RCRPC_VERSION_ANY ((uint64_t)(-1ULL))
+#define RCRPC_VERSION_NONE ((uint64_t)(0ULL))
 #endif
+
+/**
+ * Rules by which a read, write, or delete operation will be rejected.
+ *
+ * Used by read_RPC_doc_hook(), write_RPC_doc_hook(), delete_RPC_doc_hook().
+ *
+ * The operations will be rejected under \b any of the following conditions:
+ * \li The object doesn't exist and #object_doesnt_exist is set.
+ * \li The object exists and #object_exists is set.
+ * \li The object exists, #version_eq_given is set, and the object's version is
+ *      equal to #given_version.
+ * \li The object exists, #version_gt_given is set, and the object's version is
+ *      greater than #given_version.
+ * \li The object exists, #version_eq_given or #version_gt_given is set, and
+ *      the object's version is less than #given_version. This should be considered
+ *      a critical application consistency error since applications should
+ *      never fabricate version numbers.
+ */
+struct rcrpc_reject_rules {
+    uint8_t object_doesnt_exist:1;
+    uint8_t object_exists:1;
+    uint8_t version_eq_given:1;
+    uint8_t version_gt_given:1;
+    uint64_t given_version;
+};
 
 /**
  * Read an object from a %RAMCloud.
  *
  * \li Let \c o be the object identified by \c in.table, \c in.key.
- * \li If \c o exists:
+ * \li \c in.reject_rules must have rcrpc_reject_rules.object_doesnt_exist set
+ *      (it is meaningless to read an object that does not exist).
+ * \li \c out.version is set to \c o's version, or #RCRPC_VERSION_NONE if \c o
+ *      does not exist.
+ * \li If the \c in.reject_rules reject the operation:
  *      <ul>
- *      <li> \c out.version is set to \c o's version.
- *      <li> If <tt>in.version == #RCRPC_VERSION_ANY || in.version == o's
- *      version</tt>:
- *          <ul>
- *          <li> \c out.buf of size \c out.buf_len is set to \c o's opaque
- *          blob.
- *          </ul>
- *      <li> Else:
- *          <ul>
- *          <li> \c out.buf_len is \c 0 and \c out.buf is empty.
- *          </ul>
+ *      <li> \c out.buf_len is \c 0 and \c out.buf is empty.
  *      </ul>
  * \li Else:
  *      <ul>
- *      <li> \c out.version is set to #RCRPC_VERSION_ANY
- *      <li> \c out.buf_len is \c 0 and \c out.buf is empty.
+ *      <li> \c out.buf of size \c out.buf_len is set to \c o's opaque blob.
  *      </ul>
  *
- * \warning The caller can not distinguish the cases based on \c out.buf_len.
- * Use \c in.version and \c out.version.
+ * \warning The caller can not distinguish the error cases based on \c out.buf_len.
+ * Use \c in.reject_rules and \c out.version.
  *
  * \limit This function declaration is only a hook for documentation. The
  * function does not exist and should not be called.
@@ -153,7 +171,7 @@ struct rcrpc_read_request {
     struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
-    uint64_t version;
+    struct rcrpc_reject_rules reject_rules;
 };
 
 struct rcrpc_read_response {
@@ -167,33 +185,29 @@ struct rcrpc_read_response {
  * Update or create an object at a given key.
  *
  * \li Let \c o be the object identified by \c in.table, \c in.key.
- * \li If \c o exists:
+ * \li If the \c in.reject_rules reject the operation:
  *      <ul>
- *      <li> If <tt>in.version == #RCRPC_VERSION_ANY ||
- *                  in.version == o's version</tt>:
- *          <ul>
- *          <li> \c o's opaque blob is set to \c in.buf of size \c in.buf_len.
- *          <li> \c o's version is increased.
- *          <li> \c o is sent to the backups and their ack is received.
- *          <li> \c out.version is set to \c o's new version.
- *          </ul>
- *      <li> Else:
- *          <ul>
- *          <li> \c out.version is set to \c o's existing version.
- *          </ul>
+ *      <li> \c out.written is cleared.
  *      </ul>
  * \li Else:
  *      <ul>
- *      <li> \c o is created.
+ *      <li> If \c o exists:
+ *          <ul>
+ *          <li> \c o's version is increased.
+ *          </ul>
+ *      <li> Else:
+ *          <ul>
+ *          <li> \c o is created.
+ *          <li> \c o's version is set to a value guaranteed to be greater than
+ *              that of any previous object that resided at \c in.table, \c
+ *              in.key.
+ *          </ul>
  *      <li> \c o's opaque blob is set to \c in.buf of size \c in.buf_len.
- *      <li> \c o's version is set to a value guaranteed to be greater than
- *          that of any previous object that resided at \c in.table, \c in.key.
  *      <li> \c o is sent to the backups and their ack is received.
- *      <li> \c out.version is set to \c o's new version.
+ *      <li> \c out.written is set.
  *      </ul>
- *
- * \TODO Should \c o be created if \c o did not exist and \c in.version is not
- *      #RCRPC_VERSION_ANY?
+ * \li \c out.version is set to \c o's (new) version, or #RCRPC_VERSION_NONE if
+ *      \c o does not exist.
  *
  * \limit This function declaration is only a hook for documentation. The
  * function does not exist and should not be called.
@@ -204,7 +218,7 @@ struct rcrpc_write_request {
     struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
-    uint64_t version;
+    struct rcrpc_reject_rules reject_rules;
     uint64_t buf_len;
     char buf[0];                        /* Variable length (see buf_len) */
 };
@@ -212,6 +226,7 @@ struct rcrpc_write_request {
 struct rcrpc_write_response {
     struct rcrpc_header header;
     uint64_t version;
+    uint8_t written:1;
 };
 
 /**
@@ -250,20 +265,22 @@ struct rcrpc_insert_response {
  * Delete an object.
  *
  * \li Let \c o be the object identified by \c in.table, \c in.key.
- * \li If \c o exists:
+ * \li \c out.version is set to \c o's existing version, or #RCRPC_VERSION_NONE
+ *      if \c o did not exist.
+ * \li out.deleted is set if the \c in.reject_rules do not reject the operation.
+ * \li If the \c in.reject_rules reject the operation:
  *      <ul>
- *      <li> \c out.version is set to \c o's existing version.
- *      <li> If <tt>in.version == #RCRPC_VERSION_ANY || in.version == o's
- *      version</tt>:
- *           <ul>
- *           <li> \c o is removed from the table.
- *           <li> \c o's deletion is sent to the backups and their ack is
- *           received.
- *           </ul>
+ *      <li> \c out.deleted is cleared.
  *      </ul>
  * \li Else:
  *      <ul>
- *      <li> \c out.version is set to #RCRPC_VERSION_ANY
+ *      <li> \c out.deleted is set.
+ *      <li> If \c o exists:
+ *          <ul>
+ *          <li> \c o is removed from the table.
+ *          <li> \c o's deletion is sent to the backups and their ack is
+ *               received.
+ *          </ul>
  *      </ul>
  *
  * \limit This function declaration is only a hook for documentation. The
@@ -275,12 +292,13 @@ struct rcrpc_delete_request {
     struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
-    uint64_t version;
+    struct rcrpc_reject_rules reject_rules;
 };
 
 struct rcrpc_delete_response {
     struct rcrpc_header header;
     uint64_t version;
+    uint8_t deleted:1;
 };
 
 /**
