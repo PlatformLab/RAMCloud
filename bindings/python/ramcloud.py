@@ -27,10 +27,22 @@ class RejectRules(ctypes.Structure):
                 ("version_gt_given", ctypes.c_uint8, 1),
                 ("given_version", ctypes.c_uint64)]
 
+    def _as_tuple(self):
+        return (self.object_doesnt_exist, self.object_exists,
+                self.version_eq_given, self.version_gt_given,
+                self.given_version)
+
+    def __cmp__(self, other):
+        return cmp(self._as_tuple(), other._as_tuple())
+
+    def __repr__(self):
+        return 'ramcloud.RejectRules(%s)' % str(self._as_tuple())
+
     @staticmethod
     def exactly(want_version):
         return RejectRules(object_doesnt_exist=True, version_gt_given=True,
                            given_version=want_version)
+
 
 def load_so():
     not_found = ImportError("Couldn't find libramcloud.so, ensure it is " +
