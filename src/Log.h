@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _LOG_H_
-#define _LOG_H_
+#ifndef RAMCLOUD_LOG_H
+#define RAMCLOUD_LOG_H
 
 #include <Common.h>
 

@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MSB_H_
-#define _MSB_H_ 1
+#ifndef RAMCLOUD_MSB_H
+#define RAMCLOUD_MSB_H 1
 
 #ifdef __cplusplus
 #define EXTERN_C extern "C"

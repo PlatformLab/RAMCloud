@@ -29,8 +29,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#include <shared/rcrpc.h>
-#include <shared/net.h>
+#include <rcrpc.h>
+#include <Net.h>
 
 static int
 rc_tcp_net_accept(struct rc_net *net)

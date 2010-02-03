@@ -16,7 +16,6 @@
 #include <config.h>
 
 #include <Server.h>
-#include <shared/net.h>
 
 #include <stdlib.h>
 #include <getopt.h>

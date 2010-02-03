@@ -13,12 +13,43 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_SERVER_NET_H
-#define RAMCLOUD_SERVER_NET_H
+#ifndef RAMCLOUD_NET_H
+#define RAMCLOUD_NET_H
 
-#include <Common.h>
-#include <shared/net.h>
+#include <config.h>
 
+#include <rcrpc.h>
+
+#if defined(USERSPACE_NET) + defined(UDP_NET) + defined(TCP_NET) != 1
+#error "You need exactly one network implementation."
+#endif
+
+#if defined(USERSPACE_NET)
+#include <net_user.h>
+#elif defined(UDP_NET)
+#include <net_udp.h>
+#elif defined(TCP_NET)
+#include <net_tcp.h>
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+void rc_net_init(struct rc_net *ret,
+                 const char *srcaddr, uint16_t srcport,
+                 const char *dstaddr, uint16_t dstport);
+int rc_net_connect(struct rc_net *net);
+int rc_net_listen(struct rc_net *net);
+int rc_net_close(struct rc_net *net);
+int rc_net_send(struct rc_net *net, void *, size_t);
+int rc_net_recv(struct rc_net *net, void **, size_t *);
+int rc_net_send_rpc(struct rc_net *net, struct rcrpc_any *);
+int rc_net_recv_rpc(struct rc_net *net, struct rcrpc_any **);
+#ifdef __cplusplus
+}
+#endif
+
+#ifdef __cplusplus
 namespace RAMCloud {
 
 class NetException {};
@@ -80,32 +111,7 @@ class CNet : public Net {
     rc_net net;
 };
 
-class MockNet : public Net {
-  public:
-    // TODO(stutsman) only partially thoughtout.  Would like to make the mock
-    // dev scriptable
-    MockNet(void (*send_cb)(const char *, size_t)) : cb(send_cb) {}
-    virtual void Connect() {}
-    virtual void Listen() {}
-    virtual int Close() { return 0; }
-    virtual void Send(const void *buf, size_t len) {
-        cb(static_cast<const char*>(buf), len);
-    }
-    virtual size_t Recv(void **buf) {
-        return 0;
-    }
-    virtual int SendRPC(struct rcrpc_any *msg) {
-        Send(msg, msg->header.len);
-        return 0;
-    }
-    virtual int RecvRPC(struct rcrpc_any **msg) {
-        return 0;
-    }
-    virtual ~MockNet() {}
-  private:
-    void (*cb)(const char *buf, size_t len);
-};
-
 } // namespace RAMCloud
+#endif // __cplusplus
 
 #endif

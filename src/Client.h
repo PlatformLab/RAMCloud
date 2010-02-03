@@ -13,12 +13,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_CLIENT_CLIENT_H
-#define RAMCLOUD_CLIENT_CLIENT_H
+#ifndef RAMCLOUD_CLIENT_H
+#define RAMCLOUD_CLIENT_H
 
 #include <inttypes.h>
 #include <stdbool.h>
-#include <shared/net.h>
+#include <Net.h>
 
 struct rc_client {
     struct rc_net net;

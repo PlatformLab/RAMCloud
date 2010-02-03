@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_SHARED_RCRPC_H
-#define RAMCLOUD_SHARED_RCRPC_H
+#ifndef RAMCLOUD_RCRPC_H
+#define RAMCLOUD_RCRPC_H
 
 // #include <cinttypes> // this requires c++0x support because it's c99
 // so we'll go ahead and use the C header

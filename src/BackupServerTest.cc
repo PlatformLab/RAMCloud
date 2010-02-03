@@ -17,6 +17,7 @@
 
 #include <backuprpc.h>
 #include <Net.h>
+#include <MockNet.h>
 
 #include <cppunit/extensions/HelperMacros.h>
 

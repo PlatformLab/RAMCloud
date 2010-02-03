@@ -21,7 +21,6 @@
 #include <config.h>
 
 #include <rcrpc.h>
-#include <shared/net.h>
 
 #include <Client.h>
 

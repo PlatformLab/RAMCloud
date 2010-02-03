@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _SEGMENT_H_
-#define _SEGMENT_H_
+#ifndef RAMCLOUD_SEGMENT_H
+#define RAMCLOUD_SEGMENT_H
 
 #include <Common.h>
 
