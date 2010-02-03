@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <server/hashtable.h>
+#include <Hashtable.h>
 
 #include <cstdio>
 #include <cstdlib>

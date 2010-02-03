@@ -15,20 +15,23 @@
 
 #include <config.h>
 
-#include <server/server.h>
+#include <Server.h>
 #include <shared/net.h>
 
 #include <stdlib.h>
 #include <getopt.h>
 
-void usage(char *arg0) {
+void
+usage(char *arg0)
+{
     printf("Usage: %s [-r]\n"
            "\t-r|--restore\t\tRestore from backup before serving\n",
            arg0);
 }
 
 void
-cmdline(int argc, char *argv[], RAMCloud::ServerConfig *config) {
+cmdline(int argc, char *argv[], RAMCloud::ServerConfig *config)
+{
     int i = 0;
     int c;
     struct option long_options[] = {

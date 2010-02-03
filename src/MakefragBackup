@@ -1,5 +1,3 @@
-OBJDIRS += backup
-
 BACKUP_SRCFILES := \
 		src/BackupServer.cc
 

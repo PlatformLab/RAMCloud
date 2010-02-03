@@ -18,7 +18,7 @@
 
 #include <config.h>
 
-#include <server/net.h>
+#include <Net.h>
 #include <shared/common.h>
 #include <shared/backuprpc.h>
 

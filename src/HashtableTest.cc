@@ -16,7 +16,7 @@
 #include <config.h>
 
 #include <shared/common.h>
-#include <server/hashtable.h>
+#include <Hashtable.h>
 
 #include <cppunit/extensions/HelperMacros.h>
 

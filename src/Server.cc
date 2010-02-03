@@ -27,8 +27,8 @@
 #include <shared/rcrpc.h>
 #include <shared/backup_client.h>
 
-#include <server/server.h>
-#include <server/net.h>
+#include <Server.h>
+#include <Net.h>
 
 namespace RAMCloud {
 

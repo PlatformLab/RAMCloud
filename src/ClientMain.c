@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <client/client.h>
+#include <Client.h>
 
 #include <stdio.h>
 #include <inttypes.h>

@@ -15,8 +15,8 @@
 
 #include <config.h>
 
-#include <server/server.h>
-#include <server/net.h>
+#include <Server.h>
+#include <Net.h>
 #include <shared/rcrpc.h>
 #include <BackupServer.h>
 

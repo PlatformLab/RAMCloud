@@ -23,8 +23,8 @@
 #include <shared/rcrpc.h>
 #include <shared/backup_client.h>
 
-#include <server/net.h>
-#include <server/hashtable.h>
+#include <Net.h>
+#include <Hashtable.h>
 
 #include <inttypes.h>
 #include <assert.h>

@@ -23,7 +23,7 @@
 #include <shared/rcrpc.h>
 #include <shared/net.h>
 
-#include <client/client.h>
+#include <Client.h>
 
 /**
  * Connect to a %RAMCloud.

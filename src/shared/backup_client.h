@@ -17,7 +17,7 @@
 #define RAMCLOUD_SHARED_BACKUP_CLIENT_H
 
 #include <shared/common.h>
-#include <server/net.h>
+#include <Net.h>
 
 // requires 0x for cstdint
 #include <stdint.h>
