@@ -20,7 +20,7 @@
 
 #include <assert.h>
 
-#include "shared/rcrpc.h"
+#include "rcrpc.h"
 
 static uint64_t
 rdtsc()

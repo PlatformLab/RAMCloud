@@ -13,11 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <assert.h>
-#include <stddef.h>
-#include <string.h>
-#include <shared/Segment.h>
-#include <shared/backup_client.h>
+#include <Segment.h>
 
 namespace RAMCloud {
 

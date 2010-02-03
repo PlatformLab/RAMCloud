@@ -13,12 +13,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config.h>
+#include <Common.h>
 
 #include <Server.h>
 #include <Net.h>
-#include <shared/rcrpc.h>
 #include <BackupServer.h>
+#include <rcrpc.h>
 
 #include <cppunit/extensions/HelperMacros.h>
 

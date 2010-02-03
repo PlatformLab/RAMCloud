@@ -13,26 +13,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// requires C++0x for cinttypes include
-#include <inttypes.h>
-
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <cassert>
-#include <memory>
-
-#include <config.h>
-#include <shared/Log.h>
-#include <shared/rcrpc.h>
-#include <shared/backup_client.h>
 
 #include <Server.h>
-#include <Net.h>
 
 namespace RAMCloud {
 
-enum { server_debug = false };
+const bool server_debug = false;
 
 void LogEvictionCallback(log_entry_type_t type,
                          const void *p,

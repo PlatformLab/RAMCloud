@@ -16,11 +16,11 @@
 #ifndef _LOG_H_
 #define _LOG_H_
 
-#include <stdint.h>
-#include <shared/LogTypes.h>
-#include <shared/Segment.h>
-#include <shared/common.h>
-#include <shared/backup_client.h>
+#include <Common.h>
+
+#include <LogTypes.h>
+#include <Segment.h>
+#include <BackupClient.h>
 
 namespace RAMCloud {
 

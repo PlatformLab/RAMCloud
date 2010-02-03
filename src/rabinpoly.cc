@@ -18,8 +18,8 @@
 
 #include <inttypes.h>
 
-#include <shared/rabinpoly.h>
-#include <shared/msb.h>
+#include <rabinpoly.h>
+#include <msb.h>
 #ifndef INT64
 # define INT64(n) n##LL
 #endif

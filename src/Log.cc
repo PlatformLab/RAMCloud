@@ -13,17 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <assert.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
-#define __STDC_FORMAT_MACROS    // needed for c++
-#include <inttypes.h>
-#include <shared/Segment.h>
-#include <shared/LogTypes.h>
-#include <shared/Log.h>
-#include <shared/common.h>
-#include <shared/backup_client.h>
+#include <Log.h>
 
 static const uint64_t cleaner_hiwat = 20;
 static const uint64_t cleaner_lowat = 10;

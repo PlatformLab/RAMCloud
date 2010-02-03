@@ -16,17 +16,12 @@
 #ifndef RAMCLOUD_BACKUP_BACKUP_H
 #define RAMCLOUD_BACKUP_BACKUP_H
 
-#include <config.h>
+#include <Common.h>
 
 #include <Net.h>
-#include <shared/common.h>
-#include <shared/backuprpc.h>
+#include <backuprpc.h>
 
 #include <Bitmap.h>
-
-#include <cstring>
-
-#include <string>
 
 namespace RAMCloud {
 

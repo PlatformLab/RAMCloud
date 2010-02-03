@@ -15,8 +15,8 @@
 
 #include <config.h>
 
-#include <shared/backup_client.h>
-#include <shared/backuprpc.h>
+#include <BackupClient.h>
+#include <backuprpc.h>
 
 #include <cassert>
 #include <cstdio>

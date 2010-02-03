@@ -29,10 +29,10 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#include <shared/rcrpc.h>
+#include <rcrpc.h>
 #include <shared/net.h>
 
-#include <shared/net_udp.h>
+#include <net_udp.h>
 
 void
 rc_net_init(struct rc_net *ret,

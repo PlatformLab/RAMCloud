@@ -16,7 +16,6 @@
 #include <config.h>
 
 #include <BackupServer.h>
-#include <shared/net.h>
 
 int
 main()

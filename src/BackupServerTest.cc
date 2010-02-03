@@ -15,7 +15,7 @@
 
 #include <BackupServer.h>
 
-#include <shared/backuprpc.h>
+#include <backuprpc.h>
 #include <Net.h>
 
 #include <cppunit/extensions/HelperMacros.h>

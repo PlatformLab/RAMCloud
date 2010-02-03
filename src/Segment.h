@@ -16,10 +16,9 @@
 #ifndef _SEGMENT_H_
 #define _SEGMENT_H_
 
-#include <stdint.h>
+#include <Common.h>
 
-#include <shared/common.h>
-#include <shared/backup_client.h>
+#include <BackupClient.h>
 
 namespace RAMCloud {
 

@@ -8,14 +8,14 @@ CLIENT_STATIC_OBJFILES := $(CLIENT_SRCFILES)
 CLIENT_STATIC_OBJFILES := $(patsubst src/%.c, $(OBJDIR)/client_static/%.o, $(CLIENT_STATIC_OBJFILES))
 # CAREFUL - this implies that .o file names from client and
 # SHARED_NET_SRC_FILES cannot collide or all hell will break loose
-CLIENT_NET_STATIC_OBJFILES := $(patsubst src/shared/%.c, $(OBJDIR)/shared_static/%.o, $(SHARED_NET_SRCFILES))
+CLIENT_NET_STATIC_OBJFILES := $(patsubst src/%.c, $(OBJDIR)/shared_static/%.o, $(SHARED_NET_SRCFILES))
 CLIENT_STATIC_OBJFILES := $(CLIENT_STATIC_OBJFILES) $(CLIENT_NET_STATIC_OBJFILES)
 
 CLIENT_SHARED_OBJFILES := $(CLIENT_SRCFILES)
 CLIENT_SHARED_OBJFILES := $(patsubst src/%.c, $(OBJDIR)/client_shared/%.o, $(CLIENT_SHARED_OBJFILES))
 # CAREFUL - this implies that .o file names from client and
 # SHARED_NET_SRC_FILES cannot collide or all hell will break loose
-CLIENT_NET_SHARED_OBJFILES := $(patsubst src/shared/%.c, $(OBJDIR)/shared_shared/%.o, $(SHARED_NET_SRCFILES))
+CLIENT_NET_SHARED_OBJFILES := $(patsubst src/%.c, $(OBJDIR)/shared_shared/%.o, $(SHARED_NET_SRCFILES))
 CLIENT_SHARED_OBJFILES := $(CLIENT_SHARED_OBJFILES) $(CLIENT_NET_SHARED_OBJFILES)
 
 $(OBJDIR)/client_static/%.o: $(TOP)/src/%.c
@@ -26,11 +26,11 @@ $(OBJDIR)/client_shared/%.o: $(TOP)/src/%.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
 
-$(OBJDIR)/shared_static/%.o: $(TOP)/src/shared/%.c
+$(OBJDIR)/shared_static/%.o: $(TOP)/src/%.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(OBJDIR)/shared_shared/%.o: $(TOP)/src/shared/%.c
+$(OBJDIR)/shared_shared/%.o: $(TOP)/src/%.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
 

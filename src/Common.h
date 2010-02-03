@@ -16,7 +16,18 @@
 #ifndef RAMCLOUD_SHARED_COMMON_H
 #define RAMCLOUD_SHARED_COMMON_H
 
-#include <inttypes.h>
+#include <config.h>
+
+#include <rcrpc.h>
+
+#include <cassert>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+
+#define PRIu64 "lu"
+#define PRIx64 "lx"
 
 // A macro to disallow the copy constructor and operator= functions
 // This should be used in the private: declarations for a class

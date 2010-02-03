@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_SERVER_NET_H
 #define RAMCLOUD_SERVER_NET_H
 
-#include <shared/common.h>
+#include <Common.h>
 #include <shared/net.h>
 
 namespace RAMCloud {

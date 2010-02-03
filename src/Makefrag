@@ -1,3 +1,19 @@
+SHARED_NET_SRCFILES := src/net_udp.c \
+                       src/net_user.c \
+                       src/net_tcp.c
+
+SHARED_SRCFILES := \
+                src/Common.cc \
+                src/Log.cc \
+                src/Segment.cc \
+                src/BackupClient.cc \
+                src/rabinpoly.cc \
+                $(SHARED_NET_SRCFILES)
+
+SHARED_OBJFILES := $(SHARED_SRCFILES)
+SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
+SHARED_OBJFILES := $(patsubst src/%.c, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
+
 $(TOP)/src/config.h:
 	cp $(TOP)/src/config.h.tmpl $@
 

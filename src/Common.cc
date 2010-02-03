@@ -14,13 +14,12 @@
  */
 
 #include <cstdio>
+
 #define __STDC_FORMAT_MACROS   // Required for inttypes.h in C++. Ugh.
 #include <inttypes.h>
 #include <stdint.h>
 #include <string.h>
 #include <ctype.h>
-
-#include <shared/common.h>
 
 // Output a binary buffer in 'hexdump -C' style.
 // Note that this exceeds 80 characters due to 64-bit offsets. Oh, well.

@@ -20,7 +20,7 @@
 
 #include <config.h>
 
-#include <shared/rcrpc.h>
+#include <rcrpc.h>
 #include <shared/net.h>
 
 #include <Client.h>

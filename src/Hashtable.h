@@ -16,8 +16,7 @@
 #ifndef RAMCLOUD_SRC_SERVER_HASHTABLE_H
 #define RAMCLOUD_SRC_SERVER_HASHTABLE_H
 
-#include <shared/common.h>
-#include <inttypes.h>
+#include <Common.h>
 
 #define NBUCKETS        5000
 

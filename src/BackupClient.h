@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_SHARED_BACKUP_CLIENT_H
 #define RAMCLOUD_SHARED_BACKUP_CLIENT_H
 
-#include <shared/common.h>
+#include <Common.h>
 #include <Net.h>
 
 // requires 0x for cstdint
