@@ -77,9 +77,8 @@ Log::Log(const uint64_t segsize,
          void *buf,
          const uint64_t len,
          BackupClient *backup_client)
-    : callback(0),
-      callback_type(LOG_ENTRY_TYPE_SEGMENT_HEADER),
-      callback_cookie(0),
+    : numCallbacks(0),
+      nextSegmentId(SEGMENT_INVALID_ID + 1),
       max_append(0),
       segment_size(segsize),
       base(buf),
@@ -99,19 +98,10 @@ Log::Log(const uint64_t segsize,
 	assert(min_meta <= len);
 	max_append = segment_size - min_meta;
 
-	// Warning: this is a huge hack - the segments are constructed
-	// in reverse so that the free_list will be in the right order
-	// this is the only thing (for the moment) preserving the
-	// invariant that segment numbers on the backup are strictly
-	// increasing.
-	// The restore also counts on it because it simply populates
-	// the head of the free list with active data and expects that
-	// that corresponds to the beginning of the log when it
-	// iterates to restore the hashtable
 	segments = (Segment **)malloc(nsegments * sizeof(segments[0]));
-	for (int64_t i = nsegments - 1; i >= 0; i--) {
+	for (uint64_t i = 0; i < nsegments; i++) {
 		void *base  = (uint8_t *)buf + (i * segment_size);
-		segments[i] = new Segment(i, base, segment_size, backup);
+		segments[i] = new Segment(base, segment_size, backup);
 		free_list   = segments[i]->link(free_list);
 		nfree_list++;
 	}
@@ -138,11 +128,8 @@ Log::forEachEntry(const Segment *seg, log_entry_cb_t cb, void *cookie)
 void
 Log::forEachSegment(log_segment_cb_t cb, uint64_t limit, void *cookie)
 {
-    for (uint64_t i = 0;
-         i < nsegments && i < limit;
-         i++) {
+    for (uint64_t i = 0; i < nsegments && i < limit; i++)
         cb(segments[i], cookie);
-    }
 }
 
 // Returns the number of segments restored from backup
@@ -177,9 +164,10 @@ Log::restore()
 void
 Log::init()
 {
-	head      = free_list;
+	head = free_list;
 	free_list = free_list->unlink();
 	nfree_list--;
+    head->ready(allocateSegmentId());
 
 	struct segment_header sh;
 	sh.id = 0;
@@ -187,6 +175,30 @@ Log::init()
 	const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER, &sh, sizeof(sh));
 	assert(r != NULL);
 }
+
+bool
+Log::isSegmentLive(uint64_t segmentId) const
+{
+    // XXX- inefficient
+    for (uint64_t i = 0; i < nsegments; i++) {
+        if (segments[i]->getId() == segmentId)
+            return true;
+    }
+
+    return false;
+}
+
+void
+Log::getSegmentIdOffset(const void *p, uint64_t *id, uint32_t *offset) const
+{
+    Segment *s = getSegment(p, 1);
+    assert(s != NULL);
+    assert(id != NULL);
+    assert(offset != NULL);
+
+    *id = s->getId();
+    *offset = (uint32_t)((uintptr_t)p - (uintptr_t)s->getBase());
+} 
 
 const void *
 Log::append(log_entry_type_t type, const void *buf, const uint64_t len)
@@ -227,22 +239,20 @@ Log::free(log_entry_type_t type, const void *buf, const uint64_t len)
 			retireHead();
 			assert(head == NULL);
 		}
-		s->reset(s->getId() + nsegments);
+        s->reset();
 	}
 }
 
-bool
+void
 Log::registerType(log_entry_type_t type, log_eviction_cb_t evict_cb, void *cookie)
 {
 	assert(evict_cb != NULL);
+    assert(numCallbacks < sizeof(callbacks)/sizeof(callbacks[0]));
 
-	// only one callback for now (it's easy to extend, but I've more fun stuff to write).
-	assert(callback == NULL);
-	callback = evict_cb;
-	callback_type = type;
-	callback_cookie = cookie;
-
-	return false;
+    callbacks[numCallbacks].cb = evict_cb;
+    callbacks[numCallbacks].type = type;
+    callbacks[numCallbacks].cookie = cookie;
+    numCallbacks++;
 }
 
 void
@@ -267,18 +277,28 @@ Log::getMaximumAppend()
  /**** Private Methods ****/
 /*************************/
 
+uint64_t
+Log::allocateSegmentId()
+{
+    return (nextSegmentId++);
+}
+
 log_eviction_cb_t
 Log::getEvictionCallback(log_entry_type_t type, void **cookie)
 {
-	if (callback_type == type)
-		return callback;
-	if (cookie != NULL)
-		*cookie = callback_cookie;
+    for (int i = 0; i < numCallbacks; i++) {
+        if (callbacks[i].type == type) {
+            if (cookie != NULL)
+                *cookie = callbacks[i].cookie;
+            return callbacks[i].cb;
+        }
+    }
+
 	return NULL;
 }
 
 Segment *
-Log::getSegment(const void *p, uint64_t len)
+Log::getSegment(const void *p, uint64_t len) const
 {
 	uintptr_t up  = (uintptr_t)p;
 	uintptr_t ub  = (uintptr_t)base;
@@ -304,11 +324,12 @@ Log::clean()
 {
 	assert(head == NULL);
 
-	// we may come back here due to a log append when our eviction callback results
-	// in an object being written out once again.
-	// this is ok, but when we're finished cleaning, we may toss an underutilized segment
-	// and reallocate a new head in our caller, newHead(). it's probably unimportant, but we
-	// may want to preserve enough state to detect and avoid that case.
+	// we may come back here due to a log append when our eviction callback
+    // results in an object being written out once again. This is ok, but when
+    // we're finished cleaning, we may toss an underutilized segment and
+    // reallocate a new head in our caller, newHead(). it's probably
+    // unimportant, but we may want to preserve enough state to detect and
+    // avoid that case.
 	if (cleaning)
 		return;
 	cleaning = true;
@@ -321,13 +342,13 @@ Log::clean()
 
 		uint64_t util = s->getUtilization();
 		if (util != 0 && util < (3 * segment_size / 4)) {
-			// Note that since our segments are immutable (when not writing to the head)
-			// we may certainly iterate over objects for which log_free() has already
-			// been called. That's fine - it's up to the callback to determine that its
-			// stale data and take no action.
+			// Note that since our segments are immutable (when not writing to
+            // the head) we may certainly iterate over objects for which
+            // log_free() has already been called. That's fine - it's up to the
+            // callback to determine that its stale data and take no action.
 			//
-			// For this reason, we do _not_ want to do s->free() on that space, since for
-			// already freed space, we'll double-count.
+			// For this reason, we do _not_ want to do s->free() on that space,
+            // since for already freed space, we'll double-count.
 
 			LogEntryIterator lei(s);
 			const struct log_entry *le;
@@ -335,7 +356,8 @@ Log::clean()
 
 			while (lei.getNext(&le, &p)) {
 				void *cookie;
-				log_eviction_cb_t cb = getEvictionCallback((log_entry_type_t)le->type, &cookie);
+				log_eviction_cb_t cb =
+                    getEvictionCallback((log_entry_type_t)le->type, &cookie);
 
 				if (le->type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
 				    le->type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
@@ -348,7 +370,7 @@ Log::clean()
 			}
 
 			assert(s->unlink() == NULL);
-			s->reset(s->getId() + nsegments);
+            s->reset();
 			free_list = s->link(free_list);
 			nfree_list++;
 		}
@@ -390,6 +412,7 @@ Log::newHead()
 	head = free_list;
 	free_list = head->unlink();
 	nfree_list--;
+    head->ready(allocateSegmentId());
 
 	assert(head->getUtilization() == 0);
 
@@ -433,8 +456,8 @@ Log::appendAnyType(log_entry_type_t type, const void *buf, const uint64_t len)
 
 	assert(len < segment_size);
 
-	// ensure enough room exists to write the log entry meta, the object, and reserve space for
-	// the checksum & meta at the end
+	// ensure enough room exists to write the log entry meta, the object, and
+    // reserve space for the checksum & meta at the end
 	struct log_entry le;
 	uint64_t needed = len + (2 * sizeof(le)) + sizeof(struct segment_checksum);
 	if (head->getFreeTail() < needed) {

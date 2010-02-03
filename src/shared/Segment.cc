@@ -21,12 +21,11 @@
 
 namespace RAMCloud {
 
-Segment::Segment(uint64_t init_id,
-                 void *buf,
+Segment::Segment(void *buf,
                  const uint64_t len,
                  BackupClient *backup_client)
     : base(buf),
-      id(~(0ull)),
+      id(SEGMENT_INVALID_ID),
       total_bytes(len),
       free_bytes(total_bytes),
       tail_bytes(total_bytes),
@@ -37,8 +36,6 @@ Segment::Segment(uint64_t init_id,
 {
 	assert(buf != NULL);
 	assert(len > 0);
-
-	reset(init_id);
 }
 
 Segment::~Segment()
@@ -47,17 +44,26 @@ Segment::~Segment()
 }
 
 void
-Segment::reset(uint64_t new_id)
+Segment::ready(uint64_t new_id)
+{
+	assert(!isMutable);
+    assert(id == SEGMENT_INVALID_ID);
+
+    isMutable = true;
+    id        = new_id;
+}
+
+void
+Segment::reset()
 {
 	assert(!isMutable);
 
-	if (id != ~(0ull))
+	if (id != SEGMENT_INVALID_ID)
 		backup->Free(id);
 
 	free_bytes  = total_bytes;
 	tail_bytes  = total_bytes;
-	isMutable   = true;
-	id	    = new_id;
+	id	        = SEGMENT_INVALID_ID;
 	memset(base, 0xcc, total_bytes);
 }
 
@@ -65,6 +71,7 @@ const void *
 Segment::append(const void *buf, uint64_t len)
 {
 	assert(isMutable);
+	assert(id != SEGMENT_INVALID_ID);
 
 	if (tail_bytes < len)
 		return NULL;
@@ -131,6 +138,7 @@ Segment::checkRange(const void *p, uint64_t len) const
 void
 Segment::finalize()
 {
+	assert(id != SEGMENT_INVALID_ID);
 	isMutable = false;
 	backup->Commit(id);
 }
@@ -138,6 +146,8 @@ Segment::finalize()
 void
 Segment::restore(uint64_t restore_seg_id)
 {
+	assert(id != SEGMENT_INVALID_ID);
+
     //printf("Segment restoring from %llu:\n", restore_seg_id);
     backup->Retrieve(restore_seg_id, base);
     // TODO restore all sorts of state/invariants
