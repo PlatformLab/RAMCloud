@@ -18,11 +18,11 @@ and some kind of client. Note that the backup must be started first.
 
 2.1 Starting a backup
 
-$ ./obj.master/backup/backup
+$ ./obj.master/backup
 
 2.2 Starting a server
 
-$ ./obj.master/server/server
+$ ./obj.master/server
 
 2.3 Using the libramcloud.so library
 

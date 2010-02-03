@@ -1,0 +1,28 @@
+OBJDIRS += tests
+
+TESTS_SRCFILES := \
+		src/ServerTest.cc \
+		src/BackupServerTest.cc \
+		src/BitmapTest.cc \
+		src/HashtableTest.cc \
+		src/ChecksumTest.cc \
+		src/TestRunner.cc
+
+TESTS_OBJFILES := $(TESTS_SRCFILES)
+TESTS_OBJFILES := $(patsubst src/%.c, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
+TESTS_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
+TESTS_OBJFILES := $(TESTS_OBJFILES) \
+               $(SHARED_OBJFILES) \
+               $(SERVER_OBJFILES) \
+               $(BACKUP_OBJFILES)
+
+TESTS_LIB := -lcppunit -ldl
+
+$(OBJDIR)/test: $(TESTS_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) $(TESTS_LIB) -o $@ $^
+
+test: $(OBJDIR)/test
+	$(OBJDIR)/test
+
+tests-clean:

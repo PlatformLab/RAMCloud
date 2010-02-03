@@ -1,0 +1,14 @@
+OBJDIRS += backup
+
+BACKUP_SRCFILES := \
+		src/BackupServer.cc
+
+BACKUP_OBJFILES := $(BACKUP_SRCFILES)
+BACKUP_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(BACKUP_OBJFILES))
+BACKUP_OBJFILES := $(BACKUP_OBJFILES) $(SHARED_OBJFILES)
+
+$(OBJDIR)/backup: $(BACKUP_OBJFILES) $(OBJDIR)/BackupMain.o
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+all: $(OBJDIR)/backup

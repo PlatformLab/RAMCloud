@@ -21,7 +21,7 @@
 #include <config.h>
 #include <malloc.h>
 
-#include <backup/backup.h>
+#include <BackupServer.h>
 
 #include <shared/backuprpc.h>
 #include <shared/Segment.h>
@@ -220,7 +220,7 @@ BackupServer::Flush()
     struct timeval start, end, res;
     gettimeofday(&start, NULL);
 
-    int64_t next = free_map.NextFree(0);
+    int64_t next = free_map.nextSet(0);
     if (next == -1)
         throw BackupLogIOException("Out of free segment frames");
 
@@ -228,7 +228,7 @@ BackupServer::Flush()
         printf("Write active segment to frame %ld\n", next);
 
     segments[next] = seg_num;
-    free_map.Clear(next);
+    free_map.clear(next);
 
     off_t off = lseek(log_fd, SegFrameOff(next), SEEK_SET);
     if (off == -1)
@@ -324,7 +324,7 @@ BackupServer::Free(uint64_t seg_num)
     // seg_num we have no idea about
     uint64_t &frame = FrameForSegNum(seg_num);
     frame = INVALID_SEGMENT_NUM;
-    free_map.Set(frame);
+    free_map.set(frame);
     if (debug_backup)
         printf("Freed segment in frame %llu\n", frame);
 }

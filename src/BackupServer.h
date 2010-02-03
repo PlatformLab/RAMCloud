@@ -22,6 +22,8 @@
 #include <shared/common.h>
 #include <shared/backuprpc.h>
 
+#include <Bitmap.h>
+
 #include <cstring>
 
 #include <string>
@@ -59,54 +61,6 @@ struct BackupLogIOException : public BackupException {
 };
 struct BackupInvalidRPCOpException : public BackupException {};
 struct BackupSegmentOverflowException : public BackupException {};
-
-// size in bits
-template <int64_t size>
-class FreeBitmap {
-  public:
-    static uint32_t Words() {
-        return (size / 64) + 1;
-    }
-    explicit FreeBitmap(bool set) {
-        memset(&bitmap[0], set ? 0xff : 0x00, size / 8);
-    }
-    void SetAll() {
-        memset(&bitmap[0], 0xff, size / 8);
-    }
-    void ClearAll() {
-        memset(&bitmap[0], 0x00, size / 8);
-    }
-    void Set(int64_t num) {
-        bitmap[num / 64] |= (1lu << (num % 64));
-    }
-    void Clear(int64_t num) {
-        bitmap[num / 64] &= ~(1lu << (num % 64));
-    }
-    bool Get(int64_t num) {
-        return (bitmap[num / 64] & (1lu << (num % 64))) != 0;
-    }
-    int64_t NextFree(int64_t start) {
-        // TODO(stutsman) start ignored for now
-        int r;
-        for (int i = 0; i < size; i += 64) {
-            r = ffsl(bitmap[i / 64]);
-            if (r) {
-                r = (r - 1) + i;
-                if (r >= size)
-                    return -1;
-                return r;
-            }
-        }
-        return -1;
-    }
-    void DebugDump() {
-        debug_dump64(&bitmap[0], size / 8);
-    }
-  private:
-    // TODO(stutsman) ensure size is a power of 2
-    uint64_t bitmap[size / 64 + 1];
-    DISALLOW_COPY_AND_ASSIGN(FreeBitmap);
-};
 
 const uint64_t SEGMENT_FRAMES = SEGMENT_COUNT * 2;
 const uint64_t LOG_SPACE = SEGMENT_FRAMES * SEGMENT_SIZE;
@@ -159,9 +113,9 @@ class BackupServer {
     static const uint64_t SEGMENT_FRAMES = SEGMENT_COUNT;
     uint64_t segments[SEGMENT_FRAMES];
 
-    FreeBitmap<SEGMENT_FRAMES> free_map;
+    Bitmap<SEGMENT_FRAMES> free_map;
 
-    friend class BackupTest;
+    friend class BackupServerTest;
     DISALLOW_COPY_AND_ASSIGN(BackupServer);
 };
 

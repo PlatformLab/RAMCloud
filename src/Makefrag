@@ -1,4 +1,12 @@
 $(TOP)/src/config.h:
 	cp $(TOP)/src/config.h.tmpl $@
 
+$(OBJDIR)/%.o: $(TOP)/src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/%.o: $(TOP)/src/%.cc
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 all: $(TOP)/src/config.h

@@ -15,7 +15,7 @@
 
 #include <config.h>
 
-#include <backup/backup.h>
+#include <BackupServer.h>
 #include <shared/net.h>
 
 int

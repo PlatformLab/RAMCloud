@@ -18,7 +18,7 @@
 #include <server/server.h>
 #include <server/net.h>
 #include <shared/rcrpc.h>
-#include <backup/backup.h>
+#include <BackupServer.h>
 
 #include <cppunit/extensions/HelperMacros.h>
 

@@ -48,9 +48,9 @@ test: python-test
 include src/Makefrag
 include src/shared/Makefrag
 include src/server/Makefrag
-include src/backup/Makefrag
+include src/MakefragBackup
 include src/client/Makefrag
-include src/tests/Makefrag
+include src/MakefragTest
 include bindings/python/Makefrag
 
 clean: tests-clean docs-clean
