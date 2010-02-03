@@ -228,7 +228,6 @@ class RAMCloud(object):
         if r == 2: raise ObjectExistsError()
         if r == 3 or r == 4: raise VersionError(want_version, got_version.value)
         if r == 5: raise FabricatedVersionError(want_version, got_version.value)
-        return got_version.value
 
     def delete(self, table_id, key, want_version=None):
         if want_version:

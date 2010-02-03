@@ -106,9 +106,8 @@ def version_smack(c, loops):
         #XXX- exception should contain newest version... assert vers == last_version
 
         p.before()
-        deleted_version = c.delete(0, 0, last_version)
+        c.delete(0, 0, last_version)
         p.after()
-        assert deleted_version == last_version, (deleted_version, last_version)
 
         caught = False
         p.before()

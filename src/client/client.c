@@ -407,10 +407,10 @@ rc_insert(struct rc_client *client,
  * \param[in]  key      the object ID of the object to be deleted
  * \param[in]  reject_rules see reject_reason()
  * \param[out] got_version
- *      the version of the object before the delete took effect \n
+ *      the version of the object, if it exists \n
  *      If the delete did not occur, this is set to the object's current
  *      version. \n
- *      If the object does not exist, \a got_version is undefined.
+ *      If the object no longer exists, \a got_version is undefined.
  * \return error code (see values below)
  * \retval  0 on success
  * \retval -1 on %RAMCloud error (see rc_last_error())

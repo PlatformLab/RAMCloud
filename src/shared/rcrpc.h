@@ -265,8 +265,6 @@ struct rcrpc_insert_response {
  * Delete an object.
  *
  * \li Let \c o be the object identified by \c in.table, \c in.key.
- * \li \c out.version is set to \c o's existing version, or #RCRPC_VERSION_NONE
- *      if \c o did not exist.
  * \li out.deleted is set if the \c in.reject_rules do not reject the operation.
  * \li If the \c in.reject_rules reject the operation:
  *      <ul>
@@ -282,6 +280,9 @@ struct rcrpc_insert_response {
  *               received.
  *          </ul>
  *      </ul>
+ * \li \c out.version is set to \c o's existing version if it exists (the
+ *      operation was rejected), or #RCRPC_VERSION_NONE if \c o does not exist (the
+ *      operation succeeded or \c o did not previously exist).
  *
  * \limit This function declaration is only a hook for documentation. The
  * function does not exist and should not be called.

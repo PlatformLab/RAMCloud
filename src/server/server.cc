@@ -334,12 +334,12 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
     assert(o->mut != NULL);
     assert(o->mut->refcnt > 0);
 
-    resp->version = o->version;
-
     // abort if we're trying to delete the wrong version
     // the client will note the discrepancy and figure it out
-    if (RejectOperation(&req->reject_rules, o->version))
+    if (RejectOperation(&req->reject_rules, o->version)) {
+        resp->version = o->version;
         return;
+    }
     resp->deleted = true;
 
     DECLARE_OBJECT(tomb_o, 0);
