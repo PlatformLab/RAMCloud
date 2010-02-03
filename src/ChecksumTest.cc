@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <shared/common.h>
-#include <shared/rabinpoly.h>
+#include <Common.h>
+#include <rabinpoly.h>
 
 #include <cppunit/extensions/HelperMacros.h>
 

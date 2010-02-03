@@ -13,20 +13,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_BACKUP_BACKUP_H
-#define RAMCLOUD_BACKUP_BACKUP_H
+#ifndef RAMCLOUD_BACKUPSERVER_H
+#define RAMCLOUD_BACKUPSERVER_H
 
-#include <config.h>
+#include <Common.h>
 
-#include <server/net.h>
-#include <shared/common.h>
-#include <shared/backuprpc.h>
+#include <Net.h>
+#include <backuprpc.h>
 
 #include <Bitmap.h>
-
-#include <cstring>
-
-#include <string>
 
 namespace RAMCloud {
 

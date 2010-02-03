@@ -13,19 +13,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <BackupServer.h>
+
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <config.h>
-#include <malloc.h>
 
-#include <BackupServer.h>
-
-#include <shared/backuprpc.h>
-#include <shared/Segment.h>
-#include <shared/Log.h>
+#include <Segment.h>
+#include <Log.h>
 
 #include <cstdio>
 #include <cassert>
@@ -34,8 +31,8 @@
 
 namespace RAMCloud {
 
-enum { debug_rpc = false };
-enum { debug_backup = false };
+const bool debug_rpc = false;
+const bool debug_backup = false;
 
 static const uint64_t RESP_BUF_LEN = (1 << 20);
 

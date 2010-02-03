@@ -13,16 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config.h>
+#include <Common.h>
 
-#include <shared/common.h>
-#include <server/hashtable.h>
+#include <Hashtable.h>
 
 #include <cppunit/extensions/HelperMacros.h>
-
-#include <string>
-#include <cstring>
-#include <malloc.h>
 
 class HashtableTest : public CppUnit::TestFixture {
   public:

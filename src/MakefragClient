@@ -1,0 +1,73 @@
+OBJDIRS += client_static client_shared \
+	shared_static shared_shared
+
+CLIENT_SRCFILES := \
+		src/Client.c
+
+CLIENT_STATIC_OBJFILES := $(CLIENT_SRCFILES)
+CLIENT_STATIC_OBJFILES := $(patsubst src/%.c, $(OBJDIR)/client_static/%.o, $(CLIENT_STATIC_OBJFILES))
+# CAREFUL - this implies that .o file names from client and
+# SHARED_NET_SRC_FILES cannot collide or all hell will break loose
+CLIENT_NET_STATIC_OBJFILES := $(patsubst src/%.c, $(OBJDIR)/shared_static/%.o, $(SHARED_NET_SRCFILES))
+CLIENT_STATIC_OBJFILES := $(CLIENT_STATIC_OBJFILES) $(CLIENT_NET_STATIC_OBJFILES)
+
+CLIENT_SHARED_OBJFILES := $(CLIENT_SRCFILES)
+CLIENT_SHARED_OBJFILES := $(patsubst src/%.c, $(OBJDIR)/client_shared/%.o, $(CLIENT_SHARED_OBJFILES))
+# CAREFUL - this implies that .o file names from client and
+# SHARED_NET_SRC_FILES cannot collide or all hell will break loose
+CLIENT_NET_SHARED_OBJFILES := $(patsubst src/%.c, $(OBJDIR)/shared_shared/%.o, $(SHARED_NET_SRCFILES))
+CLIENT_SHARED_OBJFILES := $(CLIENT_SHARED_OBJFILES) $(CLIENT_NET_SHARED_OBJFILES)
+
+$(OBJDIR)/client_static/%.o: $(TOP)/src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/client_shared/%.o: $(TOP)/src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+
+$(OBJDIR)/shared_static/%.o: $(TOP)/src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/shared_shared/%.o: $(TOP)/src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+
+$(OBJDIR)/libramcloud.a: $(CLIENT_STATIC_OBJFILES)
+	@mkdir -p $(@D)
+	$(AR) rcs $@ $^
+
+$(OBJDIR)/libramcloud.so: $(CLIENT_SHARED_OBJFILES)
+	@mkdir -p $(@D)
+	$(CC) -shared -o $@ $^
+
+$(OBJDIR)/client: $(OBJDIR)/ClientMain.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -o $@ $< -L$(OBJDIR) $(OBJDIR)/libramcloud.a
+
+.PHONY: client client-lib client-lib-static client-lib-shared client-lib-install
+
+client-lib-static: $(OBJDIR)/libramcloud.a
+client-lib-shared: $(OBJDIR)/libramcloud.so
+client-lib: client-lib-static client-lib-shared
+
+# TODO(stutsman) need to rethink includes because right now this requires
+# -lramcloud -I/usr/local/include/ramcloud
+CLIENT_LIB_INSTALL_PREFIX := /usr/local
+client-lib-install:
+	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/lib
+	install -m 644 $(OBJDIR)/libramcloud.a $(CLIENT_LIB_INSTALL_PREFIX)/lib
+	install -m 644 $(OBJDIR)/libramcloud.so $(CLIENT_LIB_INSTALL_PREFIX)/lib
+	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
+	install -m 644 $(TOP)/src/Client.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
+	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
+	install -m 644 $(TOP)/src/shared/net.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
+	install -m 644 $(TOP)/src/shared/net_user.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
+	install -m 644 $(TOP)/src/shared/net_udp.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
+	install -m 644 $(TOP)/src/shared/net_tcp.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
+	install -m 644 $(TOP)/src/shared/rcrpc.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
+
+client: $(OBJDIR)/client $(OBJDIR)/libramcloud.a $(OBJDIR)/libramcloud.so
+
+all: client

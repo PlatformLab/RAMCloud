@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,26 +13,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#ifndef RAMCLOUD_NET_TCP_H
+#define RAMCLOUD_NET_TCP_H
+
 #include <config.h>
 
-#include <BackupServer.h>
+#ifndef TCP_NET
+#error "Don't include net_tcp.h"
+#endif
 
-int
-main()
-{
-    using ::RAMCloud::Net;
-    using ::RAMCloud::CNet;
-    using ::RAMCloud::BackupServer;
-    Net *net = new CNet(BACKSVRADDR, BACKSVRPORT,
-                        BACKCLNTADDR, BACKCLNTPORT);
-    net->Listen();
-    BackupServer *server = new BackupServer(net,
-                                            BACKUP_LOG_PATH);
+#include <arpa/inet.h>
 
-    server->Run();
+struct rc_net {
+    bool server;
+    bool client;
+    int listen_fd;
+    int connection_fd;
+    struct sockaddr_in srcsin;
+    struct sockaddr_in dstsin;
+};
 
-    delete server;
-    delete net;
-
-    return 0;
-}
+#endif

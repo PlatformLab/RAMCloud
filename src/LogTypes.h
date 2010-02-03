@@ -13,47 +13,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Common.h>
+#ifndef RAMCLOUD_LOGTYPES_H
+#define RAMCLOUD_LOGTYPES_H
 
-#include <Server.h>
-#include <Net.h>
-#include <BackupServer.h>
-#include <rcrpc.h>
+namespace RAMCloud {
 
-#include <cppunit/extensions/HelperMacros.h>
-
-#include <string>
-#include <cstring>
-
-// Override settings in config.h
-#define SVRADDR "127.0.0.1"
-#define SVRPORT  11111
-
-#define CLNTADDR "127.0.0.1"
-#define CLNTPORT  11111
-
-#define BACKUPSVRADDR "127.0.0.1"
-#define BACKUPSVRPORT  11111
-
-#define BACKUPCLNTADDR "127.0.0.1"
-#define BACKUPCLNTPORT  11111
-
-class ServerTest : public CppUnit::TestFixture {
-  public:
-    void setUp();
-    void tearDown();
-  private:
-    CPPUNIT_TEST_SUITE(ServerTest);
-    CPPUNIT_TEST_SUITE_END();
+enum log_entry_type_t {
+        LOG_ENTRY_TYPE_SEGMENT_HEADER   = 0x72646873,	// "shdr" in little endian
+        LOG_ENTRY_TYPE_SEGMENT_CHECKSUM = 0x6b686373,	// "schk" in little endian 
+        LOG_ENTRY_TYPE_OBJECT           = 0x216a626f,   // "obj!" in little endian
+        LOG_ENTRY_TYPE_OBJECT_TOMBSTONE = 0x626d6f74    // "tomb" in little endian
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(ServerTest);
 
-void
-ServerTest::setUp()
-{
-}
+} // namespace
 
-void
-ServerTest::tearDown()
-{
-}
+#endif // !_LOG_TYPES_H_

@@ -13,47 +13,23 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Common.h>
+#ifndef RAMCLOUD_NET_UDP_H
+#define RAMCLOUD_NET_UDP_H
 
-#include <Server.h>
-#include <Net.h>
-#include <BackupServer.h>
-#include <rcrpc.h>
+#include <config.h>
 
-#include <cppunit/extensions/HelperMacros.h>
+#ifndef UDP_NET
+#error "Don't include net_udp.h"
+#endif
 
-#include <string>
-#include <cstring>
 
-// Override settings in config.h
-#define SVRADDR "127.0.0.1"
-#define SVRPORT  11111
+#include <arpa/inet.h>
 
-#define CLNTADDR "127.0.0.1"
-#define CLNTPORT  11111
-
-#define BACKUPSVRADDR "127.0.0.1"
-#define BACKUPSVRPORT  11111
-
-#define BACKUPCLNTADDR "127.0.0.1"
-#define BACKUPCLNTPORT  11111
-
-class ServerTest : public CppUnit::TestFixture {
-  public:
-    void setUp();
-    void tearDown();
-  private:
-    CPPUNIT_TEST_SUITE(ServerTest);
-    CPPUNIT_TEST_SUITE_END();
+struct rc_net {
+    int fd;
+    int connected;
+    struct sockaddr_in srcsin;
+    struct sockaddr_in dstsin;
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(ServerTest);
 
-void
-ServerTest::setUp()
-{
-}
-
-void
-ServerTest::tearDown()
-{
-}
+#endif

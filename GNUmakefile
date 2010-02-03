@@ -46,10 +46,9 @@ test: python-test
 .SUFFIXES:
 
 include src/Makefrag
-include src/shared/Makefrag
-include src/server/Makefrag
+include src/MakefragServer
 include src/MakefragBackup
-include src/client/Makefrag
+include src/MakefragClient
 include src/MakefragTest
 include bindings/python/Makefrag
 

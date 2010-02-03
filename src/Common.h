@@ -13,47 +13,29 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Common.h>
+#ifndef RAMCLOUD_COMMON_H
+#define RAMCLOUD_COMMON_H
 
-#include <Server.h>
-#include <Net.h>
-#include <BackupServer.h>
+#include <config.h>
+
 #include <rcrpc.h>
 
-#include <cppunit/extensions/HelperMacros.h>
-
-#include <string>
+#include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <memory>
 
-// Override settings in config.h
-#define SVRADDR "127.0.0.1"
-#define SVRPORT  11111
+#define PRIu64 "lu"
+#define PRIx64 "lx"
 
-#define CLNTADDR "127.0.0.1"
-#define CLNTPORT  11111
+// A macro to disallow the copy constructor and operator= functions
+// This should be used in the private: declarations for a class
+#define DISALLOW_COPY_AND_ASSIGN(TypeName) \
+    TypeName(const TypeName&);             \
+    void operator=(const TypeName&)
 
-#define BACKUPSVRADDR "127.0.0.1"
-#define BACKUPSVRPORT  11111
+void debug_dump64(const void *buf, uint64_t bytes);
+uint64_t rdtsc();
 
-#define BACKUPCLNTADDR "127.0.0.1"
-#define BACKUPCLNTPORT  11111
-
-class ServerTest : public CppUnit::TestFixture {
-  public:
-    void setUp();
-    void tearDown();
-  private:
-    CPPUNIT_TEST_SUITE(ServerTest);
-    CPPUNIT_TEST_SUITE_END();
-};
-CPPUNIT_TEST_SUITE_REGISTRATION(ServerTest);
-
-void
-ServerTest::setUp()
-{
-}
-
-void
-ServerTest::tearDown()
-{
-}
+#endif
