@@ -47,8 +47,10 @@ class LogEntryIterator {
     DISALLOW_COPY_AND_ASSIGN(LogEntryIterator);
 };
 
-typedef void (*log_eviction_cb_t)(log_entry_type_t, const void *, const uint64_t, void *);
-typedef void (*log_entry_cb_t)(log_entry_type_t, const void *, const uint64_t, void *);
+typedef void (*log_eviction_cb_t)(log_entry_type_t, const void *,
+                                  const uint64_t, void *);
+typedef void (*log_entry_cb_t)(log_entry_type_t,
+                               const void *, const uint64_t, void *);
 typedef void (*log_segment_cb_t)(Segment *, void *);
 
 class Log {
@@ -57,13 +59,15 @@ class Log {
        ~Log();
 	const void *append(log_entry_type_t, const void *, uint64_t);
 	void        free(log_entry_type_t, const void *, uint64_t);
-	bool        registerType(log_entry_type_t, log_eviction_cb_t, void *);
+	void        registerType(log_entry_type_t, log_eviction_cb_t, void *);
 	void        printStats();
 	uint64_t    getMaximumAppend();
-	void init();
-	uint64_t restore();
-	void forEachSegment(log_segment_cb_t, uint64_t, void *);
-	void forEachEntry(const Segment *, log_entry_cb_t, void *);
+	void        init();
+	uint64_t    restore();
+    bool        isSegmentLive(uint64_t) const;
+    void        getSegmentIdOffset(const void *, uint64_t *, uint32_t *) const;
+	void        forEachSegment(log_segment_cb_t, uint64_t, void *);
+	void        forEachEntry(const Segment *, log_entry_cb_t, void *);
 
   private:
 	void        clean(void);
@@ -71,23 +75,27 @@ class Log {
 	void        checksumHead();
 	void        retireHead();
 	const void *appendAnyType(log_entry_type_t, const void *, uint64_t);
+    uint64_t    allocateSegmentId();
 	log_eviction_cb_t getEvictionCallback(log_entry_type_t, void **);
-	Segment    *getSegment(const void *, uint64_t);
+	Segment    *getSegment(const void *, uint64_t) const;
 
-	//XXX- fixme: should be extensible
-	log_eviction_cb_t callback;
-	log_entry_type_t  callback_type;
-	void		 *callback_cookie;
+    struct {
+        log_eviction_cb_t cb;
+        log_entry_type_t  type;
+        void		     *cookie;
+    } callbacks[10];
+    int      numCallbacks;
 
-	uint64_t max_append;		// max bytes append() can ever take
-	uint64_t segment_size;		// size of each segment in bytes
+    uint64_t nextSegmentId; // next segment Id
+	uint64_t max_append;	// max bytes append() can ever take
+	uint64_t segment_size;	// size of each segment in bytes
 	void    *base;			// base of all segments
 	Segment **segments;		// array of all segments
 	Segment *head;			// head of the log
 	Segment *free_list;		// free (utilization == 0) segments
 	uint64_t nsegments;		// total number of segments in the system
-	uint64_t nfree_list;		// number of segments in free list
-	uint64_t bytes_stored;		// bytes stored in the log (non-metadata only)
+	uint64_t nfree_list;	// number of segments in free list
+	uint64_t bytes_stored;	// bytes stored in the log (non-metadata only)
 	bool     cleaning;		// presently cleaning the log
 	BackupClient *backup;
 	DISALLOW_COPY_AND_ASSIGN(Log);

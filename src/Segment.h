@@ -22,11 +22,14 @@
 
 namespace RAMCloud {
 
+#define SEGMENT_INVALID_ID  0
+
 class Segment {
   public:
-	Segment(uint64_t, void *, const uint64_t, BackupClient *);
-       ~Segment();
-	void        reset(uint64_t);
+	Segment(void *, const uint64_t, BackupClient *);
+   ~Segment();
+	void        ready(uint64_t);
+	void        reset();
 	const void *append(const void *, const uint64_t);
 	void        free(uint64_t);
 	const void *getBase() const;
@@ -39,17 +42,17 @@ class Segment {
 	void	 restore(uint64_t restore_seg_id);
 	Segment *link(Segment *n);
 	Segment *unlink();
-        void setUsedBytes(uint64_t ub) {
-            free_bytes = total_bytes - ub;
-        }
+    void setUsedBytes(uint64_t ub) {
+        free_bytes = total_bytes - ub;
+    }
   private:
 	void     *base;
-	uint64_t  id;			// segment id
-	const uint64_t  total_bytes;		// capacity of the segment
-	uint64_t  free_bytes;		// bytes free in segment (anywhere)
-	uint64_t  tail_bytes;		// bytes free in tail of segment (i.e. never written to)
 	bool      isMutable;
-
+	uint64_t  id;			        // segment id
+	const uint64_t  total_bytes;    // capacity of the segment
+	uint64_t  free_bytes;		    // bytes free in segment (anywhere)
+	uint64_t  tail_bytes;		    // bytes free in tail of segment (i.e.
+                                    // never written to)
 	BackupClient *backup;
 
 	Segment  *next, *prev;

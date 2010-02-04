@@ -385,7 +385,7 @@ BackupServer::GetSegmentMetadata(uint64_t seg_num,
     // Walk the buffer and pull out metadata - need Steve's iter stuff
     // TODO(stutsman) NULL backup_client is dangerous - we may want to
     // make Segment smarter about NULL backups
-    Segment seg(seg_num, &buf[0], SEGMENT_SIZE, 0);
+    Segment seg(&buf[0], SEGMENT_SIZE, 0);
     LogEntryIterator lei(&seg);
 
     if (debug_backup)

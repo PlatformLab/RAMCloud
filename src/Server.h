@@ -26,10 +26,6 @@
 
 namespace RAMCloud {
 
-struct object_mutable {
-    uint64_t refcnt;
-};
-
 #define DECLARE_OBJECT(name, el) \
     char name##_buf[sizeof(object) + (el)] __attribute__((aligned (8))); \
     object *name = new(name##_buf) object(sizeof(name##_buf)); \
@@ -44,7 +40,7 @@ struct object {
      * a buffer instead.
      */
     object(size_t buf_size) : key(-1), table(-1), version(-1), checksum(0),
-                              is_tombstone(false), mut(NULL), data_len(0) {
+                              data_len(0) {
         assert(buf_size >= sizeof(*this));
     }
 
@@ -58,13 +54,16 @@ struct object {
     uint64_t table;
     uint64_t version;
     uint64_t checksum;
-    bool is_tombstone;
-    object_mutable *mut;
     uint64_t data_len;
     char data[0];
 
   private:
     DISALLOW_COPY_AND_ASSIGN(object);
+};
+
+struct object_tombstone {
+    uint64_t segmentId;
+    uint32_t segmentOffset;
 };
 
 class Table {
@@ -155,7 +154,11 @@ class Server {
     Net *net;
     BackupClient backup;
     Table tables[RC_NUM_TABLES];
-    friend void LogEvictionCallback(log_entry_type_t type,
+    friend void ObjectEvictionCallback(log_entry_type_t type,
+                                    const void *p,
+                                    uint64_t len,
+                                    void *cookie);
+    friend void TombstoneEvictionCallback(log_entry_type_t type,
                                     const void *p,
                                     uint64_t len,
                                     void *cookie);

@@ -20,7 +20,11 @@ namespace RAMCloud {
 
 const bool server_debug = false;
 
-void LogEvictionCallback(log_entry_type_t type,
+void ObjectEvictionCallback(log_entry_type_t type,
+                         const void *p,
+                         uint64_t len,
+                         void *cookie);
+void TombstoneEvictionCallback(log_entry_type_t type,
                          const void *p,
                          uint64_t len,
                          void *cookie);
@@ -40,7 +44,9 @@ Server::Server(const ServerConfig *sconfig, Net *net_impl)
     }
 
     log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, &backup);
-    log->registerType(LOG_ENTRY_TYPE_OBJECT, LogEvictionCallback, this);
+    log->registerType(LOG_ENTRY_TYPE_OBJECT, ObjectEvictionCallback, this);
+    log->registerType(LOG_ENTRY_TYPE_OBJECT_TOMBSTONE,
+        TombstoneEvictionCallback, this);
 }
 
 Server::~Server()
@@ -95,9 +101,7 @@ Server::Read(const rcrpc_read_request *req, rcrpc_read_response *resp)
 
     Table *t = &tables[req->table];
     const object *o = t->Get(req->key);
-    if (!o || o->is_tombstone) {
-        if (o && o->is_tombstone)
-            assert(o->mut->refcnt > 0); 
+    if (!o) {
         /* automatic reject: can't read a non-existent object */
         /* leave RCRPC_VERSION_NONE in resp->version */
         return;
@@ -113,93 +117,75 @@ Server::Read(const rcrpc_read_request *req, rcrpc_read_response *resp)
     }
 }
 
-// The log code is cleaning a segment and telling us that this object is
-// getting evicted. If we care about it, we must re-write it to the head
-// of the log and update any pointers to it. If we don't care, we do not
-// write it back out, but may have to update some metadata.
-//
-// We care to preserve the object when one of the following holds:
-//   1) This is a live object (is referenced by the hash table).
-//   2) This is a live tombstone (is referenced by the hash table, which
-//      implies that the reference count is > 0).
-//
-// We don't care to preserve it in all other cases, however:
-//   i) If this is an older version of an object, we need to fix the
-//      reference count of what's in the hash table (whether it be an object,
-//      or a tombstone).
-//  ii) If the hash table points to a tombstone and the reference count drops
-//      to 0, after i) above, remove the entry from the hash table. The log
-//      will clean the tombstone eventually.
+/*
+ * Called by the log cleaner when it's cleaning a segment and evicts
+ * an object.
+
+ * Objects must be perpetuated when the object being evicted is
+ * exactly the object referenced by the hash table. Otherwise, it's
+ * an old object and a tombstone for it exists.
+ */
 void
-LogEvictionCallback(log_entry_type_t type,
+ObjectEvictionCallback(log_entry_type_t type,
                     const void *p,
                     uint64_t len,
                     void *cookie)
 {
-    const object *evict_obj = reinterpret_cast<const object *>(p);
     Server *svr = reinterpret_cast<Server *>(cookie);
-
-    assert(evict_obj != NULL);
     assert(svr != NULL);
-
-    Table *tbl = &svr->tables[evict_obj->table];
-    assert(tbl != NULL);
 
     Log *log = svr->log;
     assert(log != NULL);
 
+    const object *evict_obj = reinterpret_cast<const object *>(p);
+    assert(evict_obj != NULL);
+
+    Table *tbl = &svr->tables[evict_obj->table];
+    assert(tbl != NULL);
+
     const object *tbl_obj = tbl->Get(evict_obj->key);
+
+    // simple pointer comparison suffices
     if (tbl_obj == evict_obj) {
-        // same object/tombstone: be sure to preserve whatever it is
-
-        if (tbl_obj->is_tombstone)
-            assert(tbl_obj->mut->refcnt > 0);
-
-        const object *objp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT,
-                                                         evict_obj,
-                                                         evict_obj->size());
+        const object *objp = (const object *)log->append(
+            LOG_ENTRY_TYPE_OBJECT, evict_obj, evict_obj->size());
         assert(objp != NULL);
         tbl->Put(evict_obj->key, objp);
-    } else {
-        // different object/tombstone: drop it, but be careful with
-        // bookkeeping
-        //
-        // 5 cases:
-        //          Evicted Object       Current Table Object
-        //     ----------------------------------------------------
-        //     1)   old tombstone           NULL
-        //     2)   old tombstone           new tombstone
-        //     3)   old tombstone           new object
-        //     4)   old object              new tombstone
-        //     5)   old object              new object
+    }
+}
 
-        if (tbl_obj == NULL) {
-            // case 1
-            assert(evict_obj->is_tombstone);
-        } else {
-            if (!evict_obj->is_tombstone) {
-                // cases 4 and 5:
-                //   drop the refcnt and if it equals 0, a tombstone referenced by
-                //   the hash table is freed.
+/*
+ * Called by the log cleaner when it's cleaning a segment and evicts
+ * a tombstone.
+ *
+ * Tombstones are perpetuated when the segment they reference is still
+ * valid in the system.
+ *
+ * We can be more aggressive in cleaning tombstones (e.g. a tombstone can
+ * be cleared before its referant object if a newer object or tombstone
+ * exists), but we don't worry about that now.
+ */
+void
+TombstoneEvictionCallback(log_entry_type_t type,
+                    const void *p,
+                    uint64_t len,
+                    void *cookie)
+{
+    Server *svr = reinterpret_cast<Server *>(cookie);
+    assert(svr != NULL);
 
-                object_mutable *evict_objm = evict_obj->mut;
-                assert(evict_objm != NULL);
+    Log *log = svr->log;
+    assert(log != NULL);
 
-                assert(evict_objm->refcnt > 0);
-                evict_objm->refcnt--;
+    const object_tombstone *tomb =
+        reinterpret_cast<const object_tombstone *>(p);
+    assert(tomb != NULL);
 
-                if (evict_objm->refcnt == 0) {
-                    // case 4 only
-                    assert(tbl_obj->is_tombstone);
-                    log->free(LOG_ENTRY_TYPE_OBJECT, tbl_obj, tbl_obj->size());
-                    tbl->Delete(tbl_obj->key);
-                    delete tbl_obj->mut;
-                }
-            } else {
-                // cases 2 and 3:
-                //   nothing to do when evicting old tombstones
-            }
-        }
+    // see if the referant is still there
+    if (log->isSegmentLive(tomb->segmentId)) {
+        const void *ret = log->append(
+            LOG_ENTRY_TYPE_OBJECT_TOMBSTONE, tomb, sizeof(*tomb));
+        assert(ret != NULL);
     }
 }
 
@@ -213,51 +199,39 @@ Server::StoreData(uint64_t table,
 {
     Table *t = &tables[table];
     const object *o = t->Get(key);
-    object_mutable *om = NULL;
 
     if (o != NULL) {
         if (RejectOperation(reject_rules, o->version)) {
             *new_version = o->version;
             return false;
         }
-        // steal the extant guy's mutable space. this will contain the proper
-        // reference count.
-        om = o->mut;
-        assert(om != NULL);
-        assert(om->refcnt > 0 || o->is_tombstone);
     } else {
         if (RejectOperation(reject_rules, RCRPC_VERSION_NONE)) {
             *new_version = RCRPC_VERSION_NONE;
             return false;
         }
-        om = new object_mutable;
-        assert(om);
-        om->refcnt = 0;
     }
 
     DECLARE_OBJECT(new_o, buf_len);
-
-    new_o->mut = om;
-    om->refcnt++;
 
     new_o->key = key;
     new_o->table = table;
     new_o->version = t->AllocateVersion();
     assert(o == NULL || new_o->version > o->version);
-    new_o->is_tombstone = false;
     // TODO dm's super-fast checksum here
     new_o->checksum = 0x0BE70BE70BE70BE7ULL;
     new_o->data_len = buf_len;
     memcpy(new_o->data, buf, buf_len);
 
     // mark the old object as freed _before_ writing the new object to the log.
-    // if we do it afterwards, the log cleaner could be triggered and `o' reclaimed
-    // before log->append() returns. The subsequent free breaks, as that segment may
-    // have been reset.
+    // if we do it afterwards, the log cleaner could be triggered and `o'
+    // reclaimed // before log->append() returns. The subsequent free breaks,
+    // as that segment may have been reset.
     if (o != NULL)
         log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
 
-    const object *objp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, new_o, new_o->size());
+    const object *objp = (const object *)log->append(
+        LOG_ENTRY_TYPE_OBJECT, new_o, new_o->size());
     assert(objp != NULL);
     t->Put(key, objp);
 
@@ -308,17 +282,12 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
 
     Table *t = &tables[req->table];
     const object *o = t->Get(req->key);
-    if (!o || o->is_tombstone) {
-        if (o && o->is_tombstone)
-            assert(o->mut->refcnt > 0);
+    if (!o) {
         /* leave RCRPC_VERSION_NONE in resp->version */
         if (!RejectOperation(&req->reject_rules, RCRPC_VERSION_NONE))
             resp->deleted = true;
         return;
     }
-
-    assert(o->mut != NULL);
-    assert(o->mut->refcnt > 0);
 
     // abort if we're trying to delete the wrong version
     // the client will note the discrepancy and figure it out
@@ -328,22 +297,16 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
     }
     resp->deleted = true;
 
-    DECLARE_OBJECT(tomb_o, 0);
-    tomb_o->key = o->key;
-    tomb_o->table = o->table;
-    tomb_o->checksum = 0;
-    tomb_o->mut = o->mut;
-    tomb_o->is_tombstone = true;
-    tomb_o->data_len = 0;
-    tomb_o->version = t->AllocateVersion();
+    object_tombstone tomb;
+    log->getSegmentIdOffset(o, &tomb.segmentId, &tomb.segmentOffset);
 
-    // `o' may be relocated in the log when we append, before the tombstone is written, so
-    // we must either mark the space as free first, or refetch from the hash table afterwards
+    // mark the deleted object as free first, since the append could
+    // invalidate it
     log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
-    const object *tombp = (const object *)log->append(LOG_ENTRY_TYPE_OBJECT, tomb_o, tomb_o->size());
-    assert(tombp);
-
-    t->Put(req->key, tombp);
+    const void *ret = log->append(
+        LOG_ENTRY_TYPE_OBJECT_TOMBSTONE, &tomb, sizeof(tomb));
+    assert(ret);
+    t->Delete(req->key);
 }
 
 void
@@ -447,6 +410,9 @@ ObjectReplayCallback(log_entry_type_t type,
         table->Delete(obj->key);
         table->Put(obj->key, obj);
     }
+        break;
+    case LOG_ENTRY_TYPE_OBJECT_TOMBSTONE:
+        assert(false);  //XXX- fixme
         break;
     case LOG_ENTRY_TYPE_SEGMENT_HEADER:
     case LOG_ENTRY_TYPE_SEGMENT_CHECKSUM:
