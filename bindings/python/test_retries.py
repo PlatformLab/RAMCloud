@@ -18,39 +18,38 @@
 
 """
 
+from __future__ import with_statement
+
 import unittest
 import random
 
+from testutil import Counter
 import retries
 
 class TestImmediateRetry(unittest.TestCase):
     def test_fallthrough(self):
-        i = 0
-        for retry in retries.ImmediateRetry():
-            self.assertEqual(i, 0)
-            self.assertEqual(retry.count, i)
-            self.assertEqual(int(retry), i)
-            self.assertEqual(retry.need_retry, False)
-            i += 1
-        self.assertEqual(i, 1)
-        self.assertEqual(retry.count, i)
-        self.assertEqual(int(retry), i)
+        with Counter(self, 1) as counter:
+            for retry in retries.ImmediateRetry():
+                i = counter.bump()
+                self.assertEqual(retry.count, i)
+                self.assertEqual(int(retry), i)
+                self.assertEqual(retry.need_retry, False)
+        self.assertEqual(retry.count, 1)
+        self.assertEqual(int(retry), 1)
         self.assertEqual(retry.need_retry, False)
 
     def test_immediate(self):
-        i = 0
-        for retry in retries.ImmediateRetry():
-            self.assertEqual(retry.need_retry, False)
-            if i == 0:
-                retry.immediate()
-                self.assertEqual(retry.need_retry, True)
-            self.assert_(i == 0 or i == 1)
-            self.assertEqual(retry.count, i)
-            self.assertEqual(int(retry), i)
-            i += 1
-        self.assertEqual(i, 2)
-        self.assertEqual(retry.count, i)
-        self.assertEqual(int(retry), i)
+        with Counter(self, 2) as counter:
+            for retry in retries.ImmediateRetry():
+                i = counter.bump()
+                self.assertEqual(retry.need_retry, False)
+                if i == 0:
+                    retry.immediate()
+                    self.assertEqual(retry.need_retry, True)
+                self.assertEqual(retry.count, i)
+                self.assertEqual(int(retry), i)
+        self.assertEqual(retry.count, 2)
+        self.assertEqual(int(retry), 2)
         self.assertEqual(retry.need_retry, False)
 
     def test_later(self):
@@ -72,98 +71,85 @@ class TestBackoffRetry(unittest.TestCase):
         return lambda t: self.fail('slept')
 
     def test_fallthrough(self):
-        i = 0
-        for retry in retries.BackoffRetry(iter([5]), self.caffeine()):
-            self.assertEqual(i, 0)
-            self.assertEqual(retry.count, i)
-            self.assertEqual(int(retry), i)
-            self.assertEqual(retry.need_retry, False)
-            i += 1
-        self.assertEqual(i, 1)
-        self.assertEqual(retry.count, i)
-        self.assertEqual(int(retry), i)
+        with Counter(self, 1) as counter:
+            for retry in retries.BackoffRetry(iter([5]), self.caffeine()):
+                i = counter.bump()
+                self.assertEqual(retry.count, i)
+                self.assertEqual(int(retry), i)
+                self.assertEqual(retry.need_retry, False)
+        self.assertEqual(retry.count, 1)
+        self.assertEqual(int(retry), 1)
         self.assertEqual(retry.need_retry, False)
 
     def test_later(self):
-        i = 0
-        for retry in retries.BackoffRetry(iter([5]),
-                                          self.sleep_func(iter([5]))):
-            self.assertEqual(retry.need_retry, False)
-            if i == 0:
-                retry.later()
-                self.assertEqual(retry.need_retry, True)
-            self.assert_(i == 0 or i == 1)
-            self.assertEqual(retry.count, i)
-            self.assertEqual(int(retry), i)
-            i += 1
-        self.assertEqual(i, 2)
-        self.assertEqual(retry.count, i)
-        self.assertEqual(int(retry), i)
+        with Counter(self, 2) as counter:
+            for retry in retries.BackoffRetry(iter([5]),
+                                              self.sleep_func(iter([5]))):
+                i = counter.bump()
+                self.assertEqual(retry.need_retry, False)
+                if i == 0:
+                    retry.later()
+                    self.assertEqual(retry.need_retry, True)
+                self.assertEqual(retry.count, i)
+                self.assertEqual(int(retry), i)
+        self.assertEqual(retry.count, 2)
+        self.assertEqual(int(retry), 2)
         self.assertEqual(retry.need_retry, False)
 
     def test_immediate(self):
-        i = 0
-        for retry in retries.BackoffRetry(iter([5]),
-                                          self.sleep_func(iter([5]))):
-            self.assertEqual(retry.need_retry, False)
-            if i == 0:
-                retry.immediate()
-                self.assertEqual(retry.need_retry, True)
-            elif i == 1:
-                retry.later()
-                self.assertEqual(retry.need_retry, True)
-            elif i == 2:
-                retry.immediate()
-                self.assertEqual(retry.need_retry, True)
-            elif i == 3:
-                pass
-            else:
-                self.fail()
-            self.assertEqual(retry.count, i)
-            self.assertEqual(int(retry), i)
-            i += 1
-        self.assertEqual(i, 4)
-        self.assertEqual(retry.count, i)
-        self.assertEqual(int(retry), i)
+        with Counter(self, 4) as counter:
+            for retry in retries.BackoffRetry(iter([5]),
+                                              self.sleep_func(iter([5]))):
+                i = counter.bump()
+                self.assertEqual(retry.need_retry, False)
+                if i == 0:
+                    retry.immediate()
+                    self.assertEqual(retry.need_retry, True)
+                elif i == 1:
+                    retry.later()
+                    self.assertEqual(retry.need_retry, True)
+                elif i == 2:
+                    retry.immediate()
+                    self.assertEqual(retry.need_retry, True)
+                elif i == 3:
+                    pass
+                else:
+                    self.fail()
+                self.assertEqual(retry.count, i)
+                self.assertEqual(int(retry), i)
+        self.assertEqual(retry.count, 4)
+        self.assertEqual(int(retry), 4)
         self.assertEqual(retry.need_retry, False)
 
     def test_immediate_later(self):
-        i = 0
-        for retry in retries.BackoffRetry(iter([5]),
-                                          self.sleep_func(iter([5]))):
-            if i == 0:
-                retry.immediate()
-                retry.later()
-            i += 1
-        self.assertEqual(i, 2)
+        with Counter(self, 2) as counter:
+            for retry in retries.BackoffRetry(iter([5]),
+                                              self.sleep_func(iter([5]))):
+                if counter.bump() == 0:
+                    retry.immediate()
+                    retry.later()
 
     def test_later_immediate(self):
-        i = 0
-        for retry in retries.BackoffRetry(iter([5]),
-                                          self.sleep_func(iter([5]))):
-            if i == 0:
-                retry.later()
-                retry.immediate()
-            i += 1
-        self.assertEqual(i, 2)
+        with Counter(self, 2) as counter:
+            for retry in retries.BackoffRetry(iter([5]),
+                                              self.sleep_func(iter([5]))):
+                if counter.bump() == 0:
+                    retry.later()
+                    retry.immediate()
 
     def test_emptyiter(self):
-        i = 0
-        for retry in retries.BackoffRetry(iter([]),
-                                          self.sleep_func(iter([0,0]))):
-            if i < 2:
-                retry.later()
-            i += 1
-        self.assertEqual(i, 3)
+        with Counter(self, 3) as counter:
+            for retry in retries.BackoffRetry(iter([]),
+                                              self.sleep_func(iter([0,0]))):
+                if counter.bump() < 2:
+                    retry.later()
 
     def test_stopiter(self):
-        i = 0
-        for retry in retries.BackoffRetry(iter([7,8]),
-                                          self.sleep_func(iter([7,8,8,8]))):
-            if i < 3:
-                retry.later()
-            i += 1
-        self.assertEqual(i, 4)
+        with Counter(self, 4) as counter:
+            for retry in retries.BackoffRetry(iter([7,8]),
+                                              self.sleep_func(iter([7,8,8,8]))):
+                if counter.bump() < 3:
+                    retry.later()
 
 class TestExponentialBackoff(unittest.TestCase):
     def test_normal(self):
