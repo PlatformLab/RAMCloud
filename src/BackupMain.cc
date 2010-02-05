@@ -13,10 +13,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * \file
+ * Provides a way to launch a standalone backup server.
+ */
+
 #include <config.h>
 
 #include <BackupServer.h>
 
+/**
+ * Instantiates a backup server using the configuration information in
+ * config.h.  The backup server runs forever awaiting requests from
+ * master servers.
+ */
 int
 main()
 {

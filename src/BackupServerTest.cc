@@ -13,6 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * \file
+ * Unit tests for BackupServer.
+ */
+
 #include <BackupServer.h>
 
 #include <backuprpc.h>
@@ -34,140 +39,195 @@ namespace RAMCloud {
 
 static const char *LOG_PATH = "/tmp/rctest.log";
 
+/**
+ * Unit tests for BackupServer.
+ */
 class BackupServerTest : public CppUnit::TestFixture {
     Net *net;
-    BackupServer *backup;
+
+    const std::string testMessage;
     DISALLOW_COPY_AND_ASSIGN(BackupServerTest);
 
     CPPUNIT_TEST_SUITE(BackupServerTest);
-    CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_write);
-    CPPUNIT_TEST(test_commit);
-    CPPUNIT_TEST(test_free);
+    CPPUNIT_TEST(test_constructor_normal);
+    CPPUNIT_TEST(test_constructor_badPath);
+    CPPUNIT_TEST(test_write_badSegmentNumber);
+    CPPUNIT_TEST(test_write_normal);
+    CPPUNIT_TEST(test_write_dataTooLarge);
+    CPPUNIT_TEST(test_write_offsetTooLarge);
+    CPPUNIT_TEST(test_write_overflow);
+    CPPUNIT_TEST(test_commit_normal);
+    CPPUNIT_TEST(test_commit_quirky);
+    CPPUNIT_TEST(test_commit_commitWithoutWrite);
+    CPPUNIT_TEST(test_free_badSegmentNumber);
+    CPPUNIT_TEST(test_free_nonexistantSegmentNumber);
+    CPPUNIT_TEST(test_free_normal);
+    CPPUNIT_TEST(test_free_previouslyFreed);
     CPPUNIT_TEST(test_getSegmentList);
+    CPPUNIT_TEST(test_frameForSegNum);
+    CPPUNIT_TEST(test_flush);
+    CPPUNIT_TEST(test_segFrameOff);
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    BackupServerTest() : net(0), backup(0) {}
+    BackupServerTest() :
+        net(0), testMessage("God hates ponies.")
+    {}
+
+    static void noOp(const char *buf, size_t len)
+    {
+        printf(">>>> %s", buf);
+    }
 
     void
     setUp()
     {
+        net = new MockNet(noOp);
     }
 
     void
     tearDown()
     {
         unlink(LOG_PATH);
-    }
-
-    static void NoOp(const char *buf, size_t len)
-    {
-        printf(">>>> %s", buf);
+        delete net;
     }
 
     void
-    test_constructor()
+    test_constructor_normal()
     {
-        MockNet net(NoOp);
+        BackupServer backup(net, LOG_PATH);
+        // TODO(stutsman) Probably best to check here that the
+        // internal state of the private members are intitalized to
+        // the expected starting state
+    }
 
-        // Normal construction
-        {
-            BackupServer backup(&net, LOG_PATH);
-        }
-        unlink(LOG_PATH);
-
-        // Bad path
+    void
+    test_constructor_badPath()
+    {
         bool threw = false;
         try {
-            BackupServer backup(&net, "/god/hates/ponies/");
-            CPPUNIT_ASSERT(false);
+            BackupServer backup(net, "/god/hates/ponies/");
+            CPPUNIT_ASSERT_MESSAGE("Backup construction should fail on "
+                                   "non-existant directory for log path.",
+                                   false);
         } catch (BackupLogIOException e) {
             threw = true;
         }
         CPPUNIT_ASSERT(threw);
-
-        // TODO(stutsman) There are some other things to test but they are
-        // only compile time selectable for now
     }
 
+    // TODO(stutsman) There are some other things to test in the
+    // constructor but they are only compile time selectable for now
+
+    // Ensure INVALID_SEGMENT_NUM cannot be used
     void
-    test_write()
+    test_write_badSegmentNumber()
     {
-        MockNet net(NoOp);
+        BackupServer backup(net, LOG_PATH);
 
-        BackupServer backup(&net, LOG_PATH);
-
-        const char *msg = "test";
-        const size_t len = strlen(msg) + 1;
-
-        // Ensure INVALID_SEGMENT_NUM cannot be used
         try {
             backup.Write(INVALID_SEGMENT_NUM, 0, "test", 5);
             CPPUNIT_ASSERT(false);
         } catch (BackupException e) {}
+    }
 
-        // Ensure that segments must be committed before new writes
+    // Ensure that segments must be committed before new writes
+    // then check to see if data is correct from first write
+    // TODO(stutsman) This single open segment condition should be
+    // relaxed relatively early in development.
+    void
+    test_write_normal()
+    {
+        BackupServer backup(net, LOG_PATH);
+
         try {
-            backup.Write(0, 0, msg, len);
-            backup.Write(1, 0, msg, len);
+            backup.Write(0, 0, testMessage.c_str(), testMessage.length());
+            backup.Write(1, 0, testMessage.c_str(), testMessage.length());
             CPPUNIT_ASSERT(false);
         } catch (BackupException e) {}
 
-        // Check to see if data is correct from first write
-        CPPUNIT_ASSERT(!strncmp(msg, backup.seg, len));
+        CPPUNIT_ASSERT(!strncmp(testMessage.c_str(),
+                                backup.seg, testMessage.length()));
+    }
 
-        // Test write is too long
+    void
+    test_write_dataTooLarge()
+    {
+        BackupServer backup(net, LOG_PATH);
+
         char buf[SEGMENT_SIZE + 256];
         try {
             backup.Write(0, 0, buf, SEGMENT_SIZE + 256);
             CPPUNIT_ASSERT(false);
         } catch (BackupSegmentOverflowException e) {}
+    }
 
-        // Test offset is bad
+    void
+    test_write_offsetTooLarge()
+    {
+        BackupServer backup(net, LOG_PATH);
+
         try {
-            backup.Write(0, SEGMENT_SIZE, msg, len);
+            backup.Write(0, SEGMENT_SIZE,
+                         testMessage.c_str(), testMessage.length());
             CPPUNIT_ASSERT(false);
         } catch (BackupSegmentOverflowException e) {}
+    }
 
-        // Test offset is ok but runs off the end
+    // Test offset is ok but runs off the end
+    void
+    test_write_overflow()
+    {
+        BackupServer backup(net, LOG_PATH);
+
         try {
-            backup.Write(0, SEGMENT_SIZE - 2, msg, len);
+            backup.Write(0, SEGMENT_SIZE - 2,
+                         testMessage.c_str(), testMessage.length());
             CPPUNIT_ASSERT(false);
         } catch (BackupSegmentOverflowException e) {}
     }
 
     void
-    test_commit()
+    test_commit_normal()
     {
-        MockNet net(NoOp);
-
-        BackupServer backup(&net, LOG_PATH);
-
-        const char *msg = "test";
-        const size_t len = strlen(msg) + 1;
+        BackupServer backup(net, LOG_PATH);
 
         // Simple test - should work
         for (uint64_t seg = 0; seg < 4; seg++) {
-            backup.Write(seg, 0, msg, len);
+            backup.Write(seg, 0, testMessage.c_str(), testMessage.length());
             backup.Commit(seg);
         }
+        // TODO(stutsman) Need to check file to ensure it really
+        // worked
+    }
 
-        /*
-        backup.free_map.Clear(63);
-        backup.free_map.Clear(64);
+    void
+    test_commit_quirky()
+    {
+        BackupServer backup(net, LOG_PATH);
+
+        // TODO(stutsman) Finish me
+        CPPUNIT_ASSERT(false);
+
+        backup.free_map.clear(63);
+        backup.free_map.clear(64);
         // Test what happens when we run out of seg frames
         //for (uint64_t i = 0; i < SEGMENT_FRAMES - 1; i++)
         for (int64_t i = 0; i < 64; i++)
-        backup.free_map.Clear(i);
-        backup.Write(0, 0, msg, len);
+            backup.free_map.clear(i);
+        backup.Write(0, 0, testMessage.c_str(), testMessage.length());
         backup.Commit(0);
         try {
-        backup.Write(1, 0, msg, len);
-        backup.Commit(1);
-        CPPUNIT_ASSERT(false);
+            backup.Write(1, 0, testMessage.c_str(), testMessage.length());
+            backup.Commit(1);
+            CPPUNIT_ASSERT(false);
         } catch (BackupException e) {}
-        */
+    }
+
+    void
+    test_commit_commitWithoutWrite()
+    {
+        BackupServer backup(net, LOG_PATH);
 
         // Try to commit a segment that isn't open
         try {
@@ -177,55 +237,65 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     void
-    test_free()
+    test_free_badSegmentNumber()
     {
-        MockNet net(NoOp);
+        BackupServer backup(net, LOG_PATH);
 
-        BackupServer backup(&net, LOG_PATH);
-
-        // Try to free invalid segment
         try {
             backup.Free(INVALID_SEGMENT_NUM);
             CPPUNIT_ASSERT(false);
         } catch (BackupException e) {}
+    }
 
-        // Try to free non-existent
+    void
+    test_free_nonexistantSegmentNumber()
+    {
+        BackupServer backup(net, LOG_PATH);
+
         try {
             backup.Free(77);
             CPPUNIT_ASSERT(false);
         } catch (BackupException e) {}
+    }
 
-        const char *msg = "test";
-        const size_t len = strlen(msg) + 1;
+    void
+    test_free_normal()
+    {
+        BackupServer backup(net, LOG_PATH);
 
-        backup.Write(76, 0, msg, len);
+        backup.Write(76, 0, testMessage.c_str(), testMessage.length());
         backup.Commit(76);
-        // Normal free
         backup.Free(76);
+    }
+
+    void
+    test_free_previouslyFreed()
+    {
+        BackupServer backup(net, LOG_PATH);
+
+        backup.Write(76, 0, testMessage.c_str(), testMessage.length());
+        backup.Commit(76);
+        backup.Free(76);
+
         try {
             // Try to free non-existent
-            backup.Free(77);
+            backup.Free(76);
             CPPUNIT_ASSERT(false);
         } catch (BackupException e) {}
-
-        // TODO(stutsman) test to ensure we can't free the currently
-        // pinned segframe
     }
+
+    // TODO(stutsman) test to ensure we can't free the currently
+    // pinned segframe
 
     void
     test_getSegmentList()
     {
-        MockNet net(NoOp);
+        BackupServer backup(net, LOG_PATH);
 
-        BackupServer backup(&net, LOG_PATH);
-
-        const char *msg = "test";
-        const size_t len = strlen(msg) + 1;
-
-        backup.Write(76, 0, msg, len);
+        backup.Write(76, 0, testMessage.c_str(), testMessage.length());
         backup.Commit(76);
 
-        backup.Write(82, 0, msg, len);
+        backup.Write(82, 0, testMessage.c_str(), testMessage.length());
         backup.Commit(82);
 
         uint64_t list[2];
@@ -234,6 +304,24 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT(list[0] == 76);
         CPPUNIT_ASSERT(list[1] == 82);
+    }
+
+    void
+    test_frameForSegNum()
+    {
+        CPPUNIT_ASSERT(false);
+    }
+
+    void
+    test_flush()
+    {
+        CPPUNIT_ASSERT(false);
+    }
+
+    void
+    test_segFrameOff()
+    {
+        CPPUNIT_ASSERT(false);
     }
 
 };
