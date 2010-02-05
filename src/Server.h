@@ -18,6 +18,7 @@
 
 #include <Common.h>
 
+#include <Object.h>
 #include <Log.h>
 #include <BackupClient.h>
 
@@ -25,46 +26,6 @@
 #include <Hashtable.h>
 
 namespace RAMCloud {
-
-#define DECLARE_OBJECT(name, el) \
-    char name##_buf[sizeof(object) + (el)] __attribute__((aligned (8))); \
-    object *name = new(name##_buf) object(sizeof(name##_buf)); \
-    assert((reinterpret_cast<uint64_t>(name) & 0x7) == 0);
-
-struct object {
-
-    /*
-     * This buf_size parameter is here to annoy you a little bit if you try
-     * stack-allocating one of these. You'll think twice about it, maybe
-     * realize sizeof(entries) is bogus, and proceed to dynamically allocating
-     * a buffer instead.
-     */
-    object(size_t buf_size) : key(-1), table(-1), version(-1), checksum(0),
-                              data_len(0) {
-        assert(buf_size >= sizeof(*this));
-    }
-
-    size_t size() const {
-        return sizeof(*this) + this->data_len;
-    }
-
-    // WARNING: The hashtable code (for the moment) assumes that the
-    // object's key is the first 64 bits of the struct
-    uint64_t key;
-    uint64_t table;
-    uint64_t version;
-    uint64_t checksum;
-    uint64_t data_len;
-    char data[0];
-
-  private:
-    DISALLOW_COPY_AND_ASSIGN(object);
-};
-
-struct object_tombstone {
-    uint64_t segmentId;
-    uint32_t segmentOffset;
-};
 
 class Table {
   public:
@@ -84,14 +45,14 @@ class Table {
     uint64_t AllocateVersion() {
         return next_version++;
     }
-    const object *Get(uint64_t key) {
+    const Object *Get(uint64_t key) {
         void *val = object_map.Lookup(key);
-        const object *o = static_cast<const object *>(val);
+        const Object *o = static_cast<const Object *>(val);
         return o;
     }
-    void Put(uint64_t key, const object *o) {
+    void Put(uint64_t key, const Object *o) {
         object_map.Delete(key);
-        object_map.Insert(key, const_cast<object *>(o));
+        object_map.Insert(key, const_cast<Object *>(o));
     }
     void Delete(uint64_t key) {
         object_map.Delete(key);

@@ -18,6 +18,7 @@
 
 #include <Common.h>
 
+#include <Object.h>
 #include <LogTypes.h>
 #include <Segment.h>
 #include <BackupClient.h>

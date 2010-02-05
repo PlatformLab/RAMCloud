@@ -100,7 +100,7 @@ Server::Read(const rcrpc_read_request *req, rcrpc_read_response *resp)
     resp->version = RCRPC_VERSION_NONE;
 
     Table *t = &tables[req->table];
-    const object *o = t->Get(req->key);
+    const Object *o = t->Get(req->key);
     if (!o) {
         /* automatic reject: can't read a non-existent object */
         /* leave RCRPC_VERSION_NONE in resp->version */
@@ -137,17 +137,17 @@ ObjectEvictionCallback(log_entry_type_t type,
     Log *log = svr->log;
     assert(log != NULL);
 
-    const object *evict_obj = reinterpret_cast<const object *>(p);
+    const Object *evict_obj = reinterpret_cast<const Object *>(p);
     assert(evict_obj != NULL);
 
     Table *tbl = &svr->tables[evict_obj->table];
     assert(tbl != NULL);
 
-    const object *tbl_obj = tbl->Get(evict_obj->key);
+    const Object *tbl_obj = tbl->Get(evict_obj->key);
 
     // simple pointer comparison suffices
     if (tbl_obj == evict_obj) {
-        const object *objp = (const object *)log->append(
+        const Object *objp = (const Object *)log->append(
             LOG_ENTRY_TYPE_OBJECT, evict_obj, evict_obj->size());
         assert(objp != NULL);
         tbl->Put(evict_obj->key, objp);
@@ -177,8 +177,8 @@ TombstoneEvictionCallback(log_entry_type_t type,
     Log *log = svr->log;
     assert(log != NULL);
 
-    const object_tombstone *tomb =
-        reinterpret_cast<const object_tombstone *>(p);
+    const ObjectTombstone *tomb =
+        reinterpret_cast<const ObjectTombstone *>(p);
     assert(tomb != NULL);
 
     // see if the referant is still there
@@ -198,7 +198,7 @@ Server::StoreData(uint64_t table,
                   uint64_t *new_version)
 {
     Table *t = &tables[table];
-    const object *o = t->Get(key);
+    const Object *o = t->Get(key);
 
     if (o != NULL) {
         if (RejectOperation(reject_rules, o->version)) {
@@ -230,7 +230,7 @@ Server::StoreData(uint64_t table,
     if (o != NULL)
         log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
 
-    const object *objp = (const object *)log->append(
+    const Object *objp = (const Object *)log->append(
         LOG_ENTRY_TYPE_OBJECT, new_o, new_o->size());
     assert(objp != NULL);
     t->Put(key, objp);
@@ -281,7 +281,7 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
     resp->deleted = false;
 
     Table *t = &tables[req->table];
-    const object *o = t->Get(req->key);
+    const Object *o = t->Get(req->key);
     if (!o) {
         /* leave RCRPC_VERSION_NONE in resp->version */
         if (!RejectOperation(&req->reject_rules, RCRPC_VERSION_NONE))
@@ -297,7 +297,7 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
     }
     resp->deleted = true;
 
-    object_tombstone tomb;
+    ObjectTombstone tomb;
     log->getSegmentIdOffset(o, &tomb.segmentId, &tomb.segmentOffset);
 
     // mark the deleted object as free first, since the append could
@@ -401,7 +401,7 @@ ObjectReplayCallback(log_entry_type_t type,
 
     switch (type) {
     case LOG_ENTRY_TYPE_OBJECT: {
-        const object *obj = static_cast<const object *>(p);
+        const Object *obj = static_cast<const Object *>(p);
         assert(obj);
 
         Table *table = &server->tables[obj->table];
