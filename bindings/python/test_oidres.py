@@ -22,8 +22,7 @@ from __future__ import with_statement
 
 import unittest
 
-from testutil import Opaque, Counter
-from test_retries import BreakException, MockRetry
+from testutil import Opaque, Counter, BreakException, MockRetry
 
 import ramcloud
 import retries

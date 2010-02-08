@@ -210,40 +210,5 @@ class TestRandomBackoff(unittest.TestCase):
         for r in self.rand:
             self.assertAlmostEqual(wti.next(), r)
 
-# Utilities for unit testing:
-
-class BreakException(Exception):
-    pass
-
-def MockRetry(tc, expect_immediate=False, expect_later=False):
-    expect = {'immediate': expect_immediate, 'later': expect_later}
-    class xMockRetry(retries.ImmediateRetry):
-        def next(self):
-            r = retries.ImmediateRetry.next(self)
-            if self.count == 1:
-                raise BreakException
-            return r
-
-        def immediate(self):
-            if expect['immediate']:
-                expect['immediate'] = False
-                retries.ImmediateRetry.immediate(self)
-            else:
-                tc.fail()
-
-        def later(self):
-            if expect['later']:
-                expect['later'] = False
-                retries.ImmediateRetry.later(self)
-            else:
-                tc.fail()
-
-        @staticmethod
-        def done():
-            tc.assertFalse(expect['immediate'])
-            tc.assertFalse(expect['later'])
-
-    return xMockRetry
-
 if __name__ == '__main__':
     unittest.main()

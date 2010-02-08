@@ -14,6 +14,12 @@
 
 """Utilities for unit tests."""
 
+import retries
+
+class BreakException(Exception):
+    """Break out of a unit test early."""
+    pass
+
 class Opaque(object):
     """A serializable object that equals only itself."""
 
@@ -112,3 +118,87 @@ class Counter(object):
                 # If there was already an exception, I'm betting it's more
                 # interesting.
                 print "Suppressed exception from Counter.__exit__()"
+
+class MockRetry(retries.ImmediateRetry):
+    """A mock implementation of a L{retries.ImmediateRetry}.
+
+    This retry implementation only runs for a single iteration, which is usually
+    enough.
+    """
+
+    def __init__(self, tc, expect_immediate=False, expect_later=False):
+        """
+        @param tc: The test case with which to make assertions.
+        @type  tc: C{unittest.TestCase}
+
+        @param expect_immediate: Whether to expect a call to L{immediate}.
+        @type  expect_immediate: C{bool}
+
+        @param expect_later: Whether to expect a call to L{later}.
+        @type  expect_later: C{bool}
+        """
+
+        retries.ImmediateRetry.__init__(self)
+        self.tc = tc
+        self.expect_immediate = expect_immediate
+        self.expect_later = expect_later
+
+    def __call__(self):
+        """Reinitialized this instance.
+
+        This way L{MockRetry} behaves somewhat like a class.
+
+        @return: this instance
+        @rtype:  L{MockRetry}
+        """
+
+        retries.ImmediateRetry.__init__(self)
+        return self
+
+    def next(self):
+        r = retries.ImmediateRetry.next(self)
+        if self.count == 1:
+            raise BreakException
+        return r
+
+    def immediate(self):
+        self.tc.assert_(self.expect_immediate)
+        self.expect_immediate = False
+        retries.ImmediateRetry.immediate(self)
+
+    def later(self):
+        self.tc.assert_(self.expect_later)
+        self.expect_later = False
+        retries.ImmediateRetry.later(self)
+
+    def done(self):
+        """Ensures C{expect_immediate} and C{expect_later} have been
+        satisfied."""
+
+        self.tc.assertFalse(self.expect_immediate)
+        self.tc.assertFalse(self.expect_later)
+
+    def __enter__(self):
+        """No op.
+
+        @return: this instance
+        @rtype:  L{MockRetry}
+        """
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Wrapper for L{done}.
+
+        Prefers existing exceptions over those caused by L{done}.
+        """
+
+        try:
+            self.done()
+        except:
+            if exc_type is None:
+                raise
+            else:
+                # If there was already an exception, I'm betting it's more
+                # interesting.
+                print "Suppressed exception from MockRetry.__exit__()"
