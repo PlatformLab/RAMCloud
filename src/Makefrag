@@ -1,3 +1,5 @@
+OBJDIRS += $(OBJDIR)
+
 SHARED_NET_SRCFILES := src/net_udp.c \
                        src/net_user.c \
                        src/net_tcp.c

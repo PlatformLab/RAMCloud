@@ -25,49 +25,49 @@
 #include <Log.h>
 
 #include <cstdio>
-#include <cassert>
 
 #include <cerrno>
 
 namespace RAMCloud {
 
 const bool debug_rpc = false;
-const bool debug_backup = false;
+const bool debug_backup = true;
 
 static const uint64_t RESP_BUF_LEN = (1 << 20);
 
 BackupException::~BackupException() {}
 
 BackupServer::BackupServer(Net *net_impl, const char *logPath)
-    : net(net_impl), log_fd(-1), seg(0), unaligned_seg(0),
-      seg_num(INVALID_SEGMENT_NUM), free_map(true)
+    : net(net_impl), logFD(-1), seg(0), unalignedSeg(0),
+      openSegNum(INVALID_SEGMENT_NUM), freeMap(true)
 {
-    log_fd = open(logPath,
+    logFD = open(logPath,
                   O_CREAT | O_RDWR | BACKUP_LOG_FLAGS,
                   0666);
-    if (log_fd == -1)
+    if (logFD == -1)
         throw BackupLogIOException(errno);
 
     const int pagesize = getpagesize();
-    unaligned_seg = reinterpret_cast<char *>(malloc(SEGMENT_SIZE + pagesize));
-    assert(unaligned_seg);
-    seg = reinterpret_cast<char *>(((reinterpret_cast<intptr_t>(unaligned_seg) +
-                                     pagesize - 1) /
-                                    pagesize) * pagesize);
+    unalignedSeg = reinterpret_cast<char *>(malloc(SEGMENT_SIZE + pagesize));
+    assert(unalignedSeg != 0);
+    seg = reinterpret_cast<char *>(
+        ((reinterpret_cast<intptr_t>(unalignedSeg) +
+          pagesize - 1) /
+         pagesize) * pagesize);
 
     if (!(BACKUP_LOG_FLAGS & O_DIRECT))
-        ReserveSpace();
+        reserveSpace();
 
     for (uint64_t i = 0; i < SEGMENT_FRAMES; i++)
-        segments[i] = INVALID_SEGMENT_NUM;
+        segmentAtFrame[i] = INVALID_SEGMENT_NUM;
 }
 
 BackupServer::~BackupServer()
 {
-    Flush();
-    free(unaligned_seg);
+    flushSegment();
+    free(unalignedSeg);
 
-    int r = close(log_fd);
+    int r = close(logFD);
     if (r == -1) {
         // TODO(stutsman) need to check to see if we are aborting already
         // is this really worth throwing over?  It'll likely cause an abort
@@ -86,23 +86,23 @@ BackupServer::~BackupServer()
  * reserved
  */
 void
-BackupServer::ReserveSpace()
+BackupServer::reserveSpace()
 {
     if (debug_backup)
         printf("Reserving %llu bytes of log space\n", LOG_SPACE);
-    int r = ftruncate(log_fd, LOG_SPACE);
+    int r = ftruncate(logFD, LOG_SPACE);
     if (r == -1)
         throw BackupLogIOException(errno);
 }
 
 void
-BackupServer::SendRPC(struct backup_rpc *rpc)
+BackupServer::sendRPC(struct backup_rpc *rpc)
 {
     net->Send(rpc, rpc->hdr.len);
 }
 
 void
-BackupServer::RecvRPC(struct backup_rpc **rpc)
+BackupServer::recvRPC(struct backup_rpc **rpc)
 {
     size_t len = net->Recv(reinterpret_cast<void**>(rpc));
     assert(len == (*rpc)->hdr.len);
@@ -112,82 +112,90 @@ BackupServer::RecvRPC(struct backup_rpc **rpc)
  * Store an opaque string of bytes in a currently \a open segment on
  * this backup server.
  *
- * \param[in]  seg_num  the target segment to update
- * \param[in]  off      the offset into this segment
- * \param[in]  data     a pointer to the start of the opaque byte
- *                      string
- * \param[in]  len      the size of the byte string
- * \exception  BackupException if INVALID_SEGMENT_NUM is passed as
- *                      seg_num or another segment was written to
- *                      without a following Commit() before
- *                      writing to this seg_num
- * \exception  BackupSegmentOverflowException if len + offset is
- *                      beyond the end of the segment
- * \bug Currently, the backup only allows writes to a single, open
- * segment.  If a master tries to write to another segment before
- * calling Commit() the write will fail.  The precise interface for
- * multi-segment operation need to be defined.
-*/
+ * \param[in] segNum
+ *     the target segment to update
+ * \param[in] offset
+ *     the offset into this segment
+ * \param[in] data
+ *     a pointer to the start of the opaque byte string
+ * \param[in] len
+ *     the size of the byte string
+ * \exception BackupException
+ *     If INVALID_SEGMENT_NUM is passed as
+ *     seg_num or another segment was written to without a following
+ *     commitSegment() before writing to this segNum.
+ * \exception BackupSegmentOverflowException
+ *     If len + offset is beyond the end of the segment.
+ * \bug
+ *     Currently, the backup only allows writes to a single, open
+ *     segment.  If a master tries to write to another segment before
+ *     calling commitSegment() the write will fail.
+ *     The precise interface for multi-segment operation needs
+ *     to be defined.
+ */
 void
-BackupServer::Write(uint64_t seg_num,
-                    uint64_t off,
-                    const char *data,
-                    uint64_t len)
+BackupServer::writeSegment(uint64_t segNum,
+                           uint32_t offset,
+                           const void *data,
+                           uint32_t len)
 {
-    if (seg_num == INVALID_SEGMENT_NUM)
+    if (segNum == INVALID_SEGMENT_NUM)
         throw BackupException("Invalid segment number");
-    if (this->seg_num == INVALID_SEGMENT_NUM)
-        this->seg_num = seg_num;
-    else if (this->seg_num != seg_num)
+    if (openSegNum == INVALID_SEGMENT_NUM)
+        openSegNum = segNum;
+    else if (openSegNum != segNum)
         throw BackupException("Backup server currently doesn't "
                               "allow multiple ongoing segments");
 
-    //debug_dump64(data, len);
+    // Need to check all three conditions because overflow is possible
+    // on the addition
     if (len > SEGMENT_SIZE ||
-        off > SEGMENT_SIZE ||
-        len + off > SEGMENT_SIZE)
+        offset > SEGMENT_SIZE ||
+        len + offset > SEGMENT_SIZE)
         throw BackupSegmentOverflowException();
-    memcpy(&seg[off], data, len);
+    memcpy(&seg[offset], data, len);
 }
 
 /**
- * Given a segment number return the segment frame in the backup file
- * where that segment is stored.  Notice this returns an L-value.
+ * Given a segment id return the segment frame in the backup file
+ * where that segment is stored.
  *
- * \param[in]  seg_num  the target segment for which the frame number
- *                      is needed
- * \return a reference to the frame in the backup file where that
- *                      segment number is stored
- * \exception  BackupException if no such segment number is stored in
- *                      the file
-*/
-uint64_t&
-BackupServer::FrameForSegNum(uint64_t seg_num)
+ * \param[in] segNum
+ *     The target segment for which the frame number
+ *     is needed.
+ * \return
+ *     The frame number in the backup file where that
+ *     segment id is stored.
+ * \exception BackupException
+ *     If no such segment id is stored in the file.
+ * \bug Linear search, we should consider some other type of data
+ *      structure to make this efficient when the number of
+ *      segment frames gets large
+ */
+uint64_t
+BackupServer::frameForSegNum(uint64_t segNum)
 {
-    uint64_t seg_frame = INVALID_SEGMENT_NUM;
-    for (uint64_t i = 0; i < SEGMENT_FRAMES; i++)
-        if (segments[i] == seg_num) {
-            seg_frame = i;
-            break;
+    for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
+        if (segmentAtFrame[i] == segNum) {
+            return i;
         }
-    if (seg_frame == INVALID_SEGMENT_NUM)
-        throw BackupException("No such segment stored on backup");
-    return segments[seg_frame];
+    }
+    throw BackupException("No such segment stored on backup");
 }
 
 /**
  * Pure function.  Given a segment frame number return the position in
  * the storage where the segment frame begins.
  *
- * \param[in]  seg_frame the target segment frame for which the file
- *                       address is needed
+ * \param[in]  segFrame the target segment frame for which the file
+ *     address is needed
  * \return the offset into the backup file where that segment frame
- *         begins
-*/
+ *     begins
+ */
 static inline uint64_t
-SegFrameOff(uint64_t seg_frame)
+segFrameOff(uint64_t segFrame)
 {
-    return seg_frame * SEGMENT_SIZE;
+    return segFrame * SEGMENT_SIZE;
 }
 
 /**
@@ -196,8 +204,8 @@ SegFrameOff(uint64_t seg_frame)
  * The backup chooses an empty segment frame, marks it as in-use,
  * an writes the current segment into the chosen segment frame.  This
  * function does none of the bookkeeping associated with clients,
- * rather it is used internally by other methods (Commit()) so that
- * they can focus on such details.
+ * rather it is used internally by other methods (segmentCommit())
+ * so that they can focus on such details.
  *
  * \exception BackupLogIOException if there are no free segment frames
  *                on the storage.  Indicates the backup's storage file
@@ -210,27 +218,27 @@ SegFrameOff(uint64_t seg_frame)
  * segment.  Flush needs to take an argument to identify which segment
  * to flush. The precise interface for multi-segment operation needs
  * to be defined.
-*/
+ */
 void
-BackupServer::Flush()
+BackupServer::flushSegment()
 {
     struct timeval start, end, res;
     gettimeofday(&start, NULL);
 
-    int64_t next = free_map.nextSet(0);
+    int64_t next = freeMap.nextSet(0);
     if (next == -1)
         throw BackupLogIOException("Out of free segment frames");
 
     if (debug_backup)
-        printf("Write active segment to frame %ld\n", next);
+        printf("Write active segment (%ld) to frame %ld\n", openSegNum, next);
 
-    segments[next] = seg_num;
-    free_map.clear(next);
+    segmentAtFrame[next] = openSegNum;
+    freeMap.clear(next);
 
-    off_t off = lseek(log_fd, SegFrameOff(next), SEEK_SET);
+    off_t off = lseek(logFD, segFrameOff(next), SEEK_SET);
     if (off == -1)
         throw BackupLogIOException(errno);
-    ssize_t r = write(log_fd, seg, SEGMENT_SIZE);
+    ssize_t r = write(logFD, seg, SEGMENT_SIZE);
     if (r != SEGMENT_SIZE)
         throw BackupLogIOException(errno);
 
@@ -250,7 +258,7 @@ BackupServer::Flush()
  * The segment will be restored on recovery unless the client later
  * calls Free() on it.
  *
- * \param[in] seg_num the segment number to persist and close.
+ * \param[in] segNum the segment number to persist and close.
  * \exception BackupException if INVALID_SEGMENT_NUM is passed as
  *                seg_num.
  * \exception BackupException if seg_num passed is not the active
@@ -266,23 +274,23 @@ BackupServer::Flush()
  * segment.  Flush needs to take an argument to identify which segment
  * to flush. The precise interface for multi-segment operation needs
  * to be defined.
-*/
+ */
 void
-BackupServer::Commit(uint64_t seg_num)
+BackupServer::commitSegment(uint64_t segNum)
 {
     // Write out the current segment to disk if any
-    if (seg_num == INVALID_SEGMENT_NUM)
+    if (segNum == INVALID_SEGMENT_NUM)
         throw BackupException("Invalid segment number");
-    else if (seg_num != this->seg_num)
+    else if (segNum != openSegNum)
         throw BackupException("Cannot commit a segment other than the most "
                               "recently written one at the moment");
 
     if (debug_backup)
-        printf(">>> Now writing to segment %lu\n", seg_num);
-    Flush();
+        printf(">>> Now writing to segment %lu\n", segNum);
+    flushSegment();
 
     // Close the segment
-    this->seg_num = INVALID_SEGMENT_NUM;
+    openSegNum = INVALID_SEGMENT_NUM;
 }
 
 /**
@@ -306,9 +314,9 @@ BackupServer::Commit(uint64_t seg_num)
  * segment.  Flush needs to take an argument to identify which segment
  * to flush. The precise interface for multi-segment operation needs
  * to be defined.
-*/
+ */
 void
-BackupServer::Free(uint64_t seg_num)
+BackupServer::freeSegment(uint64_t seg_num)
 {
     if (debug_backup)
         printf("Free segment %llu\n", seg_num);
@@ -319,22 +327,23 @@ BackupServer::Free(uint64_t seg_num)
     // Note - this call throws BackupException if no such segment
     // exists, which is exactly what we want to happen if we are fed a
     // seg_num we have no idea about
-    uint64_t &frame = FrameForSegNum(seg_num);
-    frame = INVALID_SEGMENT_NUM;
-    free_map.set(frame);
+    uint64_t frameNumber = frameForSegNum(seg_num);
+    segmentAtFrame[frameNumber] = INVALID_SEGMENT_NUM;
+    freeMap.set(frameNumber);
     if (debug_backup)
-        printf("Freed segment in frame %llu\n", frame);
+        printf("Freed segment in frame %llu\n", frameNumber);
 }
 
+// TODO(stutsman) document this
 void
-BackupServer::GetSegmentList(uint64_t *list,
+BackupServer::getSegmentList(uint64_t *list,
                              uint64_t *count)
 {
-    if (seg_num != INVALID_SEGMENT_NUM) {
+    if (openSegNum != INVALID_SEGMENT_NUM) {
         if (debug_backup)
             printf("!!! GetSegmentList: We must be in recovery, writing out "
                    "current active segment before proceeding\n");
-        Commit(seg_num);
+        commitSegment(openSegNum);
     }
     uint64_t max = *count;
     if (debug_backup)
@@ -342,10 +351,10 @@ BackupServer::GetSegmentList(uint64_t *list,
 
     uint64_t c = 0;
     for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
-        if (segments[i] != INVALID_SEGMENT_NUM) {
+        if (segmentAtFrame[i] != INVALID_SEGMENT_NUM) {
             if (c == max)
                 throw BackupException("Buffer too short to for segment ids");
-            *list = segments[i];
+            *list = segmentAtFrame[i];
             list++;
             c++;
         }
@@ -355,83 +364,124 @@ BackupServer::GetSegmentList(uint64_t *list,
     *count = c;
 }
 
-void
-BackupServer::GetSegmentMetadata(uint64_t seg_num,
-                                 uint64_t *list,
-                                 uint64_t *count)
+/**
+ * Given a segment number return a list of object ids and version
+ * numbers that are stored in that segment.
+ *
+ * \param[in] segNum
+ *     The segment number from which to extract the metadata.
+ * \param[out] list
+ *     The place in memory to store the objects ids and version
+ *     numbers.  The list is stored in pairs.  The first element is an
+ *     object id followed by its version number and so on.
+ * \param[in] maxSize
+ *     The number of elements that the list buffer can hold.  This
+ *     count is the count of the sum total of both the object ids and
+ *     version numbers.
+ * \return
+ *     The number of elements actually placed in list.  Here a single
+ *     element is either an object id or a version number.  In other
+ *     words, the return value must be even.
+ * \exception BackupException
+ *     If INVALID_SEGMENT_NUM is passed as seg_num.
+ * \exception BackupLogIOException
+ *     If there is an error seeking to or reading the segment frame in
+ *     the storage.
+ * \bug
+ *     Currently this method relies on soft-state on the backup that
+ *     isn't recovered after crash
+ */
+size_t
+BackupServer::getSegmentMetadata(uint64_t segNum,
+                                 RecoveryObjectMetadata *list,
+                                 size_t maxSize)
 {
-    /* uint64_t stream format
-       <id, offset>*
-       where count refers to the total number of uint64_ts in the
-       list, that is count / 2 is the number of pairs in the list
-     */
-    if (seg_num != INVALID_SEGMENT_NUM) {
-        if (debug_backup)
-            printf("!!! GetSegmentMetadata: We must be in recovery, writing "
-                   "out current active segment before proceeding\n");
-        Commit(seg_num);
-    }
-    uint64_t max = *count;
     if (debug_backup)
-        printf("Max elements to return %llu\n", max);
+        printf("Max elements to return %llu\n", maxSize);
 
-    uint64_t c = 0;
+    uint64_t count = 0;
 
     char buf[SEGMENT_SIZE];
-    uint64_t len;
-    Retrieve(seg_num, &buf[0], &len);
-    assert(len == SEGMENT_SIZE);
+    retrieveSegment(segNum, &buf[0]);
 
-    // Walk the buffer and pull out metadata - need Steve's iter stuff
     // TODO(stutsman) NULL backup_client is dangerous - we may want to
-    // make Segment smarter about NULL backups
+    // decouple segments from backups somehow
     Segment seg(&buf[0], SEGMENT_SIZE, 0);
-    LogEntryIterator lei(&seg);
+
+    LogEntryIterator iterator(&seg);
+    const log_entry *entry;
+    const void *p;
+
+    // Walk the buffer and pull out metadata
+    while (iterator.getNext(&entry, &p)) {
+        RecoveryObjectMetadata *meta = &list[count++];
+        if (!entry->type == LOG_ENTRY_TYPE_OBJECT)
+            continue;
+        const Object *obj = reinterpret_cast<const Object *>(p);
+        meta->key = obj->key;
+        meta->table = obj->table;
+        meta->version = obj->version;
+        // TODO(stutsman) Need the iterator to report it to me
+        //meta->offset = obj->offset;
+        meta->length = obj->data_len;
+    }
 
     if (debug_backup)
-        printf("Final elements count to return %llu\n", c);
-    *count = c;
+        printf("Final elements count to return %llu\n", count);
+    return count;
 }
 
-// TODO(stutsman) why is len even here right now - the way the
-// function is written it can't even be used
+/**
+ * Given a segment number load that segment's data into buf.
+ * buf must be allocated to hold SEGMENT_SIZE data.
+ *
+ * \param[in] segNum
+ *     The segment number from which to load into buf.
+ * \param[in] buf
+ *     The place in memory to store the segment data.
+ *     buf must be allocated to hold SEGMENT_SIZE data.
+ * \exception BackupException
+ *     If INVALID_SEGMENT_NUM is passed as seg_num.
+ * \exception BackupLogIOException
+ *     If there is an error seeking to or reading the segment frame in
+ *     the storage.
+ */
 void
-BackupServer::Retrieve(uint64_t seg_num, char *buf, uint64_t *len)
+BackupServer::retrieveSegment(uint64_t segNum, void *buf)
 {
     if (debug_backup)
-        printf("Retrieving segment %llu from disk\n", seg_num);
-    if (seg_num == INVALID_SEGMENT_NUM)
+        printf("Retrieving segment %llu from disk\n", segNum);
+    if (segNum == INVALID_SEGMENT_NUM)
         throw BackupException("What the hell are you feeding me? "
                               "Bad segment number!");
 
-    uint64_t seg_frame = FrameForSegNum(seg_num);
+    uint64_t segFrame = frameForSegNum(segNum);
     if (debug_backup)
-        printf("Found segment %llu in segment frame %llu\n", seg_num,
-               seg_frame);
+        printf("Found segment %llu in segment frame %llu\n", segNum,
+               segFrame);
 
     struct timeval start, end, res;
     gettimeofday(&start, NULL);
 
     if (debug_backup)
-        printf("Seeking to %llu\n", SegFrameOff(seg_frame));
-    off_t off = lseek(log_fd, SegFrameOff(seg_frame), SEEK_SET);
-    if (off == -1)
+        printf("Seeking to %llu\n", segFrameOff(segFrame));
+    off_t offset = lseek(logFD, segFrameOff(segFrame), SEEK_SET);
+    if (offset == -1)
         throw BackupLogIOException(errno);
 
-    uint64_t read_len = SEGMENT_SIZE;
+    uint64_t readLen = SEGMENT_SIZE;
     if (debug_backup)
         printf("About to read %llu bytes at %llu to %p\n",
-               read_len,
-               SegFrameOff(seg_frame),
+               readLen,
+               segFrameOff(segFrame),
                buf);
     // if we use O_DIRECT this must be an aligned buffer
-    ssize_t r = read(log_fd, buf, read_len);
-    if (static_cast<uint64_t>(r) != read_len) {
+    ssize_t r = read(logFD, buf, readLen);
+    if (static_cast<uint64_t>(r) != readLen) {
         if (debug_backup)
             printf("Read %ld bytes\n", r);
         throw BackupLogIOException(errno);
     }
-    *len = r;
 
     gettimeofday(&end, NULL);
     timersub(&end, &start, &res);
@@ -442,21 +492,21 @@ BackupServer::Retrieve(uint64_t seg_num, char *buf, uint64_t *len)
 // ---- RPC Dispatch Code ----
 
 void
-BackupServer::HandleWrite(const backup_rpc *req, backup_rpc *resp)
+BackupServer::handleWrite(const backup_rpc *req, backup_rpc *resp)
 {
     uint64_t seg_num = req->write_req.seg_num;
-    uint64_t off = req->write_req.off;
-    uint64_t len = req->write_req.len;
+    uint32_t offset = req->write_req.off;
+    uint32_t len = req->write_req.len;
     if (debug_backup)
-        printf(">>> Handling Write to offset 0x%x length %d\n", off, len);
-    Write(seg_num, off, &req->write_req.data[0], len);
+        printf(">>> Handling Write to offset 0x%x length %d\n", offset, len);
+    writeSegment(seg_num, offset, &req->write_req.data[0], len);
 
     resp->hdr.type = BACKUP_RPC_WRITE_RESP;
     resp->hdr.len = (uint32_t) BACKUP_RPC_WRITE_RESP_LEN;
 }
 
 void
-BackupServer::HandleGetSegmentList(const backup_rpc *req, backup_rpc *resp)
+BackupServer::handleGetSegmentList(const backup_rpc *req, backup_rpc *resp)
 {
     if (debug_backup)
         printf(">>> Handling GetSegmentList\n");
@@ -464,7 +514,7 @@ BackupServer::HandleGetSegmentList(const backup_rpc *req, backup_rpc *resp)
     resp->getsegmentlist_resp.seg_list_count =
         (RESP_BUF_LEN - sizeof(backup_rpc)) /
         sizeof(uint64_t);
-    GetSegmentList(resp->getsegmentlist_resp.seg_list,
+    getSegmentList(resp->getsegmentlist_resp.seg_list,
                    &resp->getsegmentlist_resp.seg_list_count);
     if (debug_backup)
         printf(">>>>>> GetSegmentList returning %llu ids\n",
@@ -477,14 +527,14 @@ BackupServer::HandleGetSegmentList(const backup_rpc *req, backup_rpc *resp)
 }
 
 void
-BackupServer::HandleRetrieve(const backup_rpc *req, backup_rpc *resp)
+BackupServer::handleRetrieve(const backup_rpc *req, backup_rpc *resp)
 {
     const backup_rpc_retrieve_req *rreq = &req->retrieve_req;
     backup_rpc_retrieve_resp *rresp = &resp->retrieve_resp;
     if (debug_backup)
         printf(">>> Handling Retrieve - seg_num %lu\n", rreq->seg_num);
 
-    Retrieve(rreq->seg_num, &rresp->data[0], &rresp->data_len);
+    retrieveSegment(rreq->seg_num, &rresp->data[0]);
 
     resp->hdr.type = BACKUP_RPC_RETRIEVE_RESP;
     resp->hdr.len = (uint32_t) (BACKUP_RPC_RETRIEVE_RESP_LEN_WODATA +
@@ -492,38 +542,38 @@ BackupServer::HandleRetrieve(const backup_rpc *req, backup_rpc *resp)
 }
 
 void
-BackupServer::HandleCommit(const backup_rpc *req, backup_rpc *resp)
+BackupServer::handleCommit(const backup_rpc *req, backup_rpc *resp)
 {
     if (debug_backup)
         printf(">>> Handling Commit - total msg len %lu\n", req->hdr.len);
 
-    Commit(req->commit_req.seg_num);
+    commitSegment(req->commit_req.seg_num);
 
     resp->hdr.type = BACKUP_RPC_COMMIT_RESP;
     resp->hdr.len = (uint32_t) BACKUP_RPC_COMMIT_RESP_LEN;
 }
 
 void
-BackupServer::HandleFree(const backup_rpc *req, backup_rpc *resp)
+BackupServer::handleFree(const backup_rpc *req, backup_rpc *resp)
 {
     if (debug_backup)
         printf(">>> Handling Free - total msg len %lu\n", req->hdr.len);
 
-    Free(req->free_req.seg_num);
+    freeSegment(req->free_req.seg_num);
 
     resp->hdr.type = BACKUP_RPC_FREE_RESP;
     resp->hdr.len = (uint32_t) BACKUP_RPC_FREE_RESP_LEN;
 }
 
 void
-BackupServer::HandleHeartbeat(const backup_rpc *req, backup_rpc *resp)
+BackupServer::handleHeartbeat(const backup_rpc *req, backup_rpc *resp)
 {
     resp->hdr.type = BACKUP_RPC_HEARTBEAT_RESP;
     resp->hdr.len = (uint32_t) BACKUP_RPC_HEARTBEAT_RESP_LEN;
 }
 
 void
-BackupServer::HandleRPC()
+BackupServer::handleRPC()
 {
     // TODO(stutsman) if we're goingt to have to malloc this we should just
     // always keep one around
@@ -531,7 +581,7 @@ BackupServer::HandleRPC()
     backup_rpc *req;
     backup_rpc *resp = reinterpret_cast<backup_rpc *>(&resp_buf[0]);
 
-    RecvRPC(&req);
+    recvRPC(&req);
 
     if (debug_rpc)
         printf("got rpc type: 0x%08x, len 0x%08x\n",
@@ -539,14 +589,14 @@ BackupServer::HandleRPC()
 
     try {
         switch ((enum backup_rpc_type) req->hdr.type) {
-        case BACKUP_RPC_HEARTBEAT_REQ: HandleHeartbeat(req, resp); break;
-        case BACKUP_RPC_WRITE_REQ:     HandleWrite(req, resp);     break;
-        case BACKUP_RPC_COMMIT_REQ:    HandleCommit(req, resp);    break;
-        case BACKUP_RPC_FREE_REQ:      HandleFree(req, resp);      break;
+        case BACKUP_RPC_HEARTBEAT_REQ: handleHeartbeat(req, resp); break;
+        case BACKUP_RPC_WRITE_REQ:     handleWrite(req, resp);     break;
+        case BACKUP_RPC_COMMIT_REQ:    handleCommit(req, resp);    break;
+        case BACKUP_RPC_FREE_REQ:      handleFree(req, resp);      break;
         case BACKUP_RPC_GETSEGMENTLIST_REQ:
-            HandleGetSegmentList(req, resp);
+            handleGetSegmentList(req, resp);
             break;
-        case BACKUP_RPC_RETRIEVE_REQ:  HandleRetrieve(req, resp);  break;
+        case BACKUP_RPC_RETRIEVE_REQ:  handleRetrieve(req, resp);  break;
 
         case BACKUP_RPC_HEARTBEAT_RESP:
         case BACKUP_RPC_WRITE_RESP:
@@ -569,15 +619,15 @@ BackupServer::HandleRPC()
         // TODO(stutsman) this cast is bad, types should match
         resp->hdr.len = static_cast<uint32_t>(rpclen);
     }
-    SendRPC(resp);
+    sendRPC(resp);
     free(resp_buf);
 }
 
 void __attribute__ ((noreturn))
-BackupServer::Run()
+BackupServer::run()
 {
     while (true)
-        HandleRPC();
+        handleRPC();
 }
 
 

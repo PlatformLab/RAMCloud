@@ -29,21 +29,25 @@ void TombstoneEvictionCallback(log_entry_type_t type,
                          uint64_t len,
                          void *cookie);
 
-Server::Server(const ServerConfig *sconfig, Net *net_impl)
-    : config(sconfig), net(net_impl), backup()
+Server::Server(const ServerConfig *sconfig,
+               Net *net_impl,
+               BackupClient *backupClient)
+    : config(sconfig), net(net_impl), backup(backupClient), log(0)
 {
     void *p = malloc(SEGMENT_SIZE * SEGMENT_COUNT);
     assert(p != NULL);
 
-    if (BACKUP) {
+    if (BACKUP && backup == 0) {
         Net *net = new CNet(BACKCLNTADDR, BACKCLNTPORT,
                             BACKSVRADDR, BACKSVRPORT);
         net->Connect();
         // NOTE The backup client takes care of freeing the net object
-        backup.AddHost(net);
+        MultiBackupClient *multiBackup = new MultiBackupClient();
+        multiBackup->addHost(net);
+        backup = multiBackup;
     }
 
-    log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, &backup);
+    log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, backup);
     log->registerType(LOG_ENTRY_TYPE_OBJECT, ObjectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJECT_TOMBSTONE,
         TombstoneEvictionCallback, this);
@@ -51,6 +55,7 @@ Server::Server(const ServerConfig *sconfig, Net *net_impl)
 
 Server::~Server()
 {
+    delete backup;
 }
 
 void

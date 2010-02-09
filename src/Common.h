@@ -20,11 +20,13 @@
 
 #include <rcrpc.h>
 
-#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+
+// requires 0x for cstdint
+#include <stdint.h>
 
 #define PRIu64 "lu"
 #define PRIx64 "lx"
@@ -37,5 +39,15 @@
 
 void debug_dump64(const void *buf, uint64_t bytes);
 uint64_t rdtsc();
+
+#ifdef __cplusplus
+namespace RAMCloud {
+
+class AssertionException {};
+
+void assert(bool invariant);
+
+}
+#endif
 
 #endif

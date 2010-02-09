@@ -55,7 +55,7 @@ Segment::reset()
 	assert(!isMutable);
 
 	if (id != SEGMENT_INVALID_ID)
-		backup->Free(id);
+		backup->freeSegment(id);
 
 	free_bytes  = total_bytes;
 	tail_bytes  = total_bytes;
@@ -78,7 +78,7 @@ Segment::append(const void *buf, uint64_t len)
 	void *loc = (uint8_t *)base + offset;
 
 	memcpy(loc, buf, len);
-	backup->Write(id, offset, buf, len);
+	backup->writeSegment(id, offset, buf, len);
 	free_bytes -= len;
 	tail_bytes -= len;
 
@@ -136,16 +136,16 @@ Segment::finalize()
 {
 	assert(id != SEGMENT_INVALID_ID);
 	isMutable = false;
-	backup->Commit(id);
+	backup->commitSegment(id);
 }
 
 void
 Segment::restore(uint64_t restore_seg_id)
 {
-	assert(id != SEGMENT_INVALID_ID);
+    assert(id != SEGMENT_INVALID_ID);
 
     //printf("Segment restoring from %llu:\n", restore_seg_id);
-    backup->Retrieve(restore_seg_id, base);
+    backup->retrieveSegment(restore_seg_id, base);
     // TODO restore all sorts of state/invariants
     // It seems we want to restore this information by making a single
     // pass which happens in the server to rebuild the hashtable

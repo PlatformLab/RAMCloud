@@ -19,54 +19,74 @@
 #include <Common.h>
 #include <Net.h>
 
-// requires 0x for cstdint
-#include <stdint.h>
-
 namespace RAMCloud {
 
-class BackupHost {
+// TODO(stutsman) Move this to wherever it makes sense
+struct RecoveryObjectMetadata {
+    uint64_t key;
+    uint64_t table;
+    uint64_t version;
+    uint64_t offset;
+    uint64_t length;
+};
+
+
+class BackupClient {
+  public:
+    virtual ~BackupClient() {}
+    virtual void heartbeat() = 0;
+    virtual void writeSegment(uint64_t segNum, uint32_t offset,
+                              const void *data, uint32_t len) = 0;
+    virtual void commitSegment(uint64_t segNum) = 0;
+    virtual void freeSegment(uint64_t segNum) = 0;
+    virtual void getSegmentList(uint64_t *list, uint64_t *count) = 0;
+    virtual size_t getSegmentMetadata(uint64_t segNum,
+                                      RecoveryObjectMetadata *list,
+                                      size_t maxSize) = 0;
+    virtual void retrieveSegment(uint64_t segNum, void *buf) = 0;
+};
+
+class BackupHost : public BackupClient {
   public:
     explicit BackupHost(Net *netimpl);
-    ~BackupHost();
-    void Heartbeat();
-    void Write(uint64_t seg_num,
-               uint32_t offset,
-               const void *buf,
-               uint32_t len);
-    void Commit(uint64_t seg_num);
-    void Free(uint64_t seg_num);
-    void GetSegmentList(uint64_t *list, uint64_t *count);
-    void GetSegmentMetadata(uint64_t seg_num,
-                            uint64_t *id_list,
-                            uint64_t *id_list_count);
-    void Retrieve(uint64_t seg_num, void *dst);
+    virtual ~BackupHost();
+
+    virtual void heartbeat();
+    virtual void writeSegment(uint64_t segNum, uint32_t offset,
+                              const void *data, uint32_t len);
+    virtual void commitSegment(uint64_t segNum);
+    virtual void freeSegment(uint64_t segNum);
+    virtual void getSegmentList(uint64_t *list, uint64_t *count);
+    virtual size_t getSegmentMetadata(uint64_t segNum,
+                                      RecoveryObjectMetadata *list,
+                                      size_t maxSize);
+    virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
-    void SendRPC(struct backup_rpc *rpc);
-    void RecvRPC(struct backup_rpc **rpc);
+    void sendRPC(struct backup_rpc *rpc);
+    void recvRPC(struct backup_rpc **rpc);
     Net *net;
     DISALLOW_COPY_AND_ASSIGN(BackupHost);
 };
 
-class BackupClient {
+class MultiBackupClient : public BackupClient {
   public:
-    explicit BackupClient();
-    ~BackupClient();
-    void AddHost(Net *net);
-    void Heartbeat();
-    void Write(uint64_t seg_num,
-               uint32_t offset,
-               const void *buf,
-               uint32_t len);
-    void Commit(uint64_t seg_num);
-    void Free(uint64_t seg_num);
-    void GetSegmentList(uint64_t *list, uint64_t *count);
-    void GetSegmentMetadata(uint64_t seg_num,
-                            uint64_t *id_list,
-                            uint64_t *id_list_count);
-    void Retrieve(uint64_t seg_num, void *dst);
+    explicit MultiBackupClient();
+    virtual ~MultiBackupClient();
+    void addHost(Net *net);
+
+    virtual void heartbeat();
+    virtual void writeSegment(uint64_t segNum, uint32_t offset,
+                              const void *data, uint32_t len);
+    virtual void commitSegment(uint64_t segNum);
+    virtual void freeSegment(uint64_t segNum);
+    virtual void getSegmentList(uint64_t *list, uint64_t *count);
+    virtual size_t getSegmentMetadata(uint64_t segNum,
+                                      RecoveryObjectMetadata *list,
+                                      size_t maxSize);
+    virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
     BackupHost *host;
-    DISALLOW_COPY_AND_ASSIGN(BackupClient);
+    DISALLOW_COPY_AND_ASSIGN(MultiBackupClient);
 };
 
 } // namespace RAMCloud

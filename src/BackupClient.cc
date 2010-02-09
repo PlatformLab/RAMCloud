@@ -13,12 +13,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config.h>
-
 #include <BackupClient.h>
 #include <backuprpc.h>
 
-#include <cassert>
 #include <cstdio>
 
 namespace RAMCloud {
@@ -44,13 +41,13 @@ BackupHost::~BackupHost()
 }
 
 void
-BackupHost::SendRPC(struct backup_rpc *rpc)
+BackupHost::sendRPC(struct backup_rpc *rpc)
 {
     net->Send(rpc, rpc->hdr.len);
 }
 
 void
-BackupHost::RecvRPC(struct backup_rpc **rpc)
+BackupHost::recvRPC(struct backup_rpc **rpc)
 {
     size_t len = net->Recv(reinterpret_cast<void**>(rpc));
     if (len != (*rpc)->hdr.len)
@@ -64,26 +61,26 @@ BackupHost::RecvRPC(struct backup_rpc **rpc)
 }
 
 void
-BackupHost::Heartbeat()
+BackupHost::heartbeat()
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_HEARTBEAT_REQ;
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_HEARTBEAT_REQ_LEN);
 
     printf("Sending Heartbeat to backup\n");
-    SendRPC(&req);
+    sendRPC(&req);
 
     backup_rpc *resp;
-    RecvRPC(&resp);
+    recvRPC(&resp);
 
     printf("Heartbeat ok\n");
 }
 
 void
-BackupHost::Write(uint64_t seg_num,
-                    uint32_t offset,
-                    const void *buf,
-                    uint32_t len)
+BackupHost::writeSegment(uint64_t segNum,
+                         uint32_t offset,
+                         const void *data,
+                         uint32_t len)
 {
     // TODO(stutsman) For the moment we don't have a choice here
     // we have to build this thing up in memory until the network
@@ -99,66 +96,66 @@ BackupHost::Write(uint64_t seg_num,
     if (req->hdr.len > MAX_RPC_LEN)
         throw BackupRPCException("Write RPC would be too long");
 
-    req->write_req.seg_num = seg_num;
+    req->write_req.seg_num = segNum;
     req->write_req.off = offset;
     req->write_req.len = len;
-    memcpy(&req->write_req.data[0], buf, len);
+    memcpy(&req->write_req.data[0], data, len);
 
-    SendRPC(req);
+    sendRPC(req);
 
     backup_rpc *resp;
-    RecvRPC(&resp);
+    recvRPC(&resp);
 }
 
 void
-BackupHost::Commit(uint64_t seg_num)
+BackupHost::commitSegment(uint64_t segNum)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_COMMIT_REQ;
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_COMMIT_REQ_LEN);
 
-    req.commit_req.seg_num = seg_num;
+    req.commit_req.seg_num = segNum;
 
     printf("Sending Commit to backup\n");
-    SendRPC(&req);
+    sendRPC(&req);
 
     backup_rpc *resp;
-    RecvRPC(&resp);
+    recvRPC(&resp);
 
     printf("Commit ok\n");
 }
 
 void
-BackupHost::Free(uint64_t seg_num)
+BackupHost::freeSegment(uint64_t segNum)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_FREE_REQ;
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_FREE_REQ_LEN);
 
-    req.free_req.seg_num = seg_num;
+    req.free_req.seg_num = segNum;
 
     printf("Sending Free to backup\n");
-    SendRPC(&req);
+    sendRPC(&req);
 
     backup_rpc *resp;
-    RecvRPC(&resp);
+    recvRPC(&resp);
 
     printf("Free ok\n");
 }
 
 void
-BackupHost::GetSegmentList(uint64_t *list,
-                             uint64_t *count)
+BackupHost::getSegmentList(uint64_t *list,
+                           uint64_t *count)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_GETSEGMENTLIST_REQ;
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTLIST_REQ_LEN);
 
     printf("Sending GetSegmentList to backup\n");
-    SendRPC(&req);
+    sendRPC(&req);
 
     backup_rpc *resp;
-    RecvRPC(&resp);
+    recvRPC(&resp);
 
     uint64_t *tmp_list = &resp->getsegmentlist_resp.seg_list[0];
     uint64_t tmp_count = resp->getsegmentlist_resp.seg_list_count;
@@ -175,43 +172,44 @@ BackupHost::GetSegmentList(uint64_t *list,
     printf("GetSegmentList ok\n");
 }
 
-void
-BackupHost::GetSegmentMetadata(uint64_t seg_num,
-                                 uint64_t *id_list,
-                                 uint64_t *id_list_count)
+size_t
+BackupHost::getSegmentMetadata(uint64_t segNum,
+                               RecoveryObjectMetadata *list,
+                               size_t maxSize)
 {
+    return 0;
 }
 
 void
-BackupHost::Retrieve(uint64_t seg_num, void *dst)
+BackupHost::retrieveSegment(uint64_t segNum, void *buf)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_RETRIEVE_REQ;
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_RETRIEVE_REQ_LEN);
 
-    req.retrieve_req.seg_num = seg_num;
+    req.retrieve_req.seg_num = segNum;
 
     printf("Sending Retrieve to backup\n");
-    SendRPC(&req);
+    sendRPC(&req);
 
     backup_rpc *resp;
-    RecvRPC(&resp);
+    recvRPC(&resp);
 
     printf("Retrieved segment %llu of length %llu\n",
-           seg_num, resp->retrieve_resp.data_len);
-    memcpy(dst, resp->retrieve_resp.data, resp->retrieve_resp.data_len);
+           segNum, resp->retrieve_resp.data_len);
+    memcpy(buf, resp->retrieve_resp.data, resp->retrieve_resp.data_len);
 
     printf("Retrieve ok\n");
 }
 
 // --- BackupClient ---
 
-BackupClient::BackupClient()
+MultiBackupClient::MultiBackupClient()
     : host(0)
 {
 }
 
-BackupClient::~BackupClient()
+MultiBackupClient::~MultiBackupClient()
 {
     if (host)
         delete host;
@@ -224,7 +222,7 @@ BackupClient::~BackupClient()
  * or responbility for it.
  */
 void
-BackupClient::AddHost(Net *net)
+MultiBackupClient::addHost(Net *net)
 {
     if (host)
         throw BackupRPCException("Only one backup host currently supported");
@@ -232,64 +230,63 @@ BackupClient::AddHost(Net *net)
 }
 
 void
-BackupClient::Heartbeat()
+MultiBackupClient::heartbeat()
 {
     if (host)
-        host->Heartbeat();
+        host->heartbeat();
 }
 
 void
-BackupClient::Write(uint64_t seg_num,
-                    uint32_t offset,
-                    const void *buf,
-                    uint32_t len)
+MultiBackupClient::writeSegment(uint64_t segNum,
+                                uint32_t offset,
+                                const void *data,
+                                uint32_t len)
 {
     if (host)
-        host->Write(seg_num, offset, buf, len);
+        host->writeSegment(segNum, offset, data, len);
 }
 
 void
-BackupClient::Commit(uint64_t seg_num)
+MultiBackupClient::commitSegment(uint64_t segNum)
 {
     if (host)
-        host->Commit(seg_num);
+        host->commitSegment(segNum);
 }
 
 void
-BackupClient::Free(uint64_t seg_num)
+MultiBackupClient::freeSegment(uint64_t segNum)
 {
     if (host)
-        host->Free(seg_num);
+        host->freeSegment(segNum);
 }
 
 void
-BackupClient::GetSegmentList(uint64_t *list,
-                             uint64_t *count)
+MultiBackupClient::getSegmentList(uint64_t *list,
+                                 uint64_t *count)
 {
     if (host) {
-        host->GetSegmentList(list, count);
+        host->getSegmentList(list, count);
         return;
     }
     *count = 0;
 }
 
-void
-BackupClient::GetSegmentMetadata(uint64_t seg_num,
-                                 uint64_t *id_list,
-                                 uint64_t *id_list_count)
+size_t
+MultiBackupClient::getSegmentMetadata(uint64_t segNum,
+                                      RecoveryObjectMetadata *list,
+                                      size_t maxSize)
 {
-    if (host) {
-        host->GetSegmentMetadata(seg_num, id_list, id_list_count);
-        return;
-    }
-    *id_list_count = 0;
+    if (host)
+        return host->getSegmentMetadata(segNum, list, maxSize);
+    return 0;
 }
 
 void
-BackupClient::Retrieve(uint64_t seg_num, void *dst)
+MultiBackupClient::retrieveSegment(uint64_t segNum,
+                                   void *buf)
 {
     if (host)
-        host->Retrieve(seg_num, dst);
+        host->retrieveSegment(segNum, buf);
 }
 
 } // namespace RAMCloud

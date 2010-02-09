@@ -17,7 +17,6 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <assert.h>
 #include <stdint.h>
 #include <cmath>
 #include <cstring>

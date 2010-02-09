@@ -20,8 +20,11 @@
 
 #include <Net.h>
 #include <backuprpc.h>
+#include <BackupClient.h>
 
 #include <Bitmap.h>
+
+#include <string>
 
 namespace RAMCloud {
 
@@ -62,53 +65,58 @@ const uint64_t LOG_SPACE = SEGMENT_FRAMES * SEGMENT_SIZE;
 
 const uint64_t INVALID_SEGMENT_NUM = ~(0ull);
 
-class BackupServer {
+class BackupServer : BackupClient {
   public:
     explicit BackupServer();
-    explicit BackupServer(Net *net_impl, const char *logPath);
-    ~BackupServer();
-    void Run();
+    explicit BackupServer(Net *netImpl, const char *logPath);
+    virtual ~BackupServer();
+    void run();
   private:
-    void HandleHeartbeat(const backup_rpc *req, backup_rpc *resp);
-    void HandleWrite(const backup_rpc *req, backup_rpc *resp);
-    void HandleBegin(const backup_rpc *req, backup_rpc *resp);
-    void HandleCommit(const backup_rpc *req, backup_rpc *resp);
-    void HandleFree(const backup_rpc *req, backup_rpc *resp);
-    void HandleGetSegmentList(const backup_rpc *req, backup_rpc *resp);
-    void HandleRetrieve(const backup_rpc *req, backup_rpc *resp);
+    void handleHeartbeat(const backup_rpc *req, backup_rpc *resp);
+    void handleWrite(const backup_rpc *req, backup_rpc *resp);
+    void handleBegin(const backup_rpc *req, backup_rpc *resp);
+    void handleCommit(const backup_rpc *req, backup_rpc *resp);
+    void handleFree(const backup_rpc *req, backup_rpc *resp);
+    void handleGetSegmentList(const backup_rpc *req, backup_rpc *resp);
+    void handleRetrieve(const backup_rpc *req, backup_rpc *resp);
 
-    void HandleRPC();
-    void SendRPC(struct backup_rpc *rpc);
-    void RecvRPC(struct backup_rpc **rpc);
+    void handleRPC();
+    void sendRPC(struct backup_rpc *rpc);
+    void recvRPC(struct backup_rpc **rpc);
 
-    void Write(uint64_t seg_num, uint64_t off, const char *data, uint64_t len);
-    void Commit(uint64_t seg_num);
-    void Free(uint64_t seg_num);
-    void GetSegmentList(uint64_t *list, uint64_t *count);
-    void GetSegmentMetadata(uint64_t seg_num,
-                            uint64_t *id_list,
-                            uint64_t *id_list_count);
-    void Retrieve(uint64_t seg_num, char *buf, uint64_t *len);
+    virtual void heartbeat() {}
+    virtual void writeSegment(uint64_t segNum, uint32_t offset,
+                              const void *data, uint32_t len);
+    virtual void commitSegment(uint64_t segNum);
+    virtual void freeSegment(uint64_t segNum);
+    virtual void getSegmentList(uint64_t *list, uint64_t *count);
+    virtual size_t getSegmentMetadata(uint64_t segNum,
+                                      RecoveryObjectMetadata *list,
+                                      size_t maxSize);
+    virtual void retrieveSegment(uint64_t segNum, void *buf);
 
-    void Flush();
+    void flushSegment();
 
-    void ReserveSpace();
-    uint64_t& FrameForSegNum(uint64_t segnum);
+    void reserveSpace();
+    uint64_t frameForSegNum(uint64_t segnum);
 
     Net *net;
-    int log_fd;
+    int logFD;
     char *seg;
-    char *unaligned_seg;
+    char *unalignedSeg;
     // segment number of the active segment
-    uint64_t seg_num;
+    uint64_t openSegNum;
 
-    // An array corresponding to the segment frames in the system.
-    // This array, given a segment frame, produces the current segment
-    // number that is stored there.
+    // TODO(stutsman) How much should we really allocate?
     static const uint64_t SEGMENT_FRAMES = SEGMENT_COUNT;
-    uint64_t segments[SEGMENT_FRAMES];
+    /**
+     * This array, given a segment frame, produces the current segment
+     * number that is stored there.
+     * SegmentFrame -> SegmentId
+     */
+    uint64_t segmentAtFrame[SEGMENT_FRAMES];
 
-    Bitmap<SEGMENT_FRAMES> free_map;
+    Bitmap<SEGMENT_FRAMES> freeMap;
 
     friend class BackupServerTest;
     DISALLOW_COPY_AND_ASSIGN(BackupServer);

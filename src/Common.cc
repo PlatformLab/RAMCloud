@@ -13,12 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <cstdio>
+#include <Common.h>
 
-#define __STDC_FORMAT_MACROS   // Required for inttypes.h in C++. Ugh.
-#include <inttypes.h>
-#include <stdint.h>
-#include <string.h>
 #include <ctype.h>
 
 // Output a binary buffer in 'hexdump -C' style.
@@ -73,3 +69,17 @@ rdtsc()
 
     return (((uint64_t)hi << 32) | lo);
 }
+
+#ifdef __cplusplus
+
+namespace RAMCloud {
+
+void
+assert(bool invariant) {
+    if (!invariant)
+        throw AssertionException();
+}
+
+}
+
+#endif

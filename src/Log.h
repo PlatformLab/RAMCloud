@@ -57,7 +57,7 @@ typedef void (*log_segment_cb_t)(Segment *, void *);
 class Log {
   public:
 	Log(const uint64_t, void *, const uint64_t, BackupClient *);
-       ~Log();
+        ~Log() {}
 	const void *append(log_entry_type_t, const void *, uint64_t);
 	void        free(log_entry_type_t, const void *, uint64_t);
 	void        registerType(log_entry_type_t, log_eviction_cb_t, void *);

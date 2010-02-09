@@ -132,7 +132,7 @@ Log::restore()
     // number (or max num) of segment frames on backups?
     uint64_t list[nsegments];
     uint64_t count = nsegments;
-    backup->GetSegmentList(&list[0], &count);
+    backup->getSegmentList(&list[0], &count);
 
     printf("Got segment list from backup (%llu):\n", count);
     for (uint64_t i = 0; i < count; i++)

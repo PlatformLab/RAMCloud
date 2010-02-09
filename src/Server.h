@@ -74,6 +74,12 @@ struct ServerConfig {
 
 class Server {
   public:
+    explicit Server(const ServerConfig *sconfig,
+                    Net *net_impl,
+                    BackupClient *backupClient=0);
+    ~Server();
+    void Run();
+
     void Ping(const rcrpc_ping_request *req,
               rcrpc_ping_response *resp);
     void Read(const rcrpc_read_request *req,
@@ -91,11 +97,6 @@ class Server {
     void DropTable(const rcrpc_drop_table_request *req,
                    rcrpc_drop_table_response *resp);
 
-    explicit Server(const ServerConfig *sconfig, Net *net_impl);
-    Server(const Server& server);
-    Server& operator=(const Server& server);
-    ~Server();
-    void Run();
 
   private:
     static bool RejectOperation(const rcrpc_reject_rules *reject_rules,
@@ -108,12 +109,11 @@ class Server {
                    const char *buf,
                    uint64_t buf_len,
                    uint64_t *new_version);
-    explicit Server();
 
     const ServerConfig *config;
-    Log *log;
     Net *net;
-    BackupClient backup;
+    BackupClient *backup;
+    Log *log;
     Table tables[RC_NUM_TABLES];
     friend void ObjectEvictionCallback(log_entry_type_t type,
                                     const void *p,
@@ -128,6 +128,7 @@ class Server {
                                      const void *p,
                                      uint64_t len,
                                      void *cookie);
+    DISALLOW_COPY_AND_ASSIGN(Server);
 };
 
 } // namespace RAMCloud

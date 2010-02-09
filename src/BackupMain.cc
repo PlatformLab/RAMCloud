@@ -39,7 +39,7 @@ main()
     BackupServer *server = new BackupServer(net,
                                             BACKUP_LOG_PATH);
 
-    server->Run();
+    server->run();
 
     delete server;
     delete net;
