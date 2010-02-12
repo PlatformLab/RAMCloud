@@ -31,7 +31,7 @@
 namespace RAMCloud {
 
 const bool debug_rpc = false;
-const bool debug_backup = true;
+const bool debug_backup = false;
 
 static const uint64_t RESP_BUF_LEN = (1 << 20);
 
@@ -364,6 +364,19 @@ BackupServer::getSegmentList(uint64_t *list,
     *count = c;
 }
 
+void
+BackupServer::extractMetadata(const void *p,
+                              RecoveryObjectMetadata *meta)
+{
+    const Object *obj = reinterpret_cast<const Object *>(p);
+    meta->key = obj->key;
+    meta->table = obj->table;
+    meta->version = obj->version;
+    // TODO(stutsman) Need the iterator to report it to me
+    //meta->offset = obj->offset;
+    meta->length = obj->data_len;
+}
+
 /**
  * Given a segment number return a list of object ids and version
  * numbers that are stored in that segment.
@@ -414,16 +427,10 @@ BackupServer::getSegmentMetadata(uint64_t segNum,
 
     // Walk the buffer and pull out metadata
     while (iterator.getNext(&entry, &p)) {
-        RecoveryObjectMetadata *meta = &list[count++];
-        if (!entry->type == LOG_ENTRY_TYPE_OBJECT)
+        if (entry->type != LOG_ENTRY_TYPE_OBJECT)
             continue;
-        const Object *obj = reinterpret_cast<const Object *>(p);
-        meta->key = obj->key;
-        meta->table = obj->table;
-        meta->version = obj->version;
-        // TODO(stutsman) Need the iterator to report it to me
-        //meta->offset = obj->offset;
-        meta->length = obj->data_len;
+        RecoveryObjectMetadata *meta = &list[count++];
+        extractMetadata(p, meta);
     }
 
     if (debug_backup)

@@ -37,13 +37,15 @@ Server::Server(const ServerConfig *sconfig,
     void *p = malloc(SEGMENT_SIZE * SEGMENT_COUNT);
     assert(p != NULL);
 
-    if (BACKUP && backup == 0) {
-        Net *net = new CNet(BACKCLNTADDR, BACKCLNTPORT,
-                            BACKSVRADDR, BACKSVRPORT);
-        net->Connect();
-        // NOTE The backup client takes care of freeing the net object
+    if (!backup) {
         MultiBackupClient *multiBackup = new MultiBackupClient();
-        multiBackup->addHost(net);
+        if (BACKUP) {
+            Net *net = new CNet(BACKCLNTADDR, BACKCLNTPORT,
+                                BACKSVRADDR, BACKSVRPORT);
+            net->Connect();
+            // NOTE The backup client takes care of freeing the net object
+            multiBackup->addHost(net);
+        }
         backup = multiBackup;
     }
 

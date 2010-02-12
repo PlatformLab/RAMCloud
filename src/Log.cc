@@ -35,7 +35,9 @@ LogEntryIterator::LogEntryIterator(const Segment *s)
 }
 
 bool
-LogEntryIterator::getNext(const struct log_entry **le, const void **p)
+LogEntryIterator::getNextAndOffset(const struct log_entry **le,
+                                   const void **p,
+                                   uint64_t *offset)
 {
     if (next == NULL)
         return false;
@@ -55,8 +57,17 @@ LogEntryIterator::getNext(const struct log_entry **le, const void **p)
     } else {
         next = NULL;
     }
+    if (next && offset)
+        *offset = static_cast<const char *>(segment->getBase()) -
+            reinterpret_cast<const char *>(next);
 
     return true;
+}
+
+bool
+LogEntryIterator::getNext(const struct log_entry **le, const void **p)
+{
+    return getNextAndOffset(le, p, 0);
 }
 
   /**************************/

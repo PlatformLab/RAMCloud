@@ -96,6 +96,8 @@ class BackupServer : BackupClient {
     virtual void retrieveSegment(uint64_t segNum, void *buf);
 
     void flushSegment();
+    void extractMetadata(const void *p,
+                         RecoveryObjectMetadata *meta);
 
     void reserveSpace();
     uint64_t frameForSegNum(uint64_t segnum);

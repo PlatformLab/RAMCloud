@@ -41,6 +41,9 @@ struct segment_checksum {
 class LogEntryIterator {
   public:
     explicit LogEntryIterator(const Segment *s);
+    bool getNextAndOffset(const struct log_entry **le,
+                          const void **p,
+                          uint64_t *offset);
     bool getNext(const struct log_entry **le, const void **p);
   private:
     const Segment *segment;

@@ -48,6 +48,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     Net *net;
 
     const std::string testMessage;
+    uint32_t testMessageLen;
     DISALLOW_COPY_AND_ASSIGN(BackupServerTest); // NOLINT
 
     CPPUNIT_TEST_SUITE(BackupServerTest);
@@ -65,21 +66,21 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_freeSegment_nonexistantSegmentNumber);
     CPPUNIT_TEST(test_freeSegment_normal);
     CPPUNIT_TEST(test_freeSegment_previouslyFreeSegment);
-    CPPUNIT_TEST(test_retrieveSegment_normal);
-/*
+    //CPPUNIT_TEST(test_retrieveSegment_normal);
     CPPUNIT_TEST(test_getSegmentList);
-    CPPUNIT_TEST(test_getSegmentMetadata_normal);
+    //CPPUNIT_TEST(test_getSegmentMetadata_normal);
     CPPUNIT_TEST(test_frameForSegNum_matchFound);
     CPPUNIT_TEST(test_frameForSegNum_noMatchFound);
     //CPPUNIT_TEST(test_flush);
     //CPPUNIT_TEST(test_segFrameOff);
-*/
     CPPUNIT_TEST_SUITE_END();
 
   public:
     BackupServerTest() :
-        net(0), testMessage("God hates ponies.")
-    {}
+        net(0), testMessage("God hates ponies."), testMessageLen(0)
+    {
+        testMessageLen = static_cast<uint32_t>(testMessage.length());
+    }
 
     static void noOp(const char *buf, size_t len)
     {
@@ -149,14 +150,14 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         try {
             backup.writeSegment(0, 0,
-                                testMessage.c_str(), testMessage.length());
+                                testMessage.c_str(), testMessageLen);
             backup.writeSegment(1, 0,
-                                testMessage.c_str(), testMessage.length());
+                                testMessage.c_str(), testMessageLen);
             CPPUNIT_ASSERT(false);
         } catch (BackupException e) {}
 
         CPPUNIT_ASSERT(!strncmp(testMessage.c_str(),
-                                backup.seg, testMessage.length()));
+                                backup.seg, testMessageLen));
     }
 
     void
@@ -178,7 +179,7 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         try {
             backup.writeSegment(0, SEGMENT_SIZE,
-                         testMessage.c_str(), testMessage.length());
+                         testMessage.c_str(), testMessageLen);
             CPPUNIT_ASSERT(false);
         } catch (BackupSegmentOverflowException e) {}
     }
@@ -191,10 +192,12 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         try {
             backup.writeSegment(0, SEGMENT_SIZE - 2,
-                         testMessage.c_str(), testMessage.length());
+                         testMessage.c_str(), testMessageLen);
             CPPUNIT_ASSERT(false);
         } catch (BackupSegmentOverflowException e) {}
     }
+
+    // TODO(stutsman) Test commit invalid seg num
 
     void
     test_commit_normal()
@@ -216,7 +219,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         uint64_t targetFrame = 0;
         for (uint64_t seg = 20; seg < 24; seg++) {
             backup.writeSegment(seg, 0,
-                                testMessage.c_str(), testMessage.length());
+                                testMessage.c_str(), testMessageLen);
             backup.commitSegment(seg);
             // Check to make sure it's in the right slot
             CPPUNIT_ASSERT_EQUAL(seg, backup.segmentAtFrame[targetFrame]);
@@ -241,11 +244,11 @@ class BackupServerTest : public CppUnit::TestFixture {
         //for (uint64_t i = 0; i < SEGMENT_FRAMES - 1; i++)
         for (int64_t i = 0; i < 64; i++)
             backup.freeMap.clear(i);
-        backup.writeSegment(0, 0, testMessage.c_str(), testMessage.length());
+        backup.writeSegment(0, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(0);
         try {
             backup.writeSegment(1, 0,
-                                testMessage.c_str(), testMessage.length());
+                                testMessage.c_str(), testMessageLen);
             backup.commitSegment(1);
             CPPUNIT_ASSERT(false);
         } catch (BackupException e) {}
@@ -290,7 +293,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         BackupServer backup(net, LOG_PATH);
 
-        backup.writeSegment(76, 0, testMessage.c_str(), testMessage.length());
+        backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
         backup.freeSegment(76);
     }
@@ -300,7 +303,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         BackupServer backup(net, LOG_PATH);
 
-        backup.writeSegment(76, 0, testMessage.c_str(), testMessage.length());
+        backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
         backup.freeSegment(76);
 
@@ -316,39 +319,13 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         BackupServer backup(net, LOG_PATH);
 
-        backup.writeSegment(76, 0, testMessage.c_str(), testMessage.length());
-        backup.commitSegment(76);
+        const int pagesize = getpagesize();
+        char logBuf[SEGMENT_SIZE + pagesize];
+        void *segStart = reinterpret_cast<void *>(
+            ((reinterpret_cast<intptr_t>(&logBuf[0]) +
+              pagesize - 1) /
+             pagesize) * pagesize);
 
-        try {
-            char buf[SEGMENT_SIZE];
-            Segment *seg = reinterpret_cast<Segment *>(&buf[0]);
-            backup.retrieveSegment(76, &buf[0]);
-            CPPUNIT_ASSERT(strncmp(&buf[0],
-                                   testMessage.c_str(),
-                                   testMessage.length()) == 0);
-            /*
-            debug_dump64(&buf[0], 64);
-            LogEntryIterator iterator(seg);
-            const log_entry *entry;
-            const void *p;
-
-            // Check to make sure our object is in there
-            bool once = true;
-            while (iterator.getNext(&entry, &p)) {
-                if (!entry->type == LOG_ENTRY_TYPE_OBJECT)
-                    continue;
-
-                // Ensure that there's only one object in there
-                CPPUNIT_ASSERT(once);
-                once = false;
-
-                // Ensure that it has what we expect
-                const Object *obj = reinterpret_cast<const Object *>(p);
-            }
-            */
-        } catch (BackupException e) {
-            CPPUNIT_ASSERT_MESSAGE(e.message, false);
-        }
     }
 
     // TODO(stutsman) test to ensure we can't freeSegment the currently
@@ -359,10 +336,10 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         BackupServer backup(net, LOG_PATH);
 
-        backup.writeSegment(76, 0, testMessage.c_str(), testMessage.length());
+        backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
 
-        backup.writeSegment(82, 0, testMessage.c_str(), testMessage.length());
+        backup.writeSegment(82, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(82);
 
         uint64_t list[2];
@@ -380,10 +357,10 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         // TODO(stutsman) This is insufficent, must be in server
         // format
-        backup.writeSegment(76, 0, testMessage.c_str(), testMessage.length());
+        backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
 
-        backup.writeSegment(82, 0, testMessage.c_str(), testMessage.length());
+        backup.writeSegment(82, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(82);
 
         const size_t listSize = 2;
@@ -422,7 +399,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         BackupServer backup(net, LOG_PATH);
 
-        backup.writeSegment(76, 0, testMessage.c_str(), testMessage.length());
+        backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
 
         CPPUNIT_ASSERT_EQUAL(0lu, backup.frameForSegNum(76));
