@@ -3,8 +3,8 @@
 ====================================
 
 Using GNU make, type:
-	$ make
-        # make install
+$ make
+# make install
 
 This will build the client, server, and backups.  The install step
 simply installs the RAMCloud client library and headers in /usr/local.
@@ -12,8 +12,7 @@ simply installs the RAMCloud client library and headers in /usr/local.
 ====================================
 2. Running
 ====================================
-
-To run you must have 3 things.  A running backup, a running server,
+ To run you must have 3 things.  A running backup, a running server,
 and some kind of client. Note that the backup must be started first.
 
 2.1 Starting a backup

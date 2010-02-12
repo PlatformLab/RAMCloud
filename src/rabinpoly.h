@@ -29,40 +29,40 @@ uint64_t polymmult (uint64_t x, uint64_t y, uint64_t d);
 bool polyirreducible (uint64_t f);
 
 class rabinpoly {
-  int shift;
-  uint64_t T[256];		// Lookup table for mod
-  void calcT ();
+    int shift;
+    uint64_t T[256];                    // Lookup table for mod
+    void calcT ();
 public:
-  const uint64_t poly;		// Actual polynomial
+    const uint64_t poly;                // Actual polynomial
 
-  explicit rabinpoly (uint64_t poly);
-  uint64_t append8 (uint64_t p, uint8_t m) const
-    { return ((p << 8) | m) ^ T[p >> shift]; }
+    explicit rabinpoly (uint64_t poly);
+    uint64_t append8 (uint64_t p, uint8_t m) const
+        { return ((p << 8) | m) ^ T[p >> shift]; }
 };
 
 class window : public rabinpoly {
 public:
-  enum {size = 48};
-  //enum {size = 24};
+    enum {size = 48};
+    //enum {size = 24};
 private:
-  uint64_t fingerprint;
-  int bufpos;
-  uint64_t U[256];
-  uint8_t buf[size];
+    uint64_t fingerprint;
+    int bufpos;
+    uint64_t U[256];
+    uint8_t buf[size];
 
 public:
-  window (uint64_t poly);
-  uint64_t slide8 (uint8_t m) {
-    if (++bufpos >= size)
-      bufpos = 0;
-    uint8_t om = buf[bufpos];
-    buf[bufpos] = m;
-    return fingerprint = append8 (fingerprint ^ U[om], m);
-  }
-  void reset () { 
-    fingerprint = 0; 
-    bzero ((char*) buf, sizeof (buf));
-  }
+    window (uint64_t poly);
+    uint64_t slide8 (uint8_t m) {
+        if (++bufpos >= size)
+            bufpos = 0;
+        uint8_t om = buf[bufpos];
+        buf[bufpos] = m;
+        return fingerprint = append8 (fingerprint ^ U[om], m);
+    }
+    void reset () {
+        fingerprint = 0;
+        bzero ((char*) buf, sizeof (buf));
+    }
 };
 
 #endif /* !_RABINPOLY_H_ */

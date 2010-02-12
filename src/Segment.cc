@@ -30,21 +30,21 @@ Segment::Segment(void *buf,
       next(0),
       prev(0)
 {
-	assert(buf != NULL);
-	assert(len > 0);
+    assert(buf != NULL);
+    assert(len > 0);
 }
 
 Segment::~Segment()
 {
-	assert(0);
+    assert(0);
 }
 
 void
 Segment::ready(uint64_t new_id)
 {
-	assert(!isMutable);
+    assert(!isMutable);
     assert(id == SEGMENT_INVALID_ID);
-
+    
     isMutable = true;
     id        = new_id;
 }
@@ -52,91 +52,91 @@ Segment::ready(uint64_t new_id)
 void
 Segment::reset()
 {
-	assert(!isMutable);
-
-	if (id != SEGMENT_INVALID_ID)
-		backup->freeSegment(id);
-
-	free_bytes  = total_bytes;
-	tail_bytes  = total_bytes;
-	id	        = SEGMENT_INVALID_ID;
-	memset(base, 0xcc, total_bytes);
+    assert(!isMutable);
+    
+    if (id != SEGMENT_INVALID_ID)
+        backup->freeSegment(id);
+    
+    free_bytes  = total_bytes;
+    tail_bytes  = total_bytes;
+    id = SEGMENT_INVALID_ID;
+    memset(base, 0xcc, total_bytes);
 }
 
 const void *
 Segment::append(const void *buf, uint64_t len)
 {
-	assert(isMutable);
-	assert(id != SEGMENT_INVALID_ID);
+    assert(isMutable);
+    assert(id != SEGMENT_INVALID_ID);
 
-	if (tail_bytes < len)
-		return NULL;
+    if (tail_bytes < len)
+        return NULL;
 
-	assert(free_bytes >= len);
+    assert(free_bytes >= len);
 
-	uint64_t offset = total_bytes - tail_bytes;
-	void *loc = (uint8_t *)base + offset;
+    uint64_t offset = total_bytes - tail_bytes;
+    void *loc = (uint8_t *)base + offset;
 
-	memcpy(loc, buf, len);
-	backup->writeSegment(id, offset, buf, len);
-	free_bytes -= len;
-	tail_bytes -= len;
+    memcpy(loc, buf, len);
+    backup->writeSegment(id, offset, buf, len);
+    free_bytes -= len;
+    tail_bytes -= len;
 
-	return loc;
+    return loc;
 }
 
 void
 Segment::free(uint64_t len)
 {
-	assert((len + free_bytes) <= total_bytes);
-	free_bytes += len;
+    assert((len + free_bytes) <= total_bytes);
+    free_bytes += len;
 }
 
 const void *
 Segment::getBase() const
 {
-	return base;
+    return base;
 }
 
 uint64_t
 Segment::getId() const
 {
-	return id;
+    return id;
 }
 
 uint64_t
 Segment::getFreeTail() const
 {
-	return tail_bytes;
+    return tail_bytes;
 }
 
 uint64_t
 Segment::getLength() const
 {
-	return total_bytes;
+    return total_bytes;
 }
 
 uint64_t
 Segment::getUtilization() const
 {
-	return total_bytes - free_bytes;
+    return total_bytes - free_bytes;
 }
 
 bool
 Segment::checkRange(const void *p, uint64_t len) const
 {
-	uintptr_t up = (uintptr_t)p;
-	uintptr_t ub = (uintptr_t)base;
+    uintptr_t up = (uintptr_t)p;
+    uintptr_t ub = (uintptr_t)base;
 
-	return (up >= ub && up < (ub + total_bytes));
+    return (up >= ub && up < (ub + total_bytes));
 }
 
 void
 Segment::finalize()
 {
-	assert(id != SEGMENT_INVALID_ID);
-	isMutable = false;
-	backup->commitSegment(id);
+    assert(id != SEGMENT_INVALID_ID);
+    isMutable = false;
+    backup->commitSegment(id);
 }
 
 void
@@ -146,7 +146,7 @@ Segment::restore(uint64_t restore_seg_id)
 
     //printf("Segment restoring from %llu:\n", restore_seg_id);
     backup->retrieveSegment(restore_seg_id, base);
-    // TODO restore all sorts of state/invariants
+    // TODO(stutsman) restore all sorts of state/invariants
     // It seems we want to restore this information by making a single
     // pass which happens in the server to rebuild the hashtable
     id = restore_seg_id;
@@ -155,27 +155,27 @@ Segment::restore(uint64_t restore_seg_id)
 Segment *
 Segment::link(Segment *n)
 {
-	assert(prev == NULL && next == NULL);
-	assert(n == NULL || n->prev == NULL);
+    assert(prev == NULL && next == NULL);
+    assert(n == NULL || n->prev == NULL);
+    
+    if (n != NULL)
+        n->prev = this;
+    next = n;
 
-	if (n != NULL)
-		n->prev = this;
-	next = n;
-
-	return this;
+    return this;
 }
 
 Segment *
 Segment::unlink()
 {
-	if (prev != NULL)
-		prev->next = next;
-	if (next != NULL)
-		next->prev = prev;
+    if (prev != NULL)
+        prev->next = next;
+    if (next != NULL)
+        next->prev = prev;
 
-	Segment *n = next;
-	prev = next = NULL;
-	return n;
+    Segment *n = next;
+    prev = next = NULL;
+    return n;
 }
 
 } // namespace

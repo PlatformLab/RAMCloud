@@ -19,10 +19,10 @@
 namespace RAMCloud {
 
 enum log_entry_type_t {
-        LOG_ENTRY_TYPE_SEGMENT_HEADER   = 0x72646873,	// "shdr" in little endian
-        LOG_ENTRY_TYPE_SEGMENT_CHECKSUM = 0x6b686373,	// "schk" in little endian 
-        LOG_ENTRY_TYPE_OBJECT           = 0x216a626f,   // "obj!" in little endian
-        LOG_ENTRY_TYPE_OBJECT_TOMBSTONE = 0x626d6f74    // "tomb" in little endian
+    LOG_ENTRY_TYPE_SEGMENT_HEADER   = 0x72646873, // "shdr" in little endian
+    LOG_ENTRY_TYPE_SEGMENT_CHECKSUM = 0x6b686373, // "schk" in little endian
+    LOG_ENTRY_TYPE_OBJECT           = 0x216a626f, // "obj!" in little endian
+    LOG_ENTRY_TYPE_OBJECT_TOMBSTONE = 0x626d6f74  // "tomb" in little endian
 };
 
 } // namespace

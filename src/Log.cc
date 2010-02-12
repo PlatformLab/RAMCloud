@@ -92,23 +92,23 @@ Log::Log(const uint64_t segsize,
       cleaning(false),
       backup(backup_client)
 {
-	// at a minimum, we'll have a segment header, one object, and a segment
-	// checksum
-	uint64_t min_meta = (3 * sizeof(struct log_entry)) +
-	    sizeof(struct segment_header) + sizeof(struct segment_checksum);
-	assert(min_meta <= len);
-	max_append = segment_size - min_meta;
+    // at a minimum, we'll have a segment header, one object, and a segment
+    // checksum
+    uint64_t min_meta = (3 * sizeof(struct log_entry)) +
+        sizeof(struct segment_header) + sizeof(struct segment_checksum);
+    assert(min_meta <= len);
+    max_append = segment_size - min_meta;
 
-	segments = (Segment **)malloc(nsegments * sizeof(segments[0]));
-	for (uint64_t i = 0; i < nsegments; i++) {
-		void *base  = (uint8_t *)buf + (i * segment_size);
-		segments[i] = new Segment(base, segment_size, backup);
-		free_list   = segments[i]->link(free_list);
-		nfree_list++;
-	}
+    segments = (Segment **)malloc(nsegments * sizeof(segments[0]));
+    for (uint64_t i = 0; i < nsegments; i++) {
+        void *base  = (uint8_t *)buf + (i * segment_size);
+        segments[i] = new Segment(base, segment_size, backup);
+        free_list   = segments[i]->link(free_list);
+        nfree_list++;
+    }
 
-	assert(nsegments == nfree_list);
-	assert(nfree_list > 0);
+    assert(nsegments == nfree_list);
+    assert(nfree_list > 0);
 }
 
 void
@@ -165,22 +165,23 @@ Log::restore()
 void
 Log::init()
 {
-	head = free_list;
-	free_list = free_list->unlink();
-	nfree_list--;
+    head = free_list;
+    free_list = free_list->unlink();
+    nfree_list--;
     head->ready(allocateSegmentId());
 
-	struct segment_header sh;
-	sh.id = 0;
+    struct segment_header sh;
+    sh.id = 0;
 
-	const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER, &sh, sizeof(sh));
-	assert(r != NULL);
+    const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER,
+                                  &sh, sizeof(sh));
+    assert(r != NULL);
 }
 
 bool
 Log::isSegmentLive(uint64_t segmentId) const
 {
-    // XXX- inefficient
+    // TODO(rumble) inefficient
     for (uint64_t i = 0; i < nsegments; i++) {
         if (segments[i]->getId() == segmentId)
             return true;
@@ -199,55 +200,60 @@ Log::getSegmentIdOffset(const void *p, uint64_t *id, uint32_t *offset) const
 
     *id = s->getId();
     *offset = (uint32_t)((uintptr_t)p - (uintptr_t)s->getBase());
-} 
+}
 
 const void *
 Log::append(log_entry_type_t type, const void *buf, const uint64_t len)
 {
-	if (type == LOG_ENTRY_TYPE_SEGMENT_HEADER ||
-	    type == LOG_ENTRY_TYPE_SEGMENT_CHECKSUM)
-		return NULL;
+    if (type == LOG_ENTRY_TYPE_SEGMENT_HEADER ||
+        type == LOG_ENTRY_TYPE_SEGMENT_CHECKSUM)
+        return NULL;
 
-	return appendAnyType(type, buf, len);
+    return appendAnyType(type, buf, len);
 }
 
 void
 Log::free(log_entry_type_t type, const void *buf, const uint64_t len)
 {
-	struct log_entry *le = (struct log_entry *)((uintptr_t)buf - sizeof(*le));
-	Segment *s = getSegment(le, len + sizeof(*le));
+    struct log_entry *le = (struct log_entry *)((uintptr_t)buf -
+                                                    sizeof(*le));
+    Segment *s = getSegment(le, len + sizeof(*le));
 
-	assert(le->type == type);
-	assert(le->length == len);
-	assert(type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
-	       type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM);
-	assert(len <= bytes_stored);
+    assert(le->type == type);
+    assert(le->length == len);
+    assert(type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
+           type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM);
+    assert(len <= bytes_stored);
 
-	// Note that we do not adjust the 'bytes_stored' count here, but do so only
-	// during cleaning.
+    // Note that we do not adjust the 'bytes_stored' count here,
+    // but do so only during cleaning.
 
-	s->free(len + sizeof(*le));
-	if (s->getUtilization() == 0) {
-		// XXX- need to handle mutability, inc. segment #, etc
-		// XXX- good idea may be to do this only when segment pulled from free list
-		assert(!cleaning);
+    s->free(len + sizeof(*le));
+    if (s->getUtilization() == 0) {
+        // TODO(rumble) need to handle mutability,
+        // inc. segment #, etc
+        // TODO(rumble) good idea may be
+        // to do this only when segment pulled from free list
+        assert(!cleaning);
 
-		assert(s->unlink() == NULL);
-		free_list = s->link(free_list);
-		assert(free_list->getUtilization() == 0);
-		nfree_list++;
-		if (s == head) {
-			retireHead();
-			assert(head == NULL);
-		}
+        assert(s->unlink() == NULL);
+        free_list = s->link(free_list);
+        assert(free_list->getUtilization() == 0);
+        nfree_list++;
+        if (s == head) {
+            retireHead();
+            assert(head == NULL);
+        }
         s->reset();
-	}
+    }
 }
 
 void
-Log::registerType(log_entry_type_t type, log_eviction_cb_t evict_cb, void *cookie)
+Log::registerType(log_entry_type_t type,
+                  log_eviction_cb_t evict_cb,
+                  void *cookie)
 {
-	assert(evict_cb != NULL);
+    assert(evict_cb != NULL);
     assert(numCallbacks < sizeof(callbacks)/sizeof(callbacks[0]));
 
     callbacks[numCallbacks].cb = evict_cb;
@@ -259,19 +265,27 @@ Log::registerType(log_entry_type_t type, log_eviction_cb_t evict_cb, void *cooki
 void
 Log::printStats()
 {
-	printf("::LOG STATS::\n");
-	printf("  segment len:           %" PRIu64 " (%.3fMB)\n", segment_size, (float)segment_size / (1024*1024));
-	printf("  num segments:          %" PRIu64 "\n", nsegments);
-	printf("  cumulative storage:    %" PRIu64 " (%.3fMB)\n", (nsegments * segment_size), (float)(nsegments * segment_size) / (1024*1024));
-	printf("  non-meta bytes stored: %" PRIu64 " (%.3fMB)\n", bytes_stored, (float)bytes_stored / (1024*1024));
-	printf("  non-meta utilization:  %.3f%%\n", (float)bytes_stored / (nsegments * segment_size) * 100.0);
-	printf("  non-meta efficiency:   %.3f%%\n", (float)bytes_stored / ((nsegments - nfree_list) * segment_size) * 100.0);
+    printf("::LOG STATS::\n");
+    printf("  segment len:           %" PRIu64 " (%.3fMB)\n",
+           segment_size, (float)segment_size / (1024*1024));
+    printf("  num segments:          %" PRIu64 "\n",
+           nsegments);
+    printf("  cumulative storage:    %" PRIu64 " (%.3fMB)\n",
+           (nsegments * segment_size),
+           (float)(nsegments * segment_size) / (1024*1024));
+    printf("  non-meta bytes stored: %" PRIu64 " (%.3fMB)\n",
+           bytes_stored, (float)bytes_stored / (1024*1024));
+    printf("  non-meta utilization:  %.3f%%\n",
+           (float)bytes_stored / (nsegments * segment_size) * 100.0);
+    printf("  non-meta efficiency:   %.3f%%\n",
+           (float)bytes_stored / ((nsegments - nfree_list) *
+                                  segment_size) * 100.0);
 }
 
 uint64_t
 Log::getMaximumAppend()
 {
-	return max_append;
+    return max_append;
 }
 
   /*************************/
@@ -295,204 +309,206 @@ Log::getEvictionCallback(log_entry_type_t type, void **cookie)
         }
     }
 
-	return NULL;
+    return NULL;
 }
 
 Segment *
 Log::getSegment(const void *p, uint64_t len) const
 {
-	uintptr_t up  = (uintptr_t)p;
-	uintptr_t ub  = (uintptr_t)base;
-	uintptr_t max = (uintptr_t)base + (segment_size * nsegments); 
+    uintptr_t up  = (uintptr_t)p;
+    uintptr_t ub  = (uintptr_t)base;
+    uintptr_t max = (uintptr_t)base + (segment_size * nsegments);
 
-	assert(up >= ub && (up + len) < max);
-	uintptr_t segno = (up - ub) / segment_size;
-	assert(segno < nsegments);
+    assert(up >= ub && (up + len) < max);
+    uintptr_t segno = (up - ub) / segment_size;
+    assert(segno < nsegments);
 
-	Segment *s = segments[segno];
-	uintptr_t sb = (uintptr_t)s->getBase();
-	assert(up >= sb && (up + len) < (sb + segment_size));
+    Segment *s = segments[segno];
+    uintptr_t sb = (uintptr_t)s->getBase();
+    assert(up >= sb && (up + len) < (sb + segment_size));
 
-	return (s);
+    return (s);
 }
 
-//walk objects, calling the eviction cb on each
-//the callback will either do nothing, or re-write to the head of
-//the log. it's very important that this re-writing be guaranteed to
-//succeed and that we do not recurse into cleaning!!
+// walk objects, calling the eviction cb on each
+// the callback will either do nothing, or re-write to the head of
+// the log. it's very important that this re-writing be guaranteed to
+// succeed and that we do not recurse into cleaning!!
 void
 Log::clean()
 {
-	assert(head == NULL);
+    assert(head == NULL);
 
-	// we may come back here due to a log append when our eviction callback
+    // we may come back here due to a log append when our eviction callback
     // results in an object being written out once again. This is ok, but when
     // we're finished cleaning, we may toss an underutilized segment and
     // reallocate a new head in our caller, newHead(). it's probably
     // unimportant, but we may want to preserve enough state to detect and
     // avoid that case.
-	if (cleaning)
-		return;
-	cleaning = true;
+    if (cleaning)
+        return;
+    cleaning = true;
 
-	for (uint64_t i = 0; i < nsegments; i++) {
-		Segment *s = segments[i];
+    for (uint64_t i = 0; i < nsegments; i++) {
+        Segment *s = segments[i];
 
-		if (nfree_list >= cleaner_hiwat)
-			break;
+        if (nfree_list >= cleaner_hiwat)
+            break;
 
-		uint64_t util = s->getUtilization();
-		if (util != 0 && util < (3 * segment_size / 4)) {
-			// Note that since our segments are immutable (when not writing to
+        uint64_t util = s->getUtilization();
+        if (util != 0 && util < (3 * segment_size / 4)) {
+            // Note that since our segments are immutable (when not writing to
             // the head) we may certainly iterate over objects for which
             // log_free() has already been called. That's fine - it's up to the
             // callback to determine that its stale data and take no action.
-			//
-			// For this reason, we do _not_ want to do s->free() on that space,
+            //
+            // For this reason, we do _not_ want to do s->free() on that space,
             // since for already freed space, we'll double-count.
 
-			LogEntryIterator lei(s);
-			const struct log_entry *le;
-			const void *p;
+            LogEntryIterator lei(s);
+            const struct log_entry *le;
+            const void *p;
 
-			while (lei.getNext(&le, &p)) {
-				void *cookie;
-				log_eviction_cb_t cb =
+            while (lei.getNext(&le, &p)) {
+                void *cookie;
+                log_eviction_cb_t cb =
                     getEvictionCallback((log_entry_type_t)le->type, &cookie);
 
-				if (le->type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
-				    le->type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
-					assert(le->length <= bytes_stored);
-					bytes_stored -= le->length;
-				}
+                if (le->type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
+                    le->type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
+                    assert(le->length <= bytes_stored);
+                    bytes_stored -= le->length;
+                }
 
-				if (cb != NULL)
-					cb((log_entry_type_t)le->type, p, le->length, cookie);
-			}
+                if (cb != NULL)
+                    cb((log_entry_type_t)le->type, p, le->length, cookie);
+            }
 
-			assert(s->unlink() == NULL);
+            assert(s->unlink() == NULL);
             s->reset();
-			free_list = s->link(free_list);
-			nfree_list++;
-		}
-	}
+            free_list = s->link(free_list);
+            nfree_list++;
+        }
+    }
 
-	cleaning = false;
+    cleaning = false;
 }
 
 // Head of the Log is done. Retire it and get a new head.
 bool
 Log::newHead()
 {
-	if (head != NULL)
-		retireHead();
+    if (head != NULL)
+        retireHead();
 
-	assert(head == NULL);
+    assert(head == NULL);
 
-	if (nfree_list < cleaner_lowat) {
-		clean();
+    if (nfree_list < cleaner_lowat) {
+        clean();
 
-		// while cleaning, we may have had to re-write live
-		// objects to the log, which would have allocated
-		// another head. 
-		//
-		// it'd be nice if we didn't waste a mostly-unutilized
-		// segment, but that's for another day 
+        // while cleaning, we may have had to re-write live
+        // objects to the log, which would have allocated
+        // another head.
+        //
+        // it'd be nice if we didn't waste a mostly-unutilized
+        // segment, but that's for another day
 
-		if (head != NULL)
-			retireHead();
-	}
+        if (head != NULL)
+            retireHead();
+    }
 
-	assert(head == NULL);
+    assert(head == NULL);
 
-	if (free_list == NULL) {
-		assert(nfree_list == 0);
-		return false;
-	}
+    if (free_list == NULL) {
+        assert(nfree_list == 0);
+        return false;
+    }
 
-	head = free_list;
-	free_list = head->unlink();
-	nfree_list--;
+    head = free_list;
+    free_list = head->unlink();
+    nfree_list--;
     head->ready(allocateSegmentId());
 
-	assert(head->getUtilization() == 0);
+    assert(head->getUtilization() == 0);
 
-	struct segment_header sh;
-	sh.id = head->getId();
+    struct segment_header sh;
+    sh.id = head->getId();
 
-	const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER, &sh, sizeof(sh));
-	assert(r != NULL);
+    const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER,
+                                  &sh, sizeof(sh));
+    assert(r != NULL);
 
-	return true;
+    return true;
 }
 
 void
 Log::checksumHead()
 {
-	assert(head != NULL);
-	assert(head->getFreeTail() >=
-	    (sizeof(struct log_entry) + sizeof(struct segment_checksum)));
+    assert(head != NULL);
+    assert(head->getFreeTail() >=
+           (sizeof(struct log_entry) + sizeof(struct segment_checksum)));
 
-	struct segment_checksum sc;
-	sc.checksum = 0xbeefcafebeefcafe;
-	appendAnyType(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM, &sc, sizeof(sc));
+    struct segment_checksum sc;
+    sc.checksum = 0xbeefcafebeefcafe;
+    appendAnyType(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM, &sc, sizeof(sc));
 }
 
 void
 Log::retireHead()
 {
-	assert(head != NULL);
-	checksumHead();
-	head->finalize();
-	head = NULL;
+    assert(head != NULL);
+    checksumHead();
+    head->finalize();
+    head = NULL;
 }
 
 const void *
 Log::appendAnyType(log_entry_type_t type, const void *buf, const uint64_t len)
 {
-	assert(len <= max_append);
+    assert(len <= max_append);
 
-	if (head == NULL && !newHead())
-		return NULL;
+    if (head == NULL && !newHead())
+        return NULL;
 
-	assert(len < segment_size);
+    assert(len < segment_size);
 
-	// ensure enough room exists to write the log entry meta, the object, and
+    // ensure enough room exists to write the log entry meta, the object, and
     // reserve space for the checksum & meta at the end
-	struct log_entry le;
-	uint64_t needed = len + (2 * sizeof(le)) + sizeof(struct segment_checksum);
-	if (head->getFreeTail() < needed) {
-		if (type == LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
-			assert(head->getFreeTail() >=
-			    (sizeof(le) + sizeof(struct segment_checksum)));
-		} else {
-			if (!newHead())
-				return NULL;
-			assert(head != NULL);
-			assert(head->getFreeTail() > needed);
-		}
-	}
+    struct log_entry le;
+    uint64_t needed = len + (2 * sizeof(le)) + sizeof(struct segment_checksum);
+    if (head->getFreeTail() < needed) {
+        if (type == LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
+            assert(head->getFreeTail() >=
+                   (sizeof(le) + sizeof(struct segment_checksum)));
+        } else {
+            if (!newHead())
+                return NULL;
+            assert(head != NULL);
+            assert(head->getFreeTail() > needed);
+        }
+    }
 
-	assert(type != LOG_ENTRY_TYPE_SEGMENT_HEADER || head->getUtilization() == 0);
+    assert(type != LOG_ENTRY_TYPE_SEGMENT_HEADER ||
+           head->getUtilization() == 0);
 
-	le.type   = type;
-	le.length = len;
+    le.type   = type;
+    le.length = len;
 
-	// append the header
-	const void *r = head->append(&le, sizeof(le));
-	assert(r != NULL);
+    // append the header
+    const void *r = head->append(&le, sizeof(le));
+    assert(r != NULL);
 
-	// append the actual data
-	r = head->append(buf, len);
-	assert(r != NULL);
+    // append the actual data
+    r = head->append(buf, len);
+    assert(r != NULL);
 
-	if (type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
-	    type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
-		bytes_stored += len;
-		assert(bytes_stored <= (nsegments * segment_size));
-	}
+    if (type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
+        type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
+        bytes_stored += len;
+        assert(bytes_stored <= (nsegments * segment_size));
+    }
 
-	return r;
+    return r;
 }
 
 } // namespace
