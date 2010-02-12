@@ -189,10 +189,14 @@ class RAMCloud(object):
         r = so.rc_write(self.client, table_id, key, ctypes.byref(reject_rules),
                         ctypes.byref(got_version), data, len(data))
         assert r in range(6)
-        if r == 1: raise NoObjectError()
-        if r == 2: raise ObjectExistsError()
-        if r == 3 or r == 4: raise VersionError(want_version, got_version.value)
-        if r == 5: raise FabricatedVersionError(want_version, got_version.value)
+        if r == 1:
+            raise NoObjectError()
+        if r == 2:
+            raise ObjectExistsError()
+        if r == 3 or r == 4:
+            raise VersionError(reject_rules.given_version, got_version.value)
+        if r == 5:
+            raise FabricatedVersionError(reject_rules.given_version, got_version.value)
         return got_version.value
 
     def write(self, table_id, key, data, want_version=None):
@@ -224,10 +228,14 @@ class RAMCloud(object):
         r = so.rc_delete(self.client, table_id, key,
                          ctypes.byref(reject_rules), ctypes.byref(got_version))
         assert r in range(6)
-        if r == 1: raise NoObjectError()
-        if r == 2: raise ObjectExistsError()
-        if r == 3 or r == 4: raise VersionError(want_version, got_version.value)
-        if r == 5: raise FabricatedVersionError(want_version, got_version.value)
+        if r == 1:
+            raise NoObjectError()
+        if r == 2:
+            raise ObjectExistsError()
+        if r == 3 or r == 4:
+            raise VersionError(reject_rules.given_version, got_version.value)
+        if r == 5:
+            raise FabricatedVersionError(reject_rules.given_version, got_version.value)
 
     def delete(self, table_id, key, want_version=None):
         if want_version:
@@ -245,10 +253,14 @@ class RAMCloud(object):
                        ctypes.byref(got_version), ctypes.byref(buf),
                        ctypes.byref(l))
         assert r in range(6)
-        if r == 1: raise NoObjectError()
-        if r == 2: raise ObjectExistsError()
-        if r == 3 or r == 4: raise VersionError(want_version, got_version.value)
-        if r == 5: raise FabricatedVersionError(want_version, got_version.value)
+        if r == 1:
+            raise NoObjectError()
+        if r == 2:
+            raise ObjectExistsError()
+        if r == 3 or r == 4:
+            raise VersionError(reject_rules.given_version, got_version.value)
+        if r == 5:
+            raise FabricatedVersionError(reject_rules.given_version, got_version.value)
         return (buf.raw[0:l.value], got_version.value)
 
     def read(self, table_id, key, want_version=None):
