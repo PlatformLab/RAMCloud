@@ -61,12 +61,13 @@ client-lib-install:
 	install -m 644 $(OBJDIR)/libramcloud.so $(CLIENT_LIB_INSTALL_PREFIX)/lib
 	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
 	install -m 644 $(TOP)/src/Client.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
-	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
-	install -m 644 $(TOP)/src/shared/net.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
-	install -m 644 $(TOP)/src/shared/net_user.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
-	install -m 644 $(TOP)/src/shared/net_udp.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
-	install -m 644 $(TOP)/src/shared/net_tcp.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
-	install -m 644 $(TOP)/src/shared/rcrpc.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud/shared
+	-mkdir -p $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
+	install -m 644 $(TOP)/src/Net.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
+	install -m 644 $(TOP)/src/net_user.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
+	install -m 644 $(TOP)/src/net_udp.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
+	install -m 644 $(TOP)/src/net_tcp.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
+	install -m 644 $(TOP)/src/rcrpc.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
+	install -m 644 $(TOP)/src/config.h $(CLIENT_LIB_INSTALL_PREFIX)/include/ramcloud
 
 client: $(OBJDIR)/client $(OBJDIR)/libramcloud.a $(OBJDIR)/libramcloud.so
 
