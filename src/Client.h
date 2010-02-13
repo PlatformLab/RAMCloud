@@ -50,9 +50,9 @@ int rc_drop_table(struct rc_client *client, const char *name);
 /* These aren't strictly necessary, but they make life easier for
  * foreign languages because they don't have to know how to allocate a
  * structure of the correct size */
-struct rc_client *rc_new();
+struct rc_client *rc_new(void);
 void rc_free(struct rc_client *client);
-const char* rc_last_error();
+const char* rc_last_error(void);
 #ifdef __cplusplus
 }
 #endif

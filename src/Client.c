@@ -80,7 +80,7 @@ static char rc_error_message[ERROR_MSG_LEN];
  * \warning This function is not reentrant.
  */
 const char*
-rc_last_error()
+rc_last_error(void)
 {
     return &rc_error_message[0];
 }
@@ -604,7 +604,7 @@ rc_drop_table(struct rc_client *client, const char *name)
  * \return a newly allocated client, or \c NULL if the system is out of memory
  */
 struct rc_client *
-rc_new() {
+rc_new(void) {
     return malloc(sizeof(struct rc_client));
 }
 

@@ -507,8 +507,8 @@ Server::HandleRPC()
         strcpy(&error_rpc->message[0], msg);
         resp->header.type = RCRPC_ERROR_RESPONSE;
         resp->header.len = static_cast<uint32_t>(
-                               RCRPC_ERROR_RESPONSE_LEN_WODATA) +
-                           msglen + 1;
+                               RCRPC_ERROR_RESPONSE_LEN_WODATA +
+                               msglen + 1);
     }
     net->SendRPC(resp);
 }

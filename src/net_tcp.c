@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include <errno.h>
+#include <string.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -216,7 +217,8 @@ rc_net_recv(struct rc_net *net, void **buf, size_t *buflen)
             return rc_net_recv(net, buf, buflen);
         }
         else {
-            assert(len == rpc_len);
+            assert(len > 0);
+            assert((uint64_t) len == rpc_len);
         }
     }
     else {
