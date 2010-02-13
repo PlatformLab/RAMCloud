@@ -13,6 +13,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * \file
+ * Implementations for master server-side backup RPC stubs.  The
+ * classes herein send requests to the backup servers transparently to
+ * handle all the backup needs of the masters.
+ */
+
 #include <BackupClient.h>
 #include <backuprpc.h>
 
@@ -41,13 +48,13 @@ BackupHost::~BackupHost()
 }
 
 void
-BackupHost::sendRPC(struct backup_rpc *rpc)
+BackupHost::sendRPC(backup_rpc *rpc)
 {
     net->Send(rpc, rpc->hdr.len);
 }
 
 void
-BackupHost::recvRPC(struct backup_rpc **rpc)
+BackupHost::recvRPC(backup_rpc **rpc)
 {
     size_t len = net->Recv(reinterpret_cast<void**>(rpc));
     if (len != (*rpc)->hdr.len)
@@ -143,9 +150,9 @@ BackupHost::freeSegment(uint64_t segNum)
     printf("Free ok\n");
 }
 
-void
+size_t
 BackupHost::getSegmentList(uint64_t *list,
-                           uint64_t *count)
+                           size_t maxSize)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_GETSEGMENTLIST_REQ;
@@ -161,15 +168,15 @@ BackupHost::getSegmentList(uint64_t *list,
     uint64_t tmp_count = resp->getsegmentlist_resp.seg_list_count;
     printf("Backup wants to restore %llu segments\n", tmp_count);
 
-    if (*count < tmp_count)
+    if (maxSize < tmp_count)
         throw BackupRPCException("Provided a segment id buffer "
                                  "that was too small");
     // TODO(stutsman) we need to return this sorted and merged with
     // segs from other backups
     memcpy(list, tmp_list, tmp_count * sizeof(uint64_t));
-    *count = tmp_count;
 
     printf("GetSegmentList ok\n");
+    return tmp_count;
 }
 
 size_t
@@ -260,15 +267,14 @@ MultiBackupClient::freeSegment(uint64_t segNum)
         host->freeSegment(segNum);
 }
 
-void
+size_t
 MultiBackupClient::getSegmentList(uint64_t *list,
-                                 uint64_t *count)
+                                  size_t maxSize)
 {
     if (host) {
-        host->getSegmentList(list, count);
-        return;
+        return host->getSegmentList(list, maxSize);
     }
-    *count = 0;
+    return 0;
 }
 
 size_t

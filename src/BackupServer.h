@@ -13,6 +13,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * \file
+ * Declarations for the backup server, currently all backup RPC
+ * requests are handled by this module including all the heavy lifting
+ * to complete the work requested by the RPCs.
+ */
+
 #ifndef RAMCLOUD_BACKUPSERVER_H
 #define RAMCLOUD_BACKUPSERVER_H
 
@@ -81,15 +88,15 @@ class BackupServer : BackupClient {
     void handleRetrieve(const backup_rpc *req, backup_rpc *resp);
 
     void handleRPC();
-    void sendRPC(struct backup_rpc *rpc);
-    void recvRPC(struct backup_rpc **rpc);
+    void sendRPC(const backup_rpc *rpc);
+    void recvRPC(backup_rpc **rpc);
 
     virtual void heartbeat() {}
     virtual void writeSegment(uint64_t segNum, uint32_t offset,
                               const void *data, uint32_t len);
     virtual void commitSegment(uint64_t segNum);
     virtual void freeSegment(uint64_t segNum);
-    virtual void getSegmentList(uint64_t *list, uint64_t *count);
+    virtual size_t getSegmentList(uint64_t *list, size_t maxSize);
     virtual size_t getSegmentMetadata(uint64_t segNum,
                                       RecoveryObjectMetadata *list,
                                       size_t maxSize);
@@ -97,6 +104,7 @@ class BackupServer : BackupClient {
 
     void flushSegment();
     void extractMetadata(const void *p,
+                         uint64_t offset,
                          RecoveryObjectMetadata *meta);
 
     void reserveSpace();
@@ -109,8 +117,6 @@ class BackupServer : BackupClient {
     // segment number of the active segment
     uint64_t openSegNum;
 
-    // TODO(stutsman) How much should we really allocate?
-    static const uint64_t SEGMENT_FRAMES = SEGMENT_COUNT;
     /**
      * This array, given a segment frame, produces the current segment
      * number that is stored there.

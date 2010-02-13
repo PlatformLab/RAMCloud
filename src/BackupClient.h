@@ -13,15 +13,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * \file
+ * Declarations for master server-side backup RPC stubs.  The
+ * classes herein send requests to the backup servers transparently to
+ * handle all the backup needs of the masters.
+ */
+
 #ifndef RAMCLOUD_BACKUPCLIENT_H
 #define RAMCLOUD_BACKUPCLIENT_H
 
 #include <Common.h>
 #include <Net.h>
+#include <backuprpc.h>
 
 namespace RAMCloud {
 
-// TODO(stutsman) Move this to wherever it makes sense
+/**
+ * A single unit of metadata for recovery of an object as returned by
+ * getSegmentMetadata().
+ */
 struct RecoveryObjectMetadata {
     uint64_t key;
     uint64_t table;
@@ -31,6 +42,10 @@ struct RecoveryObjectMetadata {
 };
 
 
+/**
+ * The interface for an object that can act as a backup server no
+ * matter the transport or location.
+ */
 class BackupClient {
   public:
     virtual ~BackupClient() {}
@@ -39,13 +54,18 @@ class BackupClient {
                               const void *data, uint32_t len) = 0;
     virtual void commitSegment(uint64_t segNum) = 0;
     virtual void freeSegment(uint64_t segNum) = 0;
-    virtual void getSegmentList(uint64_t *list, uint64_t *count) = 0;
+    virtual size_t getSegmentList(uint64_t *list, size_t maxSize) = 0;
     virtual size_t getSegmentMetadata(uint64_t segNum,
                                       RecoveryObjectMetadata *list,
                                       size_t maxSize) = 0;
     virtual void retrieveSegment(uint64_t segNum, void *buf) = 0;
 };
 
+/**
+ * A backup consisting of a single remote host.
+ *
+ * \implements BackupClient
+ */
 class BackupHost : public BackupClient {
   public:
     explicit BackupHost(Net *netimpl);
@@ -56,18 +76,27 @@ class BackupHost : public BackupClient {
                               const void *data, uint32_t len);
     virtual void commitSegment(uint64_t segNum);
     virtual void freeSegment(uint64_t segNum);
-    virtual void getSegmentList(uint64_t *list, uint64_t *count);
+    virtual size_t getSegmentList(uint64_t *list, size_t maxSize);
     virtual size_t getSegmentMetadata(uint64_t segNum,
                                       RecoveryObjectMetadata *list,
                                       size_t maxSize);
     virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
-    void sendRPC(struct backup_rpc *rpc);
-    void recvRPC(struct backup_rpc **rpc);
+    void sendRPC(backup_rpc *rpc);
+    void recvRPC(backup_rpc **rpc);
     Net *net;
     DISALLOW_COPY_AND_ASSIGN(BackupHost);
 };
 
+/**
+ * A backup consisting of a multiple remote hosts.
+ *
+ * The precise set of backup hosts is selected by creating BackupHost
+ * instances and adding them to the MultiBackupClient instance via
+ * addHost().
+ *
+ * \implements BackupClient
+ */
 class MultiBackupClient : public BackupClient {
   public:
     explicit MultiBackupClient();
@@ -79,7 +108,7 @@ class MultiBackupClient : public BackupClient {
                               const void *data, uint32_t len);
     virtual void commitSegment(uint64_t segNum);
     virtual void freeSegment(uint64_t segNum);
-    virtual void getSegmentList(uint64_t *list, uint64_t *count);
+    virtual size_t getSegmentList(uint64_t *list, size_t maxSize);
     virtual size_t getSegmentMetadata(uint64_t segNum,
                                       RecoveryObjectMetadata *list,
                                       size_t maxSize);

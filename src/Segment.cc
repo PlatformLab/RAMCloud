@@ -36,7 +36,6 @@ Segment::Segment(void *buf,
 
 Segment::~Segment()
 {
-    assert(0);
 }
 
 void

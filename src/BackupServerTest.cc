@@ -59,20 +59,26 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_writeSegment_dataTooLarge);
     CPPUNIT_TEST(test_writeSegment_offsetTooLarge);
     CPPUNIT_TEST(test_writeSegment_overflow);
-    CPPUNIT_TEST(test_commit_normal);
+    CPPUNIT_TEST(test_commitSegment_badSegmentNumber);
+    CPPUNIT_TEST(test_commitSegment_normal);
+    //CPPUNIT_TEST(test_flush_noFreeFrames);
+    CPPUNIT_TEST(test_flushSegment_normal);
+    //CPPUNIT_TEST(test_flushSegment_logClosed);
     //CPPUNIT_TEST(test_commit_quirky);
-    CPPUNIT_TEST(test_commit_commitWithoutWriteSegment);
+    CPPUNIT_TEST(test_commitSegment_commitWithoutWriteSegment);
     CPPUNIT_TEST(test_freeSegment_badSegmentNumber);
     CPPUNIT_TEST(test_freeSegment_nonexistantSegmentNumber);
     CPPUNIT_TEST(test_freeSegment_normal);
     CPPUNIT_TEST(test_freeSegment_previouslyFreeSegment);
-    //CPPUNIT_TEST(test_retrieveSegment_normal);
-    CPPUNIT_TEST(test_getSegmentList);
-    //CPPUNIT_TEST(test_getSegmentMetadata_normal);
+    CPPUNIT_TEST(test_retrieveSegment_normal);
+    CPPUNIT_TEST(test_getSegmentList_normal);
+    CPPUNIT_TEST(test_getSegmentList_listSizeTooShort);
+    CPPUNIT_TEST(test_extractMetadata_normal);
+    CPPUNIT_TEST(test_getSegmentMetadata_segmentNotHere);
+    CPPUNIT_TEST(test_getSegmentMetadata_noObjects);
+    CPPUNIT_TEST(test_getSegmentMetadata_normal);
     CPPUNIT_TEST(test_frameForSegNum_matchFound);
     CPPUNIT_TEST(test_frameForSegNum_noMatchFound);
-    //CPPUNIT_TEST(test_flush);
-    //CPPUNIT_TEST(test_segFrameOff);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -82,6 +88,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         testMessageLen = static_cast<uint32_t>(testMessage.length());
     }
 
+    // used for the MockNet callback function
     static void noOp(const char *buf, size_t len)
     {
         printf(">>>> %s", buf);
@@ -100,28 +107,38 @@ class BackupServerTest : public CppUnit::TestFixture {
         delete net;
     }
 
+    // Construct a backup and check members to verify our
+    // understanding
     void
     test_constructor_normal()
     {
         BackupServer backup(net, LOG_PATH);
-        // TODO(stutsman) Probably best to check here that the
-        // internal state of the private members are intitalized to
-        // the expected starting state
+
+        CPPUNIT_ASSERT(backup.logFD != -1);
+
+        const int pagesize = getpagesize();
+        CPPUNIT_ASSERT(backup.seg);
+        CPPUNIT_ASSERT(!((uintptr_t)backup.seg & (pagesize - 1)));
+
+        CPPUNIT_ASSERT_EQUAL(INVALID_SEGMENT_NUM, backup.openSegNum);
+
+        for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
+            CPPUNIT_ASSERT(backup.freeMap.get(i));
+            CPPUNIT_ASSERT_EQUAL(INVALID_SEGMENT_NUM,
+                                 backup.segmentAtFrame[i]);
+        }
     }
 
     void
     test_constructor_badPath()
     {
-        bool threw = false;
         try {
             BackupServer backup(net, "/god/hates/ponies/");
             CPPUNIT_ASSERT_MESSAGE("Backup construction should fail on "
                                    "non-existant directory for log path.",
                                    false);
-        } catch (BackupLogIOException e) {
-            threw = true;
-        }
-        CPPUNIT_ASSERT(threw);
+            CPPUNIT_ASSERT(false);
+        } catch (BackupLogIOException e) {}
     }
 
     // TODO(stutsman) There are some other things to test in the
@@ -192,30 +209,78 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         try {
             backup.writeSegment(0, SEGMENT_SIZE - 2,
-                         testMessage.c_str(), testMessageLen);
+                                testMessage.c_str(), testMessageLen);
             CPPUNIT_ASSERT(false);
         } catch (BackupSegmentOverflowException e) {}
     }
 
-    // TODO(stutsman) Test commit invalid seg num
+    // Make sure flush fails if we have no free segment frames
+    void
+    test_flushSegment_noFreeFrames()
+    {
+        BackupServer backup(net, LOG_PATH);
+        // TODO(stutsman) these is somekind of problem with clearing
+        // all the values in the freeMap resulting in some kind of
+        // exception
+        backup.freeMap.clearAll();
+        backup.writeSegment(12, 0,
+                            testMessage.c_str(), testMessageLen);
+        try {
+            backup.flushSegment();
+            CPPUNIT_ASSERT(false);
+        } catch (BackupException e) {}
+    }
 
     void
-    test_commit_normal()
+    test_flushSegment_normal()
     {
         BackupServer backup(net, LOG_PATH);
 
-        /*
-        BackupClient *client = &backup;
-        ServerConfig sconfig;
-        MockNet net(noOp);
-        Server server(&sconfig, &net, client);
-        char buf[SEGMENT_SIZE];
-        Log(SEGMENT_SIZE, &buf[0], SEGMENT_SIZE, &backup);
+        backup.writeSegment(12, 0,
+                            testMessage.c_str(), testMessageLen);
+        backup.flushSegment();
 
-        DECLARE_OBJECT(new_o, buf_len);
-        */
+        char buf[SEGMENT_SIZE];
+        backup.retrieveSegment(12, &buf[0]);
+        CPPUNIT_ASSERT(!strncmp(testMessage.c_str(),
+                                &buf[0], testMessageLen));
+    }
+
+    // See what happens if the log is closed during operation
+    void
+    test_flushSegment_logClosed()
+    {
+        BackupServer backup(net, LOG_PATH);
+
+        backup.writeSegment(12, 0,
+                            testMessage.c_str(), testMessageLen);
+
+        close(backup.logFD);
+
+        try {
+            backup.flushSegment();
+            CPPUNIT_ASSERT(false);
+        } catch (BackupLogIOException e) {}
+    }
+
+    void
+    test_commitSegment_badSegmentNumber()
+    {
+        BackupServer backup(net, LOG_PATH);
+
+        try {
+            backup.commitSegment(INVALID_SEGMENT_NUM);
+            CPPUNIT_ASSERT(false);
+        } catch (BackupException e) {}
+    }
+
+    void
+    test_commitSegment_normal()
+    {
+        BackupServer backup(net, LOG_PATH);
 
         // Simple test - should work
+        char buf[SEGMENT_SIZE];
         uint64_t targetFrame = 0;
         for (uint64_t seg = 20; seg < 24; seg++) {
             backup.writeSegment(seg, 0,
@@ -224,14 +289,16 @@ class BackupServerTest : public CppUnit::TestFixture {
             // Check to make sure it's in the right slot
             CPPUNIT_ASSERT_EQUAL(seg, backup.segmentAtFrame[targetFrame]);
             targetFrame++;
+
+            backup.retrieveSegment(seg, &buf[0]);
+            CPPUNIT_ASSERT(!strncmp(testMessage.c_str(),
+                                    &buf[0], testMessageLen));
         }
 
-        // TODO(stutsman) Need to check file to ensure it really
-        // worked
     }
 
     void
-    test_commit_quirky()
+    test_commitSegment_quirky()
     {
         BackupServer backup(net, LOG_PATH);
 
@@ -255,7 +322,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     void
-    test_commit_commitWithoutWriteSegment()
+    test_commitSegment_commitWithoutWriteSegment()
     {
         BackupServer backup(net, LOG_PATH);
 
@@ -315,24 +382,42 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     void
+    test_retrieveSegment_badSegNum()
+    {
+        BackupServer backup(net, LOG_PATH);
+        char buf[SEGMENT_SIZE];
+        try {
+            // Try to fetch INVALID_SEGMENT_NUM
+            backup.retrieveSegment(INVALID_SEGMENT_NUM, &buf[0]);
+            CPPUNIT_ASSERT(false);
+        } catch (BackupException e) {}
+    }
+
+    void
     test_retrieveSegment_normal()
     {
         BackupServer backup(net, LOG_PATH);
 
-        const int pagesize = getpagesize();
-        char logBuf[SEGMENT_SIZE + pagesize];
-        void *segStart = reinterpret_cast<void *>(
-            ((reinterpret_cast<intptr_t>(&logBuf[0]) +
-              pagesize - 1) /
-             pagesize) * pagesize);
+        backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
+        backup.commitSegment(76);
 
+        backup.writeSegment(14, 0, testMessage.c_str(), testMessageLen);
+        backup.commitSegment(14);
+
+        char buf[SEGMENT_SIZE];
+        backup.retrieveSegment(76, &buf[0]);
+        CPPUNIT_ASSERT(!strncmp(testMessage.c_str(),
+                                &buf[0], testMessageLen));
+        backup.retrieveSegment(14, &buf[0]);
+        CPPUNIT_ASSERT(!strncmp(testMessage.c_str(),
+                                &buf[0], testMessageLen));
     }
 
     // TODO(stutsman) test to ensure we can't freeSegment the currently
     // pinned segframe
 
     void
-    test_getSegmentList()
+    test_getSegmentList_normal()
     {
         BackupServer backup(net, LOG_PATH);
 
@@ -344,10 +429,167 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         uint64_t list[2];
         uint64_t count = 2;
-        backup.getSegmentList(&list[0], &count);
+        backup.getSegmentList(&list[0], count);
 
         CPPUNIT_ASSERT(list[0] == 76);
         CPPUNIT_ASSERT(list[1] == 82);
+    }
+
+    void
+    test_getSegmentList_listSizeTooShort()
+    {
+        BackupServer backup(net, LOG_PATH);
+
+        backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
+        backup.commitSegment(76);
+
+        backup.writeSegment(82, 0, testMessage.c_str(), testMessageLen);
+        backup.commitSegment(82);
+
+        uint64_t list[1];
+        uint64_t count = 1;
+        try {
+            backup.getSegmentList(&list[0], count);
+            CPPUNIT_ASSERT_MESSAGE("getSegmentList with too short "
+                                   " list space should have failed", false);
+        } catch (BackupException e) {}
+    }
+
+    void
+    test_extractMetadata_normal()
+    {
+        BackupServer backup(net, LOG_PATH);
+
+        RecoveryObjectMetadata meta;
+        DECLARE_OBJECT(o, 23);
+        o->key = 11;
+        o->table = 13;
+        o->version = 19;
+        o->data_len = 23;
+        backup.extractMetadata(o, 29, &meta);
+
+        CPPUNIT_ASSERT_EQUAL(11lu, meta.key);
+        CPPUNIT_ASSERT_EQUAL(13lu, meta.table);
+        CPPUNIT_ASSERT_EQUAL(19lu, meta.version);
+        CPPUNIT_ASSERT_EQUAL(29lu, meta.offset);
+        CPPUNIT_ASSERT_EQUAL(23lu, meta.length);
+    }
+
+    /**
+     * Write a segment header to the beginning of a segment on the
+     * backup instance given.
+     *
+     * \param[in] backup
+     *     The backup instance to be written to.
+     * \param[in] segNum
+     *     The segment number to place in the segment header
+     *     to be defined.
+     * \return
+     *     The offset into the segment at which more data can be
+     *     appended.  This is also the length of the header.
+     */
+    uint32_t
+    writeMockHeader(BackupServer *backup, uint64_t segNum)
+    {
+        log_entry logEntry;
+        segment_header segmentHeader;
+
+        logEntry.type = LOG_ENTRY_TYPE_SEGMENT_HEADER;
+        logEntry.length = sizeof(segmentHeader);
+        backup->writeSegment(segNum, 0, &logEntry, sizeof(logEntry));
+
+        segmentHeader.id = segNum;
+        backup->writeSegment(segNum, sizeof(logEntry),
+                            &segmentHeader, sizeof(segmentHeader));
+        return sizeof(logEntry) + sizeof(segmentHeader);
+    }
+
+    /**
+     * Write a mock object to the given segment number on the
+     * backup instance given.  The object will contain some fake
+     * metadata and data which should be apparent from the body of the
+     * method.
+     *
+     * \param[in] backup
+     *     The backup instance to be written to.
+     * \param[in] segNum
+     *     The segment number to place in the segment header
+     *     to be defined.
+     * \param[in] key
+     *     The key to place in the mock object.
+     * \param[in] offset
+     *     Where in the backup segment to write this object.
+     * \return
+     *     The offset into the segment at which more data can be
+     *     appended.
+     */
+    uint32_t
+    writeMockObject(BackupServer *backup,
+                    uint64_t segNum,
+                    uint64_t key,
+                    uint32_t offset)
+    {
+        log_entry logEntry;
+        DECLARE_OBJECT(o, 8);
+
+        o->key = key;
+        o->table = 13;
+        o->version = 15;
+        o->checksum = 0xbeef;
+        o->data_len = 8;
+        *(reinterpret_cast<uint64_t *>(o->data)) = 0x1234567890123456;
+
+        logEntry.type = LOG_ENTRY_TYPE_OBJECT;
+        logEntry.length = sizeof(*o) + 8;
+        backup->writeSegment(segNum, offset, &logEntry, sizeof(logEntry));
+
+        backup->writeSegment(segNum,
+                             offset + static_cast<uint32_t>(sizeof(logEntry)),
+                             o,
+                             sizeof(*o) + 8);
+        return offset +
+            static_cast<uint32_t>(sizeof(logEntry) + sizeof(*o)) + 8;
+    }
+
+    void
+    test_getSegmentMetadata_segmentNotHere()
+    {
+        BackupServer backup(net, LOG_PATH);
+
+        const size_t listSize = 0;
+        RecoveryObjectMetadata list[listSize];
+
+        try {
+            size_t listElements = backup.getSegmentMetadata(76, &list[0],
+                                                            listSize);
+            listElements++;             // suppress unused warning
+            CPPUNIT_ASSERT_MESSAGE("getSegmentMetadata should fail "
+                                   "when there is no such stored segment",
+                                   false);
+        } catch (BackupException e) {}
+    }
+
+    void
+    test_getSegmentMetadata_noObjects()
+    {
+        BackupServer backup(net, LOG_PATH);
+
+        writeMockHeader(&backup, 76);
+        backup.commitSegment(76);
+
+        char testbuf[SEGMENT_SIZE];
+        backup.retrieveSegment(76, &testbuf[0]);
+
+        const size_t listSize = 1;
+        RecoveryObjectMetadata list[listSize];
+
+        try {
+            size_t listElements = backup.getSegmentMetadata(76, &list[0],
+                                                            listSize);
+            CPPUNIT_ASSERT_EQUAL((size_t)0, listElements);
+        } catch (BackupException e) {
+            CPPUNIT_ASSERT_MESSAGE(e.message, false);
+        }
     }
 
     void
@@ -355,12 +597,13 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         BackupServer backup(net, LOG_PATH);
 
-        // TODO(stutsman) This is insufficent, must be in server
-        // format
-        backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
+        uint32_t offset = writeMockHeader(&backup, 76);
+        offset = writeMockObject(&backup, 76, 5, offset);
+        offset = writeMockObject(&backup, 76, 7, offset);
         backup.commitSegment(76);
 
-        backup.writeSegment(82, 0, testMessage.c_str(), testMessageLen);
+        offset = writeMockHeader(&backup, 82);
+        offset = writeMockObject(&backup, 82, 3, offset);
         backup.commitSegment(82);
 
         const size_t listSize = 2;
@@ -369,7 +612,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         try {
             size_t listElements = backup.getSegmentMetadata(76, &list[0],
                                                             listSize);
-            CPPUNIT_ASSERT_EQUAL((size_t)1, listElements);
+            CPPUNIT_ASSERT_EQUAL((size_t)2, listElements);
             listElements = backup.getSegmentMetadata(82, &list[0],
                                                      listSize);
             CPPUNIT_ASSERT_EQUAL((size_t)1, listElements);
@@ -414,18 +657,6 @@ class BackupServerTest : public CppUnit::TestFixture {
             backup.frameForSegNum(76);
             CPPUNIT_ASSERT_MESSAGE("Should have thrown an exception", false);
         } catch (BackupException e) {}
-    }
-
-    void
-    test_flush()
-    {
-        CPPUNIT_ASSERT(false);
-    }
-
-    void
-    test_segFrameOff()
-    {
-        CPPUNIT_ASSERT(false);
     }
 
 };

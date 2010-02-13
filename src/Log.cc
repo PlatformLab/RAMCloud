@@ -58,8 +58,8 @@ LogEntryIterator::getNextAndOffset(const struct log_entry **le,
         next = NULL;
     }
     if (next && offset)
-        *offset = static_cast<const char *>(segment->getBase()) -
-            reinterpret_cast<const char *>(next);
+        *offset = reinterpret_cast<uintptr_t>(next) -
+            reinterpret_cast<uintptr_t>(segment->getBase());
 
     return true;
 }
@@ -142,8 +142,7 @@ Log::restore()
     // TODO this is wrong for now - how do we want to determine the
     // number (or max num) of segment frames on backups?
     uint64_t list[nsegments];
-    uint64_t count = nsegments;
-    backup->getSegmentList(&list[0], &count);
+    size_t count = backup->getSegmentList(&list[0], nsegments);
 
     printf("Got segment list from backup (%llu):\n", count);
     for (uint64_t i = 0; i < count; i++)
