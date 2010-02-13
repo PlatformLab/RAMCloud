@@ -185,6 +185,7 @@ class FabricatedVersionError(Exception):
 class RAMCloud(object):
     def __init__(self):
         self.client = so.rc_new()
+        self.hook = lambda: None
 
     def __del__(self):
         so.rc_free(self.client)
@@ -198,6 +199,7 @@ class RAMCloud(object):
 
     def write_rr(self, table_id, key, data, reject_rules):
         got_version = ctypes.c_uint64()
+        self.hook()
         r = so.rc_write(self.client, table_id, key, ctypes.byref(reject_rules),
                         ctypes.byref(got_version), data, len(data))
         assert r in range(6)
@@ -232,11 +234,13 @@ class RAMCloud(object):
 
     def insert(self, table_id, data):
         key = ctypes.c_uint64()
+        self.hook()
         so.rc_insert(self.client, table_id, data, len(data), ctypes.byref(key))
         return key.value
 
     def delete_rr(self, table_id, key, reject_rules):
         got_version = ctypes.c_uint64()
+        self.hook()
         r = so.rc_delete(self.client, table_id, key,
                          ctypes.byref(reject_rules), ctypes.byref(got_version))
         assert r in range(6)
@@ -261,6 +265,7 @@ class RAMCloud(object):
         l = ctypes.c_uint64()
         got_version = ctypes.c_uint64()
         reject_rules.object_doesnt_exist = True
+        self.hook()
         r = so.rc_read(self.client, table_id, key, ctypes.byref(reject_rules),
                        ctypes.byref(got_version), ctypes.byref(buf),
                        ctypes.byref(l))
