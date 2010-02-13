@@ -26,11 +26,13 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 		-Weffc++ -Wswitch-enum -Wcast-align
 # Too many false positives list:
 # -Wunreachable-code
+LIBS := -lrt
+# -lrt required for temporary semaphore. See RC_CLIENT_SHARED and RAM-39.
 INCLUDES := -I$(TOP)/src
 
 
-CFLAGS	:= $(COMFLAGS) $(CWARNS) -std=gnu99 $(INCLUDES)
-CXXFLAGS    := $(COMFLAGS) $(CXXWARNS) -std=c++98 $(INCLUDES)
+CFLAGS	:= $(COMFLAGS) $(CWARNS) -std=gnu99 $(LIBS) $(INCLUDES)
+CXXFLAGS    := $(COMFLAGS) $(CXXWARNS) -std=c++98 $(LIBS) $(INCLUDES)
 
 CC := gcc
 CXX := g++
