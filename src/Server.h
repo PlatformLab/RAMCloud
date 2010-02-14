@@ -29,40 +29,103 @@ namespace RAMCloud {
 
 class Table {
   public:
+
+    /**
+     * The maximum length of a table name, including the null terminator.
+     */
     static const int TABLE_NAME_MAX_LEN = 64;
+
     explicit Table() : next_key(0), next_version(1), object_map(HASH_NLINES) {
     }
+
     const char *GetName() { return &name[0]; }
+
+    /**
+     * \param new_name
+     *      A string with a length within #TABLE_NAME_MAX_LEN, including the null
+     *      terminator.
+     */
     void SetName(const char *new_name) {
         strncpy(&name[0], new_name, TABLE_NAME_MAX_LEN);
         name[TABLE_NAME_MAX_LEN - 1] = '\0';
     }
+
+    /**
+     * Increment and return the next table-assigned object ID.
+     * \return
+     *      The next available object ID in the table.
+     * \warning
+     *      A client could have already placed an object here by fabricating the
+     *      object ID.
+     */
     uint64_t AllocateKey() {
         while (Get(next_key))
             ++next_key;
         return next_key;
     }
+
+    /**
+     * Increment and return the master vector clock.
+     * \return
+     *      The next version available from the master vector clock.
+     * \see http://fiz.stanford.edu:8081/display/ramcloud/Version+Numbers
+     */
     uint64_t AllocateVersion() {
         return next_version++;
     }
+
+    /**
+     * \return
+     *      The #RAMCloud::Object at \a key, or \c NULL if no such object
+     *      exists.
+     */
     const Object *Get(uint64_t key) {
         void *val = object_map.Lookup(key);
         const Object *o = static_cast<const Object *>(val);
         return o;
     }
+
+    /**
+     * \param key
+     *      The object ID at which to store \a o.
+     * \param o
+     *      The #RAMCloud::Object to store at \a key. May not be \c NULL.
+     */
     void Put(uint64_t key, const Object *o) {
+        assert(o != NULL);
         object_map.Delete(key);
         object_map.Insert(key, const_cast<Object *>(o));
     }
+
     void Delete(uint64_t key) {
         object_map.Delete(key);
     }
 
   private:
+
+    /**
+     * The name of the table.
+     * \see #SetName().
+     */
     char name[64];
+
+    /**
+     * The next available object ID in the table.
+     * \see #AllocateKey().
+     */
     uint64_t next_key;
+
+    /**
+     * The master vector clock for the table.
+     * \see #AllocateVersion().
+     */
     uint64_t next_version;
+
+    /**
+     * The object ID to #RAMCloud::Object pointer map for the table.
+     */
     Hashtable object_map;
+
     DISALLOW_COPY_AND_ASSIGN(Table);
 };
 
