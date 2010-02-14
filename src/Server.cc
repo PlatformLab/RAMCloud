@@ -238,7 +238,10 @@ Server::StoreData(uint64_t table,
 
     new_o->key = key;
     new_o->table = table;
-    new_o->version = t->AllocateVersion();
+    if (o != NULL)
+        new_o->version = o->version + 1;
+    else
+        new_o->version = t->AllocateVersion();
     assert(o == NULL || new_o->version > o->version);
     // TODO dm's super-fast checksum here
     new_o->checksum = 0x0BE70BE70BE70BE7ULL;
@@ -318,6 +321,8 @@ Server::DeleteKey(const rcrpc_delete_request *req, rcrpc_delete_response *resp)
         return;
     }
     resp->deleted = true;
+
+    t->RaiseVersion(o->version + 1);
 
     ObjectTombstone tomb;
     log->getSegmentIdOffset(o, &tomb.segmentId, &tomb.segmentOffset);

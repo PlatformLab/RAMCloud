@@ -285,9 +285,11 @@ rc_ping(struct rc_client *client)
  * This function can be used to create an object at a specified object ID. To
  * create an object with a server-assigned object ID, see rc_insert().
  *
- * If the object is written, the new version of the object is guaranteed to be
+ * If the object is created, the new version of the object is guaranteed to be
  * greater than that of any previous object that resided at the same \a table
- * and \a key.
+ * and \a key. If the object overwrites an existing object at that \a key, the
+ * new version number is guaranteed to be exactly 1 higher than the old version
+ * number.
  *
  * \param[in]  client   a connected client
  * \param[in]  table    the table containing the object to be written
