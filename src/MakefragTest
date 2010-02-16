@@ -4,6 +4,7 @@ TESTS_SRCFILES := \
 		src/ServerTest.cc \
 		src/BackupServerTest.cc \
 		src/BitmapTest.cc \
+		src/BufferPtrTest.cc \
 		src/HashtableTest.cc \
 		src/ChecksumTest.cc \
 		src/TestRunner.cc
