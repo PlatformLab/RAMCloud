@@ -124,13 +124,19 @@ Server::Read(const rcrpc_read_request *req, rcrpc_read_response *resp)
     }
 }
 
-/*
- * Called by the log cleaner when it's cleaning a segment and evicts
- * an object.
-
- * Objects must be perpetuated when the object being evicted is
- * exactly the object referenced by the hash table. Otherwise, it's
- * an old object and a tombstone for it exists.
+/**
+ * Callback used by the log cleaner when it's cleaning a segment and evicts
+ * an object (LOG_ENTRY_TYPE_OBJECT).
+ *
+ * Upon return, the object will be discarded. Objects must therefore be
+ * perpetuated when the object being evicted is exactly the object referenced
+ * by the hash table. Otherwise, it's an old object and a tombstone for it
+ * exists.
+ *
+ * \param[in]  type     type of the evictee (LOG_ENTRY_TYPE_OBJECT)
+ * \param[in]  p        opaque pointer to the immutable entry in the log 
+ * \param[in]  len      size of the log entry being evicted
+ * \param[in]  cookie   the opaque state pointer registered with the callback
  */
 void
 ObjectEvictionCallback(log_entry_type_t type,
@@ -138,6 +144,8 @@ ObjectEvictionCallback(log_entry_type_t type,
                     uint64_t len,
                     void *cookie)
 {
+    assert(type == LOG_ENTRY_TYPE_OBJECT);
+
     Server *svr = reinterpret_cast<Server *>(cookie);
     assert(svr != NULL);
 
@@ -161,8 +169,8 @@ ObjectEvictionCallback(log_entry_type_t type,
     }
 }
 
-/*
- * Called by the log cleaner when it's cleaning a segment and evicts
+/**
+ * Callback used by the log cleaner when it's cleaning a segment and evicts
  * a tombstone.
  *
  * Tombstones are perpetuated when the segment they reference is still
@@ -171,6 +179,11 @@ ObjectEvictionCallback(log_entry_type_t type,
  * We can be more aggressive in cleaning tombstones (e.g. a tombstone can
  * be cleared before its referant object if a newer object or tombstone
  * exists), but we don't worry about that now.
+ *
+ * \param[in]  type     type of the evictee (LOG_ENTRY_TYPE_OBJECT_TOMBSTONE)
+ * \param[in]  p        opaque pointer to the immutable entry in the log 
+ * \param[in]  len      size of the log entry being evicted
+ * \param[in]  cookie   the opaque state pointer registered with the callback
  */
 void
 TombstoneEvictionCallback(log_entry_type_t type,
@@ -178,6 +191,8 @@ TombstoneEvictionCallback(log_entry_type_t type,
                     uint64_t len,
                     void *cookie)
 {
+    assert(type == LOG_ENTRY_TYPE_OBJECT_TOMBSTONE);
+
     Server *svr = reinterpret_cast<Server *>(cookie);
     assert(svr != NULL);
 
