@@ -38,6 +38,13 @@ Segment::~Segment()
 {
 }
 
+/**
+ * Ready an empty, inactive segment by repurposing it with a new segment
+ * identifier and making it mutable. This must be called before a previously
+ * reset or newly allocated Segment is used.
+ *
+ * \param[in]  new_id   The new segment identifier.
+ */
 void
 Segment::ready(uint64_t new_id)
 {
@@ -48,6 +55,11 @@ Segment::ready(uint64_t new_id)
     id        = new_id;
 }
 
+/**
+ * Reset the Segment by marking all storage as free and invalidating its
+ * identifier. The Segment cannot be used until it is made ready again and
+ * assigned a new identifier.
+ */
 void
 Segment::reset()
 {
@@ -58,10 +70,20 @@ Segment::reset()
     
     free_bytes  = total_bytes;
     tail_bytes  = total_bytes;
-    id = SEGMENT_INVALID_ID;
+    isMutable   = false;
+    id          = SEGMENT_INVALID_ID;
     memset(base, 0xcc, total_bytes);
 }
 
+/**
+ * Append data to the Segment. 
+ *
+ * \param[in]   buf     Pointer to the data. 
+ * \param[in]   len     Byte length of the data pointed to by buf.
+ * \return An immutable pointer to the data's new Segment location, or NULL.
+ * \retval A valid pointer on success.
+ * \retval NULL if there is insufficient space in the Segment.
+ */
 const void *
 Segment::append(const void *buf, uint64_t len)
 {
@@ -84,6 +106,13 @@ Segment::append(const void *buf, uint64_t len)
     return loc;
 }
 
+/**
+ * Mark space the Segment as free (no longer used). The Segment's contents are
+ * left unmodified. This only affects metadata used for maintaining utilisation
+ * information.
+ *
+ * \param[in]   len     Number of bytes newly freed bytes.
+ */
 void
 Segment::free(uint64_t len)
 {
@@ -91,36 +120,82 @@ Segment::free(uint64_t len)
     free_bytes += len;
 }
 
+/**
+ * Obtain an immutable pointer to the first of this Segment's contiguous
+ * data bytes.
+ *
+ * \return An immutable pointer to the Segment data's start address.
+ * \retval A valid pointer is returned in all cases.
+ */
 const void *
 Segment::getBase() const
 {
     return base;
 }
 
+/**
+ * Obtain the Segment's segment identifier.
+ *
+ * \return The segment identifier.
+ * \retval SEGMENT_INVALID_ID if the Segment has not been readied.
+ * \retval The valid segment identifier.
+ *
+ */
 uint64_t
 Segment::getId() const
 {
     return id;
 }
 
+/**
+ * Obtain the number of bytes left to be written at the end of this Segment.
+ *
+ * \return The number of free bytes at the tail.
+ * \retval An integer number of bytes.
+ */
 uint64_t
 Segment::getFreeTail() const
 {
     return tail_bytes;
 }
 
+/**
+ * Obtain the Segment's length in bytes.
+ *
+ * \return The number of bytes the Segment can store.
+ * \retval An integer number of bytes.
+ */
 uint64_t
 Segment::getLength() const
 {
     return total_bytes;
 }
 
+/**
+ * Obtain the Segment's utilisation, i.e. the difference between the Segment's
+ * size and the number of total free bytes in the Segment (not only free bytes
+ * at the tail).
+ *
+ * \return The number of bytes the Segment is currently using.
+ * \retval An integer number of bytes.
+ */
 uint64_t
 Segment::getUtilization() const
 {
     return total_bytes - free_bytes;
 }
 
+/**
+ * Determine whether the provided pointer points within the Segment and that
+ * the specified number of bytes are also within the Segment, i.e. given an
+ * address range, check to see if it all fits within the Segment.
+ *
+ * \param[in]   p       A pointer to anywhere.
+ * \param[in]   len     The number of bytes from the pointer to check.
+ * \return True or False.
+ * \retval True if the range is valid.
+ * \retval False if the range is invalid.
+ */
 bool
 Segment::checkRange(const void *p, uint64_t len) const
 {
@@ -130,6 +205,10 @@ Segment::checkRange(const void *p, uint64_t len) const
     return (up >= ub && up < (ub + total_bytes));
 }
 
+/**
+ * Finalise a Segment when done with it. The Segment is marked as immutable
+ * and committed to the backup.
+ */
 void
 Segment::finalize()
 {
@@ -138,10 +217,15 @@ Segment::finalize()
     backup->commitSegment(id);
 }
 
+/**
+ * Restore a previously backed-up Segment into the present Segment.
+ *
+ * \param[in]   restore_seg_id  The segment identifier to restore as.
+ */
 void
 Segment::restore(uint64_t restore_seg_id)
 {
-    assert(id != SEGMENT_INVALID_ID);
+    assert(id == SEGMENT_INVALID_ID);
 
     //printf("Segment restoring from %llu:\n", restore_seg_id);
     backup->retrieveSegment(restore_seg_id, base);
@@ -151,6 +235,13 @@ Segment::restore(uint64_t restore_seg_id)
     id = restore_seg_id;
 }
 
+/**
+ * Link the Segment into a doubly-linked list.
+ *
+ * \param[in]   n   The Segment to insert before, or NULL to insert at the end.
+ * \return A pointer to this Segment (useful for inlining insertions).
+ * \retval A non-NULL Segment pointer.
+ */
 Segment *
 Segment::link(Segment *n)
 {
@@ -164,6 +255,14 @@ Segment::link(Segment *n)
     return this;
 }
 
+/**
+ * Remove the Segment from a doubly-linked list.
+ *
+ * \return A pointer to the following Segment (useful for inlining removals),
+ *         or NULL if there is none.
+ * \retval NULL is no Segment follows this one in the list.
+ * \retval A valid Segment Pointer to the next Segment in the list. 
+ */
 Segment *
 Segment::unlink()
 {
