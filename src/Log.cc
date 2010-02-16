@@ -448,7 +448,7 @@ Log::checksumHead()
            (sizeof(struct log_entry) + sizeof(struct segment_checksum)));
 
     struct segment_checksum sc;
-    sc.checksum = 0xbeefcafebeefcafe;
+    sc.checksum = 0xbeefcafebeefcafeULL;
     appendAnyType(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM, &sc, sizeof(sc));
 }
 
