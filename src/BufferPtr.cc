@@ -49,6 +49,7 @@ bool BufferPtr::prepend (void* buf, size_t size) {
         num_chunks *= 2;
     }
 
+    // Right shift the chunks.
     for (int i = curr_chunk+1; i > 0; --i) {
         chunk_arr[i].ptr = chunk_arr[i-1].ptr;
         chunk_arr[i].size = chunk_arr[i-1].size;
@@ -147,10 +148,12 @@ size_t BufferPtr::copy(off_t offset, size_t length, void* dest) {
 
     off_t curr_off = 0;  // Offset from the beginning of the Buffer.
     off_t chunk_off;  // Offset from the beginning of the current chunk.
-    size_t curr_chunk_len;
+    size_t curr_chunk_len;  // Number of bytes to copy from the current chunk,
+                            // beginning at 'chunk_off'.
     size_t bytes_copied = 0;
-    int curr_chunk_index;
+    int curr_chunk_index;  // Index of the current chunk we are copying from.
 
+    // Find the chunk which contains the offset byte.
     for (curr_chunk_index = 0; curr_chunk_index <= curr_chunk;
          ++curr_chunk_index) {
         if ((off_t) (curr_off + chunk_arr[curr_chunk_index].size) > offset)
@@ -193,12 +196,14 @@ size_t BufferPtr::overwrite(void *buf, size_t length, off_t offset) {
     if (buf == NULL) return 0;
     if (length <= 0) return 0;
 
-    off_t curr_off = 0;
-    off_t chunk_off;
-    size_t curr_chunk_len;
+    off_t curr_off = 0;  // Offset from the beginning of the BufferPtr.
+    off_t chunk_off;  // Offset from the beginning of the current chunk.
+    size_t curr_chunk_len;  // Number of bytes to copy from the current chunk,
+                            // beginning at 'chunk_off'.
     size_t bytes_copied = 0;
-    int curr_chunk_index;
+    int curr_chunk_index;  // Index of the current chunk we are copying from.
 
+    // Find the chunk that contains the offset byte.
     for (curr_chunk_index = 0; curr_chunk_index <= curr_chunk;
          ++curr_chunk_index) {
         if ((off_t) (curr_off + chunk_arr[curr_chunk_index].size) > offset)

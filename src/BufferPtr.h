@@ -67,11 +67,16 @@ class BufferPtr {
 
     // The pointers (and lengths) of various chunks represented by this
     // BufferPtr. Initially, we allocate INITIAL_CHUNK_ARR_SIZE of the above
-    // chunks, since this would be faster than using a vector<chunk>. 
-    chunk* chunk_arr;
-    int curr_chunk;
-    int num_chunks;
-    size_t total_len;
+    // chunks, since this would be faster than using a vector<chunk>.
+
+    int curr_chunk;  // The index of the last chunk thats currently being used.
+    int num_chunks;  // The total number of chunks that have been allocated so far.
+    chunk* chunk_arr;  // The pointers and lengths of various chunks represented
+                       // by this BufferPtr. Initially, we allocate
+                       // INITIAL_CHUNK_ARR_SIZE of the above chunks, since this
+                       // would be faster than using a vector<chunk>.
+    size_t total_len;  // The total length of all the memory blocks represented
+                       // by this BufferPtr.
 
     friend class BufferPtrTest;
 };
