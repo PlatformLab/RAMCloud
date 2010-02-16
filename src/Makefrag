@@ -10,6 +10,7 @@ SHARED_SRCFILES := \
                 src/Segment.cc \
                 src/BackupClient.cc \
                 src/rabinpoly.cc \
+                src/BufferPtr.cc \
                 $(SHARED_NET_SRCFILES)
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)
