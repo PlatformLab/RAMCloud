@@ -20,7 +20,9 @@ static const uint64_t cleaner_lowat = 10;
 
 namespace RAMCloud {
 
-// Simple iterator for running through a segment's (log_entry, blob) pairs.
+/**
+ * Simple iterator for running through a Segment's (log_entry, blob) pairs.
+ */
 LogEntryIterator::LogEntryIterator(const Segment *s)
     : segment(s), next(0)
 {
@@ -34,6 +36,19 @@ LogEntryIterator::LogEntryIterator(const Segment *s)
     assert(next->length == sizeof(struct segment_header));
 }
 
+/**
+ * Get the next (log_entry, blob) pair from the Segment, returning immutable
+ * pointers to the log_entry structure and the object iself, as well as the
+ * byte offset of the log_entry structure in the Segment.
+ *
+ * \param[out]   le     Immutable log_entry structure pointer
+ * \param[out]   p      Immutable blob pointer
+ * \param[out]   offset If non-NULL, store the offset of the log_entry in the
+ *                      Segment.
+ * \return True or False
+ * \retval True if there was another (log_entry, blob) pair.
+ * \retval False if the Segment has been iterated through.
+ */
 bool
 LogEntryIterator::getNextAndOffset(const struct log_entry **le,
                                    const void **p,
@@ -64,6 +79,16 @@ LogEntryIterator::getNextAndOffset(const struct log_entry **le,
     return true;
 }
 
+/**
+ * Get the next (log_entry, blob) pair from the Segment, returning immutable
+ * pointers to the log_entry structure and the object iself.
+ *
+ * \param[out]   le     Immutable log_entry structure pointer
+ * \param[out]   p      Immutable blob pointer
+ * \return True or False
+ * \retval True if there was another (log_entry, blob) pair.
+ * \retval False if the Segment has been iterated through.
+ */
 bool
 LogEntryIterator::getNext(const struct log_entry **le, const void **p)
 {
@@ -111,6 +136,14 @@ Log::Log(const uint64_t segsize,
     assert(nfree_list > 0);
 }
 
+/**
+ * Iterate over each entry in the given Segment and provide it to the given
+ * callback.
+ *
+ * \param[in]   seg     Segment to iterate over.
+ * \param[in]   cb      Callback to use.
+ * \param[in]   cookie  Opaque cookie to provide to the callback.
+ */
 void
 Log::forEachEntry(const Segment *seg, log_entry_cb_t cb, void *cookie)
 {
@@ -126,6 +159,15 @@ Log::forEachEntry(const Segment *seg, log_entry_cb_t cb, void *cookie)
     }
 }
 
+/**
+ * Iterate over each Segment in the log and provide it to the given
+ * callback. Note that all Segments are iterated, whether they contain active
+ * data or not.
+ *
+ * \param[in]   cb      Callback to use.
+ * \param[in]   limit   Maximum number of Segments to run the callback on.
+ * \param[in]   cookie  Opaque cookie to provide to the callback.
+ */
 void
 Log::forEachSegment(log_segment_cb_t cb, uint64_t limit, void *cookie)
 {
@@ -133,7 +175,11 @@ Log::forEachSegment(log_segment_cb_t cb, uint64_t limit, void *cookie)
         cb(segments[i], cookie);
 }
 
-// Returns the number of segments restored from backup
+/**
+ * Restore the Log based on backups.
+ *
+ * \return The number of segments restored from backup
+ */
 uint64_t
 Log::restore()
 {
@@ -161,6 +207,11 @@ Log::restore()
     return count;
 }
 
+/**
+ * Initialise the Log for use.
+ *
+ * XXX- Do we have a use for this, or should it move into the constructor?
+ */
 void
 Log::init()
 {
@@ -177,6 +228,15 @@ Log::init()
     assert(r != NULL);
 }
 
+/**
+ * Given a Segment identifier, return whether or not it is active (i.e. it
+ * contains valid data used by %RAMCloud).
+ *
+ * \param[in]   segmentId   The Segment identifier to check.
+ * \return True or False 
+ * \retval True if the provided Segment identifier is valid.
+ * \retval False if the identifier is invalid.
+ */
 bool
 Log::isSegmentLive(uint64_t segmentId) const
 {
@@ -189,6 +249,14 @@ Log::isSegmentLive(uint64_t segmentId) const
     return false;
 }
 
+/**
+ * Given a pointer into the Log, return the Segment identifier of the Segment
+ * it exists in, as well as the byte offset into that Segment. 
+ *
+ * \param[in]   p       Pointer into the Log.
+ * \param[out]  id      Segment Identifier to return to caller.
+ * \param[out]  offset  Segment offset to return to caller.
+ */
 void
 Log::getSegmentIdOffset(const void *p, uint64_t *id, uint32_t *offset) const
 {
@@ -201,6 +269,18 @@ Log::getSegmentIdOffset(const void *p, uint64_t *id, uint32_t *offset) const
     *offset = (uint32_t)((uintptr_t)p - (uintptr_t)s->getBase());
 }
 
+/**
+ * Append data to the head of the log. The data is marked with the provided
+ * type.
+ *
+ * \param[in]   type    Type of the data added to the log.
+ * \param[in]   buf     Opaque data to be written to the log.
+ * \param[in]   len     Byte length of the data to be written.
+ * \return An immutable pointer to the data in the log, or NULL on failure.
+ * \retval NULL if the specified type was invalid (i.e. an internally-used Log
+ *         entry type) or insufficient space remains.
+ * \retval A valid pointer into the Log if the append succeeded.
+ */
 const void *
 Log::append(log_entry_type_t type, const void *buf, const uint64_t len)
 {
@@ -211,6 +291,13 @@ Log::append(log_entry_type_t type, const void *buf, const uint64_t len)
     return appendAnyType(type, buf, len);
 }
 
+/**
+ * Free a previously-appended, typed blob in the Log.
+ *
+ * \param[in]   type    Type of the blob being freed.
+ * \param[in]   buf     Log pointer to the blob being freed.
+ * \param[in]   len     Length of the blob being freed.
+ */
 void
 Log::free(log_entry_type_t type, const void *buf, const uint64_t len)
 {
@@ -247,6 +334,14 @@ Log::free(log_entry_type_t type, const void *buf, const uint64_t len)
     }
 }
 
+/**
+ * Register a new blob type with the Log. This involves providing a callback
+ * for use when Log entries are evicted.
+ *
+ * \param[in]   type        Type of the new Log entry being registered.
+ * \param[in]   evict_cb    The eviction callback to use for this type.
+ * \param[in]   cookie      An opaque cookie to be provided to the callback.
+ */
 void
 Log::registerType(log_entry_type_t type,
                   log_eviction_cb_t evict_cb,
@@ -261,6 +356,10 @@ Log::registerType(log_entry_type_t type,
     numCallbacks++;
 }
 
+/**
+ * Print various interesting log stats to stdout. This should be generalised
+ * in the future. 
+ */
 void
 Log::printStats()
 {
@@ -281,6 +380,12 @@ Log::printStats()
                                   segment_size) * 100.0);
 }
 
+/**
+ * Return the maximum number of bytes that can be appended to the Log in one
+ * sequential operation.
+ *
+ * \return An integer number of bytes.
+ */
 uint64_t
 Log::getMaximumAppend()
 {
@@ -291,12 +396,26 @@ Log::getMaximumAppend()
  /**** Private Methods ****/
 /*************************/
 
+/**
+ * Allocate a new Segment id that is unique in the history of this Log instance.
+ *
+ * \return An opaque Segment identifier.
+ */
 uint64_t
 Log::allocateSegmentId()
 {
     return (nextSegmentId++);
 }
 
+/**
+ * Obtain the eviction callback that was registered for the given type.
+ *
+ * \param[in]   type    The type whose callback should be searched for.
+ * \param[out]  cookie  Opaque cookie that was registered with the type.
+ * \return The associated eviction callback pointer or NULL.
+ * \retval NULL if the given entry type was not registered.
+ * \retval A valid callback function pointer if the type was registered.
+ */
 log_eviction_cb_t
 Log::getEvictionCallback(log_entry_type_t type, void **cookie)
 {
@@ -311,6 +430,15 @@ Log::getEvictionCallback(log_entry_type_t type, void **cookie)
     return NULL;
 }
 
+/**
+ * Given a pointer into the Log and a length bound on the entry it refers to,
+ * return the Segment to which it was written. For %RAMCloud consistency, this
+ * function presently may not fail.
+ *
+ * \param[in]   p   A pointer into the Log.
+ * \param[in]   len The length of the entry 'p' corresponds to.
+ * \return A pointer to the Segment corresponding to the provided parameters. 
+ */
 Segment *
 Log::getSegment(const void *p, uint64_t len) const
 {
@@ -329,10 +457,17 @@ Log::getSegment(const void *p, uint64_t len) const
     return (s);
 }
 
-// walk objects, calling the eviction cb on each
-// the callback will either do nothing, or re-write to the head of
-// the log. it's very important that this re-writing be guaranteed to
-// succeed and that we do not recurse into cleaning!!
+/**
+ * Clean the Log. We do this by finding good candidate Segments to clean and
+ * walk the entries in each one, calling the eviction callback on each entry.
+ *
+ * The callback will either do nothing, or re-write to the head of the log.
+ * It's very important that this re-writing be guaranteed to succeed and that
+ * we do not recurse into cleaning!
+ *
+ * Segments are cleaned until the number of Segments on the free list reaches
+ * 'cleaner_hiwat'.
+ */
 void
 Log::clean()
 {
@@ -393,7 +528,14 @@ Log::clean()
     cleaning = false;
 }
 
-// Head of the Log is done. Retire it and get a new head.
+/**
+ * Allocate a new head of the Log. If there is already a head, retire it first.
+ * An empty Segment, if one if available, is chosen as the new head.
+ *
+ * \return True or False
+ * \retval True if a new head was installed.
+ * \retval False if the free list has run out and no new head could be found.
+ */
 bool
 Log::newHead()
 {
@@ -440,6 +582,9 @@ Log::newHead()
     return true;
 }
 
+/**
+ * Checksum the Log's head segment in the Log and append the value to the Log.
+ */
 void
 Log::checksumHead()
 {
@@ -452,6 +597,12 @@ Log::checksumHead()
     appendAnyType(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM, &sc, sizeof(sc));
 }
 
+/**
+ * Retire the present head Segment. This involves applying the checksum footer
+ * and finalising the Segment.
+ *
+ * Upon return, the Log head will be NULL and a new one must be allocated.
+ */
 void
 Log::retireHead()
 {
@@ -461,6 +612,18 @@ Log::retireHead()
     head = NULL;
 }
 
+/**
+ * Append data to the head of the log. The data is marked with the provided
+ * type. This internal interface makes no restriction on the type being
+ * appended and is therefore safe to use with Log-internal types.
+ *
+ * \param[in]   type    Type of the data added to the log.
+ * \param[in]   buf     Opaque data to be written to the log.
+ * \param[in]   len     Byte length of the data to be written.
+ * \return An immutable pointer to the data in the log, or NULL on failure.
+ * \retval NULL if no more space is available. 
+ * \retval A valid pointer into the Log if the append succeeded.
+ */
 const void *
 Log::appendAnyType(log_entry_type_t type, const void *buf, const uint64_t len)
 {
