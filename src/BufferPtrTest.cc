@@ -14,7 +14,8 @@
  */
 
 /**
- * \file Unit tests for BufferPtr.
+ * \file
+ * Unit tests for BufferPtr.
  */
 
 #include <string.h>
