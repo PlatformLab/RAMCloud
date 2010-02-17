@@ -22,7 +22,7 @@
 
 namespace RAMCloud {
 
-#define SEGMENT_INVALID_ID  0
+#define SEGMENT_INVALID_ID  ((uint64_t)0)
 
 class Segment {
   public:
@@ -56,6 +56,8 @@ class Segment {
     BackupClient *backup;
 
     Segment  *next, *prev;
+
+    friend class SegmentTest;
     DISALLOW_COPY_AND_ASSIGN(Segment);
 };
 
