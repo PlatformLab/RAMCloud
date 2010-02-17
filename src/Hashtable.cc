@@ -15,6 +15,8 @@
 
 #include <Hashtable.h>
 
+#include <Common.h>
+
 #include <cstdio>
 #include <cstdlib>
 #include <stdint.h>
@@ -24,7 +26,6 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <inttypes.h>
 
 namespace RAMCloud {
 
@@ -52,15 +53,15 @@ Hashtable::StoreSample(uint64_t ticks)
 }
 
 static void *
-malloc_aligned_malloc(uint64_t len)
+xmalloc_aligned_xmalloc(uint64_t len)
 {
-    uintptr_t p = (uintptr_t)malloc(len + 64);
+    uintptr_t p = (uintptr_t)xmalloc(len + 64);
     p += (64 - (p & 63));
     return ((void *)p);
 }
 
 static void *
-malloc_aligned_hugetlb(uint64_t len)
+xmalloc_aligned_hugetlb(uint64_t len)
 {
     // TODO(stutsman) need to protect this state once we're threaded -
     // it might be best to yank it out
@@ -102,7 +103,7 @@ void *
 Hashtable::MallocAligned(uint64_t len)
 {
     return (use_huge_tlb) ?
-        malloc_aligned_hugetlb(len) : malloc_aligned_malloc(len);
+        xmalloc_aligned_hugetlb(len) : xmalloc_aligned_xmalloc(len);
 }
 
 static inline void

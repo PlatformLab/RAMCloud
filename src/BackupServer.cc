@@ -55,7 +55,7 @@ BackupServer::BackupServer(Net *net_impl, const char *logPath)
         throw BackupLogIOException(errno);
 
     const int pagesize = getpagesize();
-    unalignedSeg = reinterpret_cast<char *>(malloc(SEGMENT_SIZE + pagesize));
+    unalignedSeg = reinterpret_cast<char *>(xmalloc(SEGMENT_SIZE + pagesize));
     assert(unalignedSeg != 0);
     seg = reinterpret_cast<char *>(
         ((reinterpret_cast<intptr_t>(unalignedSeg) +
@@ -646,9 +646,9 @@ BackupServer::handleHeartbeat(const backup_rpc *req, backup_rpc *resp)
 void
 BackupServer::handleRPC()
 {
-    // TODO(stutsman) if we're goingt to have to malloc this we should just
+    // TODO(stutsman) if we're goingt to have to xmalloc this we should just
     // always keep one around
-    char *resp_buf = static_cast<char *>(malloc(RESP_BUF_LEN));
+    char *resp_buf = static_cast<char *>(xmalloc(RESP_BUF_LEN));
     backup_rpc *req;
     backup_rpc *resp = reinterpret_cast<backup_rpc *>(&resp_buf[0]);
 

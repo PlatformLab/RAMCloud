@@ -46,7 +46,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
 
     void test_prepend() {
         BufferPtr *bp = new BufferPtr();
-        uint8_t *buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        uint8_t *buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
 
         // Test input edge cases.
@@ -54,47 +54,47 @@ class BufferPtrTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(bp->prepend(NULL, 10) == false);
         
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->prepend(buf, 10));
 
-        uint8_t* ret_buf = (uint8_t *) malloc(sizeof(uint8_t) * 120);
+        uint8_t* ret_buf = (uint8_t *) xmalloc(sizeof(uint8_t) * 120);
         CPPUNIT_ASSERT_EQUAL(120, (int) bp->copy(0, 120, (void*) ret_buf));
     }
 
     void test_append() {
         BufferPtr *bp = new BufferPtr();
-        uint8_t *buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        uint8_t *buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
 
         // Test input edge cases.
@@ -102,48 +102,48 @@ class BufferPtrTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(bp->append(NULL, 10) == false);
         
         CPPUNIT_ASSERT(bp->append(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->append(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->append(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->append(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->append(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->append(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->append(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->append(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->append(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->append(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->append(buf, 10));
-        buf = (uint8_t*) malloc(sizeof(uint8_t) * 10);
+        buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
         CPPUNIT_ASSERT(bp->append(buf, 10));
 
-        uint8_t* ret_buf = (uint8_t *) malloc(sizeof(uint8_t) * 120);
+        uint8_t* ret_buf = (uint8_t *) xmalloc(sizeof(uint8_t) * 120);
         CPPUNIT_ASSERT_EQUAL(120, (int) bp->copy(0, 120, (void*) ret_buf));
     }
 
     void test_read() {
         BufferPtr *bp = new BufferPtr();
-        uint8_t* buf1 = (uint8_t *) malloc(sizeof(uint8_t) * 10);
-        uint8_t* buf2 = (uint8_t *) malloc(sizeof(uint8_t) * 10);
+        uint8_t* buf1 = (uint8_t *) xmalloc(sizeof(uint8_t) * 10);
+        uint8_t* buf2 = (uint8_t *) xmalloc(sizeof(uint8_t) * 10);
 
         memcpy(buf1, "012345678\0", 10);
         memcpy(buf2, "987654321\0", 10);
@@ -167,8 +167,8 @@ class BufferPtrTest : public CppUnit::TestFixture {
 
     void test_copy() {
         BufferPtr *bp = new BufferPtr();
-        uint8_t* buf1 = (uint8_t *) malloc(sizeof(uint8_t) * 10);
-        uint8_t* buf2 = (uint8_t *) malloc(sizeof(uint8_t) * 10);
+        uint8_t* buf1 = (uint8_t *) xmalloc(sizeof(uint8_t) * 10);
+        uint8_t* buf2 = (uint8_t *) xmalloc(sizeof(uint8_t) * 10);
 
         memcpy(buf1, "0123456789", 10);
         memcpy(buf2, "9876543210", 10);
@@ -176,7 +176,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(bp->append(buf1, 10));
         CPPUNIT_ASSERT(bp->append(buf2, 10));
 
-        uint8_t* ret_buf = (uint8_t *) malloc(sizeof(uint8_t) * 10);
+        uint8_t* ret_buf = (uint8_t *) xmalloc(sizeof(uint8_t) * 10);
 
         CPPUNIT_ASSERT_EQUAL(0, (int) bp->copy(50, 10, (void*) ret_buf));
 
@@ -192,11 +192,11 @@ class BufferPtrTest : public CppUnit::TestFixture {
 
     void test_overwrite() {
         BufferPtr *bp = new BufferPtr();
-        uint8_t* buf1 = (uint8_t *) malloc(sizeof(uint8_t) * 100);
+        uint8_t* buf1 = (uint8_t *) xmalloc(sizeof(uint8_t) * 100);
         bzero(buf1, 100);
         CPPUNIT_ASSERT(bp->append(buf1, 100));
         
-        uint8_t* buf2 = (uint8_t *) malloc(sizeof(uint8_t) * 100);
+        uint8_t* buf2 = (uint8_t *) xmalloc(sizeof(uint8_t) * 100);
 
         for (int i = 0; i < 10; ++i) {
             memcpy(buf1 + (i*10), "0123456789", 10);
@@ -206,7 +206,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT_EQUAL(100, (int) bp->overwrite(buf1, 100, 0));
 
-        uint8_t* ret_buf = (uint8_t *) malloc(sizeof(uint8_t) * 100);
+        uint8_t* ret_buf = (uint8_t *) xmalloc(sizeof(uint8_t) * 100);
 
         CPPUNIT_ASSERT_EQUAL(100, (int) bp->copy(0, 100, ret_buf));
         CPPUNIT_ASSERT_EQUAL(0, memcmp(ret_buf, buf1, 100));
@@ -218,7 +218,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
 
     void test_getLength() {
         BufferPtr *bp = new BufferPtr();
-        uint8_t* buf1 = (uint8_t *) malloc(sizeof(uint8_t) * 100);
+        uint8_t* buf1 = (uint8_t *) xmalloc(sizeof(uint8_t) * 100);
         bzero(buf1, 100);
 
         CPPUNIT_ASSERT(bp->prepend(buf1, 100));

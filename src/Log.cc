@@ -124,7 +124,7 @@ Log::Log(const uint64_t segsize,
     assert(min_meta <= len);
     max_append = segment_size - min_meta;
 
-    segments = (Segment **)malloc(nsegments * sizeof(segments[0]));
+    segments = (Segment **)xmalloc(nsegments * sizeof(segments[0]));
     for (uint64_t i = 0; i < nsegments; i++) {
         void *base  = (uint8_t *)buf + (i * segment_size);
         segments[i] = new Segment(base, segment_size, backup);

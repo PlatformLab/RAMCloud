@@ -13,16 +13,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdio.h>
-#include <string.h>
-#include <assert.h>
-#include <malloc.h>
-
-#include <config.h>
-
-#include <rcrpc.h>
-
+#include <Common.h>
 #include <Client.h>
+#include <assert.h>
 
 /**
  * Connect to a %RAMCloud.
@@ -605,7 +598,7 @@ rc_drop_table(struct rc_client *client, const char *name)
  */
 struct rc_client *
 rc_new(void) {
-    return malloc(sizeof(struct rc_client));
+    return xmalloc(sizeof(struct rc_client));
 }
 
 /**

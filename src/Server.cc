@@ -34,7 +34,7 @@ Server::Server(const ServerConfig *sconfig,
                BackupClient *backupClient)
     : config(sconfig), net(net_impl), backup(backupClient), log(0)
 {
-    void *p = malloc(SEGMENT_SIZE * SEGMENT_COUNT);
+    void *p = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
     assert(p != NULL);
 
     if (!backup) {

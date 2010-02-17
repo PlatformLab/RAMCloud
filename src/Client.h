@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_CLIENT_H
 #define RAMCLOUD_CLIENT_H
 
-#include <inttypes.h>
+#include <Common.h>
 #include <stdbool.h>
 #include <Net.h>
 

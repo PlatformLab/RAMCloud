@@ -16,7 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <inttypes.h>
+#include <Common.h>
 
 #include <rabinpoly.h>
 #include <msb.h>
