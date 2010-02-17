@@ -7,6 +7,8 @@ TESTS_SRCFILES := \
 		src/BufferPtrTest.cc \
 		src/HashtableTest.cc \
 		src/ChecksumTest.cc \
+        src/SegmentTest.cc \
+        src/LogTest.cc \
 		src/TestRunner.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
