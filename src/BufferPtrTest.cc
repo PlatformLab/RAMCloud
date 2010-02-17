@@ -17,6 +17,9 @@
  * \file Unit tests for BufferPtr.
  */
 
+#include <string.h>
+#include <strings.h>
+
 #include <BufferPtr.h>
 
 #include <cppunit/extensions/HelperMacros.h>
