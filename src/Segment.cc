@@ -85,7 +85,7 @@ Segment::reset()
  * \retval NULL if there is insufficient space in the Segment.
  */
 const void *
-Segment::append(const void *buf, uint64_t len)
+Segment::append(const void *buf, const uint64_t len)
 {
     assert(isMutable);
     assert(id != SEGMENT_INVALID_ID);
