@@ -89,9 +89,11 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     // used for the MockNet callback function
-    static void noOp(const char *buf, size_t len)
+    static void noOp(const BufferPtr *buf/*const char *buf, size_t len*/)
     {
-        printf(">>>> %s", buf);
+        char* raw_buf = (char*) malloc(sizeof(char) * buf->totalLength());
+        printf(">>>> %s", raw_buf);
+        free(raw_buf);
     }
 
     void
@@ -468,11 +470,11 @@ class BackupServerTest : public CppUnit::TestFixture {
         o->data_len = 23;
         backup.extractMetadata(o, 29, &meta);
 
-        CPPUNIT_ASSERT_EQUAL(11lu, meta.key);
-        CPPUNIT_ASSERT_EQUAL(13lu, meta.table);
-        CPPUNIT_ASSERT_EQUAL(19lu, meta.version);
-        CPPUNIT_ASSERT_EQUAL(29lu, meta.offset);
-        CPPUNIT_ASSERT_EQUAL(23lu, meta.length);
+        CPPUNIT_ASSERT_EQUAL((uint64_t) 11lu, meta.key);
+        CPPUNIT_ASSERT_EQUAL((uint64_t) 13lu, meta.table);
+        CPPUNIT_ASSERT_EQUAL((uint64_t) 19lu, meta.version);
+        CPPUNIT_ASSERT_EQUAL((uint64_t) 29lu, meta.offset);
+        CPPUNIT_ASSERT_EQUAL((uint64_t) 23lu, meta.length);
     }
 
     /**
@@ -537,7 +539,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         o->version = 15;
         o->checksum = 0xbeef;
         o->data_len = 8;
-        *(reinterpret_cast<uint64_t *>(o->data)) = 0x1234567890123456;
+        *(reinterpret_cast<uint64_t *>(o->data)) = 0x1234567890123456ULL;
 
         logEntry.type = LOG_ENTRY_TYPE_OBJECT;
         logEntry.length = sizeof(*o) + 8;
@@ -645,7 +647,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
 
-        CPPUNIT_ASSERT_EQUAL(0lu, backup.frameForSegNum(76));
+        CPPUNIT_ASSERT_EQUAL((uint64_t) 0ul, backup.frameForSegNum(76));
     }
 
     void
