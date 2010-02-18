@@ -48,7 +48,7 @@ class BufferPtr {
      * \return Returns the total length of the logical BufferPtr represented by
      *         this object.
      */
-    size_t getLength() { return total_len; }
+    size_t totalLength() const { return total_len; }
 
     BufferPtr() : curr_chunk(-1), num_chunks(INITIAL_CHUNK_ARR_SIZE),
             chunk_arr(NULL), total_len(0) {

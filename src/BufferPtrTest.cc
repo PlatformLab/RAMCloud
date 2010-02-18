@@ -30,7 +30,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_read);
     CPPUNIT_TEST(test_copy);
     CPPUNIT_TEST(test_overwrite);
-    CPPUNIT_TEST(test_getLength);
+    CPPUNIT_TEST(test_totalLength);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -212,7 +212,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, memcmp(ret_buf, buf1, 10));
     }
 
-    void test_getLength() {
+    void test_totalLength() {
         BufferPtr *bp = new BufferPtr();
         uint8_t* buf1 = (uint8_t *) malloc(sizeof(uint8_t) * 100);
         bzero(buf1, 100);
@@ -220,7 +220,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(bp->prepend(buf1, 100));
         CPPUNIT_ASSERT(bp->append(buf1, 10));
 
-        CPPUNIT_ASSERT_EQUAL(110, (int) bp->getLength());
+        CPPUNIT_ASSERT_EQUAL(110, (int) bp->totalLength());
     }
         
 };
