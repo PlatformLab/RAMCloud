@@ -22,6 +22,7 @@
 
 #include <BackupClient.h>
 #include <backuprpc.h>
+#include <BufferPtr.h>
 
 #include <cstdio>
 
@@ -48,20 +49,22 @@ BackupHost::~BackupHost()
 }
 
 void
-BackupHost::sendRPC(backup_rpc *rpc)
+BackupHost::sendRPC(BufferPtr *rpc)
 {
-    net->Send(rpc, rpc->hdr.len);
+    net->Send(rpc);
 }
 
 void
-BackupHost::recvRPC(backup_rpc **rpc)
+BackupHost::recvRPC(BufferPtr **rpc)
 {
-    size_t len = net->Recv(reinterpret_cast<void**>(rpc));
-    if (len != (*rpc)->hdr.len)
-        printf("got %lu, expected %lu\n", len, (*rpc)->hdr.len);
-    assert(len == (*rpc)->hdr.len);
-    if ((*rpc)->hdr.type == BACKUP_RPC_ERROR_RESP) {
-        char *m = (*rpc)->error_resp.message;
+    size_t len = net->Recv(rpc);
+    backup_rpc *rpc_ptr;
+    (*rpc)->read(0, (*rpc)->totalLength(), (void**) &rpc_ptr);
+    if (len != (rpc_ptr)->hdr.len)
+        printf("got %lu, expected %lu\n", len, (rpc_ptr)->hdr.len);
+    assert(len == (rpc_ptr)->hdr.len);
+    if ((rpc_ptr)->hdr.type == BACKUP_RPC_ERROR_RESP) {
+        char *m = (rpc_ptr)->error_resp.message;
         printf("Exception on backup operation >>> %s\n", m);
         throw BackupRPCException(m);
     }
@@ -75,10 +78,15 @@ BackupHost::heartbeat()
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_HEARTBEAT_REQ_LEN);
 
     printf("Sending Heartbeat to backup\n");
-    sendRPC(&req);
+    BufferPtr *bp = new BufferPtr();
+    bp->append((void*) &req, req.hdr.len);
+    sendRPC(bp);
+    delete bp;
 
     backup_rpc *resp;
-    recvRPC(&resp);
+    bp = new BufferPtr();
+    recvRPC(&bp);
+    bp->read(0, bp->totalLength(), (void**) &resp);
 
     printf("Heartbeat ok\n");
 }
@@ -108,10 +116,15 @@ BackupHost::writeSegment(uint64_t segNum,
     req->write_req.len = len;
     memcpy(&req->write_req.data[0], data, len);
 
-    sendRPC(req);
+    BufferPtr *bp = new BufferPtr();
+    bp->append(req, req->hdr.len);
+    sendRPC(bp);
+    delete bp;
 
     backup_rpc *resp;
-    recvRPC(&resp);
+    bp = new BufferPtr();
+    recvRPC(&bp);
+    bp->read(0, bp->totalLength(), (void **) &resp);
 }
 
 void
@@ -124,10 +137,15 @@ BackupHost::commitSegment(uint64_t segNum)
     req.commit_req.seg_num = segNum;
 
     printf("Sending Commit to backup\n");
-    sendRPC(&req);
+    BufferPtr *bp = new BufferPtr();
+    bp->append((void*) &req, req.hdr.len);
+    sendRPC(bp);
+    delete bp;
 
     backup_rpc *resp;
-    recvRPC(&resp);
+    bp = new BufferPtr();
+    recvRPC(&bp);
+    bp->read(0, bp->totalLength(), (void **) &resp);
 
     printf("Commit ok\n");
 }
@@ -142,10 +160,15 @@ BackupHost::freeSegment(uint64_t segNum)
     req.free_req.seg_num = segNum;
 
     printf("Sending Free to backup\n");
-    sendRPC(&req);
+    BufferPtr *bp = new BufferPtr();
+    bp->append((void*) &req, req.hdr.len);
+    sendRPC(bp);
+    delete bp;
 
     backup_rpc *resp;
-    recvRPC(&resp);
+    bp = new BufferPtr();
+    recvRPC(&bp);
+    bp->read(0, bp->totalLength(), (void **) &resp);
 
     printf("Free ok\n");
 }
@@ -159,10 +182,15 @@ BackupHost::getSegmentList(uint64_t *list,
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTLIST_REQ_LEN);
 
     printf("Sending GetSegmentList to backup\n");
-    sendRPC(&req);
+    BufferPtr *bp = new BufferPtr();
+    bp->append((void *) &req, req.hdr.len);
+    sendRPC(bp);
+    delete bp;
 
     backup_rpc *resp;
-    recvRPC(&resp);
+    bp = new BufferPtr();
+    recvRPC(&bp);
+    bp->read(0, bp->totalLength(), (void **) &resp);
 
     uint64_t *tmp_list = &resp->getsegmentlist_resp.seg_list[0];
     uint64_t tmp_count = resp->getsegmentlist_resp.seg_list_count;
@@ -197,10 +225,15 @@ BackupHost::retrieveSegment(uint64_t segNum, void *buf)
     req.retrieve_req.seg_num = segNum;
 
     printf("Sending Retrieve to backup\n");
-    sendRPC(&req);
+    BufferPtr *bp = new BufferPtr();
+    bp->append((void *) &req, req.hdr.len);
+    sendRPC(bp);
+    delete bp;
 
     backup_rpc *resp;
-    recvRPC(&resp);
+    bp = new BufferPtr();
+    recvRPC(&bp);
+    bp->read(0, bp->totalLength(), (void **) &resp);
 
     printf("Retrieved segment %llu of length %llu\n",
            segNum, resp->retrieve_resp.data_len);

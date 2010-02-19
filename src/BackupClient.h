@@ -29,6 +29,8 @@
 
 namespace RAMCloud {
 
+class BufferPtr;
+
 /**
  * A single unit of metadata for recovery of an object as returned by
  * getSegmentMetadata().
@@ -82,8 +84,8 @@ class BackupHost : public BackupClient {
                                       size_t maxSize);
     virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
-    void sendRPC(backup_rpc *rpc);
-    void recvRPC(backup_rpc **rpc);
+    void sendRPC(BufferPtr *rpc);
+    void recvRPC(BufferPtr **rpc);
     Net *net;
     DISALLOW_COPY_AND_ASSIGN(BackupHost);
 };

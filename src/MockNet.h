@@ -24,26 +24,26 @@ class MockNet : public Net {
   public:
     // TODO(stutsman) only partially thoughtout.  Would like to make the mock
     // dev scriptable
-    MockNet(void (*send_cb)(const char *, size_t)) : cb(send_cb) {}
+    MockNet(void (*send_cb)(const BufferPtr *)) : cb(send_cb) {}
     virtual void Connect() {}
     virtual void Listen() {}
     virtual int Close() { return 0; }
-    virtual void Send(const void *buf, size_t len) {
-        cb(static_cast<const char*>(buf), len);
+    virtual void Send(BufferPtr *buf) {
+        cb(buf);
     }
-    virtual size_t Recv(void **buf) {
+    virtual size_t Recv(BufferPtr **buf) {
         return 0;
     }
-    virtual int SendRPC(struct rcrpc_any *msg) {
-        Send(msg, msg->header.len);
+    virtual int SendRPC(BufferPtr *buf) {
+        Send(buf);
         return 0;
     }
-    virtual int RecvRPC(struct rcrpc_any **msg) {
+    virtual int RecvRPC(BufferPtr **buf) {
         return 0;
     }
     virtual ~MockNet() {}
   private:
-    void (*cb)(const char *buf, size_t len);
+    void (*cb)(const BufferPtr *buf/*const char *buf, size_t len*/);
 };
 
 } // namespace RAMCloud

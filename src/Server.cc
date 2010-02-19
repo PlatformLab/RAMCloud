@@ -14,6 +14,7 @@
  */
 
 
+#include <BufferPtr.h>
 #include <Server.h>
 
 namespace RAMCloud {
@@ -472,10 +473,14 @@ void
 Server::HandleRPC()
 {
     rcrpc_any *req;
-    if (net->RecvRPC(&req) != 0) {
+    BufferPtr *req_buf = new BufferPtr();
+    if (net->RecvRPC(&req_buf) != 0) {
         printf("Failure receiving rpc\n");
         return;
     }
+
+    // TODO(aravindn): Change if request is in multiple fragments.
+    req_buf->read(0, req_buf->totalLength(), (void**) &req);
 
     char rpcbuf[MAX_RPC_LEN];
     rcrpc_any *resp = reinterpret_cast<rcrpc_any*>(rpcbuf);
@@ -525,7 +530,12 @@ Server::HandleRPC()
                                RCRPC_ERROR_RESPONSE_LEN_WODATA +
                                msglen + 1);
     }
-    net->SendRPC(resp);
+    BufferPtr *resp_buf = new BufferPtr();
+    resp_buf->append(resp, resp->header.len);
+    net->SendRPC(resp_buf);
+
+    delete resp_buf;
+    delete req_buf;
 }
 
 void __attribute__ ((noreturn))

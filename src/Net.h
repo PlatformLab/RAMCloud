@@ -17,7 +17,7 @@
 #define RAMCLOUD_NET_H
 
 #include <config.h>
-
+#include <BufferPtr.h>
 #include <rcrpc.h>
 
 #if defined(USERSPACE_NET) + defined(UDP_NET) + defined(TCP_NET) != 1
@@ -32,22 +32,16 @@
 #include <net_tcp.h>
 #endif
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 void rc_net_init(struct rc_net *ret,
                  const char *srcaddr, uint16_t srcport,
                  const char *dstaddr, uint16_t dstport);
 int rc_net_connect(struct rc_net *net);
 int rc_net_listen(struct rc_net *net);
 int rc_net_close(struct rc_net *net);
-int rc_net_send(struct rc_net *net, void *, size_t);
-int rc_net_recv(struct rc_net *net, void **, size_t *);
-int rc_net_send_rpc(struct rc_net *net, struct rcrpc_any *);
-int rc_net_recv_rpc(struct rc_net *net, struct rcrpc_any **);
-#ifdef __cplusplus
-}
-#endif
+int rc_net_send(struct rc_net *net, void *buf/*void *, size_t*/);
+int rc_net_recv(struct rc_net *net, void **buf/*void **, size_t **/);
+int rc_net_send_rpc(struct rc_net *net, void*/*struct rcrpc_any **/);
+int rc_net_recv_rpc(struct rc_net *net, void**/* struct rcrpc_any ***/);
 
 #ifdef __cplusplus
 namespace RAMCloud {
@@ -59,10 +53,10 @@ class Net {
     virtual void Connect() = 0;
     virtual void Listen() = 0;
     virtual int Close() = 0;
-    virtual void Send(const void *buf, size_t len) = 0;
-    virtual size_t Recv(void **buf) = 0;
-    virtual int SendRPC(struct rcrpc_any *msg) = 0;
-    virtual int RecvRPC(struct rcrpc_any **msg) = 0;
+    virtual void Send(BufferPtr *buf/*const void *buf, size_t len*/) = 0;
+    virtual size_t Recv(BufferPtr **buf/*void **buf*/) = 0;
+    virtual int SendRPC(BufferPtr *buf/*struct rcrpc_any *msg*/) = 0;
+    virtual int RecvRPC(BufferPtr **buf/*struct rcrpc_any **msg*/) = 0;
     virtual ~Net() {}
 };
 
@@ -86,28 +80,28 @@ class CNet : public Net {
             throw NetException();
     }
     int Close() { return rc_net_close(&net); }
-    void Send(const void *buf, size_t len) {
+    void Send(BufferPtr *buf) {
         // const ok - C code doesn't modify but can't accept const
-        int r = rc_net_send(&net, const_cast<void *>(buf), len);
+        int r = rc_net_send(&net, (void *) buf/*const_cast<void *>(buf), len*/);
         if (r < 0)
             throw NetException();
     }
-    size_t Recv(void **buf) {
+    size_t Recv(BufferPtr **buf) {
         size_t len;
-        int r = rc_net_recv(&net, buf, &len);
+        int r = rc_net_recv(&net, (void**) buf/*, &len*/);
         if (r < 0)
             throw NetException();
         return len;
     }
-    int SendRPC(struct rcrpc_any *msg) {
-        return rc_net_send_rpc(&net, msg);
+    int SendRPC(BufferPtr *buf) {
+        return rc_net_send_rpc(&net, (void*) buf);
     }
-    int RecvRPC(struct rcrpc_any **msg) {
-        return rc_net_recv_rpc(&net, msg);
+    int RecvRPC(BufferPtr **buf) {
+        return rc_net_recv_rpc(&net, (void **)buf);
     }
     ~CNet() {}
   private:
-    DISALLOW_COPY_AND_ASSIGN(CNet);
+    //    DISALLOW_COPY_AND_ASSIGN(CNet);
     rc_net net;
 };
 

@@ -28,12 +28,15 @@
 #include <Net.h>
 #include <backuprpc.h>
 #include <BackupClient.h>
+#include <BufferPtr.h>
 
 #include <Bitmap.h>
 
 #include <string>
 
 namespace RAMCloud {
+
+class BufferPtr;
 
 struct BackupException {
     /// Automatically captures errno and places string in message
@@ -88,8 +91,8 @@ class BackupServer : BackupClient {
     void handleRetrieve(const backup_rpc *req, backup_rpc *resp);
 
     void handleRPC();
-    void sendRPC(const backup_rpc *rpc);
-    void recvRPC(backup_rpc **rpc);
+    void sendRPC(BufferPtr *rpc);
+    void recvRPC(BufferPtr **rpc);
 
     virtual void heartbeat() {}
     virtual void writeSegment(uint64_t segNum, uint32_t offset,

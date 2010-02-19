@@ -109,9 +109,9 @@ BackupServer::reserveSpace()
  *     A pointer to the backup_rpc buffer to send.
  */
 void
-BackupServer::sendRPC(const backup_rpc *rpc)
+BackupServer::sendRPC(BufferPtr *rpc)
 {
-    net->Send(rpc, rpc->hdr.len);
+    net->Send(rpc);
 }
 
 /**
@@ -122,10 +122,12 @@ BackupServer::sendRPC(const backup_rpc *rpc)
  *     with the location of the incoming backup_rpc message.
  */
 void
-BackupServer::recvRPC(backup_rpc **rpc)
+BackupServer::recvRPC(BufferPtr **rpc)
 {
-    size_t len = net->Recv(reinterpret_cast<void**>(rpc));
-    assert(len == (*rpc)->hdr.len);
+    size_t len = net->Recv(rpc);
+    backup_rpc *rpc_ptr;
+    (*rpc)->read(0, (*rpc)->totalLength(), (void **) &rpc_ptr);
+    assert(len == (rpc_ptr)->hdr.len);
 }
 
 /**
@@ -652,7 +654,9 @@ BackupServer::handleRPC()
     backup_rpc *req;
     backup_rpc *resp = reinterpret_cast<backup_rpc *>(&resp_buf[0]);
 
-    recvRPC(&req);
+    BufferPtr *req_buf = new BufferPtr();
+    recvRPC(&req_buf);
+    req_buf->read(0, req_buf->totalLength(), (void **) &req);
 
     if (debug_rpc)
         printf("got rpc type: 0x%08x, len 0x%08x\n",
@@ -690,8 +694,14 @@ BackupServer::handleRPC()
         // TODO(stutsman) this cast is bad, types should match
         resp->hdr.len = static_cast<uint32_t>(rpclen);
     }
-    sendRPC(resp);
+
+    BufferPtr *resp_buf_ptr = new BufferPtr();
+    resp_buf_ptr->append(resp, resp->hdr.len);
+    sendRPC(resp_buf_ptr);
     free(resp_buf);
+
+    delete req_buf;
+    delete resp_buf_ptr;
 }
 
 void __attribute__ ((noreturn))
