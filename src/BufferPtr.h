@@ -14,7 +14,8 @@
  */
 
 /**
- * \file Header file for the BufferPtr class.
+ * \file
+ * Header file for the BufferPtr class.
  *
  * The BufferPtr class is an mbuf-type data structure which contains pointers to a
  * list of memory locations, which are logically viewed as one buffer. The class

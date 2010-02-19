@@ -14,7 +14,8 @@
  */
 
 /**
- * \file Contains the implementation for the BufferPtr class.
+ * \file
+ * Contains the implementation for the BufferPtr class.
  */
 
 #include <BufferPtr.h>
