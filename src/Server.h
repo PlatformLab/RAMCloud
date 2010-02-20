@@ -68,10 +68,22 @@ class Table {
      * Increment and return the master vector clock.
      * \return
      *      The next version available from the master vector clock.
-     * \see http://fiz.stanford.edu:8081/display/ramcloud/Version+Numbers
+     * \see #next_version
      */
     uint64_t AllocateVersion() {
         return next_version++;
+    }
+
+    /**
+     * Ensure the master master vector clock is at least a certain version.
+     * \param minimum
+     *      The minimum version the master vector clock can be set to after this
+     *      operation.
+     * \see #next_version
+     */
+    void RaiseVersion(uint64_t minimum) {
+        if (minimum > next_version)
+            next_version = minimum;
     }
 
     /**
@@ -117,7 +129,35 @@ class Table {
 
     /**
      * The master vector clock for the table.
-     * \see #AllocateVersion().
+     *
+     * \li We guarantee that every distinct blob ever at a particular object ID
+     * will have a distinct version number, even across generations, so that
+     * they can be uniquely identified across all time with a version number.
+     *
+     * \li We guarantee that version numbers for a particular object ID
+     * monotonically increase over time, so that comparing two version numbers
+     * tells which one is more recent.
+     *
+     * \li We guarantee that the version number of an object increases by
+     * exactly one when it is updated, so that clients can accurately predict
+     * the version numbers that they will write before the write completes.
+     *
+     * These guarantees are implemented as follows:
+     *
+     * \li #next_version, the master vector clock, contains the next available
+     * version number for the table on the master. It is initialized to a small
+     * integer when the table is created and is recoverable after crashes.
+     *
+     * \li When an object is created, its new version number is set to the value
+     * of the master vector clock, and the master vector clock is incremented.
+     * See #AllocateVersion.
+     *
+     * \li When an object is updated, its new version number is set the old
+     * blob's version number plus one.
+     *
+     * \li When an object is deleted, set the master vector clock to the higher
+     * of the master vector clock and the deleted blob's version number plus
+     * one. See #RaiseVersion.
      */
     uint64_t next_version;
 
