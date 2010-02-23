@@ -824,8 +824,10 @@ class TxRAMCloud(RAMCloud):
         @rtype: C{dict}
         """
 
-        # reserve a new transaction ID
-        txid = self.txid_res.next()
+        # reserve a new transaction ID. 0 is not valid.
+        txid = 0
+        while txid == 0:
+            txid = self.txid_res.next()
         timeout = time.time() + 30
 
         # mask objects (in sorted order to guarantee no deadlock)

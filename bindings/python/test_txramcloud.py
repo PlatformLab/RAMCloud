@@ -1174,22 +1174,22 @@ class TestCoordinator(unittest.TestCase):
                 counter.bump(0)
                 self.assertEquals(objects, [(38, 2), (38, 3), (73, 4)])
                 self.assertEquals(_mt, mt)
-                self.assertEquals(txid, Opaques.txid)
+                self.assertEquals(txid, 48484)
                 self.assert_(timeout > time.time() + 5)
                 self.assert_(timeout < time.time() + 60)
                 return {(38, 2): 11, (38, 3): 21, (73, 4): 31}
             def mock_write_mt(_mt, txid):
                 counter.bump(1)
                 self.assertEquals(_mt, mt)
-                self.assertEquals(txid, Opaques.txid)
+                self.assertEquals(txid, 48484)
                 return Opaques.version
             def mock_finish_mt(_mt, txid, version):
                 counter.bump(2)
                 self.assertEquals(_mt, mt)
-                self.assertEquals(txid, Opaques.txid)
+                self.assertEquals(txid, 48484)
                 self.assertEquals(version, Opaques.version)
             with txrc_setup(self) as txrc:
-                txrc.txid_res = iter([Opaques.txid])
+                txrc.txid_res = iter([48484])
                 txrc._mask_objects = mock_mask_objects
                 txrc._write_mt = mock_write_mt
                 txrc._finish_mt = mock_finish_mt
@@ -1206,7 +1206,7 @@ class TestCoordinator(unittest.TestCase):
                 counter.bump(0)
                 raise em
             with txrc_setup(self) as txrc:
-                txrc.txid_res = iter([Opaques.txid])
+                txrc.txid_res = iter([48484])
                 txrc._mask_objects = mock_mask_objects
                 try:
                     txrc.mt_commit(mt)
@@ -1227,12 +1227,12 @@ class TestCoordinator(unittest.TestCase):
             def mock_unmask_objects(objects, txid):
                 counter.bump(2)
                 self.assertEquals(set(objects), set(mt.keys()))
-                self.assertEquals(txid, Opaques.txid)
+                self.assertEquals(txid, 48484)
             def mock_delete_tombstone(txid):
                 counter.bump(3)
-                self.assertEquals(txid, Opaques.txid)
+                self.assertEquals(txid, 48484)
             with txrc_setup(self) as txrc:
-                txrc.txid_res = iter([Opaques.txid])
+                txrc.txid_res = iter([48484])
                 txrc._mask_objects = mock_mask_objects
                 txrc._write_mt = mock_write_mt
                 txrc._unmask_objects = mock_unmask_objects
