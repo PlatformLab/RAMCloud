@@ -489,6 +489,11 @@ Log::clean()
     for (uint64_t i = 0; i < nsegments; i++) {
         Segment *s = segments[i];
 
+        // The eviction callbacks may allocate and write to a new head.
+        // Ensure that we don't try to clean it.
+        if (s == head)
+            continue;
+
         if (nfree_list >= cleaner_hiwat)
             break;
 
