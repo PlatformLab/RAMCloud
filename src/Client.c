@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,8 +14,37 @@
  */
 
 #include <Common.h>
+
+#if RC_CLIENT_SHARED
+#include <semaphore.h>
+#include <sys/mman.h>
+#endif
+
+#include <rcrpc.h>
+
 #include <Client.h>
 #include <assert.h>
+
+#if RC_CLIENT_SHARED
+struct rc_client_shared {
+    sem_t sem;
+};
+
+static void
+lock(struct rc_client *client)
+{
+    assert(sem_wait(&client->shared->sem) == 0);
+}
+
+static void
+unlock(struct rc_client *client)
+{
+    assert(sem_post(&client->shared->sem) == 0);
+}
+#else
+static void lock(struct rc_client *client) {}
+static void unlock(struct rc_client *client) {}
+#endif
 
 /**
  * Connect to a %RAMCloud.
@@ -31,6 +60,15 @@
 int
 rc_connect(struct rc_client *client)
 {
+#if RC_CLIENT_SHARED
+    client->shared = mmap(NULL,
+                          sizeof(struct rc_client_shared),
+                          PROT_READ|PROT_WRITE,
+                          MAP_SHARED|MAP_ANONYMOUS,
+                          -1, 0);
+    assert(client->shared != MAP_FAILED);
+    assert(sem_init(&client->shared->sem, 1, 1) == 0);
+#endif
     rc_net_init(&client->net, CLNTADDR, CLNTPORT, SVRADDR, SVRPORT);
     rc_net_connect(&client->net);
     return 0;
@@ -255,12 +293,16 @@ reject_reason(const struct rcrpc_reject_rules *reject_rules,
 int
 rc_ping(struct rc_client *client)
 {
+    lock(client);
+
     struct rcrpc_ping_request query;
     struct rcrpc_ping_response *resp;
-
     query.header.type = RCRPC_PING_REQUEST;
     query.header.len  = (uint32_t) RCRPC_PING_REQUEST_LEN;
-    return SENDRCV_RPC(PING, ping, &query, &resp);
+    int r = SENDRCV_RPC(PING, ping, &query, &resp);
+
+    unlock(client);
+    return r;
 }
 
 /**
@@ -278,9 +320,11 @@ rc_ping(struct rc_client *client)
  * This function can be used to create an object at a specified object ID. To
  * create an object with a server-assigned object ID, see rc_insert().
  *
- * If the object is written, the new version of the object is guaranteed to be
+ * If the object is created, the new version of the object is guaranteed to be
  * greater than that of any previous object that resided at the same \a table
- * and \a key.
+ * and \a key. If the object overwrites an existing object at that \a key, the
+ * new version number is guaranteed to be exactly 1 higher than the old version
+ * number.
  *
  * \param[in]  client   a connected client
  * \param[in]  table    the table containing the object to be written
@@ -308,6 +352,8 @@ rc_write(struct rc_client *client,
          const char *buf,
          uint64_t len)
 {
+    lock(client);
+
     assert(len <= MAX_DATA_WRITE_LEN);
     char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
     struct rcrpc_write_request *query;
@@ -324,7 +370,7 @@ rc_write(struct rc_client *client,
 
     int r = SENDRCV_RPC(WRITE, write, query, &resp);
     if (r) {
-        return r;
+        goto out;
     }
 
     if (got_version != NULL)
@@ -333,9 +379,11 @@ rc_write(struct rc_client *client,
     if (!resp->written) {
         r = reject_reason(reject_rules, resp->version);
         assert(r > 0);
-        return r;
+        goto out;
     }
 
+  out:
+    unlock(client);
     return r;
 }
 
@@ -371,6 +419,8 @@ rc_insert(struct rc_client *client,
           uint64_t len,
           uint64_t *key)
 {
+    lock(client);
+
     assert(len <= MAX_DATA_WRITE_LEN);
     char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
     struct rcrpc_insert_request *query;
@@ -385,10 +435,13 @@ rc_insert(struct rc_client *client,
 
     int r = SENDRCV_RPC(INSERT, insert, query, &resp);
     if (r) {
-        return r;
+        goto out;
     }
     *key = resp->key;
-    return 0;
+
+  out:
+    unlock(client);
+    return r;
 }
 
 /**
@@ -416,6 +469,8 @@ rc_delete(struct rc_client *client,
           const struct rcrpc_reject_rules *reject_rules,
           uint64_t *got_version)
 {
+    lock(client);
+
     struct rcrpc_delete_request query;
     struct rcrpc_delete_response *resp;
 
@@ -427,7 +482,7 @@ rc_delete(struct rc_client *client,
 
     int r = SENDRCV_RPC(DELETE, delete, &query, &resp);
     if (r) {
-        return r;
+        goto out;
     }
 
     if (got_version != NULL)
@@ -436,10 +491,12 @@ rc_delete(struct rc_client *client,
     if (!resp->deleted) {
         r = reject_reason(reject_rules, resp->version);
         assert(r > 0);
-        return r;
+        goto out;
     }
 
-    return 0;
+  out:
+    unlock(client);
+    return r;
 }
 
 /**
@@ -471,6 +528,8 @@ rc_read(struct rc_client *client,
         char *buf,
         uint64_t *len)
 {
+    lock(client);
+
     struct rcrpc_read_request query;
     struct rcrpc_read_response *resp;
 
@@ -483,7 +542,7 @@ rc_read(struct rc_client *client,
 
     int r = SENDRCV_RPC(READ, read, &query, &resp);
     if (r)
-        return r;
+        goto out;
 
     if (got_version != NULL)
         *got_version = resp->version;
@@ -491,7 +550,11 @@ rc_read(struct rc_client *client,
     *len = resp->buf_len;
     memcpy(buf, resp->buf, *len);
 
-    return reject_reason(&query.reject_rules, resp->version);
+    r = reject_reason(&query.reject_rules, resp->version);
+
+  out:
+    unlock(client);
+    return r;
 }
 
 /**
@@ -512,6 +575,8 @@ rc_read(struct rc_client *client,
 int
 rc_create_table(struct rc_client *client, const char *name)
 {
+    lock(client);
+
     struct rcrpc_create_table_request query;
     struct rcrpc_create_table_response *resp;
 
@@ -520,7 +585,10 @@ rc_create_table(struct rc_client *client, const char *name)
     char *table_name = query.name;
     strncpy(table_name, name, sizeof(table_name));
     table_name[sizeof(table_name) - 1] = '\0';
-    return SENDRCV_RPC(CREATE_TABLE, create_table, &query, &resp);
+    int r = SENDRCV_RPC(CREATE_TABLE, create_table, &query, &resp);
+
+    unlock(client);
+    return r;
 }
 
 /**
@@ -541,6 +609,8 @@ rc_create_table(struct rc_client *client, const char *name)
 int
 rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
 {
+    lock(client);
+
     struct rcrpc_open_table_request query;
     struct rcrpc_open_table_response *resp;
 
@@ -551,10 +621,12 @@ rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
     table_name[sizeof(table_name) - 1] = '\0';
     int r = SENDRCV_RPC(OPEN_TABLE, open_table, &query, &resp);
     if (r)
-        return r;
+        goto out;
     *table_id = resp->handle;
 
-    return 0;
+  out:
+    unlock(client);
+    return r;
 }
 
 /**
@@ -574,6 +646,8 @@ rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
 int
 rc_drop_table(struct rc_client *client, const char *name)
 {
+    lock(client);
+
     struct rcrpc_drop_table_request query;
     struct rcrpc_drop_table_response *resp;
 
@@ -582,7 +656,10 @@ rc_drop_table(struct rc_client *client, const char *name)
     char *table_name = query.name;
     strncpy(table_name, name, sizeof(table_name));
     table_name[sizeof(table_name) - 1] = '\0';
-    return SENDRCV_RPC(DROP_TABLE, drop_table, &query, &resp);
+    int r = SENDRCV_RPC(DROP_TABLE, drop_table, &query, &resp);
+
+    unlock(client);
+    return r;
 }
 
 /**

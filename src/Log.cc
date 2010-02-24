@@ -240,6 +240,9 @@ Log::init()
 bool
 Log::isSegmentLive(uint64_t segmentId) const
 {
+    if (segmentId == SEGMENT_INVALID_ID)
+        return false;
+
     // TODO(rumble) inefficient
     for (uint64_t i = 0; i < nsegments; i++) {
         if (segments[i]->getId() == segmentId)
