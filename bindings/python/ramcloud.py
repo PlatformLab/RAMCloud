@@ -27,10 +27,22 @@ class RejectRules(ctypes.Structure):
                 ("version_gt_given", ctypes.c_uint8, 1),
                 ("given_version", ctypes.c_uint64)]
 
+    def _as_tuple(self):
+        return (self.object_doesnt_exist, self.object_exists,
+                self.version_eq_given, self.version_gt_given,
+                self.given_version)
+
+    def __cmp__(self, other):
+        return cmp(self._as_tuple(), other._as_tuple())
+
+    def __repr__(self):
+        return 'ramcloud.RejectRules(%s)' % str(self._as_tuple())
+
     @staticmethod
     def exactly(want_version):
         return RejectRules(object_doesnt_exist=True, version_gt_given=True,
                            given_version=want_version)
+
 
 def load_so():
     not_found = ImportError("Couldn't find libramcloud.so, ensure it is " +
@@ -173,6 +185,7 @@ class FabricatedVersionError(Exception):
 class RAMCloud(object):
     def __init__(self):
         self.client = so.rc_new()
+        self.hook = lambda: None
 
     def __del__(self):
         so.rc_free(self.client)
@@ -186,6 +199,7 @@ class RAMCloud(object):
 
     def write_rr(self, table_id, key, data, reject_rules):
         got_version = ctypes.c_uint64()
+        self.hook()
         r = so.rc_write(self.client, table_id, key, ctypes.byref(reject_rules),
                         ctypes.byref(got_version), data, len(data))
         assert r in range(6)
@@ -220,11 +234,13 @@ class RAMCloud(object):
 
     def insert(self, table_id, data):
         key = ctypes.c_uint64()
+        self.hook()
         so.rc_insert(self.client, table_id, data, len(data), ctypes.byref(key))
         return key.value
 
     def delete_rr(self, table_id, key, reject_rules):
         got_version = ctypes.c_uint64()
+        self.hook()
         r = so.rc_delete(self.client, table_id, key,
                          ctypes.byref(reject_rules), ctypes.byref(got_version))
         assert r in range(6)
@@ -249,6 +265,7 @@ class RAMCloud(object):
         l = ctypes.c_uint64()
         got_version = ctypes.c_uint64()
         reject_rules.object_doesnt_exist = True
+        self.hook()
         r = so.rc_read(self.client, table_id, key, ctypes.byref(reject_rules),
                        ctypes.byref(got_version), ctypes.byref(buf),
                        ctypes.byref(l))

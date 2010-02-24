@@ -193,7 +193,7 @@ struct rcrpc_read_response {
  *      <ul>
  *      <li> If \c o exists:
  *          <ul>
- *          <li> \c o's version is increased.
+ *          <li> \c o's version is set to the old object's version plus 1.
  *          </ul>
  *      <li> Else:
  *          <ul>
