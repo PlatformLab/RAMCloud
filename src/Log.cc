@@ -449,13 +449,13 @@ Log::getSegment(const void *p, uint64_t len) const
     uintptr_t ub  = (uintptr_t)base;
     uintptr_t max = (uintptr_t)base + (segment_size * nsegments);
 
-    assert(up >= ub && (up + len) < max);
+    assert(up >= ub && (up + len) <= max);
     uintptr_t segno = (up - ub) / segment_size;
     assert(segno < nsegments);
 
     Segment *s = segments[segno];
     uintptr_t sb = (uintptr_t)s->getBase();
-    assert(up >= sb && (up + len) < (sb + segment_size));
+    assert(up >= sb && (up + len) <= (sb + segment_size));
 
     return (s);
 }
