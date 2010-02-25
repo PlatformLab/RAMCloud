@@ -15,20 +15,20 @@
 
 /**
  * \file
- * Unit tests for BufferPtr.
+ * Unit tests for Buffer.
  */
 
 #include <string.h>
 #include <strings.h>
 
-#include <BufferPtr.h>
+#include <Buffer.h>
 
 #include <cppunit/extensions/HelperMacros.h>
 
 namespace RAMCloud {
 
-class BufferPtrTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(BufferPtrTest);
+class BufferTest : public CppUnit::TestFixture {
+    CPPUNIT_TEST_SUITE(BufferTest);
     CPPUNIT_TEST(test_prepend);
     CPPUNIT_TEST(test_append);
     CPPUNIT_TEST(test_read);
@@ -38,14 +38,14 @@ class BufferPtrTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    BufferPtrTest() { }
+    BufferTest() { }
 
     void setUp() { }
 
     void tearDown() { }
 
     void test_prepend() {
-        BufferPtr *bp = new BufferPtr();
+        Buffer *bp = new Buffer();
         uint8_t *buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
 
@@ -93,7 +93,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
     }
 
     void test_append() {
-        BufferPtr *bp = new BufferPtr();
+        Buffer *bp = new Buffer();
         uint8_t *buf = (uint8_t*) xmalloc(sizeof(uint8_t) * 10);
         bzero(buf, 10);
 
@@ -141,7 +141,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
     }
 
     void test_read() {
-        BufferPtr *bp = new BufferPtr();
+        Buffer *bp = new Buffer();
         uint8_t* buf1 = (uint8_t *) xmalloc(sizeof(uint8_t) * 10);
         uint8_t* buf2 = (uint8_t *) xmalloc(sizeof(uint8_t) * 10);
 
@@ -166,7 +166,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
     }
 
     void test_copy() {
-        BufferPtr *bp = new BufferPtr();
+        Buffer *bp = new Buffer();
         uint8_t* buf1 = (uint8_t *) xmalloc(sizeof(uint8_t) * 10);
         uint8_t* buf2 = (uint8_t *) xmalloc(sizeof(uint8_t) * 10);
 
@@ -191,7 +191,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
     }
 
     void test_overwrite() {
-        BufferPtr *bp = new BufferPtr();
+        Buffer *bp = new Buffer();
         uint8_t* buf1 = (uint8_t *) xmalloc(sizeof(uint8_t) * 100);
         bzero(buf1, 100);
         CPPUNIT_ASSERT(bp->append(buf1, 100));
@@ -217,7 +217,7 @@ class BufferPtrTest : public CppUnit::TestFixture {
     }
 
     void test_totalLength() {
-        BufferPtr *bp = new BufferPtr();
+        Buffer *bp = new Buffer();
         uint8_t* buf1 = (uint8_t *) xmalloc(sizeof(uint8_t) * 100);
         bzero(buf1, 100);
 
@@ -230,6 +230,6 @@ class BufferPtrTest : public CppUnit::TestFixture {
 };
 
 
-CPPUNIT_TEST_SUITE_REGISTRATION(BufferPtrTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(BufferTest);
 
 }  // namespace RAMCloud

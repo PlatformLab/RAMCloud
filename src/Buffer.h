@@ -15,22 +15,22 @@
 
 /**
  * \file
- * Header file for the BufferPtr class.
+ * Header file for the Buffer class.
  *
- * The BufferPtr class is an mbuf-type data structure which contains pointers to a
+ * The Buffer class is an mbuf-type data structure which contains pointers to a
  * list of memory locations, which are logically viewed as one buffer. The class
  * contains functions to read and manipulate this logical buffer.
  */
 
-#ifndef RAMCLOUD_BUFFERPTR_H
-#define RAMCLOUD_BUFFERPTR_H
+#ifndef RAMCLOUD_BUFFER_H
+#define RAMCLOUD_BUFFER_H
 
 #include <Common.h>
 
 #ifdef __cplusplus
 namespace RAMCloud {
 
-class BufferPtr {
+class Buffer {
   public:
     bool prepend (void* buf, size_t size);
     
@@ -43,14 +43,14 @@ class BufferPtr {
     size_t overwrite(void *buf, size_t length, off_t offset);
 
     /**
-     * Function to get the entire length of this BufferPtr object.
+     * Function to get the entire length of this Buffer object.
      *
-     * \return Returns the total length of the logical BufferPtr represented by
+     * \return Returns the total length of the logical Buffer represented by
      *         this object.
      */
     size_t totalLength() const { return total_len; }
 
-    BufferPtr() : curr_chunk(-1), num_chunks(INITIAL_CHUNK_ARR_SIZE),
+    Buffer() : curr_chunk(-1), num_chunks(INITIAL_CHUNK_ARR_SIZE),
             chunk_arr(NULL), total_len(0) {
         chunk_arr = (chunk*) xmalloc(sizeof(chunk) * INITIAL_CHUNK_ARR_SIZE);
     }
@@ -62,23 +62,23 @@ class BufferPtr {
     };
 
     // The initial size of the chunk array (see below). 10 should cover the vast
-    // majority of BufferPtrs. If not, we can increate this later.
+    // majority of Buffers. If not, we can increate this later.
     enum { INITIAL_CHUNK_ARR_SIZE = 10 };
 
     // The pointers (and lengths) of various chunks represented by this
-    // BufferPtr. Initially, we allocate INITIAL_CHUNK_ARR_SIZE of the above
+    // Buffer. Initially, we allocate INITIAL_CHUNK_ARR_SIZE of the above
     // chunks, since this would be faster than using a vector<chunk>.
 
     int curr_chunk;  // The index of the last chunk thats currently being used.
     int num_chunks;  // The total number of chunks that have been allocated so far.
     chunk* chunk_arr;  // The pointers and lengths of various chunks represented
-                       // by this BufferPtr. Initially, we allocate
+                       // by this Buffer. Initially, we allocate
                        // INITIAL_CHUNK_ARR_SIZE of the above chunks, since this
                        // would be faster than using a vector<chunk>.
     size_t total_len;  // The total length of all the memory blocks represented
-                       // by this BufferPtr.
+                       // by this Buffer.
 
-    friend class BufferPtrTest;
+    friend class BufferTest;
 };
 
 }  // namespace RAMCloud

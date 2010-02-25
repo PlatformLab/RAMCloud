@@ -15,17 +15,17 @@
 
 /**
  * \file
- * Contains the implementation for the BufferPtr class.
+ * Contains the implementation for the Buffer class.
  */
 
-#include <BufferPtr.h>
+#include <Buffer.h>
 
 #include <string.h>
 
 namespace RAMCloud {
 
 /**
- * Prepends a new memory region to the BufferPtr. This new region is added to
+ * Prepends a new memory region to the Buffer. This new region is added to
  * the beginning of the chunk list instead of at the end (like in the append
  * function).
  *
@@ -36,7 +36,7 @@ namespace RAMCloud {
  * \param[in] size The size of the memory region represented by buf.
  * \return Returns true or false depending on teh success of the prpepend op.
  */
-bool BufferPtr::prepend (void* buf, size_t size) {
+bool Buffer::prepend (void* buf, size_t size) {
     if (size <= 0) return false;
     if (buf == NULL) return false;
 
@@ -67,13 +67,13 @@ bool BufferPtr::prepend (void* buf, size_t size) {
 }
 
 /**
- * Appends a new memory region to the BufferPtr.
+ * Appends a new memory region to the Buffer.
  *
  * \param[in] buf The memory region to be added.
  * \param[in] size The size of the memory region represented by buf.
  * \return Returns true or false depending on the success of the append op.
  */
-bool BufferPtr::append(void* buf, size_t size) {
+bool Buffer::append(void* buf, size_t size) {
     if (size <= 0) return false;
     if (buf == NULL) return false;
 
@@ -104,13 +104,13 @@ bool BufferPtr::append(void* buf, size_t size) {
  * return the number of bytes upto the end of the first chunk.
  *
  * \param[in] offset The offset into the logical buffer represented by this
- *             BufferPtr
+ *             Buffer
  * \param[in] length The length of the memory block to return.
  * \param[out] return_ptr The pointer to the memory block requested.
  * \return The number of bytes that region of memory pointed to by return_ptr
  *             has.
  */
-size_t BufferPtr::read(off_t offset, size_t length, void** return_ptr) {
+size_t Buffer::read(off_t offset, size_t length, void** return_ptr) {
     if (offset < 0) return 0;
     if (length <= 0) return 0;
 
@@ -143,7 +143,7 @@ size_t BufferPtr::read(off_t offset, size_t length, void** return_ptr) {
  * \param[in] dest The pointer to which we should copy the logical memory block.
  * \return The actual number of bytes copied.
  */
-size_t BufferPtr::copy(off_t offset, size_t length, void* dest) {
+size_t Buffer::copy(off_t offset, size_t length, void* dest) {
     if (offset < 0) return 0;
     if (length <= 0) return 0;
 
@@ -189,15 +189,15 @@ size_t BufferPtr::copy(off_t offset, size_t length, void* dest) {
  *
  * \param[in] buf The data from which we copy into the Buffer.
  * \param[in] length The length of the data in buf.
- * \param[in] offset The offset in the BufferPtr at which to begin overwriting.
+ * \param[in] offset The offset in the Buffer at which to begin overwriting.
  * \return The number of bytes that were actually overwritten. This will be less
  *         than length if the region extends past the end of the logical Buffer.
  */
-size_t BufferPtr::overwrite(void *buf, size_t length, off_t offset) {
+size_t Buffer::overwrite(void *buf, size_t length, off_t offset) {
     if (buf == NULL) return 0;
     if (length <= 0) return 0;
 
-    off_t curr_off = 0;  // Offset from the beginning of the BufferPtr.
+    off_t curr_off = 0;  // Offset from the beginning of the Buffer.
     off_t chunk_off;  // Offset from the beginning of the current chunk.
     size_t curr_chunk_len;  // Number of bytes to copy from the current chunk,
                             // beginning at 'chunk_off'.
