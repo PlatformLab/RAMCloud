@@ -27,7 +27,7 @@
 
 namespace RAMCloud {
 
-enum { debug_noisy = false };
+const bool debug_noisy = false;
 
 /**
  * NOTICE:  The BackupHost takes care of deleting the Net object
@@ -150,9 +150,9 @@ BackupHost::freeSegment(uint64_t segNum)
     printf("Free ok\n");
 }
 
-size_t
+uint32_t
 BackupHost::getSegmentList(uint64_t *list,
-                           size_t maxSize)
+                           uint32_t maxSize)
 {
     backup_rpc req;
     req.hdr.type = BACKUP_RPC_GETSEGMENTLIST_REQ;
@@ -165,7 +165,7 @@ BackupHost::getSegmentList(uint64_t *list,
     recvRPC(&resp);
 
     uint64_t *tmp_list = &resp->getsegmentlist_resp.seg_list[0];
-    uint64_t tmp_count = resp->getsegmentlist_resp.seg_list_count;
+    uint32_t tmp_count = resp->getsegmentlist_resp.seg_list_count;
     printf("Backup wants to restore %llu segments\n", tmp_count);
 
     if (maxSize < tmp_count)
@@ -179,10 +179,10 @@ BackupHost::getSegmentList(uint64_t *list,
     return tmp_count;
 }
 
-size_t
+uint32_t
 BackupHost::getSegmentMetadata(uint64_t segNum,
                                RecoveryObjectMetadata *list,
-                               size_t maxSize)
+                               uint32_t maxSize)
 {
     return 0;
 }
@@ -267,9 +267,9 @@ MultiBackupClient::freeSegment(uint64_t segNum)
         host->freeSegment(segNum);
 }
 
-size_t
+uint32_t
 MultiBackupClient::getSegmentList(uint64_t *list,
-                                  size_t maxSize)
+                                  uint32_t maxSize)
 {
     if (host) {
         return host->getSegmentList(list, maxSize);
@@ -277,10 +277,10 @@ MultiBackupClient::getSegmentList(uint64_t *list,
     return 0;
 }
 
-size_t
+uint32_t
 MultiBackupClient::getSegmentMetadata(uint64_t segNum,
                                       RecoveryObjectMetadata *list,
-                                      size_t maxSize)
+                                      uint32_t maxSize)
 {
     if (host)
         return host->getSegmentMetadata(segNum, list, maxSize);

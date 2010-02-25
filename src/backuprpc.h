@@ -69,7 +69,7 @@ struct backup_rpc_getsegmentlist_req {
 };
 
 struct backup_rpc_getsegmentlist_resp {
-    uint64_t seg_list_count;
+    uint32_t seg_list_count;
     uint64_t seg_list[0];                       /* Variable length */
 };
 

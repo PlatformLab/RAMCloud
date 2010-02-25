@@ -96,10 +96,10 @@ class BackupServer : BackupClient {
                               const void *data, uint32_t len);
     virtual void commitSegment(uint64_t segNum);
     virtual void freeSegment(uint64_t segNum);
-    virtual size_t getSegmentList(uint64_t *list, size_t maxSize);
-    virtual size_t getSegmentMetadata(uint64_t segNum,
-                                      RecoveryObjectMetadata *list,
-                                      size_t maxSize);
+    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
+    virtual uint32_t getSegmentMetadata(uint64_t segNum,
+                                        RecoveryObjectMetadata *list,
+                                        uint32_t maxSize);
     virtual void retrieveSegment(uint64_t segNum, void *buf);
 
     void flushSegment();
@@ -110,11 +110,18 @@ class BackupServer : BackupClient {
     void reserveSpace();
     uint64_t frameForSegNum(uint64_t segnum);
 
+    /** The net connection to use to service RPCs */
     Net *net;
+    /** A file descriptor for the log file */
     int logFD;
+    /**
+     * The start of the active segment, it is pagesize aligned to
+     * support O_DIRECT writes
+     */
     char *seg;
+    /** seg is contained herein, this is kept around to be freed later */
     char *unalignedSeg;
-    // segment number of the active segment
+    /** Segment number of the active segment */
     uint64_t openSegNum;
 
     /**
@@ -124,6 +131,10 @@ class BackupServer : BackupClient {
      */
     uint64_t segmentAtFrame[SEGMENT_FRAMES];
 
+    /**
+     * Tracks which segment frames are free on disk (i.e. frames that
+     * contain live segments
+     */
     Bitmap<SEGMENT_FRAMES> freeMap;
 
     friend class BackupServerTest;

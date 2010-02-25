@@ -31,12 +31,6 @@
 #include <string>
 #include <cstring>
 
-#define BACKUPSVRADDR "127.0.0.1"
-#define BACKUPSVRPORT  11111
-
-#define BACKUPCLNTADDR "127.0.0.1"
-#define BACKUPCLNTPORT  11111
-
 namespace RAMCloud {
 
 static const char *LOG_PATH = "/tmp/rctest.log";
@@ -428,7 +422,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         backup.commitSegment(82);
 
         uint64_t list[2];
-        uint64_t count = 2;
+        uint32_t count = 2;
         backup.getSegmentList(&list[0], count);
 
         CPPUNIT_ASSERT(list[0] == 76);
@@ -447,7 +441,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         backup.commitSegment(82);
 
         uint64_t list[1];
-        uint64_t count = 1;
+        uint32_t count = 1;
         try {
             backup.getSegmentList(&list[0], count);
             CPPUNIT_ASSERT_MESSAGE("getSegmentList with too short "
@@ -556,12 +550,12 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         BackupServer backup(net, LOG_PATH);
 
-        const size_t listSize = 0;
+        const uint32_t listSize = 0;
         RecoveryObjectMetadata list[listSize];
 
         try {
-            size_t listElements = backup.getSegmentMetadata(76, &list[0],
-                                                            listSize);
+            uint32_t listElements = backup.getSegmentMetadata(76, &list[0],
+                                                              listSize);
             listElements++;             // suppress unused warning
             CPPUNIT_ASSERT_MESSAGE("getSegmentMetadata should fail "
                                    "when there is no such stored segment",
@@ -580,13 +574,13 @@ class BackupServerTest : public CppUnit::TestFixture {
         char testbuf[SEGMENT_SIZE];
         backup.retrieveSegment(76, &testbuf[0]);
 
-        const size_t listSize = 1;
+        const uint32_t listSize = 1;
         RecoveryObjectMetadata list[listSize];
 
         try {
-            size_t listElements = backup.getSegmentMetadata(76, &list[0],
-                                                            listSize);
-            CPPUNIT_ASSERT_EQUAL((size_t)0, listElements);
+            uint32_t listElements = backup.getSegmentMetadata(76, &list[0],
+                                                              listSize);
+            CPPUNIT_ASSERT_EQUAL((uint32_t)0, listElements);
         } catch (BackupException e) {
             CPPUNIT_ASSERT_MESSAGE(e.message, false);
         }
@@ -606,16 +600,16 @@ class BackupServerTest : public CppUnit::TestFixture {
         offset = writeMockObject(&backup, 82, 3, offset);
         backup.commitSegment(82);
 
-        const size_t listSize = 2;
+        const uint32_t listSize = 2;
         RecoveryObjectMetadata list[listSize];
 
         try {
-            size_t listElements = backup.getSegmentMetadata(76, &list[0],
-                                                            listSize);
-            CPPUNIT_ASSERT_EQUAL((size_t)2, listElements);
+            uint32_t listElements = backup.getSegmentMetadata(76, &list[0],
+                                                              listSize);
+            CPPUNIT_ASSERT_EQUAL((uint32_t)2, listElements);
             listElements = backup.getSegmentMetadata(82, &list[0],
                                                      listSize);
-            CPPUNIT_ASSERT_EQUAL((size_t)1, listElements);
+            CPPUNIT_ASSERT_EQUAL((uint32_t)1, listElements);
         } catch (BackupException e) {
             CPPUNIT_ASSERT_MESSAGE(e.message, false);
         }
@@ -626,12 +620,12 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         BackupServer backup(net, LOG_PATH);
 
-        const size_t listSize = 2;
+        const uint32_t listSize = 2;
         RecoveryObjectMetadata list[listSize];
 
         try {
-            size_t listElements = backup.getSegmentMetadata(0, &list[0],
-                                                            listSize);
+            uint32_t listElements = backup.getSegmentMetadata(0, &list[0],
+                                                              listSize);
             listElements++;             // supressed unused warning
             CPPUNIT_ASSERT(false);
         } catch (BackupException e) {}

@@ -383,9 +383,9 @@ BackupServer::freeSegment(uint64_t segNum)
  *     Currently this method relies on soft-state on the backup that
  *     isn't recovered after crash
  */
-size_t
+uint32_t
 BackupServer::getSegmentList(uint64_t *list,
-                             size_t maxSize)
+                             uint32_t maxSize)
 {
     if (openSegNum != INVALID_SEGMENT_NUM) {
         if (debug_backup)
@@ -396,7 +396,7 @@ BackupServer::getSegmentList(uint64_t *list,
     if (debug_backup)
         printf("Max segs to return %llu\n", maxSize);
 
-    size_t count = 0;
+    uint32_t count = 0;
     for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
         if (segmentAtFrame[i] != INVALID_SEGMENT_NUM) {
             if (count == maxSize)
@@ -457,10 +457,10 @@ BackupServer::extractMetadata(const void *p,
  *     Currently this method relies on soft-state on the backup that
  *     isn't recovered after crash
  */
-size_t
+uint32_t
 BackupServer::getSegmentMetadata(uint64_t segNum,
                                  RecoveryObjectMetadata *list,
-                                 size_t maxSize)
+                                 uint32_t maxSize)
 {
     if (debug_backup)
         printf("Max elements to return %llu\n", maxSize);

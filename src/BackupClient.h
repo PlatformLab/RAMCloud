@@ -54,10 +54,10 @@ class BackupClient {
                               const void *data, uint32_t len) = 0;
     virtual void commitSegment(uint64_t segNum) = 0;
     virtual void freeSegment(uint64_t segNum) = 0;
-    virtual size_t getSegmentList(uint64_t *list, size_t maxSize) = 0;
-    virtual size_t getSegmentMetadata(uint64_t segNum,
-                                      RecoveryObjectMetadata *list,
-                                      size_t maxSize) = 0;
+    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize) = 0;
+    virtual uint32_t getSegmentMetadata(uint64_t segNum,
+                                        RecoveryObjectMetadata *list,
+                                        uint32_t maxSize) = 0;
     virtual void retrieveSegment(uint64_t segNum, void *buf) = 0;
 };
 
@@ -76,10 +76,10 @@ class BackupHost : public BackupClient {
                               const void *data, uint32_t len);
     virtual void commitSegment(uint64_t segNum);
     virtual void freeSegment(uint64_t segNum);
-    virtual size_t getSegmentList(uint64_t *list, size_t maxSize);
-    virtual size_t getSegmentMetadata(uint64_t segNum,
-                                      RecoveryObjectMetadata *list,
-                                      size_t maxSize);
+    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
+    virtual uint32_t getSegmentMetadata(uint64_t segNum,
+                                        RecoveryObjectMetadata *list,
+                                        uint32_t maxSize);
     virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
     void sendRPC(backup_rpc *rpc);
@@ -108,10 +108,10 @@ class MultiBackupClient : public BackupClient {
                               const void *data, uint32_t len);
     virtual void commitSegment(uint64_t segNum);
     virtual void freeSegment(uint64_t segNum);
-    virtual size_t getSegmentList(uint64_t *list, size_t maxSize);
-    virtual size_t getSegmentMetadata(uint64_t segNum,
-                                      RecoveryObjectMetadata *list,
-                                      size_t maxSize);
+    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
+    virtual uint32_t getSegmentMetadata(uint64_t segNum,
+                                        RecoveryObjectMetadata *list,
+                                        uint32_t maxSize);
     virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
     BackupHost *host;
