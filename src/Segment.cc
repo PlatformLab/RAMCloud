@@ -202,7 +202,7 @@ Segment::checkRange(const void *p, uint64_t len) const
     uintptr_t up = (uintptr_t)p;
     uintptr_t ub = (uintptr_t)base;
 
-    return (up >= ub && up < (ub + total_bytes));
+    return (up >= ub && (up + len) <= (ub + total_bytes));
 }
 
 /**

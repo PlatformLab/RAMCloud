@@ -16,9 +16,7 @@
 #ifndef RAMCLOUD_RCRPC_H
 #define RAMCLOUD_RCRPC_H
 
-// #include <cinttypes> // this requires c++0x support because it's c99
-// so we'll go ahead and use the C header
-#include <inttypes.h>
+#include <Common.h>
 #include <stdbool.h>
 
 #define RCRPC_HEADER_LEN                        sizeof(struct rcrpc_header)

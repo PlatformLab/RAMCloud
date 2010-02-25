@@ -76,7 +76,7 @@ HashtableTest::TestMain()
     printf("load factor: %.03f\n", (double)nkeys / ((double)nlines * 8));
 
     for (i = 0; i < nkeys; i++) {
-        uint64_t *p = (uint64_t *) malloc(sizeof(*p));
+        uint64_t *p = (uint64_t *) xmalloc(sizeof(*p));
         *p = i;
         ht->Insert(*p, p);
     }
@@ -100,7 +100,7 @@ HashtableTest::TestMain()
     printf("lookup: %llu min ticks\n", ht->GetMinTicks());
     printf("lookup: %llu max ticks\n", ht->GetMaxTicks());
 
-    int *histogram = (int *) malloc(sizeof(int) * nlines);
+    int *histogram = (int *) xmalloc(sizeof(int) * nlines);
     memset(histogram, 0, sizeof(int) * nlines);
 
     // TODO maybe add these as friend functions for testing the hashtable

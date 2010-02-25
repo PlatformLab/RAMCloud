@@ -16,9 +16,7 @@
 #ifndef RAMCLOUD_BACKUPRPC_H
 #define RAMCLOUD_BACKUPRPC_H
 
-// #include <cinttypes> // this requires c++0x support because it's c99
-// so we'll go ahead and use the C header
-#include <inttypes.h>
+#include <Common.h>
 #include <string>
 
 namespace RAMCloud {

@@ -25,8 +25,7 @@
 #ifndef RAMCLOUD_BUFFERPTR_H
 #define RAMCLOUD_BUFFERPTR_H
 
-#include <inttypes.h>
-#include <stdlib.h>
+#include <Common.h>
 
 #ifdef __cplusplus
 namespace RAMCloud {
@@ -53,7 +52,7 @@ class BufferPtr {
 
     BufferPtr() : curr_chunk(-1), num_chunks(INITIAL_CHUNK_ARR_SIZE),
             chunk_arr(NULL), total_len(0) {
-        chunk_arr = (chunk*) malloc(sizeof(chunk) * INITIAL_CHUNK_ARR_SIZE);
+        chunk_arr = (chunk*) xmalloc(sizeof(chunk) * INITIAL_CHUNK_ARR_SIZE);
     }
 
   private:
