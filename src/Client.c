@@ -13,12 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdio.h>
-#include <string.h>
-#include <assert.h>
-#include <malloc.h>
-
-#include <config.h>
+#include <Common.h>
 
 #if RC_CLIENT_SHARED
 #include <semaphore.h>
@@ -28,6 +23,7 @@
 #include <rcrpc.h>
 
 #include <Client.h>
+#include <assert.h>
 
 #if RC_CLIENT_SHARED
 struct rc_client_shared {
@@ -679,7 +675,7 @@ rc_drop_table(struct rc_client *client, const char *name)
  */
 struct rc_client *
 rc_new(void) {
-    return malloc(sizeof(struct rc_client));
+    return xmalloc(sizeof(struct rc_client));
 }
 
 /**

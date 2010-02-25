@@ -13,10 +13,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <Common.h>
 #include <Client.h>
-
 #include <stdio.h>
-#include <inttypes.h>
 #include <string.h>
 
 #include <assert.h>

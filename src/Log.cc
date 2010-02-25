@@ -124,7 +124,7 @@ Log::Log(const uint64_t segsize,
     assert(min_meta <= len);
     max_append = segment_size - min_meta;
 
-    segments = (Segment **)malloc(nsegments * sizeof(segments[0]));
+    segments = (Segment **)xmalloc(nsegments * sizeof(segments[0]));
     for (uint64_t i = 0; i < nsegments; i++) {
         void *base  = (uint8_t *)buf + (i * segment_size);
         segments[i] = new Segment(base, segment_size, backup);
@@ -240,6 +240,9 @@ Log::init()
 bool
 Log::isSegmentLive(uint64_t segmentId) const
 {
+    if (segmentId == SEGMENT_INVALID_ID)
+        return false;
+
     // TODO(rumble) inefficient
     for (uint64_t i = 0; i < nsegments; i++) {
         if (segments[i]->getId() == segmentId)
@@ -446,13 +449,13 @@ Log::getSegment(const void *p, uint64_t len) const
     uintptr_t ub  = (uintptr_t)base;
     uintptr_t max = (uintptr_t)base + (segment_size * nsegments);
 
-    assert(up >= ub && (up + len) < max);
+    assert(up >= ub && (up + len) <= max);
     uintptr_t segno = (up - ub) / segment_size;
     assert(segno < nsegments);
 
     Segment *s = segments[segno];
     uintptr_t sb = (uintptr_t)s->getBase();
-    assert(up >= sb && (up + len) < (sb + segment_size));
+    assert(up >= sb && (up + len) <= (sb + segment_size));
 
     return (s);
 }
@@ -485,6 +488,11 @@ Log::clean()
 
     for (uint64_t i = 0; i < nsegments; i++) {
         Segment *s = segments[i];
+
+        // The eviction callbacks may allocate and write to a new head.
+        // Ensure that we don't try to clean it.
+        if (s == head)
+            continue;
 
         if (nfree_list >= cleaner_hiwat)
             break;

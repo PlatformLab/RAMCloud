@@ -18,18 +18,27 @@
 
 #include <config.h>
 
-#include <rcrpc.h>
-
+#ifdef __cplusplus
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#else
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#endif
 
 // requires 0x for cstdint
 #include <stdint.h>
 
-#define PRIu64 "lu"
-#define PRIx64 "lx"
+// #include <cinttypes> // this requires c++0x support because it's c99
+// so we'll go ahead and use the C header
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
+
+#include <rcrpc.h>
 
 // A macro to disallow the copy constructor and operator= functions
 // This should be used in the private: declarations for a class
@@ -37,10 +46,22 @@
     TypeName(const TypeName&);             \
     void operator=(const TypeName&)
 
+#define xmalloc(_l)  _xmalloc(_l, __FILE__, __LINE__, __func__)
+static inline void *
+_xmalloc(size_t len, const char *file, const int line, const char *func)
+{
+    void *p = malloc(len);
+    if (p == NULL) {
+        fprintf(stderr, "malloc(%d) failed: %s:%d (%s)\n", file, line, func);
+    }
+
+    return p; 
+}
+
+#ifdef __cplusplus
 void debug_dump64(const void *buf, uint64_t bytes);
 uint64_t rdtsc();
 
-#ifdef __cplusplus
 namespace RAMCloud {
 
 class AssertionException {};

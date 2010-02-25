@@ -102,6 +102,8 @@ class Log {
     uint64_t bytes_stored; // bytes stored in the log (non-metadata only)
     bool     cleaning;     // presently cleaning the log
     BackupClient *backup;
+
+    friend class LogTest;
     DISALLOW_COPY_AND_ASSIGN(Log);
 };
 

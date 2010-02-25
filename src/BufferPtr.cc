@@ -43,7 +43,7 @@ bool BufferPtr::prepend (void* buf, size_t size) {
     // Check max chunks
     if (curr_chunk + 1 == num_chunks) {
         // Resize the chunk array.
-        chunk* new_arr = (chunk*) malloc(sizeof(chunk) * num_chunks * 2);
+        chunk* new_arr = (chunk*) xmalloc(sizeof(chunk) * num_chunks * 2);
         memcpy(new_arr, chunk_arr, sizeof(chunk) * num_chunks);
         free(chunk_arr);
         chunk_arr = new_arr;
@@ -80,7 +80,7 @@ bool BufferPtr::append(void* buf, size_t size) {
     // Check max chunks
     if (curr_chunk + 1 == num_chunks) {
         // Resize the chunk array.
-        chunk* new_arr = (chunk*) malloc(sizeof(chunk) * num_chunks * 2);
+        chunk* new_arr = (chunk*) xmalloc(sizeof(chunk) * num_chunks * 2);
         memcpy(new_arr, chunk_arr, sizeof(chunk) * num_chunks);
         free(chunk_arr);
         chunk_arr = new_arr;
