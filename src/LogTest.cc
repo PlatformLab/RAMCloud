@@ -132,7 +132,30 @@ class LogTest : public CppUnit::TestFixture {
     void
     TestFree()
     {
-            
+        Segment *old_head = Log->head;        
+
+        char buf[1];
+        while (Log->head == old_head) {
+            uint64_t old_util = Log->head->getUtilization();
+            uint64_t old_tail = Log->head->tail_bytes;
+            uint64_t new_util = old_util + sizeof(log_entry) + sizeof(buf);
+            uint64_t new_tail = old_tail - sizeof(log_entry) - sizeof(buf);
+
+            const void *p = Log->append(LOG_ENTRY_TYPE_OBJECT,
+                buf, sizeof(buf));
+            CPPUNIT_ASSERT(p != NULL);
+
+            // Head may have changed due to the write.
+            if (Log->head == old_head) {
+                CPPUNIT_ASSERT_EQUAL(new_util, Log->head->getUtilization());
+                CPPUNIT_ASSERT_EQUAL(new_tail, Log->head->tail_bytes);
+
+                Log->free(LOG_ENTRY_TYPE_OBJECT, p, sizeof(buf));
+
+                CPPUNIT_ASSERT_EQUAL(old_util, Log->head->getUtilization());
+                CPPUNIT_ASSERT_EQUAL(new_tail, Log->head->tail_bytes);
+            }
+        }
     }
 
     void
@@ -200,27 +223,84 @@ class LogTest : public CppUnit::TestFixture {
     void
     TestClean()
     {
-        // ugh.
+        // ugh. the present cleaner is a total hack... is it really worth
+        // testing?
     }
 
     void
     TestNewHead()
     {
+        Segment *old_head = Log->head;
+        uint64_t old_nfree_list = Log->nfree_list;
+
+        CPPUNIT_ASSERT(Log->head != NULL);
+        Log->newHead();
+        CPPUNIT_ASSERT(Log->head != NULL && Log->head != old_head);
+        CPPUNIT_ASSERT_EQUAL(old_nfree_list - 1, Log->nfree_list);
+
+        log_entry *le = (log_entry *)Log->head->getBase();
+        CPPUNIT_ASSERT_EQUAL((uint32_t)LOG_ENTRY_TYPE_SEGMENT_HEADER, le->type);
+        CPPUNIT_ASSERT_EQUAL((uint32_t)sizeof(segment_header), le->length);
+        CPPUNIT_ASSERT_EQUAL(sizeof(segment_header) + sizeof(*le),
+            Log->head->getUtilization());
     }
 
     void
     TestChecksumHead()
     {
+        Log->checksumHead();
+
+        void *segend = (char *)Log->head->base +
+            Log->head->getUtilization() - sizeof(segment_checksum) -
+            sizeof(segment_header);
+        log_entry *le = (log_entry *)segend;
+        CPPUNIT_ASSERT_EQUAL((uint32_t)LOG_ENTRY_TYPE_SEGMENT_CHECKSUM,
+            le->type);
+        CPPUNIT_ASSERT_EQUAL((uint32_t)sizeof(segment_checksum), le->length);
+
     }
 
     void
     TestRetireHead()
     {
+        Segment *old_head = Log->head;
+        CPPUNIT_ASSERT(old_head != NULL);
+        CPPUNIT_ASSERT_EQUAL(true, Log->head->isMutable);
+        Log->retireHead();
+        CPPUNIT_ASSERT(NULL == Log->head);
+        CPPUNIT_ASSERT_EQUAL(false, old_head->isMutable);
     }
 
     void
     TestAppendAnyType()
     {
+        char buf[1];
+        char maxbuf[Log->getMaximumAppend()];
+        uint64_t tmp;
+
+        // Can append up to the maximum
+        CPPUNIT_ASSERT(NULL != Log->appendAnyType(LOG_ENTRY_TYPE_OBJECT,
+            maxbuf, sizeof(maxbuf)));
+
+        // Clear the Head segment so we can write another header
+        Log->head->finalize();
+        Log->head->reset();
+        Log->head->ready(53);
+
+        // Internal Segment Headers don't affect our bytes stored count
+        tmp = Log->bytes_stored; 
+        Log->appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER, buf, sizeof(buf)); 
+        CPPUNIT_ASSERT_EQUAL(tmp, Log->bytes_stored);
+
+        // Internal Segment Checksums don't affect our bytes stored count
+        tmp = Log->bytes_stored; 
+        Log->appendAnyType(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM, buf, sizeof(buf)); 
+        CPPUNIT_ASSERT_EQUAL(tmp, Log->bytes_stored);
+
+        // All other objects count toward stored bytes
+        tmp = Log->bytes_stored;
+        Log->appendAnyType(LOG_ENTRY_TYPE_OBJECT, buf, sizeof(buf)); 
+        CPPUNIT_ASSERT_EQUAL(tmp + sizeof(buf), Log->bytes_stored);
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(LogTest);

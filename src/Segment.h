@@ -58,6 +58,7 @@ class Segment {
     Segment  *next, *prev;
 
     friend class SegmentTest;
+    friend class LogTest;
     DISALLOW_COPY_AND_ASSIGN(Segment);
 };
 
