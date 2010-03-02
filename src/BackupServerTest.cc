@@ -89,9 +89,9 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     // used for the MockNet callback function
-    static void noOp(const BufferPtr *buf/*const char *buf, size_t len*/)
+    static void noOp(const char *buf, size_t len)
     {
-        char* raw_buf = (char*) malloc(sizeof(char) * buf->totalLength());
+        char* raw_buf = (char*) malloc(sizeof(char) * len);
         printf(">>>> %s", raw_buf);
         free(raw_buf);
     }
