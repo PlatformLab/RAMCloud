@@ -52,10 +52,23 @@ _xmalloc(size_t len, const char *file, const int line, const char *func)
 {
     void *p = malloc(len);
     if (p == NULL) {
-        fprintf(stderr, "malloc(%d) failed: %s:%d (%s)\n", file, line, func);
+        fprintf(stderr, "malloc(%d) failed: %s:%d (%s)\n",
+                len, file, line, func);
     }
 
     return p; 
+}
+
+#define xrealloc(_p, _l) _xrealloc(_p, _l, __FILE__, __LINE__, __func__)
+static inline void * _xrealloc(void *ptr, size_t len, const char* file,
+                               const int line, const char* func) {
+    void *p = realloc(ptr, len);
+    if (p == NULL) {
+        fprintf(stderr, "realloc(%d) failed: %s:%d (%s)\n",
+                len, file, line, func);
+    }
+
+    return 0;
 }
 
 #ifdef __cplusplus
