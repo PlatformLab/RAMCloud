@@ -3,6 +3,7 @@ OBJDIRS += tests
 TESTS_SRCFILES := \
 		src/ServerTest.cc \
 		src/BackupServerTest.cc \
+		src/BackupClientTest.cc \
 		src/BitmapTest.cc \
 		src/BufferPtrTest.cc \
 		src/HashtableTest.cc \

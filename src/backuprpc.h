@@ -21,6 +21,18 @@
 
 namespace RAMCloud {
 
+/**
+ * A single unit of metadata for recovery of an object as returned by
+ * getSegmentMetadata().
+ */
+struct RecoveryObjectMetadata {
+    uint64_t key;
+    uint64_t table;
+    uint64_t version;
+    uint64_t offset;
+    uint64_t length;
+};
+
 struct BackupRPCException {
     explicit BackupRPCException(std::string msg) : message(msg) {}
     std::string message;
@@ -71,6 +83,15 @@ struct backup_rpc_getsegmentlist_resp {
     uint64_t seg_list[0];                       /* Variable length */
 };
 
+struct backup_rpc_getsegmentmetadata_req {
+    uint64_t seg_num;
+};
+
+struct backup_rpc_getsegmentmetadata_resp {
+    uint32_t list_count;
+    RecoveryObjectMetadata list[0];  /* Variable length */
+};
+
 struct backup_rpc_retrieve_req {
     uint64_t seg_num;
 };
@@ -106,6 +127,10 @@ enum rc_backup_rpc_len {
                                         sizeof(backup_rpc_getsegmentlist_req)),
     BACKUP_RPC_GETSEGMENTLIST_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN +
                                        sizeof(backup_rpc_getsegmentlist_resp)),
+    BACKUP_RPC_GETSEGMENTMETADATA_REQ_LEN = (BACKUP_RPC_HDR_LEN +
+                                        sizeof(backup_rpc_getsegmentlist_req)),
+    BACKUP_RPC_GETSEGMENTMETADATA_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN +
+                                       sizeof(backup_rpc_getsegmentlist_resp)),
     BACKUP_RPC_RETRIEVE_REQ_LEN       = (BACKUP_RPC_HDR_LEN +
                                          sizeof(backup_rpc_retrieve_req)),
     BACKUP_RPC_RETRIEVE_RESP_LEN_WODATA = (BACKUP_RPC_HDR_LEN +
@@ -125,6 +150,8 @@ enum backup_rpc_type {
     BACKUP_RPC_FREE_RESP,
     BACKUP_RPC_GETSEGMENTLIST_REQ,
     BACKUP_RPC_GETSEGMENTLIST_RESP,
+    BACKUP_RPC_GETSEGMENTMETADATA_REQ,
+    BACKUP_RPC_GETSEGMENTMETADATA_RESP,
     BACKUP_RPC_RETRIEVE_REQ,
     BACKUP_RPC_RETRIEVE_RESP,
     BACKUP_RPC_ERROR_RESP,
@@ -145,6 +172,8 @@ struct backup_rpc {
         struct backup_rpc_free_resp free_resp;
         struct backup_rpc_getsegmentlist_req getsegmentlist_req;
         struct backup_rpc_getsegmentlist_resp getsegmentlist_resp;
+        struct backup_rpc_getsegmentmetadata_req getsegmentmetadata_req;
+        struct backup_rpc_getsegmentmetadata_resp getsegmentmetadata_resp;
         struct backup_rpc_retrieve_req retrieve_req;
         struct backup_rpc_retrieve_resp retrieve_resp;
         struct backup_rpc_error_resp error_resp;

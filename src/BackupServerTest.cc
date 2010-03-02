@@ -82,16 +82,15 @@ class BackupServerTest : public CppUnit::TestFixture {
         testMessageLen = static_cast<uint32_t>(testMessage.length());
     }
 
-    // used for the MockNet callback function
-    static void noOp(const char *buf, size_t len)
-    {
-        printf(">>>> %s", buf);
-    }
+    class DumbMockNet : public MockNet {
+        virtual void Handle(const char *reqData, size_t len) {}
+    };
+
 
     void
     setUp()
     {
-        net = new MockNet(noOp);
+        net = new DumbMockNet();
     }
 
     void

@@ -74,13 +74,15 @@ BackupHost::heartbeat()
     req.hdr.type = BACKUP_RPC_HEARTBEAT_REQ;
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_HEARTBEAT_REQ_LEN);
 
-    printf("Sending Heartbeat to backup\n");
+    if (debug_noisy)
+        printf("Sending Heartbeat to backup\n");
     sendRPC(&req);
 
     backup_rpc *resp;
     recvRPC(&resp);
 
-    printf("Heartbeat ok\n");
+    if (debug_noisy)
+        printf("Heartbeat ok\n");
 }
 
 void
@@ -123,13 +125,15 @@ BackupHost::commitSegment(uint64_t segNum)
 
     req.commit_req.seg_num = segNum;
 
-    printf("Sending Commit to backup\n");
+    if (debug_noisy)
+        printf("Sending Commit to backup\n");
     sendRPC(&req);
 
     backup_rpc *resp;
     recvRPC(&resp);
 
-    printf("Commit ok\n");
+    if (debug_noisy)
+        printf("Commit ok\n");
 }
 
 void
@@ -141,13 +145,15 @@ BackupHost::freeSegment(uint64_t segNum)
 
     req.free_req.seg_num = segNum;
 
-    printf("Sending Free to backup\n");
+    if (debug_noisy)
+        printf("Sending Free to backup\n");
     sendRPC(&req);
 
     backup_rpc *resp;
     recvRPC(&resp);
 
-    printf("Free ok\n");
+    if (debug_noisy)
+        printf("Free ok\n");
 }
 
 uint32_t
@@ -158,25 +164,28 @@ BackupHost::getSegmentList(uint64_t *list,
     req.hdr.type = BACKUP_RPC_GETSEGMENTLIST_REQ;
     req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTLIST_REQ_LEN);
 
-    printf("Sending GetSegmentList to backup\n");
+    if (debug_noisy)
+        printf("Sending GetSegmentList to backup\n");
     sendRPC(&req);
 
     backup_rpc *resp;
     recvRPC(&resp);
 
-    uint64_t *tmp_list = &resp->getsegmentlist_resp.seg_list[0];
-    uint32_t tmp_count = resp->getsegmentlist_resp.seg_list_count;
-    printf("Backup wants to restore %llu segments\n", tmp_count);
+    uint64_t *tmpList = &resp->getsegmentlist_resp.seg_list[0];
+    uint32_t tmpCount = resp->getsegmentlist_resp.seg_list_count;
+    if (debug_noisy)
+        printf("Backup wants to restore %llu segments\n", tmpCount);
 
-    if (maxSize < tmp_count)
+    if (maxSize < tmpCount)
         throw BackupRPCException("Provided a segment id buffer "
                                  "that was too small");
     // TODO(stutsman) we need to return this sorted and merged with
     // segs from other backups
-    memcpy(list, tmp_list, tmp_count * sizeof(uint64_t));
+    memcpy(list, tmpList, tmpCount * sizeof(uint64_t));
 
-    printf("GetSegmentList ok\n");
-    return tmp_count;
+    if (debug_noisy)
+        printf("GetSegmentList ok\n");
+    return tmpCount;
 }
 
 uint32_t
@@ -184,7 +193,33 @@ BackupHost::getSegmentMetadata(uint64_t segNum,
                                RecoveryObjectMetadata *list,
                                uint32_t maxSize)
 {
-    return 0;
+    backup_rpc req;
+    req.hdr.type = BACKUP_RPC_GETSEGMENTMETADATA_REQ;
+    req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTMETADATA_REQ_LEN);
+    req.getsegmentmetadata_req.seg_num = segNum;
+
+    if (debug_noisy)
+        printf("Sending GetSegmentMetadata to backup\n");
+    sendRPC(&req);
+
+    backup_rpc *resp;
+    recvRPC(&resp);
+
+    RecoveryObjectMetadata *tmpList = &resp->getsegmentmetadata_resp.list[0];
+    uint32_t tmpCount = resp->getsegmentmetadata_resp.list_count;
+    if (debug_noisy)
+        printf("Backup wants to restore %llu objects\n", tmpCount);
+
+    if (maxSize < tmpCount)
+        throw BackupRPCException("Provided a segment id buffer "
+                                 "that was too small");
+    // TODO(stutsman) we need to return this sorted and merged with
+    // segs from other backups
+    memcpy(list, tmpList, tmpCount * sizeof(RecoveryObjectMetadata));
+
+    if (debug_noisy)
+        printf("GetSegmentMetadata ok\n");
+    return tmpCount;
 }
 
 void
@@ -196,17 +231,20 @@ BackupHost::retrieveSegment(uint64_t segNum, void *buf)
 
     req.retrieve_req.seg_num = segNum;
 
-    printf("Sending Retrieve to backup\n");
+    if (debug_noisy)
+        printf("Sending Retrieve to backup\n");
     sendRPC(&req);
 
     backup_rpc *resp;
     recvRPC(&resp);
 
-    printf("Retrieved segment %llu of length %llu\n",
-           segNum, resp->retrieve_resp.data_len);
+    if (debug_noisy)
+        printf("Retrieved segment %llu of length %llu\n",
+               segNum, resp->retrieve_resp.data_len);
     memcpy(buf, resp->retrieve_resp.data, resp->retrieve_resp.data_len);
 
-    printf("Retrieve ok\n");
+    if (debug_noisy)
+        printf("Retrieve ok\n");
 }
 
 // --- BackupClient ---

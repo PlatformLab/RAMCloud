@@ -85,6 +85,7 @@ class BackupServer : BackupClient {
     void handleCommit(const backup_rpc *req, backup_rpc *resp);
     void handleFree(const backup_rpc *req, backup_rpc *resp);
     void handleGetSegmentList(const backup_rpc *req, backup_rpc *resp);
+    void handleGetSegmentMetadata(const backup_rpc *req, backup_rpc *resp);
     void handleRetrieve(const backup_rpc *req, backup_rpc *resp);
 
     void handleRPC();
