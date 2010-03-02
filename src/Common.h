@@ -52,7 +52,8 @@ _xmalloc(size_t len, const char *file, const int line, const char *func)
 {
     void *p = malloc(len);
     if (p == NULL) {
-        fprintf(stderr, "malloc(%d) failed: %s:%d (%s)\n", file, line, func);
+        fprintf(stderr, "malloc(%d) failed: %s:%d (%s)\n",
+                len, file, line, func);
     }
 
     return p; 
