@@ -383,9 +383,9 @@ BackupServer::freeSegment(uint64_t segNum)
  *     Currently this method relies on soft-state on the backup that
  *     isn't recovered after crash
  */
-size_t
+uint32_t
 BackupServer::getSegmentList(uint64_t *list,
-                             size_t maxSize)
+                             uint32_t maxSize)
 {
     if (openSegNum != INVALID_SEGMENT_NUM) {
         if (debug_backup)
@@ -396,7 +396,7 @@ BackupServer::getSegmentList(uint64_t *list,
     if (debug_backup)
         printf("Max segs to return %llu\n", maxSize);
 
-    size_t count = 0;
+    uint32_t count = 0;
     for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
         if (segmentAtFrame[i] != INVALID_SEGMENT_NUM) {
             if (count == maxSize)
@@ -457,15 +457,15 @@ BackupServer::extractMetadata(const void *p,
  *     Currently this method relies on soft-state on the backup that
  *     isn't recovered after crash
  */
-size_t
+uint32_t
 BackupServer::getSegmentMetadata(uint64_t segNum,
                                  RecoveryObjectMetadata *list,
-                                 size_t maxSize)
+                                 uint32_t maxSize)
 {
     if (debug_backup)
         printf("Max elements to return %llu\n", maxSize);
 
-    uint64_t count = 0;
+    uint32_t count = 0;
 
     char buf[SEGMENT_SIZE];
     retrieveSegment(segNum, &buf[0]);
@@ -589,6 +589,30 @@ BackupServer::handleGetSegmentList(const backup_rpc *req, backup_rpc *resp)
         sizeof(uint64_t) * resp->getsegmentlist_resp.seg_list_count);
 }
 
+/** See getSegmentMetadata() */
+void
+BackupServer::handleGetSegmentMetadata(const backup_rpc *req, backup_rpc *resp)
+{
+    if (debug_backup)
+        printf(">>> Handling GetSegmentMetadata\n");
+
+    resp->getsegmentmetadata_resp.list_count =
+        (RESP_BUF_LEN - sizeof(backup_rpc)) /
+        sizeof(RecoveryObjectMetadata);
+    getSegmentMetadata(req->getsegmentmetadata_req.seg_num,
+                       resp->getsegmentmetadata_resp.list,
+                       resp->getsegmentmetadata_resp.list_count);
+    if (debug_backup)
+        printf(">>>>>> GetSegmentMetadata returning %llu ids\n",
+            resp->getsegmentmetadata_resp.list_count);
+
+    resp->hdr.type = BACKUP_RPC_GETSEGMENTMETADATA_RESP;
+    resp->hdr.len = static_cast<uint32_t>(
+        BACKUP_RPC_GETSEGMENTMETADATA_RESP_LEN_WODATA +
+        sizeof(RecoveryObjectMetadata) *
+        resp->getsegmentmetadata_resp.list_count);
+}
+
 /** See retrieveSegment() */
 void
 BackupServer::handleRetrieve(const backup_rpc *req, backup_rpc *resp)
@@ -667,6 +691,9 @@ BackupServer::handleRPC()
         case BACKUP_RPC_GETSEGMENTLIST_REQ:
             handleGetSegmentList(req, resp);
             break;
+        case BACKUP_RPC_GETSEGMENTMETADATA_REQ:
+            handleGetSegmentMetadata(req, resp);
+            break;
         case BACKUP_RPC_RETRIEVE_REQ:  handleRetrieve(req, resp);  break;
 
         case BACKUP_RPC_HEARTBEAT_RESP:
@@ -674,6 +701,7 @@ BackupServer::handleRPC()
         case BACKUP_RPC_COMMIT_RESP:
         case BACKUP_RPC_FREE_RESP:
         case BACKUP_RPC_GETSEGMENTLIST_RESP:
+        case BACKUP_RPC_GETSEGMENTMETADATA_RESP:
         case BACKUP_RPC_RETRIEVE_RESP:
         case BACKUP_RPC_ERROR_RESP:
         default:
