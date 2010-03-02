@@ -30,19 +30,6 @@
 namespace RAMCloud {
 
 /**
- * A single unit of metadata for recovery of an object as returned by
- * getSegmentMetadata().
- */
-struct RecoveryObjectMetadata {
-    uint64_t key;
-    uint64_t table;
-    uint64_t version;
-    uint64_t offset;
-    uint64_t length;
-};
-
-
-/**
  * The interface for an object that can act as a backup server no
  * matter the transport or location.
  */
@@ -54,10 +41,10 @@ class BackupClient {
                               const void *data, uint32_t len) = 0;
     virtual void commitSegment(uint64_t segNum) = 0;
     virtual void freeSegment(uint64_t segNum) = 0;
-    virtual size_t getSegmentList(uint64_t *list, size_t maxSize) = 0;
-    virtual size_t getSegmentMetadata(uint64_t segNum,
-                                      RecoveryObjectMetadata *list,
-                                      size_t maxSize) = 0;
+    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize) = 0;
+    virtual uint32_t getSegmentMetadata(uint64_t segNum,
+                                        RecoveryObjectMetadata *list,
+                                        uint32_t maxSize) = 0;
     virtual void retrieveSegment(uint64_t segNum, void *buf) = 0;
 };
 
@@ -76,10 +63,28 @@ class BackupHost : public BackupClient {
                               const void *data, uint32_t len);
     virtual void commitSegment(uint64_t segNum);
     virtual void freeSegment(uint64_t segNum);
-    virtual size_t getSegmentList(uint64_t *list, size_t maxSize);
-    virtual size_t getSegmentMetadata(uint64_t segNum,
-                                      RecoveryObjectMetadata *list,
-                                      size_t maxSize);
+    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
+
+    /**
+     * Given a segment number return a list of object metadata sufficient
+     * for recovery that are stored in that segment.
+     *
+     * \param[in] segNum
+     *     The segment number from which to extract the metadata.
+     * \param[out] list
+     *     The place to store the metadata.
+     * \param[in] maxSize
+     *     The number of elements that the list buffer can hold.
+     * \return
+     *     The number of elements actually placed in list.
+     * \exception BackupException
+     *     If INVALID_SEGMENT_NUM is passed as seg_num or
+     *     if there is an error reading the segment from the backup
+     *     storage.
+     */
+    virtual uint32_t getSegmentMetadata(uint64_t segNum,
+                                        RecoveryObjectMetadata *list,
+                                        uint32_t maxSize);
     virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
     void sendRPC(backup_rpc *rpc);
@@ -108,10 +113,10 @@ class MultiBackupClient : public BackupClient {
                               const void *data, uint32_t len);
     virtual void commitSegment(uint64_t segNum);
     virtual void freeSegment(uint64_t segNum);
-    virtual size_t getSegmentList(uint64_t *list, size_t maxSize);
-    virtual size_t getSegmentMetadata(uint64_t segNum,
-                                      RecoveryObjectMetadata *list,
-                                      size_t maxSize);
+    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
+    virtual uint32_t getSegmentMetadata(uint64_t segNum,
+                                        RecoveryObjectMetadata *list,
+                                        uint32_t maxSize);
     virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
     BackupHost *host;
