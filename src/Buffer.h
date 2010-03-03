@@ -40,11 +40,12 @@ class Buffer {
      * appeand function).
      * 
      * \param[in] src The memory region to be added.
-     * \param[in] size The size of the memory region represented by buf.
+     * \param[in] size The size in bytes of the memory region represented by
+                       buf.
      * \return Returns true or false depending on teh success of the prpepend
      * op.
      */
-    void prepend (void* src, size_t size);
+    void prepend (void* src, uint32_t size);
     
     /**
      * Appends a new memory region to the Buffer.
@@ -53,7 +54,7 @@ class Buffer {
      * \param[in] size The size of the memory region represented by buf.
      * \return Returns true or false depending on the success of the append op.
      */
-    void append (void* src, size_t size);
+    void append (void* src, uint32_t size);
     
     /**
      * Returns the pointer to the buffer at the given offset. It does not
@@ -69,7 +70,7 @@ class Buffer {
      * \return The number of bytes that region of memory pointed to by
      *             return_ptr has.
      */
-    size_t peek (off_t offset, size_t length, void** returnPtr);
+    uint32_t peek (uint32_t offset, uint32_t length, void** returnPtr);
 
     /**
      * If the logical memory region represented by the <offset, length> tuple
@@ -86,7 +87,7 @@ class Buffer {
      * \param[out] returnPtr The pointer to the memory region that we return.
      * \return The size in bytes of the memory region pointed to by returnPtr.
      */
-    size_t read(off_t offset, size_t length, void **returnPtr);
+    uint32_t read(uint32_t offset, uint32_t length, void **returnPtr);
     
     /**
      * Copies the memory block identified by the <offset, length> tuple into the
@@ -103,7 +104,7 @@ class Buffer {
                         block.
      * \return The actual number of bytes copied.
      */
-    size_t copy (off_t offset, size_t length, void* dest);
+    uint32_t copy (uint32_t offset, uint32_t length, void* dest);
 
     /**
      * Returns the entire length of this Buffer.
@@ -111,7 +112,7 @@ class Buffer {
      * \return Returns the total length of the logical Buffer represented by
      *         this object.
      */
-    size_t totalLength() const { return totalLen; }
+    uint32_t totalLength() const { return totalLen; }
 
     /**
      * This constructor initializes all of the variables to their default
@@ -137,7 +138,7 @@ class Buffer {
      * \param[in] offset The offset in bytes of the point to identify.
      * \return The chunk index of the chunk in which this offset lies.
      */
-    int findChunk(off_t offset);
+    uint32_t findChunk(uint32_t offset);
 
     /**
      * Returns the chunk's offset from the beginning of the Buffer.
@@ -145,7 +146,7 @@ class Buffer {
      * \param[in] chunkIndex The index of the chunk whose offset we calculate.
      * \return The offset, in bytes, of the beginning of the chunk.
      */
-    off_t offsetOfChunk(int chunkIndex);
+    uint32_t offsetOfChunk(uint32_t chunkIndex);
     
     /**
      * A Buffer is an ordered collection of Chunks. Each induvidual chunk
@@ -154,8 +155,8 @@ class Buffer {
      * region, i.e., this Buffer.
      */
     struct Chunk {
-        void *ptr;    // Pointer to the data represented by this Chunk.
-        size_t size;  // The size of this Chunk in bytes.
+        void *ptr;      // Pointer to the data represented by this Chunk.
+        uint32_t size;  // The size of this Chunk in bytes.
     };
 
     /**
@@ -164,20 +165,20 @@ class Buffer {
      */
     static const int INITIAL_CHUNK_ARR_SIZE = 10;
 
-    int chunksUsed;   // The index of the last chunk thats currently being used.
-    int chunksAvail;  // The total number of chunks that have been allocated so
-                      // far.
-    Chunk* chunks;    // The pointers and lengths of various chunks represented
-                      // by this Buffer. Initially, we allocate
-                      // INITIAL_CHUNK_ARR_SIZE of the above chunks, since this
-                      // would be faster than using a vector<chunk>.
-    size_t totalLen;  // The total length of all the memory blocks represented
-                      // by this Buffer.
-
+    uint32_t chunksUsed;   // The index of the last chunk thats currently being
+                           // used.
+    uint32_t chunksAvail;  // The total number of chunks that have been
+                           // allocated so far.
+    Chunk* chunks;  // The pointers and lengths of various chunks represented
+                    // by this Buffer. Initially, we allocate
+                    // INITIAL_CHUNK_ARR_SIZE of the above chunks, since this
+                    // would be faster than using a vector<chunk>.
+    uint32_t totalLen;  // The total length of all the memory blocks represented
+                        // by this Buffer.
     void *bufRead;  // Space to be used when a call to read spans a Chunk
                     // boundary. In this case, we allocate space here, and
                     // return a pointer to this.
-    size_t bufReadSize;  // The size of the bufRead memory region.
+    uint32_t bufReadSize;  // The size of the bufRead memory region.
 
     friend class BufferTest;  // For CppUnit testing purposes.
 

@@ -24,7 +24,7 @@
 namespace RAMCloud {
 
 Buffer::Buffer() : chunksUsed(0), chunksAvail(INITIAL_CHUNK_ARR_SIZE),
-          chunks(NULL), totalLen(0) {
+                   chunks(NULL), totalLen(0), bufRead(NULL), bufReadSize(0) {
     chunks = (Chunk*) xmalloc(sizeof(Chunk) * INITIAL_CHUNK_ARR_SIZE);
     bufRead = NULL;
     bufReadSize = 0;
@@ -36,7 +36,7 @@ Buffer::~Buffer() {
     free(bufRead);
 }
 
-void Buffer::prepend(void* src, size_t size) {
+void Buffer::prepend(void* src, uint32_t size) {
     if (size == 0) return;
     assert(src);
 
@@ -60,13 +60,14 @@ void Buffer::prepend(void* src, size_t size) {
     totalLen += size;
 }
 
-void Buffer::append(void* src, size_t size) {
+void Buffer::append(void* src, uint32_t size) {
     if (size == 0) return; 
     assert(src);
 
     // If we have used all of the available chunks, allocate more.
     if (chunksUsed == chunksAvail) allocateMoreChunks();
 
+    // Add the chunk to the end of the chunks array.
     Chunk* c = (chunks + chunksUsed);
     c->ptr = src;
     c->size = size;
@@ -74,42 +75,44 @@ void Buffer::append(void* src, size_t size) {
     totalLen += size;
 }
 
-size_t Buffer::peek(off_t offset, size_t length, void** returnPtr) {
+uint32_t Buffer::peek(uint32_t offset, uint32_t length, void** returnPtr) {
     if (length == 0) return 0;
 
-    int startChunk = findChunk(offset);
-    if (startChunk == -1) return 0;
+    uint32_t startChunk = findChunk(offset);
+    if (startChunk >= chunksUsed) return 0;
 
-    off_t offsetInChunk = offset - offsetOfChunk(startChunk);
+    uint32_t offsetInChunk = offset - offsetOfChunk(startChunk);
     *returnPtr = (void *) (((char *) chunks[startChunk].ptr) + offsetInChunk);
     return chunks[startChunk].size - offsetInChunk;
 }
 
-size_t Buffer::read(off_t offset, size_t length, void **returnPtr) {
-    if (findChunk(offset) < 0 || findChunk(offset) >= chunksUsed) return 0;
-    if (offset + length > totalLen) return 0;
+uint32_t Buffer::read(uint32_t offset, uint32_t length, void **returnPtr) {
+    if (findChunk(offset) >= (uint32_t) chunksUsed) return 0;
     if (length == 0) return 0;
 
-    size_t readRetVal = read(offset, length, returnPtr);
+    uint32_t readRetVal = peek(offset, length, returnPtr);
     if (readRetVal == length) return readRetVal;
 
-    size_t bufReadSizeOld = bufReadSize;
+    if (offset + length > totalLen) return 0;
+
+    uint32_t bufReadSizeOld = bufReadSize;
     bufReadSize += length;
-    bufRead = realloc(bufRead, bufReadSizeOld + readRetVal);
-    size_t copyRetVal = copy(offset, length, (char*)bufRead + bufReadSizeOld);
+    if (bufRead == NULL) bufRead = malloc(bufReadSize);
+    else bufRead = realloc(bufRead, bufReadSizeOld + length);
+    uint32_t copyRetVal = copy(offset, length, (char*)bufRead + bufReadSizeOld);
     *returnPtr = (char*) bufRead + bufReadSizeOld;
     return copyRetVal;
 }
 
-size_t Buffer::copy(off_t offset, size_t length, void* dest) {
+uint32_t Buffer::copy(uint32_t offset, uint32_t length, void* dest) {
     // Find the chunk which corresponds to the supplied offset.
-    int currChunk = findChunk(offset);
-    if (currChunk == -1) return 0;
-    off_t offsetInChunk = offset - offsetOfChunk(currChunk);
+    uint32_t currChunk = findChunk(offset);
+    if (currChunk >= chunksUsed) return 0;
+    uint32_t offsetInChunk = offset - offsetOfChunk(currChunk);
 
-    off_t currOff = offset;
-    size_t bytesCopied = 0;
-    size_t chunkBytesToCopy;
+    uint32_t currOff = offset;
+    uint32_t bytesCopied = 0;
+    uint32_t chunkBytesToCopy;
 
     while (bytesCopied < length && currChunk < chunksUsed) {
         if (bytesCopied + chunks[currChunk].size > length)
@@ -130,22 +133,23 @@ size_t Buffer::copy(off_t offset, size_t length, void* dest) {
     return bytesCopied;
 }
 
-int Buffer::findChunk(off_t offset) {
-    off_t currOff = 0;
-    for (int i = 0; i < chunksUsed; ++i) {
-        if ((off_t) (currOff + chunks[i].size) > offset) return i;
+uint32_t Buffer::findChunk(uint32_t offset) {
+    uint32_t currOff = 0;
+    uint32_t i;
+
+    for (i = 0; i < chunksUsed; ++i) {
+        if ((uint32_t) (currOff + chunks[i].size) > offset) return i;
         currOff += chunks[i].size;
     }
 
-    return -1;
+    return i;
 }
 
-off_t Buffer::offsetOfChunk(int chunkIndex) {
-    if (chunkIndex < 0) return -1;
-    if (chunkIndex >= chunksUsed) return -1;
+uint32_t Buffer::offsetOfChunk(uint32_t chunkIndex) {
+    if (chunkIndex >= chunksUsed) return totalLen;
     
-    off_t offset = 0;
-    for (int i = 0; i < chunkIndex; ++i)
+    uint32_t offset = 0;
+    for (uint32_t i = 0; i < chunkIndex; ++i)
         offset += chunks[i].size;
     return offset;
 }
