@@ -41,6 +41,24 @@ PERL := perl
 LINT := python cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays
 PRAGMAS := ./pragmas.py
 
+# run-cc:
+# Compile a C source file to an object file.
+# The first parameter $(1) should be the output filename (*.o)
+# The second parameter $(2) should be the input filename (*.c)
+# The optional third parameter $(3) is any additional options compiler options.
+define run-cc
+$(CC) $(CFLAGS) $(3) -c -o $(1) $(2)
+endef
+
+# run-cxx:
+# Compile a C++ source file to an object file.
+# The first parameter $(1) should be the output filename (*.o)
+# The second parameter $(2) should be the input filename (*.cc)
+# The optional third parameter $(3) is any additional options compiler options.
+define run-cxx
+$(CXX) $(CXXFLAGS) $(3) -c -o $(1) $(2);
+endef
+
 all:
 
 tests: test

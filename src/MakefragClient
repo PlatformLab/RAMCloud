@@ -20,19 +20,19 @@ CLIENT_SHARED_OBJFILES := $(CLIENT_SHARED_OBJFILES) $(CLIENT_NET_SHARED_OBJFILES
 
 $(OBJDIR)/client_static/%.o: $(TOP)/src/%.c
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(call run-cc,$@,$<)
 
 $(OBJDIR)/client_shared/%.o: $(TOP)/src/%.c
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+	$(call run-cc,$@,$<,-fPIC)
 
 $(OBJDIR)/shared_static/%.o: $(TOP)/src/%.c
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(call run-cc,$@,$<)
 
 $(OBJDIR)/shared_shared/%.o: $(TOP)/src/%.c
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+	$(call run-cc,$@,$<,-fPIC)
 
 $(OBJDIR)/libramcloud.a: $(CLIENT_STATIC_OBJFILES)
 	@mkdir -p $(@D)

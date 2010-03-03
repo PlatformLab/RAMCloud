@@ -22,10 +22,10 @@ $(TOP)/src/config.h:
 
 $(OBJDIR)/%.o: $(TOP)/src/%.c
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(call run-cc,$@,$<)
 
 $(OBJDIR)/%.o: $(TOP)/src/%.cc
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(call run-cxx,$@,$<)
 
 all: $(TOP)/src/config.h
