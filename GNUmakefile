@@ -15,10 +15,10 @@ TOP	:= $(shell echo $${PWD-`pwd`})
 BASECFLAGS :=
 #OPTFLAG	 := -O3
 COMFLAGS := $(BASECFLAGS) -g $(OPTFLAG) -fno-strict-aliasing \
-	       -Wall -MD
-COMWARNS := -Wformat=2 -Wextra -Wmissing-noreturn \
+	        -fno-builtin -MD
+COMWARNS := -Wall -Wformat=2 -Wextra -Wmissing-noreturn \
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute \
-            -Wswitch-default -fno-builtin
+            -Wswitch-default
 CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
 		-Wbad-function-cast
 CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
