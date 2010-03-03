@@ -39,6 +39,7 @@ CXX := g++
 AR := ar
 PERL := perl
 LINT := python cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays
+PRAGMAS := ./pragmas.py
 
 all:
 
