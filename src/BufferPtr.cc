@@ -18,6 +18,8 @@
  * Contains the implementation for the BufferPtr class.
  */
 
+// RAMCloud pragma [GCCWARN=5]
+
 #include <BufferPtr.h>
 
 #include <string.h>

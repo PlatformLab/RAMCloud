@@ -12,6 +12,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// RAMCloud pragma [GCCWARN=5]
+
 #include <Common.h>
 #include <Log.h>
 #include <LogTypes.h>

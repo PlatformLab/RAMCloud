@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// RAMCloud pragma [GCCWARN=5]
+
 #include <Log.h>
 
 static const uint64_t cleaner_hiwat = 20;
