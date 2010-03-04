@@ -30,33 +30,33 @@ namespace RAMCloud {
 class BufferTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(BufferTest);
 
-    CPPUNIT_TEST(test_prependZero);
-    CPPUNIT_TEST(test_prependAllocateMoreChunks);
-    CPPUNIT_TEST(test_prependNormal);
+    CPPUNIT_TEST(test_prepend_zero);
+    CPPUNIT_TEST(test_prepend_allocateMoreChunks);
+    CPPUNIT_TEST(test_prepend_normal);
 
-    CPPUNIT_TEST(test_appendZero);
-    CPPUNIT_TEST(test_appendAllocateMoreChunks);
-    CPPUNIT_TEST(test_appendNormal);
+    CPPUNIT_TEST(test_append_zero);
+    CPPUNIT_TEST(test_append_allocateMoreChunks);
+    CPPUNIT_TEST(test_append_normal);
 
-    CPPUNIT_TEST(test_peekLengthZero);
-    CPPUNIT_TEST(test_peekNormal);
-    CPPUNIT_TEST(test_peekSpanningChunks);
-    CPPUNIT_TEST(test_peekOffsetGreaterThanTotalLength);
+    CPPUNIT_TEST(test_peek_lengthZero);
+    CPPUNIT_TEST(test_peek_normal);
+    CPPUNIT_TEST(test_peek_spanningChunks);
+    CPPUNIT_TEST(test_peek_offsetGreaterThanTotalLength);
 
-    CPPUNIT_TEST(test_readInputEdgeCases);
-    CPPUNIT_TEST(test_readPeek);
-    CPPUNIT_TEST(test_readCopy);    
+    CPPUNIT_TEST(test_read_inputEdgeCases);
+    CPPUNIT_TEST(test_read_peek);
+    CPPUNIT_TEST(test_read_copy);    
 
-    CPPUNIT_TEST(test_copyLengthZero);
-    CPPUNIT_TEST(test_copySpanningChunks);
-    CPPUNIT_TEST(test_copyNormal);
-    CPPUNIT_TEST(test_copyOffsetGreaterThanTotalLength);
+    CPPUNIT_TEST(test_copy_lengthZero);
+    CPPUNIT_TEST(test_copy_spanningChunks);
+    CPPUNIT_TEST(test_copy_normal);
+    CPPUNIT_TEST(test_copy_offsetGreaterThanTotalLength);
 
-    CPPUNIT_TEST(test_findChunkNormal);
-    CPPUNIT_TEST(test_findChunkOffsetGreaterThanTotalLength);
+    CPPUNIT_TEST(test_findChunk_normal);
+    CPPUNIT_TEST(test_findChunk_offsetGreaterThanTotalLength);
 
-    CPPUNIT_TEST(test_offsetOfChunkNormal);
-    CPPUNIT_TEST(test_offsetOfChunkEdgeCases);
+    CPPUNIT_TEST(test_offsetOfChunk_normal);
+    CPPUNIT_TEST(test_offsetOfChunk_edgeCases);
 
     CPPUNIT_TEST(test_allocateMoreChunks);
 
@@ -73,20 +73,22 @@ class BufferTest : public CppUnit::TestFixture {
 
     void tearDown() { }
 
-    void test_prependZero() {
+    void test_prepend_zero() {
         Buffer b;
+        char buf[10];
+        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
 
-        // Since size == 0 is checked before asserting src, this should not
-        // fail/crash the program.
-        b.prepend(NULL, 0);
+        b.prepend(buf, 0);
+        b.prepend(buf, 10);
 
         // TODO(aravindn): How do we test assert(NULL)? Perform same test in
         // test_appendZero().
 
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunksUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunks[1].size);
     }
 
-    void test_prependAllocateMoreChunks() {
+    void test_prepend_allocateMoreChunks() {
         Buffer b;
         char buf[150];
         int i;
@@ -103,7 +105,7 @@ class BufferTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT(!memcmp(b.chunks[i].ptr, buf + (i*10), 10));
     }
 
-    void test_prependNormal() {
+    void test_prepend_normal() {
         Buffer b;
         char buf[10];
         CPPUNIT_ASSERT(memcpy(buf, testString, 10));
@@ -116,16 +118,19 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!memcmp(b.chunks[0].ptr, buf+2, 5));
     }
 
-    void test_appendZero() {
+    void test_append_zero() {
         Buffer b;
+        char buf[10];
+        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
 
-        // Since size == 0 is checked before asserting src, this should not
-        // fail/crash the proram.
-        b.append(NULL, 0);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunksUsed);
+        b.append(buf, 0);
+        b.append(buf, 10);
+        
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunks[0].size);
     }
 
-    void test_appendAllocateMoreChunks() {
+    void test_append_allocateMoreChunks() {
         Buffer b;
         char buf[150];
         int i;
@@ -142,7 +147,7 @@ class BufferTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT(!memcmp(b.chunks[i].ptr, buf + (i*10), 10));
     }
 
-    void test_appendNormal() {
+    void test_append_normal() {
         Buffer b;
         char buf[10];
         CPPUNIT_ASSERT(memcpy(buf, testString, 10));
@@ -155,7 +160,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!memcmp(b.chunks[0].ptr, buf+2, 5));
     }
 
-    void test_peekLengthZero() {
+    void test_peek_lengthZero() {
         void *ret_val;
         Buffer b;
         char buf[10];
@@ -164,7 +169,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.peek(0, 0, &ret_val));
     }
 
-    void test_peekNormal() {
+    void test_peek_normal() {
         void *ret_val;
         Buffer b;
         char buf[10];
@@ -185,7 +190,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!memcmp(buf+2, ret_val, 8));
     }
 
-    void test_peekSpanningChunks() {
+    void test_peek_spanningChunks() {
         void *ret_val;
         Buffer b;
         char buf[10];
@@ -202,7 +207,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!memcmp(buf+2, ret_val, 5));
     }
 
-    void test_peekOffsetGreaterThanTotalLength() {
+    void test_peek_offsetGreaterThanTotalLength() {
         void *ret_val;
         Buffer b;
         char buf[10];
@@ -215,7 +220,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.peek(20, 10, &ret_val));
     }
 
-    void test_readInputEdgeCases() {
+    void test_read_inputEdgeCases() {
         void *ret_val;
         Buffer b;
         char buf[10];
@@ -231,7 +236,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.read(2, 0, &ret_val));
     }
 
-    void test_readPeek() {
+    void test_read_peek() {
         void *ret_val;
         Buffer b;
         char buf[10];
@@ -251,7 +256,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.bufReadSize);
     }
 
-    void test_readCopy() {
+    void test_read_copy() {
         void *ret_val;
         Buffer b;
         char buf[10];
@@ -271,7 +276,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 14+11, b.bufReadSize);
     } 
 
-    void test_copyLengthZero() {
+    void test_copy_lengthZero() {
         char dest[15];
         char buf[10];
         Buffer b;
@@ -285,7 +290,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.copy(10, 0, dest));
     }
 
-    void test_copyNormal() {
+    void test_copy_normal() {
         char dest[15];
         char buf[10];
         Buffer b;
@@ -301,7 +306,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!memcmp(buf+2, dest+10, 5));
     } 
 
-    void test_copySpanningChunks() {
+    void test_copy_spanningChunks() {
         char dest[15];
         char buf[10];
         Buffer b;
@@ -324,7 +329,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!memcmp(dest+7, buf+2, 3));
     }
 
-    void test_copyOffsetGreaterThanTotalLength() {
+    void test_copy_offsetGreaterThanTotalLength() {
         char dest[15];
         char buf[10];
         Buffer b;
@@ -337,7 +342,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.copy(20, 10, dest));
     }
 
-    void test_findChunkNormal() {
+    void test_findChunk_normal() {
         char buf[10];
         Buffer b;
         CPPUNIT_ASSERT(memcpy(buf, testString, 10));
@@ -350,7 +355,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 1, b.findChunk(12));
     }
 
-    void test_findChunkOffsetGreaterThanTotalLength() {
+    void test_findChunk_offsetGreaterThanTotalLength() {
         char buf[10];
         Buffer b;
         CPPUNIT_ASSERT(memcpy(buf, testString, 10));
@@ -362,7 +367,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(b.chunksUsed, b.findChunk(17));
     }
 
-    void test_offsetOfChunkNormal() {
+    void test_offsetOfChunk_normal() {
         char buf[10];
         Buffer b;
         CPPUNIT_ASSERT(memcpy(buf, testString, 10));
@@ -377,7 +382,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.offsetOfChunk(b.findChunk(4)));
     }
 
-    void test_offsetOfChunkEdgeCases() {
+    void test_offsetOfChunk_edgeCases() {
         char buf[10];
         Buffer b;
         CPPUNIT_ASSERT(memcpy(buf, testString, 10));
@@ -412,7 +417,6 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 110, b.totalLength());
     }
 };
-
 
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferTest);
 
