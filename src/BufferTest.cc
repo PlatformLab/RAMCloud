@@ -67,9 +67,9 @@ class BufferTest : public CppUnit::TestFixture {
     char testString[10];
 
   public:
-    BufferTest() { }
+    BufferTest() { memcpy(testString, "0123456789", 10); }
 
-    void setUp() { CPPUNIT_ASSERT(memcpy(testString, "0123456789", 10)); }
+    void setUp() { }
 
     void tearDown() { }
 
