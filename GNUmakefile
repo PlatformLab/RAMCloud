@@ -15,10 +15,10 @@ TOP	:= $(shell echo $${PWD-`pwd`})
 BASECFLAGS :=
 #OPTFLAG	 := -O3
 COMFLAGS := $(BASECFLAGS) -g $(OPTFLAG) -fno-strict-aliasing \
-	       -Wall -MD
-COMWARNS := -Wformat=2 -Wextra -Wmissing-noreturn \
+	        -fno-builtin -MD
+COMWARNS := -Wall -Wformat=2 -Wextra -Wmissing-noreturn \
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute \
-            -Wswitch-default -fno-builtin
+            -Wswitch-default
 CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
 		-Wbad-function-cast
 CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
@@ -31,14 +31,63 @@ LIBS := -lrt
 INCLUDES := -I$(TOP)/src
 
 
-CFLAGS	:= $(COMFLAGS) $(CWARNS) -std=gnu99 $(LIBS) $(INCLUDES)
-CXXFLAGS    := $(COMFLAGS) $(CXXWARNS) -std=c++98 $(LIBS) $(INCLUDES)
+CFLAGS_BASE := $(COMFLAGS) -std=gnu99 $(LIBS) $(INCLUDES)
+CFLAGS_NOWERROR := $(CFLAGS_BASE) $(CWARNS)
+CFLAGS := $(CFLAGS_BASE) -Werror $(CWARNS)
+
+CXXFLAGS_BASE := $(COMFLAGS) -std=c++98 $(LIBS) $(INCLUDES)
+CXXFLAGS_NOWERROR := $(CXXFLAGS_BASE) $(CXXWARNS)
+CXXFLAGS := $(CXXFLAGS_BASE) -Werror $(CXXWARNS)
 
 CC := gcc
 CXX := g++
 AR := ar
 PERL := perl
 LINT := python cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays
+PRAGMAS := ./pragmas.py
+
+# run-cc:
+# Compile a C source file to an object file.
+# Uses the GCCWARN pragma setting defined within the C source file.
+# The first parameter $(1) should be the output filename (*.o)
+# The second parameter $(2) should be the input filename (*.c)
+# The optional third parameter $(3) is any additional options compiler options.
+define run-cc
+@GCCWARN=$$( $(PRAGMAS) -q GCCWARN $(2) ); \
+if [ $$GCCWARN -eq 5 ]; then \
+	echo $(CC) $(CFLAGS_NOWERROR) $(3) -c -o $(1) $(2); \
+	$(CC) $(CFLAGS_NOWERROR) $(3) -c -o $(1) $(2); \
+else \
+	echo $(CC) $(CFLAGS) $(3) -c -o $(1) $(2); \
+	$(CC) $(CFLAGS) $(3) -c -o $(1) $(2); \
+fi
+
+endef
+
+# run-cxx:
+# Compile a C++ source file to an object file.
+# Uses the GCCWARN pragma setting defined within the C source file.
+# The first parameter $(1) should be the output filename (*.o)
+# The second parameter $(2) should be the input filename (*.cc)
+# The optional third parameter $(3) is any additional options compiler options.
+define run-cxx
+@GCCWARN=$$( $(PRAGMAS) -q GCCWARN $(2) ); \
+if [ $$GCCWARN -eq 5 ]; then \
+	echo $(CXX) $(CXXFLAGS_NOWERROR) $(3) -c -o $(1) $(2); \
+	$(CXX) $(CXXFLAGS_NOWERROR) $(3) -c -o $(1) $(2); \
+else \
+	echo $(CXX) $(CXXFLAGS) $(3) -c -o $(1) $(2); \
+	$(CXX) $(CXXFLAGS) $(3) -c -o $(1) $(2); \
+fi
+endef
+
+define filter-pragma
+for f in $(3); do \
+	if [ $$( $(PRAGMAS) -q $(1) $$f ) -eq $(2) ]; then \
+		echo $$f; \
+	fi \
+done
+endef
 
 all:
 
@@ -59,6 +108,7 @@ clean: tests-clean docs-clean
 
 # Lazy rule so this doesn't happen unless make check is invoked
 CHKFILES = $(shell find $(TOP)/src -name '*.cc' -or -name '*.h' -or -name '*.c')
+CHKFILES := $(shell $(call filter-pragma,CPPLINT,5,$(CHKFILES)))
 check:
 	$(LINT) $(CHKFILES)
 
