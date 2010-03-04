@@ -51,10 +51,10 @@ Buffer::~Buffer() {
  * op. As long as the pointer is also valid, we add this chunk of size 0 to the
  * list.
  * 
- * \param[in] src The memory region to be added.
- * \param[in] size The size in bytes of the memory region represented by
- *                  buf.
- * \return Returns true or false depending on teh success of the prpepend
+ * \param[in]  src   The memory region to be added.
+ * \param[in]  size  The size in bytes of the memory region represented by
+ *                   buf.
+ * \return Returns true or false depending on the success of the prpepend
  *         op.
  */
 void Buffer::prepend(void* src, uint32_t size) {
@@ -68,10 +68,8 @@ void Buffer::prepend(void* src, uint32_t size) {
 
     // Right shift the chunks, since we have to add the new Chunk at the front
     // (left).
-    for (int i = chunksUsed; i > 0; --i) {
-        chunks[i].ptr = chunks[i-1].ptr;
-        chunks[i].size = chunks[i-1].size;
-    }
+    for (int i = chunksUsed; i > 0; --i) 
+        chunks[i] = chunks[i-1];
     
     Chunk* c = chunks;  // Point to the first (empty) chunk.
     c->ptr = src;
@@ -88,8 +86,8 @@ void Buffer::prepend(void* src, uint32_t size) {
  * op. As long as the pointer is also valid, we add this chunk of size 0 to the
  * list.
  *
- * \param[in] src The memory region to be added.
- * \param[in] size The size of the memory region represented by buf.
+ * \param[in]  src   The memory region to be added.
+ * \param[in]  size  The size of the memory region represented by buf.
  * \return Returns true or false depending on the success of the append op.
  */
 void Buffer::append(void* src, uint32_t size) {
@@ -112,10 +110,10 @@ void Buffer::append(void* src, uint32_t size) {
  * memory that we return. If the block spans multiple chunks, we only return the
  * number of bytes upto the end of the first chunk.
  *
- * \param[in] offset The offset into the logical buffer represented by this
- *                   Buffer.
- * \param[in] length The length of the memory block to return.
- * \param[out] return_ptr The pointer to the memory block requested.
+ * \param[in]   offset      The offset into the logical buffer represented by
+ *                          this Buffer.
+ * \param[in]   length      The length of the memory block to return.
+ * \param[out]  return_ptr  The pointer to the memory block requested.
  * \return The number of bytes that region of memory pointed to by
  *         return_ptr has.
  */
@@ -139,9 +137,9 @@ uint32_t Buffer::peek(uint32_t offset, uint32_t length, void** returnPtr) {
  * can hold 'length' bytes, and 'copy' the required bytes into this buffer space
  * before returning a pointer to it.
  *
- * \param[in] offset The offset into the logical Buffer.
- * \param[in] length The length in bytes of the region we want to obtain.
- * \param[out] returnPtr The pointer to the memory region that we return.
+ * \param[in]   offset     The offset into the logical Buffer.
+ * \param[in]   length     The length in bytes of the region we want to obtain.
+ * \param[out]  returnPtr  The pointer to the memory region that we return.
  * \return The size in bytes of the memory region pointed to by returnPtr.
  */
 uint32_t Buffer::read(uint32_t offset, uint32_t length, void **returnPtr) {
@@ -169,11 +167,11 @@ uint32_t Buffer::read(uint32_t offset, uint32_t length, void **returnPtr) {
  * Buffer, we copy all the bytes from offset upto the end of the Buffer, and
  * returns the number of bytes copied.
  *
- * \param[in] offset The offset at which the memory block we should copy
- *                   starts.
- * \param[in] length The length of the memory block we should copy.
- * \param[in] dest The pointer to which we should copy the logical memory
- *                 block.
+ * \param[in]  offset  The offset at which the memory block we should copy
+ *                     starts.
+ * \param[in]  length  The length of the memory block we should copy.
+ * \param[in]  dest    The pointer to which we should copy the logical memory
+ *                     block.
  * \return The actual number of bytes copied.
  */
 uint32_t Buffer::copy(uint32_t offset, uint32_t length, void* dest) {
@@ -213,7 +211,7 @@ uint32_t Buffer::copy(uint32_t offset, uint32_t length, void* dest) {
 /**
  * Find the chunk which corresposnds to the supplied offset.
  * 
- * \param[in] offset The offset in bytes of the point to identify.
+ * \param[in]  offset  The offset in bytes of the point to identify.
  * \return The chunk index of the chunk in which this offset lies.
  */
 uint32_t Buffer::findChunk(uint32_t offset) {
@@ -230,7 +228,7 @@ uint32_t Buffer::findChunk(uint32_t offset) {
 /**
  * Returns the chunk's offset from the beginning of the Buffer.
  *
- * \param[in] chunkIndex The index of the chunk whose offset we calculate.
+ * \param[in]  chunkIndex  The index of the chunk whose offset we calculate.
  * \return The offset, in bytes, of the beginning of the chunk.
  */
 uint32_t Buffer::offsetOfChunk(uint32_t chunkIndex) {

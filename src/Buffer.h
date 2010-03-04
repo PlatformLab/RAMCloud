@@ -76,7 +76,7 @@ class Buffer {
 
     /**
      * The initial size of the chunk array (see below). 10 should cover the vast
-     * majority of Buffers. If not, we can increate this later.
+     * majority of Buffers. If not, we can increase this later.
      */
     static const int INITIAL_CHUNK_ARR_SIZE = 10;
 

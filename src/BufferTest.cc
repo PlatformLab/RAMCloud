@@ -30,6 +30,8 @@ namespace RAMCloud {
 class BufferTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(BufferTest);
 
+    CPPUNIT_TEST(test_constructor);
+
     CPPUNIT_TEST(test_prepend_zero);
     CPPUNIT_TEST(test_prepend_allocateMoreChunks);
     CPPUNIT_TEST(test_prepend_normal);
@@ -72,6 +74,17 @@ class BufferTest : public CppUnit::TestFixture {
     void setUp() { }
 
     void tearDown() { }
+
+    void test_constructor() {
+        // Basic sanity checks for the constructor.
+        Buffer b;
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunksUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.chunksAvail);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.totalLen);
+        CPPUNIT_ASSERT(b.bufRead == NULL);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.bufReadSize);
+        CPPUNIT_ASSERT(b.chunks != NULL);
+    }
 
     void test_prepend_zero() {
         Buffer b;
