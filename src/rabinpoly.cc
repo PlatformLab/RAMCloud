@@ -17,6 +17,7 @@
  */
 
 // RAMCloud pragma [GCCWARN=5]
+// RAMCloud pragma [CPPLINT=0]
 
 #include <Common.h>
 

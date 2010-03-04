@@ -8,3 +8,8 @@ gccwarn = PragmaDefinition('GCC warnings', default=9)
 gccwarn[5] = 'non-fatal warnings'
 gccwarn[9] = 'fatal, pedantic warnings'
 definitions['GCCWARN'] = gccwarn
+
+cpplint = PragmaDefinition('cpplint.py', default=5)
+cpplint[0] = 'disabled'
+cpplint[5] = 'standard, fatal checks'
+definitions['CPPLINT'] = cpplint

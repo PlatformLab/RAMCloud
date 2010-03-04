@@ -81,6 +81,13 @@ else \
 fi
 endef
 
+define filter-pragma
+for f in $(3); do \
+	if [ $$( $(PRAGMAS) -q $(1) $$f ) -eq $(2) ]; then \
+		echo $$f; \
+	fi \
+done
+endef
 
 all:
 
@@ -101,6 +108,7 @@ clean: tests-clean docs-clean
 
 # Lazy rule so this doesn't happen unless make check is invoked
 CHKFILES = $(shell find $(TOP)/src -name '*.cc' -or -name '*.h' -or -name '*.c')
+CHKFILES := $(shell $(call filter-pragma,CPPLINT,5,$(CHKFILES)))
 check:
 	$(LINT) $(CHKFILES)
 
