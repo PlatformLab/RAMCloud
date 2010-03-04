@@ -14,6 +14,14 @@
  */
 
 // RAMCloud pragma [CPPLINT=0]
+// RAMCloud pragma [DOXYGEN=9]
+
+// Need file-level comments for anything at all to be done with Doxygen-check.
+// It doesn't warn about missing file-level comments, though.
+/**
+ * \file
+ * A gateway for applications to access RAMCloud.
+ */
 
 #include <Common.h>
 
@@ -27,17 +35,32 @@
 #include <Client.h>
 #include <assert.h>
 
-#if RC_CLIENT_SHARED
+#if RC_CLIENT_SHARED || DOXYGEN
+
+/**
+ * Part of rc_client that lives on a shared memory page.
+ */
 struct rc_client_shared {
+    /**
+     * The network mutex. See lock() and unlock().
+     */
     sem_t sem;
 };
 
+// It takes an additional sentence beyond the brief documentation to get
+// Doxygen-check to warn about not commenting the client parameter below.
+/**
+ * Acquire the network mutex.
+ */
 static void
 lock(struct rc_client *client)
 {
     assert(sem_wait(&client->shared->sem) == 0);
 }
 
+/**
+ * Release the network mutex.
+ */
 static void
 unlock(struct rc_client *client)
 {

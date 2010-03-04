@@ -131,6 +131,25 @@ doc: docs
 docs: python-docs
 	doxygen Doxyfile
 
+# We need different Doxygen settings for "warnings" and "output" (because of
+# its EXTRACT_ALL setting). Unfortunately, the "warnings" settings do not catch
+# a superset of the warnings from the "output" settings, so we need both.
+DOCS_CHECK_DIR := doxygen-check.tmp
+docs-check:
+	@warnings=0; \
+	mkdir -p $(DOCS_CHECK_DIR); \
+	\
+	doxygen Doxyfile >$(DOCS_CHECK_DIR)/warnings 2>&1; \
+	./warnings.py 5 < $(DOCS_CHECK_DIR)/warnings; \
+	warnings=$$(( $$warnings + $$? )); \
+	\
+	doxygen Doxyfile-check; \
+	./warnings.py 9 < $(DOCS_CHECK_DIR)/warnings; \
+	warnings=$$(( $$warnings + $$? )); \
+	\
+	rm -rf $(DOCS_CHECK_DIR); \
+	exit $$warnings
+
 docs-clean: python-docs-clean
 	rm -rf docs/doxygen/
 

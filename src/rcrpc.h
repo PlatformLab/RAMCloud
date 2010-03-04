@@ -15,6 +15,11 @@
 
 // RAMCloud pragma [CPPLINT=0]
 
+/**
+ * \file
+ * Bit-level RPC definitions.
+ */
+
 #ifndef RAMCLOUD_RCRPC_H
 #define RAMCLOUD_RCRPC_H
 

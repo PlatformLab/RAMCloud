@@ -13,3 +13,8 @@ cpplint = PragmaDefinition('cpplint.py', default=5)
 cpplint[0] = 'disabled'
 cpplint[5] = 'standard, fatal checks'
 definitions['CPPLINT'] = cpplint
+
+doxygen = PragmaDefinition('Doxygen', default=5)
+doxygen[5] = 'standard, fatal checks'
+doxygen[9] = 'anal, fatal checks'
+definitions['DOXYGEN'] = doxygen

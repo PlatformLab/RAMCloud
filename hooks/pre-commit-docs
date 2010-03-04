@@ -1,6 +1,14 @@
 #!/bin/bash
-ERRORS=$( make --silent docs 2>&1 | egrep \(Warning\|Error\) | wc -l )
-if [ $ERRORS -gt 0 ]; then
-    echo "Fix your documentation warnings first!"
+
+PYERRORS=$( make --silent python-docs 2>&1 | egrep \(Warning\|Error\) | wc -l )
+if [ $PYERRORS -gt 0 ]; then
+    echo "Fix your Python documentation warnings first!"
 fi
-exit $ERRORS
+
+make --silent docs-check 2>&1 >/dev/null
+CERRORS=$?
+if [ $CERRORS -ne 0 ]; then
+    echo "Fix your C/C++ documentation warnings first! (run make docs-check)"
+fi
+
+exit $(( $PYERRORS + $CERRORS ))
