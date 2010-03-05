@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -123,6 +123,12 @@ hash(uint64_t key, uint64_t *hash, uint16_t *mkhash)
     *mkhash = static_cast<uint16_t>(key >> 48);
 }
 
+/**
+ * Allocate space for a new hash table and fill it with #UNUSED entries.
+ * \warning Does not free the existing hash table, if there is one.
+ * \param[in] lines
+ *      The number of buckets in the new hash table.
+ */
 void
 Hashtable::InitTable(uint64_t lines)
 {
@@ -138,6 +144,14 @@ Hashtable::InitTable(uint64_t lines)
     }
 }
 
+/**
+ * Find a hash table entry for a given key.
+ * \param[in] key
+ *      The ID of the object for which to locate the hash table entry.
+ * \return
+ *      The pointer to the hash table entry, or \a NULL if there is no such
+ *      hash table entry.
+ */
 uint64_t *
 Hashtable::LookupKeyPtr(uint64_t key)
 {
@@ -146,17 +160,23 @@ Hashtable::LookupKeyPtr(uint64_t key)
     uint16_t mk;
     int i;
 
+    // Find the bucket.
     hash(key, &h, &mk);
     cacheline *cl = &table[h % table_lines];
 
     while (1) {
+
+        // Try this cache line.
         uint64_t *kp = cl->keys;
         for (i = 0; i < 8; i++, kp++) {
             if (i == 8 && !ISCHAIN(cl, 7))
                 break;
 
             if (*kp != UNUSED && GETMINIKEY(*kp) == mk) {
-                // could be it. assume object stores key in first 64 bits
+                // The hash within the hash table entry matches, so with high
+                // probability this is the pointer we're looking for. To check,
+                // we assume the object stores its key in the first 64 bits and
+                // see if that matches our key.
                 uint64_t *obj = (uint64_t *)ADDR(*kp);
                 if (*obj == key) {
                     uint64_t diff = rdtsc() - b;
@@ -170,7 +190,8 @@ Hashtable::LookupKeyPtr(uint64_t key)
             }
         }
 
-        // not found, try chaining
+        // Not found in this cache line, see if there's a chain to another
+        // cache line.
         if (!ISCHAIN(cl, 7)) {
             uint64_t diff = rdtsc() - b;
             lup_total += diff;
@@ -183,6 +204,14 @@ Hashtable::LookupKeyPtr(uint64_t key)
     }
 }
 
+/**
+ * Find the pointer to the Log in memory where the latest version of an object
+ * resides.
+ * \param[in] key
+ *      The ID of the object to locate.
+ * \return
+ *      The pointer into the Log, or \a NULL if the object doesn't exist.
+ */
 void *
 Hashtable::Lookup(uint64_t key)
 {
@@ -190,6 +219,13 @@ Hashtable::Lookup(uint64_t key)
     return kp ? (void *) ADDR(*kp) : NULL;
 }
 
+/**
+ * Remove a key from the hash table.
+ * \param[in] key
+ *      The ID of the object to remove.
+ * \return
+ *      Whether the hash table contained the key.
+ */
 bool
 Hashtable::Delete(uint64_t key) {
     uint64_t *kp = LookupKeyPtr(key);
@@ -199,6 +235,19 @@ Hashtable::Delete(uint64_t key) {
     return true;
 }
 
+/**
+ * Update the object location of a key in the hash table.
+ * \param[in] key
+ *      The ID of the moved object.
+ * \param[in] ptr
+ *      The pointer to the Log where the latest version of the object resides.
+ * \retval true
+ *      The hash table previously contained key and its entry has been updated
+ *      to reflect the new location of the object.
+ * \retval false
+ *      The hash table did not previously contain key. No action has been
+ *      taken!
+ */
 bool
 Hashtable::Replace(uint64_t key, void *ptr) {
     uint64_t h;
@@ -211,6 +260,14 @@ Hashtable::Replace(uint64_t key, void *ptr) {
     return true;
 }
 
+/**
+ * Add a new key to the hash table.
+ * The caller must guarantee that \a key does not exist in the hash table.
+ * \param[in] key
+ *      The ID of the object that resides at \a ptr.
+ * \param[in] ptr
+ *      The pointer to the Log where the latest version of the object resides.
+ */
 void
 Hashtable::Insert(uint64_t key, void *ptr)
 {

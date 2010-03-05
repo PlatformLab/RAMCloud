@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,8 +29,37 @@ struct cacheline {
     uint64_t keys[8];
 };
 
+/**
+ * A map from object IDs to a pointer to the Log in memory where the latest
+ * version of the object resides.
+ *
+ * This is used in resolving most object-level %RAMCloud requests. For example,
+ * to read and write a %RAMCloud object, this lets you find the location of the
+ * current version of the object.
+ *
+ * Currently, the Hashtable class assumes it is scoped to a specific %RAMCloud
+ * table, so it does not concern itself with table IDs.
+ *
+ * \section impl Implementation Details
+ *
+ * The Hashtable is an array of buckets, indexed by the hash of the object ID.
+ * Each bucket consists of one or more chained cache lines, the first of which
+ * lives inline in the array of buckets. Each cache line consists of several
+ * hash table entries (in no particular order?), which contain additional bits
+ * from the hash function to disambiguate most bucket collisions and a pointer
+ * to the latest version of the object in the Log.
+ *
+ * If there are too many hash table entries to fit the bucket's first cache
+ * line, additional cache lines are allocated (outside of the array of
+ * buckets).
+ */
 class Hashtable {
 public:
+
+    /**
+     * \param[in] nlines
+     *      The number of buckets in the new hash table.
+     */
     explicit Hashtable(uint64_t nlines)
             : table(0), table_lines(nlines), use_huge_tlb(false),
             ins_total(0), lup_total(0), ins_nexts(0), lup_nexts(0),
@@ -57,8 +86,18 @@ private:
     void InitTable(uint64_t lines);
     void StoreSample(uint64_t ticks);
     void *MallocAligned(uint64_t len);
-    cacheline *table;             // the hash table
-    uint64_t table_lines;         // the # of cache lines in the table
+
+    /**
+     * The array of buckets.
+     * This is allocated in #InitTable().
+     */
+    cacheline *table;
+
+    /**
+     * The number of buckets allocated to the table.
+     */
+    uint64_t table_lines;
+
     uint64_t buckets[NBUCKETS];
     bool use_huge_tlb;
     // performance counters
