@@ -261,7 +261,7 @@ class RAMCloud(object):
         return self.delete_rr(table_id, key, reject_rules)
 
     def read_rr(self, table_id, key, reject_rules):
-        buf = ctypes.create_string_buffer(10240)
+        buf = ctypes.create_string_buffer(1024 * 1024 * 2)
         l = ctypes.c_uint64()
         got_version = ctypes.c_uint64()
         reject_rules.object_doesnt_exist = True
