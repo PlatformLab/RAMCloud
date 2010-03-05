@@ -24,11 +24,6 @@
 
 namespace RAMCloud {
 
-// cache lines are 64 bytes
-struct cacheline {
-    uint64_t keys[8];
-};
-
 /**
  * A map from object IDs to a pointer to the Log in memory where the latest
  * version of the object resides.
@@ -87,6 +82,13 @@ private:
     void StoreSample(uint64_t ticks);
     void *MallocAligned(uint64_t len);
 
+    // cache lines are 64 bytes
+    static const uint32_t ENTRIES_PER_CACHE_LINE = 8;
+
+    struct cacheline {
+        uint64_t keys[ENTRIES_PER_CACHE_LINE];
+    };
+
     /**
      * The array of buckets.
      * This is allocated in #InitTable().
@@ -110,6 +112,8 @@ private:
     uint64_t oflowbucket;
     uint64_t min_ticks; // ~0;
     uint64_t max_ticks;
+
+    friend class HashtableTest;
     DISALLOW_COPY_AND_ASSIGN(Hashtable);
 };
 

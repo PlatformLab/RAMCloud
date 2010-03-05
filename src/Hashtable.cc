@@ -71,7 +71,7 @@ namespace RAMCloud {
  *      A pointer to the cache line (\c cacheline*).
  * \param[in] x
  *      The offset of the hash table entry in \a c (\c uint32_t). This should
- *      be 7.
+ *      be <tt>ENTRIES_PER_CACHE_LINE - 1</tt>.
  * \return
  *      Whether the hash table entry has a chain pointer to another cache line
  *      (as opposed to a Log pointer to an object; \c uint64_t).
@@ -90,7 +90,7 @@ namespace RAMCloud {
  *      A pointer to the cache line (\c cacheline*).
  * \param[in] x
  *      The offset of the hash table entry in \a c (\c uint32_t). This should
- *      be 7.
+ *      be <tt>ENTRIES_PER_CACHE_LINE - 1</tt>.
  * \return
  *      The chain pointer to another cache line (\c uint64_t).
  */
@@ -213,7 +213,7 @@ Hashtable::InitTable(uint64_t lines)
                                                    sizeof(table[0])));
 
     for (i = 0; i < table_lines; i++) {
-        for (j = 0; j < 8; j++)
+        for (j = 0; j < ENTRIES_PER_CACHE_LINE; j++)
             table[i].keys[j] = UNUSED;
     }
 }
@@ -232,7 +232,7 @@ Hashtable::LookupKeyPtr(uint64_t key)
     uint64_t b = rdtsc();
     uint64_t h;
     uint16_t mk;
-    int i;
+    unsigned int i;
 
     // Find the bucket.
     hash(key, &h, &mk);
@@ -242,9 +242,7 @@ Hashtable::LookupKeyPtr(uint64_t key)
 
         // Try this cache line.
         uint64_t *kp = cl->keys;
-        for (i = 0; i < 8; i++, kp++) {
-            if (i == 8 && !ISCHAIN(cl, 7))
-                break;
+        for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, kp++) {
 
             if (*kp != UNUSED && GETMINIKEY(*kp) == mk) {
                 // The hash within the hash table entry matches, so with high
@@ -266,14 +264,14 @@ Hashtable::LookupKeyPtr(uint64_t key)
 
         // Not found in this cache line, see if there's a chain to another
         // cache line.
-        if (!ISCHAIN(cl, 7)) {
+        if (!ISCHAIN(cl, ENTRIES_PER_CACHE_LINE - 1)) {
             uint64_t diff = rdtsc() - b;
             lup_total += diff;
             StoreSample(diff);
             return NULL;
         }
 
-        cl = (cacheline *)GETCHAINPTR(cl, 7);
+        cl = (cacheline *)GETCHAINPTR(cl, ENTRIES_PER_CACHE_LINE - 1);
         lup_nexts++;
     }
 }
@@ -348,7 +346,7 @@ Hashtable::Insert(uint64_t key, void *ptr)
     uint64_t b = rdtsc();
     uint64_t h;
     uint16_t mk;
-    int i;
+    unsigned int i;
 
     assert(ISGOODPTR((uint64_t)ptr));
 
@@ -357,7 +355,7 @@ Hashtable::Insert(uint64_t key, void *ptr)
 
     while (1) {
         uint64_t *kp = cl->keys;
-        for (i = 0; i < 8; i++, kp++) {
+        for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, kp++) {
             if (*kp == UNUSED) {
                 *kp = MKENTRY(mk, ptr);
                 ins_total += (rdtsc() - b);
@@ -366,16 +364,17 @@ Hashtable::Insert(uint64_t key, void *ptr)
         }
 
         // no empty space found, allocate a new cache line
-        if (!ISCHAIN(cl, 7)) {
+        if (!ISCHAIN(cl, ENTRIES_PER_CACHE_LINE - 1)) {
             cacheline *ncl =
                 static_cast<cacheline *>(MallocAligned(sizeof(cacheline)));
-            ncl->keys[0] = cl->keys[7];
-            for (i = 1; i < 8; i++)
+            ncl->keys[0] = cl->keys[ENTRIES_PER_CACHE_LINE - 1];
+            for (i = 1; i < ENTRIES_PER_CACHE_LINE; i++)
                 ncl->keys[i] = UNUSED;
-            cl->keys[7] = MKCHAINPTR(ncl);
+            cl->keys[ENTRIES_PER_CACHE_LINE - 1] = MKCHAINPTR(ncl);
         }
 
-        cl = reinterpret_cast<cacheline *>(GETCHAINPTR(cl, 7));
+        uint64_t clp = GETCHAINPTR(cl, ENTRIES_PER_CACHE_LINE - 1);
+        cl = reinterpret_cast<cacheline *>(clp);
         ins_nexts++;
     }
 }

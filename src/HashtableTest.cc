@@ -22,6 +22,8 @@
 
 #include <cppunit/extensions/HelperMacros.h>
 
+namespace RAMCloud {
+
 class HashtableTest : public CppUnit::TestFixture {
   public:
     void setUp();
@@ -75,7 +77,7 @@ HashtableTest::TestMain()
     uint64_t nkeys = NLINES * 4;
     uint64_t nlines = NLINES;
 
-    printf("cache line size: %d\n", sizeof(RAMCloud::cacheline));
+    printf("cache line size: %d\n", sizeof(RAMCloud::Hashtable::cacheline));
     printf("load factor: %.03f\n", (double)nkeys / ((double)nlines * 8));
 
     for (i = 0; i < nkeys; i++) {
@@ -153,3 +155,4 @@ HashtableTest::TestMain()
     */
 }
 
+} // namespace RAMCloud
