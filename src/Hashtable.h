@@ -50,19 +50,7 @@ namespace RAMCloud {
  */
 class Hashtable {
 public:
-
-    /**
-     * \param[in] nlines
-     *      The number of buckets in the new hash table.
-     */
-    explicit Hashtable(uint64_t nlines)
-            : table(0), table_lines(nlines), use_huge_tlb(false),
-            ins_total(0), lup_total(0), ins_nexts(0), lup_nexts(0),
-            lup_mkfails(0), p2buckets(0), oflowbucket(0), min_ticks(~0),
-            max_ticks(0)
-    {
-        InitTable(table_lines);
-    }
+    explicit Hashtable(uint64_t nlines);
     void *Lookup(uint64_t key);
     void Insert(uint64_t key, void *ptr);
     bool Delete(uint64_t key);
@@ -78,7 +66,6 @@ public:
 private:
     uint64_t *LookupKeyPtr(uint64_t key);
     // helper functions
-    void InitTable(uint64_t lines);
     void StoreSample(uint64_t ticks);
     void *MallocAligned(uint64_t len);
 
@@ -91,7 +78,6 @@ private:
 
     /**
      * The array of buckets.
-     * This is allocated in #InitTable().
      */
     cacheline *table;
 

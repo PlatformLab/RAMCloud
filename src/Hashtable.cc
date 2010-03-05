@@ -198,17 +198,17 @@ hash(uint64_t key, uint64_t *hash, uint16_t *mkhash)
 }
 
 /**
- * Allocate space for a new hash table and fill it with #UNUSED entries.
- * \warning Does not free the existing hash table, if there is one.
- * \param[in] lines
+ * \param[in] nlines
  *      The number of buckets in the new hash table.
  */
-void
-Hashtable::InitTable(uint64_t lines)
+Hashtable::Hashtable(uint64_t nlines)
+    : table(0), table_lines(nlines), use_huge_tlb(false), ins_total(0),
+    lup_total(0), ins_nexts(0), lup_nexts(0), lup_mkfails(0), p2buckets(0),
+    oflowbucket(0), min_ticks(~0), max_ticks(0)
 {
+    // Allocate space for a new hash table and fill it with UNUSED entries.
     uint64_t i, j;
 
-    table_lines = lines;
     table = static_cast<cacheline *>(MallocAligned(table_lines *
                                                    sizeof(table[0])));
 
