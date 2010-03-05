@@ -31,13 +31,87 @@
 
 namespace RAMCloud {
 
+/**
+ * The value for an unused hash table entry.
+ */
 #define UNUSED                  ((uint64_t)0)
+
+/**
+ * Extract the Log pointer from a hash table entry.
+ * \param[in] x
+ *      The value of the hash table entry (\c uint64_t).
+ * \return
+ *      The Log pointer stored in a hash table entry (\c uint64_t).
+ */
 #define ADDR(x)                 (x & 0x0000ffffffffffffULL)
+
+/**
+ * Extract the additional hash bits stored in the hash table entry.
+ * \param[in] x
+ *      The value of the hash table entry (\c uint64_t).
+ * \return
+ *      The additional hash bits (\c uint64_t).
+ */
 #define GETMINIKEY(x)           (x >> 48)
+
+/**
+ * Pack a hash table entry.
+ * \param[in] mk
+ *      The additional hash bits from the key (\c uint64_t).
+ * \param[in] p
+ *      The Log pointer where the object is located (\c uint64_t or pointer).
+ * \return
+ *      The value of the hash table entry (\c uint64_t).
+ */
 #define MKENTRY(mk, p)          (((uint64_t)mk << 48) | ADDR((uint64_t)p))
+
+/**
+ * Check if a hash table entry is a chain pointer to another cache line.
+ * \param[in] c
+ *      A pointer to the cache line (\c cacheline*).
+ * \param[in] x
+ *      The offset of the hash table entry in \a c (\c uint32_t). This should
+ *      be 7.
+ * \return
+ *      Whether the hash table entry has a chain pointer to another cache line
+ *      (as opposed to a Log pointer to an object; \c uint64_t).
+ * \retval zero
+ *      It is not a chain pointer.
+ * \retval nonzero
+ *      It is a chain pointer.
+ */
 #define ISCHAIN(c,x)            (c->keys[x] &  (0x1ULL << 47))
+
+/**
+ * Get the chain pointer to another cache line from a hash table entry.
+ * The caller should have previously ensured that #ISCHAIN() on the same
+ * arguments is true.
+ * \param[in] c
+ *      A pointer to the cache line (\c cacheline*).
+ * \param[in] x
+ *      The offset of the hash table entry in \a c (\c uint32_t). This should
+ *      be 7.
+ * \return
+ *      The chain pointer to another cache line (\c uint64_t).
+ */
 #define GETCHAINPTR(c,x)        (c->keys[x] & ~(0x1ULL << 47))
+
+/**
+ * Pack a chained cache line pointer as a hash table entry.
+ * \param[in] x
+ *      The pointer to the next cache line (\c uint64_t or pointer).
+ * \return
+ *      The value of the hash table entry (\c uint64_t).
+ */
 #define MKCHAINPTR(x)           ((uint64_t)x | (0x1ULL << 47))
+
+/**
+ * Test whether a Log pointer is safe to pack in a hash table entry.
+ * \param[in] x
+ *      The Log pointer (\c uint64_t or pointer).
+ * \return
+ *      Whether \a x is safe to pack in a hash table entry (\c bool).
+ */
 #define ISGOODPTR(x)            (((x) & 0xffff800000000000ULL) == 0)
 
 void
