@@ -39,7 +39,11 @@ Buffer::Buffer() : chunksUsed(0), chunksAvail(INITIAL_CHUNK_ARR_SIZE),
 Buffer::~Buffer() {
     // TODO(aravindn): Come up with a better memory deallocation strategy.
     if (chunksAvail != INITIAL_CHUNK_ARR_SIZE) free(chunks);
-    free(extraBufs);
+    if (extraBufs != NULL) {
+        for (int i = 0; i < extraBufsUsed; ++i)
+            free(extraBufs[i]);
+        free(extraBufs);
+    }
 }
 
 /**
