@@ -15,6 +15,11 @@
 
 // RAMCloud pragma [CPPLINT=0]
 
+/**
+ * \file
+ * Implementation for Hashtable.
+ */
+
 #include <Hashtable.h>
 
 #include <Common.h>
@@ -111,6 +116,14 @@ namespace RAMCloud {
  */
 #define ISGOODPTR(x)            (((x) & 0xffff800000000000ULL) == 0)
 
+
+/**
+ * Update the distribution statistics for the number of cycles for a
+ * #LookupKeyPtr() operation.
+ * See #buckets, #oflowbucket, #min_ticks, #max_ticks.
+ * \param[in] ticks
+ *      The number of cycles used for a #LookupKeyPtr() operation.
+ */
 void
 Hashtable::StoreSample(uint64_t ticks)
 {
@@ -125,6 +138,14 @@ Hashtable::StoreSample(uint64_t ticks)
         max_ticks = ticks;
 }
 
+/**
+ * Allocate an aligned chunk of memory.
+ * \param[in] len
+ *      The size of the memory chunk to allocate.
+ * \return
+ *      A pointer to the newly allocated memory chunk. This is guaranteed to
+ *      not be \c NULL.
+ */
 void *
 Hashtable::MallocAligned(uint64_t len)
 {
@@ -132,6 +153,15 @@ Hashtable::MallocAligned(uint64_t len)
         xmalloc_aligned_hugetlb(len) : xmalloc_aligned_xmalloc(len);
 }
 
+/**
+ * Take the hashes of an object ID.
+ * \param[in] key
+ *      The object ID to hash.
+ * \param[out] hash
+ *      The main hash used to select a bucket.
+ * \param[out] mkhash
+ *      Additional hash bits used to disambiguate entries in the same bucket.
+ */
 static inline void
 hash(uint64_t key, uint64_t *hash, uint16_t *mkhash)
 {
@@ -153,8 +183,8 @@ hash(uint64_t key, uint64_t *hash, uint16_t *mkhash)
  */
 Hashtable::Hashtable(uint64_t nlines)
     : table(0), table_lines(nlines), use_huge_tlb(false), ins_total(0),
-    lup_total(0), ins_nexts(0), lup_nexts(0), lup_mkfails(0), p2buckets(0),
-    oflowbucket(0), min_ticks(~0), max_ticks(0)
+    lup_total(0), ins_nexts(0), lup_nexts(0), lup_mkfails(0), oflowbucket(0),
+    min_ticks(~0), max_ticks(0)
 {
     // Allocate space for a new hash table and fill it with UNUSED entries.
     uint64_t i, j;
@@ -170,6 +200,8 @@ Hashtable::Hashtable(uint64_t nlines)
 
 /**
  * Find a hash table entry for a given key.
+ * This is used in #Lookup(), #Delete(), and #Replace() to find the hash table
+ * entry to operate on.
  * \param[in] key
  *      The ID of the object for which to locate the hash table entry.
  * \return
