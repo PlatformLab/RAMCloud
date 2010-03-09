@@ -24,14 +24,168 @@
 
 namespace RAMCloud {
 
+/**
+ * Unit tests for Hashtable::Entry.
+ */
+class HashtableEntryTest : public CppUnit::TestFixture {
+
+    //Hashtable::Entry entries[10];
+
+    DISALLOW_COPY_AND_ASSIGN(HashtableEntryTest); // NOLINT
+
+    CPPUNIT_TEST_SUITE(HashtableEntryTest);
+    CPPUNIT_TEST(test_size);
+    CPPUNIT_TEST(test_pack);
+    CPPUNIT_TEST(test_clear);
+    CPPUNIT_TEST(test_setLogPointer);
+    CPPUNIT_TEST(test_setChainPointer);
+    CPPUNIT_TEST(test_isAvailable);
+    CPPUNIT_TEST(test_getLogPointer);
+    CPPUNIT_TEST(test_getChainPointer);
+    CPPUNIT_TEST(test_hashMatches);
+    CPPUNIT_TEST(test_isChainLink);
+    CPPUNIT_TEST_SUITE_END();
+
+    static bool
+    packable(uint64_t hash, bool chain, uint64_t ptr)
+    {
+        Hashtable::Entry e;
+
+        Hashtable::Entry::UnpackedEntry in;
+        Hashtable::Entry::UnpackedEntry out;
+
+        in.hash = hash;
+        in.chain = chain;
+        in.ptr = reinterpret_cast<void*>(ptr);
+
+        e.pack(in.hash, in.chain, in.ptr);
+        out = e.unpack();
+
+        return (in.hash == out.hash &&
+                in.chain == out.chain &&
+                in.ptr == out.ptr);
+    }
+
+  public:
+    HashtableEntryTest() {}
+
+    void test_size()
+    {
+        CPPUNIT_ASSERT(8 == sizeof(Hashtable::Entry));
+    }
+
+    void test_pack()
+    {
+        CPPUNIT_ASSERT(packable(0x0000UL, false, 0x000000000000UL));
+        CPPUNIT_ASSERT(packable(0xffffUL, true,  0x7fffffffffffUL));
+        CPPUNIT_ASSERT(packable(0xffffUL, false, 0x7fffffffffffUL));
+        CPPUNIT_ASSERT(packable(0xa257UL, false, 0x3cdeadbeef98UL));
+    }
+
+    void test_clear()
+    {
+        Hashtable::Entry e;
+        e.value = 0xdeadbeefdeadbeefUL;
+        e.clear();
+        Hashtable::Entry::UnpackedEntry out;
+        out = e.unpack();
+        CPPUNIT_ASSERT_EQUAL(0UL, out.hash);
+        CPPUNIT_ASSERT_EQUAL(false, out.chain);
+        CPPUNIT_ASSERT_EQUAL((void*) NULL, out.ptr);
+    }
+
+    void test_setLogPointer()
+    {
+        Hashtable::Entry e;
+        e.value = 0xdeadbeefdeadbeefUL;
+        e.setLogPointer(0xaaaaUL, (void*) 0x7fffffffffffUL);
+        Hashtable::Entry::UnpackedEntry out;
+        out = e.unpack();
+        CPPUNIT_ASSERT_EQUAL(0xaaaaUL, out.hash);
+        CPPUNIT_ASSERT_EQUAL(false, out.chain);
+        CPPUNIT_ASSERT_EQUAL((void*) 0x7fffffffffffUL, out.ptr);
+    }
+
+    void test_setChainPointer()
+    {
+        Hashtable::Entry e;
+        e.value = 0xdeadbeefdeadbeefUL;
+        e.setChainPointer((Hashtable::cacheline*) 0x7fffffffffffUL);
+        Hashtable::Entry::UnpackedEntry out;
+        out = e.unpack();
+        CPPUNIT_ASSERT_EQUAL(0UL, out.hash);
+        CPPUNIT_ASSERT_EQUAL(true, out.chain);
+        CPPUNIT_ASSERT_EQUAL((void*) 0x7fffffffffffUL, out.ptr);
+    }
+
+    void test_isAvailable()
+    {
+        Hashtable::Entry e;
+        e.clear();
+        CPPUNIT_ASSERT(e.isAvailable());
+        e.setChainPointer((Hashtable::cacheline*) 0x1UL);
+        CPPUNIT_ASSERT(!e.isAvailable());
+        e.setLogPointer(0UL, (void*) 0x1UL);
+        CPPUNIT_ASSERT(!e.isAvailable());
+        e.clear();
+        CPPUNIT_ASSERT(e.isAvailable());
+    }
+
+    void test_getLogPointer()
+    {
+        Hashtable::Entry e;
+        e.setLogPointer(0xaaaaUL, (void*) 0x7fffffffffffUL);
+        CPPUNIT_ASSERT_EQUAL((void*) 0x7fffffffffffUL, e.getLogPointer());
+    }
+
+    void test_getChainPointer()
+    {
+        Hashtable::Entry e;
+        e.setChainPointer((Hashtable::cacheline*) 0x7fffffffffffUL);
+        CPPUNIT_ASSERT_EQUAL((Hashtable::cacheline*) 0x7fffffffffffUL,
+                             e.getChainPointer());
+    }
+
+    void test_hashMatches()
+    {
+        Hashtable::Entry e;
+        e.clear();
+        CPPUNIT_ASSERT(!e.hashMatches(0UL));
+        e.setChainPointer((Hashtable::cacheline*) 0x1UL);
+        CPPUNIT_ASSERT(!e.hashMatches(0UL));
+        e.setLogPointer(0UL, (void*) 0x1UL);
+        CPPUNIT_ASSERT(e.hashMatches(0UL));
+        CPPUNIT_ASSERT(!e.hashMatches(0xbeefUL));
+        e.setLogPointer(0xbeefUL, (void*) 0x1UL);
+        CPPUNIT_ASSERT(!e.hashMatches(0UL));
+        CPPUNIT_ASSERT(e.hashMatches(0xbeefUL));
+        CPPUNIT_ASSERT(!e.hashMatches(0xfeedUL));
+    }
+
+    void test_isChainLink()
+    {
+        Hashtable::Entry e;
+        e.clear();
+        CPPUNIT_ASSERT(!e.isChainLink());
+        e.setChainPointer((Hashtable::cacheline*) 0x1UL);
+        CPPUNIT_ASSERT(e.isChainLink());
+        e.setLogPointer(0UL, (void*) 0x1UL);
+        CPPUNIT_ASSERT(!e.isChainLink());
+    }
+
+};
+CPPUNIT_TEST_SUITE_REGISTRATION(HashtableEntryTest);
+
 class HashtableTest : public CppUnit::TestFixture {
   public:
     void setUp();
     void tearDown();
+    void TestSizes();
     void TestSimple();
     void TestMain();
   private:
     CPPUNIT_TEST_SUITE(HashtableTest);
+    CPPUNIT_TEST(TestSizes);
     CPPUNIT_TEST(TestSimple);
     CPPUNIT_TEST(TestMain);
     CPPUNIT_TEST_SUITE_END();
@@ -50,6 +204,15 @@ void
 HashtableTest::tearDown()
 {
     delete ht;
+}
+
+void
+HashtableTest::TestSizes()
+{
+    // We're specifically aiming to fit in a cache line.
+    CPPUNIT_ASSERT(8 == sizeof(Hashtable::Entry));
+    CPPUNIT_ASSERT(8 * Hashtable::ENTRIES_PER_CACHE_LINE ==
+                   sizeof(Hashtable::cacheline));
 }
 
 void

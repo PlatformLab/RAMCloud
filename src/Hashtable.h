@@ -43,9 +43,9 @@ namespace RAMCloud {
  * The Hashtable is an array of buckets, indexed by the hash of the object ID.
  * Each bucket consists of one or more chained cache lines, the first of which
  * lives inline in the array of buckets. Each cache line consists of several
- * hash table entries (in no particular order), which contain additional bits
- * from the hash function to disambiguate most bucket collisions and a pointer
- * to the latest version of the object in the Log.
+ * hash table entries (Entry) in no particular order, which contain additional
+ * bits from the hash function to disambiguate most bucket collisions and a
+ * pointer to the latest version of the object in the Log.
  *
  * If there are too many hash table entries to fit the bucket's first cache
  * line, additional cache lines are allocated (outside of the array of
@@ -99,14 +99,82 @@ public:
     uint64_t GetMaxTicks() { return max_ticks; }
 
 private:
-    uint64_t *LookupKeyPtr(uint64_t key);
+    class Entry;
+    Entry *LookupKeyPtr(uint64_t key);
     void StoreSample(uint64_t ticks);
     void *MallocAligned(uint64_t len);
 
     /**
-     * The number of hash table entries in a cache line.
+     * The number of hash table entries (Entry) in a cache line.
      */
     static const uint32_t ENTRIES_PER_CACHE_LINE = 8;
+
+    struct cacheline;
+
+    /**
+     * A hash table entry.
+     *
+     * Hash table entries live on cache lines.
+     *
+     * A normal hash table entry (see #setLogPointer(), #getLogPointer(), and
+     * #hashMatches()) consists of additional bits from the hash function on
+     * the object ID to disambiguate most bucket collisions and a pointer into
+     * the Log where the latest version of the object lives. In this case, its
+     * chain bit will not be set and its pointer will not be \c NULL.
+     *
+     * A chaining hash table entry (see #setChainPointer(), #getChainPointer(),
+     * and #isChainLink()) instead consists of a pointer to another cache line
+     * where additional entries can be found. In this case, its chain bit will
+     * be set.
+     *
+     * A hash table entry can also be unused (see #clear() and #isAvailable()).
+     * In this case, its pointer will be set to \c NULL.
+     */
+    class Entry {
+
+      public:
+        void clear();
+        void setLogPointer(uint64_t hash, void *ptr);
+        void setChainPointer(cacheline *ptr);
+        bool isAvailable();
+        void* getLogPointer();
+        cacheline* getChainPointer();
+        bool hashMatches(uint64_t hash);
+        bool isChainLink();
+
+      private:
+        /**
+         * The packed value stored in the entry.
+         *
+         * The exact bits are, from MSB to LSB:
+         * \li 16 bits of a hash
+         * \li 1 bit for whether the pointer is a chain
+         * \li 47 bits for the pointer
+         *
+         * The main reason why it's not a struct with bit fields is that we'll
+         * probably want to use atomic operations to set it eventually.
+         *
+         * Because the exact format is subject to change, you should always set
+         * this using #pack() and access its contained fields using #unpack().
+         */
+        uint64_t value;
+
+        void pack(uint64_t hash, bool chain, void *ptr);
+
+        /**
+         * This is the return type of #unpack().
+         * See the parameters of #pack() for an explanation.
+         */
+        struct UnpackedEntry {
+            uint64_t hash;
+            bool chain;
+            void *ptr;
+        };
+
+        UnpackedEntry unpack();
+
+        friend class HashtableEntryTest;
+    };
 
     /**
      * A cache line, part of a hash table bucket and composed of hash table
@@ -118,7 +186,7 @@ private:
          * The final hash table entry may be a chain pointer to another cache
          * line. See Hashtable for more info.
          */
-        uint64_t keys[ENTRIES_PER_CACHE_LINE];
+        Entry entries[ENTRIES_PER_CACHE_LINE];
     };
 
     /**
@@ -200,6 +268,7 @@ private:
      */
     uint64_t max_ticks;
 
+    friend class HashtableEntryTest;
     friend class HashtableTest;
     DISALLOW_COPY_AND_ASSIGN(Hashtable);
 };

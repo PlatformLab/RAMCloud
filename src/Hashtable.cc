@@ -34,87 +34,146 @@
 namespace RAMCloud {
 
 /**
- * The value for an unused hash table entry.
+ * Replaces this hash table entry.
+ * \param[in] hash
+ *      The additional hash bits from the object ID.
+ * \param[in] chain
+ *      Whether \a ptr is a chain pointer as opposed to a Log pointer.
+ * \param[in] ptr
+ *      The chain pointer to the next cache line or the Log pointer
+ *      where the object is located (determined by \a chain).
  */
-#define UNUSED                  ((uint64_t)0)
+void
+Hashtable::Entry::pack(uint64_t hash, bool chain, void *ptr)
+{
+    if (ptr == NULL)
+        assert(hash == 0 && !chain);
+
+    uint64_t c = chain ? 1 : 0;
+    uint64_t p = reinterpret_cast<uint64_t>(ptr);
+    assert((hash & ~(0x000000000000ffffUL)) == 0);
+    assert((p    & ~(0x00007fffffffffffUL)) == 0);
+    this->value = ((hash << 48)  | (c << 47) | p);
+}
 
 /**
- * Extract the Log pointer from a hash table entry.
- * \param[in] x
- *      The value of the hash table entry (\c uint64_t).
+ * Reads the contents of this hash table entry.
  * \return
- *      The Log pointer stored in a hash table entry (\c uint64_t).
+ *      The extracted values. See UnpackedEntry.
  */
-#define ADDR(x)                 (x & 0x0000ffffffffffffULL)
+Hashtable::Entry::UnpackedEntry Hashtable::Entry::unpack() {
+    UnpackedEntry ue;
+    ue.hash    = (this->value >> 48) & 0x000000000000ffffUL;
+    ue.chain   = (this->value >> 47) & 0x0000000000000001UL;
+    uint64_t p = this->value         & 0x00007fffffffffffUL;
+    ue.ptr   = reinterpret_cast<void*>(p);
+    return ue;
+}
 
 /**
- * Extract the additional hash bits stored in the hash table entry.
- * \param[in] x
- *      The value of the hash table entry (\c uint64_t).
+ * Reinitialize a hash table entry as unused.
+ */
+void
+Hashtable::Entry::clear()
+{
+    pack(0, false, NULL);
+}
+
+/**
+ * Reinitialize a regular hash table entry.
+ * \param[in] hash
+ *      The additional hash bits from the object ID.
+ * \param[in] ptr
+ *      The Log pointer where the object is located. Must not be \c NULL.
+ */
+void
+Hashtable::Entry::setLogPointer(uint64_t hash, void *ptr)
+{
+    assert(ptr != NULL);
+    pack(hash, false, ptr);
+}
+
+/**
+ * Reinitialize a hash table entry as a chain link.
+ * \param[in] ptr
+ *      The pointer to the next cache line. Must not be \c NULL.
+ */
+void
+Hashtable::Entry::setChainPointer(cacheline *ptr)
+{
+    assert(ptr != NULL);
+    pack(0, true, ptr);
+}
+
+/**
  * \return
- *      The additional hash bits (\c uint64_t).
+ *      Whether a hash table entry is unused.
  */
-#define GETMINIKEY(x)           (x >> 48)
+bool
+Hashtable::Entry::isAvailable()
+{
+    UnpackedEntry ue = unpack();
+    return (ue.ptr == NULL);
+}
+
 
 /**
- * Pack a hash table entry.
- * \param[in] mk
- *      The additional hash bits from the key (\c uint64_t).
- * \param[in] p
- *      The Log pointer where the object is located (\c uint64_t or pointer).
+ * Extract the Log pointer.
+ * The caller must first verify that the hash table entry indeed stores a log
+ * pointer with #hashMatches() or #isChainLink().
  * \return
- *      The value of the hash table entry (\c uint64_t).
+ *      The Log pointer stored in a hash table entry.
  */
-#define MKENTRY(mk, p)          (((uint64_t)mk << 48) | ADDR((uint64_t)p))
+void*
+Hashtable::Entry::getLogPointer()
+{
+    UnpackedEntry ue = unpack();
+    assert(!ue.chain && ue.ptr != NULL);
+    return ue.ptr;
+}
 
 /**
- * Check if a hash table entry is a chain pointer to another cache line.
- * \param[in] c
- *      A pointer to the cache line (\c cacheline*).
- * \param[in] x
- *      The offset of the hash table entry in \a c (\c uint32_t). This should
- *      be <tt>ENTRIES_PER_CACHE_LINE - 1</tt>.
+ * Extract the chain pointer to another cache line.
+ * The caller should have previously ensured that the hash table entry indeed
+ * stores a chain pointer with #isChainLink().
+ * \return
+ *      The chain pointer to another cache line.
+ */
+Hashtable::cacheline*
+Hashtable::Entry::getChainPointer()
+{
+    UnpackedEntry ue = unpack();
+    assert(ue.chain);
+    return static_cast<cacheline*>(ue.ptr);
+}
+
+/**
+ * Check whether the additional hash bits stored match those given.
+ * \param[in] hash
+ *      The additional hash bits from the object ID to test.
+ * \return
+ *      Whether the hash table entry holds a Log pointer and the additional
+ *      hash bits for the object pointed to match \a hash.
+ */
+bool
+Hashtable::Entry::hashMatches(uint64_t hash)
+{
+    UnpackedEntry ue = unpack();
+    return (!ue.chain && ue.ptr != NULL && ue.hash == hash);
+}
+
+/**
+ * Check whether this hash table entry has a chain pointer to another cache line.
  * \return
  *      Whether the hash table entry has a chain pointer to another cache line
- *      (as opposed to a Log pointer to an object; \c uint64_t).
- * \retval zero
- *      It is not a chain pointer.
- * \retval nonzero
- *      It is a chain pointer.
+ *      (as opposed to a Log pointer to an object).
  */
-#define ISCHAIN(c,x)            (c->keys[x] &  (0x1ULL << 47))
-
-/**
- * Get the chain pointer to another cache line from a hash table entry.
- * The caller should have previously ensured that #ISCHAIN() on the same
- * arguments is true.
- * \param[in] c
- *      A pointer to the cache line (\c cacheline*).
- * \param[in] x
- *      The offset of the hash table entry in \a c (\c uint32_t). This should
- *      be <tt>ENTRIES_PER_CACHE_LINE - 1</tt>.
- * \return
- *      The chain pointer to another cache line (\c uint64_t).
- */
-#define GETCHAINPTR(c,x)        (c->keys[x] & ~(0x1ULL << 47))
-
-/**
- * Pack a chained cache line pointer as a hash table entry.
- * \param[in] x
- *      The pointer to the next cache line (\c uint64_t or pointer).
- * \return
- *      The value of the hash table entry (\c uint64_t).
- */
-#define MKCHAINPTR(x)           ((uint64_t)x | (0x1ULL << 47))
-
-/**
- * Test whether a Log pointer is safe to pack in a hash table entry.
- * \param[in] x
- *      The Log pointer (\c uint64_t or pointer).
- * \return
- *      Whether \a x is safe to pack in a hash table entry (\c bool).
- */
-#define ISGOODPTR(x)            (((x) & 0xffff800000000000ULL) == 0)
+bool
+Hashtable::Entry::isChainLink()
+{
+    UnpackedEntry ue = unpack();
+    return ue.chain;
+}
 
 
 /**
@@ -186,7 +245,7 @@ Hashtable::Hashtable(uint64_t nlines)
     lup_total(0), ins_nexts(0), lup_nexts(0), lup_mkfails(0), oflowbucket(0),
     min_ticks(~0), max_ticks(0)
 {
-    // Allocate space for a new hash table and fill it with UNUSED entries.
+    // Allocate space for a new hash table and set its entries to unused.
     uint64_t i, j;
 
     table = static_cast<cacheline *>(MallocAligned(table_lines *
@@ -194,7 +253,7 @@ Hashtable::Hashtable(uint64_t nlines)
 
     for (i = 0; i < table_lines; i++) {
         for (j = 0; j < ENTRIES_PER_CACHE_LINE; j++)
-            table[i].keys[j] = UNUSED;
+            table[i].entries[j].clear();
     }
 }
 
@@ -208,7 +267,7 @@ Hashtable::Hashtable(uint64_t nlines)
  *      The pointer to the hash table entry, or \a NULL if there is no such
  *      hash table entry.
  */
-uint64_t *
+Hashtable::Entry *
 Hashtable::LookupKeyPtr(uint64_t key)
 {
     uint64_t b = rdtsc();
@@ -223,20 +282,19 @@ Hashtable::LookupKeyPtr(uint64_t key)
     while (1) {
 
         // Try this cache line.
-        uint64_t *kp = cl->keys;
+        Entry *kp = cl->entries;
         for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, kp++) {
 
-            if (*kp != UNUSED && GETMINIKEY(*kp) == mk) {
+            if (kp->hashMatches(mk)) {
                 // The hash within the hash table entry matches, so with high
                 // probability this is the pointer we're looking for. To check,
                 // we assume the object stores its key in the first 64 bits and
                 // see if that matches our key.
-                uint64_t *obj = (uint64_t *)ADDR(*kp);
+                uint64_t *obj = (uint64_t *) kp->getLogPointer();
                 if (*obj == key) {
                     uint64_t diff = rdtsc() - b;
                     lup_total += diff;
                     StoreSample(diff);
-                    assert(ISGOODPTR((uint64_t)kp));
                     return kp;
                 } else {
                     lup_mkfails++;
@@ -246,14 +304,14 @@ Hashtable::LookupKeyPtr(uint64_t key)
 
         // Not found in this cache line, see if there's a chain to another
         // cache line.
-        if (!ISCHAIN(cl, ENTRIES_PER_CACHE_LINE - 1)) {
+        if (!cl->entries[ENTRIES_PER_CACHE_LINE - 1].isChainLink()) {
             uint64_t diff = rdtsc() - b;
             lup_total += diff;
             StoreSample(diff);
             return NULL;
         }
 
-        cl = (cacheline *)GETCHAINPTR(cl, ENTRIES_PER_CACHE_LINE - 1);
+        cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
         lup_nexts++;
     }
 }
@@ -269,8 +327,8 @@ Hashtable::LookupKeyPtr(uint64_t key)
 void *
 Hashtable::Lookup(uint64_t key)
 {
-    uint64_t *kp = LookupKeyPtr(key);
-    return kp ? (void *) ADDR(*kp) : NULL;
+    Entry *kp = LookupKeyPtr(key);
+    return kp ? kp->getLogPointer() : NULL;
 }
 
 /**
@@ -282,10 +340,10 @@ Hashtable::Lookup(uint64_t key)
  */
 bool
 Hashtable::Delete(uint64_t key) {
-    uint64_t *kp = LookupKeyPtr(key);
+    Entry *kp = LookupKeyPtr(key);
     if (!kp)
         return false;
-    *kp = UNUSED;
+    kp->clear();
     return true;
 }
 
@@ -306,11 +364,11 @@ bool
 Hashtable::Replace(uint64_t key, void *ptr) {
     uint64_t h;
     uint16_t mk;
-    uint64_t *kp = LookupKeyPtr(key);
+    Entry *kp = LookupKeyPtr(key);
     if (!kp)
         return false;
     hash(key, &h, &mk);
-    *kp = MKENTRY(mk, ptr);
+    kp->setLogPointer(mk, ptr);
     return true;
 }
 
@@ -330,33 +388,30 @@ Hashtable::Insert(uint64_t key, void *ptr)
     uint16_t mk;
     unsigned int i;
 
-    assert(ISGOODPTR((uint64_t)ptr));
-
     hash(key, &h, &mk);
     cacheline *cl = &table[h % table_lines];
 
     while (1) {
-        uint64_t *kp = cl->keys;
+        Entry *kp = cl->entries;
         for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, kp++) {
-            if (*kp == UNUSED) {
-                *kp = MKENTRY(mk, ptr);
+            if (kp->isAvailable()) {
+                kp->setLogPointer(mk, ptr);
                 ins_total += (rdtsc() - b);
                 return;
             }
         }
 
         // no empty space found, allocate a new cache line
-        if (!ISCHAIN(cl, ENTRIES_PER_CACHE_LINE - 1)) {
+        if (!cl->entries[ENTRIES_PER_CACHE_LINE - 1].isChainLink()) {
             cacheline *ncl =
                 static_cast<cacheline *>(MallocAligned(sizeof(cacheline)));
-            ncl->keys[0] = cl->keys[ENTRIES_PER_CACHE_LINE - 1];
+            ncl->entries[0] = cl->entries[ENTRIES_PER_CACHE_LINE - 1];
             for (i = 1; i < ENTRIES_PER_CACHE_LINE; i++)
-                ncl->keys[i] = UNUSED;
-            cl->keys[ENTRIES_PER_CACHE_LINE - 1] = MKCHAINPTR(ncl);
+                ncl->entries[i].clear();
+            cl->entries[ENTRIES_PER_CACHE_LINE - 1].setChainPointer(ncl);
         }
 
-        uint64_t clp = GETCHAINPTR(cl, ENTRIES_PER_CACHE_LINE - 1);
-        cl = reinterpret_cast<cacheline *>(clp);
+        cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
         ins_nexts++;
     }
 }
