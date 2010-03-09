@@ -40,7 +40,7 @@ Buffer::~Buffer() {
     // TODO(aravindn): Come up with a better memory deallocation strategy.
     if (chunksAvail != INITIAL_CHUNK_ARR_SIZE) free(chunks);
     if (extraBufs != NULL) {
-        for (int i = 0; i < extraBufsUsed; ++i)
+        for (uint32_t i = 0; i < extraBufsUsed; ++i)
             free(extraBufs[i]);
         free(extraBufs);
     }
