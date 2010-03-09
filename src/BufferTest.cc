@@ -14,8 +14,7 @@
  */
 
 /**
- * \file
- * Unit tests for Buffer.
+ * \file Unit tests for Buffer.
  */
 
 #include <string.h>
@@ -40,14 +39,12 @@ class BufferTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_append_allocateMoreChunks);
     CPPUNIT_TEST(test_append_normal);
 
-    CPPUNIT_TEST(test_peek_lengthZero);
     CPPUNIT_TEST(test_peek_normal);
-    CPPUNIT_TEST(test_peek_spanningChunks);
     CPPUNIT_TEST(test_peek_offsetGreaterThanTotalLength);
 
-    CPPUNIT_TEST(test_read_inputEdgeCases);
-    CPPUNIT_TEST(test_read_peek);
-    CPPUNIT_TEST(test_read_copy);    
+    CPPUNIT_TEST(test_getRange_inputEdgeCases);
+    CPPUNIT_TEST(test_getRange_peek);
+    CPPUNIT_TEST(test_getRange_copy);
 
     CPPUNIT_TEST(test_copy_lengthZero);
     CPPUNIT_TEST(test_copy_spanningChunks);
@@ -62,18 +59,49 @@ class BufferTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST(test_allocateMoreChunks);
 
+    CPPUNIT_TEST(test_allocateMoreExtraBufs);
+
     CPPUNIT_TEST(test_totalLength);
 
     CPPUNIT_TEST_SUITE_END();
 
-    char testString[10];
+    char testStr[30];
+    char testStr1[10];
+    char testStr2[10];
+    char testStr3[10];
+    char cmpBuf[30];    // To use for strcmp at the end of a test.
+    Buffer *buf;
 
   public:
-    BufferTest() { memcpy(testString, "0123456789", 10); }
+    BufferTest() {
+        memcpy(testStr, "0123456789abcdefghijklmnopqrs\0", 30);
+        memcpy(testStr1, "0123456789", 10);
+        memcpy(testStr2, "abcdefghij", 10);
+        memcpy(testStr3, "klmnopqrs\0", 10);
+    }
 
-    void setUp() { }
+    void setUp() {
+        // Don't want to use append, since we are testing that separately. So,
+        // manually adding chunks.
+        buf = new Buffer();
+        Buffer::Chunk* c = buf->chunks;
 
-    void tearDown() { }
+        c->data = testStr1;
+        c->len = 10;
+        c++;
+
+        c->data = testStr2;
+        c->len = 10;
+        c++;
+
+        c->data = testStr3;
+        c->len = 10;
+
+        buf->chunksUsed = 3;
+        buf->totalLen = 30;
+    }
+
+    void tearDown() { delete buf; }
 
     void test_constructor() {
         // Basic sanity checks for the constructor.
@@ -81,330 +109,207 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunksUsed);
         CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.chunksAvail);
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.totalLen);
-        CPPUNIT_ASSERT(b.bufRead == NULL);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.bufReadSize);
+        CPPUNIT_ASSERT(b.extraBufs == NULL);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.extraBufsAvail);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.extraBufsUsed);
         CPPUNIT_ASSERT(b.chunks != NULL);
     }
 
     void test_prepend_zero() {
         Buffer b;
-        char buf[10];
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
 
-        b.prepend(buf, 0);
-        b.prepend(buf, 10);
+        b.prepend(testStr1, 0);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunksUsed);
 
-        // TODO(aravindn): How do we test assert(NULL)? Perform same test in
-        // test_appendZero().
+        b.prepend(testStr3, 10);
+        b.prepend(testStr2, 10);
+        b.prepend(testStr1, 10);
 
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunks[1].size);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 3, b.chunksUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 30, b.totalLen);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 30, b.copy(0, 30, cmpBuf));
+        CPPUNIT_ASSERT_EQUAL(0, strcmp(cmpBuf, testStr));
     }
 
     void test_prepend_allocateMoreChunks() {
         Buffer b;
-        char buf[150];
+        char tmpBuf[150];
         int i;
 
         for (i = 0; i < 15; ++i) {
-            CPPUNIT_ASSERT(memcpy(buf + (i*10), testString, 10));
-            b.prepend(buf + (i*10), 10);
+            CPPUNIT_ASSERT(memcpy(tmpBuf + (i*10), testStr, 10));
+            b.prepend(tmpBuf + (i*10), 10);
         }
 
         CPPUNIT_ASSERT_EQUAL((uint32_t) 15, b.chunksUsed);
         CPPUNIT_ASSERT_EQUAL((uint32_t) 20, b.chunksAvail);
 
         for (i = 0; i < 15; ++i)
-            CPPUNIT_ASSERT(!memcmp(b.chunks[i].ptr, buf + (i*10), 10));
+            CPPUNIT_ASSERT(!memcmp(b.chunks[i].data, tmpBuf + (i*10), 10));
     }
 
     void test_prepend_normal() {
         Buffer b;
-        char buf[10];
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-        b.prepend(buf, 10);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 1, b.chunksUsed);
-        CPPUNIT_ASSERT(!memcmp(b.chunks[0].ptr, buf, 10));
-
-        b.prepend(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-        CPPUNIT_ASSERT(!memcmp(b.chunks[0].ptr, buf+2, 5));
+        b.prepend(testStr3, 10);
+        b.prepend(testStr2, 10);
+        b.prepend(testStr1, 10);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 3, b.chunksUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 30, b.copy(0, 30, cmpBuf));
+        CPPUNIT_ASSERT_EQUAL(0, strcmp(cmpBuf, testStr));
     }
 
     void test_append_zero() {
         Buffer b;
-        char buf[10];
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
 
-        b.append(buf, 0);
-        b.append(buf, 10);
-        
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunks[0].size);
+        b.append(testStr1, 0);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunksUsed);
+
+        b.append(testStr1, 10);
+        b.append(testStr2, 10);
+        b.append(testStr3, 10);
+
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 3, b.chunksUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 30, b.totalLength());
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 30, b.copy(0, 30, cmpBuf));
+        CPPUNIT_ASSERT_EQUAL(0, strcmp(cmpBuf, testStr));
     }
 
     void test_append_allocateMoreChunks() {
         Buffer b;
-        char buf[150];
+        char tmpBuf[150];
         int i;
 
         for (i = 0; i < 15; ++i) {
-            CPPUNIT_ASSERT(memcpy(buf + (i*10), testString, 10));
-            b.prepend(buf + (i*10), 10);
+            CPPUNIT_ASSERT(memcpy(tmpBuf + (i*10), testStr, 10));
+            b.prepend(tmpBuf + (i*10), 10);
         }
 
         CPPUNIT_ASSERT_EQUAL((uint32_t) 15, b.chunksUsed);
         CPPUNIT_ASSERT_EQUAL((uint32_t) 20, b.chunksAvail);
 
         for (i = 0; i < 15; ++i)
-            CPPUNIT_ASSERT(!memcmp(b.chunks[i].ptr, buf + (i*10), 10));
+            CPPUNIT_ASSERT(!memcmp(b.chunks[i].data, tmpBuf + (i*10), 10));
     }
 
     void test_append_normal() {
         Buffer b;
-        char buf[10];
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-        b.prepend(buf, 10);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 1, b.chunksUsed);
-        CPPUNIT_ASSERT(!memcmp(b.chunks[0].ptr, buf, 10));
-
-        b.prepend(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-        CPPUNIT_ASSERT(!memcmp(b.chunks[0].ptr, buf+2, 5));
-    }
-
-    void test_peek_lengthZero() {
-        void *ret_val;
-        Buffer b;
-        char buf[10];
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.peek(0, 0, &ret_val));
+        b.append(testStr1, 10);
+        b.append(testStr2, 10);
+        b.append(testStr3, 10);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 3, b.chunksUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 30, b.copy(0, 30, cmpBuf));
+        CPPUNIT_ASSERT_EQUAL(0, strcmp(cmpBuf, testStr));
     }
 
     void test_peek_normal() {
         void *ret_val;
-        Buffer b;
-        char buf[10];
-
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-
-        b.append(buf, 10);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 1, b.chunksUsed);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.peek(0, 10, &ret_val));
-        CPPUNIT_ASSERT(!memcmp(buf, ret_val, 10));
-
-        b.append(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 5, b.peek(10, 5, &ret_val));
-        CPPUNIT_ASSERT(!memcmp(buf+2, ret_val, 5));
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 8, b.peek(2, 8, &ret_val));
-        CPPUNIT_ASSERT(!memcmp(buf+2, ret_val, 8));
-    }
-
-    void test_peek_spanningChunks() {
-        void *ret_val;
-        Buffer b;
-        char buf[10];
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.peek(0, 100, &ret_val));
-        CPPUNIT_ASSERT(!memcmp(buf, ret_val, 10));
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 5, b.peek(10, 50, &ret_val));
-        CPPUNIT_ASSERT(!memcmp(buf+2, ret_val, 5));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, buf->peek(0, &ret_val));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, buf->peek(10, &ret_val));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 5, buf->peek(25, &ret_val));
     }
 
     void test_peek_offsetGreaterThanTotalLength() {
         void *ret_val;
-        Buffer b;
-        char buf[10];
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.peek(20, 10, &ret_val));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, buf->peek(28, &ret_val));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, buf->peek(50, &ret_val));
     }
 
-    void test_read_inputEdgeCases() {
-        void *ret_val;
-        Buffer b;
-        char buf[10];
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        b.append(buf+1, 6);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 3, b.chunksUsed);
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.read(100, 40, &ret_val));
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.read(22, 3, &ret_val));
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.read(2, 0, &ret_val));
+    void test_getRange_inputEdgeCases() {
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void*>(NULL),
+                             buf->getRange(100, 40));
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void*>(NULL),
+                             buf->getRange(24, 10));
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void*>(NULL),
+                             buf->getRange(2, 0));
     }
 
-    void test_read_peek() {
+    void test_getRange_peek() {
         void *ret_val;
-        Buffer b;
-        char buf[10];
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
 
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        b.append(buf+1, 6);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 3, b.chunksUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 3, buf->chunksUsed);
 
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.read(0, 10, &ret_val));
-        CPPUNIT_ASSERT(!b.bufRead);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.bufReadSize);
+        ret_val = buf->getRange(0, 10);
+        CPPUNIT_ASSERT(ret_val);
+        CPPUNIT_ASSERT(!buf->extraBufs);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, buf->extraBufsUsed);
+        CPPUNIT_ASSERT_EQUAL(0, memcmp(reinterpret_cast<char*>(ret_val),
+                                       testStr1, 10));
 
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 4, b.read(11, 4, &ret_val));
-        CPPUNIT_ASSERT(!b.bufRead);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.bufReadSize);
+        ret_val = buf->getRange(11, 5);
+        CPPUNIT_ASSERT(ret_val);
+        CPPUNIT_ASSERT(!buf->extraBufs);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, buf->extraBufsUsed);
+        CPPUNIT_ASSERT_EQUAL(0, memcmp(reinterpret_cast<char*>(ret_val),
+                                       testStr2+1, 9));
     }
 
-    void test_read_copy() {
+    void test_getRange_copy() {
         void *ret_val;
-        Buffer b;
-        char buf[10];
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
 
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        b.append(buf+1, 6);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 3, b.chunksUsed);
+        for (int i = 0; i < 15; ++i) {
+            ret_val = buf->getRange(0, 14);
+            CPPUNIT_ASSERT(buf->extraBufs);
+            CPPUNIT_ASSERT_EQUAL((uint32_t) i+1, buf->extraBufsUsed);
+            CPPUNIT_ASSERT_EQUAL(0, memcmp(reinterpret_cast<char*>(ret_val),
+                                           testStr1, 10));
+            CPPUNIT_ASSERT_EQUAL(0, memcmp(
+                reinterpret_cast<char*>(ret_val) + 10, testStr2, 4));
+        }
 
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 14, b.read(0, 14, &ret_val));
-        CPPUNIT_ASSERT(b.bufRead);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 14, b.bufReadSize);
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 11, b.read(10, 11, &ret_val));
-        CPPUNIT_ASSERT(b.bufRead);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 14+11, b.bufReadSize);
-    } 
+        ret_val = buf->getRange(45, 13);
+        CPPUNIT_ASSERT(ret_val == NULL);
+    }
 
     void test_copy_lengthZero() {
-        char dest[15];
-        char buf[10];
-        Buffer b;
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.copy(0, 0, dest));
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.copy(10, 0, dest));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, buf->copy(0, 0, cmpBuf));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, buf->copy(10, 0, cmpBuf));
     }
 
     void test_copy_normal() {
-        char dest[15];
-        char buf[10];
-        Buffer b;
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, buf->copy(0, 10, cmpBuf));
+        CPPUNIT_ASSERT(!memcmp(cmpBuf, testStr1, 10));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 5, buf->copy(10, 5, cmpBuf));
+        CPPUNIT_ASSERT(!memcmp(cmpBuf, testStr2, 5));
 
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.copy(0, 10, dest));
-        CPPUNIT_ASSERT(!memcmp(buf, dest, 10));
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 5, b.copy(10, 5, dest+10));
-        CPPUNIT_ASSERT(!memcmp(buf+2, dest+10, 5));
-    } 
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 30, buf->copy(0, 30, cmpBuf));
+        CPPUNIT_ASSERT_EQUAL(0, strcmp(cmpBuf, testStr));
+    }
 
     void test_copy_spanningChunks() {
-        char dest[15];
-        char buf[10];
-        Buffer b;
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 15, b.copy(0, 15, dest));
-        CPPUNIT_ASSERT(!memcmp(dest, buf, 10));
-        CPPUNIT_ASSERT(!memcmp(dest+10, buf+2, 5));
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 11, b.copy(4, 15, dest));
-        CPPUNIT_ASSERT(!memcmp(dest, buf+4, 6));
-        CPPUNIT_ASSERT(!memcmp(dest+6, buf+2, 5));
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.copy(3, 10, dest));
-        CPPUNIT_ASSERT(!memcmp(dest, buf+3, 7));
-        CPPUNIT_ASSERT(!memcmp(dest+7, buf+2, 3));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 30, buf->copy(0, 30, cmpBuf));
+        CPPUNIT_ASSERT_EQUAL(0, strcmp(cmpBuf, testStr));
     }
 
     void test_copy_offsetGreaterThanTotalLength() {
-        char dest[15];
-        char buf[10];
-        Buffer b;
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.copy(20, 10, dest));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, buf->copy(40, 10, cmpBuf));
     }
 
     void test_findChunk_normal() {
-        char buf[10];
-        Buffer b;
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.findChunk(6));
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 1, b.findChunk(12));
+        uint32_t chunkOffset;
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, buf->findChunk(6, &chunkOffset));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, chunkOffset);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 1, buf->findChunk(12, &chunkOffset));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, chunkOffset);
     }
 
     void test_findChunk_offsetGreaterThanTotalLength() {
-        char buf[10];
-        Buffer b;
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-
-        CPPUNIT_ASSERT_EQUAL(b.chunksUsed, b.findChunk(17));
+        uint32_t chunkOffset;
+        CPPUNIT_ASSERT_EQUAL(buf->chunksUsed, buf->findChunk(35, &chunkOffset));
     }
 
     void test_offsetOfChunk_normal() {
-        char buf[10];
-        Buffer b;
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, buf->offsetOfChunk(0));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, buf->offsetOfChunk(1));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 20, buf->offsetOfChunk(2));
 
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.offsetOfChunk(0));
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.offsetOfChunk(1));
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.offsetOfChunk(b.findChunk(4)));
+        uint32_t chunkOffset;
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0,
+                             buf->offsetOfChunk(
+                                 buf->findChunk(4, &chunkOffset)));
     }
 
     void test_offsetOfChunk_edgeCases() {
-        char buf[10];
-        Buffer b;
-        CPPUNIT_ASSERT(memcpy(buf, testString, 10));
-
-        b.append(buf, 10);
-        b.append(buf+2, 5);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.chunksUsed);
-
-        CPPUNIT_ASSERT_EQUAL(b.totalLen, b.offsetOfChunk(6));
+        CPPUNIT_ASSERT_EQUAL(buf->totalLen, buf->offsetOfChunk(6));
     }
 
     void test_allocateMoreChunks() {
@@ -418,7 +323,19 @@ class BufferTest : public CppUnit::TestFixture {
         b.allocateMoreChunks();
         CPPUNIT_ASSERT_EQUAL((uint32_t) 40, b.chunksAvail);
     }
-    
+
+    void test_allocateMoreExtraBufs() {
+        Buffer b;
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.extraBufsUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.extraBufsAvail);
+        b.allocateMoreExtraBufs();
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.extraBufsUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.extraBufsAvail);
+        b.allocateMoreExtraBufs();
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.extraBufsUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 20, b.extraBufsAvail);
+    }
+
     void test_totalLength() {
         Buffer b;
         uint8_t buf1[100];
@@ -429,6 +346,8 @@ class BufferTest : public CppUnit::TestFixture {
         b.append(buf1, 10);
         CPPUNIT_ASSERT_EQUAL((uint32_t) 110, b.totalLength());
     }
+
+    DISALLOW_COPY_AND_ASSIGN(BufferTest);
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferTest);

@@ -34,21 +34,22 @@ namespace RAMCloud {
  */     
 class Buffer {
   public:
-    void prepend (void* src, uint32_t size);
+    void prepend(const void* src, const uint32_t length);
 
-    void append (void* src, uint32_t size);
-    
-    uint32_t peek (uint32_t offset, uint32_t length, void** returnPtr);
+    void append(const void* src, const uint32_t length);
 
-    uint32_t read(uint32_t offset, uint32_t length, void **returnPtr);
-    
-    uint32_t copy (uint32_t offset, uint32_t length, void* dest);
+    uint32_t peek(const uint32_t offset, void** returnPtr);
+
+    void* getRange(const uint32_t offset, const uint32_t length);
+
+    uint32_t copy(const uint32_t offset, const uint32_t length,
+                  const void* dest);
 
     /**
-     * Returns the entire length of this Buffer.
+     * Returns the sum of the induvidual sizes of all the chunks composing this
+     * Buffer.
      *
-     * \return Returns the total length of the logical Buffer represented by
-     *         this object.
+     * \return See above.
      */
     uint32_t totalLength() const { return totalLen; }
 
@@ -59,10 +60,12 @@ class Buffer {
   private:
     void allocateMoreChunks();
 
-    uint32_t findChunk(uint32_t offset);
+    void allocateMoreExtraBufs();
 
-    uint32_t offsetOfChunk(uint32_t chunkIndex);
-    
+    uint32_t findChunk(const uint32_t offset, uint32_t* chunkOffset);
+
+    uint32_t offsetOfChunk(const uint32_t chunkIndex);
+
     /**
      * A Buffer is an ordered collection of Chunks. Each induvidual chunk
      * represents a physically contiguous region of memory. When taking
@@ -70,30 +73,41 @@ class Buffer {
      * region, i.e., this Buffer.
      */
     struct Chunk {
-        void *ptr;      // Pointer to the data represented by this Chunk.
-        uint32_t size;  // The size of this Chunk in bytes.
+        const void *data;  // Pointer to the data represented by this Chunk.
+        uint32_t len;      // The length of this Chunk in bytes.
     };
 
     /**
      * The initial size of the chunk array (see below). 10 should cover the vast
      * majority of Buffers. If not, we can increase this later.
      */
-    static const int INITIAL_CHUNK_ARR_SIZE = 10;
+    static const uint32_t INITIAL_CHUNK_ARR_SIZE = 10;
 
-    uint32_t chunksUsed;  // The index of the last chunk thats currently being
-                          // used.
-    uint32_t chunksAvail;  // The total number of chunks that have been
-                           // allocated so far.
-    Chunk* chunks;  // The pointers and lengths of various chunks represented
-                    // by this Buffer. Initially, we allocate
-                    // INITIAL_CHUNK_ARR_SIZE of the above chunks, since this
-                    // would be faster than using a vector<chunk>.
-    uint32_t totalLen;  // The total length of all the memory blocks represented
-                        // by this Buffer.
-    void *bufRead;  // Space to be used when a call to read spans a Chunk
-                    // boundary. In this case, we allocate space here, and
-                    // return a pointer to this.
-    uint32_t bufReadSize;  // The size of the bufRead memory region.
+    /**
+     * The initial size of the extraBufs array. However, the extraBufs array is
+     * only allocated when it is needed, ie, on the first call to getRange that
+     * needs extra space.
+     */
+    static const uint32_t INITIAL_EXTRA_BUFS_ARR_SIZE = 10;
+
+    uint32_t chunksUsed;      // The number of chunks that are currently in use.
+                              // That is, the number of chunks that contain
+                              // valid pointers to memory regions.
+    uint32_t chunksAvail;     // The total number of chunks available at
+                              // (*chunks). This is the number of chunks that we
+                              // have allocated memory for.
+    Chunk* chunks;            // The pointers and lengths of various chunks
+                              // represented by this Buffer. Initially, we
+                              // allocate INITIAL_CHUNK_ARR_SIZE of the above
+                              // chunks, since this would be faster than using a
+                              // vector<chunk>.
+    uint32_t totalLen;        // The sum of the induvidual sizes of all the
+                              // chunks currently in use.
+    void **extraBufs;         // An array of pointers to memory that we allocate
+                              // when we need to copy a range of bytes into
+                              // contiguous memory, as part of getRange().
+    uint32_t extraBufsAvail;  // The size of the extraBufs array.
+    uint32_t extraBufsUsed;   // The number of extraBufs currently in use.
 
     friend class BufferTest;  // For CppUnit testing purposes.
 
