@@ -17,7 +17,7 @@
 
 /**
  * \file
- * Header file for Hashtable.
+ * Header file for HashTable.
  */
 
 #ifndef RAMCLOUD_HASHTABLE_H
@@ -35,17 +35,18 @@ namespace RAMCloud {
  * to read and write a %RAMCloud object, this lets you find the location of the
  * current version of the object.
  *
- * Currently, the Hashtable class assumes it is scoped to a specific %RAMCloud
+ * Currently, the HashTable class assumes it is scoped to a specific %RAMCloud
  * table, so it does not concern itself with table IDs.
  *
  * \section impl Implementation Details
  *
- * The Hashtable is an array of buckets, indexed by the hash of the object ID.
- * Each bucket consists of one or more chained cache lines, the first of which
- * lives inline in the array of buckets. Each cache line consists of several
- * hash table entries (Entry) in no particular order, which contain additional
- * bits from the hash function to disambiguate most bucket collisions and a
- * pointer to the latest version of the object in the Log.
+ * The HashTable is an array of #buckets, indexed by the hash of the object ID.
+ * Each bucket consists of one or more chained \link CacheLine
+ * CacheLines\endlink, the first of which lives inline in the array of buckets.
+ * Each cache line consists of several hash table \link Entry Entries\endlink
+ * in no particular order, which contain additional bits from the #hash()
+ * function to disambiguate most bucket collisions and a pointer to the latest
+ * version of the object in the Log.
  *
  * If there are too many hash table entries to fit the bucket's first cache
  * line, additional cache lines are allocated (outside of the array of
@@ -53,12 +54,12 @@ namespace RAMCloud {
  * non-terminal cache lines has a pointer to the next cache line instead of a
  * Log pointer.
  */
-class Hashtable {
+class HashTable {
 public:
 
     /**
      * Keeps track of statistics for a frequency distribution.
-     * See #Hashtable::PerfCounters::lookupKeyPtrDist for an example.
+     * See #HashTable::PerfCounters::lookupEntryDist for an example.
      */
     struct PerfDistribution {
 
@@ -106,60 +107,60 @@ public:
     };
 
     /**
-     * Performance counters for the Hashtable.
+     * Performance counters for the HashTable.
      */
     struct PerfCounters {
 
         /**
-         * The sum of the number of CPU cycles spent across all #Insert()
+         * The sum of the number of CPU cycles spent across all #insert()
          * operations.
          */
         uint64_t insertCycles;
 
         /**
-         * The sum of the number of CPU cycles spent across all #LookupKeyPtr()
+         * The sum of the number of CPU cycles spent across all #lookupEntry()
          * operations.
          */
-        uint64_t lookupKeyPtrCycles;
+        uint64_t lookupEntryCycles;
 
         /**
-         * The sum of the number of times a chain pointer was followed across all
-         * #Insert() operations.
+         * The sum of the number of times a chain pointer was followed across
+         * all #insert() operations.
          */
         uint64_t insertChainsFollowed;
 
         /**
-         * The sum of the number of times a chain pointer was followed across all
-         * #LookupKeyPtr() operations.
+         * The sum of the number of times a chain pointer was followed across
+         * all #lookupEntry() operations.
          */
-        uint64_t lookupKeyPtrChainsFollowed;
+        uint64_t lookupEntryChainsFollowed;
 
         /**
          * The sum of the number of times there was an Entry collision across
-         * all #LookupKeyPtr() operations. This is when the buckets collide
-         * for a key, and the extra disambiguation bits inside the Entry
-         * collide, but following the Log pointer reveals that the entry does
-         * not correspond to the given key.
+         * all #lookupEntry() operations. This is when the buckets collide for
+         * a key, and the extra disambiguation bits inside the Entry collide,
+         * but following the Log pointer reveals that the entry does not
+         * correspond to the given key.
          */
-        uint64_t lookupKeyPtrHashCollisions;
+        uint64_t lookupEntryHashCollisions;
 
         /**
-         * The number of CPU cycles spent for #LookupKeyPtr() operations.
+         * The number of CPU cycles spent for #lookupEntry() operations.
          */
-        PerfDistribution lookupKeyPtrDist;
+        PerfDistribution lookupEntryDist;
 
         PerfCounters();
     };
 
-    explicit Hashtable(uint64_t nlines);
-    void *Lookup(uint64_t key);
-    void Insert(uint64_t key, void *ptr);
-    bool Delete(uint64_t key);
-    bool Replace(uint64_t key, void *ptr);
+    explicit HashTable(uint64_t nlines);
+    void *lookup(uint64_t key);
+    void insert(uint64_t key, void *ptr);
+    bool remove(uint64_t key);
+    bool replace(uint64_t key, void *ptr);
 
     /**
      * \return
-     *      A read-only view of the Hashtable's performance counters.
+     *      A read-only view of the hash table's performance counters.
      */
     const PerfCounters& getPerfCounters() {
         return this->perfCounters;
@@ -167,17 +168,18 @@ public:
 
 private:
 
+    // forward declarations
     class Entry;
-    Entry *LookupKeyPtr(uint64_t key);
-    void StoreSample(uint64_t ticks);
-    void *MallocAligned(uint64_t len);
+    struct CacheLine;
+
+    Entry *lookupEntry(uint64_t key);
+    void *mallocAligned(uint64_t len);
+    static void hash(uint64_t key, uint64_t *hash, uint16_t *mkhash);
 
     /**
-     * The number of hash table entries (Entry) in a cache line.
+     * The number of hash table entries (Entry) in a CacheLine.
      */
     static const uint32_t ENTRIES_PER_CACHE_LINE = 8;
-
-    struct cacheline;
 
     /**
      * A hash table entry.
@@ -203,10 +205,10 @@ private:
       public:
         void clear();
         void setLogPointer(uint64_t hash, void *ptr);
-        void setChainPointer(cacheline *ptr);
+        void setChainPointer(CacheLine *ptr);
         bool isAvailable();
         void* getLogPointer();
-        cacheline* getChainPointer();
+        CacheLine* getChainPointer();
         bool hashMatches(uint64_t hash);
         bool isChainLink();
 
@@ -241,18 +243,18 @@ private:
 
         UnpackedEntry unpack();
 
-        friend class HashtableEntryTest;
+        friend class HashTableEntryTest;
     };
 
     /**
      * A cache line, part of a hash table bucket and composed of hash table
      * entries.
      */
-    struct cacheline {
+    struct CacheLine {
         /**
          * An array of hash table entries.
          * The final hash table entry may be a chain pointer to another cache
-         * line. See Hashtable for more info.
+         * line. See HashTable for more info.
          */
         Entry entries[ENTRIES_PER_CACHE_LINE];
     };
@@ -260,28 +262,28 @@ private:
     /**
      * The array of buckets.
      */
-    cacheline *table;
+    CacheLine *buckets;
 
     /**
      * The number of buckets allocated to the table.
      */
-    uint64_t table_lines;
+    uint64_t numBuckets;
 
     /**
      * Whether to allocate memory using #xmalloc_aligned_hugetlb() instead of
      * #xmalloc_aligned_xmalloc().
      */
-    bool use_huge_tlb;
+    bool useHugeTlb;
 
     /**
-     * The performance counters for the Hash table.
+     * The performance counters for the HashTable.
      * See #getPerfCounters().
      */
     PerfCounters perfCounters;
 
-    friend class HashtableEntryTest;
-    friend class HashtableTest;
-    DISALLOW_COPY_AND_ASSIGN(Hashtable);
+    friend class HashTableEntryTest;
+    friend class HashTableTest;
+    DISALLOW_COPY_AND_ASSIGN(HashTable);
 };
 
 

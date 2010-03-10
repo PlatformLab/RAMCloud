@@ -6,7 +6,7 @@ TESTS_SRCFILES := \
 		src/BackupClientTest.cc \
 		src/BitmapTest.cc \
 		src/BufferPtrTest.cc \
-		src/HashtableTest.cc \
+		src/HashTableTest.cc \
 		src/ChecksumTest.cc \
         src/SegmentTest.cc \
         src/LogTest.cc \

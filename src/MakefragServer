@@ -1,5 +1,5 @@
 SERVER_SRCFILES := \
-		src/Hashtable.cc \
+		src/HashTable.cc \
 		src/Server.cc
 
 SERVER_OBJFILES := $(SERVER_SRCFILES)

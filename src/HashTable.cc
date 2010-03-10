@@ -17,10 +17,10 @@
 
 /**
  * \file
- * Implementation for Hashtable.
+ * Implementation for HashTable.
  */
 
-#include <Hashtable.h>
+#include <HashTable.h>
 
 #include <Common.h>
 #include <ugly_memory_stuff.h>
@@ -34,10 +34,10 @@
 namespace RAMCloud {
 
 
-// Hashtable::PerfDistribution
+// HashTable::PerfDistribution
 
 
-Hashtable::PerfDistribution::PerfDistribution()
+HashTable::PerfDistribution::PerfDistribution()
     : binOverflows(0), min(~0UL), max(0UL)
 {
     memset(bins, 0, sizeof(bins));
@@ -49,7 +49,7 @@ Hashtable::PerfDistribution::PerfDistribution()
  *      The value sampled.
  */
 void
-Hashtable::PerfDistribution::storeSample(uint64_t value)
+HashTable::PerfDistribution::storeSample(uint64_t value)
 {
     if (value / BIN_WIDTH < NBINS)
         bins[value / BIN_WIDTH]++;
@@ -63,18 +63,18 @@ Hashtable::PerfDistribution::storeSample(uint64_t value)
 }
 
 
-// Hashtable::PerfCounters
+// HashTable::PerfCounters
 
 
-Hashtable::PerfCounters::PerfCounters()
-    : insertCycles(0), lookupKeyPtrCycles(0), insertChainsFollowed(0),
-    lookupKeyPtrChainsFollowed(0), lookupKeyPtrHashCollisions(0),
-    lookupKeyPtrDist()
+HashTable::PerfCounters::PerfCounters()
+    : insertCycles(0), lookupEntryCycles(0), insertChainsFollowed(0),
+    lookupEntryChainsFollowed(0), lookupEntryHashCollisions(0),
+    lookupEntryDist()
 {
 }
 
 
-// Hashtable::Entry
+// HashTable::Entry
 
 
 /**
@@ -88,7 +88,7 @@ Hashtable::PerfCounters::PerfCounters()
  *      where the object is located (determined by \a chain).
  */
 void
-Hashtable::Entry::pack(uint64_t hash, bool chain, void *ptr)
+HashTable::Entry::pack(uint64_t hash, bool chain, void *ptr)
 {
     if (ptr == NULL)
         assert(hash == 0 && !chain);
@@ -105,7 +105,7 @@ Hashtable::Entry::pack(uint64_t hash, bool chain, void *ptr)
  * \return
  *      The extracted values. See UnpackedEntry.
  */
-Hashtable::Entry::UnpackedEntry Hashtable::Entry::unpack() {
+HashTable::Entry::UnpackedEntry HashTable::Entry::unpack() {
     UnpackedEntry ue;
     ue.hash    = (this->value >> 48) & 0x000000000000ffffUL;
     ue.chain   = (this->value >> 47) & 0x0000000000000001UL;
@@ -118,7 +118,7 @@ Hashtable::Entry::UnpackedEntry Hashtable::Entry::unpack() {
  * Reinitialize a hash table entry as unused.
  */
 void
-Hashtable::Entry::clear()
+HashTable::Entry::clear()
 {
     pack(0, false, NULL);
 }
@@ -131,7 +131,7 @@ Hashtable::Entry::clear()
  *      The Log pointer where the object is located. Must not be \c NULL.
  */
 void
-Hashtable::Entry::setLogPointer(uint64_t hash, void *ptr)
+HashTable::Entry::setLogPointer(uint64_t hash, void *ptr)
 {
     assert(ptr != NULL);
     pack(hash, false, ptr);
@@ -143,7 +143,7 @@ Hashtable::Entry::setLogPointer(uint64_t hash, void *ptr)
  *      The pointer to the next cache line. Must not be \c NULL.
  */
 void
-Hashtable::Entry::setChainPointer(cacheline *ptr)
+HashTable::Entry::setChainPointer(CacheLine *ptr)
 {
     assert(ptr != NULL);
     pack(0, true, ptr);
@@ -154,7 +154,7 @@ Hashtable::Entry::setChainPointer(cacheline *ptr)
  *      Whether a hash table entry is unused.
  */
 bool
-Hashtable::Entry::isAvailable()
+HashTable::Entry::isAvailable()
 {
     UnpackedEntry ue = unpack();
     return (ue.ptr == NULL);
@@ -169,7 +169,7 @@ Hashtable::Entry::isAvailable()
  *      The Log pointer stored in a hash table entry.
  */
 void*
-Hashtable::Entry::getLogPointer()
+HashTable::Entry::getLogPointer()
 {
     UnpackedEntry ue = unpack();
     assert(!ue.chain && ue.ptr != NULL);
@@ -183,12 +183,12 @@ Hashtable::Entry::getLogPointer()
  * \return
  *      The chain pointer to another cache line.
  */
-Hashtable::cacheline*
-Hashtable::Entry::getChainPointer()
+HashTable::CacheLine*
+HashTable::Entry::getChainPointer()
 {
     UnpackedEntry ue = unpack();
     assert(ue.chain);
-    return static_cast<cacheline*>(ue.ptr);
+    return static_cast<CacheLine*>(ue.ptr);
 }
 
 /**
@@ -200,7 +200,7 @@ Hashtable::Entry::getChainPointer()
  *      hash bits for the object pointed to match \a hash.
  */
 bool
-Hashtable::Entry::hashMatches(uint64_t hash)
+HashTable::Entry::hashMatches(uint64_t hash)
 {
     UnpackedEntry ue = unpack();
     return (!ue.chain && ue.ptr != NULL && ue.hash == hash);
@@ -213,11 +213,14 @@ Hashtable::Entry::hashMatches(uint64_t hash)
  *      (as opposed to a Log pointer to an object).
  */
 bool
-Hashtable::Entry::isChainLink()
+HashTable::Entry::isChainLink()
 {
     UnpackedEntry ue = unpack();
     return ue.chain;
 }
+
+
+// HashTable
 
 
 /**
@@ -229,9 +232,9 @@ Hashtable::Entry::isChainLink()
  *      not be \c NULL.
  */
 void *
-Hashtable::MallocAligned(uint64_t len)
+HashTable::mallocAligned(uint64_t len)
 {
-    return (use_huge_tlb) ?
+    return (useHugeTlb) ?
         xmalloc_aligned_hugetlb(len) : xmalloc_aligned_xmalloc(len);
 }
 
@@ -244,8 +247,8 @@ Hashtable::MallocAligned(uint64_t len)
  * \param[out] mkhash
  *      Additional hash bits used to disambiguate entries in the same bucket.
  */
-static inline void
-hash(uint64_t key, uint64_t *hash, uint16_t *mkhash)
+void
+HashTable::hash(uint64_t key, uint64_t *hash, uint16_t *mkhash)
 {
     key = (~key) + (key << 21); // key = (key << 21) - key - 1;
     key = key ^ (key >> 24);
@@ -263,24 +266,24 @@ hash(uint64_t key, uint64_t *hash, uint16_t *mkhash)
  * \param[in] nlines
  *      The number of buckets in the new hash table.
  */
-Hashtable::Hashtable(uint64_t nlines)
-    : table(0), table_lines(nlines), use_huge_tlb(false), perfCounters()
+HashTable::HashTable(uint64_t nlines)
+    : buckets(NULL), numBuckets(nlines), useHugeTlb(false), perfCounters()
 {
     // Allocate space for a new hash table and set its entries to unused.
     uint64_t i, j;
 
-    table = static_cast<cacheline *>(MallocAligned(table_lines *
-                                                   sizeof(table[0])));
+    buckets = static_cast<CacheLine *>(mallocAligned(numBuckets *
+                                                     sizeof(buckets[0])));
 
-    for (i = 0; i < table_lines; i++) {
+    for (i = 0; i < numBuckets; i++) {
         for (j = 0; j < ENTRIES_PER_CACHE_LINE; j++)
-            table[i].entries[j].clear();
+            buckets[i].entries[j].clear();
     }
 }
 
 /**
  * Find a hash table entry for a given key.
- * This is used in #Lookup(), #Delete(), and #Replace() to find the hash table
+ * This is used in #lookup(), #remove(), and #replace() to find the hash table
  * entry to operate on.
  * \param[in] key
  *      The ID of the object for which to locate the hash table entry.
@@ -288,8 +291,8 @@ Hashtable::Hashtable(uint64_t nlines)
  *      The pointer to the hash table entry, or \a NULL if there is no such
  *      hash table entry.
  */
-Hashtable::Entry *
-Hashtable::LookupKeyPtr(uint64_t key)
+HashTable::Entry *
+HashTable::lookupEntry(uint64_t key)
 {
     uint64_t b = rdtsc();
     uint64_t h;
@@ -298,7 +301,7 @@ Hashtable::LookupKeyPtr(uint64_t key)
 
     // Find the bucket.
     hash(key, &h, &mk);
-    cacheline *cl = &table[h % table_lines];
+    CacheLine *cl = &buckets[h % numBuckets];
 
     while (1) {
 
@@ -314,11 +317,11 @@ Hashtable::LookupKeyPtr(uint64_t key)
                 uint64_t *obj = (uint64_t *) kp->getLogPointer();
                 if (*obj == key) {
                     uint64_t diff = rdtsc() - b;
-                    perfCounters.lookupKeyPtrCycles += diff;
-                    perfCounters.lookupKeyPtrDist.storeSample(diff);
+                    perfCounters.lookupEntryCycles += diff;
+                    perfCounters.lookupEntryDist.storeSample(diff);
                     return kp;
                 } else {
-                    perfCounters.lookupKeyPtrHashCollisions++;
+                    perfCounters.lookupEntryHashCollisions++;
                 }
             }
         }
@@ -327,13 +330,13 @@ Hashtable::LookupKeyPtr(uint64_t key)
         // cache line.
         if (!cl->entries[ENTRIES_PER_CACHE_LINE - 1].isChainLink()) {
             uint64_t diff = rdtsc() - b;
-            perfCounters.lookupKeyPtrCycles += diff;
-            perfCounters.lookupKeyPtrDist.storeSample(diff);
+            perfCounters.lookupEntryCycles += diff;
+            perfCounters.lookupEntryDist.storeSample(diff);
             return NULL;
         }
 
         cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
-        perfCounters.lookupKeyPtrChainsFollowed++;
+        perfCounters.lookupEntryChainsFollowed++;
     }
 }
 
@@ -346,9 +349,9 @@ Hashtable::LookupKeyPtr(uint64_t key)
  *      The pointer into the Log, or \a NULL if the object doesn't exist.
  */
 void *
-Hashtable::Lookup(uint64_t key)
+HashTable::lookup(uint64_t key)
 {
-    Entry *kp = LookupKeyPtr(key);
+    Entry *kp = lookupEntry(key);
     return kp ? kp->getLogPointer() : NULL;
 }
 
@@ -360,8 +363,8 @@ Hashtable::Lookup(uint64_t key)
  *      Whether the hash table contained the key.
  */
 bool
-Hashtable::Delete(uint64_t key) {
-    Entry *kp = LookupKeyPtr(key);
+HashTable::remove(uint64_t key) {
+    Entry *kp = lookupEntry(key);
     if (!kp)
         return false;
     kp->clear();
@@ -382,10 +385,10 @@ Hashtable::Delete(uint64_t key) {
  *      taken!
  */
 bool
-Hashtable::Replace(uint64_t key, void *ptr) {
+HashTable::replace(uint64_t key, void *ptr) {
     uint64_t h;
     uint16_t mk;
-    Entry *kp = LookupKeyPtr(key);
+    Entry *kp = lookupEntry(key);
     if (!kp)
         return false;
     hash(key, &h, &mk);
@@ -402,7 +405,7 @@ Hashtable::Replace(uint64_t key, void *ptr) {
  *      The pointer to the Log where the latest version of the object resides.
  */
 void
-Hashtable::Insert(uint64_t key, void *ptr)
+HashTable::insert(uint64_t key, void *ptr)
 {
     uint64_t b = rdtsc();
     uint64_t h;
@@ -410,7 +413,7 @@ Hashtable::Insert(uint64_t key, void *ptr)
     unsigned int i;
 
     hash(key, &h, &mk);
-    cacheline *cl = &table[h % table_lines];
+    CacheLine *cl = &buckets[h % numBuckets];
 
     while (1) {
         Entry *kp = cl->entries;
@@ -424,8 +427,8 @@ Hashtable::Insert(uint64_t key, void *ptr)
 
         // no empty space found, allocate a new cache line
         if (!cl->entries[ENTRIES_PER_CACHE_LINE - 1].isChainLink()) {
-            cacheline *ncl =
-                static_cast<cacheline *>(MallocAligned(sizeof(cacheline)));
+            CacheLine *ncl =
+                static_cast<CacheLine *>(mallocAligned(sizeof(CacheLine)));
             ncl->entries[0] = cl->entries[ENTRIES_PER_CACHE_LINE - 1];
             for (i = 1; i < ENTRIES_PER_CACHE_LINE; i++)
                 ncl->entries[i].clear();

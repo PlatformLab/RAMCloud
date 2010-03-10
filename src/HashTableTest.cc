@@ -18,22 +18,22 @@
 
 #include <Common.h>
 
-#include <Hashtable.h>
+#include <HashTable.h>
 
 #include <cppunit/extensions/HelperMacros.h>
 
 namespace RAMCloud {
 
 /**
- * Unit tests for Hashtable::Entry.
+ * Unit tests for HashTable::Entry.
  */
-class HashtableEntryTest : public CppUnit::TestFixture {
+class HashTableEntryTest : public CppUnit::TestFixture {
 
-    //Hashtable::Entry entries[10];
+    //HashTable::Entry entries[10];
 
-    DISALLOW_COPY_AND_ASSIGN(HashtableEntryTest); // NOLINT
+    DISALLOW_COPY_AND_ASSIGN(HashTableEntryTest); // NOLINT
 
-    CPPUNIT_TEST_SUITE(HashtableEntryTest);
+    CPPUNIT_TEST_SUITE(HashTableEntryTest);
     CPPUNIT_TEST(test_size);
     CPPUNIT_TEST(test_pack);
     CPPUNIT_TEST(test_clear);
@@ -49,10 +49,10 @@ class HashtableEntryTest : public CppUnit::TestFixture {
     static bool
     packable(uint64_t hash, bool chain, uint64_t ptr)
     {
-        Hashtable::Entry e;
+        HashTable::Entry e;
 
-        Hashtable::Entry::UnpackedEntry in;
-        Hashtable::Entry::UnpackedEntry out;
+        HashTable::Entry::UnpackedEntry in;
+        HashTable::Entry::UnpackedEntry out;
 
         in.hash = hash;
         in.chain = chain;
@@ -67,11 +67,11 @@ class HashtableEntryTest : public CppUnit::TestFixture {
     }
 
   public:
-    HashtableEntryTest() {}
+    HashTableEntryTest() {}
 
     void test_size()
     {
-        CPPUNIT_ASSERT(8 == sizeof(Hashtable::Entry));
+        CPPUNIT_ASSERT(8 == sizeof(HashTable::Entry));
     }
 
     void test_pack()
@@ -84,10 +84,10 @@ class HashtableEntryTest : public CppUnit::TestFixture {
 
     void test_clear()
     {
-        Hashtable::Entry e;
+        HashTable::Entry e;
         e.value = 0xdeadbeefdeadbeefUL;
         e.clear();
-        Hashtable::Entry::UnpackedEntry out;
+        HashTable::Entry::UnpackedEntry out;
         out = e.unpack();
         CPPUNIT_ASSERT_EQUAL(0UL, out.hash);
         CPPUNIT_ASSERT_EQUAL(false, out.chain);
@@ -96,10 +96,10 @@ class HashtableEntryTest : public CppUnit::TestFixture {
 
     void test_setLogPointer()
     {
-        Hashtable::Entry e;
+        HashTable::Entry e;
         e.value = 0xdeadbeefdeadbeefUL;
         e.setLogPointer(0xaaaaUL, (void*) 0x7fffffffffffUL);
-        Hashtable::Entry::UnpackedEntry out;
+        HashTable::Entry::UnpackedEntry out;
         out = e.unpack();
         CPPUNIT_ASSERT_EQUAL(0xaaaaUL, out.hash);
         CPPUNIT_ASSERT_EQUAL(false, out.chain);
@@ -108,10 +108,10 @@ class HashtableEntryTest : public CppUnit::TestFixture {
 
     void test_setChainPointer()
     {
-        Hashtable::Entry e;
+        HashTable::Entry e;
         e.value = 0xdeadbeefdeadbeefUL;
-        e.setChainPointer((Hashtable::cacheline*) 0x7fffffffffffUL);
-        Hashtable::Entry::UnpackedEntry out;
+        e.setChainPointer((HashTable::CacheLine*) 0x7fffffffffffUL);
+        HashTable::Entry::UnpackedEntry out;
         out = e.unpack();
         CPPUNIT_ASSERT_EQUAL(0UL, out.hash);
         CPPUNIT_ASSERT_EQUAL(true, out.chain);
@@ -120,10 +120,10 @@ class HashtableEntryTest : public CppUnit::TestFixture {
 
     void test_isAvailable()
     {
-        Hashtable::Entry e;
+        HashTable::Entry e;
         e.clear();
         CPPUNIT_ASSERT(e.isAvailable());
-        e.setChainPointer((Hashtable::cacheline*) 0x1UL);
+        e.setChainPointer((HashTable::CacheLine*) 0x1UL);
         CPPUNIT_ASSERT(!e.isAvailable());
         e.setLogPointer(0UL, (void*) 0x1UL);
         CPPUNIT_ASSERT(!e.isAvailable());
@@ -133,25 +133,25 @@ class HashtableEntryTest : public CppUnit::TestFixture {
 
     void test_getLogPointer()
     {
-        Hashtable::Entry e;
+        HashTable::Entry e;
         e.setLogPointer(0xaaaaUL, (void*) 0x7fffffffffffUL);
         CPPUNIT_ASSERT_EQUAL((void*) 0x7fffffffffffUL, e.getLogPointer());
     }
 
     void test_getChainPointer()
     {
-        Hashtable::Entry e;
-        e.setChainPointer((Hashtable::cacheline*) 0x7fffffffffffUL);
-        CPPUNIT_ASSERT_EQUAL((Hashtable::cacheline*) 0x7fffffffffffUL,
+        HashTable::Entry e;
+        e.setChainPointer((HashTable::CacheLine*) 0x7fffffffffffUL);
+        CPPUNIT_ASSERT_EQUAL((HashTable::CacheLine*) 0x7fffffffffffUL,
                              e.getChainPointer());
     }
 
     void test_hashMatches()
     {
-        Hashtable::Entry e;
+        HashTable::Entry e;
         e.clear();
         CPPUNIT_ASSERT(!e.hashMatches(0UL));
-        e.setChainPointer((Hashtable::cacheline*) 0x1UL);
+        e.setChainPointer((HashTable::CacheLine*) 0x1UL);
         CPPUNIT_ASSERT(!e.hashMatches(0UL));
         e.setLogPointer(0UL, (void*) 0x1UL);
         CPPUNIT_ASSERT(e.hashMatches(0UL));
@@ -164,38 +164,38 @@ class HashtableEntryTest : public CppUnit::TestFixture {
 
     void test_isChainLink()
     {
-        Hashtable::Entry e;
+        HashTable::Entry e;
         e.clear();
         CPPUNIT_ASSERT(!e.isChainLink());
-        e.setChainPointer((Hashtable::cacheline*) 0x1UL);
+        e.setChainPointer((HashTable::CacheLine*) 0x1UL);
         CPPUNIT_ASSERT(e.isChainLink());
         e.setLogPointer(0UL, (void*) 0x1UL);
         CPPUNIT_ASSERT(!e.isChainLink());
     }
 
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(HashtableEntryTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(HashTableEntryTest);
 
 /**
- * Unit tests for Hashtable::Entry.
+ * Unit tests for HashTable::Entry.
  */
-class HashtablePerfDistributionTest : public CppUnit::TestFixture {
+class HashTablePerfDistributionTest : public CppUnit::TestFixture {
 
-    //Hashtable::Entry entries[10];
+    //HashTable::Entry entries[10];
 
-    DISALLOW_COPY_AND_ASSIGN(HashtablePerfDistributionTest); // NOLINT
+    DISALLOW_COPY_AND_ASSIGN(HashTablePerfDistributionTest); // NOLINT
 
-    CPPUNIT_TEST_SUITE(HashtablePerfDistributionTest);
+    CPPUNIT_TEST_SUITE(HashTablePerfDistributionTest);
     CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_storeSample);
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    HashtablePerfDistributionTest() {}
+    HashTablePerfDistributionTest() {}
 
     void test_constructor()
     {
-        RAMCloud::Hashtable::PerfDistribution d;
+        RAMCloud::HashTable::PerfDistribution d;
         CPPUNIT_ASSERT_EQUAL(~0UL, d.min);
         CPPUNIT_ASSERT_EQUAL(0UL, d.max);
         CPPUNIT_ASSERT_EQUAL(0UL, d.binOverflows);
@@ -206,13 +206,13 @@ class HashtablePerfDistributionTest : public CppUnit::TestFixture {
 
     void test_storeSample()
     {
-        Hashtable::PerfDistribution d;
+        HashTable::PerfDistribution d;
 
         // You can't use CPPUNIT_ASSERT_EQUAL here because it tries to take a
         // reference to BIN_WIDTH. See 10.4.6.2 Member Constants of The C++
         // Programming Language by Bjarne Stroustrup for more about static
         // constant integers.
-        CPPUNIT_ASSERT(10 == Hashtable::PerfDistribution::BIN_WIDTH);
+        CPPUNIT_ASSERT(10 == HashTable::PerfDistribution::BIN_WIDTH);
 
         d.storeSample(3);
         CPPUNIT_ASSERT_EQUAL(3UL, d.min);
@@ -236,9 +236,9 @@ class HashtablePerfDistributionTest : public CppUnit::TestFixture {
     }
 
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(HashtablePerfDistributionTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(HashTablePerfDistributionTest);
 
-class HashtableTest : public CppUnit::TestFixture {
+class HashTableTest : public CppUnit::TestFixture {
   public:
     void setUp();
     void tearDown();
@@ -246,74 +246,74 @@ class HashtableTest : public CppUnit::TestFixture {
     void TestSimple();
     void TestMain();
   private:
-    CPPUNIT_TEST_SUITE(HashtableTest);
+    CPPUNIT_TEST_SUITE(HashTableTest);
     CPPUNIT_TEST(TestSizes);
     CPPUNIT_TEST(TestSimple);
     CPPUNIT_TEST(TestMain);
     CPPUNIT_TEST_SUITE_END();
-    RAMCloud::Hashtable *ht;
+    RAMCloud::HashTable *ht;
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(HashtableTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(HashTableTest);
 
 #define NLINES 1024
 void
-HashtableTest::setUp()
+HashTableTest::setUp()
 {
-    ht = new RAMCloud::Hashtable(NLINES);
+    ht = new RAMCloud::HashTable(NLINES);
 }
 
 void
-HashtableTest::tearDown()
+HashTableTest::tearDown()
 {
     delete ht;
 }
 
 void
-HashtableTest::TestSizes()
+HashTableTest::TestSizes()
 {
     // We're specifically aiming to fit in a cache line.
-    CPPUNIT_ASSERT(8 == sizeof(Hashtable::Entry));
-    CPPUNIT_ASSERT(8 * Hashtable::ENTRIES_PER_CACHE_LINE ==
-                   sizeof(Hashtable::cacheline));
+    CPPUNIT_ASSERT(8 == sizeof(HashTable::Entry));
+    CPPUNIT_ASSERT(8 * HashTable::ENTRIES_PER_CACHE_LINE ==
+                   sizeof(HashTable::CacheLine));
 }
 
 void
-HashtableTest::TestSimple()
+HashTableTest::TestSimple()
 {
-    RAMCloud::Hashtable ht(1024);
+    RAMCloud::HashTable ht(1024);
 
     uint64_t a = 0;
     uint64_t b = 10;
     uint64_t c = 11;
 
-    CPPUNIT_ASSERT(ht.Lookup(0) == NULL);
-    ht.Insert(0, &a);
-    CPPUNIT_ASSERT(ht.Lookup(0) == &a);
-    CPPUNIT_ASSERT(ht.Lookup(10) == NULL);
-    ht.Insert(10, &b);
-    CPPUNIT_ASSERT(ht.Lookup(10) == &b);
-    CPPUNIT_ASSERT(ht.Lookup(0) == &a);
+    CPPUNIT_ASSERT(ht.lookup(0) == NULL);
+    ht.insert(0, &a);
+    CPPUNIT_ASSERT(ht.lookup(0) == &a);
+    CPPUNIT_ASSERT(ht.lookup(10) == NULL);
+    ht.insert(10, &b);
+    CPPUNIT_ASSERT(ht.lookup(10) == &b);
+    CPPUNIT_ASSERT(ht.lookup(0) == &a);
 }
 
 void
-HashtableTest::TestMain()
+HashTableTest::TestMain()
 {
     uint64_t i;
     uint64_t nkeys = NLINES * 4;
     uint64_t nlines = NLINES;
 
-    printf("cache line size: %d\n", sizeof(RAMCloud::Hashtable::cacheline));
+    printf("cache line size: %d\n", sizeof(RAMCloud::HashTable::CacheLine));
     printf("load factor: %.03f\n", (double)nkeys / ((double)nlines * 8));
 
     for (i = 0; i < nkeys; i++) {
         uint64_t *p = (uint64_t *) xmalloc(sizeof(*p));
         *p = i;
-        ht->Insert(*p, p);
+        ht->insert(*p, p);
     }
 
     uint64_t b = rdtsc();
     for (i = 0; i < nkeys; i++) {
-        uint64_t *p = (uint64_t *) ht->Lookup(i);
+        uint64_t *p = (uint64_t *) ht->lookup(i);
         if (p == NULL || *p != i) {
             printf("ERROR: p == NULL || *p != key\n");
             CPPUNIT_ASSERT(false);
@@ -321,16 +321,16 @@ HashtableTest::TestMain()
     }
     printf("lookup avg: %llu\n", (rdtsc() - b) / nkeys);
 
-    const Hashtable::PerfCounters & pc = ht->getPerfCounters();
+    const HashTable::PerfCounters & pc = ht->getPerfCounters();
 
     printf("insert: %llu avg ticks, %llu / %lu multi-cacheline accesses\n",
          pc.insertCycles / nkeys, pc.insertChainsFollowed, nkeys);
     printf("lookup: %llu avg ticks, %llu / %lu multi-cacheline accesses, "
            "%llu minikey false positives\n",
-           pc.lookupKeyPtrCycles / nkeys, pc.lookupKeyPtrChainsFollowed,
-           nkeys, pc.lookupKeyPtrHashCollisions);
-    printf("lookup: %llu min ticks\n", pc.lookupKeyPtrDist.min);
-    printf("lookup: %llu max ticks\n", pc.lookupKeyPtrDist.max);
+           pc.lookupEntryCycles / nkeys, pc.lookupEntryChainsFollowed,
+           nkeys, pc.lookupEntryHashCollisions);
+    printf("lookup: %llu min ticks\n", pc.lookupEntryDist.min);
+    printf("lookup: %llu max ticks\n", pc.lookupEntryDist.max);
 
     int *histogram = (int *) xmalloc(sizeof(int) * nlines);
     memset(histogram, 0, sizeof(int) * nlines);
@@ -339,20 +339,20 @@ HashtableTest::TestMain()
     // class
     /*
     for (i = 0; i < nlines; i++) {
-        struct cacheline *cl = &table[i];
+        struct CacheLine *cl = &table[i];
 
         int depth = 1;
         while (ISCHAIN(cl, 7)) {
             depth++;
-            cl = (struct cacheline *)GETCHAINPTR(cl, 7);
+            cl = (struct CacheLine *)GETCHAINPTR(cl, 7);
         }
         histogram[depth]++;
     }
 
     printf("chaining histogram:\n");
-    for (i = 0; i < table_lines; i++)
+    for (i = 0; i < numBuckets; i++)
         if (histogram[i] != 0)
-            printf("%5d: %.4f%%\n", i, (double)histogram[i] / table_lines * 100.0);
+            printf("%5d: %.4f%%\n", i, (double)histogram[i] / numBuckets * 100.0);
 
     printf("lookup cycle histogram:\n");
     for (i = 0; i < NBUCKETS; i++) {
