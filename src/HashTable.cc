@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 /**
  * \file
  * Implementation for HashTable.
@@ -25,9 +23,9 @@
 #include <Common.h>
 #include <ugly_memory_stuff.h>
 
+#include <stdint.h>
 #include <cstdio>
 #include <cstdlib>
-#include <stdint.h>
 #include <cmath>
 #include <cstring>
 
@@ -314,7 +312,7 @@ HashTable::lookupEntry(uint64_t key)
                 // probability this is the pointer we're looking for. To check,
                 // we assume the object stores its key in the first 64 bits and
                 // see if that matches our key.
-                uint64_t *obj = (uint64_t *) kp->getLogPointer();
+                uint64_t *obj = static_cast<uint64_t*>(kp->getLogPointer());
                 if (*obj == key) {
                     uint64_t diff = rdtsc() - b;
                     perfCounters.lookupEntryCycles += diff;

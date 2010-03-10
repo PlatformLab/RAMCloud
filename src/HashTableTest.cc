@@ -13,9 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [GCCWARN=5]
-// RAMCloud pragma [CPPLINT=0]
-
 #include <Common.h>
 
 #include <HashTable.h>
@@ -91,19 +88,20 @@ class HashTableEntryTest : public CppUnit::TestFixture {
         out = e.unpack();
         CPPUNIT_ASSERT_EQUAL(0UL, out.hash);
         CPPUNIT_ASSERT_EQUAL(false, out.chain);
-        CPPUNIT_ASSERT_EQUAL((void*) NULL, out.ptr);
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void*>(NULL), out.ptr);
     }
 
     void test_setLogPointer()
     {
         HashTable::Entry e;
         e.value = 0xdeadbeefdeadbeefUL;
-        e.setLogPointer(0xaaaaUL, (void*) 0x7fffffffffffUL);
+        e.setLogPointer(0xaaaaUL, reinterpret_cast<void*>(0x7fffffffffffUL));
         HashTable::Entry::UnpackedEntry out;
         out = e.unpack();
         CPPUNIT_ASSERT_EQUAL(0xaaaaUL, out.hash);
         CPPUNIT_ASSERT_EQUAL(false, out.chain);
-        CPPUNIT_ASSERT_EQUAL((void*) 0x7fffffffffffUL, out.ptr);
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void*>(0x7fffffffffffUL),
+                             out.ptr);
     }
 
     void test_setChainPointer()
@@ -115,7 +113,8 @@ class HashTableEntryTest : public CppUnit::TestFixture {
         out = e.unpack();
         CPPUNIT_ASSERT_EQUAL(0UL, out.hash);
         CPPUNIT_ASSERT_EQUAL(true, out.chain);
-        CPPUNIT_ASSERT_EQUAL((void*) 0x7fffffffffffUL, out.ptr);
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void*>(0x7fffffffffffUL),
+                             out.ptr);
     }
 
     void test_isAvailable()
@@ -125,7 +124,7 @@ class HashTableEntryTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(e.isAvailable());
         e.setChainPointer((HashTable::CacheLine*) 0x1UL);
         CPPUNIT_ASSERT(!e.isAvailable());
-        e.setLogPointer(0UL, (void*) 0x1UL);
+        e.setLogPointer(0UL, reinterpret_cast<void*>(0x1UL));
         CPPUNIT_ASSERT(!e.isAvailable());
         e.clear();
         CPPUNIT_ASSERT(e.isAvailable());
@@ -134,8 +133,9 @@ class HashTableEntryTest : public CppUnit::TestFixture {
     void test_getLogPointer()
     {
         HashTable::Entry e;
-        e.setLogPointer(0xaaaaUL, (void*) 0x7fffffffffffUL);
-        CPPUNIT_ASSERT_EQUAL((void*) 0x7fffffffffffUL, e.getLogPointer());
+        e.setLogPointer(0xaaaaUL, reinterpret_cast<void*>(0x7fffffffffffUL));
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void*>(0x7fffffffffffUL),
+                             e.getLogPointer());
     }
 
     void test_getChainPointer()
@@ -153,10 +153,10 @@ class HashTableEntryTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!e.hashMatches(0UL));
         e.setChainPointer((HashTable::CacheLine*) 0x1UL);
         CPPUNIT_ASSERT(!e.hashMatches(0UL));
-        e.setLogPointer(0UL, (void*) 0x1UL);
+        e.setLogPointer(0UL, reinterpret_cast<void*>(0x1UL));
         CPPUNIT_ASSERT(e.hashMatches(0UL));
         CPPUNIT_ASSERT(!e.hashMatches(0xbeefUL));
-        e.setLogPointer(0xbeefUL, (void*) 0x1UL);
+        e.setLogPointer(0xbeefUL, reinterpret_cast<void*>(0x1UL));
         CPPUNIT_ASSERT(!e.hashMatches(0UL));
         CPPUNIT_ASSERT(e.hashMatches(0xbeefUL));
         CPPUNIT_ASSERT(!e.hashMatches(0xfeedUL));
@@ -169,7 +169,7 @@ class HashTableEntryTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!e.isChainLink());
         e.setChainPointer((HashTable::CacheLine*) 0x1UL);
         CPPUNIT_ASSERT(e.isChainLink());
-        e.setLogPointer(0UL, (void*) 0x1UL);
+        e.setLogPointer(0UL, reinterpret_cast<void*>(0x1UL));
         CPPUNIT_ASSERT(!e.isChainLink());
     }
 
@@ -240,6 +240,7 @@ CPPUNIT_TEST_SUITE_REGISTRATION(HashTablePerfDistributionTest);
 
 class HashTableTest : public CppUnit::TestFixture {
   public:
+    HashTableTest() : ht(NULL) {}
     void setUp();
     void tearDown();
     void TestSizes();
@@ -252,6 +253,7 @@ class HashTableTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(TestMain);
     CPPUNIT_TEST_SUITE_END();
     RAMCloud::HashTable *ht;
+    DISALLOW_COPY_AND_ASSIGN(HashTableTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(HashTableTest);
 
@@ -284,7 +286,6 @@ HashTableTest::TestSimple()
 
     uint64_t a = 0;
     uint64_t b = 10;
-    uint64_t c = 11;
 
     CPPUNIT_ASSERT(ht.lookup(0) == NULL);
     ht.insert(0, &a);
@@ -303,17 +304,18 @@ HashTableTest::TestMain()
     uint64_t nlines = NLINES;
 
     printf("cache line size: %d\n", sizeof(RAMCloud::HashTable::CacheLine));
-    printf("load factor: %.03f\n", (double)nkeys / ((double)nlines * 8));
+    printf("load factor: %.03f\n", static_cast<double>(nkeys) /
+                                   (static_cast<double>(nlines) * 8));
 
     for (i = 0; i < nkeys; i++) {
-        uint64_t *p = (uint64_t *) xmalloc(sizeof(*p));
+        uint64_t *p = reinterpret_cast<uint64_t*>(xmalloc(sizeof(*p)));
         *p = i;
         ht->insert(*p, p);
     }
 
     uint64_t b = rdtsc();
     for (i = 0; i < nkeys; i++) {
-        uint64_t *p = (uint64_t *) ht->lookup(i);
+        uint64_t *p = reinterpret_cast<uint64_t*>(ht->lookup(i));
         if (p == NULL || *p != i) {
             printf("ERROR: p == NULL || *p != key\n");
             CPPUNIT_ASSERT(false);
@@ -332,12 +334,12 @@ HashTableTest::TestMain()
     printf("lookup: %llu min ticks\n", pc.lookupEntryDist.min);
     printf("lookup: %llu max ticks\n", pc.lookupEntryDist.max);
 
+    /*
     int *histogram = (int *) xmalloc(sizeof(int) * nlines);
     memset(histogram, 0, sizeof(int) * nlines);
 
     // TODO maybe add these as friend functions for testing the hashtable
     // class
-    /*
     for (i = 0; i < nlines; i++) {
         struct CacheLine *cl = &table[i];
 

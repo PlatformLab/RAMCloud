@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 /**
  * \file
  * Header file for HashTable.
@@ -55,7 +53,7 @@ namespace RAMCloud {
  * Log pointer.
  */
 class HashTable {
-public:
+  public:
 
     /**
      * Keeps track of statistics for a frequency distribution.
@@ -166,7 +164,7 @@ public:
         return this->perfCounters;
     }
 
-private:
+  private:
 
     // forward declarations
     class Entry;
