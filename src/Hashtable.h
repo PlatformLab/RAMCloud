@@ -55,50 +55,118 @@ namespace RAMCloud {
  */
 class Hashtable {
 public:
+
+    /**
+     * Keeps track of statistics for a frequency distribution.
+     * See #Hashtable::PerfCounters::lookupKeyPtrDist for an example.
+     */
+    struct PerfDistribution {
+
+        /**
+         * The number of bins in which to categorize samples.
+         * See #bins
+         */
+        static const uint64_t NBINS = 5000;
+
+        /**
+         * The width of each bin.
+         * See #bins.
+         */
+        static const uint64_t BIN_WIDTH = 10;
+
+        /**
+         * The frequencies of samples that fall into each bin.
+         * The first bin will have the number of samples with a value between 0
+         * (inclusive) and BIN_WIDTH (exclusive), the second between BIN_WIDTH
+         * and BIN_WIDTH * 2, etc.
+         */
+        uint64_t bins[NBINS];
+
+        /**
+         * The frequency of samples that exceeded the highest bin.
+         * This is equivalent to the sum of the values in all bins beyond the
+         * end of the \a bins array.
+         */
+        uint64_t binOverflows;
+
+        /**
+         * The minimum sample encountered.
+         * This will be <tt>~OUL</tt> if no samples were stored.
+         */
+        uint64_t min;
+
+        /**
+         * The maximum sample.
+         * This will be <tt>OUL</tt> if no samples were stored.
+         */
+        uint64_t max;
+
+        PerfDistribution();
+        void storeSample(uint64_t value);
+    };
+
+    /**
+     * Performance counters for the Hashtable.
+     */
+    struct PerfCounters {
+
+        /**
+         * The sum of the number of CPU cycles spent across all #Insert()
+         * operations.
+         */
+        uint64_t insertCycles;
+
+        /**
+         * The sum of the number of CPU cycles spent across all #LookupKeyPtr()
+         * operations.
+         */
+        uint64_t lookupKeyPtrCycles;
+
+        /**
+         * The sum of the number of times a chain pointer was followed across all
+         * #Insert() operations.
+         */
+        uint64_t insertChainsFollowed;
+
+        /**
+         * The sum of the number of times a chain pointer was followed across all
+         * #LookupKeyPtr() operations.
+         */
+        uint64_t lookupKeyPtrChainsFollowed;
+
+        /**
+         * The sum of the number of times there was an Entry collision across
+         * all #LookupKeyPtr() operations. This is when the buckets collide
+         * for a key, and the extra disambiguation bits inside the Entry
+         * collide, but following the Log pointer reveals that the entry does
+         * not correspond to the given key.
+         */
+        uint64_t lookupKeyPtrHashCollisions;
+
+        /**
+         * The number of CPU cycles spent for #LookupKeyPtr() operations.
+         */
+        PerfDistribution lookupKeyPtrDist;
+
+        PerfCounters();
+    };
+
     explicit Hashtable(uint64_t nlines);
     void *Lookup(uint64_t key);
     void Insert(uint64_t key, void *ptr);
     bool Delete(uint64_t key);
     bool Replace(uint64_t key, void *ptr);
 
-    // performance counter accessors
-
     /**
-     * See #ins_total.
+     * \return
+     *      A read-only view of the Hashtable's performance counters.
      */
-    uint64_t GetInsertCount() { return ins_total; }
-
-    /**
-     * See #lup_total.
-     */
-    uint64_t GetLookupCount() { return lup_total; }
-
-    /**
-     * See #ins_nexts.
-     */
-    uint64_t GetInsertChainTraversals() { return ins_nexts; }
-
-    /**
-     * See #lup_nexts.
-     */
-    uint64_t GetLookupChainTraversals() { return lup_nexts; }
-
-    /**
-     * See #lup_mkfails.
-     */
-    uint64_t GetLookupFalsePositives() { return lup_mkfails; }
-
-    /**
-     * See #min_ticks.
-     */
-    uint64_t GetMinTicks() { return min_ticks; }
-
-    /**
-     * See #max_ticks.
-     */
-    uint64_t GetMaxTicks() { return max_ticks; }
+    const PerfCounters& getPerfCounters() {
+        return this->perfCounters;
+    }
 
 private:
+
     class Entry;
     Entry *LookupKeyPtr(uint64_t key);
     void StoreSample(uint64_t ticks);
@@ -205,68 +273,11 @@ private:
      */
     bool use_huge_tlb;
 
-    // performance counters
-
     /**
-     * The maximum number of CPU cycles divided by 10 expected to be spent on a
-     * #LookupKeyPtr() operation. See #buckets.
+     * The performance counters for the Hash table.
+     * See #getPerfCounters().
      */
-    static const uint64_t NBUCKETS = 5000;
-
-    /**
-     * A frequency distribution of the number of CPU cycles divided by 10 spent
-     * for #LookupKeyPtr() operations.
-     */
-    uint64_t buckets[NBUCKETS];
-
-    /**
-     * The sum of the number of CPU cycles spent across all #Insert()
-     * operations.
-     */
-    uint64_t ins_total;
-
-    /**
-     * The sum of the number of CPU cycles spent across all #LookupKeyPtr()
-     * operations.
-     */
-    uint64_t lup_total;
-
-    /**
-     * The sum of the number of times a chain pointer was followed across all
-     * #Insert() operations.
-     */
-    uint64_t ins_nexts;
-
-    /**
-     * The sum of the number of times a chain pointer was followed across all
-     * #LookupKeyPtr() operations.
-     */
-    uint64_t lup_nexts;
-
-    /**
-     * The sum of the number of times there was a hash table entry collision
-     * across all #LookupKeyPtr() operations. This is when the buckets collide
-     * for a key, and the extra disambiguation bits inside the hash table entry
-     * collide, but following the Log pointer reveals that the entry does not
-     * correspond to the given key.
-     */
-    uint64_t lup_mkfails;
-
-    /**
-     * The number of #LookupKeyPtr() operations that took more CPU cycles than
-     * #NBUCKETS times 10.
-     */
-    uint64_t oflowbucket;
-
-    /**
-     * The minimum number of CPU cycles spent for a #LookupKeyPtr() operation.
-     */
-    uint64_t min_ticks;
-
-    /**
-     * The maximum number of CPU cycles spent for a #LookupKeyPtr() operation.
-     */
-    uint64_t max_ticks;
+    PerfCounters perfCounters;
 
     friend class HashtableEntryTest;
     friend class HashtableTest;

@@ -33,6 +33,50 @@
 
 namespace RAMCloud {
 
+
+// Hashtable::PerfDistribution
+
+
+Hashtable::PerfDistribution::PerfDistribution()
+    : binOverflows(0), min(~0UL), max(0UL)
+{
+    memset(bins, 0, sizeof(bins));
+}
+
+/**
+ * Record a sampled value by updating the distribution statistics.
+ * \param[in] value
+ *      The value sampled.
+ */
+void
+Hashtable::PerfDistribution::storeSample(uint64_t value)
+{
+    if (value / BIN_WIDTH < NBINS)
+        bins[value / BIN_WIDTH]++;
+    else
+        binOverflows++;
+
+    if (value < min)
+        min = value;
+    if (value > max)
+        max = value;
+}
+
+
+// Hashtable::PerfCounters
+
+
+Hashtable::PerfCounters::PerfCounters()
+    : insertCycles(0), lookupKeyPtrCycles(0), insertChainsFollowed(0),
+    lookupKeyPtrChainsFollowed(0), lookupKeyPtrHashCollisions(0),
+    lookupKeyPtrDist()
+{
+}
+
+
+// Hashtable::Entry
+
+
 /**
  * Replaces this hash table entry.
  * \param[in] hash
@@ -177,27 +221,6 @@ Hashtable::Entry::isChainLink()
 
 
 /**
- * Update the distribution statistics for the number of cycles for a
- * #LookupKeyPtr() operation.
- * See #buckets, #oflowbucket, #min_ticks, #max_ticks.
- * \param[in] ticks
- *      The number of cycles used for a #LookupKeyPtr() operation.
- */
-void
-Hashtable::StoreSample(uint64_t ticks)
-{
-    if (ticks / 10 < NBUCKETS)
-        buckets[ticks / 10]++;
-    else
-        oflowbucket++;
-
-    if (ticks < min_ticks)
-        min_ticks = ticks;
-    if (ticks > max_ticks)
-        max_ticks = ticks;
-}
-
-/**
  * Allocate an aligned chunk of memory.
  * \param[in] len
  *      The size of the memory chunk to allocate.
@@ -241,9 +264,7 @@ hash(uint64_t key, uint64_t *hash, uint16_t *mkhash)
  *      The number of buckets in the new hash table.
  */
 Hashtable::Hashtable(uint64_t nlines)
-    : table(0), table_lines(nlines), use_huge_tlb(false), ins_total(0),
-    lup_total(0), ins_nexts(0), lup_nexts(0), lup_mkfails(0), oflowbucket(0),
-    min_ticks(~0), max_ticks(0)
+    : table(0), table_lines(nlines), use_huge_tlb(false), perfCounters()
 {
     // Allocate space for a new hash table and set its entries to unused.
     uint64_t i, j;
@@ -293,11 +314,11 @@ Hashtable::LookupKeyPtr(uint64_t key)
                 uint64_t *obj = (uint64_t *) kp->getLogPointer();
                 if (*obj == key) {
                     uint64_t diff = rdtsc() - b;
-                    lup_total += diff;
-                    StoreSample(diff);
+                    perfCounters.lookupKeyPtrCycles += diff;
+                    perfCounters.lookupKeyPtrDist.storeSample(diff);
                     return kp;
                 } else {
-                    lup_mkfails++;
+                    perfCounters.lookupKeyPtrHashCollisions++;
                 }
             }
         }
@@ -306,13 +327,13 @@ Hashtable::LookupKeyPtr(uint64_t key)
         // cache line.
         if (!cl->entries[ENTRIES_PER_CACHE_LINE - 1].isChainLink()) {
             uint64_t diff = rdtsc() - b;
-            lup_total += diff;
-            StoreSample(diff);
+            perfCounters.lookupKeyPtrCycles += diff;
+            perfCounters.lookupKeyPtrDist.storeSample(diff);
             return NULL;
         }
 
         cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
-        lup_nexts++;
+        perfCounters.lookupKeyPtrChainsFollowed++;
     }
 }
 
@@ -396,7 +417,7 @@ Hashtable::Insert(uint64_t key, void *ptr)
         for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, kp++) {
             if (kp->isAvailable()) {
                 kp->setLogPointer(mk, ptr);
-                ins_total += (rdtsc() - b);
+                perfCounters.insertCycles += (rdtsc() - b);
                 return;
             }
         }
@@ -412,7 +433,7 @@ Hashtable::Insert(uint64_t key, void *ptr)
         }
 
         cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
-        ins_nexts++;
+        perfCounters.insertChainsFollowed++;
     }
 }
 

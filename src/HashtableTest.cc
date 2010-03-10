@@ -176,6 +176,68 @@ class HashtableEntryTest : public CppUnit::TestFixture {
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(HashtableEntryTest);
 
+/**
+ * Unit tests for Hashtable::Entry.
+ */
+class HashtablePerfDistributionTest : public CppUnit::TestFixture {
+
+    //Hashtable::Entry entries[10];
+
+    DISALLOW_COPY_AND_ASSIGN(HashtablePerfDistributionTest); // NOLINT
+
+    CPPUNIT_TEST_SUITE(HashtablePerfDistributionTest);
+    CPPUNIT_TEST(test_constructor);
+    CPPUNIT_TEST(test_storeSample);
+    CPPUNIT_TEST_SUITE_END();
+
+  public:
+    HashtablePerfDistributionTest() {}
+
+    void test_constructor()
+    {
+        RAMCloud::Hashtable::PerfDistribution d;
+        CPPUNIT_ASSERT_EQUAL(~0UL, d.min);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.max);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.binOverflows);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[0]);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[1]);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
+    }
+
+    void test_storeSample()
+    {
+        Hashtable::PerfDistribution d;
+
+        // You can't use CPPUNIT_ASSERT_EQUAL here because it tries to take a
+        // reference to BIN_WIDTH. See 10.4.6.2 Member Constants of The C++
+        // Programming Language by Bjarne Stroustrup for more about static
+        // constant integers.
+        CPPUNIT_ASSERT(10 == Hashtable::PerfDistribution::BIN_WIDTH);
+
+        d.storeSample(3);
+        CPPUNIT_ASSERT_EQUAL(3UL, d.min);
+        CPPUNIT_ASSERT_EQUAL(3UL, d.max);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.binOverflows);
+        CPPUNIT_ASSERT_EQUAL(1UL, d.bins[0]);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[1]);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
+
+        d.storeSample(3);
+        d.storeSample(d.NBINS * d.BIN_WIDTH + 40);
+        d.storeSample(12);
+        d.storeSample(78);
+
+        CPPUNIT_ASSERT_EQUAL(3UL, d.min);
+        CPPUNIT_ASSERT_EQUAL(d.NBINS * d.BIN_WIDTH + 40, d.max);
+        CPPUNIT_ASSERT_EQUAL(1UL, d.binOverflows);
+        CPPUNIT_ASSERT_EQUAL(2UL, d.bins[0]);
+        CPPUNIT_ASSERT_EQUAL(1UL, d.bins[1]);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
+    }
+
+};
+CPPUNIT_TEST_SUITE_REGISTRATION(HashtablePerfDistributionTest);
+
 class HashtableTest : public CppUnit::TestFixture {
   public:
     void setUp();
@@ -259,14 +321,16 @@ HashtableTest::TestMain()
     }
     printf("lookup avg: %llu\n", (rdtsc() - b) / nkeys);
 
+    const Hashtable::PerfCounters & pc = ht->getPerfCounters();
+
     printf("insert: %llu avg ticks, %llu / %lu multi-cacheline accesses\n",
-           ht->GetInsertCount() / nkeys, ht->GetInsertChainTraversals(), nkeys);
+         pc.insertCycles / nkeys, pc.insertChainsFollowed, nkeys);
     printf("lookup: %llu avg ticks, %llu / %lu multi-cacheline accesses, "
            "%llu minikey false positives\n",
-           ht->GetLookupCount() / nkeys, ht->GetLookupChainTraversals(),
-           nkeys, ht->GetLookupFalsePositives());
-    printf("lookup: %llu min ticks\n", ht->GetMinTicks());
-    printf("lookup: %llu max ticks\n", ht->GetMaxTicks());
+           pc.lookupKeyPtrCycles / nkeys, pc.lookupKeyPtrChainsFollowed,
+           nkeys, pc.lookupKeyPtrHashCollisions);
+    printf("lookup: %llu min ticks\n", pc.lookupKeyPtrDist.min);
+    printf("lookup: %llu max ticks\n", pc.lookupKeyPtrDist.max);
 
     int *histogram = (int *) xmalloc(sizeof(int) * nlines);
     memset(histogram, 0, sizeof(int) * nlines);
