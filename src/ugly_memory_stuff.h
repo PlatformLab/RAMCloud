@@ -28,6 +28,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+// TODO(ongaro): The memory regioin allocated is impossible free since the
+// pointer from xmalloc is discarded.
 static void *
 xmalloc_aligned_xmalloc(uint64_t len)
 {

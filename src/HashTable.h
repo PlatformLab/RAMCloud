@@ -151,6 +151,7 @@ class HashTable {
     };
 
     explicit HashTable(uint64_t nlines);
+    ~HashTable();
     void *lookup(uint64_t key);
     void insert(uint64_t key, void *ptr);
     bool remove(uint64_t key);

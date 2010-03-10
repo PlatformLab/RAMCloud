@@ -279,6 +279,16 @@ HashTable::HashTable(uint64_t nlines)
     }
 }
 
+HashTable::~HashTable()
+{
+    // TODO(ongaro): free chained CacheLines that were allocated in insert()
+
+    if (buckets != NULL) {
+        // TODO(ongaro): free the memory region containing buckets
+        buckets = NULL;
+    }
+}
+
 /**
  * Find a hash table entry for a given key.
  * This is used in #lookup(), #remove(), and #replace() to find the hash table
