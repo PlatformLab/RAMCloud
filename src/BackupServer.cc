@@ -48,6 +48,8 @@ BackupServer::BackupServer(Net *net_impl, const char *logPath)
     : net(net_impl), logFD(-1), seg(0), unalignedSeg(0),
       openSegNum(INVALID_SEGMENT_NUM), freeMap(true)
 {
+    static_assert(LOG_SPACE == SEGMENT_FRAMES * SEGMENT_SIZE);
+
     logFD = open(logPath,
                   O_CREAT | O_RDWR | BACKUP_LOG_FLAGS,
                   0666);
