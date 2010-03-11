@@ -161,7 +161,7 @@ class HashTable {
      * \return
      *      A read-only view of the hash table's performance counters.
      */
-    const PerfCounters& getPerfCounters() {
+    const PerfCounters& getPerfCounters() const {
         return this->perfCounters;
     }
 
@@ -172,7 +172,7 @@ class HashTable {
     struct CacheLine;
 
     Entry *lookupEntry(uint64_t key);
-    void *mallocAligned(uint64_t len);
+    void *mallocAligned(uint64_t len) const;
     static void hash(uint64_t key, uint64_t *hash, uint16_t *mkhash);
 
     /**
@@ -205,11 +205,11 @@ class HashTable {
         void clear();
         void setLogPointer(uint64_t hash, void *ptr);
         void setChainPointer(CacheLine *ptr);
-        bool isAvailable();
-        void* getLogPointer();
-        CacheLine* getChainPointer();
-        bool hashMatches(uint64_t hash);
-        bool isChainLink();
+        bool isAvailable() const;
+        void* getLogPointer() const;
+        CacheLine* getChainPointer() const;
+        bool hashMatches(uint64_t hash) const;
+        bool isChainLink() const;
 
       private:
         /**
@@ -240,7 +240,7 @@ class HashTable {
             void *ptr;
         };
 
-        UnpackedEntry unpack();
+        UnpackedEntry unpack() const;
 
         friend class HashTableEntryTest;
     };
@@ -261,18 +261,18 @@ class HashTable {
     /**
      * The array of buckets.
      */
-    CacheLine *buckets;
+    CacheLine * buckets;
 
     /**
      * The number of buckets allocated to the table.
      */
-    uint64_t numBuckets;
+    const uint64_t numBuckets;
 
     /**
      * Whether to allocate memory using #xmalloc_aligned_hugetlb() instead of
      * #xmalloc_aligned_xmalloc().
      */
-    bool useHugeTlb;
+    const bool useHugeTlb;
 
     /**
      * The performance counters for the HashTable.

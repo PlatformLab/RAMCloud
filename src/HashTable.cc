@@ -103,7 +103,8 @@ HashTable::Entry::pack(uint64_t hash, bool chain, void *ptr)
  * \return
  *      The extracted values. See UnpackedEntry.
  */
-HashTable::Entry::UnpackedEntry HashTable::Entry::unpack() {
+HashTable::Entry::UnpackedEntry HashTable::Entry::unpack() const
+{
     UnpackedEntry ue;
     ue.hash    = (this->value >> 48) & 0x000000000000ffffUL;
     ue.chain   = (this->value >> 47) & 0x0000000000000001UL;
@@ -152,7 +153,7 @@ HashTable::Entry::setChainPointer(CacheLine *ptr)
  *      Whether a hash table entry is unused.
  */
 bool
-HashTable::Entry::isAvailable()
+HashTable::Entry::isAvailable() const
 {
     UnpackedEntry ue = unpack();
     return (ue.ptr == NULL);
@@ -167,7 +168,7 @@ HashTable::Entry::isAvailable()
  *      The Log pointer stored in a hash table entry.
  */
 void*
-HashTable::Entry::getLogPointer()
+HashTable::Entry::getLogPointer() const
 {
     UnpackedEntry ue = unpack();
     assert(!ue.chain && ue.ptr != NULL);
@@ -182,7 +183,7 @@ HashTable::Entry::getLogPointer()
  *      The chain pointer to another cache line.
  */
 HashTable::CacheLine*
-HashTable::Entry::getChainPointer()
+HashTable::Entry::getChainPointer() const
 {
     UnpackedEntry ue = unpack();
     assert(ue.chain);
@@ -198,7 +199,7 @@ HashTable::Entry::getChainPointer()
  *      hash bits for the object pointed to match \a hash.
  */
 bool
-HashTable::Entry::hashMatches(uint64_t hash)
+HashTable::Entry::hashMatches(uint64_t hash) const
 {
     UnpackedEntry ue = unpack();
     return (!ue.chain && ue.ptr != NULL && ue.hash == hash);
@@ -211,7 +212,7 @@ HashTable::Entry::hashMatches(uint64_t hash)
  *      (as opposed to a Log pointer to an object).
  */
 bool
-HashTable::Entry::isChainLink()
+HashTable::Entry::isChainLink() const
 {
     UnpackedEntry ue = unpack();
     return ue.chain;
@@ -230,7 +231,7 @@ HashTable::Entry::isChainLink()
  *      not be \c NULL.
  */
 void *
-HashTable::mallocAligned(uint64_t len)
+HashTable::mallocAligned(uint64_t len) const
 {
     return (useHugeTlb) ?
         xmalloc_aligned_hugetlb(len) : xmalloc_aligned_xmalloc(len);
