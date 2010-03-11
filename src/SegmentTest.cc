@@ -136,8 +136,14 @@ class SegmentTest : public CppUnit::TestFixture {
             const void *p = Seg->append(&chr, 1);
             if (p == NULL)
                 break;
-            CPPUNIT_ASSERT(memcmp(p, &chr, 1) == 0);
-            CPPUNIT_ASSERT_EQUAL(Seg->tail_bytes + 1, last);
+
+            // CPPUNIT_ASSERT is too slow. Using if statements instead saves 3s
+            // on my machine (using 3MB segments). -Diego
+            if (memcmp(p, &chr, 1) != 0)
+                CPPUNIT_ASSERT(false);
+            if (Seg->tail_bytes + 1 != last)
+                CPPUNIT_ASSERT(false);
+
             last = Seg->tail_bytes;
         }
 
