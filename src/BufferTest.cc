@@ -270,6 +270,8 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!memcmp(cmpBuf, testStr1, 10));
         CPPUNIT_ASSERT_EQUAL((uint32_t) 5, buf->copy(10, 5, cmpBuf));
         CPPUNIT_ASSERT(!memcmp(cmpBuf, testStr2, 5));
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 5, buf->copy(12, 5, cmpBuf));
+        CPPUNIT_ASSERT(!memcmp(cmpBuf, testStr2+2, 5));
 
         CPPUNIT_ASSERT_EQUAL((uint32_t) 30, buf->copy(0, 30, cmpBuf));
         CPPUNIT_ASSERT_EQUAL(0, strcmp(cmpBuf, testStr));
@@ -314,9 +316,7 @@ class BufferTest : public CppUnit::TestFixture {
 
     void test_allocateMoreChunks() {
         Buffer b;
-
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunksUsed);
-
         CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.chunksAvail);
         b.allocateMoreChunks();
         CPPUNIT_ASSERT_EQUAL((uint32_t) 20, b.chunksAvail);
