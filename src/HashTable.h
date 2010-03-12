@@ -282,6 +282,7 @@ class HashTable {
 
     friend class HashTableEntryTest;
     friend class HashTableTest;
+    friend void hashTableBenchmark(uint64_t nkeys, uint64_t nlines);
     DISALLOW_COPY_AND_ASSIGN(HashTable);
 };
 
