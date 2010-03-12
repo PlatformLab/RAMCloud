@@ -146,7 +146,7 @@ void* Buffer::getRange(const uint32_t offset, const uint32_t length) {
 
     if (extraBufsUsed == extraBufsAvail) allocateMoreExtraBufs();
     extraBufs[extraBufsUsed] =
-            reinterpret_cast<void*>(xmalloc(length));
+            reinterpret_cast<void*>(xmalloc(sizeof(char) * length));
     if (copy(offset, length,
              reinterpret_cast<void*>(extraBufs[extraBufsUsed])) <= 0)
         return NULL;
@@ -257,7 +257,7 @@ void Buffer::allocateMoreExtraBufs() {
     else
         extraBufsAvail *= 2;
     extraBufs = reinterpret_cast<void **>(
-        xrealloc(extraBufs, sizeof(void*) * extraBufsAvail));
+        xrealloc(extraBufs, sizeof(void *) * extraBufsAvail));
 }
 
 }  // namespace RAMCLoud
