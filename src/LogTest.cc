@@ -146,17 +146,26 @@ class LogTest : public CppUnit::TestFixture {
 
             const void *p = Log->append(LOG_ENTRY_TYPE_OBJECT,
                 buf, sizeof(buf));
-            CPPUNIT_ASSERT(p != NULL);
+
+            // CPPUNIT_ASSERT is too slow. Using if statements instead saves
+            // ~0.6s on my machine (using 3MB segments). -Diego
+
+            if (p == NULL)
+                CPPUNIT_ASSERT(false);
 
             // Head may have changed due to the write.
             if (Log->head == old_head) {
-                CPPUNIT_ASSERT_EQUAL(new_util, Log->head->getUtilization());
-                CPPUNIT_ASSERT_EQUAL(new_tail, Log->head->tail_bytes);
+                if (new_util != Log->head->getUtilization())
+                    CPPUNIT_ASSERT(false);
+                if (new_tail != Log->head->tail_bytes)
+                    CPPUNIT_ASSERT(false);
 
                 Log->free(LOG_ENTRY_TYPE_OBJECT, p, sizeof(buf));
 
-                CPPUNIT_ASSERT_EQUAL(old_util, Log->head->getUtilization());
-                CPPUNIT_ASSERT_EQUAL(new_tail, Log->head->tail_bytes);
+                if (old_util != Log->head->getUtilization())
+                    CPPUNIT_ASSERT(false);
+                if (new_tail != Log->head->tail_bytes)
+                    CPPUNIT_ASSERT(false);
             }
         }
     }
@@ -179,7 +188,7 @@ class LogTest : public CppUnit::TestFixture {
     TestAllocateSegmentId()
     {
         uint64_t id = Log->allocateSegmentId();
-        for (uint64_t i = 1; i < 1000000; i++) {
+        for (uint64_t i = 1; i < 10; i++) {
             CPPUNIT_ASSERT_EQUAL(id + i, Log->allocateSegmentId()); 
         }
     }

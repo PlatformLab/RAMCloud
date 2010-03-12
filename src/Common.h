@@ -48,30 +48,60 @@
     TypeName(const TypeName&);             \
     void operator=(const TypeName&)
 
+/**
+ * Allocate a new memory area.
+ * This works like malloc(3), except it will crash rather than return \c NULL
+ * if the system is out of memory.
+ * \param[in] _l
+ *      The length for the memory area (a \c size_t).
+ * \return
+ *      A non-\c NULL pointer to the new memory area.
+ */
 #define xmalloc(_l)  _xmalloc(_l, __FILE__, __LINE__, __func__)
 static inline void *
 _xmalloc(size_t len, const char *file, const int line, const char *func)
 {
-    void *p = malloc(len);
+    void *p = malloc(len > 0 ? len : 1);
     if (p == NULL) {
         fprintf(stderr, "malloc(%d) failed: %s:%d (%s)\n",
                 len, file, line, func);
+        exit(1);
     }
 
-    return p; 
+    return p;
 }
 
+/**
+ * Resize a previously allocated memory area.
+ * This works like realloc(3), except it will crash rather than return \c NULL
+ * if the system is out of memory.
+ * \param[in] _p
+ *      The pointer to the previously allocated memory area. This pointer is
+ *      invalid after this function is called.
+ * \param[in] _l
+ *      The new length for the memory area (a \c size_t).
+ * \return
+ *      A non-\c NULL pointer to the new memory area.
+ */
 #define xrealloc(_p, _l) _xrealloc(_p, _l, __FILE__, __LINE__, __func__)
 static inline void * _xrealloc(void *ptr, size_t len, const char* file,
                                const int line, const char* func) {
-    void *p = realloc(ptr, len);
+    void *p = realloc(ptr, len > 0 ? len : 1);
     if (p == NULL) {
         fprintf(stderr, "realloc(%d) failed: %s:%d (%s)\n",
                 len, file, line, func);
+        exit(1);
     }
 
-    return 0;
+    return p;
 }
+
+/*
+ * static_assert(x) will generate a compile-time error if 'x' is false.
+ */
+#define static_assert(x) do { \
+        switch (x) { default: case 0: case (x): break; } \
+    } while (0)
 
 #ifdef __cplusplus
 void debug_dump64(const void *buf, uint64_t bytes);
