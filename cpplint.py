@@ -146,6 +146,7 @@ Syntax: cpplint.py [--verbose=#] [--output=vs7] [--filter=-x,+y,...]
 # here!  cpplint_unittest.py should tell you if you forget to do this.
 # \ used for clearer layout -- pylint: disable-msg=C6013
 _ERROR_CATEGORIES = '''\
+  ramcloud/undeclared_test
   build/class
   build/deprecated
   build/endif_comment
@@ -1061,6 +1062,23 @@ def CheckForNewlineAtEOF(filename, lines, error):
     error(filename, len(lines) - 2, 'whitespace/ending_newline', 5,
           'Could not find a newline character at the end of the file.')
 
+def CheckForUndeclaredTestMethods(filename, lines, error):
+    if not _IsTestFilename(filename):
+        return
+    declared = []
+    defined = []
+    for i, line in enumerate(lines):
+        m = Search('CPPUNIT_TEST\s*\(\s*(\w+)\s*\)', line)
+        if m:
+            declared.append(m.group(1))
+        m = Search('([tT]est\w+)\(\)', line)
+        if m and not Search(r'\bNOLINT\b', line):
+            defined.append((i, m.group(1)))
+    for i, extra in defined:
+        if extra not in declared:
+            error(filename, i, 'ramcloud/undeclared_test', 5,
+                  'You should register this test method with ' +
+                  'CPPUNIT_TEST(%s);' % extra)
 
 def CheckForMultilineCommentsAndStrings(filename, clean_lines, linenum, error):
   """Logs an error if we see /* ... */ or "..." that extend past one line.
@@ -2116,12 +2134,7 @@ def _IsTestFilename(filename):
   Returns:
     True if 'filename' looks like a test, False otherwise.
   """
-  if (filename.endswith('_test.cc') or
-      filename.endswith('_unittest.cc') or
-      filename.endswith('_regtest.cc')):
-    return True
-  else:
-    return False
+  return filename.endswith('Test.cc')
 
 
 def _ClassifyInclude(fileinfo, include, is_system):
@@ -2884,6 +2897,8 @@ def ProcessFileData(filename, file_extension, lines, error):
   CheckForUnicodeReplacementCharacters(filename, lines, error)
 
   CheckForNewlineAtEOF(filename, lines, error)
+
+  CheckForUndeclaredTestMethods(filename, lines, error)
 
 
 def ProcessFile(filename, vlevel):
