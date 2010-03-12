@@ -16,6 +16,7 @@
 #include <Common.h>
 
 #include <HashTable.h>
+#include <Object.h>
 
 #include <cppunit/extensions/HelperMacros.h>
 
@@ -245,6 +246,8 @@ class HashTableTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_hash);
     CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_destructor);
+    CPPUNIT_TEST(test_objectContainsKey_assumptions);
+    CPPUNIT_TEST(test_objectContainsKey);
     CPPUNIT_TEST_SUITE_END();
     DISALLOW_COPY_AND_ASSIGN(HashTableTest); //NOLINT
 
@@ -317,6 +320,21 @@ class HashTableTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(ht->buckets == NULL);
         ht->~HashTable();
         CPPUNIT_ASSERT(ht->buckets == NULL);
+    }
+
+    void test_objectContainsKey_assumptions()
+    {
+        Object *o = reinterpret_cast<Object*>(NULL);
+        assert(reinterpret_cast<uintptr_t>(&o->key) == 0UL);
+        assert(sizeof(o->key) == 8);
+    }
+
+    void test_objectContainsKey()
+    {
+        uint64_t o = 0xdeadbeefdeadbeefUL;
+        CPPUNIT_ASSERT(!HashTable::objectContainsKey(&o, 0UL));
+        CPPUNIT_ASSERT(!HashTable::objectContainsKey(&o, 4UL));
+        CPPUNIT_ASSERT(HashTable::objectContainsKey(&o, o));
     }
 
 };

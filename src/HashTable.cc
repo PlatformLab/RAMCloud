@@ -294,6 +294,22 @@ HashTable::~HashTable()
 }
 
 /**
+ * Check whether a candidate object is associated with a given key in the Log.
+ * \param[in] object
+ *      A pointer to the %RAMCloud object in the Log.
+ * \param[in] key
+ *      The object ID against which to compare \a object's key.
+ * \return
+ *      Whether the key associated with \a object in the Log is \a key.
+ */
+bool
+HashTable::objectContainsKey(void *object, uint64_t key)
+{
+    // TODO(ongaro): Assuming the object stores its key in the first 64 bits.
+    return (*static_cast<uint64_t*>(object) == key);
+}
+
+/**
  * Find a hash table entry for a given key.
  * This is used in #lookup(), #remove(), and #replace() to find the hash table
  * entry to operate on.
@@ -324,10 +340,8 @@ HashTable::lookupEntry(uint64_t key)
             if (kp->hashMatches(mk)) {
                 // The hash within the hash table entry matches, so with high
                 // probability this is the pointer we're looking for. To check,
-                // we assume the object stores its key in the first 64 bits and
-                // see if that matches our key.
-                uint64_t *obj = static_cast<uint64_t*>(kp->getLogPointer());
-                if (*obj == key) {
+                // we must go to the object.
+                if (objectContainsKey(kp->getLogPointer(), key)) {
                     uint64_t diff = rdtsc() - b;
                     perfCounters.lookupEntryCycles += diff;
                     perfCounters.lookupEntryDist.storeSample(diff);
