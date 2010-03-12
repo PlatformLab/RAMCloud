@@ -48,7 +48,7 @@ def load_so():
     not_found = ImportError("Couldn't find libramcloud.so, ensure it is " +
                             "installed and that you have registered it with " +
                             "/sbin/ldconfig")
-    path = find_library('ramcloud')
+    path = "/usr/local/lib/libramcloud.so"  # find_library('ramcloud')
     if not path:
         raise not_found
     try:
