@@ -241,14 +241,17 @@ HashTable::mallocAligned(uint64_t len) const
  * Take the hashes of an object ID.
  * \param[in] key
  *      The object ID to hash.
- * \param[out] hash
- *      The main hash used to select a bucket.
- * \param[out] mkhash
- *      Additional hash bits used to disambiguate entries in the same bucket.
+ * \param[out] bucketHash
+ *      The main hash used to select a bucket (48 bits).
+ * \param[out] entryHash
+ *      Additional hash bits used to disambiguate entries in the same bucket
+ *      (16 bits).
  */
 void
-HashTable::hash(uint64_t key, uint64_t *hash, uint16_t *mkhash)
+HashTable::hash(uint64_t key, uint64_t *bucketHash, uint64_t *entryHash)
 {
+    // This appears to be hash64shift by Thomas Wang from
+    // http://www.concentric.net/~Ttwang/tech/inthash.htm
     key = (~key) + (key << 21); // key = (key << 21) - key - 1;
     key = key ^ (key >> 24);
     key = (key + (key << 3)) + (key << 8); // key * 265
@@ -257,8 +260,8 @@ HashTable::hash(uint64_t key, uint64_t *hash, uint16_t *mkhash)
     key = key ^ (key >> 28);
     key = key + (key << 31);
 
-    *hash   = key & 0x0000ffffffffffffULL;
-    *mkhash = static_cast<uint16_t>(key >> 48);
+    *bucketHash = key & 0x0000ffffffffffffUL;
+    *entryHash  = key >> 48;
 }
 
 /**
@@ -305,7 +308,7 @@ HashTable::lookupEntry(uint64_t key)
 {
     uint64_t b = rdtsc();
     uint64_t h;
-    uint16_t mk;
+    uint64_t mk;
     unsigned int i;
 
     // Find the bucket.
@@ -396,7 +399,7 @@ HashTable::remove(uint64_t key) {
 bool
 HashTable::replace(uint64_t key, void *ptr) {
     uint64_t h;
-    uint16_t mk;
+    uint64_t mk;
     Entry *kp = lookupEntry(key);
     if (!kp)
         return false;
@@ -418,7 +421,7 @@ HashTable::insert(uint64_t key, void *ptr)
 {
     uint64_t b = rdtsc();
     uint64_t h;
-    uint16_t mk;
+    uint64_t mk;
     unsigned int i;
 
     hash(key, &h, &mk);

@@ -173,7 +173,7 @@ class HashTable {
 
     Entry *lookupEntry(uint64_t key);
     void *mallocAligned(uint64_t len) const;
-    static void hash(uint64_t key, uint64_t *hash, uint16_t *mkhash);
+    static void hash(uint64_t key, uint64_t *bucketHash, uint64_t *entryHash);
 
     /**
      * The number of hash table entries (Entry) in a CacheLine.

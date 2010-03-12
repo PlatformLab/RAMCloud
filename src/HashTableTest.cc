@@ -242,6 +242,9 @@ class HashTableTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(HashTableTest);
     CPPUNIT_TEST(test_sizes);
     CPPUNIT_TEST(test_simple);
+    CPPUNIT_TEST(test_hash);
+    CPPUNIT_TEST(test_constructor);
+    CPPUNIT_TEST(test_destructor);
     CPPUNIT_TEST_SUITE_END();
     DISALLOW_COPY_AND_ASSIGN(HashTableTest); //NOLINT
 
@@ -260,7 +263,7 @@ class HashTableTest : public CppUnit::TestFixture {
 
     void test_simple()
     {
-        RAMCloud::HashTable ht(1024);
+        HashTable ht(1024);
 
         uint64_t a = 0;
         uint64_t b = 10;
@@ -273,6 +276,49 @@ class HashTableTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(ht.lookup(10) == &b);
         CPPUNIT_ASSERT(ht.lookup(0) == &a);
     }
+
+    /**
+     * Ensure that #RAMCloud::HashTable::hash() generates hashes using the full
+     * range of bits.
+     */
+    void test_hash()
+    {
+        uint64_t bigHashObservedBits = 0UL;
+        uint64_t littleHashObservedBits = 0UL;
+        srand(1);
+        for (uint32_t i = 0; i < 50; i++) {
+            uint64_t input = rand();
+            uint64_t bigHash;
+            uint64_t littleHash;
+            HashTable::hash(input, &bigHash, &littleHash);
+            bigHashObservedBits |= bigHash;
+            littleHashObservedBits |= littleHash;
+        }
+        CPPUNIT_ASSERT_EQUAL(bigHashObservedBits, ~0UL >> (64 - 48));
+        CPPUNIT_ASSERT_EQUAL(littleHashObservedBits, ~0UL >> (64 - 16));
+    }
+
+    void test_constructor()
+    {
+        char buf[sizeof(HashTable) + 1024];
+        memset(buf, 0xca, sizeof(buf));
+        HashTable *ht = new(buf) HashTable(10);
+        for (uint32_t i = 0; i < 10; i++) {
+            for (uint32_t j = 0; j < HashTable::ENTRIES_PER_CACHE_LINE; j++)
+                CPPUNIT_ASSERT(ht->buckets[i].entries[j].isAvailable());
+        }
+    }
+
+    void test_destructor()
+    {
+        char buf[sizeof(HashTable) + 1024];
+        HashTable *ht = new(buf) HashTable(10);
+        ht->~HashTable();
+        CPPUNIT_ASSERT(ht->buckets == NULL);
+        ht->~HashTable();
+        CPPUNIT_ASSERT(ht->buckets == NULL);
+    }
+
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(HashTableTest);
 
