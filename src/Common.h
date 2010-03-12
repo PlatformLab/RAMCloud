@@ -96,6 +96,13 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
     return p;
 }
 
+/*
+ * static_assert(x) will generate a compile-time error if 'x' is false.
+ */
+#define static_assert(x) do { \
+        switch (x) { default: case 0: case (x): break; } \
+    } while (0)
+
 #ifdef __cplusplus
 void debug_dump64(const void *buf, uint64_t bytes);
 uint64_t rdtsc();

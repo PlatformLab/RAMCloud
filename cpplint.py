@@ -2620,7 +2620,7 @@ _HEADERS_ACCEPTED_BUT_NOT_PROMOTED = {
 _RE_PATTERN_STRING = re.compile(r'\bstring\b')
 
 _re_pattern_algorithm_header = []
-for _template in ('copy', 'max', 'min', 'min_element', 'sort', 'swap',
+for _template in ('copy', 'min_element', 'sort', 'swap',
                   'transform'):
   # Match max<type>(..., ...), max(..., ...), but not foo->max, foo.max or
   # type::max().
