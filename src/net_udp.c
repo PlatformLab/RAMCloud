@@ -119,11 +119,10 @@ rc_net_recv(struct rc_net *net, void **buf, size_t *buflen)
         assert(!rc_net_connect(net));
 
     static char recvbuf[1 << 20];
-    struct sockaddr_in sin;
-    socklen_t sinlen = sizeof(sin);
+    socklen_t dstsinlen = sizeof(net->dstsin);
 
     ssize_t len = recvfrom(net->fd, recvbuf, sizeof(recvbuf), 0,
-                           (struct sockaddr *)&sin, &sinlen);
+                           (struct sockaddr *) &net->dstsin, &dstsinlen);
     if (len == -1) {
         // errno already set from recvfrom
         return -1;
