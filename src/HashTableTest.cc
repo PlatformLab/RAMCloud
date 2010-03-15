@@ -257,6 +257,9 @@ class HashTableTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_insert_cacheLine0Entry7);
     CPPUNIT_TEST(test_insert_cacheLine2Entry0);
     CPPUNIT_TEST(test_insert_cacheLineFull);
+    CPPUNIT_TEST(test_lookup);
+    CPPUNIT_TEST(test_remove);
+    CPPUNIT_TEST(test_replace);
     CPPUNIT_TEST_SUITE_END();
     DISALLOW_COPY_AND_ASSIGN(HashTableTest); //NOLINT
 
@@ -583,6 +586,40 @@ class HashTableTest : public CppUnit::TestFixture {
                        &cacheLines[1]);
         assertEntryIs(&ht, 1, 0, &values[seven]);
         assertEntryIs(&ht, 1, 1, &v);
+    }
+
+    void test_lookup()
+    {
+        HashTable ht(1);
+        uint64_t v = 83UL;
+        CPPUNIT_ASSERT_EQUAL(ht.lookup(83UL), static_cast<void*>(NULL));
+        ht.insert(83UL, &v);
+        CPPUNIT_ASSERT_EQUAL(ht.lookup(83UL), static_cast<void*>(&v));
+    }
+
+    void test_remove()
+    {
+        HashTable ht(1);
+        CPPUNIT_ASSERT(!ht.remove(83UL));
+        uint64_t v = 83UL;
+        ht.insert(83UL, &v);
+        CPPUNIT_ASSERT(ht.remove(83UL));
+        CPPUNIT_ASSERT_EQUAL(ht.lookup(83UL), static_cast<void*>(NULL));
+        CPPUNIT_ASSERT(!ht.remove(83UL));
+    }
+
+    void test_replace()
+    {
+        HashTable ht(1);
+        uint64_t v = 83UL;
+        uint64_t w = 83UL;
+        CPPUNIT_ASSERT(!ht.replace(83UL, &w));
+        CPPUNIT_ASSERT_EQUAL(ht.lookup(83UL), static_cast<void*>(NULL));
+        ht.insert(83UL, &v);
+        CPPUNIT_ASSERT(ht.replace(83UL, &w));
+        CPPUNIT_ASSERT_EQUAL(ht.lookup(83UL), static_cast<void*>(&w));
+        CPPUNIT_ASSERT(ht.replace(83UL, &w));
+        CPPUNIT_ASSERT_EQUAL(ht.lookup(83UL), static_cast<void*>(&w));
     }
 
 };
