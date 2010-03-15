@@ -159,7 +159,6 @@ HashTable::Entry::isAvailable() const
     return (ue.ptr == NULL);
 }
 
-
 /**
  * Extract the Log pointer.
  * The caller must first verify that the hash table entry indeed stores a log
@@ -233,8 +232,10 @@ HashTable::Entry::isChainLink() const
 void *
 HashTable::mallocAligned(uint64_t len) const
 {
-    return (useHugeTlb) ?
-        xmalloc_aligned_hugetlb(len) : xmalloc_aligned_xmalloc(len);
+    if (useHugeTlb)
+        return xmalloc_aligned_hugetlb(len);
+    else
+        return xmalloc_aligned_xmalloc(len);
 }
 
 /**
@@ -272,10 +273,11 @@ HashTable::HashTable(uint64_t nlines)
     : buckets(NULL), numBuckets(nlines), useHugeTlb(false), perfCounters()
 {
     // Allocate space for a new hash table and set its entries to unused.
+
     uint64_t i, j;
 
-    buckets = static_cast<CacheLine *>(mallocAligned(numBuckets *
-                                                     sizeof(buckets[0])));
+    size_t bucketsSize = numBuckets * sizeof(CacheLine);
+    buckets = static_cast<CacheLine *>(mallocAligned(bucketsSize));
 
     for (i = 0; i < numBuckets; i++) {
         for (j = 0; j < ENTRIES_PER_CACHE_LINE; j++)
@@ -378,7 +380,9 @@ void *
 HashTable::lookup(uint64_t key)
 {
     Entry *kp = lookupEntry(key);
-    return kp ? kp->getLogPointer() : NULL;
+    if (kp == NULL)
+        return NULL;
+    return kp->getLogPointer();
 }
 
 /**
@@ -389,9 +393,10 @@ HashTable::lookup(uint64_t key)
  *      Whether the hash table contained the key.
  */
 bool
-HashTable::remove(uint64_t key) {
+HashTable::remove(uint64_t key)
+{
     Entry *kp = lookupEntry(key);
-    if (!kp)
+    if (kp == NULL)
         return false;
     kp->clear();
     return true;
@@ -411,11 +416,12 @@ HashTable::remove(uint64_t key) {
  *      taken!
  */
 bool
-HashTable::replace(uint64_t key, void *ptr) {
+HashTable::replace(uint64_t key, void *ptr)
+{
     uint64_t h;
     uint64_t mk;
     Entry *kp = lookupEntry(key);
-    if (!kp)
+    if (kp == NULL)
         return false;
     hash(key, &h, &mk);
     kp->setLogPointer(mk, ptr);
@@ -443,25 +449,26 @@ HashTable::insert(uint64_t key, void *ptr)
 
     while (1) {
         Entry *kp = cl->entries;
-        for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, kp++) {
+        for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
             if (kp->isAvailable()) {
                 kp->setLogPointer(mk, ptr);
                 perfCounters.insertCycles += (rdtsc() - b);
                 return;
             }
+            kp++;
         }
 
-        // no empty space found, allocate a new cache line
-        if (!cl->entries[ENTRIES_PER_CACHE_LINE - 1].isChainLink()) {
-            CacheLine *ncl =
-                static_cast<CacheLine *>(mallocAligned(sizeof(CacheLine)));
-            ncl->entries[0] = cl->entries[ENTRIES_PER_CACHE_LINE - 1];
+        Entry &last = cl->entries[ENTRIES_PER_CACHE_LINE - 1];
+        if (last.isChainLink()) {
+            cl = last.getChainPointer();
+        } else {
+            // no empty space found, allocate a new cache line
+            cl = static_cast<CacheLine *>(mallocAligned(sizeof(CacheLine)));
+            cl->entries[0] = last;
             for (i = 1; i < ENTRIES_PER_CACHE_LINE; i++)
-                ncl->entries[i].clear();
-            cl->entries[ENTRIES_PER_CACHE_LINE - 1].setChainPointer(ncl);
+                cl->entries[i].clear();
+            last.setChainPointer(cl);
         }
-
-        cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
         perfCounters.insertChainsFollowed++;
     }
 }
