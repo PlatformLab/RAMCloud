@@ -25,7 +25,7 @@
 #include <BackupClient.h>
 
 #include <Net.h>
-#include <Hashtable.h>
+#include <HashTable.h>
 
 namespace RAMCloud {
 
@@ -94,9 +94,7 @@ class Table {
      *      exists.
      */
     const Object *Get(uint64_t key) {
-        void *val = object_map.Lookup(key);
-        const Object *o = static_cast<const Object *>(val);
-        return o;
+        return object_map.lookup(key);
     }
 
     /**
@@ -107,12 +105,11 @@ class Table {
      */
     void Put(uint64_t key, const Object *o) {
         assert(o != NULL);
-        object_map.Delete(key);
-        object_map.Insert(key, const_cast<Object *>(o));
+        object_map.replace(key, o);
     }
 
     void Delete(uint64_t key) {
-        object_map.Delete(key);
+        object_map.remove(key);
     }
 
   private:
@@ -166,7 +163,7 @@ class Table {
     /**
      * The object ID to #RAMCloud::Object pointer map for the table.
      */
-    Hashtable object_map;
+    HashTable object_map;
 
     DISALLOW_COPY_AND_ASSIGN(Table);
 };

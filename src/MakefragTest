@@ -6,7 +6,7 @@ TESTS_SRCFILES := \
 		src/BackupClientTest.cc \
 		src/BitmapTest.cc \
 		src/BufferPtrTest.cc \
-		src/HashtableTest.cc \
+		src/HashTableTest.cc \
 		src/ChecksumTest.cc \
         src/SegmentTest.cc \
         src/LogTest.cc \
@@ -26,7 +26,14 @@ $(OBJDIR)/test: $(TESTS_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 
-test: $(OBJDIR)/test
+# TODO(ongaro) The unit tests don't actually call HashTableBenchmark, I just
+# wanted to make sure it continues to build over time.
+test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark
 	$(OBJDIR)/test
+
+$(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^
+
 
 tests-clean:
