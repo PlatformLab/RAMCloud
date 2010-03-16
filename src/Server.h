@@ -94,9 +94,7 @@ class Table {
      *      exists.
      */
     const Object *Get(uint64_t key) {
-        void *val = object_map.lookup(key);
-        const Object *o = static_cast<const Object *>(val);
-        return o;
+        return object_map.lookup(key);
     }
 
     /**
@@ -108,7 +106,7 @@ class Table {
     void Put(uint64_t key, const Object *o) {
         assert(o != NULL);
         object_map.remove(key);
-        object_map.insert(key, const_cast<Object *>(o));
+        object_map.insert(key, o);
     }
 
     void Delete(uint64_t key) {

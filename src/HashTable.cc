@@ -86,16 +86,15 @@ HashTable::PerfCounters::PerfCounters()
  *      where the object is located (determined by \a chain).
  */
 void
-HashTable::Entry::pack(uint64_t hash, bool chain, void *ptr)
+HashTable::Entry::pack(uint64_t hash, bool chain, uint64_t ptr)
 {
-    if (ptr == NULL)
+    if (ptr == 0)
         assert(hash == 0 && !chain);
 
     uint64_t c = chain ? 1 : 0;
-    uint64_t p = reinterpret_cast<uint64_t>(ptr);
     assert((hash & ~(0x000000000000ffffUL)) == 0);
-    assert((p    & ~(0x00007fffffffffffUL)) == 0);
-    this->value = ((hash << 48)  | (c << 47) | p);
+    assert((ptr  & ~(0x00007fffffffffffUL)) == 0);
+    this->value = ((hash << 48)  | (c << 47) | ptr);
 }
 
 /**
@@ -106,10 +105,9 @@ HashTable::Entry::pack(uint64_t hash, bool chain, void *ptr)
 HashTable::Entry::UnpackedEntry HashTable::Entry::unpack() const
 {
     UnpackedEntry ue;
-    ue.hash    = (this->value >> 48) & 0x000000000000ffffUL;
-    ue.chain   = (this->value >> 47) & 0x0000000000000001UL;
-    uint64_t p = this->value         & 0x00007fffffffffffUL;
-    ue.ptr   = reinterpret_cast<void*>(p);
+    ue.hash  = (this->value >> 48) & 0x000000000000ffffUL;
+    ue.chain = (this->value >> 47) & 0x0000000000000001UL;
+    ue.ptr   = this->value         & 0x00007fffffffffffUL;
     return ue;
 }
 
@@ -119,7 +117,7 @@ HashTable::Entry::UnpackedEntry HashTable::Entry::unpack() const
 void
 HashTable::Entry::clear()
 {
-    pack(0, false, NULL);
+    pack(0, false, 0);
 }
 
 /**
@@ -130,10 +128,10 @@ HashTable::Entry::clear()
  *      The Log pointer where the object is located. Must not be \c NULL.
  */
 void
-HashTable::Entry::setLogPointer(uint64_t hash, void *ptr)
+HashTable::Entry::setLogPointer(uint64_t hash, const Object *ptr)
 {
     assert(ptr != NULL);
-    pack(hash, false, ptr);
+    pack(hash, false, reinterpret_cast<uint64_t>(ptr));
 }
 
 /**
@@ -145,7 +143,7 @@ void
 HashTable::Entry::setChainPointer(CacheLine *ptr)
 {
     assert(ptr != NULL);
-    pack(0, true, ptr);
+    pack(0, true, reinterpret_cast<uint64_t>(ptr));
 }
 
 /**
@@ -156,7 +154,7 @@ bool
 HashTable::Entry::isAvailable() const
 {
     UnpackedEntry ue = unpack();
-    return (ue.ptr == NULL);
+    return (ue.ptr == 0);
 }
 
 /**
@@ -166,12 +164,12 @@ HashTable::Entry::isAvailable() const
  * \return
  *      The Log pointer stored in a hash table entry.
  */
-void*
+const Object*
 HashTable::Entry::getLogPointer() const
 {
     UnpackedEntry ue = unpack();
-    assert(!ue.chain && ue.ptr != NULL);
-    return ue.ptr;
+    assert(!ue.chain && ue.ptr != 0);
+    return reinterpret_cast<const Object*>(ue.ptr);
 }
 
 /**
@@ -186,7 +184,7 @@ HashTable::Entry::getChainPointer() const
 {
     UnpackedEntry ue = unpack();
     assert(ue.chain);
-    return static_cast<CacheLine*>(ue.ptr);
+    return reinterpret_cast<CacheLine*>(ue.ptr);
 }
 
 /**
@@ -201,7 +199,7 @@ bool
 HashTable::Entry::hashMatches(uint64_t hash) const
 {
     UnpackedEntry ue = unpack();
-    return (!ue.chain && ue.ptr != NULL && ue.hash == hash);
+    return (!ue.chain && ue.ptr != 0 && ue.hash == hash);
 }
 
 /**
@@ -296,22 +294,6 @@ HashTable::~HashTable()
 }
 
 /**
- * Check whether a candidate object is associated with a given key in the Log.
- * \param[in] object
- *      A pointer to the %RAMCloud object in the Log.
- * \param[in] key
- *      The object ID against which to compare \a object's key.
- * \return
- *      Whether the key associated with \a object in the Log is \a key.
- */
-bool
-HashTable::objectContainsKey(void *object, uint64_t key)
-{
-    // TODO(ongaro): Assuming the object stores its key in the first 64 bits.
-    return (*static_cast<uint64_t*>(object) == key);
-}
-
-/**
  * Find a hash table entry for a given key.
  * This is used in #lookup(), #remove(), and #replace() to find the hash table
  * entry to operate on.
@@ -343,7 +325,7 @@ HashTable::lookupEntry(uint64_t key)
                 // The hash within the hash table entry matches, so with high
                 // probability this is the pointer we're looking for. To check,
                 // we must go to the object.
-                if (objectContainsKey(kp->getLogPointer(), key)) {
+                if (kp->getLogPointer()->containsKey(key)) {
                     uint64_t diff = rdtsc() - b;
                     perfCounters.lookupEntryCycles += diff;
                     perfCounters.lookupEntryDist.storeSample(diff);
@@ -376,7 +358,7 @@ HashTable::lookupEntry(uint64_t key)
  * \return
  *      The pointer into the Log, or \a NULL if the object doesn't exist.
  */
-void *
+const Object *
 HashTable::lookup(uint64_t key)
 {
     Entry *kp = lookupEntry(key);
@@ -416,7 +398,7 @@ HashTable::remove(uint64_t key)
  *      taken!
  */
 bool
-HashTable::replace(uint64_t key, void *ptr)
+HashTable::replace(uint64_t key, const Object *ptr)
 {
     uint64_t h;
     uint64_t mk;
@@ -437,7 +419,7 @@ HashTable::replace(uint64_t key, void *ptr)
  *      The pointer to the Log where the latest version of the object resides.
  */
 void
-HashTable::insert(uint64_t key, void *ptr)
+HashTable::insert(uint64_t key, const Object *ptr)
 {
     uint64_t b = rdtsc();
     uint64_t h;

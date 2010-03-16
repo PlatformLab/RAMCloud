@@ -22,6 +22,7 @@
 #define RAMCLOUD_HASHTABLE_H
 
 #include <Common.h>
+#include <Object.h>
 
 namespace RAMCloud {
 
@@ -53,6 +54,7 @@ namespace RAMCloud {
  * Log pointer.
  */
 class HashTable {
+
   public:
 
     /**
@@ -152,10 +154,10 @@ class HashTable {
 
     explicit HashTable(uint64_t nlines);
     ~HashTable();
-    void *lookup(uint64_t key);
-    void insert(uint64_t key, void *ptr);
+    const Object *lookup(uint64_t key);
+    void insert(uint64_t key, const Object *ptr);
     bool remove(uint64_t key);
-    bool replace(uint64_t key, void *ptr);
+    bool replace(uint64_t key, const Object *ptr);
 
     /**
      * \return
@@ -174,7 +176,6 @@ class HashTable {
     Entry *lookupEntry(uint64_t key);
     void *mallocAligned(uint64_t len) const;
     static void hash(uint64_t key, uint64_t *bucketHash, uint64_t *entryHash);
-    static bool objectContainsKey(void *object, uint64_t key);
 
     /**
      * The number of hash table entries (Entry) in a CacheLine.
@@ -204,10 +205,10 @@ class HashTable {
 
       public:
         void clear();
-        void setLogPointer(uint64_t hash, void *ptr);
+        void setLogPointer(uint64_t hash, const Object *ptr);
         void setChainPointer(CacheLine *ptr);
         bool isAvailable() const;
-        void* getLogPointer() const;
+        const Object* getLogPointer() const;
         CacheLine* getChainPointer() const;
         bool hashMatches(uint64_t hash) const;
         bool isChainLink() const;
@@ -229,7 +230,7 @@ class HashTable {
          */
         uint64_t value;
 
-        void pack(uint64_t hash, bool chain, void *ptr);
+        void pack(uint64_t hash, bool chain, uint64_t ptr);
 
         /**
          * This is the return type of #unpack().
@@ -238,7 +239,7 @@ class HashTable {
         struct UnpackedEntry {
             uint64_t hash;
             bool chain;
-            void *ptr;
+            uint64_t ptr;
         };
 
         UnpackedEntry unpack() const;

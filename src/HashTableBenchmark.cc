@@ -31,20 +31,20 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 {
     uint64_t i;
     HashTable ht(nlines);
-    uint64_t values[nkeys];
+    Object values[nkeys];
 
     printf("cache line size: %d\n", sizeof(HashTable::CacheLine));
     printf("load factor: %.03f\n", static_cast<double>(nkeys) /
            (static_cast<double>(nlines) * HashTable::ENTRIES_PER_CACHE_LINE));
 
     for (i = 0; i < nkeys; i++) {
-        values[i] = i;
+        values[i].key = i;
         ht.insert(i, &values[i]);
     }
 
     uint64_t b = rdtsc();
     for (i = 0; i < nkeys; i++) {
-        uint64_t *p = static_cast<uint64_t*>(ht.lookup(i));
+        const Object *p = ht.lookup(i);
         assert(static_cast<uint64_t>(p - values) == i);
     }
     printf("lookup avg: %llu\n", (rdtsc() - b) / nkeys);

@@ -44,6 +44,14 @@ struct Object {
         return sizeof(*this) + this->data_len;
     }
 
+    /**
+     * Check whether this object is associated with a given key.
+     * This is required by the HashTable.
+     */
+    bool containsKey(uint64_t key) const {
+        return this->key == key;
+    }
+
     // WARNING: The hashtable code (for the moment) assumes that the
     // object's key is the first 64 bits of the struct
     uint64_t key;
@@ -54,6 +62,12 @@ struct Object {
     char data[0];
 
   private:
+    Object() : key(-1), table(-1), version(-1), checksum(0), data_len(0) { }
+
+    // to use default constructor in arrays
+    friend class HashTableTest;
+    friend void hashTableBenchmark(uint64_t, uint64_t);
+
     DISALLOW_COPY_AND_ASSIGN(Object);
 };
 
