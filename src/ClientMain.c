@@ -39,7 +39,7 @@ rdtsc()
 }
 
 int
-main()
+main(int argc, char* argv[])
 {
     struct rc_client client;
     struct rcrpc_reject_rules read_any;
@@ -50,7 +50,14 @@ main()
 
     memset(&write_any, 0, sizeof(write_any));
 
-    rc_connect(&client);
+    // Default value of port is set to CLNTPORT. If the port is supplied as a
+    // command line argument (-p), we use that port instead.
+    int clientPort = CLNTPORT;
+    for (int i = 0; i < argc; ++i)
+        if (!strcmp(argv[i], "-p"))
+            clientPort = atoi(argv[i+1]);
+
+    rc_connect(&client, clientPort);
 
     uint64_t b;
 
@@ -97,6 +104,7 @@ main()
     printf("Got back [%s] len %lu\n", buf, buf_len);
 
     b = rdtsc();
+    /*
     int count = 16384;
     key = 0xfffffff;
     const char *val = "0123456789ABCDEF";
@@ -104,7 +112,7 @@ main()
         assert(!rc_insert(&client, table, val, strlen(val) + 1, &key));
     printf("%d inserts took %lu ticks\n", count, rdtsc() - b);
     printf("avg insert took %lu ticks\n", (rdtsc() - b) / count);
-
+    */
     assert(!rc_drop_table(&client, "test"));
 
     rc_disconnect(&client);

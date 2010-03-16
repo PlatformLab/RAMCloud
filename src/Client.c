@@ -60,7 +60,7 @@ static void unlock(struct rc_client *client) {}
  * \retval other reserved for future use
  */
 int
-rc_connect(struct rc_client *client)
+rc_connect(struct rc_client *client, int port)
 {
 #if RC_CLIENT_SHARED
     client->shared = mmap(NULL,
@@ -71,7 +71,7 @@ rc_connect(struct rc_client *client)
     assert(client->shared != MAP_FAILED);
     assert(sem_init(&client->shared->sem, 1, 1) == 0);
 #endif
-    rc_net_init(&client->net, CLNTADDR, CLNTPORT, SVRADDR, SVRPORT);
+    rc_net_init(&client->net, CLNTADDR, port /*CLNTPORT*/, SVRADDR, SVRPORT);
     rc_net_connect(&client->net);
     return 0;
 }
