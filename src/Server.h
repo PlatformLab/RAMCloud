@@ -105,8 +105,7 @@ class Table {
      */
     void Put(uint64_t key, const Object *o) {
         assert(o != NULL);
-        object_map.remove(key);
-        object_map.insert(key, o);
+        object_map.replace(key, o);
     }
 
     void Delete(uint64_t key) {

@@ -604,11 +604,10 @@ class HashTableTest : public CppUnit::TestFixture {
         HashTable ht(1);
         DECL_OBJECT(v, 83UL);
         DECL_OBJECT(w, 83UL);
-        CPPUNIT_ASSERT(!ht.replace(83UL, &w));
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(83UL));
-        ht.insert(83UL, &v);
-        CPPUNIT_ASSERT(ht.replace(83UL, &w));
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&w), ht.lookup(83UL));
+        CPPUNIT_ASSERT(!ht.replace(83UL, &v));
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&v), ht.lookup(83UL));
+        CPPUNIT_ASSERT(ht.replace(83UL, &v));
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&v), ht.lookup(83UL));
         CPPUNIT_ASSERT(ht.replace(83UL, &w));
         CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&w), ht.lookup(83UL));
     }

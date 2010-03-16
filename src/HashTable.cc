@@ -386,6 +386,7 @@ HashTable::remove(uint64_t key)
 
 /**
  * Update the object location of a key in the hash table.
+ * This is equivalent to, but faster than, #remove() followed by #replace().
  * \param[in] key
  *      The ID of the moved object.
  * \param[in] ptr
@@ -394,8 +395,8 @@ HashTable::remove(uint64_t key)
  *      The hash table previously contained key and its entry has been updated
  *      to reflect the new location of the object.
  * \retval false
- *      The hash table did not previously contain key. No action has been
- *      taken!
+ *      The hash table did not previously contain key. An entry has been
+ *      created to reflect the location of the object.
  */
 bool
 HashTable::replace(uint64_t key, const Object *ptr)
@@ -403,8 +404,10 @@ HashTable::replace(uint64_t key, const Object *ptr)
     uint64_t h;
     uint64_t mk;
     Entry *kp = lookupEntry(key);
-    if (kp == NULL)
+    if (kp == NULL) {
+        insert(key, ptr);
         return false;
+    }
     hash(key, &h, &mk);
     kp->setLogPointer(mk, ptr);
     return true;
