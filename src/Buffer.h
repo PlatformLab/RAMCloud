@@ -64,8 +64,6 @@ class Buffer {
 
     uint32_t findChunk(const uint32_t offset, uint32_t* chunkOffset);
 
-    uint32_t offsetOfChunk(const uint32_t chunkIndex);
-
     /**
      * A Buffer is an ordered collection of Chunks. Each induvidual chunk
      * represents a physically contiguous region of memory. When taking

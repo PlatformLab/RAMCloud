@@ -225,20 +225,6 @@ uint32_t Buffer::findChunk(const uint32_t offset, uint32_t* chunkOffset) {
 }
 
 /**
- * Returns the specified chunk's offset from the beginning of the Buffer.
- *
- * \param[in]  chunkIndex  The index of the chunk whose offset we calculate.
- * \return  The offset, in bytes, of the beginning of the chunk.
- */
-uint32_t Buffer::offsetOfChunk(const uint32_t chunkIndex) {
-    uint32_t offset = 0;
-    for (uint32_t i = 0; i < chunkIndex && i < chunksUsed; ++i)
-        offset += chunks[i].len;
-
-    return offset;
-}
-
-/**
  * Grows the chunk array by a factor of 2.
  */
 void Buffer::allocateMoreChunks() {

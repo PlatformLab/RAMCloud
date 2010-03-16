@@ -54,9 +54,6 @@ class BufferTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_findChunk_normal);
     CPPUNIT_TEST(test_findChunk_offsetGreaterThanTotalLength);
 
-    CPPUNIT_TEST(test_offsetOfChunk_normal);
-    CPPUNIT_TEST(test_offsetOfChunk_edgeCases);
-
     CPPUNIT_TEST(test_allocateMoreChunks);
 
     CPPUNIT_TEST(test_allocateMoreExtraBufs);
@@ -297,21 +294,6 @@ class BufferTest : public CppUnit::TestFixture {
     void test_findChunk_offsetGreaterThanTotalLength() {
         uint32_t chunkOffset;
         CPPUNIT_ASSERT_EQUAL(buf->chunksUsed, buf->findChunk(35, &chunkOffset));
-    }
-
-    void test_offsetOfChunk_normal() {
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, buf->offsetOfChunk(0));
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, buf->offsetOfChunk(1));
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 20, buf->offsetOfChunk(2));
-
-        uint32_t chunkOffset;
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0,
-                             buf->offsetOfChunk(
-                                 buf->findChunk(4, &chunkOffset)));
-    }
-
-    void test_offsetOfChunk_edgeCases() {
-        CPPUNIT_ASSERT_EQUAL(buf->totalLen, buf->offsetOfChunk(6));
     }
 
     void test_allocateMoreChunks() {
