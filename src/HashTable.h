@@ -27,8 +27,7 @@
 namespace RAMCloud {
 
 /**
- * A map from object IDs to a pointer to the Log in memory where the latest
- * version of the object resides.
+ * A map from object IDs to the address of the latest version of an Object.
  *
  * This is used in resolving most object-level %RAMCloud requests. For example,
  * to read and write a %RAMCloud object, this lets you find the location of the
@@ -45,13 +44,13 @@ namespace RAMCloud {
  * Each cache line consists of several hash table \link Entry Entries\endlink
  * in no particular order, which contain additional bits from the #hash()
  * function to disambiguate most bucket collisions and a pointer to the latest
- * version of the object in the Log.
+ * version of the Object.
  *
  * If there are too many hash table entries to fit the bucket's first cache
- * line, additional cache lines are allocated (outside of the array of
+ * line, additional overflow cache lines are allocated (outside of the array of
  * buckets). In this case, the last hash table entry in each of the
  * non-terminal cache lines has a pointer to the next cache line instead of a
- * Log pointer.
+ * pointer to an Object.
  */
 class HashTable {
 
@@ -60,6 +59,10 @@ class HashTable {
     /**
      * Keeps track of statistics for a frequency distribution.
      * See #HashTable::PerfCounters::lookupEntryDist for an example.
+     *
+     * See HashTableBenchmark.cc for code to generate a histogram from this.
+     *
+     * TODO(ongaro): Generalize and move to a utils file.
      */
     struct PerfDistribution {
 
@@ -124,14 +127,14 @@ class HashTable {
         uint64_t lookupEntryCycles;
 
         /**
-         * The sum of the number of times a chain pointer was followed across
-         * all #insert() operations.
+         * The sum of the number of times a chain pointer was followed to
+         * another CacheLine across all #insert() operations.
          */
         uint64_t insertChainsFollowed;
 
         /**
-         * The sum of the number of times a chain pointer was followed across
-         * all #lookupEntry() operations.
+         * The sum of the number of times a chain pointer was followed to
+         * another CacheLine across all #lookupEntry() operations.
          */
         uint64_t lookupEntryChainsFollowed;
 
@@ -139,8 +142,8 @@ class HashTable {
          * The sum of the number of times there was an Entry collision across
          * all #lookupEntry() operations. This is when the buckets collide for
          * a key, and the extra disambiguation bits inside the Entry collide,
-         * but following the Log pointer reveals that the entry does not
-         * correspond to the given key.
+         * but the Object itself reveals that the entry does not correspond to
+         * the given key.
          */
         uint64_t lookupEntryHashCollisions;
 
@@ -178,20 +181,20 @@ class HashTable {
     static void hash(uint64_t key, uint64_t *bucketHash, uint64_t *entryHash);
 
     /**
-     * The number of hash table entries (Entry) in a CacheLine.
+     * The number of hash table \link Entry Entries\endlink in a CacheLine.
      */
     static const uint32_t ENTRIES_PER_CACHE_LINE = 8;
 
     /**
      * A hash table entry.
      *
-     * Hash table entries live on cache lines.
+     * Hash table entries live on \link CacheLine CacheLines\endlink.
      *
-     * A normal hash table entry (see #setLogPointer(), #getLogPointer(), and
-     * #hashMatches()) consists of additional bits from the hash function on
-     * the object ID to disambiguate most bucket collisions and a pointer into
-     * the Log where the latest version of the object lives. In this case, its
-     * chain bit will not be set and its pointer will not be \c NULL.
+     * A normal hash table entry (see #setObject(), #getObject(), and
+     * #hashMatches()) consists of additional bits from the #hash() function on
+     * the object ID to disambiguate most bucket collisions and a the address
+     * of the latest version of the Object. In this case, its chain bit will
+     * not be set and its pointer will not be \c NULL.
      *
      * A chaining hash table entry (see #setChainPointer(), #getChainPointer(),
      * and #isChainLink()) instead consists of a pointer to another cache line
@@ -205,10 +208,10 @@ class HashTable {
 
       public:
         void clear();
-        void setLogPointer(uint64_t hash, const Object *ptr);
+        void setObject(uint64_t hash, const Object *object);
         void setChainPointer(CacheLine *ptr);
         bool isAvailable() const;
-        const Object* getLogPointer() const;
+        const Object* getObject() const;
         CacheLine* getChainPointer() const;
         bool hashMatches(uint64_t hash) const;
         bool isChainLink() const;
@@ -248,20 +251,26 @@ class HashTable {
     };
 
     /**
-     * A cache line, part of a hash table bucket and composed of hash table
-     * entries.
+     * A linked list of cache lines composes a bucket within the HashTable.
+     *
+     * Each cache line is composed of several hash table \link Entry
+     * Entries\endlink, the last of which may be a link to another CacheLine.
+     * See HashTable for more info.
+     *
+     * A CacheLine is meant to fit on a single L2 cache line on the CPU.
+     * Different processors may require tweaking ENTRIES_PER_CACHE_LINE to
+     * achieve this.
      */
     struct CacheLine {
         /**
-         * An array of hash table entries.
-         * The final hash table entry may be a chain pointer to another cache
-         * line. See HashTable for more info.
+         * See CacheLine.
          */
         Entry entries[ENTRIES_PER_CACHE_LINE];
     };
 
     /**
      * The array of buckets.
+     * See HashTable.
      */
     CacheLine * buckets;
 

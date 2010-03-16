@@ -76,14 +76,14 @@ HashTable::PerfCounters::PerfCounters()
 
 
 /**
- * Replaces this hash table entry.
+ * Replace this hash table entry.
  * \param[in] hash
  *      The additional hash bits from the object ID.
  * \param[in] chain
- *      Whether \a ptr is a chain pointer as opposed to a Log pointer.
+ *      Whether \a ptr is a chain pointer as opposed to an Object pointer.
  * \param[in] ptr
- *      The chain pointer to the next cache line or the Log pointer
- *      where the object is located (determined by \a chain).
+ *      The chain pointer to the next cache line or the Object pointer
+ *      (determined by \a chain).
  */
 void
 HashTable::Entry::pack(uint64_t hash, bool chain, uint64_t ptr)
@@ -98,7 +98,7 @@ HashTable::Entry::pack(uint64_t hash, bool chain, uint64_t ptr)
 }
 
 /**
- * Reads the contents of this hash table entry.
+ * Read the contents of this hash table entry.
  * \return
  *      The extracted values. See UnpackedEntry.
  */
@@ -124,14 +124,14 @@ HashTable::Entry::clear()
  * Reinitialize a regular hash table entry.
  * \param[in] hash
  *      The additional hash bits from the object ID.
- * \param[in] ptr
- *      The Log pointer where the object is located. Must not be \c NULL.
+ * \param[in] object
+ *      The latest version of the Object. Must not be \c NULL.
  */
 void
-HashTable::Entry::setLogPointer(uint64_t hash, const Object *ptr)
+HashTable::Entry::setObject(uint64_t hash, const Object *object)
 {
-    assert(ptr != NULL);
-    pack(hash, false, reinterpret_cast<uint64_t>(ptr));
+    assert(object != NULL);
+    pack(hash, false, reinterpret_cast<uint64_t>(object));
 }
 
 /**
@@ -158,14 +158,14 @@ HashTable::Entry::isAvailable() const
 }
 
 /**
- * Extract the Log pointer.
+ * Extract the address of the latest version of the Object.
  * The caller must first verify that the hash table entry indeed stores a log
  * pointer with #hashMatches() or #isChainLink().
  * \return
- *      The Log pointer stored in a hash table entry.
+ *      The address of the latest version of the Object stored.
  */
 const Object*
-HashTable::Entry::getLogPointer() const
+HashTable::Entry::getObject() const
 {
     UnpackedEntry ue = unpack();
     assert(!ue.chain && ue.ptr != 0);
@@ -192,8 +192,8 @@ HashTable::Entry::getChainPointer() const
  * \param[in] hash
  *      The additional hash bits from the object ID to test.
  * \return
- *      Whether the hash table entry holds a Log pointer and the additional
- *      hash bits for the object pointed to match \a hash.
+ *      Whether the hash table entry holds the address to an Object and the
+ *      additional hash bits for that Object point to \a hash.
  */
 bool
 HashTable::Entry::hashMatches(uint64_t hash) const
@@ -325,7 +325,7 @@ HashTable::lookupEntry(uint64_t key)
                 // The hash within the hash table entry matches, so with high
                 // probability this is the pointer we're looking for. To check,
                 // we must go to the object.
-                if (kp->getLogPointer()->containsKey(key)) {
+                if (kp->getObject()->containsKey(key)) {
                     uint64_t diff = rdtsc() - b;
                     perfCounters.lookupEntryCycles += diff;
                     perfCounters.lookupEntryDist.storeSample(diff);
@@ -351,12 +351,12 @@ HashTable::lookupEntry(uint64_t key)
 }
 
 /**
- * Find the pointer to the Log in memory where the latest version of an object
- * resides.
+ * Find the latest version of an Object.
  * \param[in] key
  *      The ID of the object to locate.
  * \return
- *      The pointer into the Log, or \a NULL if the object doesn't exist.
+ *      The address of the latest version of the Object, or \a NULL if the
+ *      object doesn't exist.
  */
 const Object *
 HashTable::lookup(uint64_t key)
@@ -364,11 +364,11 @@ HashTable::lookup(uint64_t key)
     Entry *kp = lookupEntry(key);
     if (kp == NULL)
         return NULL;
-    return kp->getLogPointer();
+    return kp->getObject();
 }
 
 /**
- * Remove a key from the hash table.
+ * Remove an object ID from the hash table.
  * \param[in] key
  *      The ID of the object to remove.
  * \return
@@ -385,12 +385,12 @@ HashTable::remove(uint64_t key)
 }
 
 /**
- * Update the object location of a key in the hash table.
+ * Update the location of an object ID in the hash table.
  * This is equivalent to, but faster than, #remove() followed by #replace().
  * \param[in] key
  *      The ID of the moved object.
- * \param[in] ptr
- *      The pointer to the Log where the latest version of the object resides.
+ * \param[in] object
+ *      The latest version of the Object.
  * \retval true
  *      The hash table previously contained key and its entry has been updated
  *      to reflect the new location of the object.
@@ -399,30 +399,30 @@ HashTable::remove(uint64_t key)
  *      created to reflect the location of the object.
  */
 bool
-HashTable::replace(uint64_t key, const Object *ptr)
+HashTable::replace(uint64_t key, const Object *object)
 {
     uint64_t h;
     uint64_t mk;
     Entry *kp = lookupEntry(key);
     if (kp == NULL) {
-        insert(key, ptr);
+        insert(key, object);
         return false;
     }
     hash(key, &h, &mk);
-    kp->setLogPointer(mk, ptr);
+    kp->setObject(mk, object);
     return true;
 }
 
 /**
- * Add a new key to the hash table.
+ * Add a new object ID to the hash table.
  * The caller must guarantee that \a key does not exist in the hash table.
  * \param[in] key
- *      The ID of the object that resides at \a ptr.
- * \param[in] ptr
- *      The pointer to the Log where the latest version of the object resides.
+ *      The ID of the object that resides at \a object.
+ * \param[in] object
+ *      The latest version of the Object.
  */
 void
-HashTable::insert(uint64_t key, const Object *ptr)
+HashTable::insert(uint64_t key, const Object *object)
 {
     uint64_t b = rdtsc();
     uint64_t h;
@@ -436,7 +436,7 @@ HashTable::insert(uint64_t key, const Object *ptr)
         Entry *kp = cl->entries;
         for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
             if (kp->isAvailable()) {
-                kp->setLogPointer(mk, ptr);
+                kp->setObject(mk, object);
                 perfCounters.insertCycles += (rdtsc() - b);
                 return;
             }
