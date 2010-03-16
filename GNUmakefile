@@ -118,6 +118,7 @@ install: client-lib-install
 # for header files included from C source files we compile,
 # and keeps those dependencies up-to-date every time we recompile.
 # See 'mergedep.pl' for more information.
+OBJDIRS += .
 $(OBJDIR)/.deps: $(foreach dir, $(OBJDIRS), $(wildcard $(OBJDIR)/$(dir)/*.d))
 	@mkdir -p $(@D)
 	$(PERL) mergedep.pl $@ $^
