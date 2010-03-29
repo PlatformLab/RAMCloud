@@ -178,6 +178,7 @@ class HashTable {
 
     Entry *lookupEntry(uint64_t key);
     void *mallocAligned(uint64_t len) const;
+    void freeAligned(void *p) const;
     static void hash(uint64_t key, uint64_t *bucketHash, uint64_t *entryHash);
 
     /**
@@ -281,7 +282,7 @@ class HashTable {
 
     /**
      * Whether to allocate memory using #xmalloc_aligned_hugetlb() instead of
-     * #xmalloc_aligned_xmalloc().
+     * #xmemalign().
      */
     const bool useHugeTlb;
 

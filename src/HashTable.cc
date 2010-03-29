@@ -233,7 +233,24 @@ HashTable::mallocAligned(uint64_t len) const
     if (useHugeTlb)
         return xmalloc_aligned_hugetlb(len);
     else
-        return xmalloc_aligned_xmalloc(len);
+        return xmemalign(sizeof(CacheLine), len);
+}
+
+
+/**
+ * Free the chuck of memory returned by #mallocAligned().
+ * \param[in] p
+ *      A pointer to the memory chunk allocated by #mallocAligned().
+ *      Must not be \c NULL.
+ */
+void
+HashTable::freeAligned(void *p) const
+{
+    if (useHugeTlb) {
+        // TODO(ongaro): can't free memory from xmalloc_aligned_hugetlb
+    } else {
+        return free(p);
+    }
 }
 
 /**
@@ -288,7 +305,7 @@ HashTable::~HashTable()
     // TODO(ongaro): free chained CacheLines that were allocated in insert()
 
     if (buckets != NULL) {
-        // TODO(ongaro): free the memory region containing buckets
+        freeAligned(buckets);
         buckets = NULL;
     }
 }

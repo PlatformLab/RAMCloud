@@ -45,7 +45,7 @@ static const uint64_t RESP_BUF_LEN = (1 << 20);
 BackupException::~BackupException() {}
 
 BackupServer::BackupServer(Net *net_impl, const char *logPath)
-    : net(net_impl), logFD(-1), seg(0), unalignedSeg(0),
+    : net(net_impl), logFD(-1), seg(0),
       openSegNum(INVALID_SEGMENT_NUM), freeMap(true)
 {
     static_assert(LOG_SPACE == SEGMENT_FRAMES * SEGMENT_SIZE);
@@ -56,13 +56,7 @@ BackupServer::BackupServer(Net *net_impl, const char *logPath)
     if (logFD == -1)
         throw BackupLogIOException(errno);
 
-    const int pagesize = getpagesize();
-    unalignedSeg = reinterpret_cast<char *>(xmalloc(SEGMENT_SIZE + pagesize));
-    assert(unalignedSeg != 0);
-    seg = reinterpret_cast<char *>(
-        ((reinterpret_cast<intptr_t>(unalignedSeg) +
-          pagesize - 1) /
-         pagesize) * pagesize);
+    seg = static_cast<char*>(xmemalign(getpagesize(), SEGMENT_SIZE));
 
     if (!(BACKUP_LOG_FLAGS & O_DIRECT))
         reserveSpace();
@@ -74,7 +68,7 @@ BackupServer::BackupServer(Net *net_impl, const char *logPath)
 BackupServer::~BackupServer()
 {
     flushSegment();
-    free(unalignedSeg);
+    free(seg);
 
     int r = close(logFD);
     if (r == -1) {
