@@ -120,8 +120,6 @@ class BackupServer : BackupClient {
      * support O_DIRECT writes
      */
     char *seg;
-    /** seg is contained herein, this is kept around to be freed later */
-    char *unalignedSeg;
     /** Segment number of the active segment */
     uint64_t openSegNum;
 

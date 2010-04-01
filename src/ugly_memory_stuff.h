@@ -28,16 +28,6 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-// TODO(ongaro): The memory regioin allocated is impossible free since the
-// pointer from xmalloc is discarded.
-static void *
-xmalloc_aligned_xmalloc(uint64_t len)
-{
-    uintptr_t p = (uintptr_t)xmalloc(len + 64);
-    p += (64 - (p & 63));
-    return ((void *)p);
-}
-
 static void *
 xmalloc_aligned_hugetlb(uint64_t len)
 {

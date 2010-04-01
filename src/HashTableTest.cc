@@ -321,6 +321,15 @@ class HashTableTest : public CppUnit::TestFixture {
         ht->buckets = cacheLines;
     }
 
+    class AutoTearDown {
+      public:
+        explicit AutoTearDown(HashTable *ht) : ht(ht) {}
+        ~AutoTearDown() { ht->buckets = NULL; }
+      private:
+        HashTable *ht;
+        DISALLOW_COPY_AND_ASSIGN(AutoTearDown);
+    };
+
     /**
      * Common setup code for the lookupEntry and insert tests. This mostly
      * declares variables on the stack, so it's a macro.
@@ -335,7 +344,8 @@ class HashTableTest : public CppUnit::TestFixture {
     HashTable ht(1); \
     Object values[numEnt]; \
     HashTable::CacheLine cacheLines[numCacheLines]; \
-    insertArray(&ht, values, numEnt, cacheLines, numCacheLines)
+    insertArray(&ht, values, numEnt, cacheLines, numCacheLines); \
+    AutoTearDown _atd(&ht)
 
 #define DECL_OBJECT(n, k) \
     Object n(sizeof(Object)); \
