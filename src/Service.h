@@ -14,7 +14,7 @@
  */
 
 /**
- * \file Header file for the Service class.
+ * \file Service.h Header file for the Service class.
  */
 
 #ifndef RAMCLOUD_SERVICE_H
@@ -27,7 +27,7 @@ namespace RAMCloud {
 const uint8_t ETH_ALEN = 6;
 
 /**
- * \class
+ * \class Service
  *
  * This class represents a logical Service identified by a unique service
  * id. The current address information for this Service is also part of this
@@ -94,7 +94,7 @@ class Service {
      */
     void refreshAddress();
 
-    Service () : serviceId(0), ip(0) { bzero(mac, 6); }
+    Service() : serviceId(0), ip(0) { bzero(mac, 6); }
 
   private:
     uint64_t serviceId;  // Unique identification number for this Service.
@@ -102,7 +102,6 @@ class Service {
     char mac[6];         // Current ethernet MAC address of this Service.
 
     friend class ServiceTest;
-    
     DISALLOW_COPY_AND_ASSIGN(Service);
 };
 

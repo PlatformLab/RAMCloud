@@ -14,7 +14,7 @@
  */
 
 /**
- * \file Unit tests for Service.
+ * \file ServiceTest.cc Unit tests for Service.
  */
 
 #include <Service.h>
