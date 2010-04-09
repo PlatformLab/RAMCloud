@@ -14,7 +14,7 @@
  */
 
 /**
- * \file Unit tests for Buffer.
+ * \file BufferTest.cc Unit tests for Buffer.
  */
 
 #include <string.h>
@@ -70,7 +70,7 @@ class BufferTest : public CppUnit::TestFixture {
     Buffer *buf;
 
   public:
-    BufferTest() {
+    BufferTest() : buf(NULL) {
         memcpy(testStr, "0123456789abcdefghijklmnopqrs\0", 30);
         memcpy(testStr1, "0123456789", 10);
         memcpy(testStr2, "abcdefghij", 10);
