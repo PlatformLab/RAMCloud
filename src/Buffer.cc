@@ -14,7 +14,7 @@
  */
 
 /**
- * \file Contains the implementation for the Buffer class.
+ * \file Buffer.cc Contains the implementation for the Buffer class.
  */
 
 #include <Buffer.h>
@@ -117,7 +117,8 @@ uint32_t Buffer::peek(const uint32_t offset, void** returnPtr) {
     if (chunkIndex >= chunksUsed) return 0;
 
     uint32_t offsetInChunk = offset - chunkOffset;
-    *returnPtr = (char *) chunks[chunkIndex].data + offsetInChunk;
+    *returnPtr = reinterpret_cast<char*>(const_cast<void*>(
+        chunks[chunkIndex].data)) + offsetInChunk;
     return (chunks[chunkIndex].len - offsetInChunk);
 }
 
@@ -146,7 +147,7 @@ void* Buffer::getRange(const uint32_t offset, const uint32_t length) {
 
     if (extraBufsUsed == extraBufsAvail) allocateMoreExtraBufs();
     extraBufs[extraBufsUsed] =
-            reinterpret_cast<void*>(xmalloc(sizeof(char) * length));
+            reinterpret_cast<void*>(xmalloc(length));
     if (copy(offset, length,
              reinterpret_cast<void*>(extraBufs[extraBufsUsed])) <= 0)
         return NULL;
@@ -170,7 +171,7 @@ void* Buffer::getRange(const uint32_t offset, const uint32_t length) {
  *          the requested range of bytes overshoots the end of the Buffer.
  * \retval  0, if the given 'offset' is invalid.
  */
-uint32_t Buffer::copy(const uint32_t offset, const uint32_t length,
+uint32_t Buffer::copy(const uint32_t offset, const uint32_t length,  // NOLINT
                       const void* dest) {
     void *currDest = const_cast<void*>(dest);
     uint32_t chunkOffset;
@@ -243,7 +244,7 @@ void Buffer::allocateMoreExtraBufs() {
     else
         extraBufsAvail *= 2;
     extraBufs = reinterpret_cast<void **>(
-        xrealloc(extraBufs, sizeof(void *) * extraBufsAvail));
+        xrealloc(extraBufs, sizeof(void *) * extraBufsAvail));  // NOLINT
 }
 
 }  // namespace RAMCLoud

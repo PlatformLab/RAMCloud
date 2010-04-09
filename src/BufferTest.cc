@@ -14,7 +14,7 @@
  */
 
 /**
- * \file Unit tests for Buffer.
+ * \file BufferTest.cc Unit tests for Buffer.
  */
 
 #include <string.h>

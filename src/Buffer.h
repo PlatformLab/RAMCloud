@@ -14,7 +14,7 @@
  */
 
 /**
- * \file Header file for the Buffer class.
+ * \file Buffer.h Header file for the Buffer class.
  */
 
 #ifndef RAMCLOUD_BUFFER_H
@@ -25,7 +25,7 @@
 namespace RAMCloud {
 
 /**
- * \class
+ * \class Buffer
  *
  * This class manages a logically linear array of bytes, which is implemented as
  * discontiguous chunks in memory. This class exists so that we can avoid copies
@@ -42,8 +42,8 @@ class Buffer {
 
     void* getRange(const uint32_t offset, const uint32_t length);
 
-    uint32_t copy(const uint32_t offset, const uint32_t length,
-                  const void* dest);
+    uint32_t copy(const uint32_t offset, const uint32_t length,  // NOLINT
+                  const void* dest);  // NOLINT
 
     /**
      * Returns the sum of the induvidual sizes of all the chunks composing this
