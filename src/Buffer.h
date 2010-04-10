@@ -86,6 +86,13 @@ class Buffer {
      */
     uint32_t totalLength() const { return totalLen; }
 
+    /**
+     * Return the number of chunks composing this Buffer.
+     * Along with #Iterator, this is useful for networking code that is trying
+     * to export the Buffer into a different format.
+     */
+    uint32_t numberChunks() const { return chunksUsed; }
+
     Buffer();
 
     ~Buffer();

@@ -59,6 +59,7 @@ class BufferTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_allocateMoreExtraBufs);
 
     CPPUNIT_TEST(test_totalLength);
+    CPPUNIT_TEST(test_numberChunks);
 
     CPPUNIT_TEST_SUITE_END();
 
@@ -327,6 +328,17 @@ class BufferTest : public CppUnit::TestFixture {
         b.prepend(buf1, 100);
         b.append(buf1, 10);
         CPPUNIT_ASSERT_EQUAL((uint32_t) 110, b.totalLength());
+    }
+
+    void test_numberChunks() {
+        Buffer b;
+        uint8_t buf1[100];
+        bzero(buf1, 100);
+
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.numberChunks());
+        b.prepend(buf1, 100);
+        b.append(buf1, 10);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 2, b.numberChunks());
     }
 
     DISALLOW_COPY_AND_ASSIGN(BufferTest);
