@@ -53,6 +53,21 @@ class Service {
     }
 
     /**
+     * Get the port currently associated with this Service.
+     * Not: The port may change after a call to refreshAddress().
+     *
+     * \return Seee comment.
+     */
+    inline uint16_t getPort() { return port; }
+
+    /**
+     * Assign this Service a new port.
+     *
+     * \param[in] newPort The new port of this Service.
+     */
+    inline void setPort(uint16_t newPort) { port = newPort; }
+
+    /**
      * Get the IP address currently associated with this Service.
      * Note: The IP Address may change after a call to refreshAddress().
      *
@@ -94,11 +109,12 @@ class Service {
      */
     void refreshAddress();
 
-    Service() : serviceId(0), ip(0) { bzero(mac, 6); }
+    Service() : serviceId(0), port(0), ip(0) { bzero(mac, 6); }
 
   private:
     uint64_t serviceId;  // Unique identification number for this Service.
-    uint32_t ip;         // Current IP address of this service.
+    uint16_t port;       // Current port of this Service.
+    uint32_t ip;         // Current IP address of this Service.
     char mac[6];         // Current ethernet MAC address of this Service.
 
     friend class ServiceTest;
