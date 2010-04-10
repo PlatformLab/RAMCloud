@@ -331,7 +331,80 @@ class BufferTest : public CppUnit::TestFixture {
 
     DISALLOW_COPY_AND_ASSIGN(BufferTest);
 };
-
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferTest);
+
+class BufferIteratorTest : public CppUnit::TestFixture {
+    CPPUNIT_TEST_SUITE(BufferIteratorTest);
+    CPPUNIT_TEST(test_normal);
+    CPPUNIT_TEST(test_isDone);
+    CPPUNIT_TEST(test_next);
+    CPPUNIT_TEST(test_getData);
+    CPPUNIT_TEST(test_getLength);
+    CPPUNIT_TEST_SUITE_END();
+    char x[30];
+
+  public:
+    void test_normal() {
+        Buffer b;
+        b.append(&x[0], 10);
+        b.append(&x[10], 20);
+
+        Buffer::Iterator iter(b);
+        CPPUNIT_ASSERT(!iter.isDone());
+        CPPUNIT_ASSERT(&x[0] == iter.getData());
+        CPPUNIT_ASSERT(10 == iter.getLength());
+        iter.next();
+        CPPUNIT_ASSERT(!iter.isDone());
+        CPPUNIT_ASSERT(&x[10] == iter.getData());
+        CPPUNIT_ASSERT(20U == iter.getLength());
+        iter.next();
+        CPPUNIT_ASSERT(iter.isDone());
+    }
+
+    void test_isDone() {
+        Buffer b;
+
+        { // empty Buffer
+            Buffer::Iterator iter(b);
+            CPPUNIT_ASSERT(iter.isDone());
+        }
+
+        b.append(&x[0], 10);
+        b.append(&x[10], 20);
+
+        { // nonempty buffer
+            Buffer::Iterator iter(b);
+            CPPUNIT_ASSERT(!iter.isDone());
+            iter.next();
+            CPPUNIT_ASSERT(!iter.isDone());
+            iter.next();
+            CPPUNIT_ASSERT(iter.isDone());
+        }
+    }
+
+    void test_next() {
+        Buffer b;
+        b.append(&x[0], 10);
+        Buffer::Iterator iter(b);
+        CPPUNIT_ASSERT(iter.chunkIndex == 0);
+        iter.next();
+        CPPUNIT_ASSERT(iter.chunkIndex == 1);
+    }
+
+    void test_getData() {
+        Buffer b;
+        b.append(&x[0], 10);
+        Buffer::Iterator iter(b);
+        CPPUNIT_ASSERT(iter.getData() == &x[0]);
+    }
+
+    void test_getLength() {
+        Buffer b;
+        b.append(&x[0], 10);
+        Buffer::Iterator iter(b);
+        CPPUNIT_ASSERT(iter.getLength() == 10);
+    }
+};
+CPPUNIT_TEST_SUITE_REGISTRATION(BufferIteratorTest);
 
 }  // namespace RAMCloud
