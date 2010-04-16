@@ -18,9 +18,12 @@
  * Provides a way to launch a standalone backup server.
  */
 
+#include <arpa/inet.h>
+
 #include <config.h>
 
 #include <BackupServer.h>
+
 
 /**
  * Instantiates a backup server using the configuration information in
@@ -30,19 +33,27 @@
 int
 main()
 {
-    using ::RAMCloud::Net;
-    using ::RAMCloud::CNet;
     using ::RAMCloud::BackupServer;
+    using ::RAMCloud::Service;
+    
+    /*
     Net *net = new CNet(BACKSVRADDR, BACKSVRPORT,
                         BACKCLNTADDR, BACKCLNTPORT);
     net->Listen();
+
     BackupServer *server = new BackupServer(net,
                                             BACKUP_LOG_PATH);
+    */
 
+    Service backupService;
+    uint32_t backupServiceIp;
+    inet_pton(AF_INET, BACKSVRADDR, &backupServiceIp);
+    backupService.setIp(backupServiceIp);
+    backupService.setPort(BACKSVRPORT);
+    BackupServer *server = new BackupServer(&backupService, BACKUP_LOG_PATH);
     server->run();
 
     delete server;
-    delete net;
 
     return 0;
 }

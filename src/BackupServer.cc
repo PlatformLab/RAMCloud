@@ -28,8 +28,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include <Segment.h>
+#include <Buffer.h>
 #include <Log.h>
+#include <RPC.h>
+#include <Segment.h>
 
 #include <cstdio>
 
@@ -44,8 +46,8 @@ static const uint64_t RESP_BUF_LEN = (1 << 20);
 
 BackupException::~BackupException() {}
 
-BackupServer::BackupServer(Net *net_impl, const char *logPath)
-    : net(net_impl), logFD(-1), seg(0),
+BackupServer::BackupServer(Service *sIn, const char *logPath)
+        : s(sIn), logFD(-1), seg(0),
       openSegNum(INVALID_SEGMENT_NUM), freeMap(true)
 {
     static_assert(LOG_SPACE == SEGMENT_FRAMES * SEGMENT_SIZE);
@@ -96,32 +98,6 @@ BackupServer::reserveSpace()
     int r = ftruncate(logFD, LOG_SPACE);
     if (r == -1)
         throw BackupLogIOException(errno);
-}
-
-/**
- * Transmit a backup_rpc.
- *
- * \param[in] rpc
- *     A pointer to the backup_rpc buffer to send.
- */
-void
-BackupServer::sendRPC(const backup_rpc *rpc)
-{
-    net->Send(rpc, rpc->hdr.len);
-}
-
-/**
- * Receive a backup_rpc.
- *
- * \param[out] rpc
- *     A pointer to a pointer to a backup_rpc struct that is populated
- *     with the location of the incoming backup_rpc message.
- */
-void
-BackupServer::recvRPC(backup_rpc **rpc)
-{
-    size_t len = net->Recv(reinterpret_cast<void**>(rpc));
-    assert(len == (*rpc)->hdr.len);
 }
 
 /**
@@ -668,11 +644,19 @@ BackupServer::handleRPC()
 {
     // TODO(stutsman) if we're goingt to have to xmalloc this we should just
     // always keep one around
+
+    // TODO(aravindn): Look at a more efficeint allcoation strategy for
+    // resp_buf.
+    
     char *resp_buf = static_cast<char *>(xmalloc(RESP_BUF_LEN));
     backup_rpc *req;
     backup_rpc *resp = reinterpret_cast<backup_rpc *>(&resp_buf[0]);
 
-    recvRPC(&req);
+    Buffer* reqBuf;
+    ServerRPC rpc;
+    reqBuf = rpc.getRequest();
+    req = reinterpret_cast<backup_rpc*>(
+        reqBuf->getRange(0, reqBuf->totalLength()));
 
     if (debug_rpc)
         printf("got rpc type: 0x%08x, len 0x%08x\n",
@@ -714,7 +698,10 @@ BackupServer::handleRPC()
         // TODO(stutsman) this cast is bad, types should match
         resp->hdr.len = static_cast<uint32_t>(rpclen);
     }
-    sendRPC(resp);
+
+    Buffer respBuf;
+    respBuf.append(resp, resp->hdr.len);
+    rpc.sendReply(&respBuf);
     free(resp_buf);
 }
 

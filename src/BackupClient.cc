@@ -14,13 +14,15 @@
  */
 
 /**
- * \file
+ * \file BackupClient.cc
  * Implementations for master server-side backup RPC stubs.  The
  * classes herein send requests to the backup servers transparently to
  * handle all the backup needs of the masters.
  */
 
 #include <BackupClient.h>
+#include <Buffer.h>
+#include <RPC.h>
 #include <backuprpc.h>
 
 #include <cstdio>
@@ -35,8 +37,8 @@ const bool debug_noisy = false;
  * have full ownership of it and the caller should discontinue any use
  * or responbility for it.
  */
-BackupHost::BackupHost(Net *netimpl)
-    : net(netimpl)
+BackupHost::BackupHost(Service *sIn)
+        : s(sIn)
 {
 }
 
@@ -44,27 +46,7 @@ BackupHost::~BackupHost()
 {
     // We delete the net we were handed from the constructor so the
     // creator doesn't need to worry about it.
-    delete net;
-}
-
-void
-BackupHost::sendRPC(backup_rpc *rpc)
-{
-    net->Send(rpc, rpc->hdr.len);
-}
-
-void
-BackupHost::recvRPC(backup_rpc **rpc)
-{
-    size_t len = net->Recv(reinterpret_cast<void**>(rpc));
-    if (len != (*rpc)->hdr.len)
-        printf("got %lu, expected %lu\n", len, (*rpc)->hdr.len);
-    assert(len == (*rpc)->hdr.len);
-    if ((*rpc)->hdr.type == BACKUP_RPC_ERROR_RESP) {
-        char *m = (*rpc)->error_resp.message;
-        printf("Exception on backup operation >>> %s\n", m);
-        throw BackupRPCException(m);
-    }
+    // delete net;
 }
 
 void
@@ -76,10 +58,13 @@ BackupHost::heartbeat()
 
     if (debug_noisy)
         printf("Sending Heartbeat to backup\n");
-    sendRPC(&req);
 
-    backup_rpc *resp;
-    recvRPC(&resp);
+    Buffer buf;
+    buf.append(reinterpret_cast<void*>(&req), req.hdr.len);
+
+    ClientRPC rpc;
+    rpc.startRPC(s, &buf);
+    rpc.getReply();
 
     if (debug_noisy)
         printf("Heartbeat ok\n");
@@ -110,10 +95,14 @@ BackupHost::writeSegment(uint64_t segNum,
     req->write_req.len = len;
     memcpy(&req->write_req.data[0], data, len);
 
-    sendRPC(req);
+    Buffer buf;
+    buf.append(reinterpret_cast<void*> (req), req->hdr.len);
 
-    backup_rpc *resp;
-    recvRPC(&resp);
+    ClientRPC rpc;
+    rpc.startRPC(s, &buf);
+    rpc.getReply();
+
+    // TODO(aravindn): Not verifying response?
 }
 
 void
@@ -127,10 +116,15 @@ BackupHost::commitSegment(uint64_t segNum)
 
     if (debug_noisy)
         printf("Sending Commit to backup\n");
-    sendRPC(&req);
 
-    backup_rpc *resp;
-    recvRPC(&resp);
+    Buffer buf;
+    buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
+
+    ClientRPC rpc;
+    rpc.startRPC(s, &buf);
+    rpc.getReply();
+
+    // TODO(aravindn): Not verifying response?
 
     if (debug_noisy)
         printf("Commit ok\n");
@@ -147,10 +141,14 @@ BackupHost::freeSegment(uint64_t segNum)
 
     if (debug_noisy)
         printf("Sending Free to backup\n");
-    sendRPC(&req);
 
-    backup_rpc *resp;
-    recvRPC(&resp);
+    Buffer buf;
+    buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
+    ClientRPC rpc;
+    rpc.startRPC(s, &buf);
+    rpc.getReply();
+
+    // TODO(aravindn): Not verifying response?
 
     if (debug_noisy)
         printf("Free ok\n");
@@ -166,10 +164,15 @@ BackupHost::getSegmentList(uint64_t *list,
 
     if (debug_noisy)
         printf("Sending GetSegmentList to backup\n");
-    sendRPC(&req);
 
-    backup_rpc *resp;
-    recvRPC(&resp);
+    Buffer buf;
+    buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
+    ClientRPC rpc;
+    rpc.startRPC(s, &buf);
+
+    Buffer *replyBuf = rpc.getReply();
+    backup_rpc *resp = reinterpret_cast<backup_rpc*>(
+        replyBuf->getRange(0, replyBuf->totalLength()));
 
     uint64_t *tmpList = &resp->getsegmentlist_resp.seg_list[0];
     uint32_t tmpCount = resp->getsegmentlist_resp.seg_list_count;
@@ -200,10 +203,15 @@ BackupHost::getSegmentMetadata(uint64_t segNum,
 
     if (debug_noisy)
         printf("Sending GetSegmentMetadata to backup\n");
-    sendRPC(&req);
 
-    backup_rpc *resp;
-    recvRPC(&resp);
+    Buffer buf;
+    buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
+    ClientRPC rpc;
+    rpc.startRPC(s, &buf);
+
+    Buffer *replyBuf = rpc.getReply();
+    backup_rpc *resp = reinterpret_cast<backup_rpc*>(
+        replyBuf->getRange(0, replyBuf->totalLength()));
 
     RecoveryObjectMetadata *tmpList = &resp->getsegmentmetadata_resp.list[0];
     uint32_t tmpCount = resp->getsegmentmetadata_resp.list_count;
@@ -233,10 +241,15 @@ BackupHost::retrieveSegment(uint64_t segNum, void *buf)
 
     if (debug_noisy)
         printf("Sending Retrieve to backup\n");
-    sendRPC(&req);
 
-    backup_rpc *resp;
-    recvRPC(&resp);
+    Buffer rpcBuf;
+    rpcBuf.append(reinterpret_cast<void*> (&req), req.hdr.len);
+    ClientRPC rpc;
+    rpc.startRPC(s, &rpcBuf);
+
+    Buffer *replyBuf = rpc.getReply();
+    backup_rpc *resp = reinterpret_cast<backup_rpc*>(
+        replyBuf->getRange(0, replyBuf->totalLength()));
 
     if (debug_noisy)
         printf("Retrieved segment %llu of length %llu\n",
@@ -264,14 +277,14 @@ MultiBackupClient::~MultiBackupClient()
  * NOTICE:  The BackupClient takes care of deleting the Net object
  * once it is no longer needed.  The client should be considered to
  * have full ownership of it and the caller should discontinue any use
- * or responbility for it.
+ * or responbility for it. TODO(aravindn): change comment.
  */
 void
-MultiBackupClient::addHost(Net *net)
+MultiBackupClient::addHost(Service *s)
 {
     if (host)
         throw BackupRPCException("Only one backup host currently supported");
-    host = new BackupHost(net);
+    host = new BackupHost(s);
 }
 
 void
