@@ -155,4 +155,4 @@ class Buffer {
 
 }  // namespace RAMCloud
 
-#endif  // RAMCLOUD_BUFFERPTR_H
+#endif  // RAMCLOUD_BUFFER_H
