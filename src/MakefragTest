@@ -10,8 +10,9 @@ TESTS_SRCFILES := \
 		src/RPCTest.cc \
 		src/HashTableTest.cc \
 		src/ChecksumTest.cc \
-                src/SegmentTest.cc \
-                src/LogTest.cc \
+		src/SegmentTest.cc \
+		src/LogTest.cc \
+		src/TCPTransportTest.cc \
 		src/TestRunner.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
@@ -28,14 +29,21 @@ $(OBJDIR)/test: $(TESTS_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 
-# TODO(ongaro) The unit tests don't actually call HashTableBenchmark, I just
-# wanted to make sure it continues to build over time.
-test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark
+# TODO(ongaro) The unit tests don't actually call HashTableBenchmark, Echo, or
+# Telnet. I just wanted to make sure it continues to build over time.
+test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet
 	$(OBJDIR)/test
 
 $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^
 
+$(OBJDIR)/Echo: $(OBJDIR)/Echo.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^
+
+$(OBJDIR)/Telnet: $(OBJDIR)/Telnet.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^
 
 tests-clean:

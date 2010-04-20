@@ -58,7 +58,7 @@ class Service {
      *
      * \return Seee comment.
      */
-    inline uint16_t getPort() { return port; }
+    inline uint16_t getPort() const { return port; }
 
     /**
      * Assign this Service a new port.

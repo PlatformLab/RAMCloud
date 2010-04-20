@@ -13,6 +13,7 @@ SHARED_SRCFILES := \
                 src/Buffer.cc \
 		src/Service.cc \
 		src/RPC.cc \
+                src/TCPTransport.cc \
                 $(SHARED_NET_SRCFILES)
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)
