@@ -18,8 +18,10 @@
  */
 
 #include <Common.h>
+
 #include <TCPTransport.h>
 
+#include <limits.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/ioctl.h>
@@ -27,7 +29,17 @@
 #include <arpa/inet.h>
 #include <poll.h>
 
+
 namespace RAMCloud {
+
+TCPTransport::Syscalls _sys;
+TCPTransport::Syscalls* TCPTransport::sys = &_sys;
+#ifdef TESTING
+TCPTransport::ServerSocket*
+    TCPTransport::TCPServerToken::mockServerSocket = NULL;
+TCPTransport::ClientSocket*
+    TCPTransport::TCPClientToken::mockClientSocket = NULL;
+#endif
 
 TCPTransport::Socket::Socket() : fd(-1)
 {
@@ -36,81 +48,9 @@ TCPTransport::Socket::Socket() : fd(-1)
 TCPTransport::Socket::~Socket()
 {
     if (fd >= 0) {
-        close(fd);
+        sys->close(fd);
         fd = -1;
     }
-}
-
-TCPTransport::ListenSocket::ListenSocket(uint32_t ip, uint16_t port) : addr()
-{
-    this->addr.sin_family = AF_INET;
-    this->addr.sin_port = htons(port);
-    this->addr.sin_addr.s_addr = ip;
-}
-
-/**
- * \exception UnrecoverableTransportException
- *      Errors trying to create, bind, listen to the socket.
- */
-void
-TCPTransport::ListenSocket::listen()
-{
-    if (fd >= 0)
-        return;
-
-    fd = socket(PF_INET, SOCK_STREAM, 0);
-    if (fd == -1) {
-        throw UnrecoverableTransportException(errno);
-    }
-
-    int optval = 1;
-    (void) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
-
-    if (bind(fd, (struct sockaddr*) &addr, sizeof(addr)) == -1) {
-        int e = errno;
-        close(fd);
-        fd = -1;
-        throw UnrecoverableTransportException(e);
-    }
-
-    if (::listen(fd, 1) == -1) {
-        int e = errno;
-        close(fd);
-        fd = -1;
-        throw UnrecoverableTransportException(e);
-    }
-}
-
-/**
- * \throw UnrecoverableTransportException
- *      Errors from #listen(); errors accepting a new connection.
- */
-int
-TCPTransport::ListenSocket::accept()
-{
-    listen();
-    for (int tries = 0; tries < 1000000; ++tries) {
-        int acceptedFd = ::accept(fd, NULL, NULL);
-        if (acceptedFd >= 0)
-            return acceptedFd;
-        switch (errno) {
-            case EHOSTDOWN:
-            case EHOSTUNREACH:
-            case ENETDOWN:
-            case ENETUNREACH:
-            case ENONET:
-            case ENOPROTOOPT:
-            case EOPNOTSUPP:
-            case EPROTO:
-                // According to the man page, you're supposed to treat these as
-                // retry on Linux.
-                break;
-            default:
-                throw UnrecoverableTransportException(errno);
-        }
-    }
-    throw UnrecoverableTransportException("accept() retried too many times, "
-                                          "probably a bug", errno);
 }
 
 /**
@@ -125,14 +65,14 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
     // receive header
     Header header;
     {
-        ssize_t len = ::recv(fd, &header, sizeof(header), MSG_WAITALL);
+        ssize_t len = sys->recv(fd, &header, sizeof(header), MSG_WAITALL);
         if (len == -1) {
             int e = errno;
-            close(fd);
+            sys->close(fd);
             fd = -1;
             throw TransportException(e);
         } else if (len == 0) {
-            close(fd);
+            sys->close(fd);
             fd = -1;
             throw TransportException("peer performed orderly shutdown");
         }
@@ -140,24 +80,27 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
     }
 
     if (header.len > MAX_RPC_LEN) {
-        close(fd);
+        sys->close(fd);
         fd = -1;
         throw TransportException("peer trying to send too much data");
     }
 
+    if (header.len == 0)
+        return;
+
     // receive RPC data
     void* data = xmalloc(header.len);
     {
-        ssize_t len = ::recv(fd, data, header.len, MSG_WAITALL);
+        ssize_t len = sys->recv(fd, data, header.len, MSG_WAITALL);
         if (len == -1) {
             int e = errno;
             free(data);
-            close(fd);
+            sys->close(fd);
             fd = -1;
             throw TransportException(e);
         } else if (len == 0) {
             free(data);
-            close(fd);
+            sys->close(fd);
             fd = -1;
             throw TransportException("peer performed orderly shutdown");
         }
@@ -201,13 +144,14 @@ TCPTransport::MessageSocket::send(const Buffer* payload)
     msg.msg_iov = iov;
     msg.msg_iovlen = iovecs;
 
-    ssize_t r = sendmsg(fd, &msg, 0);
+    ssize_t r = sys->sendmsg(fd, &msg, 0);
     if (r == -1) {
         int e = errno;
-        close(fd);
+        sys->close(fd);
         fd = -1;
         throw TransportException(e);
     }
+    assert(static_cast<size_t>(r) == sizeof(header) + header.len);
 }
 
 /**
@@ -219,6 +163,78 @@ TCPTransport::ServerSocket::init(ListenSocket* listenSocket)
 {
     fd = listenSocket->accept();
 }
+
+TCPTransport::ListenSocket::ListenSocket(uint32_t ip, uint16_t port) : addr()
+{
+    this->addr.sin_family = AF_INET;
+    this->addr.sin_port = htons(port);
+    this->addr.sin_addr.s_addr = ip;
+}
+
+/**
+ * \exception UnrecoverableTransportException
+ *      Errors trying to create, bind, listen to the socket.
+ */
+void
+TCPTransport::ListenSocket::listen()
+{
+    if (fd >= 0)
+        return;
+
+    fd = sys->socket(PF_INET, SOCK_STREAM, 0);
+    if (fd == -1) {
+        throw UnrecoverableTransportException(errno);
+    }
+
+    int optval = 1;
+    (void) sys->setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval,
+                           sizeof(optval));
+
+    if (sys->bind(fd, (struct sockaddr*) &addr, sizeof(addr)) == -1) {
+        int e = errno;
+        sys->close(fd);
+        fd = -1;
+        throw UnrecoverableTransportException(e);
+    }
+
+    if (sys->listen(fd, INT_MAX) == -1) {
+        int e = errno;
+        sys->close(fd);
+        fd = -1;
+        throw UnrecoverableTransportException(e);
+    }
+}
+
+/**
+ * \throw UnrecoverableTransportException
+ *      Errors from #listen(); errors accepting a new connection.
+ */
+int
+TCPTransport::ListenSocket::accept()
+{
+    listen();
+    while (true) {
+        int acceptedFd = sys->accept(fd, NULL, NULL);
+        if (acceptedFd >= 0)
+            return acceptedFd;
+        switch (errno) {
+            case EHOSTDOWN:
+            case EHOSTUNREACH:
+            case ENETDOWN:
+            case ENETUNREACH:
+            case ENONET:
+            case ENOPROTOOPT:
+            case EOPNOTSUPP:
+            case EPROTO:
+                // According to the man page, you're supposed to treat these as
+                // retry on Linux.
+                break;
+            default:
+                throw UnrecoverableTransportException(errno);
+        }
+    }
+}
+
 
 /**
  * \throw UnrecoverableTransportException
@@ -241,7 +257,7 @@ TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
 void
 TCPTransport::ClientSocket::init(uint32_t ip, uint16_t port)
 {
-    fd = socket(PF_INET, SOCK_STREAM, 0);
+    fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
         throw UnrecoverableTransportException(errno);
     }
@@ -251,11 +267,11 @@ TCPTransport::ClientSocket::init(uint32_t ip, uint16_t port)
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = ip;
 
-    int r = connect(fd, reinterpret_cast<struct sockaddr*>(&addr),
+    int r = sys->connect(fd, reinterpret_cast<struct sockaddr*>(&addr),
                       sizeof(addr));
     if (r == -1) {
         int e = errno;
-        close(fd);
+        sys->close(fd);
         fd = -1;
         switch (e) {
             case ECONNREFUSED:
@@ -280,17 +296,14 @@ TCPTransport::TCPTransport(uint32_t ip, uint16_t port)
 void
 TCPTransport::serverRecv(Buffer* payload, ServerToken* token)
 {
-    TCPServerToken* tcpToken = token->getBuf<TCPServerToken>();
-    new(tcpToken) TCPServerToken();
+    TCPServerToken* tcpToken = token->reinit<TCPServerToken>();
 
     while (true) {
-        tcpToken->serverSocket.init(&listenSocket);
+        tcpToken->serverSocket->init(&listenSocket);
         try {
-            tcpToken->serverSocket.recv(payload);
-        } catch (TransportException e) {
-            continue;
-        }
-        break;
+            tcpToken->serverSocket->recv(payload);
+            break;
+        } catch (TransportException e) {}
     }
 }
 
@@ -299,7 +312,7 @@ TCPTransport::serverSend(Buffer* payload, ServerToken* token)
 {
     TCPServerToken* tcpToken = token->getBuf<TCPServerToken>();
 
-    tcpToken->serverSocket.send(payload);
+    tcpToken->serverSocket->send(payload);
     token->reinit(); // not strictly necessary but releases fd earlier
 }
 
@@ -307,11 +320,10 @@ void
 TCPTransport::clientSend(const Service* service, Buffer* payload,
                          ClientToken* token)
 {
-    TCPClientToken* tcpToken = token->getBuf<TCPClientToken>();
-    new(tcpToken) TCPClientToken();
+    TCPClientToken* tcpToken = token->reinit<TCPClientToken>();
 
-    tcpToken->clientSocket.init(service->getIp(), service->getPort());
-    tcpToken->clientSocket.send(payload);
+    tcpToken->clientSocket->init(service->getIp(), service->getPort());
+    tcpToken->clientSocket->send(payload);
 }
 
 void
@@ -319,7 +331,7 @@ TCPTransport::clientRecv(Buffer* payload, ClientToken* token)
 {
     TCPClientToken* tcpToken = token->getBuf<TCPClientToken>();
 
-    tcpToken->clientSocket.recv(payload);
+    tcpToken->clientSocket->recv(payload);
     token->reinit(); // not strictly necessary but releases fd earlier
 }
 

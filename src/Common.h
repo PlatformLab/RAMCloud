@@ -156,6 +156,24 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
 void debug_dump64(const void *buf, uint64_t bytes);
 uint64_t rdtsc();
 
+#if TESTING
+#undef PRODUCTION
+#else
+#define PRODUCTION 1
+#endif
+
+#if TESTING
+#define VIRTUAL_FOR_TESTING virtual
+#else
+#define VIRTUAL_FOR_TESTING
+#endif
+
+#if TESTING
+#define CONST_FOR_PRODUCTION
+#else
+#define CONST_FOR_PRODUCTION const
+#endif
+
 namespace RAMCloud {
 
 class AssertionException {};

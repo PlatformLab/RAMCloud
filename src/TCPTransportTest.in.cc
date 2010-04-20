@@ -1,0 +1,867 @@
+/* Copyright (c) 2010 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any purpose
+ * with or without fee is hereby granted, provided that the above copyright
+ * notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR ANY
+ * SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+ * RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF
+ * CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+ * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+#include <Common.h>
+#include <TCPTransport.h>
+
+#include <errno.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <cppunit/extensions/HelperMacros.h>
+
+
+namespace RAMCloud {
+
+class TestSyscalls : public TCPTransport::Syscalls {
+  public:
+    struct NotImplementedException {};
+    int accept(int sockfd, struct sockaddr* addr, socklen_t* addrlen)
+        __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    int bind(int sockfd, const struct sockaddr* addr, socklen_t addrlen)
+        __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    int close(int fd) __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    int connect(int sockfd, const struct sockaddr* addr, socklen_t addrlen)
+        __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    int listen(int sockfd, int backlog) __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    ssize_t recv(int sockfd, void* buf, size_t len, int flags)
+        __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    ssize_t sendmsg(int sockfd, const struct msghdr* msg, int flags)
+        __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    int setsockopt(int sockfd, int level, int optname, const void* optval,
+                   socklen_t optlen) __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    int socket(int domain, int type, int protocol) __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+};
+
+class TestServerSocket : public TCPTransport::ServerSocket {
+  public:
+    struct NotImplementedException {};
+    void init(TCPTransport::ListenSocket* listenSocket)
+        __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    void recv(Buffer* payload) __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    void send(const Buffer* payload) __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+};
+
+class TestClientSocket : public TCPTransport::ClientSocket {
+  public:
+    struct NotImplementedException {};
+#if 0
+    void init(const char* ip, uint16_t port) __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+#endif
+    void init(uint32_t ip, uint16_t port) __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    void recv(Buffer* payload) __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+    void send(const Buffer* payload) __attribute__ ((noreturn)) {
+        throw NotImplementedException();
+    }
+};
+
+/**
+ * Unit tests for TCPTransport::Socket and subclasses.
+ */
+class SocketTest : public CppUnit::TestFixture {
+    DISALLOW_COPY_AND_ASSIGN(SocketTest); // NOLINT
+
+    CPPUNIT_TEST_SUITE(SocketTest);
+    CPPUNIT_TEST(test_Socket_destructor);
+    CPPUNIT_TEST(test_MessageSocket_recv0);
+    CPPUNIT_TEST(test_MessageSocket_recv8);
+    CPPUNIT_TEST(test_MessageSocket_recv_hdrError);
+    CPPUNIT_TEST(test_MessageSocket_recv_hdrPeerClosed);
+    CPPUNIT_TEST(test_MessageSocket_recv_msgTooLong);
+    CPPUNIT_TEST(test_MessageSocket_recv_dataError);
+    CPPUNIT_TEST(test_MessageSocket_recv_dataPeerClosed);
+    CPPUNIT_TEST(test_MessageSocket_send0);
+    CPPUNIT_TEST(test_MessageSocket_send_twoChunksWithError);
+    CPPUNIT_TEST(test_ServerSocket_init);
+    CPPUNIT_TEST(test_ListenSocket_constructor);
+    CPPUNIT_TEST(test_ListenSocket_listen_listening);
+    CPPUNIT_TEST(test_ListenSocket_listen_normal);
+    CPPUNIT_TEST(test_ListenSocket_listen_socketError);
+    CPPUNIT_TEST(test_ListenSocket_listen_listenError);
+    CPPUNIT_TEST(test_ListenSocket_accept_normal);
+    CPPUNIT_TEST(test_ListenSocket_accept_transientError);
+    CPPUNIT_TEST(test_ListenSocket_accept_error);
+    CPPUNIT_TEST(test_ClientSocket_init_normal);
+    CPPUNIT_TEST(test_ClientSocket_init_socketError);
+    CPPUNIT_TEST(test_ClientSocket_init_connectTransientError);
+    CPPUNIT_TEST(test_ClientSocket_init_connectError);
+    CPPUNIT_TEST_SUITE_END();
+
+    class XMessageSocket : public TCPTransport::MessageSocket {
+        public:
+            XMessageSocket() {}
+    };
+
+  public:
+    SocketTest() {}
+
+    void tearDown() {
+        extern TCPTransport::Syscalls _sys;
+        TCPTransport::sys = &_sys;
+    }
+
+    void test_Socket_destructor() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::Socket s;
+        s.fd = 10;
+    }
+
+    // 0-byte message
+    void test_MessageSocket_recv0() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+                 flags == MSG_WAITALL) {
+                TCPTransport::Header* header;
+                header = static_cast<TCPTransport::Header*>(buf);
+                header->len = 0;
+                return len;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        XMessageSocket s;
+        Buffer payload;
+        s.fd = 10;
+        s.recv(&payload);
+        CPPUNIT_ASSERT(payload.totalLength() == 0);
+    }
+
+    // 8-byte message
+    void test_MessageSocket_recv8() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+                 flags == MSG_WAITALL) {
+                TCPTransport::Header* header;
+                header = static_cast<TCPTransport::Header*>(buf);
+                header->len = 8;
+                return len;
+            }
+            recv(sockfd == 10, buf, len == 8, flags == MSG_WAITALL) {
+                *static_cast<uint64_t*>(buf) = 0x0123456789abcdef;
+                return 8;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        Buffer payload;
+        {
+            TS ts;
+            TCPTransport::sys = &ts;
+
+            XMessageSocket s;
+            s.fd = 10;
+            s.recv(&payload);
+        }
+        CPPUNIT_ASSERT(payload.totalLength() == 8);
+        uint64_t* data = static_cast<uint64_t*>(payload.getRange(0, 8));
+        CPPUNIT_ASSERT(*data == 0x0123456789abcdef);
+    }
+
+    void test_MessageSocket_recv_hdrError() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+                 flags == MSG_WAITALL) {
+                errno = ENOMEM;
+                return -1;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        Buffer payload;
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        XMessageSocket s;
+        s.fd = 10;
+        try {
+            s.recv(&payload);
+            CPPUNIT_ASSERT(false);
+        } catch (TransportException e) {}
+    }
+
+    void test_MessageSocket_recv_hdrPeerClosed() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+                 flags == MSG_WAITALL) {
+                return 0;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        Buffer payload;
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        XMessageSocket s;
+        s.fd = 10;
+        try {
+            s.recv(&payload);
+            CPPUNIT_ASSERT(false);
+        } catch (TransportException e) {}
+    }
+
+    void test_MessageSocket_recv_msgTooLong() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+                 flags == MSG_WAITALL) {
+                TCPTransport::Header* header;
+                header = static_cast<TCPTransport::Header*>(buf);
+                header->len = MAX_RPC_LEN + 1;
+                return len;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        Buffer payload;
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        XMessageSocket s;
+        s.fd = 10;
+        try {
+            s.recv(&payload);
+            CPPUNIT_ASSERT(false);
+        } catch (TransportException e) {}
+    }
+
+    void test_MessageSocket_recv_dataError() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+                 flags == MSG_WAITALL) {
+                TCPTransport::Header* header;
+                header = static_cast<TCPTransport::Header*>(buf);
+                header->len = 8;
+                return len;
+            }
+            recv(sockfd == 10, buf, len == 8, flags == MSG_WAITALL) {
+                errno = ENOMEM;
+                return -1;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        Buffer payload;
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        XMessageSocket s;
+        s.fd = 10;
+        try {
+            s.recv(&payload);
+            CPPUNIT_ASSERT(false);
+        } catch (TransportException e) {}
+    }
+
+    void test_MessageSocket_recv_dataPeerClosed() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+                 flags == MSG_WAITALL) {
+                TCPTransport::Header* header;
+                header = static_cast<TCPTransport::Header*>(buf);
+                header->len = 8;
+                return len;
+            }
+            recv(sockfd == 10, buf, len == 8, flags == MSG_WAITALL) {
+                return 0;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        Buffer payload;
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        XMessageSocket s;
+        s.fd = 10;
+        try {
+            s.recv(&payload);
+            CPPUNIT_ASSERT(false);
+        } catch (TransportException e) {}
+    }
+
+    void test_MessageSocket_send0() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            sendmsg(sockfd == 10, msg, flags == 0) {
+                CPPUNIT_ASSERT(msg->msg_name == NULL);
+                CPPUNIT_ASSERT(msg->msg_namelen == 0);
+                CPPUNIT_ASSERT(msg->msg_control == NULL);
+                CPPUNIT_ASSERT(msg->msg_controllen == 0);
+                CPPUNIT_ASSERT(msg->msg_flags == 0);
+                CPPUNIT_ASSERT(msg->msg_iovlen == 1);
+                struct iovec* iov = msg->msg_iov;
+                TCPTransport::Header* header;
+                header = static_cast<TCPTransport::Header*>(iov[0].iov_base);
+                CPPUNIT_ASSERT(iov[0].iov_len == sizeof(*header));
+                CPPUNIT_ASSERT(header->len == 0);
+                return sizeof(*header);
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        XMessageSocket s;
+        Buffer payload;
+        s.fd = 10;
+        s.send(&payload);
+    }
+
+    void test_MessageSocket_send_twoChunksWithError() {
+        static const char data[24] = {
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+            0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+            0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17};
+
+        BEGIN_MOCK(TS, TestSyscalls);
+            sendmsg(sockfd == 10, msg, flags == 0) {
+                CPPUNIT_ASSERT(msg->msg_iovlen == 3);
+                struct iovec* iov = msg->msg_iov;
+                TCPTransport::Header* header;
+                header = static_cast<TCPTransport::Header*>(iov[0].iov_base);
+                CPPUNIT_ASSERT(iov[0].iov_len == sizeof(*header));
+                CPPUNIT_ASSERT(header->len == 24);
+                CPPUNIT_ASSERT(iov[1].iov_base == &data[0]);
+                CPPUNIT_ASSERT(iov[1].iov_len == 16);
+                CPPUNIT_ASSERT(iov[2].iov_base == &data[16]);
+                CPPUNIT_ASSERT(iov[2].iov_len == 8);
+                errno = ENOMEM;
+                return -1;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        XMessageSocket s;
+        Buffer payload;
+        payload.append(&data[0], 16);
+        payload.append(&data[16], 8);
+        s.fd = 10;
+        try {
+            s.send(&payload);
+            CPPUNIT_ASSERT(false);
+        } catch (TransportException e) {}
+    }
+
+    void test_ServerSocket_init() {
+        // This is an annoying amount of unrelated code to get an 11 out of
+        // listenSocket->accept().
+        BEGIN_MOCK(TS, TestSyscalls);
+            accept(sockfd == 10, addr == NULL, addrlen == NULL) {
+                return 11;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+            close(fd == 11) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ServerSocket s;
+        TCPTransport::ListenSocket listenSocket(0, 0);
+        listenSocket.fd = 10;
+        s.init(&listenSocket);
+        CPPUNIT_ASSERT(s.fd == 11);
+    };
+
+    void test_ListenSocket_constructor() {
+        TCPTransport::ListenSocket s(0x01234567, 0xabcd);
+        CPPUNIT_ASSERT(s.addr.sin_family == AF_INET);
+        CPPUNIT_ASSERT(s.addr.sin_port == htons(0xabcd));
+        CPPUNIT_ASSERT(s.addr.sin_addr.s_addr == 0x01234567);
+    }
+
+    void test_ListenSocket_listen_listening() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ListenSocket s(0x01234567, 0xabcd);
+        s.fd = 10;
+        s.listen();
+    }
+
+    void test_ListenSocket_listen_normal() {
+        static TCPTransport::ListenSocket* ls = NULL;
+
+        BEGIN_MOCK(TS, TestSyscalls);
+            socket(domain == PF_INET, type == SOCK_STREAM, protocol == 0) {
+                return 10;
+            }
+            setsockopt(sockfd == 10, level == SOL_SOCKET, \
+                       optname == SO_REUSEADDR, optval, optlen) {
+                CPPUNIT_ASSERT(optlen == sizeof(int)); // NOLINT
+                const int* val = static_cast<const int*>(optval);
+                CPPUNIT_ASSERT(*val == 1);
+                return 0;
+            }
+            bind(sockfd == 10, addr, addrlen == sizeof(struct sockaddr_in)) {
+                CPPUNIT_ASSERT(reinterpret_cast<struct sockaddr*>(&ls->addr) ==
+                               addr);
+                return 0;
+            }
+            listen(sockfd == 10, backlog) {
+                CPPUNIT_ASSERT(backlog > 1000);
+                return 0;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ListenSocket s(0, 0);
+        ls = &s;
+        s.listen();
+    }
+
+    void test_ListenSocket_listen_socketError() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            socket(domain == PF_INET, type == SOCK_STREAM, protocol == 0) {
+                errno = ENOMEM;
+                return -1;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ListenSocket s(0, 0);
+        try {
+            s.listen();
+            CPPUNIT_ASSERT(false);
+        } catch (UnrecoverableTransportException e) {}
+    }
+
+    void test_ListenSocket_listen_listenError() {
+        // args checked in normal test
+        BEGIN_MOCK(TS, TestSyscalls);
+            socket(domain, type, protocol) {
+                return 10;
+            }
+            setsockopt(sockfd, level, optname, optval, optlen) {
+                return 0;
+            }
+            bind(sockfd, addr, addrlen) {
+                return 0;
+            }
+            listen(sockfd == 10, backlog) {
+                errno = ENOMEM;
+                return -1;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ListenSocket s(0, 0);
+        try {
+            s.listen();
+            CPPUNIT_ASSERT(false);
+        } catch (UnrecoverableTransportException e) {}
+    }
+
+    void test_ListenSocket_accept_normal() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            accept(sockfd == 10, addr == NULL, addrlen == NULL) {
+                return 11;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ListenSocket s(0, 0);
+        s.fd = 10;
+        CPPUNIT_ASSERT(s.accept() == 11);
+    }
+
+    void test_ListenSocket_accept_transientError() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            accept(sockfd == 10, addr == NULL, addrlen == NULL) {
+                errno = EHOSTUNREACH;
+                return -1;
+            }
+            accept(sockfd == 10, addr == NULL, addrlen == NULL) {
+                return 11;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ListenSocket s(0, 0);
+        s.fd = 10;
+        CPPUNIT_ASSERT(s.accept() == 11);
+    }
+
+    void test_ListenSocket_accept_error() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            accept(sockfd == 10, addr == NULL, addrlen == NULL) {
+                errno = ENOMEM;
+                return -1;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ListenSocket s(0, 0);
+        s.fd = 10;
+        try {
+            s.accept();
+            CPPUNIT_ASSERT(false);
+        } catch (UnrecoverableTransportException e) {}
+    }
+
+    void test_ClientSocket_init_normal() {
+        BEGIN_MOCK(TS, TestSyscalls);
+            socket(domain == PF_INET, type == SOCK_STREAM, protocol == 0) {
+                return 10;
+            }
+            connect(sockfd == 10, addr, addrlen == sizeof(struct sockaddr_in)) {
+                const struct sockaddr_in* a;
+                a = reinterpret_cast<const struct sockaddr_in*>(addr);
+                CPPUNIT_ASSERT(a->sin_family == AF_INET);
+                CPPUNIT_ASSERT(a->sin_port == htons(0xabcd));
+                CPPUNIT_ASSERT(a->sin_addr.s_addr == inet_addr("128.64.32.16"));
+                return 0;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ClientSocket s;
+        s.init("128.64.32.16", 0xabcd);
+    }
+
+    void test_ClientSocket_init_socketError() {
+        // args checked in normal test
+        BEGIN_MOCK(TS, TestSyscalls);
+            socket(domain, type, protocol) {
+                errno = ENOMEM;
+                return -1;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ClientSocket s;
+        try {
+            s.init("128.64.32.16", 0xabcd);
+            CPPUNIT_ASSERT(false);
+        } catch (UnrecoverableTransportException e) {}
+    }
+
+    void test_ClientSocket_init_connectTransientError() {
+        // args checked in normal test
+        BEGIN_MOCK(TS, TestSyscalls);
+            socket(domain, type, protocol) {
+                return 10;
+            }
+            connect(sockfd, addr, addrlen) {
+                errno = ETIMEDOUT;
+                return -1;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ClientSocket s;
+        try {
+            s.init("128.64.32.16", 0xabcd);
+            CPPUNIT_ASSERT(false);
+        } catch (TransportException e) {}
+    }
+
+    void test_ClientSocket_init_connectError() {
+        // args checked in normal test
+        BEGIN_MOCK(TS, TestSyscalls);
+            socket(domain, type, protocol) {
+                return 10;
+            }
+            connect(sockfd, addr, addrlen) {
+                errno = ENOMEM;
+                return -1;
+            }
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::sys = &ts;
+
+        TCPTransport::ClientSocket s;
+        try {
+            s.init("128.64.32.16", 0xabcd);
+            CPPUNIT_ASSERT(false);
+        } catch (UnrecoverableTransportException e) {}
+    }
+};
+CPPUNIT_TEST_SUITE_REGISTRATION(SocketTest);
+
+/**
+ * Unit tests for TCPTransport.
+ */
+class TCPTransportTest : public CppUnit::TestFixture {
+    DISALLOW_COPY_AND_ASSIGN(TCPTransportTest); // NOLINT
+
+    CPPUNIT_TEST_SUITE(TCPTransportTest);
+    CPPUNIT_TEST(test_tokenSizes);
+    CPPUNIT_TEST(test_constructors);
+    CPPUNIT_TEST(test_serverRecv);
+    CPPUNIT_TEST(test_serverSend);
+    CPPUNIT_TEST(test_clientSend);
+    CPPUNIT_TEST(test_clientRecv);
+    CPPUNIT_TEST_SUITE_END();
+
+  public:
+    TCPTransportTest() {}
+
+    void tearDown() {
+        TCPTransport::TCPServerToken::mockServerSocket = NULL;
+
+        extern TCPTransport::Syscalls _sys;
+        TCPTransport::sys = &_sys;
+    }
+
+    void test_tokenSizes() {
+        static_assert(Transport::ServerToken::BUF_SIZE >=
+                      sizeof(TCPTransport::TCPServerToken));
+        static_assert(Transport::ClientToken::BUF_SIZE >=
+                      sizeof(TCPTransport::TCPClientToken));
+    }
+
+    void test_constructors() {
+        TCPTransport t1("128.64.32.16", 0xabcd);
+        const struct sockaddr_in& addr1 = t1.listenSocket.addr;
+        CPPUNIT_ASSERT(addr1.sin_port == htons(0xabcd));
+        CPPUNIT_ASSERT(addr1.sin_addr.s_addr == inet_addr("128.64.32.16"));
+
+        TCPTransport t2(0x01234567, 0xabcd);
+        const struct sockaddr_in& addr2 = t2.listenSocket.addr;
+        CPPUNIT_ASSERT(addr2.sin_port == htons(0xabcd));
+        CPPUNIT_ASSERT(addr2.sin_addr.s_addr == 0x01234567);
+    }
+
+    void test_serverRecv() {
+        static TCPTransport::ListenSocket* init_expect;
+        static Buffer* recv_expect;
+
+        BEGIN_MOCK(TS, TestServerSocket);
+            init(listenSocket == init_expect) {
+            }
+            recv(payload == recv_expect) {
+                throw TransportException();
+            }
+            init(listenSocket == init_expect) {
+            }
+            recv(payload == recv_expect) {
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::TCPServerToken::mockServerSocket = &ts;
+
+        TCPTransport t(0x01234567, 0xabcd);
+        init_expect = &t.listenSocket;
+        Buffer payload;
+        recv_expect = &payload;
+        Transport::ServerToken token;
+        t.serverRecv(&payload, &token);
+    }
+
+    void test_serverSend() {
+        static Buffer* send_expect;
+
+        BEGIN_MOCK(TS, TestServerSocket);
+            send(payload == send_expect) {
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::TCPServerToken::mockServerSocket = &ts;
+
+        BEGIN_MOCK(TSC, TestSyscalls);
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TSC tsc;
+        TCPTransport::sys = &tsc;
+
+        TCPTransport t(0x01234567, 0xabcd);
+        Buffer payload;
+        send_expect = &payload;
+        Transport::ServerToken token;
+        TCPTransport::TCPServerToken* tcpToken;
+        tcpToken = token.reinit<TCPTransport::TCPServerToken>();
+        tcpToken->realServerSocket.fd = 10;
+        t.serverSend(&payload, &token);
+    }
+
+    void test_clientSend() {
+        static Buffer* send_expect;
+
+        BEGIN_MOCK(TS, TestClientSocket);
+            init(ip == 0x89abcdef, port == 0xef01) {
+            }
+            send(payload == send_expect) {
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::TCPClientToken::mockClientSocket = &ts;
+
+        TCPTransport t(0x01234567, 0xabcd);
+        Buffer payload;
+        send_expect = &payload;
+        Transport::ClientToken token;
+        Service s;
+        s.setIp(0x89abcdef);
+        s.setPort(0xef01);
+        t.clientSend(&s, &payload, &token);
+    }
+
+    void test_clientRecv() {
+        static Buffer* recv_expect;
+
+        BEGIN_MOCK(TS, TestClientSocket);
+            recv(payload == recv_expect) {
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::TCPClientToken::mockClientSocket = &ts;
+
+        BEGIN_MOCK(TSC, TestSyscalls);
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TSC tsc;
+        TCPTransport::sys = &tsc;
+
+        TCPTransport t(0x01234567, 0xabcd);
+        Buffer payload;
+        recv_expect = &payload;
+        Transport::ClientToken token;
+        TCPTransport::TCPClientToken* tcpToken;
+        tcpToken = token.reinit<TCPTransport::TCPClientToken>();
+        tcpToken->realClientSocket.fd = 10;
+        t.clientRecv(&payload, &token);
+    }
+
+
+};
+CPPUNIT_TEST_SUITE_REGISTRATION(TCPTransportTest);
+
+} // namespace RAMCloud

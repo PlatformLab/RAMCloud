@@ -112,20 +112,23 @@ class Transport {
     class ServerToken
     {
       public:
-        ServerToken()
-        {
+        ServerToken() {
             static_assert(BUF_SIZE >= sizeof(BaseServerToken));
             new(buf) BaseServerToken();
         }
 
-        ~ServerToken()
-        {
+        ~ServerToken() {
             reinterpret_cast<BaseServerToken*>(buf)->~BaseServerToken();
         }
 
         void reinit() {
-            reinterpret_cast<BaseClientToken*>(buf)->~BaseClientToken();
-            new(buf) BaseClientToken();
+            reinit<BaseServerToken>();
+        }
+
+        template <typename T>
+        T* reinit() {
+            reinterpret_cast<BaseServerToken*>(buf)->~BaseServerToken();
+            return new(buf) T();
         }
 
         template <typename T>
@@ -145,20 +148,23 @@ class Transport {
     class ClientToken
     {
       public:
-        ClientToken()
-        {
+        ClientToken() {
             static_assert(BUF_SIZE >= sizeof(BaseClientToken));
             new(buf) BaseClientToken();
         }
 
-        ~ClientToken()
-        {
+        ~ClientToken() {
             reinterpret_cast<BaseClientToken*>(buf)->~BaseClientToken();
         }
 
         void reinit() {
+            reinit<BaseClientToken>();
+        }
+
+        template <typename T>
+        T* reinit() {
             reinterpret_cast<BaseClientToken*>(buf)->~BaseClientToken();
-            new(buf) BaseClientToken();
+            return new(buf) T();
         }
 
         template <typename T>
