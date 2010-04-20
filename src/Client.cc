@@ -23,9 +23,13 @@
 #endif
 
 #include <rcrpc.h>
-
+#include <Buffer.h>
 #include <Client.h>
 #include <assert.h>
+
+using RAMCloud::Buffer;
+using RAMCloud::ClientRPC;
+using RAMCloud::Service;
 
 #if RC_CLIENT_SHARED
 struct rc_client_shared {
@@ -72,6 +76,13 @@ rc_connect(struct rc_client *client)
     assert(sem_init(&client->shared->sem, 1, 1) == 0);
 #endif
     rc_net_init(&client->net, CLNTADDR, CLNTPORT, SVRADDR, SVRPORT);
+
+    uint32_t svrIpAddr;
+    inet_pton(AF_INET, SVRADDR, &svrIpAddr);
+    client->s = new Service();
+    client->s->setIp(svrIpAddr);
+    client->s->setPort(SVRPORT);
+
     rc_net_connect(&client->net);
     return 0;
 }
@@ -139,8 +150,9 @@ rc_handle_errors(struct rcrpc_any *resp_any)
     return -1;
 }
 
-static int
+/*static */int
 sendrcv_rpc(struct rc_net *net,
+            Service *s,
             struct rcrpc_any *req,
             enum RCRPC_TYPE req_type, size_t min_req_size,
             struct rcrpc_any **respp,
@@ -168,8 +180,9 @@ sendrcv_rpc(struct rc_net *net,
  * \retval  0 success
  * \retval -1 on %RAMCloud error (see rc_last_error())
  */
-static int
+/*static */int
 sendrcv_rpc(struct rc_net *net,
+            Service *s,
             struct rcrpc_any *req,
             enum RCRPC_TYPE req_type, size_t min_req_size,
             struct rcrpc_any **respp,
@@ -180,15 +193,22 @@ sendrcv_rpc(struct rc_net *net,
 
     *respp = NULL;
 
-    assert(req->header.type == req_type);
-    assert(req->header.len >= min_req_size);
+    assert(req->header.type == (uint32_t) req_type);
+    assert(req->header.len >= (uint32_t) min_req_size);
 
-    assert(!rc_net_send_rpc(net, req));
-    assert(!rc_net_recv_rpc(net, &resp));
+    Buffer reqBuf;
+    reqBuf.append(req, req->header.len);
+
+    ClientRPC rpc;
+    rpc.startRPC(s, &reqBuf);
+    Buffer* replyBuf = rpc.getReply();
+
+    resp = reinterpret_cast<rcrpc_any*>(
+        replyBuf->getRange(0, replyBuf->totalLength()));
 
     r = rc_handle_errors(resp);
     if (r == 0) {
-        assert(resp->header.type == resp_type);
+        assert(resp->header.type == (uint32_t) resp_type);
         assert(resp->header.len >= min_resp_size);
         *respp = resp;
     }
@@ -221,6 +241,7 @@ sendrcv_rpc(struct rc_net *net,
         struct rcrpc_##rcrpc_lower##_request* _query = (query);                \
         struct rcrpc_##rcrpc_lower##_response** _respp = (respp);              \
         sendrcv_rpc(&client->net,                                              \
+                client->s,                                                     \
                 (struct rcrpc_any*) _query,                                    \
                 RCRPC_##rcrpc_upper##_REQUEST,                                 \
                 sizeof(*_query),                                               \
@@ -363,7 +384,8 @@ rc_write(struct rc_client *client,
     query = (struct rcrpc_write_request *) query_buf;
 
     query->header.type = RCRPC_WRITE_REQUEST;
-    query->header.len  = (uint32_t) RCRPC_WRITE_REQUEST_LEN_WODATA + len;
+    query->header.len  = RCRPC_WRITE_REQUEST_LEN_WODATA;
+    query->header.len += (uint32_t) len;
     query->table = table;
     query->key = key;
     memcpy(&query->reject_rules, reject_rules, sizeof(*reject_rules));
@@ -430,7 +452,8 @@ rc_insert(struct rc_client *client,
     query = (struct rcrpc_insert_request *) query_buf;
 
     query->header.type = RCRPC_INSERT_REQUEST;
-    query->header.len  = (uint32_t) RCRPC_INSERT_REQUEST_LEN_WODATA + len;
+    query->header.len  = RCRPC_INSERT_REQUEST_LEN_WODATA;
+    query->header.len += (uint32_t) len;
     query->table = table;
     query->buf_len = len;
     memcpy(query->buf, buf, len);
@@ -677,7 +700,7 @@ rc_drop_table(struct rc_client *client, const char *name)
  */
 struct rc_client *
 rc_new(void) {
-    return xmalloc(sizeof(struct rc_client));
+    return reinterpret_cast<struct rc_client*>(xmalloc(sizeof(struct rc_client)));
 }
 
 /**

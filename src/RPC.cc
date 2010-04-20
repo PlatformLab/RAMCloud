@@ -25,12 +25,19 @@ namespace RAMCloud {
 void ClientRPC::startRPC(Service *dest, Buffer* rpcPayload) {
     // Send the RPC. Hang onto the buffer in case we need to retransmit.
 
+    if (dest->getServiceId() == 0) {
+        token.s = NULL;
+        return;
+    }
+
     transport()->clientSend(dest, rpcPayload, &token);
     this->rpcPayload = rpcPayload;
 }
 
 Buffer* ClientRPC::getReply() {
     // Check if replyPayload is set. Call blocking recv if not.
+
+    if (token.s == NULL) return NULL;
 
     if (!replyPayload) transport()->clientRecv(replyPayload, &token);
     return replyPayload;

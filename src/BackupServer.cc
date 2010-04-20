@@ -647,7 +647,7 @@ BackupServer::handleRPC()
 
     // TODO(aravindn): Look at a more efficeint allcoation strategy for
     // resp_buf.
-    
+
     char *resp_buf = static_cast<char *>(xmalloc(RESP_BUF_LEN));
     backup_rpc *req;
     backup_rpc *resp = reinterpret_cast<backup_rpc *>(&resp_buf[0]);

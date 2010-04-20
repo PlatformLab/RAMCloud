@@ -35,7 +35,7 @@ main()
 {
     using ::RAMCloud::BackupServer;
     using ::RAMCloud::Service;
-    
+
     /*
     Net *net = new CNet(BACKSVRADDR, BACKSVRPORT,
                         BACKCLNTADDR, BACKCLNTPORT);

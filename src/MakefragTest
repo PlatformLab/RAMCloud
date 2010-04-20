@@ -15,7 +15,7 @@ TESTS_SRCFILES := \
 		src/TestRunner.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
-TESTS_OBJFILES := $(patsubst src/%.c, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
+TESTS_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
 TESTS_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
 TESTS_OBJFILES := $(TESTS_OBJFILES) \
                $(SHARED_OBJFILES) \
