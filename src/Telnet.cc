@@ -43,7 +43,7 @@ main()
         tx.clientSend(&service, &request, &token);
         tx.clientRecv(&response, &token);
         void* contigResp = response.getRange(0, response.totalLength());
-        puts(static_cast<char*>(contigResp));
+        fputs(static_cast<char*>(contigResp), stdout);
     }
     return 0;
 };
