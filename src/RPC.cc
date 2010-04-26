@@ -25,34 +25,62 @@ namespace RAMCloud {
 void ClientRPC::startRPC(Service *dest, Buffer* rpcPayload) {
     // Send the RPC. Hang onto the buffer in case we need to retransmit.
 
-    if (dest->getServiceId() == 0) {
-        token.s = NULL;
+    if (/*dest->getServiceId() == 0 || */trans == NULL) {
         return;
     }
 
-    transport()->clientSend(dest, rpcPayload, &token);
+    try {
+        trans->clientSend(dest, rpcPayload, &token);
+    } catch (TransportException te) {
+        printf("Caught TransportException in ClientRPC::startRPC: %s\n",
+               te.message.c_str());
+    }
+    
     this->rpcPayload = rpcPayload;
 }
 
 Buffer* ClientRPC::getReply() {
     // Check if replyPayload is set. Call blocking recv if not.
+    if (trans == NULL) return NULL;
 
-    if (token.s == NULL) return NULL;
+    if (!replyPayload) {
+        replyPayload = new Buffer();
+        try {
+            trans->clientRecv(replyPayload, &token);
+        } catch (TransportException te) {
+            printf("Caught TransportException in ClientRPC::startRPC: %s\n",
+                   te.message.c_str());
+        }
+    }
 
-    if (!replyPayload) transport()->clientRecv(replyPayload, &token);
     return replyPayload;
 }
 
 Buffer* ServerRPC::getRequest() {
     // Block on serverRecv;
-    transport()->serverRecv(reqPayload, &token);
+    if (trans == NULL) return NULL;
+    reqPayload = new Buffer();
+
+    try {
+        trans->serverRecv(reqPayload, &token);
+    } catch (TransportException te) {
+        printf("Caught TransportException in ClientRPC::startRPC: %s\n",
+               te.message.c_str());
+    }
+    
     return reqPayload;
 }
 
 void ServerRPC::sendReply(Buffer* replyPayload) {
+    if (trans == NULL) return;
     // Send the RPC. Don't hang onto the buffer, put it in the history list of
     // replies.
-    transport()->serverSend(replyPayload, &token);
+    try {
+        trans->serverSend(replyPayload, &token);
+    } catch (TransportException te) {
+        printf("Caught TransportException in ClientRPC::startRPC: %s\n",
+               te.message.c_str());
+    }
 }
 
 }  // namespace RAMCloud

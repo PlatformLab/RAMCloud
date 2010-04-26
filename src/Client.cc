@@ -30,6 +30,8 @@
 using RAMCloud::Buffer;
 using RAMCloud::ClientRPC;
 using RAMCloud::Service;
+using RAMCloud::TCPTransport;
+using RAMCloud::Transport;
 
 #if RC_CLIENT_SHARED
 struct rc_client_shared {
@@ -77,11 +79,11 @@ rc_connect(struct rc_client *client)
 #endif
     rc_net_init(&client->net, CLNTADDR, CLNTPORT, SVRADDR, SVRPORT);
 
-    uint32_t svrIpAddr;
-    inet_pton(AF_INET, SVRADDR, &svrIpAddr);
-    client->s = new Service();
-    client->s->setIp(svrIpAddr);
-    client->s->setPort(SVRPORT);
+    client->serv = new Service();
+    client->serv->setIp(inet_addr(SVRADDR));
+    client->serv->setPort(SVRPORT);
+
+    client->trans = new TCPTransport(CLNTADDR, CLNTPORT);
 
     rc_net_connect(&client->net);
     return 0;
@@ -153,6 +155,7 @@ rc_handle_errors(struct rcrpc_any *resp_any)
 /*static */int
 sendrcv_rpc(struct rc_net *net,
             Service *s,
+            Transport *trans,
             struct rcrpc_any *req,
             enum RCRPC_TYPE req_type, size_t min_req_size,
             struct rcrpc_any **respp,
@@ -183,6 +186,7 @@ sendrcv_rpc(struct rc_net *net,
 /*static */int
 sendrcv_rpc(struct rc_net *net,
             Service *s,
+            Transport* trans,
             struct rcrpc_any *req,
             enum RCRPC_TYPE req_type, size_t min_req_size,
             struct rcrpc_any **respp,
@@ -199,7 +203,7 @@ sendrcv_rpc(struct rc_net *net,
     Buffer reqBuf;
     reqBuf.append(req, req->header.len);
 
-    ClientRPC rpc;
+    ClientRPC rpc(trans);
     rpc.startRPC(s, &reqBuf);
     Buffer* replyBuf = rpc.getReply();
 
@@ -241,7 +245,8 @@ sendrcv_rpc(struct rc_net *net,
         struct rcrpc_##rcrpc_lower##_request* _query = (query);                \
         struct rcrpc_##rcrpc_lower##_response** _respp = (respp);              \
         sendrcv_rpc(&client->net,                                              \
-                client->s,                                                     \
+                client->serv,                                                  \
+                client->trans,                                                 \
                 (struct rcrpc_any*) _query,                                    \
                 RCRPC_##rcrpc_upper##_REQUEST,                                 \
                 sizeof(*_query),                                               \

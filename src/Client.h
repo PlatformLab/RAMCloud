@@ -23,6 +23,7 @@
 #include <Buffer.h>
 #include <RPC.h>
 #include <Service.h>
+#include <Transport.h>
 
 #if RC_CLIENT_SHARED
 struct rc_client_shared; // declared in Client.c
@@ -30,7 +31,8 @@ struct rc_client_shared; // declared in Client.c
 
 struct rc_client {
     struct rc_net net;
-    RAMCloud::Service *s;
+    RAMCloud::Service* serv;
+    RAMCloud::Transport* trans;
 #if RC_CLIENT_SHARED
     struct rc_client_shared *shared;
 #endif

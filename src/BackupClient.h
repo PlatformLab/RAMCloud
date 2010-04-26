@@ -25,6 +25,7 @@
 
 #include <Common.h>
 #include <Service.h>
+#include <Transport.h>
 #include <backuprpc.h>
 
 namespace RAMCloud {
@@ -55,7 +56,7 @@ class BackupClient {
  */
 class BackupHost : public BackupClient {
   public:
-    explicit BackupHost(Service *s);
+    explicit BackupHost(Service *s, Transport *trans);
     virtual ~BackupHost();
 
     virtual void heartbeat();
@@ -88,6 +89,7 @@ class BackupHost : public BackupClient {
     virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
     Service *s;
+    Transport *trans;
     DISALLOW_COPY_AND_ASSIGN(BackupHost);
 };
 
@@ -104,7 +106,7 @@ class MultiBackupClient : public BackupClient {
   public:
     explicit MultiBackupClient();
     virtual ~MultiBackupClient();
-    void addHost(Service *s);
+    void addHost(Service *s, Transport* t);
 
     virtual void heartbeat();
     virtual void writeSegment(uint64_t segNum, uint32_t offset,

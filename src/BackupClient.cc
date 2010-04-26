@@ -37,16 +37,17 @@ const bool debug_noisy = false;
  * have full ownership of it and the caller should discontinue any use
  * or responbility for it.
  */
-BackupHost::BackupHost(Service *sIn)
-        : s(sIn)
+BackupHost::BackupHost(Service *sIn, Transport *transIn)
+        : s(sIn), trans(transIn)
 {
 }
 
 BackupHost::~BackupHost()
 {
-    // We delete the net we were handed from the constructor so the
-    // creator doesn't need to worry about it.
-    // delete net;
+    // We delete the service and transport we were handed from the constructor
+    // so the creater doesn't need to worry about it.
+    delete s;
+    delete trans;
 }
 
 void
@@ -62,7 +63,7 @@ BackupHost::heartbeat()
     Buffer buf;
     buf.append(reinterpret_cast<void*>(&req), req.hdr.len);
 
-    ClientRPC rpc;
+    ClientRPC rpc(trans);
     rpc.startRPC(s, &buf);
     rpc.getReply();
 
@@ -98,7 +99,7 @@ BackupHost::writeSegment(uint64_t segNum,
     Buffer buf;
     buf.append(reinterpret_cast<void*> (req), req->hdr.len);
 
-    ClientRPC rpc;
+    ClientRPC rpc(trans);
     rpc.startRPC(s, &buf);
     rpc.getReply();
 
@@ -120,7 +121,7 @@ BackupHost::commitSegment(uint64_t segNum)
     Buffer buf;
     buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
 
-    ClientRPC rpc;
+    ClientRPC rpc(trans);
     rpc.startRPC(s, &buf);
     rpc.getReply();
 
@@ -144,7 +145,7 @@ BackupHost::freeSegment(uint64_t segNum)
 
     Buffer buf;
     buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
-    ClientRPC rpc;
+    ClientRPC rpc(trans);
     rpc.startRPC(s, &buf);
     rpc.getReply();
 
@@ -167,7 +168,7 @@ BackupHost::getSegmentList(uint64_t *list,
 
     Buffer buf;
     buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
-    ClientRPC rpc;
+    ClientRPC rpc(trans);
     rpc.startRPC(s, &buf);
 
     Buffer *replyBuf = rpc.getReply();
@@ -206,7 +207,7 @@ BackupHost::getSegmentMetadata(uint64_t segNum,
 
     Buffer buf;
     buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
-    ClientRPC rpc;
+    ClientRPC rpc(trans);
     rpc.startRPC(s, &buf);
 
     Buffer *replyBuf = rpc.getReply();
@@ -244,7 +245,7 @@ BackupHost::retrieveSegment(uint64_t segNum, void *buf)
 
     Buffer rpcBuf;
     rpcBuf.append(reinterpret_cast<void*> (&req), req.hdr.len);
-    ClientRPC rpc;
+    ClientRPC rpc(trans);
     rpc.startRPC(s, &rpcBuf);
 
     Buffer *replyBuf = rpc.getReply();
@@ -274,17 +275,17 @@ MultiBackupClient::~MultiBackupClient()
 }
 
 /**
- * NOTICE:  The BackupClient takes care of deleting the Net object
- * once it is no longer needed.  The client should be considered to
- * have full ownership of it and the caller should discontinue any use
- * or responbility for it. TODO(aravindn): change comment.
+ * NOTICE: The BackupClient takes care of deleting the Service and Transport
+ * objects once it is no longer needed.  The client should be considered to have
+ * full ownership of it and the caller should discontinue any use or
+ * responbility for it.
  */
 void
-MultiBackupClient::addHost(Service *s)
+MultiBackupClient::addHost(Service *s, Transport *t)
 {
     if (host)
         throw BackupRPCException("Only one backup host currently supported");
-    host = new BackupHost(s);
+    host = new BackupHost(s, t);
 }
 
 void

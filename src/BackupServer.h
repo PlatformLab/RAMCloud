@@ -29,6 +29,7 @@
 #include <BackupClient.h>
 #include <Bitmap.h>
 #include <Service.h>
+#include <Transport.h>
 
 #include <string>
 
@@ -74,7 +75,7 @@ const uint64_t INVALID_SEGMENT_NUM = ~(0ull);
 class BackupServer : BackupClient {
   public:
     explicit BackupServer();
-    explicit BackupServer(Service *s, const char *logPath);
+    explicit BackupServer(Service *servIn, Transport* transIn, const char *logPath);
     virtual ~BackupServer();
     void run();
   private:
@@ -108,9 +109,9 @@ class BackupServer : BackupClient {
     void reserveSpace();
     uint64_t frameForSegNum(uint64_t segnum);
 
-    /** The net connection to use to service RPCs TODO(aravindn) change
-     * comment */
-    Service *s;
+    /** The Service and Transport objects to use to service RPCs */
+    Service *serv;
+    Transport *trans;
     /** A file descriptor for the log file */
     int logFD;
     /**

@@ -23,38 +23,9 @@
 #include <Buffer.h>
 #include <Common.h>
 #include <Service.h>
+#include <TCPTransport.h>
 
 namespace RAMCloud {
-
-// Dummy Transport implementation, so that it compiles.
-
-struct ClientTransportToken {
-    Service *s;
-    uint64_t rpcId;
-    ClientTransportToken() : s(NULL), rpcId(0) { }
-};
-
-struct ServerTransportToken {
-    Service s;
-    uint64_t rpcId;
-    ServerTransportToken() : s(), rpcId(0) { }
-};
-
-class Transport {
-  public:
-    inline void clientSend(Service *s, Buffer* payload,
-                           ClientTransportToken *token_) { }
-
-    inline void clientRecv(Buffer *payload_, ClientTransportToken *token) { }
-
-    inline void serverRecv(Buffer* payload_, ServerTransportToken *token_) { }
-
-    inline void serverSend(Buffer* payload, ServerTransportToken *token) { }
-};
-
-inline Transport* transport() { return new Transport(); }
-
-// End Dummy Transport implementation
 
 class ClientRPC {
   public:
@@ -64,12 +35,16 @@ class ClientRPC {
 
     inline Buffer* getRPCPayload() { return rpcPayload; }
 
-    ClientRPC() : rpcPayload(NULL), replyPayload(NULL), token() { }
+    explicit ClientRPC(Transport* transIn)
+            : rpcPayload(NULL), replyPayload(NULL), token(), trans(transIn) { }
 
   private:
     Buffer* rpcPayload;
     Buffer* replyPayload;
-    ClientTransportToken token;
+    Transport::ClientToken token;
+    Transport *trans;
+
+    DISALLOW_COPY_AND_ASSIGN(ClientRPC);
 };
 
 class ServerRPC {
@@ -78,12 +53,16 @@ class ServerRPC {
 
     void sendReply(Buffer* replyPayload);
 
-    ServerRPC() : reqPayload(NULL), replyPayload(NULL), token() { }
+    explicit ServerRPC(Transport *transIn)
+            : reqPayload(NULL), replyPayload(NULL), token(), trans(transIn) { }
 
   private:
     Buffer* reqPayload;
     Buffer* replyPayload;
-    ServerTransportToken token;
+    Transport::ServerToken token;
+    Transport *trans;
+
+    DISALLOW_COPY_AND_ASSIGN(ServerRPC);
 };
 
 }  // namespace RAMCloud

@@ -23,7 +23,7 @@
 #include <config.h>
 
 #include <BackupServer.h>
-
+#include <TCPTransport.h>
 
 /**
  * Instantiates a backup server using the configuration information in
@@ -35,25 +35,20 @@ main()
 {
     using ::RAMCloud::BackupServer;
     using ::RAMCloud::Service;
-
-    /*
-    Net *net = new CNet(BACKSVRADDR, BACKSVRPORT,
-                        BACKCLNTADDR, BACKCLNTPORT);
-    net->Listen();
-
-    BackupServer *server = new BackupServer(net,
-                                            BACKUP_LOG_PATH);
-    */
+    using ::RAMCloud::TCPTransport;
 
     Service backupService;
-    uint32_t backupServiceIp;
-    inet_pton(AF_INET, BACKSVRADDR, &backupServiceIp);
-    backupService.setIp(backupServiceIp);
+    backupService.setIp(inet_addr(BACKSVRADDR));
     backupService.setPort(BACKSVRPORT);
-    BackupServer *server = new BackupServer(&backupService, BACKUP_LOG_PATH);
+
+    TCPTransport *trans = new TCPTransport(BACKCLNTADDR, BACKCLNTPORT);
+    BackupServer *server =
+            new BackupServer(&backupService, trans, BACKUP_LOG_PATH);
+
     server->run();
 
     delete server;
+    delete trans;
 
     return 0;
 }

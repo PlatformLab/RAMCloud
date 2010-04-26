@@ -46,9 +46,10 @@ static const uint64_t RESP_BUF_LEN = (1 << 20);
 
 BackupException::~BackupException() {}
 
-BackupServer::BackupServer(Service *sIn, const char *logPath)
-        : s(sIn), logFD(-1), seg(0),
-      openSegNum(INVALID_SEGMENT_NUM), freeMap(true)
+BackupServer::BackupServer(Service *servIn, Transport* transIn,
+                           const char *logPath)
+        : serv(servIn), trans(transIn), logFD(-1), seg(0),
+          openSegNum(INVALID_SEGMENT_NUM), freeMap(true)
 {
     static_assert(LOG_SPACE == SEGMENT_FRAMES * SEGMENT_SIZE);
 
@@ -653,7 +654,7 @@ BackupServer::handleRPC()
     backup_rpc *resp = reinterpret_cast<backup_rpc *>(&resp_buf[0]);
 
     Buffer* reqBuf;
-    ServerRPC rpc;
+    ServerRPC rpc(trans);
     reqBuf = rpc.getRequest();
     req = reinterpret_cast<backup_rpc*>(
         reqBuf->getRange(0, reqBuf->totalLength()));

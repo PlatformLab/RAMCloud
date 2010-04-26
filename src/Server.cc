@@ -21,6 +21,7 @@
 #include <RPC.h>
 #include <Server.h>
 #include <Service.h>
+#include <Transport.h>
 
 namespace RAMCloud {
 
@@ -36,9 +37,9 @@ void TombstoneEvictionCallback(log_entry_type_t type,
                          void *cookie);
 
 Server::Server(const ServerConfig *sconfig,
-               Net *net_impl,
+               Transport* transIn,
                BackupClient *backupClient)
-    : config(sconfig), net(net_impl), backup(backupClient), log(0)
+    : config(sconfig), trans(transIn), backup(backupClient), log(0)
 {
     void *p = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
     assert(p != NULL);
@@ -52,9 +53,9 @@ Server::Server(const ServerConfig *sconfig,
             inet_pton(AF_INET, BACKSVRADDR, &serviceIp);
             s->setIp(serviceIp);
 
-            // NOTE The backup client takes care of freeing the net object
-            // TODO(aravindn): Change comment.
-            multiBackup->addHost(s);
+            // NOTE The backup client takes care of freeing the Service and
+            // Transport objects.
+            multiBackup->addHost(s, trans);
         }
         backup = multiBackup;
     }
@@ -489,7 +490,7 @@ Server::HandleRPC()
     rcrpc_any *req;
 
     Buffer *reqBuf;
-    ServerRPC rpc;
+    ServerRPC rpc(trans);
     reqBuf = rpc.getRequest();
     req = reinterpret_cast<rcrpc_any*>(
         reqBuf->getRange(0, reqBuf->totalLength()));

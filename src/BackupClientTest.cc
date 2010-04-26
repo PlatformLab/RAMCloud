@@ -19,7 +19,7 @@
  */
 
 #include <BackupClient.h>
-#include <MockNet.h>
+#include <MockTransport.h>
 
 #include <cppunit/extensions/HelperMacros.h>
 
@@ -29,6 +29,9 @@ namespace RAMCloud {
  * Unit tests for BackupHost
  */
 class BackupHostTest : public CppUnit::TestFixture {
+    Service *service;
+    MockTransport *transport;
+
     const std::string testMessage;
     uint32_t testMessageLen;
     DISALLOW_COPY_AND_ASSIGN(BackupHostTest); // NOLINT
@@ -40,8 +43,9 @@ class BackupHostTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    BackupHostTest() :
-        testMessage("God hates ponies."), testMessageLen(0)
+    BackupHostTest()
+            : service(0), transport(0), testMessage("God hates ponies."),
+              testMessageLen(0)
     {
         testMessageLen = static_cast<uint32_t>(testMessage.length());
     }
@@ -54,6 +58,7 @@ class BackupHostTest : public CppUnit::TestFixture {
      * arguments look good and return something plausible as a
      * response for the client to sanity check.
      */
+    /*
     class BackupHostMockNet : public MockNet {
       public:
         virtual void Handle(const char *reqData, size_t len) {
@@ -107,15 +112,19 @@ class BackupHostTest : public CppUnit::TestFixture {
             respLen = resp->hdr.len;
         }
     };
-
+    */
     void
     setUp()
     {
+        service = new Service();
+        transport = new MockTransport();
     }
 
     void
     tearDown()
     {
+        delete service;
+        delete transport;
     }
 
     /**
@@ -125,7 +134,7 @@ class BackupHostTest : public CppUnit::TestFixture {
     void
     test_writeSegment_normal()
     {
-        BackupHost host(new Service());
+        BackupHost host(service, transport);
 
         const char *data = "junk";
         const int32_t len = static_cast<uint32_t>(strlen(data)) + 1;
@@ -139,7 +148,7 @@ class BackupHostTest : public CppUnit::TestFixture {
     void
     test_getSegmentMetadata_normal()
     {
-        BackupHost host(new Service());
+        BackupHost host(service, transport);
 
         uint32_t metasSize = 4;
         RecoveryObjectMetadata metas[4];
