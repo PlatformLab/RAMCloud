@@ -22,25 +22,38 @@
 
 namespace RAMCloud {
 
+/**
+ * Send out an RPC request, to the specified service, using the Transport
+ * layer specified when this object was created. We keep a reference to the
+ * payload Buffer, in case we need to retransmit this RPC at a later stage.
+ *
+ * \param[in]  dest        The Service to which we are sending this RPC.
+ * \param[in]  rpcPayload  The Buffer containing the payload to put on the wire.
+ */
 void ClientRPC::startRPC(Service *dest, Buffer* rpcPayload) {
-    // Send the RPC. Hang onto the buffer in case we need to retransmit.
-
-    if (/*dest->getServiceId() == 0 || */trans == NULL) {
-        return;
-    }
+    if (dest == NULL) return;
+    if (trans == NULL) return;
 
     try {
         trans->clientSend(dest, rpcPayload, &token);
     } catch (TransportException te) {
         printf("Caught TransportException in ClientRPC::startRPC: %s\n",
                te.message.c_str());
+        // TODO(aravindn): Try sending again?
     }
     
     this->rpcPayload = rpcPayload;
 }
 
+/**
+ * Get this RPC's reply payload. If the reply hasn't been received
+ * yet, this call blocks till we get the reply packet. Otherwise, it immediately
+ * returns a pointer to the reply Buffer.
+ *
+ * \return A pointer to a Buffer containing the reply payload.
+ */
 Buffer* ClientRPC::getReply() {
-    // Check if replyPayload is set. Call blocking recv if not.
+    if (!rpcPayload) return NULL;  // Means startRPC() hasn't been called yet.
     if (trans == NULL) return NULL;
 
     if (!replyPayload) {
@@ -48,7 +61,7 @@ Buffer* ClientRPC::getReply() {
         try {
             trans->clientRecv(replyPayload, &token);
         } catch (TransportException te) {
-            printf("Caught TransportException in ClientRPC::startRPC: %s\n",
+            printf("Caught TransportException in ClientRPC::getReply: %s\n",
                    te.message.c_str());
         }
     }
@@ -56,6 +69,12 @@ Buffer* ClientRPC::getReply() {
     return replyPayload;
 }
 
+/**
+ * Wait for and return an new RPC request. This function blacks until a new RPC
+ * request is received.
+ *
+ * \return A pointer to a Buffer containing the new RPC request payload.
+ */
 Buffer* ServerRPC::getRequest() {
     // Block on serverRecv;
     if (trans == NULL) return NULL;
@@ -64,23 +83,34 @@ Buffer* ServerRPC::getRequest() {
     try {
         trans->serverRecv(reqPayload, &token);
     } catch (TransportException te) {
-        printf("Caught TransportException in ClientRPC::startRPC: %s\n",
+        printf("Caught TransportException in ClientRPC::getRequest: %s\n",
                te.message.c_str());
     }
     
     return reqPayload;
 }
 
+/**
+ * Send a reply to the RPC request we received. We don't need to keep around a
+ * pointer to the reply payload, since we put it in a history list of RPC
+ * replies.
+ *
+ * \param[in]  replyPayload  The Buffer containing the reply payload to put on
+ *                           the wire.
+ */
 void ServerRPC::sendReply(Buffer* replyPayload) {
+    if (!reqPayload) return;  // Means getRequest() has not been called yet.
     if (trans == NULL) return;
-    // Send the RPC. Don't hang onto the buffer, put it in the history list of
-    // replies.
+
     try {
         trans->serverSend(replyPayload, &token);
     } catch (TransportException te) {
-        printf("Caught TransportException in ClientRPC::startRPC: %s\n",
+        printf("Caught TransportException in ClientRPC::sendReply: %s\n",
                te.message.c_str());
     }
+    
+    // TODO(aravindn): Put the replyPayload Buffer in a history list so that we
+    // can handle retransmitted rpc requests.
 }
 
 }  // namespace RAMCloud
