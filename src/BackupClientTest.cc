@@ -123,8 +123,6 @@ class BackupHostTest : public CppUnit::TestFixture {
     void
     tearDown()
     {
-        delete service;
-        delete transport;
     }
 
     /**
