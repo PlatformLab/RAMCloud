@@ -169,6 +169,8 @@ sendrcv_rpc(struct rc_net *net,
  * used.
  *
  * \param[in] net   the network struct from the rc_client
+ * \param[in] s     The service associated with the destination of this RPC.
+ * \param[in] trans The transport layer to use for this RPC.
  * \param[in] req   a pointer to the request
  *      The request should have its RPC type and length in the header already
  *      set.

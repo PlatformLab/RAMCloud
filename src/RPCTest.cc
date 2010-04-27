@@ -31,6 +31,7 @@ class ClientRPCTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_startRPC_normal);
     CPPUNIT_TEST(test_getReply_badChecks);
     CPPUNIT_TEST(test_getReply_normal);
+    CPPUNIT_TEST(test_getReply_normalNonBlocking);
     CPPUNIT_TEST_SUITE_END();
 
     MockTransport* trans;
@@ -77,10 +78,10 @@ class ClientRPCTest : public CppUnit::TestFixture {
 
     void test_getReply_badChecks() {
         ClientRPC rpc(trans);
-        CPPUNIT_ASSERT_EQUAL((Buffer*) NULL, rpc.getReply());
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<Buffer*>(NULL), rpc.getReply());
 
         ClientRPC rpc2(NULL);
-        CPPUNIT_ASSERT_EQUAL((Buffer*) NULL, rpc2.getReply());
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<Buffer*>(NULL), rpc2.getReply());
     }
 
     void test_getReply_normal() {
@@ -94,8 +95,8 @@ class ClientRPCTest : public CppUnit::TestFixture {
     void test_getReply_normalNonBlocking() {
         ClientRPC rpc(trans);
         rpc.startRPC(dest, payload);
-        rpc.rpcPayload = new Buffer();
-        rpc.getReply();
+        rpc.replyPayload = new Buffer();
+        CPPUNIT_ASSERT_EQUAL(rpc.replyPayload, rpc.getReply());
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, trans->clientRecvCount);
         CPPUNIT_ASSERT_EQUAL((uint32_t) 1, trans->clientSendCount);
     }
@@ -115,7 +116,7 @@ class ServerRPCTest : public CppUnit::TestFixture {
     MockTransport* trans;
     Buffer* payload;
     Service* dest;
-    
+
   public:
     ServerRPCTest()
             : trans(NULL), payload(NULL), dest(NULL) { }
@@ -134,7 +135,7 @@ class ServerRPCTest : public CppUnit::TestFixture {
 
     void test_getRequest_badTrans() {
         ServerRPC rpc(NULL);
-        CPPUNIT_ASSERT_EQUAL((Buffer*) NULL, rpc.getRequest());
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<Buffer*>(NULL), rpc.getRequest());
     }
 
     void test_getRequest_normal() {

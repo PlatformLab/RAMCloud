@@ -42,7 +42,7 @@ void ClientRPC::startRPC(Service *dest, Buffer* rpcPayload) {
                te.message.c_str());
         // TODO(aravindn): Try sending again?
     }
-    
+
     this->rpcPayload = rpcPayload;
 }
 
@@ -87,7 +87,7 @@ Buffer* ServerRPC::getRequest() {
         printf("Caught TransportException in ClientRPC::getRequest: %s\n",
                te.message.c_str());
     }
-    
+
     return reqPayload;
 }
 
@@ -110,7 +110,7 @@ void ServerRPC::sendReply(Buffer* replyPayload) {
         printf("Caught TransportException in ClientRPC::sendReply: %s\n",
                te.message.c_str());
     }
-    
+
     // TODO(aravindn): Put the replyPayload Buffer in a history list so that we
     // can handle retransmitted rpc requests.
 }
