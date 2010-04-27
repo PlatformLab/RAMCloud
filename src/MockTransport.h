@@ -26,19 +26,34 @@ namespace RAMCloud {
 
 class MockTransport : public Transport {
   public:
-    MockTransport() { }
+    MockTransport()
+            : serverRecvCount(0), serverSendCount(0),
+              clientSendCount(0), clientRecvCount(0) { }
+
     virtual ~MockTransport() { }
 
-    virtual void serverRecv(Buffer* payload, ServerToken* token) { }
+    virtual void serverRecv(Buffer* payload, ServerToken* token) {
+        ++serverRecvCount;
+    }
 
-    virtual void serverSend(Buffer* payload, ServerToken *token) { }
+    virtual void serverSend(Buffer* payload, ServerToken *token) {
+        ++serverSendCount;
+    }
 
     virtual void clientSend(const Service* service, Buffer* payload,
-                    ClientToken* token) { }
+                            ClientToken* token) {
+        ++clientSendCount;
+    }
 
-    virtual void clientRecv(Buffer* payload, ClientToken* token) { }
+    virtual void clientRecv(Buffer* payload, ClientToken* token) {
+        ++clientRecvCount;
+    }
 
-  private:
+    uint32_t serverRecvCount;
+    uint32_t serverSendCount;
+    uint32_t clientSendCount;
+    uint32_t clientRecvCount;
+
     DISALLOW_COPY_AND_ASSIGN(MockTransport);
 };
 

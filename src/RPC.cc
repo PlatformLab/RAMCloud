@@ -33,6 +33,7 @@ namespace RAMCloud {
 void ClientRPC::startRPC(Service *dest, Buffer* rpcPayload) {
     if (dest == NULL) return;
     if (trans == NULL) return;
+    if (rpcPayload == NULL) return;
 
     try {
         trans->clientSend(dest, rpcPayload, &token);
@@ -53,8 +54,8 @@ void ClientRPC::startRPC(Service *dest, Buffer* rpcPayload) {
  * \return A pointer to a Buffer containing the reply payload.
  */
 Buffer* ClientRPC::getReply() {
-    if (!rpcPayload) return NULL;  // Means startRPC() hasn't been called yet.
     if (trans == NULL) return NULL;
+    if (!rpcPayload) return NULL;  // Means startRPC() hasn't been called yet.
 
     if (!replyPayload) {
         replyPayload = new Buffer();
@@ -76,8 +77,8 @@ Buffer* ClientRPC::getReply() {
  * \return A pointer to a Buffer containing the new RPC request payload.
  */
 Buffer* ServerRPC::getRequest() {
-    // Block on serverRecv;
     if (trans == NULL) return NULL;
+
     reqPayload = new Buffer();
 
     try {
@@ -101,6 +102,7 @@ Buffer* ServerRPC::getRequest() {
 void ServerRPC::sendReply(Buffer* replyPayload) {
     if (!reqPayload) return;  // Means getRequest() has not been called yet.
     if (trans == NULL) return;
+    if (replyPayload == NULL) return;
 
     try {
         trans->serverSend(replyPayload, &token);
