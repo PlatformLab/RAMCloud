@@ -69,11 +69,9 @@ int
 rc_connect(struct rc_client *client)
 {
 #if RC_CLIENT_SHARED
-    client->shared = mmap(NULL,
-                          sizeof(struct rc_client_shared),
-                          PROT_READ|PROT_WRITE,
-                          MAP_SHARED|MAP_ANONYMOUS,
-                          -1, 0);
+    void *s = mmap(NULL, sizeof(struct rc_client_shared),
+                   PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+    client->shared = static_cast<rc_client_shared*>(s);
     assert(client->shared != MAP_FAILED);
     assert(sem_init(&client->shared->sem, 1, 1) == 0);
 #endif
