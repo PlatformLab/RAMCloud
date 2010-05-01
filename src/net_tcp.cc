@@ -23,7 +23,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <unistd.h>
-#include <assert.h>
 #include <errno.h>
 #include <string.h>
 
@@ -34,6 +33,8 @@
 
 #include <rcrpc.h>
 #include <Net.h>
+
+using RAMCloud::assert;
 
 static int
 rc_tcp_net_accept(struct rc_net *net)
