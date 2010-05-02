@@ -46,6 +46,12 @@ static const uint64_t RESP_BUF_LEN = (1 << 20);
 
 BackupException::~BackupException() {}
 
+
+/**
+ * \param[in]  servIn   The Service that represents this BackupServer.
+ * \param[in]  transIn  The Transport object that the BackupServer uses.
+ * \param[in]  logPath  The file in which to store the local log on disk.
+ */
 BackupServer::BackupServer(Service *servIn, Transport* transIn,
                            const char *logPath)
         : serv(servIn), trans(transIn), logFD(-1), seg(0),

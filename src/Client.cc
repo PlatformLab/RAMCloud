@@ -97,6 +97,8 @@ rc_connect(struct rc_client *client)
 void
 rc_disconnect(struct rc_client *client)
 {
+    delete client->serv;
+    delete client->trans;
 }
 
 /**
@@ -152,7 +154,7 @@ rc_handle_errors(struct rcrpc_any *resp_any)
     return -1;
 }
 
-/*static */int
+static int
 sendrcv_rpc(struct rc_net *net,
             Service *s,
             Transport *trans,
@@ -185,7 +187,7 @@ sendrcv_rpc(struct rc_net *net,
  * \retval  0 success
  * \retval -1 on %RAMCloud error (see rc_last_error())
  */
-/*static */int
+static int
 sendrcv_rpc(struct rc_net *net,
             Service *s,
             Transport* trans,

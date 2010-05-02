@@ -14,7 +14,7 @@
  */
 
 /**
- * \file BackupClient.cc
+ * \file
  * Implementations for master server-side backup RPC stubs.  The
  * classes herein send requests to the backup servers transparently to
  * handle all the backup needs of the masters.
@@ -36,6 +36,10 @@ const bool debug_noisy = false;
  * no longer needed. The host should be considered to have full ownership of it
  * and the caller should discontinue any use or responsiblity for it. The
  * transport object is still owned by the caller.
+ *
+ * \param[in]  sIn      The Service that represents the BackupHost.
+ * \param[in]  transIn  The Transport object to use when communicating with this
+ *                      BackupHost.
  */
 BackupHost::BackupHost(Service *sIn, Transport *transIn)
         : s(sIn), trans(transIn)

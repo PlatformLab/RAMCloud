@@ -80,13 +80,7 @@ Buffer* ServerRPC::getRequest() {
     assert(trans);
 
     reqPayload = new Buffer();
-
-    try {
-        trans->serverRecv(reqPayload, &token);
-    } catch (TransportException te) {
-        printf("Caught TransportException in ClientRPC::getRequest: %s\n",
-               te.message.c_str());
-    }
+    trans->serverRecv(reqPayload, &token);
 
     return reqPayload;
 }
