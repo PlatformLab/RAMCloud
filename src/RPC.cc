@@ -31,9 +31,9 @@ namespace RAMCloud {
  * \param[in]  rpcPayload  The Buffer containing the payload to put on the wire.
  */
 void ClientRPC::startRPC(Service *dest, Buffer* rpcPayload) {
-    if (dest == NULL) return;
-    if (trans == NULL) return;
-    if (rpcPayload == NULL) return;
+    assert(trans);
+    assert(dest);
+    assert(rpcPayload);
 
     try {
         trans->clientSend(dest, rpcPayload, &token);
@@ -54,8 +54,8 @@ void ClientRPC::startRPC(Service *dest, Buffer* rpcPayload) {
  * \return A pointer to a Buffer containing the reply payload.
  */
 Buffer* ClientRPC::getReply() {
-    if (trans == NULL) return NULL;
-    if (!rpcPayload) return NULL;  // Means startRPC() hasn't been called yet.
+    assert(trans);
+    assert(rpcPaylaod);  // Means startRPC() hasn't been called yet.
 
     if (!replyPayload) {
         replyPayload = new Buffer();
@@ -77,7 +77,7 @@ Buffer* ClientRPC::getReply() {
  * \return A pointer to a Buffer containing the new RPC request payload.
  */
 Buffer* ServerRPC::getRequest() {
-    if (trans == NULL) return NULL;
+    assert(trans);
 
     reqPayload = new Buffer();
 
@@ -100,9 +100,9 @@ Buffer* ServerRPC::getRequest() {
  *                           the wire.
  */
 void ServerRPC::sendReply(Buffer* replyPayload) {
-    if (!reqPayload) return;  // Means getRequest() has not been called yet.
-    if (trans == NULL) return;
-    if (replyPayload == NULL) return;
+    assert(trans);
+    assert(replyPayload);
+    assert(reqPayload);  // Means getRequest() has not been called yet.
 
     try {
         trans->serverSend(replyPayload, &token);

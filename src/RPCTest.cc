@@ -54,34 +54,11 @@ class ClientRPCTest : public CppUnit::TestFixture {
         delete dest;
     }
 
-    void test_startRPC_badInputValues() {
-        ClientRPC rpc(trans);
-        rpc.startRPC(NULL, payload);
-        rpc.startRPC(dest, NULL);
-
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, trans->clientSendCount);
-    }
-
-    void test_startRPC_badTrans() {
-        ClientRPC rpc(NULL);
-        rpc.startRPC(dest, payload);
-
-        // Should not segfault.
-    }
-
     void test_startRPC_normal() {
         ClientRPC rpc(trans);
         rpc.startRPC(dest, payload);
 
         CPPUNIT_ASSERT_EQUAL((uint32_t) 1, trans->clientSendCount);
-    }
-
-    void test_getReply_badChecks() {
-        ClientRPC rpc(trans);
-        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<Buffer*>(NULL), rpc.getReply());
-
-        ClientRPC rpc2(NULL);
-        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<Buffer*>(NULL), rpc2.getReply());
     }
 
     void test_getReply_normal() {
@@ -133,26 +110,10 @@ class ServerRPCTest : public CppUnit::TestFixture {
         delete dest;
     }
 
-    void test_getRequest_badTrans() {
-        ServerRPC rpc(NULL);
-        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<Buffer*>(NULL), rpc.getRequest());
-    }
-
     void test_getRequest_normal() {
         ServerRPC rpc(trans);
         rpc.getRequest();
         CPPUNIT_ASSERT_EQUAL((uint32_t) 1, trans->serverRecvCount);
-    }
-
-    void test_sendReply_badInputValues() {
-        ServerRPC rpc(trans);
-        rpc.getRequest();
-        rpc.sendReply(NULL);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, trans->serverSendCount);
-
-        ServerRPC rpc2(trans);
-        rpc2.sendReply(payload);
-        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, trans->serverSendCount);
     }
 
     void test_sendReply_normal() {
