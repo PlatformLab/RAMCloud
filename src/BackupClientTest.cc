@@ -116,6 +116,7 @@ class BackupHostTest : public CppUnit::TestFixture {
     void
     setUp()
     {
+        // The Service object will be deallocated by BackupHost.
         service = new Service();
         transport = new MockTransport();
     }
@@ -123,6 +124,7 @@ class BackupHostTest : public CppUnit::TestFixture {
     void
     tearDown()
     {
+        delete transport;
     }
 
     /**

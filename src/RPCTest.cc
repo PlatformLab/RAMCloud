@@ -26,10 +26,7 @@ namespace RAMCloud {
 
 class ClientRPCTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(ClientRPCTest);
-    CPPUNIT_TEST(test_startRPC_badInputValues);
-    CPPUNIT_TEST(test_startRPC_badTrans);
     CPPUNIT_TEST(test_startRPC_normal);
-    CPPUNIT_TEST(test_getReply_badChecks);
     CPPUNIT_TEST(test_getReply_normal);
     CPPUNIT_TEST(test_getReply_normalNonBlocking);
     CPPUNIT_TEST_SUITE_END();
@@ -84,9 +81,7 @@ CPPUNIT_TEST_SUITE_REGISTRATION(ClientRPCTest);
 
 class ServerRPCTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(ServerRPCTest);
-    CPPUNIT_TEST(test_getRequest_badTrans);
     CPPUNIT_TEST(test_getRequest_normal);
-    CPPUNIT_TEST(test_sendReply_badInputValues);
     CPPUNIT_TEST(test_sendReply_normal);
     CPPUNIT_TEST_SUITE_END();
 

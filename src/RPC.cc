@@ -55,7 +55,7 @@ void ClientRPC::startRPC(Service *dest, Buffer* rpcPayload) {
  */
 Buffer* ClientRPC::getReply() {
     assert(trans);
-    assert(rpcPaylaod);  // Means startRPC() hasn't been called yet.
+    assert(rpcPayload);  // Means startRPC() hasn't been called yet.
 
     if (!replyPayload) {
         replyPayload = new Buffer();

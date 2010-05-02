@@ -41,14 +41,10 @@ main()
     backupService.setIp(inet_addr(BACKSVRADDR));
     backupService.setPort(BACKSVRPORT);
 
-    TCPTransport *trans = new TCPTransport(BACKCLNTADDR, BACKCLNTPORT);
-    BackupServer *server =
-            new BackupServer(&backupService, trans, BACKUP_LOG_PATH);
+    TCPTransport trans(BACKCLNTADDR, BACKCLNTPORT);
+    BackupServer server(&backupService, &trans, BACKUP_LOG_PATH);
 
-    server->run();
-
-    delete server;
-    delete trans;
+    server.run();
 
     return 0;
 }

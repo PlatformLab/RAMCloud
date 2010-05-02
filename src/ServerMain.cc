@@ -60,13 +60,10 @@ main(int argc, char *argv[])
     RAMCloud::ServerConfig config;
     cmdline(argc, argv, &config);
 
-    RAMCloud::TCPTransport *trans = new RAMCloud::TCPTransport(SVRADDR, SVRPORT);
-    RAMCloud::Server *server = new RAMCloud::Server(&config, trans);
+    RAMCloud::TCPTransport trans(SVRADDR, SVRPORT);
+    RAMCloud::Server server(&config, &trans);
 
-    server->Run();
-
-    delete server;
-    delete trans;
+    server.Run();
 
     return 0;
 }
