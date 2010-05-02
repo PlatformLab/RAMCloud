@@ -32,10 +32,10 @@ namespace RAMCloud {
 const bool debug_noisy = false;
 
 /**
- * NOTICE:  The BackupHost takes care of deleting the Net object
- * once it is no longer needed.  The host should be considered to
- * have full ownership of it and the caller should discontinue any use
- * or responbility for it.
+ * NOTICE: The BackupHost takes care of deleting the Service object once it is
+ * no longer needed. The host should be considered to have full ownership of it
+ * and the caller should discontinue any use or responsiblity for it. The
+ * transport object is still owned by the caller.
  */
 BackupHost::BackupHost(Service *sIn, Transport *transIn)
         : s(sIn), trans(transIn)
@@ -44,10 +44,7 @@ BackupHost::BackupHost(Service *sIn, Transport *transIn)
 
 BackupHost::~BackupHost()
 {
-    // We delete the service and transport we were handed from the constructor
-    // so the creater doesn't need to worry about it.
     delete s;
-    delete trans;
 }
 
 void

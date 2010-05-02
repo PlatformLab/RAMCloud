@@ -47,6 +47,7 @@ Server::Server(const ServerConfig *sconfig,
     if (!backup) {
         MultiBackupClient *multiBackup = new MultiBackupClient();
         if (BACKUP) {
+            // This Service object will be deallocated in ~BackupHost().
             Service *s = new Service();
             s->setPort(BACKSVRPORT);
             uint32_t serviceIp;
