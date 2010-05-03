@@ -104,80 +104,52 @@ class Transport {
         DISALLOW_COPY_AND_ASSIGN(BaseClientToken);
     };
 
+  private:
+
+    template <class C>
+    class Token {
+      public:
+        Token() {
+            static_assert(BUF_SIZE >= sizeof(C));
+            new(buf) C();
+        }
+
+        ~Token() {
+            reinterpret_cast<C*>(buf)->~C();
+        }
+
+        void reinit() {
+            reinit<C>();
+        }
+
+        template <typename T>
+        T* reinit() {
+            reinterpret_cast<C*>(buf)->~C();
+            return new(buf) T();
+        }
+
+        template <typename T>
+        T* getBuf() {
+            return static_cast<T*>(reinterpret_cast<C*>(buf));
+        }
+
+        enum { BUF_SIZE = 32 };
+
+      private:
+        char buf[BUF_SIZE];
+    };
+
   public:
 
     /**
      * Opaque container for any server token type derived from BaseServerToken.
      */
-    class ServerToken
-    {
-      public:
-        ServerToken() {
-            static_assert(BUF_SIZE >= sizeof(BaseServerToken));
-            new(buf) BaseServerToken();
-        }
-
-        ~ServerToken() {
-            reinterpret_cast<BaseServerToken*>(buf)->~BaseServerToken();
-        }
-
-        void reinit() {
-            reinit<BaseServerToken>();
-        }
-
-        template <typename T>
-        T* reinit() {
-            reinterpret_cast<BaseServerToken*>(buf)->~BaseServerToken();
-            return new(buf) T();
-        }
-
-        template <typename T>
-        T* getBuf() {
-            return static_cast<T*>(reinterpret_cast<BaseServerToken*>(buf));
-        }
-
-        enum { BUF_SIZE = 32 };
-
-      private:
-        char buf[BUF_SIZE];
-    };
+    typedef Token<BaseServerToken> ServerToken;
 
     /**
      * Opaque container for any client token type derived from BaseClientToken.
      */
-    class ClientToken
-    {
-      public:
-        ClientToken() {
-            static_assert(BUF_SIZE >= sizeof(BaseClientToken));
-            new(buf) BaseClientToken();
-        }
-
-        ~ClientToken() {
-            reinterpret_cast<BaseClientToken*>(buf)->~BaseClientToken();
-        }
-
-        void reinit() {
-            reinit<BaseClientToken>();
-        }
-
-        template <typename T>
-        T* reinit() {
-            reinterpret_cast<BaseClientToken*>(buf)->~BaseClientToken();
-            return new(buf) T();
-        }
-
-        template <typename T>
-        T* getBuf() {
-            return static_cast<T*>(reinterpret_cast<BaseClientToken*>(buf));
-        }
-
-        enum { BUF_SIZE = 32 };
-
-      private:
-        char buf[BUF_SIZE];
-    };
-
+    typedef Token<BaseClientToken> ClientToken;
 
     Transport() {}
     virtual ~Transport() {}
