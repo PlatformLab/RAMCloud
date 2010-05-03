@@ -83,7 +83,7 @@ rc_connect(struct rc_client *client)
 
     client->trans = new TCPTransport(CLNTADDR, CLNTPORT);
 
-    rc_net_connect(&client->net);
+    //rc_net_connect(&client->net);
     return 0;
 }
 
