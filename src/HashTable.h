@@ -83,8 +83,12 @@ class HashTable {
          * The first bin will have the number of samples with a value between 0
          * (inclusive) and BIN_WIDTH (exclusive), the second between BIN_WIDTH
          * and BIN_WIDTH * 2, etc.
+         * Bins is allocated on the stack because it ends up being several tens
+         * of kilobytes in size. This in turn makes HashTable too big, which
+         * makes Table too big, which makes Server too big, which causes a
+         * segfault before at the start of main.
          */
-        uint64_t bins[NBINS];
+        uint64_t *bins;
 
         /**
          * The frequency of samples that exceeded the highest bin.
@@ -106,7 +110,12 @@ class HashTable {
         uint64_t max;
 
         PerfDistribution();
+        ~PerfDistribution();
+
         void storeSample(uint64_t value);
+
+      private:
+        DISALLOW_COPY_AND_ASSIGN(PerfDistribution);
     };
 
     /**

@@ -36,9 +36,16 @@ namespace RAMCloud {
 
 
 HashTable::PerfDistribution::PerfDistribution()
-    : binOverflows(0), min(~0UL), max(0UL)
+    : bins(NULL), binOverflows(0), min(~0UL), max(0UL)
 {
+    bins = new uint64_t[NBINS];
     memset(bins, 0, sizeof(bins));
+}
+
+HashTable::PerfDistribution::~PerfDistribution()
+{
+    delete[] bins;
+    bins = NULL;
 }
 
 /**
