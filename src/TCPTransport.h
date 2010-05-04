@@ -48,9 +48,9 @@ class TCPTransport : public Transport {
                     Transport::ClientToken* token);
     void clientRecv(Buffer* payload, Transport::ClientToken* token);
 
-#if !TESTING
-  private:
-#endif
+    /**
+     * This is only public for the static initializers in TCPTransport.cc.
+     */
     class Syscalls {
       public:
         VIRTUAL_FOR_TESTING ~Syscalls() {}
@@ -94,6 +94,10 @@ class TCPTransport : public Transport {
             return ::socket(domain, type, protocol);
         }
     };
+
+#if !TESTING
+  private:
+#endif
 
     struct Header {
         uint32_t len;
@@ -196,8 +200,8 @@ class TCPTransport : public Transport {
 #if TESTING
             if (mockClientSocket != NULL)
                 clientSocket = mockClientSocket;
-        }
 #endif
+        }
       private:
         ClientSocket realClientSocket;
       public:

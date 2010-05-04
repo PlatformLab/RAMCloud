@@ -34,7 +34,7 @@ namespace RAMCloud {
 
 TCPTransport::Syscalls _sys;
 TCPTransport::Syscalls* TCPTransport::sys = &_sys;
-#ifdef TESTING
+#if TESTING
 TCPTransport::ServerSocket*
     TCPTransport::TCPServerToken::mockServerSocket = NULL;
 TCPTransport::ClientSocket*
