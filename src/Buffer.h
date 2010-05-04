@@ -55,6 +55,8 @@ class Buffer {
 
     Buffer();
 
+    Buffer(const void* firstChunk, const uint32_t firstChunkLen);
+
     ~Buffer();
 
   private:

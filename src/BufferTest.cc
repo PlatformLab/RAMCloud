@@ -30,6 +30,7 @@ class BufferTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(BufferTest);
 
     CPPUNIT_TEST(test_constructor);
+    CPPUNIT_TEST(test_constructor_withParams);
 
     CPPUNIT_TEST(test_prepend_zero);
     CPPUNIT_TEST(test_prepend_allocateMoreChunks);
@@ -106,6 +107,17 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.chunksUsed);
         CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.chunksAvail);
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.totalLen);
+        CPPUNIT_ASSERT(b.extraBufs == NULL);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.extraBufsAvail);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.extraBufsUsed);
+        CPPUNIT_ASSERT(b.chunks != NULL);
+    }
+
+    void test_constructor_withParams() {
+        Buffer b(testStr1, 10);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 1, b.chunksUsed);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.chunksAvail);
+        CPPUNIT_ASSERT_EQUAL((uint32_t) 10, b.totalLen);
         CPPUNIT_ASSERT(b.extraBufs == NULL);
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.extraBufsAvail);
         CPPUNIT_ASSERT_EQUAL((uint32_t) 0, b.extraBufsUsed);

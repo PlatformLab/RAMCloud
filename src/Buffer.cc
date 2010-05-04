@@ -34,6 +34,22 @@ Buffer::Buffer() : chunksUsed(0), chunksAvail(INITIAL_CHUNK_ARR_SIZE),
 }
 
 /**
+ * This constructor intializes a Buffer with a single Chunk.
+ *
+ * \param[in]  firstChunk     The memory region to be added to the new Buffer.
+ * \param[in]  firstChunkLen  The size, in bytes, of the memory region
+ *                            represented by firstChunk.
+ */
+Buffer::Buffer(const void *firstChunk, uint32_t firstChunkLen)
+        : chunksUsed(0), chunksAvail(INITIAL_CHUNK_ARR_SIZE), chunks(NULL),
+          totalLen(0), extraBufs(NULL), extraBufsAvail(0), extraBufsUsed(0) {
+    chunks = reinterpret_cast<Chunk*>(
+        xmalloc(sizeof(Chunk) * INITIAL_CHUNK_ARR_SIZE));
+
+    append(firstChunk, firstChunkLen);
+}
+
+/**
  * Deallocate some or all of the memory used during the life of this Buffer.
  */
 Buffer::~Buffer() {
