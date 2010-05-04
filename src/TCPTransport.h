@@ -15,7 +15,7 @@
 
 /**
  * \file
- * Header file for the TCPTransport class.
+ * Header file for the RAMCloud::TCPTransport class.
  */
 
 #ifndef RAMCLOUD_TCPTRANSPORT_H
@@ -32,6 +32,10 @@
 
 namespace RAMCloud {
 
+/**
+ * An inefficient TCP-based Transport implementation.
+ * This lets you execute RPCs, but it's not going to be fast.
+ */
 class TCPTransport : public Transport {
   friend class TCPTransportTest;
   friend class SocketTest;
@@ -49,14 +53,20 @@ class TCPTransport : public Transport {
     void clientRecv(Buffer* payload, Transport::ClientToken* token);
 
     /**
+     * A layer of indirection for the system calls used by TCPTransport.
+     *
+     * See the man pages for the identically named Linux/POSIX functions.
+     *
+     * This is only here for unit testing.
      * This is only public for the static initializers in TCPTransport.cc.
      */
     class Syscalls {
       public:
+        Syscalls() {}
         VIRTUAL_FOR_TESTING ~Syscalls() {}
+
         VIRTUAL_FOR_TESTING
-        int accept(int sockfd, struct sockaddr *addr,
-                           socklen_t *addrlen) {
+        int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
             return ::accept(sockfd, addr, addrlen);
         }
         VIRTUAL_FOR_TESTING
@@ -68,8 +78,8 @@ class TCPTransport : public Transport {
             return ::close(fd);
         }
         VIRTUAL_FOR_TESTING
-        int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
-        {
+        int connect(int sockfd, const struct sockaddr *addr,
+                    socklen_t addrlen) {
             return ::connect(sockfd, addr, addrlen);
         }
         VIRTUAL_FOR_TESTING
@@ -93,45 +103,75 @@ class TCPTransport : public Transport {
         int socket(int domain, int type, int protocol) {
             return ::socket(domain, type, protocol);
         }
+
+      private:
+        DISALLOW_COPY_AND_ASSIGN(Syscalls);
     };
 
-#if !TESTING
+#if TESTING
+  public: // some of the test classes extend these
+#else
   private:
 #endif
 
+    /**
+     * The first application-level header on the wire.
+     * This comes after the TCP headers added by the kernel but before the
+     * payload passed in from higher level layers.
+     */
     struct Header {
+        /**
+         * The size in bytes of the payload.
+         * Must be less than or equal to #MAX_RPC_LEN.
+         */
         uint32_t len;
     };
 
     /**
-     * Abstract socket.
+     * An abstract wrapper for a socket (a file descriptor).
+     * Beyond just being a base class, this class will automatically close the
+     * file descriptor when it's destroyed (see ~Socket()).
      */
     class Socket {
       friend class TCPTransportTest;
       friend class SocketTest;
-
       public:
         virtual ~Socket();
       protected:
         Socket();
+
+        /**
+         * The file descriptor that is wrapped.
+         * This is initialized to -1.
+         */
         int fd;
+
       private:
         DISALLOW_COPY_AND_ASSIGN(Socket);
     };
 
     /**
      * An abstract socket on which you can send and receive messages.
+     * (This is distinct from a ListenSocket which can only accept connections.)
+     *
+     * The concrete implementations are ServerSocket and ClientSocket.
      */
     class MessageSocket : public Socket {
       public:
         VIRTUAL_FOR_TESTING void recv(Buffer* payload);
         VIRTUAL_FOR_TESTING void send(const Buffer* payload);
       protected:
+
+        /**
+         * Constructor for MessageSocket.
+         */
         MessageSocket() {}
+
       private:
         DISALLOW_COPY_AND_ASSIGN(MessageSocket);
     };
 
+    // forward declaration, see below
     class ListenSocket;
 
     /**
@@ -139,7 +179,13 @@ class TCPTransport : public Transport {
      */
     class ServerSocket : public MessageSocket {
       public:
+
+        /**
+         * Constructor for ServerSocket.
+         * Be sure to call #init() before using this.
+         */
         ServerSocket() {}
+
         VIRTUAL_FOR_TESTING void init(ListenSocket* listenSocket);
       private:
         DISALLOW_COPY_AND_ASSIGN(ServerSocket);
@@ -157,7 +203,12 @@ class TCPTransport : public Transport {
       private:
         void listen();
         int accept();
+
+        /**
+         * The address which to bind to.
+         */
         struct sockaddr_in addr;
+
         DISALLOW_COPY_AND_ASSIGN(ListenSocket);
     };
 
@@ -166,56 +217,123 @@ class TCPTransport : public Transport {
      */
     class ClientSocket : public MessageSocket {
       public:
+
+        /**
+         * Constructor for ClientSocket.
+         * Be sure to call one of the #init() variants before using this.
+         */
         ClientSocket() {}
+
         void init(const char* ip, uint16_t port);
         VIRTUAL_FOR_TESTING void init(uint32_t ip, uint16_t port);
       private:
         DISALLOW_COPY_AND_ASSIGN(ClientSocket);
     };
 
+    /**
+     * A concrete server token class to be used in #serverRecv() and
+     * #serverSend().
+     */
+
+    // TODO(ongaro): Move constructor into cc file?
+
     class TCPServerToken : public BaseServerToken {
       friend class TCPTransportTest;
       public:
+
+        /**
+         * Constructor for TCPServerToken.
+         *
+         * Normally this sets #serverSocket to #realServerSocket. If
+         * #mockServerSocket is not \c NULL, however, it will be set to that
+         * instead (used for testing).
+         */
         TCPServerToken() : realServerSocket(), serverSocket(&realServerSocket) {
 #if TESTING
             if (mockServerSocket != NULL)
                 serverSocket = mockServerSocket;
 #endif
         }
+
       private:
+
+        /**
+         * The server socket that is typically used.
+         */
         ServerSocket realServerSocket;
+
       public:
+
+        /**
+         * A pointer to the server socket in actual use.
+         */
         ServerSocket* CONST_FOR_PRODUCTION serverSocket;
+
 #if TESTING
         static ServerSocket* mockServerSocket;
 #endif
+
       private:
         DISALLOW_COPY_AND_ASSIGN(TCPServerToken);
     };
 
+    /**
+     * A concrete client token class to be used in #clientSend() and
+     * #clientRecv().
+     */
+
+    // TODO(ongaro): Move constructor into cc file?
+
     class TCPClientToken : public BaseClientToken {
       friend class TCPTransportTest;
       public:
+
+        /**
+         * Constructor for TCPClientToken.
+         *
+         * Normally this sets #clientSocket to #realClientSocket. If
+         * #mockClientSocket is not \c NULL, however, it will be set to that
+         * instead (used for testing).
+         */
         TCPClientToken() : realClientSocket(), clientSocket(&realClientSocket) {
 #if TESTING
             if (mockClientSocket != NULL)
                 clientSocket = mockClientSocket;
 #endif
         }
+
       private:
+
+        /**
+         * The client socket that is typically used.
+         */
         ClientSocket realClientSocket;
+
       public:
+
+        /**
+         * A pointer to the client socket in actual use.
+         */
         ClientSocket* CONST_FOR_PRODUCTION clientSocket;
+
 #if TESTING
         static ClientSocket* mockClientSocket;
 #endif
+
       private:
         DISALLOW_COPY_AND_ASSIGN(TCPClientToken);
     };
 
   private:
+
+    /**
+     * The socket on which to listen. The actual bind and listen is delayed
+     * until the first #serverRecv() in case this is only a client transport.
+     */
     ListenSocket listenSocket;
+
     static Syscalls* sys;
+
     DISALLOW_COPY_AND_ASSIGN(TCPTransport);
 };
 

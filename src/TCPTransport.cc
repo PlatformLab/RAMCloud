@@ -32,19 +32,43 @@
 
 namespace RAMCloud {
 
+/**
+ * The TCPTransport::Syscalls implementation that is normally used.
+ */
 TCPTransport::Syscalls _sys;
+
+/**
+ * A pointer to the TCPTransport::Syscalls implementation in actual use. Used
+ * for unit testing. Normally set to #_sys.
+ */
 TCPTransport::Syscalls* TCPTransport::sys = &_sys;
+
 #if TESTING
+/**
+ * A pointer to a mock client socket to use temporarily during
+ * construction. Used for unit testing. Normally set to \c NULL.
+ */
 TCPTransport::ServerSocket*
     TCPTransport::TCPServerToken::mockServerSocket = NULL;
+
+/**
+ * A pointer to a mock client socket to use temporarily during
+ * construction. Used for unit testing. Normally set to \c NULL.
+ */
 TCPTransport::ClientSocket*
     TCPTransport::TCPClientToken::mockClientSocket = NULL;
 #endif
 
+/**
+ * Constructor for Socket.
+ */
 TCPTransport::Socket::Socket() : fd(-1)
 {
 }
 
+/**
+ * Destructor for socket. Will close #fd if it's non-negative.
+ */
 TCPTransport::Socket::~Socket()
 {
     if (fd >= 0) {
@@ -54,6 +78,11 @@ TCPTransport::Socket::~Socket()
 }
 
 /**
+ * Receive a single message.
+ * \param payload
+ *      An empty buffer to which the message contents will be added.
+ *      Keep in mind this may be a message of 0 bytes (which is distinct from
+ *      an error).
  * \throw TransportException
  *      There was an error on the connection.
  */
@@ -112,6 +141,10 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
 }
 
 /**
+ * Send a single message.
+ * \param payload
+ *      A buffer containing the contents of the message to send. This may be
+ *      empty, in which case a message of 0 bytes will be sent.
  * \throw TransportException
  *      There was an error on the connection.
  */
@@ -155,15 +188,30 @@ TCPTransport::MessageSocket::send(const Buffer* payload)
 }
 
 /**
+ * Initialize a ServerSocket.
+ * You should call this exactly once before using the object.
  * \throw UnrecoverableTransportException
  *      Errors from #TCPTransport::ListenSocket::accept().
  */
 void
 TCPTransport::ServerSocket::init(ListenSocket* listenSocket)
 {
+    assert(fd < 0);
     fd = listenSocket->accept();
 }
 
+/**
+ * Construct a ListenSocket.
+ *
+ * This won't do anything until you call #listen(). This is so that transports
+ * that are used only for clients don't bind to a port.
+ *
+ * \param ip
+ *      The IP address in network byte order on which to listen.
+ * \param port
+ *      The port in host byte order on which to listen.
+ */
+// TODO(ongaro): Figure out our byte order story.
 TCPTransport::ListenSocket::ListenSocket(uint32_t ip, uint16_t port) : addr()
 {
     this->addr.sin_family = AF_INET;
@@ -172,6 +220,11 @@ TCPTransport::ListenSocket::ListenSocket(uint32_t ip, uint16_t port) : addr()
 }
 
 /**
+ * Bind on the IP and port given in the constructor and listen for new
+ * connections.
+ *
+ * It's safe to call this multiple times, as it'll only act if #fd is negative.
+ *
  * \exception UnrecoverableTransportException
  *      Errors trying to create, bind, listen to the socket.
  */
@@ -206,8 +259,11 @@ TCPTransport::ListenSocket::listen()
 }
 
 /**
+ * Accept a new connection.
+ * \return
+ *      A non-negative file descriptor for the new connection.
  * \throw UnrecoverableTransportException
- *      Errors from #listen(); errors accepting a new connection.
+ *      Errors from #listen(); non-transient errors accepting a new connection.
  */
 int
 TCPTransport::ListenSocket::accept()
@@ -237,6 +293,15 @@ TCPTransport::ListenSocket::accept()
 
 
 /**
+ * Initialize a ClientSocket.
+ *
+ * This is an alternative to #init(uint32_t ip, uint16_t port), look at it for
+ * documentation.
+ *
+ * \param ip
+ *      The IP address to connect to in numbers-and-dots notation.
+ * \param port
+ *      The port to connect to in host byte order.
  * \throw UnrecoverableTransportException
  *      See #init(uint32_t ip, uint16_t port).
  * \throw TransportException
@@ -249,6 +314,18 @@ TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
 }
 
 /**
+ * Initialize a ClientSocket.
+ *
+ * This creates a connection with a server.
+ *
+ * You should call this exactly once before using the object.
+ *
+ * An alternative is #init(const char* ip, uint16_t port).
+ *
+ * \param ip
+ *      The IP address to connect to in network byte order.
+ * \param port
+ *      The port number to connect to in host byte order.
  * \throw UnrecoverableTransportException
  *      Error creating socket or fatal error connecting.
  * \throw TransportException
@@ -268,7 +345,7 @@ TCPTransport::ClientSocket::init(uint32_t ip, uint16_t port)
     addr.sin_addr.s_addr = ip;
 
     int r = sys->connect(fd, reinterpret_cast<struct sockaddr*>(&addr),
-                      sizeof(addr));
+                         sizeof(addr));
     if (r == -1) {
         int e = errno;
         sys->close(fd);
@@ -283,11 +360,29 @@ TCPTransport::ClientSocket::init(uint32_t ip, uint16_t port)
     }
 }
 
+/**
+ * Constructor for TCPTransport.
+ * \param ip
+ *      The IP address to connect to in numbers-and-dots notation. Only used if
+ *      #serverRecv() is ever called.
+ * \param port
+ *      The port number to later bind in host byte order. Only used if
+ *      #serverRecv() is ever called.
+ */
 TCPTransport::TCPTransport(const char* ip, uint16_t port)
     : listenSocket(inet_addr(ip), port)
 {
 }
 
+/**
+ * Constructor for TCPTransport.
+ * \param ip
+ *      The IP address to later bind to in network byte order. Only used if
+ *      #serverRecv() is ever called.
+ * \param port
+ *      The port number to later bind in host byte order. Only used if
+ *      #serverRecv() is ever called.
+ */
 TCPTransport::TCPTransport(uint32_t ip, uint16_t port)
     : listenSocket(ip, port)
 {
