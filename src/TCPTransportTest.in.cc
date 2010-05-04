@@ -13,6 +13,20 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * \file
+ * Unit tests for RAMCloud::TCPTransport.
+ *
+ * Everything between BEGIN_MOCK and END_MOCK is handled by the Python
+ * preprocessor to this file, TCPTransportTestMock.py. The things that look
+ * like methods in between those actually declare expected method invocations.
+ * Look at how a couple examples translate to TCPTransportTest.cc and you'll
+ * figure it out.
+ */
+
+#define BEGIN_MOCK "fail, see above"
+#define END_MOCK "fail, see above"
+
 #include <Common.h>
 #include <TCPTransport.h>
 
@@ -22,9 +36,13 @@
 #include <arpa/inet.h>
 #include <cppunit/extensions/HelperMacros.h>
 
-
 namespace RAMCloud {
 
+/**
+ * An implementation of TCPTransport::Syscalls that complains when invoked.
+ * The mock classes extend this.
+ */
+// TODO(ongaro): Rename this to something like SyscallsStub.
 class TestSyscalls : public TCPTransport::Syscalls {
   public:
     struct NotImplementedException {};
@@ -63,6 +81,11 @@ class TestSyscalls : public TCPTransport::Syscalls {
     }
 };
 
+/**
+ * An implementation of TCPTransport::ServerSocket that complains when invoked.
+ * The mock classes extend this.
+ */
+// TODO(ongaro): Rename this to something like ServerSocketStub.
 class TestServerSocket : public TCPTransport::ServerSocket {
   public:
     struct NotImplementedException {};
@@ -78,14 +101,14 @@ class TestServerSocket : public TCPTransport::ServerSocket {
     }
 };
 
+/**
+ * An implementation of TCPTransport::ClientSocket that complains when invoked.
+ * The mock classes extend this.
+ */
+// TODO(ongaro): Rename this to something like ClientSocketStub.
 class TestClientSocket : public TCPTransport::ClientSocket {
   public:
     struct NotImplementedException {};
-#if 0
-    void init(const char* ip, uint16_t port) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-#endif
     void init(uint32_t ip, uint16_t port) __attribute__ ((noreturn)) {
         throw NotImplementedException();
     }
@@ -98,7 +121,7 @@ class TestClientSocket : public TCPTransport::ClientSocket {
 };
 
 /**
- * Unit tests for TCPTransport::Socket and subclasses.
+ * Unit tests for TCPTransport::Socket and its subclasses.
  */
 class SocketTest : public CppUnit::TestFixture {
     DISALLOW_COPY_AND_ASSIGN(SocketTest); // NOLINT
@@ -129,6 +152,9 @@ class SocketTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_ClientSocket_init_connectError);
     CPPUNIT_TEST_SUITE_END();
 
+    /**
+     * An instantiable TCPTransport::MessageSocket. That class is abstract.
+     */
     class XMessageSocket : public TCPTransport::MessageSocket {
         public:
             XMessageSocket() {}
@@ -138,6 +164,7 @@ class SocketTest : public CppUnit::TestFixture {
     SocketTest() {}
 
     void tearDown() {
+        // put TCPTransport::sys back to the real Syscalls implementation.
         extern TCPTransport::Syscalls _sys;
         TCPTransport::sys = &_sys;
     }
@@ -346,6 +373,7 @@ class SocketTest : public CppUnit::TestFixture {
         } catch (TransportException e) {}
     }
 
+    // 0-byte message
     void test_MessageSocket_send0() {
         BEGIN_MOCK(TS, TestSyscalls);
             sendmsg(sockfd == 10, msg, flags == 0) {
@@ -448,6 +476,7 @@ class SocketTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(s.addr.sin_addr.s_addr == 0x01234567);
     }
 
+    // already listening
     void test_ListenSocket_listen_listening() {
         BEGIN_MOCK(TS, TestSyscalls);
             close(fd == 10) {
@@ -725,12 +754,16 @@ class TCPTransportTest : public CppUnit::TestFixture {
     TCPTransportTest() {}
 
     void tearDown() {
+        // disable mock socket instances
         TCPTransport::TCPServerToken::mockServerSocket = NULL;
+        TCPTransport::TCPClientToken::mockClientSocket = NULL;
 
+        // put TCPTransport::sys back to the real Syscalls implementation.
         extern TCPTransport::Syscalls _sys;
         TCPTransport::sys = &_sys;
     }
 
+    // make sure the TCP tokens fit within Transport's opaque container's size
     void test_tokenSizes() {
         static_assert(Transport::ServerToken::BUF_SIZE >=
                       sizeof(TCPTransport::TCPServerToken));
@@ -859,7 +892,6 @@ class TCPTransportTest : public CppUnit::TestFixture {
         tcpToken->realClientSocket.fd = 10;
         t.clientRecv(&payload, &token);
     }
-
 
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(TCPTransportTest);
