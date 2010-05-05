@@ -21,9 +21,9 @@
 #include <config.h>
 #include <Net.h>
 #include <Buffer.h>
-#include <RPC.h>
 #include <Service.h>
 #include <Transport.h>
+#include <TCPTransport.h>
 
 #if RC_CLIENT_SHARED
 struct rc_client_shared; // declared in Client.c

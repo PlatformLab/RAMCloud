@@ -7,7 +7,6 @@ TESTS_SRCFILES := \
 		src/BitmapTest.cc \
 		src/BufferTest.cc \
 		src/ServiceTest.cc \
-		src/RPCTest.cc \
 		src/HashTableTest.cc \
 		src/ChecksumTest.cc \
 		src/SegmentTest.cc \

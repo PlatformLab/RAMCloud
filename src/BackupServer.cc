@@ -30,7 +30,6 @@
 
 #include <Buffer.h>
 #include <Log.h>
-#include <RPC.h>
 #include <Segment.h>
 
 #include <cstdio>
@@ -659,11 +658,10 @@ BackupServer::handleRPC()
     backup_rpc *req;
     backup_rpc *resp = reinterpret_cast<backup_rpc *>(&resp_buf[0]);
 
-    Buffer* reqBuf;
-    ServerRPC rpc(trans);
-    reqBuf = rpc.getRequest();
+    Buffer reqBuf;
+    Transport::ServerRPC *rpc = trans->serverRecv(&reqBuf);
     req = reinterpret_cast<backup_rpc*>(
-        reqBuf->getRange(0, reqBuf->totalLength()));
+        reqBuf.getRange(0, reqBuf.totalLength()));
 
     if (debug_rpc)
         printf("got rpc type: 0x%08x, len 0x%08x\n",
@@ -708,7 +706,7 @@ BackupServer::handleRPC()
 
     Buffer respBuf;
     respBuf.append(resp, resp->hdr.len);
-    rpc.sendReply(&respBuf);
+    rpc->sendReply(&respBuf);
     free(resp_buf);
 }
 

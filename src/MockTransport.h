@@ -30,23 +30,44 @@ class MockTransport : public Transport {
             : serverRecvCount(0), serverSendCount(0),
               clientSendCount(0), clientRecvCount(0) { }
 
+    class MockServerRPC : public ServerRPC {
+        public:
+            explicit MockServerRPC(MockTransport* trans) : trans(trans) {}
+            void sendReply(Buffer* payload) {
+                ++trans->serverSendCount;
+                delete this;
+            }
+            void ignore() {
+                delete this;
+            }
+        private:
+            MockTransport* trans;
+            DISALLOW_COPY_AND_ASSIGN(MockServerRPC);
+    };
+
+    class MockClientRPC : public ClientRPC {
+        public:
+            explicit MockClientRPC(MockTransport* trans) : trans(trans) {}
+            void getReply() {
+                ++trans->clientRecvCount;
+                delete this;
+            }
+        private:
+            MockTransport* trans;
+            DISALLOW_COPY_AND_ASSIGN(MockClientRPC);
+    };
+
     virtual ~MockTransport() { }
 
-    virtual void serverRecv(Buffer* payload, ServerToken* token) {
+    virtual ServerRPC* serverRecv(Buffer* payload) {
         ++serverRecvCount;
+        return new MockServerRPC(this);
     }
 
-    virtual void serverSend(Buffer* payload, ServerToken *token) {
-        ++serverSendCount;
-    }
-
-    virtual void clientSend(const Service* service, Buffer* payload,
-                            ClientToken* token) {
+    virtual ClientRPC* clientSend(const Service* service, Buffer* payload,
+                                  Buffer* response) {
         ++clientSendCount;
-    }
-
-    virtual void clientRecv(Buffer* payload, ClientToken* token) {
-        ++clientRecvCount;
+        return new MockClientRPC(this);
     }
 
     uint32_t serverRecvCount;

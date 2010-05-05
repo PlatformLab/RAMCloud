@@ -46,11 +46,11 @@ class TCPTransport : public Transport {
     TCPTransport(const char* ip, uint16_t port);
     TCPTransport(uint32_t ip, uint16_t port);
 
-    void serverRecv(Buffer* payload, Transport::ServerToken* token);
-    void serverSend(Buffer* payload, Transport::ServerToken* token);
-    void clientSend(const Service* service, Buffer* payload,
-                    Transport::ClientToken* token);
-    void clientRecv(Buffer* payload, Transport::ClientToken* token);
+    ServerRPC* serverRecv(Buffer* payload)
+        __attribute__((warn_unused_result));
+    ClientRPC* clientSend(const Service* service, Buffer* request,
+                          Buffer* response)
+        __attribute__((warn_unused_result));
 
     /**
      * A layer of indirection for the system calls used by TCPTransport.
@@ -230,30 +230,28 @@ class TCPTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(ClientSocket);
     };
 
-    /**
-     * A concrete server token class to be used in #serverRecv() and
-     * #serverSend().
-     */
-
     // TODO(ongaro): Move constructor into cc file?
 
-    class TCPServerToken : public BaseServerToken {
+    class TCPServerRPC : public ServerRPC {
       friend class TCPTransportTest;
       public:
 
         /**
-         * Constructor for TCPServerToken.
+         * Constructor for TCPServerRPC.
          *
          * Normally this sets #serverSocket to #realServerSocket. If
          * #mockServerSocket is not \c NULL, however, it will be set to that
          * instead (used for testing).
          */
-        TCPServerToken() : realServerSocket(), serverSocket(&realServerSocket) {
+        TCPServerRPC() : realServerSocket(), serverSocket(&realServerSocket) {
 #if TESTING
             if (mockServerSocket != NULL)
                 serverSocket = mockServerSocket;
 #endif
         }
+
+        void sendReply(Buffer* payload);
+        void ignore();
 
       private:
 
@@ -274,33 +272,34 @@ class TCPTransport : public Transport {
 #endif
 
       private:
-        DISALLOW_COPY_AND_ASSIGN(TCPServerToken);
+        DISALLOW_COPY_AND_ASSIGN(TCPServerRPC);
     };
 
-    /**
-     * A concrete client token class to be used in #clientSend() and
-     * #clientRecv().
-     */
 
     // TODO(ongaro): Move constructor into cc file?
 
-    class TCPClientToken : public BaseClientToken {
+    class TCPClientRPC : public ClientRPC {
       friend class TCPTransportTest;
       public:
 
         /**
-         * Constructor for TCPClientToken.
+         * Constructor for TCPClientRPC.
          *
          * Normally this sets #clientSocket to #realClientSocket. If
          * #mockClientSocket is not \c NULL, however, it will be set to that
          * instead (used for testing).
          */
-        TCPClientToken() : realClientSocket(), clientSocket(&realClientSocket) {
+        TCPClientRPC() : reply(NULL), realClientSocket(),
+                         clientSocket(&realClientSocket) {
 #if TESTING
             if (mockClientSocket != NULL)
                 clientSocket = mockClientSocket;
 #endif
         }
+
+        void getReply();
+
+        Buffer* reply;
 
       private:
 
@@ -321,7 +320,7 @@ class TCPTransport : public Transport {
 #endif
 
       private:
-        DISALLOW_COPY_AND_ASSIGN(TCPClientToken);
+        DISALLOW_COPY_AND_ASSIGN(TCPClientRPC);
     };
 
   private:

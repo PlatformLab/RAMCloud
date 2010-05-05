@@ -28,7 +28,6 @@
 #include <assert.h>
 
 using RAMCloud::Buffer;
-using RAMCloud::ClientRPC;
 using RAMCloud::Service;
 using RAMCloud::TCPTransport;
 using RAMCloud::Transport;
@@ -205,12 +204,11 @@ sendrcv_rpc(struct rc_net *net,
     Buffer reqBuf;
     reqBuf.append(req, req->header.len);
 
-    ClientRPC rpc(trans);
-    rpc.startRPC(s, &reqBuf);
-    Buffer* replyBuf = rpc.getReply();
+    Buffer replyBuf;
+    trans->clientSend(s, &reqBuf, &replyBuf)->getReply();
 
     resp = reinterpret_cast<rcrpc_any*>(
-        replyBuf->getRange(0, replyBuf->totalLength()));
+        replyBuf.getRange(0, replyBuf.totalLength()));
 
     r = rc_handle_errors(resp);
     if (r == 0) {

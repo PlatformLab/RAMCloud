@@ -36,12 +36,10 @@ main()
     RAMCloud::TCPTransport tx("127.0.0.1", 0);
     char buf[1024];
     while (fgets(buf, sizeof(buf), stdin) != NULL) {
-        RAMCloud::Transport::ClientToken token;
         RAMCloud::Buffer request;
         RAMCloud::Buffer response;
         request.append(buf, static_cast<uint32_t>(strlen(buf)));
-        tx.clientSend(&service, &request, &token);
-        tx.clientRecv(&response, &token);
+        tx.clientSend(&service, &request, &response)->getReply();
         void* contigResp = response.getRange(0, response.totalLength());
         fputs(static_cast<char*>(contigResp), stdout);
     }

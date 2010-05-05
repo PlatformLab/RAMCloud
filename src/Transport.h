@@ -101,142 +101,77 @@ struct UnrecoverableTransportException {
  */
 class Transport {
 
-  protected:
-
-    /**
-     * Base class for server tokens used in #serverRecv() and #serverSend().
-     * This class and its derivatives should always live inside a
-     * Transport::ServerToken container.
-     */
-    class BaseServerToken {
-      public:
-        BaseServerToken() {}
-        virtual ~BaseServerToken() {}
-      private:
-        DISALLOW_COPY_AND_ASSIGN(BaseServerToken);
-    };
-
-    /**
-     * Base class for client tokens used in #clientSend() and #clientRecv().
-     * This class and its derivatives should always live inside a
-     * Transport::ClientToken container.
-     */
-    class BaseClientToken {
-      public:
-        BaseClientToken() {}
-        virtual ~BaseClientToken() {}
-      private:
-        DISALLOW_COPY_AND_ASSIGN(BaseClientToken);
-    };
-
-  private:
-
-    /**
-     * A template for an opaque container that holds a derivative of
-     * BaseServerToken or BaseClientToken.
-     * The two classes generated from this template are Transport::ServerToken
-     * and Transport::ClientToken.
-     *
-     * The size of the storage for the concrete token must be at least as big
-     * as the size of the concrete token. You should assert this using
-     * #BUF_SIZE for every concrete token type.
-     *
-     * \tparam C
-     *      Either BaseServerToken or BaseClientToken. This is a concrete token
-     *      that doesn't do anything.
-     */
-
-    // TODO(ongaro): Move the 7 lines of implementation to a Transport.cc?
-
-    // TODO(ongaro): Unit test this.
-
-    template <class C>
-    class Token {
-      public:
-
-        /**
-         * Constructor for Token.
-         * Your token starts out as an instance of \a C, effectively a no-op.
-         */
-        Token() {
-            static_assert(BUF_SIZE >= sizeof(C));
-            new(buf) C();
-        }
-
-        /**
-         * Destructor for Token.
-         * Calls the destructor for the concrete token.
-         */
-        ~Token() {
-            reinterpret_cast<C*>(buf)->~C();
-        }
-
-        /**
-         * Destroy the existing concrete token and reset to an instance of \a C.
-         */
-        void reinit() {
-            reinit<C>();
-        }
-
-        /**
-         * Destroy the existing concrete token and construct a new one.
-         *
-         * No arguments will be passed to \a T's constructor.
-         *
-         * Only concrete Transport implementations should call this.
-         *
-         * \tparam T
-         *      A derivative of \a C. It better fit within #BUF_SIZE bytes.
-         * \return
-         *      A pointer to the newly constructed concrete token.
-         */
-        template <typename T>
-        T* reinit() {
-            reinterpret_cast<C*>(buf)->~C();
-            return new(buf) T();
-        }
-
-        /**
-         * Get a pointer to the concrete token contained within.
-         * \tparam T
-         *      The type of the concrete token. You'll get very little type
-         *      safety here, so be careful.
-         * \return
-         *      See above.
-         */
-        template <typename T>
-        T* getBuf() {
-            return static_cast<T*>(reinterpret_cast<C*>(buf));
-        }
-
-        /**
-         * The maximum size in bytes for the concrete token contained within.
-         */
-        enum { BUF_SIZE = 32 };
-
-      private:
-
-        /**
-         * The actual storage for the concrete token contained within.
-         */
-        char buf[BUF_SIZE];
-
-        DISALLOW_COPY_AND_ASSIGN(Token);
-    };
-
   public:
 
     /**
-     * An opaque container for any server token type derived from BaseServerToken.
-     * You'll need one of these for #serverRecv() and #serverSend().
+     * A RPC call that has been sent and is pending a response from a server.
+     * #clientSend() will return one of these, and the caller of that method
+     * must later call #getReply() on it.
      */
-    typedef Token<BaseServerToken> ServerToken;
+    class ClientRPC {
+      protected:
+        /**
+         * Constructor for ClientRPC.
+         */
+        ClientRPC() {}
+
+      public:
+
+        /**
+         * Destructor for ClientRPC.
+         */
+        virtual ~ClientRPC() {}
+
+        /**
+         * Wait for the RPC response to arrive.
+         * You should discard all pointers to this object after this call.
+         * \throw TransportException
+         *      If the service has crashed.
+         */
+        virtual void getReply() = 0;
+
+      private:
+        DISALLOW_COPY_AND_ASSIGN(ClientRPC);
+    };
 
     /**
-     * An opaque container for any client token type derived from BaseClientToken.
-     * You'll need one of these for #clientSend() and #clientRecv().
+     * An RPC request that has been received and is awaiting our response.
+     * #serverRecv() will return one of these, and the caller of that method
+     * must later call either #sendReply() or #ignore() on it.
      */
-    typedef Token<BaseClientToken> ClientToken;
+    class ServerRPC {
+      protected:
+        /**
+         * Constructor for ServerRPC.
+         */
+        ServerRPC() {}
+
+      public:
+        /**
+         * Destructor for ServerRPC.
+         */
+        virtual ~ServerRPC() {}
+
+        /**
+         * Respond to the RPC.
+         * You should discard all pointers to this object after this call.
+         * \param[in] payload
+         *      The RPC payload to send on the wire.
+         * \throw TransportException
+         *      If the client has crashed.
+         */
+        virtual void sendReply(Buffer* payload) = 0;
+
+        /**
+         * Ignore the RPC.
+         * Call this if you don't want to respond to the RPC.
+         * You should discard all pointers to this object after this call.
+         */
+        virtual void ignore() = 0;
+
+      private:
+        DISALLOW_COPY_AND_ASSIGN(ServerRPC);
+    };
 
     /**
      * Constructor for Transport.
@@ -252,49 +187,38 @@ class Transport {
      * Wait for any RPC request to arrive.
      * \param[out] payload
      *      An initialized Buffer that will be filled in with the RPC payload.
-     * \param[out] token
-     *      A ServerToken that should be passed in to #serverSend() later.
+     * \return
+     *      The RPC object through which to send a reply. The caller must use
+     *      either #Transport::ServerRPC::sendReply() or
+     *      #Transport::ServerRPC::ignore() to release the resources associated
+     *      with this object.
      */
-    virtual void serverRecv(Buffer* payload, ServerToken* token) = 0;
-
-    /**
-     * Respond to a specific RPC request.
-     * \param[in] payload
-     *      The RPC payload to send on the wire.
-     * \param[in] token
-     *      The token from the corresponding previous call to #serverRecv().
-     * \throw TransportException
-     *      If client has crashed.
-     */
-    virtual void serverSend(Buffer* payload, ServerToken* token) = 0;
+    virtual ServerRPC* serverRecv(Buffer* payload)
+        __attribute__((warn_unused_result)) = 0;
 
     /**
      * Send an RPC request.
      * \param[in] service
      *      The service to which the request shall be sent.
-     * \param[in] payload
-     *      The RPC payload to send. The caller must not modify or even access
-     *      \a payload until the corresponding call to #clientRecv() with the
-     *      same \a token returns. The Transport may add new chunks to \a
-     *      payload but will not modify its existing chunks.
-     * \param[out] token
-     *      A ClientToken that should be passed in to #clientSend() later.
+     * \param[in] request
+     *      The RPC request payload to send. The caller must not modify or even
+     *      access \a request until the corresponding call to
+     *      #Transport::ClientRPC::getReply() returns. The Transport may add
+     *      new chunks to \a request but will not modify its existing chunks.
+     * \param[out] response
+     *      An initialized Buffer that will be filled in with the received RPC
+     *      response. The caller must not access \a response until the
+     *      corresponding call to #Transport::ClientRPC::getReply() returns.
+     * \return
+     *      The RPC object through which to receive the reply. The caller must
+     *      use #Transport::ClientRPC::getReply() to release the resources
+     *      associated with this object.
      * \throw TransportException
      *      If \a service is unavailable.
      */
-    virtual void clientSend(const Service* service, Buffer* payload,
-                            ClientToken* token) = 0;
-
-    /**
-     * Wait for a specific RPC response to arrive.
-     * \param[in] payload
-     *      An initialized Buffer that will be filled in with the RPC payload.
-     * \param[in] token
-     *      The token from the corresponding previous call to #clientSend().
-     * \throw TransportException
-     *      If \a service has crashed.
-     */
-    virtual void clientRecv(Buffer* payload, ClientToken* token) = 0;
+    virtual ClientRPC* clientSend(const Service* service, Buffer* request,
+                                  Buffer* response)
+        __attribute__((warn_unused_result)) = 0;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(Transport);

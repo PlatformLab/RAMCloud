@@ -736,18 +736,17 @@ class SocketTest : public CppUnit::TestFixture {
 CPPUNIT_TEST_SUITE_REGISTRATION(SocketTest);
 
 /**
- * Unit tests for TCPTransport.
+ * Unit tests for TCPTransport, TCPServerRPC, and TCPClientRPC.
  */
 class TCPTransportTest : public CppUnit::TestFixture {
     DISALLOW_COPY_AND_ASSIGN(TCPTransportTest); // NOLINT
 
     CPPUNIT_TEST_SUITE(TCPTransportTest);
-    CPPUNIT_TEST(test_tokenSizes);
-    CPPUNIT_TEST(test_constructors);
-    CPPUNIT_TEST(test_serverRecv);
-    CPPUNIT_TEST(test_serverSend);
-    CPPUNIT_TEST(test_clientSend);
-    CPPUNIT_TEST(test_clientRecv);
+    CPPUNIT_TEST(test_TCPServerRPC_sendReply);
+    CPPUNIT_TEST(test_TCPClientRPC_getReply);
+    CPPUNIT_TEST(test_TCPTransport_constructors);
+    CPPUNIT_TEST(test_TCPTransport_serverRecv);
+    CPPUNIT_TEST(test_TCPTransport_clientSend);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -755,23 +754,73 @@ class TCPTransportTest : public CppUnit::TestFixture {
 
     void tearDown() {
         // disable mock socket instances
-        TCPTransport::TCPServerToken::mockServerSocket = NULL;
-        TCPTransport::TCPClientToken::mockClientSocket = NULL;
+        TCPTransport::TCPServerRPC::mockServerSocket = NULL;
+        TCPTransport::TCPClientRPC::mockClientSocket = NULL;
 
         // put TCPTransport::sys back to the real Syscalls implementation.
         extern TCPTransport::Syscalls _sys;
         TCPTransport::sys = &_sys;
     }
 
-    // make sure the TCP tokens fit within Transport's opaque container's size
-    void test_tokenSizes() {
-        static_assert(Transport::ServerToken::BUF_SIZE >=
-                      sizeof(TCPTransport::TCPServerToken));
-        static_assert(Transport::ClientToken::BUF_SIZE >=
-                      sizeof(TCPTransport::TCPClientToken));
+    void test_TCPServerRPC_sendReply() {
+        static Buffer* send_expect;
+
+        BEGIN_MOCK(TS, TestServerSocket);
+            send(payload == send_expect) {
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::TCPServerRPC::mockServerSocket = &ts;
+
+        BEGIN_MOCK(TSC, TestSyscalls);
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TSC tsc;
+        TCPTransport::sys = &tsc;
+
+        TCPTransport t(0x01234567, 0xabcd);
+        Buffer payload;
+        send_expect = &payload;
+        TCPTransport::TCPServerRPC* rpc = new TCPTransport::TCPServerRPC();
+        rpc->realServerSocket.fd = 10;
+        rpc->sendReply(&payload);
     }
 
-    void test_constructors() {
+    void test_TCPClientRPC_getReply() {
+        static Buffer* recv_expect;
+
+        BEGIN_MOCK(TS, TestClientSocket);
+            recv(payload == recv_expect) {
+            }
+        END_MOCK();
+
+        TS ts;
+        TCPTransport::TCPClientRPC::mockClientSocket = &ts;
+
+        BEGIN_MOCK(TSC, TestSyscalls);
+            close(fd == 10) {
+                return 0;
+            }
+        END_MOCK();
+
+        TSC tsc;
+        TCPTransport::sys = &tsc;
+
+        TCPTransport t(0x01234567, 0xabcd);
+        Buffer payload;
+        recv_expect = &payload;
+        TCPTransport::TCPClientRPC* rpc = new TCPTransport::TCPClientRPC();
+        rpc->reply = &payload;
+        rpc->realClientSocket.fd = 10;
+        rpc->getReply();
+    }
+
+
+    void test_TCPTransport_constructors() {
         TCPTransport t1("128.64.32.16", 0xabcd);
         const struct sockaddr_in& addr1 = t1.listenSocket.addr;
         CPPUNIT_ASSERT(addr1.sin_port == htons(0xabcd));
@@ -783,7 +832,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(addr2.sin_addr.s_addr == 0x01234567);
     }
 
-    void test_serverRecv() {
+    void test_TCPTransport_serverRecv() {
         static TCPTransport::ListenSocket* init_expect;
         static Buffer* recv_expect;
 
@@ -800,47 +849,16 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::TCPServerToken::mockServerSocket = &ts;
+        TCPTransport::TCPServerRPC::mockServerSocket = &ts;
 
         TCPTransport t(0x01234567, 0xabcd);
         init_expect = &t.listenSocket;
         Buffer payload;
         recv_expect = &payload;
-        Transport::ServerToken token;
-        t.serverRecv(&payload, &token);
+        t.serverRecv(&payload)->ignore();
     }
 
-    void test_serverSend() {
-        static Buffer* send_expect;
-
-        BEGIN_MOCK(TS, TestServerSocket);
-            send(payload == send_expect) {
-            }
-        END_MOCK();
-
-        TS ts;
-        TCPTransport::TCPServerToken::mockServerSocket = &ts;
-
-        BEGIN_MOCK(TSC, TestSyscalls);
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TSC tsc;
-        TCPTransport::sys = &tsc;
-
-        TCPTransport t(0x01234567, 0xabcd);
-        Buffer payload;
-        send_expect = &payload;
-        Transport::ServerToken token;
-        TCPTransport::TCPServerToken* tcpToken;
-        tcpToken = token.reinit<TCPTransport::TCPServerToken>();
-        tcpToken->realServerSocket.fd = 10;
-        t.serverSend(&payload, &token);
-    }
-
-    void test_clientSend() {
+    void test_TCPTransport_clientSend() {
         static Buffer* send_expect;
 
         BEGIN_MOCK(TS, TestClientSocket);
@@ -851,46 +869,16 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::TCPClientToken::mockClientSocket = &ts;
+        TCPTransport::TCPClientRPC::mockClientSocket = &ts;
 
         TCPTransport t(0x01234567, 0xabcd);
         Buffer payload;
+        Buffer response;
         send_expect = &payload;
-        Transport::ClientToken token;
         Service s;
         s.setIp(0x89abcdef);
         s.setPort(0xef01);
-        t.clientSend(&s, &payload, &token);
-    }
-
-    void test_clientRecv() {
-        static Buffer* recv_expect;
-
-        BEGIN_MOCK(TS, TestClientSocket);
-            recv(payload == recv_expect) {
-            }
-        END_MOCK();
-
-        TS ts;
-        TCPTransport::TCPClientToken::mockClientSocket = &ts;
-
-        BEGIN_MOCK(TSC, TestSyscalls);
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TSC tsc;
-        TCPTransport::sys = &tsc;
-
-        TCPTransport t(0x01234567, 0xabcd);
-        Buffer payload;
-        recv_expect = &payload;
-        Transport::ClientToken token;
-        TCPTransport::TCPClientToken* tcpToken;
-        tcpToken = token.reinit<TCPTransport::TCPClientToken>();
-        tcpToken->realClientSocket.fd = 10;
-        t.clientRecv(&payload, &token);
+        delete t.clientSend(&s, &payload, &response);
     }
 
 };

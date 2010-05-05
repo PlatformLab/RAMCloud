@@ -29,6 +29,7 @@
 #include <arpa/inet.h>
 #include <poll.h>
 
+#include <memory>
 
 namespace RAMCloud {
 
@@ -49,14 +50,14 @@ TCPTransport::Syscalls* TCPTransport::sys = &_sys;
  * construction. Used for unit testing. Normally set to \c NULL.
  */
 TCPTransport::ServerSocket*
-    TCPTransport::TCPServerToken::mockServerSocket = NULL;
+    TCPTransport::TCPServerRPC::mockServerSocket = NULL;
 
 /**
  * A pointer to a mock client socket to use temporarily during
  * construction. Used for unit testing. Normally set to \c NULL.
  */
 TCPTransport::ClientSocket*
-    TCPTransport::TCPClientToken::mockClientSocket = NULL;
+    TCPTransport::TCPClientRPC::mockClientSocket = NULL;
 #endif
 
 /**
@@ -360,6 +361,30 @@ TCPTransport::ClientSocket::init(uint32_t ip, uint16_t port)
     }
 }
 
+void
+TCPTransport::TCPServerRPC::sendReply(Buffer* payload)
+{
+    // "delete this;" on our way out of the method
+    std::auto_ptr<TCPServerRPC> suicide(this);
+
+    serverSocket->send(payload);
+}
+
+void
+TCPTransport::TCPServerRPC::ignore()
+{
+    delete this;
+}
+
+void
+TCPTransport::TCPClientRPC::getReply()
+{
+    // "delete this;" on our way out of the method
+    std::auto_ptr<TCPClientRPC> suicide(this);
+
+    clientSocket->recv(reply);
+}
+
 /**
  * Constructor for TCPTransport.
  * \param ip
@@ -388,46 +413,33 @@ TCPTransport::TCPTransport(uint32_t ip, uint16_t port)
 {
 }
 
-void
-TCPTransport::serverRecv(Buffer* payload, ServerToken* token)
+Transport::ServerRPC*
+TCPTransport::serverRecv(Buffer* payload)
 {
-    TCPServerToken* tcpToken = token->reinit<TCPServerToken>();
+    std::auto_ptr<TCPServerRPC> rpc(new TCPServerRPC());
 
     while (true) {
-        tcpToken->serverSocket->init(&listenSocket);
+        rpc->serverSocket->init(&listenSocket);
         try {
-            tcpToken->serverSocket->recv(payload);
+            rpc->serverSocket->recv(payload);
             break;
         } catch (TransportException e) {}
     }
+
+    return rpc.release();
 }
 
-void
-TCPTransport::serverSend(Buffer* payload, ServerToken* token)
+Transport::ClientRPC*
+TCPTransport::clientSend(const Service* service, Buffer* request,
+                         Buffer* response)
 {
-    TCPServerToken* tcpToken = token->getBuf<TCPServerToken>();
+    std::auto_ptr<TCPClientRPC> rpc(new TCPClientRPC());
 
-    tcpToken->serverSocket->send(payload);
-    token->reinit(); // not strictly necessary but releases fd earlier
-}
+    rpc->clientSocket->init(service->getIp(), service->getPort());
+    rpc->clientSocket->send(request);
+    rpc->reply = response;
 
-void
-TCPTransport::clientSend(const Service* service, Buffer* payload,
-                         ClientToken* token)
-{
-    TCPClientToken* tcpToken = token->reinit<TCPClientToken>();
-
-    tcpToken->clientSocket->init(service->getIp(), service->getPort());
-    tcpToken->clientSocket->send(payload);
-}
-
-void
-TCPTransport::clientRecv(Buffer* payload, ClientToken* token)
-{
-    TCPClientToken* tcpToken = token->getBuf<TCPClientToken>();
-
-    tcpToken->clientSocket->recv(payload);
-    token->reinit(); // not strictly necessary but releases fd earlier
+    return rpc.release();
 }
 
 }  // namespace RAMCloud

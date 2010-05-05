@@ -18,7 +18,6 @@
 #include <arpa/inet.h>
 
 #include <Buffer.h>
-#include <RPC.h>
 #include <Server.h>
 #include <Service.h>
 #include <Transport.h>
@@ -490,12 +489,11 @@ Server::HandleRPC()
 {
     rcrpc_any *req;
 
-    Buffer *reqBuf;
-    ServerRPC rpc(trans);
-    reqBuf = rpc.getRequest();
+    Buffer reqBuf;
+    Transport::ServerRPC *rpc = trans->serverRecv(&reqBuf);
     req = reinterpret_cast<rcrpc_any*>(
-        reqBuf->getRange(0, reqBuf->totalLength()));
-            
+        reqBuf.getRange(0, reqBuf.totalLength()));
+
     char rpcbuf[MAX_RPC_LEN];
     rcrpc_any *resp = reinterpret_cast<rcrpc_any*>(rpcbuf);
     resp->header.type = 0xFFFFFFFF;
@@ -550,7 +548,7 @@ Server::HandleRPC()
 
     Buffer replyBuf;
     replyBuf.append(resp, resp->header.len);
-    rpc.sendReply(&replyBuf);
+    rpc->sendReply(&replyBuf);
 }
 
 void __attribute__ ((noreturn))

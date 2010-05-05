@@ -27,10 +27,8 @@ main()
 {
     RAMCloud::TCPTransport tx(SVRADDR, SVRPORT);
     while (true) {
-        RAMCloud::Transport::ServerToken token;
         RAMCloud::Buffer payload;
-        tx.serverRecv(&payload, &token);
-        tx.serverSend(&payload, &token);
+        tx.serverRecv(&payload)->sendReply(&payload);
     }
     return 0;
 };

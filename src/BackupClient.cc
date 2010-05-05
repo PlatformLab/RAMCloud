@@ -22,7 +22,6 @@
 
 #include <BackupClient.h>
 #include <Buffer.h>
-#include <RPC.h>
 #include <backuprpc.h>
 
 #include <cstdio>
@@ -64,9 +63,8 @@ BackupHost::heartbeat()
     Buffer buf;
     buf.append(reinterpret_cast<void*>(&req), req.hdr.len);
 
-    ClientRPC rpc(trans);
-    rpc.startRPC(s, &buf);
-    rpc.getReply();
+    Buffer reply;
+    trans->clientSend(s, &buf, &reply)->getReply();
 
     if (debug_noisy)
         printf("Heartbeat ok\n");
@@ -100,9 +98,9 @@ BackupHost::writeSegment(uint64_t segNum,
     Buffer buf;
     buf.append(reinterpret_cast<void*> (req), req->hdr.len);
 
-    ClientRPC rpc(trans);
-    rpc.startRPC(s, &buf);
-    rpc.getReply();
+    Buffer reply;
+
+    trans->clientSend(s, &buf, &reply)->getReply();
 
     // TODO(aravindn): Not verifying response?
 }
@@ -122,9 +120,9 @@ BackupHost::commitSegment(uint64_t segNum)
     Buffer buf;
     buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
 
-    ClientRPC rpc(trans);
-    rpc.startRPC(s, &buf);
-    rpc.getReply();
+    Buffer reply;
+
+    trans->clientSend(s, &buf, &reply)->getReply();
 
     // TODO(aravindn): Not verifying response?
 
@@ -146,9 +144,10 @@ BackupHost::freeSegment(uint64_t segNum)
 
     Buffer buf;
     buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
-    ClientRPC rpc(trans);
-    rpc.startRPC(s, &buf);
-    rpc.getReply();
+
+    Buffer reply;
+
+    trans->clientSend(s, &buf, &reply)->getReply();
 
     // TODO(aravindn): Not verifying response?
 
@@ -169,12 +168,12 @@ BackupHost::getSegmentList(uint64_t *list,
 
     Buffer buf;
     buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
-    ClientRPC rpc(trans);
-    rpc.startRPC(s, &buf);
 
-    Buffer *replyBuf = rpc.getReply();
+    Buffer replyBuf;
+    trans->clientSend(s, &buf, &replyBuf)->getReply();
+
     backup_rpc *resp = reinterpret_cast<backup_rpc*>(
-        replyBuf->getRange(0, replyBuf->totalLength()));
+        replyBuf.getRange(0, replyBuf.totalLength()));
 
     uint64_t *tmpList = &resp->getsegmentlist_resp.seg_list[0];
     uint32_t tmpCount = resp->getsegmentlist_resp.seg_list_count;
@@ -208,12 +207,12 @@ BackupHost::getSegmentMetadata(uint64_t segNum,
 
     Buffer buf;
     buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
-    ClientRPC rpc(trans);
-    rpc.startRPC(s, &buf);
 
-    Buffer *replyBuf = rpc.getReply();
+    Buffer replyBuf;
+    trans->clientSend(s, &buf, &replyBuf)->getReply();
+
     backup_rpc *resp = reinterpret_cast<backup_rpc*>(
-        replyBuf->getRange(0, replyBuf->totalLength()));
+        replyBuf.getRange(0, replyBuf.totalLength()));
 
     RecoveryObjectMetadata *tmpList = &resp->getsegmentmetadata_resp.list[0];
     uint32_t tmpCount = resp->getsegmentmetadata_resp.list_count;
@@ -246,12 +245,12 @@ BackupHost::retrieveSegment(uint64_t segNum, void *buf)
 
     Buffer rpcBuf;
     rpcBuf.append(reinterpret_cast<void*> (&req), req.hdr.len);
-    ClientRPC rpc(trans);
-    rpc.startRPC(s, &rpcBuf);
 
-    Buffer *replyBuf = rpc.getReply();
+    Buffer replyBuf;
+    trans->clientSend(s, &rpcBuf, &replyBuf)->getReply();
+
     backup_rpc *resp = reinterpret_cast<backup_rpc*>(
-        replyBuf->getRange(0, replyBuf->totalLength()));
+        replyBuf.getRange(0, replyBuf.totalLength()));
 
     if (debug_noisy)
         printf("Retrieved segment %llu of length %llu\n",

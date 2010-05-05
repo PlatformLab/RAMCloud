@@ -12,7 +12,6 @@ SHARED_SRCFILES := \
                 src/rabinpoly.cc \
                 src/Buffer.cc \
                 src/Service.cc \
-                src/RPC.cc \
                 src/TCPTransport.cc \
                 $(SHARED_NET_SRCFILES)
 
