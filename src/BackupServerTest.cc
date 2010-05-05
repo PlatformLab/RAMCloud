@@ -456,7 +456,7 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         RecoveryObjectMetadata meta;
         DECLARE_OBJECT(o, 23);
-        o->key = 11;
+        o->id = 11;
         o->table = 13;
         o->version = 19;
         o->data_len = 23;
@@ -526,7 +526,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         log_entry logEntry;
         DECLARE_OBJECT(o, 8);
 
-        o->key = key;
+        o->id = key;
         o->table = 13;
         o->version = 15;
         o->checksum = 0xbeef;

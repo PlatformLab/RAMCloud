@@ -425,7 +425,7 @@ BackupServer::extractMetadata(const void *p,
                               RecoveryObjectMetadata *meta)
 {
     const Object *obj = reinterpret_cast<const Object *>(p);
-    meta->key = obj->key;
+    meta->key = obj->id;
     meta->table = obj->table;
     meta->version = obj->version;
     meta->offset = offset;

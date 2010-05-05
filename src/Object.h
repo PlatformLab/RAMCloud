@@ -32,10 +32,10 @@ struct Object {
     /*
      * This buf_size parameter is here to annoy you a little bit if you try
      * stack-allocating one of these. You'll think twice about it, maybe
-     * realize sizeof(entries) is bogus, and proceed to dynamically allocating
+     * realize sizeof(data) is bogus, and proceed to dynamically allocating
      * a buffer instead.
      */
-    Object(size_t buf_size) : key(-1), table(-1), version(-1), checksum(0),
+    Object(size_t buf_size) : id(-1), table(-1), version(-1), checksum(0),
                               data_len(0) {
         assert(buf_size >= sizeof(*this));
     }
@@ -44,17 +44,7 @@ struct Object {
         return sizeof(*this) + this->data_len;
     }
 
-    /**
-     * Check whether this object is associated with a given key.
-     * This is required by the HashTable.
-     */
-    bool containsKey(uint64_t key) const {
-        return this->key == key;
-    }
-
-    // WARNING: The hashtable code (for the moment) assumes that the
-    // object's key is the first 64 bits of the struct
-    uint64_t key;
+    uint64_t id;
     uint64_t table;
     uint64_t version;
     uint64_t checksum;
@@ -62,7 +52,7 @@ struct Object {
     char data[0];
 
   private:
-    Object() : key(-1), table(-1), version(-1), checksum(0), data_len(0) { }
+    Object() : id(-1), table(-1), version(-1), checksum(0), data_len(0) { }
 
     // to use default constructor in arrays
     friend class HashTableTest;

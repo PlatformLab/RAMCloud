@@ -302,7 +302,7 @@ class HashTableTest : public CppUnit::TestFixture {
 
         // fill in the "log" entries
         for (uint64_t i = 0; i < numEnt; i++) {
-            values[i].key = i;
+            values[i].id = i;
 
             uint64_t littleHash;
             {
@@ -349,7 +349,7 @@ class HashTableTest : public CppUnit::TestFixture {
 
 #define DECL_OBJECT(n, k) \
     Object n(sizeof(Object)); \
-    n.key = (k)
+    n.id = (k)
 
 #define NULL_OBJECT (static_cast<const Object*>(NULL))
 
@@ -389,7 +389,7 @@ class HashTableTest : public CppUnit::TestFixture {
     {
         uint64_t bigHash;
         uint64_t littleHash;
-        HashTable::hash(ptr->key, &bigHash, &littleHash);
+        HashTable::hash(ptr->id, &bigHash, &littleHash);
         HashTable::Entry& entry = entryAt(ht, x, y);
         CPPUNIT_ASSERT(entry.hashMatches(littleHash));
         CPPUNIT_ASSERT_EQUAL(ptr, entry.getObject());
@@ -529,7 +529,7 @@ class HashTableTest : public CppUnit::TestFixture {
     {
         SETUP(1);
         CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 0, 0), ht.lookupEntry(0));
-        values[0].key = 0x43324890UL;
+        values[0].id = 0x43324890UL;
         CPPUNIT_ASSERT_EQUAL(static_cast<HashTable::Entry*>(NULL),
                              ht.lookupEntry(0));
     }

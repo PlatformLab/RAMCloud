@@ -38,7 +38,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
            (static_cast<double>(nlines) * HashTable::ENTRIES_PER_CACHE_LINE));
 
     for (i = 0; i < nkeys; i++) {
-        values[i].key = i;
+        values[i].id = i;
         ht.insert(i, &values[i]);
     }
 

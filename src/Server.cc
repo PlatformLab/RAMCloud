@@ -159,14 +159,14 @@ ObjectEvictionCallback(log_entry_type_t type,
     Table *tbl = &svr->tables[evict_obj->table];
     assert(tbl != NULL);
 
-    const Object *tbl_obj = tbl->Get(evict_obj->key);
+    const Object *tbl_obj = tbl->Get(evict_obj->id);
 
     // simple pointer comparison suffices
     if (tbl_obj == evict_obj) {
         const Object *objp = (const Object *)log->append(
             LOG_ENTRY_TYPE_OBJECT, evict_obj, evict_obj->size());
         assert(objp != NULL);
-        tbl->Put(evict_obj->key, objp);
+        tbl->Put(evict_obj->id, objp);
     }
 }
 
@@ -237,7 +237,7 @@ Server::StoreData(uint64_t table,
 
     DECLARE_OBJECT(new_o, buf_len);
 
-    new_o->key = key;
+    new_o->id = key;
     new_o->table = table;
     if (o != NULL)
         new_o->version = o->version + 1;
@@ -435,8 +435,8 @@ ObjectReplayCallback(log_entry_type_t type,
         Table *table = &server->tables[obj->table];
         assert(table != NULL);
 
-        table->Delete(obj->key);
-        table->Put(obj->key, obj);
+        table->Delete(obj->id);
+        table->Put(obj->id, obj);
     }
         break;
     case LOG_ENTRY_TYPE_OBJECT_TOMBSTONE:

@@ -342,7 +342,7 @@ HashTable::lookupEntry(uint64_t key)
                 // The hash within the hash table entry matches, so with high
                 // probability this is the pointer we're looking for. To check,
                 // we must go to the object.
-                if (kp->getObject()->containsKey(key)) {
+                if (kp->getObject()->id == key) {
                     uint64_t diff = rdtsc() - b;
                     perfCounters.lookupEntryCycles += diff;
                     perfCounters.lookupEntryDist.storeSample(diff);
