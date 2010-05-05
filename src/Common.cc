@@ -58,6 +58,7 @@ debug_dump64(const void *buf, uint64_t bytes)
     }
 }
 
+// TODO(ongaro): Compile this out for production
 uint64_t
 rdtsc()
 {

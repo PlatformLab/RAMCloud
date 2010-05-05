@@ -22,12 +22,73 @@
 
 namespace RAMCloud {
 
+// TODO(ongaro): Test the perf counters as well.
+
+/**
+ * Unit tests for HashTable::PerfDistribution.
+ */
+class HashTablePerfDistributionTest : public CppUnit::TestFixture {
+
+    DISALLOW_COPY_AND_ASSIGN(HashTablePerfDistributionTest); // NOLINT
+
+    CPPUNIT_TEST_SUITE(HashTablePerfDistributionTest);
+    CPPUNIT_TEST(test_constructor);
+    CPPUNIT_TEST(test_storeSample);
+    CPPUNIT_TEST_SUITE_END();
+
+  public:
+    HashTablePerfDistributionTest() {}
+
+    void test_constructor()
+    {
+        RAMCloud::HashTable::PerfDistribution d;
+        CPPUNIT_ASSERT_EQUAL(~0UL, d.min);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.max);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.binOverflows);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[0]);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[1]);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
+    }
+
+    void test_storeSample()
+    {
+        HashTable::PerfDistribution d;
+
+        // You can't use CPPUNIT_ASSERT_EQUAL here because it tries to take a
+        // reference to BIN_WIDTH. See 10.4.6.2 Member Constants of The C++
+        // Programming Language by Bjarne Stroustrup for more about static
+        // constant integers.
+        CPPUNIT_ASSERT(10 == HashTable::PerfDistribution::BIN_WIDTH);
+
+        d.storeSample(3);
+        CPPUNIT_ASSERT_EQUAL(3UL, d.min);
+        CPPUNIT_ASSERT_EQUAL(3UL, d.max);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.binOverflows);
+        CPPUNIT_ASSERT_EQUAL(1UL, d.bins[0]);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[1]);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
+
+        d.storeSample(3);
+        d.storeSample(d.NBINS * d.BIN_WIDTH + 40);
+        d.storeSample(12);
+        d.storeSample(78);
+
+        CPPUNIT_ASSERT_EQUAL(3UL, d.min);
+        CPPUNIT_ASSERT_EQUAL(d.NBINS * d.BIN_WIDTH + 40, d.max);
+        CPPUNIT_ASSERT_EQUAL(1UL, d.binOverflows);
+        CPPUNIT_ASSERT_EQUAL(2UL, d.bins[0]);
+        CPPUNIT_ASSERT_EQUAL(1UL, d.bins[1]);
+        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
+    }
+
+};
+CPPUNIT_TEST_SUITE_REGISTRATION(HashTablePerfDistributionTest);
+
+
 /**
  * Unit tests for HashTable::Entry.
  */
 class HashTableEntryTest : public CppUnit::TestFixture {
-
-    //HashTable::Entry entries[10];
 
     DISALLOW_COPY_AND_ASSIGN(HashTableEntryTest); // NOLINT
 
@@ -44,6 +105,18 @@ class HashTableEntryTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_isChainLink);
     CPPUNIT_TEST_SUITE_END();
 
+    /**
+     * Return whether fields make it through #HashTable::Entry::pack() and
+     * #HashTable::Entry::unpack() successfully.
+     * \param hash
+     *      See #HashTable::Entry::pack().
+     * \param chain
+     *      See #HashTable::Entry::pack().
+     * \param ptr
+     *      See #HashTable::Entry::pack().
+     * \return
+     *      Whether the fields out of #HashTable::Entry::unpack() are the same.
+     */
     static bool
     packable(uint64_t hash, bool chain, uint64_t ptr)
     {
@@ -72,13 +145,15 @@ class HashTableEntryTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(8 == sizeof(HashTable::Entry));
     }
 
-    void test_pack()
+    void test_pack() // also tests unpack
     {
         CPPUNIT_ASSERT(packable(0x0000UL, false, 0x000000000000UL));
         CPPUNIT_ASSERT(packable(0xffffUL, true,  0x7fffffffffffUL));
         CPPUNIT_ASSERT(packable(0xffffUL, false, 0x7fffffffffffUL));
         CPPUNIT_ASSERT(packable(0xa257UL, false, 0x3cdeadbeef98UL));
     }
+
+    // No tests for test_unpack, since test_pack tested it.
 
     void test_clear()
     {
@@ -182,88 +257,31 @@ class HashTableEntryTest : public CppUnit::TestFixture {
 CPPUNIT_TEST_SUITE_REGISTRATION(HashTableEntryTest);
 
 /**
- * Unit tests for HashTable::Entry.
+ * Unit tests for HashTable.
  */
-class HashTablePerfDistributionTest : public CppUnit::TestFixture {
-
-    DISALLOW_COPY_AND_ASSIGN(HashTablePerfDistributionTest); // NOLINT
-
-    CPPUNIT_TEST_SUITE(HashTablePerfDistributionTest);
-    CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_storeSample);
-    CPPUNIT_TEST_SUITE_END();
-
-  public:
-    HashTablePerfDistributionTest() {}
-
-    void test_constructor()
-    {
-        RAMCloud::HashTable::PerfDistribution d;
-        CPPUNIT_ASSERT_EQUAL(~0UL, d.min);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.max);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.binOverflows);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[0]);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[1]);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
-    }
-
-    void test_storeSample()
-    {
-        HashTable::PerfDistribution d;
-
-        // You can't use CPPUNIT_ASSERT_EQUAL here because it tries to take a
-        // reference to BIN_WIDTH. See 10.4.6.2 Member Constants of The C++
-        // Programming Language by Bjarne Stroustrup for more about static
-        // constant integers.
-        CPPUNIT_ASSERT(10 == HashTable::PerfDistribution::BIN_WIDTH);
-
-        d.storeSample(3);
-        CPPUNIT_ASSERT_EQUAL(3UL, d.min);
-        CPPUNIT_ASSERT_EQUAL(3UL, d.max);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.binOverflows);
-        CPPUNIT_ASSERT_EQUAL(1UL, d.bins[0]);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[1]);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
-
-        d.storeSample(3);
-        d.storeSample(d.NBINS * d.BIN_WIDTH + 40);
-        d.storeSample(12);
-        d.storeSample(78);
-
-        CPPUNIT_ASSERT_EQUAL(3UL, d.min);
-        CPPUNIT_ASSERT_EQUAL(d.NBINS * d.BIN_WIDTH + 40, d.max);
-        CPPUNIT_ASSERT_EQUAL(1UL, d.binOverflows);
-        CPPUNIT_ASSERT_EQUAL(2UL, d.bins[0]);
-        CPPUNIT_ASSERT_EQUAL(1UL, d.bins[1]);
-        CPPUNIT_ASSERT_EQUAL(0UL, d.bins[2]);
-    }
-
-};
-CPPUNIT_TEST_SUITE_REGISTRATION(HashTablePerfDistributionTest);
-
 class HashTableTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(HashTableTest);
     CPPUNIT_TEST(test_sizes);
-    CPPUNIT_TEST(test_simple);
-    CPPUNIT_TEST(test_hash);
     CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_destructor);
+    CPPUNIT_TEST(test_simple);
+    CPPUNIT_TEST(test_hash);
     CPPUNIT_TEST(test_lookupEntry_notFound);
     CPPUNIT_TEST(test_lookupEntry_cacheLine0Entry0);
     CPPUNIT_TEST(test_lookupEntry_cacheLine0Entry7);
     CPPUNIT_TEST(test_lookupEntry_cacheLine2Entry0);
     CPPUNIT_TEST(test_lookupEntry_hashCollision);
+    CPPUNIT_TEST(test_lookup);
+    CPPUNIT_TEST(test_remove);
+    CPPUNIT_TEST(test_replace);
     CPPUNIT_TEST(test_insert_cacheLine0Entry0);
     CPPUNIT_TEST(test_insert_cacheLine0Entry7);
     CPPUNIT_TEST(test_insert_cacheLine2Entry0);
     CPPUNIT_TEST(test_insert_cacheLineFull);
-    CPPUNIT_TEST(test_lookup);
-    CPPUNIT_TEST(test_remove);
-    CPPUNIT_TEST(test_replace);
     CPPUNIT_TEST_SUITE_END();
     DISALLOW_COPY_AND_ASSIGN(HashTableTest); //NOLINT
 
-    // without this, the lines are too long...
+    // convenient abbreviation
 #define seven (HashTable::ENTRIES_PER_CACHE_LINE - 1)
 
     /**
@@ -321,6 +339,10 @@ class HashTableTest : public CppUnit::TestFixture {
         ht->buckets = cacheLines;
     }
 
+    /**
+     * Automatically sets the HashTable::buckets to \c NULL when it goes out of
+     * scope.
+     */
     class AutoTearDown {
       public:
         explicit AutoTearDown(HashTable *ht) : ht(ht) {}
@@ -331,8 +353,17 @@ class HashTableTest : public CppUnit::TestFixture {
     };
 
     /**
-     * Common setup code for the lookupEntry and insert tests. This mostly
-     * declares variables on the stack, so it's a macro.
+     * Common setup code for the lookupEntry and insert tests.
+     * This mostly declares variables on the stack, so it's a macro.
+     * \li \a numEnt is set to \a _numEnt
+     * \li \a numCacheLines is the number of cache lines used to hold the
+     * entries.
+     * \li \a ht is a hash table of one bucket.
+     * \li \a values is an array of \a numEnt objects.
+     * \li \a cacheLines is an array of \a numCacheLines cache lines referring
+     * to the objects in \a values. These cache lines make up \a ht's bucket.
+     * \param _numEnt
+     *      The number of entries to place in the hashtable.
      */
 #define SETUP(_numEnt)  \
     uint64_t numEnt = _numEnt; \
@@ -347,6 +378,13 @@ class HashTableTest : public CppUnit::TestFixture {
     insertArray(&ht, values, numEnt, cacheLines, numCacheLines); \
     AutoTearDown _atd(&ht)
 
+    /**
+     * Create an Object with no data on the stack.
+     * \param n
+     *      The variable name for the object.
+     * \param k
+     *      The object ID for the object.
+     */
 #define DECL_OBJECT(n, k) \
     Object n(sizeof(Object)); \
     n.id = (k)
@@ -409,6 +447,27 @@ class HashTableTest : public CppUnit::TestFixture {
                        sizeof(HashTable::CacheLine));
     }
 
+    void test_constructor()
+    {
+        char buf[sizeof(HashTable) + 1024];
+        memset(buf, 0xca, sizeof(buf));
+        HashTable *ht = new(buf) HashTable(10);
+        for (uint32_t i = 0; i < 10; i++) {
+            for (uint32_t j = 0; j < HashTable::ENTRIES_PER_CACHE_LINE; j++)
+                CPPUNIT_ASSERT(ht->buckets[i].entries[j].isAvailable());
+        }
+    }
+
+    void test_destructor()
+    {
+        char buf[sizeof(HashTable) + 1024];
+        HashTable *ht = new(buf) HashTable(10);
+        ht->~HashTable();
+        CPPUNIT_ASSERT(ht->buckets == NULL);
+        ht->~HashTable();
+        CPPUNIT_ASSERT(ht->buckets == NULL);
+    }
+
     void test_simple()
     {
         HashTable ht(1024);
@@ -444,27 +503,6 @@ class HashTableTest : public CppUnit::TestFixture {
         }
         CPPUNIT_ASSERT_EQUAL(~0UL >> (64 - 48), bigHashObservedBits);
         CPPUNIT_ASSERT_EQUAL(~0UL >> (64 - 16), littleHashObservedBits);
-    }
-
-    void test_constructor()
-    {
-        char buf[sizeof(HashTable) + 1024];
-        memset(buf, 0xca, sizeof(buf));
-        HashTable *ht = new(buf) HashTable(10);
-        for (uint32_t i = 0; i < 10; i++) {
-            for (uint32_t j = 0; j < HashTable::ENTRIES_PER_CACHE_LINE; j++)
-                CPPUNIT_ASSERT(ht->buckets[i].entries[j].isAvailable());
-        }
-    }
-
-    void test_destructor()
-    {
-        char buf[sizeof(HashTable) + 1024];
-        HashTable *ht = new(buf) HashTable(10);
-        ht->~HashTable();
-        CPPUNIT_ASSERT(ht->buckets == NULL);
-        ht->~HashTable();
-        CPPUNIT_ASSERT(ht->buckets == NULL);
     }
 
     /**

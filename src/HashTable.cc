@@ -31,10 +31,19 @@
 
 namespace RAMCloud {
 
+// TODO(ongaro): Use meaningful local variable names.
+
+// TODO(ongaro): Use pre-processor macros to turn off stat mechanism.
+
+// TODO(ongaro): Masking is faster than modulus if buckets is a power of 2.
+
 
 // HashTable::PerfDistribution
 
 
+/**
+ * Constructor for HashTable::PerfDistribution.
+ */
 HashTable::PerfDistribution::PerfDistribution()
     : binOverflows(0), min(~0UL), max(0UL)
 {
@@ -64,6 +73,9 @@ HashTable::PerfDistribution::storeSample(uint64_t value)
 // HashTable::PerfCounters
 
 
+/**
+ * Constructor for HashTable::PerfCounters.
+ */
 HashTable::PerfCounters::PerfCounters()
     : insertCycles(0), lookupEntryCycles(0), insertChainsFollowed(0),
     lookupEntryChainsFollowed(0), lookupEntryHashCollisions(0),
@@ -78,7 +90,8 @@ HashTable::PerfCounters::PerfCounters()
 /**
  * Replace this hash table entry.
  * \param[in] hash
- *      The additional hash bits from the object ID.
+ *      The secondary hash bits (16 bits) computed from the object ID.
+ *      Irrelevant if \a chain is true.
  * \param[in] chain
  *      Whether \a ptr is a chain pointer as opposed to an Object pointer.
  * \param[in] ptr
@@ -123,9 +136,9 @@ HashTable::Entry::clear()
 /**
  * Reinitialize a regular hash table entry.
  * \param[in] hash
- *      The additional hash bits from the object ID.
+ *      The secondary hash bits computed from the object ID (16 bits).
  * \param[in] object
- *      The latest version of the Object. Must not be \c NULL.
+ *      The address of the Object. Must not be \c NULL.
  */
 void
 HashTable::Entry::setObject(uint64_t hash, const Object *object)
@@ -147,8 +160,9 @@ HashTable::Entry::setChainPointer(CacheLine *ptr)
 }
 
 /**
+ * Return whether a hash table entry is unused.
  * \return
- *      Whether a hash table entry is unused.
+ *      See above.
  */
 bool
 HashTable::Entry::isAvailable() const
@@ -158,13 +172,13 @@ HashTable::Entry::isAvailable() const
 }
 
 /**
- * Extract the address of the latest version of the Object.
- * The caller must first verify that the hash table entry indeed stores a log
- * pointer with #hashMatches() or #isChainLink().
+ * Extract the Object address from a hash table entry.
+ * The caller must first verify that the hash table entry indeed stores an
+ * object address with #hashMatches() or #isChainLink().
  * \return
- *      The address of the latest version of the Object stored.
+ *      The address of the Object stored.
  */
-const Object*
+const Object *
 HashTable::Entry::getObject() const
 {
     UnpackedEntry ue = unpack();
@@ -179,7 +193,7 @@ HashTable::Entry::getObject() const
  * \return
  *      The chain pointer to another cache line.
  */
-HashTable::CacheLine*
+HashTable::CacheLine *
 HashTable::Entry::getChainPointer() const
 {
     UnpackedEntry ue = unpack();
@@ -188,12 +202,12 @@ HashTable::Entry::getChainPointer() const
 }
 
 /**
- * Check whether the additional hash bits stored match those given.
+ * Check whether the secondary hash bits stored match those given.
  * \param[in] hash
- *      The additional hash bits from the object ID to test.
+ *      The secondary hash bits computed from the object ID to test (16 bits).
  * \return
  *      Whether the hash table entry holds the address to an Object and the
- *      additional hash bits for that Object point to \a hash.
+ *      secondary hash bits for that Object point to \a hash.
  */
 bool
 HashTable::Entry::hashMatches(uint64_t hash) const
@@ -206,8 +220,9 @@ HashTable::Entry::hashMatches(uint64_t hash) const
  * Check whether this hash table entry has a chain pointer to another cache line.
  * \return
  *      Whether the hash table entry has a chain pointer to another cache line
- *      (as opposed to a Log pointer to an object).
+ *      (as opposed to an object address).
  */
+// TODO(ongaro): Remove this, have getChainPointer return NULL instead.
 bool
 HashTable::Entry::isChainLink() const
 {
@@ -220,72 +235,12 @@ HashTable::Entry::isChainLink() const
 
 
 /**
- * Allocate an aligned chunk of memory.
- * \param[in] len
- *      The size of the memory chunk to allocate.
- * \return
- *      A pointer to the newly allocated memory chunk. This is guaranteed to
- *      not be \c NULL.
- */
-void *
-HashTable::mallocAligned(uint64_t len) const
-{
-    if (useHugeTlb)
-        return xmalloc_aligned_hugetlb(len);
-    else
-        return xmemalign(sizeof(CacheLine), len);
-}
-
-
-/**
- * Free the chuck of memory returned by #mallocAligned().
- * \param[in] p
- *      A pointer to the memory chunk allocated by #mallocAligned().
- *      Must not be \c NULL.
- */
-void
-HashTable::freeAligned(void *p) const
-{
-    if (useHugeTlb) {
-        // TODO(ongaro): can't free memory from xmalloc_aligned_hugetlb
-    } else {
-        return free(p);
-    }
-}
-
-/**
- * Take the hashes of an object ID.
- * \param[in] key
- *      The object ID to hash.
- * \param[out] bucketHash
- *      The main hash used to select a bucket (48 bits).
- * \param[out] entryHash
- *      Additional hash bits used to disambiguate entries in the same bucket
- *      (16 bits).
- */
-void
-HashTable::hash(uint64_t key, uint64_t *bucketHash, uint64_t *entryHash)
-{
-    // This appears to be hash64shift by Thomas Wang from
-    // http://www.concentric.net/~Ttwang/tech/inthash.htm
-    key = (~key) + (key << 21); // key = (key << 21) - key - 1;
-    key = key ^ (key >> 24);
-    key = (key + (key << 3)) + (key << 8); // key * 265
-    key = key ^ (key >> 14);
-    key = (key + (key << 2)) + (key << 4); // key * 21
-    key = key ^ (key >> 28);
-    key = key + (key << 31);
-
-    *bucketHash = key & 0x0000ffffffffffffUL;
-    *entryHash  = key >> 48;
-}
-
-/**
- * \param[in] nlines
+ * Constructor for HashTable.
+ * \param[in] numBuckets
  *      The number of buckets in the new hash table.
  */
-HashTable::HashTable(uint64_t nlines)
-    : buckets(NULL), numBuckets(nlines), useHugeTlb(false), perfCounters()
+HashTable::HashTable(uint64_t numBuckets)
+    : buckets(NULL), numBuckets(numBuckets), useHugeTlb(false), perfCounters()
 {
     // Allocate space for a new hash table and set its entries to unused.
 
@@ -300,6 +255,9 @@ HashTable::HashTable(uint64_t nlines)
     }
 }
 
+/**
+ * Destructor for HashTable.
+ */
 HashTable::~HashTable()
 {
     // TODO(ongaro): free chained CacheLines that were allocated in insert()
@@ -308,6 +266,66 @@ HashTable::~HashTable()
         freeAligned(buckets);
         buckets = NULL;
     }
+}
+
+/**
+ * Allocate an aligned chunk of memory.
+ * \param[in] len
+ *      The size of the memory chunk to allocate in bytes.
+ * \return
+ *      A pointer to the newly allocated memory chunk. This is guaranteed to
+ *      not be \c NULL.
+ */
+void *
+HashTable::mallocAligned(uint64_t len) const
+{
+    if (useHugeTlb)
+        return xmalloc_aligned_hugetlb(len);
+    else
+        return xmemalign(sizeof(CacheLine), len);
+}
+
+/**
+ * Free the chuck of memory returned by #mallocAligned().
+ * \param[in] p
+ *      A pointer to the memory chunk allocated by #mallocAligned().
+ *      Must not be \c NULL.
+ */
+void
+HashTable::freeAligned(void *p) const
+{
+    if (useHugeTlb) {
+        // TODO(ongaro): can't free memory from xmalloc_aligned_hugetlb
+    } else {
+        free(p);
+    }
+}
+
+/**
+ * Compute two hash values corresponding to a particular object ID.
+ * \param[in] key
+ *      The object ID to hash.
+ * \param[out] bucketHash
+ *      The main hash used to select a bucket (48 bits).
+ * \param[out] secondaryHash
+ *      The secondary hash bits used to disambiguate entries in the same bucket
+ *      (16 bits).
+ */
+void
+HashTable::hash(uint64_t key, uint64_t *bucketHash, uint64_t *secondaryHash)
+{
+    // This appears to be hash64shift by Thomas Wang from
+    // http://www.concentric.net/~Ttwang/tech/inthash.htm
+    key = (~key) + (key << 21); // key = (key << 21) - key - 1;
+    key = key ^ (key >> 24);
+    key = (key + (key << 3)) + (key << 8); // key * 265
+    key = key ^ (key >> 14);
+    key = (key + (key << 2)) + (key << 4); // key * 21
+    key = key ^ (key >> 28);
+    key = key + (key << 31);
+
+    *bucketHash = key & 0x0000ffffffffffffUL;
+    *secondaryHash = key >> 48;
 }
 
 /**
@@ -368,12 +386,11 @@ HashTable::lookupEntry(uint64_t key)
 }
 
 /**
- * Find the latest version of an Object.
+ * Find the address of an Object.
  * \param[in] key
  *      The ID of the object to locate.
  * \return
- *      The address of the latest version of the Object, or \a NULL if the
- *      object doesn't exist.
+ *      The address of the Object, or \a NULL if the object doesn't exist.
  */
 const Object *
 HashTable::lookup(uint64_t key)
@@ -407,7 +424,7 @@ HashTable::remove(uint64_t key)
  * \param[in] key
  *      The ID of the moved object.
  * \param[in] object
- *      The latest version of the Object.
+ *      The address of the Object.
  * \retval true
  *      The hash table previously contained key and its entry has been updated
  *      to reflect the new location of the object.
@@ -415,6 +432,7 @@ HashTable::remove(uint64_t key)
  *      The hash table did not previously contain key. An entry has been
  *      created to reflect the location of the object.
  */
+// TODO(ongaro): Eliminate redundant hashing.
 bool
 HashTable::replace(uint64_t key, const Object *object)
 {
@@ -436,8 +454,9 @@ HashTable::replace(uint64_t key, const Object *object)
  * \param[in] key
  *      The ID of the object that resides at \a object.
  * \param[in] object
- *      The latest version of the Object.
+ *      The address of the Object.
  */
+// TODO(ongaro): Remove this.
 void
 HashTable::insert(uint64_t key, const Object *object)
 {
