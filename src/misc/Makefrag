@@ -1,0 +1,5 @@
+misc: $(OBJDIR)/misc/modulus
+
+$(OBJDIR)/misc/modulus: $(SHARED_OBJFILES) $(OBJDIR)/misc/modulus.o
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -o $@ $^
