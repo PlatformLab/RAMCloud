@@ -123,6 +123,17 @@ class HashTable {
      */
     struct PerfCounters {
 #if PERF_COUNTERS
+
+        /**
+         * The number of #replace() operations.
+         */
+        uint64_t replaceCalls;
+
+        /**
+         * The number of #lookupEntry() operations.
+         */
+        uint64_t lookupEntryCalls;
+
         /**
          * The total number of CPU cycles spent across all #replace()
          * operations.
@@ -155,8 +166,6 @@ class HashTable {
          * the given key.
          */
         uint64_t lookupEntryHashCollisions;
-
-        // TODO(ongaro): count the total number of inserts and lookups.
 
         /**
          * The distribution of CPU cycles spent for #lookupEntry() operations.

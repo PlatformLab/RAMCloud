@@ -71,7 +71,8 @@ HashTable::PerfDistribution::storeSample(uint64_t value)
  * Constructor for HashTable::PerfCounters.
  */
 HashTable::PerfCounters::PerfCounters()
-    : replaceCycles(0), lookupEntryCycles(0), insertChainsFollowed(0),
+    : replaceCalls(0), lookupEntryCalls(0), replaceCycles(0),
+    lookupEntryCycles(0), insertChainsFollowed(0),
     lookupEntryChainsFollowed(0), lookupEntryHashCollisions(0),
     lookupEntryDist()
 {
@@ -375,6 +376,8 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
     CycleCounter cycles(STAT_REF(perfCounters.lookupEntryCycles));
     unsigned int i;
 
+    STAT_INC(perfCounters.lookupEntryCalls);
+
     CacheLine *cacheLine = bucket;
 
     while (1) {
@@ -470,6 +473,8 @@ HashTable::replace(uint64_t key, const Object *object)
     CacheLine *bucket;
     Entry *entry;
     unsigned int i;
+
+    STAT_INC(perfCounters.replaceCalls);
 
     bucket = findBucket(key, &secondaryHash);
     entry = lookupEntry(bucket, secondaryHash, key);
