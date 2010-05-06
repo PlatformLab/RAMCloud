@@ -420,11 +420,13 @@ class HashTableTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(ptr, entry.getObject());
     }
 
-    HashTable::Entry *findBucketAndLookupEntry(HashTable *ht, uint64_t key)
+    HashTable::Entry *findBucketAndLookupEntry(HashTable *ht,
+                                               uint64_t objectId)
     {
         uint64_t secondaryHash;
-        HashTable::CacheLine *bucket = ht->findBucket(key, &secondaryHash);
-        return ht->lookupEntry(bucket, secondaryHash, key);
+        HashTable::CacheLine *bucket;
+        bucket = ht->findBucket(objectId, &secondaryHash);
+        return ht->lookupEntry(bucket, secondaryHash, objectId);
     }
 
   public:
@@ -512,7 +514,8 @@ class HashTableTest : public CppUnit::TestFixture {
     }
 
     /**
-     * Test #RAMCloud::HashTable::lookupEntry() when the key is not found.
+     * Test #RAMCloud::HashTable::lookupEntry() when the object ID is not
+     * found.
      */
     void test_lookupEntry_notFound()
     {
@@ -534,8 +537,8 @@ class HashTableTest : public CppUnit::TestFixture {
     }
 
     /**
-     * Test #RAMCloud::HashTable::lookupEntry() when the key is found in the
-     * first entry of the first cache line.
+     * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+     * the first entry of the first cache line.
      */
     void test_lookupEntry_cacheLine0Entry0()
     {
@@ -545,8 +548,8 @@ class HashTableTest : public CppUnit::TestFixture {
     }
 
     /**
-     * Test #RAMCloud::HashTable::lookupEntry() when the key is found in the
-     * last entry of the first cache line.
+     * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+     * the last entry of the first cache line.
      */
     void test_lookupEntry_cacheLine0Entry7()
     {
@@ -556,8 +559,8 @@ class HashTableTest : public CppUnit::TestFixture {
     }
 
     /**
-     * Test #RAMCloud::HashTable::lookupEntry() when the key is found in the
-     * first entry of the third cache line.
+     * Test #RAMCloud::HashTable::lookupEntry() when the object ID is found in
+     * the first entry of the third cache line.
      */
     void test_lookupEntry_cacheLine2Entry0()
     {
@@ -626,8 +629,8 @@ class HashTableTest : public CppUnit::TestFixture {
     }
 
     /**
-     * Test #RAMCloud::HashTable::replace() when the key is new and the first
-     * entry of the first cache line is available.
+     * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+     * first entry of the first cache line is available.
      */
     void test_replace_cacheLine0Entry0()
     {
@@ -638,8 +641,8 @@ class HashTableTest : public CppUnit::TestFixture {
     }
 
     /**
-     * Test #RAMCloud::HashTable::replace() when the key is new and the last
-     * entry of the first cache line is available.
+     * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+     * last entry of the first cache line is available.
      */
     void test_replace_cacheLine0Entry7()
     {
@@ -650,9 +653,9 @@ class HashTableTest : public CppUnit::TestFixture {
     }
 
     /**
-     * Test #RAMCloud::HashTable::replace() when the key is new and the first
-     * entry of the third cache line is available. The third cache line is
-     * already chained onto the second.
+     * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+     * first entry of the third cache line is available. The third cache line
+     * is already chained onto the second.
      */
     void test_replace_cacheLine2Entry0()
     {
@@ -666,8 +669,8 @@ class HashTableTest : public CppUnit::TestFixture {
     }
 
     /**
-     * Test #RAMCloud::HashTable::replace() when the key is new and the first
-     * and only cache line is full. The second cache line needs to be
+     * Test #RAMCloud::HashTable::replace() when the object ID is new and the
+     * first and only cache line is full. The second cache line needs to be
      * allocated.
      */
     void test_replace_cacheLineFull()

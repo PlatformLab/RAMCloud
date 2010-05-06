@@ -333,7 +333,7 @@ HashTable::hash(uint64_t key)
  * Find the bucket corresponding to a particular object ID.
  * This also calculates the secondary hash bits used to disambiguate entries in
  * the same bucket.
- * \param[in] key
+ * \param[in] objectId
  *      The object ID whose bucket to find.
  * \param[out] secondaryHash
  *      The secondary hash bits (16 bits).
@@ -341,11 +341,11 @@ HashTable::hash(uint64_t key)
  *      The bucket corresponding to the given object ID.
  */
 HashTable::CacheLine *
-HashTable::findBucket(uint64_t key, uint64_t *secondaryHash) const
+HashTable::findBucket(uint64_t objectId, uint64_t *secondaryHash) const
 {
     uint64_t hashValue;
     uint64_t bucketHash;
-    hashValue = hash(key);
+    hashValue = hash(objectId);
     bucketHash = hashValue & 0x0000ffffffffffffUL;
     *secondaryHash = hashValue >> 48;
     return &buckets[bucketHash & (numBuckets - 1)];
@@ -356,22 +356,23 @@ HashTable::findBucket(uint64_t key, uint64_t *secondaryHash) const
 }
 
 /**
- * Find a hash table entry for a given key.
+ * Find a hash table entry for a given object ID.
  * This is used in #lookup(), #remove(), and #replace() to find the hash table
  * entry to operate on.
  * \param[in] bucket
- *      The bucket corresponding to \a key.
+ *      The bucket corresponding to \a objectId.
  * \param[in] secondaryHash
- *      Secondary hash bits for \a key as returned from #findBucket()
+ *      Secondary hash bits for \a objectId as returned from #findBucket()
  *      (16 bits).
- * \param[in] key
+ * \param[in] objectId
  *      The ID of the object to locate the hash table entry.
  * \return
  *      The pointer to the hash table entry, or \a NULL if there is no such
  *      hash table entry.
  */
 HashTable::Entry *
-HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
+HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
+                       uint64_t objectId)
 {
     CycleCounter cycles(STAT_REF(perfCounters.lookupEntryCycles));
     unsigned int i;
@@ -390,7 +391,7 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
                 // The hash within the hash table entry matches, so with high
                 // probability this is the pointer we're looking for. To check,
                 // we must go to the object.
-                if (candidate->getObject()->id == key) {
+                if (candidate->getObject()->id == objectId) {
                     PERF_DIST_STORE_SAMPLE(perfCounters.lookupEntryDist,
                                            cycles.stop());
                     return candidate;
@@ -414,18 +415,18 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
 
 /**
  * Find the address of an Object.
- * \param[in] key
+ * \param[in] objectId
  *      The ID of the object to locate.
  * \return
  *      The address of the Object, or \a NULL if the object doesn't exist.
  */
 const Object *
-HashTable::lookup(uint64_t key)
+HashTable::lookup(uint64_t objectId)
 {
     uint64_t secondaryHash;
     Entry *entry;
-    CacheLine *bucket = findBucket(key, &secondaryHash);
-    entry = lookupEntry(bucket, secondaryHash, key);
+    CacheLine *bucket = findBucket(objectId, &secondaryHash);
+    entry = lookupEntry(bucket, secondaryHash, objectId);
     if (entry == NULL)
         return NULL;
     return entry->getObject();
@@ -433,18 +434,18 @@ HashTable::lookup(uint64_t key)
 
 /**
  * Remove an object ID from the hash table.
- * \param[in] key
+ * \param[in] objectId
  *      The ID of the object to remove.
  * \return
- *      Whether the hash table contained the key.
+ *      Whether the hash table contained the object ID.
  */
 bool
-HashTable::remove(uint64_t key)
+HashTable::remove(uint64_t objectId)
 {
     uint64_t secondaryHash;
     Entry *entry;
-    CacheLine *bucket = findBucket(key, &secondaryHash);
-    entry = lookupEntry(bucket, secondaryHash, key);
+    CacheLine *bucket = findBucket(objectId, &secondaryHash);
+    entry = lookupEntry(bucket, secondaryHash, objectId);
     if (entry == NULL)
         return false;
     entry->clear();
@@ -454,19 +455,19 @@ HashTable::remove(uint64_t key)
 /**
  * Update the location of an object ID in the hash table.
  * This is equivalent to, but faster than, #remove() followed by #replace().
- * \param[in] key
+ * \param[in] objectId
  *      The ID of the moved object.
  * \param[in] object
  *      The address of the Object.
  * \retval true
- *      The hash table previously contained key and its entry has been updated
- *      to reflect the new location of the object.
+ *      The hash table previously contained \a objectId and its entry has been
+ *      updated to reflect the new location of the object.
  * \retval false
- *      The hash table did not previously contain key. An entry has been
- *      created to reflect the location of the object.
+ *      The hash table did not previously contain \a objectId. An entry has
+ *      been created to reflect the location of the object.
  */
 bool
-HashTable::replace(uint64_t key, const Object *object)
+HashTable::replace(uint64_t objectId, const Object *object)
 {
     CycleCounter cycles(STAT_REF(perfCounters.replaceCycles));
     uint64_t secondaryHash;
@@ -476,8 +477,8 @@ HashTable::replace(uint64_t key, const Object *object)
 
     STAT_INC(perfCounters.replaceCalls);
 
-    bucket = findBucket(key, &secondaryHash);
-    entry = lookupEntry(bucket, secondaryHash, key);
+    bucket = findBucket(objectId, &secondaryHash);
+    entry = lookupEntry(bucket, secondaryHash, objectId);
     if (entry != NULL) {
         entry->setObject(secondaryHash, object);
         return true;
