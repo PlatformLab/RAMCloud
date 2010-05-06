@@ -192,7 +192,7 @@ class HashTable {
     void *mallocAligned(uint64_t len) const;
     void freeAligned(void *p) const;
     static uint64_t hash(uint64_t key);
-    CacheLine *findBucket(uint64_t key, uint64_t *secondaryHash);
+    CacheLine *findBucket(uint64_t key, uint64_t *secondaryHash) const;
     Entry *lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key);
 
     /**

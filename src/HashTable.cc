@@ -340,7 +340,7 @@ HashTable::hash(uint64_t key)
  *      The bucket corresponding to the given object ID.
  */
 HashTable::CacheLine *
-HashTable::findBucket(uint64_t key, uint64_t *secondaryHash)
+HashTable::findBucket(uint64_t key, uint64_t *secondaryHash) const
 {
     uint64_t hashValue;
     uint64_t bucketHash;
