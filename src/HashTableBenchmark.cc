@@ -39,7 +39,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     for (i = 0; i < nkeys; i++) {
         values[i].id = i;
-        ht.insert(i, &values[i]);
+        ht.replace(i, &values[i]);
     }
 
     uint64_t b = rdtsc();
@@ -51,8 +51,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     const HashTable::PerfCounters & pc = ht.getPerfCounters();
 
-    printf("insert: %llu avg ticks, %llu / %lu multi-cacheline accesses\n",
-         pc.insertCycles / nkeys, pc.insertChainsFollowed, nkeys);
+    printf("replace: %llu avg ticks, %llu / %lu multi-cacheline accesses\n",
+         pc.replaceCycles / nkeys, pc.insertChainsFollowed, nkeys);
     printf("lookup: %llu avg ticks, %llu / %lu multi-cacheline accesses, "
            "%llu minikey false positives\n",
            pc.lookupEntryCycles / nkeys, pc.lookupEntryChainsFollowed,

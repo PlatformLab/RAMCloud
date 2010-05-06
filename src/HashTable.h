@@ -119,10 +119,10 @@ class HashTable {
     struct PerfCounters {
 
         /**
-         * The total number of CPU cycles spent across all #insert()
+         * The total number of CPU cycles spent across all #replace()
          * operations.
          */
-        uint64_t insertCycles;
+        uint64_t replaceCycles;
 
         /**
          * The total number of CPU cycles spent across all #lookupEntry()
@@ -132,7 +132,7 @@ class HashTable {
 
         /**
          * The total number of times a chain pointer was followed to another
-         * CacheLine across all #insert() operations.
+         * CacheLine while trying to insert a new entry within #replace().
          */
         uint64_t insertChainsFollowed;
 
@@ -164,7 +164,6 @@ class HashTable {
     explicit HashTable(uint64_t nlines);
     ~HashTable();
     const Object *lookup(uint64_t key);
-    void insert(uint64_t key, const Object *ptr);
     bool remove(uint64_t key);
     bool replace(uint64_t key, const Object *ptr);
 
@@ -183,10 +182,11 @@ class HashTable {
     class Entry;
     struct CacheLine;
 
-    Entry *lookupEntry(uint64_t key);
+    Entry *lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key);
     void *mallocAligned(uint64_t len) const;
     void freeAligned(void *p) const;
-    static void hash(uint64_t key, uint64_t *bucketHash, uint64_t *entryHash);
+    static uint64_t hash(uint64_t key);
+    CacheLine *findBucket(uint64_t key, uint64_t *secondaryHash);
 
     // TODO(ongaro): Define BYTES_PER_CACHE_LINE, compute
     // ENTRIES_PER_CACHE_LINE.

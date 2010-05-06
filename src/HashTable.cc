@@ -77,7 +77,7 @@ HashTable::PerfDistribution::storeSample(uint64_t value)
  * Constructor for HashTable::PerfCounters.
  */
 HashTable::PerfCounters::PerfCounters()
-    : insertCycles(0), lookupEntryCycles(0), insertChainsFollowed(0),
+    : replaceCycles(0), lookupEntryCycles(0), insertChainsFollowed(0),
     lookupEntryChainsFollowed(0), lookupEntryHashCollisions(0),
     lookupEntryDist()
 {
@@ -302,17 +302,11 @@ HashTable::freeAligned(void *p) const
 }
 
 /**
- * Compute two hash values corresponding to a particular object ID.
- * \param[in] key
- *      The object ID to hash.
- * \param[out] bucketHash
- *      The main hash used to select a bucket (48 bits).
- * \param[out] secondaryHash
- *      The secondary hash bits used to disambiguate entries in the same bucket
- *      (16 bits).
+ * A 64-bit to 64-bit hash function.
+ * This is a helper to #findBucket().
  */
-void
-HashTable::hash(uint64_t key, uint64_t *bucketHash, uint64_t *secondaryHash)
+uint64_t
+HashTable::hash(uint64_t key)
 {
     // This appears to be hash64shift by Thomas Wang from
     // http://www.concentric.net/~Ttwang/tech/inthash.htm
@@ -323,32 +317,53 @@ HashTable::hash(uint64_t key, uint64_t *bucketHash, uint64_t *secondaryHash)
     key = (key + (key << 2)) + (key << 4); // key * 21
     key = key ^ (key >> 28);
     key = key + (key << 31);
+    return key;
+}
 
-    *bucketHash = key & 0x0000ffffffffffffUL;
-    *secondaryHash = key >> 48;
+/**
+ * Find the bucket corresponding to a particular object ID.
+ * This also calculates the secondary hash bits used to disambiguate entries in
+ * the same bucket.
+ * \param[in] key
+ *      The object ID whose bucket to find.
+ * \param[out] secondaryHash
+ *      The secondary hash bits (16 bits).
+ * \return
+ *      The bucket corresponding to the given object ID.
+ */
+HashTable::CacheLine *
+HashTable::findBucket(uint64_t key, uint64_t *secondaryHash)
+{
+    uint64_t hashValue;
+    uint64_t bucketHash;
+    hashValue = hash(key);
+    bucketHash = hashValue & 0x0000ffffffffffffUL;
+    *secondaryHash = hashValue >> 48;
+    return &buckets[bucketHash % numBuckets];
 }
 
 /**
  * Find a hash table entry for a given key.
  * This is used in #lookup(), #remove(), and #replace() to find the hash table
  * entry to operate on.
+ * \param[in] bucket
+ *      The bucket corresponding to \a key.
+ * \param[in] secondaryHash
+ *      Secondary hash bits for \a key as returned from #findBucket()
+ *      (16 bits).
  * \param[in] key
- *      The ID of the object for which to locate the hash table entry.
+ *      The ID of the object to locate the hash table entry.
  * \return
  *      The pointer to the hash table entry, or \a NULL if there is no such
  *      hash table entry.
  */
 HashTable::Entry *
-HashTable::lookupEntry(uint64_t key)
+HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
 {
     uint64_t b = rdtsc();
-    uint64_t h;
-    uint64_t mk;
     unsigned int i;
 
-    // Find the bucket.
-    hash(key, &h, &mk);
-    CacheLine *cl = &buckets[h % numBuckets];
+    CacheLine *cl = bucket;
 
     while (1) {
 
@@ -356,7 +371,7 @@ HashTable::lookupEntry(uint64_t key)
         Entry *kp = cl->entries;
         for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, kp++) {
 
-            if (kp->hashMatches(mk)) {
+            if (kp->hashMatches(secondaryHash)) {
                 // The hash within the hash table entry matches, so with high
                 // probability this is the pointer we're looking for. To check,
                 // we must go to the object.
@@ -395,7 +410,10 @@ HashTable::lookupEntry(uint64_t key)
 const Object *
 HashTable::lookup(uint64_t key)
 {
-    Entry *kp = lookupEntry(key);
+    uint64_t secondaryHash;
+    Entry *kp;
+    CacheLine *bucket = findBucket(key, &secondaryHash);
+    kp = lookupEntry(bucket, secondaryHash, key);
     if (kp == NULL)
         return NULL;
     return kp->getObject();
@@ -411,7 +429,10 @@ HashTable::lookup(uint64_t key)
 bool
 HashTable::remove(uint64_t key)
 {
-    Entry *kp = lookupEntry(key);
+    uint64_t secondaryHash;
+    Entry *kp;
+    CacheLine *bucket = findBucket(key, &secondaryHash);
+    kp = lookupEntry(bucket, secondaryHash, key);
     if (kp == NULL)
         return false;
     kp->clear();
@@ -432,49 +453,33 @@ HashTable::remove(uint64_t key)
  *      The hash table did not previously contain key. An entry has been
  *      created to reflect the location of the object.
  */
-// TODO(ongaro): Eliminate redundant hashing.
 bool
 HashTable::replace(uint64_t key, const Object *object)
 {
-    uint64_t h;
-    uint64_t mk;
-    Entry *kp = lookupEntry(key);
-    if (kp == NULL) {
-        insert(key, object);
-        return false;
-    }
-    hash(key, &h, &mk);
-    kp->setObject(mk, object);
-    return true;
-}
-
-/**
- * Add a new object ID to the hash table.
- * The caller must guarantee that \a key does not exist in the hash table.
- * \param[in] key
- *      The ID of the object that resides at \a object.
- * \param[in] object
- *      The address of the Object.
- */
-// TODO(ongaro): Remove this.
-void
-HashTable::insert(uint64_t key, const Object *object)
-{
     uint64_t b = rdtsc();
-    uint64_t h;
-    uint64_t mk;
-    unsigned int i;
+    uint64_t secondaryHash;
+    CacheLine *bucket;
+    Entry *kp;
 
-    hash(key, &h, &mk);
-    CacheLine *cl = &buckets[h % numBuckets];
+    bucket = findBucket(key, &secondaryHash);
+
+    kp = lookupEntry(bucket, secondaryHash, key);
+    if (kp != NULL) {
+        kp->setObject(secondaryHash, object);
+        perfCounters.replaceCycles += (rdtsc() - b);
+        return true;
+    }
+
+    unsigned int i;
+    CacheLine *cl = bucket;
 
     while (1) {
-        Entry *kp = cl->entries;
+        kp = cl->entries;
         for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
             if (kp->isAvailable()) {
-                kp->setObject(mk, object);
-                perfCounters.insertCycles += (rdtsc() - b);
-                return;
+                kp->setObject(secondaryHash, object);
+                perfCounters.replaceCycles += (rdtsc() - b);
+                return false;
             }
             kp++;
         }
