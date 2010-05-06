@@ -31,8 +31,6 @@
 
 namespace RAMCloud {
 
-// TODO(ongaro): Use meaningful local variable names.
-
 // TODO(ongaro): Use pre-processor macros to turn off stat mechanism.
 
 // TODO(ongaro): Masking is faster than modulus if buckets is a power of 2.
@@ -363,22 +361,22 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
     CycleCounter cycles(&perfCounters.lookupEntryCycles);
     unsigned int i;
 
-    CacheLine *cl = bucket;
+    CacheLine *cacheLine = bucket;
 
     while (1) {
 
         // Try this cache line.
-        Entry *kp = cl->entries;
-        for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, kp++) {
+        Entry *candidate = cacheLine->entries;
+        for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, candidate++) {
 
-            if (kp->hashMatches(secondaryHash)) {
+            if (candidate->hashMatches(secondaryHash)) {
                 // The hash within the hash table entry matches, so with high
                 // probability this is the pointer we're looking for. To check,
                 // we must go to the object.
-                if (kp->getObject()->id == key) {
+                if (candidate->getObject()->id == key) {
                     if (PERF_COUNTERS)
                         perfCounters.lookupEntryDist.storeSample(cycles.stop());
-                    return kp;
+                    return candidate;
                 } else {
                     perfCounters.lookupEntryHashCollisions++;
                 }
@@ -387,13 +385,13 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
 
         // Not found in this cache line, see if there's a chain to another
         // cache line.
-        if (!cl->entries[ENTRIES_PER_CACHE_LINE - 1].isChainLink()) {
+        if (!cacheLine->entries[ENTRIES_PER_CACHE_LINE - 1].isChainLink()) {
             if (PERF_COUNTERS)
                 perfCounters.lookupEntryDist.storeSample(cycles.stop());
             return NULL;
         }
 
-        cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
+        cacheLine = cacheLine->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer(); // NOLINT
         perfCounters.lookupEntryChainsFollowed++;
     }
 }
@@ -409,12 +407,12 @@ const Object *
 HashTable::lookup(uint64_t key)
 {
     uint64_t secondaryHash;
-    Entry *kp;
+    Entry *entry;
     CacheLine *bucket = findBucket(key, &secondaryHash);
-    kp = lookupEntry(bucket, secondaryHash, key);
-    if (kp == NULL)
+    entry = lookupEntry(bucket, secondaryHash, key);
+    if (entry == NULL)
         return NULL;
-    return kp->getObject();
+    return entry->getObject();
 }
 
 /**
@@ -428,12 +426,12 @@ bool
 HashTable::remove(uint64_t key)
 {
     uint64_t secondaryHash;
-    Entry *kp;
+    Entry *entry;
     CacheLine *bucket = findBucket(key, &secondaryHash);
-    kp = lookupEntry(bucket, secondaryHash, key);
-    if (kp == NULL)
+    entry = lookupEntry(bucket, secondaryHash, key);
+    if (entry == NULL)
         return false;
-    kp->clear();
+    entry->clear();
     return true;
 }
 
@@ -457,39 +455,38 @@ HashTable::replace(uint64_t key, const Object *object)
     CycleCounter cycles(&perfCounters.replaceCycles);
     uint64_t secondaryHash;
     CacheLine *bucket;
-    Entry *kp;
+    Entry *entry;
+    unsigned int i;
 
     bucket = findBucket(key, &secondaryHash);
-
-    kp = lookupEntry(bucket, secondaryHash, key);
-    if (kp != NULL) {
-        kp->setObject(secondaryHash, object);
+    entry = lookupEntry(bucket, secondaryHash, key);
+    if (entry != NULL) {
+        entry->setObject(secondaryHash, object);
         return true;
     }
 
-    unsigned int i;
-    CacheLine *cl = bucket;
-
+    CacheLine *cacheLine = bucket;
     while (1) {
-        kp = cl->entries;
+        entry = cacheLine->entries;
         for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
-            if (kp->isAvailable()) {
-                kp->setObject(secondaryHash, object);
+            if (entry->isAvailable()) {
+                entry->setObject(secondaryHash, object);
                 return false;
             }
-            kp++;
+            entry++;
         }
 
-        Entry &last = cl->entries[ENTRIES_PER_CACHE_LINE - 1];
+        Entry &last = cacheLine->entries[ENTRIES_PER_CACHE_LINE - 1];
         if (last.isChainLink()) {
-            cl = last.getChainPointer();
+            cacheLine = last.getChainPointer();
         } else {
             // no empty space found, allocate a new cache line
-            cl = static_cast<CacheLine *>(mallocAligned(sizeof(CacheLine)));
-            cl->entries[0] = last;
+            void *buf = mallocAligned(sizeof(CacheLine));
+            cacheLine = static_cast<CacheLine *>(buf);
+            cacheLine->entries[0] = last;
             for (i = 1; i < ENTRIES_PER_CACHE_LINE; i++)
-                cl->entries[i].clear();
-            last.setChainPointer(cl);
+                cacheLine->entries[i].clear();
+            last.setChainPointer(cacheLine);
         }
         perfCounters.insertChainsFollowed++;
     }
