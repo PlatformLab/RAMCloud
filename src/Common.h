@@ -145,18 +145,59 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
     return p;
 }
 
-/*
- * static_assert(x) will generate a compile-time error if 'x' is false.
+#define STATIC_ASSERT_CAT2(a,b) a##b
+#define STATIC_ASSERT_CAT(a,b) STATIC_ASSERT_CAT2(a, b)
+/**
+ * Generate a compile-time error if \a x is false.
+ * You can "call" this anywhere declaring an enum is allowed -- it doesn't
+ * necessarily have to be inside a function.
+ * \param x
+ *      A condition that can be evaluated at compile-time.
  */
-#define static_assert(x) do { \
-        switch (x) { default: case 0: case (x): break; } \
-    } while (0)
+#define static_assert(x) enum { STATIC_ASSERT_CAT(STATIC_ASSERT_FAILED_, __COUNTER__) = 1/(x) }
 
 #ifdef __cplusplus
 void debug_dump64(const void *buf, uint64_t bytes);
+#if PERF_COUNTERS
 uint64_t rdtsc();
+#else
+#define rdtsc() 0UL
+#endif
 
 namespace RAMCloud {
+
+#if PERF_COUNTERS
+#define STAT_REF(pc) &(pc)
+#define STAT_INC(pc) ++(pc)
+#else
+#define STAT_REF(pc) NULL
+#define STAT_INC(pc) (void) 0
+#endif
+
+/**
+ * An object that keeps track of the elapsed number of cycles since its
+ * declaration.
+ */
+class CycleCounter {
+  public:
+#if PERF_COUNTERS
+    explicit CycleCounter();
+    explicit CycleCounter(uint64_t* total);
+    ~CycleCounter();
+    void cancel();
+    uint64_t stop();
+  private:
+    uint64_t* total;
+    uint64_t startTime;
+#else
+    explicit CycleCounter() {}
+    explicit CycleCounter(uint64_t* total) {}
+    void cancel() {}
+    uint64_t stop() { return 0; }
+#endif
+  private:
+    DISALLOW_COPY_AND_ASSIGN(CycleCounter);
+};
 
 class AssertionException {};
 

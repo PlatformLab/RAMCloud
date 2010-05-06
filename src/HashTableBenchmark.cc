@@ -38,21 +38,21 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
            (static_cast<double>(nlines) * HashTable::ENTRIES_PER_CACHE_LINE));
 
     for (i = 0; i < nkeys; i++) {
-        values[i].key = i;
-        ht.insert(i, &values[i]);
+        values[i].id = i;
+        ht.replace(i, &values[i]);
     }
 
-    uint64_t b = rdtsc();
+    CycleCounter lookupCycles;
     for (i = 0; i < nkeys; i++) {
         const Object *p = ht.lookup(i);
         assert(static_cast<uint64_t>(p - values) == i);
     }
-    printf("lookup avg: %llu\n", (rdtsc() - b) / nkeys);
+    printf("lookup avg: %llu\n", lookupCycles.stop() / nkeys);
 
     const HashTable::PerfCounters & pc = ht.getPerfCounters();
 
-    printf("insert: %llu avg ticks, %llu / %lu multi-cacheline accesses\n",
-         pc.insertCycles / nkeys, pc.insertChainsFollowed, nkeys);
+    printf("replace: %llu avg ticks, %llu / %lu multi-cacheline accesses\n",
+         pc.replaceCycles / nkeys, pc.insertChainsFollowed, nkeys);
     printf("lookup: %llu avg ticks, %llu / %lu multi-cacheline accesses, "
            "%llu minikey false positives\n",
            pc.lookupEntryCycles / nkeys, pc.lookupEntryChainsFollowed,
@@ -70,9 +70,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         int depth = 1;
         cl = &ht.buckets[i];
         entry = &cl->entries[HashTable::ENTRIES_PER_CACHE_LINE - 1];
-        while (entry->isChainLink()) {
+        while ((cl = entry->getChainPointer()) != NULL) {
             depth++;
-            cl = entry->getChainPointer();
             entry = &cl->entries[HashTable::ENTRIES_PER_CACHE_LINE - 1];
         }
         histogram[depth]++;

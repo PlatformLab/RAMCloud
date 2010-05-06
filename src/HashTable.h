@@ -27,14 +27,16 @@
 namespace RAMCloud {
 
 /**
- * A map from object IDs to the address of the latest version of an Object.
+ * A map from object IDs to Object addresses.
  *
  * This is used in resolving most object-level %RAMCloud requests. For example,
  * to read and write a %RAMCloud object, this lets you find the location of the
- * current version of the object.
+ * the object.
  *
  * Currently, the HashTable class assumes it is scoped to a specific %RAMCloud
  * table, so it does not concern itself with table IDs.
+ *
+ * This code is not thread-safe.
  *
  * \section impl Implementation Details
  *
@@ -42,11 +44,9 @@ namespace RAMCloud {
  * Each bucket consists of one or more chained \link CacheLine
  * CacheLines\endlink, the first of which lives inline in the array of buckets.
  * Each cache line consists of several hash table \link Entry Entries\endlink
- * in no particular order, which contain additional bits from the #hash()
- * function to disambiguate most bucket collisions and a pointer to the latest
- * version of the Object.
+ * in no particular order.
  *
- * If there are too many hash table entries to fit the bucket's first cache
+ * If there are too many hash table entries to fit in the bucket's first cache
  * line, additional overflow cache lines are allocated (outside of the array of
  * buckets). In this case, the last hash table entry in each of the
  * non-terminal cache lines has a pointer to the next cache line instead of a
@@ -57,14 +57,17 @@ class HashTable {
   public:
 
     /**
-     * Keeps track of statistics for a frequency distribution.
-     * See #HashTable::PerfCounters::lookupEntryDist for an example.
+     * Keeps track of statistics for a density distribution of frequencies.
+     * See #HashTable::PerfCounters::lookupEntryDist for an example, where it
+     * is used to keep track of the distribution of the number of cycles a
+     * method takes.
      *
      * See HashTableBenchmark.cc for code to generate a histogram from this.
      *
      * TODO(ongaro): Generalize and move to a utils file.
      */
     struct PerfDistribution {
+#if PERF_COUNTERS
 
         /**
          * The number of bins in which to categorize samples.
@@ -73,16 +76,16 @@ class HashTable {
         static const uint64_t NBINS = 5000;
 
         /**
-         * The width of each bin.
+         * The number of distinct integer values that are recorded in each bin.
          * See #bins.
          */
         static const uint64_t BIN_WIDTH = 10;
 
         /**
          * The frequencies of samples that fall into each bin.
-         * The first bin will have the number of samples with a value between 0
-         * (inclusive) and BIN_WIDTH (exclusive), the second between BIN_WIDTH
-         * and BIN_WIDTH * 2, etc.
+         * The first bin will have the number of samples between 0 (inclusive)
+         * and BIN_WIDTH (exclusive), the second between BIN_WIDTH and
+         * BIN_WIDTH * 2, etc.
          */
         uint64_t bins[NBINS];
 
@@ -107,64 +110,80 @@ class HashTable {
 
         PerfDistribution();
         void storeSample(uint64_t value);
+#define PERF_DIST_STORE_SAMPLE(d, v) (d).storeSample(v)
+#else
+#define PERF_DIST_STORE_SAMPLE(d, v) (void) 0
+#endif
     };
 
     /**
      * Performance counters for the HashTable.
      */
     struct PerfCounters {
+#if PERF_COUNTERS
 
         /**
-         * The sum of the number of CPU cycles spent across all #insert()
+         * The number of #replace() operations.
+         */
+        uint64_t replaceCalls;
+
+        /**
+         * The number of #lookupEntry() operations.
+         */
+        uint64_t lookupEntryCalls;
+
+        /**
+         * The total number of CPU cycles spent across all #replace()
          * operations.
          */
-        uint64_t insertCycles;
+        uint64_t replaceCycles;
 
         /**
-         * The sum of the number of CPU cycles spent across all #lookupEntry()
+         * The total number of CPU cycles spent across all #lookupEntry()
          * operations.
          */
         uint64_t lookupEntryCycles;
 
         /**
-         * The sum of the number of times a chain pointer was followed to
-         * another CacheLine across all #insert() operations.
+         * The total number of times a chain pointer was followed to another
+         * CacheLine while trying to insert a new entry within #replace().
          */
         uint64_t insertChainsFollowed;
 
         /**
-         * The sum of the number of times a chain pointer was followed to
-         * another CacheLine across all #lookupEntry() operations.
+         * The total number of times a chain pointer was followed to another
+         * CacheLine across all #lookupEntry() operations.
          */
         uint64_t lookupEntryChainsFollowed;
 
         /**
-         * The sum of the number of times there was an Entry collision across
+         * The total number of times there was an Entry collision across
          * all #lookupEntry() operations. This is when the buckets collide for
-         * a key, and the extra disambiguation bits inside the Entry collide,
-         * but the Object itself reveals that the entry does not correspond to
-         * the given key.
+         * an object ID, and the extra disambiguation bits inside the Entry
+         * collide, but the Object itself reveals that the entry does not
+         * correspond to the given object ID.
          */
         uint64_t lookupEntryHashCollisions;
 
         /**
-         * The number of CPU cycles spent for #lookupEntry() operations.
+         * The distribution of CPU cycles spent for #lookupEntry() operations.
          */
         PerfDistribution lookupEntryDist;
 
         PerfCounters();
+#endif
     };
 
     explicit HashTable(uint64_t nlines);
     ~HashTable();
-    const Object *lookup(uint64_t key);
-    void insert(uint64_t key, const Object *ptr);
-    bool remove(uint64_t key);
-    bool replace(uint64_t key, const Object *ptr);
+    const Object *lookup(uint64_t objectId);
+    bool remove(uint64_t objectId);
+    bool replace(uint64_t objectId, const Object *ptr);
 
     /**
+     * Return a read-only view of the hash table's performance counters.
      * \return
-     *      A read-only view of the hash table's performance counters.
+     *      See above.
      */
     const PerfCounters& getPerfCounters() const {
         return this->perfCounters;
@@ -176,15 +195,13 @@ class HashTable {
     class Entry;
     struct CacheLine;
 
-    Entry *lookupEntry(uint64_t key);
+    static uint64_t nearestPowerOfTwo(uint64_t n);
     void *mallocAligned(uint64_t len) const;
     void freeAligned(void *p) const;
-    static void hash(uint64_t key, uint64_t *bucketHash, uint64_t *entryHash);
-
-    /**
-     * The number of hash table \link Entry Entries\endlink in a CacheLine.
-     */
-    static const uint32_t ENTRIES_PER_CACHE_LINE = 8;
+    static uint64_t hash(uint64_t key);
+    CacheLine *findBucket(uint64_t objectId, uint64_t *secondaryHash) const;
+    Entry *lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
+                       uint64_t objectId);
 
     /**
      * A hash table entry.
@@ -192,15 +209,14 @@ class HashTable {
      * Hash table entries live on \link CacheLine CacheLines\endlink.
      *
      * A normal hash table entry (see #setObject(), #getObject(), and
-     * #hashMatches()) consists of additional bits from the #hash() function on
-     * the object ID to disambiguate most bucket collisions and a the address
-     * of the latest version of the Object. In this case, its chain bit will
-     * not be set and its pointer will not be \c NULL.
+     * #hashMatches()) consists of secondary bits from the #hash() function on
+     * the object ID to disambiguate most bucket collisions and the address of
+     * the Object. In this case, its chain bit will not be set and its pointer
+     * will not be \c NULL.
      *
-     * A chaining hash table entry (see #setChainPointer(), #getChainPointer(),
-     * and #isChainLink()) instead consists of a pointer to another cache line
-     * where additional entries can be found. In this case, its chain bit will
-     * be set.
+     * A chaining hash table entry (see #setChainPointer(), #getChainPointer())
+     * instead consists of a pointer to another cache line where additional
+     * entries can be found. In this case, its chain bit will be set.
      *
      * A hash table entry can also be unused (see #clear() and #isAvailable()).
      * In this case, its pointer will be set to \c NULL.
@@ -212,17 +228,16 @@ class HashTable {
         void setObject(uint64_t hash, const Object *object);
         void setChainPointer(CacheLine *ptr);
         bool isAvailable() const;
-        const Object* getObject() const;
-        CacheLine* getChainPointer() const;
+        const Object *getObject() const;
+        CacheLine *getChainPointer() const;
         bool hashMatches(uint64_t hash) const;
-        bool isChainLink() const;
 
       private:
         /**
          * The packed value stored in the entry.
          *
          * The exact bits are, from MSB to LSB:
-         * \li 16 bits of a hash
+         * \li 16 bits for the secondary hash
          * \li 1 bit for whether the pointer is a chain
          * \li 47 bits for the pointer
          *
@@ -250,6 +265,20 @@ class HashTable {
 
         friend class HashTableEntryTest;
     };
+    static_assert(sizeof(Entry) == 8);
+
+    /**
+     * The number of bytes per cache line in this machine.
+     */
+    static const uint32_t BYTES_PER_CACHE_LINE = 64;
+
+    /**
+     * The number of hash table \link Entry Entries\endlink in a CacheLine.
+     */
+    static const uint32_t ENTRIES_PER_CACHE_LINE = (BYTES_PER_CACHE_LINE /
+                                                    sizeof(Entry));
+    static_assert(BYTES_PER_CACHE_LINE % sizeof(Entry) == 0);
+
 
     /**
      * A linked list of cache lines composes a bucket within the HashTable.
@@ -268,12 +297,13 @@ class HashTable {
          */
         Entry entries[ENTRIES_PER_CACHE_LINE];
     };
+    static_assert(sizeof(CacheLine) == sizeof(Entry) * ENTRIES_PER_CACHE_LINE);
 
     /**
      * The array of buckets.
      * See HashTable.
      */
-    CacheLine * buckets;
+    CacheLine *buckets;
 
     /**
      * The number of buckets allocated to the table.

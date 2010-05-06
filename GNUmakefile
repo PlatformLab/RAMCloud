@@ -101,6 +101,7 @@ include src/MakefragServer
 include src/MakefragBackup
 include src/MakefragClient
 include src/MakefragTest
+include src/misc/Makefrag
 include bindings/python/Makefrag
 
 clean: tests-clean docs-clean
