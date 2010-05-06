@@ -22,8 +22,6 @@
 
 namespace RAMCloud {
 
-// TODO(ongaro): Test the perf counters as well.
-
 /**
  * Unit tests for HashTable::PerfDistribution.
  */
@@ -522,11 +520,16 @@ class HashTableTest : public CppUnit::TestFixture {
             SETUP(0);
             CPPUNIT_ASSERT_EQUAL(static_cast<HashTable::Entry*>(NULL),
                                  findBucketAndLookupEntry(&ht, numEnt + 1));
+            CPPUNIT_ASSERT_EQUAL(1UL, ht.getPerfCounters().lookupEntryCalls);
+            CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryCycles > 0);
+            CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryDist.max > 0);
         }
         {
             SETUP(HashTable::ENTRIES_PER_CACHE_LINE * 5);
             CPPUNIT_ASSERT_EQUAL(static_cast<HashTable::Entry*>(NULL),
                                  findBucketAndLookupEntry(&ht, numEnt + 1));
+            CPPUNIT_ASSERT_EQUAL(5UL,
+                        ht.getPerfCounters().lookupEntryChainsFollowed);
         }
     }
 
@@ -579,9 +582,12 @@ class HashTableTest : public CppUnit::TestFixture {
         SETUP(1);
         CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 0, 0),
                              findBucketAndLookupEntry(&ht, 0));
+        CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryDist.max > 0);
         values[0].id = 0x43324890UL;
         CPPUNIT_ASSERT_EQUAL(static_cast<HashTable::Entry*>(NULL),
                              findBucketAndLookupEntry(&ht, 0));
+        CPPUNIT_ASSERT_EQUAL(1UL,
+                             ht.getPerfCounters().lookupEntryHashCollisions);
     }
 
     void test_lookup()
@@ -610,6 +616,8 @@ class HashTableTest : public CppUnit::TestFixture {
         DECL_OBJECT(v, 83UL);
         DECL_OBJECT(w, 83UL);
         CPPUNIT_ASSERT(!ht.replace(83UL, &v));
+        CPPUNIT_ASSERT_EQUAL(1UL, ht.getPerfCounters().replaceCalls);
+        CPPUNIT_ASSERT(ht.getPerfCounters().replaceCycles > 0);
         CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&v), ht.lookup(83UL));
         CPPUNIT_ASSERT(ht.replace(83UL, &v));
         CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&v), ht.lookup(83UL));
@@ -654,6 +662,7 @@ class HashTableTest : public CppUnit::TestFixture {
         DECL_OBJECT(v, 83UL);
         ht.replace(83UL, &v);
         assertEntryIs(&ht, 2, 0, &v);
+        CPPUNIT_ASSERT_EQUAL(2UL, ht.getPerfCounters().insertChainsFollowed);
     }
 
     /**
