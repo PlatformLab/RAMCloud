@@ -158,6 +158,14 @@ uint64_t rdtsc();
 
 namespace RAMCloud {
 
+#if PERF_COUNTERS
+#define STAT_REF(pc) &(pc)
+#define STAT_INC(pc) ++(pc)
+#else
+#define STAT_REF(pc) NULL
+#define STAT_INC(pc) (void) 0
+#endif
+
 /**
  * An object that keeps track of the elapsed number of cycles since its
  * declaration.

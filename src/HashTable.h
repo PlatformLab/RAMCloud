@@ -69,6 +69,7 @@ class HashTable {
      * TODO(ongaro): Generalize and move to a utils file.
      */
     struct PerfDistribution {
+#if PERF_COUNTERS
 
         /**
          * The number of bins in which to categorize samples.
@@ -111,13 +112,17 @@ class HashTable {
 
         PerfDistribution();
         void storeSample(uint64_t value);
+#define PERF_DIST_STORE_SAMPLE(d, v) (d).storeSample(v)
+#else
+#define PERF_DIST_STORE_SAMPLE(d, v) (void) 0
+#endif
     };
 
     /**
      * Performance counters for the HashTable.
      */
     struct PerfCounters {
-
+#if PERF_COUNTERS
         /**
          * The total number of CPU cycles spent across all #replace()
          * operations.
@@ -159,6 +164,7 @@ class HashTable {
         PerfDistribution lookupEntryDist;
 
         PerfCounters();
+#endif
     };
 
     explicit HashTable(uint64_t nlines);

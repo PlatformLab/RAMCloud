@@ -31,11 +31,10 @@
 
 namespace RAMCloud {
 
-// TODO(ongaro): Use pre-processor macros to turn off stat mechanism.
-
 // TODO(ongaro): Masking is faster than modulus if buckets is a power of 2.
 
 
+#if PERF_COUNTERS
 // HashTable::PerfDistribution
 
 
@@ -80,7 +79,7 @@ HashTable::PerfCounters::PerfCounters()
     lookupEntryDist()
 {
 }
-
+#endif
 
 // HashTable::Entry
 
@@ -358,7 +357,7 @@ HashTable::findBucket(uint64_t key, uint64_t *secondaryHash)
 HashTable::Entry *
 HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
 {
-    CycleCounter cycles(&perfCounters.lookupEntryCycles);
+    CycleCounter cycles(STAT_REF(perfCounters.lookupEntryCycles));
     unsigned int i;
 
     CacheLine *cacheLine = bucket;
@@ -374,11 +373,11 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
                 // probability this is the pointer we're looking for. To check,
                 // we must go to the object.
                 if (candidate->getObject()->id == key) {
-                    if (PERF_COUNTERS)
-                        perfCounters.lookupEntryDist.storeSample(cycles.stop());
+                    PERF_DIST_STORE_SAMPLE(perfCounters.lookupEntryDist,
+                                           cycles.stop());
                     return candidate;
                 } else {
-                    perfCounters.lookupEntryHashCollisions++;
+                    STAT_INC(perfCounters.lookupEntryHashCollisions);
                 }
             }
         }
@@ -386,13 +385,13 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
         // Not found in this cache line, see if there's a chain to another
         // cache line.
         if (!cacheLine->entries[ENTRIES_PER_CACHE_LINE - 1].isChainLink()) {
-            if (PERF_COUNTERS)
-                perfCounters.lookupEntryDist.storeSample(cycles.stop());
+            PERF_DIST_STORE_SAMPLE(perfCounters.lookupEntryDist,
+                                   cycles.stop());
             return NULL;
         }
 
         cacheLine = cacheLine->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer(); // NOLINT
-        perfCounters.lookupEntryChainsFollowed++;
+        STAT_INC(perfCounters.lookupEntryChainsFollowed);
     }
 }
 
@@ -452,7 +451,7 @@ HashTable::remove(uint64_t key)
 bool
 HashTable::replace(uint64_t key, const Object *object)
 {
-    CycleCounter cycles(&perfCounters.replaceCycles);
+    CycleCounter cycles(STAT_REF(perfCounters.replaceCycles));
     uint64_t secondaryHash;
     CacheLine *bucket;
     Entry *entry;
@@ -488,7 +487,7 @@ HashTable::replace(uint64_t key, const Object *object)
                 cacheLine->entries[i].clear();
             last.setChainPointer(cacheLine);
         }
-        perfCounters.insertChainsFollowed++;
+        STAT_INC(perfCounters.insertChainsFollowed);
     }
 }
 
