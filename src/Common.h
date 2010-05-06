@@ -154,7 +154,11 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
 
 #ifdef __cplusplus
 void debug_dump64(const void *buf, uint64_t bytes);
+#if PERF_COUNTERS
 uint64_t rdtsc();
+#else
+#define rdtsc() 0UL
+#endif
 
 namespace RAMCloud {
 

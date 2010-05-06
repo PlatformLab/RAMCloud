@@ -58,7 +58,7 @@ debug_dump64(const void *buf, uint64_t bytes)
     }
 }
 
-// TODO(ongaro): Compile this out for production
+#if PERF_COUNTERS
 uint64_t
 rdtsc()
 {
@@ -72,6 +72,7 @@ rdtsc()
 
     return (((uint64_t)hi << 32) | lo);
 }
+#endif
 
 #ifdef __cplusplus
 
