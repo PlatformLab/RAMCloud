@@ -360,7 +360,7 @@ HashTable::findBucket(uint64_t key, uint64_t *secondaryHash)
 HashTable::Entry *
 HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
 {
-    uint64_t b = rdtsc();
+    CycleCounter cycles(&perfCounters.lookupEntryCycles);
     unsigned int i;
 
     CacheLine *cl = bucket;
@@ -376,9 +376,8 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
                 // probability this is the pointer we're looking for. To check,
                 // we must go to the object.
                 if (kp->getObject()->id == key) {
-                    uint64_t diff = rdtsc() - b;
-                    perfCounters.lookupEntryCycles += diff;
-                    perfCounters.lookupEntryDist.storeSample(diff);
+                    if (PERF_COUNTERS)
+                        perfCounters.lookupEntryDist.storeSample(cycles.stop());
                     return kp;
                 } else {
                     perfCounters.lookupEntryHashCollisions++;
@@ -389,9 +388,8 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
         // Not found in this cache line, see if there's a chain to another
         // cache line.
         if (!cl->entries[ENTRIES_PER_CACHE_LINE - 1].isChainLink()) {
-            uint64_t diff = rdtsc() - b;
-            perfCounters.lookupEntryCycles += diff;
-            perfCounters.lookupEntryDist.storeSample(diff);
+            if (PERF_COUNTERS)
+                perfCounters.lookupEntryDist.storeSample(cycles.stop());
             return NULL;
         }
 
@@ -456,7 +454,7 @@ HashTable::remove(uint64_t key)
 bool
 HashTable::replace(uint64_t key, const Object *object)
 {
-    uint64_t b = rdtsc();
+    CycleCounter cycles(&perfCounters.replaceCycles);
     uint64_t secondaryHash;
     CacheLine *bucket;
     Entry *kp;
@@ -466,7 +464,6 @@ HashTable::replace(uint64_t key, const Object *object)
     kp = lookupEntry(bucket, secondaryHash, key);
     if (kp != NULL) {
         kp->setObject(secondaryHash, object);
-        perfCounters.replaceCycles += (rdtsc() - b);
         return true;
     }
 
@@ -478,7 +475,6 @@ HashTable::replace(uint64_t key, const Object *object)
         for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
             if (kp->isAvailable()) {
                 kp->setObject(secondaryHash, object);
-                perfCounters.replaceCycles += (rdtsc() - b);
                 return false;
             }
             kp++;

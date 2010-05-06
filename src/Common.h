@@ -158,6 +158,31 @@ uint64_t rdtsc();
 
 namespace RAMCloud {
 
+/**
+ * An object that keeps track of the elapsed number of cycles since its
+ * declaration.
+ */
+class CycleCounter {
+  public:
+#if PERF_COUNTERS
+    explicit CycleCounter();
+    explicit CycleCounter(uint64_t* total);
+    ~CycleCounter();
+    void cancel();
+    uint64_t stop();
+  private:
+    uint64_t* total;
+    uint64_t startTime;
+#else
+    explicit CycleCounter() {}
+    explicit CycleCounter(uint64_t* total) {}
+    void cancel() {}
+    uint64_t stop() { return 0; }
+#endif
+  private:
+    DISALLOW_COPY_AND_ASSIGN(CycleCounter);
+};
+
 class AssertionException {};
 
 void assert(bool invariant);

@@ -42,12 +42,12 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         ht.replace(i, &values[i]);
     }
 
-    uint64_t b = rdtsc();
+    CycleCounter lookupCycles;
     for (i = 0; i < nkeys; i++) {
         const Object *p = ht.lookup(i);
         assert(static_cast<uint64_t>(p - values) == i);
     }
-    printf("lookup avg: %llu\n", (rdtsc() - b) / nkeys);
+    printf("lookup avg: %llu\n", lookupCycles.stop() / nkeys);
 
     const HashTable::PerfCounters & pc = ht.getPerfCounters();
 
