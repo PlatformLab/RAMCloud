@@ -261,7 +261,6 @@ CPPUNIT_TEST_SUITE_REGISTRATION(HashTableEntryTest);
  */
 class HashTableTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(HashTableTest);
-    CPPUNIT_TEST(test_sizes);
     CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_destructor);
     CPPUNIT_TEST(test_simple);
@@ -441,14 +440,6 @@ class HashTableTest : public CppUnit::TestFixture {
 
     HashTableTest()
     {
-    }
-
-    void test_sizes()
-    {
-        // We're specifically aiming to fit in a cache line.
-        CPPUNIT_ASSERT(8 == sizeof(HashTable::Entry));
-        CPPUNIT_ASSERT(8 * HashTable::ENTRIES_PER_CACHE_LINE ==
-                       sizeof(HashTable::CacheLine));
     }
 
     void test_constructor()

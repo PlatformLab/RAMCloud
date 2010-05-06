@@ -194,14 +194,6 @@ class HashTable {
     static uint64_t hash(uint64_t key);
     CacheLine *findBucket(uint64_t key, uint64_t *secondaryHash);
 
-    // TODO(ongaro): Define BYTES_PER_CACHE_LINE, compute
-    // ENTRIES_PER_CACHE_LINE.
-
-    /**
-     * The number of hash table \link Entry Entries\endlink in a CacheLine.
-     */
-    static const uint32_t ENTRIES_PER_CACHE_LINE = 8;
-
     /**
      * A hash table entry.
      *
@@ -266,6 +258,20 @@ class HashTable {
 
         friend class HashTableEntryTest;
     };
+    static_assert(sizeof(Entry) == 8);
+
+    /**
+     * The number of bytes per cache line in this machine.
+     */
+    static const uint32_t BYTES_PER_CACHE_LINE = 64;
+
+    /**
+     * The number of hash table \link Entry Entries\endlink in a CacheLine.
+     */
+    static const uint32_t ENTRIES_PER_CACHE_LINE = (BYTES_PER_CACHE_LINE /
+                                                    sizeof(Entry));
+    static_assert(BYTES_PER_CACHE_LINE % sizeof(Entry) == 0);
+
 
     /**
      * A linked list of cache lines composes a bucket within the HashTable.
@@ -284,6 +290,7 @@ class HashTable {
          */
         Entry entries[ENTRIES_PER_CACHE_LINE];
     };
+    static_assert(sizeof(CacheLine) == sizeof(Entry) * ENTRIES_PER_CACHE_LINE);
 
     /**
      * The array of buckets.
