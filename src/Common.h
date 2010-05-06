@@ -145,12 +145,16 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
     return p;
 }
 
-/*
- * static_assert(x) will generate a compile-time error if 'x' is false.
+#define STATIC_ASSERT_CAT2(a,b) a##b
+#define STATIC_ASSERT_CAT(a,b) STATIC_ASSERT_CAT2(a, b)
+/**
+ * Generate a compile-time error if \a x is false.
+ * You can "call" this anywhere declaring an enum is allowed -- it doesn't
+ * necessarily have to be inside a function.
+ * \param x
+ *      A condition that can be evaluated at compile-time.
  */
-#define static_assert(x) do { \
-        switch (x) { default: case 0: case (x): break; } \
-    } while (0)
+#define static_assert(x) enum { STATIC_ASSERT_CAT(STATIC_ASSERT_FAILED_, __COUNTER__) = 1/(x) }
 
 #ifdef __cplusplus
 void debug_dump64(const void *buf, uint64_t bytes);
