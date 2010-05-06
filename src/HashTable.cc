@@ -31,9 +31,6 @@
 
 namespace RAMCloud {
 
-// TODO(ongaro): Masking is faster than modulus if buckets is a power of 2.
-
-
 #if PERF_COUNTERS
 // HashTable::PerfDistribution
 
@@ -234,19 +231,26 @@ HashTable::Entry::isChainLink() const
 /**
  * Constructor for HashTable.
  * \param[in] numBuckets
- *      The number of buckets in the new hash table.
+ *      The number of buckets in the new hash table. This should be a power of
+ *      two.
  */
 HashTable::HashTable(uint64_t numBuckets)
-    : buckets(NULL), numBuckets(numBuckets), useHugeTlb(false), perfCounters()
+    : buckets(NULL), numBuckets(nearestPowerOfTwo(numBuckets)),
+      useHugeTlb(false), perfCounters()
 {
     // Allocate space for a new hash table and set its entries to unused.
 
     uint64_t i, j;
 
-    size_t bucketsSize = numBuckets * sizeof(CacheLine);
+    if (numBuckets != this->numBuckets) {
+        fprintf(stderr, "Warning: HashTable truncated to %lu buckets "
+                        "(nearest power of two)\n", this->numBuckets);
+    }
+
+    size_t bucketsSize = this->numBuckets * sizeof(CacheLine);
     buckets = static_cast<CacheLine *>(mallocAligned(bucketsSize));
 
-    for (i = 0; i < numBuckets; i++) {
+    for (i = 0; i < this->numBuckets; i++) {
         for (j = 0; j < ENTRIES_PER_CACHE_LINE; j++)
             buckets[i].entries[j].clear();
     }
@@ -264,6 +268,27 @@ HashTable::~HashTable()
         buckets = NULL;
     }
 }
+
+/**
+ * Find the nearest power of 2 that is less than or equal to \a n.
+ * \param n
+ *      A maximum for the return value.
+ * \return
+ *      A power of two that is less than or equal to \a n.
+ */
+uint64_t
+HashTable::nearestPowerOfTwo(uint64_t n)
+{
+    if ((n & (n - 1)) == 0)
+        return n;
+
+    for (int i = 63; i >= 0; i--) {
+        if ((1UL << i) <= n)
+            return (1 << i);
+    }
+    return 0;
+}
+
 
 /**
  * Allocate an aligned chunk of memory.
@@ -336,7 +361,11 @@ HashTable::findBucket(uint64_t key, uint64_t *secondaryHash)
     hashValue = hash(key);
     bucketHash = hashValue & 0x0000ffffffffffffUL;
     *secondaryHash = hashValue >> 48;
-    return &buckets[bucketHash % numBuckets];
+    return &buckets[bucketHash & (numBuckets - 1)];
+    // This is equivalent to:
+    //     &buckets[bucketHash % numBuckets]
+    // since numBuckets is a power of two, and this saves about 14 cycles on an
+    // Intel Core 2 (see src/misc/modulus.cc).
 }
 
 /**

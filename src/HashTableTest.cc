@@ -262,6 +262,7 @@ CPPUNIT_TEST_SUITE_REGISTRATION(HashTableEntryTest);
 class HashTableTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(HashTableTest);
     CPPUNIT_TEST(test_constructor);
+    CPPUNIT_TEST(test_constructor_truncate);
     CPPUNIT_TEST(test_destructor);
     CPPUNIT_TEST(test_simple);
     CPPUNIT_TEST(test_hash);
@@ -446,17 +447,30 @@ class HashTableTest : public CppUnit::TestFixture {
     {
         char buf[sizeof(HashTable) + 1024];
         memset(buf, 0xca, sizeof(buf));
-        HashTable *ht = new(buf) HashTable(10);
-        for (uint32_t i = 0; i < 10; i++) {
+        HashTable *ht = new(buf) HashTable(16);
+        for (uint32_t i = 0; i < 16; i++) {
             for (uint32_t j = 0; j < HashTable::ENTRIES_PER_CACHE_LINE; j++)
                 CPPUNIT_ASSERT(ht->buckets[i].entries[j].isAvailable());
         }
     }
 
+    void test_constructor_truncate()
+    {
+        // This is effectively testing nearestPowerOfTwo.
+        CPPUNIT_ASSERT_EQUAL(1UL, HashTable(1).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(2UL, HashTable(2).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(2UL, HashTable(3).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(4UL, HashTable(4).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(4UL, HashTable(5).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(4UL, HashTable(6).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(4UL, HashTable(7).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(8UL, HashTable(8).numBuckets);
+    }
+
     void test_destructor()
     {
         char buf[sizeof(HashTable) + 1024];
-        HashTable *ht = new(buf) HashTable(10);
+        HashTable *ht = new(buf) HashTable(16);
         ht->~HashTable();
         CPPUNIT_ASSERT(ht->buckets == NULL);
         ht->~HashTable();
