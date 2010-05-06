@@ -70,9 +70,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         int depth = 1;
         cl = &ht.buckets[i];
         entry = &cl->entries[HashTable::ENTRIES_PER_CACHE_LINE - 1];
-        while (entry->isChainLink()) {
+        while ((cl = entry->getChainPointer()) != NULL) {
             depth++;
-            cl = entry->getChainPointer();
             entry = &cl->entries[HashTable::ENTRIES_PER_CACHE_LINE - 1];
         }
         histogram[depth]++;

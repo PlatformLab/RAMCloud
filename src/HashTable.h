@@ -206,10 +206,9 @@ class HashTable {
      * the Object. In this case, its chain bit will not be set and its pointer
      * will not be \c NULL.
      *
-     * A chaining hash table entry (see #setChainPointer(), #getChainPointer(),
-     * and #isChainLink()) instead consists of a pointer to another cache line
-     * where additional entries can be found. In this case, its chain bit will
-     * be set.
+     * A chaining hash table entry (see #setChainPointer(), #getChainPointer())
+     * instead consists of a pointer to another cache line where additional
+     * entries can be found. In this case, its chain bit will be set.
      *
      * A hash table entry can also be unused (see #clear() and #isAvailable()).
      * In this case, its pointer will be set to \c NULL.
@@ -224,7 +223,6 @@ class HashTable {
         const Object *getObject() const;
         CacheLine *getChainPointer() const;
         bool hashMatches(uint64_t hash) const;
-        bool isChainLink() const;
 
       private:
         /**

@@ -168,7 +168,7 @@ HashTable::Entry::isAvailable() const
 /**
  * Extract the Object address from a hash table entry.
  * The caller must first verify that the hash table entry indeed stores an
- * object address with #hashMatches() or #isChainLink().
+ * object address with #hashMatches().
  * \return
  *      The address of the Object stored.
  */
@@ -182,16 +182,16 @@ HashTable::Entry::getObject() const
 
 /**
  * Extract the chain pointer to another cache line.
- * The caller should have previously ensured that the hash table entry indeed
- * stores a chain pointer with #isChainLink().
  * \return
- *      The chain pointer to another cache line.
+ *      The chain pointer to another cache line. If this entry does not store a
+ *      chain pointer, returns \c NULL instead.
  */
 HashTable::CacheLine *
 HashTable::Entry::getChainPointer() const
 {
     UnpackedEntry ue = unpack();
-    assert(ue.chain);
+    if (!ue.chain)
+        return NULL;
     return reinterpret_cast<CacheLine*>(ue.ptr);
 }
 
@@ -208,20 +208,6 @@ HashTable::Entry::hashMatches(uint64_t hash) const
 {
     UnpackedEntry ue = unpack();
     return (!ue.chain && ue.ptr != 0 && ue.hash == hash);
-}
-
-/**
- * Check whether this hash table entry has a chain pointer to another cache line.
- * \return
- *      Whether the hash table entry has a chain pointer to another cache line
- *      (as opposed to an object address).
- */
-// TODO(ongaro): Remove this, have getChainPointer return NULL instead.
-bool
-HashTable::Entry::isChainLink() const
-{
-    UnpackedEntry ue = unpack();
-    return ue.chain;
 }
 
 
@@ -413,13 +399,12 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash, uint64_t key)
 
         // Not found in this cache line, see if there's a chain to another
         // cache line.
-        if (!cacheLine->entries[ENTRIES_PER_CACHE_LINE - 1].isChainLink()) {
+        cacheLine = cacheLine->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer(); // NOLINT
+        if (cacheLine == NULL) {
             PERF_DIST_STORE_SAMPLE(perfCounters.lookupEntryDist,
                                    cycles.stop());
             return NULL;
         }
-
-        cacheLine = cacheLine->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer(); // NOLINT
         STAT_INC(perfCounters.lookupEntryChainsFollowed);
     }
 }
@@ -505,9 +490,8 @@ HashTable::replace(uint64_t key, const Object *object)
         }
 
         Entry &last = cacheLine->entries[ENTRIES_PER_CACHE_LINE - 1];
-        if (last.isChainLink()) {
-            cacheLine = last.getChainPointer();
-        } else {
+        cacheLine = last.getChainPointer();
+        if (cacheLine == NULL) {
             // no empty space found, allocate a new cache line
             void *buf = mallocAligned(sizeof(CacheLine));
             cacheLine = static_cast<CacheLine *>(buf);

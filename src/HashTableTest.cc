@@ -102,7 +102,6 @@ class HashTableEntryTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_getObject);
     CPPUNIT_TEST(test_getChainPointer);
     CPPUNIT_TEST(test_hashMatches);
-    CPPUNIT_TEST(test_isChainLink);
     CPPUNIT_TEST_SUITE_END();
 
     /**
@@ -224,6 +223,10 @@ class HashTableEntryTest : public CppUnit::TestFixture {
         HashTable::Entry e;
         e.setChainPointer(cl);
         CPPUNIT_ASSERT_EQUAL(cl, e.getChainPointer());
+        e.clear();
+        CPPUNIT_ASSERT(NULL == e.getChainPointer());
+        e.setObject(0UL, reinterpret_cast<const Object*>(0x1UL));
+        CPPUNIT_ASSERT(NULL == e.getChainPointer());
     }
 
     void test_hashMatches()
@@ -240,17 +243,6 @@ class HashTableEntryTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!e.hashMatches(0UL));
         CPPUNIT_ASSERT(e.hashMatches(0xbeefUL));
         CPPUNIT_ASSERT(!e.hashMatches(0xfeedUL));
-    }
-
-    void test_isChainLink()
-    {
-        HashTable::Entry e;
-        e.clear();
-        CPPUNIT_ASSERT(!e.isChainLink());
-        e.setChainPointer(reinterpret_cast<HashTable::CacheLine*>(0x1UL));
-        CPPUNIT_ASSERT(e.isChainLink());
-        e.setObject(0UL, reinterpret_cast<const Object*>(0x1UL));
-        CPPUNIT_ASSERT(!e.isChainLink());
     }
 
 };
@@ -674,7 +666,7 @@ class HashTableTest : public CppUnit::TestFixture {
         SETUP(HashTable::ENTRIES_PER_CACHE_LINE);
         DECL_OBJECT(v, 83UL);
         ht.replace(83UL, &v);
-        CPPUNIT_ASSERT(entryAt(&ht, 0, seven).isChainLink());
+        CPPUNIT_ASSERT(entryAt(&ht, 0, seven).getChainPointer() != NULL);
         CPPUNIT_ASSERT(entryAt(&ht, 0, seven).getChainPointer() !=
                        &cacheLines[1]);
         assertEntryIs(&ht, 1, 0, &values[seven]);
