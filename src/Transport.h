@@ -65,8 +65,9 @@ struct TransportException {
  * An exception that is thrown when the Transport class encounters a fatal
  * error. This is not recoverable unless you have another Transport to fall
  * back to, but it's also not a failed assertion because it depends on the
- * configuration of the outside world. If you're trying to handle these
- * gracefully, you're probably doing something wrong.
+ * configuration of the outside world (for example, a port number is already in
+ * use). In general, you should probably handle this by printing out a message
+ * and exiting.
  */
 
 // TODO(ongaro): Move inside Transport.
@@ -97,7 +98,14 @@ struct UnrecoverableTransportException {
 };
 
 /**
- * Best-effort reliable communication with the outside world.
+ * An interface for reliable communication across the network.
+ *
+ * Implementations all send and receive RPC messages reliably over the network.
+ * These messages are variable-length and can be larger than a single network
+ * frame in size.
+ *
+ * Implementations differ in the protocol stacks they use and their performance
+ * characteristics.
  */
 class Transport {
 
@@ -193,6 +201,7 @@ class Transport {
      *      #Transport::ServerRPC::ignore() to release the resources associated
      *      with this object.
      */
+    // TODO(ongaro): payload should be part of ServerRPC
     virtual ServerRPC* serverRecv(Buffer* payload)
         __attribute__((warn_unused_result)) = 0;
 
