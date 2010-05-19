@@ -28,7 +28,13 @@ main()
     RAMCloud::TCPTransport tx(SVRADDR, SVRPORT);
     while (true) {
         RAMCloud::Buffer payload;
-        tx.serverRecv(&payload)->sendReply(&payload);
+        RAMCloud::Transport::ServerRPC* rpc = tx.serverRecv();
+        RAMCloud::Buffer::Iterator iter(rpc->recvPayload);
+        while (!iter.isDone()) {
+            rpc->replyPayload.append(iter.getData(), iter.getLength());
+            iter.next();
+        }
+        rpc->sendReply();
     }
     return 0;
 };

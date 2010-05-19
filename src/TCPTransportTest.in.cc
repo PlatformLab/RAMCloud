@@ -772,11 +772,10 @@ class TCPTransportTest : public CppUnit::TestFixture {
         TCPTransport::sys = &tsc;
 
         TCPTransport t(NULL, 0);
-        Buffer payload;
-        send_expect = &payload;
         TCPTransport::TCPServerRPC* rpc = new TCPTransport::TCPServerRPC();
+        send_expect = &rpc->replyPayload;
         rpc->realServerSocket.fd = 10;
-        rpc->sendReply(&payload);
+        rpc->sendReply();
     }
 
     void test_TCPClientRPC_getReply() {
@@ -821,7 +820,8 @@ class TCPTransportTest : public CppUnit::TestFixture {
         BEGIN_MOCK(TS, TestServerSocket);
             init(listenSocket == init_expect) {
             }
-            recv(payload == recv_expect) {
+            recv(payload) {
+                recv_expect = payload;
                 throw Transport::Exception();
             }
             init(listenSocket == init_expect) {
@@ -837,7 +837,9 @@ class TCPTransportTest : public CppUnit::TestFixture {
         init_expect = &t.listenSocket;
         Buffer payload;
         recv_expect = &payload;
-        t.serverRecv(&payload)->ignore();
+        Transport::ServerRPC* rpc = t.serverRecv();
+        CPPUNIT_ASSERT(recv_expect == &rpc->recvPayload);
+        rpc->ignore();
     }
 
     void test_TCPTransport_clientSend() {

@@ -658,10 +658,9 @@ BackupServer::handleRPC()
     backup_rpc *req;
     backup_rpc *resp = reinterpret_cast<backup_rpc *>(&resp_buf[0]);
 
-    Buffer reqBuf;
-    Transport::ServerRPC *rpc = trans->serverRecv(&reqBuf);
+    Transport::ServerRPC *rpc = trans->serverRecv();
     req = reinterpret_cast<backup_rpc*>(
-        reqBuf.getRange(0, reqBuf.totalLength()));
+        rpc->recvPayload.getRange(0, rpc->recvPayload.totalLength()));
 
     if (debug_rpc)
         printf("got rpc type: 0x%08x, len 0x%08x\n",
@@ -704,9 +703,8 @@ BackupServer::handleRPC()
         resp->hdr.len = static_cast<uint32_t>(rpclen);
     }
 
-    Buffer respBuf;
-    respBuf.append(resp, resp->hdr.len);
-    rpc->sendReply(&respBuf);
+    rpc->replyPayload.append(resp, resp->hdr.len);
+    rpc->sendReply();
     free(resp_buf);
 }
 

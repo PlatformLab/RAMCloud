@@ -487,10 +487,9 @@ Server::HandleRPC()
 {
     rcrpc_any *req;
 
-    Buffer reqBuf;
-    Transport::ServerRPC *rpc = trans->serverRecv(&reqBuf);
+    Transport::ServerRPC *rpc = trans->serverRecv();
     req = reinterpret_cast<rcrpc_any*>(
-        reqBuf.getRange(0, reqBuf.totalLength()));
+        rpc->recvPayload.getRange(0, rpc->recvPayload.totalLength()));
 
     char rpcbuf[MAX_RPC_LEN];
     rcrpc_any *resp = reinterpret_cast<rcrpc_any*>(rpcbuf);
@@ -544,9 +543,8 @@ Server::HandleRPC()
                                msglen + 1);
     }
 
-    Buffer replyBuf;
-    replyBuf.append(resp, resp->header.len);
-    rpc->sendReply(&replyBuf);
+    rpc->replyPayload.append(resp, resp->header.len);
+    rpc->sendReply();
 }
 
 void __attribute__ ((noreturn))

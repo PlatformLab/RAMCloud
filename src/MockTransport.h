@@ -33,7 +33,7 @@ class MockTransport : public Transport {
     class MockServerRPC : public ServerRPC {
         public:
             explicit MockServerRPC(MockTransport* trans) : trans(trans) {}
-            void sendReply(Buffer* payload) {
+            void sendReply() {
                 ++trans->serverSendCount;
                 delete this;
             }
@@ -59,7 +59,7 @@ class MockTransport : public Transport {
 
     virtual ~MockTransport() { }
 
-    virtual ServerRPC* serverRecv(Buffer* payload) {
+    virtual ServerRPC* serverRecv() {
         ++serverRecvCount;
         return new MockServerRPC(this);
     }

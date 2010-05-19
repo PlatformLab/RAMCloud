@@ -128,7 +128,13 @@ class Transport {
 
         /**
          * Wait for the RPC response to arrive.
-         * You should discard all pointers to this object after this call.
+         *
+         * The response will be available in the #::Buffer passed to
+         * #clientSend() when this call returns.
+         *
+         * You should discard all pointers to this #ClientRPC object after this
+         * call.
+         *
          * \throw Transport::Exception
          *      If the service has crashed.
          */
@@ -148,7 +154,7 @@ class Transport {
         /**
          * Constructor for ServerRPC.
          */
-        ServerRPC() {}
+        ServerRPC() : recvPayload(), replyPayload() {}
 
       public:
         /**
@@ -157,21 +163,33 @@ class Transport {
         virtual ~ServerRPC() {}
 
         /**
-         * Respond to the RPC.
-         * You should discard all pointers to this object after this call.
-         * \param[in] payload
-         *      The RPC payload to send on the wire.
+         * Respond to the RPC with the contents of #replyPayload.
+         *
+         * You should discard all pointers to this #ServerRPC object after this
+         * call.
+         *
          * \throw Transport::Exception
          *      If the client has crashed.
          */
-        virtual void sendReply(Buffer* payload) = 0;
+        virtual void sendReply() = 0;
 
         /**
          * Ignore the RPC.
          * Call this if you don't want to respond to the RPC.
-         * You should discard all pointers to this object after this call.
+         *
+         * You should discard all pointers to this #ServerRPC object after this call.
          */
         virtual void ignore() = 0;
+
+        /**
+         * The received RPC payload.
+         */
+        Buffer recvPayload;
+
+        /**
+         * The RPC payload to send as a response with #sendReply().
+         */
+        Buffer replyPayload;
 
       private:
         DISALLOW_COPY_AND_ASSIGN(ServerRPC);
@@ -189,17 +207,13 @@ class Transport {
 
     /**
      * Wait for any RPC request to arrive.
-     * \param[out] payload
-     *      An initialized Buffer that will be filled in with the RPC payload.
      * \return
      *      The RPC object through which to send a reply. The caller must use
      *      either #Transport::ServerRPC::sendReply() or
      *      #Transport::ServerRPC::ignore() to release the resources associated
      *      with this object.
      */
-    // TODO(ongaro): payload should be part of ServerRPC
-    virtual ServerRPC* serverRecv(Buffer* payload)
-        __attribute__((warn_unused_result)) = 0;
+    virtual ServerRPC* serverRecv() __attribute__((warn_unused_result)) = 0;
 
     /**
      * Send an RPC request.

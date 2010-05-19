@@ -334,12 +334,12 @@ TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
 }
 
 void
-TCPTransport::TCPServerRPC::sendReply(Buffer* payload)
+TCPTransport::TCPServerRPC::sendReply()
 {
     // "delete this;" on our way out of the method
     std::auto_ptr<TCPServerRPC> suicide(this);
 
-    serverSocket->send(payload);
+    serverSocket->send(&replyPayload);
 }
 
 void
@@ -379,14 +379,14 @@ TCPTransport::TCPTransport(const char* ip, uint16_t port)
 }
 
 Transport::ServerRPC*
-TCPTransport::serverRecv(Buffer* payload)
+TCPTransport::serverRecv()
 {
     std::auto_ptr<TCPServerRPC> rpc(new TCPServerRPC());
 
     while (true) {
         rpc->serverSocket->init(&listenSocket);
         try {
-            rpc->serverSocket->recv(payload);
+            rpc->serverSocket->recv(&rpc->recvPayload);
             break;
         } catch (Transport::Exception e) {}
     }

@@ -44,8 +44,7 @@ class TCPTransport : public Transport {
   public:
     TCPTransport(const char* ip, uint16_t port);
 
-    ServerRPC* serverRecv(Buffer* payload)
-        __attribute__((warn_unused_result));
+    ServerRPC* serverRecv() __attribute__((warn_unused_result));
     ClientRPC* clientSend(const Service* service, Buffer* request,
                           Buffer* response)
         __attribute__((warn_unused_result));
@@ -240,7 +239,7 @@ class TCPTransport : public Transport {
 #endif
         }
 
-        void sendReply(Buffer* payload);
+        void sendReply();
         void ignore();
 
       private:
