@@ -501,7 +501,7 @@ class SocketTest : public CppUnit::TestFixture {
                 a = reinterpret_cast<const struct sockaddr_in*>(addr);
                 CPPUNIT_ASSERT(a->sin_family == AF_INET);
                 CPPUNIT_ASSERT(a->sin_port == htons(0xabcd));
-                CPPUNIT_ASSERT(a->sin_addr.s_addr == inet_addr("1.2.3.4"));
+                CPPUNIT_ASSERT(a->sin_addr.s_addr == 0x04030201);
                 return 0;
             }
             listen(sockfd == 10, backlog) {
@@ -638,7 +638,7 @@ class SocketTest : public CppUnit::TestFixture {
                 a = reinterpret_cast<const struct sockaddr_in*>(addr);
                 CPPUNIT_ASSERT(a->sin_family == AF_INET);
                 CPPUNIT_ASSERT(a->sin_port == htons(0xabcd));
-                CPPUNIT_ASSERT(a->sin_addr.s_addr == inet_addr("128.64.32.16"));
+                CPPUNIT_ASSERT(a->sin_addr.s_addr == 0x10204080);
                 return 0;
             }
             close(fd == 10) {

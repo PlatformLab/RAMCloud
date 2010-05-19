@@ -213,6 +213,8 @@ TCPTransport::ServerSocket::init(ListenSocket* listenSocket)
  * \param port
  *      The port number to listen on in host byte order.
  * \exception UnrecoverableTransportException
+ *      Bad IP address.
+ * \exception UnrecoverableTransportException
  *      Errors trying to create, bind, listen to the socket.
  */
 TCPTransport::ListenSocket::ListenSocket(const char* ip, uint16_t port)
@@ -232,7 +234,9 @@ TCPTransport::ListenSocket::ListenSocket(const char* ip, uint16_t port)
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = inet_addr(ip);
+    if (inet_aton(ip, &addr.sin_addr) == 0)
+        throw UnrecoverableTransportException("Bad IP address");
+
     if (sys->bind(fd, (struct sockaddr*) &addr, sizeof(addr)) == -1) {
         // destructor will close fd
         throw UnrecoverableTransportException(errno);
@@ -294,6 +298,8 @@ TCPTransport::ListenSocket::accept()
  *      The port to connect to in host byte order.
  * \throw UnrecoverableTransportException
  *      Error creating socket or fatal error connecting.
+ * \throw UnrecoverableTransportException
+ *      Bad IP address.
  * \throw TransportException
  *      Server refused connection or timed out.
  */
@@ -308,7 +314,8 @@ TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = inet_addr(ip);
+    if (inet_aton(ip, &addr.sin_addr) == 0)
+        throw UnrecoverableTransportException("Bad IP address");
 
     int r = sys->connect(fd, reinterpret_cast<struct sockaddr*>(&addr),
                          sizeof(addr));
