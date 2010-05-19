@@ -109,7 +109,7 @@ class TestServerSocket : public TCPTransport::ServerSocket {
 class TestClientSocket : public TCPTransport::ClientSocket {
   public:
     struct NotImplementedException {};
-    void init(uint32_t ip, uint16_t port) __attribute__ ((noreturn)) {
+    void init(const char* ip, uint16_t port) __attribute__ ((noreturn)) {
         throw NotImplementedException();
     }
     void recv(Buffer* payload) __attribute__ ((noreturn)) {
@@ -844,7 +844,8 @@ class TCPTransportTest : public CppUnit::TestFixture {
         static Buffer* send_expect;
 
         BEGIN_MOCK(TS, TestClientSocket);
-            init(ip == 0x04030201, port == 0xef01) {
+            init(ip, port == 0xef01) {
+                CPPUNIT_ASSERT(strcmp(ip, "1.2.3.4") == 0);
             }
             send(payload == send_expect) {
             }

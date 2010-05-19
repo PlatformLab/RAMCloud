@@ -215,8 +215,7 @@ class TCPTransport : public Transport {
          */
         ClientSocket() {}
 
-        void init(const char* ip, uint16_t port);
-        VIRTUAL_FOR_TESTING void init(uint32_t ip, uint16_t port);
+        VIRTUAL_FOR_TESTING void init(const char* ip, uint16_t port);
       private:
         DISALLOW_COPY_AND_ASSIGN(ClientSocket);
     };

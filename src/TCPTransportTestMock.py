@@ -57,7 +57,7 @@ PROTOTYPES = {
         'send': 'void send(const Buffer* payload)',
     },
     'TestClientSocket': {
-        'init': 'void init(uint32_t ip, uint16_t port)',
+        'init': 'void init(const char* ip, uint16_t port)',
         'recv': 'void recv(Buffer* payload)',
         'send': 'void send(const Buffer* payload)',
     },

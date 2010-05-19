@@ -284,45 +284,21 @@ TCPTransport::ListenSocket::accept()
 /**
  * Initialize a ClientSocket.
  *
- * This is an alternative to #init(uint32_t ip, uint16_t port), look at it for
- * documentation.
+ * This creates a connection with a server.
+ *
+ * You should call this exactly once before using the object.
  *
  * \param ip
  *      The IP address to connect to in numbers-and-dots notation.
  * \param port
  *      The port to connect to in host byte order.
  * \throw UnrecoverableTransportException
- *      See #init(uint32_t ip, uint16_t port).
- * \throw TransportException
- *      See #init(uint32_t ip, uint16_t port).
- */
-void
-TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
-{
-    init(inet_addr(ip), port);
-}
-
-/**
- * Initialize a ClientSocket.
- *
- * This creates a connection with a server.
- *
- * You should call this exactly once before using the object.
- *
- * An alternative is #init(const char* ip, uint16_t port).
- *
- * \param ip
- *      The IP address to connect to in network byte order.
- * \param port
- *      The port number to connect to in host byte order.
- * \throw UnrecoverableTransportException
  *      Error creating socket or fatal error connecting.
  * \throw TransportException
  *      Server refused connection or timed out.
  */
-// TODO(ongaro): Figure out our byte order story.
 void
-TCPTransport::ClientSocket::init(uint32_t ip, uint16_t port)
+TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -332,7 +308,7 @@ TCPTransport::ClientSocket::init(uint32_t ip, uint16_t port)
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = ip;
+    addr.sin_addr.s_addr = inet_addr(ip);
 
     int r = sys->connect(fd, reinterpret_cast<struct sockaddr*>(&addr),
                          sizeof(addr));
