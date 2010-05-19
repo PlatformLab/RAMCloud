@@ -42,8 +42,7 @@ namespace RAMCloud {
  * An implementation of TCPTransport::Syscalls that complains when invoked.
  * The mock classes extend this.
  */
-// TODO(ongaro): Rename this to something like SyscallsStub.
-class TestSyscalls : public TCPTransport::Syscalls {
+class SyscallsStub : public TCPTransport::Syscalls {
   public:
     struct NotImplementedException {};
     int accept(int sockfd, struct sockaddr* addr, socklen_t* addrlen)
@@ -85,8 +84,7 @@ class TestSyscalls : public TCPTransport::Syscalls {
  * An implementation of TCPTransport::ServerSocket that complains when invoked.
  * The mock classes extend this.
  */
-// TODO(ongaro): Rename this to something like ServerSocketStub.
-class TestServerSocket : public TCPTransport::ServerSocket {
+class ServerSocketStub : public TCPTransport::ServerSocket {
   public:
     struct NotImplementedException {};
     void init(TCPTransport::ListenSocket* listenSocket)
@@ -105,8 +103,7 @@ class TestServerSocket : public TCPTransport::ServerSocket {
  * An implementation of TCPTransport::ClientSocket that complains when invoked.
  * The mock classes extend this.
  */
-// TODO(ongaro): Rename this to something like ClientSocketStub.
-class TestClientSocket : public TCPTransport::ClientSocket {
+class ClientSocketStub : public TCPTransport::ClientSocket {
   public:
     struct NotImplementedException {};
     void init(const char* ip, uint16_t port) __attribute__ ((noreturn)) {
@@ -169,7 +166,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_Socket_destructor() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             close(fd == 10) {
                 return 0;
             }
@@ -184,7 +181,7 @@ class SocketTest : public CppUnit::TestFixture {
 
     // 0-byte message
     void test_MessageSocket_recv0() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
                  flags == MSG_WAITALL) {
                 TCPTransport::Header* header;
@@ -209,7 +206,7 @@ class SocketTest : public CppUnit::TestFixture {
 
     // 8-byte message
     void test_MessageSocket_recv8() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
                  flags == MSG_WAITALL) {
                 TCPTransport::Header* header;
@@ -241,7 +238,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_MessageSocket_recv_hdrError() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
                  flags == MSG_WAITALL) {
                 errno = ENOMEM;
@@ -265,7 +262,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_MessageSocket_recv_hdrPeerClosed() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
                  flags == MSG_WAITALL) {
                 return 0;
@@ -288,7 +285,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_MessageSocket_recv_msgTooLong() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
                  flags == MSG_WAITALL) {
                 TCPTransport::Header* header;
@@ -314,7 +311,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_MessageSocket_recv_dataError() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
                  flags == MSG_WAITALL) {
                 TCPTransport::Header* header;
@@ -344,7 +341,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_MessageSocket_recv_dataPeerClosed() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
                  flags == MSG_WAITALL) {
                 TCPTransport::Header* header;
@@ -374,7 +371,7 @@ class SocketTest : public CppUnit::TestFixture {
 
     // 0-byte message
     void test_MessageSocket_send0() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             sendmsg(sockfd == 10, msg, flags == 0) {
                 CPPUNIT_ASSERT(msg->msg_name == NULL);
                 CPPUNIT_ASSERT(msg->msg_namelen == 0);
@@ -409,7 +406,7 @@ class SocketTest : public CppUnit::TestFixture {
             0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
             0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17};
 
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             sendmsg(sockfd == 10, msg, flags == 0) {
                 CPPUNIT_ASSERT(msg->msg_iovlen == 3);
                 struct iovec* iov = msg->msg_iov;
@@ -446,7 +443,7 @@ class SocketTest : public CppUnit::TestFixture {
     void test_ServerSocket_init() {
         // This is an annoying amount of unrelated code to get an 11 out of
         // listenSocket->accept().
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             accept(sockfd == 10, addr == NULL, addrlen == NULL) {
                 return 11;
             }
@@ -469,7 +466,7 @@ class SocketTest : public CppUnit::TestFixture {
     };
 
     void test_ListenSocket_constructor_noop() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
         END_MOCK();
 
         {
@@ -485,7 +482,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_ListenSocket_constructor_normal() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             socket(domain == PF_INET, type == SOCK_STREAM, protocol == 0) {
                 return 10;
             }
@@ -520,7 +517,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_ListenSocket_constructor_socketError() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             socket(domain == PF_INET, type == SOCK_STREAM, protocol == 0) {
                 errno = ENOMEM;
                 return -1;
@@ -538,7 +535,7 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_ListenSocket_constructor_listenError() {
         // args checked in normal test
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             socket(domain, type, protocol) {
                 return 10;
             }
@@ -567,7 +564,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_ListenSocket_accept_normal() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             accept(sockfd == 10, addr == NULL, addrlen == NULL) {
                 return 11;
             }
@@ -585,7 +582,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_ListenSocket_accept_transientError() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             accept(sockfd == 10, addr == NULL, addrlen == NULL) {
                 errno = EHOSTUNREACH;
                 return -1;
@@ -607,7 +604,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_ListenSocket_accept_error() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             accept(sockfd == 10, addr == NULL, addrlen == NULL) {
                 errno = ENOMEM;
                 return -1;
@@ -629,7 +626,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_ClientSocket_init_normal() {
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             socket(domain == PF_INET, type == SOCK_STREAM, protocol == 0) {
                 return 10;
             }
@@ -655,7 +652,7 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_ClientSocket_init_socketError() {
         // args checked in normal test
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             socket(domain, type, protocol) {
                 errno = ENOMEM;
                 return -1;
@@ -674,7 +671,7 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_ClientSocket_init_connectTransientError() {
         // args checked in normal test
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             socket(domain, type, protocol) {
                 return 10;
             }
@@ -699,7 +696,7 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_ClientSocket_init_connectError() {
         // args checked in normal test
-        BEGIN_MOCK(TS, TestSyscalls);
+        BEGIN_MOCK(TS, SyscallsStub);
             socket(domain, type, protocol) {
                 return 10;
             }
@@ -754,7 +751,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
     void test_TCPServerRPC_sendReply() {
         static Buffer* send_expect;
 
-        BEGIN_MOCK(TS, TestServerSocket);
+        BEGIN_MOCK(TS, ServerSocketStub);
             send(payload == send_expect) {
             }
         END_MOCK();
@@ -762,7 +759,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::TCPServerRPC::mockServerSocket = &ts;
 
-        BEGIN_MOCK(TSC, TestSyscalls);
+        BEGIN_MOCK(TSC, SyscallsStub);
             close(fd == 10) {
                 return 0;
             }
@@ -781,7 +778,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
     void test_TCPClientRPC_getReply() {
         static Buffer* recv_expect;
 
-        BEGIN_MOCK(TS, TestClientSocket);
+        BEGIN_MOCK(TS, ClientSocketStub);
             recv(payload == recv_expect) {
             }
         END_MOCK();
@@ -789,7 +786,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::TCPClientRPC::mockClientSocket = &ts;
 
-        BEGIN_MOCK(TSC, TestSyscalls);
+        BEGIN_MOCK(TSC, SyscallsStub);
             close(fd == 10) {
                 return 0;
             }
@@ -817,7 +814,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         static TCPTransport::ListenSocket* init_expect;
         static Buffer* recv_expect;
 
-        BEGIN_MOCK(TS, TestServerSocket);
+        BEGIN_MOCK(TS, ServerSocketStub);
             init(listenSocket == init_expect) {
             }
             recv(payload) {
@@ -845,7 +842,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
     void test_TCPTransport_clientSend() {
         static Buffer* send_expect;
 
-        BEGIN_MOCK(TS, TestClientSocket);
+        BEGIN_MOCK(TS, ClientSocketStub);
             init(ip, port == 0xef01) {
                 CPPUNIT_ASSERT(strcmp(ip, "1.2.3.4") == 0);
             }

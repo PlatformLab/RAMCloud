@@ -39,7 +39,6 @@ namespace RAMCloud {
 class TCPTransport : public Transport {
   friend class TCPTransportTest;
   friend class SocketTest;
-  friend class TestServerSocket;
 
   public:
     TCPTransport(const char* ip, uint16_t port);

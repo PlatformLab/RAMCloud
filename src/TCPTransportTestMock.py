@@ -35,7 +35,7 @@ class Output:
         return '\n'.join(self.buffer + [''])
 
 PROTOTYPES = {
-    'TestSyscalls': {
+    'SyscallsStub': {
         'accept': 'int accept(int sockfd, struct sockaddr* addr, ' +
                              'socklen_t* addrlen)',
         'bind': 'int bind(int sockfd, const struct sockaddr* addr, ' +
@@ -51,12 +51,12 @@ PROTOTYPES = {
                                      'const void* optval, socklen_t optlen)',
         'socket': 'int socket(int domain, int type, int protocol)',
     },
-    'TestServerSocket': {
+    'ServerSocketStub': {
         'init': 'void init(TCPTransport::ListenSocket* listenSocket)',
         'recv': 'void recv(Buffer* payload)',
         'send': 'void send(const Buffer* payload)',
     },
-    'TestClientSocket': {
+    'ClientSocketStub': {
         'init': 'void init(const char* ip, uint16_t port)',
         'recv': 'void recv(Buffer* payload)',
         'send': 'void send(const Buffer* payload)',
