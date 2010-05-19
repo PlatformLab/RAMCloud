@@ -15,15 +15,22 @@
 
 // RAMCloud pragma [CPPLINT=0]
 
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include <cppunit/CompilerOutputter.h>
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/ui/text/TestRunner.h>
 #include <cppunit/TestResult.h>
 
+
 int
-main(int ac, char *av[])
+main(int argc, char *argv[])
 {
     using namespace CppUnit;
+
+    ::testing::GTEST_FLAG(throw_on_failure) = true;
+    ::testing::InitGoogleMock(&argc, argv);
 
     TextUi::TestRunner runner;
     TestFactoryRegistry &registry = TestFactoryRegistry::getRegistry();

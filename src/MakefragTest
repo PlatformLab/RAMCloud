@@ -22,7 +22,7 @@ TESTS_OBJFILES := $(TESTS_OBJFILES) \
                $(SERVER_OBJFILES) \
                $(BACKUP_OBJFILES)
 
-TESTS_LIB := -lcppunit -ldl
+TESTS_LIB := -lcppunit -ldl -lpthread -lgtest -lgmock
 
 $(TOP)/src/TCPTransportTest.cc: $(TOP)/src/TCPTransportTestMock.py $(TOP)/src/TCPTransportTest.in.cc
 	$(TOP)/src/TCPTransportTestMock.py $@ < $(TOP)/src/TCPTransportTest.in.cc
