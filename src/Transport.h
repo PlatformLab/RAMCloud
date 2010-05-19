@@ -30,74 +30,6 @@
 namespace RAMCloud {
 
 /**
- * An exception that is thrown when the Transport class encounters a transient
- * error.
- */
-
-// This implementation was copied from BackupException.
-// TODO(ongaro): We should create some common infrastructure for exceptions.
-
-// TODO(ongaro): Move inside Transport.
-struct TransportException {
-    explicit TransportException() : message(""), errNo(0) {}
-    explicit TransportException(std::string msg)
-            : message(msg), errNo(0) {}
-    explicit TransportException(int errNo) : message(""), errNo(errNo) {
-        message = strerror(errNo);
-    }
-    explicit TransportException(std::string msg, int errNo)
-            : message(msg), errNo(errNo) {}
-    TransportException(const TransportException &e)
-            : message(e.message), errNo(e.errNo) {}
-    TransportException &operator=(const TransportException &e) {
-        if (&e == this)
-            return *this;
-        message = e.message;
-        errNo = e.errNo;
-        return *this;
-    }
-    virtual ~TransportException() {}
-    std::string message;
-    int errNo;
-};
-
-/**
- * An exception that is thrown when the Transport class encounters a fatal
- * error. This is not recoverable unless you have another Transport to fall
- * back to, but it's also not a failed assertion because it depends on the
- * configuration of the outside world (for example, a port number is already in
- * use). In general, you should probably handle this by printing out a message
- * and exiting.
- */
-
-// TODO(ongaro): Move inside Transport.
-
-struct UnrecoverableTransportException {
-    explicit UnrecoverableTransportException() : message(""), errNo(0) {}
-    explicit UnrecoverableTransportException(std::string msg)
-            : message(msg), errNo(0) {}
-    explicit UnrecoverableTransportException(int errNo)
-        : message(""), errNo(errNo) {
-        message = strerror(errNo);
-    }
-    explicit UnrecoverableTransportException(std::string msg, int errNo)
-            : message(msg), errNo(errNo) {}
-    explicit UnrecoverableTransportException(const TransportException &e)
-            : message(e.message), errNo(e.errNo) {}
-    UnrecoverableTransportException &operator=
-        (const UnrecoverableTransportException &e) {
-        if (&e == this)
-            return *this;
-        message = e.message;
-        errNo = e.errNo;
-        return *this;
-    }
-    virtual ~UnrecoverableTransportException() {}
-    std::string message;
-    int errNo;
-};
-
-/**
  * An interface for reliable communication across the network.
  *
  * Implementations all send and receive RPC messages reliably over the network.
@@ -110,6 +42,70 @@ struct UnrecoverableTransportException {
 class Transport {
 
   public:
+
+    /**
+     * An exception that is thrown when the Transport class encounters a transient
+     * error.
+     */
+
+    // This implementation was copied from BackupException.
+    // TODO(ongaro): We should create some common infrastructure for exceptions.
+    struct Exception {
+        explicit Exception() : message(""), errNo(0) {}
+        explicit Exception(std::string msg)
+                : message(msg), errNo(0) {}
+        explicit Exception(int errNo) : message(""), errNo(errNo) {
+            message = strerror(errNo);
+        }
+        explicit Exception(std::string msg, int errNo)
+                : message(msg), errNo(errNo) {}
+        Exception(const Exception &e)
+                : message(e.message), errNo(e.errNo) {}
+        Exception &operator=(const Exception &e) {
+            if (&e == this)
+                return *this;
+            message = e.message;
+            errNo = e.errNo;
+            return *this;
+        }
+        virtual ~Exception() {}
+        std::string message;
+        int errNo;
+    };
+
+    /**
+     * An exception that is thrown when the Transport class encounters a fatal
+     * error. This is not recoverable unless you have another Transport to fall
+     * back to, but it's also not a failed assertion because it depends on the
+     * configuration of the outside world (for example, a port number is already in
+     * use). In general, you should probably handle this by printing out a message
+     * and exiting.
+     */
+    struct UnrecoverableException {
+        explicit UnrecoverableException() : message(""), errNo(0) {}
+        explicit UnrecoverableException(std::string msg)
+                : message(msg), errNo(0) {}
+        explicit UnrecoverableException(int errNo)
+            : message(""), errNo(errNo) {
+            message = strerror(errNo);
+        }
+        explicit UnrecoverableException(std::string msg, int errNo)
+                : message(msg), errNo(errNo) {}
+        explicit UnrecoverableException(const Exception &e)
+                : message(e.message), errNo(e.errNo) {}
+        UnrecoverableException &operator=
+            (const UnrecoverableException &e) {
+            if (&e == this)
+                return *this;
+            message = e.message;
+            errNo = e.errNo;
+            return *this;
+        }
+        virtual ~UnrecoverableException() {}
+        std::string message;
+        int errNo;
+    };
+
 
     /**
      * A RPC call that has been sent and is pending a response from a server.
@@ -133,7 +129,7 @@ class Transport {
         /**
          * Wait for the RPC response to arrive.
          * You should discard all pointers to this object after this call.
-         * \throw TransportException
+         * \throw Transport::Exception
          *      If the service has crashed.
          */
         virtual void getReply() = 0;
@@ -165,7 +161,7 @@ class Transport {
          * You should discard all pointers to this object after this call.
          * \param[in] payload
          *      The RPC payload to send on the wire.
-         * \throw TransportException
+         * \throw Transport::Exception
          *      If the client has crashed.
          */
         virtual void sendReply(Buffer* payload) = 0;
@@ -222,7 +218,7 @@ class Transport {
      *      The RPC object through which to receive the reply. The caller must
      *      use #Transport::ClientRPC::getReply() to release the resources
      *      associated with this object.
-     * \throw TransportException
+     * \throw Transport::Exception
      *      If \a service is unavailable.
      */
     virtual ClientRPC* clientSend(const Service* service, Buffer* request,

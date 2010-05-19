@@ -261,7 +261,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             s.recv(&payload);
             CPPUNIT_ASSERT(false);
-        } catch (TransportException e) {}
+        } catch (Transport::Exception e) {}
     }
 
     void test_MessageSocket_recv_hdrPeerClosed() {
@@ -284,7 +284,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             s.recv(&payload);
             CPPUNIT_ASSERT(false);
-        } catch (TransportException e) {}
+        } catch (Transport::Exception e) {}
     }
 
     void test_MessageSocket_recv_msgTooLong() {
@@ -310,7 +310,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             s.recv(&payload);
             CPPUNIT_ASSERT(false);
-        } catch (TransportException e) {}
+        } catch (Transport::Exception e) {}
     }
 
     void test_MessageSocket_recv_dataError() {
@@ -340,7 +340,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             s.recv(&payload);
             CPPUNIT_ASSERT(false);
-        } catch (TransportException e) {}
+        } catch (Transport::Exception e) {}
     }
 
     void test_MessageSocket_recv_dataPeerClosed() {
@@ -369,7 +369,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             s.recv(&payload);
             CPPUNIT_ASSERT(false);
-        } catch (TransportException e) {}
+        } catch (Transport::Exception e) {}
     }
 
     // 0-byte message
@@ -440,7 +440,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             s.send(&payload);
             CPPUNIT_ASSERT(false);
-        } catch (TransportException e) {}
+        } catch (Transport::Exception e) {}
     }
 
     void test_ServerSocket_init() {
@@ -533,7 +533,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             TCPTransport::ListenSocket s("1.2.3.4", 0xabcd);
             CPPUNIT_ASSERT(false);
-        } catch (UnrecoverableTransportException e) {}
+        } catch (Transport::UnrecoverableException e) {}
     }
 
     void test_ListenSocket_constructor_listenError() {
@@ -563,7 +563,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             TCPTransport::ListenSocket s("1.2.3.4", 0xabcd);
             CPPUNIT_ASSERT(false);
-        } catch (UnrecoverableTransportException e) {}
+        } catch (Transport::UnrecoverableException e) {}
     }
 
     void test_ListenSocket_accept_normal() {
@@ -625,7 +625,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             s.accept();
             CPPUNIT_ASSERT(false);
-        } catch (UnrecoverableTransportException e) {}
+        } catch (Transport::UnrecoverableException e) {}
     }
 
     void test_ClientSocket_init_normal() {
@@ -669,7 +669,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             s.init("128.64.32.16", 0xabcd);
             CPPUNIT_ASSERT(false);
-        } catch (UnrecoverableTransportException e) {}
+        } catch (Transport::UnrecoverableException e) {}
     }
 
     void test_ClientSocket_init_connectTransientError() {
@@ -694,7 +694,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             s.init("128.64.32.16", 0xabcd);
             CPPUNIT_ASSERT(false);
-        } catch (TransportException e) {}
+        } catch (Transport::Exception e) {}
     }
 
     void test_ClientSocket_init_connectError() {
@@ -719,7 +719,7 @@ class SocketTest : public CppUnit::TestFixture {
         try {
             s.init("128.64.32.16", 0xabcd);
             CPPUNIT_ASSERT(false);
-        } catch (UnrecoverableTransportException e) {}
+        } catch (Transport::UnrecoverableException e) {}
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(SocketTest);
@@ -822,7 +822,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
             init(listenSocket == init_expect) {
             }
             recv(payload == recv_expect) {
-                throw TransportException();
+                throw Transport::Exception();
             }
             init(listenSocket == init_expect) {
             }
