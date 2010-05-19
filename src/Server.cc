@@ -49,9 +49,7 @@ Server::Server(const ServerConfig *sconfig,
             // This Service object will be deallocated in ~BackupHost().
             Service *s = new Service();
             s->setPort(BACKSVRPORT);
-            uint32_t serviceIp;
-            inet_pton(AF_INET, BACKSVRADDR, &serviceIp);
-            s->setIp(serviceIp);
+            s->setIp(BACKSVRADDR);
 
             // NOTE The backup client takes care of freeing the Service and
             // Transport objects.

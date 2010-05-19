@@ -73,7 +73,7 @@ class Service {
      *
      * \return See comment.
      */
-    inline uint32_t getIp() const { return ip; }
+    inline const char* getIp() const { return ip; }
 
     /**
      * Change the IP address currently associated with this Service
@@ -82,7 +82,10 @@ class Service {
      *
      * \param[in] newIp The new IP address.
      */
-    inline void setIp(uint32_t newIp) { ip = newIp; }
+    inline void setIp(const char* newIp) {
+        strncpy(ip, newIp, sizeof(ip) - 1);
+        ip[sizeof(ip) - 1] = '\0';
+    }
 
     /**
      * Get the MAC address currently associated with this Service.
@@ -109,12 +112,15 @@ class Service {
      */
     void refreshAddress();
 
-    Service() : serviceId(0), port(0), ip(0) { bzero(mac, 6); }
+    Service() : serviceId(0), port(0) {
+        memset(ip, 0, sizeof(ip));
+        memset(mac, 0, sizeof(mac));
+    }
 
   private:
     uint64_t serviceId;  // Unique identification number for this Service.
     uint16_t port;       // Current port of this Service.
-    uint32_t ip;         // Current IP address of this Service.
+    char ip[16];         // Current IPv4 address of this Service.
     char mac[6];         // Current ethernet MAC address of this Service.
 
     friend class ServiceTest;

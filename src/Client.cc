@@ -77,7 +77,7 @@ rc_connect(struct rc_client *client)
     rc_net_init(&client->net, CLNTADDR, CLNTPORT, SVRADDR, SVRPORT);
 
     client->serv = new Service();
-    client->serv->setIp(inet_addr(SVRADDR));
+    client->serv->setIp(SVRADDR);
     client->serv->setPort(SVRPORT);
 
     client->trans = new TCPTransport(NULL, 0);

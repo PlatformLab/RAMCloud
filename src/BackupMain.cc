@@ -38,7 +38,7 @@ main()
     using ::RAMCloud::TCPTransport;
 
     Service backupService;
-    backupService.setIp(inet_addr(BACKSVRADDR));
+    backupService.setIp(BACKSVRADDR);
     backupService.setPort(BACKSVRPORT);
 
     TCPTransport trans(BACKCLNTADDR, BACKCLNTPORT);

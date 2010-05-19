@@ -31,7 +31,7 @@ int
 main()
 {
     RAMCloud::Service service;
-    service.setIp(inet_addr(SVRADDR));
+    service.setIp(SVRADDR);
     service.setPort(SVRPORT);
     RAMCloud::TCPTransport tx(NULL, 0);
     char buf[1024];

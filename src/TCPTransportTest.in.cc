@@ -844,7 +844,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         static Buffer* send_expect;
 
         BEGIN_MOCK(TS, TestClientSocket);
-            init(ip == 0x89abcdef, port == 0xef01) {
+            init(ip == 0x04030201, port == 0xef01) {
             }
             send(payload == send_expect) {
             }
@@ -858,7 +858,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         Buffer response;
         send_expect = &payload;
         Service s;
-        s.setIp(0x89abcdef);
+        s.setIp("1.2.3.4");
         s.setPort(0xef01);
         delete t.clientSend(&s, &payload, &response);
     }
