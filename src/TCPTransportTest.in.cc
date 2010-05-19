@@ -164,8 +164,8 @@ class SocketTest : public CppUnit::TestFixture {
 
     void tearDown() {
         // put TCPTransport::sys back to the real Syscalls implementation.
-        extern TCPTransport::Syscalls _sys;
-        TCPTransport::sys = &_sys;
+        extern TCPTransport::Syscalls realSyscalls;
+        TCPTransport::sys = &realSyscalls;
     }
 
     void test_Socket_destructor() {
@@ -747,8 +747,8 @@ class TCPTransportTest : public CppUnit::TestFixture {
         TCPTransport::TCPClientRPC::mockClientSocket = NULL;
 
         // put TCPTransport::sys back to the real Syscalls implementation.
-        extern TCPTransport::Syscalls _sys;
-        TCPTransport::sys = &_sys;
+        extern TCPTransport::Syscalls realSyscalls;
+        TCPTransport::sys = &realSyscalls;
     }
 
     void test_TCPServerRPC_sendReply() {

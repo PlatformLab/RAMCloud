@@ -148,7 +148,7 @@ class TCPTransport : public Transport {
     };
 
     /**
-     * An abstract socket on which you can send and receive messages.
+     * An abstract Socket on which you can send and receive messages.
      * (This is distinct from a ListenSocket which can only accept connections.)
      *
      * The concrete implementations are ServerSocket and ClientSocket.
@@ -172,7 +172,7 @@ class TCPTransport : public Transport {
     class ListenSocket;
 
     /**
-     * A socket on which you can service RPCs.
+     * A MessageSocket on which you can service inbound RPCs.
      */
     class ServerSocket : public MessageSocket {
       public:
@@ -189,7 +189,8 @@ class TCPTransport : public Transport {
     };
 
     /**
-     * A socket which can listen for new connections.
+     * A Socket which can listen for new connections.
+     * This is used for initializing a ServerSocket.
      */
     class ListenSocket : public Socket {
       friend class ServerSocket;
@@ -203,7 +204,7 @@ class TCPTransport : public Transport {
     };
 
     /**
-     * A socket on which you can send RPCs.
+     * A MessageSocket on which you can send outbound RPCs.
      */
     class ClientSocket : public MessageSocket {
       public:
@@ -219,9 +220,11 @@ class TCPTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(ClientSocket);
     };
 
-    // TODO(ongaro): Move constructor into cc file?
 
-    class TCPServerRPC : public ServerRPC {
+    /**
+     * The TCP implementation of Transport::ServerRPC.
+     */
+    class TCPServerRPC : public Transport::ServerRPC {
       friend class TCPTransportTest;
       public:
 
@@ -232,6 +235,7 @@ class TCPTransport : public Transport {
          * #mockServerSocket is not \c NULL, however, it will be set to that
          * instead (used for testing).
          */
+        // TODO(ongaro): Move constructor into cc file?
         TCPServerRPC() : realServerSocket(), serverSocket(&realServerSocket) {
 #if TESTING
             if (mockServerSocket != NULL)
@@ -264,10 +268,10 @@ class TCPTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(TCPServerRPC);
     };
 
-
-    // TODO(ongaro): Move constructor into cc file?
-
-    class TCPClientRPC : public ClientRPC {
+    /**
+     * The TCP implementation of Transport::ClientRPC.
+     */
+    class TCPClientRPC : public Transport::ClientRPC {
       friend class TCPTransportTest;
       public:
 
@@ -278,6 +282,7 @@ class TCPTransport : public Transport {
          * #mockClientSocket is not \c NULL, however, it will be set to that
          * instead (used for testing).
          */
+        // TODO(ongaro): Move constructor into cc file?
         TCPClientRPC() : reply(NULL), realClientSocket(),
                          clientSocket(&realClientSocket) {
 #if TESTING
@@ -315,7 +320,7 @@ class TCPTransport : public Transport {
   private:
 
     /**
-     * The socket on which to listen.
+     * The socket on which to listen for new connections.
      * This isn't used for transports that are only acting as a client.
      */
     ListenSocket listenSocket;

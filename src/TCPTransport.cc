@@ -34,15 +34,20 @@
 namespace RAMCloud {
 
 /**
- * The TCPTransport::Syscalls implementation that is normally used.
+ * The TCPTransport::Syscalls implementation that is used except for unit
+ * testing.
+ * See #RAMCloud::TCPTransport::sys.
  */
-TCPTransport::Syscalls _sys;
+#if !TESTING
+static
+#endif
+TCPTransport::Syscalls realSyscalls;
 
 /**
- * A pointer to the TCPTransport::Syscalls implementation in actual use. Used
- * for unit testing. Normally set to #_sys.
+ * A pointer to the TCPTransport::Syscalls implementation in actual use.
+ * Used for unit testing, but normally set to #realSyscalls.
  */
-TCPTransport::Syscalls* TCPTransport::sys = &_sys;
+TCPTransport::Syscalls* TCPTransport::sys = &realSyscalls;
 
 #if TESTING
 /**
@@ -68,7 +73,7 @@ TCPTransport::Socket::Socket() : fd(-1)
 }
 
 /**
- * Destructor for socket. Will close #fd if it's non-negative.
+ * Destructor for socket. Will close #fd if it exists.
  */
 TCPTransport::Socket::~Socket()
 {
@@ -79,11 +84,11 @@ TCPTransport::Socket::~Socket()
 }
 
 /**
- * Receive a single message.
+ * Receive a single message (either a request or a response).
  * \param payload
  *      An empty buffer to which the message contents will be added.
- *      Keep in mind this may be a message of 0 bytes (which is distinct from
- *      an error).
+ *      Keep in mind that the sender may have sent a 0-byte message (which is
+ *      perfectly OK and distinct from an error).
  * \throw Transport::Exception
  *      There was an error on the connection.
  */
@@ -142,7 +147,7 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
 }
 
 /**
- * Send a single message.
+ * Send a single message (either a request or a response).
  * \param payload
  *      A buffer containing the contents of the message to send. This may be
  *      empty, in which case a message of 0 bytes will be sent.
