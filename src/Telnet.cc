@@ -33,7 +33,7 @@ main()
     RAMCloud::Service service;
     service.setIp(inet_addr(SVRADDR));
     service.setPort(SVRPORT);
-    RAMCloud::TCPTransport tx("127.0.0.1", 0);
+    RAMCloud::TCPTransport tx(NULL, 0);
     char buf[1024];
     while (fgets(buf, sizeof(buf), stdin) != NULL) {
         RAMCloud::Buffer request;

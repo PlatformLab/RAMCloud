@@ -42,9 +42,7 @@ class TCPTransport : public Transport {
   friend class TestServerSocket;
 
   public:
-
     TCPTransport(const char* ip, uint16_t port);
-    TCPTransport(uint32_t ip, uint16_t port);
 
     ServerRPC* serverRecv(Buffer* payload)
         __attribute__((warn_unused_result));
@@ -199,16 +197,9 @@ class TCPTransport : public Transport {
       friend class SocketTest;
       friend class TCPTransportTest;
       public:
-        ListenSocket(uint32_t ip, uint16_t port);
+        ListenSocket(const char* ip, uint16_t port);
       private:
-        void listen();
         int accept();
-
-        /**
-         * The address which to bind to.
-         */
-        struct sockaddr_in addr;
-
         DISALLOW_COPY_AND_ASSIGN(ListenSocket);
     };
 
@@ -326,8 +317,8 @@ class TCPTransport : public Transport {
   private:
 
     /**
-     * The socket on which to listen. The actual bind and listen is delayed
-     * until the first #serverRecv() in case this is only a client transport.
+     * The socket on which to listen.
+     * This isn't used for transports that are only acting as a client.
      */
     ListenSocket listenSocket;
 

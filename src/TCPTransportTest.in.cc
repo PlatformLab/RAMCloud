@@ -138,11 +138,10 @@ class SocketTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_MessageSocket_send0);
     CPPUNIT_TEST(test_MessageSocket_send_twoChunksWithError);
     CPPUNIT_TEST(test_ServerSocket_init);
-    CPPUNIT_TEST(test_ListenSocket_constructor);
-    CPPUNIT_TEST(test_ListenSocket_listen_listening);
-    CPPUNIT_TEST(test_ListenSocket_listen_normal);
-    CPPUNIT_TEST(test_ListenSocket_listen_socketError);
-    CPPUNIT_TEST(test_ListenSocket_listen_listenError);
+    CPPUNIT_TEST(test_ListenSocket_constructor_noop);
+    CPPUNIT_TEST(test_ListenSocket_constructor_normal);
+    CPPUNIT_TEST(test_ListenSocket_constructor_socketError);
+    CPPUNIT_TEST(test_ListenSocket_constructor_listenError);
     CPPUNIT_TEST(test_ListenSocket_accept_normal);
     CPPUNIT_TEST(test_ListenSocket_accept_transientError);
     CPPUNIT_TEST(test_ListenSocket_accept_error);
@@ -463,38 +462,29 @@ class SocketTest : public CppUnit::TestFixture {
         TCPTransport::sys = &ts;
 
         TCPTransport::ServerSocket s;
-        TCPTransport::ListenSocket listenSocket(0, 0);
+        TCPTransport::ListenSocket listenSocket(NULL, 0);
         listenSocket.fd = 10;
         s.init(&listenSocket);
         CPPUNIT_ASSERT(s.fd == 11);
     };
 
-    void test_ListenSocket_constructor() {
-        TCPTransport::ListenSocket s(0x01234567, 0xabcd);
-        CPPUNIT_ASSERT(s.addr.sin_family == AF_INET);
-        CPPUNIT_ASSERT(s.addr.sin_port == htons(0xabcd));
-        CPPUNIT_ASSERT(s.addr.sin_addr.s_addr == 0x01234567);
-    }
-
-    // already listening
-    void test_ListenSocket_listen_listening() {
+    void test_ListenSocket_constructor_noop() {
         BEGIN_MOCK(TS, TestSyscalls);
-            close(fd == 10) {
-                return 0;
-            }
         END_MOCK();
 
-        TS ts;
-        TCPTransport::sys = &ts;
-
-        TCPTransport::ListenSocket s(0x01234567, 0xabcd);
-        s.fd = 10;
-        s.listen();
+        {
+            TS ts;
+            TCPTransport::sys = &ts;
+            TCPTransport::ListenSocket s(NULL, 0xabcd);
+        }
+        {
+            TS ts;
+            TCPTransport::sys = &ts;
+            TCPTransport::ListenSocket s("0.0.0.0", 0);
+        }
     }
 
-    void test_ListenSocket_listen_normal() {
-        static TCPTransport::ListenSocket* ls = NULL;
-
+    void test_ListenSocket_constructor_normal() {
         BEGIN_MOCK(TS, TestSyscalls);
             socket(domain == PF_INET, type == SOCK_STREAM, protocol == 0) {
                 return 10;
@@ -507,8 +497,11 @@ class SocketTest : public CppUnit::TestFixture {
                 return 0;
             }
             bind(sockfd == 10, addr, addrlen == sizeof(struct sockaddr_in)) {
-                CPPUNIT_ASSERT(reinterpret_cast<struct sockaddr*>(&ls->addr) ==
-                               addr);
+                const struct sockaddr_in* a;
+                a = reinterpret_cast<const struct sockaddr_in*>(addr);
+                CPPUNIT_ASSERT(a->sin_family == AF_INET);
+                CPPUNIT_ASSERT(a->sin_port == htons(0xabcd));
+                CPPUNIT_ASSERT(a->sin_addr.s_addr == inet_addr("1.2.3.4"));
                 return 0;
             }
             listen(sockfd == 10, backlog) {
@@ -523,12 +516,10 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::sys = &ts;
 
-        TCPTransport::ListenSocket s(0, 0);
-        ls = &s;
-        s.listen();
+        TCPTransport::ListenSocket s("1.2.3.4", 0xabcd);
     }
 
-    void test_ListenSocket_listen_socketError() {
+    void test_ListenSocket_constructor_socketError() {
         BEGIN_MOCK(TS, TestSyscalls);
             socket(domain == PF_INET, type == SOCK_STREAM, protocol == 0) {
                 errno = ENOMEM;
@@ -539,14 +530,13 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::sys = &ts;
 
-        TCPTransport::ListenSocket s(0, 0);
         try {
-            s.listen();
+            TCPTransport::ListenSocket s("1.2.3.4", 0xabcd);
             CPPUNIT_ASSERT(false);
         } catch (UnrecoverableTransportException e) {}
     }
 
-    void test_ListenSocket_listen_listenError() {
+    void test_ListenSocket_constructor_listenError() {
         // args checked in normal test
         BEGIN_MOCK(TS, TestSyscalls);
             socket(domain, type, protocol) {
@@ -570,9 +560,8 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::sys = &ts;
 
-        TCPTransport::ListenSocket s(0, 0);
         try {
-            s.listen();
+            TCPTransport::ListenSocket s("1.2.3.4", 0xabcd);
             CPPUNIT_ASSERT(false);
         } catch (UnrecoverableTransportException e) {}
     }
@@ -590,7 +579,7 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::sys = &ts;
 
-        TCPTransport::ListenSocket s(0, 0);
+        TCPTransport::ListenSocket s(NULL, 0);
         s.fd = 10;
         CPPUNIT_ASSERT(s.accept() == 11);
     }
@@ -612,7 +601,7 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::sys = &ts;
 
-        TCPTransport::ListenSocket s(0, 0);
+        TCPTransport::ListenSocket s(NULL, 0);
         s.fd = 10;
         CPPUNIT_ASSERT(s.accept() == 11);
     }
@@ -631,7 +620,7 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::sys = &ts;
 
-        TCPTransport::ListenSocket s(0, 0);
+        TCPTransport::ListenSocket s(NULL, 0);
         s.fd = 10;
         try {
             s.accept();
@@ -744,7 +733,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(TCPTransportTest);
     CPPUNIT_TEST(test_TCPServerRPC_sendReply);
     CPPUNIT_TEST(test_TCPClientRPC_getReply);
-    CPPUNIT_TEST(test_TCPTransport_constructors);
+    CPPUNIT_TEST(test_TCPTransport_constructor);
     CPPUNIT_TEST(test_TCPTransport_serverRecv);
     CPPUNIT_TEST(test_TCPTransport_clientSend);
     CPPUNIT_TEST_SUITE_END();
@@ -782,7 +771,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         TSC tsc;
         TCPTransport::sys = &tsc;
 
-        TCPTransport t(0x01234567, 0xabcd);
+        TCPTransport t(NULL, 0);
         Buffer payload;
         send_expect = &payload;
         TCPTransport::TCPServerRPC* rpc = new TCPTransport::TCPServerRPC();
@@ -810,7 +799,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         TSC tsc;
         TCPTransport::sys = &tsc;
 
-        TCPTransport t(0x01234567, 0xabcd);
+        TCPTransport t(NULL, 0);
         Buffer payload;
         recv_expect = &payload;
         TCPTransport::TCPClientRPC* rpc = new TCPTransport::TCPClientRPC();
@@ -819,17 +808,10 @@ class TCPTransportTest : public CppUnit::TestFixture {
         rpc->getReply();
     }
 
-
-    void test_TCPTransport_constructors() {
-        TCPTransport t1("128.64.32.16", 0xabcd);
-        const struct sockaddr_in& addr1 = t1.listenSocket.addr;
-        CPPUNIT_ASSERT(addr1.sin_port == htons(0xabcd));
-        CPPUNIT_ASSERT(addr1.sin_addr.s_addr == inet_addr("128.64.32.16"));
-
-        TCPTransport t2(0x01234567, 0xabcd);
-        const struct sockaddr_in& addr2 = t2.listenSocket.addr;
-        CPPUNIT_ASSERT(addr2.sin_port == htons(0xabcd));
-        CPPUNIT_ASSERT(addr2.sin_addr.s_addr == 0x01234567);
+    void test_TCPTransport_constructor() {
+        // the constructor doesn't add anything over ListenSocket(), so this is
+        // just a placeholder
+        TCPTransport t(NULL, 0);
     }
 
     void test_TCPTransport_serverRecv() {
@@ -851,7 +833,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::TCPServerRPC::mockServerSocket = &ts;
 
-        TCPTransport t(0x01234567, 0xabcd);
+        TCPTransport t(NULL, 0);
         init_expect = &t.listenSocket;
         Buffer payload;
         recv_expect = &payload;
@@ -871,7 +853,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::TCPClientRPC::mockClientSocket = &ts;
 
-        TCPTransport t(0x01234567, 0xabcd);
+        TCPTransport t(NULL, 0);
         Buffer payload;
         Buffer response;
         send_expect = &payload;

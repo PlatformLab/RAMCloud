@@ -80,7 +80,7 @@ rc_connect(struct rc_client *client)
     client->serv->setIp(inet_addr(SVRADDR));
     client->serv->setPort(SVRPORT);
 
-    client->trans = new TCPTransport(CLNTADDR, CLNTPORT);
+    client->trans = new TCPTransport(NULL, 0);
 
     //rc_net_connect(&client->net);
     return 0;

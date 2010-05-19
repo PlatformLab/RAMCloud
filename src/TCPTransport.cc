@@ -202,37 +202,22 @@ TCPTransport::ServerSocket::init(ListenSocket* listenSocket)
 }
 
 /**
- * Construct a ListenSocket.
+ * Construct a ListenSocket and begin listening for incoming connections.
  *
- * This won't do anything until you call #listen(). This is so that transports
- * that are used only for clients don't bind to a port.
+ * If you pass \c NULL for \a ip or 0 for \a port, this is a no-op.
  *
  * \param ip
- *      The IP address in network byte order on which to listen.
+ *      The IP address to listen on in numbers-and-dots notation (as a string).
+ *      The caller may modify this buffer following the return of this
+ *      constructor.
  * \param port
- *      The port in host byte order on which to listen.
- */
-// TODO(ongaro): Figure out our byte order story.
-TCPTransport::ListenSocket::ListenSocket(uint32_t ip, uint16_t port) : addr()
-{
-    this->addr.sin_family = AF_INET;
-    this->addr.sin_port = htons(port);
-    this->addr.sin_addr.s_addr = ip;
-}
-
-/**
- * Bind on the IP and port given in the constructor and listen for new
- * connections.
- *
- * It's safe to call this multiple times, as it'll only act if #fd is negative.
- *
+ *      The port number to listen on in host byte order.
  * \exception UnrecoverableTransportException
  *      Errors trying to create, bind, listen to the socket.
  */
-void
-TCPTransport::ListenSocket::listen()
+TCPTransport::ListenSocket::ListenSocket(const char* ip, uint16_t port)
 {
-    if (fd >= 0)
+    if (ip == NULL || port == 0)
         return;
 
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
@@ -244,18 +229,18 @@ TCPTransport::ListenSocket::listen()
     (void) sys->setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval,
                            sizeof(optval));
 
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = inet_addr(ip);
     if (sys->bind(fd, (struct sockaddr*) &addr, sizeof(addr)) == -1) {
-        int e = errno;
-        sys->close(fd);
-        fd = -1;
-        throw UnrecoverableTransportException(e);
+        // destructor will close fd
+        throw UnrecoverableTransportException(errno);
     }
 
     if (sys->listen(fd, INT_MAX) == -1) {
-        int e = errno;
-        sys->close(fd);
-        fd = -1;
-        throw UnrecoverableTransportException(e);
+        // destructor will close fd
+        throw UnrecoverableTransportException(errno);
     }
 }
 
@@ -264,12 +249,15 @@ TCPTransport::ListenSocket::listen()
  * \return
  *      A non-negative file descriptor for the new connection.
  * \throw UnrecoverableTransportException
- *      Errors from #listen(); non-transient errors accepting a new connection.
+ *      Non-transient errors accepting a new connection.
  */
 int
 TCPTransport::ListenSocket::accept()
 {
-    listen();
+    // If you opted out of listening in the constructor,
+    // you're not allowed to accept now.
+    assert(fd > 0);
+
     while (true) {
         int acceptedFd = sys->accept(fd, NULL, NULL);
         if (acceptedFd >= 0)
@@ -332,6 +320,7 @@ TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
  * \throw TransportException
  *      Server refused connection or timed out.
  */
+// TODO(ongaro): Figure out our byte order story.
 void
 TCPTransport::ClientSocket::init(uint32_t ip, uint16_t port)
 {
@@ -387,28 +376,21 @@ TCPTransport::TCPClientRPC::getReply()
 
 /**
  * Constructor for TCPTransport.
+ *
+ * If this is a client transport only, use \c NULL for \a ip and 0 for \a port.
+ * It is then illegal to call #serverRecv().
+ *
  * \param ip
- *      The IP address to connect to in numbers-and-dots notation. Only used if
- *      #serverRecv() is ever called.
+ *      The IP address to listen on in numbers-and-dots notation (as a string).
+ *      The caller may modify this buffer following the return of this
+ *      constructor. For client transports, see above.
  * \param port
- *      The port number to later bind in host byte order. Only used if
- *      #serverRecv() is ever called.
+ *      The port number to listen on in host byte order. For client transports,
+ *      see above.
+ * \exception UnrecoverableTransportException
+ *      Errors trying to listen on the IP address and port.
  */
 TCPTransport::TCPTransport(const char* ip, uint16_t port)
-    : listenSocket(inet_addr(ip), port)
-{
-}
-
-/**
- * Constructor for TCPTransport.
- * \param ip
- *      The IP address to later bind to in network byte order. Only used if
- *      #serverRecv() is ever called.
- * \param port
- *      The port number to later bind in host byte order. Only used if
- *      #serverRecv() is ever called.
- */
-TCPTransport::TCPTransport(uint32_t ip, uint16_t port)
     : listenSocket(ip, port)
 {
 }
