@@ -51,16 +51,6 @@ PROTOTYPES = {
                                      'const void* optval, socklen_t optlen)',
         'socket': 'int socket(int domain, int type, int protocol)',
     },
-    'ServerSocketStub': {
-        'init': 'void init(TCPTransport::ListenSocket* listenSocket)',
-        'recv': 'void recv(Buffer* payload)',
-        'send': 'void send(const Buffer* payload)',
-    },
-    'ClientSocketStub': {
-        'init': 'void init(const char* ip, uint16_t port)',
-        'recv': 'void recv(Buffer* payload)',
-        'send': 'void send(const Buffer* payload)',
-    },
 }
 
 def handler(mock_class, base_class, lines):

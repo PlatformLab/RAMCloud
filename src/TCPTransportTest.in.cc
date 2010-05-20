@@ -24,6 +24,8 @@
  * figure it out.
  */
 
+// RAMCloud pragma [GCCWARN=5]
+
 #define BEGIN_MOCK "fail, see above"
 #define END_MOCK "fail, see above"
 
@@ -35,6 +37,11 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <cppunit/extensions/HelperMacros.h>
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
+using namespace ::testing; // NOLINT
 
 namespace RAMCloud {
 
@@ -81,40 +88,23 @@ class SyscallsStub : public TCPTransport::Syscalls {
 };
 
 /**
- * An implementation of TCPTransport::ServerSocket that complains when invoked.
- * The mock classes extend this.
+ * A google mock class for TCPTransport::ServerSocket.
  */
-class ServerSocketStub : public TCPTransport::ServerSocket {
+class MockServerSocket : public TCPTransport::ServerSocket {
   public:
-    struct NotImplementedException {};
-    void init(TCPTransport::ListenSocket* listenSocket)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    void recv(Buffer* payload) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    void send(const Buffer* payload) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
+    MOCK_METHOD1(init, void(TCPTransport::ListenSocket* listenSocket));
+    MOCK_METHOD1(recv, void(Buffer* payload));
+    MOCK_METHOD1(send, void(const Buffer* payload));
 };
 
 /**
- * An implementation of TCPTransport::ClientSocket that complains when invoked.
- * The mock classes extend this.
+ * A google mock class for TCPTransport::ClientSocket.
  */
-class ClientSocketStub : public TCPTransport::ClientSocket {
+class MockClientSocket : public TCPTransport::ClientSocket {
   public:
-    struct NotImplementedException {};
-    void init(const char* ip, uint16_t port) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    void recv(Buffer* payload) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    void send(const Buffer* payload) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
+    MOCK_METHOD2(init, void(const char* ip, uint16_t port));
+    MOCK_METHOD1(recv, void(Buffer* payload));
+    MOCK_METHOD1(send, void(const Buffer* payload));
 };
 
 /**
@@ -749,14 +739,11 @@ class TCPTransportTest : public CppUnit::TestFixture {
     }
 
     void test_TCPServerRPC_sendReply() {
-        static Buffer* send_expect;
+        const Buffer* send_expect;
 
-        BEGIN_MOCK(TS, ServerSocketStub);
-            send(payload == send_expect) {
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockServerSocket> ts;
+        EXPECT_CALL(ts, send(_))
+            .WillOnce(SaveArg<0>(&send_expect));
         TCPTransport::TCPServerRPC::mockServerSocket = &ts;
 
         BEGIN_MOCK(TSC, SyscallsStub);
@@ -770,20 +757,16 @@ class TCPTransportTest : public CppUnit::TestFixture {
 
         TCPTransport t(NULL, 0);
         TCPTransport::TCPServerRPC* rpc = new TCPTransport::TCPServerRPC();
-        send_expect = &rpc->replyPayload;
         rpc->realServerSocket.fd = 10;
         rpc->sendReply();
+        CPPUNIT_ASSERT(send_expect == &rpc->replyPayload);
     }
 
     void test_TCPClientRPC_getReply() {
-        static Buffer* recv_expect;
+        Buffer payload;
 
-        BEGIN_MOCK(TS, ClientSocketStub);
-            recv(payload == recv_expect) {
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockClientSocket> ts;
+        EXPECT_CALL(ts, recv(&payload));
         TCPTransport::TCPClientRPC::mockClientSocket = &ts;
 
         BEGIN_MOCK(TSC, SyscallsStub);
@@ -796,8 +779,6 @@ class TCPTransportTest : public CppUnit::TestFixture {
         TCPTransport::sys = &tsc;
 
         TCPTransport t(NULL, 0);
-        Buffer payload;
-        recv_expect = &payload;
         TCPTransport::TCPClientRPC* rpc = new TCPTransport::TCPClientRPC();
         rpc->reply = &payload;
         rpc->realClientSocket.fd = 10;
@@ -811,52 +792,43 @@ class TCPTransportTest : public CppUnit::TestFixture {
     }
 
     void test_TCPTransport_serverRecv() {
-        static TCPTransport::ListenSocket* init_expect;
-        static Buffer* recv_expect;
+        Buffer* recv_expect;
+        Buffer* recv_expect2;
+        TCPTransport t(NULL, 0);
 
-        BEGIN_MOCK(TS, ServerSocketStub);
-            init(listenSocket == init_expect) {
-            }
-            recv(payload) {
-                recv_expect = payload;
-                throw Transport::Exception();
-            }
-            init(listenSocket == init_expect) {
-            }
-            recv(payload == recv_expect) {
-            }
-        END_MOCK();
+        StrictMock<MockServerSocket> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, init(&t.listenSocket));
+            EXPECT_CALL(ts, recv(_))
+                .WillOnce(DoAll(SaveArg<0>(&recv_expect),
+                                Throw(Transport::Exception())));
+            EXPECT_CALL(ts, init(&t.listenSocket));
+            EXPECT_CALL(ts, recv(_))
+                .WillOnce(SaveArg<0>(&recv_expect2));
+        }
 
-        TS ts;
         TCPTransport::TCPServerRPC::mockServerSocket = &ts;
 
-        TCPTransport t(NULL, 0);
-        init_expect = &t.listenSocket;
-        Buffer payload;
-        recv_expect = &payload;
         Transport::ServerRPC* rpc = t.serverRecv();
         CPPUNIT_ASSERT(recv_expect == &rpc->recvPayload);
+        CPPUNIT_ASSERT(recv_expect2 == &rpc->recvPayload);
         rpc->ignore();
     }
 
     void test_TCPTransport_clientSend() {
-        static Buffer* send_expect;
-
-        BEGIN_MOCK(TS, ClientSocketStub);
-            init(ip, port == 0xef01) {
-                CPPUNIT_ASSERT(strcmp(ip, "1.2.3.4") == 0);
-            }
-            send(payload == send_expect) {
-            }
-        END_MOCK();
-
-        TS ts;
-        TCPTransport::TCPClientRPC::mockClientSocket = &ts;
-
         TCPTransport t(NULL, 0);
         Buffer payload;
         Buffer response;
-        send_expect = &payload;
+
+        StrictMock<MockClientSocket> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, init(StrEq("1.2.3.4"), 0xef01));
+            EXPECT_CALL(ts, send(&payload));
+        }
+        TCPTransport::TCPClientRPC::mockClientSocket = &ts;
+
         Service s;
         s.setIp("1.2.3.4");
         s.setPort(0xef01);
