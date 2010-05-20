@@ -24,9 +24,6 @@ TESTS_OBJFILES := $(TESTS_OBJFILES) \
 
 TESTS_LIB := -lcppunit -ldl -lpthread -lgtest -lgmock
 
-$(TOP)/src/TCPTransportTest.cc: $(TOP)/src/TCPTransportTestMock.py $(TOP)/src/TCPTransportTest.in.cc
-	$(TOP)/src/TCPTransportTestMock.py $@ < $(TOP)/src/TCPTransportTest.in.cc
-
 $(OBJDIR)/test: $(TESTS_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
@@ -49,4 +46,3 @@ $(OBJDIR)/Telnet: $(OBJDIR)/Telnet.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	$(CXX) -o $@ $^
 
 tests-clean:
-	rm -f $(TOP)/src/TCPTransportTest.cc
