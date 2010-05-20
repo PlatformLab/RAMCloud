@@ -35,22 +35,6 @@ class Output:
         return '\n'.join(self.buffer + [''])
 
 PROTOTYPES = {
-    'SyscallsStub': {
-        'accept': 'int accept(int sockfd, struct sockaddr* addr, ' +
-                             'socklen_t* addrlen)',
-        'bind': 'int bind(int sockfd, const struct sockaddr* addr, ' +
-                         'socklen_t addrlen)',
-        'close': 'int close(int fd)',
-        'connect': 'int connect(int sockfd, const struct sockaddr* addr, ' +
-                               'socklen_t addrlen)',
-        'listen': 'int listen(int sockfd, int backlog)',
-        'recv': 'ssize_t recv(int sockfd, void* buf, size_t len, int flags)',
-        'sendmsg': 'ssize_t sendmsg(int sockfd, const struct msghdr* msg, ' +
-                                   'int flags)',
-        'setsockopt': 'int setsockopt(int sockfd, int level, int optname, ' +
-                                     'const void* optval, socklen_t optlen)',
-        'socket': 'int socket(int domain, int type, int protocol)',
-    },
 }
 
 def handler(mock_class, base_class, lines):

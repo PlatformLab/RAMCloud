@@ -46,45 +46,108 @@ using namespace ::testing; // NOLINT
 namespace RAMCloud {
 
 /**
- * An implementation of TCPTransport::Syscalls that complains when invoked.
- * The mock classes extend this.
+ * A google mock action that sets the first 64 bits of \a arg0.
+ * \a arg0 is a \c void*, and \a v is a \c uint64_t.
  */
-class SyscallsStub : public TCPTransport::Syscalls {
+ACTION_P(Set64Bits, v) {
+    *static_cast<uint64_t*>(arg0) = v;
+}
+
+/**
+ * A google mock action that sets the length of a TCPTransport::Header.
+ * \a arg0 is a \c void* that is really a TCPTransport::Header,
+ * and \a l is an integer.
+ */
+ACTION_P(SetHeaderLen, l) {
+    TCPTransport::Header* header;
+    header = static_cast<TCPTransport::Header*>(arg0);
+    header->len = l;
+}
+
+/**
+ * Converts a <tt>const void*</tt> to a <tt>const int*</tt>.
+ * \param p See above.
+ * \return  See above.
+ */
+static const int*
+constVoidStarToIntStar(const void* p) {
+    return static_cast<const int*>(p);
+}
+
+/**
+ * A google mock matcher that tests whether \a arg is equal to given
+ * <tt>struct sockaddr_in</tt>.
+ * \a arg is a <tt>const struct sockaddr*</tt> that is really a
+ * <tt>const struct sockaddr_in*</tt>,
+ * and \a exp is a <tt>struct sockaddr_in*</tt>.
+ */
+MATCHER_P(SockaddrInEq, exp, "") {
+    const struct sockaddr_in* act;
+    act = reinterpret_cast<const struct sockaddr_in*>(arg);
+    return ((act->sin_family == exp->sin_family) &&
+            (act->sin_port == exp->sin_port) &&
+            (act->sin_addr.s_addr == exp->sin_addr.s_addr));
+}
+
+/**
+ * A google mock matcher that tests whether \a arg is an IO vector for an empty
+ * message.
+ * \a arg is a <tt>const struct msghdr*</tt>.
+ */
+MATCHER(EmptyMsgOk, "") {
+    if (((arg->msg_name != NULL) ||
+         (arg->msg_namelen != 0) ||
+         (arg->msg_control != NULL) ||
+         (arg->msg_controllen != 0) ||
+         (arg->msg_flags != 0) ||
+         (arg->msg_iovlen != 1)))
+        return false;
+    struct iovec* iov = arg->msg_iov;
+    TCPTransport::Header* header;
+    header = static_cast<TCPTransport::Header*>(iov[0].iov_base);
+    return ((iov[0].iov_len == sizeof(*header)) &&
+            (header->len == 0));
+}
+
+/**
+ * A google mock matcher that tests whether \a arg is an IO vector for a
+ * hard-coded message.
+ * See #RAMCloud::SocketTest::test_MessageSocket_send_twoChunksWithError().
+ * \a arg is a <tt>const struct msghdr*</tt> and \a data is a \c char*.
+ */
+MATCHER_P(MsgOk, data, "") {
+    if (arg->msg_iovlen != 3)
+        return false;
+    struct iovec* iov = arg->msg_iov;
+    TCPTransport::Header* header;
+    header = static_cast<TCPTransport::Header*>(iov[0].iov_base);
+    return ((iov[0].iov_len == sizeof(*header)) &&
+            (header->len == 24) &&
+            (iov[1].iov_base == &data[0]) &&
+            (iov[1].iov_len == 16) &&
+            (iov[2].iov_base == &data[16]) &&
+            (iov[2].iov_len == 8));
+}
+
+/**
+ * A google mock class for TCPTransport::Syscalls.
+ */
+class MockSyscalls : public TCPTransport::Syscalls {
   public:
-    struct NotImplementedException {};
-    int accept(int sockfd, struct sockaddr* addr, socklen_t* addrlen)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int bind(int sockfd, const struct sockaddr* addr, socklen_t addrlen)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int close(int fd) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int connect(int sockfd, const struct sockaddr* addr, socklen_t addrlen)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int listen(int sockfd, int backlog) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    ssize_t recv(int sockfd, void* buf, size_t len, int flags)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    ssize_t sendmsg(int sockfd, const struct msghdr* msg, int flags)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int setsockopt(int sockfd, int level, int optname, const void* optval,
-                   socklen_t optlen) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int socket(int domain, int type, int protocol) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
+    MOCK_METHOD3(accept, int(int sockfd, struct sockaddr* addr,
+                             socklen_t* addrlen));
+    MOCK_METHOD3(bind, int(int sockfd, const struct sockaddr* addr,
+                           socklen_t addrlen));
+    MOCK_METHOD1(close, int(int fd));
+    MOCK_METHOD3(connect, int(int sockfd, const struct sockaddr* addr,
+                              socklen_t addrlen));
+    MOCK_METHOD2(listen, int(int sockfd, int backlog));
+    MOCK_METHOD4(recv, ssize_t(int sockfd, void* buf, size_t len, int flags));
+    MOCK_METHOD3(sendmsg, ssize_t(int sockfd, const struct msghdr* msg,
+                                  int flags));
+    MOCK_METHOD5(setsockopt, int(int sockfd, int level, int optname,
+                                 const void* optval, socklen_t optlen));
+    MOCK_METHOD3(socket, int(int domain, int type, int protocol));
 };
 
 /**
@@ -156,13 +219,8 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_Socket_destructor() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        EXPECT_CALL(ts, close(10));
         TCPTransport::sys = &ts;
 
         TCPTransport::Socket s;
@@ -171,20 +229,15 @@ class SocketTest : public CppUnit::TestFixture {
 
     // 0-byte message
     void test_MessageSocket_recv0() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
-                 flags == MSG_WAITALL) {
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(buf);
-                header->len = 0;
-                return len;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, recv(10, _, sizeof(TCPTransport::Header),
+                                 MSG_WAITALL))
+                .WillOnce(DoAll(WithArg<1>(SetHeaderLen(0)),
+                                Return(sizeof(TCPTransport::Header))));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
         XMessageSocket s;
@@ -196,53 +249,41 @@ class SocketTest : public CppUnit::TestFixture {
 
     // 8-byte message
     void test_MessageSocket_recv8() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
-                 flags == MSG_WAITALL) {
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(buf);
-                header->len = 8;
-                return len;
-            }
-            recv(sockfd == 10, buf, len == 8, flags == MSG_WAITALL) {
-                *static_cast<uint64_t*>(buf) = 0x0123456789abcdef;
-                return 8;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, recv(10, _, sizeof(TCPTransport::Header),
+                                 MSG_WAITALL))
+                .WillOnce(DoAll(WithArg<1>(SetHeaderLen(8)),
+                                Return(sizeof(TCPTransport::Header))));
+            EXPECT_CALL(ts, recv(10, _, 8, MSG_WAITALL))
+                .WillOnce(DoAll(WithArg<1>(Set64Bits(0x0123456789abcdef)),
+                                Return(8)));
+            EXPECT_CALL(ts, close(10));
+        }
+        TCPTransport::sys = &ts;
 
         Buffer payload;
-        {
-            TS ts;
-            TCPTransport::sys = &ts;
-
-            XMessageSocket s;
-            s.fd = 10;
-            s.recv(&payload);
-        }
+        XMessageSocket s;
+        s.fd = 10;
+        s.recv(&payload);
         CPPUNIT_ASSERT(payload.totalLength() == 8);
         uint64_t* data = static_cast<uint64_t*>(payload.getRange(0, 8));
         CPPUNIT_ASSERT(*data == 0x0123456789abcdef);
     }
 
     void test_MessageSocket_recv_hdrError() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
-                 flags == MSG_WAITALL) {
-                errno = ENOMEM;
-                return -1;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        Buffer payload;
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, recv(10, _, sizeof(TCPTransport::Header),
+                                 MSG_WAITALL))
+                .WillOnce(SetErrnoAndReturn(ENOMEM, -1));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
+        Buffer payload;
         XMessageSocket s;
         s.fd = 10;
         try {
@@ -252,20 +293,16 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_MessageSocket_recv_hdrPeerClosed() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
-                 flags == MSG_WAITALL) {
-                return 0;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        Buffer payload;
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, recv(10, _, sizeof(TCPTransport::Header),
+                                 MSG_WAITALL));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
+        Buffer payload;
         XMessageSocket s;
         s.fd = 10;
         try {
@@ -275,23 +312,18 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_MessageSocket_recv_msgTooLong() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
-                 flags == MSG_WAITALL) {
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(buf);
-                header->len = MAX_RPC_LEN + 1;
-                return len;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        Buffer payload;
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, recv(10, _, sizeof(TCPTransport::Header),
+                                 MSG_WAITALL))
+                .WillOnce(DoAll(WithArg<1>(SetHeaderLen(MAX_RPC_LEN + 1)),
+                                Return(sizeof(TCPTransport::Header))));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
+        Buffer payload;
         XMessageSocket s;
         s.fd = 10;
         try {
@@ -301,27 +333,20 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_MessageSocket_recv_dataError() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
-                 flags == MSG_WAITALL) {
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(buf);
-                header->len = 8;
-                return len;
-            }
-            recv(sockfd == 10, buf, len == 8, flags == MSG_WAITALL) {
-                errno = ENOMEM;
-                return -1;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        Buffer payload;
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, recv(10, _, sizeof(TCPTransport::Header),
+                                 MSG_WAITALL))
+                .WillOnce(DoAll(WithArg<1>(SetHeaderLen(8)),
+                                Return(sizeof(TCPTransport::Header))));
+            EXPECT_CALL(ts, recv(10, _, 8, MSG_WAITALL))
+                .WillOnce(SetErrnoAndReturn(ENOMEM, -1));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
+        Buffer payload;
         XMessageSocket s;
         s.fd = 10;
         try {
@@ -331,26 +356,19 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_MessageSocket_recv_dataPeerClosed() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
-                 flags == MSG_WAITALL) {
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(buf);
-                header->len = 8;
-                return len;
-            }
-            recv(sockfd == 10, buf, len == 8, flags == MSG_WAITALL) {
-                return 0;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        Buffer payload;
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, recv(10, _, sizeof(TCPTransport::Header),
+                                 MSG_WAITALL))
+                .WillOnce(DoAll(WithArg<1>(SetHeaderLen(8)),
+                                Return(sizeof(TCPTransport::Header))));
+            EXPECT_CALL(ts, recv(10, _, 8, MSG_WAITALL));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
+        Buffer payload;
         XMessageSocket s;
         s.fd = 10;
         try {
@@ -361,27 +379,13 @@ class SocketTest : public CppUnit::TestFixture {
 
     // 0-byte message
     void test_MessageSocket_send0() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            sendmsg(sockfd == 10, msg, flags == 0) {
-                CPPUNIT_ASSERT(msg->msg_name == NULL);
-                CPPUNIT_ASSERT(msg->msg_namelen == 0);
-                CPPUNIT_ASSERT(msg->msg_control == NULL);
-                CPPUNIT_ASSERT(msg->msg_controllen == 0);
-                CPPUNIT_ASSERT(msg->msg_flags == 0);
-                CPPUNIT_ASSERT(msg->msg_iovlen == 1);
-                struct iovec* iov = msg->msg_iov;
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(iov[0].iov_base);
-                CPPUNIT_ASSERT(iov[0].iov_len == sizeof(*header));
-                CPPUNIT_ASSERT(header->len == 0);
-                return sizeof(*header);
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, sendmsg(10, EmptyMsgOk(), 0))
+                .WillOnce(Return(sizeof(TCPTransport::Header)));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
         XMessageSocket s;
@@ -396,27 +400,13 @@ class SocketTest : public CppUnit::TestFixture {
             0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
             0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17};
 
-        BEGIN_MOCK(TS, SyscallsStub);
-            sendmsg(sockfd == 10, msg, flags == 0) {
-                CPPUNIT_ASSERT(msg->msg_iovlen == 3);
-                struct iovec* iov = msg->msg_iov;
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(iov[0].iov_base);
-                CPPUNIT_ASSERT(iov[0].iov_len == sizeof(*header));
-                CPPUNIT_ASSERT(header->len == 24);
-                CPPUNIT_ASSERT(iov[1].iov_base == &data[0]);
-                CPPUNIT_ASSERT(iov[1].iov_len == 16);
-                CPPUNIT_ASSERT(iov[2].iov_base == &data[16]);
-                CPPUNIT_ASSERT(iov[2].iov_len == 8);
-                errno = ENOMEM;
-                return -1;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, sendmsg(10, MsgOk(data), 0))
+                .WillOnce(SetErrnoAndReturn(ENOMEM, -1));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
         XMessageSocket s;
@@ -431,21 +421,15 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_ServerSocket_init() {
-        // This is an annoying amount of unrelated code to get an 11 out of
-        // listenSocket->accept().
-        BEGIN_MOCK(TS, SyscallsStub);
-            accept(sockfd == 10, addr == NULL, addrlen == NULL) {
-                return 11;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-            close(fd == 11) {
-                return 0;
-            }
-        END_MOCK();
-
-        TS ts;
+        // Aiming to get an 11 out of listenSocket.accept():
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, accept(10, NULL, NULL))
+                .WillOnce(Return(11));
+            EXPECT_CALL(ts, close(10));
+            EXPECT_CALL(ts, close(11));
+        }
         TCPTransport::sys = &ts;
 
         TCPTransport::ServerSocket s;
@@ -456,65 +440,47 @@ class SocketTest : public CppUnit::TestFixture {
     };
 
     void test_ListenSocket_constructor_noop() {
-        BEGIN_MOCK(TS, SyscallsStub);
-        END_MOCK();
-
         {
-            TS ts;
+            StrictMock<MockSyscalls> ts;
             TCPTransport::sys = &ts;
             TCPTransport::ListenSocket s(NULL, 0xabcd);
         }
         {
-            TS ts;
+            StrictMock<MockSyscalls> ts;
             TCPTransport::sys = &ts;
             TCPTransport::ListenSocket s("0.0.0.0", 0);
         }
     }
 
     void test_ListenSocket_constructor_normal() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            socket(domain == PF_INET, type == SOCK_STREAM, protocol == 0) {
-                return 10;
-            }
-            setsockopt(sockfd == 10, level == SOL_SOCKET, \
-                       optname == SO_REUSEADDR, optval, optlen) {
-                CPPUNIT_ASSERT(optlen == sizeof(int)); // NOLINT
-                const int* val = static_cast<const int*>(optval);
-                CPPUNIT_ASSERT(*val == 1);
-                return 0;
-            }
-            bind(sockfd == 10, addr, addrlen == sizeof(struct sockaddr_in)) {
-                const struct sockaddr_in* a;
-                a = reinterpret_cast<const struct sockaddr_in*>(addr);
-                CPPUNIT_ASSERT(a->sin_family == AF_INET);
-                CPPUNIT_ASSERT(a->sin_port == htons(0xabcd));
-                CPPUNIT_ASSERT(a->sin_addr.s_addr == 0x04030201);
-                return 0;
-            }
-            listen(sockfd == 10, backlog) {
-                CPPUNIT_ASSERT(backlog > 1000);
-                return 0;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
+        struct sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(0xabcd);
+        addr.sin_addr.s_addr = 0x04030201;
 
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, socket(PF_INET, SOCK_STREAM, 0))
+                .WillOnce(Return(10));
+            EXPECT_CALL(ts, setsockopt(10, SOL_SOCKET, SO_REUSEADDR,
+                                       ResultOf(constVoidStarToIntStar,
+                                                Pointee(1)),
+                                       sizeof(int))); // NOLINT
+            EXPECT_CALL(ts, bind(10, SockaddrInEq(&addr),
+                                    sizeof(struct sockaddr_in)));
+            EXPECT_CALL(ts, listen(10, Gt(1000)));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
         TCPTransport::ListenSocket s("1.2.3.4", 0xabcd);
     }
 
     void test_ListenSocket_constructor_socketError() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            socket(domain == PF_INET, type == SOCK_STREAM, protocol == 0) {
-                errno = ENOMEM;
-                return -1;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        EXPECT_CALL(ts, socket(PF_INET, SOCK_STREAM, 0))
+            .WillOnce(SetErrnoAndReturn(ENOMEM, -1));
         TCPTransport::sys = &ts;
 
         try {
@@ -525,26 +491,17 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_ListenSocket_constructor_listenError() {
         // args checked in normal test
-        BEGIN_MOCK(TS, SyscallsStub);
-            socket(domain, type, protocol) {
-                return 10;
-            }
-            setsockopt(sockfd, level, optname, optval, optlen) {
-                return 0;
-            }
-            bind(sockfd, addr, addrlen) {
-                return 0;
-            }
-            listen(sockfd == 10, backlog) {
-                errno = ENOMEM;
-                return -1;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, socket(_, _, _))
+                .WillOnce(Return(10));
+            EXPECT_CALL(ts, setsockopt(_, _, _, _, _));
+            EXPECT_CALL(ts, bind(_, _, _));
+            EXPECT_CALL(ts, listen(10, _))
+                .WillOnce(SetErrnoAndReturn(ENOMEM, -1));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
         try {
@@ -554,16 +511,13 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_ListenSocket_accept_normal() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            accept(sockfd == 10, addr == NULL, addrlen == NULL) {
-                return 11;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, accept(10, NULL, NULL))
+                .WillOnce(Return(11));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
         TCPTransport::ListenSocket s(NULL, 0);
@@ -572,20 +526,15 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_ListenSocket_accept_transientError() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            accept(sockfd == 10, addr == NULL, addrlen == NULL) {
-                errno = EHOSTUNREACH;
-                return -1;
-            }
-            accept(sockfd == 10, addr == NULL, addrlen == NULL) {
-                return 11;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, accept(10, NULL, NULL))
+                .WillOnce(SetErrnoAndReturn(EHOSTUNREACH, -1));
+            EXPECT_CALL(ts, accept(10, NULL, NULL))
+                .WillOnce(Return(11));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
         TCPTransport::ListenSocket s(NULL, 0);
@@ -594,17 +543,13 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_ListenSocket_accept_error() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            accept(sockfd == 10, addr == NULL, addrlen == NULL) {
-                errno = ENOMEM;
-                return -1;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, accept(10, NULL, NULL))
+                .WillOnce(SetErrnoAndReturn(ENOMEM, -1));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
         TCPTransport::ListenSocket s(NULL, 0);
@@ -616,24 +561,21 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_ClientSocket_init_normal() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            socket(domain == PF_INET, type == SOCK_STREAM, protocol == 0) {
-                return 10;
-            }
-            connect(sockfd == 10, addr, addrlen == sizeof(struct sockaddr_in)) {
-                const struct sockaddr_in* a;
-                a = reinterpret_cast<const struct sockaddr_in*>(addr);
-                CPPUNIT_ASSERT(a->sin_family == AF_INET);
-                CPPUNIT_ASSERT(a->sin_port == htons(0xabcd));
-                CPPUNIT_ASSERT(a->sin_addr.s_addr == 0x10204080);
-                return 0;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
 
-        TS ts;
+        struct sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(0xabcd);
+        addr.sin_addr.s_addr = 0x10204080;
+
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, socket(PF_INET, SOCK_STREAM, 0))
+                .WillOnce(Return(10));
+            EXPECT_CALL(ts, connect(10, SockaddrInEq(&addr),
+                                    sizeof(struct sockaddr_in)));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
         TCPTransport::ClientSocket s;
@@ -642,14 +584,9 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_ClientSocket_init_socketError() {
         // args checked in normal test
-        BEGIN_MOCK(TS, SyscallsStub);
-            socket(domain, type, protocol) {
-                errno = ENOMEM;
-                return -1;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        EXPECT_CALL(ts, socket(_, _, _))
+                .WillOnce(SetErrnoAndReturn(ENOMEM, -1));
         TCPTransport::sys = &ts;
 
         TCPTransport::ClientSocket s;
@@ -661,20 +598,15 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_ClientSocket_init_connectTransientError() {
         // args checked in normal test
-        BEGIN_MOCK(TS, SyscallsStub);
-            socket(domain, type, protocol) {
-                return 10;
-            }
-            connect(sockfd, addr, addrlen) {
-                errno = ETIMEDOUT;
-                return -1;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, socket(_, _, _))
+                .WillOnce(Return(10));
+            EXPECT_CALL(ts, connect(_, _, _))
+                .WillOnce(SetErrnoAndReturn(ETIMEDOUT, -1));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
         TCPTransport::ClientSocket s;
@@ -686,20 +618,15 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_ClientSocket_init_connectError() {
         // args checked in normal test
-        BEGIN_MOCK(TS, SyscallsStub);
-            socket(domain, type, protocol) {
-                return 10;
-            }
-            connect(sockfd, addr, addrlen) {
-                errno = ENOMEM;
-                return -1;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TS ts;
+        StrictMock<MockSyscalls> ts;
+        {
+            InSequence expectations;
+            EXPECT_CALL(ts, socket(_, _, _))
+                .WillOnce(Return(10));
+            EXPECT_CALL(ts, connect(_, _, _))
+                .WillOnce(SetErrnoAndReturn(ENOMEM, -1));
+            EXPECT_CALL(ts, close(10));
+        }
         TCPTransport::sys = &ts;
 
         TCPTransport::ClientSocket s;
@@ -746,13 +673,8 @@ class TCPTransportTest : public CppUnit::TestFixture {
             .WillOnce(SaveArg<0>(&send_expect));
         TCPTransport::TCPServerRPC::mockServerSocket = &ts;
 
-        BEGIN_MOCK(TSC, SyscallsStub);
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TSC tsc;
+        StrictMock<MockSyscalls> tsc;
+        EXPECT_CALL(tsc, close(10));
         TCPTransport::sys = &tsc;
 
         TCPTransport t(NULL, 0);
@@ -769,13 +691,8 @@ class TCPTransportTest : public CppUnit::TestFixture {
         EXPECT_CALL(ts, recv(&payload));
         TCPTransport::TCPClientRPC::mockClientSocket = &ts;
 
-        BEGIN_MOCK(TSC, SyscallsStub);
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        TSC tsc;
+        StrictMock<MockSyscalls> tsc;
+        EXPECT_CALL(tsc, close(10));
         TCPTransport::sys = &tsc;
 
         TCPTransport t(NULL, 0);
