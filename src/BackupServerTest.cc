@@ -21,10 +21,9 @@
 #include <BackupServer.h>
 
 #include <backuprpc.h>
-#include <Net.h>
-#include <MockNet.h>
 #include <Log.h>
 #include <Server.h>
+#include <MockTransport.h>
 
 #include <cppunit/extensions/HelperMacros.h>
 
@@ -39,7 +38,8 @@ static const char *LOG_PATH = "/tmp/rctest.log";
  * Unit tests for BackupServer.
  */
 class BackupServerTest : public CppUnit::TestFixture {
-    Net *net;
+    Service *service;
+    MockTransport *transport;
 
     const std::string testMessage;
     uint32_t testMessageLen;
@@ -78,27 +78,26 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    BackupServerTest() :
-        net(0), testMessage("God hates ponies."), testMessageLen(0)
+    BackupServerTest()
+            : service(0), transport(0), testMessage("God hates ponies."),
+              testMessageLen(0)
     {
         testMessageLen = static_cast<uint32_t>(testMessage.length());
     }
 
-    class DumbMockNet : public MockNet {
-        virtual void Handle(const char *reqData, size_t len) {}
-    };
-
     void
     setUp()
     {
-        net = new DumbMockNet();
+        service = new Service();
+        transport = new MockTransport();
     }
 
     void
     tearDown()
     {
         unlink(LOG_PATH);
-        delete net;
+        delete service;
+        delete transport;
     }
 
     // Construct a backup and check members to verify our
@@ -106,7 +105,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_constructor_normal()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         CPPUNIT_ASSERT(backup.logFD != -1);
 
@@ -127,7 +126,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     test_constructor_badPath()
     {
         try {
-            BackupServer backup(net, "/god/hates/ponies/");
+            BackupServer backup(service, transport, "/god/hates/ponies/");
             CPPUNIT_ASSERT_MESSAGE("Backup construction should fail on "
                                    "non-existant directory for log path.",
                                    false);
@@ -142,7 +141,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_writeSegment_badSegmentNumber()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         try {
             backup.writeSegment(INVALID_SEGMENT_NUM, 0, "test", 5);
@@ -157,7 +156,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_writeSegment_normal()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         try {
             backup.writeSegment(0, 0,
@@ -174,7 +173,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_writeSegment_dataTooLarge()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         char buf[SEGMENT_SIZE + 256];
         try {
@@ -186,7 +185,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_writeSegment_offsetTooLarge()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         try {
             backup.writeSegment(0, SEGMENT_SIZE,
@@ -199,7 +198,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_writeSegment_overflow()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         try {
             backup.writeSegment(0, SEGMENT_SIZE - 2,
@@ -212,7 +211,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_flushSegment_noFreeFrames()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
         // TODO(stutsman) these is somekind of problem with clearing
         // all the values in the freeMap resulting in some kind of
         // exception
@@ -228,7 +227,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_flushSegment_normal()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         backup.writeSegment(12, 0,
                             testMessage.c_str(), testMessageLen);
@@ -244,7 +243,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_flushSegment_logClosed()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         backup.writeSegment(12, 0,
                             testMessage.c_str(), testMessageLen);
@@ -260,7 +259,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_commitSegment_badSegmentNumber()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         try {
             backup.commitSegment(INVALID_SEGMENT_NUM);
@@ -271,7 +270,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_commitSegment_normal()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         // Simple test - should work
         char buf[SEGMENT_SIZE];
@@ -294,7 +293,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_commitSegment_quirky()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         // TODO(stutsman) Finish me
         CPPUNIT_ASSERT(false);
@@ -318,7 +317,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_commitSegment_commitWithoutWriteSegment()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         // Try to commit a segment that isn't open
         try {
@@ -330,7 +329,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_freeSegment_badSegmentNumber()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         try {
             backup.freeSegment(INVALID_SEGMENT_NUM);
@@ -341,7 +340,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_freeSegment_nonexistantSegmentNumber()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         try {
             backup.freeSegment(77);
@@ -352,7 +351,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_freeSegment_normal()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
@@ -362,7 +361,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_freeSegment_previouslyFreeSegment()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
@@ -378,7 +377,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_retrieveSegment_badSegNum()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
         char buf[SEGMENT_SIZE];
         try {
             // Try to fetch INVALID_SEGMENT_NUM
@@ -390,7 +389,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_retrieveSegment_normal()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
@@ -413,7 +412,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_getSegmentList_normal()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
@@ -432,7 +431,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_getSegmentList_listSizeTooShort()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
@@ -452,7 +451,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_extractMetadata_normal()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         RecoveryObjectMetadata meta;
         DECLARE_OBJECT(o, 23);
@@ -548,7 +547,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_getSegmentMetadata_segmentNotHere()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         const uint32_t listSize = 0;
         RecoveryObjectMetadata list[listSize];
@@ -566,7 +565,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_getSegmentMetadata_noObjects()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         writeMockHeader(&backup, 76);
         backup.commitSegment(76);
@@ -589,7 +588,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_getSegmentMetadata_normal()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         uint32_t offset = writeMockHeader(&backup, 76);
         offset = writeMockObject(&backup, 76, 5, offset);
@@ -618,7 +617,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_getSegmentMetadata_nonexistentSegmentId()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         const uint32_t listSize = 2;
         RecoveryObjectMetadata list[listSize];
@@ -634,7 +633,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_frameForSegNum_matchFound()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         backup.writeSegment(76, 0, testMessage.c_str(), testMessageLen);
         backup.commitSegment(76);
@@ -645,7 +644,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_frameForSegNum_noMatchFound()
     {
-        BackupServer backup(net, LOG_PATH);
+        BackupServer backup(service, transport, LOG_PATH);
 
         try {
             backup.frameForSegNum(76);

@@ -15,7 +15,12 @@
 
 // RAMCloud pragma [CPPLINT=0]
 
+#include <arpa/inet.h>
+
+#include <Buffer.h>
 #include <Server.h>
+#include <Service.h>
+#include <Transport.h>
 
 namespace RAMCloud {
 
@@ -31,9 +36,9 @@ void TombstoneEvictionCallback(log_entry_type_t type,
                          void *cookie);
 
 Server::Server(const ServerConfig *sconfig,
-               Net *net_impl,
+               Transport* transIn,
                BackupClient *backupClient)
-    : config(sconfig), net(net_impl), backup(backupClient), log(0)
+    : config(sconfig), trans(transIn), backup(backupClient), log(0)
 {
     void *p = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
     assert(p != NULL);
@@ -41,11 +46,14 @@ Server::Server(const ServerConfig *sconfig,
     if (!backup) {
         MultiBackupClient *multiBackup = new MultiBackupClient();
         if (BACKUP) {
-            Net *net = new CNet(BACKCLNTADDR, BACKCLNTPORT,
-                                BACKSVRADDR, BACKSVRPORT);
-            net->Connect();
-            // NOTE The backup client takes care of freeing the net object
-            multiBackup->addHost(net);
+            // This Service object will be deallocated in ~BackupHost().
+            Service *s = new Service();
+            s->setPort(BACKSVRPORT);
+            s->setIp(BACKSVRADDR);
+
+            // NOTE The backup client takes care of freeing the Service and
+            // Transport objects.
+            multiBackup->addHost(s, trans);
         }
         backup = multiBackup;
     }
@@ -478,10 +486,10 @@ void
 Server::HandleRPC()
 {
     rcrpc_any *req;
-    if (net->RecvRPC(&req) != 0) {
-        printf("Failure receiving rpc\n");
-        return;
-    }
+
+    Transport::ServerRPC *rpc = trans->serverRecv();
+    req = reinterpret_cast<rcrpc_any*>(
+        rpc->recvPayload.getRange(0, rpc->recvPayload.totalLength()));
 
     char rpcbuf[MAX_RPC_LEN];
     rcrpc_any *resp = reinterpret_cast<rcrpc_any*>(rpcbuf);
@@ -495,13 +503,15 @@ Server::HandleRPC()
 
 #define HANDLE(rcrpc_upper, rcrpc_lower, handler) \
         case RCRPC_##rcrpc_upper##_REQUEST: \
-            assert(req->header.len >= sizeof(rcrpc_##rcrpc_lower##_request)); \
-            Server::handler(reinterpret_cast<rcrpc_##rcrpc_lower##_request*>(req), \
-                            reinterpret_cast<rcrpc_##rcrpc_lower##_response*>(resp)); \
-            assert(resp->header.type == RCRPC_##rcrpc_upper##_RESPONSE); \
-            assert(resp->header.len >= sizeof(rcrpc_##rcrpc_lower##_response)); \
-            break; \
-        case RCRPC_##rcrpc_upper##_RESPONSE: \
+            assert(req->header.len >= sizeof(rcrpc_##rcrpc_lower##_request));  \
+            Server::handler(                                                   \
+                reinterpret_cast<rcrpc_##rcrpc_lower##_request*>(req),         \
+                reinterpret_cast<rcrpc_##rcrpc_lower##_response*>(resp));      \
+            assert(resp->header.type == RCRPC_##rcrpc_upper##_RESPONSE);       \
+            assert(resp->header.len >=                                         \
+                   sizeof(rcrpc_##rcrpc_lower##_response));                    \
+            break;                                                             \
+        case RCRPC_##rcrpc_upper##_RESPONSE:                                   \
             throw "server received RPC response"
 
         HANDLE(PING, ping, Ping);
@@ -521,7 +531,8 @@ Server::HandleRPC()
             throw "received unknown RPC type";
         }
     } catch (const char *msg) {
-        rcrpc_error_response *error_rpc = reinterpret_cast<rcrpc_error_response*>(resp);
+        rcrpc_error_response *error_rpc =
+                reinterpret_cast<rcrpc_error_response*>(resp);
         fprintf(stderr, "Error while processing RPC: %s\n", msg);
         size_t msglen = strlen(msg);
         assert(RCRPC_ERROR_RESPONSE_LEN_WODATA + msglen + 1 < MAX_RPC_LEN);
@@ -531,7 +542,9 @@ Server::HandleRPC()
                                RCRPC_ERROR_RESPONSE_LEN_WODATA +
                                msglen + 1);
     }
-    net->SendRPC(resp);
+
+    rpc->replyPayload.append(resp, resp->header.len);
+    rpc->sendReply();
 }
 
 void __attribute__ ((noreturn))

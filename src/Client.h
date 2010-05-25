@@ -20,6 +20,10 @@
 #include <stdbool.h>
 #include <config.h>
 #include <Net.h>
+#include <Buffer.h>
+#include <Service.h>
+#include <Transport.h>
+#include <TCPTransport.h>
 
 #if RC_CLIENT_SHARED
 struct rc_client_shared; // declared in Client.c
@@ -27,6 +31,8 @@ struct rc_client_shared; // declared in Client.c
 
 struct rc_client {
     struct rc_net net;
+    RAMCloud::Service* serv;
+    RAMCloud::Transport* trans;
 #if RC_CLIENT_SHARED
     struct rc_client_shared *shared;
 #endif
@@ -61,6 +67,7 @@ int rc_drop_table(struct rc_client *client, const char *name);
 struct rc_client *rc_new(void);
 void rc_free(struct rc_client *client);
 const char* rc_last_error(void);
+
 #ifdef __cplusplus
 }
 #endif

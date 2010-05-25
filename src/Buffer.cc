@@ -263,4 +263,52 @@ void Buffer::allocateMoreExtraBufs() {
         xrealloc(extraBufs, sizeof(void *) * extraBufsAvail));  // NOLINT
 }
 
+/**
+ * Create an iterator for the contents of a Buffer.
+ * The iterator starts on the first chunk of the Buffer, so you should use
+ * #isDone(), #getData(), and #getLength() before the first call to #next().
+ * \param[in] buffer
+ *      The Buffer over which to iterate.
+ */
+Buffer::Iterator::Iterator(const Buffer& buffer)
+    : buffer(buffer), chunkIndex(0) {
+}
+
+Buffer::Iterator::~Iterator() {
+    chunkIndex = buffer.chunksUsed;
+}
+
+/**
+ * Return whether the current chunk is past the end of the Buffer.
+ * \return
+ *      Whether the current chunk is past the end of the Buffer. If this is
+ *      \c true, it is illegal to use #next(), #getData(), and #getLength().
+ */
+bool Buffer::Iterator::isDone() const {
+    return (chunkIndex >= buffer.chunksUsed);
+}
+
+/**
+ * Advance to the next chunk in the Buffer.
+ */
+void Buffer::Iterator::next() {
+    ++chunkIndex;
+}
+
+/**
+ * Return the data pointer at the current chunk.
+ */
+const void* Buffer::Iterator::getData() const {
+    assert(chunkIndex < buffer.chunksUsed);
+    return buffer.chunks[chunkIndex].data;
+}
+
+/**
+ * Return the length of the data at the current chunk.
+ */
+uint32_t Buffer::Iterator::getLength() const {
+    assert(chunkIndex < buffer.chunksUsed);
+    return buffer.chunks[chunkIndex].len;
+}
+
 }  // namespace RAMCLoud

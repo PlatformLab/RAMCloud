@@ -24,8 +24,8 @@
 #include <Log.h>
 #include <BackupClient.h>
 
-#include <Net.h>
 #include <HashTable.h>
+#include <Transport.h>
 
 namespace RAMCloud {
 
@@ -177,7 +177,7 @@ struct ServerConfig {
 class Server {
   public:
     explicit Server(const ServerConfig *sconfig,
-                    Net *net_impl,
+                    Transport* transIn,
                     BackupClient *backupClient=0);
     ~Server();
     void Run();
@@ -213,7 +213,7 @@ class Server {
                    uint64_t *new_version);
 
     const ServerConfig *config;
-    Net *net;
+    Transport* trans;
     BackupClient *backup;
     Log *log;
     Table tables[RC_NUM_TABLES];

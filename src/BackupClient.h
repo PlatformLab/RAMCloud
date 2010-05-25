@@ -24,7 +24,8 @@
 #define RAMCLOUD_BACKUPCLIENT_H
 
 #include <Common.h>
-#include <Net.h>
+#include <Service.h>
+#include <Transport.h>
 #include <backuprpc.h>
 
 namespace RAMCloud {
@@ -55,7 +56,7 @@ class BackupClient {
  */
 class BackupHost : public BackupClient {
   public:
-    explicit BackupHost(Net *netimpl);
+    explicit BackupHost(Service *s, Transport *trans);
     virtual ~BackupHost();
 
     virtual void heartbeat();
@@ -87,9 +88,8 @@ class BackupHost : public BackupClient {
                                         uint32_t maxSize);
     virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
-    void sendRPC(backup_rpc *rpc);
-    void recvRPC(backup_rpc **rpc);
-    Net *net;
+    Service *s;
+    Transport *trans;
     DISALLOW_COPY_AND_ASSIGN(BackupHost);
 };
 
@@ -106,7 +106,7 @@ class MultiBackupClient : public BackupClient {
   public:
     explicit MultiBackupClient();
     virtual ~MultiBackupClient();
-    void addHost(Net *net);
+    void addHost(Service *s, Transport* t);
 
     virtual void heartbeat();
     virtual void writeSegment(uint64_t segNum, uint32_t offset,

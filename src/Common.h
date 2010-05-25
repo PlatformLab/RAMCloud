@@ -164,6 +164,24 @@ uint64_t rdtsc();
 #define rdtsc() 0UL
 #endif
 
+#if TESTING
+#undef PRODUCTION
+#else
+#define PRODUCTION 1
+#endif
+
+#if TESTING
+#define VIRTUAL_FOR_TESTING virtual
+#else
+#define VIRTUAL_FOR_TESTING
+#endif
+
+#if TESTING
+#define CONST_FOR_PRODUCTION
+#else
+#define CONST_FOR_PRODUCTION const
+#endif
+
 namespace RAMCloud {
 
 #if PERF_COUNTERS

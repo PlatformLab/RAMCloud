@@ -23,7 +23,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <unistd.h>
-#include <assert.h>
 #include <errno.h>
 #include <string.h>
 
@@ -36,6 +35,8 @@
 #include <Net.h>
 
 #include <net_udp.h>
+
+using RAMCloud::assert;
 
 void
 rc_net_init(struct rc_net *ret,

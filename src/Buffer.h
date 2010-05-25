@@ -34,6 +34,39 @@ namespace RAMCloud {
  */     
 class Buffer {
   public:
+
+    /**
+     * This class provides a way to iterate over the chunks of a Buffer.
+     * This should only be used by the low-level networking code, as Buffer
+     * provides more convenient methods to access the Buffer for higher-level
+     * code.
+     *
+     * \warning
+     * The Buffer must not be modified during the lifetime of the iterator.
+     */
+    class Iterator {
+      public:
+        explicit Iterator(const Buffer& buffer);
+        ~Iterator();
+        bool isDone() const;
+        void next();
+        const void* getData() const;
+        uint32_t getLength() const;
+
+      private:
+        /**
+         * The Buffer over which to iterate, as given to #Iterator().
+         */
+        const Buffer& buffer;
+
+        /**
+         * An index into the Buffer::chunks array. This starts at 0.
+         */
+        uint32_t chunkIndex;
+
+      friend class BufferIteratorTest;
+    };
+
     void prepend(const void* src, const uint32_t length);
 
     void append(const void* src, const uint32_t length);
@@ -52,6 +85,13 @@ class Buffer {
      * \return See above.
      */
     uint32_t totalLength() const { return totalLen; }
+
+    /**
+     * Return the number of chunks composing this Buffer.
+     * Along with #Iterator, this is useful for networking code that is trying
+     * to export the Buffer into a different format.
+     */
+    uint32_t numberChunks() const { return chunksUsed; }
 
     Buffer();
 
@@ -109,6 +149,7 @@ class Buffer {
     uint32_t extraBufsAvail;  // The size of the extraBufs array.
     uint32_t extraBufsUsed;   // The number of extraBufs currently in use.
 
+    friend class Iterator;
     friend class BufferTest;  // For CppUnit testing purposes.
 
     DISALLOW_COPY_AND_ASSIGN(Buffer);
@@ -116,4 +157,4 @@ class Buffer {
 
 }  // namespace RAMCloud
 
-#endif  // RAMCLOUD_BUFFERPTR_H
+#endif  // RAMCLOUD_BUFFER_H

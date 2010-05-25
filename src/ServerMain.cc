@@ -18,6 +18,7 @@
 #include <config.h>
 
 #include <Server.h>
+#include <TCPTransport.h>
 
 #include <stdlib.h>
 #include <getopt.h>
@@ -59,15 +60,10 @@ main(int argc, char *argv[])
     RAMCloud::ServerConfig config;
     cmdline(argc, argv, &config);
 
-    RAMCloud::Net *net = new RAMCloud::CNet(SVRADDR, SVRPORT,
-                                            CLNTADDR, CLNTPORT);
-    net->Listen();
-    RAMCloud::Server *server = new RAMCloud::Server(&config, net);
+    RAMCloud::TCPTransport trans(SVRADDR, SVRPORT);
+    RAMCloud::Server server(&config, &trans);
 
-    server->Run();
-
-    delete server;
-    delete net;
+    server.Run();
 
     return 0;
 }
