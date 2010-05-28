@@ -29,7 +29,7 @@ namespace RAMCloud {
 Buffer::Buffer() : chunksUsed(0), chunksAvail(INITIAL_CHUNK_ARR_SIZE),
                    chunks(NULL), totalLen(0), extraBufs(NULL),
                    extraBufsAvail(0), extraBufsUsed(0) {
-    chunks = reinterpret_cast<Chunk*>(
+    chunks = static_cast<Chunk*>(
         xmalloc(sizeof(Chunk) * INITIAL_CHUNK_ARR_SIZE));
 }
 
@@ -40,10 +40,10 @@ Buffer::Buffer() : chunksUsed(0), chunksAvail(INITIAL_CHUNK_ARR_SIZE),
  * \param[in]  firstChunkLen  The size, in bytes, of the memory region
  *                            represented by firstChunk.
  */
-Buffer::Buffer(const void *firstChunk, uint32_t firstChunkLen)
+Buffer::Buffer(void *firstChunk, uint32_t firstChunkLen)
         : chunksUsed(0), chunksAvail(INITIAL_CHUNK_ARR_SIZE), chunks(NULL),
           totalLen(0), extraBufs(NULL), extraBufsAvail(0), extraBufsUsed(0) {
-    chunks = reinterpret_cast<Chunk*>(
+    chunks = static_cast<Chunk*>(
         xmalloc(sizeof(Chunk) * INITIAL_CHUNK_ARR_SIZE));
 
     append(firstChunk, firstChunkLen);
@@ -71,7 +71,7 @@ Buffer::~Buffer() {
  *                     'src'. If caller tries to add a chunk of size 0, we
  *                     return without performing any operation.
  */
-void Buffer::prepend(const void* src, const uint32_t length) {
+void Buffer::prepend(void* src, uint32_t length) {
     if (length == 0) return;
     assert(src);
 
@@ -101,7 +101,7 @@ void Buffer::prepend(const void* src, const uint32_t length) {
  *                     'src'. If the caller tries to add a chunk of size 0, we
  *                     return without performing any operation.
  */
-void Buffer::append(const void* src, const uint32_t length) {
+void Buffer::append(void* src, uint32_t length) {
     if (length == 0) return;
     assert(src);
 
@@ -127,14 +127,14 @@ void Buffer::append(const void* src, const uint32_t length) {
  * \return  The number of contiguous bytes available at 'returnPtr'.
  * \retval  0, if the given 'offset' is invalid.
  */
-uint32_t Buffer::peek(const uint32_t offset, void** returnPtr) {
+uint32_t Buffer::peek(uint32_t offset, void** returnPtr) {
     uint32_t chunkOffset;
     uint32_t chunkIndex = findChunk(offset, &chunkOffset);
     if (chunkIndex >= chunksUsed) return 0;
 
     uint32_t offsetInChunk = offset - chunkOffset;
-    *returnPtr = reinterpret_cast<char*>(const_cast<void*>(
-        chunks[chunkIndex].data)) + offsetInChunk;
+    *returnPtr = static_cast<char*>(chunks[chunkIndex].data) +
+        offsetInChunk;
     return (chunks[chunkIndex].len - offsetInChunk);
 }
 
@@ -151,7 +151,7 @@ uint32_t Buffer::peek(const uint32_t offset, void** returnPtr) {
  * \retval  NULL, if the <offset, length> tuple specified an invalid range of
  *          memory.
  */
-void* Buffer::getRange(const uint32_t offset, const uint32_t length) {
+void* Buffer::getRange(uint32_t offset, uint32_t length) {
     if (length == 0) return NULL;
     if (offset + length > totalLen) return NULL;
 
@@ -163,9 +163,9 @@ void* Buffer::getRange(const uint32_t offset, const uint32_t length) {
 
     if (extraBufsUsed == extraBufsAvail) allocateMoreExtraBufs();
     extraBufs[extraBufsUsed] =
-            reinterpret_cast<void*>(xmalloc(length));
+            static_cast<void*>(xmalloc(length));
     if (copy(offset, length,
-             reinterpret_cast<void*>(extraBufs[extraBufsUsed])) <= 0)
+             static_cast<void*>(extraBufs[extraBufsUsed])) <= 0)
         return NULL;
     return extraBufs[extraBufsUsed++];
 }
@@ -187,9 +187,9 @@ void* Buffer::getRange(const uint32_t offset, const uint32_t length) {
  *          the requested range of bytes overshoots the end of the Buffer.
  * \retval  0, if the given 'offset' is invalid.
  */
-uint32_t Buffer::copy(const uint32_t offset, const uint32_t length,  // NOLINT
-                      const void* dest) {
-    void *currDest = const_cast<void*>(dest);
+uint32_t Buffer::copy(uint32_t offset, uint32_t length,
+                      void* dest) {  // NOLINT
+    char *currDest = static_cast<char*>(dest);
     uint32_t chunkOffset;
     uint32_t currChunk = findChunk(offset, &chunkOffset);
     if (currChunk >= chunksUsed) return 0;
@@ -208,11 +208,11 @@ uint32_t Buffer::copy(const uint32_t offset, const uint32_t length,  // NOLINT
         if (chunkBytesToCopy > (length - bytesCopied))
             chunkBytesToCopy = (length - bytesCopied);
 
-        memcpy(currDest, reinterpret_cast<const char*>(chunks[currChunk].data) +
+        memcpy(currDest, static_cast<char*>(chunks[currChunk].data) +
                offsetInChunk, chunkBytesToCopy);
 
         bytesCopied += chunkBytesToCopy;
-        currDest = (reinterpret_cast<char*>(currDest) + chunkBytesToCopy);
+        currDest = currDest + chunkBytesToCopy;
         ++currChunk;
         offsetInChunk = 0;
     }
@@ -229,7 +229,7 @@ uint32_t Buffer::copy(const uint32_t offset, const uint32_t length,  // NOLINT
  * \return  The chunk index of the chunk in which this offset lies.
  * \retval  chunksUsed, if the given offset does not fall in any existing chunk.
  */
-uint32_t Buffer::findChunk(const uint32_t offset, uint32_t* chunkOffset) {
+uint32_t Buffer::findChunk(uint32_t offset, uint32_t* chunkOffset) {
     *chunkOffset = 0;
 
     for (uint32_t i = 0; i < chunksUsed; ++i) {
@@ -246,7 +246,7 @@ uint32_t Buffer::findChunk(const uint32_t offset, uint32_t* chunkOffset) {
  */
 void Buffer::allocateMoreChunks() {
     chunksAvail *= 2;
-    chunks = reinterpret_cast<Chunk*>(
+    chunks = static_cast<Chunk*>(
         xrealloc(chunks, sizeof(Chunk) * chunksAvail));
 }
 
@@ -259,7 +259,7 @@ void Buffer::allocateMoreExtraBufs() {
         extraBufsAvail = INITIAL_EXTRA_BUFS_ARR_SIZE;
     else
         extraBufsAvail *= 2;
-    extraBufs = reinterpret_cast<void **>(
+    extraBufs = static_cast<void **>(
         xrealloc(extraBufs, sizeof(void *) * extraBufsAvail));  // NOLINT
 }
 
@@ -298,7 +298,7 @@ void Buffer::Iterator::next() {
 /**
  * Return the data pointer at the current chunk.
  */
-const void* Buffer::Iterator::getData() const {
+void* Buffer::Iterator::getData() const {
     assert(chunkIndex < buffer.chunksUsed);
     return buffer.chunks[chunkIndex].data;
 }

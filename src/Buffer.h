@@ -50,7 +50,7 @@ class Buffer {
         ~Iterator();
         bool isDone() const;
         void next();
-        const void* getData() const;
+        void* getData() const;
         uint32_t getLength() const;
 
       private:
@@ -67,16 +67,15 @@ class Buffer {
       friend class BufferIteratorTest;
     };
 
-    void prepend(const void* src, const uint32_t length);
+    void prepend(void* src, uint32_t length);
 
-    void append(const void* src, const uint32_t length);
+    void append(void* src, uint32_t length);
 
-    uint32_t peek(const uint32_t offset, void** returnPtr);
+    uint32_t peek(uint32_t offset, void** returnPtr);
 
-    void* getRange(const uint32_t offset, const uint32_t length);
+    void* getRange(uint32_t offset, uint32_t length);
 
-    uint32_t copy(const uint32_t offset, const uint32_t length,  // NOLINT
-                  const void* dest);  // NOLINT
+    uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
 
     /**
      * Returns the sum of the induvidual sizes of all the chunks composing this
@@ -95,7 +94,7 @@ class Buffer {
 
     Buffer();
 
-    Buffer(const void* firstChunk, const uint32_t firstChunkLen);
+    Buffer(void* firstChunk, uint32_t firstChunkLen);
 
     ~Buffer();
 
@@ -104,7 +103,7 @@ class Buffer {
 
     void allocateMoreExtraBufs();
 
-    uint32_t findChunk(const uint32_t offset, uint32_t* chunkOffset);
+    uint32_t findChunk(uint32_t offset, uint32_t* chunkOffset);
 
     /**
      * A Buffer is an ordered collection of Chunks. Each induvidual chunk
@@ -113,7 +112,7 @@ class Buffer {
      * region, i.e., this Buffer.
      */
     struct Chunk {
-        const void *data;  // Pointer to the data represented by this Chunk.
+        void *data;        // Pointer to the data represented by this Chunk.
         uint32_t len;      // The length of this Chunk in bytes.
     };
 
