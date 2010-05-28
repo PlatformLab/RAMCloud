@@ -41,7 +41,7 @@ main()
         request.append(buf, static_cast<uint32_t>(strlen(buf)));
         tx.clientSend(&service, &request, &response)->getReply();
 
-        uint32_t respLen = response.totalLength();
+        uint32_t respLen = response.getTotalLength();
         if (respLen >= sizeof(buf))
             return 1;
         buf[respLen] = '\0';

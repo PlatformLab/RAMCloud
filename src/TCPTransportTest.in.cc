@@ -201,7 +201,7 @@ class SocketTest : public CppUnit::TestFixture {
         Buffer payload;
         s.fd = 10;
         s.recv(&payload);
-        CPPUNIT_ASSERT(payload.totalLength() == 0);
+        CPPUNIT_ASSERT(payload.getTotalLength() == 0);
     }
 
     // 8-byte message
@@ -232,7 +232,7 @@ class SocketTest : public CppUnit::TestFixture {
             s.fd = 10;
             s.recv(&payload);
         }
-        CPPUNIT_ASSERT(payload.totalLength() == 8);
+        CPPUNIT_ASSERT(payload.getTotalLength() == 8);
         uint64_t* data = static_cast<uint64_t*>(payload.getRange(0, 8));
         CPPUNIT_ASSERT(*data == 0x0123456789abcdef);
     }

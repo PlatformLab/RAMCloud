@@ -208,7 +208,7 @@ sendrcv_rpc(struct rc_net *net,
     trans->clientSend(s, &reqBuf, &replyBuf)->getReply();
 
     resp = reinterpret_cast<rcrpc_any*>(
-        replyBuf.getRange(0, replyBuf.totalLength()));
+        replyBuf.getRange(0, replyBuf.getTotalLength()));
 
     r = rc_handle_errors(resp);
     if (r == 0) {

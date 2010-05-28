@@ -14,7 +14,8 @@
  */
 
 /**
- * \file Buffer.h Header file for the Buffer class.
+ * \file
+ * Header file for the RAMCloud::Buffer class.
  */
 
 #ifndef RAMCLOUD_BUFFER_H
@@ -25,14 +26,16 @@
 namespace RAMCloud {
 
 /**
- * \class Buffer
- *
  * This class manages a logically linear array of bytes, which is implemented as
  * discontiguous chunks in memory. This class exists so that we can avoid copies
  * between the multiple layers of the RAMCloud system, by passing the Buffer
  * associated with memory regions instead of copying the regions themselves.
- */     
+ *
+ * TODO(ongaro): Get allocation of Chunks out of the critical path.
+ */
 class Buffer {
+    class Chunk;
+
   public:
 
     /**
@@ -43,11 +46,17 @@ class Buffer {
      *
      * \warning
      * The Buffer must not be modified during the lifetime of the iterator.
+     *
+     * Historical note: This is largely useless now that Buffer is a linked
+     * list. On the other hand, it proved to be a nice abstraction during that
+     * change.
      */
     class Iterator {
       public:
         explicit Iterator(const Buffer& buffer);
+        explicit Iterator(const Iterator& other);
         ~Iterator();
+        Iterator& operator=(const Iterator& other);
         bool isDone() const;
         void next();
         void* getData() const;
@@ -55,101 +64,89 @@ class Buffer {
 
       private:
         /**
-         * The Buffer over which to iterate, as given to #Iterator().
+         * The current chunk over which we're iterating.
+         * This starts out as #chunks and ends up at \c NULL.
          */
-        const Buffer& buffer;
-
-        /**
-         * An index into the Buffer::chunks array. This starts at 0.
-         */
-        uint32_t chunkIndex;
+        Chunk* current;
 
       friend class BufferIteratorTest;
     };
 
     void prepend(void* src, uint32_t length);
-
     void append(void* src, uint32_t length);
-
     uint32_t peek(uint32_t offset, void** returnPtr);
-
     void* getRange(uint32_t offset, uint32_t length);
-
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
 
     /**
-     * Returns the sum of the induvidual sizes of all the chunks composing this
+     * Returns the sum of the individual sizes of all the chunks composing this
      * Buffer.
-     *
      * \return See above.
      */
-    uint32_t totalLength() const { return totalLen; }
+    uint32_t getTotalLength() const { return totalLength; }
 
     /**
      * Return the number of chunks composing this Buffer.
      * Along with #Iterator, this is useful for networking code that is trying
      * to export the Buffer into a different format.
+     * \return See above.
      */
-    uint32_t numberChunks() const { return chunksUsed; }
+    uint32_t getNumberChunks() const { return numberChunks; }
 
     Buffer();
-
     Buffer(void* firstChunk, uint32_t firstChunkLen);
-
     ~Buffer();
 
   private:
-    void allocateMoreChunks();
 
-    void allocateMoreExtraBufs();
-
-    uint32_t findChunk(uint32_t offset, uint32_t* chunkOffset);
+    void copy(const Chunk* current, uint32_t offset,  // NOLINT
+              uint32_t length, void* dest);
+    void* allocateScratchRange(uint32_t length);
 
     /**
-     * A Buffer is an ordered collection of Chunks. Each induvidual chunk
-     * represents a physically contiguous region of memory. When taking
-     * together, an array of Chunks represent a logically contiguous memory
+     * A Buffer is an ordered collection of Chunks. Each individual chunk
+     * represents a physically contiguous region of memory. When taken
+     * together, a list of Chunks represents a logically contiguous memory
      * region, i.e., this Buffer.
      */
     struct Chunk {
-        void *data;        // Pointer to the data represented by this Chunk.
-        uint32_t len;      // The length of this Chunk in bytes.
+        Chunk* next;       /// The next Chunk in the list.
+        void *data;        /// The data represented by this Chunk.
+        uint32_t length;   /// The length of this Chunk in bytes.
     };
 
     /**
-     * The initial size of the chunk array (see below). 10 should cover the vast
-     * majority of Buffers. If not, we can increase this later.
+     * A list of allocated memory areas. See #scratchRanges.
      */
-    static const uint32_t INITIAL_CHUNK_ARR_SIZE = 10;
+    struct ScratchRange {
+        ScratchRange* next; /// The next range in the list.
+        char data[0];       /// The actual memory starts here.
+    };
 
     /**
-     * The initial size of the extraBufs array. However, the extraBufs array is
-     * only allocated when it is needed, ie, on the first call to getRange that
-     * needs extra space.
+     * The sum of the individual sizes of all the chunks in the chunks list.
      */
-    static const uint32_t INITIAL_EXTRA_BUFS_ARR_SIZE = 10;
+    uint32_t totalLength;
 
-    uint32_t chunksUsed;      // The number of chunks that are currently in use.
-                              // That is, the number of chunks that contain
-                              // valid pointers to memory regions.
-    uint32_t chunksAvail;     // The total number of chunks available at
-                              // (*chunks). This is the number of chunks that we
-                              // have allocated memory for.
-    Chunk* chunks;            // The pointers and lengths of various chunks
-                              // represented by this Buffer. Initially, we
-                              // allocate INITIAL_CHUNK_ARR_SIZE of the above
-                              // chunks, since this would be faster than using a
-                              // vector<chunk>.
-    uint32_t totalLen;        // The sum of the induvidual sizes of all the
-                              // chunks currently in use.
-    void **extraBufs;         // An array of pointers to memory that we allocate
-                              // when we need to copy a range of bytes into
-                              // contiguous memory, as part of getRange().
-    uint32_t extraBufsAvail;  // The size of the extraBufs array.
-    uint32_t extraBufsUsed;   // The number of extraBufs currently in use.
+    /**
+     * The number of chunks in the chunks list.
+     */
+    uint32_t numberChunks;
+
+    /**
+     * The linked list of chunks that make up this Buffer.
+     */
+    Chunk* chunks;
+
+    /**
+     * A singly linked list of extra scratch memory areas that are freed when
+     * the Buffer is deallocated. This is used in #getRange().
+     */
+    ScratchRange* scratchRanges;
 
     friend class Iterator;
     friend class BufferTest;  // For CppUnit testing purposes.
+    friend class BufferIteratorTest;
 
     DISALLOW_COPY_AND_ASSIGN(Buffer);
 };

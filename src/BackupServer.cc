@@ -660,7 +660,7 @@ BackupServer::handleRPC()
 
     Transport::ServerRPC *rpc = trans->serverRecv();
     req = reinterpret_cast<backup_rpc*>(
-        rpc->recvPayload.getRange(0, rpc->recvPayload.totalLength()));
+        rpc->recvPayload.getRange(0, rpc->recvPayload.getTotalLength()));
 
     if (debug_rpc)
         printf("got rpc type: 0x%08x, len 0x%08x\n",

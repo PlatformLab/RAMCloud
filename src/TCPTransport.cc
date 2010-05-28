@@ -161,10 +161,10 @@ TCPTransport::MessageSocket::send(const Buffer* payload)
     assert(fd >= 0);
 
     Header header;
-    header.len = payload->totalLength();
+    header.len = payload->getTotalLength();
 
     // one for header, the rest for payload
-    uint32_t iovecs = 1 + payload->numberChunks();
+    uint32_t iovecs = 1 + payload->getNumberChunks();
 
     struct iovec iov[iovecs];
     iov[0].iov_base = &header;

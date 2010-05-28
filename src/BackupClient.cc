@@ -173,7 +173,7 @@ BackupHost::getSegmentList(uint64_t *list,
     trans->clientSend(s, &buf, &replyBuf)->getReply();
 
     backup_rpc *resp = reinterpret_cast<backup_rpc*>(
-        replyBuf.getRange(0, replyBuf.totalLength()));
+        replyBuf.getRange(0, replyBuf.getTotalLength()));
 
     uint64_t *tmpList = &resp->getsegmentlist_resp.seg_list[0];
     uint32_t tmpCount = resp->getsegmentlist_resp.seg_list_count;
@@ -212,7 +212,7 @@ BackupHost::getSegmentMetadata(uint64_t segNum,
     trans->clientSend(s, &buf, &replyBuf)->getReply();
 
     backup_rpc *resp = reinterpret_cast<backup_rpc*>(
-        replyBuf.getRange(0, replyBuf.totalLength()));
+        replyBuf.getRange(0, replyBuf.getTotalLength()));
 
     RecoveryObjectMetadata *tmpList = &resp->getsegmentmetadata_resp.list[0];
     uint32_t tmpCount = resp->getsegmentmetadata_resp.list_count;
@@ -250,7 +250,7 @@ BackupHost::retrieveSegment(uint64_t segNum, void *buf)
     trans->clientSend(s, &rpcBuf, &replyBuf)->getReply();
 
     backup_rpc *resp = reinterpret_cast<backup_rpc*>(
-        replyBuf.getRange(0, replyBuf.totalLength()));
+        replyBuf.getRange(0, replyBuf.getTotalLength()));
 
     if (debug_noisy)
         printf("Retrieved segment %llu of length %llu\n",

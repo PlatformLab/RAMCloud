@@ -14,7 +14,8 @@
  */
 
 /**
- * \file Buffer.cc Contains the implementation for the Buffer class.
+ * \file
+ * Contains the implementation for the RAMCloud::Buffer class.
  */
 
 #include <Buffer.h>
@@ -24,118 +25,203 @@
 namespace RAMCloud {
 
 /**
- * This constructor intitalizes an empty Buffer.
+ * This constructor initializes an empty Buffer.
  */
-Buffer::Buffer() : chunksUsed(0), chunksAvail(INITIAL_CHUNK_ARR_SIZE),
-                   chunks(NULL), totalLen(0), extraBufs(NULL),
-                   extraBufsAvail(0), extraBufsUsed(0) {
-    chunks = static_cast<Chunk*>(
-        xmalloc(sizeof(Chunk) * INITIAL_CHUNK_ARR_SIZE));
+Buffer::Buffer()
+    : totalLength(0), numberChunks(0), chunks(NULL), scratchRanges(NULL) {
 }
 
 /**
- * This constructor intializes a Buffer with a single Chunk.
+ * This constructor initializes a Buffer with a single Chunk.
  *
  * \param[in]  firstChunk     The memory region to be added to the new Buffer.
  * \param[in]  firstChunkLen  The size, in bytes, of the memory region
- *                            represented by firstChunk.
+ *                            represented by \a firstChunk.
  */
 Buffer::Buffer(void *firstChunk, uint32_t firstChunkLen)
-        : chunksUsed(0), chunksAvail(INITIAL_CHUNK_ARR_SIZE), chunks(NULL),
-          totalLen(0), extraBufs(NULL), extraBufsAvail(0), extraBufsUsed(0) {
-    chunks = static_cast<Chunk*>(
-        xmalloc(sizeof(Chunk) * INITIAL_CHUNK_ARR_SIZE));
-
-    append(firstChunk, firstChunkLen);
+    : totalLength(0), numberChunks(0), chunks(NULL), scratchRanges(NULL) {
+    prepend(firstChunk, firstChunkLen);
 }
 
 /**
- * Deallocate some or all of the memory used during the life of this Buffer.
+ * Deallocate the memory allocated by this Buffer.
+ * Regions of memory allocated outside this buffer and passed in to append and
+ * prepend must be deallocated separately!
+ * TODO(ongaro): Buffers should know how to deallocate memory that's passed in.
  */
 Buffer::~Buffer() {
-    // TODO(aravindn): Come up with a better memory deallocation strategy.
-    if (chunksAvail != INITIAL_CHUNK_ARR_SIZE) free(chunks);
-    if (extraBufs != NULL) {
-        for (uint32_t i = 0; i < extraBufsUsed; ++i)
-            free(extraBufs[i]);
-        free(extraBufs);
+    { // free the list of chunks
+        Chunk* current = chunks;
+        while (current != NULL) {
+            Chunk* next;
+            next = current->next;
+            totalLength -= current->length;
+            --numberChunks;
+            delete current;
+            current = next;
+        }
+        chunks = NULL;
+        assert(numberChunks == 0);
+        assert(totalLength == 0);
+    }
+
+    { // free the list of scratch ranges
+        ScratchRange* current = scratchRanges;
+        while (current != NULL) {
+            ScratchRange* next;
+            next = current->next;
+            free(current);
+            current = next;
+        }
+        scratchRanges = NULL;
     }
 }
 
 /**
- * Add a new memory chunk to the Buffer. The memory region described logically
- * by the argumetns will be added to the beginning of the Buffer.
+ * Add a new memory chunk to front of the Buffer. The memory region physically
+ * described by the arguments will be added to the logical beginning of the
+ * Buffer.
  *
  * \param[in]  src     The memory region to be added.
  * \param[in]  length  The size, in bytes, of the memory region represented by
- *                     'src'. If caller tries to add a chunk of size 0, we
- *                     return without performing any operation.
+ *                     \a src.
  */
 void Buffer::prepend(void* src, uint32_t length) {
-    if (length == 0) return;
-    assert(src);
+    assert(src != NULL || length == 0);
 
-    if (chunksUsed == chunksAvail) allocateMoreChunks();
+    Chunk* newChunk = new Chunk();
+    newChunk->data = src;
+    newChunk->length = length;
 
-    // TODO(aravindn): This is a really slow implementation. Fix this. Maybe use
-    // a linked list representation for the chunk array?
+    ++numberChunks;
+    totalLength += length;
 
-    // Right shift the chunks, since we have to add the new Chunk at the front
-    // (left).
-    for (int i = chunksUsed; i > 0; --i)
-        chunks[i] = chunks[i-1];
-
-    Chunk* c = chunks;
-    c->data = src;
-    c->len = length;
-    ++chunksUsed;
-    totalLen += length;
+    newChunk->next = chunks;
+    chunks = newChunk;
 }
 
 /**
- * Adds a new memory chunk to the Buffer. The memory region described logically
- * by the arguments will be added to the end of the Buffer.
+ * Adds a new memory chunk to end of the Buffer. The memory region physically
+ * described by the arguments will be added to the logical end of the Buffer.
  *
  * \param[in]  src     The memory region to be added.
  * \param[in]  length  The size, in bytes, of the memory region represented by
- *                     'src'. If the caller tries to add a chunk of size 0, we
- *                     return without performing any operation.
+ *                     \a src.
  */
 void Buffer::append(void* src, uint32_t length) {
-    if (length == 0) return;
-    assert(src);
+    assert(src != NULL || length == 0);
 
-    if (chunksUsed == chunksAvail) allocateMoreChunks();
+    Chunk* newChunk = new Chunk();
+    newChunk->data = src;
+    newChunk->length = length;
 
-    Chunk* c = (chunks + chunksUsed++);
-    c->data = src;
-    c->len = length;
-    totalLen += length;
+    ++numberChunks;
+    totalLength += length;
+
+    newChunk->next = NULL;
+    if (chunks == NULL) {
+        chunks = newChunk;
+    } else {
+        Chunk* lastChunk = chunks;
+        // TODO(ongaro): Measure how long this loop takes under real workloads.
+        // We could easily add a chunksTail pointer to optimize it out.
+        while (lastChunk->next != NULL)
+            lastChunk = lastChunk->next;
+        lastChunk->next = newChunk;
+    }
 }
 
 /**
- * Returns the number of contiguous bytes available at the required memory
+ * Returns the number of contiguous bytes available at the requested memory
  * region. Also returns a pointer to this memory region. This is more efficient
- * that getRange() or copy(), since we return a pointer to existing memory.  We
- * also return the number of contiguous bytes available at the location pointed
- * to by the pointer we return.
+ * that #getRange() or #copy(), since a pointer is returned to existing memory
+ * (no copy is done).
  *
- * \param[in]   offset     The offset into the logical buffer represented by
+ * \param[in]   offset     The offset into the logical memory represented by
  *                         this Buffer.
  * \param[out]  returnPtr  The pointer to the memory block requested. This is
  *                         returned to the caller.
- * \return  The number of contiguous bytes available at 'returnPtr'.
- * \retval  0, if the given 'offset' is invalid.
+ * \return  The number of contiguous bytes available starting at \a returnPtr.
+ * \retval  0, if the given \a offset is invalid.
  */
 uint32_t Buffer::peek(uint32_t offset, void** returnPtr) {
-    uint32_t chunkOffset;
-    uint32_t chunkIndex = findChunk(offset, &chunkOffset);
-    if (chunkIndex >= chunksUsed) return 0;
+    for (Chunk* current = chunks; current != NULL; current = current->next) {
+        if (offset < current->length) {
+            *returnPtr = static_cast<char*>(current->data) + offset;
+            return (current->length - offset);
+        }
+        offset -= current->length;
+    }
+    *returnPtr = NULL;
+    return 0;
+}
 
-    uint32_t offsetInChunk = offset - chunkOffset;
-    *returnPtr = static_cast<char*>(chunks[chunkIndex].data) +
-        offsetInChunk;
-    return (chunks[chunkIndex].len - offsetInChunk);
+/**
+ * Copies logically contiguous data starting from an offset into a given
+ * physically contiguous region.
+ *
+ * If the logical region extends beyond the end of the Buffer, data is copied
+ * only up to the end of the buffer.
+ *
+ * \param[in]  start   The first chunk in the Buffer having data to be copied
+ *                     out. This may not be \c NULL.
+ * \param[in]  offset  The physical offset relative to \a start of the first
+ *                     byte to be copied. The caller must ensure this offset is
+ *                     within the range of the \a start chunk.
+ * \param[in]  length  The number of bytes to copy from \a start and possibly
+ *                     subsequent chunks. The caller must ensure that this does
+ *                     not extend beyond the end of the Buffer.
+ * \param[in]  dest    The pointer to which we should copy the logical memory
+ *                     block. The caller must make sure that \a dest contains at
+ *                     least \a length bytes.
+ * \return  The actual number of bytes copied. This will be less than length if
+ *          the requested range of bytes overshoots the end of the Buffer.
+ */
+void Buffer::copy(const Chunk* start, uint32_t offset, // NOLINT
+                  uint32_t length, void* dest) {
+    assert(start != NULL && offset < start->length);
+
+    const Chunk* current = start;
+
+    // offset is the physical offset from 'current' at which to start copying.
+    // This may be non-zero for the first Chunk but will be 0 for every
+    // subsequent Chunk.
+
+    // length is the logical length left to copy,
+    // starting at 'current' + 'offset'.
+
+    while (length > 0) {
+        uint32_t bytesToCopy;
+        bytesToCopy = current->length - offset;
+        if (bytesToCopy > length)
+            bytesToCopy = length;
+        char* data = static_cast<char*>(current->data);
+        memcpy(dest, data + offset, bytesToCopy);
+        dest = static_cast<char*>(dest) + bytesToCopy;
+        length -= bytesToCopy;
+        offset = 0;
+
+        current = current->next;
+        // The caller made sure length was within bounds,
+        // but I don't trust the caller.
+        assert(current != NULL || length == 0);
+    }
+}
+
+/**
+ * Allocates a scratch memory area to be freed when the Buffer is destroyed.
+ * \param[in] length  The length of the memory area to allocate.
+ * \return A pointer to the newly allocated memory area.
+ *         This will never be \c NULL.
+ */
+void* Buffer::allocateScratchRange(uint32_t length) {
+    void* m = xmalloc(sizeof(ScratchRange) + length);
+    ScratchRange* newRange = static_cast<ScratchRange*>(m);
+
+    newRange->next = scratchRanges;
+    scratchRanges = newRange;
+
+    return newRange->data;
 }
 
 /**
@@ -153,21 +239,22 @@ uint32_t Buffer::peek(uint32_t offset, void** returnPtr) {
  */
 void* Buffer::getRange(uint32_t offset, uint32_t length) {
     if (length == 0) return NULL;
-    if (offset + length > totalLen) return NULL;
+    if (offset + length > totalLength) return NULL;
 
-    uint32_t chunkOffset;
-    if (findChunk(offset, &chunkOffset) >= chunksUsed) return NULL;
+    Chunk* current = chunks;
+    while (offset >= current->length) {
+        offset -= current->length;
+        current = current->next;
+    }
 
-    void *returnPtr;
-    if (peek(offset, &returnPtr) >= length) return returnPtr;
-
-    if (extraBufsUsed == extraBufsAvail) allocateMoreExtraBufs();
-    extraBufs[extraBufsUsed] =
-            static_cast<void*>(xmalloc(length));
-    if (copy(offset, length,
-             static_cast<void*>(extraBufs[extraBufsUsed])) <= 0)
-        return NULL;
-    return extraBufs[extraBufsUsed++];
+    if (offset + length <= current->length) { // no need to copy
+        char* data = static_cast<char*>(current->data);
+        return (data + offset);
+    } else {
+        void* data = allocateScratchRange(length);
+        copy(current, offset, length, data);
+        return data;
+    }
 }
 
 /**
@@ -189,78 +276,20 @@ void* Buffer::getRange(uint32_t offset, uint32_t length) {
  */
 uint32_t Buffer::copy(uint32_t offset, uint32_t length,
                       void* dest) {  // NOLINT
-    char *currDest = static_cast<char*>(dest);
-    uint32_t chunkOffset;
-    uint32_t currChunk = findChunk(offset, &chunkOffset);
-    if (currChunk >= chunksUsed) return 0;
+    if (chunks == NULL || offset >= totalLength)
+        return 0;
 
-    // The offset from which we start copying in the current chunk. For the
-    // first chunk, this may not be 0. For all subsequent chunks this is set to
-    // 0, since we will start copying from the beginning of that chunk.
-    uint32_t offsetInChunk = offset - chunkOffset;
+    if (offset + length > totalLength)
+        length = totalLength - offset;
 
-    uint32_t bytesCopied = 0;   // The number of bytes we have copied so far.
-    uint32_t chunkBytesToCopy;  // The number of bytes to copy from the current
-                                // chunk.
-
-    while (bytesCopied < length && currChunk < chunksUsed) {
-        chunkBytesToCopy = chunks[currChunk].len - offsetInChunk;
-        if (chunkBytesToCopy > (length - bytesCopied))
-            chunkBytesToCopy = (length - bytesCopied);
-
-        memcpy(currDest, static_cast<char*>(chunks[currChunk].data) +
-               offsetInChunk, chunkBytesToCopy);
-
-        bytesCopied += chunkBytesToCopy;
-        currDest = currDest + chunkBytesToCopy;
-        ++currChunk;
-        offsetInChunk = 0;
+    Chunk* current = chunks;
+    while (offset >= current->length) {
+        offset -= current->length;
+        current = current->next;
     }
 
-    return bytesCopied;
-}
-
-/**
- * Find the chunk that corresponds to the supplied offset.
- * 
- * \param[in]   offset       The offset in bytes of the point to identify.
- * \param[out]  chunkOffset  The offset of the beginning of the chunk we
- *                           found. This is returned to the caller.
- * \return  The chunk index of the chunk in which this offset lies.
- * \retval  chunksUsed, if the given offset does not fall in any existing chunk.
- */
-uint32_t Buffer::findChunk(uint32_t offset, uint32_t* chunkOffset) {
-    *chunkOffset = 0;
-
-    for (uint32_t i = 0; i < chunksUsed; ++i) {
-        if ((uint32_t) (*chunkOffset + chunks[i].len) > offset)
-            return i;
-        *chunkOffset += chunks[i].len;
-    }
-
-    return chunksUsed;
-}
-
-/**
- * Grows the chunk array by a factor of 2.
- */
-void Buffer::allocateMoreChunks() {
-    chunksAvail *= 2;
-    chunks = static_cast<Chunk*>(
-        xrealloc(chunks, sizeof(Chunk) * chunksAvail));
-}
-
-/**
- * Grows the extraBufs array by a factor of 2, or allocates some initial
- * extraBufs.
- */
-void Buffer::allocateMoreExtraBufs() {
-    if (extraBufsAvail == 0)
-        extraBufsAvail = INITIAL_EXTRA_BUFS_ARR_SIZE;
-    else
-        extraBufsAvail *= 2;
-    extraBufs = static_cast<void **>(
-        xrealloc(extraBufs, sizeof(void *) * extraBufsAvail));  // NOLINT
+    copy(current, offset, length, dest);
+    return length;
 }
 
 /**
@@ -271,11 +300,30 @@ void Buffer::allocateMoreExtraBufs() {
  *      The Buffer over which to iterate.
  */
 Buffer::Iterator::Iterator(const Buffer& buffer)
-    : buffer(buffer), chunkIndex(0) {
+    : current(buffer.chunks) {
 }
 
+/**
+ * Copy constructor for Buffer::Iterator.
+ */
+Buffer::Iterator::Iterator(const Iterator& other)
+    : current(other.current) {
+}
+
+/**
+ * Destructor for Buffer::Iterator.
+ */
 Buffer::Iterator::~Iterator() {
-    chunkIndex = buffer.chunksUsed;
+    current = NULL;
+}
+
+/**
+ * Assignment for Buffer::Iterator.
+ */
+Buffer::Iterator&
+Buffer::Iterator::operator=(const Iterator& other) {
+    current = other.current;
+    return *this;
 }
 
 /**
@@ -285,30 +333,31 @@ Buffer::Iterator::~Iterator() {
  *      \c true, it is illegal to use #next(), #getData(), and #getLength().
  */
 bool Buffer::Iterator::isDone() const {
-    return (chunkIndex >= buffer.chunksUsed);
+    return (current == NULL);
 }
 
 /**
  * Advance to the next chunk in the Buffer.
  */
 void Buffer::Iterator::next() {
-    ++chunkIndex;
+    if (current != NULL)
+        current = current->next;
 }
 
 /**
  * Return the data pointer at the current chunk.
  */
 void* Buffer::Iterator::getData() const {
-    assert(chunkIndex < buffer.chunksUsed);
-    return buffer.chunks[chunkIndex].data;
+    assert(current != NULL);
+    return current->data;
 }
 
 /**
  * Return the length of the data at the current chunk.
  */
 uint32_t Buffer::Iterator::getLength() const {
-    assert(chunkIndex < buffer.chunksUsed);
-    return buffer.chunks[chunkIndex].len;
+    assert(current != NULL);
+    return current->length;
 }
 
 }  // namespace RAMCLoud

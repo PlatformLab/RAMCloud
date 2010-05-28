@@ -489,7 +489,7 @@ Server::HandleRPC()
 
     Transport::ServerRPC *rpc = trans->serverRecv();
     req = reinterpret_cast<rcrpc_any*>(
-        rpc->recvPayload.getRange(0, rpc->recvPayload.totalLength()));
+        rpc->recvPayload.getRange(0, rpc->recvPayload.getTotalLength()));
 
     char rpcbuf[MAX_RPC_LEN];
     rcrpc_any *resp = reinterpret_cast<rcrpc_any*>(rpcbuf);
