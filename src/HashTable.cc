@@ -42,7 +42,7 @@ HashTable::PerfDistribution::PerfDistribution()
     : bins(NULL), binOverflows(0), min(~0UL), max(0UL)
 {
     bins = new uint64_t[NBINS];
-    memset(bins, 0, sizeof(bins));
+    memset(bins, 0, sizeof(uint64_t) * NBINS);
 }
 
 HashTable::PerfDistribution::~PerfDistribution()

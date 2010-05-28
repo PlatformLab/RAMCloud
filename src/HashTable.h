@@ -86,7 +86,7 @@ class HashTable {
          * The first bin will have the number of samples between 0 (inclusive)
          * and BIN_WIDTH (exclusive), the second between BIN_WIDTH and
          * BIN_WIDTH * 2, etc.
-         * Bins is allocated on the stack because it ends up being several tens
+         * Bins is allocated on the heap because it ends up being several tens
          * of kilobytes in size. This in turn makes HashTable too big, which
          * makes Table too big, which makes Server too big, which causes a
          * segfault before the start of main.
