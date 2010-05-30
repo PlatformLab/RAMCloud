@@ -13,6 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * \file
+ * Unit tests for HashTable.cc.
+ */
+
 #include <Common.h>
 
 #include <HashTable.h>

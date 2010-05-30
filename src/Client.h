@@ -13,6 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * \file
+ * Header file for Client.cc.
+ */
+
 #ifndef RAMCLOUD_CLIENT_H
 #define RAMCLOUD_CLIENT_H
 

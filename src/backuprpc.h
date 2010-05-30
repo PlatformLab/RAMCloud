@@ -13,6 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * \file
+ * Header file for Backup RPCs.
+ */
+
 #ifndef RAMCLOUD_BACKUPRPC_H
 #define RAMCLOUD_BACKUPRPC_H
 

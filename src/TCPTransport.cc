@@ -14,6 +14,7 @@
  */
 
 /**
+ * \file
  * Implementation for the TCPTransport class.
  */
 
