@@ -811,7 +811,6 @@ def FindNextMultiLineCommentEnd(lines, lineix):
     lineix += 1
   return len(lines)
 
-
 def RemoveMultiLineCommentsFromRange(lines, begin, end):
   """Clears a range of lines for multi-line comments."""
   # Having // dummy comments makes the lines non-empty, so we will not get
@@ -822,6 +821,7 @@ def RemoveMultiLineCommentsFromRange(lines, begin, end):
 
 def RemoveMultiLineComments(filename, lines, error):
   """Removes multiline (c-style) comments from lines."""
+  count = 0
   lineix = 0
   while lineix < len(lines):
     lineix_begin = FindNextMultiLineCommentStart(lines, lineix)
@@ -832,8 +832,13 @@ def RemoveMultiLineComments(filename, lines, error):
       error(filename, lineix_begin + 1, 'readability/multiline_comment', 5,
             'Could not find end of multi-line comment')
       return
+    if count == 1:
+        if r'\file' not in lines[lineix_begin + 1]:
+            error(filename, lineix_begin + 1, 'readability/multiline_comment',
+                  5, r'Second comment in file should be Doxygen \file comment.')
     RemoveMultiLineCommentsFromRange(lines, lineix_begin, lineix_end + 1)
     lineix = lineix_end + 1
+    count += 1
 
 
 def CleanseComments(line):
