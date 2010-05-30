@@ -1,0 +1,204 @@
+RAMCloud Protocol Specification
+-------------------------------
+
+This document specifies the protocol and packet formats used by RAMCloud clients
+and servers to communicate with each other. All communication in RAMCloud
+happens in the form of RPCs.
+
+RAMCloud RPCs will use the standard Ethernet, IP and UDP headers without any
+optional fields. On top of this, we use the RAMCloud RPC header, specified
+below.
+
+RAMCloud RPC Header format
+--------------------------
+
+The RAMCloud RPC header will consist of the following fields. The usage of these
+fields are explained below.
+
++--------+--------+--------+--------+
+|       Connection ID      |  Flag  |
++--------+--------+--------+--------+
+|               RPC ID              |
++--------+--------+--------+--------+
+|    Fragment ID  | Total Fragments |
++--------+--------+--------+--------+
+
+Every packet of an RPC contains all of the above fields. This is because every
+packet is equally likely to be lost or dropped. Hence, if only the first packet
+contained a field (for e.g., total fragments), and it was dropped, the receiver
+would not know how many fragments to expect from the sender.
+
+Connection ID
+-------------
+
+The ``Connection ID'' field identifies the connection that exists between a pair of
+machines. This connection is one way only. That is, the connection identifies
+the pipe that flows from machine 1 to machine 2. The pipe from machine 2 to
+machine 1 is represented by another, different, Connection ID.
+
+RPCs in a connection are performed sequentially. That is, only one RPC at a time
+is performed using a particular connection. If a client wants to perform
+multiple RPCs in parallel, it must open mutliple connections.
+
+RPC ID
+------
+
+The ``RPC ID'' field uniquely identifies an RPC belonging to a particular
+connection. Together, the ``Connection ID'' and the ``RPC ID'' uniquely identify
+any RPC in the RAMCloud system.
+
+When a new connection is established, an RPC ID will be chosen by the client at
+random. Every new RPC made on that conneciton will have an ID that is one
+greated than the previous RPC ID.
+
+Fragment ID
+-----------
+
+The ``Fragment ID'' field is used to identify a particular ethernet frame sized
+fragment belonging to an RPC. RPCs that are large enough to consist of mutliple
+ethernet frames will thus have more than one fragment. The Fragment ID starts
+at 0.
+
+Total Fragments
+---------------
+
+This field specifies the total number of fragments that this RPC contains.
+
+Flag Byte
+---------
+
+Each bit of this byte represents a particular flag:
+
+1. ACK Request - a ck reply not piggybacked
+2. Request - this packet is a RPC request packet
+3. Reply - this packet is an RPC reply packet
+4. Control Bit - if set, th first byte of the payload is an opcode which specifies
+   whether the packet is an ACK reply or an ERROR packet.
+
+ACK Request flag
+----------------
+
+This flag is set when the sender wants to request an ACK from the receiver when
+this fragment arrives. The fact that an ACK is being requested is conveyed with
+a flag so that it can easily be piggy-backed with the transmission of a normal
+data packet.
+
+The sender might want an ACK for a fragment when: TODO(aravindn).
+
+Request flag
+------------
+
+The Request flag is set when the packet is part of an RPC request. That is, the
+client sends the packet to the server requesting an RPC.
+
+Reply flag
+----------
+
+The Reply flag is when the packet is part of an RPC reply. That is, the server
+sends the packet ot the client as a reply for a RPC request that it received.
+
+The Request and Reply flags are necessary because different code paths are
+executed depending on whether a packet is part of a request or reply. These
+flags help to identify that fact easily. TODO(aravindn): Explain clearly.
+
+Control flag
+------------
+
+When the control flag of a packet is set, the first byte of the payload will be
+an opcode which specifies what kind of control packet it is.
+
+Opcodes:
+0x01 - ERROR packet
+0x02 - ACK Reply
+
+ERROR packet
+------------
+
+This means something went wrong in the RPC system.
+
+ACK Reply
+---------
+
+When the sender requests an ACK, the receiver sends back an ``ACK reply
+packet''. This packet has the following structure:
+
+1. The control bit will be set.
+2. The opcode (first byte of the payload) will be 0x02.
+3. The rest of the payload will be a bit map representing the status of all the
+fragmetns of the payload. If a bit is 0, it means the corresponding fragment was
+not received, and if a bit is 1, it means the corresponding fragment was
+received with no errors.
+
+The ACK reply flag has not been given its own bit in the Flag Byte because it
+will not be piggy-backed on normal data packets.
+
+---
+
+Use cases:
+---------
+
+Single packet requset is lost
+-----------------------------
+When an RPC request that consists of only a single packet is lost, the client
+will time out while waiting for the server to reply. When it times out, the
+client will resend the entire request. The client will perform a fixed number
+(X) of these resends before giving up and throwing an exception.
+
+Single packet response is lost
+------------------------------
+When an RPC response that consists of only a single packet is lost, the client
+will time out, and resend the request just like in the previous case where a
+single packet requset is lost.
+
+For each connetion, the server maintains the most recent RPC response it
+generated in memory.
+
+When the resent request is received by the server, it will simply take the RPC
+resposne it has already comuted from its history list and send it back to the
+client. Thus, it need not perform the computation required by the RPC once again.
+
+Multi-packet request is lost
+----------------------------
+When some (or all) fragments of a multi-packet request are lost, the following
+happens.
+
+The client times out while waiting for a reply from the server. It send
+a packet with the ``Request ACK'' flag set. The payload of the packet will be
+empty (TODO(aravindn): either the control bit is set, or the fragment id field
+is set to one past the total number of fragments). On receipt of this packet,
+the server will send back a packet with the ``Control bit'' set, and the opcode
+equal to 0x02 ``ACK Reply''. The packet will contain a bitmap which details the
+status of the fragments that the RPC consists of. The client resends the missing
+fragments and waits for a reply from the server.
+
+The above process is repeated a fixed (X) number of times, before the client
+gives up and throws an exception.
+
+Multi-packet response is lost
+-----------------------------
+When all fragments of a multi fragment response are lost, this case becomes
+simliar to the single packet response is lost case, and the same steps are
+followed.
+
+When only some fragments are lost, the client times out and sends an ``ACK
+Reply'' packet, even though it has not recevied an ``ACK Request'' packet. When
+the server receives this ``ACK Reply'' packet, it resends all the fragmens that
+were lost. The client will now have a full RPC response, as long as none of the
+resent packets were lost as well.
+
+The above process is repeated a fixed (X) number of times, before the client
+gives up and throws an exception.
+
+
+Connection Setup
+----------------
+
+When machine 1 wants to open a connection to machine 2, it sends a packet with
+the connection id set to 0, and the ``Request'' flag set. Machine 2 sends a
+packet back to machine 1 with the connection id again set to 0, with the
+``Reply'' flag set, and the new connection id in the first 3 bytes of the
+payload.
+
+Connections are automatically closed a machine when it detects that the
+connection has been idle for a long time. Error packets are generated when
+packets are received containing a connection id for one that has been closed.
