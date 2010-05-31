@@ -40,8 +40,13 @@ main()
         RAMCloud::Buffer response;
         request.append(buf, static_cast<uint32_t>(strlen(buf)));
         tx.clientSend(&service, &request, &response)->getReply();
-        void* contigResp = response.getRange(0, response.totalLength());
-        fputs(static_cast<char*>(contigResp), stdout);
+
+        uint32_t respLen = response.totalLength();
+        if (respLen >= sizeof(buf))
+            return 1;
+        buf[respLen] = '\0';
+        response.copy(0, respLen, buf);
+        fputs(static_cast<char*>(buf), stdout);
     }
     return 0;
 };
