@@ -143,8 +143,7 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
         assert(len == header.len);
     }
 
-    // TODO(ongaro): payload should free() this chunk later
-    payload->append(data, header.len);
+    BUFFER_APPEND(payload, Buffer::HeapChunk, data, header.len);
 }
 
 /**

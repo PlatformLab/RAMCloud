@@ -25,29 +25,135 @@
 namespace RAMCloud {
 
 /**
+ * Constructor for Allocation.
+ */
+Buffer::Allocation::Allocation()
+    : next(NULL),
+      prependTop(APPEND_START),
+      appendTop(APPEND_START),
+      chunkTop(TOTAL_SIZE) {
+}
+
+/**
+ * Destructor for Allocation.
+ */
+Buffer::Allocation::~Allocation() {
+    next = NULL;
+    prependTop = 0;
+    appendTop = TOTAL_SIZE;
+    chunkTop = APPEND_START;
+}
+
+/**
+ * Returns whether an empty Allocation could allocate space for a chunk of a
+ * given size.
+ * \param[in] size  The size in bytes of the chunk that may or may not fit in
+ *                  an empty Allocation.
+ * \return See above.
+ */
+bool
+Buffer::Allocation::canAllocateChunk(uint32_t size) {
+    return (size <= TOTAL_SIZE - APPEND_START);
+}
+
+/**
+ * Returns whether an empty Allocation could allocate space for prepend data of
+ * a given size.
+ * \param[in] size  The size in bytes of the prepend data that may or may not
+ *                  fit in an empty Allocation.
+ * \return See above.
+ */
+bool
+Buffer::Allocation::canAllocatePrepend(uint32_t size) {
+    return (size <= APPEND_START);
+}
+
+/**
+ * Returns whether an empty Allocation could allocate space for append data of
+ * a given size.
+ * \param[in] size  The size in bytes of the append data that may or may not
+ *                  fit in an empty Allocation.
+ * \return See above.
+ */
+bool
+Buffer::Allocation::canAllocateAppend(uint32_t size) {
+    return (size <= TOTAL_SIZE - APPEND_START);
+}
+
+/**
+ * Try to allocate space for a chunk of a given size.
+ * \param[in] size  The size in bytes to allocate for a chunk.
+ * \return  A pointer to the allocated space or \c NULL if there is not enough
+ *          space in this Allocation.
+ */
+// TODO(ongaro): Alignment issue?
+void*
+Buffer::Allocation::allocateChunk(uint32_t size) {
+    if (static_cast<DataIndex>(chunkTop - appendTop) < size)
+        return NULL;
+    chunkTop = static_cast<DataIndex>(chunkTop - size);
+    return &data[chunkTop];
+}
+
+/**
+ * Try to allocate space for prepend data of a given size.
+ * \param[in] size  The size in bytes to allocate for prepend data.
+ * \return  A pointer to the allocated space or \c NULL if there is not enough
+ *          space in this Allocation.
+ */
+// TODO(ongaro): Alignment issue?
+void*
+Buffer::Allocation::allocatePrepend(uint32_t size) {
+    if (prependTop < size)
+        return NULL;
+    prependTop = static_cast<DataIndex>(prependTop - size);
+    return &data[prependTop];
+}
+
+/**
+ * Try to allocate space for append data of a given size.
+ * \param[in] size  The size in bytes to allocate for append data.
+ * \return  A pointer to the allocated space or \c NULL if there is not enough
+ *          space in this Allocation.
+ */
+// TODO(ongaro): Alignment issue?
+void*
+Buffer::Allocation::allocateAppend(uint32_t size) {
+    if (static_cast<DataIndex>(chunkTop - appendTop) < size)
+        return NULL;
+    char *retVal = &data[appendTop];
+    appendTop = static_cast<DataIndex>(appendTop + size);
+    return retVal;
+}
+
+/**
  * This constructor initializes an empty Buffer.
  */
 Buffer::Buffer()
-    : totalLength(0), numberChunks(0), chunks(NULL), scratchRanges(NULL) {
+    : totalLength(0), numberChunks(0), chunks(NULL),
+      allocations(NULL), scratchRanges(NULL) {
 }
 
 /**
  * This constructor initializes a Buffer with a single Chunk.
  *
- * \param[in]  firstChunk     The memory region to be added to the new Buffer.
- * \param[in]  firstChunkLen  The size, in bytes, of the memory region
- *                            represented by \a firstChunk.
+ * This is equivalent to calling the default constructor, followed by
+ * #append(void*, uint32_t).
+ *
+ * \param[in]  data     The memory region to be added to the new Buffer. The
+ *                      caller must arrange for this memory region to extend
+ *                      through the life of this Buffer.
+ * \param[in]  length   The size, in bytes, of the memory region represented by
+ *                      \a data.
  */
-Buffer::Buffer(void *firstChunk, uint32_t firstChunkLen)
-    : totalLength(0), numberChunks(0), chunks(NULL), scratchRanges(NULL) {
-    prepend(firstChunk, firstChunkLen);
+Buffer::Buffer(void* data, uint32_t length)
+    : totalLength(0), numberChunks(0), chunks(NULL),
+      allocations(NULL), scratchRanges(NULL) {
+    append(data, length);
 }
 
 /**
  * Deallocate the memory allocated by this Buffer.
- * Regions of memory allocated outside this buffer and passed in to append and
- * prepend must be deallocated separately!
- * TODO(ongaro): Buffers should know how to deallocate memory that's passed in.
  */
 Buffer::~Buffer() {
     { // free the list of chunks
@@ -57,7 +163,7 @@ Buffer::~Buffer() {
             next = current->next;
             totalLength -= current->length;
             --numberChunks;
-            delete current;
+            current->~Chunk();
             current = next;
         }
         chunks = NULL;
@@ -75,48 +181,176 @@ Buffer::~Buffer() {
         }
         scratchRanges = NULL;
     }
+
+    { // free the list of allocations
+        Allocation* current = allocations;
+        while (current != NULL) {
+            Allocation* next;
+            next = current->next;
+            delete current;
+            current = next;
+        }
+        allocations = NULL;
+    }
+}
+
+/**
+ * Prepend a new Allocation object to the #allocations list.
+ * This is used in #allocateChunk(), #allocatePrepend(), and #allocateAppend()
+ * when the existing Allocation(s) have run out of space.
+ * \return The newly allocated Allocation object.
+ */
+Buffer::Allocation*
+Buffer::newAllocation() {
+    Allocation* newAllocation = new Allocation();
+    newAllocation->next = allocations;
+    allocations = newAllocation;
+    return newAllocation;
+}
+
+/**
+ * Allocate space for a Chunk instance that will be deallocated in the Buffer's
+ * destructor. The intent is that you will initialize a Chunk in this space and
+ * add it to the Buffer.
+ * \warning This probably shouldn't be called outside #BUFFER_PREPEND() and
+ * #BUFFER_APPEND().
+ * \param[in] size  The size in bytes to allocate for a chunk.
+ * \return  A pointer to the allocated space (will never be \c NULL).
+ */
+// TODO(ongaro): Collect statistics on the distributions of sizes.
+void*
+Buffer::allocateChunk(uint32_t size) {
+    // Common case: allocate size bytes in the latest Allocation.
+    // It is perhaps wasteful of space to not try the other Allocations in
+    // the list if this fails, but the others are probably close to full
+    // anyway.
+    if (allocations != NULL) {
+        void* data = allocations->allocateChunk(size);
+        if (data != NULL)
+            return data;
+    }
+
+    // Create a new Allocation only if size will fit.
+    if (Allocation::canAllocateChunk(size)) {
+        return newAllocation()->allocateChunk(size);
+    } else {
+        // Hopefully this is extremely rare.
+        return allocateScratchRange(size);
+    }
+}
+
+/**
+ * Allocate space for prepend data that will be deallocated in the Buffer's
+ * destructor. The intent is that you will prepend the returned space to the
+ * Buffer. Usually, you'll want #prepend(uint32_t) instead.
+ * \param[in] size  The size in bytes to allocate for the prepend data.
+ * \return  A pointer to the allocated space (will never be \c NULL).
+ */
+// TODO(ongaro): Collect statistics on the distributions of sizes.
+void*
+Buffer::allocatePrepend(uint32_t size) {
+    if (allocations != NULL) {
+        void* data = allocations->allocatePrepend(size);
+        if (data != NULL)
+            return data;
+    }
+    if (Allocation::canAllocatePrepend(size))
+        return newAllocation()->allocatePrepend(size);
+    else
+        return allocateScratchRange(size);
+}
+
+/**
+ * Allocate space for append data that will be deallocated in the Buffer's
+ * destructor. The intent is that you will append the returned space to the
+ * Buffer. Usually, you'll want #append(uint32_t) instead.
+ * \param[in] size  The size in bytes to allocate for the append data.
+ * \return  A pointer to the allocated space (will never be \c NULL).
+ */
+// TODO(ongaro): Collect statistics on the distributions of sizes.
+void*
+Buffer::allocateAppend(uint32_t size) {
+    if (allocations != NULL) {
+        void* data = allocations->allocateAppend(size);
+        if (data != NULL)
+            return data;
+    }
+    if (Allocation::canAllocateAppend(size))
+        return newAllocation()->allocateAppend(size);
+    else
+        return allocateScratchRange(size);
 }
 
 /**
  * Add a new memory chunk to front of the Buffer. The memory region physically
- * described by the arguments will be added to the logical beginning of the
- * Buffer.
+ * described by the chunk will be added to the logical beginning of the Buffer.
  *
- * \param[in]  src     The memory region to be added.
- * \param[in]  length  The size, in bytes, of the memory region represented by
- *                     \a src.
+ * \warning #BUFFER_PREPEND() should probably be the only caller of this
+ * method, since we want the Buffer to keep all of its chunks allocated
+ * together for cache locality. See the other variants of prepend and
+ * #BUFFER_PREPEND() instead.
+ *
+ * See #RAMCloud::Buffer for help deciding among the prepend variants.
+ *
+ * \param[in]  newChunk   The Chunk describing the memory region to be added.
+ *                        The caller must arrange for the memory storing this
+ *                        Chunk instance to extend through the life of this
+ *                        Buffer.
  */
-void Buffer::prepend(void* src, uint32_t length) {
-    assert(src != NULL || length == 0);
-
-    Chunk* newChunk = new Chunk();
-    newChunk->data = src;
-    newChunk->length = length;
-
+void Buffer::prepend(Chunk* newChunk) {
     ++numberChunks;
-    totalLength += length;
+    totalLength += newChunk->length;
 
     newChunk->next = chunks;
     chunks = newChunk;
 }
 
 /**
- * Adds a new memory chunk to end of the Buffer. The memory region physically
- * described by the arguments will be added to the logical end of the Buffer.
+ * Add a contiguous region of memory to the front of the Buffer. The memory
+ * region physically described by the arguments will be added to the logical
+ * beginning of the Buffer.
  *
- * \param[in]  src     The memory region to be added.
- * \param[in]  length  The size, in bytes, of the memory region represented by
- *                     \a src.
+ * This is a convenient wrapper for #BUFFER_PREPEND() with the Chunk class.
+ * See #RAMCloud::Buffer for help deciding among the prepend variants.
+ *
+ *
+ * \param[in]  data    The memory region to be added. The caller must arrange
+ *                     for this memory to extend through the life of this
+ *                     Buffer.
+ * \param[in]  length  The size in bytes of the memory region pointed to by
+ *                     \a data.
  */
-void Buffer::append(void* src, uint32_t length) {
-    assert(src != NULL || length == 0);
+void Buffer::prepend(void* data, uint32_t length) {
+    BUFFER_PREPEND(this, Chunk, data, length);
+}
 
-    Chunk* newChunk = new Chunk();
-    newChunk->data = src;
-    newChunk->length = length;
+/**
+ * Allocate a contiguous region of memory and add it to the front of the
+ * Buffer. The memory region returned will be added to the logical beginning of
+ * the Buffer.
+ *
+ * See #RAMCloud::Buffer for help deciding among the prepend variants.
+ *
+ * \param[in]  length  The size in bytes of the memory region to allocate.
+ * \return The newly allocated memory region of size \a length, which will be
+ *         automatically deallocated in this Buffer's destructor.
+ */
+void* Buffer::prepend(uint32_t length) {
+    void* data = allocatePrepend(length);
+    prepend(data, length);
+    return data;
+}
 
+/**
+ * Adds a new memory chunk to end of the Buffer. The memory region physically
+ * described by the chunk will be added to the logical end of the Buffer.
+ *
+ * See #prepend(Chunk*), which is analogous.
+ * \param[in]  newChunk   See #prepend(Chunk*).
+ */
+void Buffer::append(Chunk* newChunk) {
     ++numberChunks;
-    totalLength += length;
+    totalLength += newChunk->length;
 
     newChunk->next = NULL;
     if (chunks == NULL) {
@@ -129,6 +363,35 @@ void Buffer::append(void* src, uint32_t length) {
             lastChunk = lastChunk->next;
         lastChunk->next = newChunk;
     }
+}
+
+/**
+ * Add a contiguous region of memory to the end of the Buffer. The memory
+ * region physically described by the arguments will be added to the logical
+ * end of the Buffer.
+ *
+ * See #prepend(void*, uint32_t), which is analogous.
+ *
+ * \param[in]  data    See #prepend(void*, uint32_t).
+ * \param[in]  length  See #prepend(void*, uint32_t).
+ */
+void Buffer::append(void* data, uint32_t length) {
+    BUFFER_APPEND(this, Chunk, data, length);
+}
+
+/**
+ * Allocate a contiguous region of memory and add it to the end of the Buffer.
+ * The memory region returned will be added to the logical end of the Buffer.
+ *
+ * See #prepend(uint32_t), which is analogous.
+ *
+ * \param[in]  length  See #prepend(uint32_t).
+ * \return See #prepend(uint32_t).
+ */
+void* Buffer::append(uint32_t length) {
+    void* data = allocateAppend(length);
+    append(data, length);
+    return data;
 }
 
 /**

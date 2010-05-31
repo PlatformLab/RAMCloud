@@ -32,6 +32,9 @@ main()
         RAMCloud::Buffer::Iterator iter(rpc->recvPayload);
         while (!iter.isDone()) {
             rpc->replyPayload.append(iter.getData(), iter.getLength());
+            // TODO(ongaro): This is unsafe if the Transport discards the
+            // received buffer before it is done with the response buffer.
+            // I can't think of any real RPCs where this will come up.
             iter.next();
         }
         rpc->sendReply();

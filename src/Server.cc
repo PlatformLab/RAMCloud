@@ -491,8 +491,8 @@ Server::HandleRPC()
     req = reinterpret_cast<rcrpc_any*>(
         rpc->recvPayload.getRange(0, rpc->recvPayload.getTotalLength()));
 
-    char rpcbuf[MAX_RPC_LEN];
-    rcrpc_any *resp = reinterpret_cast<rcrpc_any*>(rpcbuf);
+    void *respData = rpc->replyPayload.allocateAppend(MAX_RPC_LEN);
+    rcrpc_any *resp = static_cast<rcrpc_any*>(respData);
     resp->header.type = 0xFFFFFFFF;
     resp->header.len = 0;
 

@@ -204,7 +204,9 @@ sendrcv_rpc(struct rc_net *net,
     Buffer reqBuf;
     reqBuf.append(req, req->header.len);
 
-    Buffer replyBuf;
+    // TODO(ongaro): Stop leaking this Buffer.
+    // This needs to come from or be freed by higher up the stack.
+    Buffer& replyBuf = *new Buffer();
     trans->clientSend(s, &reqBuf, &replyBuf)->getReply();
 
     resp = reinterpret_cast<rcrpc_any*>(

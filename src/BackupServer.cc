@@ -648,19 +648,13 @@ BackupServer::handleHeartbeat(const backup_rpc *req, backup_rpc *resp)
 void
 BackupServer::handleRPC()
 {
-    // TODO(stutsman) if we're goingt to have to xmalloc this we should just
-    // always keep one around
-
-    // TODO(aravindn): Look at a more efficeint allcoation strategy for
-    // resp_buf.
-
-    char *resp_buf = static_cast<char *>(xmalloc(RESP_BUF_LEN));
     backup_rpc *req;
-    backup_rpc *resp = reinterpret_cast<backup_rpc *>(&resp_buf[0]);
-
+    backup_rpc *resp;
     Transport::ServerRPC *rpc = trans->serverRecv();
     req = reinterpret_cast<backup_rpc*>(
         rpc->recvPayload.getRange(0, rpc->recvPayload.getTotalLength()));
+    void* respBuf = rpc->replyPayload.allocateAppend(RESP_BUF_LEN);
+    resp = static_cast<backup_rpc *>(respBuf);
 
     if (debug_rpc)
         printf("got rpc type: 0x%08x, len 0x%08x\n",
@@ -705,7 +699,6 @@ BackupServer::handleRPC()
 
     rpc->replyPayload.append(resp, resp->hdr.len);
     rpc->sendReply();
-    free(resp_buf);
 }
 
 void __attribute__ ((noreturn))
