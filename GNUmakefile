@@ -26,7 +26,7 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 		-Weffc++ -Wswitch-enum -Wcast-align
 # Too many false positives list:
 # -Wunreachable-code
-LIBS := -lrt
+LIBS := -lrt -le1000
 # -lrt required for temporary semaphore. See RC_CLIENT_SHARED and RAM-39.
 INCLUDES := -I$(TOP)/src
 

@@ -13,6 +13,7 @@ SHARED_SRCFILES := \
                 src/Buffer.cc \
                 src/Service.cc \
                 src/TCPTransport.cc \
+		src/E1000Driver.cc \
                 $(SHARED_NET_SRCFILES)
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)
