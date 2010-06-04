@@ -48,5 +48,10 @@ $(OBJDIR)/Telnet: $(OBJDIR)/Telnet.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^
 
+$(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(SHARED_OBJFILES) $(SERVER_OBJFILES) \
+                 $(OBJDIR)/libramcloud.a $(OBJDIR)/libramcloud.so
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^
+
 tests-clean:
 	rm -f $(TOP)/src/TCPTransportTest.cc
