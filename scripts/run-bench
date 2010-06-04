@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# these scripts are intended to be run from the top level
+# of the project
+
+OBJSUFFIX=$(git symbolic-ref -q HEAD | sed -e s,refs/heads/,.,)
+OBJDIR=obj$OBJSUFFIX
+
+VER=$(git log -1 | head -n 1 | awk '{print $2;}')
+DATE=$(git log -1 --date=short | head -n 3 | tail -n 1 | awk '{print $2;}')
+
+$OBJDIR/server &
+sleep .5
+PID=$!
+VAL=$($OBJDIR/Bench -s 1000 -c 1000 | grep avg | awk '{print $2;}')
+kill $PID
+
+echo "$DATE $VER $VAL"
