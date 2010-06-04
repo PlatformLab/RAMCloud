@@ -21,7 +21,7 @@ SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
 $(TOP)/src/config.h:
 	cp $(TOP)/src/config.h.tmpl $@
 
-$(OBJDIR)/%.o: $(TOP)/src/%.cc
+$(OBJDIR)/%.o: $(TOP)/src/%.cc $(TOP)/src/config.h
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<, -fPIC)
 
