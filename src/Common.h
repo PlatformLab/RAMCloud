@@ -219,7 +219,12 @@ class CycleCounter {
 
 class AssertionException {};
 
-void assert(bool invariant);
+#ifdef NDEBUG
+#define assert(invariant) {}
+#else
+#define assert(invariant) if (!(invariant)) \
+        throw RAMCloud::AssertionException()
+#endif
 
 }
 #endif

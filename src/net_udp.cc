@@ -36,8 +36,6 @@
 
 #include <net_udp.h>
 
-using RAMCloud::assert;
-
 void
 rc_net_init(struct rc_net *ret,
             const char *srcaddr, uint16_t srcport,
