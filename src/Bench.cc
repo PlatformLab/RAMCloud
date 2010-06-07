@@ -30,6 +30,19 @@ struct rcrpc_reject_rules read_any;
 struct rcrpc_reject_rules write_any;
 uint64_t table;
 
+uint64_t
+cycles_per_sec()
+{
+    static uint64_t cycles_per_sec = 0;
+    if (cycles_per_sec)
+        return cycles_per_sec;
+    uint64_t start = rdtsc();
+    usleep(500 * 1000);
+    uint64_t end = rdtsc();
+    cycles_per_sec = (end - start) * 2;
+    return cycles_per_sec;
+}
+
 void
 setup()
 {
@@ -54,6 +67,9 @@ cleanup()
 int
 main(int argc, char *argv[])
 {
+    double cycles_per_ns = static_cast<double>(cycles_per_sec()) /
+        (1000 * 1000 * 1000);
+
     count = 1;
     size = 100;
     multirow = 0;
@@ -101,8 +117,12 @@ main(int argc, char *argv[])
         end = rdtsc();
 
         cycles = end - start;
-        printf("write: %lu cycles\n", cycles);
-        printf("write: %lu avg\n", cycles / count);
+        printf("write: %.0f total ns\n",
+               static_cast<double>(cycles) / cycles_per_ns);
+        printf("write: %.0f avg ns\n",
+               static_cast<double>(cycles) /
+               static_cast<double>(count) /
+               cycles_per_ns);
     } else {
         r = rc_write(&client, table, 0, &write_any, NULL, &buf[0], size);
         if (r) {
@@ -125,8 +145,12 @@ main(int argc, char *argv[])
     end = rdtsc();
 
     cycles = end - start;
-    printf("read: %lu cycles\n", cycles);
-    printf("read: %lu avg\n", cycles / count);
+    printf("read: %.0f total ns\n",
+           static_cast<double>(cycles) / cycles_per_ns);
+    printf("read: %.0f avg ns\n",
+           static_cast<double>(cycles) /
+           static_cast<double>(count) /
+           cycles_per_ns);
 
     cleanup();
 

@@ -14,5 +14,6 @@ sleep .5
 PID=$!
 VAL=$($OBJDIR/Bench -s 1000 -c 1000 | grep avg | awk '{print $2;}')
 kill $PID
+sleep .5
 
 echo "$DATE $VER $VAL"

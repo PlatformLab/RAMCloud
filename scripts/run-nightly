@@ -3,8 +3,13 @@
 # these scripts are intended to be run from the top level
 # of the project
 
+if [ "$1" == "" ]; then
+    REPO=git://fiz.stanford.edu/git/ramcloud.git
+else
+    REPO="$1"
+fi
+
 TOP=$(pwd)
-REPO=git://fiz.stanford.edu/git/ramcloud.git
 LOGDIR=$(pwd)
 LOG="$LOGDIR/nightly.log"
 DATE=$(date +%Y-%m-%d)
