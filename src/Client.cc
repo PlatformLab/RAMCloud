@@ -129,34 +129,30 @@ rc_last_error(void)
 }
 
 /**
- * Detect a %RAMCloud error in an RPC response.
+ * Print a %RAMCloud error from an RPC response.
  *
  * See rc_last_error() to retrieve the extracted error message.
  *
- * \param[in]  resp_any the RPC response
- * \retval  0 there was no %RAMCloud error
- * \retval -1 there was a %RAMCloud error
+ * \param[in]  respBuf the RPC response, which must be of type
+ *                     RCRPC_ERROR_RESPONSE.
  */
-static int
-rc_handle_errors(struct rcrpc_any *resp_any)
+static void
+rc_handle_errors(Buffer *respBuf)
 {
-    struct rcrpc_error_response *resp;
-    if (resp_any->header.type != RCRPC_ERROR_RESPONSE)
-        return 0;
-    resp = (struct rcrpc_error_response*) resp_any;
-    fprintf(stderr, "... '%s'\n", resp->message);
-    strncpy(&rc_error_message[0], resp->message, ERROR_MSG_LEN);
-    return -1;
+    uint32_t messageLength = static_cast<uint32_t>(respBuf->getTotalLength() -
+                                                   sizeof(rcrpc_header));
+    char *message = static_cast<char*>(respBuf->getRange(sizeof(rcrpc_header),
+                                                         messageLength));
+    fprintf(stderr, "... '%s'\n", message);
+    strncpy(&rc_error_message[0], message, messageLength);
 }
 
 static int
 sendrcv_rpc(Service *s,
             Transport *trans,
-            struct rcrpc_any *req,
-            enum RCRPC_TYPE req_type, size_t min_req_size,
-            struct rcrpc_any **respp,
-            enum RCRPC_TYPE resp_type, size_t min_resp_size
-           ) __attribute__ ((warn_unused_result));
+            Buffer *req, enum RCRPC_TYPE req_type, size_t min_req_size,
+            Buffer *resp, enum RCRPC_TYPE resp_type, size_t min_resp_size)
+__attribute__ ((warn_unused_result));
 
 /**
  * Send an RPC request and receive the response.
@@ -166,14 +162,10 @@ sendrcv_rpc(Service *s,
  *
  * \param[in] s     The service associated with the destination of this RPC.
  * \param[in] trans The transport layer to use for this RPC.
- * \param[in] req   a pointer to the request
- *      The request should have its RPC type and length in the header already
- *      set.
+ * \param[in] req           See #SENDRCV_RPC.
  * \param[in] req_type      the RPC type expected in the header of the request
  * \param[in] min_req_size  the smallest acceptable size of the request
- * \param[out] respp   a pointer to a pointer to the response
- *      The response is guaranteed to be of the correct RPC type. \n
- *      The pointer will be set to \c NULL if a %RAMCloud error occurs.
+ * \param[out] resp         See #SENDRCV_RPC.
  * \param[in] resp_type     the RPC type expected in the header of the response
  * \param[in] min_resp_size the smallest acceptable size of the response
  * \return error code (see below)
@@ -183,37 +175,38 @@ sendrcv_rpc(Service *s,
 static int
 sendrcv_rpc(Service *s,
             Transport* trans,
-            struct rcrpc_any *req,
-            enum RCRPC_TYPE req_type, size_t min_req_size,
-            struct rcrpc_any **respp,
-            enum RCRPC_TYPE resp_type, size_t min_resp_size)
+            Buffer *req, enum RCRPC_TYPE req_type, size_t min_req_size,
+            Buffer *resp, enum RCRPC_TYPE resp_type, size_t min_resp_size)
 {
-    struct rcrpc_any *resp;
-    int r;
+    struct rcrpc_header reqHeader;
+    struct rcrpc_header *respHeader;
 
-    *respp = NULL;
+    reqHeader.type = (uint32_t) req_type;
+    if (min_req_size != 1) // In C++, structs with no members have sizeof 0.
+        assert(req->getTotalLength() >= (uint32_t) min_req_size);
+    req->prepend(&reqHeader, sizeof(reqHeader));
 
-    assert(req->header.type == (uint32_t) req_type);
-    assert(req->header.len >= (uint32_t) min_req_size);
+    trans->clientSend(s, req, resp)->getReply();
 
-    Buffer reqBuf;
-    reqBuf.append(req, req->header.len);
+    respHeader = static_cast<rcrpc_header*>(
+        resp->getRange(0, sizeof(*respHeader)));
+    if (respHeader == NULL)
+        return -1;
 
-    // TODO(ongaro): Stop leaking this Buffer.
-    // This needs to come from or be freed by higher up the stack.
-    Buffer& replyBuf = *new Buffer();
-    trans->clientSend(s, &reqBuf, &replyBuf)->getReply();
-
-    resp = reinterpret_cast<rcrpc_any*>(
-        replyBuf.getRange(0, replyBuf.getTotalLength()));
-
-    r = rc_handle_errors(resp);
-    if (r == 0) {
-        assert(resp->header.type == (uint32_t) resp_type);
-        assert(resp->header.len >= min_resp_size);
-        *respp = resp;
+    if (respHeader->type == RCRPC_ERROR_RESPONSE) {
+        rc_handle_errors(resp);
+        return -1;
     }
-    return r;
+
+    if (respHeader->type != static_cast<uint32_t>(resp_type))
+        return -1;
+
+    // In C++, structs with no members have sizeof 0.
+    if (min_resp_size > 1 && (resp->getTotalLength() < sizeof(*respHeader) +
+                              min_resp_size))
+        return -1;
+
+    return 0;
 }
 
 /**
@@ -226,30 +219,27 @@ sendrcv_rpc(Service *s,
  *
  * \param[in] rcrpc_upper   the name of the RPC in uppercase as a literal
  * \param[in] rcrpc_lower   the name of the RPC in lowercase as a literal
- * \param[in] query  a \c struct \c rcrpc_*_request pointer to the request \n
- *      The request should have its RPC type and length in the header already
- *      set.
- * \param[out] respp a pointer to the \c struct \c rcrpc_*_response pointer
- *      which should point to the response \n
- *      The response is guaranteed to be of the correct RPC type. \n
- *      The pointer will be set to \c NULL if a %RAMCloud error occurs.
+ * \param[in] query  The request Buffer to send out, which should not have an
+ *                   rcrpc_header yet.
+ * \param[out] resp An empty Buffer to fill in with the response. The response
+ *                  is guaranteed to be of the correct RPC type iff this call
+ *                  returns 0. There will be an rcrpc_header on the front of
+ *                  this for now.
  * \return error code as an \c int (see below)
  * \retval  0 success
  * \retval -1 on %RAMCloud error (see rc_last_error())
  */
-#define SENDRCV_RPC(rcrpc_upper, rcrpc_lower, query, respp)                    \
+#define SENDRCV_RPC(rcrpc_upper, rcrpc_lower, query, resp)                     \
     ({                                                                         \
-        struct rcrpc_##rcrpc_lower##_request* _query = (query);                \
-        struct rcrpc_##rcrpc_lower##_response** _respp = (respp);              \
         sendrcv_rpc(                                                           \
                 client->serv,                                                  \
                 client->trans,                                                 \
-                (struct rcrpc_any*) _query,                                    \
+                query,                                                         \
                 RCRPC_##rcrpc_upper##_REQUEST,                                 \
-                sizeof(*_query),                                               \
-                (struct rcrpc_any**) (_respp),                                 \
+                sizeof(rcrpc_##rcrpc_lower##_request),                         \
+                resp,                                                          \
                 RCRPC_##rcrpc_upper##_RESPONSE,                                \
-                sizeof(**_respp));                                             \
+                sizeof(rcrpc_##rcrpc_lower##_response));                       \
     })
 
 /**
@@ -320,24 +310,14 @@ rc_ping(struct rc_client *client)
 {
     lock(client);
 
-    struct rcrpc_ping_request query;
-    struct rcrpc_ping_response *resp;
-    query.header.type = RCRPC_PING_REQUEST;
-    query.header.len  = (uint32_t) RCRPC_PING_REQUEST_LEN;
-    int r = SENDRCV_RPC(PING, ping, &query, &resp);
+    Buffer reqBuf;
+    Buffer respBuf;
+
+    int r = SENDRCV_RPC(PING, ping, &reqBuf, &respBuf);
 
     unlock(client);
     return r;
 }
-
-/**
- * The maximum size of an object's data.
- *
- * This is estimated as roughly a little smaller than the maximum size of an
- * RPC.
- * \TODO Define the maximum object size more in a more stable way.
- */
-#define MAX_DATA_WRITE_LEN (MAX_RPC_LEN - RCRPC_WRITE_REQUEST_LEN_WODATA - 256)
 
 /**
  * Write (create or overwrite) an object in a %RAMCloud.
@@ -379,25 +359,26 @@ rc_write(struct rc_client *client,
 {
     lock(client);
 
-    assert(len <= MAX_DATA_WRITE_LEN);
-    char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
-    struct rcrpc_write_request *query;
+    Buffer reqBuf;
+    Buffer respBuf;
+    struct rcrpc_write_request query;
     struct rcrpc_write_response *resp;
-    query = (struct rcrpc_write_request *) query_buf;
 
-    query->header.type = RCRPC_WRITE_REQUEST;
-    query->header.len  = RCRPC_WRITE_REQUEST_LEN_WODATA;
-    query->header.len += (uint32_t) len;
-    query->table = table;
-    query->key = key;
-    memcpy(&query->reject_rules, reject_rules, sizeof(*reject_rules));
-    query->buf_len = len;
-    memcpy(query->buf, buf, len);
+    query.table = table;
+    query.key = key;
+    memcpy(&query.reject_rules, reject_rules, sizeof(*reject_rules));
+    query.buf_len = len;
+    reqBuf.append(&query, sizeof(query));
+    assert(len < (1UL << 32));
+    reqBuf.append(const_cast<char*>(buf), static_cast<uint32_t>(len));
 
-    int r = SENDRCV_RPC(WRITE, write, query, &resp);
+    int r = SENDRCV_RPC(WRITE, write, &reqBuf, &respBuf);
     if (r) {
         goto out;
     }
+
+    resp = static_cast<rcrpc_write_response*>(
+        respBuf.getRange(sizeof(rcrpc_header), sizeof(*resp)));
 
     if (got_version != NULL)
         *got_version = resp->version;
@@ -447,23 +428,25 @@ rc_insert(struct rc_client *client,
 {
     lock(client);
 
-    assert(len <= MAX_DATA_WRITE_LEN);
-    char query_buf[RCRPC_WRITE_REQUEST_LEN_WODATA + MAX_DATA_WRITE_LEN];
-    struct rcrpc_insert_request *query;
+    Buffer reqBuf;
+    Buffer respBuf;
+    struct rcrpc_insert_request query;
     struct rcrpc_insert_response *resp;
-    query = (struct rcrpc_insert_request *) query_buf;
 
-    query->header.type = RCRPC_INSERT_REQUEST;
-    query->header.len  = RCRPC_INSERT_REQUEST_LEN_WODATA;
-    query->header.len += (uint32_t) len;
-    query->table = table;
-    query->buf_len = len;
-    memcpy(query->buf, buf, len);
+    query.table = table;
+    query.buf_len = len;
+    reqBuf.append(&query, sizeof(query));
+    assert(len < (1UL << 32));
+    reqBuf.append(const_cast<char*>(buf), static_cast<uint32_t>(len));
 
-    int r = SENDRCV_RPC(INSERT, insert, query, &resp);
+    int r = SENDRCV_RPC(INSERT, insert, &reqBuf, &respBuf);
     if (r) {
         goto out;
     }
+
+    resp = static_cast<rcrpc_insert_response*>(
+        respBuf.getRange(sizeof(rcrpc_header), sizeof(*resp)));
+
     *key = resp->key;
 
   out:
@@ -498,19 +481,23 @@ rc_delete(struct rc_client *client,
 {
     lock(client);
 
+    Buffer reqBuf;
+    Buffer respBuf;
     struct rcrpc_delete_request query;
     struct rcrpc_delete_response *resp;
 
-    query.header.type = RCRPC_DELETE_REQUEST;
-    query.header.len  = (uint32_t) RCRPC_DELETE_REQUEST_LEN;
     query.table = table;
     query.key = key;
     memcpy(&query.reject_rules, reject_rules, sizeof(*reject_rules));
+    reqBuf.append(&query, sizeof(query));
 
-    int r = SENDRCV_RPC(DELETE, delete, &query, &resp);
+    int r = SENDRCV_RPC(DELETE, delete, &reqBuf, &respBuf);
     if (r) {
         goto out;
     }
+
+    resp = static_cast<rcrpc_delete_response*>(
+        respBuf.getRange(sizeof(rcrpc_header), sizeof(*resp)));
 
     if (got_version != NULL)
         *got_version = resp->version;
@@ -557,25 +544,32 @@ rc_read(struct rc_client *client,
 {
     lock(client);
 
+    Buffer reqBuf;
+    Buffer respBuf;
     struct rcrpc_read_request query;
     struct rcrpc_read_response *resp;
 
-    query.header.type = RCRPC_READ_REQUEST;
-    query.header.len  = (uint32_t) RCRPC_READ_REQUEST_LEN;
     query.table = table;
     query.key = key;
     memcpy(&query.reject_rules, reject_rules, sizeof(*reject_rules));
     query.reject_rules.object_doesnt_exist = true;
+    reqBuf.append(&query, sizeof(query));
 
-    int r = SENDRCV_RPC(READ, read, &query, &resp);
+    int r = SENDRCV_RPC(READ, read, &reqBuf, &respBuf);
     if (r)
         goto out;
+
+    resp = static_cast<rcrpc_read_response*>(
+        respBuf.getRange(sizeof(rcrpc_header), sizeof(*resp)));
 
     if (got_version != NULL)
         *got_version = resp->version;
 
     *len = resp->buf_len;
-    memcpy(buf, resp->buf, *len);
+    assert(resp->buf_len < (1UL << 32));
+    // TODO(ongaro): Let's hope buf can fit buf_len bytes.
+    respBuf.copy(sizeof(rcrpc_header) + sizeof(*resp),
+                 static_cast<uint32_t>(resp->buf_len), buf);
 
     r = reject_reason(&query.reject_rules, resp->version);
 
@@ -604,14 +598,15 @@ rc_create_table(struct rc_client *client, const char *name)
 {
     lock(client);
 
+    Buffer reqBuf;
+    Buffer respBuf;
     struct rcrpc_create_table_request query;
-    struct rcrpc_create_table_response *resp;
 
-    query.header.type = RCRPC_CREATE_TABLE_REQUEST;
-    query.header.len  = (uint32_t) RCRPC_CREATE_TABLE_REQUEST_LEN;
     strncpy(query.name, name, sizeof(query.name));
     query.name[sizeof(query.name) - 1] = '\0';
-    int r = SENDRCV_RPC(CREATE_TABLE, create_table, &query, &resp);
+    reqBuf.append(&query, sizeof(query));
+
+    int r = SENDRCV_RPC(CREATE_TABLE, create_table, &reqBuf, &respBuf);
 
     unlock(client);
     return r;
@@ -637,16 +632,22 @@ rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
 {
     lock(client);
 
+    Buffer reqBuf;
+    Buffer respBuf;
     struct rcrpc_open_table_request query;
     struct rcrpc_open_table_response *resp;
 
-    query.header.type = RCRPC_OPEN_TABLE_REQUEST;
-    query.header.len  = (uint32_t) RCRPC_OPEN_TABLE_REQUEST_LEN;
     strncpy(query.name, name, sizeof(query.name));
     query.name[sizeof(query.name) - 1] = '\0';
-    int r = SENDRCV_RPC(OPEN_TABLE, open_table, &query, &resp);
+    reqBuf.append(&query, sizeof(query));
+
+    int r = SENDRCV_RPC(OPEN_TABLE, open_table, &reqBuf, &respBuf);
     if (r)
         goto out;
+
+    resp = static_cast<rcrpc_open_table_response*>(
+        respBuf.getRange(sizeof(rcrpc_header), sizeof(*resp)));
+
     *table_id = resp->handle;
 
   out:
@@ -673,14 +674,15 @@ rc_drop_table(struct rc_client *client, const char *name)
 {
     lock(client);
 
+    Buffer reqBuf;
+    Buffer respBuf;
     struct rcrpc_drop_table_request query;
-    struct rcrpc_drop_table_response *resp;
 
-    query.header.type = RCRPC_DROP_TABLE_REQUEST;
-    query.header.len  = (uint32_t) RCRPC_DROP_TABLE_REQUEST_LEN;
     strncpy(query.name, name, sizeof(query.name));
     query.name[sizeof(query.name) - 1] = '\0';
-    int r = SENDRCV_RPC(DROP_TABLE, drop_table, &query, &resp);
+    reqBuf.append(&query, sizeof(query));
+
+    int r = SENDRCV_RPC(DROP_TABLE, drop_table, &reqBuf, &respBuf);
 
     unlock(client);
     return r;
