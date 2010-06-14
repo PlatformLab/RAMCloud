@@ -126,6 +126,8 @@ check:
 
 install: client-lib-install
 
+uninstall: client-lib-uninstall
+
 # This magic automatically generates makefile dependencies
 # for header files included from C source files we compile,
 # and keeps those dependencies up-to-date every time we recompile.
@@ -147,4 +149,4 @@ docs: python-docs
 docs-clean: python-docs-clean
 	rm -rf docs/doxygen/
 
-.PHONY: all always clean check doc docs docs-clean test tests install
+.PHONY: all always clean check doc docs docs-clean test tests install uninstall
