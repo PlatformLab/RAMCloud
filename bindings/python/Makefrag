@@ -1,10 +1,10 @@
-python-docs:
+python-docs: $(OBJDIR)/libramcloud.so
 	LD_LIBRARY_PATH=$(OBJDIR) epydoc --html -n RAMCloud -o docs/epydoc/ --simple-term -v bindings/python/*.py
 
 python-docs-clean:
 	rm -rf docs/epydoc/
 
-python-test:
+python-test: $(OBJDIR)/libramcloud.so
 	@ failed=0; \
 	for test in bindings/python/test*.py; do \
 		if [ -x $$test ]; then \
