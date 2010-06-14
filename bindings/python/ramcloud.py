@@ -340,6 +340,15 @@ def main():
 
     r.drop_table("test")
 
+    # these don't belong here, but they're testing a bug in which table names
+    # were truncated to 8 characters
+    r.create_table("01234567890123456789A")
+    r.create_table("01234567890123456789B")
+    assert (r.open_table("01234567890123456789A") !=
+            r.open_table("01234567890123456789B"))
+    r.drop_table("01234567890123456789A")
+    r.drop_table("01234567890123456789B")
+
 so = load_so()
 
 if __name__ == '__main__':

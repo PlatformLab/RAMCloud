@@ -612,9 +612,8 @@ rc_create_table(struct rc_client *client, const char *name)
 
     query.header.type = RCRPC_CREATE_TABLE_REQUEST;
     query.header.len  = (uint32_t) RCRPC_CREATE_TABLE_REQUEST_LEN;
-    char *table_name = query.name;
-    strncpy(table_name, name, sizeof(table_name));
-    table_name[sizeof(table_name) - 1] = '\0';
+    strncpy(query.name, name, sizeof(query.name));
+    query.name[sizeof(query.name) - 1] = '\0';
     int r = SENDRCV_RPC(CREATE_TABLE, create_table, &query, &resp);
 
     unlock(client);
@@ -646,9 +645,8 @@ rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
 
     query.header.type = RCRPC_OPEN_TABLE_REQUEST;
     query.header.len  = (uint32_t) RCRPC_OPEN_TABLE_REQUEST_LEN;
-    char *table_name = query.name;
-    strncpy(table_name, name, sizeof(table_name));
-    table_name[sizeof(table_name) - 1] = '\0';
+    strncpy(query.name, name, sizeof(query.name));
+    query.name[sizeof(query.name) - 1] = '\0';
     int r = SENDRCV_RPC(OPEN_TABLE, open_table, &query, &resp);
     if (r)
         goto out;
@@ -683,9 +681,8 @@ rc_drop_table(struct rc_client *client, const char *name)
 
     query.header.type = RCRPC_DROP_TABLE_REQUEST;
     query.header.len  = (uint32_t) RCRPC_DROP_TABLE_REQUEST_LEN;
-    char *table_name = query.name;
-    strncpy(table_name, name, sizeof(table_name));
-    table_name[sizeof(table_name) - 1] = '\0';
+    strncpy(query.name, name, sizeof(query.name));
+    query.name[sizeof(query.name) - 1] = '\0';
     int r = SENDRCV_RPC(DROP_TABLE, drop_table, &query, &resp);
 
     unlock(client);
