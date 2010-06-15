@@ -24,7 +24,6 @@
 #include <Common.h>
 #include <stdbool.h>
 #include <config.h>
-#include <Net.h>
 #include <Buffer.h>
 #include <Service.h>
 #include <Transport.h>
@@ -35,7 +34,6 @@ struct rc_client_shared; // declared in Client.c
 #endif
 
 struct rc_client {
-    struct rc_net net;
     RAMCloud::Service* serv;
     RAMCloud::Transport* trans;
 #if RC_CLIENT_SHARED

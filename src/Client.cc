@@ -74,7 +74,6 @@ rc_connect(struct rc_client *client)
     assert(client->shared != MAP_FAILED);
     assert(sem_init(&client->shared->sem, 1, 1) == 0);
 #endif
-    rc_net_init(&client->net, CLNTADDR, CLNTPORT, SVRADDR, SVRPORT);
 
     client->serv = new Service();
     client->serv->setIp(SVRADDR);
@@ -82,7 +81,6 @@ rc_connect(struct rc_client *client)
 
     client->trans = new TCPTransport(NULL, 0);
 
-    //rc_net_connect(&client->net);
     return 0;
 }
 
@@ -152,8 +150,7 @@ rc_handle_errors(struct rcrpc_any *resp_any)
 }
 
 static int
-sendrcv_rpc(struct rc_net *net,
-            Service *s,
+sendrcv_rpc(Service *s,
             Transport *trans,
             struct rcrpc_any *req,
             enum RCRPC_TYPE req_type, size_t min_req_size,
@@ -167,7 +164,6 @@ sendrcv_rpc(struct rc_net *net,
  * This function should not be called directly. Rather, ::SENDRCV_RPC should be
  * used.
  *
- * \param[in] net   the network struct from the rc_client
  * \param[in] s     The service associated with the destination of this RPC.
  * \param[in] trans The transport layer to use for this RPC.
  * \param[in] req   a pointer to the request
@@ -185,8 +181,7 @@ sendrcv_rpc(struct rc_net *net,
  * \retval -1 on %RAMCloud error (see rc_last_error())
  */
 static int
-sendrcv_rpc(struct rc_net *net,
-            Service *s,
+sendrcv_rpc(Service *s,
             Transport* trans,
             struct rcrpc_any *req,
             enum RCRPC_TYPE req_type, size_t min_req_size,
@@ -244,7 +239,7 @@ sendrcv_rpc(struct rc_net *net,
     ({                                                                         \
         struct rcrpc_##rcrpc_lower##_request* _query = (query);                \
         struct rcrpc_##rcrpc_lower##_response** _respp = (respp);              \
-        sendrcv_rpc(&client->net,                                              \
+        sendrcv_rpc(                                                           \
                 client->serv,                                                  \
                 client->trans,                                                 \
                 (struct rcrpc_any*) _query,                                    \
