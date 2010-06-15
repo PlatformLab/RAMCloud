@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# these scripts are intended to be run from the top level
+# of the project
+
+if [ "$1" == "" ]; then
+    REPO=git://fiz.stanford.edu/git/ramcloud.git
+else
+    REPO="$1"
+fi
+
+TOP=$(pwd)
+LOGDIR=$(pwd)
+LOG="$LOGDIR/nightly.log"
+DATE=$(date +%Y-%m-%d)
+BUILDDIR=/tmp/ramcloud-nightly-build-$DATE
+BUILDLOG=$LOGDIR/nightly-build-$DATE.log
+
+# do actual build and test
+rm -rf $BUILDDIR
+git clone $REPO $BUILDDIR
+pushd $BUILDDIR
+make obj.master/server > $BUILDLOG 2>&1 
+make obj.master/Bench > $BUILDLOG 2>&1 
+$TOP/scripts/run-bench >> $LOG
+popd
+rm -rf $BUILDDIR
+
+# generate graph
+gnuplot scripts/nightly.gnu

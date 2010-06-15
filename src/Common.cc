@@ -131,12 +131,6 @@ CycleCounter::stop() {
 }
 #endif
 
-void
-assert(bool invariant) {
-    if (!invariant)
-        throw AssertionException();
-}
-
 }
 
 #endif

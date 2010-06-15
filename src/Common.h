@@ -25,11 +25,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <cassert>
 #else
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <assert.h>
 #endif
 
 // requires 0x for cstdint
@@ -216,10 +218,6 @@ class CycleCounter {
   private:
     DISALLOW_COPY_AND_ASSIGN(CycleCounter);
 };
-
-class AssertionException {};
-
-void assert(bool invariant);
 
 }
 #endif

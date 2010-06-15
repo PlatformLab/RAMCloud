@@ -4,6 +4,8 @@
 #       Recursive Make Considered Harmful
 #       http://aegis.sourceforge.net/auug97.pdf
 
+DEBUG := yes
+
 ## Create a separate build directory for each git branch and for each arch
 OBJSUFFIX := $(shell git symbolic-ref -q HEAD | \
 	       sed -e s,refs/heads/,.,)
@@ -13,19 +15,28 @@ OBJDIR	:= obj$(OBJSUFFIX)
 TOP	:= $(shell echo $${PWD-`pwd`})
 
 BASECFLAGS :=
-#OPTFLAG	 := -O3
+OPTFLAG	 := -O3
+ifeq ($(DEBUG),yes)
+DEBUGFLAGS := -Wmissing-noreturn
+else
+DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
+endif
 COMFLAGS := $(BASECFLAGS) -g $(OPTFLAG) -fno-strict-aliasing \
 	        -fno-builtin -MD
-COMWARNS := -Wall -Wformat=2 -Wextra -Wmissing-noreturn \
+COMWARNS := -Wall -Wformat=2 -Wextra \
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute \
-            -Wswitch-default
+            -Wswitch-default $(DEBUGFLAGS)
 CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
 		-Wbad-function-cast
 CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
-		-Wconversion -Wcast-qual -Winline \
+		-Wcast-qual \
 		-Weffc++ -Wswitch-enum -Wcast-align
 # Too many false positives list:
 # -Wunreachable-code
+# Broken due to implicit promotion to int in g++ 4.4.4
+# -Wconversion
+# Failed deconstructor inlines are generating noise
+# -Winline
 LIBS := -lrt
 # -lrt required for temporary semaphore. See RC_CLIENT_SHARED and RAM-39.
 INCLUDES := -I$(TOP)/src
@@ -115,6 +126,8 @@ check:
 
 install: client-lib-install
 
+uninstall: client-lib-uninstall
+
 # This magic automatically generates makefile dependencies
 # for header files included from C source files we compile,
 # and keeps those dependencies up-to-date every time we recompile.
@@ -136,4 +149,4 @@ docs: python-docs
 docs-clean: python-docs-clean
 	rm -rf docs/doxygen/
 
-.PHONY: all always clean check doc docs docs-clean test tests install
+.PHONY: all always clean check doc docs docs-clean test tests install uninstall

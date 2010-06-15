@@ -41,7 +41,6 @@ Server::Server(const ServerConfig *sconfig,
     : config(sconfig), trans(transIn), backup(backupClient), log(0)
 {
     void *p = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
-    assert(p != NULL);
 
     if (!backup) {
         MultiBackupClient *multiBackup = new MultiBackupClient();

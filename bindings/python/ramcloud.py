@@ -19,6 +19,7 @@
 import ctypes
 from ctypes.util import find_library
 import itertools
+import os
 
 class RejectRules(ctypes.Structure):
     _fields_ = [("object_doesnt_exist", ctypes.c_uint8, 1),
@@ -48,7 +49,23 @@ def load_so():
     not_found = ImportError("Couldn't find libramcloud.so, ensure it is " +
                             "installed and that you have registered it with " +
                             "/sbin/ldconfig")
-    path = find_library('ramcloud')
+
+    # try to find the overridden path first, if possible using
+    # LD_LIBRARY_PATH which means we don't have to install the so
+    # during devel
+
+    path = None
+    if 'LD_LIBRARY_PATH' in os.environ:
+        for search_dir in os.environ['LD_LIBRARY_PATH'].split(':'):
+            test_path = os.path.join(search_dir, 'libramcloud.so')
+            if os.path.exists(test_path):
+                path = test_path
+                break
+
+    # couldn't find the so in LD_LIBRARY_PATH, so try the usual approach
+    if not path:
+        path = find_library('ramcloud')
+
     if not path:
         raise not_found
     try:
@@ -322,6 +339,15 @@ def main():
     assert r.read(table, oid)[0] == bs
 
     r.drop_table("test")
+
+    # these don't belong here, but they're testing a bug in which table names
+    # were truncated to 8 characters
+    r.create_table("01234567890123456789A")
+    r.create_table("01234567890123456789B")
+    assert (r.open_table("01234567890123456789A") !=
+            r.open_table("01234567890123456789B"))
+    r.drop_table("01234567890123456789A")
+    r.drop_table("01234567890123456789B")
 
 so = load_so()
 
