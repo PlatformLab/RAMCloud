@@ -20,4 +20,10 @@ $(OBJDIR)/%.o: $(TOP)/src/%.cc $(TOP)/src/config.h
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<, -fPIC)
 
+# If there's a cc file in the object dir, build it.
+# This is for auto-generated source code.
+$(OBJDIR)/%.o: $(OBJDIR)/%.cc $(TOP)/src/config.h
+	@mkdir -p $(@D)
+	$(call run-cxx,$@,$<, -fPIC)
+
 all: $(TOP)/src/config.h

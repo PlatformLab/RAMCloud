@@ -175,4 +175,4 @@ for i, line in enumerate(lines):
         else:
             mock_lines.append(line)
 
-open(sys.argv[1], 'w').write(out.contents())
+sys.stdout.write(out.contents())
