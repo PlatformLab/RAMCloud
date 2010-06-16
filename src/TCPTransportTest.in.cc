@@ -42,80 +42,38 @@ namespace RAMCloud {
  * An implementation of TCPTransport::Syscalls that complains when invoked.
  * The mock classes extend this.
  */
-class SyscallsStub : public TCPTransport::Syscalls {
-  public:
-    struct NotImplementedException {};
-    int accept(int sockfd, struct sockaddr* addr, socklen_t* addrlen)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int bind(int sockfd, const struct sockaddr* addr, socklen_t addrlen)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int close(int fd) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int connect(int sockfd, const struct sockaddr* addr, socklen_t addrlen)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int listen(int sockfd, int backlog) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    ssize_t recv(int sockfd, void* buf, size_t len, int flags)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    ssize_t sendmsg(int sockfd, const struct msghdr* msg, int flags)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int setsockopt(int sockfd, int level, int optname, const void* optval,
-                   socklen_t optlen) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    int socket(int domain, int type, int protocol) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-};
+BEGIN_STUB(SyscallsStub, TCPTransport::Syscalls);
+    int accept(int sockfd, struct sockaddr* addr, socklen_t* addrlen);
+    int bind(int sockfd, const struct sockaddr* addr, socklen_t addrlen);
+    int close(int fd);
+    int connect(int sockfd, const struct sockaddr* addr, socklen_t addrlen);
+    int listen(int sockfd, int backlog);
+    ssize_t recv(int sockfd, void* buf, size_t len, int flags);
+    ssize_t sendmsg(int sockfd, const struct msghdr* msg, int flags);
+    int setsockopt(int sockfd, int level, int optname, const void* optval, \
+                   socklen_t optlen);
+    int socket(int domain, int type, int protocol);
+END_STUB();
 
 /**
  * An implementation of TCPTransport::ServerSocket that complains when invoked.
  * The mock classes extend this.
  */
-class ServerSocketStub : public TCPTransport::ServerSocket {
-  public:
-    struct NotImplementedException {};
-    void init(TCPTransport::ListenSocket* listenSocket)
-        __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    void recv(Buffer* payload) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    void send(const Buffer* payload) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-};
+BEGIN_STUB(ServerSocketStub, TCPTransport::ServerSocket);
+    void init(TCPTransport::ListenSocket* listenSocket);
+    void recv(Buffer* payload);
+    void send(const Buffer* payload);
+END_STUB();
 
 /**
  * An implementation of TCPTransport::ClientSocket that complains when invoked.
  * The mock classes extend this.
  */
-class ClientSocketStub : public TCPTransport::ClientSocket {
-  public:
-    struct NotImplementedException {};
-    void init(const char* ip, uint16_t port) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    void recv(Buffer* payload) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-    void send(const Buffer* payload) __attribute__ ((noreturn)) {
-        throw NotImplementedException();
-    }
-};
+BEGIN_STUB(ClientSocketStub, TCPTransport::ClientSocket);
+    void init(const char* ip, uint16_t port);
+    void recv(Buffer* payload);
+    void send(const Buffer* payload);
+END_STUB();
 
 /**
  * Unit tests for TCPTransport::Socket and its subclasses.
