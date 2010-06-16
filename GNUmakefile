@@ -103,7 +103,7 @@ endef
 all:
 
 tests: test
-test: python-test
+test: python-test mockpy-test
 
 .SUFFIXES:
 

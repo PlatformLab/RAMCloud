@@ -29,7 +29,7 @@ TESTS_OBJFILES := $(TESTS_OBJFILES) \
 TESTS_LIB := -lcppunit -ldl
 
 $(OBJDIR)/%Test.cc: $(TOP)/src/%Test.in.cc $(TOP)/mock.py
-	$(TOP)/mock.py <$< >$@
+	$(TOP)/mock.py $< $@
 
 $(OBJDIR)/test: $(TESTS_OBJFILES)
 	@mkdir -p $(@D)
@@ -55,6 +55,12 @@ $(OBJDIR)/Telnet: $(OBJDIR)/Telnet.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 $(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^
+
+.PHONY: mockpy-test
+mockpy-test:
+	$(TOP)/mock.py src/tests/mockpy.in.cc $(OBJDIR)/mockpytest.out.cc
+	@diff -q src/tests/mockpy.out.cc $(OBJDIR)/mockpytest.out.cc || \
+	 diff -u src/tests/mockpy.out.cc $(OBJDIR)/mockpytest.out.cc
 
 tests-clean:
 	rm -f $(TOP)/src/TCPTransportTest.cc
