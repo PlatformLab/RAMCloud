@@ -92,6 +92,8 @@ class MockParseRange(object):
                 step_lines = []
                 for assertion in m.group(3).split(','):
                     assertion = assertion.strip()
+                    if not assertion:
+                        continue
                     if re.match('^[A-Za-z0-9_]+$', assertion) is None:
                         step_lines.append((lineno,
                                            '    CPPUNIT_ASSERT(%s);' % assertion))

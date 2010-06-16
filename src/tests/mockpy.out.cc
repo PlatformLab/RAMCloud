@@ -21,7 +21,7 @@ class stub : public base {
 #line 5 "src/tests/mockpy.in.cc"
     }
 #line 7 "src/tests/mockpy.in.cc"
-    void foo(int x) __attribute__ ((noreturn)) {
+    void foo() __attribute__ ((noreturn)) {
 #line 7 "src/tests/mockpy.in.cc"
         throw NotImplementedException();
 #line 7 "src/tests/mockpy.in.cc"
@@ -49,7 +49,7 @@ class mock : public stub {
 #line 10 "src/tests/mockpy.in.cc"
     }
 #line 15 "src/tests/mockpy.in.cc"
-    void foo(int x) {
+    void foo() {
 #line 15 "src/tests/mockpy.in.cc"
         ++state;
 #line 15 "src/tests/mockpy.in.cc"

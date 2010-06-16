@@ -4,7 +4,7 @@
 BEGIN_STUB(stub, base);
     int roflcopter(int a, int b, int c, \
                    char* d);
-    void foo(int x);
+    void foo();
 END_STUB();
 
 BEGIN_MOCK(mock, stub);
@@ -12,7 +12,7 @@ BEGIN_MOCK(mock, stub);
                d == NULL) {
         return a + b;
     }
-    foo(x) {
+    foo() {
     }
     roflcopter(a, b, c, d) {
         return 0;
