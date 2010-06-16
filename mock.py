@@ -34,145 +34,171 @@ class Output:
     def contents(self):
         return '\n'.join(self.buffer + [''])
 
-PROTOTYPES = {
-    'SyscallsStub': {
-        'accept': 'int accept(int sockfd, struct sockaddr* addr, ' +
-                             'socklen_t* addrlen)',
-        'bind': 'int bind(int sockfd, const struct sockaddr* addr, ' +
-                         'socklen_t addrlen)',
-        'close': 'int close(int fd)',
-        'connect': 'int connect(int sockfd, const struct sockaddr* addr, ' +
-                               'socklen_t addrlen)',
-        'listen': 'int listen(int sockfd, int backlog)',
-        'recv': 'ssize_t recv(int sockfd, void* buf, size_t len, int flags)',
-        'sendmsg': 'ssize_t sendmsg(int sockfd, const struct msghdr* msg, ' +
-                                   'int flags)',
-        'setsockopt': 'int setsockopt(int sockfd, int level, int optname, ' +
-                                     'const void* optval, socklen_t optlen)',
-        'socket': 'int socket(int domain, int type, int protocol)',
-    },
-    'ServerSocketStub': {
-        'init': 'void init(TCPTransport::ListenSocket* listenSocket)',
-        'recv': 'void recv(Buffer* payload)',
-        'send': 'void send(const Buffer* payload)',
-    },
-    'ClientSocketStub': {
-        'init': 'void init(const char* ip, uint16_t port)',
-        'recv': 'void recv(Buffer* payload)',
-        'send': 'void send(const Buffer* payload)',
-    },
-}
+class MockParseRange(object):
+    def __init__(self, lineno, line):
+        m = re.search('^( *)BEGIN_MOCK\(\s*(\w+)\s*,\s*(\w+)\s*\)', line)
+        if m is None:
+            raise ValueError
+        out.indentlevel = len(m.group(1)) / 4
+        self.lines = []
+        self.mock_class = m.group(2)
+        self.base_class = m.group(3)
 
-def handler(mock_class, base_class, lines):
-    steps = []
-    step_method = None
-    step_lines = None
-    step_whitespace = None
-
-    for line in lines:
-        line = line.rstrip()
-        if not line:
-            continue
-        if step_method is None:
-            m = re.match('^(\s*)(\w+)\((.*)\)\s*{\s*$', line)
-            step_whitespace = m.group(1)
-            step_method = m.group(2)
-            assert step_method in PROTOTYPES[base_class]
-            step_lines = []
-            for assertion in m.group(3).split(','):
-                assertion = assertion.strip()
-                if re.match('^[A-Za-z0-9_]+$', assertion) is None:
-                    step_lines.append('    CPPUNIT_ASSERT(%s);' % assertion)
+    def add(self, lineno, line):
+        if 'END_MOCK' in line:
+            out.line('// begin generated code from %s' % sys.argv[0])
+            self.handler()
+            out.line('// end generated code')
+            return None
         else:
-            if line == step_whitespace + '}':
-                step_lines.append('    break;')
-                steps.append((step_method, step_lines))
-                step_method = None
-                step_lines = None
-                step_whitespace = None
+            self.lines.append(line)
+            return self
+
+    def handler(self):
+        steps = []
+        step_method = None
+        step_lines = None
+        step_whitespace = None
+
+        prototypes = PROTOTYPES[self.base_class]
+
+        for line in self.lines:
+            line = line.rstrip()
+            if not line:
+                continue
+            if step_method is None:
+                m = re.match('^(\s*)(\w+)\((.*)\)\s*{\s*$', line)
+                step_whitespace = m.group(1)
+                step_method = m.group(2)
+                assert step_method in prototypes
+                step_lines = []
+                for assertion in m.group(3).split(','):
+                    assertion = assertion.strip()
+                    if re.match('^[A-Za-z0-9_]+$', assertion) is None:
+                        step_lines.append('    CPPUNIT_ASSERT(%s);' % assertion)
             else:
-                assert line.startswith(step_whitespace)
-                step_lines.append(line[len(step_whitespace):])
+                if line == step_whitespace + '}':
+                    step_lines.append('    break;')
+                    steps.append((step_method, step_lines))
+                    step_method = None
+                    step_lines = None
+                    step_whitespace = None
+                else:
+                    assert line.startswith(step_whitespace)
+                    step_lines.append(line[len(step_whitespace):])
 
-    methods = {}
-    for i, (method, lines) in enumerate(steps):
-        if method not in methods:
-            methods[method] = ([PROTOTYPES[base_class][method] + ' {',
-                                '    ++state;',
-                                '    switch (state) {'],
-                               [],
-                               ['        default:',
-                                '            CPPUNIT_ASSERT(false);',
-                                '            throw 0;',
-                                '    }',
-                                '}'])
-        methods[method][1].extend(['case %d: {' % (i + 1)] + lines + ['}'])
+        methods = {}
+        for i, (method, lines) in enumerate(steps):
+            if method not in methods:
+                methods[method] = ([prototypes[method] + ' {',
+                                    '    ++state;',
+                                    '    switch (state) {'],
+                                   [],
+                                   ['        default:',
+                                    '            CPPUNIT_ASSERT(false);',
+                                    '            throw 0;',
+                                    '    }',
+                                    '}'])
+            methods[method][1].extend(['case %d: {' % (i + 1)] + lines + ['}'])
 
-    out.line('class %s : public %s {' % (mock_class, base_class))
+        out.line('class %s : public %s {' % (self.mock_class, self.base_class))
 
-    out.line('  public:')
-    out.indentlevel += 1
-    out.line('%s() : state(0) {' % mock_class)
-    out.line('}')
-    out.line('~%s() {' % mock_class)
-    out.line('    CPPUNIT_ASSERT(state == %d);' % len(steps))
-    out.line('}')
-    for first, middle, last in methods.values():
-        for l in first:
-            out.line(l)
-        out.indentlevel += 2
-        for l in middle:
-            out.line(l)
-        out.indentlevel -= 2
-        for l in last:
-            out.line(l)
-    out.indentlevel -= 1
+        out.line('  public:')
+        out.indentlevel += 1
+        out.line('%s() : state(0) {' % self.mock_class)
+        out.line('}')
+        out.line('~%s() {' % self.mock_class)
+        out.line('    CPPUNIT_ASSERT(state == %d);' % len(steps))
+        out.line('}')
+        for first, middle, last in methods.values():
+            for l in first:
+                out.line(l)
+            out.indentlevel += 2
+            for l in middle:
+                out.line(l)
+            out.indentlevel -= 2
+            for l in last:
+                out.line(l)
+        out.indentlevel -= 1
 
-    out.line('  private:')
-    out.indentlevel += 1
-    out.line('int state;')
-    out.indentlevel -= 1
+        out.line('  private:')
+        out.indentlevel += 1
+        out.line('int state;')
+        out.indentlevel -= 1
 
-    out.line('};')
+        out.line('};')
+
+class StubParseRange(object):
+    def __init__(self, lineno, line):
+        m = re.search('^( *)BEGIN_STUB\(\s*(\w+)\s*,\s*([\w:]+)\s*\)', line)
+        if m is None:
+            raise ValueError
+        out.indentlevel = len(m.group(1)) / 4
+        self.lines = []
+        self.stub_class = m.group(2)
+        self.base_class = m.group(3)
+
+    def add(self, lineno, line):
+        if 'END_STUB' in line:
+            out.line('// begin generated code from %s' % sys.argv[0])
+            self.handler()
+            out.line('// end generated code')
+            return None
+        else:
+            if not line.strip().endswith(';'):
+                raise ValueError
+            self.lines.append(line)
+            return self
+
+    def handler(self):
+        prototypes = {}
+        PROTOTYPES[self.stub_class] = prototypes
+
+        out.line('class %s : public %s {' % (self.stub_class, self.base_class))
+        out.line('  public:')
+        out.indentlevel += 1
+        out.line('struct NotImplementedException {};')
+        for line in self.lines:
+            prototype = line.strip()[:-1] # strip and drop semicolon
+
+            m = re.search('\s(\w+)\(', prototype)
+            method_name = m.group(1)
+            prototypes[method_name] = prototype
+
+            out.line(prototype + ' __attribute__ ((noreturn)) {')
+            out.line('    throw NotImplementedException();')
+            out.line('}')
+
+        out.indentlevel -= 1
+        out.line('};')
 
 out = Output()
 out.line('// This file was automatically generated, so don\'t edit it.')
 out.line('// RAMCloud pragma [CPPLINT=0]')
-out.indentlevel += 1
+
+PROTOTYPES = {}
 
 lines = sys.stdin.readlines()
 prev = ''
-mock_lines = None
-mock_class = None
-base_class = None
+parse_range = None
 for i, line in enumerate(lines):
     if len(line) > 1 and line[-2] == '\\':
-        prev += line[:-2].rstrip()
+        prev += line[:-2]
         continue
     else:
         if prev:
             line = prev + line.lstrip()
             prev = ''
 
-    if mock_lines is None:
-        m = re.search('BEGIN_MOCK\(\s*(\w+)\s*,\s*(\w+)\s*\)', line)
-        if m is not None:
-            mock_lines = []
-            mock_class = m.group(1)
-            base_class = m.group(2)
-        else:
+    if parse_range is None:
+        for range_type in [MockParseRange, StubParseRange]:
+            try:
+                parse_range = range_type(i, line)
+            except ValueError:
+                continue
+        if parse_range is None:
             out.raw(line[:-1])
     else:
-        if 'END_MOCK' in line:
-            out.indentlevel += 1
-            out.line('// begin generated code from %s' % sys.argv[0])
-            handler(mock_class, base_class, mock_lines)
-            out.line('// end generated code')
-            out.indentlevel -= 1
-            mock_lines = None
-            mock_class = None
-            base_class = None
-        else:
-            mock_lines.append(line)
+        parse_range = parse_range.add(i, line)
 
 sys.stdout.write(out.contents())
