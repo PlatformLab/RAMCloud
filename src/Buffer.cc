@@ -525,15 +525,14 @@ void* Buffer::getRange(uint32_t offset, uint32_t length) {
  * region pointed to by dest.
  *
  * If the <offset, length> memory block extends beyond the end of the logical
- * Buffer, we copy all the bytes from offset upto the end of the Buffer, and
- * returns the number of bytes copied.
+ * Buffer, we copy all the bytes from offset up to the end of the Buffer.
  *
- * \param[in]  offset  The offset of the first byte to be copied.
+ * \param[in]  offset  The offset in the Buffer of the first byte to copy.
  * \param[in]  length  The number of bytes to copy.
  * \param[in]  dest    The pointer to which we should copy the logical memory
  *                     block. The caller must make sure that 'dest' contains at
  *                     least 'length' bytes.
- * \return  The actual number of bytes copied. This will be less than length, if
+ * \return  The actual number of bytes copied. This will be less than length if
  *          the requested range of bytes overshoots the end of the Buffer.
  * \retval  0, if the given 'offset' is invalid.
  */
@@ -553,6 +552,62 @@ uint32_t Buffer::copy(uint32_t offset, uint32_t length,
 
     copy(current, offset, length, dest);
     return length;
+}
+
+/**
+ * Generate a string describing the contents of the buffer.
+ *
+ * This method is intended primarily for use in tests.
+ *
+ * \return A string that describes the contents of the buffer. It
+ *         consists of the contents of the various chunks separated
+ *         by " | ", with long chunks abbreviated and non-printing
+ *         characters converted to something printable.
+ */
+string Buffer::toString() {
+    // The following declaration defines the maximum number of characters
+    // to display from each chunk.
+    static const uint32_t CHUNK_LIMIT = 20;
+    const char *separator = "";
+    char temp[20];
+    uint32_t chunkLength;
+    string s;
+
+    for (uint32_t offset = 0; ; offset += chunkLength) {
+        char *chunk;
+        chunkLength = peek(offset, reinterpret_cast<void **>(&chunk));
+        if (chunkLength == 0)
+            break;
+        s.append(separator);
+        separator = " | ";
+        for (uint32_t i = 0; i < chunkLength; i++) {
+            if (i >= CHUNK_LIMIT) {
+                // This chunk is too big to print in its entirety;
+                // just print a count of the remaining characters.
+                snprintf(temp, sizeof(temp), "(+%d chars)", chunkLength-i);
+                s.append(temp);
+                break;
+            }
+
+            // In printing out the characters, the goal here is
+            // to produce a string that is reasonably readable and has
+            // no special characters in it; this makes it easy to cut
+            // and paste from test output to an "expected results" string
+            // without having to add additional quote characters, etc.
+            // That's why we print "/n" instead of "\n", for example.
+            char c = chunk[i];
+            if ((c >= 0x20) && (c < 0x7f)) {
+                s.append(&c, 1);
+            } else if (c == '\n') {
+                s.append("/n");
+            } else {
+                uint32_t value = c & 0xff;
+                snprintf(temp, sizeof(temp), "/x%x", value);
+                s.append(temp);
+            }
+        }
+    }
+    return s;
 }
 
 /**

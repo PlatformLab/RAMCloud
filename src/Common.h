@@ -26,6 +26,7 @@
 #include <cstring>
 #include <memory>
 #include <cassert>
+using namespace std;
 #else
 #include <stdio.h>
 #include <stdlib.h>
