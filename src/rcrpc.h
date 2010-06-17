@@ -67,9 +67,37 @@ enum RCRPC_TYPE {
     RCRPC_ERROR_RESPONSE,
 };
 
+/**
+ * Represents the perf_counter field of #rcrpc_header on the wire.
+ *
+ * Requests treat this space as a few control fields, documented
+ * below.  Responses treat this space as a single integer performance
+ * counter value.
+ *
+ * See #rc_select_perf_counter() to use performance counters or
+ * Metrics to add new performance counters.
+ */
+struct rcrpc_perf_counter {
+    union {
+        /// Return value for responses, the performance counter
+        /// readings from the last request
+        uint32_t value;
+        // Setup fields for performance counters on requests
+        struct {
+            /// A Mark serialized into a 12-bit field
+            uint32_t beginMark : 12;
+            /// A Mark serialized into a 12-bit field
+            uint32_t endMark : 12;
+            /// A PerfCounterType serialized into an 8-bit field
+            uint32_t counterType : 8;
+        };
+    };
+} __attribute__ ((__packed__));
+
 struct rcrpc_header {
     uint32_t type;
     uint32_t len;
+    rcrpc_perf_counter perf_counter;
 };
 
 struct rcrpc_any {

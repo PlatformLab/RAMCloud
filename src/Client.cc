@@ -15,16 +15,13 @@
 
 // RAMCloud pragma [CPPLINT=0]
 
-#include <Common.h>
+#include <Client.h>
 
 #if RC_CLIENT_SHARED
 #include <semaphore.h>
 #include <sys/mman.h>
 #endif
 
-#include <rcrpc.h>
-#include <Buffer.h>
-#include <Client.h>
 #include <assert.h>
 
 using RAMCloud::Buffer;
@@ -239,7 +236,8 @@ sendrcv_rpc(Service *s,
     ({                                                                         \
         struct rcrpc_##rcrpc_lower##_request* _query = (query);                \
         struct rcrpc_##rcrpc_lower##_response** _respp = (respp);              \
-        sendrcv_rpc(                                                           \
+        _query->header.perf_counter.value = client->perf_counter_select.value; \
+        int _r = sendrcv_rpc(                                                  \
                 client->serv,                                                  \
                 client->trans,                                                 \
                 (struct rcrpc_any*) _query,                                    \
@@ -248,6 +246,8 @@ sendrcv_rpc(Service *s,
                 (struct rcrpc_any**) (_respp),                                 \
                 RCRPC_##rcrpc_upper##_RESPONSE,                                \
                 sizeof(**_respp));                                             \
+        client->perf_counter = (*_respp)->header.perf_counter.value;           \
+        _r;                                                                    \
     })
 
 /**
@@ -322,6 +322,7 @@ rc_ping(struct rc_client *client)
     struct rcrpc_ping_response *resp;
     query.header.type = RCRPC_PING_REQUEST;
     query.header.len  = (uint32_t) RCRPC_PING_REQUEST_LEN;
+
     int r = SENDRCV_RPC(PING, ping, &query, &resp);
 
     unlock(client);
@@ -609,6 +610,7 @@ rc_create_table(struct rc_client *client, const char *name)
     query.header.len  = (uint32_t) RCRPC_CREATE_TABLE_REQUEST_LEN;
     strncpy(query.name, name, sizeof(query.name));
     query.name[sizeof(query.name) - 1] = '\0';
+
     int r = SENDRCV_RPC(CREATE_TABLE, create_table, &query, &resp);
 
     unlock(client);
@@ -642,6 +644,7 @@ rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
     query.header.len  = (uint32_t) RCRPC_OPEN_TABLE_REQUEST_LEN;
     strncpy(query.name, name, sizeof(query.name));
     query.name[sizeof(query.name) - 1] = '\0';
+
     int r = SENDRCV_RPC(OPEN_TABLE, open_table, &query, &resp);
     if (r)
         goto out;
@@ -678,10 +681,74 @@ rc_drop_table(struct rc_client *client, const char *name)
     query.header.len  = (uint32_t) RCRPC_DROP_TABLE_REQUEST_LEN;
     strncpy(query.name, name, sizeof(query.name));
     query.name[sizeof(query.name) - 1] = '\0';
+
     int r = SENDRCV_RPC(DROP_TABLE, drop_table, &query, &resp);
 
     unlock(client);
     return r;
+}
+
+/**
+ * Arrange for a particular performance metric to be gathered during each
+ * subsequent RPC.
+ *
+ * After each client call the selected performance count can be
+ * obtained using rc_read_perf_counter().  Measurements can be taken
+ * of a cycle counter, CPU performance counter, or a simple mark event
+ * counter.
+ *
+ * Since this function effectively sets up the meaning of the return value
+ * of rc_read_perf_counter() one should look there for more details.
+ *
+ * \param[in] client
+ *     A connected client.
+ * \param[in] counterType
+ *     Select timestamp (cycle) counter, CPU performance counter, or
+ *     mark event count.
+ * \param[in] beginMark
+ *     Measure cycles or performance events starting at this point in
+ *     the server code.  Count ::RAMCloud::Mark events matching this
+ *     ::RAMCloud::Mark if increment counter type is selected.
+ * \param[in] endMark
+ *     Measure cycles or performance events until this point in the
+ *     server code.  Unused if increment type counter is selected.
+ */
+void rc_select_perf_counter(struct rc_client *client,
+                            enum RAMCloud::PerfCounterType counterType,
+                            enum RAMCloud::Mark beginMark,
+                            enum RAMCloud::Mark endMark)
+{
+    client->perf_counter_select.beginMark = beginMark;
+    client->perf_counter_select.endMark = endMark;
+    client->perf_counter_select.counterType = counterType;
+}
+
+/**
+ * Get the selected measurement for the last RPC call to the Server.
+ *
+ * See rc_select_perf_counter() to set up performance counters.  It
+ * is used to determine the meaning of the performance counter returned
+ * by this function.
+ *
+ * \param[in] client
+ *     A connected client.
+ * \return
+ *      The delta in the counter for cycle or performance counters.
+ *      Otherwise, if increment type counters are active, return the
+ *      number of times the selected ::RAMCloud::Mark event occurred.
+ *      If multiple beginMark or endMark are encountered on a particular
+ *      trace the measurement is from the first instance of beginMark to
+ *      the last instance of endMark.  If a beginMark followed (not
+ *      necessarily immediately) by an endMark never occurs 0 is returned.
+ *      Note a return of 0 is also possible if marks were encountered but
+ *      the performance counter saw no change between those marks.
+ *      For increment type counters beginMark selects which
+ *      ::RAMCloud::Mark events will be counted.  endMark is ignored in
+ *      this case.
+ */
+uint64_t rc_read_perf_counter(struct rc_client *client)
+{
+    return client->perf_counter;
 }
 
 /**

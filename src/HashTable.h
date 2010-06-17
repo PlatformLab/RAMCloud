@@ -23,6 +23,7 @@
 
 #include <Common.h>
 #include <Object.h>
+#include <CycleCounter.h>
 
 namespace RAMCloud {
 

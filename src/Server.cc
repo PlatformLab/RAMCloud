@@ -21,6 +21,7 @@
 #include <Server.h>
 #include <Service.h>
 #include <Transport.h>
+#include <Metrics.h>
 
 namespace RAMCloud {
 
@@ -489,13 +490,13 @@ Server::HandleRPC()
     Transport::ServerRPC *rpc = trans->serverRecv();
     req = reinterpret_cast<rcrpc_any*>(
         rpc->recvPayload.getRange(0, rpc->recvPayload.totalLength()));
+    Metrics::setup(req->header.perf_counter);
+    Metrics::mark(MARK_RPC_PROCESSING_BEGIN);
 
     char rpcbuf[MAX_RPC_LEN];
     rcrpc_any *resp = reinterpret_cast<rcrpc_any*>(rpcbuf);
     resp->header.type = 0xFFFFFFFF;
     resp->header.len = 0;
-
-    //printf("got rpc type: 0x%08x, len 0x%08x\n", req->type, req->len);
 
     try {
         switch((enum RCRPC_TYPE) req->header.type) {
@@ -542,6 +543,8 @@ Server::HandleRPC()
                                msglen + 1);
     }
 
+    Metrics::mark(MARK_RPC_PROCESSING_END);
+    resp->header.perf_counter.value = Metrics::read();
     rpc->replyPayload.append(resp, resp->header.len);
     rpc->sendReply();
 }

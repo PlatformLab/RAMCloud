@@ -160,10 +160,36 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
 
 #ifdef __cplusplus
 void debug_dump64(const void *buf, uint64_t bytes);
+
 #if PERF_COUNTERS
+__inline __attribute__((always_inline, no_instrument_function))
 uint64_t rdtsc();
+uint64_t
+rdtsc()
+{
+    uint32_t lo, hi;
+
+#ifdef __GNUC__
+    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+#else
+    asm("rdtsc" : "=a" (lo), "=d" (hi));
+#endif
+
+    return (((uint64_t)hi << 32) | lo);
+}
+
+__inline __attribute__((always_inline, no_instrument_function))
+uint64_t rdpmc(uint32_t counter);
+uint64_t
+rdpmc(uint32_t counter)
+{
+    uint32_t hi, lo;
+    __asm __volatile("rdpmc" : "=d" (hi), "=a" (lo) : "c" (counter));
+    return ((uint64_t) lo) | (((uint64_t) hi) << 32);
+}
 #else
 #define rdtsc() 0UL
+#define rdpmc() 0UL;
 #endif
 
 #if TESTING
@@ -194,32 +220,8 @@ namespace RAMCloud {
 #define STAT_INC(pc) (void) 0
 #endif
 
-/**
- * An object that keeps track of the elapsed number of cycles since its
- * declaration.
- */
-class CycleCounter {
-  public:
-#if PERF_COUNTERS
-    explicit CycleCounter();
-    explicit CycleCounter(uint64_t* total);
-    ~CycleCounter();
-    void cancel();
-    uint64_t stop();
-  private:
-    uint64_t* total;
-    uint64_t startTime;
-#else
-    explicit CycleCounter() {}
-    explicit CycleCounter(uint64_t* total) {}
-    void cancel() {}
-    uint64_t stop() { return 0; }
-#endif
-  private:
-    DISALLOW_COPY_AND_ASSIGN(CycleCounter);
-};
-
 }
 #endif
+
 
 #endif
