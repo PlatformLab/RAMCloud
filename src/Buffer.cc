@@ -598,11 +598,13 @@ string Buffer::toString() {
             char c = chunk[i];
             if ((c >= 0x20) && (c < 0x7f)) {
                 s.append(&c, 1);
+            } else if (c == '\0') {
+                s.append("/0");
             } else if (c == '\n') {
                 s.append("/n");
             } else {
                 uint32_t value = c & 0xff;
-                snprintf(temp, sizeof(temp), "/x%x", value);
+                snprintf(temp, sizeof(temp), "/x%02x", value);
                 s.append(temp);
             }
         }

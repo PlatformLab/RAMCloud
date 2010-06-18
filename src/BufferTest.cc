@@ -409,7 +409,7 @@ class BufferTest : public CppUnit::TestFixture {
         b.prepend(testStr3, 10);
         b.prepend(testStr2, 10);
         b.prepend(testStr1, 10);
-        CPPUNIT_ASSERT_EQUAL("ABCDEFGHIJ | abcdefghij | klmnopqrs/x0",
+        CPPUNIT_ASSERT_EQUAL("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
                 b.toString());
     }
 
@@ -419,7 +419,7 @@ class BufferTest : public CppUnit::TestFixture {
         b.append(testStr1, 10);
         b.append(testStr2, 10);
         b.append(testStr3, 10);
-        CPPUNIT_ASSERT_EQUAL("ABCDEFGHIJ | abcdefghij | klmnopqrs/x0",
+        CPPUNIT_ASSERT_EQUAL("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
                 b.toString());
     }
 
@@ -536,12 +536,13 @@ class BufferTest : public CppUnit::TestFixture {
     void test_toString() {
         Buffer b;
         b.append(const_cast<char *>("abc\n\x1f \x7e\x7f\xf4zzz"), 9);
-        b.append(const_cast<char *>("0123456789012345678901234567890abcdefg"),
-                37);
+        b.append(const_cast<char *>("012\0z\x05z78901234567890"
+                                    "1234567890abcdefg"),
+                 37);
         b.append(const_cast<char *>("xyz"), 3);
-        CPPUNIT_ASSERT_EQUAL(
-                "abc/n/x1f ~/x7f/xf4 | 01234567890123456789(+17 chars) | xyz",
-                b.toString());
+        CPPUNIT_ASSERT_EQUAL("abc/n/x1f ~/x7f/xf4 | "
+                             "012/0z/x05z7890123456789(+17 chars) | xyz",
+                             b.toString());
     }
 
     DISALLOW_COPY_AND_ASSIGN(BufferTest);
