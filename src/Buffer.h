@@ -22,7 +22,6 @@
 #define RAMCLOUD_BUFFER_H
 
 #include <Common.h>
-#include <string>
 
 namespace RAMCloud {
 
