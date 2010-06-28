@@ -13,6 +13,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Modified by Diego Ongaro <ongaro@cs.stanford.edu> 2010-06-28:
+# - Set rccodereview.appspot.com as the default code review server.
 
 """Tool for uploading diffs from a version control system to the codereview app.
 
@@ -72,7 +75,7 @@ AUTH_ACCOUNT_TYPE = "GOOGLE"
 
 # URL of the default review server. As for AUTH_ACCOUNT_TYPE, this line could be
 # changed by the review server (see handler for upload.py).
-DEFAULT_REVIEW_SERVER = "codereview.appspot.com"
+DEFAULT_REVIEW_SERVER = "rccodereview.appspot.com"
 
 # Max size of patch or base file.
 MAX_UPLOAD_SIZE = 900 * 1024
