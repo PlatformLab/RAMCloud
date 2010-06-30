@@ -347,6 +347,7 @@ class Buffer {
     uint32_t peek(uint32_t offset, void** returnPtr);
     void* getRange(uint32_t offset, uint32_t length);
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
+    string toString();
 
     /**
      * Returns the sum of the individual sizes of all the chunks composing this
