@@ -234,8 +234,7 @@ class Buffer {
      *
      * The Chunk class refers to memory whose lifetime is at least as great as
      * that of the Buffer and does not release this memory. More intelligent
-     * derivatives of the Chunk class, such as #RAMCloud::Buffer::HeapChunk and
-     * #RAMCloud::Buffer::NewChunk, know how to release the memory they point
+     * derivatives of the Chunk class know how to release the memory they point
      * to and do so as part of the Buffer's destruction.
      *
      * Derived classes must:
@@ -361,96 +360,6 @@ class Buffer {
         Chunk* next;
 
         DISALLOW_COPY_AND_ASSIGN(Chunk);
-    };
-
-    /**
-     * A derivative of #Chunk that will free() its memory region when it is
-     * destroyed.
-     */
-    class HeapChunk : public Chunk {
-      public:
-
-        // TODO(ongaro): docs
-        static HeapChunk* prependToBuffer(Buffer* buffer,
-                                          void* data, uint32_t length) {
-            HeapChunk* chunk = new(buffer, CHUNK) HeapChunk(data, length);
-            Chunk::prependChunkToBuffer(buffer, chunk);
-            return chunk;
-        }
-
-        // TODO(ongaro): docs
-        static HeapChunk* appendToBuffer(Buffer* buffer,
-                                         void* data, uint32_t length) {
-            HeapChunk* chunk = new(buffer, CHUNK) HeapChunk(data, length);
-            Chunk::appendChunkToBuffer(buffer, chunk);
-            return chunk;
-        }
-
-      protected:
-        /**
-         * Construct a chunk that frees the memory it points to.
-         * \param[in] data
-         *      The start of the malloc'ed memory region to which this chunk
-         *      refers.
-         * \param[in] length
-         *      The number of bytes \a data points to.
-         */
-        HeapChunk(void* data, uint32_t length)
-            : Chunk(data, length) {}
-
-      public:
-        /**
-         * Destructor that frees \c data.
-         */
-        ~HeapChunk() {
-            free(data);
-        }
-
-      private:
-        DISALLOW_COPY_AND_ASSIGN(HeapChunk);
-    };
-
-    /**
-     * A derivative of #Chunk that will delete its memory region when it is
-     * destroyed.
-     */
-    template<typename T>
-    class NewChunk : public Chunk {
-      public:
-        // TODO(ongaro): docs
-        static NewChunk<T>* prependToBuffer(Buffer* buffer, T* data) {
-            NewChunk<T>* chunk = new(buffer, CHUNK) NewChunk(data);
-            Chunk::prependChunkToBuffer(buffer, chunk);
-            return chunk;
-        }
-
-        // TODO(ongaro): docs
-        static NewChunk<T>* appendToBuffer(Buffer* buffer, T* data) {
-            NewChunk<T>* chunk = new(buffer, CHUNK) NewChunk(data);
-            Chunk::appendChunkToBuffer(buffer, chunk);
-            return chunk;
-        }
-
-      protected:
-        /**
-         * Construct a chunk that deletes the memory it points to.
-         * \param[in] data
-         *      The start of the memory region that was allocated with \c new
-         *      to which this chunk refers.
-         */
-        explicit NewChunk(T* data)
-            : Chunk(static_cast<void*>(data), sizeof(*data)) {}
-
-      public:
-        /**
-         * Destructor that deletes \c data.
-         */
-        ~NewChunk() {
-            delete static_cast<T*>(data);
-        }
-
-      private:
-        DISALLOW_COPY_AND_ASSIGN(NewChunk);
     };
 
     /**

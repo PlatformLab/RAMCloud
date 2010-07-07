@@ -26,6 +26,31 @@
 
 namespace RAMCloud {
 
+class NotARawChunk : public Buffer::Chunk {
+  public:
+    static NotARawChunk* prependToBuffer(Buffer* buffer,
+                                         void* data, uint32_t length) {
+        NotARawChunk* chunk = new(buffer, CHUNK) NotARawChunk(data, length);
+        Chunk::prependChunkToBuffer(buffer, chunk);
+        return chunk;
+    }
+    static NotARawChunk* appendToBuffer(Buffer* buffer,
+                                        void* data, uint32_t length) {
+        NotARawChunk* chunk = new(buffer, CHUNK) NotARawChunk(data, length);
+        Chunk::appendChunkToBuffer(buffer, chunk);
+        return chunk;
+    }
+    bool destructed;
+  private:
+    NotARawChunk(void* data, uint32_t length)
+        : Chunk(data, length), destructed(false) {}
+  public:
+    ~NotARawChunk() {
+        destructed = true;
+    }
+};
+
+
 class BufferAllocationTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(BufferAllocationTest);
 
@@ -113,34 +138,16 @@ class BufferAllocationTest : public CppUnit::TestFixture {
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferAllocationTest);
 
-/**
- * Helper for BufferChunkTest's test_NewChunk().
- */
-class DestructorCounter {
-  public:
-    explicit DestructorCounter(uint32_t* counter) : destructed(counter) {
-        *destructed = 0;
-    }
-    ~DestructorCounter() {
-        ++(*destructed);
-    }
-  private:
-    uint32_t* destructed;
-    DISALLOW_COPY_AND_ASSIGN(DestructorCounter);
-};
-
 class BufferChunkTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(BufferChunkTest);
 
     CPPUNIT_TEST(test_Chunk);
-    CPPUNIT_TEST(test_HeapChunk);
-    CPPUNIT_TEST(test_NewChunk);
+    CPPUNIT_TEST(test_ChunkDerivative);
 
     CPPUNIT_TEST_SUITE_END();
 
 
   public:
-
     void test_Chunk() {
         Buffer buf;
         char data;
@@ -152,31 +159,14 @@ class BufferChunkTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(c->isRawChunk());
     }
 
-    void test_HeapChunk() {
-        // TODO(ongaro): A counter on the number of times free is called would
-        // be helpful.
+    void test_ChunkDerivative() {
         Buffer buf;
-        void* data = xmalloc(100);
-        Buffer::HeapChunk* c;
-        c = Buffer::HeapChunk::prependToBuffer(&buf, data, 100);
-        CPPUNIT_ASSERT_EQUAL(data, c->data);
-        CPPUNIT_ASSERT_EQUAL(100, c->length);
-        CPPUNIT_ASSERT_EQUAL(NULL, c->next);
-        CPPUNIT_ASSERT(!c->isRawChunk());
-    }
-
-    void test_NewChunk() {
-        Buffer buf;
-        static uint32_t destructed = 0;
-        DestructorCounter* data = new DestructorCounter(&destructed);
-        Buffer::NewChunk<DestructorCounter>* c;
-        c = Buffer::NewChunk<DestructorCounter>::prependToBuffer(&buf, data);
-        CPPUNIT_ASSERT_EQUAL(data, c->data);
-        CPPUNIT_ASSERT_EQUAL(sizeof(*data), c->length);
-        CPPUNIT_ASSERT_EQUAL(NULL, c->next);
+        char data;
+        NotARawChunk* c;
+        c = NotARawChunk::prependToBuffer(&buf, &data, sizeof(data));
         CPPUNIT_ASSERT(!c->isRawChunk());
         ((Buffer::Chunk*) c)->~Chunk();
-        CPPUNIT_ASSERT_EQUAL(1U, destructed);
+        CPPUNIT_ASSERT(c->destructed);
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferChunkTest);
@@ -607,27 +597,6 @@ class BufferAllocatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_new_misc);
 
     CPPUNIT_TEST_SUITE_END();
-
-    class NotARawChunk : public Buffer::Chunk {
-      public:
-        static NotARawChunk* prependToBuffer(Buffer* buffer,
-                                             void* data, uint32_t length) {
-            NotARawChunk* chunk = new(buffer, CHUNK) NotARawChunk(data, length);
-            Chunk::prependChunkToBuffer(buffer, chunk);
-            return chunk;
-        }
-        static NotARawChunk* appendToBuffer(Buffer* buffer,
-                                         void* data, uint32_t length) {
-            NotARawChunk* chunk = new(buffer, CHUNK) NotARawChunk(data, length);
-            Chunk::appendChunkToBuffer(buffer, chunk);
-            return chunk;
-        }
-      private:
-        NotARawChunk(void* data, uint32_t length)
-            : Chunk(data, length) {}
-      public:
-        ~NotARawChunk() {}
-    };
 
   public:
     void test_new_prepend() {
