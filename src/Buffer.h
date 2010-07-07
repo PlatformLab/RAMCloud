@@ -332,6 +332,19 @@ class Buffer {
         }
 
         /**
+         * Return whether this instance is of the Chunk type as opposed to some
+         * derivative. This is useful in prepending and appending data onto
+         * existing chunks, which is safe for instances of class Chunk that
+         * have a trivial destructor.
+         * \return See above.
+         */
+        bool isRawChunk() const __attribute__((noinline)) {
+            static const Buffer::Chunk rawChunk(NULL, 0);
+            // no hacks here, move along...
+            return (this->_vptr == rawChunk._vptr);
+        }
+
+        /**
          * The first byte of data referenced by this Chunk.
          */
         void* data;
@@ -498,6 +511,8 @@ class Buffer {
     uint32_t getNumberChunks() const { return numberChunks; }
 
   private:
+    Chunk* getLastChunk() const;
+
     /* For operator new's use only. */
     void* allocateChunk(uint32_t size);
     void* allocatePrepend(uint32_t size);

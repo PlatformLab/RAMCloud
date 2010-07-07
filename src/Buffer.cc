@@ -279,16 +279,11 @@ void Buffer::appendChunk(Chunk* newChunk) {
     totalLength += newChunk->length;
 
     newChunk->next = NULL;
-    if (chunks == NULL) {
+    Chunk* lastChunk = getLastChunk();
+    if (lastChunk == NULL)
         chunks = newChunk;
-    } else {
-        Chunk* lastChunk = chunks;
-        // TODO(ongaro): Measure how long this loop takes under real workloads.
-        // We could easily add a chunksTail pointer to optimize it out.
-        while (lastChunk->next != NULL)
-            lastChunk = lastChunk->next;
+    else
         lastChunk->next = newChunk;
-    }
 }
 
 /**
@@ -509,6 +504,25 @@ string Buffer::toString() {
 }
 
 /**
+ * Find the last Chunk of the Buffer's chunks list.
+ * \return
+ *      The last Chunk of the Buffer's chunk list, or NULL if the buffer is
+ *      empty.
+ */
+// TODO(ongaro): Measure how long getLastChunk takes under real workloads.
+// We could easily add a chunksTail pointer to optimize it out.
+Buffer::Chunk*
+Buffer::getLastChunk() const
+{
+    Chunk* current = chunks;
+    if (current == NULL)
+        return NULL;
+    while (current->next != NULL)
+        current = current->next;
+    return current;
+}
+
+/**
  * Create an iterator for the contents of a Buffer.
  * The iterator starts on the first chunk of the Buffer, so you should use
  * #isDone(), #getData(), and #getLength() before the first call to #next().
@@ -595,13 +609,22 @@ void*
 operator new(size_t numBytes, RAMCloud::Buffer* buffer,
              RAMCloud::PREPEND_T prepend)
 {
+    using namespace RAMCloud;
     if (numBytes == 0) {
         // We want no visible effects but should return a unique pointer.
         return buffer->allocatePrepend(1);
     }
-    // TODO(ongaro): This should merge with an existing Chunk, if possible.
-    void* data = buffer->allocatePrepend(numBytes);
-    RAMCloud::Buffer::Chunk::prependToBuffer(buffer, data, numBytes);
+    char* data = static_cast<char*>(buffer->allocatePrepend(numBytes));
+    Buffer::Chunk* firstChunk = buffer->chunks;
+    if (firstChunk != NULL && firstChunk->isRawChunk() &&
+        data + numBytes == firstChunk->data) {
+        // Grow the existing Chunk.
+        firstChunk->data = data;
+        firstChunk->length += numBytes;
+        buffer->totalLength += numBytes;
+    } else {
+        Buffer::Chunk::prependToBuffer(buffer, data, numBytes);
+    }
     return data;
 }
 
@@ -622,13 +645,23 @@ void*
 operator new(size_t numBytes, RAMCloud::Buffer* buffer,
              RAMCloud::APPEND_T append)
 {
+    using namespace RAMCloud;
     if (numBytes == 0) {
         // We want no visible effects but should return a unique pointer.
         return buffer->allocateAppend(1);
     }
-    // TODO(ongaro): This should merge with an existing Chunk, if possible.
-    void* data = buffer->allocateAppend(numBytes);
-    RAMCloud::Buffer::Chunk::appendToBuffer(buffer, data, numBytes);
+    char* data = static_cast<char*>(buffer->allocateAppend(numBytes));
+    Buffer::Chunk* lastChunk = buffer->getLastChunk();
+    if (lastChunk != NULL && lastChunk->isRawChunk() &&
+        data - lastChunk->length == lastChunk->data) {
+        // Grow the existing Chunk.
+        lastChunk->length += numBytes;
+        buffer->totalLength += numBytes;
+    } else {
+        // TODO(ongaro): We've already done the work to find lastChunk but are
+        // wasting it.
+        Buffer::Chunk::appendToBuffer(buffer, data, numBytes);
+    }
     return data;
 }
 

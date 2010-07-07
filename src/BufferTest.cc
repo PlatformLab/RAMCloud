@@ -149,6 +149,7 @@ class BufferChunkTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(&data, c->data);
         CPPUNIT_ASSERT_EQUAL(sizeof(data), c->length);
         CPPUNIT_ASSERT_EQUAL(NULL, c->next);
+        CPPUNIT_ASSERT(c->isRawChunk());
     }
 
     void test_HeapChunk() {
@@ -161,6 +162,7 @@ class BufferChunkTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(data, c->data);
         CPPUNIT_ASSERT_EQUAL(100, c->length);
         CPPUNIT_ASSERT_EQUAL(NULL, c->next);
+        CPPUNIT_ASSERT(!c->isRawChunk());
     }
 
     void test_NewChunk() {
@@ -172,6 +174,7 @@ class BufferChunkTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(data, c->data);
         CPPUNIT_ASSERT_EQUAL(sizeof(*data), c->length);
         CPPUNIT_ASSERT_EQUAL(NULL, c->next);
+        CPPUNIT_ASSERT(!c->isRawChunk());
         ((Buffer::Chunk*) c)->~Chunk();
         CPPUNIT_ASSERT_EQUAL(1U, destructed);
     }
@@ -595,6 +598,79 @@ class BufferIteratorTest : public CppUnit::TestFixture {
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferIteratorTest);
 
-// TODO(ongaro): Test operator new's.
+class BufferAllocatorTest : public CppUnit::TestFixture {
+    CPPUNIT_TEST_SUITE(BufferAllocatorTest);
+
+    CPPUNIT_TEST(test_new_prepend);
+    CPPUNIT_TEST(test_new_append);
+    CPPUNIT_TEST(test_new_chunk);
+    CPPUNIT_TEST(test_new_misc);
+
+    CPPUNIT_TEST_SUITE_END();
+
+    class NotARawChunk : public Buffer::Chunk {
+      public:
+        static NotARawChunk* prependToBuffer(Buffer* buffer,
+                                             void* data, uint32_t length) {
+            NotARawChunk* chunk = new(buffer, CHUNK) NotARawChunk(data, length);
+            Chunk::prependChunkToBuffer(buffer, chunk);
+            return chunk;
+        }
+        static NotARawChunk* appendToBuffer(Buffer* buffer,
+                                         void* data, uint32_t length) {
+            NotARawChunk* chunk = new(buffer, CHUNK) NotARawChunk(data, length);
+            Chunk::appendChunkToBuffer(buffer, chunk);
+            return chunk;
+        }
+      private:
+        NotARawChunk(void* data, uint32_t length)
+            : Chunk(data, length) {}
+      public:
+        ~NotARawChunk() {}
+    };
+
+  public:
+    void test_new_prepend() {
+        Buffer buf;
+
+        operator new(0, &buf, PREPEND);
+        CPPUNIT_ASSERT_EQUAL(0, buf.getTotalLength());
+
+        *(new(&buf, PREPEND) char) = 'z';
+        char* y = new(&buf, PREPEND) char;
+        *y = 'y';
+        NotARawChunk::prependToBuffer(&buf, y, sizeof(*y));
+        *(new(&buf, PREPEND) char) = 'x';
+        CPPUNIT_ASSERT_EQUAL("x | y | yz", buf.toString());
+    }
+
+    void test_new_append() {
+        Buffer buf;
+
+        operator new(0, &buf, APPEND);
+        CPPUNIT_ASSERT_EQUAL(0, buf.getTotalLength());
+
+        *(new(&buf, APPEND) char) = 'z';
+        char* y = new(&buf, APPEND) char;
+        *y = 'y';
+        NotARawChunk::appendToBuffer(&buf, y, sizeof(*y));
+        *(new(&buf, APPEND) char) = 'x';
+        CPPUNIT_ASSERT_EQUAL("zy | y | x", buf.toString());
+    }
+
+    void test_new_chunk() {
+        // tested enough by Chunk::prependToBuffer, Chunk::appendToBuffer
+    }
+
+    void test_new_misc() {
+        // not sure what to test here...
+        Buffer buf;
+        operator new(0, &buf, MISC);
+        new(&buf, MISC) char[10];
+        CPPUNIT_ASSERT_EQUAL(0, buf.getTotalLength());
+    }
+
+};
+CPPUNIT_TEST_SUITE_REGISTRATION(BufferAllocatorTest);
 
 }  // namespace RAMCloud
