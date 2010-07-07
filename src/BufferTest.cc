@@ -200,6 +200,9 @@ class BufferTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST(test_toString);
 
+    CPPUNIT_TEST(test_truncateFront);
+    CPPUNIT_TEST(test_truncateEnd);
+
     CPPUNIT_TEST_SUITE_END();
 
     // I've inserted padding in between these arrays so that we don't get lucky
@@ -508,6 +511,48 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("abc/n/x1f ~/x7f/xf4 | "
                              "012/0z/x05z7890123456789(+17 chars) | xyz",
                              b.toString());
+    }
+
+    void test_truncateFront() {
+        Buffer b;
+        b.truncateFront(0);
+        b.truncateFront(10);
+        Buffer::Chunk::appendToBuffer(&b, const_cast<char*>("abc"), 3);
+        Buffer::Chunk::appendToBuffer(&b, const_cast<char*>("def"), 3);
+        Buffer::Chunk::appendToBuffer(&b, const_cast<char*>("ghi"), 3);
+        b.truncateFront(0);
+        CPPUNIT_ASSERT_EQUAL("abc | def | ghi", b.toString());
+        CPPUNIT_ASSERT_EQUAL(9, b.getTotalLength());
+        b.truncateFront(4);
+        CPPUNIT_ASSERT_EQUAL("ef | ghi", b.toString());
+        CPPUNIT_ASSERT_EQUAL(5, b.getTotalLength());
+        b.truncateFront(2);
+        CPPUNIT_ASSERT_EQUAL("ghi", b.toString());
+        CPPUNIT_ASSERT_EQUAL(3, b.getTotalLength());
+        b.truncateFront(5);
+        CPPUNIT_ASSERT_EQUAL("", b.toString());
+        CPPUNIT_ASSERT_EQUAL(0, b.getTotalLength());
+    }
+
+    void test_truncateEnd() {
+        Buffer b;
+        b.truncateEnd(0);
+        b.truncateEnd(10);
+        Buffer::Chunk::appendToBuffer(&b, const_cast<char*>("abc"), 3);
+        Buffer::Chunk::appendToBuffer(&b, const_cast<char*>("def"), 3);
+        Buffer::Chunk::appendToBuffer(&b, const_cast<char*>("ghi"), 3);
+        b.truncateEnd(0);
+        CPPUNIT_ASSERT_EQUAL("abc | def | ghi", b.toString());
+        CPPUNIT_ASSERT_EQUAL(9, b.getTotalLength());
+        b.truncateEnd(4);
+        CPPUNIT_ASSERT_EQUAL("abc | de", b.toString());
+        CPPUNIT_ASSERT_EQUAL(5, b.getTotalLength());
+        b.truncateEnd(2);
+        CPPUNIT_ASSERT_EQUAL("abc", b.toString());
+        CPPUNIT_ASSERT_EQUAL(3, b.getTotalLength());
+        b.truncateEnd(5);
+        CPPUNIT_ASSERT_EQUAL("", b.toString());
+        CPPUNIT_ASSERT_EQUAL(0, b.getTotalLength());
     }
 
     DISALLOW_COPY_AND_ASSIGN(BufferTest);

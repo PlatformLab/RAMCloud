@@ -105,7 +105,7 @@ Server::Read(Transport::ServerRPC *rpc)
 {
     const rcrpc_read_request *req;
     req = static_cast<rcrpc_read_request*>(
-        rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
+        rpc->recvPayload.getRange(0, sizeof(*req)));
 
     rcrpc_read_response *resp;
     resp = new(&rpc->replyPayload, APPEND) rcrpc_read_response;
@@ -284,7 +284,7 @@ Server::Write(Transport::ServerRPC *rpc)
     const rcrpc_write_request *req;
 
     req = static_cast<rcrpc_write_request*>(
-        rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
+        rpc->recvPayload.getRange(0, sizeof(*req)));
 
     rcrpc_write_response *resp;
     resp = new(&rpc->replyPayload, APPEND) rcrpc_write_response;
@@ -297,7 +297,7 @@ Server::Write(Transport::ServerRPC *rpc)
     assert(req->buf_len < (1UL << 32));
     resp->written = StoreData(req->table, req->key, &req->reject_rules,
                               &rpc->recvPayload,
-                              sizeof(rcrpc_header) + sizeof(*req),
+                              sizeof(*req),
                               static_cast<uint32_t>(req->buf_len),
                               &resp->version);
 }
@@ -307,7 +307,7 @@ Server::InsertKey(Transport::ServerRPC *rpc)
 {
     const rcrpc_insert_request *req;
     req = static_cast<rcrpc_insert_request*>(
-        rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
+        rpc->recvPayload.getRange(0, sizeof(*req)));
 
     rcrpc_insert_response *resp;
     resp = new(&rpc->replyPayload, APPEND) rcrpc_insert_response;
@@ -322,7 +322,7 @@ Server::InsertKey(Transport::ServerRPC *rpc)
     assert(req->buf_len < (1UL << 32));
     bool r = StoreData(req->table, key, &reject_rules,
                        &rpc->recvPayload,
-                       sizeof(rcrpc_header) + sizeof(*req),
+                       sizeof(*req),
                        static_cast<uint32_t>(req->buf_len),
                        &resp->version);
     assert(r);
@@ -335,7 +335,7 @@ Server::DeleteKey(Transport::ServerRPC *rpc)
 {
     const rcrpc_delete_request *req;
     req = static_cast<rcrpc_delete_request*>(
-        rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
+        rpc->recvPayload.getRange(0, sizeof(*req)));
 
     rcrpc_delete_response *resp;
     resp = new(&rpc->replyPayload, APPEND) rcrpc_delete_response;
@@ -379,7 +379,7 @@ Server::CreateTable(Transport::ServerRPC *rpc)
 {
     const rcrpc_create_table_request *req;
     req = static_cast<rcrpc_create_table_request*>(
-        rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
+        rpc->recvPayload.getRange(0, sizeof(*req)));
 
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
@@ -407,7 +407,7 @@ Server::OpenTable(Transport::ServerRPC *rpc)
 {
     const rcrpc_open_table_request *req;
     req = static_cast<rcrpc_open_table_request*>(
-        rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
+        rpc->recvPayload.getRange(0, sizeof(*req)));
 
     rcrpc_open_table_response *resp;
     resp = new(&rpc->replyPayload, APPEND) rcrpc_open_table_response;
@@ -432,7 +432,7 @@ Server::DropTable(Transport::ServerRPC *rpc)
 {
     const rcrpc_drop_table_request *req;
     req = static_cast<rcrpc_drop_table_request*>(
-        rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
+        rpc->recvPayload.getRange(0, sizeof(*req)));
 
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
@@ -523,6 +523,7 @@ Server::HandleRPC()
         rpc->recvPayload.getRange(0, sizeof(*reqHeader)));
     if (reqHeader == NULL)
         return; // request too short
+    rpc->recvPayload.truncateFront(sizeof(*reqHeader));
 
     //printf("got rpc type: 0x%08x, len 0x%08x\n",
     //       reqHeader->type, reqHeader->len);
@@ -537,7 +538,7 @@ Server::HandleRPC()
             /* In C++, structs with no members have sizeof 0. */               \
             if (sizeof(rcrpc_##rcrpc_lower##_request) != 1 &&                  \
                 rpc->recvPayload.getTotalLength() <                            \
-                sizeof(rcrpc_header) + sizeof(rcrpc_##rcrpc_lower##_request))  \
+                sizeof(rcrpc_##rcrpc_lower##_request))                         \
                 throw "payload too short";                                     \
             Server::handler(rpc);                                              \
             replyHeader->type = RCRPC_##rcrpc_upper##_RESPONSE;                \
@@ -569,12 +570,10 @@ Server::HandleRPC()
     } catch (const char *msg) {
         fprintf(stderr, "Error while processing RPC: %s\n", msg);
         uint32_t msglen = static_cast<uint32_t>(strlen(msg)) + 1;
-        // TODO(ongaro): The replyPayload could contain bogus data, need to
-        // clear out everything but the rcrpc_header first.
-        assert(rpc->replyPayload.getTotalLength() == sizeof(*replyHeader));
+        rpc->replyPayload.truncateEnd(rpc->replyPayload.getTotalLength() -
+                                      sizeof(*replyHeader));
         strcpy(new(&rpc->replyPayload, APPEND) char[msglen], msg);
         replyHeader->type = RCRPC_ERROR_RESPONSE;
-
     }
 
     rpc->sendReply();

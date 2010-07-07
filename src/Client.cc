@@ -136,10 +136,8 @@ rc_last_error(void)
 static void
 rc_handle_errors(Buffer *respBuf)
 {
-    uint32_t messageLength = static_cast<uint32_t>(respBuf->getTotalLength() -
-                                                   sizeof(rcrpc_header));
-    char *message = static_cast<char*>(respBuf->getRange(sizeof(rcrpc_header),
-                                                         messageLength));
+    uint32_t messageLength = respBuf->getTotalLength();
+    char *message = static_cast<char*>(respBuf->getRange(0, messageLength));
     fprintf(stderr, "... '%s'\n", message);
     strncpy(&rc_error_message[0], message, messageLength);
 }
@@ -189,6 +187,7 @@ sendrcv_rpc(Service *s,
         resp->getRange(0, sizeof(*respHeader)));
     if (respHeader == NULL)
         return -1;
+    resp->truncateFront(sizeof(*respHeader));
 
     if (respHeader->type == RCRPC_ERROR_RESPONSE) {
         rc_handle_errors(resp);
@@ -199,8 +198,7 @@ sendrcv_rpc(Service *s,
         return -1;
 
     // In C++, structs with no members have sizeof 0.
-    if (min_resp_size > 1 && (resp->getTotalLength() < sizeof(*respHeader) +
-                              min_resp_size))
+    if (min_resp_size > 1 && (resp->getTotalLength() < min_resp_size))
         return -1;
 
     return 0;
@@ -378,7 +376,7 @@ rc_write(struct rc_client *client,
     }
 
     resp = static_cast<rcrpc_write_response*>(
-        respBuf.getRange(sizeof(rcrpc_header), sizeof(*resp)));
+        respBuf.getRange(0, sizeof(*resp)));
 
     if (got_version != NULL)
         *got_version = resp->version;
@@ -449,7 +447,7 @@ rc_insert(struct rc_client *client,
     }
 
     resp = static_cast<rcrpc_insert_response*>(
-        respBuf.getRange(sizeof(rcrpc_header), sizeof(*resp)));
+        respBuf.getRange(0, sizeof(*resp)));
 
     *key = resp->key;
 
@@ -501,7 +499,7 @@ rc_delete(struct rc_client *client,
     }
 
     resp = static_cast<rcrpc_delete_response*>(
-        respBuf.getRange(sizeof(rcrpc_header), sizeof(*resp)));
+        respBuf.getRange(0, sizeof(*resp)));
 
     if (got_version != NULL)
         *got_version = resp->version;
@@ -564,7 +562,7 @@ rc_read(struct rc_client *client,
         goto out;
 
     resp = static_cast<rcrpc_read_response*>(
-        respBuf.getRange(sizeof(rcrpc_header), sizeof(*resp)));
+        respBuf.getRange(0, sizeof(*resp)));
 
     if (got_version != NULL)
         *got_version = resp->version;
@@ -572,8 +570,7 @@ rc_read(struct rc_client *client,
     *len = resp->buf_len;
     assert(resp->buf_len < (1UL << 32));
     // TODO(ongaro): Let's hope buf can fit buf_len bytes.
-    respBuf.copy(sizeof(rcrpc_header) + sizeof(*resp),
-                 static_cast<uint32_t>(resp->buf_len), buf);
+    respBuf.copy(sizeof(*resp), static_cast<uint32_t>(resp->buf_len), buf);
 
     r = reject_reason(&query->reject_rules, resp->version);
 
@@ -650,7 +647,7 @@ rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
         goto out;
 
     resp = static_cast<rcrpc_open_table_response*>(
-        respBuf.getRange(sizeof(rcrpc_header), sizeof(*resp)));
+        respBuf.getRange(0, sizeof(*resp)));
 
     *table_id = resp->handle;
 

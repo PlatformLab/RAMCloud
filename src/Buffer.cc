@@ -504,6 +504,68 @@ string Buffer::toString() {
 }
 
 /**
+ * Remove the first \a length bytes from the Buffer.
+ * \param[in] length
+ *      The number of bytes to be removed from the beginning of the Buffer.
+ *      If this exceeds the size of the Buffer, the Buffer will become empty.
+ */
+void
+Buffer::truncateFront(uint32_t length)
+{
+    Chunk* current = chunks;
+    while (current != NULL) {
+        if (current->length <= length) {
+            totalLength -= current->length;
+            length -= current->length;
+            current->length = 0;
+            if (length == 0)
+                return;
+            current = current->next;
+        } else {
+            totalLength -= length;
+            current->data = static_cast<char*>(current->data) + length;
+            current->length -= length;
+            return;
+        }
+    }
+}
+
+/**
+ * Remove the last \a length bytes from the Buffer.
+ * \param[in] length
+ *      The number of bytes to be removed from the end of the Buffer.
+ *      If this exceeds the size of the Buffer, the Buffer will become empty.
+ */
+void
+Buffer::truncateEnd(uint32_t length)
+{
+    uint32_t truncateAfter = 0;
+    if (length < totalLength)
+       truncateAfter = totalLength - length;
+    Chunk* current = chunks;
+    while (current != NULL) {
+        if (current->length <= truncateAfter) {
+            truncateAfter -= current->length;
+            current = current->next;
+            if (truncateAfter == 0)
+                goto truncate_remaining;
+        } else {
+            totalLength += truncateAfter - current->length;
+            current->length = truncateAfter;
+            current = current->next;
+            goto truncate_remaining;
+        }
+    }
+    return;
+  truncate_remaining:
+    while (current != NULL) {
+        totalLength -= current->length;
+        current->length = 0;
+        current = current->next;
+    }
+}
+
+/**
  * Find the last Chunk of the Buffer's chunks list.
  * \return
  *      The last Chunk of the Buffer's chunk list, or NULL if the buffer is

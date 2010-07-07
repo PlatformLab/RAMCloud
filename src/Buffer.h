@@ -249,6 +249,14 @@ class Buffer {
       friend class BufferTest;
       friend class BufferChunkTest;
       friend class BufferIteratorTest;
+      friend void* ::operator new(size_t numBytes, Buffer* buffer,
+                                  RAMCloud::PREPEND_T prepend);
+      friend void* ::operator new(size_t numBytes, Buffer* buffer,
+                                  RAMCloud::APPEND_T append);
+      friend void* ::operator new(size_t numBytes, Buffer* buffer,
+                                  RAMCloud::CHUNK_T chunk);
+      friend void* ::operator new(size_t numBytes, Buffer* buffer,
+                                  RAMCloud::MISC_T misc);
 
       protected:
         /**
@@ -343,13 +351,22 @@ class Buffer {
             return (this->_vptr == rawChunk._vptr);
         }
 
+      protected:
         /**
          * The first byte of data referenced by this Chunk.
+         * \warning
+         *      This may change during the lifetime of the chunk. Derivative
+         *      classes should store a local copy of the original pointer if
+         *      they will need it (e.g., in the destructor).
          */
         void* data;
 
         /**
          * The number of bytes starting at #data for this Chunk.
+         * \warning
+         *      This may change during the lifetime of the chunk. Derivative
+         *      classes should store a local copy of the original length if
+         *      they will need it (e.g., in the destructor).
          */
         uint32_t length;
 
@@ -403,6 +420,9 @@ class Buffer {
     void* getRange(uint32_t offset, uint32_t length);
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
     string toString();
+
+    void truncateFront(uint32_t length);
+    void truncateEnd(uint32_t length);
 
     /**
      * Returns the sum of the individual sizes of all the chunks composing this
