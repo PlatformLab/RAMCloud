@@ -27,10 +27,7 @@
 #include <Client.h>
 #include <assert.h>
 
-using RAMCloud::Buffer;
-using RAMCloud::Service;
-using RAMCloud::TCPTransport;
-using RAMCloud::Transport;
+using namespace RAMCloud; // NOLINT
 
 #if RC_CLIENT_SHARED
 struct rc_client_shared {
@@ -178,13 +175,13 @@ sendrcv_rpc(Service *s,
             Buffer *req, enum RCRPC_TYPE req_type, size_t min_req_size,
             Buffer *resp, enum RCRPC_TYPE resp_type, size_t min_resp_size)
 {
-    struct rcrpc_header reqHeader;
+    struct rcrpc_header *reqHeader;
     struct rcrpc_header *respHeader;
 
-    reqHeader.type = (uint32_t) req_type;
+    reqHeader = new(req, PREPEND) rcrpc_header;
+    reqHeader->type = (uint32_t) req_type;
     if (min_req_size != 1) // In C++, structs with no members have sizeof 0.
         assert(req->getTotalLength() >= (uint32_t) min_req_size);
-    req->prepend(&reqHeader, sizeof(reqHeader));
 
     trans->clientSend(s, req, resp)->getReply();
 
@@ -361,16 +358,19 @@ rc_write(struct rc_client *client,
 
     Buffer reqBuf;
     Buffer respBuf;
-    struct rcrpc_write_request query;
+    struct rcrpc_write_request *query;
     struct rcrpc_write_response *resp;
 
-    query.table = table;
-    query.key = key;
-    memcpy(&query.reject_rules, reject_rules, sizeof(*reject_rules));
-    query.buf_len = len;
-    reqBuf.append(&query, sizeof(query));
+    query = new(&reqBuf, APPEND) rcrpc_write_request;
+    query->table = table;
+    query->key = key;
+    memcpy(&query->reject_rules, reject_rules, sizeof(*reject_rules));
+    query->buf_len = len;
     assert(len < (1UL << 32));
-    reqBuf.append(const_cast<char*>(buf), static_cast<uint32_t>(len));
+
+    // This is safe since buf will outlive reqBuf.
+    Buffer::Chunk::appendToBuffer(&reqBuf, const_cast<char*>(buf),
+                                  static_cast<uint32_t>(len));
 
     int r = SENDRCV_RPC(WRITE, write, &reqBuf, &respBuf);
     if (r) {
@@ -430,14 +430,18 @@ rc_insert(struct rc_client *client,
 
     Buffer reqBuf;
     Buffer respBuf;
-    struct rcrpc_insert_request query;
+    struct rcrpc_insert_request *query;
     struct rcrpc_insert_response *resp;
 
-    query.table = table;
-    query.buf_len = len;
-    reqBuf.append(&query, sizeof(query));
+    query = new(&reqBuf, APPEND) rcrpc_insert_request;
+
+    query->table = table;
+    query->buf_len = len;
     assert(len < (1UL << 32));
-    reqBuf.append(const_cast<char*>(buf), static_cast<uint32_t>(len));
+
+    // This is safe since buf will outlive reqBuf.
+    Buffer::Chunk::appendToBuffer(&reqBuf, const_cast<char*>(buf),
+                                  static_cast<uint32_t>(len));
 
     int r = SENDRCV_RPC(INSERT, insert, &reqBuf, &respBuf);
     if (r) {
@@ -483,13 +487,13 @@ rc_delete(struct rc_client *client,
 
     Buffer reqBuf;
     Buffer respBuf;
-    struct rcrpc_delete_request query;
+    struct rcrpc_delete_request *query;
     struct rcrpc_delete_response *resp;
 
-    query.table = table;
-    query.key = key;
-    memcpy(&query.reject_rules, reject_rules, sizeof(*reject_rules));
-    reqBuf.append(&query, sizeof(query));
+    query = new(&reqBuf, APPEND) rcrpc_delete_request;
+    query->table = table;
+    query->key = key;
+    memcpy(&query->reject_rules, reject_rules, sizeof(*reject_rules));
 
     int r = SENDRCV_RPC(DELETE, delete, &reqBuf, &respBuf);
     if (r) {
@@ -546,14 +550,14 @@ rc_read(struct rc_client *client,
 
     Buffer reqBuf;
     Buffer respBuf;
-    struct rcrpc_read_request query;
+    struct rcrpc_read_request *query;
     struct rcrpc_read_response *resp;
 
-    query.table = table;
-    query.key = key;
-    memcpy(&query.reject_rules, reject_rules, sizeof(*reject_rules));
-    query.reject_rules.object_doesnt_exist = true;
-    reqBuf.append(&query, sizeof(query));
+    query = new(&reqBuf, APPEND) rcrpc_read_request;
+    query->table = table;
+    query->key = key;
+    memcpy(&query->reject_rules, reject_rules, sizeof(*reject_rules));
+    query->reject_rules.object_doesnt_exist = true;
 
     int r = SENDRCV_RPC(READ, read, &reqBuf, &respBuf);
     if (r)
@@ -571,7 +575,7 @@ rc_read(struct rc_client *client,
     respBuf.copy(sizeof(rcrpc_header) + sizeof(*resp),
                  static_cast<uint32_t>(resp->buf_len), buf);
 
-    r = reject_reason(&query.reject_rules, resp->version);
+    r = reject_reason(&query->reject_rules, resp->version);
 
   out:
     unlock(client);
@@ -600,11 +604,11 @@ rc_create_table(struct rc_client *client, const char *name)
 
     Buffer reqBuf;
     Buffer respBuf;
-    struct rcrpc_create_table_request query;
+    struct rcrpc_create_table_request *query;
 
-    strncpy(query.name, name, sizeof(query.name));
-    query.name[sizeof(query.name) - 1] = '\0';
-    reqBuf.append(&query, sizeof(query));
+    query = new(&reqBuf, APPEND) rcrpc_create_table_request;
+    strncpy(query->name, name, sizeof(query->name));
+    query->name[sizeof(query->name) - 1] = '\0';
 
     int r = SENDRCV_RPC(CREATE_TABLE, create_table, &reqBuf, &respBuf);
 
@@ -634,12 +638,12 @@ rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
 
     Buffer reqBuf;
     Buffer respBuf;
-    struct rcrpc_open_table_request query;
+    struct rcrpc_open_table_request *query;
     struct rcrpc_open_table_response *resp;
 
-    strncpy(query.name, name, sizeof(query.name));
-    query.name[sizeof(query.name) - 1] = '\0';
-    reqBuf.append(&query, sizeof(query));
+    query = new(&reqBuf, APPEND) rcrpc_open_table_request;
+    strncpy(query->name, name, sizeof(query->name));
+    query->name[sizeof(query->name) - 1] = '\0';
 
     int r = SENDRCV_RPC(OPEN_TABLE, open_table, &reqBuf, &respBuf);
     if (r)
@@ -676,11 +680,11 @@ rc_drop_table(struct rc_client *client, const char *name)
 
     Buffer reqBuf;
     Buffer respBuf;
-    struct rcrpc_drop_table_request query;
+    struct rcrpc_drop_table_request *query;
 
-    strncpy(query.name, name, sizeof(query.name));
-    query.name[sizeof(query.name) - 1] = '\0';
-    reqBuf.append(&query, sizeof(query));
+    query = new(&reqBuf, APPEND) rcrpc_drop_table_request;
+    strncpy(query->name, name, sizeof(query->name));
+    query->name[sizeof(query->name) - 1] = '\0';
 
     int r = SENDRCV_RPC(DROP_TABLE, drop_table, &reqBuf, &respBuf);
 

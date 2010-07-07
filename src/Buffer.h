@@ -26,38 +26,85 @@
 namespace RAMCloud {
 
 /**
+ * A dummy type for distinguishing the different operator new calls the Buffer
+ * provides.
+ */
+enum PREPEND_T { PREPEND };
+
+/**
+ * A dummy type for distinguishing the different operator new calls the Buffer
+ * provides.
+ */
+enum APPEND_T { APPEND };
+
+/**
+ * A dummy type for distinguishing the different operator new calls the Buffer
+ * provides.
+ */
+enum CHUNK_T { CHUNK };
+
+/**
+ * A dummy type for distinguishing the different operator new calls the Buffer
+ * provides.
+ */
+enum MISC_T { MISC };
+
+class Buffer;
+
+}
+
+void* operator new(size_t numBytes, RAMCloud::Buffer* buffer,
+                   RAMCloud::PREPEND_T prepend);
+void* operator new[](size_t numBytes, RAMCloud::Buffer* buffer,
+                     RAMCloud::PREPEND_T prepend);
+void* operator new(size_t numBytes, RAMCloud::Buffer* buffer,
+                   RAMCloud::APPEND_T append);
+void* operator new[](size_t numBytes, RAMCloud::Buffer* buffer,
+                     RAMCloud::APPEND_T append);
+void* operator new(size_t numBytes, RAMCloud::Buffer* buffer,
+                   RAMCloud::CHUNK_T chunk);
+void* operator new[](size_t numBytes, RAMCloud::Buffer* buffer,
+                     RAMCloud::CHUNK_T chunk);
+void* operator new(size_t numBytes, RAMCloud::Buffer* buffer,
+                   RAMCloud::MISC_T misc);
+void* operator new[](size_t numBytes, RAMCloud::Buffer* buffer,
+                     RAMCloud::MISC_T misc);
+
+namespace RAMCloud {
+
+
+/**
  * This class manages a logically linear array of bytes, which is implemented as
  * discontiguous chunks in memory. This class exists so that we can avoid copies
  * between the multiple layers of the RAMCloud system, by passing the Buffer
- * associated with memory regions instead of copying the regions themselves.
+ * associated with memory regions instead of copying the regions themselves. It
+ * also lets us build up a logical byte array piecewise so that multiple layers
+ * can contribute chunks without copies.
  *
- * Unfortunately there are several ways to add data to a buffer. Here's a
- * guide:
- * \li Firstly, use prepend variants to add data to the beginning of a buffer and
- * append variants to add data to the end. If either way works for you, use
- * append variants when the data is potentially large (prepend is sized for
- * smaller headers).
+ * Buffers also provide a special-purpose memory allocator for memory that is
+ * freed at the time of the Buffer's destruction. This is useful because
+ * functions that add chunks to Buffers often return before the Buffer is
+ * destroyed, so they need to allocate the memory for these chunks somewhere
+ * other than their stacks, and they need to ensure that memory is later freed.
+ * The Buffer's memory allocator provides a convenient way to handle this.
  *
- * \li If you already have the data somewhere that will outlive the Buffer's
- * lifetime, use #prepend(void*, uint32_t) or #append(void*, uint32_t).
- *
- * \li If you already have the data somewhere but need some help to ensure that
- * it will extend through the Buffer's lifetime, use #BUFFER_PREPEND() or
- * #BUFFER_APPEND() with a derivative of the #RAMCloud::Buffer::Chunk class.
- *
- * \li If you'll need to copy the data somewhere and know how big it is in
- * advance, use #prepend(uint32_t) or #append(uint32_t).
- *
- * \li Finally, if you'll need to copy the data somewhere but only have an
- * upper bound on its size, use #allocatePrepend() or #allocateAppend() with
- * the upper bound now. Once you know the actual size,
- * use #prepend(void*, uint32_t) or #append(void*, uint32_t).
+ * There are two ways to add data to a Buffer:
+ *  - To store the data inside the Buffer, use
+ *    <tt>MyStruct* m = new(buffer, PREPEND) MyStruct;</tt> or
+ *    <tt>MyStruct* m = new(buffer, APPEND) MyStruct;</tt>.
+ *    This memory will be deallocated at the time the buffer is destroyed.
+ *  - To reference data that is external to the Buffer, use
+ *    #Buffer::Chunk::prependToBuffer(), #Buffer::Chunk::appendToBuffer(), or
+ *    similar methods of a derivative class.
  */
+// TODO(ongaro): Describe remaining interface to the memory allocator.
 // TODO(ongaro): Add a way to get a Buffer with an adjacent Allocation.
 class Buffer {
 
     /**
-     * A special-purpose memory allocator for Chunk objects and Buffer data.
+     * A block of memory used by the Buffer's special-purpose memory allocator.
+     * This class hides the complex layout that minimizes the number of Chunks
+     * required to make up a Buffer.
      *
      * An instance of this class uses a fixed amount of space. To manage a
      * variable amount of space, see the wrappers
@@ -66,6 +113,20 @@ class Buffer {
      * #RAMCloud::Buffer::allocateAppend().
      *
      * See also #allocations.
+     *
+     * Three kinds of data can be stored in an Allocation:
+     *  - Chunk instances.
+     *  - Prepend data is data that is added to the beginning of the Buffer.
+     *  - Append data is data that is added to the end of the Buffer.
+     *
+     * The Allocation object's memory is laid out as follows, where the arrows
+     * represent stacks growing:
+     * <pre>
+     *  +---------------+-------------------------------+
+     *  |    <--prepend | append-->            <--chunk |
+     *  +---------------+-------------------------------+
+     *  0         APPEND_START                     TOTAL_SIZE
+     * </pre>
      */
     class Allocation {
         friend class BufferAllocationTest;
@@ -73,20 +134,21 @@ class Buffer {
 
         /**
          * An integer that indexes into #data.
-         * This type is used for the stack indexes.
+         * This type is used for the tops of the prepend, append, and chunk
+         * stacks.
          */
         typedef uint16_t DataIndex;
 
         enum {
             /**
              * Where the prepend and append stacks start.
-             * See the diagram for #data.
+             * TODO(ongaro): Make this variable.
              */
             APPEND_START = 256,
 
             /**
              * The number of bytes of #data.
-             * See the diagram for #data.
+             * TODO(ongaro): Make this variable.
              */
             TOTAL_SIZE = 2048
         };
@@ -97,42 +159,35 @@ class Buffer {
       public:
 
         /**
-         * The next Allocation in the list.
+         * A pointer to the next Allocation in the Buffer's #allocations list.
          */
         Allocation* next;
 
       private:
 
         /**
+         * The byte with the smallest index of #data in use by the prepend
+         * stack.
          * The prepend stack grows down from #APPEND_START to 0.
-         * See the diagram for #data.
          */
         DataIndex prependTop;
 
         /**
+         * The byte with the largest index of #data in use by the append stack.
          * The append stack grows up from #APPEND_START to the top of chunk
          * stack.
-         * See the diagram for #data.
          */
         DataIndex appendTop;
 
         /**
-         * The chunk stack grows down from #TOTAL_SIZE to the top of append
+         * The byte with the smallest index of #data in use by the chunk stack.
+         * The chunk stack grows down from #TOTAL_SIZE to the top of the append
          * stack.
-         * See the diagram for #data.
          */
         DataIndex chunkTop;
 
         /**
          * The memory from which portions are returned by the allocate methods.
-         * The layout of the data array, where the arrows represent stacks
-         * growing:
-         * <pre>
-         *  +---------------+-------------------------------+
-         *  |    <--prepend | append-->            <--chunk |
-         *  +---------------+-------------------------------+
-         *  0         APPEND_START                     TOTAL_SIZE
-         * </pre>
          */
         char data[TOTAL_SIZE];
 
@@ -141,61 +196,157 @@ class Buffer {
         Allocation();
         ~Allocation();
 
-        static bool canAllocateChunk(uint32_t size);
         static bool canAllocatePrepend(uint32_t size);
         static bool canAllocateAppend(uint32_t size);
+        static bool canAllocateChunk(uint32_t size);
 
-        void* allocateChunk(uint32_t size);
         void* allocatePrepend(uint32_t size);
         void* allocateAppend(uint32_t size);
+        void* allocateChunk(uint32_t size);
 
       private:
         DISALLOW_COPY_AND_ASSIGN(Allocation);
     };
 
+    /**
+     * A dynamic memory region that is freed when the Buffer is deallocated.
+     * See #bigAllocations.
+     */
+    struct BigAllocation {
+        /**
+         * A pointer to the next BigAllocation in the Buffer's
+         * #bigAllocations list.
+         */
+        BigAllocation* next;
+        /**
+         * The actual memory starts here.
+         */
+        char data[0];
+      private:
+        DISALLOW_COPY_AND_ASSIGN(BigAllocation);
+    };
+
+
   public:
 
     /**
-     * A Buffer is an ordered collection of Chunks. Each individual chunk
-     * represents a physically contiguous region of memory. When taken
-     * together, a list of Chunks represents a logically contiguous memory
-     * region, i.e., this Buffer.
+     * A Chunk represents a contiguous subrange of bytes within a Buffer.
      *
-     * The Chunk class refers to memory that is somehow guaranteed to extend
-     * through the lifetime of the Buffer and does not release this memory.
-     * More intelligent derivatives of the Chunk class, such as
-     * #RAMCloud::Buffer::HeapChunk and #RAMCloud::Buffer::NewChunk, know how
-     * to release the memory they point to and do so as part of the Buffer's
-     * destruction.
+     * The Chunk class refers to memory whose lifetime is at least as great as
+     * that of the Buffer and does not release this memory. More intelligent
+     * derivatives of the Chunk class, such as #RAMCloud::Buffer::HeapChunk and
+     * #RAMCloud::Buffer::NewChunk, know how to release the memory they point
+     * to and do so as part of the Buffer's destruction.
+     *
+     * Derived classes must:
+     *  - Not declare any public constructors to ensure that all Chunk
+     *    instances are allocated with the Buffer's allocator.
+     *  - Implement static prependToBuffer() and appendToBuffer() methods that
+     *    allocate a new instance with <tt>new(buffer, CHUNK) MyChunkType</tt>
+     *    and then call #::prependChunkToBuffer or #::appendChunkToBuffer.
      */
     class Chunk {
       friend class Buffer;
       friend class BufferTest;
       friend class BufferChunkTest;
       friend class BufferIteratorTest;
+
+      protected:
+        /**
+         * Add a chunk to the front of a buffer.
+         * This is the same as Buffer's #prependChunk but is accessible from all
+         * Chunk derivatives.
+         * \param[in] buffer
+         *      The buffer to which to add \a chunk.
+         * \param[in] chunk
+         *      A pointer to a Chunk or a subclass of Chunk that will be added
+         *      to the front of \a buffer.
+         */
+        static void prependChunkToBuffer(Buffer *buffer, Chunk *chunk) {
+            buffer->prependChunk(chunk);
+        }
+
+        /**
+         * Add a chunk to the end of a buffer.
+         * This is the same as Buffer's #appendChunk but is accessible from all
+         * Chunk derivatives.
+         * \param[in] buffer
+         *      The buffer to which to add \a chunk.
+         * \param[in] chunk
+         *      A pointer to a Chunk or a subclass of Chunk that will be added
+         *      to the end of \a buffer.
+         */
+        static void appendChunkToBuffer(Buffer *buffer, Chunk *chunk) {
+            buffer->appendChunk(chunk);
+        }
+
       public:
         /**
+         * Add a new, unmanaged memory chunk to front of a Buffer.
+         * The Chunk itself will be deallocated automatically in the Buffer's
+         * destructor.
+         *
+         * \param[in] buffer
+         *      The buffer to which to prepend the new chunk.
+         * \param[in] data
+         *      The start of the memory region to which the new chunk refers.
+         * \param[in] length
+         *      The number of bytes \a data points to.
+         * \return
+         *      A pointer to the newly constructed Chunk.
+         */
+        static Chunk* prependToBuffer(Buffer* buffer,
+                                      void* data, uint32_t length) {
+            Chunk* chunk = new(buffer, CHUNK) Chunk(data, length);
+            Chunk::prependChunkToBuffer(buffer, chunk);
+            return chunk;
+        }
+
+        /**
+         * Add a new, unmanaged memory chunk to end of a Buffer.
+         * See #prependToBuffer(), which is analogous.
+         */
+        static Chunk* appendToBuffer(Buffer* buffer,
+                                     void* data, uint32_t length) {
+            Chunk* chunk = new(buffer, CHUNK) Chunk(data, length);
+            Chunk::appendChunkToBuffer(buffer, chunk);
+            return chunk;
+        }
+
+      protected:
+        /**
          * Construct a chunk that does not release the memory it points to.
-         * \param[in] data    The start of the memory region to which this
-         *                    chunk refers.
-         * \param[in] length  The number of bytes \a data points to.
+         * \param[in] data
+         *      The start of the memory region to which the new chunk refers.
+         * \param[in] length
+         *      The number of bytes \a data points to.
          */
         Chunk(void* data, uint32_t length)
             : data(data), length(length), next(NULL) {}
 
+      public:
         /**
          * Destructor that does not release any memory.
          */
-        virtual ~Chunk() { // omnipotent
-            data = NULL;
-            length = 0;
-            next = NULL;
+        virtual ~Chunk() {
         }
 
-        void* data;       /// The data represented by this Chunk.
-        uint32_t length;  /// The length of this Chunk in bytes.
+        /**
+         * The first byte of data referenced by this Chunk.
+         */
+        void* data;
+
+        /**
+         * The number of bytes starting at #data for this Chunk.
+         */
+        uint32_t length;
+
       private:
-        Chunk* next;      /// The next Chunk in the list.
+        /**
+         * The next Chunk in the list. This is for Buffer's use.
+         */
+        Chunk* next;
+
         DISALLOW_COPY_AND_ASSIGN(Chunk);
     };
 
@@ -205,22 +356,43 @@ class Buffer {
      */
     class HeapChunk : public Chunk {
       public:
+
+        // TODO(ongaro): docs
+        static HeapChunk* prependToBuffer(Buffer* buffer,
+                                          void* data, uint32_t length) {
+            HeapChunk* chunk = new(buffer, CHUNK) HeapChunk(data, length);
+            Chunk::prependChunkToBuffer(buffer, chunk);
+            return chunk;
+        }
+
+        // TODO(ongaro): docs
+        static HeapChunk* appendToBuffer(Buffer* buffer,
+                                         void* data, uint32_t length) {
+            HeapChunk* chunk = new(buffer, CHUNK) HeapChunk(data, length);
+            Chunk::appendChunkToBuffer(buffer, chunk);
+            return chunk;
+        }
+
+      protected:
         /**
          * Construct a chunk that frees the memory it points to.
-         * \param[in] data    The start of the malloc'ed memory region to which
-         *                    this chunk refers.
-         * \param[in] length  The number of bytes \a data points to.
+         * \param[in] data
+         *      The start of the malloc'ed memory region to which this chunk
+         *      refers.
+         * \param[in] length
+         *      The number of bytes \a data points to.
          */
         HeapChunk(void* data, uint32_t length)
             : Chunk(data, length) {}
 
+      public:
         /**
          * Destructor that frees \c data.
          */
-        ~HeapChunk() { // omnipotent
-            if (data != NULL)
-                free(data);
+        ~HeapChunk() {
+            free(data);
         }
+
       private:
         DISALLOW_COPY_AND_ASSIGN(HeapChunk);
     };
@@ -232,21 +404,38 @@ class Buffer {
     template<typename T>
     class NewChunk : public Chunk {
       public:
+        // TODO(ongaro): docs
+        static NewChunk<T>* prependToBuffer(Buffer* buffer, T* data) {
+            NewChunk<T>* chunk = new(buffer, CHUNK) NewChunk(data);
+            Chunk::prependChunkToBuffer(buffer, chunk);
+            return chunk;
+        }
+
+        // TODO(ongaro): docs
+        static NewChunk<T>* appendToBuffer(Buffer* buffer, T* data) {
+            NewChunk<T>* chunk = new(buffer, CHUNK) NewChunk(data);
+            Chunk::appendChunkToBuffer(buffer, chunk);
+            return chunk;
+        }
+
+      protected:
         /**
          * Construct a chunk that deletes the memory it points to.
-         * \param[in] data    The start of the memory region that was allocated
-         *                    with \c new to which this chunk refers.
+         * \param[in] data
+         *      The start of the memory region that was allocated with \c new
+         *      to which this chunk refers.
          */
         explicit NewChunk(T* data)
             : Chunk(static_cast<void*>(data), sizeof(*data)) {}
 
+      public:
         /**
          * Destructor that deletes \c data.
          */
-        ~NewChunk() { // omnipotent
-            if (data != NULL)
-                delete static_cast<T*>(data);
+        ~NewChunk() {
+            delete static_cast<T*>(data);
         }
+
       private:
         DISALLOW_COPY_AND_ASSIGN(NewChunk);
     };
@@ -286,63 +475,7 @@ class Buffer {
     };
 
     Buffer();
-    Buffer(void* data, uint32_t length);
     ~Buffer();
-
-    void* allocateChunk(uint32_t size);
-    void* allocatePrepend(uint32_t size);
-    void* allocateAppend(uint32_t size);
-
-    void prepend(Chunk* newChunk);
-    void prepend(void* data, uint32_t length);
-    void* prepend(uint32_t length);
-
-    /**
-     * Add a new memory chunk to front of a Buffer. The memory region
-     * physically described by the chunk will be added to the logical beginning
-     * of the Buffer.
-     *
-     * The Chunk itself will be deallocated automatically in the Buffer's
-     * destructor.
-     *
-     * See #RAMCloud::Buffer for help deciding among the prepend variants.
-     *
-     * \param[in] buffer       A pointer to the #RAMCloud::Buffer.
-     * \param[in] chunkType    The class (#RAMCloud::Buffer::Chunk or a
-     *                         derivative) which will be instantiated to
-     *                         describe a region of memory.
-     * \param[in] ...          Arguments to be passed verbatim to
-     *                         \a chunkType's constructor.
-     * \return A pointer to the newly constructed instance of \a chunkType.
-     */
-#define BUFFER_PREPEND(buffer, chunkType, ...) ({ \
-    RAMCloud::Buffer* b = (buffer); \
-    void* d = b->allocateChunk(sizeof(chunkType)); \
-    RAMCloud::Buffer::Chunk* chunk = new(d) chunkType(__VA_ARGS__); \
-    b->prepend(chunk); \
-    chunk; })
-
-    void append(Chunk* newChunk);
-    void append(void* data, uint32_t length);
-    void* append(uint32_t length);
-
-    /**
-     * Add a new memory chunk to end of a Buffer. The memory region physically
-     * described by the chunk will be added to the logical end of the Buffer.
-     *
-     * See #BUFFER_PREPEND(), which is analogous.
-     *
-     * \param[in] buffer       See #BUFFER_PREPEND().
-     * \param[in] chunkType    See #BUFFER_PREPEND().
-     * \param[in] ...          See #BUFFER_PREPEND().
-     * \return See #BUFFER_PREPEND().
-     */
-#define BUFFER_APPEND(buffer, chunkType, ...) ({ \
-    RAMCloud::Buffer* b = (buffer); \
-    void* d = b->allocateChunk(sizeof(chunkType)); \
-    RAMCloud::Buffer::Chunk* chunk = new(d) chunkType(__VA_ARGS__); \
-    b->append(chunk); \
-    chunk; })
 
     uint32_t peek(uint32_t offset, void** returnPtr);
     void* getRange(uint32_t offset, uint32_t length);
@@ -365,22 +498,31 @@ class Buffer {
     uint32_t getNumberChunks() const { return numberChunks; }
 
   private:
+    /* For operator new's use only. */
+    void* allocateChunk(uint32_t size);
+    void* allocatePrepend(uint32_t size);
+    void* allocateAppend(uint32_t size);
+    friend void* ::operator new(size_t numBytes, Buffer* buffer,
+                                RAMCloud::PREPEND_T prepend);
+    friend void* ::operator new(size_t numBytes, Buffer* buffer,
+                                RAMCloud::APPEND_T append);
+    friend void* ::operator new(size_t numBytes, Buffer* buffer,
+                                RAMCloud::CHUNK_T chunk);
+    friend void* ::operator new(size_t numBytes, Buffer* buffer,
+                                RAMCloud::MISC_T misc);
+
+    /* For Chunk's use only. */
+    void prependChunk(Chunk* newChunk);
+    void appendChunk(Chunk* newChunk);
 
     Allocation* newAllocation();
-    void copy(const Chunk* current, uint32_t offset,  // NOLINT
-              uint32_t length, void* dest);
-    void* allocateScratchRange(uint32_t length);
+    void copyChunks(const Chunk* current, uint32_t offset,  // NOLINT
+                    uint32_t length, void* dest) const;
+    void* allocateBigAllocation(uint32_t length);
 
     /**
-     * A list of allocated memory areas. See #scratchRanges.
-     */
-    struct ScratchRange {
-        ScratchRange* next; /// The next range in the list.
-        char data[0];       /// The actual memory starts here.
-    };
-
-    /**
-     * The sum of the individual sizes of all the chunks in the chunks list.
+     * The total number of bytes in the logical array represented by this
+     * Buffer.
      */
     uint32_t totalLength;
 
@@ -395,18 +537,19 @@ class Buffer {
     Chunk* chunks;
 
     /**
-     * The linked list of #RAMCloud::Buffer::Allocation objects used by
-     * #allocateChunk(), #allocatePrepend(), and #allocateAppend().
+     * A singly-linked list of Allocation objects used by #allocateChunk(),
+     * #allocatePrepend(), and #allocateAppend(). Allocation objects are fixed
+     * size, and more are created and added to this list as needed.
      */
     Allocation* allocations;
 
     /**
-     * A singly linked list of extra scratch memory areas that are freed when
-     * the Buffer is deallocated. This is used in #getRange() and as a
-     * fall-back for #allocateChunk(), #allocatePrepend(), and
-     * #allocateAppend().
+     * A singly-linked list of extra dynamic memory regions that are freed when
+     * the Buffer is deallocated. This is used as a fall-back when the Buffer's
+     * usual memory allocator can't allocate enough space.
+     * TODO(ongaro): Make Allocation variable-sized and get rid of this.
      */
-    ScratchRange* scratchRanges;
+    BigAllocation* bigAllocations;
 
     friend class Iterator;
     friend class BufferTest;  // For CppUnit testing purposes.

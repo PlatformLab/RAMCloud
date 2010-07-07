@@ -53,15 +53,14 @@ BackupHost::~BackupHost()
 void
 BackupHost::heartbeat()
 {
-    backup_rpc req;
-    req.hdr.type = BACKUP_RPC_HEARTBEAT_REQ;
-    req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_HEARTBEAT_REQ_LEN);
-
     if (debug_noisy)
         printf("Sending Heartbeat to backup\n");
 
     Buffer buf;
-    buf.append(reinterpret_cast<void*>(&req), req.hdr.len);
+    backup_rpc* req = new(&buf, APPEND) backup_rpc;
+    req->hdr.type = BACKUP_RPC_HEARTBEAT_REQ;
+    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_HEARTBEAT_REQ_LEN);
+
 
     Buffer reply;
     trans->clientSend(s, &buf, &reply)->getReply();
@@ -76,30 +75,24 @@ BackupHost::writeSegment(uint64_t segNum,
                          const void *data,
                          uint32_t len)
 {
-    // TODO(stutsman) For the moment we don't have a choice here
-    // we have to build this thing up in memory until the network
-    // interface is changed so we can gather the header and the
-    // data from two different places
-    char reqbuf[MAX_RPC_LEN];
-    backup_rpc *req = reinterpret_cast<backup_rpc *>(reqbuf);
     if (debug_noisy)
         printf("Sending Write to backup\n");
 
+    Buffer buf;
+
+    backup_rpc* req = new(&buf, APPEND) backup_rpc;
     req->hdr.type = BACKUP_RPC_WRITE_REQ;
     req->hdr.len = BACKUP_RPC_WRITE_REQ_LEN_WODATA + len;
     if (req->hdr.len > MAX_RPC_LEN)
         throw BackupRPCException("Write RPC would be too long");
-
     req->write_req.seg_num = segNum;
     req->write_req.off = offset;
     req->write_req.len = len;
-    memcpy(&req->write_req.data[0], data, len);
 
-    Buffer buf;
-    buf.append(reinterpret_cast<void*> (req), req->hdr.len);
+    // Safe to append data with a raw Chunk because it will outlive buf.
+    Buffer::Chunk::appendToBuffer(&buf, const_cast<void*>(data), len);
 
     Buffer reply;
-
     trans->clientSend(s, &buf, &reply)->getReply();
 
     // TODO(aravindn): Not verifying response?
@@ -108,20 +101,16 @@ BackupHost::writeSegment(uint64_t segNum,
 void
 BackupHost::commitSegment(uint64_t segNum)
 {
-    backup_rpc req;
-    req.hdr.type = BACKUP_RPC_COMMIT_REQ;
-    req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_COMMIT_REQ_LEN);
-
-    req.commit_req.seg_num = segNum;
-
     if (debug_noisy)
         printf("Sending Commit to backup\n");
 
     Buffer buf;
-    buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
+    backup_rpc *req = new(&buf, APPEND) backup_rpc;
+    req->hdr.type = BACKUP_RPC_COMMIT_REQ;
+    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_COMMIT_REQ_LEN);
+    req->commit_req.seg_num = segNum;
 
     Buffer reply;
-
     trans->clientSend(s, &buf, &reply)->getReply();
 
     // TODO(aravindn): Not verifying response?
@@ -133,20 +122,16 @@ BackupHost::commitSegment(uint64_t segNum)
 void
 BackupHost::freeSegment(uint64_t segNum)
 {
-    backup_rpc req;
-    req.hdr.type = BACKUP_RPC_FREE_REQ;
-    req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_FREE_REQ_LEN);
-
-    req.free_req.seg_num = segNum;
-
     if (debug_noisy)
         printf("Sending Free to backup\n");
 
     Buffer buf;
-    buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
+    backup_rpc *req = new(&buf, APPEND) backup_rpc;
+    req->hdr.type = BACKUP_RPC_FREE_REQ;
+    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_FREE_REQ_LEN);
+    req->free_req.seg_num = segNum;
 
     Buffer reply;
-
     trans->clientSend(s, &buf, &reply)->getReply();
 
     // TODO(aravindn): Not verifying response?
@@ -159,15 +144,13 @@ uint32_t
 BackupHost::getSegmentList(uint64_t *list,
                            uint32_t maxSize)
 {
-    backup_rpc req;
-    req.hdr.type = BACKUP_RPC_GETSEGMENTLIST_REQ;
-    req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTLIST_REQ_LEN);
-
     if (debug_noisy)
         printf("Sending GetSegmentList to backup\n");
 
     Buffer buf;
-    buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
+    backup_rpc* req = new(&buf, APPEND) backup_rpc;
+    req->hdr.type = BACKUP_RPC_GETSEGMENTLIST_REQ;
+    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTLIST_REQ_LEN);
 
     Buffer replyBuf;
     trans->clientSend(s, &buf, &replyBuf)->getReply();
@@ -197,16 +180,14 @@ BackupHost::getSegmentMetadata(uint64_t segNum,
                                RecoveryObjectMetadata *list,
                                uint32_t maxSize)
 {
-    backup_rpc req;
-    req.hdr.type = BACKUP_RPC_GETSEGMENTMETADATA_REQ;
-    req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTMETADATA_REQ_LEN);
-    req.getsegmentmetadata_req.seg_num = segNum;
-
     if (debug_noisy)
         printf("Sending GetSegmentMetadata to backup\n");
 
     Buffer buf;
-    buf.append(reinterpret_cast<void*> (&req), req.hdr.len);
+    backup_rpc* req = new(&buf, APPEND) backup_rpc;
+    req->hdr.type = BACKUP_RPC_GETSEGMENTMETADATA_REQ;
+    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTMETADATA_REQ_LEN);
+    req->getsegmentmetadata_req.seg_num = segNum;
 
     Buffer replyBuf;
     trans->clientSend(s, &buf, &replyBuf)->getReply();
@@ -234,17 +215,14 @@ BackupHost::getSegmentMetadata(uint64_t segNum,
 void
 BackupHost::retrieveSegment(uint64_t segNum, void *buf)
 {
-    backup_rpc req;
-    req.hdr.type = BACKUP_RPC_RETRIEVE_REQ;
-    req.hdr.len = static_cast<uint32_t>(BACKUP_RPC_RETRIEVE_REQ_LEN);
-
-    req.retrieve_req.seg_num = segNum;
-
     if (debug_noisy)
         printf("Sending Retrieve to backup\n");
 
     Buffer rpcBuf;
-    rpcBuf.append(reinterpret_cast<void*> (&req), req.hdr.len);
+    backup_rpc* req = new(&rpcBuf, APPEND) backup_rpc;
+    req->hdr.type = BACKUP_RPC_RETRIEVE_REQ;
+    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_RETRIEVE_REQ_LEN);
+    req->retrieve_req.seg_num = segNum;
 
     Buffer replyBuf;
     trans->clientSend(s, &rpcBuf, &replyBuf)->getReply();

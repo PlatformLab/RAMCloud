@@ -125,17 +125,15 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
         return;
 
     // receive RPC data
-    void* data = xmalloc(header.len);
+    void* data = new(payload, MISC) char[header.len];
     {
         ssize_t len = sys->recv(fd, data, header.len, MSG_WAITALL);
         if (len == -1) {
             int e = errno;
-            free(data);
             sys->close(fd);
             fd = -1;
             throw Transport::Exception(e);
         } else if (len == 0) {
-            free(data);
             sys->close(fd);
             fd = -1;
             throw Transport::Exception("peer performed orderly shutdown");
@@ -143,7 +141,7 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
         assert(len == header.len);
     }
 
-    BUFFER_APPEND(payload, Buffer::HeapChunk, data, header.len);
+    Buffer::Chunk::appendToBuffer(payload, data, header.len);
 }
 
 /**

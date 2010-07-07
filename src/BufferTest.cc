@@ -53,12 +53,6 @@ class BufferAllocationTest : public CppUnit::TestFixture {
     }
 
     void test_destructor() {
-        Buffer::Allocation a;
-        a.~Allocation();
-        CPPUNIT_ASSERT(a.next == NULL);
-        CPPUNIT_ASSERT_EQUAL(0, a.prependTop);
-        CPPUNIT_ASSERT_EQUAL(Buffer::Allocation::TOTAL_SIZE, a.appendTop);
-        CPPUNIT_ASSERT_EQUAL(Buffer::Allocation::APPEND_START, a.chunkTop);
     }
 
     void test_canAllocateChunk() {
@@ -144,51 +138,43 @@ class BufferChunkTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE_END();
 
+
   public:
 
     void test_Chunk() {
+        Buffer buf;
         char data;
-        Buffer::Chunk c(&data, sizeof(data));
-        CPPUNIT_ASSERT_EQUAL(&data, c.data);
-        CPPUNIT_ASSERT_EQUAL(sizeof(data), c.length);
-        CPPUNIT_ASSERT_EQUAL(NULL, c.next);
-        c.~Chunk();
-        CPPUNIT_ASSERT_EQUAL(NULL, c.data);
-        CPPUNIT_ASSERT_EQUAL(0, c.length);
-        CPPUNIT_ASSERT_EQUAL(NULL, c.next);
-        c.~Chunk();
+        Buffer::Chunk* c;
+        c = Buffer::Chunk::prependToBuffer(&buf, &data, sizeof(data));
+        CPPUNIT_ASSERT_EQUAL(&data, c->data);
+        CPPUNIT_ASSERT_EQUAL(sizeof(data), c->length);
+        CPPUNIT_ASSERT_EQUAL(NULL, c->next);
     }
 
     void test_HeapChunk() {
         // TODO(ongaro): A counter on the number of times free is called would
         // be helpful.
+        Buffer buf;
         void* data = xmalloc(100);
-        Buffer::HeapChunk c(data, 100);
-        CPPUNIT_ASSERT_EQUAL(data, c.data);
-        CPPUNIT_ASSERT_EQUAL(100, c.length);
-        CPPUNIT_ASSERT_EQUAL(NULL, c.next);
-        ((Buffer::Chunk&) c).~Chunk();
-        CPPUNIT_ASSERT_EQUAL(NULL, c.data);
-        CPPUNIT_ASSERT_EQUAL(0, c.length);
-        CPPUNIT_ASSERT_EQUAL(NULL, c.next);
-        ((Buffer::Chunk&) c).~Chunk();
+        Buffer::HeapChunk* c;
+        c = Buffer::HeapChunk::prependToBuffer(&buf, data, 100);
+        CPPUNIT_ASSERT_EQUAL(data, c->data);
+        CPPUNIT_ASSERT_EQUAL(100, c->length);
+        CPPUNIT_ASSERT_EQUAL(NULL, c->next);
     }
 
     void test_NewChunk() {
+        Buffer buf;
         static uint32_t destructed = 0;
         DestructorCounter* data = new DestructorCounter(&destructed);
-        Buffer::NewChunk<DestructorCounter> c(data);
-        CPPUNIT_ASSERT_EQUAL(data, c.data);
-        CPPUNIT_ASSERT_EQUAL(sizeof(*data), c.length);
-        CPPUNIT_ASSERT_EQUAL(NULL, c.next);
-        ((Buffer::Chunk&) c).~Chunk();
-        CPPUNIT_ASSERT_EQUAL(NULL, c.data);
-        CPPUNIT_ASSERT_EQUAL(0, c.length);
-        CPPUNIT_ASSERT_EQUAL(NULL, c.next);
-        ((Buffer::Chunk&) c).~Chunk();
+        Buffer::NewChunk<DestructorCounter>* c;
+        c = Buffer::NewChunk<DestructorCounter>::prependToBuffer(&buf, data);
+        CPPUNIT_ASSERT_EQUAL(data, c->data);
+        CPPUNIT_ASSERT_EQUAL(sizeof(*data), c->length);
+        CPPUNIT_ASSERT_EQUAL(NULL, c->next);
+        ((Buffer::Chunk*) c)->~Chunk();
         CPPUNIT_ASSERT_EQUAL(1U, destructed);
     }
-
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferChunkTest);
 
@@ -196,7 +182,6 @@ class BufferTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(BufferTest);
 
     CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_constructor_withParams);
     CPPUNIT_TEST(test_destructor);
 
     CPPUNIT_TEST(test_newAllocation);
@@ -210,8 +195,8 @@ class BufferTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_peek_normal);
     CPPUNIT_TEST(test_peek_offsetGreaterThanTotalLength);
 
-    CPPUNIT_TEST(test_internal_copy);
-    CPPUNIT_TEST(test_allocateScratchRange);
+    CPPUNIT_TEST(test_copyChunks);
+    CPPUNIT_TEST(test_allocateBigAllocation);
 
     CPPUNIT_TEST(test_getRange_inputEdgeCases);
     CPPUNIT_TEST(test_getRange_peek);
@@ -253,9 +238,9 @@ class BufferTest : public CppUnit::TestFixture {
         // This uses prepend, so the tests for prepend
         // probably shouldn't use this.
         buf = new Buffer();
-        buf->prepend(testStr3, 10);
-        buf->prepend(testStr2, 10);
-        buf->prepend(testStr1, 10);
+        Buffer::Chunk::prependToBuffer(buf, testStr3, 10);
+        Buffer::Chunk::prependToBuffer(buf, testStr2, 10);
+        Buffer::Chunk::prependToBuffer(buf, testStr1, 10);
     }
 
     void tearDown() { delete buf; }
@@ -267,24 +252,11 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, b.numberChunks);
         CPPUNIT_ASSERT_EQUAL(NULL, b.chunks);
         CPPUNIT_ASSERT_EQUAL(NULL, b.allocations);
-        CPPUNIT_ASSERT_EQUAL(NULL, b.scratchRanges);
-    }
-
-    void test_constructor_withParams() {
-        Buffer b(testStr1, 10);
-        CPPUNIT_ASSERT_EQUAL("ABCDEFGHIJ", b.toString());
+        CPPUNIT_ASSERT_EQUAL(NULL, b.bigAllocations);
     }
 
     void test_destructor() {
-        Buffer b(testStr1, 10);
-        b.prepend(testStr1, 5);
-        b.getRange(0, 15);
-        b.~Buffer();
-        CPPUNIT_ASSERT_EQUAL(0, b.totalLength);
-        CPPUNIT_ASSERT_EQUAL(0, b.numberChunks);
-        CPPUNIT_ASSERT_EQUAL(NULL, b.chunks);
-        CPPUNIT_ASSERT_EQUAL(NULL, b.allocations);
-        CPPUNIT_ASSERT_EQUAL(NULL, b.scratchRanges);
+        // I don't know how I'd test this anymore.
     }
 
     void test_newAllocation() {
@@ -329,8 +301,8 @@ class BufferTest : public CppUnit::TestFixture {
             Buffer b;
             b.newAllocation();
             void* data = b.allocateChunk(Buffer::Allocation::TOTAL_SIZE + 10);
-            CPPUNIT_ASSERT(b.scratchRanges != NULL);
-            CPPUNIT_ASSERT(b.scratchRanges->data == data);
+            CPPUNIT_ASSERT(b.bigAllocations != NULL);
+            CPPUNIT_ASSERT(b.bigAllocations->data == data);
             CPPUNIT_ASSERT(chunkTopStart == b.allocations->chunkTop);
         }
     }
@@ -363,8 +335,8 @@ class BufferTest : public CppUnit::TestFixture {
             Buffer b;
             b.newAllocation();
             void* data = b.allocatePrepend(Buffer::Allocation::TOTAL_SIZE + 10);
-            CPPUNIT_ASSERT(b.scratchRanges != NULL);
-            CPPUNIT_ASSERT(b.scratchRanges->data == data);
+            CPPUNIT_ASSERT(b.bigAllocations != NULL);
+            CPPUNIT_ASSERT(b.bigAllocations->data == data);
             CPPUNIT_ASSERT(prependTopStart == b.allocations->prependTop);
         }
     }
@@ -397,28 +369,28 @@ class BufferTest : public CppUnit::TestFixture {
             Buffer b;
             b.newAllocation();
             void* data = b.allocateAppend(Buffer::Allocation::TOTAL_SIZE + 10);
-            CPPUNIT_ASSERT(b.scratchRanges != NULL);
-            CPPUNIT_ASSERT(b.scratchRanges->data == data);
+            CPPUNIT_ASSERT(b.bigAllocations != NULL);
+            CPPUNIT_ASSERT(b.bigAllocations->data == data);
             CPPUNIT_ASSERT(appendTopStart == b.allocations->appendTop);
         }
     }
 
     void test_prepend() {
         Buffer b;
-        b.prepend(NULL, 0);
-        b.prepend(testStr3, 10);
-        b.prepend(testStr2, 10);
-        b.prepend(testStr1, 10);
+        Buffer::Chunk::prependToBuffer(&b, NULL, 0);
+        Buffer::Chunk::prependToBuffer(&b, testStr3, 10);
+        Buffer::Chunk::prependToBuffer(&b, testStr2, 10);
+        Buffer::Chunk::prependToBuffer(&b, testStr1, 10);
         CPPUNIT_ASSERT_EQUAL("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
                 b.toString());
     }
 
     void test_append() {
         Buffer b;
-        b.append(NULL, 0);
-        b.append(testStr1, 10);
-        b.append(testStr2, 10);
-        b.append(testStr3, 10);
+        Buffer::Chunk::appendToBuffer(&b, NULL, 0);
+        Buffer::Chunk::appendToBuffer(&b, testStr1, 10);
+        Buffer::Chunk::appendToBuffer(&b, testStr2, 10);
+        Buffer::Chunk::appendToBuffer(&b, testStr3, 10);
         CPPUNIT_ASSERT_EQUAL("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
                 b.toString());
     }
@@ -443,40 +415,40 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(NULL, ret_val);
     }
 
-    void test_internal_copy() {
+    void test_copyChunks() {
         Buffer b;
         char scratch[50];
 
         // skip while loop
         strncpy(scratch, "0123456789", 11);
-        buf->copy(buf->chunks, 0, 0, scratch + 1);
+        buf->copyChunks(buf->chunks, 0, 0, scratch + 1);
         CPPUNIT_ASSERT_EQUAL("0123456789", scratch);
 
         // nonzero offset in first chunk, partial chunk
         strncpy(scratch, "01234567890123456789", 21);
-        buf->copy(buf->chunks, 5, 3, scratch + 1);
+        buf->copyChunks(buf->chunks, 5, 3, scratch + 1);
         CPPUNIT_ASSERT_EQUAL("0FGH4567890123456789", scratch);
 
         // spans chunks, ends at exactly the end of the buffer
         strncpy(scratch, "0123456789012345678901234567890123456789", 41);
-        buf->copy(buf->chunks, 0, 30, scratch + 1);
+        buf->copyChunks(buf->chunks, 0, 30, scratch + 1);
         // The data contains a null character, so check it in two
         // pieces (one up through the null, one after).
         CPPUNIT_ASSERT_EQUAL("0ABCDEFGHIJabcdefghijklmnopqrs", scratch);
         CPPUNIT_ASSERT_EQUAL("123456789", scratch+31);
     }
 
-    void test_allocateScratchRange() {
-        typedef Buffer::ScratchRange ScratchRange;
+    void test_allocateBigAllocation() {
+        typedef Buffer::BigAllocation BigAllocation;
         Buffer b;
 
-        void* r2 = b.allocateScratchRange(3);
-        ScratchRange* cr2 = static_cast<ScratchRange*>(r2) - 1;
-        CPPUNIT_ASSERT_EQUAL(b.scratchRanges, cr2);
+        void* r2 = b.allocateBigAllocation(3);
+        BigAllocation* cr2 = static_cast<BigAllocation*>(r2) - 1;
+        CPPUNIT_ASSERT_EQUAL(b.bigAllocations, cr2);
 
-        void* r1 = b.allocateScratchRange(4);
-        ScratchRange* cr1 = static_cast<ScratchRange*>(r1) - 1;
-        CPPUNIT_ASSERT_EQUAL(b.scratchRanges, cr1);
+        void* r1 = b.allocateBigAllocation(4);
+        BigAllocation* cr1 = static_cast<BigAllocation*>(r1) - 1;
+        CPPUNIT_ASSERT_EQUAL(b.bigAllocations, cr1);
 
         CPPUNIT_ASSERT_EQUAL(cr2, cr1->next);
         CPPUNIT_ASSERT_EQUAL(NULL, cr2->next);
@@ -495,7 +467,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(testStr2 + 1,  buf->getRange(11, 5));
         CPPUNIT_ASSERT_EQUAL(testStr3, buf->getRange(20, 1));
         CPPUNIT_ASSERT_EQUAL(testStr3 + 9, buf->getRange(29, 1));
-        CPPUNIT_ASSERT_EQUAL(NULL, buf->scratchRanges);
+        CPPUNIT_ASSERT_EQUAL(NULL, buf->bigAllocations);
     }
 
     void test_getRange_copy() {
@@ -503,7 +475,6 @@ class BufferTest : public CppUnit::TestFixture {
         strncpy(out, static_cast<char*>(buf->getRange(9, 2)), 2);
         out[2] = 0;
         CPPUNIT_ASSERT_EQUAL("Ja", out);
-        CPPUNIT_ASSERT(NULL != buf->scratchRanges);
     }
 
     void test_copy_noop() {
@@ -535,11 +506,12 @@ class BufferTest : public CppUnit::TestFixture {
 
     void test_toString() {
         Buffer b;
-        b.append(const_cast<char *>("abc\n\x1f \x7e\x7f\xf4zzz"), 9);
-        b.append(const_cast<char *>("012\0z\x05z78901234567890"
-                                    "1234567890abcdefg"),
-                 37);
-        b.append(const_cast<char *>("xyz"), 3);
+        Buffer::Chunk::appendToBuffer(&b,
+            const_cast<char *>("abc\n\x1f \x7e\x7f\xf4zzz"), 9);
+        Buffer::Chunk::appendToBuffer(&b,
+            const_cast<char *>("012\0z\x05z789012345678901234567890abcdefg"),
+            37);
+        Buffer::Chunk::appendToBuffer(&b, const_cast<char *>("xyz"), 3);
         CPPUNIT_ASSERT_EQUAL("abc/n/x1f ~/x7f/xf4 | "
                              "012/0z/x05z7890123456789(+17 chars) | xyz",
                              b.toString());
@@ -562,8 +534,8 @@ class BufferIteratorTest : public CppUnit::TestFixture {
   public:
     void test_normal() {
         Buffer b;
-        b.append(&x[0], 10);
-        b.append(&x[10], 20);
+        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
+        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
 
         Buffer::Iterator iter(b);
         CPPUNIT_ASSERT(!iter.isDone());
@@ -585,8 +557,8 @@ class BufferIteratorTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT(iter.isDone());
         }
 
-        b.append(&x[0], 10);
-        b.append(&x[10], 20);
+        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
+        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
 
         { // nonempty buffer
             Buffer::Iterator iter(b);
@@ -600,7 +572,7 @@ class BufferIteratorTest : public CppUnit::TestFixture {
 
     void test_next() {
         Buffer b;
-        b.append(&x[0], 10);
+        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
         Buffer::Iterator iter(b);
         CPPUNIT_ASSERT_EQUAL(iter.current, b.chunks);
         iter.next();
@@ -609,18 +581,20 @@ class BufferIteratorTest : public CppUnit::TestFixture {
 
     void test_getData() {
         Buffer b;
-        b.append(&x[0], 10);
+        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
         Buffer::Iterator iter(b);
         CPPUNIT_ASSERT_EQUAL(iter.getData(), &x[0]);
     }
 
     void test_getLength() {
         Buffer b;
-        b.append(&x[0], 10);
+        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
         Buffer::Iterator iter(b);
         CPPUNIT_ASSERT_EQUAL(iter.getLength(), 10);
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferIteratorTest);
+
+// TODO(ongaro): Test operator new's.
 
 }  // namespace RAMCloud

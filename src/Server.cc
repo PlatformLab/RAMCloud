@@ -108,8 +108,7 @@ Server::Read(Transport::ServerRPC *rpc)
         rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
 
     rcrpc_read_response *resp;
-    resp = static_cast<rcrpc_read_response*>(
-        rpc->replyPayload.append(sizeof(*resp)));
+    resp = new(&rpc->replyPayload, APPEND) rcrpc_read_response;
 
     if (server_debug)
         printf("Read from key %lu\n",
@@ -131,8 +130,9 @@ Server::Read(Transport::ServerRPC *rpc)
 
     if (!RejectOperation(&req->reject_rules, o->version)) {
         assert(o->data_len < (1UL << 32));
-        rpc->replyPayload.append(const_cast<char*>(o->data),
-                                 static_cast<uint32_t>(o->data_len));
+        Buffer::Chunk::appendToBuffer(&rpc->replyPayload,
+                                      const_cast<char*>(o->data),
+                                      static_cast<uint32_t>(o->data_len));
         // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
         // from scribbling over o->data.
         resp->buf_len = o->data_len;
@@ -287,8 +287,7 @@ Server::Write(Transport::ServerRPC *rpc)
         rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
 
     rcrpc_write_response *resp;
-    resp = static_cast<rcrpc_write_response*>(
-        rpc->replyPayload.append(sizeof(*resp)));
+    resp = new(&rpc->replyPayload, APPEND) rcrpc_write_response;
 
     if (server_debug) {
         printf("Write %lu bytes of data to key %lu\n",
@@ -311,8 +310,7 @@ Server::InsertKey(Transport::ServerRPC *rpc)
         rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
 
     rcrpc_insert_response *resp;
-    resp = static_cast<rcrpc_insert_response*>(
-        rpc->replyPayload.append(sizeof(*resp)));
+    resp = new(&rpc->replyPayload, APPEND) rcrpc_insert_response;
 
     Table *t = &tables[req->table];
     uint64_t key = t->AllocateKey();
@@ -340,8 +338,7 @@ Server::DeleteKey(Transport::ServerRPC *rpc)
         rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
 
     rcrpc_delete_response *resp;
-    resp = static_cast<rcrpc_delete_response*>(
-        rpc->replyPayload.append(sizeof(*resp)));
+    resp = new(&rpc->replyPayload, APPEND) rcrpc_delete_response;
 
     resp->version = RCRPC_VERSION_NONE;
     resp->deleted = false;
@@ -413,8 +410,7 @@ Server::OpenTable(Transport::ServerRPC *rpc)
         rpc->recvPayload.getRange(sizeof(rcrpc_header), sizeof(*req)));
 
     rcrpc_open_table_response *resp;
-    resp = static_cast<rcrpc_open_table_response*>(
-        rpc->replyPayload.append(sizeof(*resp)));
+    resp = new(&rpc->replyPayload, APPEND) rcrpc_open_table_response;
 
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
@@ -531,8 +527,7 @@ Server::HandleRPC()
     //printf("got rpc type: 0x%08x, len 0x%08x\n",
     //       reqHeader->type, reqHeader->len);
 
-    rcrpc_header *replyHeader = static_cast<rcrpc_header*>(
-        rpc->replyPayload.prepend(sizeof(rcrpc_header)));
+    rcrpc_header *replyHeader = new(&rpc->replyPayload, PREPEND) rcrpc_header;
 
     try {
         switch((enum RCRPC_TYPE) reqHeader->type) {
@@ -577,7 +572,7 @@ Server::HandleRPC()
         // TODO(ongaro): The replyPayload could contain bogus data, need to
         // clear out everything but the rcrpc_header first.
         assert(rpc->replyPayload.getTotalLength() == sizeof(*replyHeader));
-        strcpy(static_cast<char*>(rpc->replyPayload.append(msglen)), msg);
+        strcpy(new(&rpc->replyPayload, APPEND) char[msglen], msg);
         replyHeader->type = RCRPC_ERROR_RESPONSE;
 
     }

@@ -431,8 +431,8 @@ class SocketTest : public CppUnit::TestFixture {
 
         XMessageSocket s;
         Buffer payload;
-        payload.append(&data[0], 16);
-        payload.append(&data[16], 8);
+        Buffer::Chunk::appendToBuffer(&payload, &data[0], 16);
+        Buffer::Chunk::appendToBuffer(&payload, &data[16], 8);
         s.fd = 10;
         try {
             s.send(&payload);

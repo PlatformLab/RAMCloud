@@ -25,13 +25,16 @@
 int
 main()
 {
-    RAMCloud::TCPTransport tx(SVRADDR, SVRPORT);
+    using namespace RAMCloud; // NOLINT
+    TCPTransport tx(SVRADDR, SVRPORT);
     while (true) {
-        RAMCloud::Buffer payload;
-        RAMCloud::Transport::ServerRPC* rpc = tx.serverRecv();
-        RAMCloud::Buffer::Iterator iter(rpc->recvPayload);
+        Buffer payload;
+        Transport::ServerRPC* rpc = tx.serverRecv();
+        Buffer::Iterator iter(rpc->recvPayload);
         while (!iter.isDone()) {
-            rpc->replyPayload.append(iter.getData(), iter.getLength());
+            Buffer::Chunk::appendToBuffer(&rpc->replyPayload,
+                                          iter.getData(),
+                                          iter.getLength());
             // TODO(ongaro): This is unsafe if the Transport discards the
             // received buffer before it is done with the response buffer.
             // I can't think of any real RPCs where this will come up.

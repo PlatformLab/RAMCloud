@@ -651,9 +651,10 @@ BackupServer::handleRPC()
     backup_rpc *req;
     backup_rpc *resp;
     Transport::ServerRPC *rpc = trans->serverRecv();
+    // TODO(ongaro): Rework this to use Buffers properly.
     req = reinterpret_cast<backup_rpc*>(
         rpc->recvPayload.getRange(0, rpc->recvPayload.getTotalLength()));
-    void* respBuf = rpc->replyPayload.allocateAppend(RESP_BUF_LEN);
+    void* respBuf = new(&rpc->replyPayload, MISC) char[RESP_BUF_LEN];
     resp = static_cast<backup_rpc *>(respBuf);
 
     if (debug_rpc)
@@ -697,7 +698,7 @@ BackupServer::handleRPC()
         resp->hdr.len = static_cast<uint32_t>(rpclen);
     }
 
-    rpc->replyPayload.append(resp, resp->hdr.len);
+    Buffer::Chunk::appendToBuffer(&rpc->replyPayload, resp, resp->hdr.len);
     rpc->sendReply();
 }
 
