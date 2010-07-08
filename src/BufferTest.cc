@@ -231,7 +231,9 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, b.totalLength);
         CPPUNIT_ASSERT_EQUAL(0, b.numberChunks);
         CPPUNIT_ASSERT_EQUAL(NULL, b.chunks);
-        CPPUNIT_ASSERT_EQUAL(NULL, b.allocations);
+        CPPUNIT_ASSERT_EQUAL(&b.initialAllocationContainer.allocation,
+                             b.allocations);
+        CPPUNIT_ASSERT_EQUAL(NULL, b.allocations->next);
     }
 
     void test_destructor() {
@@ -242,7 +244,7 @@ class BufferTest : public CppUnit::TestFixture {
         Buffer b;
         uint32_t s;
 
-        s = Buffer::INITIAL_ALLOCATION_SIZE;
+        s = Buffer::INITIAL_ALLOCATION_SIZE * 2;
         Buffer::Allocation* a3 = b.newAllocation(s + 5, 0);
         CPPUNIT_ASSERT_EQUAL(s + 5, a3->prependTop);
         CPPUNIT_ASSERT_EQUAL(s + 5, a3->chunkTop);
@@ -260,31 +262,59 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(a1, b.allocations);
         CPPUNIT_ASSERT_EQUAL(a2, a1->next);
         CPPUNIT_ASSERT_EQUAL(a3, a2->next);
-        CPPUNIT_ASSERT_EQUAL(NULL, a3->next);
+        CPPUNIT_ASSERT_EQUAL(&b.initialAllocationContainer.allocation,
+                             a3->next);
     }
 
     void test_allocateChunk() {
         Buffer b;
-        b.allocateChunk(1); // allocates new Allocation
-        b.allocateChunk(1); // uses existing Allocation
-        CPPUNIT_ASSERT(b.allocations != NULL);
-        CPPUNIT_ASSERT(b.allocations->next == NULL);
+
+        // fill up the initial allocation to get it out of the way
+        b.allocations->chunkTop = b.allocations->appendTop;
+
+        // allocates new Allocation
+        b.allocateChunk(1);
+        CPPUNIT_ASSERT_EQUAL(&b.initialAllocationContainer.allocation,
+                             b.allocations->next);
+
+        // uses existing Allocation
+        b.allocateChunk(1);
+        CPPUNIT_ASSERT_EQUAL(&b.initialAllocationContainer.allocation,
+                             b.allocations->next);
     }
 
     void test_allocatePrepend() {
         Buffer b;
-        b.allocatePrepend(1); // allocates new Allocation
-        b.allocatePrepend(1); // uses existing Allocation
-        CPPUNIT_ASSERT(b.allocations != NULL);
-        CPPUNIT_ASSERT(b.allocations->next == NULL);
+
+        // fill up the initial allocation to get it out of the way
+        b.allocations->prependTop = 0;
+
+        // allocates new Allocation
+        b.allocatePrepend(1);
+        CPPUNIT_ASSERT_EQUAL(&b.initialAllocationContainer.allocation,
+                             b.allocations->next);
+
+        // uses existing Allocation
+        b.allocatePrepend(1);
+        CPPUNIT_ASSERT_EQUAL(&b.initialAllocationContainer.allocation,
+                             b.allocations->next);
     }
 
     void test_allocateAppend() {
         Buffer b;
-        b.allocateAppend(1); // allocates new Allocation
-        b.allocateAppend(1); // uses existing Allocation
-        CPPUNIT_ASSERT(b.allocations != NULL);
-        CPPUNIT_ASSERT(b.allocations->next == NULL);
+
+        // fill up the initial allocation to get it out of the way
+        b.allocations->appendTop = b.allocations->chunkTop;
+
+        // allocates new Allocation
+        b.allocateAppend(1);
+        CPPUNIT_ASSERT_EQUAL(&b.initialAllocationContainer.allocation,
+                             b.allocations->next);
+
+        // uses existing Allocation
+        b.allocateAppend(1);
+        CPPUNIT_ASSERT_EQUAL(&b.initialAllocationContainer.allocation,
+                             b.allocations->next);
     }
 
     void test_prepend() {

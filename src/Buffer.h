@@ -98,7 +98,6 @@ namespace RAMCloud {
  *    similar methods of a derivative class.
  */
 // TODO(ongaro): Describe remaining interface to the memory allocator.
-// TODO(ongaro): Add a way to get a Buffer with an adjacent Allocation.
 class Buffer {
 
     /**
@@ -441,13 +440,6 @@ class Buffer {
      */
     Chunk* chunks;
 
-    /**
-     * A singly-linked list of Allocation objects used by #allocateChunk(),
-     * #allocatePrepend(), and #allocateAppend(). Allocation objects are each
-     * of a fixed size, and more are created and added to this list as needed.
-     */
-    Allocation* allocations;
-
     enum {
         /**
          * The minimum size in bytes of the first Allocation instance to be
@@ -457,6 +449,37 @@ class Buffer {
     };
     static_assert((INITIAL_ALLOCATION_SIZE &
                    (INITIAL_ALLOCATION_SIZE - 1)) == 0);
+    static_assert((INITIAL_ALLOCATION_SIZE >> 3) != 0);
+
+    /**
+     * A container for an Allocation that is allocated along with the Buffer.
+     * 
+     * Since any Buffer is going to need some storage space (at least for its
+     * Chunk instances), it makes sense for a Buffer to come with some of that
+     * space already. This avoids a malloc call the first time data is
+     * prepended or appended to the Buffer.
+     *
+     * This container is needed to provide the Allocation with some space to
+     * manage directly following it.
+     */
+    struct InitialAllocationContainer {
+        InitialAllocationContainer() : allocation(INITIAL_ALLOCATION_SIZE >> 3,
+                                                  INITIAL_ALLOCATION_SIZE) {}
+        Allocation allocation;
+      private:
+        // At least INITIAL_ALLOCATION_SIZE bytes of usable space must directly
+        // follow the above Allocation.
+        char allocationManagedSpace[INITIAL_ALLOCATION_SIZE];
+    } initialAllocationContainer;
+    static_assert(sizeof(InitialAllocationContainer) ==
+                  sizeof(Allocation) + INITIAL_ALLOCATION_SIZE);
+
+    /**
+     * A singly-linked list of Allocation objects used by #allocateChunk(),
+     * #allocatePrepend(), and #allocateAppend(). Allocation objects are each
+     * of a fixed size, and more are created and added to this list as needed.
+     */
+    Allocation* allocations;
 
     /**
      * The minimum size in bytes of the next Allocation instance to be

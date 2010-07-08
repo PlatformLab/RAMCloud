@@ -113,7 +113,9 @@ Buffer::Allocation::allocateChunk(uint32_t size) {
  */
 Buffer::Buffer()
     : totalLength(0), numberChunks(0), chunks(NULL),
-      allocations(NULL), nextAllocationSize(INITIAL_ALLOCATION_SIZE) {
+      initialAllocationContainer(),
+      allocations(&initialAllocationContainer.allocation),
+      nextAllocationSize(INITIAL_ALLOCATION_SIZE << 1) {
 }
 
 /**
@@ -132,11 +134,15 @@ Buffer::~Buffer() {
 
     { // free the list of allocations
         Allocation* current = allocations;
-        while (current != NULL) {
-            Allocation* next;
-            next = current->next;
-            free(current);
-            current = next;
+        // Skip the last allocation in the list (initialAllocationContainer's
+        // allocation) since it's not allocated with xmalloc.
+        if (current != NULL) {
+            while (current->next != NULL) {
+                Allocation* next;
+                next = current->next;
+                free(current);
+                current = next;
+            }
         }
     }
 }
