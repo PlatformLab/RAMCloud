@@ -159,7 +159,7 @@ class SocketTest : public CppUnit::TestFixture {
         Buffer payload;
         s.fd = 10;
         s.recv(&payload);
-        CPPUNIT_ASSERT(payload.totalLength() == 0);
+        CPPUNIT_ASSERT(payload.getTotalLength() == 0);
     }
 
     // 8-byte message
@@ -190,7 +190,7 @@ class SocketTest : public CppUnit::TestFixture {
             s.fd = 10;
             s.recv(&payload);
         }
-        CPPUNIT_ASSERT(payload.totalLength() == 8);
+        CPPUNIT_ASSERT(payload.getTotalLength() == 8);
         uint64_t* data = static_cast<uint64_t*>(payload.getRange(0, 8));
         CPPUNIT_ASSERT(*data == 0x0123456789abcdef);
     }
@@ -359,7 +359,7 @@ class SocketTest : public CppUnit::TestFixture {
     }
 
     void test_MessageSocket_send_twoChunksWithError() {
-        static const char data[24] = {
+        static char data[24] = {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
             0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
             0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17};
@@ -389,8 +389,8 @@ class SocketTest : public CppUnit::TestFixture {
 
         XMessageSocket s;
         Buffer payload;
-        payload.append(&data[0], 16);
-        payload.append(&data[16], 8);
+        Buffer::Chunk::appendToBuffer(&payload, &data[0], 16);
+        Buffer::Chunk::appendToBuffer(&payload, &data[16], 8);
         s.fd = 10;
         try {
             s.send(&payload);

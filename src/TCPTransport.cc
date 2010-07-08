@@ -125,17 +125,15 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
         return;
 
     // receive RPC data
-    void* data = xmalloc(header.len);
+    void* data = new(payload, MISC) char[header.len];
     {
         ssize_t len = sys->recv(fd, data, header.len, MSG_WAITALL);
         if (len == -1) {
             int e = errno;
-            free(data);
             sys->close(fd);
             fd = -1;
             throw Transport::Exception(e);
         } else if (len == 0) {
-            free(data);
             sys->close(fd);
             fd = -1;
             throw Transport::Exception("peer performed orderly shutdown");
@@ -143,8 +141,7 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
         assert(len == header.len);
     }
 
-    // TODO(ongaro): payload should free() this chunk later
-    payload->append(data, header.len);
+    Buffer::Chunk::appendToBuffer(payload, data, header.len);
 }
 
 /**
@@ -161,10 +158,10 @@ TCPTransport::MessageSocket::send(const Buffer* payload)
     assert(fd >= 0);
 
     Header header;
-    header.len = payload->totalLength();
+    header.len = payload->getTotalLength();
 
     // one for header, the rest for payload
-    uint32_t iovecs = 1 + payload->numberChunks();
+    uint32_t iovecs = 1 + payload->getNumberChunks();
 
     struct iovec iov[iovecs];
     iov[0].iov_base = &header;
