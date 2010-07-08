@@ -13,7 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
+/**
+ * \file
+ * Header file for #RAMCloud::Table and #RAMCloud::Server.
+ */
 
 #ifndef RAMCLOUD_SERVER_H
 #define RAMCLOUD_SERVER_H
@@ -178,7 +181,7 @@ class Server {
   public:
     explicit Server(const ServerConfig *sconfig,
                     Transport* transIn,
-                    BackupClient *backupClient=0);
+                    BackupClient *backupClient=0); // NOLINT
     ~Server();
     void Run();
 

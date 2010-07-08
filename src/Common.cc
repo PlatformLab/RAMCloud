@@ -13,7 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
+/**
+ * \file 
+ * Some definitions for stuff declared in Common.h.
+ */
 
 #include <Common.h>
 
@@ -37,13 +40,13 @@ debug_dump64(const void *buf, uint64_t bytes)
 
         for (j = 0; j < 16; j++) {
             if ((i + j) >= bytes) {
-                strcpy(hex[j], "  ");
+                snprintf(hex[j], sizeof(hex[0]), "  ");
                 ascii[j] = '\0';
             } else {
                 snprintf(hex[j], sizeof(hex[0]), "%02x",
                     cbuf[i + j]);
                 hex[j][sizeof(hex[0]) - 1] = '\0';
-                if (isprint((int)cbuf[i + j]))
+                if (isprint(static_cast<int>(cbuf[i + j])))
                     ascii[j] = cbuf[i + j];
                 else
                     ascii[j] = '.';
@@ -65,7 +68,7 @@ rdtsc()
     uint32_t lo, hi;
 
 #ifdef __GNUC__
-    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+    __asm__ __volatile__("rdtsc" : "=a" (lo), "=d" (hi));
 #else
     asm("rdtsc" : "=a" (lo), "=d" (hi));
 #endif

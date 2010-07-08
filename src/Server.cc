@@ -13,7 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
+/**
+ * \file
+ * Implementation of #RAMCloud::Server.
+ */
 
 #include <arpa/inet.h>
 
@@ -257,7 +260,7 @@ Server::StoreData(uint64_t table,
     else
         new_o->version = t->AllocateVersion();
     assert(o == NULL || new_o->version > o->version);
-    // TODO dm's super-fast checksum here
+    // TODO(stutsman): dm's super-fast checksum here
     new_o->checksum = 0x0BE70BE70BE70BE7ULL;
     new_o->data_len = dataLength;
     data->copy(dataOffset, dataLength, new_o->data);
@@ -384,7 +387,7 @@ Server::CreateTable(Transport::ServerRPC *rpc)
     int i;
     for (i = 0; i < RC_NUM_TABLES; i++) {
         if (strcmp(tables[i].GetName(), req->name) == 0) {
-            // TODO Need to do better than this
+            // TODO(stutsman): Need to do better than this
             throw "Table exists";
         }
     }
@@ -395,7 +398,7 @@ Server::CreateTable(Transport::ServerRPC *rpc)
         }
     }
     if (i == RC_NUM_TABLES) {
-        // TODO Need to do better than this
+        // TODO(stutsman): Need to do better than this
         throw "Out of tables";
     }
     if (server_debug)
@@ -418,7 +421,7 @@ Server::OpenTable(Transport::ServerRPC *rpc)
             break;
     }
     if (i == RC_NUM_TABLES) {
-        // TODO Need to do better than this
+        // TODO(stutsman): Need to do better than this
         throw "No such table";
     }
     if (server_debug)
@@ -442,7 +445,7 @@ Server::DropTable(Transport::ServerRPC *rpc)
         }
     }
     if (i == RC_NUM_TABLES) {
-        // TODO Need to do better than this
+        // TODO(stutsman): Need to do better than this
         throw "No such table";
     }
     if (server_debug)
@@ -531,7 +534,7 @@ Server::HandleRPC()
     rcrpc_header *replyHeader = new(&rpc->replyPayload, PREPEND) rcrpc_header;
 
     try {
-        switch((enum RCRPC_TYPE) reqHeader->type) {
+        switch ((enum RCRPC_TYPE) reqHeader->type) {
 
 #define HANDLE(rcrpc_upper, rcrpc_lower, handler)                              \
         case RCRPC_##rcrpc_upper##_REQUEST:                                    \
@@ -572,7 +575,8 @@ Server::HandleRPC()
         uint32_t msglen = static_cast<uint32_t>(strlen(msg)) + 1;
         rpc->replyPayload.truncateEnd(rpc->replyPayload.getTotalLength() -
                                       sizeof(*replyHeader));
-        strcpy(new(&rpc->replyPayload, APPEND) char[msglen], msg);
+        snprintf(new(&rpc->replyPayload, APPEND) char[msglen], msglen,
+                 "%s", msg);
         replyHeader->type = RCRPC_ERROR_RESPONSE;
     }
 

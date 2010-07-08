@@ -13,7 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
+/**
+ * \file
+ * Header file for #RAMCloud::Object and #RAMCloud::ObjectTombstone.
+ */
 
 #ifndef RAMCLOUD_OBJECT_H
 #define RAMCLOUD_OBJECT_H
@@ -35,8 +38,8 @@ struct Object {
      * realize sizeof(data) is bogus, and proceed to dynamically allocating
      * a buffer instead.
      */
-    Object(size_t buf_size) : id(-1), table(-1), version(-1), checksum(0),
-                              data_len(0) {
+    explicit Object(size_t buf_size) : id(-1), table(-1), version(-1),
+                                       checksum(0), data_len(0) {
         assert(buf_size >= sizeof(*this));
     }
 

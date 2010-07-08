@@ -13,7 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
+/**
+ * \file
+ * Contains formats for RPCs between clients and masters.
+ */
 
 #ifndef RAMCLOUD_RCRPC_H
 #define RAMCLOUD_RCRPC_H

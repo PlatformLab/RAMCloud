@@ -13,28 +13,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
+/**
+ * \file
+ * A header file that is included everywhere.
+ * TODO(ongaro): A lot of this stuff should probably move elsewhere.
+ */
 
 #ifndef RAMCLOUD_COMMON_H
 #define RAMCLOUD_COMMON_H
-
-#include <config.h>
-
-#ifdef __cplusplus
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <memory>
-#include <cassert>
-#include <string>
-using std::string;
-#else
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <strings.h>
-#include <assert.h>
-#endif
 
 // requires 0x for cstdint
 #include <stdint.h>
@@ -44,7 +30,27 @@ using std::string;
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 
-#include <rcrpc.h>
+#ifndef __cplusplus
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <assert.h>
+#else
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <cassert>
+#include <string>
+using std::string;
+#endif
+
+// cpplint thinks these are system headers since we're using angle brackets.
+// Then it complains that they're not included first, but really it wants
+// application headers last.
+#include <config.h> // NOLINT
+#include <rcrpc.h> // NOLINT
 
 // A macro to disallow the copy constructor and operator= functions
 // This should be used in the private: declarations for a class
@@ -107,7 +113,7 @@ _xmemalign(size_t alignment, size_t len,
     }
 
     // alignment must be a multiple of sizeof(void*)
-    if (alignment % sizeof(void*) != 0) {
+    if (alignment % sizeof(void*) != 0) { // NOLINT
         fprintf(stderr, "xmemalign alignment (%d) must be "
                         "a multiple of sizeof(void*): %s:%d (%s)\n",
                 alignment, file, line, func);
@@ -149,8 +155,8 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
     return p;
 }
 
-#define STATIC_ASSERT_CAT2(a,b) a##b
-#define STATIC_ASSERT_CAT(a,b) STATIC_ASSERT_CAT2(a, b)
+#define STATIC_ASSERT_CAT2(a, b) a##b
+#define STATIC_ASSERT_CAT(a, b) STATIC_ASSERT_CAT2(a, b)
 /**
  * Generate a compile-time error if \a x is false.
  * You can "call" this anywhere declaring an enum is allowed -- it doesn't
@@ -158,7 +164,8 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
  * \param x
  *      A condition that can be evaluated at compile-time.
  */
-#define static_assert(x) enum { STATIC_ASSERT_CAT(STATIC_ASSERT_FAILED_, __COUNTER__) = 1/(x) }
+#define static_assert(x) enum { \
+    STATIC_ASSERT_CAT(STATIC_ASSERT_FAILED_, __COUNTER__) = 1/(x) }
 
 #ifdef __cplusplus
 void debug_dump64(const void *buf, uint64_t bytes);
