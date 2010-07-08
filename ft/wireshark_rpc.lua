@@ -65,9 +65,10 @@ do
 
 		local f_sessionToken = ProtoField.uint64("rc.sessionToken", "Session Token", base.HEX)
 		local f_rpcId = ProtoField.uint32("rc.rpcId", "RPC ID", base.HEX)
+		local f_clientSessionHint = ProtoField.uint32("rc.clientSessionHint", "Client Session Hint", base.DEC)
+		local f_serverSessionHint = ProtoField.uint32("rc.serverSessionHint", "Server Session Hint", base.DEC)
 		local f_fragNumber = ProtoField.uint16("rc.fragNumber", "Fragment Number", base.DEC)
 		local f_totalFrags = ProtoField.uint16("rc.totalFrags", "Total Fragments", base.DEC)
-		local f_sessionId = ProtoField.uint16("rc.sessionId", "Server Session ID", base.DEC)
 		local f_channelId = ProtoField.uint8("rc.channelId", "Channel ID", base.DEC)
 		local t_payloadTypes = { [0x0] = "DATA",
 			[0x1] = "ACK",
@@ -83,36 +84,38 @@ do
 					       { [0] = "client to server", [1] = "server to client" }, 0x01)
 		local f_requestAck = ProtoField.uint8("rc.requestAck", "Request ACK", nil, nil, 0x02)
 		local f_pleaseDrop = ProtoField.uint8("rc.pleaseDrop", "Please Drop", nil, nil, 0x04)
-		p_proto.fields = { f_sessionToken, f_rpcId, f_fragNumber, f_totalFrags,
-				   f_sessionId, f_channelId, f_payloadType, f_direction, f_requestAck, f_pleaseDrop }
+		p_proto.fields = { f_sessionToken, f_rpcId, f_clientSessionHint, f_serverSessionHint,
+		                   f_fragNumber, f_totalFrags,
+		                   f_channelId, f_payloadType, f_direction, f_requestAck, f_pleaseDrop }
 		
 		function p_proto.dissector(buf, pkt, root)
 			local header_len = 20
 			local t = root:add(p_proto, buf(0, header_len))
 			t:add_le(f_sessionToken, buf(0, 8))
 			t:add_le(f_rpcId, buf(8, 4))
-			t:add_le(f_fragNumber, buf(12, 2))
-			t:add_le(f_totalFrags, buf(14, 2))
-			t:add_le(f_sessionId, buf(16, 2))
-			t:add_le(f_channelId, buf(18, 1))
-			t:add_le(f_payloadType, buf(19, 1))
-			t:add_le(f_direction, buf(19, 1))
-			t:add_le(f_requestAck, buf(19, 1))
-			t:add_le(f_pleaseDrop, buf(19, 1))
+			t:add_le(f_clientSessionHint, buf(12, 4))
+			t:add_le(f_serverSessionHint, buf(16, 4))
+			t:add_le(f_fragNumber, buf(20, 2))
+			t:add_le(f_totalFrags, buf(22, 2))
+			t:add_le(f_channelId, buf(24, 1))
+			t:add_le(f_payloadType, buf(25, 1))
+			t:add_le(f_direction, buf(25, 1))
+			t:add_le(f_requestAck, buf(25, 1))
+			t:add_le(f_pleaseDrop, buf(25, 1))
 
-			local i_payloadType = bit.blogic_rshift(buf(19, 1):le_uint(), 4)
+			local i_payloadType = bit.blogic_rshift(buf(25, 1):le_uint(), 4)
 			if i_payloadType > maxpt then
 				maxpt = i_payloadType
 				print(i_payloadType)
 			end
-			local i_direction = bit.band(buf(19, 1):le_uint(), 0x01)
-			local i_requestAck = bit.band(buf(19, 1):le_uint(), 0x02)
+			local i_direction = bit.band(buf(25, 1):le_uint(), 0x01)
+			local i_requestAck = bit.band(buf(25, 1):le_uint(), 0x02)
 
 			local s_fragDisplay = "";
 			local s_directionDisplay = "";
 			local s_requestAckDisplay = "";
 			if i_payloadType == 0x0 then
-				s_fragDisplay = "[" .. buf(12,2):le_uint() .. "/" .. buf(14,2):le_uint() - 1 .. "] "
+				s_fragDisplay = "[" .. buf(20,2):le_uint() .. "/" .. buf(22,2):le_uint() - 1 .. "] "
 				if i_requestAck ~= 0 then
 					s_requestAckDisplay = " requesting ACK"
 				end
@@ -131,13 +134,13 @@ do
 				end
 			end
 
-			local s_info = buf(16, 2):le_uint() .. "." .. buf(18, 1):le_uint() .. "." .. buf(8, 4):le_uint() .. ": "
+			local s_info = buf(0, 1):le_uint() .. "." .. buf(24, 1):le_uint() .. "." .. buf(8, 1):le_uint() .. ": "
 			s_info = s_info .. s_fragDisplay .. t_payloadTypes[i_payloadType] .. " "
 			s_info = s_info .. s_directionDisplay .. s_requestAckDisplay
 			pkt.columns.info = s_info
 			pkt.columns.protocol = "RAMCloud"
 
-			if hasbit(buf(19, 1):le_uint(), getbit(5)) and not hasbit(buf(19, 1):le_uint(), getbit(6)) then
+			if i_payloadType == 0x1 then
 				p_ack_proto.dissector:call(buf(header_len):tvb(), pkt, root)
 			else
 				Dissector.get("data"):call(buf(header_len):tvb(), pkt, root)

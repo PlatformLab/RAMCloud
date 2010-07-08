@@ -107,18 +107,20 @@ class Header(object):
       +-------------------------------------+
       |                rpcId                |
       +-------------------------------------+
-      |   fragNumber    |   totalFrags      |
+      |         clientSessionHint           |
       +-------------------------------------+
-      |   sessionId     | channelId | flags |
+      |         serverSessionHint           |
       +-------------------------------------+
+      |     fragNumber    |  totalFrags     |
+      +-------------------------------------+
+      | channelId | flags |
+      +-------------------+
     Everything is encoded in little-endian, NOT network byte order.
 
     @cvar LENGTH: The size in bytes of a Header.
     """
-    # TODO(ongaro): Change sessionId (16 bits) to serverSessionHint (32 bits).
-    # Add clientSessionHint (32 bits).
 
-    _PACK_FORMAT = 'QIHHHBB'
+    _PACK_FORMAT = 'QIIIHHBB'
     assert RPCID_WIDTH <= 32
 
     LENGTH = struct.calcsize(_PACK_FORMAT)
@@ -150,10 +152,11 @@ class Header(object):
         flags = unpacked[-1]
         return cls(sessionToken=unpacked[0],
                    rpcId=unpacked[1],
-                   fragNumber=unpacked[2],
-                   totalFrags=unpacked[3],
-                   sessionId=unpacked[4],
-                   channelId=unpacked[5],
+                   clientSessionHint=unpacked[2],
+                   serverSessionHint=unpacked[3],
+                   fragNumber=unpacked[4],
+                   totalFrags=unpacked[5],
+                   channelId=unpacked[6],
                    payloadType=(flags & cls.PAYLOAD_TYPE_MASK),
                    direction=(flags & cls.DIRECTION_MASK),
                    requestAck=bool((flags & cls.REQUEST_ACK_MASK) != 0),
@@ -162,9 +165,10 @@ class Header(object):
     def __init__(self,
                  sessionToken=None,
                  rpcId=None,
+                 clientSessionHint=None,
+                 serverSessionHint=None,
                  fragNumber=0,
                  totalFrags=1,
-                 sessionId=None,
                  channelId=None,
                  payloadType=None,
                  direction=None,
@@ -172,9 +176,10 @@ class Header(object):
                  pleaseDrop=False):
         self.sessionToken = sessionToken
         self.rpcId = rpcId
+        self.clientSessionHint = clientSessionHint
+        self.serverSessionHint = serverSessionHint
         self.fragNumber = fragNumber
         self.totalFrags = totalFrags
-        self.sessionId = sessionId
         self.channelId = channelId
         self.payloadType = payloadType
         self.direction = direction
@@ -186,7 +191,8 @@ class Header(object):
         assert self.rpcId is not None
         assert self.fragNumber is not None
         assert self.totalFrags is not None
-        assert self.sessionId is not None
+        assert self.clientSessionHint is not None
+        assert self.serverSessionHint is not None
         assert self.channelId is not None
         assert self.fragNumber < self.totalFrags
         if self.requestAck:
@@ -203,9 +209,10 @@ class Header(object):
         return struct.pack(self._PACK_FORMAT,
                            self.sessionToken,
                            self.rpcId,
+                           self.clientSessionHint,
+                           self.serverSessionHint,
                            self.fragNumber,
                            self.totalFrags,
-                           self.sessionId,
                            self.channelId,
                            flags)
 
@@ -597,8 +604,8 @@ class Channel(object):
         """Set Header fields according to this channel and its containing
         session.
 
-        This will set the rpcId, channelId, sessionId, sessionToken, and
-        direction.
+        This will set the rpcId, channelId, clientSessionHint,
+        serverSessionHint, sessionToken, and direction.
         """
         raise NotImplementedError
 
@@ -614,7 +621,8 @@ class Session(object):
     def fillHeader(self, header):
         """Set Header fields according to this session.
 
-        This will set the sessionId, sessionToken, and direction.
+        This will set the clientSessionHint, serverSessionHint, sessionToken,
+        and direction.
         """
         raise NotImplementedError
 
@@ -852,6 +860,7 @@ class ServerSession(Session):
         self._token = None
         self._lastActivityTime = 0
         self._address = None
+        self._clientSessionHint = None
 
     def getChannel(self, channelId):
         if channelId < NUM_CHANNELS_PER_SESSION:
@@ -861,7 +870,8 @@ class ServerSession(Session):
 
     def fillHeader(self, header):
         header.direction = Header.SERVER_TO_CLIENT
-        header.sessionId = self._id
+        header.clientSessionHint = self._clientSessionHint
+        header.serverSessionHint = self._id
         header.sessionToken = self._token
 
     def getAddress(self):
@@ -870,11 +880,12 @@ class ServerSession(Session):
     def isInUse(self):
         return (self._state == self._ACTIVE_STATE)
 
-    def startSession(self, address):
+    def startSession(self, address, clientSessionHint):
         assert self._state == self._IDLE_STATE
         self._state = self._ACTIVE_STATE
         self._address = address
         self._token = random.randrange(0, 1 << 64)
+        self._clientSessionHint = clientSessionHint
 
         # send session open response
         header = Header()
@@ -898,6 +909,7 @@ class ServerSession(Session):
                 delete(rpc)
         self._state = self._IDLE_STATE
         self._token = None
+        self._clientSessionHint = None
         self._lastActivityTime = 0
 
     def getLastActivityTime(self):
@@ -1043,8 +1055,9 @@ class ClientChannel(Channel):
 class ClientSession(Session):
     """A session on the client."""
 
-    def __init__(self, transport, address):
+    def __init__(self, transport, sessionId, address):
         self._transport = transport
+        self._id = sessionId
         self._address = address
         self._channelQueue = []
 
@@ -1055,7 +1068,7 @@ class ClientSession(Session):
 
         self._numChannels = 0
         self._channels = None
-        self._serverSessionId = None
+        self._serverSessionHint = None
         self._token = None
 
         self._sendSessionOpenRequest()
@@ -1063,7 +1076,8 @@ class ClientSession(Session):
 
     def fillHeader(self, header):
         header.direction = Header.CLIENT_TO_SERVER
-        header.sessionId = self._serverSessionId
+        header.clientSessionHint = self._id
+        header.serverSessionHint = self._serverSessionHint
         header.sessionToken = self._token
 
     def getAddress(self):
@@ -1076,7 +1090,7 @@ class ClientSession(Session):
         header = Header()
         self.fillHeader(header)
         header.rpcId = 0
-        header.sessionId = 0
+        header.serverSessionHint = 0
         header.sessionToken = 0
         header.channelId = 0
         header.payloadType = Header.PT_SESSION_OPEN
@@ -1084,11 +1098,12 @@ class ClientSession(Session):
         # TODO(ongaro): Would it be possible to open a session like other RPCs?
         # TODO: set up timer
 
-    def processSessionOpenResponse(self, sessionId, sessionToken, channelId, data):
+    def processSessionOpenResponse(self, serverSessionHint, sessionToken,
+                                   channelId, data):
         """Process an inbound session open response."""
         if self._isConnected():
             return
-        self._serverSessionId = sessionId
+        self._serverSessionHint = serverSessionHint
         self._token = sessionToken
         self._numChannels = min(channelId, MAX_NUM_CHANNELS_PER_SESSION)
         self._channels = new([ClientChannel(self._transport, self, i)
@@ -1243,7 +1258,7 @@ class Transport(object):
                 # This must be an old or malformed packet, so it is safe to drop.
                 debug("drop -- not a server")
                 return True
-            session = self._serverSessions[header.sessionId &
+            session = self._serverSessions[header.serverSessionHint &
                                            (NUM_SERVER_SESSIONS - 1)]
             if header.sessionToken == session._token:
                 channel = session.getChannel(header.channelId)
@@ -1295,19 +1310,21 @@ class Transport(object):
                     oldestTime = 0
                     for session in self._serverSessions:
                         if not session.isInUse():
-                            session.startSession(address)
+                            session.startSession(address,
+                                                 header.clientSessionHint)
                             return True
                         t = session.getLastActivityTime()
                         if t > oldestTime:
                             oldestTime = t
                             oldestSession = session
                     oldestSession.destroy()
-                    oldestSession.startSession(address)
+                    oldestSession.startSession(address, header.clientSessionHint)
                 else:
                     replyHeader = Header()
                     replyHeader.sessionToken = header.sessionToken
                     replyHeader.rpcId = header.rpcId
-                    replyHeader.sessionId = header.sessionId
+                    replyHeader.clientSessionHint = header.clientSessionHint
+                    replyHeader.serverSessionHint = header.serverSessionHint
                     replyHeader.channelId = header.channelId
                     replyHeader.payloadType = Header.PT_BAD_SESSION
                     replyHeader.direction = Header.SERVER_TO_CLIENT
@@ -1321,7 +1338,7 @@ class Transport(object):
             channel = session.getChannel(header.channelId)
             if channel is None:
                 if header.payloadType == Header.PT_SESSION_OPEN:
-                    session.processSessionOpenResponse(header.sessionId,
+                    session.processSessionOpenResponse(header.serverSessionHint,
                                                        header.sessionToken,
                                                        header.channelId,
                                                        data)
@@ -1363,7 +1380,7 @@ class Transport(object):
         try:
             return self._clientSessions[address]
         except KeyError:
-            session = new(ClientSession(self, address))
+            session = new(ClientSession(self, 0, address))
             self._clientSessions[address] = session
             return session
 
