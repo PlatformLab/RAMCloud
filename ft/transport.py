@@ -52,7 +52,7 @@ RPCID_WIDTH = 32
 
 # The fraction of packets that will be dropped on transmission.
 # This should be 0 for production!
-PACKET_LOSS = 0.0
+PACKET_LOSS = 0.25
 
 MAX_BURST_SIZE = 10
 REQ_ACK_AFTER = 5
@@ -131,6 +131,7 @@ class Header(object):
     PAYLOAD_TYPE_MASK = 0xF0
     DIRECTION_MASK    = 0x01
     REQUEST_ACK_MASK  = 0x02
+    PLEASE_DROP_MASK  = 0x04
 
     # payload types
     PT_DATA         = 0x00
@@ -155,7 +156,8 @@ class Header(object):
                    channelId=unpacked[5],
                    payloadType=(flags & cls.PAYLOAD_TYPE_MASK),
                    direction=(flags & cls.DIRECTION_MASK),
-                   requestAck=bool((flags & cls.REQUEST_ACK_MASK) != 0))
+                   requestAck=bool((flags & cls.REQUEST_ACK_MASK) != 0),
+                   pleaseDrop=bool((flags & cls.PLEASE_DROP_MASK) != 0))
 
     def __init__(self,
                  sessionToken=None,
@@ -166,7 +168,8 @@ class Header(object):
                  channelId=None,
                  payloadType=None,
                  direction=None,
-                 requestAck=False):
+                 requestAck=False,
+                 pleaseDrop=False):
         self.sessionToken = sessionToken
         self.rpcId = rpcId
         self.fragNumber = fragNumber
@@ -176,6 +179,7 @@ class Header(object):
         self.payloadType = payloadType
         self.direction = direction
         self.requestAck = requestAck
+        self.pleaseDrop = pleaseDrop
 
     def __str__(self):
         assert self.sessionToken is not None
@@ -194,6 +198,7 @@ class Header(object):
         flags = 0
         if self.direction:   flags |= self.DIRECTION_MASK
         if self.requestAck:  flags |= self.REQUEST_ACK_MASK
+        if self.pleaseDrop:  flags |= self.PLEASE_DROP_MASK
         flags |= self.payloadType
         return struct.pack(self._PACK_FORMAT,
                            self.sessionToken,
@@ -1200,12 +1205,12 @@ class Transport(object):
 
     def _sendOne(self, address, header, dataBuffer):
         """Dump a packet onto the wire."""
-        dataBuffer.insert(0, str(header))
         assert header.fragNumber < header.totalFrags
-        if random.random() >= PACKET_LOSS:
-            # TODO(ongaro): Will a sync API to Driver allow us to fully utilize
-            # the NIC?
-            self._driver.sendPacket(address, dataBuffer)
+        header.pleaseDrop = (random.random() < PACKET_LOSS)
+        dataBuffer.insert(0, str(header))
+        # TODO(ongaro): Will a sync API to Driver allow us to fully utilize
+        # the NIC?
+        self._driver.sendPacket(address, dataBuffer)
 
     def _checkTimers(self):
         now = gettime()
@@ -1230,6 +1235,8 @@ class Transport(object):
         payload, address = x
         header = Header.fromString(payload[:Header.LENGTH])
         data = payload[Header.LENGTH:]
+        if header.pleaseDrop:
+            return True
 
         if header.direction == header.CLIENT_TO_SERVER:
             if not self._isServer:

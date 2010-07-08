@@ -82,8 +82,9 @@ do
 		local f_direction = ProtoField.uint8("rc.direction", "Direction", nil,
 					       { [0] = "client to server", [1] = "server to client" }, 0x01)
 		local f_requestAck = ProtoField.uint8("rc.requestAck", "Request ACK", nil, nil, 0x02)
+		local f_pleaseDrop = ProtoField.uint8("rc.pleaseDrop", "Please Drop", nil, nil, 0x04)
 		p_proto.fields = { f_sessionToken, f_rpcId, f_fragNumber, f_totalFrags,
-				   f_sessionId, f_channelId, f_payloadType, f_direction, f_requestAck }
+				   f_sessionId, f_channelId, f_payloadType, f_direction, f_requestAck, f_pleaseDrop }
 		
 		function p_proto.dissector(buf, pkt, root)
 			local header_len = 20
@@ -97,6 +98,7 @@ do
 			t:add_le(f_payloadType, buf(19, 1))
 			t:add_le(f_direction, buf(19, 1))
 			t:add_le(f_requestAck, buf(19, 1))
+			t:add_le(f_pleaseDrop, buf(19, 1))
 
 			local i_payloadType = bit.blogic_rshift(buf(19, 1):le_uint(), 4)
 			if i_payloadType > maxpt then
