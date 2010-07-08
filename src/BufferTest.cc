@@ -57,84 +57,69 @@ class BufferAllocationTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_destructor);
 
-    CPPUNIT_TEST(test_canAllocateChunk);
-    CPPUNIT_TEST(test_canAllocatePrepend);
-    CPPUNIT_TEST(test_canAllocateAppend);
-
     CPPUNIT_TEST(test_allocateChunk);
     CPPUNIT_TEST(test_allocatePrepend);
     CPPUNIT_TEST(test_allocateAppend);
 
     CPPUNIT_TEST_SUITE_END();
 
+    Buffer::Allocation* a;
+
   public:
 
+    BufferAllocationTest() : a(NULL) {}
+
+    void setUp() {
+        a = Buffer::Allocation::newAllocation(256, 2048);
+    }
+
+    void tearDown() {
+        if (a != NULL)
+            free(a);
+        a = NULL;
+    }
+
     void test_constructor() {
-        Buffer::Allocation a;
-        CPPUNIT_ASSERT(a.next == NULL);
-        CPPUNIT_ASSERT_EQUAL(Buffer::Allocation::APPEND_START, a.prependTop);
-        CPPUNIT_ASSERT_EQUAL(Buffer::Allocation::APPEND_START, a.appendTop);
-        CPPUNIT_ASSERT_EQUAL(Buffer::Allocation::TOTAL_SIZE, a.chunkTop);
+        CPPUNIT_ASSERT(a->next == NULL);
+        CPPUNIT_ASSERT_EQUAL(256, a->prependTop);
+        CPPUNIT_ASSERT_EQUAL(256, a->appendTop);
+        CPPUNIT_ASSERT_EQUAL(2048, a->chunkTop);
     }
 
     void test_destructor() {
     }
 
-    void test_canAllocateChunk() {
-        uint32_t size = (Buffer::Allocation::TOTAL_SIZE -
-                         Buffer::Allocation::APPEND_START);
-        CPPUNIT_ASSERT(Buffer::Allocation::canAllocateChunk(size));
-        CPPUNIT_ASSERT(!Buffer::Allocation::canAllocateChunk(size) + 1);
-    }
-
-    void test_canAllocatePrepend() {
-        uint32_t size = Buffer::Allocation::APPEND_START;
-        CPPUNIT_ASSERT(Buffer::Allocation::canAllocatePrepend(size));
-        CPPUNIT_ASSERT(!Buffer::Allocation::canAllocatePrepend(size) + 1);
-    }
-
-    void test_canAllocateAppend() {
-        uint32_t size = (Buffer::Allocation::TOTAL_SIZE -
-                         Buffer::Allocation::APPEND_START);
-        CPPUNIT_ASSERT(Buffer::Allocation::canAllocateAppend(size));
-        CPPUNIT_ASSERT(!Buffer::Allocation::canAllocateAppend(size) + 1);
-    }
-
     void test_allocateChunk() {
-        Buffer::Allocation a;
-        uint32_t size = (Buffer::Allocation::TOTAL_SIZE -
-                         Buffer::Allocation::APPEND_START);
-        a.allocateChunk(0);
-        CPPUNIT_ASSERT_EQUAL(&a.data[Buffer::Allocation::APPEND_START + 10],
-                       a.allocateChunk(size - 10));
-        CPPUNIT_ASSERT_EQUAL(&a.data[Buffer::Allocation::APPEND_START],
-                       a.allocateChunk(10));
-        CPPUNIT_ASSERT_EQUAL(NULL, a.allocateChunk(1));
-        CPPUNIT_ASSERT_EQUAL(NULL, a.allocateAppend(1));
+        uint32_t size = 2048 - 256;
+        a->allocateChunk(0);
+        CPPUNIT_ASSERT_EQUAL(&a->data[256 + 10],
+                             a->allocateChunk(size - 10));
+        CPPUNIT_ASSERT_EQUAL(&a->data[256],
+                             a->allocateChunk(10));
+        CPPUNIT_ASSERT_EQUAL(NULL, a->allocateChunk(1));
+        CPPUNIT_ASSERT_EQUAL(NULL, a->allocateAppend(1));
     }
 
     void test_allocatePrepend() {
-        Buffer::Allocation a;
-        uint32_t size = Buffer::Allocation::APPEND_START;
-        a.allocatePrepend(0);
-        CPPUNIT_ASSERT_EQUAL(&a.data[10], a.allocatePrepend(size - 10));
-        CPPUNIT_ASSERT_EQUAL(&a.data[0], a.allocatePrepend(10));
-        CPPUNIT_ASSERT_EQUAL(NULL, a.allocatePrepend(1));
+        uint32_t size = 256;
+        a->allocatePrepend(0);
+        CPPUNIT_ASSERT_EQUAL(&a->data[10], a->allocatePrepend(size - 10));
+        CPPUNIT_ASSERT_EQUAL(&a->data[0], a->allocatePrepend(10));
+        CPPUNIT_ASSERT_EQUAL(NULL, a->allocatePrepend(1));
     }
 
     void test_allocateAppend() {
-        Buffer::Allocation a;
-        uint32_t size = (Buffer::Allocation::TOTAL_SIZE -
-                         Buffer::Allocation::APPEND_START);
-        a.allocateAppend(0);
-        CPPUNIT_ASSERT_EQUAL(&a.data[Buffer::Allocation::APPEND_START],
-                       a.allocateAppend(size - 10));
-        CPPUNIT_ASSERT_EQUAL(&a.data[Buffer::Allocation::TOTAL_SIZE - 10],
-                       a.allocateAppend(10));
-        CPPUNIT_ASSERT_EQUAL(NULL, a.allocateAppend(1));
-        CPPUNIT_ASSERT_EQUAL(NULL, a.allocateChunk(1));
+        uint32_t size = 2048 - 256;
+        a->allocateAppend(0);
+        CPPUNIT_ASSERT_EQUAL(&a->data[256],
+                       a->allocateAppend(size - 10));
+        CPPUNIT_ASSERT_EQUAL(&a->data[2048 - 10],
+                       a->allocateAppend(10));
+        CPPUNIT_ASSERT_EQUAL(NULL, a->allocateAppend(1));
+        CPPUNIT_ASSERT_EQUAL(NULL, a->allocateChunk(1));
     }
-
+  private:
+    DISALLOW_COPY_AND_ASSIGN(BufferAllocationTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferAllocationTest);
 
@@ -189,7 +174,6 @@ class BufferTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_peek_offsetGreaterThanTotalLength);
 
     CPPUNIT_TEST(test_copyChunks);
-    CPPUNIT_TEST(test_allocateBigAllocation);
 
     CPPUNIT_TEST(test_getRange_inputEdgeCases);
     CPPUNIT_TEST(test_getRange_peek);
@@ -248,7 +232,6 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, b.numberChunks);
         CPPUNIT_ASSERT_EQUAL(NULL, b.chunks);
         CPPUNIT_ASSERT_EQUAL(NULL, b.allocations);
-        CPPUNIT_ASSERT_EQUAL(NULL, b.bigAllocations);
     }
 
     void test_destructor() {
@@ -257,118 +240,51 @@ class BufferTest : public CppUnit::TestFixture {
 
     void test_newAllocation() {
         Buffer b;
-        Buffer::Allocation* a2 = b.newAllocation();
-        Buffer::Allocation* a1 = b.newAllocation();
+        uint32_t s;
+
+        s = Buffer::INITIAL_ALLOCATION_SIZE;
+        Buffer::Allocation* a3 = b.newAllocation(s + 5, 0);
+        CPPUNIT_ASSERT_EQUAL(s + 5, a3->prependTop);
+        CPPUNIT_ASSERT_EQUAL(s + 5, a3->chunkTop);
+
+        s *= 2;
+        Buffer::Allocation* a2 = b.newAllocation(0, s + 5);
+        CPPUNIT_ASSERT_EQUAL(0, a2->prependTop);
+        CPPUNIT_ASSERT_EQUAL(s + 5, a2->chunkTop);
+
+        s *= 2;
+        Buffer::Allocation* a1 = b.newAllocation(0, 0);
+        CPPUNIT_ASSERT_EQUAL(s / 8, a1->prependTop);
+        CPPUNIT_ASSERT_EQUAL(s, a1->chunkTop);
+
         CPPUNIT_ASSERT_EQUAL(a1, b.allocations);
         CPPUNIT_ASSERT_EQUAL(a2, a1->next);
-        CPPUNIT_ASSERT_EQUAL(NULL, a2->next);
-    }
-
-    bool allocationContains(Buffer::Allocation* allocation, void* p) {
-        return (p >= &allocation->data[0] &&
-                p < &allocation->data[Buffer::Allocation::TOTAL_SIZE]);
+        CPPUNIT_ASSERT_EQUAL(a3, a2->next);
+        CPPUNIT_ASSERT_EQUAL(NULL, a3->next);
     }
 
     void test_allocateChunk() {
-        uint32_t chunkTopStart;
-
-        // allocations is not NULL and the chunk fits in the existing
-        // allocation
-        {
-            Buffer b;
-            chunkTopStart = b.newAllocation()->chunkTop;
-            void* data = b.allocateChunk(1);
-            CPPUNIT_ASSERT(allocationContains(b.allocations, data));
-            CPPUNIT_ASSERT(chunkTopStart != b.allocations->chunkTop);
-        }
-
-        // allocations is NULL, but the chunk fits in a new allocation
-        {
-            Buffer b;
-            void* data = b.allocateChunk(1);
-            CPPUNIT_ASSERT(b.allocations != NULL);
-            CPPUNIT_ASSERT(allocationContains(b.allocations, data));
-            CPPUNIT_ASSERT(chunkTopStart != b.allocations->chunkTop);
-        }
-
-        // allocations is not NULL, the chunk doesn't fit in the current
-        // allocation, and the chunk wouldn't fit in any allocation.
-        {
-            Buffer b;
-            b.newAllocation();
-            void* data = b.allocateChunk(Buffer::Allocation::TOTAL_SIZE + 10);
-            CPPUNIT_ASSERT(b.bigAllocations != NULL);
-            CPPUNIT_ASSERT(b.bigAllocations->data == data);
-            CPPUNIT_ASSERT(chunkTopStart == b.allocations->chunkTop);
-        }
+        Buffer b;
+        b.allocateChunk(1); // allocates new Allocation
+        b.allocateChunk(1); // uses existing Allocation
+        CPPUNIT_ASSERT(b.allocations != NULL);
+        CPPUNIT_ASSERT(b.allocations->next == NULL);
     }
 
     void test_allocatePrepend() {
-        uint32_t prependTopStart;
-
-        // allocations is not NULL and the prepend fits in the existing
-        // allocation
-        {
-            Buffer b;
-            prependTopStart = b.newAllocation()->prependTop;
-            void* data = b.allocatePrepend(1);
-            CPPUNIT_ASSERT(allocationContains(b.allocations, data));
-            CPPUNIT_ASSERT(prependTopStart != b.allocations->prependTop);
-        }
-
-        // allocations is NULL, but the prepend fits in a new allocation
-        {
-            Buffer b;
-            void* data = b.allocatePrepend(1);
-            CPPUNIT_ASSERT(b.allocations != NULL);
-            CPPUNIT_ASSERT(allocationContains(b.allocations, data));
-            CPPUNIT_ASSERT(prependTopStart != b.allocations->prependTop);
-        }
-
-        // allocations is not NULL, the prepend doesn't fit in the current
-        // allocation, and the prepend wouldn't fit in any allocation.
-        {
-            Buffer b;
-            b.newAllocation();
-            void* data = b.allocatePrepend(Buffer::Allocation::TOTAL_SIZE + 10);
-            CPPUNIT_ASSERT(b.bigAllocations != NULL);
-            CPPUNIT_ASSERT(b.bigAllocations->data == data);
-            CPPUNIT_ASSERT(prependTopStart == b.allocations->prependTop);
-        }
+        Buffer b;
+        b.allocatePrepend(1); // allocates new Allocation
+        b.allocatePrepend(1); // uses existing Allocation
+        CPPUNIT_ASSERT(b.allocations != NULL);
+        CPPUNIT_ASSERT(b.allocations->next == NULL);
     }
 
     void test_allocateAppend() {
-        uint32_t appendTopStart;
-
-        // allocations is not NULL and the append fits in the existing
-        // allocation
-        {
-            Buffer b;
-            appendTopStart = b.newAllocation()->appendTop;
-            void* data = b.allocateAppend(1);
-            CPPUNIT_ASSERT(allocationContains(b.allocations, data));
-            CPPUNIT_ASSERT(appendTopStart != b.allocations->appendTop);
-        }
-
-        // allocations is NULL, but the append fits in a new allocation
-        {
-            Buffer b;
-            void* data = b.allocateAppend(1);
-            CPPUNIT_ASSERT(b.allocations != NULL);
-            CPPUNIT_ASSERT(allocationContains(b.allocations, data));
-            CPPUNIT_ASSERT(appendTopStart != b.allocations->appendTop);
-        }
-
-        // allocations is not NULL, the append doesn't fit in the current
-        // allocation, and the append wouldn't fit in any allocation.
-        {
-            Buffer b;
-            b.newAllocation();
-            void* data = b.allocateAppend(Buffer::Allocation::TOTAL_SIZE + 10);
-            CPPUNIT_ASSERT(b.bigAllocations != NULL);
-            CPPUNIT_ASSERT(b.bigAllocations->data == data);
-            CPPUNIT_ASSERT(appendTopStart == b.allocations->appendTop);
-        }
+        Buffer b;
+        b.allocateAppend(1); // allocates new Allocation
+        b.allocateAppend(1); // uses existing Allocation
+        CPPUNIT_ASSERT(b.allocations != NULL);
+        CPPUNIT_ASSERT(b.allocations->next == NULL);
     }
 
     void test_prepend() {
@@ -434,22 +350,6 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("123456789", scratch+31);
     }
 
-    void test_allocateBigAllocation() {
-        typedef Buffer::BigAllocation BigAllocation;
-        Buffer b;
-
-        void* r2 = b.allocateBigAllocation(3);
-        BigAllocation* cr2 = static_cast<BigAllocation*>(r2) - 1;
-        CPPUNIT_ASSERT_EQUAL(b.bigAllocations, cr2);
-
-        void* r1 = b.allocateBigAllocation(4);
-        BigAllocation* cr1 = static_cast<BigAllocation*>(r1) - 1;
-        CPPUNIT_ASSERT_EQUAL(b.bigAllocations, cr1);
-
-        CPPUNIT_ASSERT_EQUAL(cr2, cr1->next);
-        CPPUNIT_ASSERT_EQUAL(NULL, cr2->next);
-    }
-
     void test_getRange_inputEdgeCases() {
         CPPUNIT_ASSERT_EQUAL(NULL, buf->getRange(0, 0));
         CPPUNIT_ASSERT_EQUAL(NULL, buf->getRange(30, 1));
@@ -463,7 +363,6 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(testStr2 + 1,  buf->getRange(11, 5));
         CPPUNIT_ASSERT_EQUAL(testStr3, buf->getRange(20, 1));
         CPPUNIT_ASSERT_EQUAL(testStr3 + 9, buf->getRange(29, 1));
-        CPPUNIT_ASSERT_EQUAL(NULL, buf->bigAllocations);
     }
 
     void test_getRange_copy() {

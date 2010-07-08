@@ -106,8 +106,8 @@ class Buffer {
      * This class hides the complex layout that minimizes the number of Chunks
      * required to make up a Buffer.
      *
-     * An instance of this class uses a fixed amount of space. To manage a
-     * variable amount of space, see the wrappers
+     * A particular instance of this class uses a fixed amount of space. To
+     * manage a variable amount of space, see the wrappers
      * #RAMCloud::Buffer::allocateChunk(),
      * #RAMCloud::Buffer::allocatePrepend(), and
      * #RAMCloud::Buffer::allocateAppend().
@@ -125,7 +125,7 @@ class Buffer {
      *  +---------------+-------------------------------+
      *  |    <--prepend | append-->            <--chunk |
      *  +---------------+-------------------------------+
-     *  0         APPEND_START                     TOTAL_SIZE
+     *  0          prependSize                      totalSize
      * </pre>
      */
     class Allocation {
@@ -137,24 +137,7 @@ class Buffer {
          * This type is used for the tops of the prepend, append, and chunk
          * stacks.
          */
-        typedef uint16_t DataIndex;
-
-        enum {
-            /**
-             * Where the prepend and append stacks start.
-             * TODO(ongaro): Make this variable.
-             */
-            APPEND_START = 256,
-
-            /**
-             * The number of bytes of #data.
-             * TODO(ongaro): Make this variable.
-             */
-            TOTAL_SIZE = 2048
-        };
-
-        // make sure the width of the stack indexes is big enough
-        static_assert(TOTAL_SIZE < (1UL << (8 * sizeof(DataIndex))));
+        typedef uint32_t DataIndex;
 
       public:
 
@@ -168,64 +151,43 @@ class Buffer {
         /**
          * The byte with the smallest index of #data in use by the prepend
          * stack.
-         * The prepend stack grows down from #APPEND_START to 0.
+         * The prepend stack grows down from prependSize to 0.
          */
         DataIndex prependTop;
 
         /**
          * The byte with the largest index of #data in use by the append stack.
-         * The append stack grows up from #APPEND_START to the top of chunk
+         * The append stack grows up from prependSize to the top of chunk
          * stack.
          */
         DataIndex appendTop;
 
         /**
          * The byte with the smallest index of #data in use by the chunk stack.
-         * The chunk stack grows down from #TOTAL_SIZE to the top of the append
+         * The chunk stack grows down from totalSize to the top of the append
          * stack.
          */
         DataIndex chunkTop;
 
-        /**
-         * The memory from which portions are returned by the allocate methods.
-         */
-        char data[TOTAL_SIZE];
-
       public:
-
-        Allocation();
+        static Allocation* newAllocation(uint32_t prependSize,
+                                         uint32_t totalSize);
+        Allocation(uint32_t prependSize, uint32_t totalSize);
         ~Allocation();
-
-        static bool canAllocatePrepend(uint32_t size);
-        static bool canAllocateAppend(uint32_t size);
-        static bool canAllocateChunk(uint32_t size);
 
         void* allocatePrepend(uint32_t size);
         void* allocateAppend(uint32_t size);
         void* allocateChunk(uint32_t size);
 
       private:
-        DISALLOW_COPY_AND_ASSIGN(Allocation);
-    };
-
-    /**
-     * A dynamic memory region that is freed when the Buffer is deallocated.
-     * See #bigAllocations.
-     */
-    struct BigAllocation {
         /**
-         * A pointer to the next BigAllocation in the Buffer's
-         * #bigAllocations list.
-         */
-        BigAllocation* next;
-        /**
-         * The actual memory starts here.
+         * The memory from which portions are returned by the allocate methods
+         * starts here.
          */
         char data[0];
-      private:
-        DISALLOW_COPY_AND_ASSIGN(BigAllocation);
-    };
 
+        DISALLOW_COPY_AND_ASSIGN(Allocation);
+    };
 
   public:
 
@@ -459,10 +421,9 @@ class Buffer {
     void prependChunk(Chunk* newChunk);
     void appendChunk(Chunk* newChunk);
 
-    Allocation* newAllocation();
+    Allocation* newAllocation(uint32_t minPrependSize, uint32_t minAppendSize);
     void copyChunks(const Chunk* current, uint32_t offset,  // NOLINT
                     uint32_t length, void* dest) const;
-    void* allocateBigAllocation(uint32_t length);
 
     /**
      * The total number of bytes in the logical array represented by this
@@ -482,18 +443,27 @@ class Buffer {
 
     /**
      * A singly-linked list of Allocation objects used by #allocateChunk(),
-     * #allocatePrepend(), and #allocateAppend(). Allocation objects are fixed
-     * size, and more are created and added to this list as needed.
+     * #allocatePrepend(), and #allocateAppend(). Allocation objects are each
+     * of a fixed size, and more are created and added to this list as needed.
      */
     Allocation* allocations;
 
+    enum {
+        /**
+         * The minimum size in bytes of the first Allocation instance to be
+         * allocated. Must be a power of two.
+         */
+        INITIAL_ALLOCATION_SIZE = 2048,
+    };
+    static_assert((INITIAL_ALLOCATION_SIZE &
+                   (INITIAL_ALLOCATION_SIZE - 1)) == 0);
+
     /**
-     * A singly-linked list of extra dynamic memory regions that are freed when
-     * the Buffer is deallocated. This is used as a fall-back when the Buffer's
-     * usual memory allocator can't allocate enough space.
-     * TODO(ongaro): Make Allocation variable-sized and get rid of this.
+     * The minimum size in bytes of the next Allocation instance to be
+     * allocated. Must be a power of two. This is doubled for each subsequent
+     * allocation, per the algorithm in #newAllocation().
      */
-    BigAllocation* bigAllocations;
+    uint32_t nextAllocationSize;
 
     friend class Iterator;
     friend class BufferTest;  // For CppUnit testing purposes.

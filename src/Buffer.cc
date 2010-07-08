@@ -26,55 +26,40 @@
 namespace RAMCloud {
 
 /**
- * Constructor for Allocation.
+ * Malloc and construct an Allocation.
+ * \param[in] prependSize
+ *      See constructor.
+ * \param[in] totalSize
+ *      See constructor.
  */
-Buffer::Allocation::Allocation()
+Buffer::Allocation*
+Buffer::Allocation::newAllocation(uint32_t prependSize, uint32_t totalSize) {
+    void* a = xmalloc(sizeof(Allocation) + totalSize);
+    return new(a) Allocation(prependSize, totalSize);
+}
+
+/**
+ * Constructor for Allocation.
+ * \param[in] prependSize
+ *      The number of bytes of the Allocation for prepend data. The rest will
+ *      be used for append data and Chunk instances.
+ * \param[in] totalSize
+ *      The number of bytes of total data the Allocation manages. The
+ *      Allocation will assume it can use totalSize bytes directly following
+ *      itself (i.e., the caller has allocated sizeof(Allocation) + totalSize).
+ */
+Buffer::Allocation::Allocation(uint32_t prependSize, uint32_t totalSize)
     : next(NULL),
-      prependTop(APPEND_START),
-      appendTop(APPEND_START),
-      chunkTop(TOTAL_SIZE) {
+      prependTop(prependSize),
+      appendTop(prependSize),
+      chunkTop(totalSize) {
+    assert(prependSize <= totalSize);
 }
 
 /**
  * Destructor for Allocation.
  */
 Buffer::Allocation::~Allocation() {
-}
-
-/**
- * Returns whether an empty Allocation could allocate space for prepend data of
- * a given size.
- * \param[in] size  The size in bytes of the prepend data that may or may not
- *                  fit in an empty Allocation.
- * \return See above.
- */
-bool
-Buffer::Allocation::canAllocatePrepend(uint32_t size) {
-    return (size <= APPEND_START);
-}
-
-/**
- * Returns whether an empty Allocation could allocate space for append data of
- * a given size.
- * \param[in] size  The size in bytes of the append data that may or may not
- *                  fit in an empty Allocation.
- * \return See above.
- */
-bool
-Buffer::Allocation::canAllocateAppend(uint32_t size) {
-    return (size <= TOTAL_SIZE - APPEND_START);
-}
-
-/**
- * Returns whether an empty Allocation could allocate space for a chunk of a
- * given size.
- * \param[in] size  The size in bytes of the chunk that may or may not fit in
- *                  an empty Allocation.
- * \return See above.
- */
-bool
-Buffer::Allocation::canAllocateChunk(uint32_t size) {
-    return (size <= TOTAL_SIZE - APPEND_START);
 }
 
 /**
@@ -128,7 +113,7 @@ Buffer::Allocation::allocateChunk(uint32_t size) {
  */
 Buffer::Buffer()
     : totalLength(0), numberChunks(0), chunks(NULL),
-      allocations(NULL), bigAllocations(NULL) {
+      allocations(NULL), nextAllocationSize(INITIAL_ALLOCATION_SIZE) {
 }
 
 /**
@@ -145,22 +130,12 @@ Buffer::~Buffer() {
         }
     }
 
-    { // free the list of big allocations
-        BigAllocation* current = bigAllocations;
-        while (current != NULL) {
-            BigAllocation* next;
-            next = current->next;
-            free(current);
-            current = next;
-        }
-    }
-
     { // free the list of allocations
         Allocation* current = allocations;
         while (current != NULL) {
             Allocation* next;
             next = current->next;
-            delete current;
+            free(current);
             current = next;
         }
     }
@@ -170,11 +145,38 @@ Buffer::~Buffer() {
  * Prepend a new Allocation object to the #allocations list.
  * This is used in #allocateChunk(), #allocatePrepend(), and #allocateAppend()
  * when the existing Allocation(s) have run out of space.
- * \return The newly allocated Allocation object.
+ * \param[in] minPrependSize
+ *      The minimum size in bytes of the new Allocation's prepend data region.
+ *      I got lazy, so either this or minAppendSize must be 0.
+ * \param[in] minAppendSize
+ *      The minimum size in bytes of the new Allocation's append data/Chunk
+ *      instance region. I got lazy, so either this or minPrependSize must be 0.
+ * \return
+ *      The newly allocated Allocation object.
  */
 Buffer::Allocation*
-Buffer::newAllocation() {
-    Allocation* newAllocation = new Allocation();
+Buffer::newAllocation(uint32_t minPrependSize,
+                      uint32_t minAppendSize) {
+    assert(minPrependSize == 0 || minAppendSize == 0);
+
+    uint32_t totalSize = nextAllocationSize;
+    uint32_t prependSize = totalSize >> 3;
+    nextAllocationSize <<= 1;
+
+    if (prependSize < minPrependSize) {
+        if (totalSize < minPrependSize)
+            totalSize = minPrependSize;
+        prependSize = minPrependSize;
+    }
+
+    if ((totalSize - prependSize) < minAppendSize) {
+        if (totalSize < minAppendSize)
+            totalSize = minAppendSize;
+        prependSize = totalSize - minAppendSize;
+    }
+
+    Allocation* newAllocation;
+    newAllocation = Allocation::newAllocation(prependSize, totalSize);
     newAllocation->next = allocations;
     allocations = newAllocation;
     return newAllocation;
@@ -193,19 +195,15 @@ Buffer::allocateChunk(uint32_t size) {
     // It is perhaps wasteful of space to not try the other Allocations in
     // the list if this fails, but the others are probably close to full
     // anyway.
+    void* data;
     if (allocations != NULL) {
-        void* data = allocations->allocateChunk(size);
+        data = allocations->allocateChunk(size);
         if (data != NULL)
             return data;
     }
-
-    // Create a new Allocation only if size will fit.
-    if (Allocation::canAllocateChunk(size)) {
-        return newAllocation()->allocateChunk(size);
-    } else {
-        // Hopefully this is extremely rare.
-        return allocateBigAllocation(size);
-    }
+    data = newAllocation(0, size)->allocateChunk(size);
+    assert(data != NULL);
+    return data;
 }
 
 /**
@@ -217,15 +215,15 @@ Buffer::allocateChunk(uint32_t size) {
 // TODO(ongaro): Collect statistics on the distributions of sizes.
 void*
 Buffer::allocatePrepend(uint32_t size) {
+    void* data;
     if (allocations != NULL) {
-        void* data = allocations->allocatePrepend(size);
+        data = allocations->allocatePrepend(size);
         if (data != NULL)
             return data;
     }
-    if (Allocation::canAllocatePrepend(size))
-        return newAllocation()->allocatePrepend(size);
-    else
-        return allocateBigAllocation(size);
+    data = newAllocation(size, 0)->allocatePrepend(size);
+    assert(data != NULL);
+    return data;
 }
 
 /**
@@ -237,15 +235,15 @@ Buffer::allocatePrepend(uint32_t size) {
 // TODO(ongaro): Collect statistics on the distributions of sizes.
 void*
 Buffer::allocateAppend(uint32_t size) {
+    void* data;
     if (allocations != NULL) {
-        void* data = allocations->allocateAppend(size);
+        data = allocations->allocateAppend(size);
         if (data != NULL)
             return data;
     }
-    if (Allocation::canAllocateAppend(size))
-        return newAllocation()->allocateAppend(size);
-    else
-        return allocateBigAllocation(size);
+    data = newAllocation(0, size)->allocateAppend(size);
+    assert(data != NULL);
+    return data;
 }
 
 /**
@@ -358,22 +356,6 @@ Buffer::copyChunks(const Chunk* start, uint32_t offset, // NOLINT
         // but I don't trust the caller.
         assert(current != NULL || bytesRemaining == 0);
     }
-}
-
-/**
- * Allocates a scratch memory area to be freed when the Buffer is destroyed.
- * \param[in] length  The length of the memory area to allocate.
- * \return A pointer to the newly allocated memory area.
- *         This will never be \c NULL.
- */
-void* Buffer::allocateBigAllocation(uint32_t length) {
-    void* m = xmalloc(sizeof(BigAllocation) + length);
-    BigAllocation* newBigAllocation = static_cast<BigAllocation*>(m);
-
-    newBigAllocation->next = bigAllocations;
-    bigAllocations = newBigAllocation;
-
-    return newBigAllocation->data;
 }
 
 /**
