@@ -378,6 +378,8 @@ class OutboundMessage(object):
         expire from this set after TIMEOUT_NS (and we consider it OK to resend
         those). This is implemented as an unordered array of (time sent, frag
         number) or None, of size MAX_BURST_SIZE.
+    @ivar _packetsSinceAckReq:
+        The number of data packets sent on the wire since the last ACK request.
     @ivar _state:
         Start in IDLE and move to SENDING once sending fragments of the message
         has begun. The clear() method will return to the IDLE state.
@@ -388,8 +390,6 @@ class OutboundMessage(object):
         Transmission of the message has at least begun.
     """
     # TODO(ongaro): Can probably drop _state.
-    # TODO(ongaro): packetsSinceAckReq ++, when == REQ_ACK_AFTER, request an
-    # ACK and reset.
 
     _IDLE_STATE = 0
     _SENDING_STATE = 1
@@ -407,18 +407,21 @@ class OutboundMessage(object):
         self._maxSentFrag = 0
         self._totalFrags = 0
         self._lastActivityTime = 0
+        self._packetsSinceAckReq = 0
         for i in range(MAX_BURST_SIZE):
             self._fragsInFlight[i] = None
 
     def getLastActivityTime(self):
         return self._lastActivityTime
 
-    def _sendOneData(self, fragNumber, requestAck=False):
+    def _sendOneData(self, fragNumber, forceRequestAck=False):
         """Send a single data fragment.
 
         Caller should update state such as _lastActivityTime, _fragsInFlight,
         and _maxSentFrag as appropriate.
         """
+        requestAck = (forceRequestAck or
+                      (self._packetsSinceAckReq == REQ_ACK_AFTER - 1))
         header = Header()
         self._channel.fillHeader(header)
         header.fragNumber = fragNumber
@@ -437,6 +440,10 @@ class OutboundMessage(object):
         #  BufferIterator *payloadFromOffsetThrough)
         self._transport._sendOne(self._session.getAddress(), header,
                                  payloadBuffer)
+        if requestAck:
+            self._packetsSinceAckReq = 0
+        else:
+            self._packetsSinceAckReq += 1
 
     # TODO(ongaro): Create a method to send the next fragments and
     # do the Right Thing.
@@ -457,8 +464,7 @@ class OutboundMessage(object):
 
         # send out the first burst of fragments
         for fragNumber in range(min(MAX_BURST_SIZE, self._totalFrags)):
-            requestAck = ((fragNumber + 1) % REQ_ACK_AFTER == 0)
-            self._sendOneData(fragNumber, requestAck)
+            self._sendOneData(fragNumber)
         self._maxSentFrag = fragNumber
         now = gettime()
         self._lastActivityTime = now
@@ -538,20 +544,8 @@ class OutboundMessage(object):
                 toSend[numFragsToSend] = fragNumber
                 numFragsToSend += 1
 
-        # debugging:
-        tsd = []
         for i, fragNumber in enumerate(toSend[:numFragsToSend]):
-            star = ''
-            if (numFragsInFlight + i + 2) % REQ_ACK_AFTER == 0:
-                star = '*'
-            tsd.append('%d%s' % (fragNumber, star))
-        debug('numFragsInFlight: %s' % numFragsInFlight)
-        debug('toSend: %s' % ', '.join(tsd))
-        del tsd
-
-        for i, fragNumber in enumerate(toSend[:numFragsToSend]):
-            requestAck = ((numFragsInFlight + i + 2) % REQ_ACK_AFTER == 0)
-            self._sendOneData(fragNumber, requestAck)
+            self._sendOneData(fragNumber)
 
         now = gettime()
         self._lastActivityTime = now
@@ -585,7 +579,7 @@ class OutboundMessage(object):
             self._fragsInFlight[evict] = (now, fragNumber)
             self._maxSentFrag = fragNumber
         debug("timeout: request ack with %d" % fragNumber)
-        self._sendOneData(fragNumber, requestAck=True)
+        self._sendOneData(fragNumber, forceRequestAck=True)
         self._lastActivityTime = gettime()
 
 class Channel(object):
