@@ -216,6 +216,27 @@ class Header(object):
                            self.channelId,
                            flags)
 
+class SessionOpenResponse(object):
+    PACK_FORMAT = 'B'
+    LENGTH = struct.calcsize(PACK_FORMAT)
+
+    @classmethod
+    def fromString(cls, string):
+        (maxChannelId,) = struct.unpack(cls.PACK_FORMAT, string)
+        return cls(maxChannelId)
+
+    def __init__(self, maxChannelId):
+        self.maxChannelId = maxChannelId
+
+    def __str__(self):
+        b = Buffer()
+        self.fillBuffer(b)
+        return b.getRange(0, b.getTotalLength())
+
+    def fillBuffer(self, bufferToFill):
+        bufferToFill.insert(0, struct.pack(self.PACK_FORMAT,
+                                           self.maxChannelId))
+
 class AckResponse(object):
     """
     The format of the payload of messages of type Header.PT_ACK.
@@ -891,11 +912,11 @@ class ServerSession(Session):
         header = Header()
         self.fillHeader(header)
         header.rpcId = 0
-        # TODO(ongaro): Stop abusing the channelId field for this. Put it in
-        # the payload instead.
-        header.channelId = (NUM_CHANNELS_PER_SESSION - 1)
+        header.channelId = 0
         header.payloadType = Header.PT_SESSION_OPEN
-        self._transport._sendOne(self._address, header, Buffer([]))
+        payload = Buffer([])
+        SessionOpenResponse(NUM_CHANNELS_PER_SESSION - 1).fillBuffer(payload)
+        self._transport._sendOne(self._address, header, payload)
         self._lastActivityTime = gettime()
 
     def destroy(self):
@@ -1099,13 +1120,15 @@ class ClientSession(Session):
         # TODO: set up timer
 
     def processSessionOpenResponse(self, serverSessionHint, sessionToken,
-                                   channelId, data):
+                                   data):
         """Process an inbound session open response."""
         if self._isConnected():
             return
+        response = SessionOpenResponse.fromString(data)
         self._serverSessionHint = serverSessionHint
         self._token = sessionToken
-        self._numChannels = min(channelId, MAX_NUM_CHANNELS_PER_SESSION)
+        self._numChannels = min(response.maxChannelId + 1,
+                                MAX_NUM_CHANNELS_PER_SESSION)
         self._channels = new([ClientChannel(self._transport, self, i)
                               for i in range(self._numChannels)])
         for channel in self._channels:
@@ -1340,7 +1363,6 @@ class Transport(object):
                 if header.payloadType == Header.PT_SESSION_OPEN:
                     session.processSessionOpenResponse(header.serverSessionHint,
                                                        header.sessionToken,
-                                                       header.channelId,
                                                        data)
                 return True
             if channel.getRpcId() == header.rpcId:

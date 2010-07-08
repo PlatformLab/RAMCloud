@@ -19,7 +19,18 @@ end
 
 do
 	local p_ack_proto = Proto("rcack", "RAMCloud ACK")
+	local p_sess_proto = Proto("rcsess", "RAMCloud Session Open")
 	local maxpt = 0
+
+	do -- RAMCloud session open response dissector
+		local f_maxChannelId = ProtoField.uint16("rcsess.maxChannelId", "Max Avail. Channel Id", base.DEC)
+		p_sess_proto.fields = { f_maxChannelId }
+
+		function p_sess_proto.dissector(buf, pkt, root)
+			local t = root:add(p_sess_proto, buf(0))
+			t:add_le(f_maxChannelId, buf(0, 1))
+		end
+	end
 
 	do -- RAMCloud ACK response dissector
 		local p_frag_proto = Proto("rcackfrags", "Fragments")
@@ -89,7 +100,7 @@ do
 		                   f_channelId, f_payloadType, f_direction, f_requestAck, f_pleaseDrop }
 		
 		function p_proto.dissector(buf, pkt, root)
-			local header_len = 20
+			local header_len = 26
 			local t = root:add(p_proto, buf(0, header_len))
 			t:add_le(f_sessionToken, buf(0, 8))
 			t:add_le(f_rpcId, buf(8, 4))
@@ -142,6 +153,8 @@ do
 
 			if i_payloadType == 0x1 then
 				p_ack_proto.dissector:call(buf(header_len):tvb(), pkt, root)
+			elseif i_payloadType == 0x2 and i_direction == 1 then
+				p_sess_proto.dissector:call(buf(header_len):tvb(), pkt, root)
 			else
 				Dissector.get("data"):call(buf(header_len):tvb(), pkt, root)
 			end
