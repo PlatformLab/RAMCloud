@@ -604,8 +604,8 @@ class Channel(object):
         raise NotImplementedError
 
 class Session(object):
-    """A Session is a container for Channel objects for RPCs between two
-    endpoints.
+    """A session encapsulates the state of communication between a particular
+    client and a particular server.
 
     At the cost of a session open handshake (during which the server
     authenticates the client and allocates state for the client's session),
