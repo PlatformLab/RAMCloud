@@ -1367,8 +1367,7 @@ class Transport(object):
                     raise NotImplementedError("faked full ACK response")
         return True
 
-    def poke(self):
-        # TODO(ongaro): Rename to "poll"
+    def poll(self):
         """Check the wire and check timers. Do all possible work but don't
         wait."""
 
@@ -1437,7 +1436,7 @@ class Transport(object):
                         return
                     elif self._state == self._ABORTED_STATE:
                         raise self._transport.TransportException("RPC aborted")
-                    self._transport.poke()
+                    self._transport.poll()
             finally:
                 delete(self)
 
@@ -1490,7 +1489,7 @@ class Transport(object):
 
     def serverRecv(self):
         while True:
-            self.poke()
+            self.poll()
             try:
                 return self._serverReadyQueue.pop(0)
             except IndexError:
