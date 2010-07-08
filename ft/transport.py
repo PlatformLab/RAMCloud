@@ -1083,9 +1083,8 @@ class ClientSession(Session):
         self._channelQueue = []
 
         # A bit set in the vector signifies the corresponding channel is in
-        # use.
-        self._channelStatus = BitVector(MAX_NUM_CHANNELS_PER_SESSION,
-                                        ones=True)
+        # use. Starts out as all 0s.
+        self._channelStatus = BitVector(MAX_NUM_CHANNELS_PER_SESSION)
 
         self._numChannels = 0
         self._channels = None
@@ -1131,9 +1130,14 @@ class ClientSession(Session):
                                 MAX_NUM_CHANNELS_PER_SESSION)
         self._channels = new([ClientChannel(self._transport, self, i)
                               for i in range(self._numChannels)])
-        for channel in self._channels:
-            self.doneWithChannel(channel)
-            # TODO(ongaro): Using doneWithChannel here is confusing.
+        for channelId, channel in enumerate(self._channels):
+            try:
+                rpc = self._channelQueue.pop(0)
+            except IndexError:
+                break
+            else:
+                self._channelStatus.setBit(channelId)
+                channel.beginSending(rpc)
 
     def getChannel(self, channelId):
         """Return the existing ClientChannel object corresponding to the given
@@ -1166,7 +1170,7 @@ class ClientSession(Session):
         if not self._isConnected():
             return None
         channelId = self._channelStatus.ffz()
-        if channelId is None:
+        if channelId is None or channelId >= self.numChannels:
             return None
         self._channelStatus.setBit(channelId)
         return self._channels[channelId]
