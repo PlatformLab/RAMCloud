@@ -570,13 +570,13 @@ Server::HandleRPC()
         default:
             throw Exception("received unknown RPC type");
         }
-    } catch (const char *msg) {
-        fprintf(stderr, "Error while processing RPC: %s\n", msg);
-        uint32_t msglen = static_cast<uint32_t>(strlen(msg)) + 1;
+    } catch (Exception e) {
+        fprintf(stderr, "Error while processing RPC: %s\n", e.message.c_str());
+        uint32_t msglen = static_cast<uint32_t>(e.message.length()) + 1;
         rpc->replyPayload.truncateEnd(rpc->replyPayload.getTotalLength() -
                                       sizeof(*replyHeader));
         snprintf(new(&rpc->replyPayload, APPEND) char[msglen], msglen,
-                 "%s", msg);
+                 "%s", e.message.c_str());
         replyHeader->type = RCRPC_ERROR_RESPONSE;
     }
 
