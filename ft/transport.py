@@ -15,7 +15,7 @@
 import random
 import struct
 
-from util import gettime, Buffer, BitVector
+from util import gettime, Buffer, BitVector, Ring
 
 TEST_ADDRESS = ('127.0.0.1', 12242)
 
@@ -23,7 +23,8 @@ TEST_ADDRESS = ('127.0.0.1', 12242)
 
 #### Client only
 
-TIMEOUT_NS = 10 * 1000 * 1000 # 10ms
+NS_PER_MS = 1000 * 1000
+TIMEOUT_NS = 10 * NS_PER_MS
 
 TIMEOUTS_UNTIL_ABORTING = 500 # >= 5s
 
@@ -48,15 +49,19 @@ NUM_CHANNELS_PER_SESSION = 8
 # The width in bits of the RPC ID field.
 RPCID_WIDTH = 32
 
+# The number of fragments a receiving end is willing to accept beyond the
+# smallest fragment number that it has not acknowledged.
+MAX_STAGING_FRAGMENTS = 32
+
 #### Client and Server (may differ)
 
 # The fraction of packets that will be dropped on transmission.
 # This should be 0 for production!
-PACKET_LOSS = 0.25
+PACKET_LOSS = 0.05
 
-MAX_BURST_SIZE = 10
+WINDOW_SIZE = 10
 REQ_ACK_AFTER = 5
-assert 0 < REQ_ACK_AFTER <= MAX_BURST_SIZE
+assert 0 <= REQ_ACK_AFTER <= WINDOW_SIZE <= MAX_STAGING_FRAGMENTS + 1
 
 DEBUGGING = True
 
@@ -234,35 +239,33 @@ class SessionOpenResponse(object):
         return b.getRange(0, b.getTotalLength())
 
     def fillBuffer(self, bufferToFill):
-        bufferToFill.insert(0, struct.pack(self.PACK_FORMAT,
-                                           self.maxChannelId))
+        bufferToFill.prepend(struct.pack(self.PACK_FORMAT, self.maxChannelId))
 
 class AckResponse(object):
     """
     The format of the payload of messages of type Header.PT_ACK.
-
-    This could be implemented in C++ as a struct with a variable-sized bit
-    vector at the end of it. It could still be stack-allocated using a
-    pre-processor macro.
-
-    @ivar numberFrags:
-        The total number of frags to ACK or NACK. Same as len(ackedFrags).
-    @ivar ackedFrags:
-        A BitVector where a bit set signifies the corresponding packet has
-        arrived.
     """
     PACK_FORMAT = 'H'
-    LENGTH = struct.calcsize(PACK_FORMAT)
+
+    HEADER_LENGTH = struct.calcsize(PACK_FORMAT)
+    STAGING_VECTOR_LENGTH = (MAX_STAGING_FRAGMENTS + 7) / 8
+    LENGTH = HEADER_LENGTH + STAGING_VECTOR_LENGTH
 
     @classmethod
     def fromString(cls, string):
         """Unpack an AckResponse from a string."""
-        (numberFrags,) = struct.unpack(cls.PACK_FORMAT, string[:2])
-        return cls(numberFrags, seq=string[2:])
+        (firstMissingFrag,) = struct.unpack(cls.PACK_FORMAT,
+                                               string[:cls.HEADER_LENGTH])
+        stagingVector = BitVector(MAX_STAGING_FRAGMENTS,
+                                  seq=string[cls.HEADER_LENGTH:])
+        return cls(firstMissingFrag, stagingVector)
 
-    def __init__(self, numberFrags, seq=None):
-        self.numberFrags = numberFrags
-        self.ackedFrags = BitVector(numberFrags, seq=seq)
+    def __init__(self, firstMissingFrag, stagingVector=None):
+        self.firstMissingFrag = firstMissingFrag
+        if stagingVector is None:
+            self.stagingVector = BitVector(MAX_STAGING_FRAGMENTS)
+        else:
+            self.stagingVector = stagingVector
 
     def __str__(self):
         b = Buffer()
@@ -270,69 +273,39 @@ class AckResponse(object):
         return b.getRange(0, b.getTotalLength())
 
     def fillBuffer(self, bufferToFill):
-        self.ackedFrags.fillBuffer(bufferToFill)
-        bufferToFill.insert(0, struct.pack(self.PACK_FORMAT, self.numberFrags))
+        self.stagingVector.fillBuffer(bufferToFill)
+        bufferToFill.prepend(struct.pack(self.PACK_FORMAT,
+                                         self.firstMissingFrag))
 
 class InboundMessage(object):
     """
     A partially-received data message (either a request or a response).
 
     This handles assembling the message fragments and responding to ACK
-    requests. It is used in ServerChannel for the client's request and in
-    ClientChannel for the server's response.
-
-    In the C++ port, keep in mind when allocating this class that it has a
-    variable-sized array (_data) depending on the totalFrags argument to its
-    constructor.
-
-    There's really no reason to have the states explicit like this, since
-    _numMissingFrags easily serves to distinguish them. I'll leave it until I'm
-    convinced this class isn't changing much more, though.
+    requests. It is used in server channels for the client's request and in
+    client channels for the server's response.
 
     @ivar _transport: x
     @ivar _session: x
-    @ivar _channel: x
-    @ivar _state:
-        Start in RECEIVING and move to COMPLETE upon receipt of all the message
-        fragments.
+    @ivar _channelId: x
     @ivar _lastActivityTime: x
     @ivar _totalFrags:
-        The number of fragments that make up the message to be received. 
-    @ivar _numMissingFrags:
-        The number of fragments of the message that have not yet been received.
-        Invariant: same as the number of None entries in _data.
-    @ivar _data:
-        An array of length _totalFrags, indexed by fragment number, and
-        pointing to None for fragments that have not yet been received or
-        packet buffers for those that have. TODO: The memory management for
-        these packet buffers will need to be worked out.
+        The number of fragments that make up the message to be received.
+    @ivar _firstMissingFrag:
+        The number before which all fragments have been received, in the range
+        [0, _totalFrags]. The data for every fragment before _firstMissingFrag
+        will have been added to _dataBuffer, while data for fragments following
+        _firstMissingFrag may be found in _dataStagingRing.
     @ivar _dataBuffer:
-        An empty Buffer to fill with the contents of the message.
-
-    @cvar _RECEIVING_STATE:
-        There are still fragments missing from the message.
-    @cvar _COMPLETE_STATE:
-        All fragments have been received and the message has been added to
-        _dataBuffer. _numMissingFrags is 0, and _data contains all non-None
-        entries.
+        A Buffer that is filled with the contents of the message. This always
+        contains data for the fragments in the range [0, _firstMissingFrag).
+    @ivar _dataStagingRing:
+        A staging area for packet data until it can be appended to _dataBuffer.
+        A Ring of MAX_STAGING_FRAGMENTS pointers to packet data or None, where
+        each entry corresponds with the _firstMissingFrag + 1 + i-th packet.
+        (Note that the _firstMissingFrag fragment has no packet data by
+        definition.)
     """
-
-    _RECEIVING_STATE = 0
-    _COMPLETE_STATE = 1
-
-    def __init__(self, transport, session, channel, totalFrags, dataBuffer):
-        self._transport = transport
-        self._session = session
-        self._channel = channel
-        self._state = self._RECEIVING_STATE
-        self._totalFrags = totalFrags
-        self._numMissingFrags = self._totalFrags
-        self._data = [None] * self._totalFrags
-        self._dataBuffer = dataBuffer
-        self._lastActivityTime = 0
-
-    def getLastActivityTime(self):
-        return self._lastActivityTime
 
     def _sendAck(self):
         """Send the server an ACK for the received response packets.
@@ -340,16 +313,36 @@ class InboundMessage(object):
         Caller should update _lastActivityTime.
         """
         header = Header()
-        self._channel.fillHeader(header)
+        self._session.fillHeader(header, self._channelId)
         header.payloadType = Header.PT_ACK
-        ackResponse = AckResponse(self._totalFrags)
-        for frag, data in enumerate(self._data):
-            if data is not None:
-                ackResponse.ackedFrags.setBit(frag)
+        ackResponse = AckResponse(self._firstMissingFrag)
+        for i, v in enumerate(self._dataStagingRing):
+            if v is not None:
+                ackResponse.stagingVector.setBit(i)
         payloadBuffer = Buffer()
         ackResponse.fillBuffer(payloadBuffer)
         self._transport._sendOne(self._session.getAddress(), header,
                                  payloadBuffer)
+
+    def __init__(self, transport, session, channelId):
+        self._transport = transport
+        self._session = session
+        self._channelId = channelId
+        self._totalFrags = None
+        self._firstMissingFrag = None
+        self._dataStagingRing = Ring(MAX_STAGING_FRAGMENTS, None)
+        self._dataBuffer = None
+        self._lastActivityTime = 0
+
+    def init(self, totalFrags, dataBuffer):
+        self._totalFrags = totalFrags
+        self._firstMissingFrag = 0
+        self._dataBuffer = dataBuffer
+        self._lastActivityTime = 0
+        self._dataStagingRing.clear()
+
+    def getLastActivityTime(self):
+        return self._lastActivityTime
 
     def processReceivedData(self, fragNumber, totalFrags, data, sendAck):
         """
@@ -362,22 +355,35 @@ class InboundMessage(object):
         """
         if totalFrags != self._totalFrags:
             # The other end is retarded?
-            return
-        if self._data[fragNumber] is None:
-            self._data[fragNumber] = data
-            self._numMissingFrags -= 1
-            if self._numMissingFrags == 0:
-                for data in self._data:
-                    # In C++, there will be some sort of Chunk type wrapping
-                    # 'data'.
-                    self._dataBuffer.append(data)
-                self._state = self._COMPLETE_STATE
+            return (self._firstMissingFrag == self._totalFrags)
+        if fragNumber == self._firstMissingFrag:
+            self._dataBuffer.append(data) # In C++, there will be some sort of
+                                          # Chunk type wrapping 'data'.
+            self._firstMissingFrag += 1
+            while True: # num iterations bounded to MAX_STAGING_FRAGMENTS-ish
+                data = self._dataStagingRing[0]
+                self._dataStagingRing.advance(1)
+                if data is None:
+                    break
+                self._dataBuffer.append(data)
+                self._firstMissingFrag += 1
+        elif fragNumber > self._firstMissingFrag:
+            if fragNumber - self._firstMissingFrag > MAX_STAGING_FRAGMENTS:
+                debug("fragNumber too big")
+            else:
+                i = fragNumber - self._firstMissingFrag - 1
+                if self._dataStagingRing[i] is not None:
+                    debug("duplicate fragment %d received" % fragNumber)
+                self._dataStagingRing[i] = data
+        else: # fragNumber < self._firstMissingFrag:
+            # stale
+            pass
+
         # TODO(ongaro): Have caller call self.sendAck() instead.
         if sendAck:
             self._sendAck()
         self._lastActivityTime = gettime()
-        return (self._state == self._COMPLETE_STATE)
-        # TODO(ongaro): Change from self._state to boolean.
+        return (self._firstMissingFrag == self._totalFrags)
 
     def timeout(self):
         # Gratuitously ACK the received packets.
@@ -385,34 +391,39 @@ class InboundMessage(object):
         self._lastActivityTime = gettime()
 
 class OutboundMessage(object):
-    """
-    A partially-transmitted data message (either a request or a response).
+    """A partially-transmitted data message (either a request or a response).
 
-    This handles flow control and requesting processing ACKs from the other end
-    of the channel. It is used in ServerChannel for the server's response and
-    in ClientChannel for the client's request.
+    This handles flow control and requesting and processing ACKs from the other
+    end of the channel. It is used in server channels for the server's response
+    and in client channels for the client's request.
 
     @ivar _transport: x
     @ivar _session: x
-    @ivar _channel: x
+    @ivar _channelId: x
     @ivar _lastActivityTime: x
     @ivar _sendBuffer:
         The Buffer containing the message to send. This is set on the
         transition to SENDING and is None while IDLE.
-    @ivar _maxSentFrag:
-        The largest fragment number already sent.
     @ivar _totalFrags:
         The total number of fragments in the message to send.
-    @ivar _fragsInFlight:
-        Why: To make sure you don't send a fragment that's already on the wire.
-
-        A set of request data fragments that have been recently sent to the
-        server but have not yet been acknowledged by the server. Fragments
-        expire from this set after TIMEOUT_NS (and we consider it OK to resend
-        those). This is implemented as an unordered array of (time sent, frag
-        number) or None, of size MAX_BURST_SIZE.
+    @ivar _firstMissingFrag:
+        The number before which the receiving end has acknowledged receipt of
+        every fragment, in the range [0, _totalFrags].
+    @ivar _numAcked:
+        The total number of fragments the receiving end has acknowledged, in
+        the range [0, _totalFrags]. This is used for flow control, as the
+        sender guarantees to send only fragments whose numbers are below
+        _numAcked + WINDOW_SIZE.
+    @ivar _sentTimes:
+        A record of when unacknowledged fragments were sent, which is useful
+        for retransmission.
+        A Ring of MAX_STAGING_FRAGMENTS + 1 timestamps, where each entry
+        corresponds with the time the _firstMissingFrag + i-th packet was sent
+        (0 if it has never been sent), or _ACKED if it has already been
+        acknowledged by the receiving end.
     @ivar _packetsSinceAckReq:
         The number of data packets sent on the wire since the last ACK request.
+        This is used to determine when to request the next ACK.
     @ivar _state:
         Start in IDLE and move to SENDING once sending fragments of the message
         has begun. The clear() method will return to the IDLE state.
@@ -421,42 +432,43 @@ class OutboundMessage(object):
         There is no message to transmit currently.
     @cvar _SENDING_STATE:
         Transmission of the message has at least begun.
+    @cvar _ACKED:
+        A special value used in _sentTimes.
     """
     # TODO(ongaro): Can probably drop _state.
 
     _IDLE_STATE = 0
     _SENDING_STATE = 1
 
-    def __init__(self, transport, session, channel):
+    _ACKED = object()
+
+    def __init__(self, transport, session, channelId):
         self._transport = transport
         self._session = session
-        self._channel = channel
-        self._fragsInFlight = [None] * MAX_BURST_SIZE
+        self._channelId = channelId
+        self._sentTimes = Ring(MAX_STAGING_FRAGMENTS + 1, 0)
         self.clear()
 
     def clear(self):
         self._state = self._IDLE_STATE
         self._sendBuffer = None
-        self._maxSentFrag = 0
+        self._firstMissingFrag = 0
         self._totalFrags = 0
         self._lastActivityTime = 0
         self._packetsSinceAckReq = 0
-        for i in range(MAX_BURST_SIZE):
-            self._fragsInFlight[i] = None
+        self._sentTimes.clear()
+        self._numAcked = 0
 
     def getLastActivityTime(self):
         return self._lastActivityTime
 
     def _sendOneData(self, fragNumber, forceRequestAck=False):
-        """Send a single data fragment.
-
-        Caller should update state such as _lastActivityTime, _fragsInFlight,
-        and _maxSentFrag as appropriate.
-        """
+        """Send a single data fragment."""
         requestAck = (forceRequestAck or
-                      (self._packetsSinceAckReq == REQ_ACK_AFTER - 1))
+                      (self._packetsSinceAckReq == REQ_ACK_AFTER - 1 and
+                       fragNumber != self._totalFrags - 1))
         header = Header()
-        self._channel.fillHeader(header)
+        self._session.fillHeader(header, self._channelId)
         header.fragNumber = fragNumber
         header.totalFrags = self._totalFrags
         header.requestAck = requestAck
@@ -478,8 +490,60 @@ class OutboundMessage(object):
         else:
             self._packetsSinceAckReq += 1
 
-    # TODO(ongaro): Create a method to send the next fragments and
-    # do the Right Thing.
+    def send(self):
+        if self._state != self._SENDING_STATE:
+            return
+
+        now = gettime()
+
+        # the number of fragments to be sent
+        sendCount = 0
+
+        # whether any of the fragments are being sent because they expired
+        forceAck = False
+
+        # the fragment number of the last fragment to be sent
+        lastToSend = -1
+
+        # can't send beyond the last fragment
+        stop = self._totalFrags
+        # can't send beyond the window
+        stop = min(stop, self._numAcked + WINDOW_SIZE)
+        # can't send beyond what the receiver is willing to accept
+        stop = min(stop, self._firstMissingFrag + MAX_STAGING_FRAGMENTS + 1)
+
+        # Figure out which fragments to send,
+        # and flag them with _sentTimes of -1.
+        for fragNumber in range(self._firstMissingFrag, stop):
+            i = fragNumber - self._firstMissingFrag
+            sentTime = self._sentTimes[i]
+            if sentTime == 0:
+                self._sentTimes[i] = -1
+                sendCount += 1
+                lastToSend = fragNumber
+            elif sentTime is not self._ACKED and sentTime + TIMEOUT_NS < now:
+                forceAck = True
+                self._sentTimes[i] = -1
+                sendCount += 1
+                lastToSend = fragNumber
+
+        forceAck = (forceAck and
+                    (self._packetsSinceAckReq + sendCount < REQ_ACK_AFTER - 1
+                     or lastToSend == self._totalFrags))
+
+        # Send the fragments.
+        for i, sentTime in enumerate(self._sentTimes):
+            if sentTime == -1:
+                fragNumber = self._firstMissingFrag + i
+                self._sendOneData(fragNumber,
+                                  (forceAck and lastToSend == fragNumber))
+
+        # Update _sentTimes.
+        now = gettime()
+        self._lastActivityTime = now
+        for i, sentTime in enumerate(self._sentTimes):
+            if sentTime == -1:
+                self._sentTimes[i] = now
 
     def beginSending(self, messageBuffer):
         # TODO(ongaro): Pass in the messageBuffer to clear() instead and rename
@@ -496,13 +560,7 @@ class OutboundMessage(object):
         self._totalFrags = self._transport.numFrags(self._sendBuffer)
 
         # send out the first burst of fragments
-        for fragNumber in range(min(MAX_BURST_SIZE, self._totalFrags)):
-            self._sendOneData(fragNumber)
-        self._maxSentFrag = fragNumber
-        now = gettime()
-        self._lastActivityTime = now
-        for fragNumber in range(min(MAX_BURST_SIZE, self._totalFrags)):
-            self._fragsInFlight[fragNumber] = (now, fragNumber)
+        self.send()
 
     def processReceivedAck(self, ack):
         """
@@ -527,108 +585,28 @@ class OutboundMessage(object):
             debug("OutboundMessage droppped ack because not SENDING")
             return False
 
-        # expire old frags in flight and remove those received
-        numFragsInFlight = 0
-        now = gettime()
-        for i in range(MAX_BURST_SIZE):
-            if self._fragsInFlight[i] is None:
-                continue
-            timeSent, fragNumber = self._fragsInFlight[i]
-            if (ack.ackedFrags.getBit(fragNumber) or
-                timeSent + TIMEOUT_NS < now):
-                self._fragsInFlight[i] = None
-            else:
-                numFragsInFlight += 1
-        assert numFragsInFlight == len([x for x in self._fragsInFlight
-                                        if x is not None])
-
-        # a list of fragments to send out
-        toSend = [None] * (MAX_BURST_SIZE - numFragsInFlight)
-        numFragsToSend = 0
-
-        # queue fragments we've never sent before
-        while (numFragsInFlight + numFragsToSend < MAX_BURST_SIZE and
-               self._maxSentFrag < self._totalFrags - 1):
-            self._maxSentFrag += 1
-            toSend[numFragsToSend] = self._maxSentFrag
-            numFragsToSend += 1
-
-        arrivedFrags = enumerate(ack.ackedFrags.iterBits())
-        while numFragsInFlight + numFragsToSend < MAX_BURST_SIZE:
-            try:
-                fragNumber, arrived = arrivedFrags.next()
-            except StopIteration:
-                # no more bits in arrivedFrags
-                break
-            # already ACKed?
-            if arrived:
-                continue
-            # already queued for transmission?
-            if fragNumber in toSend:
-                continue
-            # already in flight?
-            for i in range(MAX_BURST_SIZE):
-                if (self._fragsInFlight[i] is not None and
-                    self._fragsInFlight[i][1] == fragNumber):
-                    break
-            else: # not in flight already
-                # maxSentFrag is already totalFrags - 1,
-                # so don't need to set it
-                toSend[numFragsToSend] = fragNumber
-                numFragsToSend += 1
-
-        for i, fragNumber in enumerate(toSend[:numFragsToSend]):
-            self._sendOneData(fragNumber)
-
-        now = gettime()
-        self._lastActivityTime = now
-        for fragNumber in toSend[:numFragsToSend]:
-            j = self._fragsInFlight.index(None)
-            self._fragsInFlight[j] = (now, fragNumber)
-
-        return (ack.ackedFrags.ffs() is None)
+        if ack.firstMissingFrag < self._firstMissingFrag:
+            debug("OutboundMessage dropped stale ACK")
+        elif ack.firstMissingFrag > self._totalFrags:
+            debug("OutboundMessage dropped invalid ACK (shouldn't happen)")
+        elif ack.firstMissingFrag > (self._firstMissingFrag +
+                                     len(self._sentTimes)):
+            debug("OutboundMessage dropped ACK that advanced too far " +
+                  "(shouldn't happen)")
+        else:
+            self._sentTimes.advance(ack.firstMissingFrag -
+                                    self._firstMissingFrag)
+            self._firstMissingFrag = ack.firstMissingFrag
+            self._numAcked = ack.firstMissingFrag
+            for i, acked in enumerate(ack.stagingVector.iterBits()):
+                if acked:
+                    self._sentTimes[i + 1] = self._ACKED
+                    self._numAcked += 1
+        self.send()
+        return (self._firstMissingFrag == self._totalFrags)
 
     def timeout(self):
-        if self._state == self._IDLE_STATE:
-            return
-
-        # expire old frags in flight
-        now = gettime()
-        for i in range(MAX_BURST_SIZE):
-            if self._fragsInFlight[i] is None:
-                continue
-            timeSent, fragNumber = self._fragsInFlight[i]
-            if timeSent + TIMEOUT_NS < now:
-                self._fragsInFlight[i] = None
-
-        # Ask the other end to send back an ACK.
-        fragNumber = min(self._maxSentFrag + 1, self._totalFrags - 1)
-        # TODO: If _maxSentFrag was totalFrags - 1, we should resend one
-        # that just expired instead.
-        if fragNumber not in self._fragsInFlight:
-            # At least one frag in flight must have expired if we've gotten
-            # a timeout.
-            evict = self._fragsInFlight.index(None)
-            self._fragsInFlight[evict] = (now, fragNumber)
-            self._maxSentFrag = fragNumber
-        debug("timeout: request ack with %d" % fragNumber)
-        self._sendOneData(fragNumber, forceRequestAck=True)
-        self._lastActivityTime = gettime()
-
-class Channel(object):
-    """A Channel is a connection within an established Session on which a
-    sequence of RPCs travel.
-
-    This is a base class for ClientChannel and ServerChannel."""
-
-    def fillHeader(self, header):
-        """Set Header fields according to this channel and its containing
-        session.
-
-        This will set the rpcId, channelId, clientSessionHint,
-        serverSessionHint, sessionToken, and direction.
-        """
-        raise NotImplementedError
+        self.send()
 
 class Session(object):
     """A session encapsulates the state of communication between a particular
@@ -636,14 +614,16 @@ class Session(object):
 
     At the cost of a session open handshake (during which the server
     authenticates the client and allocates state for the client's session),
-    sessions allow the client to open new channels for free.
+    sessions allow the client to open new channels for free. A channel is a
+    connection within an established Session on which a sequence of RPCs
+    travel.
     """
 
-    def fillHeader(self, header):
-        """Set Header fields according to this session.
+    def fillHeader(self, header, channelId):
+        """Set Header fields according to this session and channel.
 
-        This will set the clientSessionHint, serverSessionHint, sessionToken,
-        and direction.
+        This will set the rpcId, channelId, clientSessionHint,
+        serverSessionHint, sessionToken, and direction.
         """
         raise NotImplementedError
 
@@ -651,199 +631,6 @@ class Session(object):
         """Return the address of the node to which this Session
         communicates."""
         raise NotImplementedError
-
-class ServerChannel(Channel):
-    """A channel on the server.
-
-    @ivar _transport: x
-    @ivar _session: x
-    @ivar _channelId:
-        The ID of the channel (as scoped to _session).
-    @ivar _rpcId:
-        The current RPC ID that is being processed.
-        None if IDLE, or an int RPC ID otherwise. This is set by advance().
-    @ivar _currentRpc:
-        The current ServerRPC object active on this channel.
-        None if IDLE or DISCARDED. Otherwise (if RECEIVING, PROCESSING, or
-        SENDING_WAITING), a Transport.ServerRPC object that is dynamically
-        allocated in processReceivedData() once the first data fragment of the
-        request arrives.
-
-        This could almost be allocated inline as part of the channel, but that
-        has two problems. Firstly, _discard() currently orphans _currentRpc if
-        the server handler is currently processing it, which would need some
-        other solution. Secondly, this would increase the size of idle channels
-        to a few KB.
-    @ivar _inboundMsg:
-        An InboundMessage to assemble the RPC request.
-        None if IDLE or DISCARDED. Otherwise (if RECEIVING, PROCESSING, or
-        SENDING_WAITING), an InboundMessage object that is dynamically
-        allocated in processReceivedData() once the first data fragment of the
-        request arrives.
-
-        This basically shares a lifetime with _currentRpc, so they could be
-        allocated together.
-    @ivar _outboundMsg:
-        An OutboundMessage to transmit the RPC response.
-    @ivar _state:
-        Start at IDLE and move to RECEIVING once advance() assigns the channel an RPC ID.
-        Move from RECEIVING to PROCESSING once the request is fully assembled
-        in processReceivedData(). Move from PROCESSING to DISCARDED if the
-        handler ignored the request (rpcIgnored()) or to SENDING_WAITING if it
-        produced a response (beginSending()). Move from SENDING_WAITING to
-        DISCARDED if the client happened to ACK the entire response. At any
-        time, destroy() moves back to IDLE.
-
-        The server would also be free to discard the response after some period
-        of time to reclaim space, but this is not currently implemented.
-
-    @cvar _IDLE_STATE:
-        The channel is waiting to be assigned an RPC ID.
-    @cvar _RECEIVING_STATE:
-        The channel has been assigned an RPC ID and is awaiting data fragments
-        for it. Zero or more (but not all) such fragments have arrived.
-    @cvar _PROCESSING_STATE:
-        The RPC is waiting in _transport._serverReadyQueue for processing or is
-        being actively processed by the server handler.
-    @cvar _SENDING_WAITING_STATE:
-        Still have the last RPC response.
-    @cvar _DISCARDED_STATE:
-        Discarded the last RPC's data.
-    """
-
-    _IDLE_STATE = 0
-    _RECEIVING_STATE = 1
-    _PROCESSING_STATE = 2
-    _SENDING_WAITING_STATE = 3
-    _DISCARDED_STATE = 4
-
-    def __init__(self, transport, session, channelId):
-        self._state = self._IDLE_STATE
-        self._transport = transport
-        self._session = session
-        self._channelId = channelId
-        self._rpcId = None
-        self._currentRpc = None
-        self._inboundMsg = None
-        self._outboundMsg = OutboundMessage(self._transport, self._session,
-                                            self)
-
-    def __del__(self):
-        self._discard()
-
-    def _discard(self):
-        """Discard all state except for the current rpcId."""
-        if self._state == self._IDLE_STATE:
-            return
-        try:
-            if self._state == self._PROCESSING_STATE:
-                # TODO: Use a doubly-linked list with link pointers inside
-                # self._currentRpc instead of a Python "list" type. That'd make
-                # this O(1).
-                try:
-                    q = self._transport._serverReadyQueue
-                    del q[q.index(self._currentRpc)]
-                except ValueError:
-                    # self._currentRpc has already been popped off the queue,
-                    # so there's no stopping the server from processing it now.
-                    # We'll just tell it to abort once the server tries to send
-                    # the reply.
-                    self._currentRpc.abort() # The RPC will delete() itself now.
-                    self._currentRpc = None
-                    return
-        finally:
-            self._state = self._DISCARDED_STATE
-            if self._currentRpc is not None:
-                delete(self._currentRpc)
-                self._currentRpc = None
-            if self._inboundMsg is not None:
-                delete(self._inboundMsg)
-                self._inboundMsg = None
-            self._outboundMsg.clear()
-
-    def fillHeader(self, header):
-        header.rpcId = self._rpcId
-        header.channelId = self._channelId
-        self._session.fillHeader(header)
-
-    def getRpcId(self):
-        return self._rpcId
-
-    def getLastActivityTime(self):
-        t = 0
-        if self._inboundMsg is not None:
-            t = max(t, self._inboundMsg.getLastActivityTime())
-        t = max(t, self._outboundMsg.getLastActivityTime())
-        return t
-
-    def advance(self, rpcId):
-        """Begin receiving on a new rpcId."""
-        self._discard()
-        self._rpcId = rpcId
-        self._state = self._RECEIVING_STATE
-
-    def processReceivedData(self, fragNumber, totalFrags, data, sendAck):
-        """Process inbound received data for the client's request."""
-        if self._state == self._IDLE_STATE:
-            return
-        elif self._state == self._DISCARDED_STATE:
-            header = Header()
-            self.fillHeader(header)
-            header.payloadType = PT_RETRY_WITH_NEW_RPCID
-            self._transport._sendOne(self._session.getAddress(), header,
-                                     Buffer([]))
-            return
-        elif self._state == self._RECEIVING_STATE:
-            if self._inboundMsg is None: # maybe this should be another state?
-                self._currentRpc = new(Transport.ServerRPC(self._transport,
-                                                           self._session,
-                                                           self))
-                requestBuffer = self._currentRpc.recvPayload
-                self._inboundMsg = new(InboundMessage(self._transport,
-                                                      self._session, self,
-                                                      totalFrags,
-                                                      requestBuffer))
-            if self._inboundMsg.processReceivedData(fragNumber, totalFrags,
-                                                    data, sendAck):
-                self._transport._serverReadyQueue.append(self._currentRpc)
-                self._state = self._PROCESSING_STATE
-        else: # PROCESSING or SENDING/WAITING
-            if sendAck:
-                # could also fake an all-1s response, possibly more cheaply
-                self._inboundMsg.processReceivedData(fragNumber, totalFrags,
-                                                     data, sendAck)
-
-    def rpcIgnored(self):
-        """The server handler chose to ignore this RPC request and will not
-        produce a response for it."""
-        assert self._state == self._PROCESSING_STATE
-        self._discard()
-
-    def beginSending(self):
-        """The server handler has finished producing the response; begin
-        sending the response data."""
-        assert self._state == self._PROCESSING_STATE
-        self._state = self._SENDING_WAITING_STATE
-        responseBuffer = self._currentRpc.replyPayload
-        self._outboundMsg.beginSending(responseBuffer)
-
-    def processReceivedAck(self, ack):
-        """Process an ACK from the client for the response."""
-        if self._state != self._SENDING_WAITING_STATE:
-            return
-        isCompletelyAcked = self._outboundMsg.processReceivedAck(ack)
-        if isCompletelyAcked:
-            # Probably uncommon with this client implementation, but who knows?
-            self._discard()
-
-    def destroy(self):
-        """The session is being destroyed, either because the client is not
-        responding or to clean up state."""
-        if self._state == self._IDLE_STATE:
-            return
-        self._discard()
-        self._state = self._IDLE_STATE
-        self._rpcId = None
 
 class ServerSession(Session):
     """A session on the server.
@@ -869,37 +656,232 @@ class ServerSession(Session):
     @cvar _ACTIVE_STATE:
     """
 
+    class _ServerChannel(object):
+        """A channel on the server.
+
+        @ivar rpcId:
+            The current RPC ID that is being processed.
+            None if IDLE, or an int RPC ID otherwise. This is set by advance().
+        @ivar currentRpc:
+            The current ServerRPC object active on this channel.
+            None if IDLE or DISCARDED. Otherwise (if RECEIVING, PROCESSING, or
+            SENDING_WAITING), a Transport.ServerRPC object that is dynamically
+            allocated in processReceivedData() once the first data fragment of the
+            request arrives.
+
+            This could almost be allocated inline as part of the channel, but that
+            has two problems. Firstly, _discard() currently orphans currentRpc
+            if the server handler is currently processing it, which would need
+            some other solution. Secondly, this would increase the size of idle
+            channels to a few KB.
+        @ivar inboundMsg:
+            An InboundMessage to assemble the RPC request.
+            None if IDLE or DISCARDED. Otherwise (if RECEIVING, PROCESSING, or
+            SENDING_WAITING), an InboundMessage object that is dynamically
+            allocated in _processReceivedData() once the first data fragment of
+            the request arrives.
+
+            This basically shares a lifetime with _currentRpc, so they could be
+            allocated together.
+        @ivar outboundMsg:
+            An OutboundMessage to transmit the RPC response.
+        @ivar state:
+            Start at IDLE and move to RECEIVING once advance() assigns the channel an RPC ID.
+            Move from RECEIVING to PROCESSING once the request is fully assembled
+            in _processReceivedData(). Move from PROCESSING to DISCARDED if the
+            handler ignored the request (rpcIgnored()) or to SENDING_WAITING if it
+            produced a response (beginSending()). Move from SENDING_WAITING to
+            DISCARDED if the client happened to ACK the entire response. At any
+            time, destroy() moves back to IDLE.
+
+            The server would also be free to discard the response after some period
+            of time to reclaim space, but this is not currently implemented.
+
+        @cvar IDLE_STATE:
+            The channel is waiting to be assigned an RPC ID.
+        @cvar RECEIVING_STATE:
+            The channel has been assigned an RPC ID and is awaiting data fragments
+            for it. Zero or more (but not all) such fragments have arrived.
+        @cvar PROCESSING_STATE:
+            The RPC is waiting in _transport._serverReadyQueue for processing or is
+            being actively processed by the server handler.
+        @cvar SENDING_WAITING_STATE:
+            Still have the last RPC response.
+        @cvar DISCARDED_STATE:
+            Discarded the last RPC's data.
+        """
+
+        state = None
+        rpcId = None
+        currentRpc = None
+        inboundMsg = None
+        outboundMsg = None
+
+        IDLE_STATE = 0
+        RECEIVING_STATE = 1
+        PROCESSING_STATE = 2
+        SENDING_WAITING_STATE = 3
+        DISCARDED_STATE = 4
+
     _IDLE_STATE = 0
     _ACTIVE_STATE = 1
+
+    def _processReceivedData(self, channel, header, data):
+        if channel.state == channel.IDLE_STATE:
+            pass
+        elif channel.state == channel.DISCARDED_STATE:
+            header = Header()
+            header.direction = Header.SERVER_TO_CLIENT
+            header.clientSessionHint = self._clientSessionHint
+            header.serverSessionHint = self._id
+            header.sessionToken = self._token
+            header.payloadType = PT_RETRY_WITH_NEW_RPCID
+            self._transport._sendOne(self.getAddress(), header,
+                                     Buffer([]))
+        elif channel.state == channel.RECEIVING_STATE:
+            isComplete = channel.inboundMsg.processReceivedData(
+                header.fragNumber, header.totalFrags, data, header.requestAck)
+            if isComplete:
+                self._transport._serverReadyQueue.append(channel.currentRpc)
+                channel.state = channel.PROCESSING_STATE
+        else: # PROCESSING or SENDING/WAITING
+            if header.requestAck:
+                channel.outboundMsg.send()
+
+    def _processReceivedAck(self, channel, header, data):
+        ack = AckResponse.fromString(data)
+        if channel.state != channel.SENDING_WAITING_STATE:
+            return
+        isCompletelyAcked = channel.outboundMsg.processReceivedAck(ack)
+        if isCompletelyAcked:
+            # Probably uncommon with this client implementation, but who knows?
+            self._discard(channel)
+
+    def _discard(self, channel):
+        """Discard the channel's state except for the current rpcId."""
+        if channel.state == channel.IDLE_STATE:
+            return
+        try:
+            if channel.state == channel.PROCESSING_STATE:
+                # TODO: Use a doubly-linked list with link pointers inside
+                # channel.currentRpc instead of a Python "list" type. That'd
+                # make this O(1).
+                try:
+                    q = self._transport._serverReadyQueue
+                    del q[q.index(channel.currentRpc)]
+                except ValueError:
+                    # channel.currentRpc has already been popped off the queue,
+                    # so there's no stopping the server from processing it now.
+                    # We'll just tell it to abort once the server tries to send
+                    # the reply.
+                    channel.currentRpc.abort() # The RPC will delete() itself now.
+                    channel.currentRpc = None
+                    return
+        finally:
+            channel.state = channel.DISCARDED_STATE
+            if channel.currentRpc is not None:
+                delete(channel.currentRpc)
+                channel.currentRpc = None
+            channel.inboundMsg.init(None, None)
+            channel.outboundMsg.clear()
 
     def __init__(self, transport, sessionId):
         self._transport = transport
         self._id = sessionId
         self._state = self._IDLE_STATE
-        self._channels = [ServerChannel(self._transport, self, i)
-                          for i in range(NUM_CHANNELS_PER_SESSION)]
         self._token = None
         self._lastActivityTime = 0
         self._address = None
         self._clientSessionHint = None
+        self._channels = [self._ServerChannel()
+                          for i in range(NUM_CHANNELS_PER_SESSION)]
+        for channelId, channel in enumerate(self._channels):
+            channel.state = channel.IDLE_STATE
+            channel.rpcId = None
+            channel.currentRpc = None
+            # InboundMessage would be allocated as part of the channel
+            channel.inboundMsg = InboundMessage(self._transport, self,
+                                                channelId)
+            # OutboundMessage would be allocated as part of the channel
+            channel.outboundMsg = OutboundMessage(self._transport, self,
+                                                  channelId)
 
-    def getChannel(self, channelId):
-        if channelId < NUM_CHANNELS_PER_SESSION:
-            return self._channels[channelId]
+    def processInboundPacket(self, header, data):
+        if header.channelId >= NUM_CHANNELS_PER_SESSION:
+            # Invalid channel. A well-behaved client wouldn't ever do this,
+            # so it's safe to drop.
+            debug("drop due to invalid channel")
+            return
+
+        channel = self._channels[header.channelId]
+        if channel.rpcId is None:
+            rpcIdIsOld = False
+            rpcIdIsNew = True
         else:
-            return None
+            # TODO(ongaro): review modulo arithmetic
+            rpcIdMask = (1 << RPCID_WIDTH) - 1
+            diff = (header.rpcId - channel.rpcId) & rpcIdMask
+            rpcIdIsOld = (diff >= 10 * 1000 * 1000)
+            rpcIdIsNew = (0 < diff < 10 * 1000 * 1000)
 
-    def fillHeader(self, header):
+        if rpcIdIsOld:
+            # This must be an old packet that the client's no longer
+            # waiting on, just drop it.
+            debug("drop old packet")
+        elif rpcIdIsNew:
+            if header.payloadType == Header.PT_DATA:
+                self._discard(channel)
+                channel.rpcId = header.rpcId
+                channel.state = channel.RECEIVING_STATE
+                channel.currentRpc = new(Transport.ServerRPC(self._transport,
+                                                             self,
+                                                             header.channelId))
+                requestBuffer = channel.currentRpc.recvPayload
+                channel.inboundMsg.init(header.totalFrags, requestBuffer)
+                self._processReceivedData(channel, header, data)
+            else:
+                # A well-behaved client wouldn't ever do this, so it's safe
+                # to drop.
+                debug("drop new rpcId with non-data")
+        else: # header's RPC ID is same as channel's
+            if header.payloadType == Header.PT_DATA:
+                self._processReceivedData(channel, header, data)
+            elif header.payloadType == Header.PT_ACK:
+                self._processReceivedAck(channel, header, data)
+            else:
+                # A well-behaved client wouldn't ever do this, so it's safe
+                # to drop.
+                debug("drop current rpcId with bad type")
+
+    def beginSending(self, channelId):
+        """The server handler has finished producing the response; begin
+        sending the response data."""
+        channel = self._channels[channelId]
+        assert channel.state == channel.PROCESSING_STATE
+        channel.state = channel.SENDING_WAITING_STATE
+        responseBuffer = channel.currentRpc.replyPayload
+        channel.outboundMsg.beginSending(responseBuffer)
+
+    def rpcIgnored(self, channelId):
+        """The server handler chose to ignore this RPC request and will not
+        produce a response for it."""
+        channel = self._channels[channelId]
+        assert channel.state == channel.PROCESSING_STATE
+        self._discard(channel)
+
+    def fillHeader(self, header, channelId):
+        header.rpcId = self._channels[channelId].rpcId
+        header.channelId = channelId
         header.direction = Header.SERVER_TO_CLIENT
         header.clientSessionHint = self._clientSessionHint
         header.serverSessionHint = self._id
         header.sessionToken = self._token
 
+    def getToken(self):
+        return self._token
+
     def getAddress(self):
         return self._address
-
-    def isInUse(self):
-        return (self._state == self._ACTIVE_STATE)
 
     def startSession(self, address, clientSessionHint):
         assert self._state == self._IDLE_STATE
@@ -910,7 +892,10 @@ class ServerSession(Session):
 
         # send session open response
         header = Header()
-        self.fillHeader(header)
+        header.direction = Header.SERVER_TO_CLIENT
+        header.clientSessionHint = self._clientSessionHint
+        header.serverSessionHint = self._id
+        header.sessionToken = self._token
         header.rpcId = 0
         header.channelId = 0
         header.payloadType = Header.PT_SESSION_OPEN
@@ -923,11 +908,18 @@ class ServerSession(Session):
         if self._state == self._IDLE_STATE:
             return
         for channel in self._channels:
-            channel.destroy()
+            if channel.state != channel.IDLE_STATE:
+                self._discard(channel)
+                channel.state = channel.IDLE_STATE
+                channel.rpcId = None
+
         for i, rpc in enumerate(self._transport._serverReadyQueue):
             if rpc._session == self:
                 self._transport._serverReadyQueue[i] = None
                 delete(rpc)
+        self._transport._serverReadyQueue = filter(
+            None, self._transport._serverReadyQueue)
+
         self._state = self._IDLE_STATE
         self._token = None
         self._clientSessionHint = None
@@ -937,144 +929,191 @@ class ServerSession(Session):
         t = self._lastActivityTime
         if self._state == self._ACTIVE_STATE:
             for channel in self._channels:
-                t = max(t, channel.getLastActivityTime())
+                t = max(t, channel.inboundMsg.getLastActivityTime())
+                t = max(t, channel.outboundMsg.getLastActivityTime())
         return t
-
-class ClientChannel(Channel):
-    """A channel on the client.
-
-    @ivar _rpcId:
-        The RPC Id for next packet if IDLE or the active one if non-IDLE.
-    @ivar _currentRpc:
-        Pointer to external Transport.ClientRPC if non-IDLE. None if IDLE.
-    @ivar _lastActivityTime:
-        The time immediately after the latest packet (of any type) was
-        sent to or received from the server.
-    @ivar _numRetries:
-        The number of ACK requests or responses we've sent due to timeouts
-        since the last time the server has responded. This is cleared on the
-        receipt of response data or an ACK for request data.
-    """
-
-    # TODO(ongaro): Maybe get rid of this class (replace with a struct).
-
-    # start at IDLE.
-    # destroy() transitions to IDLE.
-    # beginSending() transitions from IDLE to SENDING.
-    # processReceivedData() transitions from SENDING to RECEIVING.
-    # retryWithNewRpcId() transitions from non-IDLE to SENDING.
-    _IDLE_STATE = 0
-    _SENDING_STATE = 1
-    _RECEIVING_STATE = 2
-
-    def __init__(self, transport, session, channelId):
-        self._transport = transport
-        self._session = session
-        self._channelId = channelId
-        self._rpcId = 0
-
-        self._outboundMsg = OutboundMessage(self._transport, self._session,
-                                            self)
-        self._inboundMsg = None
-        self._clear()
-
-    def _clear(self):
-        self._state = self._IDLE_STATE
-        self._rpcId = (self._rpcId + 1) % (1 << RPCID_WIDTH)
-        self._currentRpc = None
-
-        self._outboundMsg.clear()
-
-        if self._inboundMsg is not None:
-            delete(self._inboundMsg)
-            self._inboundMsg = None
-
-        self._lastActivityTime = 0
-        self._numRetries = 0
-
-    def __del__(self):
-        if self._inboundMsg is not None:
-            delete(self._inboundMsg)
-
-    def getRpcId(self):
-        """Called by receive path to help in processing."""
-        return self._rpcId
-
-    def fillHeader(self, header):
-        header.rpcId = self._rpcId
-        header.channelId = self._channelId
-        self._session.fillHeader(header)
-
-    def getLastActivityTime(self):
-        t = self._lastActivityTime
-        t = max(t, self._outboundMsg.getLastActivityTime())
-        if self._inboundMsg is not None:
-            t = max(t, self._inboundMsg.getLastActivityTime())
-        return t
-
-    def retryWithNewRpcId(self):
-        rpc = self._currentRpc
-        self._clear()
-        self.beginSending(rpc)
-
-    def beginSending(self, rpc):
-        assert self._state == self._IDLE_STATE
-        self._state = self._SENDING_STATE
-        self._currentRpc = rpc
-        self._outboundMsg.beginSending(rpc.getRequestBuffer())
-
-    def timeout(self):
-        """Called by _checkTimers."""
-        self._numRetries += 1
-        if self._numRetries == TIMEOUTS_UNTIL_ABORTING:
-            self._session.destroy(serverIsDead=True)
-            return
-
-        if self._state == self._SENDING_STATE:
-            self._outboundMsg.timeout()
-        elif self._state == self._RECEIVING_STATE:
-            self._inboundMsg.timeout()
-        else:
-            pass
-
-    def processReceivedData(self, fragNumber, totalFrags, data, sendAck):
-        """Process inbound received data."""
-        if self._state == self._IDLE_STATE:
-            return
-
-        self._numRetries = 0
-        if self._state == self._SENDING_STATE:
-            responseBuffer = self._currentRpc.getResponseBuffer()
-            # TODO(ongaro): Find a way around this. Maybe use the storage
-            # allocation mechanism in the Buffer.
-            self._inboundMsg = new(InboundMessage(self._transport,
-                                                  self._session, self,
-                                                  totalFrags, responseBuffer))
-            self._state = self._RECEIVING_STATE
-
-        if self._inboundMsg.processReceivedData(fragNumber, totalFrags,
-                                                data, sendAck):
-            self._currentRpc.completed()
-            self._clear()
-            self._session.doneWithChannel(self)
-
-    def processReceivedAck(self, ack):
-        if self._state != self._SENDING_STATE:
-            return
-        self._numRetries = 0
-        self._outboundMsg.processReceivedAck(ack)
-
-    def destroy(self, serverIsDead):
-        """Called by the session when it is destroyed."""
-        if self._currentRpc is not None:
-            if serverIsDead:
-                self._currentRpc.aborted()
-            else:
-                self._currentRpc.findNewSession()
-        self._clear()
 
 class ClientSession(Session):
     """A session on the client."""
+
+    class _ClientChannel(object):
+        """A channel on the client.
+
+        @ivar rpcId:
+            The RPC Id for next packet if IDLE or the active one if non-IDLE.
+        @ivar currentRpc:
+            Pointer to external Transport.ClientRPC if non-IDLE. None if IDLE.
+        @ivar numRetries:
+            The number of ACK requests or responses we've sent due to timeouts
+            since the last time the server has responded. This is cleared on the
+            receipt of response data or an ACK for request data.
+        """
+
+        # start at IDLE.
+        # destroy() transitions to IDLE.
+        # beginSending() transitions from IDLE to SENDING.
+        # processReceivedData() transitions from SENDING to RECEIVING.
+        # retryWithNewRpcId() transitions from non-IDLE to SENDING.
+        state = None
+        rpcId = None
+        currentRpc = None
+        outboundMsg = None
+        inboundMsg = None
+        numRetries = None
+
+        IDLE_STATE = 0
+        SENDING_STATE = 1
+        RECEIVING_STATE = 2
+
+    def _isConnected(self):
+        return self._token is not None
+
+    def _sendSessionOpenRequest(self):
+        header = Header()
+        header.direction = Header.CLIENT_TO_SERVER
+        header.clientSessionHint = self._id
+        header.serverSessionHint = self._serverSessionHint
+        header.sessionToken = self._token
+        header.rpcId = 0
+        header.serverSessionHint = 0
+        header.sessionToken = 0
+        header.channelId = 0
+        header.payloadType = Header.PT_SESSION_OPEN
+        self._transport._sendOne(self._address, header, Buffer([]))
+        # TODO(ongaro): Would it be possible to open a session like other RPCs?
+        # TODO: set up timer
+
+    def _processSessionOpenResponse(self, header, data):
+        """Process an inbound session open response."""
+        if self._isConnected():
+            return
+        response = SessionOpenResponse.fromString(data)
+        self._serverSessionHint = header.serverSessionHint
+        self._token = header.sessionToken
+        self._numChannels = min(response.maxChannelId + 1,
+                                MAX_NUM_CHANNELS_PER_SESSION)
+
+        self._channels = new([self._ClientChannel()
+                              for i in range(self._numChannels)])
+        for channelId, channel in enumerate(self._channels):
+            channel.state = channel.IDLE_STATE
+            channel.rpcId = 0
+            channel.currentRpc = None
+            # OutboundMessage would be allocated as part of the channel
+            channel.outboundMsg = OutboundMessage(self._transport, self,
+                                                  channelId)
+            # InboundMessage would be allocated as part of the channel
+            channel.inboundMsg = InboundMessage(self._transport, self,
+                                                channelId)
+            channel.numRetries = 0
+        for channelId, channel in enumerate(self._channels):
+            try:
+                rpc = self._channelQueue.pop(0)
+            except IndexError:
+                break
+            else:
+                self._channelStatus.setBit(channelId)
+                channel.state = channel.SENDING_STATE
+                channel.currentRpc = rpc
+                channel.outboundMsg.beginSending(rpc.getRequestBuffer())
+
+    def _processReceivedData(self, channel, header, data):
+        if channel.state == channel.IDLE_STATE:
+            return
+        channel.numRetries = 0
+        if channel.state == channel.SENDING_STATE:
+            responseBuffer = channel.currentRpc.getResponseBuffer()
+            channel.inboundMsg.init(header.totalFrags, responseBuffer)
+            channel.state = channel.RECEIVING_STATE
+        if channel.inboundMsg.processReceivedData(header.fragNumber,
+                                                  header.totalFrags, data,
+                                                  header.requestAck):
+            channel.currentRpc.completed()
+            channel.state = channel.IDLE_STATE
+            channel.rpcId = (channel.rpcId + 1) % (1 << RPCID_WIDTH)
+            channel.currentRpc = None
+            channel.outboundMsg.clear()
+            channel.inboundMsg.init(None, None)
+            channel.numRetries = 0
+
+            self._doneWithChannel(channel)
+
+    def _doneWithChannel(self, channel):
+        """Mark a channel as available.
+
+        If there's an RPC waiting on an available channel, it will be started.
+
+        This method should only be called by self and one of self._channels.
+        """
+        # TODO(ongaro): Rename this.
+        # TODO(ongaro): Maybe pass in a channelId.
+        channelId = self._channels.index(channel)
+        assert self._channelStatus.getBit(channelId)
+        try:
+            rpc = self._channelQueue.pop(0)
+        except IndexError:
+            self._channelStatus.clearBit(channelId)
+        else:
+            assert channel.state == channel.IDLE_STATE
+            channel.state = channel.SENDING_STATE
+            channel.currentRpc = rpc
+            channel.outboundMsg.beginSending(rpc.getRequestBuffer())
+
+    def _processReceivedAck(self, channel, header, data):
+        if channel.state != channel.SENDING_STATE:
+            return
+        ack = AckResponse.fromString(data)
+        channel.numRetries = 0
+        channel.outboundMsg.processReceivedAck(ack)
+
+    def _retryWithNewRpcId(self, channel):
+        channel.state = channel.SENDING_STATE
+        channel.rpcId = (channel.rpcId + 1) % (1 << RPCID_WIDTH)
+
+        channel.outboundMsg.clear()
+        channel.inboundMsg.init(None, None)
+
+        channel.numRetries = 0
+
+        channel.outboundMsg.beginSending(channel.currentRpc.getRequestBuffer())
+
+    def _getAvailableChannel(self):
+        """Return any available ClientChannel object or None."""
+        if not self._isConnected():
+            return None
+        channelId = self._channelStatus.ffz()
+        if channelId is None or channelId >= self._numChannels:
+            return None
+        self._channelStatus.setBit(channelId)
+        return self._channels[channelId]
+
+    def _destroy(self, serverIsDead=False):
+        """Mark this session as invalid.
+
+        This may be called at any time, e.g., when the server says the session
+        is invalid or when someone wants to reclaim the space.
+        """
+        # TODO: Does rpc.findNewSession make sense? Maybe just reset this
+        # session instead.
+        for channel in self._channels:
+            if channel.currentRpc is not None:
+                if serverIsDead:
+                    channel.currentRpc.aborted()
+                else:
+                    channel.currentRpc.findNewSession()
+        for rpc in self._channelQueue:
+            if serverIsDead:
+                rpc.aborted()
+            else:
+                rpc.findNewSession()
+        for i in range(MAX_NUM_CHANNELS_PER_SESSION):
+            self._channelStatus.clearBit(i)
+        self._numChannels = 0
+        if self._channels is not None:
+            delete(self._channels)
+        self._channels = None
+        self._serverSessionHint = None
+        self._token = None
 
     def __init__(self, transport, sessionId, address):
         self._transport = transport
@@ -1094,61 +1133,44 @@ class ClientSession(Session):
         self._sendSessionOpenRequest()
         # TODO(ongaro): Would it be safe to call poll here and wait?
 
-    def fillHeader(self, header):
+    def fillHeader(self, header, channelId):
         header.direction = Header.CLIENT_TO_SERVER
         header.clientSessionHint = self._id
         header.serverSessionHint = self._serverSessionHint
         header.sessionToken = self._token
+        header.channelId = channelId
+        header.rpcId = self._channels[channelId].rpcId
 
     def getAddress(self):
         return self._address
 
-    def _isConnected(self):
-        return self._token is not None
+    def processInboundPacket(self, header, data):
+        """Return whether the session is still valid."""
 
-    def _sendSessionOpenRequest(self):
-        header = Header()
-        self.fillHeader(header)
-        header.rpcId = 0
-        header.serverSessionHint = 0
-        header.sessionToken = 0
-        header.channelId = 0
-        header.payloadType = Header.PT_SESSION_OPEN
-        self._transport._sendOne(self._address, header, Buffer([]))
-        # TODO(ongaro): Would it be possible to open a session like other RPCs?
-        # TODO: set up timer
+        if header.channelId >= self._numChannels:
+            if header.payloadType == Header.PT_SESSION_OPEN:
+                self._processSessionOpenResponse(header, data)
+            return True
 
-    def processSessionOpenResponse(self, serverSessionHint, sessionToken,
-                                   data):
-        """Process an inbound session open response."""
-        if self._isConnected():
-            return
-        response = SessionOpenResponse.fromString(data)
-        self._serverSessionHint = serverSessionHint
-        self._token = sessionToken
-        self._numChannels = min(response.maxChannelId + 1,
-                                MAX_NUM_CHANNELS_PER_SESSION)
-        self._channels = new([ClientChannel(self._transport, self, i)
-                              for i in range(self._numChannels)])
-        for channelId, channel in enumerate(self._channels):
-            try:
-                rpc = self._channelQueue.pop(0)
-            except IndexError:
-                break
-            else:
-                self._channelStatus.setBit(channelId)
-                channel.beginSending(rpc)
-
-    def getChannel(self, channelId):
-        """Return the existing ClientChannel object corresponding to the given
-        id, or None if the id is invalid.
-
-        Used by the receive path to map an inbound packet to a channel.
-        """
-        if channelId < self._numChannels:
-            return self._channels[channelId]
+        channel = self._channels[header.channelId]
+        if channel.rpcId == header.rpcId:
+            if header.payloadType == Header.PT_DATA:
+                self._processReceivedData(channel, header, data)
+            elif header.payloadType == Header.PT_ACK:
+                self._processReceivedAck(channel, header, data)
+            elif header.payloadType == Header.PT_SESSION_OPEN:
+                # The session is already open, so just drop this.
+                pass
+            elif header.payloadType == Header.PT_BAD_SESSION:
+                self._destroy()
+                return False
+            elif header.payloadType == Header.PT_RETRY_WITH_NEW_RPCID:
+                self._retryWithNewRpcId(channel)
         else:
-            return None
+            if (0 < channel.rpcId - header.rpcId < 1024 and
+                header.payloadType == Header.PT_DATA and header.requestAck):
+                raise NotImplementedError("faked full ACK response")
+        return True
 
     def startRpc(self, rpc):
         """Queue an RPC for transmission on this session.
@@ -1163,56 +1185,38 @@ class ClientSession(Session):
             # TODO(ongaro): Thread linked list through rpc.
             self._channelQueue.append(rpc)
         else:
-            channel.beginSending(rpc)
-
-    def _getAvailableChannel(self):
-        """Return any available ClientChannel object or None."""
-        if not self._isConnected():
-            return None
-        channelId = self._channelStatus.ffz()
-        if channelId is None or channelId >= self.numChannels:
-            return None
-        self._channelStatus.setBit(channelId)
-        return self._channels[channelId]
+            assert channel.state == channel.IDLE_STATE
+            channel.state = channel.SENDING_STATE
+            channel.currentRpc = rpc
+            channel.outboundMsg.beginSending(rpc.getRequestBuffer())
 
     def getActiveChannels(self):
         if not self._isConnected():
             return
         for channelId, isActive in enumerate(self._channelStatus.iterBits()):
             if isActive and channelId < self._numChannels:
-                yield self._channels[channelId]
+                yield channelId
 
-    def doneWithChannel(self, channel):
-        """Mark a channel as available.
+    def getLastActivityTime(self, channelId):
+        channel = self._channels[channelId]
+        t = channel.outboundMsg.getLastActivityTime()
+        t = max(t, channel.inboundMsg.getLastActivityTime())
+        return t
 
-        If there's an RPC waiting on an available channel, it will be started.
-
-        This method should only be called by self and one of self._channels.
-        """
-        # TODO(ongaro): Rename this.
-        # TODO(ongaro): Maybe pass in a channelId.
-        channelId = self._channels.index(channel)
-        assert self._channelStatus.getBit(channelId)
-        try:
-            rpc = self._channelQueue.pop(0)
-        except IndexError:
-            self._channelStatus.clearBit(channelId)
+    def timeout(self, channelId):
+        """Called by _checkTimers."""
+        channel = self._channels[channelId]
+        channel.numRetries += 1
+        if channel.numRetries == TIMEOUTS_UNTIL_ABORTING:
+            debug("Aborting after %d timeouts" % TIMEOUTS_TILL_ABORTING)
+            self._destroy(serverIsDead=True)
+            return
+        if channel.state == channel.SENDING_STATE:
+            channel.outboundMsg.timeout()
+        elif channel.state == channel.RECEIVING_STATE:
+            channel.inboundMsg.timeout()
         else:
-            channel.beginSending(rpc)
-
-    def destroy(self, serverIsDead=False):
-        """Mark this session as invalid.
-
-        This may be called at any time, e.g., when the server says the session
-        is invalid or when someone wants to reclaim the space.
-        """
-        for channel in self._channels:
-            channel.destroy(serverIsDead)
-        for rpc in self._channelQueue:
-            if serverIsDead:
-                rpc.aborted()
-            else:
-                rpc.findNewSession()
+            pass
 
 class Transport(object):
     class TransportException(Exception):
@@ -1249,7 +1253,7 @@ class Transport(object):
         """Dump a packet onto the wire."""
         assert header.fragNumber < header.totalFrags
         header.pleaseDrop = (random.random() < PACKET_LOSS)
-        dataBuffer.insert(0, str(header))
+        dataBuffer.prepend(str(header))
         # TODO(ongaro): Will a sync API to Driver allow us to fully utilize
         # the NIC?
         self._driver.sendPacket(address, dataBuffer)
@@ -1261,9 +1265,9 @@ class Transport(object):
         # number of sessions open. Maybe a linked list through the active
         # sessions instead?
         for session in self._clientSessions.values():
-            for channel in session.getActiveChannels():
-                if channel.getLastActivityTime() + TIMEOUT_NS < now:
-                    channel.timeout()
+            for channelId in session.getActiveChannels():
+                if session.getLastActivityTime(channelId) + TIMEOUT_NS < now:
+                    session.timeout(channelId)
 
         # server role:
         # If the client hasn't received our entire response, that's their
@@ -1287,63 +1291,19 @@ class Transport(object):
                 return True
             session = self._serverSessions[header.serverSessionHint &
                                            (NUM_SERVER_SESSIONS - 1)]
-            if header.sessionToken == session._token:
-                channel = session.getChannel(header.channelId)
-                if channel is None:
-                    # Invalid channel. A well-behaved client wouldn't ever do this,
-                    # so it's safe to drop.
-                    debug("drop due to invalid channel")
-                    return True
-                if channel.getRpcId() is None:
-                    rpcIdIsOld = False
-                    rpcIdIsNew = True
-                else:
-                    # TODO(ongaro): review modulo arithmetic
-                    rpcIdMask = (1 << RPCID_WIDTH) - 1
-                    diff = (header.rpcId - channel.getRpcId()) & rpcIdMask
-                    rpcIdIsOld = (diff >= 10 * 1000 * 1000)
-                    rpcIdIsNew = (0 < diff < 10 * 1000 * 1000)
-                if rpcIdIsOld:
-                    # This must be an old packet that the client's no longer
-                    # waiting on, just drop it.
-                    debug("drop old packet")
-                    return True
-                elif rpcIdIsNew:
-                    if header.payloadType == Header.PT_DATA:
-                        channel.advance(header.rpcId)
-                        channel.processReceivedData(header.fragNumber,
-                                                    header.totalFrags, data,
-                                                    sendAck=header.requestAck)
-                    else:
-                        # A well-behaved client wouldn't ever do this, so it's safe
-                        # to drop.
-                        debug("drop new rpcId with non-data")
-                        return True
-                else: # header's RPC ID is same as channel's
-                    if header.payloadType == Header.PT_DATA:
-                        channel.processReceivedData(header.fragNumber,
-                                                    header.totalFrags, data,
-                                                    sendAck=header.requestAck)
-                    elif header.payloadType == Header.PT_ACK:
-                        channel.processReceivedAck(AckResponse.fromString(data))
-                    else:
-                        # A well-behaved client wouldn't ever do this, so it's safe
-                        # to drop.
-                        debug("drop current rpcId with bad type")
-                        return True
+            if session.getToken() == header.sessionToken:
+                session.processInboundPacket(header, data)
             else:
                 if header.payloadType == Header.PT_SESSION_OPEN:
                     oldestSession = self._serverSessions[0]
-                    oldestTime = 0
+                    oldestTime = (1 << 64) - 1
                     for session in self._serverSessions:
-                        if not session.isInUse():
-                            session.startSession(address,
-                                                 header.clientSessionHint)
-                            return True
                         t = session.getLastActivityTime()
-                        if t > oldestTime:
+                        if t < oldestTime:
                             oldestTime = t
                             oldestSession = session
+                            if t == 0:
+                                break
                     oldestSession.destroy()
                     oldestSession.startSession(address, header.clientSessionHint)
                 else:
@@ -1362,35 +1322,11 @@ class Transport(object):
                 session = self._clientSessions[address]
             except KeyError:
                 return True
-            channel = session.getChannel(header.channelId)
-            if channel is None:
-                if header.payloadType == Header.PT_SESSION_OPEN:
-                    session.processSessionOpenResponse(header.serverSessionHint,
-                                                       header.sessionToken,
-                                                       data)
-                return True
-            if channel.getRpcId() == header.rpcId:
-                if header.payloadType == Header.PT_DATA:
-                    # TODO(ongaro): Just pass the Header through.
-                    channel.processReceivedData(header.fragNumber,
-                                                header.totalFrags, data,
-                                                sendAck=header.requestAck)
-                elif header.payloadType == Header.PT_ACK:
-                    channel.processReceivedAck(AckResponse.fromString(data))
-                elif header.payloadType == Header.PT_SESSION_OPEN:
-                    # The session is already open (we have a channel),
-                    # so just drop this.
-                    return True
-                elif header.payloadType == Header.PT_BAD_SESSION:
-                    self._clientSessions.pop(address)
-                    session.destroy()
-                    delete(session)
-                elif header.payloadType == Header.PT_RETRY_WITH_NEW_RPCID:
-                    channel.retryWithNewRpcId()
-            else:
-                if (0 < channel.getRpcId() - header.rpcId < 1024 and
-                    header.payloadType == Header.PT_DATA and header.requestAck):
-                    raise NotImplementedError("faked full ACK response")
+            sessionStillValid = session.processInboundPacket(header, data)
+            if not sessionStillValid:
+                self._clientSessions.pop(address)
+                delete(session)
+
         return True
 
     def poll(self):
@@ -1479,11 +1415,11 @@ class Transport(object):
         _COMPLETED_STATE = 1
         _ABORTED_STATE = 2
 
-        def __init__(self, transport, session, channel):
+        def __init__(self, transport, session, channelId):
             self._state = self._PROCESSING_STATE
             self._transport = transport
             self._session = session
-            self._channel = channel
+            self._channelId = channelId
             self.recvPayload = Buffer()
             self.replyPayload = Buffer()
 
@@ -1492,7 +1428,7 @@ class Transport(object):
                 delete(self)
             elif self._state == self._PROCESSING_STATE:
                 self._state = self._COMPLETED_STATE
-                self._channel.beginSending()
+                self._session.beginSending(self._channelId)
                 # TODO: don't forget to delete(self) eventually
             else:
                 assert False
@@ -1502,7 +1438,7 @@ class Transport(object):
                 delete(self)
             elif self._state == self._PROCESSING_STATE:
                 self._state = self._COMPLETED_STATE
-                self._channel.rpcIgnored()
+                self._session.rpcIgnored(self._channelId)
             else:
                 assert False
 
@@ -1511,7 +1447,7 @@ class Transport(object):
             self._state = self._ABORTED_STATE
             self._transport = None
             self._session = None
-            self._channel = None
+            self._channelId = None
 
     def serverRecv(self):
         while True:

@@ -26,6 +26,9 @@ class Buffer(list):
     def getRange(self, start, length):
         return ''.join(self)[start:(start + length)]
 
+    def prepend(self, s):
+        self.insert(0, s)
+
 class BitVector(object):
     def __init__(self, length, ones=False, seq=None):
         self.length = length
@@ -75,3 +78,44 @@ class BitVector(object):
 
     def fillBuffer(self, bufferToFill):
         bufferToFill.append(str(self))
+
+class Ring(object):
+    def __init__(self, length, clearValue):
+        self._clearValue = clearValue
+        self._array = [clearValue] * length
+        self._start = 0
+
+    def __getitem__(self, index):
+        if index >= len(self._array):
+            raise IndexError
+        index += self._start
+        if index >= len(self._array):
+            index -= len(self._array)
+        return self._array[index]
+
+    def __setitem__(self, index, value):
+        if index >= len(self._array):
+            raise IndexError
+        index += self._start
+        if index >= len(self._array):
+            index -= len(self._array)
+        self._array[index] = value
+
+    def __len__(self):
+        return len(self._array)
+
+    def clear(self):
+        for i in range(len(self._array)):
+            self._array[i] = self._clearValue
+
+    def advance(self, distance):
+        x = list(self)[distance:] + [self._clearValue] * distance
+        # TODO(ongaro): assert distance <= len(self._array)?
+        for i in range(min(distance,
+                           len(self._array))):
+            self[i] = self._clearValue
+        self._start += distance
+        while self._start >= len(self._array):
+            self._start -= len(self._array)
+        y = list(self)
+        assert x == y, (x, y, self.__dict__)

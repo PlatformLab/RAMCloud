@@ -18,25 +18,33 @@ import sys
 
 from driver import UDPDriver as Driver
 from transport import Transport, Buffer, TEST_ADDRESS
+from util import gettime
 
 def main():
+    random.seed(0)
+
     d = Driver()
     t = Transport(d, isServer=False)
 
     for i in itertools.count(1):
         # gotta make sure those ack responses still fit
-        totalFrags = random.randrange(1, (d.MAX_PAYLOAD_SIZE - 64) * 8)
+        #totalFrags = random.randrange(1, (d.MAX_PAYLOAD_SIZE - 64) * 8)
         totalFrags = random.randrange(1, 500)
-        requestBuffer = Buffer(['a' * t.dataPerFragment() for i in range(totalFrags)])
+        #totalFrags = 1000
+        requestBuffer = Buffer(['a' * t.dataPerFragment() for j in range(totalFrags)])
         responseBuffer = Buffer()
+        start = gettime()
         r = t.clientSend(TEST_ADDRESS, requestBuffer, responseBuffer)
         r.getReply()
+        elapsedNs = gettime() - start
         resp = responseBuffer.getRange(0, responseBuffer.getTotalLength())
         req = requestBuffer.getRange(0, requestBuffer.getTotalLength())
         assert len(req) == len(resp), (len(req), len(resp), req[:10], resp[:10],
                                        req[-10:], resp[-10:])
         assert req == resp, (req, resp)
-        print "Message %d with %d frags OK" % (i, totalFrags)
+        print
+        print "Message %d with %d frags OK in %dms" % (i, totalFrags,
+                                                       elapsedNs / 1000000)
 
     #responseBuffer1 = []
     #responseBuffer2 = []

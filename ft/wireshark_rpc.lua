@@ -33,37 +33,24 @@ do
 	end
 
 	do -- RAMCloud ACK response dissector
-		local p_frag_proto = Proto("rcackfrags", "Fragments")
+		local p_frag_proto = Proto("rcackgaps", "Fragments")
 		local f_ack = ProtoField.uint16("rcack.ack", "ACK", base.DEC)
-		local f_nack = ProtoField.uint16("rcack.nack", "NACK", base.DEC)
-		p_frag_proto.fields = { f_ack, f_nack }
+		p_frag_proto.fields = { f_ack }
 
-		local f_totalFrags = ProtoField.uint16("rcack.totalFrags", "Total Fragments", base.DEC)
-		local f_received = ProtoField.uint16("rcack.received", "Fragments Received", base.DEC)
-		p_ack_proto.fields = { f_totalFrags, f_received }
+		local f_firstMissingFrag = ProtoField.uint16("rcack.firstMissingFrag", "First Missing Fragment", base.DEC)
+		p_ack_proto.fields = { f_firstMissingFrag }
 
 		function p_ack_proto.dissector(buf, pkt, root)
 			local t = root:add(p_ack_proto, buf(0))
-			t:add_le(f_totalFrags, buf(0, 2))
-			local received = 0
-
-			local bitNumber = 0
-			while bitNumber < buf(0, 2):le_uint() do
-				local byte = buf(2 + bitNumber / 8, 1):le_uint()
-				if bit.band(byte, bit.blshift(1, bitNumber % 8)) ~= 0 then
-					received = received + 1
-				end
-				bitNumber = bitNumber + 1
-			end
-			t:add_le(f_received, received)
+			t:add_le(f_firstMissingFrag, buf(0, 2))
 
 			local u = t:add(p_frag_proto, buf(2))
 
 			local bitNumber = 0
-			while bitNumber < buf(0, 2):le_uint() do
+			while bitNumber < 32 do
 				local byte = buf(2 + bitNumber / 8, 1):le_uint()
 				if bit.band(byte, bit.blshift(1, bitNumber % 8)) ~= 0 then
-					u:add_le(f_ack, bitNumber)
+					u:add_le(f_ack, bitNumber + buf(0, 2):le_uint() + 1)
 				end
 				bitNumber = bitNumber + 1
 			end
