@@ -43,9 +43,6 @@ const bool debug_backup = false;
 
 static const uint64_t RESP_BUF_LEN = (1 << 20);
 
-BackupException::~BackupException() {}
-
-
 /**
  * \param[in]  servIn   The Service that represents this BackupServer.
  * \param[in]  transIn  The Transport object that the BackupServer uses.

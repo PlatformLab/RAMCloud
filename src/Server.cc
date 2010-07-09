@@ -388,7 +388,7 @@ Server::CreateTable(Transport::ServerRPC *rpc)
     for (i = 0; i < RC_NUM_TABLES; i++) {
         if (strcmp(tables[i].GetName(), req->name) == 0) {
             // TODO(stutsman): Need to do better than this
-            throw "Table exists";
+            throw Exception("Table exists");
         }
     }
     for (i = 0; i < RC_NUM_TABLES; i++) {
@@ -399,7 +399,7 @@ Server::CreateTable(Transport::ServerRPC *rpc)
     }
     if (i == RC_NUM_TABLES) {
         // TODO(stutsman): Need to do better than this
-        throw "Out of tables";
+        throw Exception("Out of tables");
     }
     if (server_debug)
         printf("create table -> %d\n", i);
@@ -422,7 +422,7 @@ Server::OpenTable(Transport::ServerRPC *rpc)
     }
     if (i == RC_NUM_TABLES) {
         // TODO(stutsman): Need to do better than this
-        throw "No such table";
+        throw Exception("No such table");
     }
     if (server_debug)
         printf("open table -> %d\n", i);
@@ -446,7 +446,7 @@ Server::DropTable(Transport::ServerRPC *rpc)
     }
     if (i == RC_NUM_TABLES) {
         // TODO(stutsman): Need to do better than this
-        throw "No such table";
+        throw Exception("No such table");
     }
     if (server_debug)
         printf("drop table -> %d\n", i);
@@ -542,7 +542,7 @@ Server::HandleRPC()
             if (sizeof(rcrpc_##rcrpc_lower##_request) != 1 &&                  \
                 rpc->recvPayload.getTotalLength() <                            \
                 sizeof(rcrpc_##rcrpc_lower##_request))                         \
-                throw "payload too short";                                     \
+                throw Exception("payload too short");                          \
             Server::handler(rpc);                                              \
             replyHeader->type = RCRPC_##rcrpc_upper##_RESPONSE;                \
             /* In C++, structs with no members have sizeof 0. */               \
@@ -552,7 +552,7 @@ Server::HandleRPC()
                     sizeof(rcrpc_##rcrpc_lower##_response)));                  \
             break;                                                             \
         case RCRPC_##rcrpc_upper##_RESPONSE:                                   \
-            throw "server received RPC response"
+            throw Exception("server received RPC response")
 
         HANDLE(PING, ping, Ping);
         HANDLE(READ, read, Read);
@@ -565,10 +565,10 @@ Server::HandleRPC()
 #undef HANDLE
 
         case RCRPC_ERROR_RESPONSE:
-            throw "server received RPC response";
+            throw Exception("server received RPC response");
 
         default:
-            throw "received unknown RPC type";
+            throw Exception("received unknown RPC type");
         }
     } catch (const char *msg) {
         fprintf(stderr, "Error while processing RPC: %s\n", msg);

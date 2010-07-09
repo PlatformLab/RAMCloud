@@ -56,6 +56,7 @@ cmdline(int argc, char *argv[], RAMCloud::ServerConfig *config)
 
 int
 main(int argc, char *argv[])
+try
 {
     RAMCloud::ServerConfig config;
     cmdline(argc, argv, &config);
@@ -66,4 +67,6 @@ main(int argc, char *argv[])
     server.Run();
 
     return 0;
+} catch (RAMCloud::Exception e) {
+    fprintf(stderr, "server: %s\n", e.message.c_str());
 }

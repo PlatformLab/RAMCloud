@@ -228,6 +228,34 @@ class CycleCounter {
     DISALLOW_COPY_AND_ASSIGN(CycleCounter);
 };
 
+
+/**
+ * The base class for all RAMCloud exceptions.
+ */
+struct Exception {
+    explicit Exception() : message(""), errNo(0) {}
+    explicit Exception(std::string msg)
+            : message(msg), errNo(0) {}
+    explicit Exception(int errNo) : message(""), errNo(errNo) {
+        message = strerror(errNo);
+    }
+    explicit Exception(std::string msg, int errNo)
+            : message(msg), errNo(errNo) {}
+    Exception(const Exception &e)
+            : message(e.message), errNo(e.errNo) {}
+    Exception &operator=(const Exception &e) {
+        if (&e == this)
+            return *this;
+        message = e.message;
+        errNo = e.errNo;
+        return *this;
+    }
+    virtual ~Exception() {}
+    std::string message;
+    int errNo;
+};
+
+
 }
 #endif
 

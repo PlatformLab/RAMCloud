@@ -90,7 +90,7 @@ TCPTransport::Socket::~Socket()
  *      An empty buffer to which the message contents will be added.
  *      Keep in mind that the sender may have sent a 0-byte message (which is
  *      perfectly OK and distinct from an error).
- * \throw Transport::Exception
+ * \throw TransportException
  *      There was an error on the connection.
  */
 void
@@ -106,11 +106,11 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
             int e = errno;
             sys->close(fd);
             fd = -1;
-            throw Transport::Exception(e);
+            throw TransportException(e);
         } else if (len == 0) {
             sys->close(fd);
             fd = -1;
-            throw Transport::Exception("peer performed orderly shutdown");
+            throw TransportException("peer performed orderly shutdown");
         }
         assert(len == sizeof(header));
     }
@@ -118,7 +118,7 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
     if (header.len > MAX_RPC_LEN) {
         sys->close(fd);
         fd = -1;
-        throw Transport::Exception("peer trying to send too much data");
+        throw TransportException("peer trying to send too much data");
     }
 
     if (header.len == 0)
@@ -132,11 +132,11 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
             int e = errno;
             sys->close(fd);
             fd = -1;
-            throw Transport::Exception(e);
+            throw TransportException(e);
         } else if (len == 0) {
             sys->close(fd);
             fd = -1;
-            throw Transport::Exception("peer performed orderly shutdown");
+            throw TransportException("peer performed orderly shutdown");
         }
         assert(len == header.len);
     }
@@ -149,7 +149,7 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
  * \param payload
  *      A buffer containing the contents of the message to send. This may be
  *      empty, in which case a message of 0 bytes will be sent.
- * \throw Transport::Exception
+ * \throw TransportException
  *      There was an error on the connection.
  */
 void
@@ -186,7 +186,7 @@ TCPTransport::MessageSocket::send(const Buffer* payload)
         int e = errno;
         sys->close(fd);
         fd = -1;
-        throw Transport::Exception(e);
+        throw TransportException(e);
     }
     assert(static_cast<size_t>(r) == sizeof(header) + header.len);
 }
@@ -194,7 +194,7 @@ TCPTransport::MessageSocket::send(const Buffer* payload)
 /**
  * Initialize a ServerSocket.
  * You should call this exactly once before using the object.
- * \throw Transport::UnrecoverableException
+ * \throw UnrecoverableTransportException
  *      Errors from #TCPTransport::ListenSocket::accept().
  */
 void
@@ -215,9 +215,9 @@ TCPTransport::ServerSocket::init(ListenSocket* listenSocket)
  *      constructor.
  * \param port
  *      The port number to listen on in host byte order.
- * \exception Transport::UnrecoverableException
+ * \exception UnrecoverableTransportException
  *      Bad IP address.
- * \exception Transport::UnrecoverableException
+ * \exception UnrecoverableTransportException
  *      Errors trying to create, bind, listen to the socket.
  */
 TCPTransport::ListenSocket::ListenSocket(const char* ip, uint16_t port)
@@ -227,7 +227,7 @@ TCPTransport::ListenSocket::ListenSocket(const char* ip, uint16_t port)
 
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
-        throw Transport::UnrecoverableException(errno);
+        throw UnrecoverableTransportException(errno);
     }
 
     int optval = 1;
@@ -238,16 +238,16 @@ TCPTransport::ListenSocket::ListenSocket(const char* ip, uint16_t port)
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     if (inet_aton(ip, &addr.sin_addr) == 0)
-        throw Transport::UnrecoverableException("Bad IP address");
+        throw UnrecoverableTransportException("Bad IP address");
 
     if (sys->bind(fd, (struct sockaddr*) &addr, sizeof(addr)) == -1) {
         // destructor will close fd
-        throw Transport::UnrecoverableException(errno);
+        throw UnrecoverableTransportException(errno);
     }
 
     if (sys->listen(fd, INT_MAX) == -1) {
         // destructor will close fd
-        throw Transport::UnrecoverableException(errno);
+        throw UnrecoverableTransportException(errno);
     }
 }
 
@@ -255,7 +255,7 @@ TCPTransport::ListenSocket::ListenSocket(const char* ip, uint16_t port)
  * Accept a new connection.
  * \return
  *      A non-negative file descriptor for the new connection.
- * \throw Transport::UnrecoverableException
+ * \throw UnrecoverableTransportException
  *      Non-transient errors accepting a new connection.
  */
 int
@@ -282,7 +282,7 @@ TCPTransport::ListenSocket::accept()
                 // retry on Linux.
                 break;
             default:
-                throw Transport::UnrecoverableException(errno);
+                throw UnrecoverableTransportException(errno);
         }
     }
 }
@@ -299,11 +299,11 @@ TCPTransport::ListenSocket::accept()
  *      The IP address to connect to in numbers-and-dots notation.
  * \param port
  *      The port to connect to in host byte order.
- * \throw Transport::UnrecoverableException
+ * \throw UnrecoverableTransportException
  *      Error creating socket or fatal error connecting.
- * \throw Transport::UnrecoverableException
+ * \throw UnrecoverableTransportException
  *      Bad IP address.
- * \throw Transport::Exception
+ * \throw TransportException
  *      Server refused connection or timed out.
  */
 void
@@ -311,14 +311,14 @@ TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
-        throw Transport::UnrecoverableException(errno);
+        throw UnrecoverableTransportException(errno);
     }
 
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     if (inet_aton(ip, &addr.sin_addr) == 0)
-        throw Transport::UnrecoverableException("Bad IP address");
+        throw UnrecoverableTransportException("Bad IP address");
 
     int r = sys->connect(fd, reinterpret_cast<struct sockaddr*>(&addr),
                          sizeof(addr));
@@ -329,9 +329,9 @@ TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
         switch (e) {
             case ECONNREFUSED:
             case ETIMEDOUT:
-                throw Transport::Exception(e);
+                throw TransportException(e);
             default:
-                throw Transport::UnrecoverableException(e);
+                throw UnrecoverableTransportException(e);
         }
     }
 }
@@ -373,7 +373,7 @@ TCPTransport::TCPClientRPC::getReply()
  * \param port
  *      The port number to listen on in host byte order. For client transports,
  *      see above.
- * \exception Transport::UnrecoverableException
+ * \exception UnrecoverableTransportException
  *      Errors trying to listen on the IP address and port.
  */
 TCPTransport::TCPTransport(const char* ip, uint16_t port)
@@ -391,7 +391,7 @@ TCPTransport::serverRecv()
         try {
             rpc->serverSocket->recv(&rpc->recvPayload);
             break;
-        } catch (Transport::Exception e) {}
+        } catch (TransportException e) {}
     }
 
     return rpc.release();

@@ -66,6 +66,7 @@ cleanup()
 
 int
 main(int argc, char *argv[])
+try
 {
     double cycles_per_ns = static_cast<double>(cycles_per_sec()) /
         (1000 * 1000 * 1000);
@@ -155,4 +156,6 @@ main(int argc, char *argv[])
     cleanup();
 
     return 0;
+} catch (RAMCloud::Exception e) {
+    fprintf(stderr, "Bench: %s\n", e.message.c_str());
 }

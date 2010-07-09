@@ -35,37 +35,31 @@
 
 namespace RAMCloud {
 
-struct BackupException {
-    /// Automatically captures errno and places string in message
-    explicit BackupException() : message(""), errNo(0) {}
-    explicit BackupException(std::string msg)
-            : message(msg), errNo(0) {}
-    BackupException(const BackupException &e)
-            : message(e.message), errNo(e.errNo) {}
-    BackupException &operator=(const BackupException &e) {
-        if (&e == this)
-            return *this;
-        message = e.message;
-        errNo = e.errNo;
-        return *this;
-    }
-    static void FromErrno(BackupException *e, int errn) {
-        e->message = strerror(errn);
-        e->errNo = errn;
-    }
-    virtual ~BackupException();
-    std::string message;
-    int errNo;
+struct BackupException : public Exception {
+    BackupException() : Exception() {}
+    explicit BackupException(std::string msg) : Exception(msg) {}
+    explicit BackupException(int errNo) : Exception(errNo) {}
 };
 
 struct BackupLogIOException : public BackupException {
-    explicit BackupLogIOException(int errn) {
-        BackupException::FromErrno(this, errn);
-    }
-    explicit BackupLogIOException(std::string msg) : BackupException(msg) {}
+    BackupLogIOException() : BackupException() {}
+    explicit BackupLogIOException(std::string msg): BackupException(msg) {}
+    explicit BackupLogIOException(int errNo) : BackupException(errNo) {}
 };
-struct BackupInvalidRPCOpException : public BackupException {};
-struct BackupSegmentOverflowException : public BackupException {};
+struct BackupInvalidRPCOpException : public BackupException {
+    BackupInvalidRPCOpException() : BackupException() {}
+    explicit BackupInvalidRPCOpException(std::string msg)
+        : BackupException(msg) {}
+    explicit BackupInvalidRPCOpException(int errNo)
+        : BackupException(errNo) {}
+};
+struct BackupSegmentOverflowException : public BackupException {
+    BackupSegmentOverflowException() : BackupException() {}
+    explicit BackupSegmentOverflowException(std::string msg)
+        : BackupException(msg) {}
+    explicit BackupSegmentOverflowException(int errNo)
+        : BackupException(errNo) {}
+};
 
 const uint64_t SEGMENT_FRAMES = SEGMENT_COUNT * 2;
 const uint64_t LOG_SPACE = SEGMENT_FRAMES * SEGMENT_SIZE;
