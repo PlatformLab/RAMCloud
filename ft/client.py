@@ -27,8 +27,7 @@ def main():
     t = Transport(d, isServer=False)
 
     for i in itertools.count(1):
-        # gotta make sure those ack responses still fit
-        #totalFrags = random.randrange(1, (d.MAX_PAYLOAD_SIZE - 64) * 8)
+        #totalFrags = random.randrange(1, 2**16 - 1)
         totalFrags = random.randrange(1, 500)
         #totalFrags = 1000
         requestBuffer = Buffer(['a' * t.dataPerFragment() for j in range(totalFrags)])

@@ -34,15 +34,11 @@ MAX_NUM_CHANNELS_PER_SESSION = 8
 
 #### Server only
 
-# The maximum number of sessions in the session table.
-# Must be a power of two.
-# TODO(ongaro): It sounds like we probably want the session table to have no
-# fixed size (e.g., using a C++ vector).
-NUM_SERVER_SESSIONS = 1 << 10
-
 # The maximum number of channels to allocate per session.
 NUM_CHANNELS_PER_SESSION = 8
 
+# The time until the server will close an inactive session.
+SESSION_TIMEOUT_NS = 60 * 60 * 1000 * 1000 * 1000 # 30min
 
 #### Client and Server (must be same)
 
@@ -1229,12 +1225,14 @@ class Transport(object):
         if self._isServer:
             # indexed by session IDs
             # values are ServerSession objects
-            self._serverSessions = [ServerSession(self, i) for i in
-                                    range(NUM_SERVER_SESSIONS)]
+            self._serverSessions = []
 
             # a list of dynamically allocated Transport.ServerRPC objects that
             # are ready for processing by server handlers
             self._serverReadyQueue = []
+
+            self._lastCleanedSessionIndex = 0
+            self._availableSessions = []
 
         # keyed by address
         # values are ClientSession objects
@@ -1257,6 +1255,21 @@ class Transport(object):
         # TODO(ongaro): Will a sync API to Driver allow us to fully utilize
         # the NIC?
         self._driver.sendPacket(address, dataBuffer)
+
+    def _expireSessions(self, sessionsToCheck=5):
+        now = gettime()
+        i = self._lastCleanedSessionIndex
+        for j in range(sessionsToCheck):
+            i += 1
+            if i >= len(self._serverSessions):
+                i = 0
+                if len(self._serverSessions) == 0:
+                    break
+            session = self._serverSessions[i]
+            if session.getActivityTime() + SESSION_TIMEOUT_NS < now:
+                session.destroy()
+            self._availableSessions.append(session)
+        self._lastCleanedSessionIndex = i
 
     def _checkTimers(self):
         now = gettime()
@@ -1289,34 +1302,30 @@ class Transport(object):
                 # This must be an old or malformed packet, so it is safe to drop.
                 debug("drop -- not a server")
                 return True
-            session = self._serverSessions[header.serverSessionHint &
-                                           (NUM_SERVER_SESSIONS - 1)]
-            if session.getToken() == header.sessionToken:
-                session.processInboundPacket(header, data)
+            if header.serverSessionHint < len(self._serverSessions):
+                session = self._serverSessions[header.serverSessionHint]
+                if session.getToken() == header.sessionToken:
+                    session.processInboundPacket(header, data)
+                    return True
+            if header.payloadType == Header.PT_SESSION_OPEN:
+                self._expireSessions()
+                try:
+                    session = self._availableSessions.pop()
+                except IndexError:
+                    session = ServerSession(self,
+                                            len(self._serverSessions))
+                    self._serverSessions.append(session)
+                session.startSession(address, header.clientSessionHint)
             else:
-                if header.payloadType == Header.PT_SESSION_OPEN:
-                    oldestSession = self._serverSessions[0]
-                    oldestTime = (1 << 64) - 1
-                    for session in self._serverSessions:
-                        t = session.getLastActivityTime()
-                        if t < oldestTime:
-                            oldestTime = t
-                            oldestSession = session
-                            if t == 0:
-                                break
-                    oldestSession.destroy()
-                    oldestSession.startSession(address, header.clientSessionHint)
-                else:
-                    replyHeader = Header()
-                    replyHeader.sessionToken = header.sessionToken
-                    replyHeader.rpcId = header.rpcId
-                    replyHeader.clientSessionHint = header.clientSessionHint
-                    replyHeader.serverSessionHint = header.serverSessionHint
-                    replyHeader.channelId = header.channelId
-                    replyHeader.payloadType = Header.PT_BAD_SESSION
-                    replyHeader.direction = Header.SERVER_TO_CLIENT
-                    self._sendOne(address, replyHeader, Buffer([]))
-
+                replyHeader = Header()
+                replyHeader.sessionToken = header.sessionToken
+                replyHeader.rpcId = header.rpcId
+                replyHeader.clientSessionHint = header.clientSessionHint
+                replyHeader.serverSessionHint = header.serverSessionHint
+                replyHeader.channelId = header.channelId
+                replyHeader.payloadType = Header.PT_BAD_SESSION
+                replyHeader.direction = Header.SERVER_TO_CLIENT
+                self._sendOne(address, replyHeader, Buffer([]))
         else:
             try:
                 session = self._clientSessions[address]
