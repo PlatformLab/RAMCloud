@@ -29,6 +29,9 @@ class Buffer(list):
     def prepend(self, s):
         self.insert(0, s)
 
+    def allocate(self, x):
+        return x
+
 class BitVector(object):
     def __init__(self, length, ones=False, seq=None):
         self.length = length

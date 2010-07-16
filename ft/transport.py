@@ -1323,7 +1323,6 @@ class Transport(object):
         # server role:
         # If the client hasn't received our entire response, that's their
         # problem. No need to handle timeouts here.
-        # TODO(ongaro): periodic cleanup of state?
 
     def _checkWire(self):
         x = self._driver.tryRecvPacket()
@@ -1385,9 +1384,10 @@ class Transport(object):
         return self._clientSessions.get()
 
     class ClientRPC(object):
-        _IN_PROGRESS_STATE = 0
-        _COMPLETED_STATE = 1
-        _ABORTED_STATE = 2
+        _IDLE_STATE = 0
+        _IN_PROGRESS_STATE = 1
+        _COMPLETED_STATE = 2
+        _ABORTED_STATE = 3
 
         def __init__(self, transport, service, requestBuffer, responseBuffer):
             self._transport = transport
@@ -1397,6 +1397,10 @@ class Transport(object):
             self._requestBuffer = requestBuffer
             self._responseBuffer = responseBuffer
 
+            self._state = self._IDLE_STATE
+
+        def start(self):
+            assert self._state == self._IDLE_STATE
             self._state = self._IN_PROGRESS_STATE
             self._service.session.startRpc(self)
 
@@ -1415,22 +1419,19 @@ class Transport(object):
             self._state = self._COMPLETED_STATE
 
         def getReply(self):
-            try:
-                while True:
-                    if self._state == self._COMPLETED_STATE:
-                        return
-                    elif self._state == self._ABORTED_STATE:
-                        raise self._transport.TransportException("RPC aborted")
-                    self._transport.poll()
-            finally:
-                delete(self)
+            assert self._state != self._IDLE_STATE
+            while True:
+                if self._state == self._COMPLETED_STATE:
+                    return
+                elif self._state == self._ABORTED_STATE:
+                    raise self._transport.TransportException("RPC aborted")
+                self._transport.poll()
 
     def clientSend(self, service, requestBuffer, responseBuffer):
-        # TODO(ongaro): Allocate the ClientRPC in requestBuffer or responseBuffer?
-        rpc = new(Transport.ClientRPC(self, service, requestBuffer,
-                                      responseBuffer))
-        # TODO: Move the work out of the constructor to an rpc.start() or
-        # similar
+        rpc = requestBuffer.allocate(Transport.ClientRPC(self, service,
+                                                         requestBuffer,
+                                                         responseBuffer))
+        rpc.start()
         return rpc
 
     class ServerRPC(object):
