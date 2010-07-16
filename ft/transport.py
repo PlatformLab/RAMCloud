@@ -988,22 +988,6 @@ class ClientSession(Session):
     def _isConnected(self):
         return self._token is not None
 
-    def _sendSessionOpenRequest(self):
-        header = Header()
-        header.direction = Header.CLIENT_TO_SERVER
-        header.clientSessionHint = self._id
-        header.serverSessionHint = self._serverSessionHint
-        header.sessionToken = self._token
-        header.rpcId = 0
-        header.serverSessionHint = 0
-        header.sessionToken = 0
-        header.channelId = 0
-        header.payloadType = Header.PT_SESSION_OPEN
-        self._transport._sendOne(self.getAddress(), header, Buffer([]))
-        # TODO(ongaro): Would it be possible to open a session like other RPCs?
-        # TODO: set up timer
-        self._lastActivityTime = gettime()
-
     def _processSessionOpenResponse(self, payloadCM):
         """Process an inbound session open response."""
         if self._isConnected():
@@ -1111,7 +1095,22 @@ class ClientSession(Session):
 
     def connect(self, service):
         self._service = service
-        self._sendSessionOpenRequest()
+
+        header = Header()
+        header.direction = Header.CLIENT_TO_SERVER
+        header.clientSessionHint = self._id
+        header.serverSessionHint = self._serverSessionHint
+        header.sessionToken = self._token
+        header.rpcId = 0
+        header.serverSessionHint = 0
+        header.sessionToken = 0
+        header.channelId = 0
+        header.payloadType = Header.PT_SESSION_OPEN
+        self._transport._sendOne(self.getAddress(), header, Buffer([]))
+        # TODO(ongaro): Would it be possible to open a session like other RPCs?
+        # TODO: set up timer
+        self._lastActivityTime = gettime()
+
         # TODO(ongaro): Would it be safe to call poll here and wait?
 
     def fillHeader(self, header, channelId):
@@ -1181,6 +1180,7 @@ class ClientSession(Session):
             channel.outboundMsg.beginSending(rpc.getRequestBuffer())
 
     def getActiveChannels(self):
+        """Used for timers."""
         if not self._isConnected():
             return
         for channelId in range(self._numChannels):
