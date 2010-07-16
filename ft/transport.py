@@ -1048,7 +1048,8 @@ class ClientSession(Session):
             responseBuffer = channel.currentRpc.getResponseBuffer()
             channel.inboundMsg.init(header.totalFrags, responseBuffer)
             channel.state = channel.RECEIVING_STATE
-        if channel.inboundMsg.processReceivedData(payloadCM):
+        done = channel.inboundMsg.processReceivedData(payloadCM)
+        if done:
             channel.currentRpc.completed()
             channel.state = channel.IDLE_STATE
             channel.rpcId = (channel.rpcId + 1) % (1 << RPCID_WIDTH)
@@ -1057,27 +1058,11 @@ class ClientSession(Session):
             channel.inboundMsg.init(None, None)
             channel.numRetries = 0
 
-            self._doneWithChannel(channel)
-
-    def _doneWithChannel(self, channel):
-        """Mark a channel as available.
-
-        If there's an RPC waiting on an available channel, it will be started.
-
-        This method should only be called by self and one of self._channels.
-        """
-        # TODO(ongaro): Rename this.
-        # TODO(ongaro): Maybe pass in a channelId.
-        assert channel.state == channel.IDLE_STATE
-        channelId = self._channels.index(channel)
-        try:
-            rpc = self._channelQueue.pop(0)
-        except IndexError:
-            pass
-        else:
-            channel.state = channel.SENDING_STATE
-            channel.currentRpc = rpc
-            channel.outboundMsg.beginSending(rpc.getRequestBuffer())
+            if len(self._channelQueue) > 0:
+                rpc = self._channelQueue.pop(0)
+                channel.state = channel.SENDING_STATE
+                channel.currentRpc = rpc
+                channel.outboundMsg.beginSending(rpc.getRequestBuffer())
 
     def _processReceivedAck(self, channel, payloadCM):
         if channel.state != channel.SENDING_STATE:
