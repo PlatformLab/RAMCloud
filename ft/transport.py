@@ -19,8 +19,6 @@ from util import gettime, Buffer, BitVector, Ring
 
 TEST_ADDRESS = ('127.0.0.1', 12242)
 
-# TODO(ongaro): Should timeouts be on the RPC object?
-
 #### Client only
 
 NS_PER_MS = 1000 * 1000
@@ -120,6 +118,12 @@ class PayloadReleaser(object):
         finally:
             self.payload = None
             self.length = None
+
+class Timer(object):
+    # TODO(ongaro): Thread linked list through these
+    when = None
+    def fireTimer(self):
+        raise NotImplementedError
 
 class Header(object):
     """
@@ -313,7 +317,6 @@ class InboundMessage(object):
     @ivar _transport: x
     @ivar _session: x
     @ivar _channelId: x
-    @ivar _lastActivityTime: x
     @ivar _totalFrags:
         The number of fragments that make up the message to be received.
     @ivar _firstMissingFrag:
@@ -332,11 +335,22 @@ class InboundMessage(object):
         definition.)
     """
 
-    def _sendAck(self):
-        """Send the server an ACK for the received response packets.
+    class _IMTimer(Timer):
+        def __init__(self, useTimer, inboundMsg):
+            self.useTimer = useTimer
+            self.inboundMsg = inboundMsg
+            self.numTimeouts = 0
 
-        Caller should update _lastActivityTime.
-        """
+        def fireTimer(self, now):
+            self.numTimeouts += 1
+            if self.numTimeouts == TIMEOUTS_UNTIL_ABORTING:
+                self.inboundMsg._session.close()
+            else:
+                self.inboundMsg._sendAck()
+
+
+    def _sendAck(self):
+        """Send the server an ACK for the received response packets."""
         header = Header()
         self._session.fillHeader(header, self._channelId)
         header.payloadType = Header.PT_ACK
@@ -349,7 +363,7 @@ class InboundMessage(object):
         self._transport._sendOne(self._session.getAddress(), header,
                                  payloadBuffer)
 
-    def __init__(self, transport, session, channelId):
+    def __init__(self, transport, session, channelId, useTimer):
         self._transport = transport
         self._session = session
         self._channelId = channelId
@@ -357,23 +371,22 @@ class InboundMessage(object):
         self._firstMissingFrag = None
         self._dataStagingRing = Ring(MAX_STAGING_FRAGMENTS, (None, None))
         self._dataBuffer = None
-        self._lastActivityTime = 0
+        self._timer = self._IMTimer(useTimer, self)
 
     def init(self, totalFrags, dataBuffer):
         self._totalFrags = totalFrags
         self._firstMissingFrag = 0
         self._dataBuffer = dataBuffer
-        self._lastActivityTime = 0
         for payload, length in self._dataStagingRing:
             if payload is not None:
                 self._transport._driver.release(payload, length)
         self._dataStagingRing.clear()
+        self._timer.numTimeouts = 0
+        if self._timer.useTimer:
+            self._transport.addTimer(self._timer, gettime() + TIMEOUT_NS)
 
     def __del__(self):
         self.init(None, None)
-
-    def getLastActivityTime(self):
-        return self._lastActivityTime
 
     def processReceivedData(self, payloadCM):
         """
@@ -423,13 +436,13 @@ class InboundMessage(object):
         # TODO(ongaro): Have caller call self.sendAck() instead.
         if header.requestAck:
             self._sendAck()
-        self._lastActivityTime = gettime()
+        if self._timer.useTimer:
+            self._transport.addTimer(self._timer, gettime() + TIMEOUT_NS)
         return (self._firstMissingFrag == self._totalFrags)
 
     def timeout(self):
         # Gratuitously ACK the received packets.
         self._sendAck()
-        self._lastActivityTime = gettime()
 
 class OutboundMessage(object):
     """A partially-transmitted data message (either a request or a response).
@@ -441,7 +454,6 @@ class OutboundMessage(object):
     @ivar _transport: x
     @ivar _session: x
     @ivar _channelId: x
-    @ivar _lastActivityTime: x
     @ivar _sendBuffer:
         The Buffer containing the message to send. This is set on the
         transition to SENDING and is None while IDLE.
@@ -470,10 +482,24 @@ class OutboundMessage(object):
     """
     _ACKED = object()
 
-    def __init__(self, transport, session, channelId):
+    class _OMTimer(Timer):
+        def __init__(self, useTimer, outboundMsg):
+            self.useTimer = useTimer
+            self.outboundMsg = outboundMsg
+            self.numTimeouts = 0
+
+        def fireTimer(self, now):
+            self.numTimeouts += 1
+            if self.numTimeouts == TIMEOUTS_UNTIL_ABORTING:
+                self.outboundMsg._session.close()
+            else:
+                self.outboundMsg.send()
+
+    def __init__(self, transport, session, channelId, useTimer):
         self._transport = transport
         self._session = session
         self._channelId = channelId
+        self._timer = self._OMTimer(useTimer, self)
         self._sentTimes = Ring(MAX_STAGING_FRAGMENTS + 1, 0)
         self.clear()
 
@@ -481,13 +507,11 @@ class OutboundMessage(object):
         self._sendBuffer = None
         self._firstMissingFrag = 0
         self._totalFrags = 0
-        self._lastActivityTime = 0
         self._packetsSinceAckReq = 0
         self._sentTimes.clear()
         self._numAcked = 0
-
-    def getLastActivityTime(self):
-        return self._lastActivityTime
+        self._transport.removeTimer(self._timer)
+        self._timer.numTimeouts = 0
 
     def _sendOneData(self, fragNumber, forceRequestAck=False):
         """Send a single data fragment."""
@@ -567,10 +591,19 @@ class OutboundMessage(object):
 
         # Update _sentTimes.
         now = gettime()
-        self._lastActivityTime = now
         for i, sentTime in enumerate(self._sentTimes):
             if sentTime == -1:
                 self._sentTimes[i] = now
+
+        # Set up a timer, if relevant.
+        if self._timer.useTimer:
+            oldest = None
+            for sentTime in self._sentTimes:
+                if sentTime is not self._ACKED and sentTime > 0:
+                    if oldest is None or sentTime < oldest:
+                        oldest = sentTime
+            if oldest is not None:
+                self._transport.addTimer(self._timer, oldest + TIMEOUT_NS)
 
     def beginSending(self, messageBuffer):
         # TODO(ongaro): Pass in the messageBuffer to clear() instead and rename
@@ -625,9 +658,6 @@ class OutboundMessage(object):
                     self._numAcked += 1
         self.send()
         return (self._firstMissingFrag == self._totalFrags)
-
-    def timeout(self):
-        self.send()
 
 class Session(object):
     """A session encapsulates the state of communication between a particular
@@ -821,12 +851,13 @@ class ServerSession(Session):
             channel.currentRpc = None
             # InboundMessage would be allocated as part of the channel
             channel.inboundMsg = InboundMessage(self._transport, self,
-                                                channelId)
+                                                channelId, False)
             # OutboundMessage would be allocated as part of the channel
             channel.outboundMsg = OutboundMessage(self._transport, self,
-                                                  channelId)
+                                                  channelId, False)
 
     def processInboundPacket(self, payloadCM):
+        self._lastActivityTime = gettime()
         header = Header.fromString(payloadCM.payload[:Header.LENGTH])
         if header.channelId >= NUM_CHANNELS_PER_SESSION:
             # Invalid channel. A well-behaved client wouldn't ever do this,
@@ -882,6 +913,7 @@ class ServerSession(Session):
         channel.state = channel.SENDING_WAITING_STATE
         responseBuffer = channel.currentRpc.replyPayload
         channel.outboundMsg.beginSending(responseBuffer)
+        self._lastActivityTime = gettime()
 
     def rpcIgnored(self, channelId):
         """The server handler chose to ignore this RPC request and will not
@@ -889,6 +921,7 @@ class ServerSession(Session):
         channel = self._channels[channelId]
         assert channel.state == channel.PROCESSING_STATE
         self._discard(channel)
+        self._lastActivityTime = gettime()
 
     def fillHeader(self, header, channelId):
         header.rpcId = self._channels[channelId].rpcId
@@ -946,12 +979,7 @@ class ServerSession(Session):
         return True
 
     def getLastActivityTime(self):
-        t = self._lastActivityTime
-        if self._token is not None:
-            for channel in self._channels:
-                t = max(t, channel.inboundMsg.getLastActivityTime())
-                t = max(t, channel.outboundMsg.getLastActivityTime())
-        return t
+        return self._lastActivityTime
 
 class ClientSession(Session):
     """A session on the client."""
@@ -963,10 +991,6 @@ class ClientSession(Session):
             The RPC Id for next packet if IDLE or the active one if non-IDLE.
         @ivar currentRpc:
             Pointer to external Transport.ClientRPC if non-IDLE. None if IDLE.
-        @ivar numRetries:
-            The number of ACK requests or responses we've sent due to timeouts
-            since the last time the server has responded. This is cleared on the
-            receipt of response data or an ACK for request data.
         """
 
         # start at IDLE.
@@ -975,23 +999,38 @@ class ClientSession(Session):
         # processReceivedData() transitions from SENDING to RECEIVING.
         # retryWithNewRpcId() transitions from non-IDLE to SENDING.
         state = None
+        session = None
         rpcId = None
         currentRpc = None
         outboundMsg = None
         inboundMsg = None
-        numRetries = None
 
         IDLE_STATE = 0
         SENDING_STATE = 1
         RECEIVING_STATE = 2
 
+    class _ClientSessionOpenTimer(Timer):
+        def __init__(self, session):
+            self.session = session
+            self.numTimeouts = 0
+        def fireTimer(self, now):
+            self.numTimeouts += 1
+            if self.numTimeouts == TIMEOUTS_UNTIL_ABORTING:
+                self.session.close()
+            else:
+                self.session._fireSessionOpenTimer()
+
     def _isConnected(self):
         return self._token is not None
+
+    def _fireSessionOpenTimer(self):
+        self.connect(self._service)
 
     def _processSessionOpenResponse(self, payloadCM):
         """Process an inbound session open response."""
         if self._isConnected():
             return
+        self._transport.removeTimer(self._sessionTimer)
         header = Header.fromString(payloadCM.payload[:Header.LENGTH])
         d = payloadCM.payload[Header.LENGTH:]
         response = SessionOpenResponse.fromString(d)
@@ -1008,11 +1047,10 @@ class ClientSession(Session):
             channel.currentRpc = None
             # OutboundMessage would be allocated as part of the channel
             channel.outboundMsg = OutboundMessage(self._transport, self,
-                                                  channelId)
+                                                  channelId, True)
             # InboundMessage would be allocated as part of the channel
             channel.inboundMsg = InboundMessage(self._transport, self,
-                                                channelId)
-            channel.numRetries = 0
+                                                channelId, True)
         for channelId, channel in enumerate(self._channels):
             try:
                 rpc = self._channelQueue.pop(0)
@@ -1027,7 +1065,6 @@ class ClientSession(Session):
         if channel.state == channel.IDLE_STATE:
             return
         header = Header.fromString(payloadCM.payload[:Header.LENGTH])
-        channel.numRetries = 0
         if channel.state == channel.SENDING_STATE:
             responseBuffer = channel.currentRpc.getResponseBuffer()
             channel.inboundMsg.init(header.totalFrags, responseBuffer)
@@ -1040,7 +1077,6 @@ class ClientSession(Session):
             channel.currentRpc = None
             channel.outboundMsg.clear()
             channel.inboundMsg.init(None, None)
-            channel.numRetries = 0
 
             if len(self._channelQueue) > 0:
                 rpc = self._channelQueue.pop(0)
@@ -1052,7 +1088,6 @@ class ClientSession(Session):
         if channel.state != channel.SENDING_STATE:
             return
         ack = AckResponse.fromString(payloadCM.payload[Header.LENGTH:])
-        channel.numRetries = 0
         channel.outboundMsg.processReceivedAck(ack)
 
     def _retryWithNewRpcId(self, channel):
@@ -1061,9 +1096,6 @@ class ClientSession(Session):
 
         channel.outboundMsg.clear()
         channel.inboundMsg.init(None, None)
-
-        channel.numRetries = 0
-
         channel.outboundMsg.beginSending(channel.currentRpc.getRequestBuffer())
 
     def _getAvailableChannel(self):
@@ -1092,6 +1124,7 @@ class ClientSession(Session):
         self._serverSessionHint = None
         self._token = None
         self._lastActivityTime = 0
+        self._sessionTimer = self._ClientSessionOpenTimer(self)
 
     def connect(self, service):
         self._service = service
@@ -1107,9 +1140,10 @@ class ClientSession(Session):
         header.channelId = 0
         header.payloadType = Header.PT_SESSION_OPEN
         self._transport._sendOne(self.getAddress(), header, Buffer([]))
+        now = gettime()
+        self._transport.addTimer(self._sessionTimer, now + TIMEOUT_NS)
         # TODO(ongaro): Would it be possible to open a session like other RPCs?
-        # TODO: set up timer
-        self._lastActivityTime = gettime()
+        self._lastActivityTime = now
 
         # TODO(ongaro): Would it be safe to call poll here and wait?
 
@@ -1152,7 +1186,7 @@ class ClientSession(Session):
                 self._clearChannels()
                 self._serverSessionHint = None
                 self._token = None
-                self.connect()
+                self.connect(self._service)
                 return False
             elif header.payloadType == Header.PT_RETRY_WITH_NEW_RPCID:
                 self._retryWithNewRpcId(channel)
@@ -1169,6 +1203,7 @@ class ClientSession(Session):
         """
         # TODO(ongaro): What if finding a new session isn't going to do it,
         # because the server has crashed?
+        self._lastActivityTime = gettime()
         channel = self._getAvailableChannel()
         if channel is None:
             # TODO(ongaro): Thread linked list through rpc.
@@ -1188,42 +1223,21 @@ class ClientSession(Session):
             if channel.state != channel.IDLE_STATE:
                 yield channelId
 
-    def getLastActivityTime(self, channelId=None):
-        t = 0
-        if channelId is not None:
-            channel = self._channels[channelId]
-            t = max(t, channel.outboundMsg.getLastActivityTime())
-            t = max(t, channel.inboundMsg.getLastActivityTime())
-        else:
-            t = max(t, self._lastActivityTime)
-            if self._channels is not None:
-                for channel in self._channels:
-                    t = max(t, channel.outboundMsg.getLastActivityTime())
-                    t = max(t, channel.inboundMsg.getLastActivityTime())
-        return t
+    def close(self):
+        debug("Aborting session")
+        for channel in self._channels:
+            if channel.currentRpc is not None:
+                channel.currentRpc.aborted()
+        for rpc in self._channelQueue:
+            rpc.aborted()
+        self._channelQueue = []
+        self._clearChannels()
+        self._serverSessionHint = None
+        self._token = None
+        self._sessionTimer.numTimeouts = 0
 
-    def timeout(self, channelId):
-        """Called by _checkTimers."""
-        channel = self._channels[channelId]
-        channel.numRetries += 1
-        if channel.numRetries == TIMEOUTS_UNTIL_ABORTING:
-            debug("Aborting after %d timeouts" % TIMEOUTS_TILL_ABORTING)
-            for channel in self._channels:
-                if channel.currentRpc is not None:
-                    channel.currentRpc.aborted()
-            for rpc in self._channelQueue:
-                rpc.aborted()
-            self._channelQueue = []
-            self._clearChannels()
-            self._serverSessionHint = None
-            self._token = None
-            return
-        if channel.state == channel.SENDING_STATE:
-            channel.outboundMsg.timeout()
-        elif channel.state == channel.RECEIVING_STATE:
-            channel.inboundMsg.timeout()
-        else:
-            pass
+    def getLastActivityTime(self):
+        return self._lastActivityTime
 
     def expire(self):
         for channel in self._channels:
@@ -1234,6 +1248,7 @@ class ClientSession(Session):
         self._clearChannels()
         self._serverSessionHint = None
         self._token = None
+        self._sessionTimer.numTimeouts = 0
         return True
 
 class SessionTable(object):
@@ -1292,6 +1307,7 @@ class Transport(object):
             self._serverReadyQueue = []
 
         self._clientSessions = SessionTable(self, ClientSession)
+        self._timers = []
 
     def dataPerFragment(self):
         return (self._driver.MAX_PAYLOAD_SIZE - Header.LENGTH)
@@ -1299,6 +1315,16 @@ class Transport(object):
     def numFrags(self, dataBuffer):
         return ((dataBuffer.getTotalLength() + self.dataPerFragment() - 1) /
                 self.dataPerFragment())
+
+    def addTimer(self, timer, when):
+        timer.when = when
+        if timer not in self._timers:
+            self._timers.append(timer)
+
+    def removeTimer(self, timer):
+        timer.when = None
+        if timer in self._timers:
+            self._timers.remove(timer)
 
     def _sendOne(self, address, header, dataBuffer):
         """Dump a packet onto the wire."""
@@ -1311,18 +1337,13 @@ class Transport(object):
 
     def _checkTimers(self):
         now = gettime()
-
-        # TODO(ongaro): This won't scale well to clients that have a large
-        # number of sessions open. Maybe a linked list through the active
-        # sessions instead?
-        for session in self._clientSessions:
-            for channelId in session.getActiveChannels():
-                if session.getLastActivityTime(channelId) + TIMEOUT_NS < now:
-                    session.timeout(channelId)
-
-        # server role:
-        # If the client hasn't received our entire response, that's their
-        # problem. No need to handle timeouts here.
+        for timer in self._timers:
+            assert timer.when is not None
+            if timer.when < now:
+                timer.fireTimer(now)
+                if timer.when < now:
+                    timer.when = None
+                    self.removeTimer(timer)
 
     def _checkWire(self):
         x = self._driver.tryRecvPacket()
