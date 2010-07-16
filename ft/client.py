@@ -20,11 +20,34 @@ from driver import UDPDriver as Driver
 from transport import Transport, Buffer, TEST_ADDRESS
 from util import gettime
 
+class Service(object):
+    def __init__(self, address, session):
+        self.address = address
+        self.session = session
+
+class Services(object):
+    def __init__(self, transport):
+        self._transport = transport
+        self._services = {}
+
+    def getService(self, address):
+        if address in self._services:
+            return self._services[address]
+        else:
+            session = self._transport.getClientSession()
+            service = Service(address, session)
+            session.connect(service)
+            self._services[address] = service
+            return service
+
+
 def main():
     random.seed(0)
 
     d = Driver()
     t = Transport(d, isServer=False)
+    services = Services(t)
+    s = services.getService(TEST_ADDRESS)
 
     for i in itertools.count(1):
         #totalFrags = random.randrange(1, 2**16 - 1)
@@ -33,7 +56,7 @@ def main():
         requestBuffer = Buffer(['a' * t.dataPerFragment() for j in range(totalFrags)])
         responseBuffer = Buffer()
         start = gettime()
-        r = t.clientSend(TEST_ADDRESS, requestBuffer, responseBuffer)
+        r = t.clientSend(s, requestBuffer, responseBuffer)
         r.getReply()
         elapsedNs = gettime() - start
         resp = responseBuffer.getRange(0, responseBuffer.getTotalLength())

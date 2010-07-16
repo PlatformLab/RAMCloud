@@ -660,6 +660,9 @@ class Session(object):
     travel.
     """
 
+    def __init__(self, transport, sessionId):
+        raise NotImplementedError
+
     def fillHeader(self, header, channelId):
         """Set Header fields according to this session and channel.
 
@@ -671,6 +674,12 @@ class Session(object):
     def getAddress(self):
         """Return the address of the node to which this Session
         communicates."""
+        raise NotImplementedError
+
+    def getLastActivityTime(self):
+        raise NotImplementedError
+
+    def expire(self):
         raise NotImplementedError
 
 class ServerSession(Session):
@@ -946,9 +955,9 @@ class ServerSession(Session):
         self._transport._sendOne(self._address, header, payload)
         self._lastActivityTime = gettime()
 
-    def destroy(self):
+    def expire(self):
         if self._state == self._IDLE_STATE:
-            return
+            return True
         for channel in self._channels:
             if channel.state != channel.IDLE_STATE:
                 self._discard(channel)
@@ -966,6 +975,7 @@ class ServerSession(Session):
         self._token = None
         self._clientSessionHint = None
         self._lastActivityTime = 0
+        return True
 
     def getLastActivityTime(self):
         t = self._lastActivityTime
@@ -1021,9 +1031,10 @@ class ClientSession(Session):
         header.sessionToken = 0
         header.channelId = 0
         header.payloadType = Header.PT_SESSION_OPEN
-        self._transport._sendOne(self._address, header, Buffer([]))
+        self._transport._sendOne(self.getAddress(), header, Buffer([]))
         # TODO(ongaro): Would it be possible to open a session like other RPCs?
         # TODO: set up timer
+        self._lastActivityTime = gettime()
 
     def _processSessionOpenResponse(self, payloadCM):
         """Process an inbound session open response."""
@@ -1130,49 +1141,33 @@ class ClientSession(Session):
         self._channelStatus.setBit(channelId)
         return self._channels[channelId]
 
-    def _destroy(self, serverIsDead=False):
-        """Mark this session as invalid.
-
-        This may be called at any time, e.g., when the server says the session
-        is invalid or when someone wants to reclaim the space.
-        """
-        # TODO: Does rpc.findNewSession make sense? Maybe just reset this
-        # session instead.
-        for channel in self._channels:
-            if channel.currentRpc is not None:
-                if serverIsDead:
-                    channel.currentRpc.aborted()
-                else:
-                    channel.currentRpc.findNewSession()
-        for rpc in self._channelQueue:
-            if serverIsDead:
-                rpc.aborted()
-            else:
-                rpc.findNewSession()
+    def _clearChannels(self):
         for i in range(MAX_NUM_CHANNELS_PER_SESSION):
             self._channelStatus.clearBit(i)
         self._numChannels = 0
         if self._channels is not None:
             delete(self._channels)
         self._channels = None
-        self._serverSessionHint = None
-        self._token = None
 
-    def __init__(self, transport, sessionId, address):
+    def __init__(self, transport, sessionId):
         self._transport = transport
         self._id = sessionId
-        self._address = address
+        self._service = None
         self._channelQueue = []
 
         # A bit set in the vector signifies the corresponding channel is in
         # use. Starts out as all 0s.
+        # TODO: Remove this in favor of looking at the Channel objects.
         self._channelStatus = BitVector(MAX_NUM_CHANNELS_PER_SESSION)
 
         self._numChannels = 0
         self._channels = None
         self._serverSessionHint = None
         self._token = None
+        self._lastActivityTime = 0
 
+    def connect(self, service):
+        self._service = service
         self._sendSessionOpenRequest()
         # TODO(ongaro): Would it be safe to call poll here and wait?
 
@@ -1185,10 +1180,12 @@ class ClientSession(Session):
         header.rpcId = self._channels[channelId].rpcId
 
     def getAddress(self):
-        return self._address
+        return self._service.address
 
     def processInboundPacket(self, payloadCM):
         """Return whether the session is still valid."""
+
+        self._lastActivityTime = gettime()
 
         header = Header.fromString(payloadCM.payload[:Header.LENGTH])
 
@@ -1207,7 +1204,13 @@ class ClientSession(Session):
                 # The session is already open, so just drop this.
                 pass
             elif header.payloadType == Header.PT_BAD_SESSION:
-                self._destroy()
+                for channel in self._channels:
+                    if channel.currentRpc is not None:
+                        self._channelQueue.append(channel.currentRpc)
+                self._clearChannels()
+                self._serverSessionHint = None
+                self._token = None
+                self.connect()
                 return False
             elif header.payloadType == Header.PT_RETRY_WITH_NEW_RPCID:
                 self._retryWithNewRpcId(channel)
@@ -1220,8 +1223,7 @@ class ClientSession(Session):
     def startRpc(self, rpc):
         """Queue an RPC for transmission on this session.
 
-        This session will try its best to send the RPC. If the session is
-        closed, the RPC's findNewSession method will be called.
+        This session will try its best to send the RPC.
         """
         # TODO(ongaro): What if finding a new session isn't going to do it,
         # because the server has crashed?
@@ -1242,10 +1244,18 @@ class ClientSession(Session):
             if isActive and channelId < self._numChannels:
                 yield channelId
 
-    def getLastActivityTime(self, channelId):
-        channel = self._channels[channelId]
-        t = channel.outboundMsg.getLastActivityTime()
-        t = max(t, channel.inboundMsg.getLastActivityTime())
+    def getLastActivityTime(self, channelId=None):
+        t = 0
+        if channelId is not None:
+            channel = self._channels[channelId]
+            t = max(t, channel.outboundMsg.getLastActivityTime())
+            t = max(t, channel.inboundMsg.getLastActivityTime())
+        else:
+            t = max(t, self._lastActivityTime)
+            if self._channels is not None:
+                for channel in self._channels:
+                    t = max(t, channel.outboundMsg.getLastActivityTime())
+                    t = max(t, channel.inboundMsg.getLastActivityTime())
         return t
 
     def timeout(self, channelId):
@@ -1254,7 +1264,15 @@ class ClientSession(Session):
         channel.numRetries += 1
         if channel.numRetries == TIMEOUTS_UNTIL_ABORTING:
             debug("Aborting after %d timeouts" % TIMEOUTS_TILL_ABORTING)
-            self._destroy(serverIsDead=True)
+            for channel in self._channels:
+                if channel.currentRpc is not None:
+                    channel.currentRpc.aborted()
+            for rpc in self._channelQueue:
+                rpc.aborted()
+            self._channelQueue = []
+            self._clearChannels()
+            self._serverSessionHint = None
+            self._token = None
             return
         if channel.state == channel.SENDING_STATE:
             channel.outboundMsg.timeout()
@@ -1262,6 +1280,57 @@ class ClientSession(Session):
             channel.inboundMsg.timeout()
         else:
             pass
+
+    def expire(self):
+        for channel in self._channels:
+            if channel.currentRpc is not None:
+                return False
+        if len(self._channelQueue) > 0:
+            return False
+        self._clearChannels()
+        self._serverSessionHint = None
+        self._token = None
+        return True
+
+class SessionTable(object):
+    def __init__(self, transport, sessionClass):
+        self._transport = transport
+        self._sessionClass = sessionClass
+        self._sessions = []
+        self._available = []
+        self._lastCleanedIndex = 0
+
+    def __getitem__(self, sessionId):
+        return self._sessions[sessionId]
+
+    def __len__(self):
+        return len(self._sessions)
+
+    def get(self):
+        try:
+            session = self._available.pop()
+        except IndexError:
+            sessionId = len(self._sessions)
+            session = new(self._sessionClass(self._transport, sessionId))
+            self._sessions.append(session)
+        return session
+
+    def put(self, session):
+        self._available.append(session)
+
+    def expire(self, sessionsToCheck=5):
+        now = gettime()
+        for j in range(sessionsToCheck):
+            self._lastCleanedIndex += 1
+            if self._lastCleanedIndex >= len(self._sessions):
+                self._lastCleanedIndex = 0
+                if len(self._sessions) == 0:
+                    break
+            session = self._sessions[self._lastCleanedIndex]
+            if (session not in self._available and
+                session.getLastActivityTime() + SESSION_TIMEOUT_NS < now):
+                if session.expire():
+                    self.put(session)
 
 class Transport(object):
     class TransportException(Exception):
@@ -1272,22 +1341,13 @@ class Transport(object):
         self._isServer = isServer
 
         if self._isServer:
-            # indexed by session IDs
-            # values are ServerSession objects
-            self._serverSessions = []
+            self._serverSessions = SessionTable(self, ServerSession)
 
             # a list of dynamically allocated Transport.ServerRPC objects that
             # are ready for processing by server handlers
             self._serverReadyQueue = []
 
-            self._lastCleanedSessionIndex = 0
-            self._availableSessions = []
-
-        # keyed by address
-        # values are ClientSession objects
-        # This should be merged with the Service concept (a Service has exactly
-        # one ClientSession).
-        self._clientSessions = {}
+        self._clientSessions = SessionTable(self, ClientSession)
 
     def dataPerFragment(self):
         return (self._driver.MAX_PAYLOAD_SIZE - Header.LENGTH)
@@ -1305,28 +1365,13 @@ class Transport(object):
         # the NIC?
         self._driver.sendPacket(address, dataBuffer)
 
-    def _expireSessions(self, sessionsToCheck=5):
-        now = gettime()
-        i = self._lastCleanedSessionIndex
-        for j in range(sessionsToCheck):
-            i += 1
-            if i >= len(self._serverSessions):
-                i = 0
-                if len(self._serverSessions) == 0:
-                    break
-            session = self._serverSessions[i]
-            if session.getActivityTime() + SESSION_TIMEOUT_NS < now:
-                session.destroy()
-            self._availableSessions.append(session)
-        self._lastCleanedSessionIndex = i
-
     def _checkTimers(self):
         now = gettime()
 
         # TODO(ongaro): This won't scale well to clients that have a large
         # number of sessions open. Maybe a linked list through the active
         # sessions instead?
-        for session in self._clientSessions.values():
+        for session in self._clientSessions:
             for channelId in session.getActiveChannels():
                 if session.getLastActivityTime(channelId) + TIMEOUT_NS < now:
                     session.timeout(channelId)
@@ -1362,13 +1407,8 @@ class Transport(object):
                         session.processInboundPacket(payloadCM)
                         return True
                 if header.payloadType == Header.PT_SESSION_OPEN:
-                    self._expireSessions()
-                    try:
-                        session = self._availableSessions.pop()
-                    except IndexError:
-                        session = ServerSession(self,
-                                                len(self._serverSessions))
-                        self._serverSessions.append(session)
+                    self._serverSessions.expire()
+                    session = self._serverSessions.get()
                     session.startSession(address, header.clientSessionHint)
                 else:
                     replyHeader = Header()
@@ -1381,14 +1421,11 @@ class Transport(object):
                     replyHeader.direction = Header.SERVER_TO_CLIENT
                     self._sendOne(address, replyHeader, Buffer([]))
             else:
-                try:
-                    session = self._clientSessions[address]
-                except KeyError:
-                    return True
-                sessionStillValid = session.processInboundPacket(payloadCM)
-                if not sessionStillValid:
-                    self._clientSessions.pop(address)
-                    delete(session)
+                if header.clientSessionHint < len(self._clientSessions):
+                    session = self._clientSessions[header.clientSessionHint]
+                    stillValid = session.processInboundPacket(payloadCM)
+                    if not stillValid:
+                        self._clientSessions.put(session)
         return True
 
     def poll(self):
@@ -1399,34 +1436,25 @@ class Transport(object):
             self._checkTimers()
         self._checkTimers()
 
-    def _getClientSession(self, address):
-        try:
-            return self._clientSessions[address]
-        except KeyError:
-            session = new(ClientSession(self, 0, address))
-            self._clientSessions[address] = session
-            return session
+    def getClientSession(self):
+        self._clientSessions.expire()
+        return self._clientSessions.get()
 
     class ClientRPC(object):
         _IN_PROGRESS_STATE = 0
         _COMPLETED_STATE = 1
         _ABORTED_STATE = 2
 
-        def __init__(self, transport, address,
-                     requestBuffer, responseBuffer):
+        def __init__(self, transport, service, requestBuffer, responseBuffer):
             self._transport = transport
-            self._address = address
+            self._service = service
 
             # pointers to buffers on client's stack
             self._requestBuffer = requestBuffer
             self._responseBuffer = responseBuffer
 
-            self.findNewSession()
-
-        def _hasCompleted(self):
-            """Returns whether the response Buffer contains the full
-            response."""
-            return self._session is None
+            self._state = self._IN_PROGRESS_STATE
+            self._service.session.startRpc(self)
 
         def getRequestBuffer(self):
             return self._requestBuffer
@@ -1434,24 +1462,13 @@ class Transport(object):
         def getResponseBuffer(self):
             return self._responseBuffer
 
-        def findNewSession(self):
-            # TODO(ongaro): At least rename this to imply that it starts
-            # sending.
-            """A callback for when the session is no longer valid and this RPC
-            needs to start over."""
-            self._state = self._IN_PROGRESS_STATE
-            self._session = self._transport._getClientSession(self._address)
-            self._session.startRpc(self)
-
         def aborted(self):
             self._state = self._ABORTED_STATE
-            self._session = None
 
         def completed(self):
             """A callback for when the response Buffer has been filled with the
             response."""
             self._state = self._COMPLETED_STATE
-            self._session = None
 
         def getReply(self):
             try:
@@ -1464,9 +1481,9 @@ class Transport(object):
             finally:
                 delete(self)
 
-    def clientSend(self, address, requestBuffer, responseBuffer):
+    def clientSend(self, service, requestBuffer, responseBuffer):
         # TODO(ongaro): Allocate the ClientRPC in requestBuffer or responseBuffer?
-        rpc = new(Transport.ClientRPC(self, address, requestBuffer,
+        rpc = new(Transport.ClientRPC(self, service, requestBuffer,
                                       responseBuffer))
         # TODO: Move the work out of the constructor to an rpc.start() or
         # similar
