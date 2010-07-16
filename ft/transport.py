@@ -465,22 +465,9 @@ class OutboundMessage(object):
     @ivar _packetsSinceAckReq:
         The number of data packets sent on the wire since the last ACK request.
         This is used to determine when to request the next ACK.
-    @ivar _state:
-        Start in IDLE and move to SENDING once sending fragments of the message
-        has begun. The clear() method will return to the IDLE state.
-
-    @cvar _IDLE_STATE:
-        There is no message to transmit currently.
-    @cvar _SENDING_STATE:
-        Transmission of the message has at least begun.
     @cvar _ACKED:
         A special value used in _sentTimes.
     """
-    # TODO(ongaro): Can probably drop _state.
-
-    _IDLE_STATE = 0
-    _SENDING_STATE = 1
-
     _ACKED = object()
 
     def __init__(self, transport, session, channelId):
@@ -491,7 +478,6 @@ class OutboundMessage(object):
         self.clear()
 
     def clear(self):
-        self._state = self._IDLE_STATE
         self._sendBuffer = None
         self._firstMissingFrag = 0
         self._totalFrags = 0
@@ -532,7 +518,7 @@ class OutboundMessage(object):
             self._packetsSinceAckReq += 1
 
     def send(self):
-        if self._state != self._SENDING_STATE:
+        if self._sendBuffer is None:
             return
 
         now = gettime()
@@ -589,14 +575,8 @@ class OutboundMessage(object):
     def beginSending(self, messageBuffer):
         # TODO(ongaro): Pass in the messageBuffer to clear() instead and rename
         # it (to "reset" or "reinit"?).
-        """Start sending the message.
-
-        This will send as many fragments of the message as is allowed by
-        MAX_BURST_SIZE. ACKs from the other end will cause transmission to
-        continue beyond that (see processReceivedAck() below).
-        """
-        assert self._state == self._IDLE_STATE
-        self._state = self._SENDING_STATE
+        """Start sending the message."""
+        assert self._sendBuffer is None
         self._sendBuffer = messageBuffer
         self._totalFrags = self._transport.numFrags(self._sendBuffer)
 
@@ -622,8 +602,8 @@ class OutboundMessage(object):
         @return:
             Whether all fragments have been acknowledged by the server.
         """
-        if self._state != self._SENDING_STATE:
-            debug("OutboundMessage droppped ack because not SENDING")
+        if self._sendBuffer is None:
+            debug("OutboundMessage droppped ack because not sending")
             return False
 
         if ack.firstMissingFrag < self._firstMissingFrag:
