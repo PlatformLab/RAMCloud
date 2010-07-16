@@ -1067,7 +1067,6 @@ class ClientSession(Session):
             except IndexError:
                 break
             else:
-                self._channelStatus.setBit(channelId)
                 channel.state = channel.SENDING_STATE
                 channel.currentRpc = rpc
                 channel.outboundMsg.beginSending(rpc.getRequestBuffer())
@@ -1101,14 +1100,13 @@ class ClientSession(Session):
         """
         # TODO(ongaro): Rename this.
         # TODO(ongaro): Maybe pass in a channelId.
+        assert channel.state == channel.IDLE_STATE
         channelId = self._channels.index(channel)
-        assert self._channelStatus.getBit(channelId)
         try:
             rpc = self._channelQueue.pop(0)
         except IndexError:
-            self._channelStatus.clearBit(channelId)
+            pass
         else:
-            assert channel.state == channel.IDLE_STATE
             channel.state = channel.SENDING_STATE
             channel.currentRpc = rpc
             channel.outboundMsg.beginSending(rpc.getRequestBuffer())
@@ -1135,15 +1133,12 @@ class ClientSession(Session):
         """Return any available ClientChannel object or None."""
         if not self._isConnected():
             return None
-        channelId = self._channelStatus.ffz()
-        if channelId is None or channelId >= self._numChannels:
-            return None
-        self._channelStatus.setBit(channelId)
-        return self._channels[channelId]
+        for channel in self._channels:
+            if channel.state == channel.IDLE_STATE:
+                return channel
+        return None
 
     def _clearChannels(self):
-        for i in range(MAX_NUM_CHANNELS_PER_SESSION):
-            self._channelStatus.clearBit(i)
         self._numChannels = 0
         if self._channels is not None:
             delete(self._channels)
@@ -1154,11 +1149,6 @@ class ClientSession(Session):
         self._id = sessionId
         self._service = None
         self._channelQueue = []
-
-        # A bit set in the vector signifies the corresponding channel is in
-        # use. Starts out as all 0s.
-        # TODO: Remove this in favor of looking at the Channel objects.
-        self._channelStatus = BitVector(MAX_NUM_CHANNELS_PER_SESSION)
 
         self._numChannels = 0
         self._channels = None
@@ -1240,8 +1230,9 @@ class ClientSession(Session):
     def getActiveChannels(self):
         if not self._isConnected():
             return
-        for channelId, isActive in enumerate(self._channelStatus.iterBits()):
-            if isActive and channelId < self._numChannels:
+        for channelId in range(self._numChannels):
+            channel = self._channels[channelId]
+            if channel.state != channel.IDLE_STATE:
                 yield channelId
 
     def getLastActivityTime(self, channelId=None):
