@@ -44,6 +44,7 @@ def main():
         print
         print "Message %d with %d frags OK in %dms" % (i, totalFrags,
                                                        elapsedNs / 1000000)
+        d.stat()
 
     #responseBuffer1 = []
     #responseBuffer2 = []

@@ -92,6 +92,35 @@ def new(x):
 def delete(x):
     newObjects.remove(x)
 
+class PayloadChunk(object):
+    @staticmethod
+    def appendToBuffer(dataBuffer, driver, data, payload, length):
+        dataBuffer.append(data)
+
+        # In C++, release would be called in the Chunk's destructor, but
+        # I don't feel like implementing Buffer in its full glory here.
+        driver.release(payload, length)
+
+class PayloadReleaser(object):
+    def __init__(self, driver, payload, length):
+        self._driver = driver
+        self.payload = payload
+        self.length = length
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.payload is not None:
+            self._driver.release(self.payload, self.length)
+
+    def steal(self):
+        try:
+            return self.payload, self.length
+        finally:
+            self.payload = None
+            self.length = None
+
 class Header(object):
     """
     A binary header that goes at the start of every message (same for request
@@ -312,8 +341,8 @@ class InboundMessage(object):
         self._session.fillHeader(header, self._channelId)
         header.payloadType = Header.PT_ACK
         ackResponse = AckResponse(self._firstMissingFrag)
-        for i, v in enumerate(self._dataStagingRing):
-            if v is not None:
+        for i, (payload, length) in enumerate(self._dataStagingRing):
+            if payload is not None:
                 ackResponse.stagingVector.setBit(i)
         payloadBuffer = Buffer()
         ackResponse.fillBuffer(payloadBuffer)
@@ -326,7 +355,7 @@ class InboundMessage(object):
         self._channelId = channelId
         self._totalFrags = None
         self._firstMissingFrag = None
-        self._dataStagingRing = Ring(MAX_STAGING_FRAGMENTS, None)
+        self._dataStagingRing = Ring(MAX_STAGING_FRAGMENTS, (None, None))
         self._dataBuffer = None
         self._lastActivityTime = 0
 
@@ -335,48 +364,64 @@ class InboundMessage(object):
         self._firstMissingFrag = 0
         self._dataBuffer = dataBuffer
         self._lastActivityTime = 0
+        for payload, length in self._dataStagingRing:
+            if payload is not None:
+                self._transport._driver.release(payload, length)
         self._dataStagingRing.clear()
+
+    def __del__(self):
+        self.init(None, None)
 
     def getLastActivityTime(self):
         return self._lastActivityTime
 
-    def processReceivedData(self, fragNumber, totalFrags, data, sendAck):
+    def processReceivedData(self, payloadCM):
         """
-        @param sendAck:
-            Whether the other end is requesting an ACK along with the data it's
-            sent.
         @return:
             Whether the full message has been received and added to the
             dataBuffer.
         """
-        if totalFrags != self._totalFrags:
+        header = Header.fromString(payloadCM.payload[:Header.LENGTH])
+
+        if header.totalFrags != self._totalFrags:
             # The other end is retarded?
             return (self._firstMissingFrag == self._totalFrags)
-        if fragNumber == self._firstMissingFrag:
-            self._dataBuffer.append(data) # In C++, there will be some sort of
-                                          # Chunk type wrapping 'data'.
+        if header.fragNumber == self._firstMissingFrag:
+
+            payload, length = payloadCM.steal()
+            PayloadChunk.appendToBuffer(self._dataBuffer,
+                                        self._transport._driver,
+                                        payload[Header.LENGTH:],
+                                        payload, length)
+
             self._firstMissingFrag += 1
             while True: # num iterations bounded to MAX_STAGING_FRAGMENTS-ish
-                data = self._dataStagingRing[0]
+                payload, length = self._dataStagingRing[0]
                 self._dataStagingRing.advance(1)
-                if data is None:
+                if payload is None:
                     break
-                self._dataBuffer.append(data)
+                PayloadChunk.appendToBuffer(self._dataBuffer,
+                                            self._transport._driver,
+                                            payload[Header.LENGTH:],
+                                            payload, length)
                 self._firstMissingFrag += 1
-        elif fragNumber > self._firstMissingFrag:
-            if fragNumber - self._firstMissingFrag > MAX_STAGING_FRAGMENTS:
+        elif header.fragNumber > self._firstMissingFrag:
+            if (header.fragNumber - self._firstMissingFrag >
+                MAX_STAGING_FRAGMENTS):
                 debug("fragNumber too big")
             else:
-                i = fragNumber - self._firstMissingFrag - 1
-                if self._dataStagingRing[i] is not None:
-                    debug("duplicate fragment %d received" % fragNumber)
-                self._dataStagingRing[i] = data
-        else: # fragNumber < self._firstMissingFrag:
+                i = header.fragNumber - self._firstMissingFrag - 1
+                payload, length = self._dataStagingRing[i]
+                if payload is None:
+                    self._dataStagingRing[i] = payloadCM.steal()
+                else:
+                    debug("duplicate fragment %d received" % header.fragNumber)
+        else: # header.fragNumber < self._firstMissingFrag:
             # stale
             pass
 
         # TODO(ongaro): Have caller call self.sendAck() instead.
-        if sendAck:
+        if header.requestAck:
             self._sendAck()
         self._lastActivityTime = gettime()
         return (self._firstMissingFrag == self._totalFrags)
@@ -722,7 +767,7 @@ class ServerSession(Session):
     _IDLE_STATE = 0
     _ACTIVE_STATE = 1
 
-    def _processReceivedData(self, channel, header, data):
+    def _processReceivedData(self, channel, payloadCM):
         if channel.state == channel.IDLE_STATE:
             pass
         elif channel.state == channel.DISCARDED_STATE:
@@ -735,17 +780,17 @@ class ServerSession(Session):
             self._transport._sendOne(self.getAddress(), header,
                                      Buffer([]))
         elif channel.state == channel.RECEIVING_STATE:
-            isComplete = channel.inboundMsg.processReceivedData(
-                header.fragNumber, header.totalFrags, data, header.requestAck)
+            isComplete = channel.inboundMsg.processReceivedData(payloadCM)
             if isComplete:
                 self._transport._serverReadyQueue.append(channel.currentRpc)
                 channel.state = channel.PROCESSING_STATE
         else: # PROCESSING or SENDING/WAITING
+            header = Header.fromString(payloadCM.payload[:Header.LENGTH])
             if header.requestAck:
                 channel.outboundMsg.send()
 
-    def _processReceivedAck(self, channel, header, data):
-        ack = AckResponse.fromString(data)
+    def _processReceivedAck(self, channel, payloadCM):
+        ack = AckResponse.fromString(payloadCM.payload[Header.LENGTH:])
         if channel.state != channel.SENDING_WAITING_STATE:
             return
         isCompletelyAcked = channel.outboundMsg.processReceivedAck(ack)
@@ -802,7 +847,8 @@ class ServerSession(Session):
             channel.outboundMsg = OutboundMessage(self._transport, self,
                                                   channelId)
 
-    def processInboundPacket(self, header, data):
+    def processInboundPacket(self, payloadCM):
+        header = Header.fromString(payloadCM.payload[:Header.LENGTH])
         if header.channelId >= NUM_CHANNELS_PER_SESSION:
             # Invalid channel. A well-behaved client wouldn't ever do this,
             # so it's safe to drop.
@@ -834,16 +880,16 @@ class ServerSession(Session):
                                                              header.channelId))
                 requestBuffer = channel.currentRpc.recvPayload
                 channel.inboundMsg.init(header.totalFrags, requestBuffer)
-                self._processReceivedData(channel, header, data)
+                self._processReceivedData(channel, payloadCM)
             else:
                 # A well-behaved client wouldn't ever do this, so it's safe
                 # to drop.
                 debug("drop new rpcId with non-data")
         else: # header's RPC ID is same as channel's
             if header.payloadType == Header.PT_DATA:
-                self._processReceivedData(channel, header, data)
+                self._processReceivedData(channel, payloadCM)
             elif header.payloadType == Header.PT_ACK:
-                self._processReceivedAck(channel, header, data)
+                self._processReceivedAck(channel, payloadCM)
             else:
                 # A well-behaved client wouldn't ever do this, so it's safe
                 # to drop.
@@ -979,11 +1025,13 @@ class ClientSession(Session):
         # TODO(ongaro): Would it be possible to open a session like other RPCs?
         # TODO: set up timer
 
-    def _processSessionOpenResponse(self, header, data):
+    def _processSessionOpenResponse(self, payloadCM):
         """Process an inbound session open response."""
         if self._isConnected():
             return
-        response = SessionOpenResponse.fromString(data)
+        header = Header.fromString(payloadCM.payload[:Header.LENGTH])
+        d = payloadCM.payload[Header.LENGTH:]
+        response = SessionOpenResponse.fromString(d)
         self._serverSessionHint = header.serverSessionHint
         self._token = header.sessionToken
         self._numChannels = min(response.maxChannelId + 1,
@@ -1013,17 +1061,16 @@ class ClientSession(Session):
                 channel.currentRpc = rpc
                 channel.outboundMsg.beginSending(rpc.getRequestBuffer())
 
-    def _processReceivedData(self, channel, header, data):
+    def _processReceivedData(self, channel, payloadCM):
         if channel.state == channel.IDLE_STATE:
             return
+        header = Header.fromString(payloadCM.payload[:Header.LENGTH])
         channel.numRetries = 0
         if channel.state == channel.SENDING_STATE:
             responseBuffer = channel.currentRpc.getResponseBuffer()
             channel.inboundMsg.init(header.totalFrags, responseBuffer)
             channel.state = channel.RECEIVING_STATE
-        if channel.inboundMsg.processReceivedData(header.fragNumber,
-                                                  header.totalFrags, data,
-                                                  header.requestAck):
+        if channel.inboundMsg.processReceivedData(payloadCM):
             channel.currentRpc.completed()
             channel.state = channel.IDLE_STATE
             channel.rpcId = (channel.rpcId + 1) % (1 << RPCID_WIDTH)
@@ -1055,10 +1102,10 @@ class ClientSession(Session):
             channel.currentRpc = rpc
             channel.outboundMsg.beginSending(rpc.getRequestBuffer())
 
-    def _processReceivedAck(self, channel, header, data):
+    def _processReceivedAck(self, channel, payloadCM):
         if channel.state != channel.SENDING_STATE:
             return
-        ack = AckResponse.fromString(data)
+        ack = AckResponse.fromString(payloadCM.payload[Header.LENGTH:])
         channel.numRetries = 0
         channel.outboundMsg.processReceivedAck(ack)
 
@@ -1140,20 +1187,22 @@ class ClientSession(Session):
     def getAddress(self):
         return self._address
 
-    def processInboundPacket(self, header, data):
+    def processInboundPacket(self, payloadCM):
         """Return whether the session is still valid."""
+
+        header = Header.fromString(payloadCM.payload[:Header.LENGTH])
 
         if header.channelId >= self._numChannels:
             if header.payloadType == Header.PT_SESSION_OPEN:
-                self._processSessionOpenResponse(header, data)
+                self._processSessionOpenResponse(payloadCM)
             return True
 
         channel = self._channels[header.channelId]
         if channel.rpcId == header.rpcId:
             if header.payloadType == Header.PT_DATA:
-                self._processReceivedData(channel, header, data)
+                self._processReceivedData(channel, payloadCM)
             elif header.payloadType == Header.PT_ACK:
-                self._processReceivedAck(channel, header, data)
+                self._processReceivedAck(channel, payloadCM)
             elif header.payloadType == Header.PT_SESSION_OPEN:
                 # The session is already open, so just drop this.
                 pass
@@ -1291,51 +1340,55 @@ class Transport(object):
         x = self._driver.tryRecvPacket()
         if x is None:
             return False
-        payload, address = x
-        header = Header.fromString(payload[:Header.LENGTH])
-        data = payload[Header.LENGTH:]
-        if header.pleaseDrop:
-            return True
 
-        if header.direction == header.CLIENT_TO_SERVER:
-            if not self._isServer:
-                # This must be an old or malformed packet, so it is safe to drop.
-                debug("drop -- not a server")
+        payload, length, address = x
+        with PayloadReleaser(self._driver, payload, length) as payloadCM:
+            if Header.LENGTH > length:
+                debug("packet too small")
                 return True
-            if header.serverSessionHint < len(self._serverSessions):
-                session = self._serverSessions[header.serverSessionHint]
-                if session.getToken() == header.sessionToken:
-                    session.processInboundPacket(header, data)
+            header = Header.fromString(payload[:Header.LENGTH])
+            if header.pleaseDrop:
+                return True
+
+            if header.direction == header.CLIENT_TO_SERVER:
+                if not self._isServer:
+                    # This must be an old or malformed packet,
+                    # so it is safe to drop.
+                    debug("drop -- not a server")
                     return True
-            if header.payloadType == Header.PT_SESSION_OPEN:
-                self._expireSessions()
-                try:
-                    session = self._availableSessions.pop()
-                except IndexError:
-                    session = ServerSession(self,
-                                            len(self._serverSessions))
-                    self._serverSessions.append(session)
-                session.startSession(address, header.clientSessionHint)
+                if header.serverSessionHint < len(self._serverSessions):
+                    session = self._serverSessions[header.serverSessionHint]
+                    if session.getToken() == header.sessionToken:
+                        session.processInboundPacket(payloadCM)
+                        return True
+                if header.payloadType == Header.PT_SESSION_OPEN:
+                    self._expireSessions()
+                    try:
+                        session = self._availableSessions.pop()
+                    except IndexError:
+                        session = ServerSession(self,
+                                                len(self._serverSessions))
+                        self._serverSessions.append(session)
+                    session.startSession(address, header.clientSessionHint)
+                else:
+                    replyHeader = Header()
+                    replyHeader.sessionToken = header.sessionToken
+                    replyHeader.rpcId = header.rpcId
+                    replyHeader.clientSessionHint = header.clientSessionHint
+                    replyHeader.serverSessionHint = header.serverSessionHint
+                    replyHeader.channelId = header.channelId
+                    replyHeader.payloadType = Header.PT_BAD_SESSION
+                    replyHeader.direction = Header.SERVER_TO_CLIENT
+                    self._sendOne(address, replyHeader, Buffer([]))
             else:
-                replyHeader = Header()
-                replyHeader.sessionToken = header.sessionToken
-                replyHeader.rpcId = header.rpcId
-                replyHeader.clientSessionHint = header.clientSessionHint
-                replyHeader.serverSessionHint = header.serverSessionHint
-                replyHeader.channelId = header.channelId
-                replyHeader.payloadType = Header.PT_BAD_SESSION
-                replyHeader.direction = Header.SERVER_TO_CLIENT
-                self._sendOne(address, replyHeader, Buffer([]))
-        else:
-            try:
-                session = self._clientSessions[address]
-            except KeyError:
-                return True
-            sessionStillValid = session.processInboundPacket(header, data)
-            if not sessionStillValid:
-                self._clientSessions.pop(address)
-                delete(session)
-
+                try:
+                    session = self._clientSessions[address]
+                except KeyError:
+                    return True
+                sessionStillValid = session.processInboundPacket(payloadCM)
+                if not sessionStillValid:
+                    self._clientSessions.pop(address)
+                    delete(session)
         return True
 
     def poll(self):

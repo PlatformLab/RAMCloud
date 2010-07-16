@@ -24,6 +24,7 @@ def main():
         r = t.serverRecv()
         r.replyPayload.extend(r.recvPayload)
         r.sendReply()
+        d.stat()
 
 if __name__ == '__main__':
     main()

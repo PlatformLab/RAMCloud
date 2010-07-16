@@ -16,6 +16,7 @@ import socket
 
 class Driver(object):
     MAX_PAYLOAD_SIZE = None
+
     def sendPacket(self, address, payloadBuffer):
         """Blocks until the NIC has the packet data."""
         raise NotImplementedError
@@ -23,8 +24,13 @@ class Driver(object):
     def tryRecvPacket(self):
         """Try to receive a packet off the network.
 
-        Returns (payload, address), or None if there was no packet available.
+        Returns (payload, length, address), or None if there was no packet available.
+        The caller must call release() with this payload and length later.
         """
+        raise NotImplementedError
+
+    def release(self, payload, length):
+        """Free the memory returned in a previous call to tryRecvPacket."""
         raise NotImplementedError
 
 class UDPDriver(Driver):
@@ -36,6 +42,7 @@ class UDPDriver(Driver):
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if address is not None:
             self._socket.bind(address)
+        self._packetBufsUtilized = 0
 
     def sendPacket(self, address, payloadBuffer):
         payloadLen = payloadBuffer.getTotalLength()
@@ -48,6 +55,13 @@ class UDPDriver(Driver):
         try:
             payload, address = self._socket.recvfrom(self.MAX_PAYLOAD_SIZE,
                                                      socket.MSG_DONTWAIT)
-            return (payload, address)
+            self._packetBufsUtilized += 1
+            return (payload, len(payload), address)
         except socket.error:
             return None
+
+    def release(self, data, length):
+        self._packetBufsUtilized -= 1
+
+    def stat(self):
+        print 'Driver: packetBufsUtilized = %d' % self._packetBufsUtilized
