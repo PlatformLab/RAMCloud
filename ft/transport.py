@@ -673,17 +673,11 @@ class ServerSession(Session):
         An array of ServerChannel objects of size NUM_CHANNELS_PER_SESSION.
     @ivar _token:
         A large integer that disambiguates this session from others before and
-        after it on the same server with the same _id. None if IDLE.
+        after it on the same server with the same _id. None if the session is
+        idle.
     @ivar _address:
         The address of the client to which this session is connected.
         None if IDLE.
-    @ivar _state:
-        Start in IDLE, and startSession() moves from IDLE to ACTIVE. Then
-        destroy() moves back to IDLE.
-
-    @cvar _IDLE_STATE:
-        Not connected to a client.
-    @cvar _ACTIVE_STATE:
     """
 
     class _ServerChannel(object):
@@ -753,9 +747,6 @@ class ServerSession(Session):
         SENDING_WAITING_STATE = 3
         DISCARDED_STATE = 4
 
-    _IDLE_STATE = 0
-    _ACTIVE_STATE = 1
-
     def _processReceivedData(self, channel, payloadCM):
         if channel.state == channel.IDLE_STATE:
             pass
@@ -818,7 +809,6 @@ class ServerSession(Session):
     def __init__(self, transport, sessionId):
         self._transport = transport
         self._id = sessionId
-        self._state = self._IDLE_STATE
         self._token = None
         self._lastActivityTime = 0
         self._address = None
@@ -915,8 +905,7 @@ class ServerSession(Session):
         return self._address
 
     def startSession(self, address, clientSessionHint):
-        assert self._state == self._IDLE_STATE
-        self._state = self._ACTIVE_STATE
+        assert self._token is None
         self._address = address
         self._token = random.randrange(0, 1 << 64)
         self._clientSessionHint = clientSessionHint
@@ -936,7 +925,7 @@ class ServerSession(Session):
         self._lastActivityTime = gettime()
 
     def expire(self):
-        if self._state == self._IDLE_STATE:
+        if self._token is None:
             return True
         for channel in self._channels:
             if channel.state != channel.IDLE_STATE:
@@ -951,7 +940,6 @@ class ServerSession(Session):
         self._transport._serverReadyQueue = filter(
             None, self._transport._serverReadyQueue)
 
-        self._state = self._IDLE_STATE
         self._token = None
         self._clientSessionHint = None
         self._lastActivityTime = 0
@@ -959,7 +947,7 @@ class ServerSession(Session):
 
     def getLastActivityTime(self):
         t = self._lastActivityTime
-        if self._state == self._ACTIVE_STATE:
+        if self._token is not None:
             for channel in self._channels:
                 t = max(t, channel.inboundMsg.getLastActivityTime())
                 t = max(t, channel.outboundMsg.getLastActivityTime())
