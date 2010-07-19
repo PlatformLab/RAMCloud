@@ -43,6 +43,10 @@ enum PerfCounterType {
      * during a trace.
      */
     PERF_COUNTER_INC,
+    /**
+     * Special-purpose counter used only for unit testing.
+     */
+    PERF_COUNTER_TEST,
 };
 
 } // namespace RAMCloud

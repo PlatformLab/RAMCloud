@@ -24,6 +24,8 @@
 
 namespace RAMCloud {
 
+uint64_t Metrics::MockCounter::value = 0;
+
 uint64_t Metrics::beginCount = 0;
 uint64_t Metrics::count = 0;
 PerfCounterType Metrics::counterType = PERF_COUNTER_TSC;
@@ -110,11 +112,28 @@ Metrics::mark(Mark mark)
     }
 
     // INC handled above, it must be either TSC or PMC
-    uint64_t count = counterType == PERF_COUNTER_TSC ? rdtsc() : rdpmc(0);
+    uint64_t currentCount = 0;
+    switch (counterType) {
+    case PERF_COUNTER_TSC:
+        currentCount = rdtsc();
+        break;
+    case PERF_COUNTER_PMC:
+        currentCount = rdtsc();
+        break;
+    case PERF_COUNTER_TEST:
+        currentCount = MockCounter::get();
+        break;
+    case PERF_COUNTER_INC:
+        // not possible
+    default:
+        // not reached
+        break;
+    }
+
     switch (state) {
     case NO_DATA:
         // haven't seen anything yet so record this as the beginMark
-        beginCount = count;
+        beginCount = currentCount;
         activeMark = endMark;
         state = STARTED;
         break;
@@ -125,7 +144,7 @@ Metrics::mark(Mark mark)
         // have seen both already so record this as the
         // replacement endMark so we have the first start to the
         // last stop mark
-        count = count;
+        count = currentCount;
         state = VALID;
         break;
     default:

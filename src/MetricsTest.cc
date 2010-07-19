@@ -66,11 +66,13 @@ class MetricsTest : public CppUnit::TestFixture {
     void
     test_read_normal()
     {
-        Metrics::setup(PERF_COUNTER_TSC,
+        Metrics::setup(PERF_COUNTER_TEST,
                        MARK_RPC_PROCESSING_BEGIN, MARK_RPC_PROCESSING_END);
+        Metrics::MockCounter::set(100);
         Metrics::mark(MARK_RPC_PROCESSING_BEGIN);
+        Metrics::MockCounter::set(1000);
         Metrics::mark(MARK_RPC_PROCESSING_END);
-        CPPUNIT_ASSERT(Metrics::read() > 0);
+        CPPUNIT_ASSERT(Metrics::read() == 900);
     }
 
     void

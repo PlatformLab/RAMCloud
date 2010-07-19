@@ -106,6 +106,16 @@ class Metrics {
     /// Never used
     ~Metrics() {}
 
+    /*
+     * Implements the PERF_COUNTER_TEST PerfCounterType which is used
+     * to unit test Metrics.
+     */
+    struct MockCounter {
+        static void set(uint64_t value) { MockCounter::value = value; }
+        static uint64_t get() { return value; }
+        static uint64_t value;
+    };
+
     friend class MetricsTest;
     friend class BlockMetricTest;
 };
