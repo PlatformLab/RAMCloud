@@ -67,14 +67,11 @@ _transport refers to the Transport object.
 _session refers to a Session, either a ClientSession or a ServerSession. Often
 only one of those makes sense for the context.
 
-_channel refers to a Channel, either a ClientChannel or a ServerChannel. Often
-only one of those makes sense for the context.
-
 _state is present in many of the classes that act as state machines and will
 refer to one of the class's _*_STATE members.
 
-_lastActivityTime is the time immediately after the latest packet (of any type)
-was sent to or received from the other end.
+_payloadCM is a PayloadContextManager instance wrapping a reference to the
+Driver's packet buffer. This would be similar to an auto_ptr in C++.
 """
 
 def debug(s):
@@ -99,7 +96,7 @@ class PayloadChunk(object):
         # I don't feel like implementing Buffer in its full glory here.
         driver.release(payload, length)
 
-class PayloadReleaser(object):
+class PayloadContextManager(object):
     def __init__(self, driver, payload, length):
         self._driver = driver
         self.payload = payload
@@ -126,30 +123,12 @@ class Timer(object):
         raise NotImplementedError
 
 class Header(object):
-    """
-    A binary header that goes at the start of every message (same for request
-    and response).
+    """A binary header that goes at the start of every message (same for
+    request and response).
+
+    The wire format is described on the wiki.
 
     This would be implemented as a simple struct in C++.
-
-    Wire format::
-      <---------------32 bits -------------->
-      +-------------------------------------+
-      |            sessionToken             |
-      +-------------------------------------+
-      |        sessionToken (cont.)         |
-      +-------------------------------------+
-      |                rpcId                |
-      +-------------------------------------+
-      |         clientSessionHint           |
-      +-------------------------------------+
-      |         serverSessionHint           |
-      +-------------------------------------+
-      |     fragNumber    |  totalFrags     |
-      +-------------------------------------+
-      | channelId | flags |
-      +-------------------+
-    Everything is encoded in little-endian, NOT network byte order.
 
     @cvar LENGTH: The size in bytes of a Header.
     """
@@ -251,6 +230,11 @@ class Header(object):
                            flags)
 
 class SessionOpenResponse(object):
+    """The format of the payload of responses of type PT_SESSION_OPEN.
+
+    This is described on the wiki.
+    """
+
     PACK_FORMAT = 'B'
     LENGTH = struct.calcsize(PACK_FORMAT)
 
@@ -271,8 +255,9 @@ class SessionOpenResponse(object):
         bufferToFill.prepend(struct.pack(self.PACK_FORMAT, self.maxChannelId))
 
 class AckResponse(object):
-    """
-    The format of the payload of messages of type Header.PT_ACK.
+    """The format of the payload of responses of type PT_ACK.
+
+    This is described on the wiki.
     """
     PACK_FORMAT = 'H'
 
@@ -282,7 +267,6 @@ class AckResponse(object):
 
     @classmethod
     def fromString(cls, string):
-        """Unpack an AckResponse from a string."""
         (firstMissingFrag,) = struct.unpack(cls.PACK_FORMAT,
                                                string[:cls.HEADER_LENGTH])
         stagingVector = BitVector(MAX_STAGING_FRAGMENTS,
@@ -307,11 +291,10 @@ class AckResponse(object):
                                          self.firstMissingFrag))
 
 class InboundMessage(object):
-    """
-    A partially-received data message (either a request or a response).
+    """A partially-received data message (either a request or a response).
 
-    This handles assembling the message fragments and responding to ACK
-    requests. It is used in server channels for the client's request and in
+    This handles assembling the data fragments into a Buffer and responding to
+    ACK requests. It is used in server channels for the client's request and in
     client channels for the server's response.
 
     @ivar _transport: x
@@ -346,8 +329,9 @@ class InboundMessage(object):
             if self.numTimeouts == TIMEOUTS_UNTIL_ABORTING:
                 self.inboundMsg._session.close()
             else:
+                self.inboundMsg._transport.addTimer(self,
+                                                    gettime() + TIMEOUT_NS)
                 self.inboundMsg._sendAck()
-
 
     def _sendAck(self):
         """Send the server an ACK for the received response packets."""
@@ -373,20 +357,28 @@ class InboundMessage(object):
         self._dataBuffer = None
         self._timer = self._IMTimer(useTimer, self)
 
-    def init(self, totalFrags, dataBuffer):
-        self._totalFrags = totalFrags
-        self._firstMissingFrag = 0
-        self._dataBuffer = dataBuffer
+    def __del__(self):
+        self.clear()
+
+    def clear(self):
+        self._totalFrags = None
+        self._firstMissingFrag = None
+        self._dataBuffer = None
         for payload, length in self._dataStagingRing:
             if payload is not None:
                 self._transport._driver.release(payload, length)
         self._dataStagingRing.clear()
         self._timer.numTimeouts = 0
         if self._timer.useTimer:
-            self._transport.addTimer(self._timer, gettime() + TIMEOUT_NS)
+            self._transport.removeTimer(self._timer)
 
-    def __del__(self):
-        self.init(None, None)
+    def init(self, totalFrags, dataBuffer):
+        self.clear()
+        self._totalFrags = totalFrags
+        self._firstMissingFrag = 0
+        self._dataBuffer = dataBuffer
+        if self._timer.useTimer:
+            self._transport.addTimer(self._timer, gettime() + TIMEOUT_NS)
 
     def processReceivedData(self, payloadCM):
         """
@@ -439,10 +431,6 @@ class InboundMessage(object):
         if self._timer.useTimer:
             self._transport.addTimer(self._timer, gettime() + TIMEOUT_NS)
         return (self._firstMissingFrag == self._totalFrags)
-
-    def timeout(self):
-        # Gratuitously ACK the received packets.
-        self._sendAck()
 
 class OutboundMessage(object):
     """A partially-transmitted data message (either a request or a response).
@@ -833,7 +821,7 @@ class ServerSession(Session):
             if channel.currentRpc is not None:
                 delete(channel.currentRpc)
                 channel.currentRpc = None
-            channel.inboundMsg.init(None, None)
+            channel.inboundMsg.clear()
             channel.outboundMsg.clear()
 
     def __init__(self, transport, sessionId):
@@ -1067,6 +1055,7 @@ class ClientSession(Session):
         header = Header.fromString(payloadCM.payload[:Header.LENGTH])
         if channel.state == channel.SENDING_STATE:
             responseBuffer = channel.currentRpc.getResponseBuffer()
+            channel.outboundMsg.clear()
             channel.inboundMsg.init(header.totalFrags, responseBuffer)
             channel.state = channel.RECEIVING_STATE
         done = channel.inboundMsg.processReceivedData(payloadCM)
@@ -1076,7 +1065,7 @@ class ClientSession(Session):
             channel.rpcId = (channel.rpcId + 1) % (1 << RPCID_WIDTH)
             channel.currentRpc = None
             channel.outboundMsg.clear()
-            channel.inboundMsg.init(None, None)
+            channel.inboundMsg.clear()
 
             if len(self._channelQueue) > 0:
                 rpc = self._channelQueue.pop(0)
@@ -1095,7 +1084,7 @@ class ClientSession(Session):
         channel.rpcId = (channel.rpcId + 1) % (1 << RPCID_WIDTH)
 
         channel.outboundMsg.clear()
-        channel.inboundMsg.init(None, None)
+        channel.inboundMsg.clear()
         channel.outboundMsg.beginSending(channel.currentRpc.getRequestBuffer())
 
     def _getAvailableChannel(self):
@@ -1338,8 +1327,7 @@ class Transport(object):
     def _checkTimers(self):
         now = gettime()
         for timer in self._timers:
-            assert timer.when is not None
-            if timer.when < now:
+            if timer.when is not None and timer.when < now:
                 timer.fireTimer(now)
                 if timer.when < now:
                     timer.when = None
@@ -1351,7 +1339,7 @@ class Transport(object):
             return False
 
         payload, length, address = x
-        with PayloadReleaser(self._driver, payload, length) as payloadCM:
+        with PayloadContextManager(self._driver, payload, length) as payloadCM:
             if Header.LENGTH > length:
                 debug("packet too small")
                 return True
