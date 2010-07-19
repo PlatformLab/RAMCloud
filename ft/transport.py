@@ -835,7 +835,7 @@ class ServerSession(Session):
                           for i in range(NUM_CHANNELS_PER_SESSION)]
         for channelId, channel in enumerate(self._channels):
             channel.state = channel.IDLE_STATE
-            channel.rpcId = None
+            channel.rpcId = (1 << RPCID_WIDTH) - 1
             channel.currentRpc = None
             # InboundMessage would be allocated as part of the channel
             channel.inboundMsg = InboundMessage(self._transport, self,
@@ -854,21 +854,17 @@ class ServerSession(Session):
             return
 
         channel = self._channels[header.channelId]
-        if channel.rpcId is None:
-            rpcIdIsOld = False
-            rpcIdIsNew = True
-        else:
-            # TODO(ongaro): review modulo arithmetic
-            rpcIdMask = (1 << RPCID_WIDTH) - 1
-            diff = (header.rpcId - channel.rpcId) & rpcIdMask
-            rpcIdIsOld = (diff >= 10 * 1000 * 1000)
-            rpcIdIsNew = (0 < diff < 10 * 1000 * 1000)
 
-        if rpcIdIsOld:
-            # This must be an old packet that the client's no longer
-            # waiting on, just drop it.
-            debug("drop old packet")
-        elif rpcIdIsNew:
+        if channel.rpcId == header.rpcId:
+            if header.payloadType == Header.PT_DATA:
+                self._processReceivedData(channel, payloadCM)
+            elif header.payloadType == Header.PT_ACK:
+                self._processReceivedAck(channel, payloadCM)
+            else:
+                # A well-behaved client wouldn't ever do this, so it's safe
+                # to drop.
+                debug("drop current rpcId with bad type")
+        elif ((channel.rpcId + 1) & ((1 << RPCID_WIDTH) - 1)) == header.rpcId:
             if header.payloadType == Header.PT_DATA:
                 self._discard(channel)
                 channel.rpcId = header.rpcId
@@ -883,15 +879,10 @@ class ServerSession(Session):
                 # A well-behaved client wouldn't ever do this, so it's safe
                 # to drop.
                 debug("drop new rpcId with non-data")
-        else: # header's RPC ID is same as channel's
-            if header.payloadType == Header.PT_DATA:
-                self._processReceivedData(channel, payloadCM)
-            elif header.payloadType == Header.PT_ACK:
-                self._processReceivedAck(channel, payloadCM)
-            else:
-                # A well-behaved client wouldn't ever do this, so it's safe
-                # to drop.
-                debug("drop current rpcId with bad type")
+        else:
+            # This must be an old packet that the client's no longer
+            # waiting on, just drop it.
+            debug("drop old packet")
 
     def beginSending(self, channelId):
         """The server handler has finished producing the response; begin
