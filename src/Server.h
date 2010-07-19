@@ -13,7 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
+/**
+ * \file
+ * Header file for #RAMCloud::Table and #RAMCloud::Server.
+ */
 
 #ifndef RAMCLOUD_SERVER_H
 #define RAMCLOUD_SERVER_H
@@ -178,26 +181,18 @@ class Server {
   public:
     explicit Server(const ServerConfig *sconfig,
                     Transport* transIn,
-                    BackupClient *backupClient=0);
+                    BackupClient *backupClient=0); // NOLINT
     ~Server();
     void Run();
 
-    void Ping(const rcrpc_ping_request *req,
-              rcrpc_ping_response *resp);
-    void Read(const rcrpc_read_request *req,
-              rcrpc_read_response *resp);
-    void Write(const rcrpc_write_request *req,
-               rcrpc_write_response *resp);
-    void InsertKey(const rcrpc_insert_request *req,
-                   rcrpc_insert_response *resp);
-    void DeleteKey(const rcrpc_delete_request *req,
-                   rcrpc_delete_response *resp);
-    void CreateTable(const rcrpc_create_table_request *req,
-                     rcrpc_create_table_response *resp);
-    void OpenTable(const rcrpc_open_table_request *req,
-                   rcrpc_open_table_response *resp);
-    void DropTable(const rcrpc_drop_table_request *req,
-                   rcrpc_drop_table_response *resp);
+    void Ping(Transport::ServerRPC *rpc);
+    void Read(Transport::ServerRPC *rpc);
+    void Write(Transport::ServerRPC *rpc);
+    void InsertKey(Transport::ServerRPC *rpc);
+    void DeleteKey(Transport::ServerRPC *rpc);
+    void CreateTable(Transport::ServerRPC *rpc);
+    void OpenTable(Transport::ServerRPC *rpc);
+    void DropTable(Transport::ServerRPC *rpc);
 
 
   private:
@@ -208,8 +203,7 @@ class Server {
     bool StoreData(uint64_t table,
                    uint64_t key,
                    const rcrpc_reject_rules *reject_rules,
-                   const char *buf,
-                   uint64_t buf_len,
+                   Buffer *data, uint32_t dataOffset, uint32_t dataLength,
                    uint64_t *new_version);
 
     const ServerConfig *config;

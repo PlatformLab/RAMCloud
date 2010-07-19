@@ -175,6 +175,7 @@ read_many()
 
 int
 main(int argc, char *argv[])
+try
 {
     assert(!atexit(cleanup));
 
@@ -225,4 +226,6 @@ main(int argc, char *argv[])
     read_many();
 
     return 0;
+} catch (RAMCloud::Exception e) {
+    fprintf(stderr, "Bench: %s\n", e.message.c_str());
 }

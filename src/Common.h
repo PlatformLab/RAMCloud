@@ -13,26 +13,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
+/**
+ * \file
+ * A header file that is included everywhere.
+ * TODO(ongaro): A lot of this stuff should probably move elsewhere.
+ */
 
 #ifndef RAMCLOUD_COMMON_H
 #define RAMCLOUD_COMMON_H
-
-#include <config.h>
-
-#ifdef __cplusplus
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <memory>
-#include <cassert>
-#else
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <strings.h>
-#include <assert.h>
-#endif
 
 // requires 0x for cstdint
 #include <stdint.h>
@@ -42,7 +30,27 @@
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 
-#include <rcrpc.h>
+#ifndef __cplusplus
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <assert.h>
+#else
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <cassert>
+#include <string>
+using std::string;
+#endif
+
+// cpplint thinks these are system headers since we're using angle brackets.
+// Then it complains that they're not included first, but really it wants
+// application headers last.
+#include <config.h> // NOLINT
+#include <rcrpc.h> // NOLINT
 
 // A macro to disallow the copy constructor and operator= functions
 // This should be used in the private: declarations for a class
@@ -105,7 +113,7 @@ _xmemalign(size_t alignment, size_t len,
     }
 
     // alignment must be a multiple of sizeof(void*)
-    if (alignment % sizeof(void*) != 0) {
+    if (alignment % sizeof(void*) != 0) { // NOLINT
         fprintf(stderr, "xmemalign alignment (%d) must be "
                         "a multiple of sizeof(void*): %s:%d (%s)\n",
                 alignment, file, line, func);
@@ -147,8 +155,8 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
     return p;
 }
 
-#define STATIC_ASSERT_CAT2(a,b) a##b
-#define STATIC_ASSERT_CAT(a,b) STATIC_ASSERT_CAT2(a, b)
+#define STATIC_ASSERT_CAT2(a, b) a##b
+#define STATIC_ASSERT_CAT(a, b) STATIC_ASSERT_CAT2(a, b)
 /**
  * Generate a compile-time error if \a x is false.
  * You can "call" this anywhere declaring an enum is allowed -- it doesn't
@@ -156,7 +164,8 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
  * \param x
  *      A condition that can be evaluated at compile-time.
  */
-#define static_assert(x) enum { STATIC_ASSERT_CAT(STATIC_ASSERT_FAILED_, __COUNTER__) = 1/(x) }
+#define static_assert(x) enum { \
+    STATIC_ASSERT_CAT(STATIC_ASSERT_FAILED_, __COUNTER__) = 1/(x) }
 
 #ifdef __cplusplus
 void debug_dump64(const void *buf, uint64_t bytes);
@@ -170,7 +179,7 @@ rdtsc()
     uint32_t lo, hi;
 
 #ifdef __GNUC__
-    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+    __asm__ __volatile__("rdtsc" : "=a" (lo), "=d" (hi));
 #else
     asm("rdtsc" : "=a" (lo), "=d" (hi));
 #endif
@@ -210,8 +219,6 @@ rdpmc(uint32_t counter)
 #define CONST_FOR_PRODUCTION const
 #endif
 
-namespace RAMCloud {
-
 #if PERF_COUNTERS
 #define STAT_REF(pc) &(pc)
 #define STAT_INC(pc) ++(pc)
@@ -220,8 +227,36 @@ namespace RAMCloud {
 #define STAT_INC(pc) (void) 0
 #endif
 
-}
 #endif
 
+namespace RAMCloud {
+
+/**
+ * The base class for all RAMCloud exceptions.
+ */
+struct Exception {
+    explicit Exception() : message(""), errNo(0) {}
+    explicit Exception(std::string msg)
+            : message(msg), errNo(0) {}
+    explicit Exception(int errNo) : message(""), errNo(errNo) {
+        message = strerror(errNo);
+    }
+    explicit Exception(std::string msg, int errNo)
+            : message(msg), errNo(errNo) {}
+    Exception(const Exception &e)
+            : message(e.message), errNo(e.errNo) {}
+    Exception &operator=(const Exception &e) {
+        if (&e == this)
+            return *this;
+        message = e.message;
+        errNo = e.errNo;
+        return *this;
+    }
+    virtual ~Exception() {}
+    std::string message;
+    int errNo;
+};
+
+} // end RAMCloud
 
 #endif

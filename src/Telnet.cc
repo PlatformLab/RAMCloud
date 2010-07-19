@@ -30,18 +30,20 @@
 int
 main()
 {
-    RAMCloud::Service service;
+    using namespace RAMCloud; // NOLINT
+    Service service;
     service.setIp(SVRADDR);
     service.setPort(SVRPORT);
-    RAMCloud::TCPTransport tx(NULL, 0);
+    TCPTransport tx(NULL, 0);
     char buf[1024];
     while (fgets(buf, sizeof(buf), stdin) != NULL) {
-        RAMCloud::Buffer request;
-        RAMCloud::Buffer response;
-        request.append(buf, static_cast<uint32_t>(strlen(buf)));
+        Buffer request;
+        Buffer response;
+        Buffer::Chunk::appendToBuffer(&request, buf,
+                                      static_cast<uint32_t>(strlen(buf)));
         tx.clientSend(&service, &request, &response)->getReply();
 
-        uint32_t respLen = response.totalLength();
+        uint32_t respLen = response.getTotalLength();
         if (respLen >= sizeof(buf))
             return 1;
         buf[respLen] = '\0';

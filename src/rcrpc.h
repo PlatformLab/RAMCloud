@@ -13,32 +13,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
+/**
+ * \file
+ * Contains formats for RPCs between clients and masters.
+ */
 
 #ifndef RAMCLOUD_RCRPC_H
 #define RAMCLOUD_RCRPC_H
 
 #include <Common.h>
 #include <stdbool.h>
-
-#define RCRPC_HEADER_LEN                        sizeof(struct rcrpc_header)
-#define RCRPC_PING_REQUEST_LEN                  sizeof(struct rcrpc_ping_request)
-#define RCRPC_PING_RESPONSE_LEN                 sizeof(struct rcrpc_ping_response)
-#define RCRPC_READ_REQUEST_LEN                  sizeof(struct rcrpc_read_request)
-#define RCRPC_READ_RESPONSE_LEN_WODATA          sizeof(struct rcrpc_read_response)
-#define RCRPC_WRITE_REQUEST_LEN_WODATA          sizeof(struct rcrpc_write_request)
-#define RCRPC_WRITE_RESPONSE_LEN                sizeof(struct rcrpc_write_response)
-#define RCRPC_INSERT_REQUEST_LEN_WODATA         sizeof(struct rcrpc_insert_request)
-#define RCRPC_INSERT_RESPONSE_LEN               sizeof(struct rcrpc_insert_response)
-#define RCRPC_DELETE_REQUEST_LEN                sizeof(struct rcrpc_delete_request)
-#define RCRPC_DELETE_RESPONSE_LEN               sizeof(struct rcrpc_delete_response)
-#define RCRPC_CREATE_TABLE_REQUEST_LEN          sizeof(struct rcrpc_create_table_request)
-#define RCRPC_CREATE_TABLE_RESPONSE_LEN         sizeof(struct rcrpc_create_table_response)
-#define RCRPC_OPEN_TABLE_REQUEST_LEN            sizeof(struct rcrpc_open_table_request)
-#define RCRPC_OPEN_TABLE_RESPONSE_LEN           sizeof(struct rcrpc_open_table_response)
-#define RCRPC_DROP_TABLE_REQUEST_LEN            sizeof(struct rcrpc_drop_table_request)
-#define RCRPC_DROP_TABLE_RESPONSE_LEN           sizeof(struct rcrpc_drop_table_response)
-#define RCRPC_ERROR_RESPONSE_LEN_WODATA         sizeof(struct rcrpc_error_response)
 
 //namespace RAMCloud {
 
@@ -96,7 +80,6 @@ struct rcrpc_perf_counter {
 
 struct rcrpc_header {
     uint32_t type;
-    uint32_t len;
     rcrpc_perf_counter perf_counter;
 };
 
@@ -129,11 +112,9 @@ struct rcrpc_any {
 DOC_HOOK(ping);
 
 struct rcrpc_ping_request {
-    struct rcrpc_header header;
 };
 
 struct rcrpc_ping_response {
-    struct rcrpc_header header;
 };
 
 #ifdef __cplusplus
@@ -196,17 +177,15 @@ struct rcrpc_reject_rules {
 DOC_HOOK(read);
 
 struct rcrpc_read_request {
-    struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
     struct rcrpc_reject_rules reject_rules;
 };
 
 struct rcrpc_read_response {
-    struct rcrpc_header header;
     uint64_t version;
     uint64_t buf_len;
-    char buf[0];                        /* Variable length (see buf_len) */
+    // Followed by a char array "buf" of buf_len bytes
 };
 
 /**
@@ -243,16 +222,14 @@ struct rcrpc_read_response {
 DOC_HOOK(write);
 
 struct rcrpc_write_request {
-    struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
     struct rcrpc_reject_rules reject_rules;
     uint64_t buf_len;
-    char buf[0];                        /* Variable length (see buf_len) */
+    // Followed by a char array "buf" of buf_len bytes
 };
 
 struct rcrpc_write_response {
-    struct rcrpc_header header;
     uint64_t version;
     uint8_t written:1;
 };
@@ -277,14 +254,12 @@ struct rcrpc_write_response {
 DOC_HOOK(insert);
 
 struct rcrpc_insert_request {
-    struct rcrpc_header header;
     uint64_t table;
     uint64_t buf_len;
-    char buf[0];                        /* Variable length (see buf_len) */
+    // Followed by a char array "buf" of buf_len bytes
 };
 
 struct rcrpc_insert_response {
-    struct rcrpc_header header;
     uint64_t key;
     uint64_t version;
 };
@@ -318,14 +293,12 @@ struct rcrpc_insert_response {
 DOC_HOOK(delete);
 
 struct rcrpc_delete_request {
-    struct rcrpc_header header;
     uint64_t table;
     uint64_t key;
     struct rcrpc_reject_rules reject_rules;
 };
 
 struct rcrpc_delete_response {
-    struct rcrpc_header header;
     uint64_t version;
     uint8_t deleted:1;
 };
@@ -347,12 +320,10 @@ struct rcrpc_delete_response {
 DOC_HOOK(create_table);
 
 struct rcrpc_create_table_request {
-    struct rcrpc_header header;
     char name[64];
 };
 
 struct rcrpc_create_table_response {
-    struct rcrpc_header header;
 };
 
 /**
@@ -370,12 +341,10 @@ struct rcrpc_create_table_response {
 DOC_HOOK(open_table);
 
 struct rcrpc_open_table_request {
-    struct rcrpc_header header;
     char name[64];
 };
 
 struct rcrpc_open_table_response {
-    struct rcrpc_header header;
     uint64_t handle;
 };
 
@@ -394,17 +363,14 @@ struct rcrpc_open_table_response {
 DOC_HOOK(drop_table);
 
 struct rcrpc_drop_table_request {
-    struct rcrpc_header header;
     char name[64];
 };
 
 struct rcrpc_drop_table_response {
-    struct rcrpc_header header;
 };
 
 struct rcrpc_error_response {
-    struct rcrpc_header header;
-    char message[0];                    /* Variable length */
+    // Followed by a '\0'-terminated char array "message"
 };
 
 //} // namespace RAMCloud

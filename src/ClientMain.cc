@@ -24,6 +24,7 @@
 
 int
 main()
+try
 {
     struct rc_client client;
     struct rcrpc_reject_rules read_any;
@@ -135,4 +136,6 @@ main()
     rc_disconnect(&client);
 
     return 0;
+} catch (RAMCloud::Exception e) {
+    fprintf(stderr, "client: %s\n", e.message.c_str());
 }
