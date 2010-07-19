@@ -17,15 +17,72 @@
 #include <Client.h>
 #include <stdio.h>
 #include <string.h>
+#include <getopt.h>
 
 #include <assert.h>
 
 #include <rcrpc.h>
 
+namespace RC = RAMCloud;
+
+struct ClientConfig {
+    // Restore from backups before resuming operation
+    int port;
+    char address[50];
+    ClientConfig() : port(SVRPORT) {
+        strncpy(address, SVRADDR, sizeof(address));
+        address[sizeof(address) - 1] = '\0';
+    }
+};
+
+
+void __attribute__ ((noreturn))
+usage(char *arg0)
+{
+    printf("Usage: %s [-p port] [-a address]\n"
+           "\t-p|--port\t\tChoose which server port to connect to\n",
+           "\t-a|--address\t\tChoose which server address to connect to\n",
+           arg0);
+    exit(EXIT_FAILURE);
+}
+
+void
+cmdline(int argc, char *argv[], ClientConfig *config)
+{
+    int i = 0;
+    int c;
+    struct option long_options[] = {
+        {"port", required_argument, NULL, 'p'},
+        {"address", required_argument, NULL, 'a'},
+        {0, 0, 0, 0},
+    };
+
+    while ((c = getopt_long(argc, argv, "p:a:", long_options, &i)) >= 0) {
+        switch (c) {
+        case 'p':
+            config->port = atoi(optarg);
+            if (config->port > 65536 || config->port < 0)
+                usage(argv[0]);
+            break;
+        case 'a':
+            strncpy(config->address, optarg, sizeof(config->address));
+            config->address[sizeof(config->address) - 1] = '\0';
+            break;
+        default:
+            usage(argv[0]);
+            break;
+        }
+    }
+}
+
+
 int
-main()
+main(int argc, char *argv[])
 try
 {
+    ClientConfig config;
+    cmdline(argc, argv, &config);
+
     struct rc_client client;
     struct rcrpc_reject_rules read_any;
     struct rcrpc_reject_rules write_any;
@@ -36,11 +93,13 @@ try
 
     memset(&write_any, 0, sizeof(write_any));
 
-    rc_connect(&client);
+    printf("client: Connecting to %s:%d\n", config.address, config.port);
+
+    rc_connect(&client, config.address, config.port);
     rc_select_perf_counter(&client,
-                           RAMCloud::PERF_COUNTER_TSC,
-                           RAMCloud::MARK_RPC_PROCESSING_BEGIN,
-                           RAMCloud::MARK_RPC_PROCESSING_END);
+                           RC::PERF_COUNTER_TSC,
+                           RC::MARK_RPC_PROCESSING_BEGIN,
+                           RC::MARK_RPC_PROCESSING_END);
 
     uint64_t b;
 

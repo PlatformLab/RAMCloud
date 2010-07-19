@@ -53,7 +53,8 @@ struct rc_client {
 extern "C" {
 #endif
 
-int rc_connect(struct rc_client *client);
+int rc_connect(struct rc_client *client,
+               const char* serverAddr, int serverPort);
 void rc_disconnect(struct rc_client *client);
 int rc_ping(struct rc_client *client);
 int rc_write(struct rc_client *client, uint64_t table, uint64_t key,

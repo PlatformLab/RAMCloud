@@ -1,5 +1,16 @@
 #!/bin/bash
-OBJSUFFIX=$(git symbolic-ref -q HEAD | \
-            sed -e s,refs/heads/,.,)
-OBJDIR=obj$OBJSUFFIX
-exec $OBJDIR/client > /dev/null
+
+source scripts/common.bash
+
+port=11114
+
+portslay $port
+
+$OBJDIR/server -p $port > /dev/null 2>&1 &
+sleep .1
+
+retval=$($OBJDIR/client -p $port > /dev/null)
+
+portslay $port
+
+exit $retval

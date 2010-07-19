@@ -65,3 +65,11 @@ mockpy-test:
 
 tests-clean:
 	rm -f $(TOP)/src/TCPTransportTest.cc
+
+.PHONY: test-smack
+test-smack: client $(OBJDIR)/server
+	scripts/smack
+
+.PHONY: test-bench
+test-bench: $(OBJDIR)/server $(OBJDIR)/Bench
+	scripts/run-bench

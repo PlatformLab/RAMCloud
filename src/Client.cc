@@ -54,12 +54,16 @@ static void unlock(struct rc_client *client) {}
  * %RAMCloud.
  *
  * \param[in]  client   a newly allocated client
+ * \param[in]  serverAddr
+ *     The IP address the remote server is listening on.
+ * \param[in]  serverPort
+ *     The port the remote server is listening on.
  * \return error code (see values below)
  * \retval  0 on success
  * \retval other reserved for future use
  */
 int
-rc_connect(struct rc_client *client)
+rc_connect(struct rc_client *client, const char *serverAddr, int serverPort)
 {
 #if RC_CLIENT_SHARED
     void *s = mmap(NULL, sizeof(struct rc_client_shared),
@@ -70,8 +74,8 @@ rc_connect(struct rc_client *client)
 #endif
 
     client->serv = new Service();
-    client->serv->setIp(SVRADDR);
-    client->serv->setPort(SVRPORT);
+    client->serv->setIp(serverAddr);
+    client->serv->setPort(serverPort);
 
     client->trans = new TCPTransport(NULL, 0);
 

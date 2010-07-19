@@ -22,13 +22,20 @@
 
 #include <stdlib.h>
 #include <getopt.h>
+#include <errno.h>
 
-void
+static int cpu = -1;
+
+void __attribute__ ((noreturn))
 usage(char *arg0)
 {
-    printf("Usage: %s [-r]\n"
-           "\t-r|--restore\t\tRestore from backup before serving\n",
+    printf("Usage: %s [-r] [-p port] [-a address] [-c cpu]\n"
+           "\t-r\t--restore\tRestore from backup before serving.\n"
+           "\t-p\t--port\t\tChoose which port to listen on.\n"
+           "\t-a\t--address\tChoose which address to listen on.\n"
+           "\t-c\t--cpu\t\tRestrict the server to a specific CPU (0 indexed).\n",
            arg0);
+    exit(EXIT_FAILURE);
 }
 
 void
@@ -38,17 +45,31 @@ cmdline(int argc, char *argv[], RAMCloud::ServerConfig *config)
     int c;
     struct option long_options[] = {
         {"restore", no_argument, NULL, 'r'},
-        {0,0,0,0}
+        {"port", required_argument, NULL, 'p'},
+        {"address", required_argument, NULL, 'a'},
+        {"cpu", required_argument, NULL, 'a'},
+        {0,0,0,0},
     };
 
-    while((c = getopt_long(argc, argv, "r", long_options, &i)) >= 0) {
+    while((c = getopt_long(argc, argv, "rp:a:c:", long_options, &i)) >= 0) {
         switch (c) {
         case 'r':
             config->restore = true;
             break;
+        case 'p':
+            config->port = atoi(optarg);
+            if (config->port > 65536 || config->port < 0)
+                usage(argv[0]);
+            break;
+        case 'a':
+            strncpy(config->address, optarg, sizeof(config->address));
+            config->address[sizeof(config->address) - 1] = '\0';
+            break;
+        case 'c':
+            cpu = atoi(optarg);
+            break;
         default:
             usage(argv[0]);
-            exit(EXIT_FAILURE);
             break;
         }
     }
@@ -61,7 +82,24 @@ try
     RAMCloud::ServerConfig config;
     cmdline(argc, argv, &config);
 
-    RAMCloud::TCPTransport trans(SVRADDR, SVRPORT);
+    printf("server: Listening on interface %s\n", config.address);
+    printf("server: Listening on port %d\n", config.port);
+
+    if (cpu != -1) {
+        cpu_set_t cpus;
+        CPU_ZERO(&cpus);
+        CPU_SET(cpu, &cpus);
+
+        int r = sched_setaffinity(0, sizeof(cpus), &cpus);
+        if (r < 0) {
+            fprintf(stderr, "server: Couldn't pin to core %d: %s\n",
+                    cpu, strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+        printf("server: Pinned to core %d\n", cpu);
+    }
+
+    RAMCloud::TCPTransport trans(config.address, config.port);
     RAMCloud::Server server(&config, &trans);
 
     server.Run();

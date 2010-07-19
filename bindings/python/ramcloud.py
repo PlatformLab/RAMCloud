@@ -117,8 +117,10 @@ def load_so():
     reject_rules        = POINTER(RejectRules)
     table               = ctypes.c_uint64
     version             = ctypes.c_uint64
+    address             = ctypes.c_char_p
+    port                = ctypes.c_int
 
-    so.rc_connect.argtypes = [client]
+    so.rc_connect.argtypes = [client, address, port]
     so.rc_connect.restype  = err
     so.rc_connect.errcheck = int_errcheck
 
@@ -208,8 +210,8 @@ class RAMCloud(object):
         so.rc_free(self.client)
         self.client = None
 
-    def connect(self):
-        so.rc_connect(self.client)
+    def connect(self, address='127.0.0.1', port=11111):
+        so.rc_connect(self.client, address, port)
 
     def ping(self):
         so.rc_ping(self.client)

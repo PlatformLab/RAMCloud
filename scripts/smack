@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# these scripts are intended to be run from the top level
+# of the project
+
+outfile=/dev/null
+count=10
+
+while getopts "n:v" OPT; do
+    case $OPT in
+        n)
+            count=$OPTARG
+            ;;
+        v)
+            outfile=/dev/stdout
+            ;;
+    esac
+done
+
+source scripts/common.bash
+
+port=11112
+
+# Check to see if a server is running, if so kill it
+portslay $port
+
+# Start a server and run tests
+$OBJDIR/server -p $port &
+sleep .1
+
+python src/tests/rc-smack.py -n $count -p $port > $outfile
+retval=$?
+
+# Kill the server
+portslay $port
+
+exit $retval
