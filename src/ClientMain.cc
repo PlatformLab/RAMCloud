@@ -40,7 +40,7 @@ void __attribute__ ((noreturn))
 usage(char *arg0)
 {
     printf("Usage: %s [-p port] [-a address]\n"
-           "\t-p|--port\t\tChoose which server port to connect to\n",
+           "\t-p|--port\t\tChoose which server port to connect to\n"
            "\t-a|--address\t\tChoose which server address to connect to\n",
            arg0);
     exit(EXIT_FAILURE);
