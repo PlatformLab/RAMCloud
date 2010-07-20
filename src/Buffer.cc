@@ -30,16 +30,18 @@ namespace RAMCloud {
  * \param[in] prependSize
  *      See constructor.
  * \param[in] totalSize
- *      See constructor.
+ *      See constructor. Will round-up to the nearest 8 bytes.
  */
 Buffer::Allocation*
 Buffer::Allocation::newAllocation(uint32_t prependSize, uint32_t totalSize) {
+    totalSize = (totalSize + 7) & ~7U;
     void* a = xmalloc(sizeof(Allocation) + totalSize);
     return new(a) Allocation(prependSize, totalSize);
 }
 
 /**
  * Constructor for Allocation.
+ * The Allocation must be 8-byte aligned.
  * \param[in] prependSize
  *      The number of bytes of the Allocation for prepend data. The rest will
  *      be used for append data and Chunk instances.
@@ -47,12 +49,15 @@ Buffer::Allocation::newAllocation(uint32_t prependSize, uint32_t totalSize) {
  *      The number of bytes of total data the Allocation manages. The
  *      Allocation will assume it can use totalSize bytes directly following
  *      itself (i.e., the caller has allocated sizeof(Allocation) + totalSize).
+ *      Must be 8-byte aligned.
  */
 Buffer::Allocation::Allocation(uint32_t prependSize, uint32_t totalSize)
     : next(NULL),
       prependTop(prependSize),
       appendTop(prependSize),
       chunkTop(totalSize) {
+    assert((reinterpret_cast<uint64_t>(this) & 0x7) == 0);
+    assert((totalSize & 0x7) == 0);
     assert(prependSize <= totalSize);
 }
 
@@ -68,7 +73,6 @@ Buffer::Allocation::~Allocation() {
  * \return  A pointer to the allocated space or \c NULL if there is not enough
  *          space in this Allocation.
  */
-// TODO(ongaro): Alignment issue?
 void*
 Buffer::Allocation::allocatePrepend(uint32_t size) {
     if (prependTop < size)
@@ -83,7 +87,6 @@ Buffer::Allocation::allocatePrepend(uint32_t size) {
  * \return  A pointer to the allocated space or \c NULL if there is not enough
  *          space in this Allocation.
  */
-// TODO(ongaro): Alignment issue?
 void*
 Buffer::Allocation::allocateAppend(uint32_t size) {
     if (static_cast<DataIndex>(chunkTop - appendTop) < size)
@@ -99,12 +102,13 @@ Buffer::Allocation::allocateAppend(uint32_t size) {
  * \return  A pointer to the allocated space or \c NULL if there is not enough
  *          space in this Allocation.
  */
-// TODO(ongaro): Alignment issue?
 void*
 Buffer::Allocation::allocateChunk(uint32_t size) {
+    size = (size + 7) & ~7U;
     if (static_cast<DataIndex>(chunkTop - appendTop) < size)
         return NULL;
     chunkTop = static_cast<DataIndex>(chunkTop - size);
+    assert((chunkTop & 7) == 0);
     return &data[chunkTop];
 }
 
@@ -116,6 +120,7 @@ Buffer::Buffer()
       initialAllocationContainer(),
       allocations(&initialAllocationContainer.allocation),
       nextAllocationSize(INITIAL_ALLOCATION_SIZE << 1) {
+    assert((reinterpret_cast<uint64_t>(allocations) & 7) == 0);
 }
 
 /**
@@ -653,7 +658,8 @@ uint32_t Buffer::Iterator::getLength() const {
  *      This should be #::RAMCloud::PREPEND_T::PREPEND.
  * \return
  *      The newly allocated memory region of size \a numBytes, which will be
- *      automatically deallocated in this Buffer's destructor.
+ *      automatically deallocated in this Buffer's destructor. May not be
+ *      aligned.
  */
 void*
 operator new(size_t numBytes, RAMCloud::Buffer* buffer,
@@ -689,7 +695,8 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
  *      This should be #::RAMCloud::APPEND_T::APPEND.
  * \return
  *      The newly allocated memory region of size \a numBytes, which will be
- *      automatically deallocated in this Buffer's destructor.
+ *      automatically deallocated in this Buffer's destructor. May not be
+ *      aligned.
  */
 void*
 operator new(size_t numBytes, RAMCloud::Buffer* buffer,
@@ -727,7 +734,8 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
  *      This should be #::RAMCloud::CHUNK_T::CHUNK.
  * \return
  *      The newly allocated memory region of size \a numBytes, which will be
- *      automatically deallocated in this Buffer's destructor.
+ *      automatically deallocated in this Buffer's destructor. Will be aligned
+ *      to 8 bytes.
  */
 void*
 operator new(size_t numBytes, RAMCloud::Buffer* buffer,
@@ -740,6 +748,8 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
 /**
  * Allocate a contiguous region of memory in a Buffer.
  *
+ * \warning This memory will not necessarily be aligned.
+ *
  * \param[in] numBytes
  *      The number of bytes to allocate.
  * \param[in] buffer
@@ -748,7 +758,8 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
  *      This should be #::RAMCloud::MISC_T::MISC.
  * \return
  *      The newly allocated memory region of size \a numBytes, which will be
- *      automatically deallocated in this Buffer's destructor.
+ *      automatically deallocated in this Buffer's destructor. May not be
+ *      aligned.
  */
 void*
 operator new(size_t numBytes, RAMCloud::Buffer* buffer,
