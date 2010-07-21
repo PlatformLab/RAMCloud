@@ -1,7 +1,2 @@
 #!/bin/bash
-export PYTHONPATH=bindings/python
-OBJSUFFIX=$(git symbolic-ref -q HEAD | \
-	       sed -e s,refs/heads/,.,)
-OBJDIR=obj$OBJSUFFIX
-export LD_LIBRARY_PATH=$OBJDIR
-exec python src/tests/rc-smack.py 10 > /dev/null
+exec make --silent test-smack >/dev/null 2>&1

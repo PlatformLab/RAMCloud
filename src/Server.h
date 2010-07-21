@@ -174,7 +174,12 @@ class Table {
 struct ServerConfig {
     // Restore from backups before resuming operation
     bool restore;
-  ServerConfig() : restore(false) {}
+    int port;
+    char address[50];
+    ServerConfig() : restore(false), port(SVRPORT) {
+        strncpy(address, SVRADDR, sizeof(address));
+        address[sizeof(address) - 1] = '\0';
+    }
 };
 
 class Server {

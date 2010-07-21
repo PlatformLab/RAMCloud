@@ -179,6 +179,13 @@ class Buffer {
         void* allocateChunk(uint32_t size);
 
       private:
+
+        /**
+         * Structure padding so that \a data is 8-byte aligned within an
+         * Allocation.
+         */
+        char padding[4];
+
         /**
          * The memory from which portions are returned by the allocate methods
          * starts here.

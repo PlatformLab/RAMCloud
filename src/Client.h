@@ -21,13 +21,19 @@
 #ifndef RAMCLOUD_CLIENT_H
 #define RAMCLOUD_CLIENT_H
 
-#include <Common.h>
+
 #include <stdbool.h>
 #include <config.h>
+
+#include <Common.h>
+
 #include <Buffer.h>
 #include <Service.h>
 #include <Transport.h>
 #include <TCPTransport.h>
+
+#include <PerfCounterType.h>
+#include <Mark.h>
 
 #if RC_CLIENT_SHARED
 struct rc_client_shared; // declared in Client.c
@@ -36,6 +42,8 @@ struct rc_client_shared; // declared in Client.c
 struct rc_client {
     RAMCloud::Service* serv;
     RAMCloud::Transport* trans;
+    rcrpc_perf_counter perf_counter_select;
+    uint32_t perf_counter;
 #if RC_CLIENT_SHARED
     struct rc_client_shared *shared;
 #endif
@@ -45,7 +53,8 @@ struct rc_client {
 extern "C" {
 #endif
 
-int rc_connect(struct rc_client *client);
+int rc_connect(struct rc_client *client,
+               const char* serverAddr, int serverPort);
 void rc_disconnect(struct rc_client *client);
 int rc_ping(struct rc_client *client);
 int rc_write(struct rc_client *client, uint64_t table, uint64_t key,
@@ -63,6 +72,12 @@ int rc_create_table(struct rc_client *client, const char *name);
 int rc_open_table(struct rc_client *client, const char *name,
                   uint64_t *table_id);
 int rc_drop_table(struct rc_client *client, const char *name);
+
+void rc_select_perf_counter(struct rc_client *client,
+                            enum RAMCloud::PerfCounterType counterType,
+                            enum RAMCloud::Mark beginMark,
+                            enum RAMCloud::Mark endMark);
+uint64_t rc_read_perf_counter(struct rc_client *client);
 
 /* These aren't strictly necessary, but they make life easier for
  * foreign languages because they don't have to know how to allocate a

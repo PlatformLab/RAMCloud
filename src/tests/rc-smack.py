@@ -1,4 +1,5 @@
 import ramcloud, random, time, sys
+import optparse
 
 class rpcperf():
     def __init__(self):
@@ -206,28 +207,38 @@ def rewrite_delete_smack(c, loops, p):
 
         i += 1
 
-smacks = 1000000
-if len(sys.argv) == 2:
-    smacks = int(sys.argv[1])
-print "Using %d iterations/test" % (smacks)
+def main():
+    parser = optparse.OptionParser()
+    parser.add_option('-n', '--number', dest='smacks', default=10000, type=int)
+    parser.add_option('-a', '--address', dest='address', default='0.0.0.0')
+    parser.add_option('-p', '--port', dest='port', default=11111, type=int)
+    (options, args) = parser.parse_args()
 
-c = ramcloud.RAMCloud()
-c.connect()
+    smacks = options.smacks
 
-print "Running version smack"
-version_smack(c, smacks)
+    print 'Connecting to %s:%d' % (options.address, options.port)
+    print "Using %d iterations/test" % (smacks)
 
-print "Running rewrite smack"
-rewrite_smack(c, smacks)
+    c = ramcloud.RAMCloud()
+    c.connect(options.address, options.port)
 
-print "Running delete smack"
-delete_smack(c, smacks)
+    print "Running version smack"
+    version_smack(c, smacks)
 
-print "Running random rewrite/delete smack p = 0.3"
-rewrite_delete_smack(c, smacks, 0.3)
+    print "Running rewrite smack"
+    rewrite_smack(c, smacks)
 
-print "Running random rewrite/delete smack p = 0.5"
-rewrite_delete_smack(c, smacks, 0.5)
+    print "Running delete smack"
+    delete_smack(c, smacks)
 
-print "Running random rewrite/delete smack p = 0.8"
-rewrite_delete_smack(c, smacks, 0.8)
+    print "Running random rewrite/delete smack p = 0.3"
+    rewrite_delete_smack(c, smacks, 0.3)
+
+    print "Running random rewrite/delete smack p = 0.5"
+    rewrite_delete_smack(c, smacks, 0.5)
+
+    print "Running random rewrite/delete smack p = 0.8"
+    rewrite_delete_smack(c, smacks, 0.8)
+
+if __name__ == '__main__':
+    main()

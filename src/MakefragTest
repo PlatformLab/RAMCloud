@@ -15,7 +15,9 @@ TESTS_SRCFILES := \
 		src/ChecksumTest.cc \
 		src/SegmentTest.cc \
 		src/LogTest.cc \
+                src/MetricsTest.cc \
 		src/TestRunner.cc \
+		src/TestUtil.cc \
 		$(TESTS_PYMOCK_OUTFILES)
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
@@ -64,3 +66,11 @@ mockpy-test:
 
 tests-clean:
 	rm -f $(TOP)/src/TCPTransportTest.cc
+
+.PHONY: test-smack
+test-smack: client $(OBJDIR)/server
+	scripts/smack
+
+.PHONY: test-bench
+test-bench: $(OBJDIR)/server $(OBJDIR)/Bench
+	scripts/run-bench

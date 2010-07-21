@@ -80,6 +80,10 @@ class BufferAllocationTest : public CppUnit::TestFixture {
     }
 
     void test_constructor() {
+
+        // make sure Allocation::padding is set correctly.
+        CPPUNIT_ASSERT_EQUAL(0, reinterpret_cast<uint64_t>(a->data) & 0x7);
+
         CPPUNIT_ASSERT(a->next == NULL);
         CPPUNIT_ASSERT_EQUAL(256, a->prependTop);
         CPPUNIT_ASSERT_EQUAL(256, a->appendTop);
@@ -92,10 +96,10 @@ class BufferAllocationTest : public CppUnit::TestFixture {
     void test_allocateChunk() {
         uint32_t size = 2048 - 256;
         a->allocateChunk(0);
-        CPPUNIT_ASSERT_EQUAL(&a->data[256 + 10],
-                             a->allocateChunk(size - 10));
+        CPPUNIT_ASSERT_EQUAL(&a->data[256 + 16],
+                             a->allocateChunk(size - 16));
         CPPUNIT_ASSERT_EQUAL(&a->data[256],
-                             a->allocateChunk(10));
+                             a->allocateChunk(16));
         CPPUNIT_ASSERT_EQUAL(NULL, a->allocateChunk(1));
         CPPUNIT_ASSERT_EQUAL(NULL, a->allocateAppend(1));
     }
@@ -245,14 +249,14 @@ class BufferTest : public CppUnit::TestFixture {
         uint32_t s;
 
         s = Buffer::INITIAL_ALLOCATION_SIZE * 2;
-        Buffer::Allocation* a3 = b.newAllocation(s + 5, 0);
-        CPPUNIT_ASSERT_EQUAL(s + 5, a3->prependTop);
-        CPPUNIT_ASSERT_EQUAL(s + 5, a3->chunkTop);
+        Buffer::Allocation* a3 = b.newAllocation(s + 16, 0);
+        CPPUNIT_ASSERT_EQUAL(s + 16, a3->prependTop);
+        CPPUNIT_ASSERT_EQUAL(s + 16, a3->chunkTop);
 
         s *= 2;
-        Buffer::Allocation* a2 = b.newAllocation(0, s + 5);
+        Buffer::Allocation* a2 = b.newAllocation(0, s + 16);
         CPPUNIT_ASSERT_EQUAL(0, a2->prependTop);
-        CPPUNIT_ASSERT_EQUAL(s + 5, a2->chunkTop);
+        CPPUNIT_ASSERT_EQUAL(s + 16, a2->chunkTop);
 
         s *= 2;
         Buffer::Allocation* a1 = b.newAllocation(0, 0);

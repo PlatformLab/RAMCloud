@@ -9,17 +9,13 @@ source scripts/common.bash
 
 portslay $port
 
-VER=$(git log -1 | head -n 1 | awk '{print $2;}')
-DATE=$(git log -1 --date=short | head -n 3 | tail -n 1 | awk '{print $2;}')
-
 # Start a server and run tests
 $OBJDIR/server -p $port > /dev/null 2>&1 &
 sleep .1
 
-VAL=$($OBJDIR/Bench -p $port -R -s 1000 -n 10000 | grep 'read:.*avg' | awk '{print $2;}')
+$OBJDIR/Bench -p $port $*
 RETVAL=$?
 
 portslay $port
 
-echo "$DATE $VER $VAL"
 exit $RETVAL
