@@ -17,6 +17,7 @@ TESTS_SRCFILES := \
 		src/LogTest.cc \
                 src/MetricsTest.cc \
 		src/TestRunner.cc \
+		src/TestUtil.cc \
 		$(TESTS_PYMOCK_OUTFILES)
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)

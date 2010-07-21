@@ -15,101 +15,26 @@
 
 /**
  * \file
- * Defines various things that help in writing tests, such as
+ * Declares various things that help in writing tests, such as
  * extensions of CPPUNIT_ASSERT_EQUAL.
  */
 
 #ifndef RAMCLOUD_TESTUTIL_H
 #define RAMCLOUD_TESTUTIL_H
 
+#include <Common.h>
 #include <cppunit/extensions/HelperMacros.h>
 
-// The following code extends CppUnit to enable CPPUNIT_ASSERT_EQUAL
-// to be used on some additional combinations of types that aren't
-// supported by default.
 namespace CppUnit {
-// Note: the recommended way to extend CPPUNIT_ASSERT_EQUAL is to
-// define assertion_traits objects.  However, all of the extensions
-// below required a different approach, because assertion_traits
-// objects didn't produce the desired result.
 
-#if 0
-// This is the recommended way to enable CPPUNIT_ASSERT_EQUAL
-// comparisons between char *'s.  Unfortunately it doesn't seem to
-// work reliably (compiler bugs?). The compiler seems to choose
-// the default (less specialized) implementation in place of this
-// one.
-template<>
-struct assertion_traits<char *> {
-    static bool equal(const char *x, const char *y) {
-        return strcmp(x, y) == 0;
-    }
-
-    static std::string toString(const char *x) {
-        return std::string(x);
-    }
-};
-#endif
-
-// Allow CPPUNIT_ASSERT_EQUAL comparisons between char* strings.
-// This functionality has to be implemented using the non-standard
-// approach below because the assertion_traits approach doesn't
-// seem to work (the compiler picks the wrong template).  Even the
-// approach below occasionally fails, requiring arguments to
-// be cast to (char *).
 void assertEquals(const char *expected, const char *actual,
-        SourceLine sourceLine, const std::string &message) {
-    if (strcmp(actual, expected) != 0) {
-        Asserter::failNotEqual(std::string(expected), std::string(actual),
-                sourceLine, message);
-    }
-}
-
-// Allow CPPUNIT_ASSERT_EQUAL comparisons between char* and std::string.
-// This functionality has to be implemented using the non-standard
-// approach below because the types of the arguments are different.
+                  SourceLine sourceLine, const std::string &message);
 void assertEquals(const char *expected, const std::string& actual,
-        SourceLine sourceLine, const std::string &message) {
-    if (actual != expected) {
-        Asserter::failNotEqual(std::string(expected),
-            assertion_traits<std::string>::toString(actual),
-                sourceLine, message);
-    }
-}
-
-// Allow CPPUNIT_ASSERT_EQUAL comparisons between uint32_t's.
-// This functionality has to be implemented using the non-standard
-// approach below because we sometimes supply an enum value for
-// the first argument; the approach below will automatically
-// convert it to integer, but the assertion_traits approach
-// will not, so the types won't match.
+                  SourceLine sourceLine, const std::string &message);
 void assertEquals(uint32_t expected, const uint32_t actual,
-        SourceLine sourceLine, const std::string &message) {
-    if (expected != actual) {
-        char buf1[20], buf2[20];
-        snprintf(buf1, sizeof(buf1), "%d", expected);
-        snprintf(buf2, sizeof(buf2), "%d", actual);
-        Asserter::failNotEqual(std::string(buf1), std::string(buf2),
-                sourceLine, message);
-    }
-}
-
-// Allow CPPUNIT_ASSERT_EQUAL comparisons between void *'s.
-// This functionality has to be implemented using the non-standard
-// approach below because we sometimes supply a char* value for
-// the first argument; the approach below will automatically
-// convert it to void*, but the assertion_traits approach
-// will not, so the types won't match.
+                  SourceLine sourceLine, const std::string &message);
 void assertEquals(void *expected, const void *actual,
-        SourceLine sourceLine, const std::string &message) {
-    if (expected != actual) {
-        char buf1[20], buf2[20];
-        snprintf(buf1, sizeof(buf1), "%p", expected);
-        snprintf(buf2, sizeof(buf2), "%p", actual);
-        Asserter::failNotEqual(std::string(buf1), std::string(buf2),
-                sourceLine, message);
-    }
-}
+                  SourceLine sourceLine, const std::string &message);
 
 }
 
