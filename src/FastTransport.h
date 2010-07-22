@@ -34,8 +34,10 @@ class FastTransport : public Transport {
         LIST_INIT(&serverReadyQueue);
     }
 
-    void poll() __attribute__((noreturn)) {
-        throw UnrecoverableTransportException("Not implemented");
+    void poll() {
+        while (tryProcessPacket())
+            fireTimers();
+        fireTimers();
     }
 
     class ClientRPC : public Transport::ClientRPC {
@@ -110,6 +112,13 @@ class FastTransport : public Transport {
         uint16_t firstMissingFrag;
         uint32_t stagingVector;
     } __attribute__((packed));
+
+    bool tryProcessPacket() __attribute__((noreturn)) {
+        throw UnrecoverableTransportException("Not implemented");
+    }
+
+    void fireTimers() {
+    }
 
     LIST_HEAD(ServerReadyQueueHead, ServerRPC) serverReadyQueue;
 
