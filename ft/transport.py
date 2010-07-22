@@ -1313,7 +1313,7 @@ class Transport(object):
         # the NIC?
         self._driver.sendPacket(address, dataBuffer)
 
-    def _checkTimers(self):
+    def _fireTimers(self):
         now = gettime()
         for timer in self._timers:
             if timer.when is not None and timer.when < now:
@@ -1322,7 +1322,7 @@ class Transport(object):
                     timer.when = None
                     self.removeTimer(timer)
 
-    def _checkWire(self):
+    def _tryProcessPacket(self):
         x = self._driver.tryRecvPacket()
         if x is None:
             return False
@@ -1373,9 +1373,9 @@ class Transport(object):
         """Check the wire and check timers. Do all possible work but don't
         wait."""
 
-        while self._checkWire(): # TODO(ongaro): rename from "check"
-            self._checkTimers()
-        self._checkTimers()
+        while self._tryProcessPacket():
+            self._fireTimers()
+        self._fireTimers()
 
     def getClientSession(self):
         self._clientSessions.expire()
