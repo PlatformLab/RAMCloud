@@ -154,9 +154,9 @@ class Header(object):
     PT_SESSION_OPEN = 0x20
     PT_RESERVED_1   = 0x30
     PT_BAD_SESSION  = 0x40
-    PT_RETRY_WITH_NEW_RPCID = 0x50
-    PT_RESERVED_2   = 0x60
-    PT_RESERVED_3   = 0x70
+    PT_RESERVED_2   = 0x50
+    PT_RESERVED_3   = 0x60
+    PT_RESERVED_4   = 0x70
 
     @classmethod
     def fromString(cls, string):
@@ -940,7 +940,6 @@ class ClientSession(Session):
         # destroy() transitions to IDLE.
         # beginSending() transitions from IDLE to SENDING.
         # processReceivedData() transitions from SENDING to RECEIVING.
-        # retryWithNewRpcId() transitions from non-IDLE to SENDING.
         state = None
         session = None
         rpcId = None
@@ -1034,14 +1033,6 @@ class ClientSession(Session):
         ack = AckResponse.fromString(payloadCM.payload[Header.LENGTH:])
         channel.outboundMsg.processReceivedAck(ack)
 
-    def _retryWithNewRpcId(self, channel):
-        channel.state = channel.SENDING_STATE
-        channel.rpcId = (channel.rpcId + 1) % (1 << RPCID_WIDTH)
-
-        channel.outboundMsg.clear()
-        channel.inboundMsg.clear()
-        channel.outboundMsg.beginSending(channel.currentRpc.getRequestBuffer())
-
     def _getAvailableChannel(self):
         """Return any available ClientChannel object or None."""
         if not self._isConnected():
@@ -1132,8 +1123,6 @@ class ClientSession(Session):
                 self._token = None
                 self.connect(self._service)
                 return False
-            elif header.payloadType == Header.PT_RETRY_WITH_NEW_RPCID:
-                self._retryWithNewRpcId(channel)
         else:
             if (0 < channel.rpcId - header.rpcId < 1024 and
                 header.payloadType == Header.PT_DATA and header.requestAck):
