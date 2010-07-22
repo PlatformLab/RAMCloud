@@ -770,6 +770,8 @@ class ServerSession(Session):
         else: # PROCESSING or SENDING/WAITING
             header = Header.fromString(payloadCM.payload[:Header.LENGTH])
             if header.requestAck:
+                # TODO: this should but doesn't actually send an ack for the
+                # inbound message while PROCESSING
                 channel.outboundMsg.send()
 
     def _processReceivedAck(self, channel, payloadCM):
@@ -908,13 +910,6 @@ class ServerSession(Session):
                 channel.inboundMsg.clear()
                 channel.outboundMsg.clear()
                 channel.rpcId = None
-
-        for i, rpc in enumerate(self._transport._serverReadyQueue):
-            if rpc._session == self:
-                self._transport._serverReadyQueue[i] = None
-                delete(rpc)
-        self._transport._serverReadyQueue = filter(
-            None, self._transport._serverReadyQueue)
 
         self._token = None
         self._clientSessionHint = None
