@@ -894,14 +894,6 @@ class ServerSession(Session):
         channel.outboundMsg.beginSending(responseBuffer)
         self._lastActivityTime = gettime()
 
-    def rpcIgnored(self, channelId):
-        """The server handler chose to ignore this RPC request and will not
-        produce a response for it."""
-        channel = self._channels[channelId]
-        assert channel.state == channel.PROCESSING_STATE
-        self._discard(channel)
-        self._lastActivityTime = gettime()
-
     def fillHeader(self, header, channelId):
         header.rpcId = self._channels[channelId].rpcId
         header.channelId = channelId
@@ -1452,15 +1444,6 @@ class Transport(object):
                 self._state = self._COMPLETED_STATE
                 self._session.beginSending(self._channelId)
                 # TODO: don't forget to delete(self) eventually
-            else:
-                assert False
-
-        def ignore(self):
-            if self._state == self._ABORTED_STATE:
-                delete(self)
-            elif self._state == self._PROCESSING_STATE:
-                self._state = self._COMPLETED_STATE
-                self._session.rpcIgnored(self._channelId)
             else:
                 assert False
 
