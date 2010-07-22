@@ -73,6 +73,44 @@ class FastTransport : public Transport {
     }
 
   private:
+    struct Header {
+        enum PayloadType {
+            DATA                 = 0,
+            ACK                  = 1,
+            SESSION_OPEN         = 2,
+            RESERVED1            = 3,
+            BAD_SESSION          = 4,
+            RETRY_WITH_NEW_RPCID = 5,
+            RESERVED2            = 6,
+            RESERVED3            = 7
+        };
+        enum Direction {
+            CLIENT_TO_SERVER = 0,
+            SERVER_TO_CLIENT = 1
+        };
+        uint64_t sessionToken;
+        uint32_t rpcId;
+        uint32_t clientSessionHint;
+        uint32_t serverSessionHint;
+        uint16_t fragNumber;
+        uint16_t totalFrags;
+        uint8_t channelId;
+        uint8_t direction:1;
+        uint8_t requestAck:1;
+        uint8_t pleaseDrop:1;
+        uint8_t reserved1:1;
+        uint8_t payloadType:4;
+    } __attribute__((packed));
+
+    struct SessionOpenResponse {
+        uint8_t maxChannelId;
+    } __attribute__((packed));
+
+    struct AckResponse {
+        uint16_t firstMissingFrag;
+        uint32_t stagingVector;
+    } __attribute__((packed));
+
     LIST_HEAD(ServerReadyQueueHead, ServerRPC) serverReadyQueue;
 
     friend class FastTransportTest;
