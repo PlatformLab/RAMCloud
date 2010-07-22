@@ -1181,8 +1181,6 @@ class ClientSession(Session):
 
         This session will try its best to send the RPC.
         """
-        # TODO(ongaro): What if finding a new session isn't going to do it,
-        # because the server has crashed?
         self._lastActivityTime = gettime()
         channel = self._getAvailableChannel()
         if channel is None:
