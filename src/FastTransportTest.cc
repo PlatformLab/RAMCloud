@@ -25,14 +25,17 @@ namespace RAMCloud {
 
 class FastTransportTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(FastTransportTest);
-    CPPUNIT_TEST(test_foo);
+    CPPUNIT_TEST(test_serverRecv);
     CPPUNIT_TEST_SUITE_END();
 
   public:
     FastTransportTest() {}
 
-    void test_foo() {
-        FastTransport x;
+    void test_serverRecv() {
+        FastTransport transport;
+        FastTransport::ServerRPC rpc;
+        LIST_INSERT_HEAD(&transport.serverReadyQueue, &rpc, readyQueueEntries);
+        CPPUNIT_ASSERT_EQUAL(&rpc, transport.serverRecv());
     }
 
   private:
