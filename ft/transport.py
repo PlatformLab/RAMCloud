@@ -711,11 +711,8 @@ class ServerSession(Session):
             allocated in processReceivedData() once the first data fragment of the
             request arrives.
 
-            This could almost be allocated inline as part of the channel, but that
-            has two problems. Firstly, _discard() currently orphans currentRpc
-            if the server handler is currently processing it, which would need
-            some other solution. Secondly, this would increase the size of idle
-            channels to a few KB.
+            This could almost be allocated inline as part of the channel, but
+            that would increase the size of idle channels to a few KB.
         @ivar inboundMsg:
             An InboundMessage to assemble the RPC request.
             None if IDLE or DISCARDED. Otherwise (if RECEIVING, PROCESSING, or
@@ -749,8 +746,6 @@ class ServerSession(Session):
             being actively processed by the server handler.
         @cvar SENDING_WAITING_STATE:
             Still have the last RPC response.
-        @cvar DISCARDED_STATE:
-            Discarded the last RPC's data.
         """
 
         state = None
@@ -763,20 +758,10 @@ class ServerSession(Session):
         RECEIVING_STATE = 1
         PROCESSING_STATE = 2
         SENDING_WAITING_STATE = 3
-        DISCARDED_STATE = 4
 
     def _processReceivedData(self, channel, payloadCM):
         if channel.state == channel.IDLE_STATE:
             pass
-        elif channel.state == channel.DISCARDED_STATE:
-            header = Header()
-            header.direction = Header.SERVER_TO_CLIENT
-            header.clientSessionHint = self._clientSessionHint
-            header.serverSessionHint = self._id
-            header.sessionToken = self._token
-            header.payloadType = PT_RETRY_WITH_NEW_RPCID
-            self._transport._sendOne(self.getAddress(), header,
-                                     Buffer([]))
         elif channel.state == channel.RECEIVING_STATE:
             isComplete = channel.inboundMsg.processReceivedData(payloadCM)
             if isComplete:
@@ -794,35 +779,7 @@ class ServerSession(Session):
         isCompletelyAcked = channel.outboundMsg.processReceivedAck(ack)
         if isCompletelyAcked:
             # Probably uncommon with this client implementation, but who knows?
-            self._discard(channel)
-
-    def _discard(self, channel):
-        """Discard the channel's state except for the current rpcId."""
-        if channel.state == channel.IDLE_STATE:
-            return
-        try:
-            if channel.state == channel.PROCESSING_STATE:
-                # TODO: Use a doubly-linked list with link pointers inside
-                # channel.currentRpc instead of a Python "list" type. That'd
-                # make this O(1).
-                try:
-                    q = self._transport._serverReadyQueue
-                    del q[q.index(channel.currentRpc)]
-                except ValueError:
-                    # channel.currentRpc has already been popped off the queue,
-                    # so there's no stopping the server from processing it now.
-                    # We'll just tell it to abort once the server tries to send
-                    # the reply.
-                    channel.currentRpc.abort() # The RPC will delete() itself now.
-                    channel.currentRpc = None
-                    return
-        finally:
-            channel.state = channel.DISCARDED_STATE
-            if channel.currentRpc is not None:
-                delete(channel.currentRpc)
-                channel.currentRpc = None
-            channel.inboundMsg.clear()
-            channel.outboundMsg.clear()
+            pass
 
     def __init__(self, transport, sessionId):
         self._transport = transport
@@ -864,11 +821,16 @@ class ServerSession(Session):
                 # A well-behaved client wouldn't ever do this, so it's safe
                 # to drop.
                 debug("drop current rpcId with bad type")
-        elif ((channel.rpcId + 1) & ((1 << RPCID_WIDTH) - 1)) == header.rpcId:
+        elif (((channel.rpcId + 1) & ((1 << RPCID_WIDTH) - 1)) == header.rpcId
+              and channel.state in [channel.SENDING_WAITING_STATE,
+                                    channel.IDLE_STATE]):
             if header.payloadType == Header.PT_DATA:
-                self._discard(channel)
                 channel.rpcId = header.rpcId
                 channel.state = channel.RECEIVING_STATE
+                channel.inboundMsg.clear()
+                channel.outboundMsg.clear()
+                if channel.currentRpc is not None:
+                    delete(channel.currentRpc)
                 channel.currentRpc = new(Transport.ServerRPC(self._transport,
                                                              self,
                                                              header.channelId))
@@ -931,10 +893,20 @@ class ServerSession(Session):
     def expire(self):
         if self._token is None:
             return True
+
+        for channel in self._channels:
+            if channel.state == channel.PROCESSING_STATE:
+                # can't free currentRpc if the server is processing it
+                return False
+
         for channel in self._channels:
             if channel.state != channel.IDLE_STATE:
-                self._discard(channel)
                 channel.state = channel.IDLE_STATE
+                if channel.currentRpc is not None:
+                    delete(channel.currentRpc)
+                    channel.currentRpc = None
+                channel.inboundMsg.clear()
+                channel.outboundMsg.clear()
                 channel.rpcId = None
 
         for i, rpc in enumerate(self._transport._serverReadyQueue):
