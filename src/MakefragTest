@@ -6,6 +6,7 @@ TESTS_PYMOCK_OUTFILES := $(patsubst src/%.in.cc, $(OBJDIR)/%.cc, $(TESTS_PYMOCK_
 
 TESTS_SRCFILES := \
 		src/ServerTest.cc \
+		src/FastTransportTest.cc \
 		src/BackupServerTest.cc \
 		src/BackupClientTest.cc \
 		src/BitmapTest.cc \
