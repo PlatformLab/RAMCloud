@@ -9,6 +9,7 @@ TESTS_SRCFILES := \
 		src/BackupServerTest.cc \
 		src/BackupClientTest.cc \
 		src/BitmapTest.cc \
+		src/RingTest.cc \
 		src/BufferTest.cc \
 		src/ServiceTest.cc \
 		src/HashTableTest.cc \
