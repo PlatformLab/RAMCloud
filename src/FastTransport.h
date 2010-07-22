@@ -57,9 +57,6 @@ class FastTransport : public Transport {
         void sendReply() __attribute__((noreturn)) {
             throw UnrecoverableTransportException("Not implemented");
         }
-        void ignore() __attribute__((noreturn)) {
-            throw UnrecoverableTransportException("Not implemented");
-        }
       private:
         LIST_ENTRY(ServerRPC) readyQueueEntries;
         friend class FastTransport;

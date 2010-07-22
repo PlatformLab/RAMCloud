@@ -243,7 +243,6 @@ class TCPTransport : public Transport {
         }
 
         void sendReply();
-        void ignore();
 
       private:
 

@@ -794,7 +794,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         recv_expect = &payload;
         Transport::ServerRPC* rpc = t.serverRecv();
         CPPUNIT_ASSERT(recv_expect == &rpc->recvPayload);
-        rpc->ignore();
+        delete(rpc);
     }
 
     void test_TCPTransport_clientSend() {
