@@ -1,0 +1,93 @@
+/* Copyright (c) 2010 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any purpose
+ * with or without fee is hereby granted, provided that the above copyright
+ * notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR ANY
+ * SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+ * RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF
+ * CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+ * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+/**
+ * \file
+ * Header file for the Driver classes.
+ */
+
+#ifndef RAMCLOUD_DRIVER_H
+#define RAMCLOUD_DRIVER_H
+
+#include <Common.h>
+
+#include <Buffer.h>
+
+#include <sys/types.h>
+#include <sys/socket.h>
+
+namespace RAMCloud {
+
+struct UnrecoverableDriverException: public Exception {
+    UnrecoverableDriverException() : Exception() {}
+    explicit UnrecoverableDriverException(std::string msg)
+        : Exception(msg) {}
+    explicit UnrecoverableDriverException(int errNo) : Exception(errNo) {}
+};
+
+class Driver {
+  public:
+    struct Received {
+        Driver *driver;
+        sockaddr addr;
+        socklen_t addrlen;
+        int len;
+        char *payload;
+        Received() : driver(0), addr(), addrlen(0), len(0), payload(0) {}
+        ~Received() {
+            if (driver)
+                driver->release(this);
+        }
+      private:
+        DISALLOW_COPY_AND_ASSIGN(Received);
+    };
+
+    virtual uint32_t getMaxPayloadSize() = 0;
+    /// Blocks until the NIC has the packet data.
+    virtual void sendPacket(const sockaddr *addr,
+                            socklen_t addrlen,
+                            Buffer::Iterator *payload);
+    /**
+     * Try to receive a packet off the network.
+     * Returns (payload, length, address), or None if there was no packet
+     * available. The caller must call release() with this payload and
+     * length later.
+     */
+    virtual bool tryRecvPacket(Received *received) = 0;
+    virtual void release(Received *received);
+    virtual ~Driver();
+};
+
+class UDPDriver : public Driver {
+  public:
+    const static uint32_t MAX_PAYLOAD_SIZE = 1400;
+    virtual uint32_t getMaxPayloadSize();
+    virtual void sendPacket(const sockaddr *addr,
+                            socklen_t addrlen,
+                            Buffer::Iterator *payload);
+    virtual bool tryRecvPacket(Received *received);
+    virtual void release(Received *received);
+    UDPDriver(const sockaddr *addr, socklen_t addrlen);
+    virtual ~UDPDriver();
+  private:
+    void send(const Buffer* payload);
+    int socketFd;
+    int packetBufsUtilized;
+    DISALLOW_COPY_AND_ASSIGN(UDPDriver);
+};
+
+}  // namespace RAMCloud
+
+#endif
