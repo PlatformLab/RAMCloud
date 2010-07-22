@@ -25,12 +25,12 @@ COMFLAGS := $(BASECFLAGS) -g $(OPTFLAG) -fno-strict-aliasing \
 	        -fno-builtin -MD
 COMWARNS := -Wall -Wformat=2 -Wextra \
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute \
-            -Wswitch-default $(DEBUGFLAGS)
+            $(DEBUGFLAGS)
 CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
 		-Wbad-function-cast
 CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 		-Wcast-qual \
-		-Weffc++ -Wswitch-enum -Wcast-align
+		-Weffc++ -Wcast-align
 # Too many false positives list:
 # -Wunreachable-code
 # Broken due to implicit promotion to int in g++ 4.4.4
