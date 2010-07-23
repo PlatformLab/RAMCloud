@@ -15,6 +15,7 @@ TESTS_SRCFILES := \
 		src/ChecksumTest.cc \
 		src/SegmentTest.cc \
 		src/LogTest.cc \
+		src/LoggingTest.cc \
                 src/MetricsTest.cc \
 		src/TestRunner.cc \
 		src/TestUtil.cc \

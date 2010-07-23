@@ -58,6 +58,8 @@ using std::string;
     TypeName(const TypeName&);             \
     void operator=(const TypeName&)
 
+#include <Logging.h> // NOLINT
+
 /**
  * Allocate a new memory area.
  * This works like malloc(3), except it will crash rather than return \c NULL

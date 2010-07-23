@@ -29,11 +29,12 @@ static int cpu = -1;
 void __attribute__ ((noreturn))
 usage(char *arg0)
 {
-    printf("Usage: %s [-r] [-p port] [-a address] [-c cpu]\n"
+    printf("Usage: %s [-r] [-p port] [-a address] [-c cpu] [-v [level]]\n"
            "\t-r\t--restore\tRestore from backup before serving.\n"
            "\t-p\t--port\t\tChoose which port to listen on.\n"
            "\t-a\t--address\tChoose which address to listen on.\n"
-           "\t-c\t--cpu\t\tRestrict the server to a specific CPU (0 indexed).\n",
+           "\t-c\t--cpu\t\tRestrict the server to a specific CPU (0 indexed).\n"
+           "\t-v\t--verbose\tSet or increase the log level.\n",
            arg0);
     exit(EXIT_FAILURE);
 }
@@ -41,6 +42,7 @@ usage(char *arg0)
 void
 cmdline(int argc, char *argv[], RAMCloud::ServerConfig *config)
 {
+    using namespace RAMCloud;
     int i = 0;
     int c;
     struct option long_options[] = {
@@ -48,10 +50,11 @@ cmdline(int argc, char *argv[], RAMCloud::ServerConfig *config)
         {"port", required_argument, NULL, 'p'},
         {"address", required_argument, NULL, 'a'},
         {"cpu", required_argument, NULL, 'a'},
+        {"verbose", optional_argument, NULL, 'v'},
         {0,0,0,0},
     };
 
-    while((c = getopt_long(argc, argv, "rp:a:c:", long_options, &i)) >= 0) {
+    while((c = getopt_long(argc, argv, "rp:a:c:v::", long_options, &i)) >= 0) {
         switch (c) {
         case 'r':
             config->restore = true;
@@ -68,6 +71,12 @@ cmdline(int argc, char *argv[], RAMCloud::ServerConfig *config)
         case 'c':
             cpu = atoi(optarg);
             break;
+        case 'v':
+            if (optarg == NULL)
+                logger.changeLogLevels(1);
+            else
+                logger.setLogLevels(atoi(optarg));
+            break;
         default:
             usage(argv[0]);
             break;
@@ -79,11 +88,12 @@ int
 main(int argc, char *argv[])
 try
 {
-    RAMCloud::ServerConfig config;
+    using namespace RAMCloud;
+    ServerConfig config;
     cmdline(argc, argv, &config);
 
-    printf("server: Listening on interface %s\n", config.address);
-    printf("server: Listening on port %d\n", config.port);
+    LOG(NOTICE, "server: Listening on interface %s", config.address);
+    LOG(NOTICE, "server: Listening on port %d", config.port);
 
     if (cpu != -1) {
         cpu_set_t cpus;
@@ -92,19 +102,20 @@ try
 
         int r = sched_setaffinity(0, sizeof(cpus), &cpus);
         if (r < 0) {
-            fprintf(stderr, "server: Couldn't pin to core %d: %s\n",
-                    cpu, strerror(errno));
+            LOG(ERROR, "server: Couldn't pin to core %d: %s",
+                cpu, strerror(errno));
             exit(EXIT_FAILURE);
         }
-        printf("server: Pinned to core %d\n", cpu);
+        LOG(DEBUG, "server: Pinned to core %d", cpu);
     }
 
-    RAMCloud::TCPTransport trans(config.address, config.port);
-    RAMCloud::Server server(&config, &trans);
+    TCPTransport trans(config.address, config.port);
+    Server server(&config, &trans);
 
     server.Run();
 
     return 0;
 } catch (RAMCloud::Exception e) {
-    fprintf(stderr, "server: %s\n", e.message.c_str());
+    using namespace RAMCloud;
+    LOG(ERROR, "server: %s", e.message.c_str());
 }
