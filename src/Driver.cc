@@ -121,6 +121,7 @@ UDPDriver::tryRecvPacket(Received *received)
 {
     char *payload = new char[getMaxPayloadSize()];
 
+    received->addrlen = sizeof(received->addr);
     int r = recvfrom(socketFd, payload, getMaxPayloadSize(),
                      MSG_DONTWAIT,
                      &received->addr, &received->addrlen);

@@ -15,7 +15,7 @@
 
 #include <Common.h>
 #include <Buffer.h>
-#include <TCPTransport.h>
+#include <FastTransport.h>
 
 #include <Driver.h>
 
@@ -36,39 +36,30 @@ try
 
     sockaddr_in addr;
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(12121);
+    addr.sin_port = htons(12242);
     const char *ip = "127.0.0.1";
     if (inet_aton(ip, &addr.sin_addr) == 0)
         throw Exception("inet_aton failed");
 
     UDPDriver d(reinterpret_cast<const sockaddr *>(&addr),
                 static_cast<socklen_t>(sizeof(addr)));
+    FastTransport tx(&d);
 
-    sockaddr_in dstaddr;
-    dstaddr.sin_family = AF_INET;
-    dstaddr.sin_port = htons(12122);
-    const char *dstip = "127.0.0.1";
-    if (inet_aton(dstip, &dstaddr.sin_addr) == 0)
-        throw Exception("inet_aton failed");
-
-    Buffer buffer;
-    char *msg = new(&buffer, APPEND) char[100];
-    memset(msg, '\0', 100);
-    strcpy(msg, "God hates ponies\n"); // NOLINT
-    msg = new(&buffer, APPEND) char[100];
-    memset(msg, '\0', 100);
-    strcpy(msg, "I hates ponies also\n"); // NOLINT
-    Buffer::Iterator iter(buffer);
-
-    d.sendPacket(reinterpret_cast<const sockaddr *>(&dstaddr),
-                 sizeof(dstaddr), NULL, 0, &iter);
-
-    {
-        UDPDriver::Received recvd;
-        while (!d.tryRecvPacket(&recvd));
-        printf("Recvd: %s\n", recvd.payload);
+    while (true) {
+        Buffer payload;
+        Transport::ServerRPC* rpc = tx.serverRecv();
+        Buffer::Iterator iter(rpc->recvPayload);
+        while (!iter.isDone()) {
+            Buffer::Chunk::appendToBuffer(&rpc->replyPayload,
+                                          iter.getData(),
+                                          iter.getLength());
+            // TODO(ongaro): This is unsafe if the Transport discards the
+            // received buffer before it is done with the response buffer.
+            // I can't think of any real RPCs where this will come up.
+            iter.next();
+        }
+        rpc->sendReply();
     }
-
     return 0;
 } catch (RAMCloud::Exception e) {
     fprintf(stderr, "FastEcho: %s\n", e.message.c_str());

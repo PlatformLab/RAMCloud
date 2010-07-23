@@ -17,7 +17,7 @@ TOP	:= $(shell echo $${PWD-`pwd`})
 BASECFLAGS :=
 OPTFLAG	 := -O3
 ifeq ($(DEBUG),yes)
-DEBUGFLAGS := -Wmissing-noreturn
+DEBUGFLAGS :=
 else
 DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
 endif
