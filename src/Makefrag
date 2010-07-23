@@ -2,6 +2,7 @@ OBJDIRS += $(OBJDIR)
 
 SHARED_SRCFILES := \
                 src/Common.cc \
+                src/Logging.cc \
                 src/Log.cc \
                 src/Segment.cc \
                 src/BackupClient.cc \

@@ -28,8 +28,6 @@
 
 namespace RAMCloud {
 
-const bool server_debug = false;
-
 void ObjectEvictionCallback(log_entry_type_t type,
                          const void *p,
                          uint64_t len,
@@ -114,9 +112,7 @@ Server::Read(Transport::ServerRPC *rpc)
     rcrpc_read_response *resp;
     resp = new(&rpc->replyPayload, APPEND) rcrpc_read_response;
 
-    if (server_debug)
-        printf("Read from key %lu\n",
-               req->key);
+    LOG(DEBUG, "Read from key %lu", req->key);
 
     // (will be updated below with var-length data)
     resp->buf_len = 0;
@@ -293,10 +289,7 @@ Server::Write(Transport::ServerRPC *rpc)
     rcrpc_write_response *resp;
     resp = new(&rpc->replyPayload, APPEND) rcrpc_write_response;
 
-    if (server_debug) {
-        printf("Write %lu bytes of data to key %lu\n",
-               req->buf_len, req->key);
-    }
+    LOG(DEBUG, "Write %lu bytes of data to key %lu", req->buf_len, req->key);
 
     assert(req->buf_len < (1UL << 32));
     resp->written = StoreData(req->table, req->key, &req->reject_rules,
@@ -402,8 +395,7 @@ Server::CreateTable(Transport::ServerRPC *rpc)
         // TODO(stutsman): Need to do better than this
         throw Exception("Out of tables");
     }
-    if (server_debug)
-        printf("create table -> %d\n", i);
+    LOG(DEBUG, "create table -> %d", i);
 }
 
 void
@@ -425,8 +417,7 @@ Server::OpenTable(Transport::ServerRPC *rpc)
         // TODO(stutsman): Need to do better than this
         throw Exception("No such table");
     }
-    if (server_debug)
-        printf("open table -> %d\n", i);
+    LOG(DEBUG, "open table -> %d", i);
 
     resp->handle = i;
 }
@@ -449,8 +440,7 @@ Server::DropTable(Transport::ServerRPC *rpc)
         // TODO(stutsman): Need to do better than this
         throw Exception("No such table");
     }
-    if (server_debug)
-        printf("drop table -> %d\n", i);
+    LOG(DEBUG, "drop table -> %d", i);
 }
 
 struct obj_replay_cookie {
