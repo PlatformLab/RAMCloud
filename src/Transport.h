@@ -108,7 +108,7 @@ class Transport {
     /**
      * An RPC request that has been received and is awaiting our response.
      * #serverRecv() will return one of these, and the caller of that method
-     * must later call either #sendReply() or #ignore() on it.
+     * must later call #sendReply() on it.
      */
     class ServerRPC {
       protected:
@@ -133,14 +133,6 @@ class Transport {
          *      If the client has crashed.
          */
         virtual void sendReply() = 0;
-
-        /**
-         * Ignore the RPC.
-         * Call this if you don't want to respond to the RPC.
-         *
-         * You should discard all pointers to this #ServerRPC object after this call.
-         */
-        virtual void ignore() = 0;
 
         /**
          * The received RPC payload.
@@ -170,9 +162,8 @@ class Transport {
      * Wait for any RPC request to arrive.
      * \return
      *      The RPC object through which to send a reply. The caller must use
-     *      either #Transport::ServerRPC::sendReply() or
-     *      #Transport::ServerRPC::ignore() to release the resources associated
-     *      with this object.
+     *      either #Transport::ServerRPC::sendReply() to release the resources
+     *      associated with this object.
      */
     virtual ServerRPC* serverRecv() __attribute__((warn_unused_result)) = 0;
 

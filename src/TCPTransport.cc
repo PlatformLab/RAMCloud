@@ -346,12 +346,6 @@ TCPTransport::TCPServerRPC::sendReply()
 }
 
 void
-TCPTransport::TCPServerRPC::ignore()
-{
-    delete this;
-}
-
-void
 TCPTransport::TCPClientRPC::getReply()
 {
     // "delete this;" on our way out of the method
