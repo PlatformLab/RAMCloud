@@ -43,12 +43,21 @@ class Driver {
         Driver *driver;
         sockaddr addr;
         socklen_t addrlen;
-        int len;
+        uint32_t len;
         char *payload;
         Received() : driver(0), addr(), addrlen(0), len(0), payload(0) {}
         ~Received() {
             if (driver)
-                driver->release(this);
+                driver->release(payload, len);
+        }
+        void* getRange(uint32_t offset, uint32_t length) {
+           if (offset + length > len)
+               return NULL;
+           return static_cast<void*>(payload + offset);
+        }
+        template<typename T>
+        T* getOffset(uint32_t offset) {
+           return static_cast<T*>(getRange(offset, sizeof(T)));
         }
       private:
         DISALLOW_COPY_AND_ASSIGN(Received);
@@ -58,7 +67,9 @@ class Driver {
     /// Blocks until the NIC has the packet data.
     virtual void sendPacket(const sockaddr *addr,
                             socklen_t addrlen,
-                            Buffer::Iterator *payload);
+                            void *header,
+                            uint32_t headerLen,
+                            Buffer::Iterator *payload) = 0;
     /**
      * Try to receive a packet off the network.
      * Returns (payload, length, address), or None if there was no packet
@@ -66,19 +77,21 @@ class Driver {
      * length later.
      */
     virtual bool tryRecvPacket(Received *received) = 0;
-    virtual void release(Received *received);
+    virtual void release(char *payload, uint32_t len);
     virtual ~Driver();
 };
 
 class UDPDriver : public Driver {
   public:
-    const static uint32_t MAX_PAYLOAD_SIZE = 1400;
+    static const uint32_t MAX_PAYLOAD_SIZE = 1400;
     virtual uint32_t getMaxPayloadSize();
     virtual void sendPacket(const sockaddr *addr,
                             socklen_t addrlen,
+                            void *header,
+                            uint32_t headerLen,
                             Buffer::Iterator *payload);
     virtual bool tryRecvPacket(Received *received);
-    virtual void release(Received *received);
+    virtual void release(char *payload, uint32_t len);
     UDPDriver(const sockaddr *addr, socklen_t addrlen);
     virtual ~UDPDriver();
   private:

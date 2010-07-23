@@ -499,6 +499,11 @@ class BufferIteratorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_next);
     CPPUNIT_TEST(test_getData);
     CPPUNIT_TEST(test_getLength);
+    CPPUNIT_TEST(test_subRangeIter_normal);
+    CPPUNIT_TEST(test_subRangeIter_isDone);
+    CPPUNIT_TEST(test_subRangeIter_getData);
+    CPPUNIT_TEST(test_subRangeIter_getLength);
+    CPPUNIT_TEST(test_subRangeIter_badRange);
     CPPUNIT_TEST_SUITE_END();
     char x[30];
 
@@ -512,7 +517,10 @@ class BufferIteratorTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!iter.isDone());
         CPPUNIT_ASSERT_EQUAL(&x[0], iter.getData());
         CPPUNIT_ASSERT_EQUAL(10, iter.getLength());
+        CPPUNIT_ASSERT_EQUAL(2, iter.getNumberChunks());
+        CPPUNIT_ASSERT_EQUAL(30, iter.getTotalLength());
         iter.next();
+        CPPUNIT_ASSERT(iter.current != NULL);
         CPPUNIT_ASSERT(!iter.isDone());
         CPPUNIT_ASSERT_EQUAL(&x[10], iter.getData());
         CPPUNIT_ASSERT_EQUAL(20U, iter.getLength());
@@ -563,6 +571,118 @@ class BufferIteratorTest : public CppUnit::TestFixture {
         Buffer::Iterator iter(b);
         CPPUNIT_ASSERT_EQUAL(iter.getLength(), 10);
     }
+
+    void test_subRangeIter_normal() {
+        Buffer b;
+        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
+        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
+
+        Buffer::Iterator iter(b, 2, 13);
+        CPPUNIT_ASSERT(!iter.isDone());
+        CPPUNIT_ASSERT_EQUAL(2, iter.getNumberChunks());
+        CPPUNIT_ASSERT_EQUAL(8 + 5, iter.getTotalLength());
+        CPPUNIT_ASSERT_EQUAL(&x[2], iter.getData());
+        CPPUNIT_ASSERT_EQUAL(8, iter.getLength());
+        iter.next();
+        CPPUNIT_ASSERT(iter.current != NULL);
+        CPPUNIT_ASSERT(!iter.isDone());
+        CPPUNIT_ASSERT_EQUAL(&x[10], iter.getData());
+        CPPUNIT_ASSERT_EQUAL(5, iter.getLength());
+        iter.next();
+        CPPUNIT_ASSERT(iter.isDone());
+    }
+
+    void test_subRangeIter_isDone() {
+        Buffer b;
+        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
+        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
+
+        { // end point on first chunk
+            Buffer::Iterator iter(b, 0, 1);
+            CPPUNIT_ASSERT(!iter.isDone());
+            iter.next();
+            CPPUNIT_ASSERT(iter.isDone());
+            iter.next();
+            CPPUNIT_ASSERT(iter.isDone());
+        }
+
+        { // length exact same as a chunk size
+            Buffer::Iterator iter(b, 0, 10);
+            CPPUNIT_ASSERT(!iter.isDone());
+            iter.next();
+            CPPUNIT_ASSERT(iter.isDone());
+            iter.next();
+            CPPUNIT_ASSERT(iter.isDone());
+        }
+
+        { // done before we start
+            Buffer::Iterator iter(b, 0, 0);
+            CPPUNIT_ASSERT(iter.isDone());
+        }
+    }
+
+    void test_subRangeIter_getData() {
+        Buffer b;
+        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
+        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
+
+        { // start right on chunk boundary
+            Buffer::Iterator iter(b, 10, 15);
+            CPPUNIT_ASSERT(!iter.isDone());
+            CPPUNIT_ASSERT_EQUAL(&x[10], iter.getData());
+        }
+
+        { // start some distance into the second chunk
+            Buffer::Iterator iter(b, 12, 15);
+            CPPUNIT_ASSERT(!iter.isDone());
+            CPPUNIT_ASSERT_EQUAL(&x[12], iter.getData());
+        }
+    }
+
+    void test_subRangeIter_getLength() {
+        Buffer b;
+        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
+        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
+
+        { // startAdj non-zero
+            Buffer::Iterator iter(b, 2, 27);
+            CPPUNIT_ASSERT(!iter.isDone());
+            CPPUNIT_ASSERT_EQUAL(8, iter.getLength());
+        }
+
+        { // endAdj non-zero
+            Buffer::Iterator iter(b, 0, 7);
+            CPPUNIT_ASSERT(!iter.isDone());
+            CPPUNIT_ASSERT_EQUAL(7, iter.getLength());
+        }
+
+        { // startAdj and endAdj non-zero
+            Buffer::Iterator iter(b, 2, 5);
+            CPPUNIT_ASSERT(!iter.isDone());
+            CPPUNIT_ASSERT_EQUAL(5, iter.getLength());
+        }
+    }
+
+    void test_subRangeIter_badRange() {
+        Buffer b;
+        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
+        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
+
+        { // start beyond end of iter
+            Buffer::Iterator iter(b, 10000, 10);
+            CPPUNIT_ASSERT(iter.isDone());
+        }
+
+        { // end beyond end of iter
+            Buffer::Iterator iter(b, 0, 100000);
+            CPPUNIT_ASSERT(!iter.isDone());
+            iter.next();
+            CPPUNIT_ASSERT(!iter.isDone());
+            iter.next();
+            CPPUNIT_ASSERT(iter.isDone());
+        }
+    }
+
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferIteratorTest);
 

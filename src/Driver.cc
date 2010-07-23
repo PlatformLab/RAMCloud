@@ -29,14 +29,14 @@ Driver::~Driver()
 }
 
 void
-Driver::release(Received *received)
+Driver::release(char *payload, uint32_t len)
 {
-    delete[] received->payload;
+    delete[] payload;
 }
 
 
 void
-UDPDriver::release(Received *received)
+UDPDriver::release(char *payload, uint32_t len)
 {
     packetBufsUtilized--;
 }
@@ -75,15 +75,23 @@ UDPDriver::getMaxPayloadSize()
 void
 UDPDriver::sendPacket(const sockaddr *addr,
                       socklen_t addrlen,
+                      void *header,
+                      uint32_t headerLen,
                       Buffer::Iterator *payload)
 {
-    assert(payload->getTotalLength() <= getMaxPayloadSize());
+    uint32_t totalLength = headerLen +
+                           (payload ? payload->getTotalLength() : 0);
+    assert(totalLength <= getMaxPayloadSize());
 
-    uint32_t iovecs = payload->getNumberChunks();
+    // one for header, the rest for payload
+    uint32_t iovecs = 1 + (payload ? payload->getNumberChunks() : 0);
+
     struct iovec iov[iovecs];
+    iov[0].iov_base = header;
+    iov[0].iov_len = headerLen;
 
-    int i = 0;
-    while (!payload->isDone()) {
+    int i = 1;
+    while (payload && !payload->isDone()) {
         iov[i].iov_base = const_cast<void*>(payload->getData());
         iov[i].iov_len = payload->getLength();
         ++i;
@@ -105,7 +113,7 @@ UDPDriver::sendPacket(const sockaddr *addr,
         socketFd = -1;
         throw UnrecoverableDriverException(e);
     }
-    assert(static_cast<size_t>(r) == payload->getTotalLength());
+    assert(static_cast<size_t>(r) == totalLength);
 }
 
 bool
@@ -113,13 +121,14 @@ UDPDriver::tryRecvPacket(Received *received)
 {
     char *payload = new char[getMaxPayloadSize()];
 
-    received->len = recvfrom(socketFd, payload, getMaxPayloadSize(),
-                             MSG_DONTWAIT,
-                             &received->addr, &received->addrlen);
-    if (received->len == -1) {
+    int r = recvfrom(socketFd, payload, getMaxPayloadSize(),
+                     MSG_DONTWAIT,
+                     &received->addr, &received->addrlen);
+    if (r == -1) {
         delete[] payload;
         return false;
     }
+    received->len = r;
 
     packetBufsUtilized++;
     received->payload = payload;

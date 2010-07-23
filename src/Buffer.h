@@ -356,13 +356,13 @@ class Buffer {
      * \warning
      * The Buffer must not be modified during the lifetime of the iterator.
      *
-     * Historical note: This is largely useless now that Buffer is a linked
-     * list. On the other hand, it proved to be a nice abstraction during that
-     * change.
+     * It also provides a constructor for easy iteration across the chunks
+     * corresponding to a subrange of a Buffer.
      */
     class Iterator {
       public:
         explicit Iterator(const Buffer& buffer);
+        Iterator(const Buffer& buffer, uint32_t offset, uint32_t length);
         explicit Iterator(const Iterator& other);
         ~Iterator();
         Iterator& operator=(const Iterator& other);
@@ -370,6 +370,8 @@ class Buffer {
         void next();
         void* getData() const;
         uint32_t getLength() const;
+        uint32_t getTotalLength() const;
+        uint32_t getNumberChunks() const;
 
       private:
         /**
@@ -377,6 +379,29 @@ class Buffer {
          * This starts out as #chunks and ends up at \c NULL.
          */
         Chunk* current;
+        /**
+         * The offset into the buffer of the the first byte of current.
+         */
+        uint32_t currentOffset;
+        /**
+         * The index in bytes into the buffer that the first call
+         * to getData() should return.
+         */
+        uint32_t offset;
+        /**
+         * The number of bytes starting from offset that should be iterated
+         * over before this isDone().
+         */
+        uint32_t length;
+        /**
+         * The length in bytes that the iterator will return.
+         */
+        uint32_t totalLength;
+        /**
+         * An upper bound on the number of chunks the iterator will
+         * iterate over.
+         */
+        uint32_t numberChunks;
 
       friend class BufferIteratorTest;
     };
