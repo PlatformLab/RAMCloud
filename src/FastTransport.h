@@ -27,8 +27,8 @@
 #include <Transport.h>
 #include <Driver.h>
 
-// waiting for LOG() to be merged into master
-#define PROLOG(format, ...) fprintf(stderr, format "\n", ##__VA_ARGS__)
+#undef CURRENT_LOG_MODULE
+#define CURRENT_LOG_MODULE TRANSPORT_MODULE
 
 namespace RAMCloud {
 
@@ -260,7 +260,7 @@ class FastTransport : public Transport {
             lastActivityTime = rdtsc();
             Header* header = received->getOffset<Header>(0);
             if (header->channelId >= NUM_CHANNELS_PER_SESSION) {
-                PROLOG("drop due to invalid channel");
+                LOG(DEBUG, "drop due to invalid channel");
                 return;
             }
 
@@ -274,7 +274,7 @@ class FastTransport : public Transport {
                     processReceivedAck(channel, received);
                     break;
                 default:
-                    PROLOG("drop current rpcId with bad type");
+                    LOG(DEBUG, "drop current rpcId with bad type");
                 }
             } else if (channel->rpcId + 1 == header->rpcId) {
                 switch (header->getPayloadType()) {
@@ -292,10 +292,10 @@ class FastTransport : public Transport {
                     break;
                 }
                 default:
-                    PROLOG("drop new rpcId with bad type");
+                    LOG(DEBUG, "drop new rpcId with bad type");
                 }
             } else {
-                PROLOG("drop old packet");
+                LOG(DEBUG, "drop old packet");
             }
         }
 
@@ -382,11 +382,11 @@ class FastTransport : public Transport {
         if (!driver->tryRecvPacket(&received))
             return false;
 
-        PROLOG("received");
+        LOG(DEBUG, "received");
 
         Header* header = received.getOffset<Header>(0);
         if (header == NULL) {
-            PROLOG("packet too small");
+            LOG(DEBUG, "packet too small");
             return true;
         }
         if (header->pleaseDrop)
@@ -398,7 +398,7 @@ class FastTransport : public Transport {
                 if (session->getToken() == header->sessionToken)
                     session->processInboundPacket(&received);
                 else
-                    PROLOG("bad token");
+                    LOG(DEBUG, "bad token");
             switch (header->getPayloadType()) {
             case Header::SESSION_OPEN: {
                 ServerSession* session = &serverSession;

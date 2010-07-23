@@ -148,7 +148,11 @@ Logger::logMessage(LogModule module, LogLevel level, const char* format, ...)
     // Keep this in sync with the LogLevel enum.
     static const char* logLevelNames[] = {"(none)", "ERROR", "WARNING",
                                           "NOTICE", "DEBUG"};
-    static const char* logModuleNames[] = {"default"};
+    static const char* logModuleNames[] = {"default", "transport"};
+    static_assert(sizeof(logLevelNames) / sizeof(logLevelNames[0]) ==
+                  NUM_LOG_LEVELS);
+    static_assert(sizeof(logModuleNames) / sizeof(logModuleNames[0]) ==
+                  NUM_LOG_MODULES);
     va_list ap;
     struct timeval now;
 

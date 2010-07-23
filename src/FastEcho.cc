@@ -34,6 +34,8 @@ try
 {
     using namespace RAMCloud; // NOLINT
 
+    logger.setLogLevel(TRANSPORT_MODULE, DEBUG);
+
     sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(12242);

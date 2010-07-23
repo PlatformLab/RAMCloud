@@ -40,6 +40,7 @@ enum LogLevel {
 
 enum LogModule {
     DEFAULT_LOG_MODULE = 0,
+    TRANSPORT_MODULE,
     NUM_LOG_MODULES // must be the last element in the enum
 };
 
