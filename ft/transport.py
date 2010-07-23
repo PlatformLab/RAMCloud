@@ -1381,12 +1381,8 @@ class Transport(object):
         return rpc
 
     class ServerRPC(object):
-        _PROCESSING_STATE = 0
-        _COMPLETED_STATE = 1
-        _ABORTED_STATE = 2
-
         def __init__(self, transport, session, channelId):
-            self._state = self._PROCESSING_STATE
+            self._hasCompleted = False
             self._transport = transport
             self._session = session
             self._channelId = channelId
@@ -1394,21 +1390,10 @@ class Transport(object):
             self.replyPayload = Buffer()
 
         def sendReply(self):
-            if self._state == self._ABORTED_STATE:
-                delete(self)
-            elif self._state == self._PROCESSING_STATE:
-                self._state = self._COMPLETED_STATE
-                self._session.beginSending(self._channelId)
-                # TODO: don't forget to delete(self) eventually
-            else:
-                assert False
-
-        def abort(self):
-            """This object takes responsibility for deleting itself."""
-            self._state = self._ABORTED_STATE
-            self._transport = None
-            self._session = None
-            self._channelId = None
+            assert not self._hasCompleted
+            self._hasCompleted = True
+            self._session.beginSending(self._channelId)
+            # TODO: don't forget to delete(self) eventually
 
     def serverRecv(self):
         while True:
