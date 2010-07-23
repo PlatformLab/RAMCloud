@@ -32,7 +32,7 @@ int
 main()
 try
 {
-    using namespace RAMCloud; // NOLINT
+    using namespace RAMCloud;
 
     logger.setLogLevel(TRANSPORT_MODULE, DEBUG);
 
@@ -64,5 +64,6 @@ try
     }
     return 0;
 } catch (RAMCloud::Exception e) {
-    fprintf(stderr, "FastEcho: %s\n", e.message.c_str());
+    using namespace RAMCloud;
+    LOG(ERROR, "FastEcho: %s\n", e.message.c_str());
 }

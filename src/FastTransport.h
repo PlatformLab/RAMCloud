@@ -30,6 +30,10 @@
 #undef CURRENT_LOG_MODULE
 #define CURRENT_LOG_MODULE TRANSPORT_MODULE
 
+#define DOSTR(x) #x
+#define STR(x) DOSTR(x)
+#define AT __FILE__ ":" STR(__LINE__)
+
 namespace RAMCloud {
 
 class FastTransport : public Transport {
@@ -56,7 +60,7 @@ class FastTransport : public Transport {
 
     ClientRPC* clientSend(const Service* service, Buffer* request,
                           Buffer* response) {
-        throw UnrecoverableTransportException("Not implemented");
+        throw UnrecoverableTransportException("TODO: " AT);
     }
 
     class ServerRPC : public Transport::ServerRPC {
@@ -138,10 +142,10 @@ class FastTransport : public Transport {
         void clear() {}
         void init(uint16_t totalFrags, Buffer* dataBuffer) {}
         bool processReceivedData(Driver::Received* received) {
-            throw new UnrecoverableTransportException("not implemented");
+            throw UnrecoverableTransportException("TODO: " AT);
         }
         void sendAck() {
-            throw new UnrecoverableTransportException("not implemented");
+            throw UnrecoverableTransportException("TODO: " AT);
         }
     };
 
@@ -149,13 +153,13 @@ class FastTransport : public Transport {
       public:
         void clear() {}
         void beginSending(Buffer* dataBuffer) {
-            throw new UnrecoverableTransportException("not implemented");
+            throw UnrecoverableTransportException("TODO: " AT);
         }
         void send() {
-            throw new UnrecoverableTransportException("not implemented");
+            throw UnrecoverableTransportException("TODO: " AT);
         }
         void processReceivedAck(Driver::Received* received) {
-            throw new UnrecoverableTransportException("not implemented");
+            throw UnrecoverableTransportException("TODO: " AT);
         }
     };
 
@@ -423,7 +427,7 @@ class FastTransport : public Transport {
             }
             }
         } else {
-            throw UnrecoverableTransportException("Not implemented");
+            throw UnrecoverableTransportException("TODO: " AT);
         }
         return true;
     }
