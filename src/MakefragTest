@@ -41,7 +41,7 @@ $(OBJDIR)/test: $(TESTS_OBJFILES)
 
 # TODO(ongaro) The unit tests don't actually call HashTableBenchmark, Echo, or
 # Telnet. I just wanted to make sure it continues to build over time.
-test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet
+test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet $(OBJDIR)/FastEcho
 	$(OBJDIR)/test
 
 $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
@@ -49,6 +49,10 @@ $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) 
 	$(CXX) -o $@ $^
 
 $(OBJDIR)/Echo: $(OBJDIR)/Echo.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^
+
+$(OBJDIR)/FastEcho: $(OBJDIR)/FastEcho.o $(OBJDIR)/Driver.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^
 
