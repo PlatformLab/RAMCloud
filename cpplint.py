@@ -147,6 +147,7 @@ Syntax: cpplint.py [--verbose=#] [--output=vs7] [--filter=-x,+y,...]
 # \ used for clearer layout -- pylint: disable-msg=C6013
 _ERROR_CATEGORIES = '''\
   ramcloud/undeclared_test
+  ramcloud/throw_new
   build/class
   build/deprecated
   build/endif_comment
@@ -1084,6 +1085,13 @@ def CheckForUndeclaredTestMethods(filename, lines, error):
             error(filename, i, 'ramcloud/undeclared_test', 5,
                   'You should register this test method with ' +
                   'CPPUNIT_TEST(%s);' % extra)
+
+def CheckForThrowNew(filename, lines, error):
+    for i, line in enumerate(lines):
+        if Search(r'\bthrow new\b', line) and not Search(r'\bNOLINT\b', line):
+            error(filename, i, 'ramcloud/throw_new', 5,
+                  'You should not throw heap-allocated objects.')
+
 
 def CheckForMultilineCommentsAndStrings(filename, clean_lines, linenum, error):
   """Logs an error if we see /* ... */ or "..." that extend past one line.
@@ -2905,6 +2913,7 @@ def ProcessFileData(filename, file_extension, lines, error):
   CheckForNewlineAtEOF(filename, lines, error)
 
   CheckForUndeclaredTestMethods(filename, lines, error)
+  CheckForThrowNew(filename, lines, error)
 
 
 def ProcessFile(filename, vlevel):
