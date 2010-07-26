@@ -81,6 +81,10 @@ class Ring {
             start -= length;
     }
 
+    uint32_t getLength() {
+        return length;
+    }
+
   private:
     /**
      * See #array.

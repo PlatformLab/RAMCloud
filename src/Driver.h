@@ -59,6 +59,13 @@ class Driver {
         T* getOffset(uint32_t offset) {
            return static_cast<T*>(getRange(offset, sizeof(T)));
         }
+        char *steal(uint32_t *len) {
+            char *p = payload;
+            payload = NULL;
+            *len = this->len;
+            this->len = 0;
+            return p;
+        }
       private:
         DISALLOW_COPY_AND_ASSIGN(Received);
     };

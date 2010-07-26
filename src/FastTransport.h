@@ -26,6 +26,7 @@
 #include <Common.h>
 #include <Transport.h>
 #include <Driver.h>
+#include <Ring.h>
 
 #undef CURRENT_LOG_MODULE
 #define CURRENT_LOG_MODULE TRANSPORT_MODULE
@@ -37,6 +38,7 @@
 namespace RAMCloud {
 
 class FastTransport : public Transport {
+    class Session;
     class ServerSession;
   public:
     class ServerRPC;
@@ -92,6 +94,55 @@ class FastTransport : public Transport {
   private:
     enum { NUM_CHANNELS_PER_SESSION = 1 };
     enum { PACKET_LOSS_PERCENTAGE = 0 };
+    enum { MAX_STAGING_FRAGMENTS = 32 };
+
+    struct PayloadChunk : public Buffer::Chunk {
+        static PayloadChunk* prependToBuffer(Buffer* buffer,
+                                             char* data,
+                                             uint32_t dataLength,
+                                             Driver* driver,
+                                             char* payload,
+                                             uint32_t payloadLength) {
+            PayloadChunk* chunk =
+                new(buffer, CHUNK) PayloadChunk(data,
+                                                dataLength,
+                                                driver,
+                                                payload,
+                                                payloadLength);
+            Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
+            return chunk;
+        }
+        static PayloadChunk* appendToBuffer(Buffer* buffer,
+                                            char* data,
+                                            uint32_t dataLength,
+                                            Driver* driver,
+                                            char* payload,
+                                            uint32_t payloadLength) {
+            PayloadChunk* chunk =
+                new(buffer, CHUNK) PayloadChunk(data,
+                                                dataLength,
+                                                driver,
+                                                payload,
+                                                payloadLength);
+            Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
+            return chunk;
+        }
+        ~PayloadChunk() {
+            driver->release(payload, payloadLength);
+        }
+      private:
+        PayloadChunk(void* data, uint32_t dataLength,
+                     Driver* driver,
+                     char* const payload, uint32_t payloadLength)
+            : Buffer::Chunk(data, dataLength),
+              driver(driver), payload(payload), payloadLength(payloadLength)
+        {
+        }
+        Driver* const driver;
+        char* const payload;
+        const uint32_t payloadLength;
+        DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
+    };
 
     struct Header {
         enum PayloadType {
@@ -133,24 +184,189 @@ class FastTransport : public Transport {
     } __attribute__((packed));
 
     struct AckResponse {
+        AckResponse(uint16_t firstMissingFrag,
+                    uint32_t stagingVector = 0)
+            : firstMissingFrag(firstMissingFrag),
+              stagingVector(stagingVector) {}
         uint16_t firstMissingFrag;
         uint32_t stagingVector;
     } __attribute__((packed));
 
     class InboundMessage {
       public:
-        void clear() {}
-        void init(uint16_t totalFrags, Buffer* dataBuffer) {}
-        bool processReceivedData(Driver::Received* received) {
-            throw UnrecoverableTransportException("TODO: " AT);
+        InboundMessage(FastTransport* transport,
+                       Session* session,
+                       uint32_t channelId,
+                       bool useTimer)
+            : transport(transport),
+              session(session),
+              channelId(channelId),
+              totalFrags(0),
+              firstMissingFrag(0),
+              dataStagingRing(),
+              dataBuffer(NULL)
+              // TODO(stutsman) timer
+        {
+        }
+        ~InboundMessage()
+        {
+            clear();
+        }
+        void init(Session* session, uint32_t channelId, bool useTimer) {
+            this->session = session;
+            this->transport = session->transport;
+            this->channelId = channelId;
+            // TODO(stutsman) useTimer
         }
         void sendAck() {
-            throw UnrecoverableTransportException("TODO: " AT);
+            Header header;
+            session->fillHeader(&header, channelId);
+            header.payloadType = Header::ACK;
+            Buffer payloadBuffer;
+            AckResponse *ackResponse =
+                new(&payloadBuffer, APPEND) AckResponse(firstMissingFrag);
+            for (uint32_t i = 0; i < dataStagingRing.getLength(); i++) {
+                std::pair<char*, uint32_t> elt = dataStagingRing[i];
+                if (elt.first)
+                    ackResponse->stagingVector |= (1 << i);
+            }
+            socklen_t addrlen;
+            const sockaddr* addr = session->getAddress(&addrlen);
+            Buffer::Iterator iter(payloadBuffer);
+            transport->sendPacket(addr,
+                                  addrlen,
+                                  &header,
+                                  &iter);
         }
+        void clear() {
+            totalFrags = 0;
+            firstMissingFrag = 0;
+            dataBuffer = NULL;
+            for (uint32_t i = 0; i < dataStagingRing.getLength(); i++) {
+                std::pair<char*, uint32_t> elt = dataStagingRing[i];
+                if (elt.first)
+                    transport->driver->release(elt.first, elt.second);
+            }
+            dataStagingRing.clear();
+            // TODO(stutsman)
+            // timer.numTimeouts = 0;
+            // if timer.useTimer
+            //     transport->removeTimer(timer);
+        }
+        void init(uint16_t totalFrags, Buffer* dataBuffer) {
+            clear();
+            this->totalFrags = totalFrags;
+            this->dataBuffer = dataBuffer;
+            firstMissingFrag = 0;
+            // TODO(stutsman)
+            // if timer.useTimer
+            //     transport->addTimer(timer, gettime() + TIMEOUT_NS);
+        }
+        /**
+         * \return
+         *      Whether the full message has been received and added
+         *      to the dataBuffer.
+         */
+        bool processReceivedData(Driver::Received* received) {
+            assert(received->len >= sizeof(Header));
+            Header *header = reinterpret_cast<Header*>(received->payload);
+
+            if (header->totalFrags != totalFrags) {
+                // What's wrong with the other end?
+                LOG(DEBUG, "%s:%d: header->totalFrags != totalFrags",
+                    __func__, __LINE__);
+                return firstMissingFrag == totalFrags;
+            }
+
+            if (header->fragNumber == firstMissingFrag) {
+                uint32_t length;
+                char *payload = received->steal(&length);
+                PayloadChunk::appendToBuffer(dataBuffer,
+                                             payload + sizeof(Header),
+                                             length - sizeof(Header),
+                                             transport->driver,
+                                             payload,
+                                             length);
+                firstMissingFrag++;
+                while (true) {
+                    std::pair<char*, uint32_t> pair = dataStagingRing[0];
+                    char* payload = pair.first;
+                    uint32_t length = pair.second;
+                    dataStagingRing.advance(1);
+                    if (!payload)
+                        break;
+                    PayloadChunk::appendToBuffer(dataBuffer,
+                                                 payload + sizeof(Header),
+                                                 length - sizeof(Header),
+                                                 transport->driver,
+                                                 payload,
+                                                 length);
+                    firstMissingFrag++;
+                }
+            } else if (header->fragNumber > firstMissingFrag) {
+                if ((header->fragNumber - firstMissingFrag) >
+                    MAX_STAGING_FRAGMENTS) {
+                    LOG(DEBUG, "fragNumber too big");
+                } else {
+                    uint32_t i = header->fragNumber - firstMissingFrag - 1;
+                    if (!dataStagingRing[i].first) {
+                        uint32_t length;
+                        char* payload = received->steal(&length);
+                        dataStagingRing[i] =
+                            std::pair<char*, uint32_t>(payload, length);
+                    } else {
+                        LOG(DEBUG, "duplicate fragment %d received",
+                            header->fragNumber);
+                    }
+                }
+            } else { // header->fragNumber < firstMissingFrag
+                // stale, no-op
+            }
+
+            // TODO(ongaro): Have caller call this->sendAck() instead.
+            if (header->requestAck)
+                sendAck();
+            // TODO(stutsman)
+            // if (timer->useTimer) {
+            //     transport->addTimer(timer, gettime() + TIMEOUT_NS)
+            // }
+
+            return firstMissingFrag == totalFrags;
+        }
+      private:
+        FastTransport* transport;
+        Session* session;
+        uint32_t channelId;
+        uint32_t totalFrags;
+        uint32_t firstMissingFrag;
+        Ring<std::pair<char*, uint32_t>,
+             MAX_STAGING_FRAGMENTS> dataStagingRing;
+        Buffer* dataBuffer;
+        DISALLOW_COPY_AND_ASSIGN(InboundMessage);
     };
 
     class OutboundMessage {
       public:
+        OutboundMessage(FastTransport* transport,
+                         Session* session,
+                         uint32_t channelId,
+                         bool useTimer)
+            : transport(transport),
+              session(session),
+              channelId(channelId),
+              totalFrags(0),
+              firstMissingFrag(0),
+              dataStagingRing(),
+              dataBuffer(NULL)
+              // TODO(stutsman) timer
+        {
+        }
+        void init(Session* session, uint32_t channelId, bool useTimer) {
+            this->session = session;
+            this->transport = session->transport;
+            this->channelId = channelId;
+            // TODO(stutsman) useTimer
+        }
         void clear() {}
         void beginSending(Buffer* dataBuffer) {
             throw UnrecoverableTransportException("TODO: " AT);
@@ -161,17 +377,48 @@ class FastTransport : public Transport {
         void processReceivedAck(Driver::Received* received) {
             throw UnrecoverableTransportException("TODO: " AT);
         }
+      private:
+        FastTransport* transport;
+        Session* session;
+        uint32_t channelId;
+        uint32_t totalFrags;
+        uint32_t firstMissingFrag;
+        Ring<std::pair<char*, uint32_t>,
+             MAX_STAGING_FRAGMENTS> dataStagingRing;
+        Buffer* dataBuffer;
+        DISALLOW_COPY_AND_ASSIGN(OutboundMessage);
     };
 
-    class ServerSession {
+    class Session {
+      public:
+        virtual void fillHeader(Header* header, uint8_t channelId) = 0;
+        virtual const sockaddr* getAddress(socklen_t *len) = 0;
+        virtual uint64_t getLastActivityTime() = 0;
+        virtual bool expire() = 0;
+        virtual ~Session() {}
+        explicit Session(FastTransport* transport)
+            : transport(transport) {}
+        FastTransport* const transport;
+      private:
+        DISALLOW_COPY_AND_ASSIGN(Session);
+    };
+
+    class ServerSession : public Session {
         struct ServerChannel {
           public:
+            /// This creates broken in/out messages that are reinitialized
+            /// by init()
             ServerChannel()
                 : state(IDLE),
                   rpcId(~0U),
                   currentRpc(NULL),
-                  inboundMsg(),
-                  outboundMsg() {
+                  inboundMsg(NULL, NULL, 0, false),
+                  outboundMsg(NULL, NULL, 0, false)
+            {
+            }
+            void init(Session* session, uint32_t channelId) {
+                inboundMsg.init(session, channelId, false);
+                outboundMsg.init(session, channelId, false);
             }
             enum {
                 IDLE,
@@ -189,7 +436,6 @@ class FastTransport : public Transport {
 
         ServerChannel channels[NUM_CHANNELS_PER_SESSION];
 
-        FastTransport* const transport;
         uint64_t token;
         const uint32_t id;
         uint32_t clientSessionHint;
@@ -199,7 +445,7 @@ class FastTransport : public Transport {
 
       public:
         ServerSession(FastTransport* transport, uint32_t sessionId)
-            : transport(transport),
+            : Session(transport),
               token(0xcccccccccccccccc),
               id(sessionId),
               clientSessionHint(0xcccccccc),
@@ -207,6 +453,8 @@ class FastTransport : public Transport {
               clientAddress(),
               clientAddressLen(0) {
             memset(&clientAddress, 0xcc, sizeof(clientAddress));
+            for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++)
+                channels[i].init(this, i);
         }
 
         uint64_t getToken() {
@@ -377,8 +625,7 @@ class FastTransport : public Transport {
                 channel->outboundMsg.processReceivedAck(received);
         }
 
-
-
+        DISALLOW_COPY_AND_ASSIGN(ServerSession);
     };
 
     bool tryProcessPacket() {
@@ -399,12 +646,16 @@ class FastTransport : public Transport {
         if (header->getDirection() == Header::CLIENT_TO_SERVER) {
             if (header->serverSessionHint < 1) {
                 ServerSession* session = &serverSession;
-                if (session->getToken() == header->sessionToken)
+                if (session->getToken() == header->sessionToken) {
                     session->processInboundPacket(&received);
-                else
+                    return true;
+                } else {
                     LOG(DEBUG, "bad token");
+                }
+            }
             switch (header->getPayloadType()) {
             case Header::SESSION_OPEN: {
+                LOG(DEBUG, "session open");
                 ServerSession* session = &serverSession;
                 session->startSession(&received.addr,
                                       received.addrlen,
@@ -412,6 +663,7 @@ class FastTransport : public Transport {
                 break;
             }
             default: {
+                LOG(DEBUG, "bad session");
                 Header replyHeader;
                 replyHeader.sessionToken = header->sessionToken;
                 replyHeader.rpcId = header->rpcId;
@@ -425,7 +677,6 @@ class FastTransport : public Transport {
                 break;
             }
             }
-            }
         } else {
             throw UnrecoverableTransportException("TODO: " AT);
         }
@@ -435,7 +686,7 @@ class FastTransport : public Transport {
     void fireTimers() {
     }
 
-    void sendPacket(sockaddr* address, socklen_t addressLength,
+    void sendPacket(const sockaddr* address, socklen_t addressLength,
                     Header* header, Buffer::Iterator* payload) {
         header->pleaseDrop = (random() < ~0U * PACKET_LOSS_PERCENTAGE / 100);
         driver->sendPacket(address, addressLength,
