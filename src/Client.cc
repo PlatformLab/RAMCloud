@@ -176,8 +176,7 @@ sendrcv_rpc(rc_client *client,
 
     reqHeader = new(req, PREPEND) rcrpc_header;
     reqHeader->type = (uint32_t) req_type;
-    if (min_req_size != 1) // In C++, structs with no members have sizeof 0.
-        assert(req->getTotalLength() >= (uint32_t) min_req_size);
+    assert(req->getTotalLength() >= (uint32_t) min_req_size);
     reqHeader->perf_counter.value = client->perf_counter_select.value;
 
     client->trans->clientSend(client->serv, req, resp)->getReply();
@@ -198,8 +197,7 @@ sendrcv_rpc(rc_client *client,
     if (respHeader->type != static_cast<uint32_t>(resp_type))
         return -1;
 
-    // In C++, structs with no members have sizeof 0.
-    if (min_resp_size > 1 && (resp->getTotalLength() < min_resp_size))
+    if (resp->getTotalLength() < min_resp_size)
         return -1;
 
     return 0;
@@ -227,14 +225,14 @@ sendrcv_rpc(rc_client *client,
  */
 #define SENDRCV_RPC(rcrpc_upper, rcrpc_lower, query, resp)                     \
     ({                                                                         \
-        sendrcv_rpc(                                                  \
+        sendrcv_rpc(                                                           \
                 client,                                                        \
                 query,                                                         \
                 RCRPC_##rcrpc_upper##_REQUEST,                                 \
-                sizeof(rcrpc_##rcrpc_lower##_request),                         \
+                sizeof0(rcrpc_##rcrpc_lower##_request),                        \
                 resp,                                                          \
                 RCRPC_##rcrpc_upper##_RESPONSE,                                \
-                sizeof(rcrpc_##rcrpc_lower##_response));                       \
+                sizeof0(rcrpc_##rcrpc_lower##_response));                      \
     })
 
 /**
