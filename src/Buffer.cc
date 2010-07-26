@@ -654,6 +654,8 @@ Buffer::Iterator::~Iterator() {
  */
 Buffer::Iterator&
 Buffer::Iterator::operator=(const Iterator& other) {
+    if (&other == this)
+        return *this;
     current = other.current;
     currentOffset = other.currentOffset;
     offset = other.offset;
