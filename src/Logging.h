@@ -55,8 +55,10 @@ class Logger {
     void setLogLevels(int level);
     void changeLogLevels(int delta);
 
-    void logMessage(LogModule module, LogLevel level, const char* format, ...)
-        __attribute__((format(printf, 4, 5)));
+    void logMessage(LogModule module, LogLevel level,
+                    const char* file, uint32_t line,
+                    const char* format, ...)
+        __attribute__((format(printf, 6, 7)));
 
     /**
      * Return whether the current logging configuration includes messages of
@@ -107,6 +109,7 @@ extern Logger logger;
 #define LOG(level, format, ...) do { \
     if (RAMCloud::logger.isLogging(CURRENT_LOG_MODULE, level)) \
         RAMCloud::logger.logMessage(CURRENT_LOG_MODULE, level, \
+                                    __FILE__, __LINE__, \
                                     format "\n", ##__VA_ARGS__); \
 } while (0)
 

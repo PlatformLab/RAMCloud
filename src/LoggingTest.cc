@@ -140,6 +140,7 @@ class LoggerTest : public CppUnit::TestFixture {
 
         LOG(ERROR, "rofl: %d", 3);
         const char* pattern = "^[[:digit:]]\\{10\\}\\.[[:digit:]]\\{6\\} "
+                              "src/LoggingTest.cc:[[:digit:]]\\{1,4\\} "
                               "default ERROR: rofl: 3\n$";
         regex_t pregStorage;
         assert(regcomp(&pregStorage, pattern, 0) == 0);
