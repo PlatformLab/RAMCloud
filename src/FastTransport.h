@@ -45,7 +45,7 @@ class FastTransport : public Transport {
 
     explicit FastTransport(Driver* driver)
         : driver(driver), serverSession(this, 0), serverReadyQueue() {
-        LIST_INIT(&serverReadyQueue);
+        TAILQ_INIT(&serverReadyQueue);
     }
 
     void poll() {
@@ -77,7 +77,7 @@ class FastTransport : public Transport {
       private:
         ServerSession* const session;
         const uint8_t channelId;
-        LIST_ENTRY(ServerRPC) readyQueueEntries;
+        TAILQ_ENTRY(ServerRPC) readyQueueEntries;
         friend class FastTransport;
         friend class FastTransportTest;
         DISALLOW_COPY_AND_ASSIGN(ServerRPC);
@@ -85,9 +85,9 @@ class FastTransport : public Transport {
 
     ServerRPC* serverRecv() {
         ServerRPC* rpc;
-        while ((rpc = LIST_FIRST(&serverReadyQueue)) == NULL)
+        while ((rpc = TAILQ_FIRST(&serverReadyQueue)) == NULL)
             poll();
-        LIST_REMOVE(rpc, readyQueueEntries);
+        TAILQ_REMOVE(&serverReadyQueue, rpc, readyQueueEntries);
         return rpc;
     }
 
@@ -603,9 +603,9 @@ class FastTransport : public Transport {
                 break;
             case ServerChannel::RECEIVING:
                 if (channel->inboundMsg.processReceivedData(received)) {
-                    LIST_INSERT_HEAD(&transport->serverReadyQueue,
-                                     channel->currentRpc,
-                                     readyQueueEntries);
+                    TAILQ_INSERT_TAIL(&transport->serverReadyQueue,
+                                      channel->currentRpc,
+                                      readyQueueEntries);
                     channel->state = ServerChannel::PROCESSING;
                 }
                 break;
@@ -696,7 +696,7 @@ class FastTransport : public Transport {
 
     Driver* const driver;
     ServerSession serverSession;
-    LIST_HEAD(ServerReadyQueueHead, ServerRPC) serverReadyQueue;
+    TAILQ_HEAD(ServerReadyQueueHead, ServerRPC) serverReadyQueue;
 
     friend class FastTransportTest;
     DISALLOW_COPY_AND_ASSIGN(FastTransport);
