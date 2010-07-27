@@ -95,6 +95,9 @@ class FastTransport : public Transport {
     enum { NUM_CHANNELS_PER_SESSION = 1 };
     enum { PACKET_LOSS_PERCENTAGE = 0 };
     enum { MAX_STAGING_FRAGMENTS = 32 };
+    enum { WINDOW_SIZE = 10 };
+    enum { REQ_ACK_AFTER = 5 };
+    enum { TIMEOUT_NS = 10 * 1000 * 1000 }; // 10 ms
 
     struct PayloadChunk : public Buffer::Chunk {
         static PayloadChunk* prependToBuffer(Buffer* buffer,
@@ -346,6 +349,8 @@ class FastTransport : public Transport {
     };
 
     class OutboundMessage {
+        static const uint64_t TO_SEND = ~(0lu);
+        static const uint64_t ACKED = ~(0lu) - 1;
       public:
         OutboundMessage(FastTransport* transport,
                          Session* session,
@@ -354,10 +359,12 @@ class FastTransport : public Transport {
             : transport(transport),
               session(session),
               channelId(channelId),
-              totalFrags(0),
+              sendBuffer(NULL),
               firstMissingFrag(0),
-              dataStagingRing(),
-              dataBuffer(NULL)
+              totalFrags(0),
+              packetsSinceAckReq(0),
+              sentTimes(),
+              numAcked(0)
               // TODO(stutsman) timer
         {
         }
@@ -367,25 +374,171 @@ class FastTransport : public Transport {
             this->channelId = channelId;
             // TODO(stutsman) useTimer
         }
-        void clear() {}
+        void clear() {
+            sendBuffer = NULL;
+            firstMissingFrag = 0;
+            totalFrags = 0;
+            packetsSinceAckReq = 0;
+            sentTimes.clear();
+            numAcked = 0;
+            // TODO(stutsman)
+            // transport->removeTimer(timer);
+            // timer->numTimeouts = 0;
+        }
         void beginSending(Buffer* dataBuffer) {
-            throw UnrecoverableTransportException("TODO: " AT);
+            assert(!sendBuffer);
+            sendBuffer = dataBuffer;
+            totalFrags = transport->numFrags(sendBuffer);
+            send();
         }
         void send() {
-            throw UnrecoverableTransportException("TODO: " AT);
+            if (!sendBuffer)
+                return;
+
+            uint64_t now = rdtsc();
+
+            // number of fragments to be sent
+            uint32_t sendCount = 0;
+
+            // whether any of the fragments are being sent because they are
+            // expired
+            bool forceAck = false;
+
+            // the fragment number of the last fragment to be sent
+            uint32_t lastToSend = ~0;
+
+            // can't send beyond the last fragment
+            uint32_t stop = totalFrags;
+            // can't send beyond the window
+            stop = std::min(stop, numAcked + WINDOW_SIZE);
+            // can't send beyond what the receiver is willing to accept
+            stop = std::min(stop, firstMissingFrag + MAX_STAGING_FRAGMENTS + 1);
+
+            // Figure out which frags to send;
+            // flag them with sentTime of TO_SEND
+            for (uint32_t fragNumber = firstMissingFrag;
+                 fragNumber < stop;
+                 fragNumber++) {
+                uint32_t i = fragNumber - firstMissingFrag;
+                uint64_t sentTime = sentTimes[i];
+                if (sentTime == 0) {
+                    sentTimes[i] = TO_SEND;
+                    sendCount++;
+                    lastToSend = fragNumber;
+                } else if (sentTime != ACKED && sentTime + TIMEOUT_NS < now) {
+                    forceAck = true;
+                    sentTimes[i] = TO_SEND;
+                    sendCount++;
+                    lastToSend = fragNumber;
+                }
+            }
+
+            forceAck =
+                forceAck &&
+                    (packetsSinceAckReq + sendCount < REQ_ACK_AFTER - 1 ||
+                     lastToSend == totalFrags);
+
+            // Send the fragments
+            for (uint32_t i = 0; i < sentTimes.getLength(); i++) {
+                uint64_t sentTime = sentTimes[i];
+                if (sentTime == TO_SEND) {
+                    uint32_t fragNumber = firstMissingFrag + i;
+                    sendOneData(fragNumber,
+                                (forceAck && lastToSend == fragNumber));
+                }
+            }
+
+            // Update sentTimes
+            now = rdtsc();
+            for (uint32_t i = 0; i < sentTimes.getLength(); i++) {
+                uint64_t sentTime = sentTimes[i];
+                if (sentTime == TO_SEND)
+                    sentTimes[i] = now;
+            }
+
+            // TODO(stutsman)
+            // if (timer->useTimer) {
+            //      uint32_t oldset = sentTimes.getLength();
+            //      for (uint32_t i = 0; i < sentTimes.getLength(); i++) {
+            //          uint32_t sentTime = sentTimes[i];
+            //          if (sentTime != ACKED || sentTime < oldest)
+            //              oldest = sentTime;
+            //      }
+            //      if (oldest != sentTimes.getLength())
+            //          transport->addTimer(timer, oldtest + TIMEOUT_NS);
+            // }
+
         }
-        void processReceivedAck(Driver::Received* received) {
-            throw UnrecoverableTransportException("TODO: " AT);
+        bool processReceivedAck(Driver::Received* received) {
+            if (!sendBuffer)
+                return false;
+
+            assert(received->len >= sizeof(Header) + sizeof(AckResponse));
+            AckResponse *ack =
+                received->getOffset<AckResponse>(sizeof(Header));
+
+            if (ack->firstMissingFrag < firstMissingFrag) {
+                LOG(DEBUG, "OutboundMessage dropped stable ACK");
+            } else if (ack->firstMissingFrag > totalFrags) {
+                LOG(DEBUG, "OutboundMessage dropped invalid ACK"
+                           "(shouldn't happen)");
+            } else if (ack->firstMissingFrag >
+                     (firstMissingFrag + sentTimes.getLength())) {
+                LOG(DEBUG, "OutboundMessage dropped ACK that advanced too far "
+                           "(shouldn't happen)");
+            } else {
+                sentTimes.advance(ack->firstMissingFrag - firstMissingFrag);
+                firstMissingFrag = ack->firstMissingFrag;
+                numAcked = ack->firstMissingFrag;
+                // TODO(stutsman): Does this even work?  Is the width 33 bits?
+                for (uint32_t i = 0; i < sentTimes.getLength() - 1; i++) {
+                    bool acked = (ack->stagingVector >> i) & 1;
+                    if (acked) {
+                        sentTimes[i + 1] = ACKED;
+                        numAcked++;
+                    }
+                }
+            }
+            send();
+            return firstMissingFrag == totalFrags;
         }
       private:
+        void sendOneData(uint32_t fragNumber, bool forceRequestAck = false) {
+            bool requestAck =
+                forceRequestAck ||
+                (packetsSinceAckReq == REQ_ACK_AFTER - 1 &&
+                 fragNumber != totalFrags - 1);
+
+            Header header;
+            session->fillHeader(&header, channelId);
+            header.fragNumber = fragNumber;
+            header.totalFrags = totalFrags;
+            header.requestAck = requestAck;
+            header.payloadType = Header::DATA;
+            uint32_t dataPerFragment = transport->dataPerFragment();
+            Buffer::Iterator iter(*sendBuffer,
+                                  fragNumber * dataPerFragment,
+                                  dataPerFragment);
+
+            socklen_t addrlen;
+            const sockaddr* addr = session->getAddress(&addrlen);
+            transport->sendPacket(addr, addrlen, &header, &iter);
+
+            if (requestAck)
+                packetsSinceAckReq = 0;
+            else
+                packetsSinceAckReq++;
+        }
         FastTransport* transport;
         Session* session;
         uint32_t channelId;
-        uint32_t totalFrags;
+        Buffer* sendBuffer;
         uint32_t firstMissingFrag;
-        Ring<std::pair<char*, uint32_t>,
-             MAX_STAGING_FRAGMENTS> dataStagingRing;
-        Buffer* dataBuffer;
+        uint32_t totalFrags;
+        uint32_t packetsSinceAckReq;
+        Ring<uint64_t, MAX_STAGING_FRAGMENTS + 1> sentTimes;
+        uint32_t numAcked;
+
         DISALLOW_COPY_AND_ASSIGN(OutboundMessage);
     };
 
@@ -633,8 +786,6 @@ class FastTransport : public Transport {
         if (!driver->tryRecvPacket(&received))
             return false;
 
-        LOG(DEBUG, "received");
-
         Header* header = received.getOffset<Header>(0);
         if (header == NULL) {
             LOG(DEBUG, "packet too small");
@@ -692,6 +843,15 @@ class FastTransport : public Transport {
         driver->sendPacket(address, addressLength,
                            header, sizeof(*header),
                            payload);
+    }
+
+    uint32_t dataPerFragment() {
+        return driver->getMaxPayloadSize() - sizeof(Header);
+    }
+
+    uint32_t numFrags(const Buffer* dataBuffer) {
+        return ((dataBuffer->getTotalLength() + dataPerFragment() - 1) /
+                 dataPerFragment());
     }
 
     Driver* const driver;
