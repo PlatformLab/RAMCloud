@@ -45,13 +45,16 @@ UDPDriver::UDPDriver(const sockaddr *addr, socklen_t addrlen)
     : socketFd(-1), packetBufsUtilized(0)
 {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd == -1)
+    if (fd == -1) {
+        LOG(ERROR, "Couldn't create socket");
         throw UnrecoverableDriverException(errno);
+    }
 
     int r = bind(fd, addr, addrlen);
     if (r == -1) {
         int e = errno;
         close(fd);
+        LOG(ERROR, "Couldn't bind socket");
         throw UnrecoverableDriverException(e);
     }
 
@@ -90,12 +93,17 @@ UDPDriver::sendPacket(const sockaddr *addr,
     iov[0].iov_base = header;
     iov[0].iov_len = headerLen;
 
-    int i = 1;
+    uint32_t i = 1;
     while (payload && !payload->isDone()) {
         iov[i].iov_base = const_cast<void*>(payload->getData());
         iov[i].iov_len = payload->getLength();
         ++i;
         payload->next();
+    }
+    while (i < iovecs) {
+        iov[i].iov_base = 0;
+        iov[i].iov_len = 0;
+        i++;
     }
 
     struct msghdr msg;
@@ -111,6 +119,7 @@ UDPDriver::sendPacket(const sockaddr *addr,
         int e = errno;
         close(socketFd);
         socketFd = -1;
+        LOG(ERROR, "Couldn't sendmsg");
         throw UnrecoverableDriverException(e);
     }
     assert(static_cast<size_t>(r) == totalLength);

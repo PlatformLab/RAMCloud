@@ -281,6 +281,8 @@ class FastTransport : public Transport {
                 return firstMissingFrag == totalFrags;
             }
 
+            LOG(DEBUG, "%d/%d received", header->fragNumber, totalFrags - 1);
+
             if (header->fragNumber == firstMissingFrag) {
                 uint32_t length;
                 char *payload = received->steal(&length);
@@ -490,7 +492,6 @@ class FastTransport : public Transport {
                 sentTimes.advance(ack->firstMissingFrag - firstMissingFrag);
                 firstMissingFrag = ack->firstMissingFrag;
                 numAcked = ack->firstMissingFrag;
-                // TODO(stutsman): Does this even work?  Is the width 33 bits?
                 for (uint32_t i = 0; i < sentTimes.getLength() - 1; i++) {
                     bool acked = (ack->stagingVector >> i) & 1;
                     if (acked) {

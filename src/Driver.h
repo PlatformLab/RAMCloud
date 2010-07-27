@@ -28,6 +28,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#undef CURRENT_LOG_MODULE
+#define CURRENT_LOG_MODULE TRANSPORT_MODULE
+
 namespace RAMCloud {
 
 struct UnrecoverableDriverException: public Exception {
