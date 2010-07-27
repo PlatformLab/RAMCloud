@@ -626,7 +626,8 @@ Buffer::Iterator::Iterator(const Buffer& buffer,
         next();
         numberChunks--;
     }
-    totalLength = std::min(length, totalLength);
+
+    totalLength = std::min(length, totalLength - offset);
 }
 
 /**

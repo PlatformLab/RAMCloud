@@ -503,6 +503,7 @@ class BufferIteratorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_subRangeIter_isDone);
     CPPUNIT_TEST(test_subRangeIter_getData);
     CPPUNIT_TEST(test_subRangeIter_getLength);
+    CPPUNIT_TEST(test_subRangeIter_getTotalLength);
     CPPUNIT_TEST(test_subRangeIter_badRange);
     CPPUNIT_TEST_SUITE_END();
     char x[30];
@@ -660,6 +661,17 @@ class BufferIteratorTest : public CppUnit::TestFixture {
             Buffer::Iterator iter(b, 2, 5);
             CPPUNIT_ASSERT(!iter.isDone());
             CPPUNIT_ASSERT_EQUAL(5, iter.getLength());
+        }
+    }
+
+    void test_subRangeIter_getTotalLength() {
+        Buffer b;
+        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
+        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
+        { // startAdj + endAdj > totalLength
+            Buffer::Iterator iter(b, 29, 2);
+            CPPUNIT_ASSERT(!iter.isDone());
+            CPPUNIT_ASSERT_EQUAL(1, iter.getTotalLength());
         }
     }
 
