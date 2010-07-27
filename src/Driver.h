@@ -102,6 +102,7 @@ class UDPDriver : public Driver {
                             Buffer::Iterator *payload);
     virtual bool tryRecvPacket(Received *received);
     virtual void release(char *payload, uint32_t len);
+    UDPDriver();
     UDPDriver(const sockaddr *addr, socklen_t addrlen);
     virtual ~UDPDriver();
   private:

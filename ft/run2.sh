@@ -1,15 +1,29 @@
 #!/bin/bash
 set -e
-(cd ..; make ./obj.fasttransport/FastEcho)
+
+SERVER="python server.py"
+CLIENT="python client.py"
+while getopts "sc" OPT; do
+    case $OPT in
+        s)
+            SERVER="../obj.fasttransport/FastEcho"
+            ;;
+        c)
+            CLIENT="../obj.fasttransport/FastTelnet -x"
+            ;;
+    esac
+done
+
+(cd ..; make ./obj.fasttransport/Fast{Echo,Telnet})
 TIME=5
 CAP_FILE=/tmp/x.cap
 sudo rm -f $CAP_FILE
 sudo dumpcap -a duration:$TIME -i lo -w $CAP_FILE &
 sleep .1
-../obj.fasttransport/FastEcho &
+$SERVER &
 SERVER_PID=$!
 sleep .1
-python client.py &
+$CLIENT &
 CLIENT_PID=$!
 trap "kill $SERVER_PID; kill $CLIENT_PID" exit
 sleep $TIME

@@ -22,6 +22,8 @@
 #define RAMCLOUD_FASTTRANSPORT_H
 
 #include <sys/socket.h>
+#include <netinet/ip.h>
+#include <arpa/inet.h>
 #include <queue.h>
 #include <Common.h>
 #include <Transport.h>
@@ -44,7 +46,8 @@ class FastTransport : public Transport {
     class ServerRPC;
 
     explicit FastTransport(Driver* driver)
-        : driver(driver), serverSession(this, 0), serverReadyQueue() {
+        : driver(driver), serverSession(this, 0), clientSession(this, 0),
+        serverReadyQueue() {
         TAILQ_INIT(&serverReadyQueue);
     }
 
@@ -55,14 +58,84 @@ class FastTransport : public Transport {
     }
 
     class ClientRPC : public Transport::ClientRPC {
+      public:
+          void getReply() {
+              while (true) {
+                  switch (state) {
+                  case IDLE:
+                      assert(0);
+                  case IN_PROGRESS:
+                  default:
+                      transport->poll();
+                      break;
+                  case COMPLETED:
+                      return;
+                  case ABORTED:
+                      throw TransportException("RPC aborted");
+                  }
+              }
+          }
+
+      private:
+        ClientRPC(FastTransport* transport, const Service* service,
+                  Buffer* request, Buffer* response)
+            : state(IDLE), transport(transport),
+            serverAddress(), serverAddressLen(0),
+            requestBuffer(request), responseBuffer(response),
+            channelQueueEntries() {
+
+            sockaddr_in *addr = const_cast<sockaddr_in*>(
+                reinterpret_cast<const sockaddr_in*>(&serverAddress));
+            addr->sin_family = AF_INET;
+            addr->sin_port = htons(service->getPort());
+            if (inet_aton(service->getIp(), &addr->sin_addr) == 0)
+                throw Exception("inet_aton failed");
+            serverAddressLen = sizeof(*addr);
+        }
+
+        void start() {
+            assert(state == IDLE);
+            state = IN_PROGRESS;
+            ClientSession* session = &transport->clientSession;
+            if (!session->isConnected())
+                session->connect(&serverAddress, serverAddressLen);
+            session->startRpc(this);
+        }
+
+        void aborted() {
+            state = ABORTED;
+        }
+
+        void completed() {
+            state = COMPLETED;
+        }
+
+        enum {
+            IDLE,
+            IN_PROGRESS,
+            COMPLETED,
+            ABORTED,
+        } state;
+
+        FastTransport* const transport;
+        const sockaddr serverAddress;
+        socklen_t serverAddressLen;
+      public:
+        Buffer* const requestBuffer;
+        Buffer* const responseBuffer;
+      private:
+        TAILQ_ENTRY(ClientRPC) channelQueueEntries;
         friend class FastTransport;
         friend class FastTransportTest;
         DISALLOW_COPY_AND_ASSIGN(ClientRPC);
     };
 
-    ClientRPC* clientSend(const Service* service, Buffer* request,
-                          Buffer* response) {
-        throw UnrecoverableTransportException("TODO: " AT);
+    ClientRPC* clientSend(const Service* service,
+                          Buffer* request, Buffer* response) {
+        ClientRPC* rpc = new(request, MISC) ClientRPC(this, service,
+                                                      request, response);
+        rpc->start();
+        return rpc;
     }
 
     class ServerRPC : public Transport::ServerRPC {
@@ -92,7 +165,8 @@ class FastTransport : public Transport {
     }
 
   private:
-    enum { NUM_CHANNELS_PER_SESSION = 1 };
+    enum { NUM_CHANNELS_PER_SESSION = 8 };
+    enum { MAX_NUM_CHANNELS_PER_SESSION = 8 };
     enum { PACKET_LOSS_PERCENTAGE = 0 };
     enum { MAX_STAGING_FRAGMENTS = 32 };
     enum { WINDOW_SIZE = 10 };
@@ -276,8 +350,7 @@ class FastTransport : public Transport {
 
             if (header->totalFrags != totalFrags) {
                 // What's wrong with the other end?
-                LOG(DEBUG, "%s:%d: header->totalFrags != totalFrags",
-                    __func__, __LINE__);
+                LOG(DEBUG, "header->totalFrags != totalFrags");
                 return firstMissingFrag == totalFrags;
             }
 
@@ -633,7 +706,7 @@ class FastTransport : public Transport {
             header->sessionToken = token;
         }
 
-        void startSession(sockaddr *clientAddress,
+        void startSession(const sockaddr *clientAddress,
                           socklen_t clientAddressLen,
                           uint32_t clientSessionHint) {
             assert(sizeof(this->clientAddress) >= clientAddressLen);
@@ -719,24 +792,20 @@ class FastTransport : public Transport {
             if (lastActivityTime == 0)
                 return true;
 
-            for (ServerChannel* channel = &channels[0];
-                 channel < &channels[NUM_CHANNELS_PER_SESSION];
-                 channel++) {
-                if (channel->state == ServerChannel::PROCESSING)
+            for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++) {
+                if (channels[i].state == ServerChannel::PROCESSING)
                     return false;
             }
 
-            for (ServerChannel* channel = &channels[0];
-                 channel < &channels[NUM_CHANNELS_PER_SESSION];
-                 channel++) {
-                if (channel->state == ServerChannel::IDLE)
+            for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++) {
+                if (channels[i].state == ServerChannel::IDLE)
                     continue;
-                channel->state = ServerChannel::IDLE;
-                channel->rpcId = ~0U;
-                delete channel->currentRpc;
-                channel->currentRpc = NULL;
-                channel->inboundMsg.clear();
-                channel->outboundMsg.clear();
+                channels[i].state = ServerChannel::IDLE;
+                channels[i].rpcId = ~0U;
+                delete channels[i].currentRpc;
+                channels[i].currentRpc = NULL;
+                channels[i].inboundMsg.clear();
+                channels[i].outboundMsg.clear();
             }
 
             token = 0xcccccccccccccccc;
@@ -780,6 +849,283 @@ class FastTransport : public Transport {
         }
 
         DISALLOW_COPY_AND_ASSIGN(ServerSession);
+    };
+
+    class ClientSession : public Session {
+        struct ClientChannel {
+          public:
+            /// This creates broken in/out messages that are reinitialized
+            /// by init()
+            ClientChannel()
+                : state(IDLE),
+                  rpcId(~0U),
+                  currentRpc(NULL),
+                  outboundMsg(NULL, NULL, 0, false),
+                  inboundMsg(NULL, NULL, 0, false)
+            {
+            }
+            void init(Session* session, uint32_t channelId) {
+                outboundMsg.init(session, channelId, false);
+                inboundMsg.init(session, channelId, false);
+            }
+            enum {
+                IDLE,
+                SENDING,
+                RECEIVING,
+            } state;
+            uint32_t rpcId;
+            ClientRPC* currentRpc;
+            OutboundMessage outboundMsg;
+            InboundMessage inboundMsg;
+          private:
+            DISALLOW_COPY_AND_ASSIGN(ClientChannel);
+        };
+
+        // TODO(ongaro): session open timer
+
+        ClientChannel *channels;
+        uint32_t numChannels;
+
+        uint64_t token;
+        const uint32_t id;
+        uint32_t serverSessionHint;
+        uint64_t lastActivityTime;
+        sockaddr serverAddress;
+        socklen_t serverAddressLen;
+
+        TAILQ_HEAD(ChannelQueueHead, ClientRPC) channelQueue;
+
+        void processSessionOpenResponse(Driver::Received* received) {
+            if (numChannels > 0)
+                return;
+            Header* header = received->getOffset<Header>(0);
+            SessionOpenResponse* response =
+                received->getOffset<SessionOpenResponse>(sizeof(*header));
+            serverSessionHint = header->serverSessionHint;
+            token = header->sessionToken;
+            numChannels = std::min(response->maxChannelId + 1,
+                                   static_cast<int>(
+                                       MAX_NUM_CHANNELS_PER_SESSION));
+            channels = new ClientChannel[numChannels];
+            for (uint32_t i = 0; i < numChannels; i++) {
+                channels[i].state = ClientChannel::IDLE;
+                channels[i].rpcId = 0;
+                channels[i].currentRpc = NULL;
+                channels[i].init(this, i);
+            }
+            for (uint32_t i = 0; i < numChannels; i++) {
+                ClientRPC* rpc = TAILQ_FIRST(&channelQueue);
+                if (rpc == NULL)
+                    break;
+                TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
+                channels[i].state = ClientChannel::SENDING;
+                channels[i].currentRpc = rpc;
+                channels[i].outboundMsg.beginSending(rpc->requestBuffer);
+            }
+        }
+
+        void processReceivedData(ClientChannel* channel,
+                                 Driver::Received* received) {
+            if (channel->state == ClientChannel::IDLE)
+                return;
+            Header* header = received->getOffset<Header>(0);
+            if (channel->state == ClientChannel::SENDING) {
+                channel->outboundMsg.clear();
+                channel->inboundMsg.init(header->totalFrags,
+                                         channel->currentRpc->responseBuffer);
+                channel->state = ClientChannel::RECEIVING;
+            }
+            if (channel->inboundMsg.processReceivedData(received)) {
+                channel->currentRpc->completed();
+                channel->rpcId += 1;
+                channel->outboundMsg.clear();
+                channel->inboundMsg.clear();
+                ClientRPC *rpc = TAILQ_FIRST(&channelQueue);
+                if (rpc == NULL) {
+                    channel->state = ClientChannel::IDLE;
+                    channel->currentRpc = NULL;
+                } else {
+                    TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
+                    channel->state = ClientChannel::SENDING;
+                    channel->currentRpc = rpc;
+                    channel->outboundMsg.beginSending(rpc->requestBuffer);
+                }
+            }
+        }
+
+        void processReceivedAck(ClientChannel* channel,
+                                Driver::Received* received) {
+            if (channel->state == ClientChannel::SENDING)
+                channel->outboundMsg.processReceivedAck(received);
+        }
+
+        ClientChannel* getAvailableChannel() {
+            for (uint32_t i = 0; i < numChannels; i++) {
+                if (channels[i].state == ClientChannel::IDLE)
+                    return &channels[i];
+            }
+            return NULL;
+        }
+
+        void clearChannels() {
+            numChannels = 0;
+            delete[] channels;
+            channels = NULL;
+        }
+
+      public:
+        ClientSession(FastTransport* transport, uint32_t sessionId)
+            : Session(transport),
+              channels(NULL),
+              numChannels(0),
+              token(0xcccccccccccccccc),
+              id(sessionId),
+              serverSessionHint(0xcccccccc),
+              lastActivityTime(0),
+              serverAddress(),
+              serverAddressLen(0),
+              channelQueue() {
+            memset(&serverAddress, 0xcc, sizeof(serverAddress));
+            TAILQ_INIT(&channelQueue);
+        }
+
+        bool isConnected() {
+            return (numChannels != 0);
+        }
+
+        void connect(const sockaddr* serverAddress,
+                     socklen_t serverAddressLen) {
+            if (serverAddress != NULL) {
+                assert(sizeof(this->serverAddress) >= serverAddressLen);
+                memcpy(&this->serverAddress, serverAddress, serverAddressLen);
+                this->serverAddressLen = serverAddressLen;
+            }
+
+            // TODO(ongaro): Would it be possible to open a session like other
+            // RPCs?
+
+            Header header;
+            header.direction = Header::CLIENT_TO_SERVER;
+            header.clientSessionHint = id;
+            header.serverSessionHint = serverSessionHint;
+            header.sessionToken = token;
+            header.rpcId = 0;
+            header.channelId = 0;
+            header.payloadType = Header::SESSION_OPEN;
+            transport->sendPacket(&this->serverAddress,
+                                  this->serverAddressLen,
+                                  &header, NULL);
+            lastActivityTime = rdtsc();
+        }
+
+        const sockaddr* getAddress(socklen_t *len) {
+            *len = serverAddressLen;
+            return &serverAddress;
+        }
+
+        uint64_t getLastActivityTime() {
+            return lastActivityTime;
+        }
+
+        void fillHeader(Header* header, uint8_t channelId) {
+            header->rpcId = channels[channelId].rpcId;
+            header->channelId = channelId;
+            header->direction = Header::CLIENT_TO_SERVER;
+            header->clientSessionHint = id;
+            header->serverSessionHint = serverSessionHint;
+            header->sessionToken = token;
+        }
+
+        void processInboundPacket(Driver::Received* received) {
+            lastActivityTime = rdtsc();
+            Header* header = received->getOffset<Header>(0);
+            if (header->channelId >= numChannels) {
+                if (header->getPayloadType() == Header::SESSION_OPEN)
+                    processSessionOpenResponse(received);
+                else
+                    LOG(DEBUG, "drop due to invalid channel");
+                return;
+            }
+
+            ClientChannel* channel = &channels[header->channelId];
+            if (channel->rpcId == header->rpcId) {
+                switch (header->getPayloadType()) {
+                case Header::DATA:
+                    processReceivedData(channel, received);
+                    break;
+                case Header::ACK:
+                    processReceivedAck(channel, received);
+                    break;
+                case Header::BAD_SESSION:
+                    for (uint32_t i = 0; i < numChannels; i++) {
+                        if (channels[i].currentRpc != NULL) {
+                            TAILQ_INSERT_TAIL(&channelQueue,
+                                              channels[i].currentRpc,
+                                              channelQueueEntries);
+                        }
+                    }
+                    clearChannels();
+                    serverSessionHint = 0xcccccccc;
+                    token = 0xccccccccccccccc;
+                    connect(NULL, 0);
+                    break;
+                default:
+                    LOG(DEBUG, "drop current rpcId with bad type");
+                }
+            } else {
+                if (header->getPayloadType() == Header::DATA &&
+                    header->requestAck) {
+                    LOG(DEBUG, "TODO: fake a full ACK response");
+                } else {
+                    LOG(DEBUG, "drop old packet");
+                }
+            }
+        }
+
+        void startRpc(ClientRPC* rpc) {
+            lastActivityTime = rdtsc();
+            ClientChannel* channel = getAvailableChannel();
+            if (channel == NULL) {
+                TAILQ_INSERT_TAIL(&channelQueue, rpc, channelQueueEntries);
+            } else {
+                assert(channel->state == ClientChannel::IDLE);
+                channel->state = ClientChannel::SENDING;
+                channel->currentRpc = rpc;
+                channel->outboundMsg.beginSending(rpc->requestBuffer);
+            }
+        }
+
+        void close() {
+            LOG(DEBUG, "Closing session");
+            for (uint32_t i = 0; i < numChannels; i++) {
+                if (channels[i].currentRpc != NULL)
+                    channels[i].currentRpc->aborted();
+            }
+            while (!TAILQ_EMPTY(&channelQueue)) {
+                ClientRPC* rpc = TAILQ_FIRST(&channelQueue);
+                TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
+                rpc->aborted();
+            }
+            clearChannels();
+            serverSessionHint = 0xcccccccc;
+            token = 0xcccccccccccccccc;
+        }
+
+        bool expire() {
+            for (uint32_t i = 0; i < numChannels; i++) {
+                if (channels[i].currentRpc != NULL)
+                    return false;
+            }
+            if (!TAILQ_EMPTY(&channelQueue))
+                return false;
+            clearChannels();
+            serverSessionHint = 0xcccccccc;
+            token = 0xcccccccccccccccc;
+            return true;
+        }
+
+      private:
+        DISALLOW_COPY_AND_ASSIGN(ClientSession);
     };
 
     bool tryProcessPacket() {
@@ -830,7 +1176,12 @@ class FastTransport : public Transport {
             }
             }
         } else {
-            throw UnrecoverableTransportException("TODO: " AT);
+            if (header->clientSessionHint < 1) {
+                ClientSession* session = &clientSession;
+                session->processInboundPacket(&received);
+            } else {
+                LOG(DEBUG, "Bad client session hint");
+            }
         }
         return true;
     }
@@ -857,6 +1208,7 @@ class FastTransport : public Transport {
 
     Driver* const driver;
     ServerSession serverSession;
+    ClientSession clientSession;
     TAILQ_HEAD(ServerReadyQueueHead, ServerRPC) serverReadyQueue;
 
     friend class FastTransportTest;

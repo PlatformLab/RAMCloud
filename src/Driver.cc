@@ -41,6 +41,15 @@ UDPDriver::release(char *payload, uint32_t len)
     packetBufsUtilized--;
 }
 
+UDPDriver::UDPDriver()
+    : socketFd(-1), packetBufsUtilized(0)
+{
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == -1)
+        throw UnrecoverableDriverException(errno);
+    socketFd = fd;
+}
+
 UDPDriver::UDPDriver(const sockaddr *addr, socklen_t addrlen)
     : socketFd(-1), packetBufsUtilized(0)
 {

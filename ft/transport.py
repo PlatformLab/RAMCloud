@@ -51,7 +51,7 @@ MAX_STAGING_FRAGMENTS = 32
 
 # The fraction of packets that will be dropped on transmission.
 # This should be 0 for production!
-PACKET_LOSS = 0.05
+PACKET_LOSS = 0.00
 
 WINDOW_SIZE = 10
 REQ_ACK_AFTER = 5
@@ -936,7 +936,6 @@ class ClientSession(Session):
         # beginSending() transitions from IDLE to SENDING.
         # processReceivedData() transitions from SENDING to RECEIVING.
         state = None
-        session = None
         rpcId = None
         currentRpc = None
         outboundMsg = None
@@ -1062,11 +1061,9 @@ class ClientSession(Session):
         header = Header()
         header.direction = Header.CLIENT_TO_SERVER
         header.clientSessionHint = self._id
-        header.serverSessionHint = self._serverSessionHint
-        header.sessionToken = self._token
-        header.rpcId = 0
         header.serverSessionHint = 0
         header.sessionToken = 0
+        header.rpcId = 0
         header.channelId = 0
         header.payloadType = Header.PT_SESSION_OPEN
         self._transport._sendOne(self.getAddress(), header, Buffer([]))
@@ -1089,8 +1086,6 @@ class ClientSession(Session):
         return self._service.address
 
     def processInboundPacket(self, payloadCM):
-        """Return whether the session is still valid."""
-
         self._lastActivityTime = gettime()
 
         header = Header.fromString(payloadCM.payload[:Header.LENGTH])
@@ -1098,7 +1093,7 @@ class ClientSession(Session):
         if header.channelId >= self._numChannels:
             if header.payloadType == Header.PT_SESSION_OPEN:
                 self._processSessionOpenResponse(payloadCM)
-            return True
+            return
 
         channel = self._channels[header.channelId]
         if channel.rpcId == header.rpcId:
@@ -1117,12 +1112,9 @@ class ClientSession(Session):
                 self._serverSessionHint = None
                 self._token = None
                 self.connect(self._service)
-                return False
         else:
-            if (0 < channel.rpcId - header.rpcId < 1024 and
-                header.payloadType == Header.PT_DATA and header.requestAck):
+            if header.payloadType == Header.PT_DATA and header.requestAck:
                 raise NotImplementedError("faked full ACK response")
-        return True
 
     def startRpc(self, rpc):
         """Queue an RPC for transmission on this session.
@@ -1139,15 +1131,6 @@ class ClientSession(Session):
             channel.state = channel.SENDING_STATE
             channel.currentRpc = rpc
             channel.outboundMsg.beginSending(rpc.getRequestBuffer())
-
-    def getActiveChannels(self):
-        """Used for timers."""
-        if not self._isConnected():
-            return
-        for channelId in range(self._numChannels):
-            channel = self._channels[channelId]
-            if channel.state != channel.IDLE_STATE:
-                yield channelId
 
     def close(self):
         debug("Aborting session")
@@ -1312,9 +1295,7 @@ class Transport(object):
             else:
                 if header.clientSessionHint < len(self._clientSessions):
                     session = self._clientSessions[header.clientSessionHint]
-                    stillValid = session.processInboundPacket(payloadCM)
-                    if not stillValid:
-                        self._clientSessions.put(session)
+                    session.processInboundPacket(payloadCM)
         return True
 
     def poll(self):
