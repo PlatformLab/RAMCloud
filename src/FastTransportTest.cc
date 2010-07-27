@@ -34,7 +34,7 @@ class FastTransportTest : public CppUnit::TestFixture {
     void test_serverRecv() {
         FastTransport transport(NULL);
         FastTransport::ServerRPC rpc(NULL, 0);
-        LIST_INSERT_HEAD(&transport.serverReadyQueue, &rpc, readyQueueEntries);
+        TAILQ_INSERT_TAIL(&transport.serverReadyQueue, &rpc, readyQueueEntries);
         CPPUNIT_ASSERT_EQUAL(&rpc, transport.serverRecv());
     }
 

@@ -132,18 +132,38 @@ Logger::changeLogLevels(int delta)
 }
 
 /**
+ * Return the number of characters of __FILE__ that make up the path prefix.
+ * That is, __FILE__ plus this value will be the relative path from the top
+ * directory of the RAMCloud repo.
+ */
+static int
+length__FILE__Prefix()
+{
+    const char* start = __FILE__;
+    const char* match = strstr(__FILE__, "src/Logging.cc");
+    assert(match != NULL);
+    return (match - start);
+}
+
+/**
  * Log a message for the system administrator.
  * \param[in] module
  *      The module to which the message pertains.
  * \param[in] level
  *      See #LOG.
+ * \param[in] file
+ *      The result of __FILE__.
+ * \param[in] line
+ *      The result of __LINE__.
  * \param[in] format
- *      See #LOG.
+ *      See #LOG except the string should end with a newline character.
  * \param[in] ...
  *      See #LOG.
  */
 void
-Logger::logMessage(LogModule module, LogLevel level, const char* format, ...)
+Logger::logMessage(LogModule module, LogLevel level,
+                   const char* file, uint32_t line,
+                   const char* format, ...)
 {
     // Keep this in sync with the LogLevel enum.
     static const char* logLevelNames[] = {"(none)", "ERROR", "WARNING",
@@ -153,12 +173,16 @@ Logger::logMessage(LogModule module, LogLevel level, const char* format, ...)
                   NUM_LOG_LEVELS);
     static_assert(sizeof(logModuleNames) / sizeof(logModuleNames[0]) ==
                   NUM_LOG_MODULES);
+
+    static int fileCharsToSkip = length__FILE__Prefix();
+
     va_list ap;
     struct timeval now;
 
     gettimeofday(&now, NULL);
-    fprintf(stream, "%010u.%06u %s %s: ",
+    fprintf(stream, "%010u.%06u %s:%d %s %s: ",
             now.tv_sec, now.tv_usec,
+            file + fileCharsToSkip, line,
             logModuleNames[module],
             logLevelNames[level]);
 

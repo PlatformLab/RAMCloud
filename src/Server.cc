@@ -531,18 +531,15 @@ Server::HandleRPC()
 
 #define HANDLE(rcrpc_upper, rcrpc_lower, handler)                              \
         case RCRPC_##rcrpc_upper##_REQUEST:                                    \
-            /* In C++, structs with no members have sizeof 0. */               \
-            if (sizeof(rcrpc_##rcrpc_lower##_request) != 1 &&                  \
-                rpc->recvPayload.getTotalLength() <                            \
-                sizeof(rcrpc_##rcrpc_lower##_request))                         \
+            /* adding one below to suppress "comparison is always false" */    \
+            if (rpc->recvPayload.getTotalLength() + 1 <                        \
+                sizeof0(rcrpc_##rcrpc_lower##_request) + 1)                    \
                 throw Exception("payload too short");                          \
             Server::handler(rpc);                                              \
             replyHeader->type = RCRPC_##rcrpc_upper##_RESPONSE;                \
-            /* In C++, structs with no members have sizeof 0. */               \
-            assert(sizeof(rcrpc_##rcrpc_lower##_response) == 1 ||              \
-                   rpc->replyPayload.getTotalLength() >=                       \
+            assert(rpc->replyPayload.getTotalLength() >=                       \
                    (sizeof(rcrpc_header) +                                     \
-                    sizeof(rcrpc_##rcrpc_lower##_response)));                  \
+                    sizeof0(rcrpc_##rcrpc_lower##_response)));                 \
             break;                                                             \
         case RCRPC_##rcrpc_upper##_RESPONSE:                                   \
             throw Exception("server received RPC response")

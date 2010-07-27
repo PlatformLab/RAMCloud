@@ -170,6 +170,16 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
     STATIC_ASSERT_CAT(STATIC_ASSERT_FAILED_, __COUNTER__) = 1/(x) }
 
 #ifdef __cplusplus
+/**
+ * Return the size in bytes of a struct, except consider the size of structs
+ * with no members to be 0 bytes.
+ */
+#define sizeof0(x)  (__is_empty(x) ? 0 : sizeof(x))
+#else
+#define sizeof0(x) sizeof(x)
+#endif
+
+#ifdef __cplusplus
 void debug_dump64(const void *buf, uint64_t bytes);
 
 #if PERF_COUNTERS
