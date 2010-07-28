@@ -620,11 +620,18 @@ Buffer::Iterator::Iterator(const Buffer& buffer,
       offset(offset),
       length(length),
       totalLength(buffer.totalLength),
-      numberChunks(buffer.numberChunks)
+      numberChunks(0)
 {
-    while (!isDone() && currentOffset + current->length <= offset) {
+    while (!isDone() && currentOffset + current->length <= offset)
         next();
-        numberChunks--;
+
+    // Determine the number of chunks this iter will visit
+    Chunk* c = current;
+    uint32_t o = currentOffset;
+    while (c && (offset + length > o)) {
+        o += c->length;
+        c = c->next;
+        numberChunks++;
     }
 
     totalLength = std::min(length, totalLength - offset);

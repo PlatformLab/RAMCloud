@@ -109,11 +109,6 @@ UDPDriver::sendPacket(const sockaddr *addr,
         ++i;
         payload->next();
     }
-    while (i < iovecs) {
-        iov[i].iov_base = 0;
-        iov[i].iov_len = 0;
-        i++;
-    }
 
     struct msghdr msg;
     memset(&msg, 0, sizeof(msg));
