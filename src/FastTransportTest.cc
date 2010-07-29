@@ -25,11 +25,44 @@ namespace RAMCloud {
 
 class FastTransportTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(FastTransportTest);
+    CPPUNIT_TEST(test_queue_is_in);
     CPPUNIT_TEST(test_serverRecv);
     CPPUNIT_TEST_SUITE_END();
 
   public:
     FastTransportTest() {}
+
+    void test_queue_is_in() {
+        struct QTest {
+            QTest(int i) : i(i), entry() {}
+            int i;
+            LIST_ENTRY(QTest) entry;
+        };
+        LIST_HEAD(QTestHead, QTest) list;
+        LIST_INIT(&list);
+
+        QTest o1(1);
+        QTest o2(2);
+
+        CPPUNIT_ASSERT(!LIST_IS_IN(&o1, entry));
+        CPPUNIT_ASSERT(!LIST_IS_IN(&o2, entry));
+
+        LIST_INSERT_HEAD(&list, &o2, entry);
+        LIST_INSERT_HEAD(&list, &o1, entry);
+
+        QTest *elm;
+        int i = 1;
+        LIST_FOREACH(elm, &list, entry) {
+            CPPUNIT_ASSERT(LIST_IS_IN(elm, entry));
+            CPPUNIT_ASSERT_EQUAL(i, elm->i);
+            i++;
+        }
+
+        LIST_REMOVE(&o2, entry);
+
+        CPPUNIT_ASSERT(LIST_IS_IN(&o1, entry));
+        CPPUNIT_ASSERT(!LIST_IS_IN(&o2, entry));
+    }
 
     void test_serverRecv() {
         FastTransport transport(NULL);

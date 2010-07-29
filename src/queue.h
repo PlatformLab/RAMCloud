@@ -428,6 +428,8 @@ struct {								\
 		LIST_NEXT((elm), field)->field.le_prev = 		\
 		    (elm)->field.le_prev;				\
 	*(elm)->field.le_prev = LIST_NEXT((elm), field);		\
+    (elm)->field.le_prev = 0; \
+    (elm)->field.le_next = 0; \
 	TRASHIT(*oldnext);						\
 	TRASHIT(*oldprev);						\
 } while (0)
@@ -441,6 +443,9 @@ struct {								\
 	if ((swap_tmp = LIST_FIRST((head2))) != NULL)			\
 		swap_tmp->field.le_prev = &LIST_FIRST((head2));		\
 } while (0)
+
+#define LIST_IS_IN(elm, field) (((elm)->field.le_prev != (void *)0 || \
+                                ((elm)->field.le_prev != (void *)0)))
 
 /*
  * Tail queue declarations.

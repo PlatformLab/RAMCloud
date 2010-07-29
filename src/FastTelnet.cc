@@ -34,7 +34,7 @@ try
 {
     using namespace RAMCloud; // NOLINT
 
-    //logger.setLogLevel(TRANSPORT_MODULE, DEBUG);
+    logger.setLogLevel(TRANSPORT_MODULE, DEBUG);
 
     UDPDriver d;
     FastTransport tx(&d);
@@ -70,8 +70,10 @@ try
                 Buffer::Chunk::appendToBuffer(&request, buf, sizeof(buf));
             CycleCounter c;
             tx.clientSend(&service, &request, &response)->getReply();
+            /*
             LOG(ERROR, "Pinged %lu bytes in %lu cycles",
                 totalFrags * sizeof(buf), c.stop());
+            */
         }
     }
     return 0;

@@ -47,8 +47,9 @@ class FastTransport : public Transport {
 
     explicit FastTransport(Driver* driver)
         : driver(driver), serverSession(this, 0), clientSession(this, 0),
-        serverReadyQueue() {
+        serverReadyQueue(), timerList() {
         TAILQ_INIT(&serverReadyQueue);
+        LIST_INIT(&timerList);
     }
 
     void poll() {
@@ -167,11 +168,23 @@ class FastTransport : public Transport {
   private:
     enum { NUM_CHANNELS_PER_SESSION = 8 };
     enum { MAX_NUM_CHANNELS_PER_SESSION = 8 };
-    enum { PACKET_LOSS_PERCENTAGE = 0 };
+    enum { PACKET_LOSS_PERCENTAGE = 5 };
     enum { MAX_STAGING_FRAGMENTS = 32 };
     enum { WINDOW_SIZE = 10 };
     enum { REQ_ACK_AFTER = 5 };
     enum { TIMEOUT_NS = 10 * 1000 * 1000 }; // 10 ms
+    enum { TIMEOUTS_UNTIL_ABORTING = 500 }; // >= 5 s
+
+    class Timer {
+      public:
+          Timer() : when(0), listEntries() {}
+          virtual void fireTimer(uint64_t now) = 0;
+          virtual ~Timer() {}
+          uint64_t when;
+          LIST_ENTRY(Timer) listEntries;
+      private:
+        DISALLOW_COPY_AND_ASSIGN(Timer);
+    };
 
     struct PayloadChunk : public Buffer::Chunk {
         static PayloadChunk* prependToBuffer(Buffer* buffer,
@@ -281,8 +294,8 @@ class FastTransport : public Transport {
               totalFrags(0),
               firstMissingFrag(0),
               dataStagingRing(),
-              dataBuffer(NULL)
-              // TODO(stutsman) timer
+              dataBuffer(NULL),
+              timer(useTimer, this)
         {
         }
         ~InboundMessage()
@@ -293,7 +306,11 @@ class FastTransport : public Transport {
             this->session = session;
             this->transport = session->transport;
             this->channelId = channelId;
-            // TODO(stutsman) useTimer
+            if (timer.useTimer)
+                transport->removeTimer(&timer);
+            timer.when = 0;
+            timer.numTimeouts = 0;
+            timer.useTimer = useTimer;
         }
         void sendAck() {
             Header header;
@@ -325,19 +342,17 @@ class FastTransport : public Transport {
                     transport->driver->release(elt.first, elt.second);
             }
             dataStagingRing.clear();
-            // TODO(stutsman)
-            // timer.numTimeouts = 0;
-            // if timer.useTimer
-            //     transport->removeTimer(timer);
+            timer.numTimeouts = 0;
+            if (timer.useTimer)
+                 transport->removeTimer(&timer);
         }
         void init(uint16_t totalFrags, Buffer* dataBuffer) {
             clear();
             this->totalFrags = totalFrags;
             this->dataBuffer = dataBuffer;
             firstMissingFrag = 0;
-            // TODO(stutsman)
-            // if timer.useTimer
-            //     transport->addTimer(timer, gettime() + TIMEOUT_NS);
+            if (timer.useTimer)
+                transport->addTimer(&timer, rdtsc() + TIMEOUT_NS);
         }
         /**
          * \return
@@ -353,8 +368,6 @@ class FastTransport : public Transport {
                 LOG(DEBUG, "header->totalFrags != totalFrags");
                 return firstMissingFrag == totalFrags;
             }
-
-            LOG(DEBUG, "%d/%d received", header->fragNumber, totalFrags - 1);
 
             if (header->fragNumber == firstMissingFrag) {
                 uint32_t length;
@@ -404,10 +417,9 @@ class FastTransport : public Transport {
             // TODO(ongaro): Have caller call this->sendAck() instead.
             if (header->requestAck)
                 sendAck();
-            // TODO(stutsman)
-            // if (timer->useTimer) {
-            //     transport->addTimer(timer, gettime() + TIMEOUT_NS)
-            // }
+            if (timer.useTimer) {
+                 transport->addTimer(&timer, rdtsc() + TIMEOUT_NS);
+            }
 
             return firstMissingFrag == totalFrags;
         }
@@ -420,6 +432,32 @@ class FastTransport : public Transport {
         Ring<std::pair<char*, uint32_t>,
              MAX_STAGING_FRAGMENTS> dataStagingRing;
         Buffer* dataBuffer;
+        class Timer : public FastTransport::Timer {
+          public:
+            Timer(bool useTimer, InboundMessage* const inboundMsg)
+                : useTimer(useTimer), numTimeouts(0),
+                  inboundMsg(inboundMsg)
+            {
+            }
+            virtual void fireTimer(uint64_t now) {
+                    numTimeouts++;
+                    if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
+                        LOG(DEBUG, "Closing session due to timeout");
+                        inboundMsg->session->close();
+                    } else {
+                        LOG(DEBUG, "Timer fired; resending ACK");
+                        inboundMsg->transport->addTimer(this,
+                                                        rdtsc() + TIMEOUT_NS);
+                        inboundMsg->sendAck();
+                    }
+            }
+            bool useTimer;
+            uint32_t numTimeouts;
+          private:
+            InboundMessage* const inboundMsg;
+            DISALLOW_COPY_AND_ASSIGN(Timer);
+        };
+        Timer timer;
         DISALLOW_COPY_AND_ASSIGN(InboundMessage);
     };
 
@@ -439,15 +477,19 @@ class FastTransport : public Transport {
               totalFrags(0),
               packetsSinceAckReq(0),
               sentTimes(),
-              numAcked(0)
-              // TODO(stutsman) timer
+              numAcked(0),
+              timer(useTimer, this)
         {
         }
         void init(Session* session, uint32_t channelId, bool useTimer) {
             this->session = session;
             this->transport = session->transport;
             this->channelId = channelId;
-            // TODO(stutsman) useTimer
+            if (timer.useTimer)
+                transport->removeTimer(&timer);
+            timer.when = 0;
+            timer.numTimeouts = 0;
+            timer.useTimer = useTimer;
         }
         void clear() {
             sendBuffer = NULL;
@@ -456,9 +498,8 @@ class FastTransport : public Transport {
             packetsSinceAckReq = 0;
             sentTimes.clear();
             numAcked = 0;
-            // TODO(stutsman)
-            // transport->removeTimer(timer);
-            // timer->numTimeouts = 0;
+            transport->removeTimer(&timer);
+            timer.numTimeouts = 0;
         }
         void beginSending(Buffer* dataBuffer) {
             assert(!sendBuffer);
@@ -531,29 +572,29 @@ class FastTransport : public Transport {
                     sentTimes[i] = now;
             }
 
-            // TODO(stutsman)
-            // if (timer->useTimer) {
-            //      uint32_t oldset = sentTimes.getLength();
-            //      for (uint32_t i = 0; i < sentTimes.getLength(); i++) {
-            //          uint32_t sentTime = sentTimes[i];
-            //          if (sentTime != ACKED || sentTime < oldest)
-            //              oldest = sentTime;
-            //      }
-            //      if (oldest != sentTimes.getLength())
-            //          transport->addTimer(timer, oldtest + TIMEOUT_NS);
-            // }
+            if (timer.useTimer) {
+                 uint64_t oldest = ~(0lu);
+                 for (uint32_t i = 0; i < sentTimes.getLength(); i++) {
+                     uint64_t sentTime = sentTimes[i];
+                     if (sentTime != ACKED || sentTime < oldest)
+                         oldest = sentTime;
+                 }
+                 if (oldest != ~(0lu))
+                     transport->addTimer(&timer, oldest + TIMEOUT_NS);
+            }
 
         }
         bool processReceivedAck(Driver::Received* received) {
             if (!sendBuffer)
                 return false;
+            LOG(DEBUG, "OutboundMessage processReceivedAck");
 
             assert(received->len >= sizeof(Header) + sizeof(AckResponse));
             AckResponse *ack =
                 received->getOffset<AckResponse>(sizeof(Header));
 
             if (ack->firstMissingFrag < firstMissingFrag) {
-                LOG(DEBUG, "OutboundMessage dropped stable ACK");
+                LOG(DEBUG, "OutboundMessage dropped stale ACK");
             } else if (ack->firstMissingFrag > totalFrags) {
                 LOG(DEBUG, "OutboundMessage dropped invalid ACK"
                            "(shouldn't happen)");
@@ -562,14 +603,19 @@ class FastTransport : public Transport {
                 LOG(DEBUG, "OutboundMessage dropped ACK that advanced too far "
                            "(shouldn't happen)");
             } else {
+                LOG(DEBUG, "OutboundMessage legitimate ACK - take action: "
+                           "ack fmf %u", ack->firstMissingFrag);
                 sentTimes.advance(ack->firstMissingFrag - firstMissingFrag);
                 firstMissingFrag = ack->firstMissingFrag;
                 numAcked = ack->firstMissingFrag;
                 for (uint32_t i = 0; i < sentTimes.getLength() - 1; i++) {
                     bool acked = (ack->stagingVector >> i) & 1;
                     if (acked) {
+                        LOG(DEBUG, "Now acked: %d", firstMissingFrag + i + 1);
                         sentTimes[i + 1] = ACKED;
                         numAcked++;
+                    } else {
+                        LOG(DEBUG, "Not acked still: %d", firstMissingFrag + i + 1);
                     }
                 }
             }
@@ -612,6 +658,30 @@ class FastTransport : public Transport {
         uint32_t packetsSinceAckReq;
         Ring<uint64_t, MAX_STAGING_FRAGMENTS + 1> sentTimes;
         uint32_t numAcked;
+        class Timer : public FastTransport::Timer {
+          public:
+            Timer(bool useTimer, OutboundMessage* const outboundMsg)
+                : useTimer(useTimer), numTimeouts(0),
+                  outboundMsg(outboundMsg)
+            {
+            }
+            virtual void fireTimer(uint64_t now) {
+                numTimeouts++;
+                if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
+                    LOG(DEBUG, "Closing session due to timeout");
+                    outboundMsg->session->close();
+                } else {
+                    LOG(DEBUG, "Timer fired; resending");
+                    outboundMsg->send();
+                }
+            }
+            bool useTimer;
+            uint32_t numTimeouts;
+          private:
+            OutboundMessage* const outboundMsg;
+            DISALLOW_COPY_AND_ASSIGN(Timer);
+        };
+        Timer timer;
 
         DISALLOW_COPY_AND_ASSIGN(OutboundMessage);
     };
@@ -622,6 +692,7 @@ class FastTransport : public Transport {
         virtual const sockaddr* getAddress(socklen_t *len) = 0;
         virtual uint64_t getLastActivityTime() = 0;
         virtual bool expire() = 0;
+        virtual void close() = 0;
         virtual ~Session() {}
         explicit Session(FastTransport* transport)
             : transport(transport) {}
@@ -787,6 +858,9 @@ class FastTransport : public Transport {
             lastActivityTime = rdtsc();
         }
 
+        void close() {
+            LOG(WARNING, "ServerSession::close should never be called");
+        }
 
         bool expire() {
             if (lastActivityTime == 0)
@@ -865,8 +939,9 @@ class FastTransport : public Transport {
             {
             }
             void init(Session* session, uint32_t channelId) {
-                outboundMsg.init(session, channelId, false);
-                inboundMsg.init(session, channelId, false);
+                bool useTimer = true;
+                outboundMsg.init(session, channelId, useTimer);
+                inboundMsg.init(session, channelId, useTimer);
             }
             enum {
                 IDLE,
@@ -1186,7 +1261,33 @@ class FastTransport : public Transport {
         return true;
     }
 
+    void addTimer(Timer* timer, uint64_t when) {
+        timer->when = when;
+        if (!LIST_IS_IN(timer, listEntries)) {
+            LIST_INSERT_HEAD(&timerList, timer, listEntries);
+        }
+    }
+
+    void removeTimer(Timer* timer) {
+        timer->when = 0;
+        if (LIST_IS_IN(timer, listEntries)) {
+            LIST_REMOVE(timer, listEntries);
+        }
+    }
+
     void fireTimers() {
+        uint64_t now = rdtsc();
+        Timer* timer;
+        LIST_FOREACH(timer, &timerList, listEntries) {
+            if (timer->when && timer-> when < now) {
+                LOG(DEBUG, "timer fired");
+                timer->fireTimer(now);
+                if (timer->when < now) {
+                    timer->when = 0;
+                    removeTimer(timer);
+                }
+           }
+        }
     }
 
     void sendPacket(const sockaddr* address, socklen_t addressLength,
@@ -1210,6 +1311,7 @@ class FastTransport : public Transport {
     ServerSession serverSession;
     ClientSession clientSession;
     TAILQ_HEAD(ServerReadyQueueHead, ServerRPC) serverReadyQueue;
+    LIST_HEAD(TimerListHead, Timer) timerList;
 
     friend class FastTransportTest;
     DISALLOW_COPY_AND_ASSIGN(FastTransport);

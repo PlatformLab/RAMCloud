@@ -73,8 +73,8 @@ UDPDriver::UDPDriver(const sockaddr *addr, socklen_t addrlen)
 UDPDriver::~UDPDriver()
 {
     if (packetBufsUtilized != 0)
-        fprintf(stderr, "WARNING: packetBufsUtilized: %d\n",
-                packetBufsUtilized);
+        LOG(WARNING, "WARNING: packetBufsUtilized: %d",
+            packetBufsUtilized);
     close(socketFd);
 }
 
