@@ -225,7 +225,7 @@ class FastTransport : public Transport {
                         LOG(DEBUG, "Closing session due to timeout");
                         inboundMsg->session->close();
                     } else {
-                        LOG(DEBUG, "Timer fired; resending ACK");
+                        //LOG(DEBUG, "Timer fired; resending ACK");
                         inboundMsg->transport->addTimer(this,
                                                         rdtsc() + TIMEOUT_NS);
                         inboundMsg->sendAck();
@@ -278,7 +278,7 @@ class FastTransport : public Transport {
                     LOG(DEBUG, "Closing session due to timeout");
                     outboundMsg->session->close();
                 } else {
-                    LOG(DEBUG, "Timer fired; resending");
+                    //LOG(DEBUG, "Timer fired; resending");
                     outboundMsg->send();
                 }
             }

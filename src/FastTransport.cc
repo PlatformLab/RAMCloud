@@ -148,7 +148,7 @@ FastTransport::fireTimers()
     Timer* timer;
     LIST_FOREACH(timer, &timerList, listEntries) {
         if (timer->when && timer-> when < now) {
-            LOG(DEBUG, "timer fired");
+            //LOG(DEBUG, "Timer fired: %lu", now - timer->when);
             timer->fireTimer(now);
             if (timer->when < now) {
                 timer->when = 0;
@@ -164,7 +164,7 @@ FastTransport::sendPacket(const sockaddr* address,
            Header* header,
            Buffer::Iterator* payload)
 {
-    header->pleaseDrop = (random() < ~0U * PACKET_LOSS_PERCENTAGE / 100);
+    header->pleaseDrop = (random() % 100) < PACKET_LOSS_PERCENTAGE;
     driver->sendPacket(address, addressLength,
                        header, sizeof(*header),
                        payload);
@@ -605,14 +605,15 @@ FastTransport::OutboundMessage::send()
     }
 
     if (timer.useTimer) {
-         uint64_t oldest = ~(0lu);
-         for (uint32_t i = 0; i < sentTimes.getLength(); i++) {
-             uint64_t sentTime = sentTimes[i];
-             if (sentTime != ACKED || sentTime < oldest)
-                 oldest = sentTime;
-         }
-         if (oldest != ~(0lu))
-             transport->addTimer(&timer, oldest + TIMEOUT_NS);
+        uint64_t oldest = ~(0lu);
+        for (uint32_t i = 0; i < sentTimes.getLength(); i++) {
+            uint64_t sentTime = sentTimes[i];
+            if (sentTime != ACKED && sentTime > 0)
+                if (sentTime < oldest)
+                    oldest = sentTime;
+        }
+        if (oldest != ~(0lu))
+            transport->addTimer(&timer, oldest + TIMEOUT_NS);
     }
 
 }
@@ -622,7 +623,7 @@ FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
 {
     if (!sendBuffer)
         return false;
-    LOG(DEBUG, "OutboundMessage processReceivedAck");
+    //LOG(DEBUG, "OutboundMessage processReceivedAck");
 
     assert(received->len >= sizeof(Header) + sizeof(AckResponse));
     AckResponse *ack =
@@ -638,20 +639,19 @@ FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
         LOG(DEBUG, "OutboundMessage dropped ACK that advanced too far "
                    "(shouldn't happen)");
     } else {
-        LOG(DEBUG, "OutboundMessage legitimate ACK - take action: "
-                   "ack fmf %u", ack->firstMissingFrag);
+        //LOG(DEBUG, "OutboundMessage legitimate ACK - take action: "
+                   //"ack fmf %u", ack->firstMissingFrag);
         sentTimes.advance(ack->firstMissingFrag - firstMissingFrag);
         firstMissingFrag = ack->firstMissingFrag;
         numAcked = ack->firstMissingFrag;
         for (uint32_t i = 0; i < sentTimes.getLength() - 1; i++) {
             bool acked = (ack->stagingVector >> i) & 1;
             if (acked) {
-                LOG(DEBUG, "Now acked: %d", firstMissingFrag + i + 1);
+                //LOG(DEBUG, "Now acked: %d", firstMissingFrag + i + 1);
                 sentTimes[i + 1] = ACKED;
                 numAcked++;
             } else {
-                LOG(DEBUG, "Not acked still: %d",
-                    firstMissingFrag + i + 1);
+                //LOG(DEBUG, "Not acked still: %d", firstMissingFrag + i + 1);
             }
         }
     }
