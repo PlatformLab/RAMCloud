@@ -34,7 +34,7 @@ class FastTransportTest : public CppUnit::TestFixture {
 
     void test_queue_is_in() {
         struct QTest {
-            QTest(int i) : i(i), entry() {}
+            explicit QTest(int i) : i(i), entry() {}
             int i;
             LIST_ENTRY(QTest) entry;
         };
