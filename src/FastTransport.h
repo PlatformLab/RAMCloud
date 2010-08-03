@@ -25,10 +25,13 @@
 #include <netinet/ip.h>
 #include <arpa/inet.h>
 #include <queue.h>
-#include <Common.h>
-#include <Transport.h>
-#include <Driver.h>
-#include <Ring.h>
+
+#include <vector>
+
+#include "Common.h"
+#include "Transport.h"
+#include "Driver.h"
+#include "Ring.h"
 
 #undef CURRENT_LOG_MODULE
 #define CURRENT_LOG_MODULE TRANSPORT_MODULE
@@ -38,9 +41,11 @@ namespace RAMCloud {
 class FastTransport : public Transport {
     class Session;
     class ServerSession;
+    class ClientSession;
   public:
     explicit FastTransport(Driver* driver);
     void poll();
+    ClientSession* getClientSession();
 
     class ClientRPC : public Transport::ClientRPC {
       public:
@@ -99,6 +104,7 @@ class FastTransport : public Transport {
     enum { REQ_ACK_AFTER = 5 };
     enum { TIMEOUT_NS = 10 * 1000 * 1000 }; // 10 ms
     enum { TIMEOUTS_UNTIL_ABORTING = 500 }; // >= 5 s
+    enum { SESSION_TIMEOUT_NS = 60lu * 60 * 1000 * 1000 * 1000 }; // 30 min
 
     class Timer {
       public:
@@ -220,16 +226,16 @@ class FastTransport : public Transport {
             {
             }
             virtual void fireTimer(uint64_t now) {
-                    numTimeouts++;
-                    if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
-                        LOG(DEBUG, "Closing session due to timeout");
-                        inboundMsg->session->close();
-                    } else {
-                        //LOG(DEBUG, "Timer fired; resending ACK");
-                        inboundMsg->transport->addTimer(this,
-                                                        rdtsc() + TIMEOUT_NS);
-                        inboundMsg->sendAck();
-                    }
+                numTimeouts++;
+                if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
+                    LOG(DEBUG, "Closing session due to timeout");
+                    inboundMsg->session->close();
+                } else {
+                    //LOG(DEBUG, "Timer fired; resending ACK");
+                    inboundMsg->transport->addTimer(this,
+                                                    rdtsc() + TIMEOUT_NS);
+                    inboundMsg->sendAck();
+                }
             }
             bool useTimer;
             uint32_t numTimeouts;
@@ -342,13 +348,15 @@ class FastTransport : public Transport {
         ServerChannel channels[NUM_CHANNELS_PER_SESSION];
 
         uint64_t token;
-        const uint32_t id;
         uint32_t clientSessionHint;
         uint64_t lastActivityTime;
         sockaddr clientAddress;
         socklen_t clientAddressLen;
 
       public:
+        // TODO(stutsman) template friend doesn't work - no idea why
+        const uint32_t id;
+        uint32_t nextFree;
         ServerSession(FastTransport* transport, uint32_t sessionId);
         uint64_t getToken();
         const sockaddr* getAddress(socklen_t *len);
@@ -367,6 +375,8 @@ class FastTransport : public Transport {
                                  Driver::Received* received);
         void processReceivedAck(ServerChannel* channel,
                                 Driver::Received* received);
+        // TODO(stutsman) template friend doesn't work - no idea why
+        template <typename T> friend class SessionTable;
 
         DISALLOW_COPY_AND_ASSIGN(ServerSession);
     };
@@ -408,7 +418,6 @@ class FastTransport : public Transport {
         uint32_t numChannels;
 
         uint64_t token;
-        const uint32_t id;
         uint32_t serverSessionHint;
         uint64_t lastActivityTime;
         sockaddr serverAddress;
@@ -424,6 +433,9 @@ class FastTransport : public Transport {
         ClientChannel* getAvailableChannel();
         void clearChannels();
       public:
+        // TODO(stutsman) template friend doesn't work - no idea why
+        const uint32_t id;
+        uint32_t nextFree;
         ClientSession(FastTransport* transport, uint32_t sessionId);
         bool isConnected();
         void connect(const sockaddr* serverAddress,
@@ -437,7 +449,85 @@ class FastTransport : public Transport {
         bool expire();
 
       private:
+        template <typename T> friend class SessionTable;
         DISALLOW_COPY_AND_ASSIGN(ClientSession);
+    };
+
+    template <typename T>
+    class SessionTable {
+      public:
+        /// A Session with this as nextFree is not itself free.
+        static const uint32_t NONE = ~0u;
+        /// A Session with this as nextFree is last Session in the free list.
+        static const uint32_t TAIL = ~0u - 1;
+        explicit SessionTable(FastTransport* transport)
+            : transport(transport),
+              sessions(),
+              firstFree(TAIL),
+              lastCleanedIndex(0)
+        {
+        }
+
+        T* operator[](uint32_t sessionHint) const
+        {
+            return sessions[sessionHint];
+        }
+
+        T* get()
+        {
+            uint32_t sessionHint = firstFree;
+            if (sessionHint >= sessions.size()) {
+                // Invalid, no free sessions, so create a new one
+                sessionHint = sessions.size();
+                T* session = new T(transport, sessionHint);
+                session->nextFree = TAIL;
+                sessions.push_back(session);
+            }
+            T* session = sessions[sessionHint];
+            firstFree = session->nextFree;
+            session->nextFree = NONE;
+            return sessions[sessionHint];
+        }
+
+        void put(T* session)
+        {
+            session->nextFree = firstFree;
+            firstFree = session->id;
+        }
+
+        void expire(uint32_t sessionsToCheck = 5)
+        {
+            uint64_t now = rdtsc();
+            for (uint32_t i = 0; i < sessionsToCheck; i++) {
+                lastCleanedIndex++;
+                if (lastCleanedIndex >= sessions.size()) {
+                    lastCleanedIndex = 0;
+                    if (sessions.size() == 0)
+                        break;
+                }
+                T* session = sessions[lastCleanedIndex];
+                if (session->nextFree == NONE &&
+                    (session->getLastActivityTime() +
+                     SESSION_TIMEOUT_NS < now)) {
+                    if (session->expire())
+                        put(session);
+                }
+            }
+        }
+
+        uint32_t size()
+        {
+            return sessions.size();
+        }
+
+      private:
+        FastTransport* const transport;
+        std::vector<T*> sessions;
+        uint32_t firstFree;
+        uint32_t lastCleanedIndex;
+
+        friend class SessionTableTest;
+        DISALLOW_COPY_AND_ASSIGN(SessionTable);
     };
 
     bool tryProcessPacket();
@@ -450,12 +540,14 @@ class FastTransport : public Transport {
     uint32_t numFrags(const Buffer* dataBuffer);
 
     Driver* const driver;
-    ServerSession serverSession;
-    ClientSession clientSession;
+    SessionTable<ServerSession> serverSessions;
+    SessionTable<ClientSession> clientSessions;
     TAILQ_HEAD(ServerReadyQueueHead, ServerRPC) serverReadyQueue;
     LIST_HEAD(TimerListHead, Timer) timerList;
 
     friend class FastTransportTest;
+    friend class SessionTableTest;
+    friend class Services;
     DISALLOW_COPY_AND_ASSIGN(FastTransport);
 };
 

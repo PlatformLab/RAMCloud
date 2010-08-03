@@ -25,8 +25,8 @@ namespace RAMCloud {
 
 FastTransport::FastTransport(Driver* driver)
     : driver(driver),
-      serverSession(this, 0),
-      clientSession(this, 0),
+      serverSessions(this),
+      clientSessions(this),
       serverReadyQueue(),
       timerList()
 {
@@ -40,6 +40,13 @@ FastTransport::poll()
     while (tryProcessPacket())
         fireTimers();
     fireTimers();
+}
+
+FastTransport::ClientSession*
+FastTransport::getClientSession()
+{
+    clientSessions.expire();
+    return clientSessions.get();
 }
 
 FastTransport::ClientRPC*
@@ -79,8 +86,8 @@ FastTransport::tryProcessPacket()
         return true;
 
     if (header->getDirection() == Header::CLIENT_TO_SERVER) {
-        if (header->serverSessionHint < 1) {
-            ServerSession* session = &serverSession;
+        if (header->serverSessionHint < serverSessions.size()) {
+            ServerSession* session = serverSessions[header->serverSessionHint];
             if (session->getToken() == header->sessionToken) {
                 session->processInboundPacket(&received);
                 return true;
@@ -91,7 +98,8 @@ FastTransport::tryProcessPacket()
         switch (header->getPayloadType()) {
         case Header::SESSION_OPEN: {
             LOG(DEBUG, "session open");
-            ServerSession* session = &serverSession;
+            serverSessions.expire();
+            ServerSession* session = serverSessions.get();
             session->startSession(&received.addr,
                                   received.addrlen,
                                   header->clientSessionHint);
@@ -113,8 +121,8 @@ FastTransport::tryProcessPacket()
         }
         }
     } else {
-        if (header->clientSessionHint < 1) {
-            ClientSession* session = &clientSession;
+        if (header->clientSessionHint < clientSessions.size()) {
+            ClientSession* session = clientSessions[header->clientSessionHint];
             session->processInboundPacket(&received);
         } else {
             LOG(DEBUG, "Bad client session hint");
@@ -242,14 +250,14 @@ FastTransport::ClientRPC::start()
 {
     assert(state == IDLE);
     state = IN_PROGRESS;
-    ClientSession* session = &transport->clientSession;
+    // TODO(stutsman) Need service-like object for session caching
+    ClientSession* session = transport->clientSessions.get();
     if (!session->isConnected())
         session->connect(&serverAddress, serverAddressLen);
     session->startRpc(this);
 }
 
 // --- ServerRPC ---
-
 
 FastTransport::ServerRPC::ServerRPC(ServerSession* session,
                                     uint8_t channelId)
@@ -695,11 +703,12 @@ FastTransport::ServerSession::ServerSession(FastTransport* transport,
                                             uint32_t sessionId)
     : Session(transport),
       token(0xcccccccccccccccc),
-      id(sessionId),
       clientSessionHint(0xcccccccc),
       lastActivityTime(0),
       clientAddress(),
-      clientAddressLen(0)
+      clientAddressLen(0),
+      id(sessionId),
+      nextFree(FastTransport::SessionTable<ServerSession>::NONE)
 {
     memset(&clientAddress, 0xcc, sizeof(clientAddress));
     for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++)
@@ -991,12 +1000,13 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
       channels(NULL),
       numChannels(0),
       token(0xcccccccccccccccc),
-      id(sessionId),
       serverSessionHint(0xcccccccc),
       lastActivityTime(0),
       serverAddress(),
       serverAddressLen(0),
-      channelQueue()
+      channelQueue(),
+      id(sessionId),
+      nextFree(FastTransport::SessionTable<ClientSession>::NONE)
 {
     memset(&serverAddress, 0xcc, sizeof(serverAddress));
     TAILQ_INIT(&channelQueue);
