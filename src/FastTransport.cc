@@ -22,7 +22,12 @@
 
 namespace RAMCloud {
 
-
+/**
+ * Create a FastTransport attached to a particular Driver
+ *
+ * \param driver
+ *      The driver over which packets should be sent.
+ */
 FastTransport::FastTransport(Driver* driver)
     : driver(driver),
       serverSessions(this),
@@ -34,6 +39,7 @@ FastTransport::FastTransport(Driver* driver)
     LIST_INIT(&timerList);
 }
 
+// TODO(stutsman) Why is this public?
 void
 FastTransport::poll()
 {
@@ -42,6 +48,7 @@ FastTransport::poll()
     fireTimers();
 }
 
+// TODO(stutsman) What should the actual interface be for sessions?
 FastTransport::ClientSession*
 FastTransport::getClientSession()
 {
@@ -49,8 +56,9 @@ FastTransport::getClientSession()
     return clientSessions.get();
 }
 
+// See Transport::clientSend().
 FastTransport::ClientRPC*
-FastTransport::clientSend(const Service* service,
+FastTransport::clientSend(Service* service,
                           Buffer* request,
                           Buffer* response)
 {
@@ -194,13 +202,14 @@ FastTransport::numFrags(const Buffer* dataBuffer)
 // --- ClientRPC ---
 
 FastTransport::ClientRPC::ClientRPC(FastTransport* transport,
-                                    const Service* service,
+                                    Service* service,
                                     Buffer* request,
                                     Buffer* response)
     : requestBuffer(request),
       responseBuffer(response),
       state(IDLE),
       transport(transport),
+      service(service),
       serverAddress(),
       serverAddressLen(0),
       channelQueueEntries()
@@ -250,10 +259,13 @@ FastTransport::ClientRPC::start()
 {
     assert(state == IDLE);
     state = IN_PROGRESS;
-    // TODO(stutsman) Need service-like object for session caching
-    ClientSession* session = transport->clientSessions.get();
+    ClientSession* session =
+        static_cast<ClientSession*>(service->getSession());
+    if (!session)
+        session = transport->clientSessions.get();
     if (!session->isConnected())
         session->connect(&serverAddress, serverAddressLen);
+    service->setSession(session);
     session->startRpc(this);
 }
 

@@ -32,6 +32,7 @@
 #include "Transport.h"
 #include "Driver.h"
 #include "Ring.h"
+#include "Service.h"
 
 #undef CURRENT_LOG_MODULE
 #define CURRENT_LOG_MODULE TRANSPORT_MODULE
@@ -45,8 +46,7 @@ class FastTransport : public Transport {
   public:
     explicit FastTransport(Driver* driver);
     void poll();
-    ClientSession* getClientSession();
-
+    virtual ClientSession* getClientSession();
     class ClientRPC : public Transport::ClientRPC {
       public:
         void getReply();
@@ -55,7 +55,7 @@ class FastTransport : public Transport {
         Buffer* const responseBuffer;
 
       private:
-        ClientRPC(FastTransport* transport, const Service* service,
+        ClientRPC(FastTransport* transport, Service* service,
                   Buffer* request, Buffer* response);
         void aborted();
         void completed();
@@ -69,6 +69,7 @@ class FastTransport : public Transport {
         } state;
 
         FastTransport* const transport;
+        Service* service;
         const sockaddr serverAddress;
         socklen_t serverAddressLen;
         TAILQ_ENTRY(ClientRPC) channelQueueEntries;
@@ -77,8 +78,8 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(ClientRPC);
     };
 
-    ClientRPC* clientSend(const Service* service,
-                          Buffer* request, Buffer* response);
+    virtual ClientRPC* clientSend(Service* service,
+                                  Buffer* request, Buffer* response);
 
     class ServerRPC : public Transport::ServerRPC {
       public:
@@ -93,12 +94,13 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(ServerRPC);
     };
 
-    ServerRPC* serverRecv();
+    virtual ServerRPC* serverRecv();
+
 
   private:
     enum { NUM_CHANNELS_PER_SESSION = 8 };
     enum { MAX_NUM_CHANNELS_PER_SESSION = 8 };
-    enum { PACKET_LOSS_PERCENTAGE = 5 };
+    enum { PACKET_LOSS_PERCENTAGE = 0 };
     enum { MAX_STAGING_FRAGMENTS = 32 };
     enum { WINDOW_SIZE = 10 };
     enum { REQ_ACK_AFTER = 5 };
@@ -306,6 +308,7 @@ class FastTransport : public Transport {
         virtual uint64_t getLastActivityTime() = 0;
         virtual bool expire() = 0;
         virtual void close() = 0;
+        virtual uint32_t getId() = 0;
         virtual ~Session() {}
         explicit Session(FastTransport* transport)
             : transport(transport) {}
@@ -352,10 +355,12 @@ class FastTransport : public Transport {
         uint64_t lastActivityTime;
         sockaddr clientAddress;
         socklen_t clientAddressLen;
+        const uint32_t id;
 
       public:
-        // TODO(stutsman) template friend doesn't work - no idea why
-        const uint32_t id;
+        virtual uint32_t getId() {
+            return id;
+        }
         uint32_t nextFree;
         ServerSession(FastTransport* transport, uint32_t sessionId);
         uint64_t getToken();
@@ -425,6 +430,8 @@ class FastTransport : public Transport {
 
         TAILQ_HEAD(ChannelQueueHead, ClientRPC) channelQueue;
 
+        const uint32_t id;
+
         void processSessionOpenResponse(Driver::Received* received);
         void processReceivedData(ClientChannel* channel,
                                  Driver::Received* received);
@@ -433,9 +440,10 @@ class FastTransport : public Transport {
         ClientChannel* getAvailableChannel();
         void clearChannels();
       public:
-        // TODO(stutsman) template friend doesn't work - no idea why
-        const uint32_t id;
         uint32_t nextFree;
+        virtual uint32_t getId() {
+            return id;
+        }
         ClientSession(FastTransport* transport, uint32_t sessionId);
         bool isConnected();
         void connect(const sockaddr* serverAddress,
@@ -450,6 +458,7 @@ class FastTransport : public Transport {
 
       private:
         template <typename T> friend class SessionTable;
+        friend class FastTransportTest;
         DISALLOW_COPY_AND_ASSIGN(ClientSession);
     };
 
@@ -492,7 +501,7 @@ class FastTransport : public Transport {
         void put(T* session)
         {
             session->nextFree = firstFree;
-            firstFree = session->id;
+            firstFree = session->getId();
         }
 
         void expire(uint32_t sessionsToCheck = 5)

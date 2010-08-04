@@ -392,7 +392,7 @@ TCPTransport::serverRecv()
 }
 
 Transport::ClientRPC*
-TCPTransport::clientSend(const Service* service, Buffer* request,
+TCPTransport::clientSend(Service* service, Buffer* request,
                          Buffer* response)
 {
     std::auto_ptr<TCPClientRPC> rpc(new TCPClientRPC());

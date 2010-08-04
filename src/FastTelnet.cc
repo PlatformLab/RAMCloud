@@ -23,16 +23,80 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <getopt.h>
+
 /**
  * \file
  * A telnet client over FastTransport.
  */
 
+char address[50];
+uint16_t port;
+int cpu;
+bool generate;
+
+void __attribute__ ((noreturn))
+usage(char *arg0)
+{
+    printf("Usage: %s "
+            "[-p port] [-a address] [-c cpu]\n"
+           "\t-p\t--port\t\tChoose which port to connect to.\n"
+           "\t-a\t--address\tChoose which address to connect to.\n"
+           "\t-c\t--cpu\t\tRestrict the test to a specific CPU (0 indexed).\n",
+           "\t-g\t--generate\t\tGenerate junk traffic.\n",
+           arg0);
+    exit(EXIT_FAILURE);
+}
+
+void
+cmdline(int argc, char *argv[])
+{
+    port = 12242;
+    strncpy(address, "127.0.0.1", sizeof(address));
+    address[sizeof(address) - 1] = '\0';
+    cpu = -1;
+    generate = false;
+
+    struct option long_options[] = {
+        {"address", required_argument, NULL, 'a'},
+        {"port", required_argument, NULL, 'p'},
+        {"cpu", required_argument, NULL, 'a'},
+        {"generate", no_argument, NULL, 'g'},
+        {0, 0, 0, 0},
+    };
+
+    int c;
+    int i = 0;
+    while ((c = getopt_long(argc, argv, "a:p:c:g",
+                            long_options, &i)) >= 0)
+    {
+        switch (c) {
+        case 'a':
+            strncpy(address, optarg, sizeof(address));
+            address[sizeof(address) - 1] = '\0';
+            break;
+        case 'p':
+            port = atoi(optarg);
+            break;
+        case 'c':
+            cpu = atoi(optarg);
+            break;
+        case 'g':
+            generate = true;
+            break;
+        default:
+            usage(argv[0]);
+        }
+    }
+}
+
 int
-main(int argc, char** argv)
+main(int argc, char *argv[])
 try
 {
     using namespace RAMCloud; // NOLINT
+
+    cmdline(argc, argv);
 
     logger.setLogLevel(TRANSPORT_MODULE, DEBUG);
 
@@ -40,10 +104,10 @@ try
     FastTransport tx(&d);
 
     Service service;
-    service.setIp("127.0.0.1");
-    service.setPort(12242);
+    service.setIp(address);
+    service.setPort(port);
 
-    if (argc == 1) {
+    if (!generate) {
         char buf[1024];
         while (fgets(buf, sizeof(buf), stdin) != NULL) {
             Buffer request;
@@ -70,10 +134,6 @@ try
                 Buffer::Chunk::appendToBuffer(&request, buf, sizeof(buf));
             CycleCounter c;
             tx.clientSend(&service, &request, &response)->getReply();
-            /*
-            LOG(ERROR, "Pinged %lu bytes in %lu cycles",
-                totalFrags * sizeof(buf), c.stop());
-            */
         }
     }
     return 0;

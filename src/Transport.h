@@ -187,7 +187,7 @@ class Transport {
      * \throw TransportException
      *      If \a service is unavailable.
      */
-    virtual ClientRPC* clientSend(const Service* service, Buffer* request,
+    virtual ClientRPC* clientSend(Service* service, Buffer* request,
                                   Buffer* response)
         __attribute__((warn_unused_result)) = 0;
 

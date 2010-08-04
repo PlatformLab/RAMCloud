@@ -64,7 +64,7 @@ class MockTransport : public Transport {
         return new MockServerRPC(this);
     }
 
-    virtual ClientRPC* clientSend(const Service* service, Buffer* payload,
+    virtual ClientRPC* clientSend(Service* service, Buffer* payload,
                                   Buffer* response) {
         ++clientSendCount;
         return new MockClientRPC(this);

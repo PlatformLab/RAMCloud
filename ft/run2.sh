@@ -9,13 +9,13 @@ while getopts "sc" OPT; do
             SERVER="../obj.fasttransport/FastEcho"
             ;;
         c)
-            CLIENT="../obj.fasttransport/FastTelnet -x"
+            CLIENT="../obj.fasttransport/FastTelnet -g"
             ;;
     esac
 done
 
 (cd ..; make ./obj.fasttransport/Fast{Echo,Telnet})
-TIME=5
+TIME=1
 CAP_FILE=/tmp/x.cap
 sudo rm -f $CAP_FILE
 sudo dumpcap -a duration:$TIME -i lo -w $CAP_FILE &

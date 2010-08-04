@@ -112,7 +112,23 @@ class Service {
      */
     void refreshAddress();
 
-    Service() : serviceId(0), port(0) {
+    /**
+     * A potentially still open session on this service used in prior requests.
+     * Used by Transport layer to cache sessions to Services.
+     */
+    void* getSession() const {
+        return session;
+    }
+
+    /**
+     * Associate an open session with this service.
+     * Used by Transport layer to cache sessions to Services.
+     */
+    void setSession(void* session) {
+        this->session = session;
+    }
+
+    Service() : serviceId(0), port(0), session(0) {
         memset(ip, 0, sizeof(ip));
         memset(mac, 0, sizeof(mac));
     }
@@ -122,6 +138,8 @@ class Service {
     uint16_t port;       // Current port of this Service.
     char ip[16];         // Current IPv4 address of this Service.
     char mac[6];         // Current ethernet MAC address of this Service.
+    /// A potentially still open session on this service.
+    void* session;
 
     friend class ServiceTest;
     DISALLOW_COPY_AND_ASSIGN(Service);

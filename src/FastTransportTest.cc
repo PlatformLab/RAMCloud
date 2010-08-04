@@ -26,10 +26,97 @@ namespace RAMCloud {
 class FastTransportTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(FastTransportTest);
     CPPUNIT_TEST(test_queue_is_in);
+    CPPUNIT_TEST(test_clientSend);
     CPPUNIT_TEST(test_serverRecv);
+    CPPUNIT_TEST(test_clientRPC_send);
     CPPUNIT_TEST_SUITE_END();
 
   public:
+
+    class MockDriver : public Driver {
+        char toHexDigit(char nibble) {
+            nibble &= 0x0f;
+            if (nibble < 0xa)
+                return '0' + nibble;
+            return 'a' + (nibble - 0xa);
+        }
+
+      public:
+        virtual uint32_t getMaxPayloadSize() { return 1400; }
+        virtual void sendPacket(const sockaddr *addr,
+                                socklen_t addrlen,
+                                void *header,
+                                uint32_t headerLen,
+                                Buffer::Iterator *payload)
+        {
+            str += "REQUEST: ";
+            if (!payload) {
+                str += "NULL";
+                return;
+            }
+            for (; payload->isDone(); payload->next()) {
+                char* data = static_cast<char*>(payload->getData());
+                for (uint32_t i = 0; i < payload->getLength(); i++) {
+                    str += toHexDigit(data[i] >> 4);
+                    str += toHexDigit(data[i]);
+                }
+            }
+        }
+
+        virtual bool tryRecvPacket(Received *received)
+        {
+            if (sessionStarted) {
+                sessionStarted = true;
+                return false;
+            }
+
+            FastTransport::Header* header =
+                reinterpret_cast<FastTransport::Header*>(replyBuffer);
+            header->direction = FastTransport::Header::SERVER_TO_CLIENT;
+            header->clientSessionHint = 0;
+            header->serverSessionHint = 0;
+            header->sessionToken = 0;
+            header->rpcId = 0;
+            header->channelId = 0;
+            header->payloadType = FastTransport::Header::SESSION_OPEN;
+
+            FastTransport::SessionOpenResponse* openResp =
+                reinterpret_cast<FastTransport::SessionOpenResponse*>
+                    (replyBuffer + sizeof(FastTransport::Header));
+            openResp->maxChannelId = 0;
+
+            received->addrlen = 0;
+            received->len = sizeof(FastTransport::Header);
+            received->driver = this;
+            received->payload = reinterpret_cast<char*>(&header);
+
+            return true;
+        }
+
+        virtual void release(char *payload, uint32_t len)
+        {
+        }
+
+        MockDriver()
+            : str(), sessionStarted(false)
+        {
+        }
+
+        const std::string& toString()
+        {
+            return str;
+        }
+
+        virtual ~MockDriver() {}
+
+      private:
+        std::string str;
+        bool sessionStarted;
+        char replyBuffer[sizeof(FastTransport::Header) +
+                         sizeof(FastTransport::SessionOpenResponse)];
+        DISALLOW_COPY_AND_ASSIGN(MockDriver);
+    };
+
     FastTransportTest() {}
 
     void
@@ -67,6 +154,23 @@ class FastTransportTest : public CppUnit::TestFixture {
     }
 
     void
+    test_clientSend()
+    {
+        MockDriver d;
+        FastTransport t(&d);
+        Buffer request;
+        Buffer response;
+
+        Service service;
+        service.setIp("0.0.0.0");
+        service.setPort(0);
+
+        FastTransport::ClientRPC* rpc =
+            t.clientSend(&service, &request, &response);
+        CPPUNIT_ASSERT(rpc != 0);
+    }
+
+    void
     test_serverRecv()
     {
         FastTransport transport(NULL);
@@ -74,6 +178,29 @@ class FastTransportTest : public CppUnit::TestFixture {
         TAILQ_INSERT_TAIL(&transport.serverReadyQueue, &rpc, readyQueueEntries);
         CPPUNIT_ASSERT_EQUAL(&rpc, transport.serverRecv());
     }
+
+    void
+    test_clientRPC_send()
+    {
+        MockDriver d;
+        FastTransport t(&d);
+        Buffer request;
+        Buffer response;
+
+        Service service;
+        service.setIp("0.0.0.0");
+        service.setPort(0);
+
+        t.clientSend(&service, &request, &response);
+        // After the send we should have a session in our service
+        CPPUNIT_ASSERT(service.getSession() != 0);
+
+        // If we do an additional send we should use the same session
+        void* s = service.getSession();
+        t.clientSend(&service, &request, &response);
+        CPPUNIT_ASSERT_EQUAL(s, service.getSession());
+    }
+
 
   private:
     DISALLOW_COPY_AND_ASSIGN(FastTransportTest);
@@ -112,11 +239,16 @@ class SessionTableTest : public CppUnit::TestFixture {
         void setExpired(bool expired) {
             this->expired = expired;
         }
+        virtual uint32_t getId() {
+            return id;
+        }
+        virtual ~MockSession() {}
         FastTransport* transport;
         uint32_t id;
         uint32_t nextFree;
         bool expired;
         uint64_t time;
+        DISALLOW_COPY_AND_ASSIGN(MockSession);
     };
 
   public:
