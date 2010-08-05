@@ -50,7 +50,7 @@ class Driver {
         char *payload;
         Received() : driver(0), addr(), addrlen(0), len(0), payload(0) {}
         ~Received() {
-            if (driver)
+            if (driver && payload)
                 driver->release(payload, len);
         }
         void* getRange(uint32_t offset, uint32_t length) {

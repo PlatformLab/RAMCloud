@@ -528,10 +528,7 @@ FastTransport::OutboundMessage::init(Session* session,
     this->session = session;
     this->transport = session->transport;
     this->channelId = channelId;
-    if (timer.useTimer)
-        transport->removeTimer(&timer);
-    timer.when = 0;
-    timer.numTimeouts = 0;
+    clear();
     timer.useTimer = useTimer;
 }
 
@@ -544,7 +541,9 @@ FastTransport::OutboundMessage::clear()
     packetsSinceAckReq = 0;
     sentTimes.clear();
     numAcked = 0;
-    transport->removeTimer(&timer);
+    if (timer.useTimer)
+        transport->removeTimer(&timer);
+    timer.when = 0;
     timer.numTimeouts = 0;
 }
 
@@ -967,11 +966,12 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
         channel->rpcId += 1;
         channel->outboundMsg.clear();
         channel->inboundMsg.clear();
-        ClientRPC *rpc = TAILQ_FIRST(&channelQueue);
-        if (rpc == NULL) {
+        if (TAILQ_EMPTY(&channelQueue)) {
             channel->state = ClientChannel::IDLE;
             channel->currentRpc = NULL;
         } else {
+            ClientRPC *rpc = TAILQ_FIRST(&channelQueue);
+            assert(rpc->channelQueueEntries.tqe_prev);
             TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
             channel->state = ClientChannel::SENDING;
             channel->currentRpc = rpc;

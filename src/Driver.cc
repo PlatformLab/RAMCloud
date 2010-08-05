@@ -38,6 +38,7 @@ void
 UDPDriver::release(char *payload, uint32_t len)
 {
     packetBufsUtilized--;
+    assert(packetBufsUtilized >= 0);
     Driver::release(payload, len);
 }
 
