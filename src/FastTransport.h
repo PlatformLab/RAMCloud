@@ -400,6 +400,9 @@ class FastTransport : public Transport {
             {
             }
             void init(Session* session, uint32_t channelId) {
+                state = IDLE;
+                rpcId = ~0U;
+                currentRpc = NULL;
                 bool useTimer = true;
                 outboundMsg.init(session, channelId, useTimer);
                 inboundMsg.init(session, channelId, useTimer);

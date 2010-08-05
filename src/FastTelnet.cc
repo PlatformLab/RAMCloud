@@ -138,8 +138,10 @@ try
                 LOG(DEBUG, "Getting reply %d", i);
                 rpcs[i]->getReply();
                 uint32_t respLen = response[i].getTotalLength();
-                if (respLen >= sizeof(recvbuf[i]))
-                    return 1;
+                if (respLen >= sizeof(recvbuf[i])) {
+                    LOG(WARNING, "Failed to get reply %d", i);
+                    break;
+                }
                 recvbuf[i][respLen] = '\0';
                 response[i].copy(0, respLen, recvbuf[i]);
                 fputs(static_cast<char*>(recvbuf[i]), stdout);

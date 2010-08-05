@@ -266,6 +266,7 @@ FastTransport::ClientRPC::start()
     if (!session->isConnected())
         session->connect(&serverAddress, serverAddressLen);
     service->setSession(session);
+    LOG(DEBUG, "Using session id %u", session->getId());
     session->startRpc(this);
 }
 
@@ -927,20 +928,22 @@ FastTransport::ClientSession::processSessionOpenResponse(
         received->getOffset<SessionOpenResponse>(sizeof(*header));
     serverSessionHint = header->serverSessionHint;
     token = header->sessionToken;
-    numChannels = std::min(response->maxChannelId + 1,
-                           static_cast<int>(
-                               MAX_NUM_CHANNELS_PER_SESSION));
+    LOG(DEBUG, "response max avail: %u", response->maxChannelId);
+    numChannels = response->maxChannelId + 1;
+    if (MAX_NUM_CHANNELS_PER_SESSION < numChannels)
+        numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+    LOG(DEBUG, "Session open response: numChannels: %u", numChannels);
     channels = new ClientChannel[numChannels];
     for (uint32_t i = 0; i < numChannels; i++) {
+        channels[i].init(this, i);
         channels[i].state = ClientChannel::IDLE;
         channels[i].rpcId = 0;
         channels[i].currentRpc = NULL;
-        channels[i].init(this, i);
     }
     for (uint32_t i = 0; i < numChannels; i++) {
-        ClientRPC* rpc = TAILQ_FIRST(&channelQueue);
-        if (rpc == NULL)
+        if (TAILQ_EMPTY(&channelQueue))
             break;
+        ClientRPC* rpc = TAILQ_FIRST(&channelQueue);
         TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
         channels[i].state = ClientChannel::SENDING;
         channels[i].currentRpc = rpc;
@@ -991,7 +994,9 @@ FastTransport::ClientSession::processReceivedAck(ClientChannel* channel,
 FastTransport::ClientSession::ClientChannel*
 FastTransport::ClientSession::getAvailableChannel()
 {
+    printf("numChannels %d\n", numChannels);
     for (uint32_t i = 0; i < numChannels; i++) {
+        printf("%d state %d\n", i, channels[i].state);
         if (channels[i].state == ClientChannel::IDLE)
             return &channels[i];
     }
@@ -1136,8 +1141,10 @@ FastTransport::ClientSession::startRpc(ClientRPC* rpc)
     lastActivityTime = rdtsc();
     ClientChannel* channel = getAvailableChannel();
     if (channel == NULL) {
+        LOG(DEBUG, "Queueing RPC");
         TAILQ_INSERT_TAIL(&channelQueue, rpc, channelQueueEntries);
     } else {
+        LOG(DEBUG, "RPC proceeding on channel %p", channel);
         assert(channel->state == ClientChannel::IDLE);
         channel->state = ClientChannel::SENDING;
         channel->currentRpc = rpc;
