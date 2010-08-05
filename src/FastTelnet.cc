@@ -34,16 +34,19 @@ char address[50];
 uint16_t port;
 int cpu;
 bool generate;
+int multi;
 
 void __attribute__ ((noreturn))
 usage(char *arg0)
 {
     printf("Usage: %s "
-            "[-p port] [-a address] [-c cpu]\n"
+            "[-p port] [-a address] [-c cpu] [-g] [-n servers]\n"
            "\t-p\t--port\t\tChoose which port to connect to.\n"
            "\t-a\t--address\tChoose which address to connect to.\n"
            "\t-c\t--cpu\t\tRestrict the test to a specific CPU (0 indexed).\n",
            "\t-g\t--generate\t\tGenerate junk traffic.\n",
+           "\t-m\t--multi\t\tConnect to addl servers on same addr on port "
+                "range starting at supplied port.\n",
            arg0);
     exit(EXIT_FAILURE);
 }
@@ -56,18 +59,20 @@ cmdline(int argc, char *argv[])
     address[sizeof(address) - 1] = '\0';
     cpu = -1;
     generate = false;
+    multi = 1;
 
     struct option long_options[] = {
         {"address", required_argument, NULL, 'a'},
         {"port", required_argument, NULL, 'p'},
         {"cpu", required_argument, NULL, 'a'},
         {"generate", no_argument, NULL, 'g'},
+        {"multi", required_argument, NULL, 'm'},
         {0, 0, 0, 0},
     };
 
     int c;
     int i = 0;
-    while ((c = getopt_long(argc, argv, "a:p:c:g",
+    while ((c = getopt_long(argc, argv, "a:p:c:gm:",
                             long_options, &i)) >= 0)
     {
         switch (c) {
@@ -83,6 +88,10 @@ cmdline(int argc, char *argv[])
             break;
         case 'g':
             generate = true;
+            break;
+        case 'm':
+            multi = atoi(optarg);
+            assert(multi > 0 and multi < 100);
             break;
         default:
             usage(argv[0]);
@@ -103,25 +112,38 @@ try
     UDPDriver d;
     FastTransport tx(&d);
 
-    Service service;
-    service.setIp(address);
-    service.setPort(port);
+    Service service[multi];
+    for (int i = 0; i < multi; i++) {
+        service[i].setIp(address);
+        service[i].setPort(port + i);
+    }
 
     if (!generate) {
-        char buf[1024];
-        while (fgets(buf, sizeof(buf), stdin) != NULL) {
-            Buffer request;
-            Buffer response;
-            Buffer::Chunk::appendToBuffer(&request, buf,
-                                          static_cast<uint32_t>(strlen(buf)));
-            tx.clientSend(&service, &request, &response)->getReply();
+        char sendbuf[1024];
+        char recvbuf[multi][1024];
+        FastTransport::ClientRPC* rpcs[multi];
+        Buffer response[multi];
+        LOG(DEBUG, "Sending to %d servers", multi);
+        while (fgets(sendbuf, sizeof(sendbuf), stdin) != NULL) {
+            for (int i = 0; i < multi; i++) {
+                Buffer request;
+                Buffer::Chunk::appendToBuffer(&request, sendbuf,
+                    static_cast<uint32_t>(strlen(sendbuf)));
+                LOG(DEBUG, "Sending out request %d to port %d",
+                    i, service[i].getPort());
+                rpcs[i] = tx.clientSend(&service[i], &request, &response[i]);
+            }
 
-            uint32_t respLen = response.getTotalLength();
-            if (respLen >= sizeof(buf))
-                return 1;
-            buf[respLen] = '\0';
-            response.copy(0, respLen, buf);
-            fputs(static_cast<char*>(buf), stdout);
+            for (int i = 0; i < multi; i++) {
+                LOG(DEBUG, "Getting reply %d", i);
+                rpcs[i]->getReply();
+                uint32_t respLen = response[i].getTotalLength();
+                if (respLen >= sizeof(recvbuf[i]))
+                    return 1;
+                recvbuf[i][respLen] = '\0';
+                response[i].copy(0, respLen, recvbuf[i]);
+                fputs(static_cast<char*>(recvbuf[i]), stdout);
+            }
         }
     } else {
         char buf[1024];
@@ -133,7 +155,7 @@ try
             for (uint32_t i = 0; i < totalFrags; i++)
                 Buffer::Chunk::appendToBuffer(&request, buf, sizeof(buf));
             CycleCounter c;
-            tx.clientSend(&service, &request, &response)->getReply();
+            tx.clientSend(&service[0], &request, &response)->getReply();
         }
     }
     return 0;

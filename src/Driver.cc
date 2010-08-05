@@ -34,11 +34,11 @@ Driver::release(char *payload, uint32_t len)
     delete[] payload;
 }
 
-
 void
 UDPDriver::release(char *payload, uint32_t len)
 {
     packetBufsUtilized--;
+    Driver::release(payload, len);
 }
 
 UDPDriver::UDPDriver()
@@ -73,7 +73,7 @@ UDPDriver::UDPDriver(const sockaddr *addr, socklen_t addrlen)
 UDPDriver::~UDPDriver()
 {
     if (packetBufsUtilized != 0)
-        LOG(WARNING, "WARNING: packetBufsUtilized: %d",
+        LOG(WARNING, "packetBufsUtilized: %d",
             packetBufsUtilized);
     close(socketFd);
 }
