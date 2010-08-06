@@ -439,16 +439,74 @@ uint32_t Buffer::copy(uint32_t offset, uint32_t length,
 }
 
 /**
- * Generate a string describing the contents of the buffer.
+ * Create a printable representation of the contents of the buffer.
+ * The string representation was designed primarily for printing
+ * network packets during testing.
  *
- * This method is intended primarily for use in tests.
+ * \result string
+ *      The return value is a string describing the contents of the
+ *      buffer. The string consists of one or more items separated
+ *      by white space, with each item representing a range of bytes
+ *      in the buffer (these ranges do not necessarily correspond to
+ *      the buffer's internal chunks).  A chunk can be either an integer
+ *      representing 4 contiguous bytes of the buffer or a null-terminated
+ *      string representing any number of bytes.  String format is preferred,
+ *      but is only used for things that look like strings.  Integers
+ *      are printed in decimal if they are small, otherwise hexadecimal.
+ */
+string
+Buffer::toString() {
+    string s;
+    uint32_t length = getTotalLength();
+    uint32_t i = 0;
+    char temp[20];
+    const char* separator = "";
+
+    // Each iteration through the following loop processes a piece
+    // of the buffer consisting of either:
+    // * 4 bytes output as a decimal integer
+    // * or, a string output as a string
+    while (i < length) {
+        s.append(separator);
+        separator = " ";
+        if ((i+4) <= length) {
+            char *p = static_cast<char*>(getRange(i, 4));
+            if ((p[0] < ' ') || (p[1] < ' ')) {
+                int value = *reinterpret_cast<int*>(p);
+                snprintf(temp, sizeof(temp),
+                        ((value > 10000) || (value < -1000)) ? "0x%x" : "%d",
+                        value);
+                s.append(temp);
+                i += 4;
+                continue;
+            }
+        }
+
+        // This chunk of data looks like a string, so output it out as one.
+        while (i < length) {
+            char c = *static_cast<char*>(getRange(i, 1));
+            i++;
+            convertChar(c, s);
+            if (c == '\0') {
+                break;
+            }
+        }
+    }
+    return s;
+}
+
+/**
+ * Generate a string describing the contents of the buffer in a way
+ * that displays its internal chunk structure.
+ *
+ * This method is intended primarily for use in tests for this class.
  *
  * \return A string that describes the contents of the buffer. It
  *         consists of the contents of the various chunks separated
  *         by " | ", with long chunks abbreviated and non-printing
  *         characters converted to something printable.
  */
-string Buffer::toString() {
+string Buffer::debugString() {
     // The following declaration defines the maximum number of characters
     // to display from each chunk.
     static const uint32_t CHUNK_LIMIT = 20;
@@ -472,28 +530,86 @@ string Buffer::toString() {
                 s.append(temp);
                 break;
             }
-
-            // In printing out the characters, the goal here is
-            // to produce a string that is reasonably readable and has
-            // no special characters in it; this makes it easy to cut
-            // and paste from test output to an "expected results" string
-            // without having to add additional quote characters, etc.
-            // That's why we print "/n" instead of "\n", for example.
-            char c = chunk[i];
-            if ((c >= 0x20) && (c < 0x7f)) {
-                s.append(&c, 1);
-            } else if (c == '\0') {
-                s.append("/0");
-            } else if (c == '\n') {
-                s.append("/n");
-            } else {
-                uint32_t value = c & 0xff;
-                snprintf(temp, sizeof(temp), "/x%02x", value);
-                s.append(temp);
-            }
+            convertChar(chunk[i], s);
         }
     }
     return s;
+}
+
+/**
+ * Replace the contents of the buffer with data specified in a string.
+ * This method was designed primarily for use in tests (e.g. to specify
+ * network packets).
+ *
+ * \param s
+ *      Describes what to put in the buffer. Consists of one or more
+ *      substrings separated by spaces:
+ *      - If a substring starts with a digit or "-" it is assumed to
+ *        be a decimal number, which is converted to a 4-byte signed
+ *        integer in the buffer.
+ *      - If a substring starts with "0x" it is assumed to be a
+ *        hexadecimal number, which is converted to a 4-byte integer
+ *        in the buffer.
+ *      - Otherwise the characters of the substring are appended to
+ *        the buffer, with an additional null terminating character.
+ */
+void
+Buffer::fillFromString(const char* s) {
+    truncateFront(getTotalLength());
+    
+    uint32_t i, length;
+    length = strlen(s);
+    for (i = 0; i < length; ) {
+        char c = s[i];
+        if ((c == '0') && (s[i+1] == 'x')) {
+            // Hexadecimal number
+            int value = 0;
+            i += 2;
+            while (i < length) {
+                char c = s[i];
+                i++;
+                if (c == ' ') {
+                    break;
+                }
+                if (c <= '9') {
+                    value = 16*value + (c - '0');
+                } else if ((c >= 'a') && (c <= 'f')) {
+                    value = 16*value + 10 + (c - 'a');
+                } else {
+                    value = 16*value + 10 + (c - 'A');
+                }
+            }
+            *(new(this, APPEND) int32_t) = value;
+        } else if ((c == '-') || ((c >= '0') && (c <= '9'))) {
+            // Decimal number
+            int value = 0;
+            int sign = (c == '-') ? -1 : 1;
+            if (c == '-') {
+                sign = -1;
+                i++;
+            }
+            while (i < length) {
+                char c = s[i];
+                i++;
+                if (c == ' ') {
+                    break;
+                }
+                value = 10*value + (c - '0');
+            }
+            *(new(this, APPEND) int32_t) = value * sign;
+        } else {
+            // String
+            while (i < length) {
+                char c = s[i];
+                i++;
+                if (c == ' ') {
+                    break;
+                }
+                *(new(this, APPEND) char) = c;
+            }
+            *(new(this, APPEND) char) = 0;
+        }
+    }
 }
 
 /**
@@ -575,6 +691,36 @@ Buffer::getLastChunk() const
     while (current->next != NULL)
         current = current->next;
     return current;
+}
+
+/**
+ * Convert a character to a printable form (if it isn't already) and append
+ * to a string. This method is used by other methods such as debugString
+ * and toString.
+ *
+ * \param c
+ *      Character to convert.
+ * \param[out] string
+ *      Append the converted result here. Non-printing characters get
+ *      converted to a form using "/" (not "\"!).  This produces a result
+ *      that can be cut and pasted from test output into test code: the
+ *      result will never contain any characters that require quoting
+ *      if used in a C string, such as backslashes or quotes.
+ */
+void
+Buffer::convertChar(char c, string& out) {
+    if ((c >= 0x20) && (c < 0x7f) && (c != '"') && (c != '\\')) {
+        out.append(&c, 1);
+    } else if (c == '\0') {
+        out.append("/0");
+    } else if (c == '\n') {
+        out.append("/n");
+    } else {
+        char temp[20];
+        uint32_t value = c & 0xff;
+        snprintf(temp, sizeof(temp), "/x%02x", value);
+        out.append(temp);
+    }
 }
 
 /**

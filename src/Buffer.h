@@ -387,7 +387,9 @@ class Buffer {
     uint32_t peek(uint32_t offset, void** returnPtr);
     void* getRange(uint32_t offset, uint32_t length);
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
+    string debugString();
     string toString();
+    void fillFromString(const char* s);
 
     void truncateFront(uint32_t length);
     void truncateEnd(uint32_t length);
@@ -408,6 +410,7 @@ class Buffer {
     uint32_t getNumberChunks() const { return numberChunks; }
 
   private:
+    void convertChar(char c, string& out);
     Chunk* getLastChunk() const;
 
     /* For operator new's use only. */
