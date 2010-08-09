@@ -2,7 +2,10 @@ OBJDIRS += client_static client_shared \
 	shared_static shared_shared
 
 CLIENT_SRCFILES := \
-		src/Client.cc
+		src/CClient.cc \
+		src/Client.cc \
+		src/ClientException.cc \
+		src/Status.cc
 
 CLIENT_STATIC_OBJFILES := $(CLIENT_SRCFILES)
 CLIENT_STATIC_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/client_static/%.o, $(CLIENT_STATIC_OBJFILES))

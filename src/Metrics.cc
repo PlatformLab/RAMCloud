@@ -79,11 +79,10 @@ Metrics::setup(PerfCounterType counterType, Mark beginMark, Mark endMark)
  * corresponding metric.
  *
  * \param which
- *      The perf_counter field from an incoming RPC.  See
- *      rcrpc_perf_counter() for details.
+ *      Value from an incoming RPC that specifies what we should measure.
  */
 void
-Metrics::setup(rcrpc_perf_counter which)
+Metrics::setup(RpcPerfCounter which)
 {
     setup(static_cast<PerfCounterType>(which.counterType),
           static_cast<Mark>(which.beginMark),

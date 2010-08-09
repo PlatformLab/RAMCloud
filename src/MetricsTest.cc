@@ -92,8 +92,8 @@ class MetricsTest : public CppUnit::TestFixture {
     void
     test_setup_fromRPC()
     {
-        static_assert(sizeof(rcrpc_perf_counter) == sizeof(uint32_t));
-        rcrpc_perf_counter perfCounter;
+        static_assert(sizeof(RpcPerfCounter) == sizeof(uint32_t));
+        RpcPerfCounter perfCounter;
         perfCounter.beginMark = MARK_RPC_PROCESSING_BEGIN;
         perfCounter.endMark = MARK_RPC_PROCESSING_END;
         perfCounter.counterType = PERF_COUNTER_TSC;

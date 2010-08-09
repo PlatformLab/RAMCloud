@@ -112,7 +112,7 @@ try
     TCPTransport trans(config.address, config.port);
     Server server(&config, &trans);
 
-    server.Run();
+    server.run();
 
     return 0;
 } catch (RAMCloud::Exception e) {

@@ -27,15 +27,15 @@
 
 namespace CppUnit {
 
-void assertEquals(const char *expected, const char *actual,
-                  SourceLine sourceLine, const std::string &message);
+extern void assertEquals(const char *expected, const char *actual,
+        SourceLine sourceLine, const std::string &message);
 void assertEquals(const char *expected, const std::string& actual,
-                  SourceLine sourceLine, const std::string &message);
-void assertEquals(uint32_t expected, const uint32_t actual,
-                  SourceLine sourceLine, const std::string &message);
+        SourceLine sourceLine, const std::string &message);
+void assertEquals(uint64_t expected, const uint64_t actual,
+        SourceLine sourceLine, const std::string &message);
 void assertEquals(void *expected, const void *actual,
-                  SourceLine sourceLine, const std::string &message);
+        SourceLine sourceLine, const std::string &message);
 
-}
+} // namespace CppUnit
 
 #endif  // RAMCLOUD_TESTUTIL_H

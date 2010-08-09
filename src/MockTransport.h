@@ -14,10 +14,15 @@
  */
 
 /**
- * \file MockTransport.h Header file for the TCPTransport class.
+ * \file
+ * This file defines an implementation of Transport that allows unit
+ * tests to run without a network or a remote counterpart (it logs
+ * output packets and provides a mechanism for prespecifying input
+ * packets).
  */
 
 #include <Transport.h>
+#include <string>
 
 #ifndef RAMCLOUD_MOCKTRANSPORT_H
 #define RAMCLOUD_MOCKTRANSPORT_H
@@ -26,50 +31,46 @@ namespace RAMCloud {
 
 class MockTransport : public Transport {
   public:
-    MockTransport()
-            : serverRecvCount(0), serverSendCount(0),
-              clientSendCount(0), clientRecvCount(0) { }
+    MockTransport();
+    virtual ~MockTransport() { }
+    virtual ServerRPC* serverRecv();
+    virtual ClientRPC* clientSend(const Service* service, Buffer* payload,
+                                  Buffer* response);
+    void setInput(const char* message);
 
     class MockServerRPC : public ServerRPC {
         public:
-            explicit MockServerRPC(MockTransport* trans) : trans(trans) {}
-            void sendReply() {
-                ++trans->serverSendCount;
-                delete this;
-            }
-            void ignore() {
-                delete this;
-            }
+            explicit MockServerRPC(MockTransport* transport);
+            void sendReply();
+            void ignore();
         private:
-            MockTransport* trans;
+            MockTransport* transport;
             DISALLOW_COPY_AND_ASSIGN(MockServerRPC);
     };
 
     class MockClientRPC : public ClientRPC {
         public:
-            explicit MockClientRPC(MockTransport* trans) : trans(trans) {}
-            void getReply() {
-                ++trans->clientRecvCount;
-                delete this;
-            }
+            explicit MockClientRPC(MockTransport* transport, Buffer* response);
+            void getReply();
         private:
-            MockTransport* trans;
+            MockTransport* transport;
+            Buffer* response;
             DISALLOW_COPY_AND_ASSIGN(MockClientRPC);
     };
 
-    virtual ~MockTransport() { }
+    /**
+     * Records information from each call to clientSend and sendReply.
+     */
+    string outputLog;
 
-    virtual ServerRPC* serverRecv() {
-        ++serverRecvCount;
-        return new MockServerRPC(this);
-    }
+    /**
+     * Used as the next input message required by either serverRecv
+     * or getReply.
+     */
+    const char* inputMessage;
 
-    virtual ClientRPC* clientSend(const Service* service, Buffer* payload,
-                                  Buffer* response) {
-        ++clientSendCount;
-        return new MockClientRPC(this);
-    }
-
+    // The following variables count calls to various methods, for use
+    // by tests.
     uint32_t serverRecvCount;
     uint32_t serverSendCount;
     uint32_t clientSendCount;

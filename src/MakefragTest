@@ -5,21 +5,27 @@ TESTS_PYMOCK_SRCFILES := \
 TESTS_PYMOCK_OUTFILES := $(patsubst src/%.in.cc, $(OBJDIR)/%.cc, $(TESTS_PYMOCK_SRCFILES))
 
 TESTS_SRCFILES := \
-		src/ServerTest.cc \
-		src/BackupServerTest.cc \
-		src/BackupClientTest.cc \
-		src/BitmapTest.cc \
-		src/BufferTest.cc \
-		src/ServiceTest.cc \
-		src/HashTableTest.cc \
-		src/ChecksumTest.cc \
-		src/SegmentTest.cc \
-		src/LogTest.cc \
-		src/LoggingTest.cc \
-                src/MetricsTest.cc \
-		src/TestRunner.cc \
-		src/TestUtil.cc \
-		$(TESTS_PYMOCK_OUTFILES)
+        src/ServerTest.cc \
+        src/BackupServerTest.cc \
+        src/BackupClientTest.cc \
+        src/BitmapTest.cc \
+        src/BufferTest.cc \
+        src/CClientTest.cc \
+        src/ClientExceptionTest.cc \
+        src/ClientTest.cc \
+        src/ServiceTest.cc \
+        src/HashTableTest.cc \
+        src/ChecksumTest.cc \
+        src/SegmentTest.cc \
+        src/ServerTest.cc \
+        src/LogTest.cc \
+        src/LoggingTest.cc \
+        src/MetricsTest.cc \
+        src/StatusTest.cc \
+        src/TestRunner.cc \
+        src/TestUtil.cc \
+        src/MockTransport.cc \
+        $(TESTS_PYMOCK_OUTFILES)
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
 TESTS_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
@@ -27,6 +33,7 @@ TESTS_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
 TESTS_OBJFILES := $(TESTS_OBJFILES) \
                $(SHARED_OBJFILES) \
                $(SERVER_OBJFILES) \
+               $(CLIENT_STATIC_OBJFILES) \
                $(BACKUP_OBJFILES)
 
 TESTS_LIB := -lcppunit -ldl

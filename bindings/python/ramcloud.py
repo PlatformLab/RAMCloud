@@ -22,11 +22,12 @@ import itertools
 import os
 
 class RejectRules(ctypes.Structure):
-    _fields_ = [("object_doesnt_exist", ctypes.c_uint8, 1),
-                ("object_exists", ctypes.c_uint8, 1),
-                ("version_eq_given", ctypes.c_uint8, 1),
-                ("version_gt_given", ctypes.c_uint8, 1),
-                ("given_version", ctypes.c_uint64)]
+    _fields_ = [("given_version", ctypes.c_uint64),
+                ("object_doesnt_exist", ctypes.c_uint8, 8),
+                ("object_exists", ctypes.c_uint8, 8),
+                ("version_eq_given", ctypes.c_uint8, 8),
+                ("version_gt_given", ctypes.c_uint8, 8),
+                ]
 
     def _as_tuple(self):
         return (self.object_doesnt_exist, self.object_exists,
@@ -73,14 +74,6 @@ def load_so():
     except OSError:
         raise not_found
 
-    def int_errcheck(result, func, arguments):
-        if result == -1:
-            # If and when rc_last_error() takes a client pointer,
-            # we can use arguments[0].
-            msg = so.rc_last_error()
-            raise RCException(msg)
-        return result
-
     def malloc_errcheck(result, func, arguments):
         if result == 0:
             raise MemoryError()
@@ -107,70 +100,54 @@ def load_so():
 
     # argument types aliased to their names for sanity
     # alphabetical order
+    address             = ctypes.c_char_p
     buf                 = ctypes.c_void_p
     client              = ctypes.c_void_p
-    err                 = ctypes.c_int
-    error_msg           = ctypes.c_char_p
-    key                 = ctypes.c_uint64
-    len                 = ctypes.c_uint64
+    id                  = ctypes.c_uint64
+    len                 = ctypes.c_uint32
     name                = ctypes.c_char_p
-    reject_rules        = POINTER(RejectRules)
-    table               = ctypes.c_uint64
+    port                = ctypes.c_uint32
+    rejectRules         = POINTER(RejectRules)
+    status              = ctypes.c_int
+    table               = ctypes.c_uint32
     version             = ctypes.c_uint64
-    address             = ctypes.c_char_p
-    port                = ctypes.c_int
 
-    so.rc_connect.argtypes = [client, address, port]
-    so.rc_connect.restype  = err
-    so.rc_connect.errcheck = int_errcheck
+    so.rc_connect.argtypes = [address, port, POINTER(client)]
+    so.rc_connect.restype  = status
 
     so.rc_disconnect.argtypes = [client]
     so.rc_disconnect.restype  = None
 
-    so.rc_ping.argtypes = [client]
-    so.rc_ping.restype  = err
-    so.rc_ping.errcheck = int_errcheck
-
-    so.rc_write.argtypes = [client, table, key, reject_rules, POINTER(version),
-                            buf, len]
-    so.rc_write.restype  = err
-    so.rc_write.errcheck = int_errcheck
-
-    so.rc_insert.argtypes = [client, table, buf, len, POINTER(key)]
-    so.rc_insert.restype  = err
-    so.rc_insert.errcheck = int_errcheck
-
-    so.rc_delete.argtypes = [client, table, key, reject_rules,
+    so.rc_create.argtypes = [client, table, buf, len, POINTER(id),
                              POINTER(version)]
-    so.rc_delete.restype  = err
-    so.rc_delete.errcheck = int_errcheck
+    so.rc_create.restype  = status
 
-    so.rc_read.argtypes = [client, table, key, reject_rules, POINTER(version),
-                           buf, POINTER(len)]
-    so.rc_read.restype  = err
-    so.rc_read.errcheck = int_errcheck
+    so.rc_createTable.argtypes = [client, name]
+    so.rc_createTable.restype  = status
 
-    so.rc_create_table.argtypes = [client, name]
-    so.rc_create_table.restype  = err
-    so.rc_create_table.errcheck = int_errcheck
+    so.rc_dropTable.argtypes = [client, name]
+    so.rc_dropTable.restype  = status
 
-    so.rc_open_table.argtypes = [client, name, POINTER(table)]
-    so.rc_open_table.restype  = err
-    so.rc_open_table.errcheck = int_errcheck
+    so.rc_getStatus.argtypes = []
+    so.rc_getStatus.restype  = status
 
-    so.rc_drop_table.argtypes = [client, name]
-    so.rc_drop_table.restype  = err
-    so.rc_drop_table.errcheck = int_errcheck
+    so.rc_openTable.argtypes = [client, name, POINTER(table)]
+    so.rc_openTable.restype  = status
 
-    so.rc_new.argtypes = []
-    so.rc_new.restype  = client
-    so.rc_new.errcheck = malloc_errcheck
+    so.rc_ping.argtypes = [client]
+    so.rc_ping.restype  = status
 
-    so.rc_free.argtypes = [client]
-    so.rc_free.restype  = None
+    so.rc_read.argtypes = [client, table, id, rejectRules, POINTER(version),
+                           buf, len, POINTER(len)]
+    so.rc_read.restype  = status
 
-    so.rc_last_error.argtypes = []
-    so.rc_last_error.restype  = error_msg
+    so.rc_remove.argtypes = [client, table, id, rejectRules,
+                             POINTER(version)]
+    so.rc_remove.restype  = status
+
+    so.rc_write.argtypes = [client, table, id, buf, len, rejectRules,
+                            POINTER(version)]
+    so.rc_write.restype  = status
 
     return so
 
@@ -179,6 +156,9 @@ def _ctype_copy(addr, var, width):
     return addr + width
 
 class RCException(Exception):
+    def __init__(self, status):
+        Exception.__init__(self, 'RAMCloud error ' + str(status))
+        self.status = status
     pass
 
 class NoObjectError(Exception):
@@ -194,133 +174,123 @@ class VersionError(Exception):
         self.want_version = want_version
         self.got_version = got_version
 
-class FabricatedVersionError(Exception):
-    def __init__(self, want_version, got_version):
-        Exception.__init__(self, "Fabricated version: requested %d but at %d" %
-                (want_version, got_version))
-        self.want_version = want_version
-        self.got_version = got_version
-
 class RAMCloud(object):
     def __init__(self):
-        self.client = so.rc_new()
+        self.client = ctypes.c_void_p()
         self.hook = lambda: None
 
     def __del__(self):
-        so.rc_free(self.client)
-        self.client = None
+        if self.client.value != None:
+            so.rc_disconnect(self.client)
+        self.client.value = ctypes.c_void_p()
+        
+    def handle_error(self, status, actual_version=0):
+        if status == 0:
+            return
+        if status == 2:
+            raise NoObjectError()
+        if status == 3:
+            raise ObjectExistsError()
+        if status == 4:
+            raise VersionError(reject_rules.given_version, actual_version)
+        raise RCException(status)
 
     def connect(self, address='127.0.0.1', port=11111):
-        so.rc_connect(self.client, address, port)
+        s = so.rc_connect(address, port, ctypes.byref(self.client))
+        self.handle_error(s)
 
-    def ping(self):
-        so.rc_ping(self.client)
+    def create(self, table_id, id, data):
+        reject_rules = RejectRules(object_exists=True)
+        return self.write_rr(table_id, id, data, reject_rules)
 
-    def write_rr(self, table_id, key, data, reject_rules):
+    def create_table(self, name):
+        s = so.rc_createTable(self.client, name)
+        self.handle_error(s)
+
+    def delete(self, table_id, id, want_version=None):
+        if want_version:
+            reject_rules = RejectRules.exactly(want_version)
+        else:
+            reject_rules = RejectRules(object_doesnt_exist=True)
+        return self.delete_rr(table_id, id, reject_rules)
+
+    def delete_rr(self, table_id, id, reject_rules):
         got_version = ctypes.c_uint64()
         self.hook()
-        r = so.rc_write(self.client, table_id, key, ctypes.byref(reject_rules),
-                        ctypes.byref(got_version), data, len(data))
-        assert r in range(6)
-        if r == 1:
-            raise NoObjectError()
-        if r == 2:
-            raise ObjectExistsError()
-        if r == 3 or r == 4:
-            raise VersionError(reject_rules.given_version, got_version.value)
-        if r == 5:
-            raise FabricatedVersionError(reject_rules.given_version, got_version.value)
+        s = so.rc_remove(self.client, table_id, id,
+                         ctypes.byref(reject_rules), ctypes.byref(got_version))
+        self.handle_error(s, got_version.value)
         return got_version.value
 
-    def write(self, table_id, key, data, want_version=None):
+    def drop_table(self, name):
+        s = so.rc_dropTable(self.client, name)
+        self.handle_error(s)
+
+    def insert(self, table_id, data):
+        id = ctypes.c_uint64()
+        version = ctypes.c_uint64()
+        self.hook()
+        so.rc_create(self.client, table_id, data, len(data), ctypes.byref(id),
+                     ctypes.byref(version))
+        return id.value
+
+    def open_table(self, name):
+        handle = ctypes.c_uint32()
+        s = so.rc_openTable(self.client, name, ctypes.byref(handle))
+        self.handle_error(s)
+        return handle.value
+
+    def ping(self):
+        s = so.rc_ping(self.client)
+        self.handle_error(s)
+
+    def read(self, table_id, id, want_version=None):
+        if want_version:
+            reject_rules = RejectRules.exactly(want_version)
+        else:
+            reject_rules = RejectRules(object_doesnt_exist=True)
+        return self.read_rr(table_id, id, reject_rules)
+
+    def read_rr(self, table_id, id, reject_rules):
+        max_length = 1024 * 1024 * 2
+        buf = ctypes.create_string_buffer(max_length)
+        actual_length = ctypes.c_uint32()
+        got_version = ctypes.c_uint64()
+        reject_rules.object_doesnt_exist = True
+        self.hook()
+        s = so.rc_read(self.client, table_id, id, ctypes.byref(reject_rules),
+                       ctypes.byref(got_version), ctypes.byref(buf), max_length,
+                       ctypes.byref(actual_length))
+        self.handle_error(s, got_version.value)
+        return (buf.raw[0:actual_length.value], got_version.value)
+
+    def update(self, table_id, id, data, want_version=None):
+        if want_version:
+            reject_rules = RejectRules.exactly(want_version)
+        else:
+            reject_rules = RejectRules(object_doesnt_exist=True)
+        return self.write_rr(table_id, id, data, reject_rules)
+
+    def write(self, table_id, id, data, want_version=None):
         if want_version:
             reject_rules = RejectRules(version_gt_given=True,
                                        given_version=want_version)
         else:
             reject_rules = RejectRules()
-        return self.write_rr(table_id, key, data, reject_rules)
+        return self.write_rr(table_id, id, data, reject_rules)
 
-    def create(self, table_id, key, data):
-        reject_rules = RejectRules(object_exists=True)
-        return self.write_rr(table_id, key, data, reject_rules)
-
-    def update(self, table_id, key, data, want_version=None):
-        if want_version:
-            reject_rules = RejectRules.exactly(want_version)
-        else:
-            reject_rules = RejectRules(object_doesnt_exist=True)
-        return self.write_rr(table_id, key, data, reject_rules)
-
-    def insert(self, table_id, data):
-        key = ctypes.c_uint64()
-        self.hook()
-        so.rc_insert(self.client, table_id, data, len(data), ctypes.byref(key))
-        return key.value
-
-    def delete_rr(self, table_id, key, reject_rules):
+    def write_rr(self, table_id, id, data, reject_rules):
         got_version = ctypes.c_uint64()
         self.hook()
-        r = so.rc_delete(self.client, table_id, key,
-                         ctypes.byref(reject_rules), ctypes.byref(got_version))
-        assert r in range(6)
-        if r == 1:
-            raise NoObjectError()
-        if r == 2:
-            raise ObjectExistsError()
-        if r == 3 or r == 4:
-            raise VersionError(reject_rules.given_version, got_version.value)
-        if r == 5:
-            raise FabricatedVersionError(reject_rules.given_version, got_version.value)
-
-    def delete(self, table_id, key, want_version=None):
-        if want_version:
-            reject_rules = RejectRules.exactly(want_version)
-        else:
-            reject_rules = RejectRules(object_doesnt_exist=True)
-        return self.delete_rr(table_id, key, reject_rules)
-
-    def read_rr(self, table_id, key, reject_rules):
-        buf = ctypes.create_string_buffer(1024 * 1024 * 2)
-        l = ctypes.c_uint64()
-        got_version = ctypes.c_uint64()
-        reject_rules.object_doesnt_exist = True
-        self.hook()
-        r = so.rc_read(self.client, table_id, key, ctypes.byref(reject_rules),
-                       ctypes.byref(got_version), ctypes.byref(buf),
-                       ctypes.byref(l))
-        assert r in range(6)
-        if r == 1:
-            raise NoObjectError()
-        if r == 2:
-            raise ObjectExistsError()
-        if r == 3 or r == 4:
-            raise VersionError(reject_rules.given_version, got_version.value)
-        if r == 5:
-            raise FabricatedVersionError(reject_rules.given_version, got_version.value)
-        return (buf.raw[0:l.value], got_version.value)
-
-    def read(self, table_id, key, want_version=None):
-        if want_version:
-            reject_rules = RejectRules.exactly(want_version)
-        else:
-            reject_rules = RejectRules(object_doesnt_exist=True)
-        return self.read_rr(table_id, key, reject_rules)
-
-    def create_table(self, name):
-        so.rc_create_table(self.client, name)
-
-    def open_table(self, name):
-        handle = ctypes.c_uint64()
-        so.rc_open_table(self.client, name, ctypes.byref(handle))
-        return handle.value
-
-    def drop_table(self, name):
-        so.rc_drop_table(self.client, name)
+        s = so.rc_write(self.client, table_id, id, data, len(data),
+                        ctypes.byref(reject_rules), ctypes.byref(got_version))
+        self.handle_error(s, got_version.value)
+        return got_version.value
 
 def main():
     r = RAMCloud()
-    print "Client: 0x%x" % r.client
     r.connect()
+    print "Client: 0x%x" % r.client.value
     r.ping()
 
     r.create_table("test")
@@ -329,16 +299,18 @@ def main():
     print "with id %s" % table
 
     r.create(table, 0, "Hello, World, from Python")
-    print "Inserted to table"
+    print "Created object 0 in table"
     value, got_version = r.read(table, 0)
     print value
-    key = r.insert(table, "test")
-    print "Inserted value and got back key %d" % key
-    r.update(table, key, "test")
+    id = r.insert(table, "test")
+    print "Inserted value and got back id %d" % id
+    print "Value read back: %s" % r.read(table, id)[0]
+    r.update(table, id, "test")
 
     bs = "binary\00safe?"
     oid = r.insert(table, bs)
-    assert r.read(table, oid)[0] == bs
+    value = r.read(table, oid)[0]
+    assert value == bs
 
     r.drop_table("test")
 
