@@ -87,8 +87,9 @@ TCPTransport::Socket::~Socket()
 /**
  * Receive a single message (either a request or a response).
  * \param payload
- *      An empty buffer to which the message contents will be added.
- *      Keep in mind that the sender may have sent a 0-byte message (which is
+ *      A buffer to which the message contents will be added.  Any
+ *      initial contents of the buffer are discarded.  Keep in mind
+ *      that the sender may have sent a 0-byte message (which is
  *      perfectly OK and distinct from an error).
  * \throw TransportException
  *      There was an error on the connection.
@@ -97,6 +98,10 @@ void
 TCPTransport::MessageSocket::recv(Buffer* payload)
 {
     assert(fd >= 0);
+    uint32_t length = payload->getTotalLength();
+    if (length != 0) {
+        payload->truncateFront(length);
+    }
 
     // receive header
     Header header;
