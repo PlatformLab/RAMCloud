@@ -528,7 +528,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                                      length);
         firstMissingFrag++;
         while (true) {
-            // TODO ring serializer for unit test assertions
+            // TODO(stutsman) ring serializer for unit test assertions
             std::pair<char*, uint32_t> pair = dataStagingRing[0];
             char* payload = pair.first;
             uint32_t length = pair.second;
