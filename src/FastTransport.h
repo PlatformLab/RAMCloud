@@ -194,14 +194,28 @@ class FastTransport : public Transport {
         uint32_t stagingVector;
     } __attribute__((packed));
 
+    /**
+     * InboundMessage accumulates and assembles fragments into a complete
+     * incoming message.
+     *
+     * An incoming message must first be associated (permantently) with a
+     * particular Session, Channel, and timer configuration using setup().
+     * To start assembling a message init() is first called to tell the
+     * message object how many fragments to expect and where to place the
+     * resulting data.
+     *
+     * From here a Channel hands fragments still wrapped by the Driver as
+     * a Driver::Received to processReceivedData which takes care of the
+     * details.
+     *
+     * Once an instance is no longer is use clear() must be called to allow
+     * future reuse of the instance.
+     */
     class InboundMessage {
       public:
-        InboundMessage(FastTransport* transport,
-                       Session* session,
-                       uint32_t channelId,
-                       bool useTimer);
+        InboundMessage();
         ~InboundMessage();
-        void init(Session* session, uint32_t channelId, bool useTimer);
+        void setup(Session* session, uint32_t channelId, bool useTimer);
         void sendAck();
         void clear();
         void init(uint16_t totalFrags, Buffer* dataBuffer);
@@ -246,6 +260,9 @@ class FastTransport : public Transport {
             DISALLOW_COPY_AND_ASSIGN(Timer);
         };
         Timer timer;
+
+        friend class FastTransportTest;
+        friend class InboundMessageTest;
         DISALLOW_COPY_AND_ASSIGN(InboundMessage);
     };
 
@@ -253,11 +270,8 @@ class FastTransport : public Transport {
         static const uint64_t TO_SEND = ~(0lu);
         static const uint64_t ACKED = ~(0lu) - 1;
       public:
-        OutboundMessage(FastTransport* transport,
-                         Session* session,
-                         uint32_t channelId,
-                         bool useTimer);
-        void init(Session* session, uint32_t channelId, bool useTimer);
+        OutboundMessage();
+        void setup(Session* session, uint32_t channelId, bool useTimer);
         void clear();
         void beginSending(Buffer* dataBuffer);
         void send();
@@ -303,7 +317,8 @@ class FastTransport : public Transport {
 
     class Session {
       public:
-        virtual void fillHeader(Header* header, uint8_t channelId) = 0;
+        virtual void fillHeader(Header* const header,
+                                uint8_t channelId) const = 0;
         virtual const sockaddr* getAddress(socklen_t *len) = 0;
         virtual uint64_t getLastActivityTime() = 0;
         virtual bool expire() = 0;
@@ -321,18 +336,21 @@ class FastTransport : public Transport {
         struct ServerChannel {
           public:
             /// This creates broken in/out messages that are reinitialized
-            /// by init()
+            /// by setup()
             ServerChannel()
                 : state(IDLE),
                   rpcId(~0U),
                   currentRpc(NULL),
-                  inboundMsg(NULL, NULL, 0, false),
-                  outboundMsg(NULL, NULL, 0, false)
+                  inboundMsg(),
+                  outboundMsg()
             {
             }
-            void init(Session* session, uint32_t channelId) {
-                inboundMsg.init(session, channelId, false);
-                outboundMsg.init(session, channelId, false);
+            void setup(Session* session, uint32_t channelId) {
+                state = IDLE;
+                rpcId = ~0U;
+                currentRpc = NULL;
+                inboundMsg.setup(session, channelId, false);
+                outboundMsg.setup(session, channelId, false);
             }
             enum {
                 IDLE,
@@ -366,7 +384,7 @@ class FastTransport : public Transport {
         uint64_t getToken();
         const sockaddr* getAddress(socklen_t *len);
         uint64_t getLastActivityTime();
-        void fillHeader(Header* header, uint8_t channelId);
+        void fillHeader(Header* const header, uint8_t channelId) const;
         void startSession(const sockaddr *clientAddress,
                           socklen_t clientAddressLen,
                           uint32_t clientSessionHint);
@@ -390,22 +408,22 @@ class FastTransport : public Transport {
         struct ClientChannel {
           public:
             /// This creates broken in/out messages that are reinitialized
-            /// by init()
+            /// by setup()
             ClientChannel()
                 : state(IDLE),
                   rpcId(~0U),
                   currentRpc(NULL),
-                  outboundMsg(NULL, NULL, 0, false),
-                  inboundMsg(NULL, NULL, 0, false)
+                  outboundMsg(),
+                  inboundMsg()
             {
             }
-            void init(Session* session, uint32_t channelId) {
+            void setup(Session* session, uint32_t channelId) {
                 state = IDLE;
                 rpcId = ~0U;
                 currentRpc = NULL;
                 bool useTimer = true;
-                outboundMsg.init(session, channelId, useTimer);
-                inboundMsg.init(session, channelId, useTimer);
+                outboundMsg.setup(session, channelId, useTimer);
+                inboundMsg.setup(session, channelId, useTimer);
             }
             enum {
                 IDLE,
@@ -436,6 +454,7 @@ class FastTransport : public Transport {
         const uint32_t id;
 
         void processSessionOpenResponse(Driver::Received* received);
+        void allocateChannels();
         void processReceivedData(ClientChannel* channel,
                                  Driver::Received* received);
         void processReceivedAck(ClientChannel* channel,
@@ -453,7 +472,7 @@ class FastTransport : public Transport {
                      socklen_t serverAddressLen);
         const sockaddr* getAddress(socklen_t *len);
         uint64_t getLastActivityTime();
-        void fillHeader(Header* header, uint8_t channelId);
+        void fillHeader(Header* const header, uint8_t channelId) const;
         void processInboundPacket(Driver::Received* received);
         void startRpc(ClientRPC* rpc);
         void close();
@@ -462,6 +481,7 @@ class FastTransport : public Transport {
       private:
         template <typename T> friend class SessionTable;
         friend class FastTransportTest;
+        friend class InboundMessageTest;
         DISALLOW_COPY_AND_ASSIGN(ClientSession);
     };
 
@@ -559,6 +579,7 @@ class FastTransport : public Transport {
 
     friend class FastTransportTest;
     friend class SessionTableTest;
+    friend class InboundMessageTest;
     friend class Services;
     DISALLOW_COPY_AND_ASSIGN(FastTransport);
 };

@@ -19,6 +19,7 @@
  */
 
 #include "FastTransport.h"
+#include "MockDriver.h"
 
 namespace RAMCloud {
 
@@ -321,13 +322,14 @@ FastTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
                                         driver,
                                         payload,
                                         payloadLength);
-    Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
+    Buffer::Chunk::appendChunkToBuffer(buffer, chunk);
     return chunk;
 }
 
 FastTransport::PayloadChunk::~PayloadChunk()
 {
-    driver->release(payload, payloadLength);
+    if (driver)
+        driver->release(payload, payloadLength);
 }
 
 FastTransport::PayloadChunk::PayloadChunk(void* data,
@@ -344,30 +346,52 @@ FastTransport::PayloadChunk::PayloadChunk(void* data,
 
 // --- InboundMessage ---
 
-FastTransport::InboundMessage::InboundMessage(FastTransport* transport,
-                                              Session* session,
-                                              uint32_t channelId,
-                                              bool useTimer)
-    : transport(transport),
-      session(session),
-      channelId(channelId),
+/**
+ * Construct an InboundMessage which is NOT yet ready to use.
+ *
+ * NOTE: until setup() and init() have been called this instance
+ * is not ready to receive fragments.
+ */
+FastTransport::InboundMessage::InboundMessage()
+    : transport(0),
+      session(0),
+      channelId(0),
       totalFrags(0),
       firstMissingFrag(0),
       dataStagingRing(),
       dataBuffer(NULL),
-      timer(useTimer, this)
+      timer(false, this)
 {
 }
 
+/**
+ * Cleanup an InboundMessage, releasing any unaccounted for packet
+ * data back to the Driver.
+ */
 FastTransport::InboundMessage::~InboundMessage()
 {
     clear();
 }
 
+/**
+ * One-time initialization that permanently attaches this instance to
+ * a particular Session, channelId, and timer status.
+ *
+ * This method is necessary since the Channels in which they are contained
+ * are allocated as an arrray (hence with the default constructor) requiring
+ * additional post-constructor setup.
+ *
+ * \param session
+ *      The Session belonging to this message.
+ * \param channelId
+ *      The ID of the channel this message belongs to.
+ * \param useTimer
+ *      Whether this message should respond to timer events.
+ */
 void
-FastTransport::InboundMessage::init(Session* session,
-                                    uint32_t channelId,
-                                    bool useTimer)
+FastTransport::InboundMessage::setup(Session* session,
+                                     uint32_t channelId,
+                                     bool useTimer)
 {
     this->session = session;
     this->transport = session->transport;
@@ -379,6 +403,9 @@ FastTransport::InboundMessage::init(Session* session,
     timer.useTimer = useTimer;
 }
 
+/**
+ * Creates and transmits an ACK decribing which fragments are still missing.
+ */
 void
 FastTransport::InboundMessage::sendAck()
 {
@@ -402,6 +429,13 @@ FastTransport::InboundMessage::sendAck()
                           &iter);
 }
 
+/**
+ * Cleans up an InboundMessage and marks it inactive.
+ *
+ * A subsequent call to init() will set it up to be reused.  This call
+ * also returns any memory held in the incoming window to the Driver and
+ * removes any timer events associated with the message.
+ */
 void
 FastTransport::InboundMessage::clear()
 {
@@ -419,6 +453,17 @@ FastTransport::InboundMessage::clear()
          transport->removeTimer(&timer);
 }
 
+/**
+ * Initialize a previously cleared InboundMessage for use.
+ *
+ * This must be called before a previously inactive InboundMessage is ready
+ * to receive fragments.
+ *
+ * \param totalFrags
+ *      The total number of incoming fragments the message should expect.
+ * \param[out] dataBuffer
+ *      The buffer to fill with the data from this message.
+ */
 void
 FastTransport::InboundMessage::init(uint16_t totalFrags,
                                     Buffer* dataBuffer)
@@ -426,15 +471,39 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
     clear();
     this->totalFrags = totalFrags;
     this->dataBuffer = dataBuffer;
-    firstMissingFrag = 0;
     if (timer.useTimer)
         transport->addTimer(&timer, rdtsc() + TIMEOUT_NS);
 }
 
 /**
+ * Take a single fragment and incorporate it as part of this message.
+ *
+ * If the fragment header disagrees on the total length of the message
+ * with the value set on init() the packet is ignored.
+ *
+ * If the fragNumber matches the firstMissingFrag of this message then
+ * it is concatenated to the message's buffer along with any other packets
+ * following this fragments in the dataStagingRing that are contiguous and
+ * have no other missing fragments preceding them in the message.
+ *
+ * If the fragNumber exceeds the firstMissingFrag of this message then
+ * it is stored in the dataStagingRing to be appended according to the
+ * case outlined in the paragraph above.
+ *
+ * Any packet data that will be returned as part of the Buffer is "stolen"
+ * from the Driver::Received object, and the Buffer's Chunk object is
+ * responsible for returning the memory to the Driver later.  Any packet data
+ * that goes unused (that which is not stolen) will be returned to the driver
+ * when the Driver::Received is deleted.
+ *
+ * This code also notices if the incoming fragment has sendAck set.  If it
+ * does then sendAck is called directly after handling this packet as above.
+ *
+ * \param received
+ *      A single fragment wrapped in a Driver::Received.
  * \return
- *      Whether the full message has been received and added
- *      to the dataBuffer.
+ *      Whether the full message has been received and the dataBuffer is now
+ *      complete and valid.
  */
 bool
 FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
@@ -459,6 +528,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                                      length);
         firstMissingFrag++;
         while (true) {
+            // TODO ring serializer for unit test assertions
             std::pair<char*, uint32_t> pair = dataStagingRing[0];
             char* payload = pair.first;
             uint32_t length = pair.second;
@@ -496,35 +566,31 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     // TODO(ongaro): Have caller call this->sendAck() instead.
     if (header->requestAck)
         sendAck();
-    if (timer.useTimer) {
+    if (timer.useTimer)
          transport->addTimer(&timer, rdtsc() + TIMEOUT_NS);
-    }
 
     return firstMissingFrag == totalFrags;
 }
 
 // --- OutboundMessage ---
-FastTransport::OutboundMessage::OutboundMessage(FastTransport* transport,
-                                                Session* session,
-                                                uint32_t channelId,
-                                                bool useTimer)
-    : transport(transport),
-      session(session),
-      channelId(channelId),
-      sendBuffer(NULL),
+FastTransport::OutboundMessage::OutboundMessage()
+    : transport(0),
+      session(0),
+      channelId(0),
+      sendBuffer(0),
       firstMissingFrag(0),
       totalFrags(0),
       packetsSinceAckReq(0),
       sentTimes(),
       numAcked(0),
-      timer(useTimer, this)
+      timer(false, this)
 {
 }
 
 void
-FastTransport::OutboundMessage::init(Session* session,
-                                     uint32_t channelId,
-                                     bool useTimer)
+FastTransport::OutboundMessage::setup(Session* session,
+                                      uint32_t channelId,
+                                      bool useTimer)
 {
     this->session = session;
     this->transport = session->transport;
@@ -724,7 +790,7 @@ FastTransport::ServerSession::ServerSession(FastTransport* transport,
 {
     memset(&clientAddress, 0xcc, sizeof(clientAddress));
     for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++)
-        channels[i].init(this, i);
+        channels[i].setup(this, i);
 }
 
 uint64_t
@@ -747,8 +813,8 @@ FastTransport::ServerSession::getLastActivityTime()
 }
 
 void
-FastTransport::ServerSession::fillHeader(Header* header,
-                                         uint8_t channelId)
+FastTransport::ServerSession::fillHeader(Header* const header,
+                                         uint8_t channelId) const
 {
     header->rpcId = channels[channelId].rpcId;
     header->channelId = channelId;
@@ -933,21 +999,34 @@ FastTransport::ClientSession::processSessionOpenResponse(
     if (MAX_NUM_CHANNELS_PER_SESSION < numChannels)
         numChannels = MAX_NUM_CHANNELS_PER_SESSION;
     LOG(DEBUG, "Session open response: numChannels: %u", numChannels);
-    channels = new ClientChannel[numChannels];
-    for (uint32_t i = 0; i < numChannels; i++) {
-        channels[i].init(this, i);
-        channels[i].state = ClientChannel::IDLE;
-        channels[i].rpcId = 0;
-        channels[i].currentRpc = NULL;
-    }
+    allocateChannels();
     for (uint32_t i = 0; i < numChannels; i++) {
         if (TAILQ_EMPTY(&channelQueue))
             break;
+        LOG(DEBUG, "Assigned RPC to channel: %u", i);
         ClientRPC* rpc = TAILQ_FIRST(&channelQueue);
         TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
         channels[i].state = ClientChannel::SENDING;
         channels[i].currentRpc = rpc;
         channels[i].outboundMsg.beginSending(rpc->requestBuffer);
+    }
+}
+
+/**
+ * Allocates numChannels worth of Channels in this Session.
+ *
+ * This is separated out so that testing methods can allocate Channels
+ * without having to mock out a SessionOpenResponse.
+ */
+inline void
+FastTransport::ClientSession::allocateChannels()
+{
+    channels = new ClientChannel[numChannels];
+    for (uint32_t i = 0; i < numChannels; i++) {
+        channels[i].setup(this, i);
+        channels[i].state = ClientChannel::IDLE;
+        channels[i].rpcId = 0;
+        channels[i].currentRpc = NULL;
     }
 }
 
@@ -994,9 +1073,7 @@ FastTransport::ClientSession::processReceivedAck(ClientChannel* channel,
 FastTransport::ClientSession::ClientChannel*
 FastTransport::ClientSession::getAvailableChannel()
 {
-    printf("numChannels %d\n", numChannels);
     for (uint32_t i = 0; i < numChannels; i++) {
-        printf("%d state %d\n", i, channels[i].state);
         if (channels[i].state == ClientChannel::IDLE)
             return &channels[i];
     }
@@ -1076,8 +1153,8 @@ FastTransport::ClientSession::getLastActivityTime()
 }
 
 void
-FastTransport::ClientSession::fillHeader(Header* header,
-                                         uint8_t channelId)
+FastTransport::ClientSession::fillHeader(Header* const header,
+                                         uint8_t channelId) const
 {
     header->rpcId = channels[channelId].rpcId;
     header->channelId = channelId;

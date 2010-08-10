@@ -49,7 +49,7 @@ class Driver {
         uint32_t len;
         char *payload;
         Received() : driver(0), addr(), addrlen(0), len(0), payload(0) {}
-        ~Received() {
+        VIRTUAL_FOR_TESTING ~Received() {
             if (driver && payload)
                 driver->release(payload, len);
         }
@@ -62,7 +62,7 @@ class Driver {
         T* getOffset(uint32_t offset) {
            return static_cast<T*>(getRange(offset, sizeof(T)));
         }
-        char *steal(uint32_t *len) {
+        VIRTUAL_FOR_TESTING char *steal(uint32_t *len) {
             char *p = payload;
             payload = NULL;
             *len = this->len;

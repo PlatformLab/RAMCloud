@@ -21,6 +21,7 @@ TESTS_SRCFILES := \
                 src/MetricsTest.cc \
 		src/TestRunner.cc \
 		src/TestUtil.cc \
+		src/MockDriver.cc \
 		$(TESTS_PYMOCK_OUTFILES)
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
