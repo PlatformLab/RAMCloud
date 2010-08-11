@@ -410,7 +410,7 @@ class Buffer {
     uint32_t getNumberChunks() const { return numberChunks; }
 
   private:
-    void convertChar(char c, string& out);
+    void convertChar(char c, string *out);
     Chunk* getLastChunk() const;
 
     /* For operator new's use only. */
