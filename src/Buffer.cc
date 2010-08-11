@@ -486,7 +486,7 @@ Buffer::toString() {
         while (i < length) {
             char c = *static_cast<char*>(getRange(i, 1));
             i++;
-            convertChar(c, s);
+            convertChar(c, &s);
             if (c == '\0') {
                 break;
             }
@@ -530,7 +530,7 @@ string Buffer::debugString() {
                 s.append(temp);
                 break;
             }
-            convertChar(chunk[i], s);
+            convertChar(chunk[i], &s);
         }
     }
     return s;
@@ -556,7 +556,6 @@ string Buffer::debugString() {
 void
 Buffer::fillFromString(const char* s) {
     truncateFront(getTotalLength());
-    
     uint32_t i, length;
     length = strlen(s);
     for (i = 0; i < length; ) {
@@ -700,7 +699,7 @@ Buffer::getLastChunk() const
  *
  * \param c
  *      Character to convert.
- * \param[out] string
+ * \param[out] out
  *      Append the converted result here. Non-printing characters get
  *      converted to a form using "/" (not "\"!).  This produces a result
  *      that can be cut and pasted from test output into test code: the
@@ -708,18 +707,18 @@ Buffer::getLastChunk() const
  *      if used in a C string, such as backslashes or quotes.
  */
 void
-Buffer::convertChar(char c, string& out) {
+Buffer::convertChar(char c, string *out) {
     if ((c >= 0x20) && (c < 0x7f) && (c != '"') && (c != '\\')) {
-        out.append(&c, 1);
+        out->append(&c, 1);
     } else if (c == '\0') {
-        out.append("/0");
+        out->append("/0");
     } else if (c == '\n') {
-        out.append("/n");
+        out->append("/n");
     } else {
         char temp[20];
         uint32_t value = c & 0xff;
         snprintf(temp, sizeof(temp), "/x%02x", value);
-        out.append(temp);
+        out->append(temp);
     }
 }
 
