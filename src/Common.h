@@ -44,6 +44,7 @@
 #include <cassert>
 #include <string>
 using std::string;
+using std::pair;
 #endif
 
 // cpplint thinks these are system headers since we're using angle brackets.

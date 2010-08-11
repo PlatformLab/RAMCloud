@@ -226,14 +226,43 @@ class FastTransport : public Transport {
          */
         bool processReceivedData(Driver::Received* received);
       private:
+        /// The transport to which this message belongs.  Set by setup().
         FastTransport* transport;
+
+        /// The session to which this message belongs.  Set by setup().
         Session* session;
+
+        /// The channel ID to which this message belongs.  Set by setup().
         uint32_t channelId;
+
+        /// The number of fragments to aggregate before considering this
+        /// message complete.  Set by init().
         uint32_t totalFrags;
+
+        /// fragNumber of the earliest fragment that is still missing from
+        /// the inbound message.
         uint32_t firstMissingFrag;
+
+        /**
+         * Structure to hold received fragments that can't be added to the
+         * buffer yet because fragments preceding them are still missing.
+         *
+         * This structure holds both a pointer to the data and the length.
+         */
         Ring<std::pair<char*, uint32_t>,
              MAX_STAGING_FRAGMENTS> dataStagingRing;
+
+        /**
+         * The place to accumulate the result message.  Valid once
+         * processReceivedData returns true.
+         */
         Buffer* dataBuffer;
+
+	/**
+	 * When invoked by the FastTransport timer code this timer will
+	 * timeout the session if it is idle for too long, otherwise it
+	 * will just transmit an ACK.
+	 */
         class Timer : public FastTransport::Timer {
           public:
             Timer(bool useTimer, InboundMessage* const inboundMsg)
@@ -259,6 +288,7 @@ class FastTransport : public Transport {
             InboundMessage* const inboundMsg;
             DISALLOW_COPY_AND_ASSIGN(Timer);
         };
+        /// Handles idle session cleanup and ACKs due to timeout.
         Timer timer;
 
         friend class FastTransportTest;

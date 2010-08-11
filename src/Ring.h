@@ -21,7 +21,9 @@
 #ifndef RAMCLOUD_RING_H
 #define RAMCLOUD_RING_H
 
-#include <Common.h>
+#include "Common.h"
+
+#include "TestUtil.h"
 
 
 namespace RAMCloud {

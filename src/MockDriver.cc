@@ -19,7 +19,9 @@
  * without an actual network.
  */
 
-#include <MockDriver.h>
+#include "MockDriver.h"
+
+#include "TestUtil.h"
 
 namespace RAMCloud {
 
@@ -128,72 +130,6 @@ MockDriver::bufferToString(Buffer *buffer, string& s) {
     char buf[length];
     buffer->copy(0, length, buf);
     bufToString(buf, length, s);
-}
-
-/**
- * Append a printable representation of the contents of the buffer
- * to a string.
- *
- * \param buf
- *      Convert the contents of this to ASCII.
- * \param length
- *      The length of the data in buf.
- * \param[out] s
- *      Append the converted value here. The output format is intended
- *      to simplify testing: things that look like strings are output
- *      that way, and everything else is output as 4-byte decimal integers.
- */
-void
-MockDriver::bufToString(const char *buf, uint32_t length, string& s) {
-    uint32_t i = 0;
-    char temp[20];
-    const char* separator = "";
-
-    // Each iteration through the following loop processes a piece
-    // of the buffer consisting of either:
-    // * 4 bytes output as a decimal integer
-    // * or, a string output as a string
-    while (i < length) {
-        s.append(separator);
-        separator = " ";
-        if ((i+4) <= length) {
-            const char *p = &buf[i];
-            if ((p[0] < ' ') || (p[1] < ' ')) {
-                int value = *reinterpret_cast<const int*>(p);
-                snprintf(temp, sizeof(temp), (value > 10000) ? "0x%x" : "%d",
-                        value);
-                s.append(temp);
-                i += 4;
-                continue;
-            }
-        }
-
-        // This chunk of data looks like a string, so output it out as one.
-
-        while (i < length) {
-            char c = buf[i];
-            i++;
-
-            // Output one character; format special characters in a way
-            // that makes it easy to cut and paste this output into an
-            // "expected results" string in tests (e.g. don't generate
-            // backslashes).
-            if ((c >= 0x20) && (c < 0x7f)) {
-                s.append(&c, 1);
-            } else if (c == '\0') {
-                s.append("/0");
-            } else if (c == '\n') {
-                s.append("/n");
-            } else {
-                uint32_t value = c & 0xff;
-                snprintf(temp, sizeof(temp), "/x%02x", value);
-                s.append(temp);
-            }
-            if (c == '\0') {
-                break;
-            }
-        }
-    }
 }
 
 /**

@@ -38,4 +38,10 @@ void assertEquals(void *expected, const void *actual,
 
 }
 
+namespace RAMCloud {
+
+void bufToString(const char *buf, uint32_t length, std::string& s);
+
+} // namespace RAMCloud
+
 #endif  // RAMCLOUD_TESTUTIL_H

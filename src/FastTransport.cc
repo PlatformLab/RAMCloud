@@ -564,6 +564,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     }
 
     // TODO(ongaro): Have caller call this->sendAck() instead.
+    // TODO(stutsman) this stuff should move?
     if (header->requestAck)
         sendAck();
     if (timer.useTimer)
@@ -1018,7 +1019,7 @@ FastTransport::ClientSession::processSessionOpenResponse(
  * This is separated out so that testing methods can allocate Channels
  * without having to mock out a SessionOpenResponse.
  */
-inline void
+void
 FastTransport::ClientSession::allocateChannels()
 {
     channels = new ClientChannel[numChannels];

@@ -11,7 +11,6 @@ SHARED_SRCFILES := \
                 src/Service.cc \
                 src/Driver.cc \
                 src/TCPTransport.cc \
-                src/MockDriver.cc \
                 src/FastTransport.cc
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)

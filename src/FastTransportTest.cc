@@ -132,13 +132,47 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_clear);
     CPPUNIT_TEST(test_init);
     CPPUNIT_TEST(test_setup);
-    CPPUNIT_TEST(test_totalFragMismatch_processReceivedData);
-    CPPUNIT_TEST(test_addFirstMissing_processReceivedData);
-    CPPUNIT_TEST(test_addRunFromRing_processReceivedData);
-    CPPUNIT_TEST(test_addToRing_processReceivedData);
+    CPPUNIT_TEST(test_processReceivedData_totalFragMismatch);
+    CPPUNIT_TEST(test_processReceivedData_addFirstMissing);
+    CPPUNIT_TEST(test_processReceivedData_addRunFromRing);
+    CPPUNIT_TEST(test_processReceivedData_addToRing);
+    CPPUNIT_TEST(test_processReceivedData_sendAckCalled);
+    CPPUNIT_TEST(test_processReceivedData_timerAdded);
     CPPUNIT_TEST_SUITE_END();
 
   public:
+
+    void dataStagingRingToString(
+                Ring<pair<char*, uint32_t>, MAX_STAGING_FRAGMENTS>& ring,
+                string& s)
+    {
+        size_t max = 50;
+        char tmp[max];
+
+        for (uint32_t i = 0; i < ring.getLength(); i++) {
+            char* payload = ring[i].first;
+            uint32_t payloadLen = ring[i].second;
+
+            if (!payload) {
+                snprintf(tmp, max, "-, ");
+            } else {
+                string payloadStr;
+                bufToString(payload, payloadLen, payloadStr);
+                payloadStr.resize(10);
+
+                snprintf(tmp, max, "(%s, %u), ", payloadStr.c_str(), payloadLen);
+            }
+
+            s.append(tmp);
+        }
+
+        uint32_t trim = 0;
+        while (s[s.length() - trim - 1] == ' ')
+            trim++;
+
+        s.resize(s.length() - trim);
+    }
+
     class MockReceived : public Driver::Received {
       public:
         MockReceived(uint32_t fragNumber,
@@ -197,6 +231,8 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
 
         msg = new InboundMessage();
         ClientSession *session = transport->getClientSession();
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
         msg->setup(session, channelId, useTimer);
 
         msg->clear();
@@ -216,18 +252,9 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         delete driver;
     }
 
-    void resetup(uint32_t totalFrags, bool useTimer)
-    {
-        setUp(totalFrags, useTimer);
-    }
-
     void
     test_sendAck()
     {
-        ClientSession* session = dynamic_cast<ClientSession*>(msg->session);
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-        session->allocateChannels();
-
         // no packets received yet
         msg->sendAck();
         CPPUNIT_ASSERT_EQUAL("sendPacket: 0 /0 /0", driver->outputLog);
@@ -252,7 +279,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
     void
     test_init()
     {
-        resetup(2, true);
+        setUp(2, true);
 
         Buffer buffer;
         msg->init(999, &buffer);
@@ -267,7 +294,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
     {
         bool useTimer = true;
         uint32_t channelId = 5;
-        resetup(2, useTimer);
+        setUp(2, useTimer);
 
         transport->addTimer(&msg->timer, 999);
         CPPUNIT_ASSERT_EQUAL(true, LIST_IS_IN(&msg->timer, listEntries));
@@ -286,14 +313,14 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
                 break;
             useTimer = !useTimer;
             channelId = 6;
-            resetup(2, useTimer);
+            setUp(2, useTimer);
         }
     }
 
     void
     test_clear()
     {
-        resetup(2, true);
+        setUp(2, true);
 
         char junk[0];
         transport->addTimer(&msg->timer, 1000);
@@ -305,35 +332,45 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
 
         CPPUNIT_ASSERT_EQUAL(0, msg->totalFrags);
         CPPUNIT_ASSERT_EQUAL(0, msg->firstMissingFrag);
+        string s;
+        dataStagingRingToString(msg->dataStagingRing, s);
+        CPPUNIT_ASSERT_EQUAL("-, -, -, -, -, -, -, -, -, -, -, -, -, -, "
+                             "-, -, -, -, -, -, -, -, -, -, -, -, -, -, "
+                             "-, -, -, -,", s);
         CPPUNIT_ASSERT_EQUAL(0, msg->dataBuffer);
         CPPUNIT_ASSERT_EQUAL(2, driver->releaseCount);
         CPPUNIT_ASSERT_EQUAL(false, LIST_IS_IN(&msg->timer, listEntries));
     }
 
     void
-    test_totalFragMismatch_processReceivedData()
+    test_processReceivedData_totalFragMismatch()
     {
         // NOTE Make sure to keep the MockReceiveds on the stack until
         // none of the data is in use as part of a buffer
         MockReceived recvd(0, msg->totalFrags + 1, "God hates ponies.");
         bool result = msg->processReceivedData(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
-        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->toString());
+        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->debugString());
         CPPUNIT_ASSERT_EQUAL(0, msg->firstMissingFrag);
-        CPPUNIT_ASSERT_EQUAL(1, msg->dataStagingRing[0].second);
         CPPUNIT_ASSERT_EQUAL(0, recvd.stealCount);
     }
 
+    /**
+     * Ensures that if packets arrive in order according to firstMissingFrag
+     * everything works, including connection termination condition.
+     */
     void
-    test_addFirstMissing_processReceivedData()
+    test_processReceivedData_addFirstMissing()
     {
         // first recvd packet - never placed in ring
         MockReceived recvd(0, msg->totalFrags, "God hates ponies.");
         bool result = msg->processReceivedData(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
         CPPUNIT_ASSERT_EQUAL("God hates ponies.",
-                             msg->dataBuffer->toString());
+                             msg->dataBuffer->debugString());
         CPPUNIT_ASSERT_EQUAL(1, msg->firstMissingFrag);
+        // TODO(stutsman) Looking for feedback about how to make the dSRToString
+        // catch these types of cases easily
         CPPUNIT_ASSERT_EQUAL(2, msg->dataStagingRing[0].second);
         CPPUNIT_ASSERT_EQUAL(1, recvd.stealCount);
 
@@ -342,20 +379,24 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         result = msg->processReceivedData(&nextRecvd);
         CPPUNIT_ASSERT_EQUAL(true, result);
         CPPUNIT_ASSERT_EQUAL("God hates ponies. | I hate ponies, also.",
-                             msg->dataBuffer->toString());
+                             msg->dataBuffer->debugString());
         CPPUNIT_ASSERT_EQUAL(msg->totalFrags, msg->firstMissingFrag);
         CPPUNIT_ASSERT_EQUAL(3, msg->dataStagingRing[0].second);
         CPPUNIT_ASSERT_EQUAL(1, nextRecvd.stealCount);
     }
 
+    /**
+     * Ensures out-of-order packets transition from the ring to the buffer
+     * when the missing fragments before them are encountered.
+     */
     void
-    test_addRunFromRing_processReceivedData()
+    test_processReceivedData_addRunFromRing()
     {
         // first recvd packet - out of order - enters ring
         MockReceived recvd(1, msg->totalFrags, "I hate ponies, also.");
         bool result = msg->processReceivedData(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
-        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->toString());
+        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->debugString());
         CPPUNIT_ASSERT_EQUAL(recvd.payload, msg->dataStagingRing[0].first);
         CPPUNIT_ASSERT_EQUAL(recvd.len, msg->dataStagingRing[0].second);
 
@@ -364,22 +405,26 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         result = msg->processReceivedData(&nextRecvd);
         CPPUNIT_ASSERT_EQUAL(true, result);
         CPPUNIT_ASSERT_EQUAL("God hates ponies. | I hate ponies, also.",
-                             msg->dataBuffer->toString());
+                             msg->dataBuffer->debugString());
         CPPUNIT_ASSERT_EQUAL(3, msg->dataStagingRing[0].second);
     }
 
+    /**
+     * Ensures that if an out-of-order packet is encountered it is properly
+     * stored in the staging ring to be moved in to the result buffer later.
+     */
     void
-    test_addToRing_processReceivedData()
+    test_processReceivedData_addToRing()
     {
         // test with longer connection
         uint32_t totalFrags = 100;
-        resetup(totalFrags, false);
+        setUp(totalFrags, false);
 
         // first recvd packet - out of order - ensure in ring in right place
         MockReceived recvd(2, totalFrags, "pkt two");
         bool result = msg->processReceivedData(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
-        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->toString());
+        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->debugString());
         CPPUNIT_ASSERT_EQUAL(recvd.payload, msg->dataStagingRing[1].first);
         CPPUNIT_ASSERT_EQUAL(recvd.len, msg->dataStagingRing[1].second);
         CPPUNIT_ASSERT_EQUAL(1, recvd.stealCount);
@@ -388,10 +433,34 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         MockReceived nextRecvd(1, totalFrags, "pkt one");
         result = msg->processReceivedData(&nextRecvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
-        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->toString());
+        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->debugString());
         CPPUNIT_ASSERT_EQUAL(nextRecvd.payload, msg->dataStagingRing[0].first);
         CPPUNIT_ASSERT_EQUAL(nextRecvd.len, msg->dataStagingRing[0].second);
         CPPUNIT_ASSERT_EQUAL(1, nextRecvd.stealCount);
+    }
+
+    void
+    test_processReceivedData_sendAckCalled()
+    {
+        MockReceived recvd(0, msg->totalFrags, "pkt zero");
+        recvd.getHeader()->requestAck = 1;
+        msg->processReceivedData(&recvd);
+
+        CPPUNIT_ASSERT_EQUAL("sendPacket: 1 /0 /0", driver->outputLog);
+    }
+
+    void
+    test_processReceivedData_timerAdded()
+    {
+        setUp(2, true);
+
+        transport->removeTimer(&msg->timer);
+        MockReceived recvd(0, msg->totalFrags, "pkt zero");
+        recvd.getHeader()->requestAck = 1;
+        msg->processReceivedData(&recvd);
+
+        CPPUNIT_ASSERT_EQUAL(true, LIST_IS_IN(&msg->timer, listEntries));
+        CPPUNIT_ASSERT(TIMEOUT_NS <= msg->timer.when);
     }
 
   private:

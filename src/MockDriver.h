@@ -45,7 +45,6 @@ class MockDriver : public Driver {
 
     void setInput(char* msg, uint32_t msgLen);
     static void bufferToString(Buffer *buffer, string& s);
-    static void bufToString(const char* buffer, uint32_t length, string& s);
     static void stringToBuffer(const char* s, Buffer* buffer);
 
     /**
