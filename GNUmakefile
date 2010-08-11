@@ -149,4 +149,9 @@ docs: python-docs
 docs-clean: python-docs-clean
 	rm -rf docs/doxygen/
 
+# The following target is useful for debugging Makefiles; it
+# prints the value of a make variable.
+print-%:
+	@echo $* = $($*)
+
 .PHONY: all always clean check doc docs docs-clean test tests install uninstall
