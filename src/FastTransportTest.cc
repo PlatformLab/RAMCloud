@@ -27,6 +27,67 @@
 
 namespace RAMCloud {
 
+class MockReceived : public Driver::Received {
+  private:
+    void construct(uint32_t fragNumber,
+                   uint32_t totalFrags,
+                   const char* msg,
+                   uint32_t len)
+    {
+        payload = new char[len];
+        memcpy(getContents(), msg, len - sizeof(FastTransport::Header));
+        FastTransport::Header *header = getHeader();
+        header->fragNumber = fragNumber;
+        header->totalFrags = totalFrags;
+        header->requestAck = 0;
+        header->rpcId = 0;
+        header->channelId = 0;
+        header->direction = FastTransport::Header::SERVER_TO_CLIENT;
+        header->clientSessionHint = 0;
+        header->serverSessionHint = 0;
+        header->sessionToken = 0;
+    }
+  public:
+    MockReceived(uint32_t fragNumber,
+                 uint32_t totalFrags,
+                 const void* msg,
+                 uint32_t len)
+        : Received(), stealCount(0)
+    {
+        this->len = len + sizeof(FastTransport::Header);
+        construct(fragNumber, totalFrags,
+                  static_cast<const char*>(msg), this->len);
+    }
+    MockReceived(uint32_t fragNumber,
+                 uint32_t totalFrags,
+                 const char* msg)
+        : Received(), stealCount(0)
+    {
+        len = strlen(msg) + sizeof(FastTransport::Header);
+        construct(fragNumber, totalFrags, msg, len);
+    }
+    FastTransport::Header* getHeader()
+    {
+        return reinterpret_cast<FastTransport::Header*>(payload);
+    }
+    char* getContents()
+    {
+        return payload + sizeof(FastTransport::Header);
+    }
+    VIRTUAL_FOR_TESTING char *steal(uint32_t *len)
+    {
+        stealCount++;
+        *len = this->len;
+        return payload;
+    }
+    ~MockReceived()
+    {
+        delete[] payload;
+    }
+    int stealCount;
+    DISALLOW_COPY_AND_ASSIGN(MockReceived);
+};
+
 class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST_SUITE(FastTransportTest);
     CPPUNIT_TEST(test_queue_is_in);
@@ -160,7 +221,8 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
                 bufToString(payload, payloadLen, payloadStr);
                 payloadStr.resize(10);
 
-                snprintf(tmp, max, "(%s, %u), ", payloadStr.c_str(), payloadLen);
+                snprintf(tmp, max, "(%s, %u), ",
+                         payloadStr.c_str(), payloadLen);
             }
 
             s.append(tmp);
@@ -172,43 +234,6 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
 
         s.resize(s.length() - trim);
     }
-
-    class MockReceived : public Driver::Received {
-      public:
-        MockReceived(uint32_t fragNumber,
-                     uint32_t totalFrags,
-                     const char* msg)
-            : Received(), stealCount(0)
-        {
-            len = strlen(msg) + sizeof(Header);
-            payload = new char[len];
-            memcpy(getContents(), msg, len - sizeof(Header));
-            Header *header = getHeader();
-            header->fragNumber = fragNumber;
-            header->totalFrags = totalFrags;
-            header->requestAck = 0;
-            header->rpcId = 0;
-            header->channelId = 0;
-            header->direction = Header::SERVER_TO_CLIENT;
-            header->clientSessionHint = 0;
-            header->serverSessionHint = 0;
-            header->sessionToken = 0;
-        }
-        Header* getHeader() { return reinterpret_cast<Header*>(payload); }
-        char* getContents() { return payload + sizeof(Header); }
-        VIRTUAL_FOR_TESTING char *steal(uint32_t *len)
-        {
-            stealCount++;
-            *len = this->len;
-            return payload;
-        }
-        ~MockReceived()
-        {
-            delete[] payload;
-        }
-        int stealCount;
-        DISALLOW_COPY_AND_ASSIGN(MockReceived);
-    };
 
     InboundMessageTest()
         : FastTransport(0), driver(0), transport(0), buffer(0), msg(0)
@@ -473,6 +498,239 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(InboundMessageTest);
 
+class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
+    CPPUNIT_TEST_SUITE(OutboundMessageTest);
+    CPPUNIT_TEST(test_clear);
+    CPPUNIT_TEST(test_setup);
+    CPPUNIT_TEST(test_beginSending);
+    CPPUNIT_TEST(test_processReceivedAck_noSendBuffer);
+    CPPUNIT_TEST(test_processReceivedAck_noneMissing);
+    CPPUNIT_TEST(test_processReceivedAck_oneMissing);
+    CPPUNIT_TEST(test_sendOneData_noRequestAck);
+    CPPUNIT_TEST(test_sendOneData_requestAck);
+    CPPUNIT_TEST_SUITE_END();
+
+  public:
+    void sentTimesRingToString(
+                Ring<uint64_t, MAX_STAGING_FRAGMENTS + 1>& ring,
+                string& s)
+    {
+        size_t max = 50;
+        char tmp[max];
+
+        for (uint32_t i = 0; i < ring.getLength(); i++) {
+            uint64_t val = ring[i];
+            if (val == OutboundMessage::ACKED)
+                snprintf(tmp, max, "ACKED, ");
+            else
+                snprintf(tmp, max, "%lu, ", val);
+            s.append(tmp);
+        }
+
+        uint32_t trim = 0;
+        while (s[s.length() - trim - 1] == ' ')
+            trim++;
+
+        s.resize(s.length() - trim);
+    }
+
+
+    OutboundMessageTest()
+        : FastTransport(0), driver(0), transport(0), buffer(0), msg(0) {}
+
+    void
+    setUp()
+    {
+        setUp(2, false);
+    }
+
+    void
+    setUp(uint32_t totalFrags, bool useTimer = false)
+    {
+        driver = new MockDriver();
+        transport = new FastTransport(driver);
+        buffer = new Buffer();
+
+        const char* testMsg = "abcdefghij";
+        size_t testMsgLen = strlen(testMsg);
+        char* payload = new(buffer, APPEND) char[testMsgLen * 160 + 1];
+        for (uint32_t i = 0; i < 160; i++)
+            memcpy(payload + i * testMsgLen, testMsg, testMsgLen);
+        payload[testMsgLen * 160] = '\0';
+
+        uint32_t channelId = 5;
+
+        msg = new OutboundMessage();
+        ClientSession *session = transport->getClientSession();
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+        msg->setup(session, channelId, useTimer);
+
+        msg->clear();
+    }
+
+    void tearDown()
+    {
+        delete msg;
+        delete buffer;
+        delete transport;
+        delete driver;
+    }
+
+    /**
+     * Simple check, but also checks subtler details regarding timers.
+     * If the message was using the timer clear must remove it.
+     */
+    void
+    test_clear()
+    {
+        setUp(2, true);
+        transport->addTimer(&msg->timer, 999);
+
+        msg->clear();
+
+        CPPUNIT_ASSERT_EQUAL(0, msg->sendBuffer);
+        CPPUNIT_ASSERT_EQUAL(0, msg->firstMissingFrag);
+        CPPUNIT_ASSERT_EQUAL(0, msg->packetsSinceAckReq);
+        string s;
+        sentTimesRingToString(msg->sentTimes, s);
+        CPPUNIT_ASSERT_EQUAL("0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
+                             "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
+                             "0, 0, 0,", s);
+        CPPUNIT_ASSERT_EQUAL(0, msg->numAcked);
+        CPPUNIT_ASSERT_EQUAL(false, LIST_IS_IN(&msg->timer, listEntries));
+        CPPUNIT_ASSERT_EQUAL(0, msg->timer.when);
+        CPPUNIT_ASSERT_EQUAL(0, msg->timer.numTimeouts);
+    }
+
+    void
+    test_setup()
+    {
+        uint32_t channelId = 999;
+        bool useTimer = false;
+
+        ClientSession *session = transport->getClientSession();
+        msg->setup(session, channelId, useTimer);
+
+        CPPUNIT_ASSERT_EQUAL(session, msg->session);
+        CPPUNIT_ASSERT_EQUAL(transport, msg->transport);
+        CPPUNIT_ASSERT_EQUAL(channelId, msg->channelId);
+        CPPUNIT_ASSERT_EQUAL(useTimer, msg->timer.useTimer);
+    }
+
+    void
+    test_beginSending()
+    {
+        msg->beginSending(buffer);
+        CPPUNIT_ASSERT_EQUAL(buffer, msg->sendBuffer);
+        CPPUNIT_ASSERT(0 != msg->totalFrags);
+    }
+
+    void
+    test_send()
+    {
+        MockTSC _(999);
+    }
+
+    void
+    test_processReceivedAck_noSendBuffer()
+    {
+        bool result = msg->processReceivedAck(0);
+        CPPUNIT_ASSERT_EQUAL(false, result);
+    }
+
+    // TODO(stutsman) Something's just totally wrong here
+    /**
+     * No packets missing; just ensure that bookkeeping slides up to
+     * match the receiver side.
+     */
+    void
+    test_processReceivedAck_noneMissing()
+    {
+        MockTSC _(999);
+
+        msg->beginSending(buffer);
+
+        AckResponse ackResp(0, 0);
+        ackResp.firstMissingFrag = 1;
+        MockReceived recvd(0, msg->totalFrags, &ackResp, sizeof(AckResponse));
+
+        bool result = msg->processReceivedAck(&recvd);
+
+        CPPUNIT_ASSERT_EQUAL(false, result);
+        string s;
+        sentTimesRingToString(msg->sentTimes, s);
+        CPPUNIT_ASSERT_EQUAL("999, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
+                             "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
+                             "0, 0,", s);
+        CPPUNIT_ASSERT_EQUAL(ackResp.firstMissingFrag, msg->numAcked);
+    }
+
+    // TODO(stutsman) Something's just totally wrong here
+    /**
+     * A packet is missing; eight packets beyond have been acked.
+     * Excercises the bit vector.
+     */
+    void
+    test_processReceivedAck_oneMissing()
+    {
+        MockTSC _(999);
+        msg->beginSending(buffer);
+        msg->totalFrags = 10;
+
+        AckResponse ackResp(3, 0xff);
+        MockReceived recvd(0, msg->totalFrags, &ackResp, sizeof(AckResponse));
+
+        string s;
+        sentTimesRingToString(msg->sentTimes, s);
+        /*
+        CPPUNIT_ASSERT_EQUAL("999, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,",
+                             s);
+        */
+
+        msg->processReceivedAck(&recvd);
+        //bool result = msg->processReceivedAck(&recvd);
+
+        //CPPUNIT_ASSERT_EQUAL(false, result);
+        s = "";
+        sentTimesRingToString(msg->sentTimes, s);
+        CPPUNIT_ASSERT_EQUAL("999, ACKED, ACKED, ACKED, ACKED, ACKED, ACKED, "
+                             "ACKED, ACKED, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
+                             "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,",
+                             s);
+        CPPUNIT_ASSERT_EQUAL(ackResp.firstMissingFrag + 8, msg->numAcked);
+    }
+
+    void
+    test_sendOneData_noRequestAck()
+    {
+        msg->sendBuffer = buffer;
+        msg->sendOneData(0, false);
+        CPPUNIT_ASSERT_EQUAL("sendPacket: abcdefghij (+1364 more)",
+                             driver->outputLog);
+        CPPUNIT_ASSERT_EQUAL(1, msg->packetsSinceAckReq);
+    }
+
+    void
+    test_sendOneData_requestAck()
+    {
+        msg->sendBuffer = buffer;
+        msg->sendOneData(0, true);
+        CPPUNIT_ASSERT_EQUAL("sendPacket: abcdefghij (+1364 more)",
+                             driver->outputLog);
+        CPPUNIT_ASSERT_EQUAL(0, msg->packetsSinceAckReq);
+    }
+
+  private:
+    MockDriver* driver;
+    FastTransport* transport;
+    Buffer* buffer;
+    OutboundMessage* msg;
+
+    DISALLOW_COPY_AND_ASSIGN(OutboundMessageTest);
+};
+CPPUNIT_TEST_SUITE_REGISTRATION(OutboundMessageTest);
+
 class SessionTableTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST_SUITE(SessionTableTest);
     CPPUNIT_TEST(test_sanity);
@@ -623,7 +881,7 @@ class SessionTableTest : public CppUnit::TestFixture, FastTransport {
             st.get();
             // even numbered sessions are up for expire
             if (i % 2)
-                st[i]->setLastActivityTime(rdtsc());
+                st[i]->setLastActivityTime(rdtsc() + 100000000);
             else
                 st[i]->setLastActivityTime(0);
         }
@@ -631,7 +889,7 @@ class SessionTableTest : public CppUnit::TestFixture, FastTransport {
         st.expire();
 
         // One tricky bit, expire records lastCleanedIndex starting at 0 so
-        // the first item to be cleaned in 1
+        // the first item to be cleaned is 1
         CPPUNIT_ASSERT_EQUAL(0, st.firstFree);
         CPPUNIT_ASSERT_EQUAL(2, st[0]->nextFree);
         CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::TAIL,

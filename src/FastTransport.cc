@@ -615,6 +615,12 @@ FastTransport::OutboundMessage::clear()
     timer.numTimeouts = 0;
 }
 
+/**
+ * Begin sending a buffer.  Requires the buffer to be setup() first.
+ *
+ * \param dataBuffer
+ *      Buffer of data to send.
+ */
 void
 FastTransport::OutboundMessage::beginSending(Buffer* dataBuffer)
 {
@@ -627,6 +633,7 @@ FastTransport::OutboundMessage::beginSending(Buffer* dataBuffer)
 void
 FastTransport::OutboundMessage::send()
 {
+    // TODO(stutsman) Just make sure this never gets called when no buffer
     if (!sendBuffer)
         return;
 
@@ -635,21 +642,24 @@ FastTransport::OutboundMessage::send()
     // number of fragments to be sent
     uint32_t sendCount = 0;
 
-    // whether any of the fragments are being sent because they are
-    // expired
+    // whether any of the fragments are being sent because they are expired
+    // TODO(stutsman) name?
     bool forceAck = false;
 
     // the fragment number of the last fragment to be sent
+    // TODO(stutsman) why do we need this?
     uint32_t lastToSend = ~0;
 
     // can't send beyond the last fragment
+    // TODO(stutsman) will not send with this pkt num or higher
+    // deciding on candidate range of packets to check
     uint32_t stop = totalFrags;
     // can't send beyond the window
     stop = std::min(stop, numAcked + WINDOW_SIZE);
     // can't send beyond what the receiver is willing to accept
     stop = std::min(stop, firstMissingFrag + MAX_STAGING_FRAGMENTS + 1);
 
-    // Figure out which frags to send;
+    // Figure out which frags to send from candidate range;
     // flag them with sentTime of TO_SEND
     for (uint32_t fragNumber = firstMissingFrag;
          fragNumber < stop;
@@ -657,10 +667,13 @@ FastTransport::OutboundMessage::send()
         uint32_t i = fragNumber - firstMissingFrag;
         uint64_t sentTime = sentTimes[i];
         if (sentTime == 0) {
+            // TODO(stutsman) John hates this, struct or parallel array
+            // decide on ack based on window size
             sentTimes[i] = TO_SEND;
             sendCount++;
             lastToSend = fragNumber;
         } else if (sentTime != ACKED && sentTime + TIMEOUT_NS < now) {
+            // always req ack
             forceAck = true;
             sentTimes[i] = TO_SEND;
             sendCount++;
@@ -702,15 +715,20 @@ FastTransport::OutboundMessage::send()
         if (oldest != ~(0lu))
             transport->addTimer(&timer, oldest + TIMEOUT_NS);
     }
-
 }
 
+/**
+ * Process an AckResponse and advance window, if possible.
+ *
+ * \param received
+ *      Data received from a sender containing a packet header and a valid
+ *      AckResponse payload.
+ */
 bool
 FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
 {
     if (!sendBuffer)
         return false;
-    //LOG(DEBUG, "OutboundMessage processReceivedAck");
 
     assert(received->len >= sizeof(Header) + sizeof(AckResponse));
     AckResponse *ack =
@@ -726,19 +744,14 @@ FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
         LOG(DEBUG, "OutboundMessage dropped ACK that advanced too far "
                    "(shouldn't happen)");
     } else {
-        //LOG(DEBUG, "OutboundMessage legitimate ACK - take action: "
-                   //"ack fmf %u", ack->firstMissingFrag);
         sentTimes.advance(ack->firstMissingFrag - firstMissingFrag);
         firstMissingFrag = ack->firstMissingFrag;
         numAcked = ack->firstMissingFrag;
         for (uint32_t i = 0; i < sentTimes.getLength() - 1; i++) {
             bool acked = (ack->stagingVector >> i) & 1;
             if (acked) {
-                //LOG(DEBUG, "Now acked: %d", firstMissingFrag + i + 1);
                 sentTimes[i + 1] = ACKED;
                 numAcked++;
-            } else {
-                //LOG(DEBUG, "Not acked still: %d", firstMissingFrag + i + 1);
             }
         }
     }
@@ -746,6 +759,17 @@ FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
     return firstMissingFrag == totalFrags;
 }
 
+/**
+ * Send out a single data fragment drawn from sendBuffer.
+ *
+ * This function also augments the packet header with the request ACK bit
+ * if REQ_ACK_AFTER packets have been sent without requesting an ACK.
+ *
+ * \param fragNumber
+ *      The fragment number to place in the packet header.
+ * \param forceRequestAck
+ *      Force the packet header to have the request ACK bit set.
+ */
 void
 FastTransport::OutboundMessage::sendOneData(uint32_t fragNumber,
                                             bool forceRequestAck)

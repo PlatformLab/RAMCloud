@@ -104,6 +104,7 @@ class FastTransport : public Transport {
     enum { MAX_STAGING_FRAGMENTS = 32 };
     enum { WINDOW_SIZE = 10 };
     enum { REQ_ACK_AFTER = 5 };
+    // TODO(stutsman) 20-50 us?
     enum { TIMEOUT_NS = 10 * 1000 * 1000 }; // 10 ms
     enum { TIMEOUTS_UNTIL_ABORTING = 500 }; // >= 5 s
     enum { SESSION_TIMEOUT_NS = 60lu * 60 * 1000 * 1000 * 1000 }; // 30 min
@@ -312,10 +313,38 @@ class FastTransport : public Transport {
         Session* session;
         uint32_t channelId;
         Buffer* sendBuffer;
+
+        /**
+         * The number before which the receiving end has acknowledged receipt of
+         * every fragment, in the range [0, totalFrags].
+         */
         uint32_t firstMissingFrag;
+
+        /// The total number of fragments in the message to send.
         uint32_t totalFrags;
-        uint32_t packetsSinceAckReq;
+
+        /**
+         * The number of data packets sent on the wire since the last ACK
+         * request. This is used to determine when to request the next ACK.
+         */
+         uint32_t packetsSinceAckReq;
+
+        /**
+         * A record of when unacknowledged fragments were sent, which is useful
+         * for retransmission.
+         * A Ring of MAX_STAGING_FRAGMENTS + 1 timestamps, where each entry
+         * corresponds with the time the firstMissingFrag + i-th packet was sent
+         * (0 if it has never been sent), or ACKED if it has already been
+         * acknowledged by the receiving end.
+         */
         Ring<uint64_t, MAX_STAGING_FRAGMENTS + 1> sentTimes;
+
+        /**
+         * The total number of fragments the receiving end has acknowledged, in
+         * the range [0, totalFrags]. This is used for flow control, as the
+         * sender guarantees to send only fragments whose numbers are below
+         * numAcked + WINDOW_SIZE.
+         */
         uint32_t numAcked;
         class Timer : public FastTransport::Timer {
           public:
@@ -342,6 +371,7 @@ class FastTransport : public Transport {
         };
         Timer timer;
 
+        friend class OutboundMessageTest;
         DISALLOW_COPY_AND_ASSIGN(OutboundMessage);
     };
 
@@ -512,6 +542,7 @@ class FastTransport : public Transport {
         template <typename T> friend class SessionTable;
         friend class FastTransportTest;
         friend class InboundMessageTest;
+        friend class OutboundMessageTest;
         DISALLOW_COPY_AND_ASSIGN(ClientSession);
     };
 
@@ -610,6 +641,8 @@ class FastTransport : public Transport {
     friend class FastTransportTest;
     friend class SessionTableTest;
     friend class InboundMessageTest;
+    friend class OutboundMessageTest;
+    friend class MockReceived;
     friend class Services;
     DISALLOW_COPY_AND_ASSIGN(FastTransport);
 };

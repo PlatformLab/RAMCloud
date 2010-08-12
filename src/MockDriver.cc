@@ -66,7 +66,15 @@ MockDriver::sendPacket(const sockaddr *addr,
         payload->next();
     }
 
-    bufToString(buf, length, outputLog);
+    uint32_t take = 10;
+    if (length < take)
+        bufToString(buf, length, outputLog);
+    else {
+        bufToString(buf, take, outputLog);
+        char tmp[50];
+        snprintf(tmp, sizeof(tmp), " (+%u more)", length - take);
+        outputLog += tmp;
+    }
 }
 
 /**

@@ -183,11 +183,10 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
 #ifdef __cplusplus
 void debug_dump64(const void *buf, uint64_t bytes);
 
-#if PERF_COUNTERS
 __inline __attribute__((always_inline, no_instrument_function))
-uint64_t rdtsc();
+uint64_t _rdtsc();
 uint64_t
-rdtsc()
+_rdtsc()
 {
     uint32_t lo, hi;
 
@@ -201,17 +200,52 @@ rdtsc()
 }
 
 __inline __attribute__((always_inline, no_instrument_function))
-uint64_t rdpmc(uint32_t counter);
+uint64_t _rdpmc(uint32_t counter);
 uint64_t
-rdpmc(uint32_t counter)
+_rdpmc(uint32_t counter)
 {
     uint32_t hi, lo;
     __asm __volatile("rdpmc" : "=d" (hi), "=a" (lo) : "c" (counter));
     return ((uint64_t) lo) | (((uint64_t) hi) << 32);
 }
+
+#if TESTING
+extern uint64_t mockTSCValue;
+extern uint64_t mockPMCValue;
+__inline __attribute__((always_inline, no_instrument_function))
+uint64_t rdtsc();
+uint64_t
+rdtsc()
+{
+    if (mockTSCValue)
+        return mockTSCValue;
+    return _rdtsc();
+}
+__inline __attribute__((always_inline, no_instrument_function))
+uint64_t rdpmc(uint32_t counter);
+uint64_t
+rdpmc(uint32_t counter)
+{
+    if (mockTSCValue)
+        return mockPMCValue;
+    return _rdpmc(counter);
+}
+class MockTSC {
+    uint64_t original;
+  public:
+    MockTSC(uint64_t value)
+        : original(mockTSCValue)
+    {
+        mockTSCValue = value;
+    }
+    ~MockTSC()
+    {
+        mockTSCValue = original;
+    }
+};
 #else
-#define rdtsc() 0UL
-#define rdpmc() 0UL;
+#define rdtsc() _rdtsc()
+#define rdpmc(c) _rdpmc(c)
 #endif
 
 #if TESTING
