@@ -64,7 +64,7 @@ cmdline(int argc, char *argv[])
     struct option long_options[] = {
         {"address", required_argument, NULL, 'a'},
         {"port", required_argument, NULL, 'p'},
-        {"cpu", required_argument, NULL, 'a'},
+        {"cpu", required_argument, NULL, 'c'},
         {"generate", no_argument, NULL, 'g'},
         {"multi", required_argument, NULL, 'm'},
         {0, 0, 0, 0},

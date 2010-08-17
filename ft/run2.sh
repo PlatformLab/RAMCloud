@@ -6,10 +6,10 @@ CLIENT="python client.py"
 while getopts "sc" OPT; do
     case $OPT in
         s)
-            SERVER="../obj.fasttransport/FastEcho"
+            SERVER="../obj.fasttransport/FastEcho -c 0"
             ;;
         c)
-            CLIENT="../obj.fasttransport/FastTelnet -g"
+            CLIENT="../obj.fasttransport/FastTelnet -c 1 -g"
             ;;
     esac
 done
