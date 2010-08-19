@@ -176,10 +176,34 @@ class FastTransport : public Transport {
         uint8_t payloadType:4;
         PayloadType getPayloadType() {
             return static_cast<PayloadType>(payloadType);
-        };
+        }
         Direction getDirection() {
             return static_cast<Direction>(direction);
-        };
+        }
+        static string headerToString(const void* header, uint32_t headerLen) {
+            assert(headerLen == sizeof(Header));
+            const Header* self = static_cast<const Header*>(header);
+            string s;
+            char tmp[200];
+            snprintf(tmp, sizeof(tmp),
+                     "{ sessionToken:%lx rpcId:%u "
+                     "clientSessionHint:%x serverSessionHint:%x "
+                     "%u/%u frags "
+                     "channel:%u "
+                     "dir:%u reqACK:%u drop:%u "
+                     "payloadType: %u }",
+                     self->sessionToken, self->rpcId,
+                     self->clientSessionHint, self->serverSessionHint,
+                     self->fragNumber, self->totalFrags,
+                     self->channelId,
+                     self->direction, self->requestAck, self->pleaseDrop,
+                     self->payloadType);
+            s += tmp;
+            return s;
+        }
+        string toString() {
+            return headerToString(this, sizeof(this));
+        }
     } __attribute__((packed));
 
     struct SessionOpenResponse {
@@ -259,11 +283,11 @@ class FastTransport : public Transport {
          */
         Buffer* dataBuffer;
 
-	/**
-	 * When invoked by the FastTransport timer code this timer will
-	 * timeout the session if it is idle for too long, otherwise it
-	 * will just transmit an ACK.
-	 */
+        /**
+         * When invoked by the FastTransport timer code this timer will
+         * timeout the session if it is idle for too long, otherwise it
+         * will just transmit an ACK.
+         */
         class Timer : public FastTransport::Timer {
           public:
             Timer(bool useTimer, InboundMessage* const inboundMsg)
@@ -274,10 +298,8 @@ class FastTransport : public Transport {
             virtual void fireTimer(uint64_t now) {
                 numTimeouts++;
                 if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
-                    LOG(DEBUG, "Closing session due to timeout");
                     inboundMsg->session->close();
                 } else {
-                    //LOG(DEBUG, "Timer fired; resending ACK");
                     inboundMsg->transport->addTimer(this,
                                                     rdtsc() + TIMEOUT_NS);
                     inboundMsg->sendAck();
@@ -298,7 +320,6 @@ class FastTransport : public Transport {
     };
 
     class OutboundMessage {
-        static const uint64_t TO_SEND = ~(0lu);
         static const uint64_t ACKED = ~(0lu) - 1;
       public:
         OutboundMessage();
@@ -309,9 +330,17 @@ class FastTransport : public Transport {
         bool processReceivedAck(Driver::Received* received);
       private:
         void sendOneData(uint32_t fragNumber, bool forceRequestAck = false);
+
+        /// Transport this message is associated with.
         FastTransport* transport;
+
+        /// Session this message is associated with.
         Session* session;
+
+        /// ID of the Channel this message is associated with.
         uint32_t channelId;
+
+        /// The data this message is sending.
         Buffer* sendBuffer;
 
         /**
@@ -346,6 +375,13 @@ class FastTransport : public Transport {
          * numAcked + WINDOW_SIZE.
          */
         uint32_t numAcked;
+
+        /**
+         * When invoked by the FastTransport timer code this timer will
+         * timeout the session if it is idle for too long, otherwise it
+         * call send() to resend packets which were sent awhile ago but
+         * haven't been ACKed yet.
+         */
         class Timer : public FastTransport::Timer {
           public:
             Timer(bool useTimer, OutboundMessage* const outboundMsg)
@@ -359,7 +395,6 @@ class FastTransport : public Transport {
                     LOG(DEBUG, "Closing session due to timeout");
                     outboundMsg->session->close();
                 } else {
-                    //LOG(DEBUG, "Timer fired; resending");
                     outboundMsg->send();
                 }
             }
@@ -369,6 +404,7 @@ class FastTransport : public Transport {
             OutboundMessage* const outboundMsg;
             DISALLOW_COPY_AND_ASSIGN(Timer);
         };
+        /// Handles idle session cleanup and retransmits due to timeout.
         Timer timer;
 
         friend class OutboundMessageTest;

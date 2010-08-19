@@ -164,13 +164,10 @@ FastTransport::fireTimers()
     uint64_t now = rdtsc();
     Timer* timer;
     LIST_FOREACH(timer, &timerList, listEntries) {
-        if (timer->when && timer-> when < now) {
-            //LOG(DEBUG, "Timer fired: %lu", now - timer->when);
+        if (timer->when && timer->when < now) {
+            removeTimer(timer);
+            timer->when = 0;
             timer->fireTimer(now);
-            if (timer->when < now) {
-                timer->when = 0;
-                removeTimer(timer);
-            }
        }
     }
 }
@@ -378,7 +375,7 @@ FastTransport::InboundMessage::~InboundMessage()
  * a particular Session, channelId, and timer status.
  *
  * This method is necessary since the Channels in which they are contained
- * are allocated as an arrray (hence with the default constructor) requiring
+ * are allocated as an array (hence with the default constructor) requiring
  * additional post-constructor setup.
  *
  * \param session
@@ -588,6 +585,21 @@ FastTransport::OutboundMessage::OutboundMessage()
 {
 }
 
+/**
+ * One-time initialization that permanently attaches this instance to
+ * a particular Session, channelId, and timer status.
+ *
+ * This method is necessary since the Channels in which they are contained
+ * are allocated as an array (hence with the default constructor) requiring
+ * additional post-constructor setup.
+ *
+ * \param session
+ *      The Session belonging to this message.
+ * \param channelId
+ *      The ID of the channel this message belongs to.
+ * \param useTimer
+ *      Whether this message should respond to timer events.
+ */
 void
 FastTransport::OutboundMessage::setup(Session* session,
                                       uint32_t channelId,
@@ -600,6 +612,12 @@ FastTransport::OutboundMessage::setup(Session* session,
     timer.useTimer = useTimer;
 }
 
+/**
+ * Cleans up an OutboundMessage and marks it inactive.
+ *
+ * This must be called before an actively used instance can be recycled
+ * by calling beginSending() on it.
+ */
 void
 FastTransport::OutboundMessage::clear()
 {
@@ -616,7 +634,8 @@ FastTransport::OutboundMessage::clear()
 }
 
 /**
- * Begin sending a buffer.  Requires the buffer to be setup() first.
+ * Begin sending a buffer.  Requires the buffer be inactive (clear() was
+ * called on it).
  *
  * \param dataBuffer
  *      Buffer of data to send.
@@ -630,84 +649,69 @@ FastTransport::OutboundMessage::beginSending(Buffer* dataBuffer)
     send();
 }
 
+/**
+ * Send out data packets and update timestamps/status in sentTimes.
+ *
+ * If a packet is retransmitted due to a timeout it is sent with a request
+ * for ACK and no further packets are transmitted until the next event
+ * (either an additional timeout or an ACK is processed).  If no packet
+ * is retransmitted then the call will send as many fresh data packets as
+ * the window allows with every REQ_ACK_AFTER th packet marked as request
+ * for ACK.
+ *
+ * Pre-conditions:
+ *  - beginSending() must have been called since the last call to clear().
+ *
+ * Side-effects:
+ *  - sentTimes is updated to reflect any sent packets.
+ *  - If timers are enabled for this message then the timer is scheduled
+ *    to fire when the next packet retransmit timeout occurs.
+ */
 void
 FastTransport::OutboundMessage::send()
 {
-    // TODO(stutsman) Just make sure this never gets called when no buffer
-    if (!sendBuffer)
-        return;
-
     uint64_t now = rdtsc();
 
-    // number of fragments to be sent
-    uint32_t sendCount = 0;
+    // First, decide on candidate range of packets to send/resend
+    // Only fragments less than stop will be considered for (re-)send
 
-    // whether any of the fragments are being sent because they are expired
-    // TODO(stutsman) name?
-    bool forceAck = false;
-
-    // the fragment number of the last fragment to be sent
-    // TODO(stutsman) why do we need this?
-    uint32_t lastToSend = ~0;
-
-    // can't send beyond the last fragment
-    // TODO(stutsman) will not send with this pkt num or higher
-    // deciding on candidate range of packets to check
+    // Can't send beyond the last fragment
     uint32_t stop = totalFrags;
-    // can't send beyond the window
+    // Can't send beyond the window
     stop = std::min(stop, numAcked + WINDOW_SIZE);
-    // can't send beyond what the receiver is willing to accept
+    // Can't send beyond what the receiver is willing to accept
     stop = std::min(stop, firstMissingFrag + MAX_STAGING_FRAGMENTS + 1);
 
-    // Figure out which frags to send from candidate range;
-    // flag them with sentTime of TO_SEND
-    for (uint32_t fragNumber = firstMissingFrag;
-         fragNumber < stop;
-         fragNumber++) {
-        uint32_t i = fragNumber - firstMissingFrag;
+    // Send frags from candidate range
+    for (uint32_t i = 0; i < stop - firstMissingFrag; i++) {
         uint64_t sentTime = sentTimes[i];
-        if (sentTime == 0) {
-            // TODO(stutsman) John hates this, struct or parallel array
-            // decide on ack based on window size
-            sentTimes[i] = TO_SEND;
-            sendCount++;
-            lastToSend = fragNumber;
-        } else if (sentTime != ACKED && sentTime + TIMEOUT_NS < now) {
-            // always req ack
-            forceAck = true;
-            sentTimes[i] = TO_SEND;
-            sendCount++;
-            lastToSend = fragNumber;
-        }
+        // skip if ACKED or if already sent but not yet timed out
+        if ((sentTime == ACKED) ||
+            (sentTime != 0 && sentTime + TIMEOUT_NS >= now))
+            continue;
+        // isRetransmit if already sent and timed out (guaranteed by if above)
+        bool isRetransmit = sentTime != 0;
+        uint32_t fragNumber = firstMissingFrag + i;
+        // requestAck if retransmit or
+        // haven't asked for ack in awhile and this is not the last frag
+        bool requestAck = isRetransmit ||
+            (packetsSinceAckReq == REQ_ACK_AFTER - 1 &&
+             fragNumber != totalFrags - 1);
+        sendOneData(fragNumber, requestAck);
+        sentTimes[i] = now;
+        if (isRetransmit)
+            break;
     }
 
-    forceAck =
-        forceAck &&
-            (packetsSinceAckReq + sendCount < REQ_ACK_AFTER - 1 ||
-             lastToSend == totalFrags);
-
-    // Send the fragments
-    for (uint32_t i = 0; i < sentTimes.getLength(); i++) {
-        uint64_t sentTime = sentTimes[i];
-        if (sentTime == TO_SEND) {
-            uint32_t fragNumber = firstMissingFrag + i;
-            sendOneData(fragNumber,
-                        (forceAck && lastToSend == fragNumber));
-        }
-    }
-
-    // Update sentTimes
-    now = rdtsc();
-    for (uint32_t i = 0; i < sentTimes.getLength(); i++) {
-        uint64_t sentTime = sentTimes[i];
-        if (sentTime == TO_SEND)
-            sentTimes[i] = now;
-    }
-
+    // find the packet that will cause timeout the earliest and
+    // schedule a timer just after that
     if (timer.useTimer) {
         uint64_t oldest = ~(0lu);
-        for (uint32_t i = 0; i < sentTimes.getLength(); i++) {
+        for (uint32_t i = 0; i < stop - firstMissingFrag; i++) {
             uint64_t sentTime = sentTimes[i];
+            // if we reach a not-sent, the rest must be not-sent
+            if (!sentTime)
+                break;
             if (sentTime != ACKED && sentTime > 0)
                 if (sentTime < oldest)
                     oldest = sentTime;
@@ -719,6 +723,13 @@ FastTransport::OutboundMessage::send()
 
 /**
  * Process an AckResponse and advance window, if possible.
+ *
+ * Notice this function calls send() to try to send additional fragments.
+ *
+ * Side-effect:
+ *  - firstMissingFrag and sentTimes may advance.
+ *  - fragments may be marked as ACKED.
+ *  - send() may be freed up to send further packets.
  *
  * \param received
  *      Data received from a sender containing a packet header and a valid
@@ -767,18 +778,13 @@ FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
  *
  * \param fragNumber
  *      The fragment number to place in the packet header.
- * \param forceRequestAck
- *      Force the packet header to have the request ACK bit set.
+ * \param requestAck
+ *      The packet header will have the request ACK bit set.
  */
 void
 FastTransport::OutboundMessage::sendOneData(uint32_t fragNumber,
-                                            bool forceRequestAck)
+                                            bool requestAck)
 {
-    bool requestAck =
-        forceRequestAck ||
-        (packetsSinceAckReq == REQ_ACK_AFTER - 1 &&
-         fragNumber != totalFrags - 1);
-
     Header header;
     session->fillHeader(&header, channelId);
     header.fragNumber = fragNumber;
@@ -993,6 +999,9 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
             channel->inboundMsg.sendAck();
         break;
     case ServerChannel::SENDING_WAITING:
+        // TODO(stutsman) Need to understand why this happens
+        // and eliminate this send
+        LOG(WARNING, "Received extraneous packet while sending");
         channel->outboundMsg.send();
         break;
     }
@@ -1246,7 +1255,6 @@ FastTransport::ClientSession::startRpc(ClientRPC* rpc)
         LOG(DEBUG, "Queueing RPC");
         TAILQ_INSERT_TAIL(&channelQueue, rpc, channelQueueEntries);
     } else {
-        LOG(DEBUG, "RPC proceeding on channel %p", channel);
         assert(channel->state == ClientChannel::IDLE);
         channel->state = ClientChannel::SENDING;
         channel->currentRpc = rpc;

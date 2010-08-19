@@ -31,7 +31,10 @@ namespace RAMCloud {
 
 class MockDriver : public Driver {
   public:
+    typedef string (*HeaderToString)(const void*, uint32_t);
+
     MockDriver();
+    explicit MockDriver(HeaderToString headerToString);
     virtual ~MockDriver() {}
 
     virtual uint32_t getMaxPayloadSize() { return 1400; }
@@ -46,6 +49,7 @@ class MockDriver : public Driver {
     void setInput(char* msg, uint32_t msgLen);
     static void bufferToString(Buffer *buffer, string& s);
     static void stringToBuffer(const char* s, Buffer* buffer);
+    static string bufToHex(const void* buf, uint32_t bufLen);
 
     /**
      * Records information from each call to send/recv packets.
@@ -64,6 +68,8 @@ class MockDriver : public Driver {
     uint32_t sendPacketCount;
     uint32_t tryRecvPacketCount;
     uint32_t releaseCount;
+
+    HeaderToString headerToString;
 
     DISALLOW_COPY_AND_ASSIGN(MockDriver);
 };

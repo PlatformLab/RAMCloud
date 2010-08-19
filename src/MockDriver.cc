@@ -28,12 +28,25 @@ namespace RAMCloud {
 // --- MockDriver ---
 
 /**
- * Construct a MockDriver.
+ * Construct a MockDriver which does not include the header in the outputLog.
  */
 MockDriver::MockDriver()
             : outputLog(), inputMessage(0), inputMessageLen(0),
               sendPacketCount(0), tryRecvPacketCount(0),
-              releaseCount(0) {}
+              releaseCount(0), headerToString(0)
+{
+}
+
+/**
+ * Construct a MockDriver with a custom serializer for the opaque header in
+ * the outputLog.
+ */
+MockDriver::MockDriver(HeaderToString headerToString)
+            : outputLog(), inputMessage(0), inputMessageLen(0),
+              sendPacketCount(0), tryRecvPacketCount(0),
+              releaseCount(0), headerToString(headerToString)
+{
+}
 
 void
 MockDriver::sendPacket(const sockaddr *addr,
@@ -47,9 +60,13 @@ MockDriver::sendPacket(const sockaddr *addr,
     if (outputLog.length() != 0)
         outputLog.append(" | ");
 
-    outputLog.append("sendPacket: ");
     // TODO(stutsman) Append target address as well once we settle on
     // format of addresses in the system
+
+    if (headerToString && header) {
+        outputLog += headerToString(header, headerLen);
+        outputLog += " ";
+    }
 
     if (!payload)
         return;
@@ -67,9 +84,9 @@ MockDriver::sendPacket(const sockaddr *addr,
     }
 
     uint32_t take = 10;
-    if (length < take)
+    if (length < take) {
         bufToString(buf, length, outputLog);
-    else {
+    } else {
         bufToString(buf, take, outputLog);
         char tmp[50];
         snprintf(tmp, sizeof(tmp), " (+%u more)", length - take);
@@ -213,6 +230,21 @@ MockDriver::stringToBuffer(const char* s, Buffer *buffer) {
     }
     string s2;
     bufferToString(buffer, s2);
+}
+
+string
+MockDriver::bufToHex(const void* buf, uint32_t bufLen)
+{
+    const unsigned char* cbuf = reinterpret_cast<const unsigned char*>(buf);
+    string s;
+    char c[4];
+
+    for (uint32_t i = 0; i < bufLen; i++) {
+        snprintf(c, sizeof(c), "%02x ", cbuf[i]);
+        s += c;
+    }
+
+    return s;
 }
 
 }  // namespace RAMCloud

@@ -233,7 +233,7 @@ rdpmc(uint32_t counter)
 class MockTSC {
     uint64_t original;
   public:
-    MockTSC(uint64_t value)
+    explicit MockTSC(uint64_t value)
         : original(mockTSCValue)
     {
         mockTSCValue = value;
