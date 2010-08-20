@@ -58,21 +58,21 @@ FastTransport::getClientSession()
 }
 
 // See Transport::clientSend().
-FastTransport::ClientRPC*
+FastTransport::ClientRpc*
 FastTransport::clientSend(Service* service,
                           Buffer* request,
                           Buffer* response)
 {
-    ClientRPC* rpc = new(request, MISC) ClientRPC(this, service,
+    ClientRpc* rpc = new(request, MISC) ClientRpc(this, service,
                                                   request, response);
     rpc->start();
     return rpc;
 }
 
-FastTransport::ServerRPC*
+FastTransport::ServerRpc*
 FastTransport::serverRecv()
 {
-    ServerRPC* rpc;
+    ServerRpc* rpc;
     while ((rpc = TAILQ_FIRST(&serverReadyQueue)) == NULL)
         poll();
     TAILQ_REMOVE(&serverReadyQueue, rpc, readyQueueEntries);
@@ -197,9 +197,26 @@ FastTransport::numFrags(const Buffer* dataBuffer)
              dataPerFragment());
 }
 
-// --- ClientRPC ---
+// --- ClientRpc ---
 
-FastTransport::ClientRPC::ClientRPC(FastTransport* transport,
+/**
+ * Create an RPC that will manage an entire request/response cycle from
+ * the Client end.
+ *
+ * Once the RPC is created start() will initiated the RPC and getReply()
+ * will block until the response is complete and valid (see getReply for
+ * more detail).
+ *
+ * \param transport
+ *      The Transport this RPC is to be emitted on.
+ * \param service
+ *      The Service this RPC is addressed to.
+ * \param request
+ *      The request payload including RPC headers.
+ * \param response
+ *      The response payload including the RPC headers.
+ */
+FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
                                     Service* service,
                                     Buffer* request,
                                     Buffer* response)
@@ -221,13 +238,24 @@ FastTransport::ClientRPC::ClientRPC(FastTransport* transport,
     serverAddressLen = sizeof(*addr);
 }
 
+// TODO(stutsman) getReply should return something or be renamed
+/**
+ * Blocks until the response buffer associated with this RPC is valid and
+ * populated.
+ *
+ * This method must be called for each RPC before its result can be used.
+ *
+ * \throws TransportException
+ *      If the RPC aborted.
+ */
 void
-FastTransport::ClientRPC::getReply()
+FastTransport::ClientRpc::getReply()
 {
     while (true) {
         switch (state) {
         case IDLE:
-            assert(0);
+            LOG(ERROR, "getReply() shouldn't be possible while IDLE");
+            return;
         case IN_PROGRESS:
         default:
             transport->poll();
@@ -240,22 +268,39 @@ FastTransport::ClientRPC::getReply()
     }
 }
 
+/// Change state to ABORTED.
 void
-FastTransport::ClientRPC::aborted()
+FastTransport::ClientRpc::aborted()
 {
     state = ABORTED;
 }
 
+/// Change state to COMPLETED.
 void
-FastTransport::ClientRPC::completed()
+FastTransport::ClientRpc::completed()
 {
     state = COMPLETED;
 }
 
+/**
+ * Begin a RPC.  This is only used internally by FastTransport.
+ *
+ * The RPC will reuse a session that is cached in the Service instance
+ * it is connecting to or will acquire a new session automatically in order
+ * to complete this RPC.
+ *
+ * Pre-conditions
+ *  - The caller must ensure that this RPC is IDLE.
+ * Post-conditions
+ *  - RPC is IN_PROGRESS.
+ *  - session is valid and connected.
+ * Side-effects
+ *  - The RPC's Service will be populated with the current session for reuse
+ *    on future calls.
+ */
 void
-FastTransport::ClientRPC::start()
+FastTransport::ClientRpc::start()
 {
-    assert(state == IDLE);
     state = IN_PROGRESS;
     ClientSession* session =
         static_cast<ClientSession*>(service->getSession());
@@ -268,9 +313,9 @@ FastTransport::ClientRPC::start()
     session->startRpc(this);
 }
 
-// --- ServerRPC ---
+// --- ServerRpc ---
 
-FastTransport::ServerRPC::ServerRPC(ServerSession* session,
+FastTransport::ServerRpc::ServerRpc(ServerSession* session,
                                     uint8_t channelId)
     : session(session),
       channelId(channelId),
@@ -279,7 +324,7 @@ FastTransport::ServerRPC::ServerRPC(ServerSession* session,
 }
 
 void
-FastTransport::ServerRPC::sendReply()
+FastTransport::ServerRpc::sendReply()
 {
     session->beginSending(channelId);
     // don't forget to delete(this) eventually
@@ -916,7 +961,7 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
             channel->inboundMsg.clear();
             channel->outboundMsg.clear();
             delete channel->currentRpc;
-            channel->currentRpc = new ServerRPC(this,
+            channel->currentRpc = new ServerRpc(this,
                                                 header->channelId);
             Buffer* recvBuffer = &channel->currentRpc->recvPayload;
             channel->inboundMsg.init(header->totalFrags, recvBuffer);
@@ -1017,10 +1062,19 @@ FastTransport::ServerSession::processReceivedAck(ServerChannel* channel,
 
 // --- ClientSession ---
 
+/**
+ * Establishes a connected session and begins any queued RPCs on as many
+ * channels as are available.
+ *
+ * \param received
+ *      A Driver::Received wrapping an RPC packet with a SessionOpenResponse
+ *      contained within.
+ */
 void
 FastTransport::ClientSession::processSessionOpenResponse(
         Driver::Received* received)
 {
+    // TODO(stutsman) Better idea just to log this and allow it to go through?
     if (numChannels > 0)
         return;
     Header* header = received->getOffset<Header>(0);
@@ -1038,7 +1092,7 @@ FastTransport::ClientSession::processSessionOpenResponse(
         if (TAILQ_EMPTY(&channelQueue))
             break;
         LOG(DEBUG, "Assigned RPC to channel: %u", i);
-        ClientRPC* rpc = TAILQ_FIRST(&channelQueue);
+        ClientRpc* rpc = TAILQ_FIRST(&channelQueue);
         TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
         channels[i].state = ClientChannel::SENDING;
         channels[i].currentRpc = rpc;
@@ -1086,7 +1140,7 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
             channel->state = ClientChannel::IDLE;
             channel->currentRpc = NULL;
         } else {
-            ClientRPC *rpc = TAILQ_FIRST(&channelQueue);
+            ClientRpc *rpc = TAILQ_FIRST(&channelQueue);
             assert(rpc->channelQueueEntries.tqe_prev);
             TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
             channel->state = ClientChannel::SENDING;
@@ -1166,6 +1220,7 @@ FastTransport::ClientSession::connect(const sockaddr* serverAddress,
     header.sessionToken = token;
     header.rpcId = 0;
     header.channelId = 0;
+    header.requestAck = 0;
     header.payloadType = Header::SESSION_OPEN;
     transport->sendPacket(&this->serverAddress,
                           this->serverAddressLen,
@@ -1247,7 +1302,7 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
 }
 
 void
-FastTransport::ClientSession::startRpc(ClientRPC* rpc)
+FastTransport::ClientSession::startRpc(ClientRpc* rpc)
 {
     lastActivityTime = rdtsc();
     ClientChannel* channel = getAvailableChannel();
@@ -1271,7 +1326,7 @@ FastTransport::ClientSession::close()
             channels[i].currentRpc->aborted();
     }
     while (!TAILQ_EMPTY(&channelQueue)) {
-        ClientRPC* rpc = TAILQ_FIRST(&channelQueue);
+        ClientRpc* rpc = TAILQ_FIRST(&channelQueue);
         TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
         rpc->aborted();
     }

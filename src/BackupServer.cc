@@ -647,7 +647,7 @@ BackupServer::handleRPC()
 {
     backup_rpc *req;
     backup_rpc *resp;
-    Transport::ServerRPC *rpc = trans->serverRecv();
+    Transport::ServerRpc *rpc = trans->serverRecv();
     // TODO(ongaro): Rework this to use Buffers properly.
     req = reinterpret_cast<backup_rpc*>(
         rpc->recvPayload.getRange(0, rpc->recvPayload.getTotalLength()));

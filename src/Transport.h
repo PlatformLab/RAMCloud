@@ -73,19 +73,19 @@ class Transport {
      * #clientSend() will return one of these, and the caller of that method
      * must later call #getReply() on it.
      */
-    class ClientRPC {
+    class ClientRpc {
       protected:
         /**
-         * Constructor for ClientRPC.
+         * Constructor for ClientRpc.
          */
-        ClientRPC() {}
+        ClientRpc() {}
 
       public:
 
         /**
-         * Destructor for ClientRPC.
+         * Destructor for ClientRpc.
          */
-        virtual ~ClientRPC() {}
+        virtual ~ClientRpc() {}
 
         /**
          * Wait for the RPC response to arrive.
@@ -93,7 +93,7 @@ class Transport {
          * The response will be available in the #::Buffer passed to
          * #clientSend() when this call returns.
          *
-         * You should discard all pointers to this #ClientRPC object after this
+         * You should discard all pointers to this #ClientRpc object after this
          * call.
          *
          * \throw TransportException
@@ -102,7 +102,7 @@ class Transport {
         virtual void getReply() = 0;
 
       private:
-        DISALLOW_COPY_AND_ASSIGN(ClientRPC);
+        DISALLOW_COPY_AND_ASSIGN(ClientRpc);
     };
 
     /**
@@ -110,23 +110,23 @@ class Transport {
      * #serverRecv() will return one of these, and the caller of that method
      * must later call #sendReply() on it.
      */
-    class ServerRPC {
+    class ServerRpc {
       protected:
         /**
-         * Constructor for ServerRPC.
+         * Constructor for ServerRpc.
          */
-        ServerRPC() : recvPayload(), replyPayload() {}
+        ServerRpc() : recvPayload(), replyPayload() {}
 
       public:
         /**
-         * Destructor for ServerRPC.
+         * Destructor for ServerRpc.
          */
-        virtual ~ServerRPC() {}
+        virtual ~ServerRpc() {}
 
         /**
          * Respond to the RPC with the contents of #replyPayload.
          *
-         * You should discard all pointers to this #ServerRPC object after this
+         * You should discard all pointers to this #ServerRpc object after this
          * call.
          *
          * \throw TransportException
@@ -145,7 +145,7 @@ class Transport {
         Buffer replyPayload;
 
       private:
-        DISALLOW_COPY_AND_ASSIGN(ServerRPC);
+        DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
 
     /**
@@ -162,10 +162,10 @@ class Transport {
      * Wait for any RPC request to arrive.
      * \return
      *      The RPC object through which to send a reply. The caller must use
-     *      either #Transport::ServerRPC::sendReply() to release the resources
+     *      either #Transport::ServerRpc::sendReply() to release the resources
      *      associated with this object.
      */
-    virtual ServerRPC* serverRecv() __attribute__((warn_unused_result)) = 0;
+    virtual ServerRpc* serverRecv() __attribute__((warn_unused_result)) = 0;
 
     /**
      * Send an RPC request.
@@ -174,20 +174,20 @@ class Transport {
      * \param[in] request
      *      The RPC request payload to send. The caller must not modify or even
      *      access \a request until the corresponding call to
-     *      #Transport::ClientRPC::getReply() returns. The Transport may add
+     *      #Transport::ClientRpc::getReply() returns. The Transport may add
      *      new chunks to \a request but will not modify its existing chunks.
      * \param[out] response
      *      An initialized Buffer that will be filled in with the received RPC
      *      response. The caller must not access \a response until the
-     *      corresponding call to #Transport::ClientRPC::getReply() returns.
+     *      corresponding call to #Transport::ClientRpc::getReply() returns.
      * \return
      *      The RPC object through which to receive the reply. The caller must
-     *      use #Transport::ClientRPC::getReply() to release the resources
+     *      use #Transport::ClientRpc::getReply() to release the resources
      *      associated with this object.
      * \throw TransportException
      *      If \a service is unavailable.
      */
-    virtual ClientRPC* clientSend(Service* service, Buffer* request,
+    virtual ClientRpc* clientSend(Service* service, Buffer* request,
                                   Buffer* response)
         __attribute__((warn_unused_result)) = 0;
 

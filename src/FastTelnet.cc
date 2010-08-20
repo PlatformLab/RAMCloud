@@ -121,7 +121,7 @@ try
     if (!generate) {
         char sendbuf[1024];
         char recvbuf[multi][1024];
-        FastTransport::ClientRPC* rpcs[multi];
+        FastTransport::ClientRpc* rpcs[multi];
         Buffer response[multi];
         LOG(DEBUG, "Sending to %d servers", multi);
         while (fgets(sendbuf, sizeof(sendbuf), stdin) != NULL) {

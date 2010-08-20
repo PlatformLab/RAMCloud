@@ -190,14 +190,14 @@ class Server {
     ~Server();
     void Run();
 
-    void Ping(Transport::ServerRPC *rpc);
-    void Read(Transport::ServerRPC *rpc);
-    void Write(Transport::ServerRPC *rpc);
-    void InsertKey(Transport::ServerRPC *rpc);
-    void DeleteKey(Transport::ServerRPC *rpc);
-    void CreateTable(Transport::ServerRPC *rpc);
-    void OpenTable(Transport::ServerRPC *rpc);
-    void DropTable(Transport::ServerRPC *rpc);
+    void Ping(Transport::ServerRpc *rpc);
+    void Read(Transport::ServerRpc *rpc);
+    void Write(Transport::ServerRpc *rpc);
+    void InsertKey(Transport::ServerRpc *rpc);
+    void DeleteKey(Transport::ServerRpc *rpc);
+    void CreateTable(Transport::ServerRpc *rpc);
+    void OpenTable(Transport::ServerRpc *rpc);
+    void DropTable(Transport::ServerRpc *rpc);
 
 
   private:

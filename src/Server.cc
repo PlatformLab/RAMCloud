@@ -71,7 +71,7 @@ Server::~Server()
 }
 
 void
-Server::Ping(Transport::ServerRPC *rpc)
+Server::Ping(Transport::ServerRpc *rpc)
 {
     // nothing to do here
 }
@@ -103,7 +103,7 @@ Server::RejectOperation(const rcrpc_reject_rules *reject_rules,
 }
 
 void
-Server::Read(Transport::ServerRPC *rpc)
+Server::Read(Transport::ServerRpc *rpc)
 {
     const rcrpc_read_request *req;
     req = static_cast<rcrpc_read_request*>(
@@ -279,7 +279,7 @@ Server::StoreData(uint64_t table,
 }
 
 void
-Server::Write(Transport::ServerRPC *rpc)
+Server::Write(Transport::ServerRpc *rpc)
 {
     const rcrpc_write_request *req;
 
@@ -300,7 +300,7 @@ Server::Write(Transport::ServerRPC *rpc)
 }
 
 void
-Server::InsertKey(Transport::ServerRPC *rpc)
+Server::InsertKey(Transport::ServerRpc *rpc)
 {
     const rcrpc_insert_request *req;
     req = static_cast<rcrpc_insert_request*>(
@@ -328,7 +328,7 @@ Server::InsertKey(Transport::ServerRPC *rpc)
 }
 
 void
-Server::DeleteKey(Transport::ServerRPC *rpc)
+Server::DeleteKey(Transport::ServerRpc *rpc)
 {
     const rcrpc_delete_request *req;
     req = static_cast<rcrpc_delete_request*>(
@@ -372,7 +372,7 @@ Server::DeleteKey(Transport::ServerRPC *rpc)
 }
 
 void
-Server::CreateTable(Transport::ServerRPC *rpc)
+Server::CreateTable(Transport::ServerRpc *rpc)
 {
     const rcrpc_create_table_request *req;
     req = static_cast<rcrpc_create_table_request*>(
@@ -399,7 +399,7 @@ Server::CreateTable(Transport::ServerRPC *rpc)
 }
 
 void
-Server::OpenTable(Transport::ServerRPC *rpc)
+Server::OpenTable(Transport::ServerRpc *rpc)
 {
     const rcrpc_open_table_request *req;
     req = static_cast<rcrpc_open_table_request*>(
@@ -423,7 +423,7 @@ Server::OpenTable(Transport::ServerRPC *rpc)
 }
 
 void
-Server::DropTable(Transport::ServerRPC *rpc)
+Server::DropTable(Transport::ServerRpc *rpc)
 {
     const rcrpc_drop_table_request *req;
     req = static_cast<rcrpc_drop_table_request*>(
@@ -512,7 +512,7 @@ Server::Restore()
 void
 Server::HandleRPC()
 {
-    Transport::ServerRPC *rpc = trans->serverRecv();
+    Transport::ServerRpc *rpc = trans->serverRecv();
 
     rcrpc_header *reqHeader = static_cast<rcrpc_header*>(
         rpc->recvPayload.getRange(0, sizeof(*reqHeader)));

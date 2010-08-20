@@ -29,7 +29,7 @@ main()
     TCPTransport tx(SVRADDR, SVRPORT);
     while (true) {
         Buffer payload;
-        Transport::ServerRPC* rpc = tx.serverRecv();
+        Transport::ServerRpc* rpc = tx.serverRecv();
         Buffer::Iterator iter(rpc->recvPayload);
         while (!iter.isDone()) {
             Buffer::Chunk::appendToBuffer(&rpc->replyPayload,

@@ -45,9 +45,9 @@ class FastTransport : public Transport {
     class ClientSession;
   public:
     explicit FastTransport(Driver* driver);
-    void poll();
+    VIRTUAL_FOR_TESTING void poll();
     virtual ClientSession* getClientSession();
-    class ClientRPC : public Transport::ClientRPC {
+    class ClientRpc : public Transport::ClientRpc {
       public:
         void getReply();
 
@@ -55,7 +55,7 @@ class FastTransport : public Transport {
         Buffer* const responseBuffer;
 
       private:
-        ClientRPC(FastTransport* transport, Service* service,
+        ClientRpc(FastTransport* transport, Service* service,
                   Buffer* request, Buffer* response);
         void aborted();
         void completed();
@@ -72,30 +72,30 @@ class FastTransport : public Transport {
         Service* service;
         const sockaddr serverAddress;
         socklen_t serverAddressLen;
-        TAILQ_ENTRY(ClientRPC) channelQueueEntries;
+        TAILQ_ENTRY(ClientRpc) channelQueueEntries;
         friend class FastTransport;
         friend class FastTransportTest;
-        DISALLOW_COPY_AND_ASSIGN(ClientRPC);
+        friend class ClientRpcTest;
+        DISALLOW_COPY_AND_ASSIGN(ClientRpc);
     };
 
-    virtual ClientRPC* clientSend(Service* service,
+    virtual ClientRpc* clientSend(Service* service,
                                   Buffer* request, Buffer* response);
 
-    class ServerRPC : public Transport::ServerRPC {
+    class ServerRpc : public Transport::ServerRpc {
       public:
-        ServerRPC(ServerSession* session, uint8_t channelId);
+        ServerRpc(ServerSession* session, uint8_t channelId);
         void sendReply();
       private:
         ServerSession* const session;
         const uint8_t channelId;
-        TAILQ_ENTRY(ServerRPC) readyQueueEntries;
+        TAILQ_ENTRY(ServerRpc) readyQueueEntries;
         friend class FastTransport;
         friend class FastTransportTest;
-        DISALLOW_COPY_AND_ASSIGN(ServerRPC);
+        DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
 
-    virtual ServerRPC* serverRecv();
-
+    virtual ServerRpc* serverRecv();
 
   private:
     enum { NUM_CHANNELS_PER_SESSION = 8 };
@@ -147,6 +147,8 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
 
+    // TODO(stutsman) Some parts of this stack don't initialize all these
+    // fields, should we provide a constructor to zero them?
     struct Header {
         enum PayloadType {
             DATA         = 0,
@@ -191,7 +193,7 @@ class FastTransport : public Transport {
                      "%u/%u frags "
                      "channel:%u "
                      "dir:%u reqACK:%u drop:%u "
-                     "payloadType: %u }",
+                     "payloadType:%u }",
                      self->sessionToken, self->rpcId,
                      self->clientSessionHint, self->serverSessionHint,
                      self->fragNumber, self->totalFrags,
@@ -455,7 +457,7 @@ class FastTransport : public Transport {
                 SENDING_WAITING,
             } state;
             uint32_t rpcId;
-            ServerRPC* currentRpc;
+            ServerRpc* currentRpc;
             InboundMessage inboundMsg;
             OutboundMessage outboundMsg;
           private:
@@ -527,7 +529,7 @@ class FastTransport : public Transport {
                 RECEIVING,
             } state;
             uint32_t rpcId;
-            ClientRPC* currentRpc;
+            ClientRpc* currentRpc;
             OutboundMessage outboundMsg;
             InboundMessage inboundMsg;
           private:
@@ -545,7 +547,7 @@ class FastTransport : public Transport {
         sockaddr serverAddress;
         socklen_t serverAddressLen;
 
-        TAILQ_HEAD(ChannelQueueHead, ClientRPC) channelQueue;
+        TAILQ_HEAD(ChannelQueueHead, ClientRpc) channelQueue;
 
         const uint32_t id;
 
@@ -570,13 +572,14 @@ class FastTransport : public Transport {
         uint64_t getLastActivityTime();
         void fillHeader(Header* const header, uint8_t channelId) const;
         void processInboundPacket(Driver::Received* received);
-        void startRpc(ClientRPC* rpc);
+        void startRpc(ClientRpc* rpc);
         void close();
         bool expire();
 
       private:
         template <typename T> friend class SessionTable;
         friend class FastTransportTest;
+        friend class ClientRpcTest;
         friend class InboundMessageTest;
         friend class OutboundMessageTest;
         DISALLOW_COPY_AND_ASSIGN(ClientSession);
@@ -671,10 +674,11 @@ class FastTransport : public Transport {
     Driver* const driver;
     SessionTable<ServerSession> serverSessions;
     SessionTable<ClientSession> clientSessions;
-    TAILQ_HEAD(ServerReadyQueueHead, ServerRPC) serverReadyQueue;
+    TAILQ_HEAD(ServerReadyQueueHead, ServerRpc) serverReadyQueue;
     LIST_HEAD(TimerListHead, Timer) timerList;
 
     friend class FastTransportTest;
+    friend class ClientRpcTest;
     friend class SessionTableTest;
     friend class InboundMessageTest;
     friend class OutboundMessageTest;

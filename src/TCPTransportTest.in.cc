@@ -717,14 +717,14 @@ class SocketTest : public CppUnit::TestFixture {
 CPPUNIT_TEST_SUITE_REGISTRATION(SocketTest);
 
 /**
- * Unit tests for TCPTransport, TCPServerRPC, and TCPClientRPC.
+ * Unit tests for TCPTransport, TCPServerRpc, and TCPClientRpc.
  */
 class TCPTransportTest : public CppUnit::TestFixture {
     DISALLOW_COPY_AND_ASSIGN(TCPTransportTest); // NOLINT
 
     CPPUNIT_TEST_SUITE(TCPTransportTest);
-    CPPUNIT_TEST(test_TCPServerRPC_sendReply);
-    CPPUNIT_TEST(test_TCPClientRPC_getReply);
+    CPPUNIT_TEST(test_TCPServerRpc_sendReply);
+    CPPUNIT_TEST(test_TCPClientRpc_getReply);
     CPPUNIT_TEST(test_TCPTransport_constructor);
     CPPUNIT_TEST(test_TCPTransport_serverRecv);
     CPPUNIT_TEST(test_TCPTransport_clientSend);
@@ -735,15 +735,15 @@ class TCPTransportTest : public CppUnit::TestFixture {
 
     void tearDown() {
         // disable mock socket instances
-        TCPTransport::TCPServerRPC::mockServerSocket = NULL;
-        TCPTransport::TCPClientRPC::mockClientSocket = NULL;
+        TCPTransport::TCPServerRpc::mockServerSocket = NULL;
+        TCPTransport::TCPClientRpc::mockClientSocket = NULL;
 
         // put TCPTransport::sys back to the real Syscalls implementation.
         extern TCPTransport::Syscalls realSyscalls;
         TCPTransport::sys = &realSyscalls;
     }
 
-    void test_TCPServerRPC_sendReply() {
+    void test_TCPServerRpc_sendReply() {
         static Buffer* send_expect;
 
         BEGIN_MOCK(TS, ServerSocketStub);
@@ -752,7 +752,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::TCPServerRPC::mockServerSocket = &ts;
+        TCPTransport::TCPServerRpc::mockServerSocket = &ts;
 
         BEGIN_MOCK(TSC, SyscallsStub);
             close(fd == 10) {
@@ -764,13 +764,13 @@ class TCPTransportTest : public CppUnit::TestFixture {
         TCPTransport::sys = &tsc;
 
         TCPTransport t(NULL, 0);
-        TCPTransport::TCPServerRPC* rpc = new TCPTransport::TCPServerRPC();
+        TCPTransport::TCPServerRpc* rpc = new TCPTransport::TCPServerRpc();
         send_expect = &rpc->replyPayload;
         rpc->realServerSocket.fd = 10;
         rpc->sendReply();
     }
 
-    void test_TCPClientRPC_getReply() {
+    void test_TCPClientRpc_getReply() {
         static Buffer* recv_expect;
 
         BEGIN_MOCK(TS, ClientSocketStub);
@@ -779,7 +779,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::TCPClientRPC::mockClientSocket = &ts;
+        TCPTransport::TCPClientRpc::mockClientSocket = &ts;
 
         BEGIN_MOCK(TSC, SyscallsStub);
             close(fd == 10) {
@@ -793,7 +793,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         TCPTransport t(NULL, 0);
         Buffer payload;
         recv_expect = &payload;
-        TCPTransport::TCPClientRPC* rpc = new TCPTransport::TCPClientRPC();
+        TCPTransport::TCPClientRpc* rpc = new TCPTransport::TCPClientRpc();
         rpc->reply = &payload;
         rpc->realClientSocket.fd = 10;
         rpc->getReply();
@@ -823,13 +823,13 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::TCPServerRPC::mockServerSocket = &ts;
+        TCPTransport::TCPServerRpc::mockServerSocket = &ts;
 
         TCPTransport t(NULL, 0);
         init_expect = &t.listenSocket;
         Buffer payload;
         recv_expect = &payload;
-        Transport::ServerRPC* rpc = t.serverRecv();
+        Transport::ServerRpc* rpc = t.serverRecv();
         CPPUNIT_ASSERT(recv_expect == &rpc->recvPayload);
         delete(rpc);
     }
@@ -846,7 +846,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::TCPClientRPC::mockClientSocket = &ts;
+        TCPTransport::TCPClientRpc::mockClientSocket = &ts;
 
         TCPTransport t(NULL, 0);
         Buffer payload;

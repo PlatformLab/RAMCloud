@@ -142,6 +142,7 @@ class Service {
     void* session;
 
     friend class ServiceTest;
+    friend class ClientRpcTest;
     DISALLOW_COPY_AND_ASSIGN(Service);
 };
 

@@ -43,8 +43,8 @@ class TCPTransport : public Transport {
   public:
     TCPTransport(const char* ip, uint16_t port);
 
-    ServerRPC* serverRecv() __attribute__((warn_unused_result));
-    ClientRPC* clientSend(Service* service, Buffer* request,
+    ServerRpc* serverRecv() __attribute__((warn_unused_result));
+    ClientRpc* clientSend(Service* service, Buffer* request,
                           Buffer* response)
         __attribute__((warn_unused_result));
 
@@ -221,21 +221,21 @@ class TCPTransport : public Transport {
 
 
     /**
-     * The TCP implementation of Transport::ServerRPC.
+     * The TCP implementation of Transport::ServerRpc.
      */
-    class TCPServerRPC : public Transport::ServerRPC {
+    class TCPServerRpc : public Transport::ServerRpc {
       friend class TCPTransportTest;
       public:
 
         /**
-         * Constructor for TCPServerRPC.
+         * Constructor for TCPServerRpc.
          *
          * Normally this sets #serverSocket to #realServerSocket. If
          * #mockServerSocket is not \c NULL, however, it will be set to that
          * instead (used for testing).
          */
         // TODO(ongaro): Move constructor into cc file?
-        TCPServerRPC() : realServerSocket(), serverSocket(&realServerSocket) {
+        TCPServerRpc() : realServerSocket(), serverSocket(&realServerSocket) {
 #if TESTING
             if (mockServerSocket != NULL)
                 serverSocket = mockServerSocket;
@@ -263,25 +263,25 @@ class TCPTransport : public Transport {
 #endif
 
       private:
-        DISALLOW_COPY_AND_ASSIGN(TCPServerRPC);
+        DISALLOW_COPY_AND_ASSIGN(TCPServerRpc);
     };
 
     /**
-     * The TCP implementation of Transport::ClientRPC.
+     * The TCP implementation of Transport::ClientRpc.
      */
-    class TCPClientRPC : public Transport::ClientRPC {
+    class TCPClientRpc : public Transport::ClientRpc {
       friend class TCPTransportTest;
       public:
 
         /**
-         * Constructor for TCPClientRPC.
+         * Constructor for TCPClientRpc.
          *
          * Normally this sets #clientSocket to #realClientSocket. If
          * #mockClientSocket is not \c NULL, however, it will be set to that
          * instead (used for testing).
          */
         // TODO(ongaro): Move constructor into cc file?
-        TCPClientRPC() : reply(NULL), realClientSocket(),
+        TCPClientRpc() : reply(NULL), realClientSocket(),
                          clientSocket(&realClientSocket) {
 #if TESTING
             if (mockClientSocket != NULL)
@@ -312,7 +312,7 @@ class TCPTransport : public Transport {
 #endif
 
       private:
-        DISALLOW_COPY_AND_ASSIGN(TCPClientRPC);
+        DISALLOW_COPY_AND_ASSIGN(TCPClientRpc);
     };
 
   private:

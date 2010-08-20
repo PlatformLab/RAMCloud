@@ -56,14 +56,14 @@ TCPTransport::Syscalls* TCPTransport::sys = &realSyscalls;
  * construction. Used for unit testing. Normally set to \c NULL.
  */
 TCPTransport::ServerSocket*
-    TCPTransport::TCPServerRPC::mockServerSocket = NULL;
+    TCPTransport::TCPServerRpc::mockServerSocket = NULL;
 
 /**
  * A pointer to a mock client socket to use temporarily during
  * construction. Used for unit testing. Normally set to \c NULL.
  */
 TCPTransport::ClientSocket*
-    TCPTransport::TCPClientRPC::mockClientSocket = NULL;
+    TCPTransport::TCPClientRpc::mockClientSocket = NULL;
 #endif
 
 /**
@@ -342,19 +342,19 @@ TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
 }
 
 void
-TCPTransport::TCPServerRPC::sendReply()
+TCPTransport::TCPServerRpc::sendReply()
 {
     // "delete this;" on our way out of the method
-    std::auto_ptr<TCPServerRPC> suicide(this);
+    std::auto_ptr<TCPServerRpc> suicide(this);
 
     serverSocket->send(&replyPayload);
 }
 
 void
-TCPTransport::TCPClientRPC::getReply()
+TCPTransport::TCPClientRpc::getReply()
 {
     // "delete this;" on our way out of the method
-    std::auto_ptr<TCPClientRPC> suicide(this);
+    std::auto_ptr<TCPClientRpc> suicide(this);
 
     clientSocket->recv(reply);
 }
@@ -380,10 +380,10 @@ TCPTransport::TCPTransport(const char* ip, uint16_t port)
 {
 }
 
-Transport::ServerRPC*
+Transport::ServerRpc*
 TCPTransport::serverRecv()
 {
-    std::auto_ptr<TCPServerRPC> rpc(new TCPServerRPC());
+    std::auto_ptr<TCPServerRpc> rpc(new TCPServerRpc());
 
     while (true) {
         rpc->serverSocket->init(&listenSocket);
@@ -396,11 +396,11 @@ TCPTransport::serverRecv()
     return rpc.release();
 }
 
-Transport::ClientRPC*
+Transport::ClientRpc*
 TCPTransport::clientSend(Service* service, Buffer* request,
                          Buffer* response)
 {
-    std::auto_ptr<TCPClientRPC> rpc(new TCPClientRPC());
+    std::auto_ptr<TCPClientRpc> rpc(new TCPClientRpc());
 
     rpc->clientSocket->init(service->getIp(), service->getPort());
     rpc->clientSocket->send(request);
