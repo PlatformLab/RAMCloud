@@ -102,9 +102,8 @@ try
 
         int r = sched_setaffinity(0, sizeof(cpus), &cpus);
         if (r < 0) {
-            LOG(ERROR, "server: Couldn't pin to core %d: %s",
+            DIE("server: Couldn't pin to core %d: %s",
                 cpu, strerror(errno));
-            exit(EXIT_FAILURE);
         }
         LOG(DEBUG, "server: Pinned to core %d", cpu);
     }

@@ -560,6 +560,8 @@ Server::HandleRPC()
         default:
             throw Exception("received unknown RPC type");
         }
+    } catch (FatalError e) {
+        throw;
     } catch (Exception e) {
         fprintf(stderr, "Error while processing RPC: %s\n", e.message.c_str());
         uint32_t msglen = static_cast<uint32_t>(e.message.length()) + 1;

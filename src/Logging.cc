@@ -27,6 +27,19 @@ namespace RAMCloud {
 Logger logger(NOTICE);
 
 /**
+ * Friendly names for each #LogLevel value.
+ * Keep this in sync with the LogLevel enum.
+ */
+static const char* logLevelNames[] = {"(none)", "ERROR", "WARNING",
+                                      "NOTICE", "DEBUG"};
+
+/**
+ * Friendly names for each #LogModule value.
+ * Keep this in sync with the LogModule enum.
+ */
+static const char* logModuleNames[] = {"default"};
+
+/**
  * Create a new debug logger.
  * \param[in] level
  *      Messages for all modules at least as important as \a level will be
@@ -165,10 +178,6 @@ Logger::logMessage(LogModule module, LogLevel level,
                    const char* file, uint32_t line,
                    const char* format, ...)
 {
-    // Keep this in sync with the LogLevel enum.
-    static const char* logLevelNames[] = {"(none)", "ERROR", "WARNING",
-                                          "NOTICE", "DEBUG"};
-    static const char* logModuleNames[] = {"default"};
     static int fileCharsToSkip = length__FILE__Prefix();
     va_list ap;
     struct timeval now;
@@ -185,6 +194,47 @@ Logger::logMessage(LogModule module, LogLevel level,
     va_end(ap);
 
     fflush(stream);
+}
+
+/**
+ * Format a message for use in #DIE().
+ * \param[in] module
+ *      See #logMessage().
+ * \param[in] level
+ *      See #logMessage().
+ * \param[in] file
+ *      See #logMessage().
+ * \param[in] line
+ *      See #logMessage().
+ * \param[in] format
+ *      See #logMessage().
+ * \param[in] ...
+ *      See #logMessage().
+ * \return
+ *      A string containing the formatted message.
+ */
+std::string
+Logger::getMessage(LogModule module, LogLevel level,
+                   const char* file, uint32_t line,
+                   const char* format, ...)
+{
+    static int fileCharsToSkip = length__FILE__Prefix();
+    std::string message;
+    char buf[1024];
+    va_list ap;
+
+    snprintf(buf, sizeof(buf), "%s:%d %s %s: ",
+             file + fileCharsToSkip, line,
+             logModuleNames[module],
+             logLevelNames[level]);
+    message.append(buf);
+
+    va_start(ap, format);
+    vsnprintf(buf, sizeof(buf), format, ap);
+    va_end(ap);
+    message.append(buf);
+
+    return message;
 }
 
 } // end RAMCloud

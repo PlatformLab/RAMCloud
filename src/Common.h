@@ -269,6 +269,16 @@ struct Exception {
     int errNo;
 };
 
+/**
+ * A fatal error that should exit the program.
+ */
+struct FatalError : public Exception {
+    explicit FatalError() {}
+    explicit FatalError(std::string msg) : Exception(msg) {}
+    explicit FatalError(int errNo) : Exception(errNo) {}
+    explicit FatalError(std::string msg, int errNo) : Exception(msg, errNo) {}
+};
+
 } // end RAMCloud
 
 #endif

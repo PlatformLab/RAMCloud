@@ -33,6 +33,7 @@ class LoggerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_changeLogLevels);
     CPPUNIT_TEST(test_isLogging);
     CPPUNIT_TEST(test_LOG);
+    CPPUNIT_TEST(test_DIE);
     CPPUNIT_TEST_SUITE_END();
 
     static const uint32_t numLogLevels = static_cast<uint32_t>(NUM_LOG_LEVELS);
@@ -143,8 +144,26 @@ class LoggerTest : public CppUnit::TestFixture {
                               "default ERROR: rofl: 3\n$";
         assertMatchesPosixRegex(pattern, buf);
 
-        free(buf);
         fclose(logger.stream);
+        free(buf);
+    }
+
+    void test_DIE() { // also tests getMessage
+        logger.stream = fmemopen(NULL, 1024, "w");
+        assert(logger.stream != NULL);
+        try {
+            DIE("rofl: %d", 3);
+        } catch (RAMCloud::FatalError e) {
+            int64_t streamPos = ftell(logger.stream);
+            fclose(logger.stream);
+            CPPUNIT_ASSERT(streamPos > 0);
+            const char* pattern = "^src/LoggingTest.cc:[[:digit:]]\\{1,4\\} "
+                                  "default ERROR: rofl: 3$";
+            assertMatchesPosixRegex(pattern, e.message.c_str());
+            return;
+        }
+        fclose(logger.stream);
+        CPPUNIT_FAIL("FatalError not thrown");
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(LoggerTest);
