@@ -19,7 +19,6 @@
  */
 
 #include <TestUtil.h>
-#include <regex.h>
 
 namespace RAMCloud {
 
@@ -142,14 +141,7 @@ class LoggerTest : public CppUnit::TestFixture {
         const char* pattern = "^[[:digit:]]\\{10\\}\\.[[:digit:]]\\{6\\} "
                               "src/LoggingTest.cc:[[:digit:]]\\{1,4\\} "
                               "default ERROR: rofl: 3\n$";
-        regex_t pregStorage;
-        assert(regcomp(&pregStorage, pattern, 0) == 0);
-        int r = regexec(&pregStorage, buf, 0, NULL, 0);
-        if (r != 0) {
-            fprintf(stderr, "test_LOG: '%s' returned %d\n", buf, r);
-            CPPUNIT_ASSERT(false);
-        }
-        regfree(&pregStorage);
+        assertMatchesPosixRegex(pattern, buf);
 
         free(buf);
         fclose(logger.stream);

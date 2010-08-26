@@ -24,6 +24,7 @@
 
 #include <Common.h>
 #include <cppunit/extensions/HelperMacros.h>
+#include <regex.h>
 
 namespace CppUnit {
 
@@ -35,6 +36,12 @@ void assertEquals(uint32_t expected, const uint32_t actual,
                   SourceLine sourceLine, const std::string &message);
 void assertEquals(void *expected, const void *actual,
                   SourceLine sourceLine, const std::string &message);
+
+}
+
+namespace RAMCloud {
+
+void assertMatchesPosixRegex(const char* pattern, const char* subject);
 
 }
 

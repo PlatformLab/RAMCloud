@@ -108,4 +108,65 @@ void assertEquals(void *expected, const void *actual,
     }
 }
 
+} // namespace CppUnit
+
+namespace RAMCloud {
+
+/**
+ * A wrapper around regerror(3) that returns a std::string.
+ * \param errorCode
+ *      See regerror(3).
+ * \param storage
+ *      See regerror(3).
+ * \return
+ *      The full error message from regerror(3).
+ */
+static string
+friendlyRegerror(int errorCode, const regex_t* storage)
+{
+    size_t errorBufSize = regerror(errorCode, storage, NULL, 0);
+    char errorBuf[errorBufSize];
+    size_t errorBufSize2 = regerror(errorCode, storage, errorBuf,
+                                    errorBufSize);
+    assert(errorBufSize == errorBufSize2);
+    return errorBuf;
 }
+
+/**
+ * Fail the CPPUNIT test case if the given string doesn't match the given POSIX
+ * regular expression.
+ * \param pattern
+ *      A POSIX regular expression.
+ * \param subject
+ *      The string that should match \a pattern.
+ */
+void
+assertMatchesPosixRegex(const char* pattern, const char* subject)
+{
+    regex_t pregStorage;
+    int r;
+
+    r = regcomp(&pregStorage, pattern, 0);
+    if (r != 0) {
+        string errorMsg = "Pattern '";
+        errorMsg += pattern;
+        errorMsg += "' failed to compile: ";
+        errorMsg += friendlyRegerror(r, &pregStorage);
+        CPPUNIT_FAIL(errorMsg);
+    }
+
+    r = regexec(&pregStorage, subject, 0, NULL, 0);
+    if (r != 0) {
+        string errorMsg = "Pattern '";
+        errorMsg += pattern;
+        errorMsg += "' did not match subject '";
+        errorMsg += subject;
+        errorMsg += "'";
+        regfree(&pregStorage);
+        CPPUNIT_FAIL(errorMsg);
+    }
+
+    regfree(&pregStorage);
+}
+
+} // namespace RAMCloud
