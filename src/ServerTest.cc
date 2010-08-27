@@ -89,7 +89,7 @@ class ServerTest : public CppUnit::TestFixture {
     TServer* server;
     ServerConfig config;
 
-    ServerTest() { }
+    ServerTest() : transport(NULL), server(NULL), config() { }
     void setUp() {
         transport = new MockTransport();
         server = new TServer(&config, transport, NULL);
