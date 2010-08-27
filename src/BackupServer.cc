@@ -645,11 +645,11 @@ BackupServer::handleHeartbeat(const backup_rpc *req, backup_rpc *resp)
 void
 BackupServer::handleRPC()
 {
-    backup_rpc *req;
+    const backup_rpc *req;
     backup_rpc *resp;
     Transport::ServerRPC *rpc = trans->serverRecv();
     // TODO(ongaro): Rework this to use Buffers properly.
-    req = reinterpret_cast<backup_rpc*>(
+    req = reinterpret_cast<const backup_rpc*>(
         rpc->recvPayload.getRange(0, rpc->recvPayload.getTotalLength()));
     void* respBuf = new(&rpc->replyPayload, MISC) char[RESP_BUF_LEN];
     resp = static_cast<backup_rpc *>(respBuf);

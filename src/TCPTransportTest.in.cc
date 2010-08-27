@@ -192,7 +192,8 @@ class SocketTest : public CppUnit::TestFixture {
             s.recv(&payload);
         }
         CPPUNIT_ASSERT(payload.getTotalLength() == 8);
-        uint64_t* data = static_cast<uint64_t*>(payload.getRange(0, 8));
+        const uint64_t* data = static_cast<const uint64_t*>(
+                payload.getRange(0, 8));
         CPPUNIT_ASSERT(*data == 0x0123456789abcdef);
     }
 
@@ -228,7 +229,8 @@ class SocketTest : public CppUnit::TestFixture {
             s.recv(&payload);
         }
         CPPUNIT_ASSERT(payload.getTotalLength() == 8);
-        uint64_t* data = static_cast<uint64_t*>(payload.getRange(0, 8));
+        const uint64_t* data = static_cast<const uint64_t*>(
+                payload.getRange(0, 8));
         CPPUNIT_ASSERT(*data == 0x0123456789abcdef);
     }
 

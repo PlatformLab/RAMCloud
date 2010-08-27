@@ -98,7 +98,7 @@ class Server {
     friend void segmentReplayCallback(Segment* seg, void* cookie);
     friend void objectReplayCallback(log_entry_type_t type,
             const void* p, uint64_t len, void* cookie);
-    char* getString(Buffer* buffer, uint32_t offset, uint32_t length);
+    const char* getString(Buffer* buffer, uint32_t offset, uint32_t length);
     Table* getTable(uint32_t tableId);
     Status rejectOperation(const RejectRules* rejectRules, uint64_t version);
     void restore();

@@ -34,7 +34,7 @@ class TServer : public Server {
     TServer(const ServerConfig* config, Transport* transIn,
             BackupClient* backupClient = 0)
             : Server(config, transIn, backupClient) { }
-    char* tGetString(Buffer* buffer, uint32_t offset, uint32_t length) {
+    const char* tGetString(Buffer* buffer, uint32_t offset, uint32_t length) {
         return getString(buffer, offset, length);
     }
     Table* tGetTable(uint32_t tableId) {
@@ -336,12 +336,12 @@ class ServerTest : public CppUnit::TestFixture {
     void test_getString_basics() {
         Buffer buffer;
         buffer.fillFromString("abcdefg");
-        char* result = server->tGetString(&buffer, 3, 5);
+        const char* result = server->tGetString(&buffer, 3, 5);
         CPPUNIT_ASSERT_EQUAL("defg", result);
     }
     void test_getString_lengthZero() {
         Buffer buffer;
-        Status status = static_cast<Status>(-1);
+        Status status = Status(-1);
         try {
             server->tGetString(&buffer, 0, 0);
         } catch (RequestFormatError e) {
@@ -352,7 +352,7 @@ class ServerTest : public CppUnit::TestFixture {
     void test_getString_bufferTooShort() {
         Buffer buffer;
         buffer.fillFromString("abcde");
-        Status status = static_cast<Status>(-1);
+        Status status = Status(-1);
         try {
             server->tGetString(&buffer, 2, 5);
         } catch (MessageTooShortError e) {
@@ -363,7 +363,7 @@ class ServerTest : public CppUnit::TestFixture {
     void test_getString_stringNotTerminated() {
         Buffer buffer;
         buffer.fillFromString("abcde");
-        Status status = static_cast<Status>(-1);
+        Status status = Status(-1);
         try {
             server->tGetString(&buffer, 1, 3);
         } catch (RequestFormatError e) {
@@ -376,7 +376,7 @@ class ServerTest : public CppUnit::TestFixture {
         rpc("8 0 7 table1");                     // Create table 0.
 
         // Table index out of range.
-        Status status = static_cast<Status>(-1);
+        Status status = Status(-1);
         try {
             server->tGetTable(1000);
         } catch (TableDoesntExistException e) {
@@ -385,7 +385,7 @@ class ServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, status);
 
         // Table index in range, but table doesn't exist.
-        status = static_cast<Status>(-1);
+        status = Status(-1);
         try {
             server->tGetTable(6);
         } catch (TableDoesntExistException e) {

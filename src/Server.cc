@@ -144,7 +144,7 @@ Server::createTable(const CreateTableRequest* reqHdr,
                     CreateTableResponse* respHdr, Transport::ServerRPC* rpc)
 {
     int i;
-    char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
+    const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
             reqHdr->nameLength);
 
     // See if we already have a table with the given name.
@@ -190,7 +190,7 @@ Server::dropTable(const DropTableRequest* reqHdr, DropTableResponse* respHdr,
             Transport::ServerRPC* rpc)
 {
     int i;
-    char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
+    const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
             reqHdr->nameLength);
     for (i = 0; i < RC_NUM_TABLES; i++) {
         if (strcmp(tables[i].GetName(), name) == 0) {
@@ -224,7 +224,7 @@ Server::openTable(const OpenTableRequest* reqHdr, OpenTableResponse* respHdr,
             Transport::ServerRPC* rpc)
 {
     int i;
-    char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
+    const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
             reqHdr->nameLength);
     for (i = 0; i < RC_NUM_TABLES; i++) {
         if (strcmp(tables[i].GetName(), name) == 0) {
@@ -294,7 +294,7 @@ Server::read(const ReadRequest* reqHdr, ReadResponse* respHdr,
     if (respHdr->common.status)
         return;
     Buffer::Chunk::appendToBuffer(&rpc->replyPayload,
-            const_cast<char*>(o->data), static_cast<uint32_t>(o->data_len));
+            o->data, static_cast<uint32_t>(o->data_len));
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
     // from scribbling over o->data.
     respHdr->length = o->data_len;
@@ -385,8 +385,9 @@ Server::handleRpc()
     Buffer* request = &rpc->recvPayload;
     RpcResponseCommon* responseCommon = NULL;
     try {
-        RpcRequestCommon* header = static_cast<RpcRequestCommon*>(
-                request->getRange(0, sizeof(RpcRequestCommon)));
+        const RpcRequestCommon* header = reinterpret_cast
+                <const RpcRequestCommon*>(request->getRange(0,
+                sizeof(RpcRequestCommon)));
         if (header == NULL) {
             throw MessageTooShortError();
         }
@@ -399,8 +400,8 @@ Server::handleRpc()
                 nameInitialCap##Response* respHdr =                            \
                         new(response, APPEND) nameInitialCap##Response;        \
                 responseCommon = &respHdr->common;                             \
-                nameInitialCap##Request* reqHdr =                              \
-                        static_cast<nameInitialCap##Request*>(                 \
+                const nameInitialCap##Request* reqHdr =                        \
+                        reinterpret_cast<const nameInitialCap##Request*>(      \
                         request->getRange(0, sizeof(                           \
                         nameInitialCap##Request)));                            \
                 if (reqHdr == NULL) {                                          \
@@ -481,16 +482,16 @@ Server::run()
  * \exception RequestFormatError
  *      The string was not null-terminated or had zero length.
  */
-char*
+const char*
 Server::getString(Buffer* buffer, uint32_t offset, uint32_t length) {
-    char* result;
+    const char* result;
     if (length == 0) {
         throw RequestFormatError();
     }
     if (buffer->getTotalLength() < (offset + length)) {
         throw MessageTooShortError();
     }
-    result = static_cast<char*>(buffer->getRange(offset, length));
+    result = reinterpret_cast<const char*>(buffer->getRange(offset, length));
     if (result[length - 1] != '\0') {
         throw RequestFormatError();
     }
@@ -622,7 +623,7 @@ objectReplayCallback(log_entry_type_t type,
                      uint64_t len,
                      void *cookiep)
 {
-    obj_replay_cookie *cookie = static_cast<obj_replay_cookie *>(cookiep);
+    obj_replay_cookie *cookie = reinterpret_cast<obj_replay_cookie *>(cookiep);
     Server *server = cookie->server;
 
     //printf("ObjectReplayCallback: type %llu\n", type);
@@ -632,7 +633,7 @@ objectReplayCallback(log_entry_type_t type,
 
     switch (type) {
     case LOG_ENTRY_TYPE_OBJECT: {
-        const Object *obj = static_cast<const Object *>(p);
+        const Object *obj = reinterpret_cast<const Object *>(p);
         assert(obj);
 
         Table *table = &server->tables[obj->table];
@@ -658,7 +659,7 @@ segmentReplayCallback(Segment *seg, void *cookie)
 {
     // TODO(stutsman) we can restore bytes_stored in the log easily
     // using the same approach as for the individual segments
-    Server *server = static_cast<Server *>(cookie);
+    Server *server = reinterpret_cast<Server *>(cookie);
 
     obj_replay_cookie ocookie;
     ocookie.server = server;

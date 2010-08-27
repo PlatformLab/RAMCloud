@@ -124,18 +124,17 @@ Client::create(uint32_t tableId, const void* buf, uint32_t length,
 {
     Buffer req, resp;
     CreateRequest* reqHdr;
-    CreateResponse* respHdr;
+    const CreateResponse* respHdr;
 
     reqHdr = new(&req, APPEND) CreateRequest;
     reqHdr->common.type = CREATE;
     reqHdr->common.perfCounter = perfCounter;
     reqHdr->tableId = tableId;
     reqHdr->length = length;
-    Buffer::Chunk::appendToBuffer(&req, const_cast<void*>(buf),
-            length);
+    Buffer::Chunk::appendToBuffer(&req, buf, length);
     transport->clientSend(service, &req, &resp)->getReply();
 
-    respHdr = static_cast<CreateResponse*>(
+    respHdr = reinterpret_cast<const CreateResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
     if (respHdr == NULL) {
         throwShortResponseError(&resp);
@@ -166,7 +165,7 @@ Client::createTable(const char* name)
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
     CreateTableRequest* reqHdr;
-    CreateTableResponse* respHdr;
+    const CreateTableResponse* respHdr;
 
     reqHdr = new(&req, APPEND) CreateTableRequest;
     reqHdr->common.type = CREATE_TABLE;
@@ -175,7 +174,7 @@ Client::createTable(const char* name)
     memcpy(new(&req, APPEND) char[length], name, length);
     transport->clientSend(service, &req, &resp)->getReply();
 
-    respHdr = static_cast<CreateTableResponse*>(
+    respHdr = reinterpret_cast<const CreateTableResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
     if (respHdr == NULL) {
         throwShortResponseError(&resp);
@@ -206,7 +205,7 @@ Client::dropTable(const char* name)
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
     DropTableRequest* reqHdr;
-    DropTableResponse* respHdr;
+    const DropTableResponse* respHdr;
 
     reqHdr = new(&req, APPEND) DropTableRequest;
     reqHdr->common.type = DROP_TABLE;
@@ -215,7 +214,7 @@ Client::dropTable(const char* name)
     memcpy(new(&req, APPEND) char[length], name, length);
     transport->clientSend(service, &req, &resp)->getReply();
 
-    respHdr = static_cast<DropTableResponse*>(
+    respHdr = reinterpret_cast<const DropTableResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
     if (respHdr == NULL) {
         throwShortResponseError(&resp);
@@ -248,7 +247,7 @@ Client::openTable(const char* name)
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
     OpenTableRequest* reqHdr;
-    OpenTableResponse* respHdr;
+    const OpenTableResponse* respHdr;
 
     reqHdr = new(&req, APPEND) OpenTableRequest;
     reqHdr->common.type = OPEN_TABLE;
@@ -257,7 +256,7 @@ Client::openTable(const char* name)
     memcpy(new(&req, APPEND) char[length], name, length);
     transport->clientSend(service, &req, &resp)->getReply();
 
-    respHdr = static_cast<OpenTableResponse*>(
+    respHdr = reinterpret_cast<const OpenTableResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
     if (respHdr == NULL) {
         throwShortResponseError(&resp);
@@ -284,14 +283,14 @@ Client::ping()
 {
     Buffer req, resp;
     PingRequest* reqHdr;
-    PingResponse* respHdr;
+    const PingResponse* respHdr;
 
     reqHdr = new(&req, APPEND) PingRequest;
     reqHdr->common.type = PING;
     reqHdr->common.perfCounter = perfCounter;
     transport->clientSend(service, &req, &resp)->getReply();
 
-    respHdr = static_cast<PingResponse*>(
+    respHdr = reinterpret_cast<const PingResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
     if (respHdr == NULL) {
         throwShortResponseError(&resp);
@@ -330,7 +329,7 @@ Client::read(uint32_t tableId, uint64_t id, Buffer* value,
 {
     Buffer req;
     ReadRequest* reqHdr;
-    ReadResponse* respHdr;
+    const ReadResponse* respHdr;
     uint32_t length;
 
     reqHdr = new(&req, APPEND) ReadRequest;
@@ -342,7 +341,7 @@ Client::read(uint32_t tableId, uint64_t id, Buffer* value,
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     transport->clientSend(service, &req, value)->getReply();
 
-    respHdr = static_cast<ReadResponse*>(
+    respHdr = reinterpret_cast<const ReadResponse*>(
              value->getRange(0, sizeof(*respHdr)));
     if (respHdr == NULL) {
         throwShortResponseError(value);
@@ -394,7 +393,7 @@ Client::remove(uint32_t tableId, uint64_t id,
 {
     Buffer req, resp;
     RemoveRequest* reqHdr;
-    RemoveResponse* respHdr;
+    const RemoveResponse* respHdr;
 
     reqHdr = new(&req, APPEND) RemoveRequest;
     reqHdr->common.type = REMOVE;
@@ -405,7 +404,7 @@ Client::remove(uint32_t tableId, uint64_t id,
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     transport->clientSend(service, &req, &resp)->getReply();
 
-    respHdr = static_cast<RemoveResponse*>(
+    respHdr = reinterpret_cast<const RemoveResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
     if (respHdr == NULL) {
         throwShortResponseError(&resp);
@@ -478,7 +477,7 @@ Client::write(uint32_t tableId, uint64_t id, const void* buf, uint32_t length,
 {
     Buffer req, resp;
     WriteRequest* reqHdr;
-    WriteResponse* respHdr;
+    const WriteResponse* respHdr;
 
     reqHdr = new(&req, APPEND) WriteRequest;
     reqHdr->common.type = WRITE;
@@ -487,11 +486,10 @@ Client::write(uint32_t tableId, uint64_t id, const void* buf, uint32_t length,
     reqHdr->tableId = tableId;
     reqHdr->length = length;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Buffer::Chunk::appendToBuffer(&req, const_cast<void*>(buf),
-            length);
+    Buffer::Chunk::appendToBuffer(&req, buf, length);
     transport->clientSend(service, &req, &resp)->getReply();
 
-    respHdr = static_cast<WriteResponse *>(
+    respHdr = reinterpret_cast<const WriteResponse *>(
              resp.getRange(0, sizeof(*respHdr)));
     if (respHdr == NULL) {
         throwShortResponseError(&resp);
@@ -524,8 +522,9 @@ Client::write(uint32_t tableId, uint64_t id, const void* buf, uint32_t length,
 void
 Client::throwShortResponseError(Buffer* response)
 {
-    RpcResponseCommon* common = static_cast<RpcResponseCommon*>(
-             response->getRange(0, sizeof(RpcResponseCommon)));
+    const RpcResponseCommon* common =
+            reinterpret_cast<const RpcResponseCommon*>(
+            response->getRange(0, sizeof(RpcResponseCommon)));
     if (common != NULL) {
         counterValue = common->counterValue;
         if (common->status == STATUS_OK) {
