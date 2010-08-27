@@ -18,6 +18,8 @@
 #ifndef RAMCLOUD_BITMAP_H
 #define RAMCLOUD_BITMAP_H
 
+namespace RAMCloud {
+
 // size in bits
 template <int64_t size>
 class Bitmap {
@@ -65,5 +67,7 @@ class Bitmap {
     uint64_t bitmap[size / 64 + 1];
     DISALLOW_COPY_AND_ASSIGN(Bitmap);
 };
+
+} // namespace RAMCloud
 
 #endif

@@ -51,14 +51,9 @@ void
 setup()
 {
     if (cpu != -1) {
-        cpu_set_t cpus;
-        CPU_ZERO(&cpus);
-        CPU_SET(cpu, &cpus);
-
-        int r = sched_setaffinity(0, sizeof(cpus), &cpus);
-        if (r < 0)
-            DIE("Bench: Couldn't pin to core %d: %s", cpu, strerror(errno));
-        printf("Bench: Pinned to core %d\n", cpu);
+        if (!pinToCpu(cpu))
+            DIE("bench: Couldn't pin to core %d", cpu);
+        LOG(DEBUG, "bench: Pinned to core %d", cpu);
     }
 
     memset(&read_any, 0, sizeof(read_any));

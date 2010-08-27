@@ -180,7 +180,6 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
 #endif
 
 #ifdef __cplusplus
-void debug_dump64(const void *buf, uint64_t bytes);
 
 #if PERF_COUNTERS
 __inline __attribute__((always_inline, no_instrument_function))
@@ -278,6 +277,10 @@ struct FatalError : public Exception {
     explicit FatalError(int errNo) : Exception(errNo) {}
     explicit FatalError(std::string msg, int errNo) : Exception(msg, errNo) {}
 };
+
+void debug_dump64(const void *buf, uint64_t bytes);
+bool pinToCpu(uint32_t cpu);
+
 
 } // end RAMCloud
 

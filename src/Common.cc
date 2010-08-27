@@ -19,8 +19,10 @@
  */
 
 #include <Common.h>
-
+#include <errno.h>
 #include <ctype.h>
+
+namespace RAMCloud {
 
 // Output a binary buffer in 'hexdump -C' style.
 // Note that this exceeds 80 characters due to 64-bit offsets. Oh, well.
@@ -60,3 +62,27 @@ debug_dump64(const void *buf, uint64_t bytes)
             hex[12], hex[13], hex[14], hex[15], ascii);
     }
 }
+
+/**
+ * Pin the process to a particular CPU.
+ * \param cpu
+ *      The number of the CPU on which to execute, starting from 0.
+ * \return
+ *      Whether the operation succeeded.
+ */
+bool
+pinToCpu(uint32_t cpu)
+{
+    cpu_set_t cpus;
+    CPU_ZERO(&cpus);
+    CPU_SET(cpu, &cpus);
+    int r = sched_setaffinity(0, sizeof(cpus), &cpus);
+    if (r < 0) {
+        LOG(ERROR, "server: Couldn't pin to core %d: %s",
+            cpu, strerror(errno));
+        return false;
+    }
+    return true;
+}
+
+} // namespace RAMCloud
