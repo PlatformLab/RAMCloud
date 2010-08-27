@@ -40,39 +40,41 @@ class LogTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(TestRetireHead);
     CPPUNIT_TEST(TestAppendAnyType);
     CPPUNIT_TEST_SUITE_END();
-    RAMCloud::Log *Log;
-    void *LogBase;
-    MultiBackupClient *Backup;
+
+    RAMCloud::Log *log;
+    void *logBase;
+    MultiBackupClient *backup;
 
   public:
+    LogTest() : log(NULL), logBase(NULL), backup(NULL) { }
     void
     setUp()
     {
-        LogBase = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
-        Backup = new MultiBackupClient();
-        Log = new RAMCloud::Log(SEGMENT_SIZE, LogBase,
-            SEGMENT_SIZE * SEGMENT_COUNT, Backup);
+        logBase = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
+        backup = new MultiBackupClient();
+        log = new RAMCloud::Log(SEGMENT_SIZE, logBase,
+            SEGMENT_SIZE * SEGMENT_COUNT, backup);
 
-        CPPUNIT_ASSERT_EQUAL(0, Log->numCallbacks);
+        CPPUNIT_ASSERT_EQUAL(0, log->numCallbacks);
         CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_INVALID_ID + 1,
-            Log->nextSegmentId);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, Log->segment_size);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_COUNT, Log->nsegments);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_COUNT, Log->nfree_list);
-        CPPUNIT_ASSERT(Log->max_append > 0);
-        CPPUNIT_ASSERT(Log->max_append < Log->segment_size);
-        CPPUNIT_ASSERT(Backup == Log->backup);
-        CPPUNIT_ASSERT(NULL == Log->head);
-        CPPUNIT_ASSERT(LogBase == Log->base);
+            log->nextSegmentId);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, log->segment_size);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_COUNT, log->nsegments);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_COUNT, log->nfree_list);
+        CPPUNIT_ASSERT(log->max_append > 0);
+        CPPUNIT_ASSERT(log->max_append < log->segment_size);
+        CPPUNIT_ASSERT(backup == log->backup);
+        CPPUNIT_ASSERT(NULL == log->head);
+        CPPUNIT_ASSERT(logBase == log->base);
 
-        Log->init();
+        log->init();
     }
 
     void
     tearDown()
     {
-        free(LogBase);
-        delete Log;
+        free(logBase);
+        delete log;
     }
 
     //XXX- future work
@@ -84,26 +86,26 @@ class LogTest : public CppUnit::TestFixture {
     void
     TestInit()
     {
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_COUNT - 1, Log->nfree_list);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_COUNT - 1, log->nfree_list);
     }
 
     void
     TestIsSegmentLive()
     {
-        uintptr_t b = (uintptr_t)LogBase;
+        uintptr_t b = (uintptr_t)logBase;
 
-        CPPUNIT_ASSERT_EQUAL(false, Log->isSegmentLive(SEGMENT_INVALID_ID));
+        CPPUNIT_ASSERT_EQUAL(false, log->isSegmentLive(SEGMENT_INVALID_ID));
 
         for (int i = 0; i < SEGMENT_COUNT; i++) {
             uint64_t id;
             uint32_t off;
 
-            Log->getSegmentIdOffset((const void *)b, &id, &off);
+            log->getSegmentIdOffset((const void *)b, &id, &off);
             CPPUNIT_ASSERT_EQUAL((uint32_t)0, off);
 
             // only head is live after init
-            bool ret = Log->isSegmentLive(id);
-            if (id == Log->head->getId())
+            bool ret = log->isSegmentLive(id);
+            if (id == log->head->getId())
                 CPPUNIT_ASSERT_EQUAL(true, ret);
             else
                 CPPUNIT_ASSERT_EQUAL(false, ret);
@@ -123,10 +125,10 @@ class LogTest : public CppUnit::TestFixture {
     {
         char buf[1];
 
-        // users of Log not allowed to write HEADER and CHECKSUM types
-        CPPUNIT_ASSERT(Log->append(LOG_ENTRY_TYPE_SEGMENT_HEADER,
+        // users of log not allowed to write HEADER and CHECKSUM types
+        CPPUNIT_ASSERT(log->append(LOG_ENTRY_TYPE_SEGMENT_HEADER,
             (void *)buf, sizeof(buf)) == NULL);
-        CPPUNIT_ASSERT(Log->append(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM,
+        CPPUNIT_ASSERT(log->append(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM,
             (void *)buf, sizeof(buf)) == NULL);
 
         // all other writes handled in TestAppendAnyType()
@@ -135,16 +137,16 @@ class LogTest : public CppUnit::TestFixture {
     void
     TestFree()
     {
-        Segment *old_head = Log->head;        
+        Segment *old_head = log->head;        
 
         char buf[1];
-        while (Log->head == old_head) {
-            uint64_t old_util = Log->head->getUtilization();
-            uint64_t old_tail = Log->head->tail_bytes;
+        while (log->head == old_head) {
+            uint64_t old_util = log->head->getUtilization();
+            uint64_t old_tail = log->head->tail_bytes;
             uint64_t new_util = old_util + sizeof(log_entry) + sizeof(buf);
             uint64_t new_tail = old_tail - sizeof(log_entry) - sizeof(buf);
 
-            const void *p = Log->append(LOG_ENTRY_TYPE_OBJECT,
+            const void *p = log->append(LOG_ENTRY_TYPE_OBJECT,
                 buf, sizeof(buf));
 
             // CPPUNIT_ASSERT is too slow. Using if statements instead saves
@@ -154,17 +156,17 @@ class LogTest : public CppUnit::TestFixture {
                 CPPUNIT_ASSERT(false);
 
             // Head may have changed due to the write.
-            if (Log->head == old_head) {
-                if (new_util != Log->head->getUtilization())
+            if (log->head == old_head) {
+                if (new_util != log->head->getUtilization())
                     CPPUNIT_ASSERT(false);
-                if (new_tail != Log->head->tail_bytes)
+                if (new_tail != log->head->tail_bytes)
                     CPPUNIT_ASSERT(false);
 
-                Log->free(LOG_ENTRY_TYPE_OBJECT, p, sizeof(buf));
+                log->free(LOG_ENTRY_TYPE_OBJECT, p, sizeof(buf));
 
-                if (old_util != Log->head->getUtilization())
+                if (old_util != log->head->getUtilization())
                     CPPUNIT_ASSERT(false);
-                if (new_tail != Log->head->tail_bytes)
+                if (new_tail != log->head->tail_bytes)
                     CPPUNIT_ASSERT(false);
             }
         }
@@ -179,7 +181,7 @@ class LogTest : public CppUnit::TestFixture {
     void
     TestGetMaximumAppend()
     {
-        uint64_t ma = Log->getMaximumAppend();
+        uint64_t ma = log->getMaximumAppend();
         CPPUNIT_ASSERT(ma < SEGMENT_SIZE);
         CPPUNIT_ASSERT(ma > (SEGMENT_SIZE - 100));  // test reasonable bound
     }
@@ -187,9 +189,9 @@ class LogTest : public CppUnit::TestFixture {
     void
     TestAllocateSegmentId()
     {
-        uint64_t id = Log->allocateSegmentId();
+        uint64_t id = log->allocateSegmentId();
         for (uint64_t i = 1; i < 10; i++) {
-            CPPUNIT_ASSERT_EQUAL(id + i, Log->allocateSegmentId()); 
+            CPPUNIT_ASSERT_EQUAL(id + i, log->allocateSegmentId()); 
         }
     }
 
@@ -207,10 +209,10 @@ class LogTest : public CppUnit::TestFixture {
         void *cookiep;
 
         CPPUNIT_ASSERT(
-            Log->getEvictionCallback(LOG_ENTRY_TYPE_OBJECT, NULL) == NULL);
+            log->getEvictionCallback(LOG_ENTRY_TYPE_OBJECT, NULL) == NULL);
 
-        Log->registerType(LOG_ENTRY_TYPE_OBJECT, EvictionCallback, &cookie);
-        cb = Log->getEvictionCallback(LOG_ENTRY_TYPE_OBJECT, &cookiep);
+        log->registerType(LOG_ENTRY_TYPE_OBJECT, EvictionCallback, &cookie);
+        cb = log->getEvictionCallback(LOG_ENTRY_TYPE_OBJECT, &cookiep);
         CPPUNIT_ASSERT((void *)cb == (void *)EvictionCallback);
         CPPUNIT_ASSERT(*(int *)cookiep == cookie);
     }
@@ -221,13 +223,13 @@ class LogTest : public CppUnit::TestFixture {
         // NB: Present code asserts success, so only sanity-check what should
         //     work. 
 
-        CPPUNIT_ASSERT(Log->getSegment(LogBase, 0) != NULL);
-        CPPUNIT_ASSERT(Log->getSegment(LogBase, 1) != NULL);
-        CPPUNIT_ASSERT(Log->getSegment(LogBase, SEGMENT_SIZE) != NULL);
+        CPPUNIT_ASSERT(log->getSegment(logBase, 0) != NULL);
+        CPPUNIT_ASSERT(log->getSegment(logBase, 1) != NULL);
+        CPPUNIT_ASSERT(log->getSegment(logBase, SEGMENT_SIZE) != NULL);
 
-        uintptr_t b = (uintptr_t)LogBase;
+        uintptr_t b = (uintptr_t)logBase;
         for (int i = 0; i < SEGMENT_COUNT; i++) {
-            CPPUNIT_ASSERT(Log->getSegment((void *)(b + (i * SEGMENT_SIZE)),
+            CPPUNIT_ASSERT(log->getSegment((void *)(b + (i * SEGMENT_SIZE)),
                 SEGMENT_SIZE) != NULL);
         }
     }
@@ -242,28 +244,28 @@ class LogTest : public CppUnit::TestFixture {
     void
     TestNewHead()
     {
-        Segment *old_head = Log->head;
-        uint64_t old_nfree_list = Log->nfree_list;
+        Segment *old_head = log->head;
+        uint64_t old_nfree_list = log->nfree_list;
 
-        CPPUNIT_ASSERT(Log->head != NULL);
-        Log->newHead();
-        CPPUNIT_ASSERT(Log->head != NULL && Log->head != old_head);
-        CPPUNIT_ASSERT_EQUAL(old_nfree_list - 1, Log->nfree_list);
+        CPPUNIT_ASSERT(log->head != NULL);
+        log->newHead();
+        CPPUNIT_ASSERT(log->head != NULL && log->head != old_head);
+        CPPUNIT_ASSERT_EQUAL(old_nfree_list - 1, log->nfree_list);
 
-        log_entry *le = (log_entry *)Log->head->getBase();
+        log_entry *le = (log_entry *)log->head->getBase();
         CPPUNIT_ASSERT_EQUAL((uint32_t)LOG_ENTRY_TYPE_SEGMENT_HEADER, le->type);
         CPPUNIT_ASSERT_EQUAL((uint32_t)sizeof(segment_header), le->length);
         CPPUNIT_ASSERT_EQUAL(sizeof(segment_header) + sizeof(*le),
-            Log->head->getUtilization());
+            log->head->getUtilization());
     }
 
     void
     TestChecksumHead()
     {
-        Log->checksumHead();
+        log->checksumHead();
 
-        void *segend = (char *)Log->head->base +
-            Log->head->getUtilization() - sizeof(segment_checksum) -
+        void *segend = (char *)log->head->base +
+            log->head->getUtilization() - sizeof(segment_checksum) -
             sizeof(segment_header);
         log_entry *le = (log_entry *)segend;
         CPPUNIT_ASSERT_EQUAL((uint32_t)LOG_ENTRY_TYPE_SEGMENT_CHECKSUM,
@@ -275,11 +277,11 @@ class LogTest : public CppUnit::TestFixture {
     void
     TestRetireHead()
     {
-        Segment *old_head = Log->head;
+        Segment *old_head = log->head;
         CPPUNIT_ASSERT(old_head != NULL);
-        CPPUNIT_ASSERT_EQUAL(true, Log->head->isMutable);
-        Log->retireHead();
-        CPPUNIT_ASSERT(NULL == Log->head);
+        CPPUNIT_ASSERT_EQUAL(true, log->head->isMutable);
+        log->retireHead();
+        CPPUNIT_ASSERT(NULL == log->head);
         CPPUNIT_ASSERT_EQUAL(false, old_head->isMutable);
     }
 
@@ -287,33 +289,35 @@ class LogTest : public CppUnit::TestFixture {
     TestAppendAnyType()
     {
         char buf[1];
-        char maxbuf[Log->getMaximumAppend()];
+        char maxbuf[log->getMaximumAppend()];
         uint64_t tmp;
 
         // Can append up to the maximum
-        CPPUNIT_ASSERT(NULL != Log->appendAnyType(LOG_ENTRY_TYPE_OBJECT,
+        CPPUNIT_ASSERT(NULL != log->appendAnyType(LOG_ENTRY_TYPE_OBJECT,
             maxbuf, sizeof(maxbuf)));
 
         // Clear the Head segment so we can write another header
-        Log->head->finalize();
-        Log->head->reset();
-        Log->head->ready(53);
+        log->head->finalize();
+        log->head->reset();
+        log->head->ready(53);
 
         // Internal Segment Headers don't affect our bytes stored count
-        tmp = Log->bytes_stored; 
-        Log->appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER, buf, sizeof(buf)); 
-        CPPUNIT_ASSERT_EQUAL(tmp, Log->bytes_stored);
+        tmp = log->bytes_stored; 
+        log->appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER, buf, sizeof(buf)); 
+        CPPUNIT_ASSERT_EQUAL(tmp, log->bytes_stored);
 
         // Internal Segment Checksums don't affect our bytes stored count
-        tmp = Log->bytes_stored; 
-        Log->appendAnyType(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM, buf, sizeof(buf)); 
-        CPPUNIT_ASSERT_EQUAL(tmp, Log->bytes_stored);
+        tmp = log->bytes_stored; 
+        log->appendAnyType(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM, buf, sizeof(buf)); 
+        CPPUNIT_ASSERT_EQUAL(tmp, log->bytes_stored);
 
         // All other objects count toward stored bytes
-        tmp = Log->bytes_stored;
-        Log->appendAnyType(LOG_ENTRY_TYPE_OBJECT, buf, sizeof(buf)); 
-        CPPUNIT_ASSERT_EQUAL(tmp + sizeof(buf), Log->bytes_stored);
+        tmp = log->bytes_stored;
+        log->appendAnyType(LOG_ENTRY_TYPE_OBJECT, buf, sizeof(buf)); 
+        CPPUNIT_ASSERT_EQUAL(tmp + sizeof(buf), log->bytes_stored);
     }
+
+    DISALLOW_COPY_AND_ASSIGN(LogTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(LogTest);
 

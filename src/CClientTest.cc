@@ -57,7 +57,7 @@ class CClientTest : public CppUnit::TestFixture {
     RAMCloud::RejectRules rules;
     RAMCloud::Status status;
 
-    CClientTest() { }
+    CClientTest(): transport(NULL), client(NULL), rules(), status() { }
     void setUp() {
         transport = new RAMCloud::MockTransport();
         struct RAMCloud::Client* foo = new RAMCloud::Client(

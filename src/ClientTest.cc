@@ -89,7 +89,7 @@ class ClientTest : public CppUnit::TestFixture {
     TClient* client;
     RejectRules rules;
 
-    ClientTest() { }
+    ClientTest() : transport(NULL), service(), client(NULL), rules() { }
     void setUp() {
         transport = new MockTransport();
         client = new TClient(&service, transport);
