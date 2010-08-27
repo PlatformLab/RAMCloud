@@ -34,25 +34,11 @@ uint64_t size;
 char address[50];
 int port;
 int cpu = -1;
-double cyclesPerNs;
 
 struct rc_client client;
 struct rcrpc_reject_rules read_any;
 struct rcrpc_reject_rules write_any;
 uint64_t table;
-
-uint64_t
-cyclesPerSec()
-{
-    static uint64_t cyclesPerSec = 0;
-    if (cyclesPerSec)
-        return cyclesPerSec;
-    uint64_t start = rdtsc();
-    usleep(500 * 1000);
-    uint64_t end = rdtsc();
-    cyclesPerSec = (end - start) * 2;
-    return cyclesPerSec;
-}
 
 void
 cleanup()
@@ -105,12 +91,11 @@ bench(const char *name, uint64_t (f)(void))
     end = rdtsc();
 
     cycles = end - start;
-    printf("%s ns     %12.0f\n", name,
-           static_cast<double>(cycles) / cyclesPerNs);
+    printf("%s ns     %012lu\n", name,
+           cyclesToNanoseconds(cycles));
     printf("%s avgns  %12.2f\n", name,
-           static_cast<double>(cycles) /
-           static_cast<double>(count) /
-           cyclesPerNs);
+           static_cast<double>(cyclesToNanoseconds(cycles)) /
+           static_cast<double>(count));
     printf("%s ctr    %12.0f\n", name,
            static_cast<double>(serverCounter));
     printf("%s avgctr %12.2f\n", name,
@@ -273,9 +258,6 @@ main(int argc, char *argv[])
 try
 {
     cmdline(argc, argv);
-
-    cyclesPerNs = static_cast<double>(cyclesPerSec()) /
-        (1000 * 1000 * 1000);
 
     printf("Reads: %lu, Size: %lu, Multirow: %lu, RandomReads: %lu\n",
            count, size, multirow, randomReads);
