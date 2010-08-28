@@ -408,7 +408,7 @@ class BufferTest : public CppUnit::TestFixture {
 
     void test_getRange_copy() {
         char out[10];
-        strncpy(out, reinterpret_cast<const char*>(buf->getRange(9, 2)), 2);
+        strncpy(out, static_cast<const char*>(buf->getRange(9, 2)), 2);
         out[2] = 0;
         CPPUNIT_ASSERT_EQUAL("Ja", out);
     }
@@ -534,7 +534,7 @@ class BufferTest : public CppUnit::TestFixture {
         Buffer b;
         const char *test = "abc \x17--\x80--\x3--\n--\x7f--\\--\"--";
         uint32_t length = strlen(test) + 1;
-        memcpy(reinterpret_cast<char*>(new(&b, APPEND) char[length]),
+        memcpy(static_cast<char*>(new(&b, APPEND) char[length]),
                 test, length);
         CPPUNIT_ASSERT_EQUAL("abc /x17--/x80--/x03--/n--/x7f--/x5c--/x22--/0",
                 b.toString());
@@ -606,7 +606,7 @@ class BufferIteratorTest : public CppUnit::TestFixture {
         Buffer b;
         Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
         Buffer::Iterator iter(b);
-        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<const char *>(iter.getData()),
+        CPPUNIT_ASSERT_EQUAL(static_cast<const char *>(iter.getData()),
                 &x[0]);
     }
 

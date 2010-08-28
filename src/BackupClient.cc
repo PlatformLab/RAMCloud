@@ -155,7 +155,7 @@ BackupHost::getSegmentList(uint64_t *list,
     Buffer replyBuf;
     trans->clientSend(s, &buf, &replyBuf)->getReply();
 
-    const backup_rpc *resp = reinterpret_cast<const backup_rpc*>(
+    const backup_rpc *resp = static_cast<const backup_rpc*>(
         replyBuf.getRange(0, replyBuf.getTotalLength()));
 
     const uint64_t *tmpList = &resp->getsegmentlist_resp.seg_list[0];
@@ -192,7 +192,7 @@ BackupHost::getSegmentMetadata(uint64_t segNum,
     Buffer replyBuf;
     trans->clientSend(s, &buf, &replyBuf)->getReply();
 
-    const backup_rpc *resp = reinterpret_cast<const backup_rpc*>(
+    const backup_rpc *resp = static_cast<const backup_rpc*>(
         replyBuf.getRange(0, replyBuf.getTotalLength()));
 
     const RecoveryObjectMetadata *tmpList =
@@ -228,7 +228,7 @@ BackupHost::retrieveSegment(uint64_t segNum, void *buf)
     Buffer replyBuf;
     trans->clientSend(s, &rpcBuf, &replyBuf)->getReply();
 
-    const backup_rpc *resp = reinterpret_cast<const backup_rpc*>(
+    const backup_rpc *resp = static_cast<const backup_rpc*>(
         replyBuf.getRange(0, replyBuf.getTotalLength()));
 
     if (debug_noisy)

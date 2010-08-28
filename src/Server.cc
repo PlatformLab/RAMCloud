@@ -385,7 +385,7 @@ Server::handleRpc()
     Buffer* request = &rpc->recvPayload;
     RpcResponseCommon* responseCommon = NULL;
     try {
-        const RpcRequestCommon* header = reinterpret_cast
+        const RpcRequestCommon* header = static_cast
                 <const RpcRequestCommon*>(request->getRange(0,
                 sizeof(RpcRequestCommon)));
         if (header == NULL) {
@@ -401,7 +401,7 @@ Server::handleRpc()
                         new(response, APPEND) nameInitialCap##Response;        \
                 responseCommon = &respHdr->common;                             \
                 const nameInitialCap##Request* reqHdr =                        \
-                        reinterpret_cast<const nameInitialCap##Request*>(      \
+                        static_cast<const nameInitialCap##Request*>(      \
                         request->getRange(0, sizeof(                           \
                         nameInitialCap##Request)));                            \
                 if (reqHdr == NULL) {                                          \
@@ -491,7 +491,7 @@ Server::getString(Buffer* buffer, uint32_t offset, uint32_t length) {
     if (buffer->getTotalLength() < (offset + length)) {
         throw MessageTooShortError();
     }
-    result = reinterpret_cast<const char*>(buffer->getRange(offset, length));
+    result = static_cast<const char*>(buffer->getRange(offset, length));
     if (result[length - 1] != '\0') {
         throw RequestFormatError();
     }
@@ -594,13 +594,13 @@ objectEvictionCallback(log_entry_type_t type,
 {
     assert(type == LOG_ENTRY_TYPE_OBJECT);
 
-    Server *svr = reinterpret_cast<Server *>(cookie);
+    Server *svr = static_cast<Server *>(cookie);
     assert(svr != NULL);
 
     Log *log = svr->log;
     assert(log != NULL);
 
-    const Object *evict_obj = reinterpret_cast<const Object *>(p);
+    const Object *evict_obj = static_cast<const Object *>(p);
     assert(evict_obj != NULL);
 
     Table *tbl = &svr->tables[evict_obj->table];
@@ -623,7 +623,7 @@ objectReplayCallback(log_entry_type_t type,
                      uint64_t len,
                      void *cookiep)
 {
-    obj_replay_cookie *cookie = reinterpret_cast<obj_replay_cookie *>(cookiep);
+    obj_replay_cookie *cookie = static_cast<obj_replay_cookie *>(cookiep);
     Server *server = cookie->server;
 
     //printf("ObjectReplayCallback: type %llu\n", type);
@@ -633,7 +633,7 @@ objectReplayCallback(log_entry_type_t type,
 
     switch (type) {
     case LOG_ENTRY_TYPE_OBJECT: {
-        const Object *obj = reinterpret_cast<const Object *>(p);
+        const Object *obj = static_cast<const Object *>(p);
         assert(obj);
 
         Table *table = &server->tables[obj->table];
@@ -659,7 +659,7 @@ segmentReplayCallback(Segment *seg, void *cookie)
 {
     // TODO(stutsman) we can restore bytes_stored in the log easily
     // using the same approach as for the individual segments
-    Server *server = reinterpret_cast<Server *>(cookie);
+    Server *server = static_cast<Server *>(cookie);
 
     obj_replay_cookie ocookie;
     ocookie.server = server;
@@ -693,14 +693,14 @@ tombstoneEvictionCallback(log_entry_type_t type,
 {
     assert(type == LOG_ENTRY_TYPE_OBJECT_TOMBSTONE);
 
-    Server *svr = reinterpret_cast<Server *>(cookie);
+    Server *svr = static_cast<Server *>(cookie);
     assert(svr != NULL);
 
     Log *log = svr->log;
     assert(log != NULL);
 
     const ObjectTombstone *tomb =
-        reinterpret_cast<const ObjectTombstone *>(p);
+        static_cast<const ObjectTombstone *>(p);
     assert(tomb != NULL);
 
     // see if the referant is still there

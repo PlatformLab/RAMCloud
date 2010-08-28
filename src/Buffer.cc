@@ -312,7 +312,7 @@ void Buffer::appendChunk(Chunk* newChunk) {
 uint32_t Buffer::peek(uint32_t offset, const void** returnPtr) {
     for (Chunk* current = chunks; current != NULL; current = current->next) {
         if (offset < current->length) {
-            *returnPtr = reinterpret_cast<const char*>(current->data) + offset;
+            *returnPtr = static_cast<const char*>(current->data) + offset;
             return (current->length - offset);
         }
         offset -= current->length;
@@ -356,9 +356,9 @@ Buffer::copyChunks(const Chunk* start, uint32_t offset, // NOLINT
     while (bytesRemaining > 0) {
         uint32_t bytesFromCurrent = std::min(current->length - offset,
                                              bytesRemaining);
-        memcpy(dest, reinterpret_cast<const char*>(current->data) + offset,
+        memcpy(dest, static_cast<const char*>(current->data) + offset,
                bytesFromCurrent);
-        dest = reinterpret_cast<char*>(dest) + bytesFromCurrent;
+        dest = static_cast<char*>(dest) + bytesFromCurrent;
         bytesRemaining -= bytesFromCurrent;
         offset = 0;
 
@@ -395,7 +395,7 @@ const void* Buffer::getRange(uint32_t offset, uint32_t length) {
     }
 
     if (offset + length <= current->length) { // no need to copy
-        const char* data = reinterpret_cast<const char*>(current->data);
+        const char* data = static_cast<const char*>(current->data);
         return (data + offset);
     } else {
         char* data = new(this, MISC) char[length];
@@ -470,7 +470,7 @@ Buffer::toString() {
         s.append(separator);
         separator = " ";
         if ((i+4) <= length) {
-            const char *p = reinterpret_cast<const char*>(getRange(i, 4));
+            const char *p = static_cast<const char*>(getRange(i, 4));
             if ((p[0] < ' ') || (p[1] < ' ')) {
                 int value = *reinterpret_cast<const int*>(p);
                 snprintf(temp, sizeof(temp),
@@ -484,7 +484,7 @@ Buffer::toString() {
 
         // This chunk of data looks like a string, so output it out as one.
         while (i < length) {
-            char c = *reinterpret_cast<const char*>(getRange(i, 1));
+            char c = *static_cast<const char*>(getRange(i, 1));
             i++;
             convertChar(c, &s);
             if (c == '\0') {
@@ -631,7 +631,7 @@ Buffer::truncateFront(uint32_t length)
             current = current->next;
         } else {
             totalLength -= length;
-            current->data = reinterpret_cast<const char*>(current->data)
+            current->data = static_cast<const char*>(current->data)
                     + length;
             current->length -= length;
             return;
@@ -816,7 +816,7 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
         // We want no visible effects but should return a unique pointer.
         return buffer->allocatePrepend(1);
     }
-    char* data = reinterpret_cast<char*>(buffer->allocatePrepend(numBytes));
+    char* data = static_cast<char*>(buffer->allocatePrepend(numBytes));
     Buffer::Chunk* firstChunk = buffer->chunks;
     if (firstChunk != NULL && firstChunk->isRawChunk() &&
         data + numBytes == firstChunk->data) {
@@ -853,7 +853,7 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
         // We want no visible effects but should return a unique pointer.
         return buffer->allocateAppend(1);
     }
-    char* data = reinterpret_cast<char*>(buffer->allocateAppend(numBytes));
+    char* data = static_cast<char*>(buffer->allocateAppend(numBytes));
     Buffer::Chunk* lastChunk = buffer->getLastChunk();
     if (lastChunk != NULL && lastChunk->isRawChunk() &&
         data - lastChunk->length == lastChunk->data) {
