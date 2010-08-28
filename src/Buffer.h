@@ -271,7 +271,7 @@ class Buffer {
          *      A pointer to the newly constructed Chunk.
          */
         static Chunk* prependToBuffer(Buffer* buffer,
-                                      void* data, uint32_t length) {
+                                      const void* data, uint32_t length) {
             Chunk* chunk = new(buffer, CHUNK) Chunk(data, length);
             Chunk::prependChunkToBuffer(buffer, chunk);
             return chunk;
@@ -282,7 +282,7 @@ class Buffer {
          * See #prependToBuffer(), which is analogous.
          */
         static Chunk* appendToBuffer(Buffer* buffer,
-                                     void* data, uint32_t length) {
+                                     const void* data, uint32_t length) {
             Chunk* chunk = new(buffer, CHUNK) Chunk(data, length);
             Chunk::appendChunkToBuffer(buffer, chunk);
             return chunk;
@@ -296,7 +296,7 @@ class Buffer {
          * \param[in] length
          *      The number of bytes \a data points to.
          */
-        Chunk(void* data, uint32_t length)
+        Chunk(const void* data, uint32_t length)
             : data(data), length(length), next(NULL) {}
 
       public:
@@ -327,7 +327,7 @@ class Buffer {
          *      classes should store a local copy of the original pointer if
          *      they will need it (e.g., in the destructor).
          */
-        void* data;
+        const void* data;
 
         /**
          * The number of bytes starting at #data for this Chunk.
@@ -368,7 +368,7 @@ class Buffer {
         Iterator& operator=(const Iterator& other);
         bool isDone() const;
         void next();
-        void* getData() const;
+        const void* getData() const;
         uint32_t getLength() const;
 
       private:
@@ -384,8 +384,8 @@ class Buffer {
     Buffer();
     ~Buffer();
 
-    uint32_t peek(uint32_t offset, void** returnPtr);
-    void* getRange(uint32_t offset, uint32_t length);
+    uint32_t peek(uint32_t offset, const void** returnPtr);
+    const void* getRange(uint32_t offset, uint32_t length);
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
     string debugString();
     string toString();

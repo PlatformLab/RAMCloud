@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,161 +15,22 @@
 
 /**
  * \file
- * Header file for #RAMCloud::Table and #RAMCloud::Server.
+ * Defines the top-level Server class.
  */
 
 #ifndef RAMCLOUD_SERVER_H
 #define RAMCLOUD_SERVER_H
 
 #include <Common.h>
-
 #include <Object.h>
 #include <Log.h>
 #include <BackupClient.h>
-
 #include <HashTable.h>
+#include <Rpc.h>
+#include <Table.h>
 #include <Transport.h>
 
 namespace RAMCloud {
-
-class Table {
-  public:
-
-    /**
-     * The maximum length of a table name, including the null terminator.
-     */
-    static const int TABLE_NAME_MAX_LEN = 64;
-
-    explicit Table() : next_key(0), next_version(1), object_map(HASH_NLINES) {
-    }
-
-    const char *GetName() { return &name[0]; }
-
-    /**
-     * \param new_name
-     *      A string with a length within #TABLE_NAME_MAX_LEN, including the null
-     *      terminator.
-     */
-    void SetName(const char *new_name) {
-        strncpy(&name[0], new_name, TABLE_NAME_MAX_LEN);
-        name[TABLE_NAME_MAX_LEN - 1] = '\0';
-    }
-
-    /**
-     * Increment and return the next table-assigned object ID.
-     * \return
-     *      The next available object ID in the table.
-     * \warning
-     *      A client could have already placed an object here by fabricating the
-     *      object ID.
-     */
-    uint64_t AllocateKey() {
-        while (Get(next_key))
-            ++next_key;
-        return next_key;
-    }
-
-    /**
-     * Increment and return the master vector clock.
-     * \return
-     *      The next version available from the master vector clock.
-     * \see #next_version
-     */
-    uint64_t AllocateVersion() {
-        return next_version++;
-    }
-
-    /**
-     * Ensure the master master vector clock is at least a certain version.
-     * \param minimum
-     *      The minimum version the master vector clock can be set to after this
-     *      operation.
-     * \see #next_version
-     */
-    void RaiseVersion(uint64_t minimum) {
-        if (minimum > next_version)
-            next_version = minimum;
-    }
-
-    /**
-     * \return
-     *      The #RAMCloud::Object at \a key, or \c NULL if no such object
-     *      exists.
-     */
-    const Object *Get(uint64_t key) {
-        return object_map.lookup(key);
-    }
-
-    /**
-     * \param key
-     *      The object ID at which to store \a o.
-     * \param o
-     *      The #RAMCloud::Object to store at \a key. May not be \c NULL.
-     */
-    void Put(uint64_t key, const Object *o) {
-        assert(o != NULL);
-        object_map.replace(key, o);
-    }
-
-    void Delete(uint64_t key) {
-        object_map.remove(key);
-    }
-
-  private:
-
-    /**
-     * The name of the table.
-     * \see #SetName().
-     */
-    char name[64];
-
-    /**
-     * The next available object ID in the table.
-     * \see #AllocateKey().
-     */
-    uint64_t next_key;
-
-    /**
-     * The master vector clock for the table.
-     *
-     * \li We guarantee that every distinct blob ever at a particular object ID
-     * will have a distinct version number, even across generations, so that
-     * they can be uniquely identified across all time with a version number.
-     *
-     * \li We guarantee that version numbers for a particular object ID
-     * monotonically increase over time, so that comparing two version numbers
-     * tells which one is more recent.
-     *
-     * \li We guarantee that the version number of an object increases by
-     * exactly one when it is updated, so that clients can accurately predict
-     * the version numbers that they will write before the write completes.
-     *
-     * These guarantees are implemented as follows:
-     *
-     * \li #next_version, the master vector clock, contains the next available
-     * version number for the table on the master. It is initialized to a small
-     * integer when the table is created and is recoverable after crashes.
-     *
-     * \li When an object is created, its new version number is set to the value
-     * of the master vector clock, and the master vector clock is incremented.
-     * See #AllocateVersion.
-     *
-     * \li When an object is updated, its new version number is set the old
-     * blob's version number plus one.
-     *
-     * \li When an object is deleted, set the master vector clock to the higher
-     * of the master vector clock and the deleted blob's version number plus
-     * one. See #RaiseVersion.
-     */
-    uint64_t next_version;
-
-    /**
-     * The object ID to #RAMCloud::Object pointer map for the table.
-     */
-    HashTable object_map;
-
-    DISALLOW_COPY_AND_ASSIGN(Table);
-};
 
 struct ServerConfig {
     // Restore from backups before resuming operation
@@ -182,56 +43,72 @@ struct ServerConfig {
     }
 };
 
+/**
+ * An object of this class represents a RAMCloud server, which can
+ * respond to client RPC requests to manipulate objects stored on the
+ * server.
+ */
 class Server {
   public:
-    explicit Server(const ServerConfig *sconfig,
+    Server(const ServerConfig* config,
                     Transport* transIn,
-                    BackupClient *backupClient=0); // NOLINT
-    ~Server();
-    void Run();
+                    BackupClient* backupClient = 0);
+    virtual ~Server();
+    void handleRpc();
+    void run();
 
-    void Ping(Transport::ServerRPC *rpc);
-    void Read(Transport::ServerRPC *rpc);
-    void Write(Transport::ServerRPC *rpc);
-    void InsertKey(Transport::ServerRPC *rpc);
-    void DeleteKey(Transport::ServerRPC *rpc);
-    void CreateTable(Transport::ServerRPC *rpc);
-    void OpenTable(Transport::ServerRPC *rpc);
-    void DropTable(Transport::ServerRPC *rpc);
+    void create(const CreateRequest* reqHdr, CreateResponse* respHdr,
+            Transport::ServerRPC* rpc);
+    void createTable(const CreateTableRequest* reqHdr,
+            CreateTableResponse* respHdr,
+            Transport::ServerRPC* rpc);
+    void dropTable(const DropTableRequest* reqHdr, DropTableResponse* respHdr,
+            Transport::ServerRPC* rpc);
+    void openTable(const OpenTableRequest* reqHdr, OpenTableResponse* respHdr,
+            Transport::ServerRPC* rpc);
+    void ping(const PingRequest* reqHdr, PingResponse* respHdr,
+            Transport::ServerRPC* rpc);
+    void read(const ReadRequest* reqHdr, ReadResponse* respHdr,
+            Transport::ServerRPC* rpc);
+    void remove(const RemoveRequest* reqHdr, RemoveResponse* respHdr,
+            Transport::ServerRPC* rpc);
+    void write(const WriteRequest* reqHdr, WriteResponse* respHdr,
+            Transport::ServerRPC* rpc);
 
 
-  private:
-    static bool RejectOperation(const rcrpc_reject_rules *reject_rules,
-                                uint64_t version);
-    void Restore();
-    void HandleRPC();
-    bool StoreData(uint64_t table,
-                   uint64_t key,
-                   const rcrpc_reject_rules *reject_rules,
-                   Buffer *data, uint32_t dataOffset, uint32_t dataLength,
-                   uint64_t *new_version);
+  protected:
 
-    const ServerConfig *config;
-    Transport* trans;
-    BackupClient *backup;
-    Log *log;
+    // The following variables are copies of constructor arguments;
+    // see constructor documentation for details.
+    const ServerConfig* config;
+    Transport* transport;
+    BackupClient* backup;
+
+    /**
+     * The main in-memory data structure holding all of the data stored
+     * on this server.
+     */
+    Log* log;
+
     Table tables[RC_NUM_TABLES];
-    friend void ObjectEvictionCallback(log_entry_type_t type,
-                                    const void *p,
-                                    uint64_t len,
-                                    void *cookie);
-    friend void TombstoneEvictionCallback(log_entry_type_t type,
-                                    const void *p,
-                                    uint64_t len,
-                                    void *cookie);
-    friend void SegmentReplayCallback(Segment *seg, void *cookie);
-    friend void ObjectReplayCallback(log_entry_type_t type,
-                                     const void *p,
-                                     uint64_t len,
-                                     void *cookie);
+    friend void objectEvictionCallback(log_entry_type_t type,
+            const void* p, uint64_t len, void* cookie);
+    friend void tombstoneEvictionCallback(log_entry_type_t type,
+            const void* p, uint64_t len, void* cookie);
+    friend void segmentReplayCallback(Segment* seg, void* cookie);
+    friend void objectReplayCallback(log_entry_type_t type,
+            const void* p, uint64_t len, void* cookie);
+    const char* getString(Buffer* buffer, uint32_t offset, uint32_t length);
+    Table* getTable(uint32_t tableId);
+    Status rejectOperation(const RejectRules* rejectRules, uint64_t version);
+    void restore();
+    Status storeData(uint64_t table, uint64_t id,
+            const RejectRules* rejectRules, Buffer* data,
+            uint32_t dataOffset, uint32_t dataLength,
+            uint64_t* newVersion);
     DISALLOW_COPY_AND_ASSIGN(Server);
 };
 
 } // namespace RAMCloud
 
-#endif
+#endif // RAMCLOUD_SERVER_H

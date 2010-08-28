@@ -50,7 +50,6 @@ using std::string;
 // Then it complains that they're not included first, but really it wants
 // application headers last.
 #include <config.h> // NOLINT
-#include <rcrpc.h> // NOLINT
 
 // A macro to disallow the copy constructor and operator= functions
 // This should be used in the private: declarations for a class
@@ -59,6 +58,7 @@ using std::string;
     void operator=(const TypeName&)
 
 #include <Logging.h> // NOLINT
+#include <Status.h>  // NOLINT
 
 /**
  * Allocate a new memory area.

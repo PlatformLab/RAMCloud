@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,126 +18,559 @@
  * Implementation of #RAMCloud::Server.
  */
 
-#include <arpa/inet.h>
-
 #include <Buffer.h>
+#include <ClientException.h>
+#include <Metrics.h>
 #include <Server.h>
+#include <Rpc.h>
 #include <Service.h>
 #include <Transport.h>
-#include <Metrics.h>
 
 namespace RAMCloud {
 
-void ObjectEvictionCallback(log_entry_type_t type,
-                         const void *p,
+void objectEvictionCallback(log_entry_type_t type,
+                         const void* p,
                          uint64_t len,
-                         void *cookie);
-void TombstoneEvictionCallback(log_entry_type_t type,
-                         const void *p,
+                         void* cookie);
+void tombstoneEvictionCallback(log_entry_type_t type,
+                         const void* p,
                          uint64_t len,
-                         void *cookie);
+                         void* cookie);
 
-Server::Server(const ServerConfig *sconfig,
-               Transport* transIn,
-               BackupClient *backupClient)
-    : config(sconfig), trans(transIn), backup(backupClient), log(0)
+/**
+ * Construct a Server.
+ *
+ * \param config
+ *      Contains various parameters that configure the operation of
+ *      this server.
+ * \param transport
+ *      Transport object that this server uses to receive requests
+ *      from clients and send replies back to them.
+ * \param backupClient
+ *      Provides a mechanism for replicating changes to other servers.
+ *      If NULL then we create a default backup object.
+ */
+Server::Server(const ServerConfig* config,
+               Transport* transport,
+               BackupClient* backupClient)
+    : config(config), transport(transport), backup(backupClient), log(0)
 {
-    void *p = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
+    void* p = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
 
     if (!backup) {
-        MultiBackupClient *multiBackup = new MultiBackupClient();
+        MultiBackupClient* multiBackup = new MultiBackupClient();
         if (BACKUP) {
             // This Service object will be deallocated in ~BackupHost().
-            Service *s = new Service();
+            Service* s = new Service();
             s->setPort(BACKSVRPORT);
             s->setIp(BACKSVRADDR);
 
             // NOTE The backup client takes care of freeing the Service and
             // Transport objects.
-            multiBackup->addHost(s, trans);
+            multiBackup->addHost(s, transport);
         }
         backup = multiBackup;
     }
 
     log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, backup);
-    log->registerType(LOG_ENTRY_TYPE_OBJECT, ObjectEvictionCallback, this);
+    log->registerType(LOG_ENTRY_TYPE_OBJECT, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJECT_TOMBSTONE,
-        TombstoneEvictionCallback, this);
+            tombstoneEvictionCallback, this);
 }
 
+/*
+ * Destructor for Server objects.
+ */
 Server::~Server()
 {
     delete backup;
 }
 
+/**
+ * Top-level server method to handle the CREATE request.  See the
+ * documentation for the corresponding method in Client for complete
+ * information about what this request does.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains parameters
+ *      for this operation.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call; can be
+ *      used to read additional information beyond the request header
+ *      and/or append additional information to the response buffer.
+ */
 void
-Server::Ping(Transport::ServerRPC *rpc)
+Server::create(const CreateRequest* reqHdr, CreateResponse* respHdr,
+        Transport::ServerRPC* rpc)
 {
-    // nothing to do here
+    Table* t = getTable(reqHdr->tableId);
+    uint64_t id = t->AllocateKey();
+
+    RejectRules rejectRules;
+    memset(&rejectRules, 0, sizeof(RejectRules));
+    rejectRules.exists = 1;
+
+    respHdr->common.status = storeData(reqHdr->tableId, id, &rejectRules,
+            &rpc->recvPayload, sizeof(*reqHdr), reqHdr->length,
+            &respHdr->version);
+    respHdr->id = id;
 }
 
-bool
-Server::RejectOperation(const rcrpc_reject_rules *reject_rules,
-                        uint64_t version)
+/**
+ * Top-level server method to handle the CREATE_TABLE request.  See the
+ * documentation for the corresponding method in Client for complete
+ * information about what this request does.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains parameters
+ *      for this operation.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call; can be
+ *      used to read additional information beyond the request header
+ *      and/or append additional information to the response buffer.
+ */
+void
+Server::createTable(const CreateTableRequest* reqHdr,
+                    CreateTableResponse* respHdr, Transport::ServerRPC* rpc)
 {
-    if (version == RCRPC_VERSION_NONE) {
-        return reject_rules->object_doesnt_exist;
+    int i;
+    const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
+            reqHdr->nameLength);
+
+    // See if we already have a table with the given name.
+    for (i = 0; i < RC_NUM_TABLES; i++) {
+        if (strcmp(tables[i].GetName(), name) == 0) {
+            // Table already exists; do nothing.
+            return;
+        }
     }
 
-    if (reject_rules->object_exists) {
-        return true;
+    // Find an empty slot in the table of tables and use it for the
+    // new table.
+    for (i = 0; i < RC_NUM_TABLES; i++) {
+        if (strcmp(tables[i].GetName(), "") == 0) {
+            tables[i].SetName(name);
+            return;
+        }
     }
-    if (reject_rules->version_eq_given &&
-        version == reject_rules->given_version) {
-        return true;
-    }
-    if (reject_rules->version_gt_given &&
-        version > reject_rules->given_version) {
-        return true;
-    }
-    if ((reject_rules->version_eq_given || reject_rules->version_gt_given) &&
-        version < reject_rules->given_version) {
-        return true;
-    }
-    return false;
+    respHdr->common.status = STATUS_NO_TABLE_SPACE;
 }
 
+
+/**
+ * Top-level server method to handle the DROP_TABLE request.  See the
+ * documentation for the corresponding method in Client for complete
+ * information about what this request does.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains parameters
+ *      for this operation.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call; can be
+ *      used to read additional information beyond the request header
+ *      and/or append additional information to the response buffer.
+ */
 void
-Server::Read(Transport::ServerRPC *rpc)
+Server::dropTable(const DropTableRequest* reqHdr, DropTableResponse* respHdr,
+            Transport::ServerRPC* rpc)
 {
-    const rcrpc_read_request *req;
-    req = static_cast<rcrpc_read_request*>(
-        rpc->recvPayload.getRange(0, sizeof(*req)));
+    int i;
+    const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
+            reqHdr->nameLength);
+    for (i = 0; i < RC_NUM_TABLES; i++) {
+        if (strcmp(tables[i].GetName(), name) == 0) {
+            tables[i].SetName("");
+            break;
+        }
+    }
+    // Note: it's not an error if the table doesn't exist.
+}
 
-    rcrpc_read_response *resp;
-    resp = new(&rpc->replyPayload, APPEND) rcrpc_read_response;
+/**
+ * Top-level server method to handle the OPEN_TABLE request.  See the
+ * documentation for the corresponding method in Client for complete
+ * information about what this request does.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains parameters
+ *      for this operation.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call; can be
+ *      used to read additional information beyond the request header
+ *      and/or append additional information to the response buffer.
+ */
+void
+Server::openTable(const OpenTableRequest* reqHdr, OpenTableResponse* respHdr,
+            Transport::ServerRPC* rpc)
+{
+    int i;
+    const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
+            reqHdr->nameLength);
+    for (i = 0; i < RC_NUM_TABLES; i++) {
+        if (strcmp(tables[i].GetName(), name) == 0) {
+            respHdr->tableId = i;
+            return;
+        }
+    }
+    throw TableDoesntExistException();
+}
 
-    LOG(DEBUG, "Read from key %lu", req->key);
 
-    // (will be updated below with var-length data)
-    resp->buf_len = 0;
-    resp->version = RCRPC_VERSION_NONE;
+/**
+ * Top-level server method to handle the PING request.  See the
+ * documentation for the corresponding method in Client for complete
+ * information about what this request does.
+ *
+ * \param reqHdr
+ *      Ignored.
+ * \param[out] respHdr
+ *      Ignored.
+ * \param[out] rpc
+ *      Ignored.
+ */
+void
+Server::ping(const PingRequest* reqHdr, PingResponse* respHdr,
+            Transport::ServerRPC* rpc)
+{
+    // Nothing to do here.
+}
 
-    Table *t = &tables[req->table];
-    const Object *o = t->Get(req->key);
+/**
+ * Top-level server method to handle the READ request.  See the
+ * documentation for the corresponding method in Client for complete
+ * information about what this request does.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains parameters
+ *      for this operation.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call; can be
+ *      used to read additional information beyond the request header
+ *      and/or append additional information to the response buffer.
+ */
+void
+Server::read(const ReadRequest* reqHdr, ReadResponse* respHdr,
+        Transport::ServerRPC* rpc)
+{
+    Table* t = getTable(reqHdr->tableId);
+    const Object* o = t->Get(reqHdr->id);
     if (!o) {
-        /* automatic reject: can't read a non-existent object */
-        /* leave RCRPC_VERSION_NONE in resp->version */
+        // Automatic reject: can't read a non-existent object
+        // Return null version
+        respHdr->common.status = STATUS_OBJECT_DOESNT_EXIST;
+        respHdr->length = 0;
+        respHdr->version = VERSION_NONEXISTENT;
         return;
     }
 
-    resp->version = o->version;
-
-    if (!RejectOperation(&req->reject_rules, o->version)) {
-        assert(o->data_len < (1UL << 32));
-        Buffer::Chunk::appendToBuffer(&rpc->replyPayload,
-                                      const_cast<char*>(o->data),
-                                      static_cast<uint32_t>(o->data_len));
-        // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
-        // from scribbling over o->data.
-        resp->buf_len = o->data_len;
-    }
+    respHdr->version = o->version;
+    respHdr->common.status = rejectOperation(&reqHdr->rejectRules,
+            o->version);
+    if (respHdr->common.status)
+        return;
+    Buffer::Chunk::appendToBuffer(&rpc->replyPayload,
+            o->data, static_cast<uint32_t>(o->data_len));
+    // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
+    // from scribbling over o->data.
+    respHdr->length = o->data_len;
 }
+
+/**
+ * Top-level server method to handle the REMOVE request.  See the
+ * documentation for the corresponding method in Client for complete
+ * information about what this request does.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains parameters
+ *      for this operation.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call; can be
+ *      used to read additional information beyond the request header
+ *      and/or append additional information to the response buffer.
+ */
+void
+Server::remove(const RemoveRequest* reqHdr, RemoveResponse* respHdr,
+        Transport::ServerRPC* rpc)
+{
+    Table* t = getTable(reqHdr->tableId);
+    const Object* o = t->Get(reqHdr->id);
+    respHdr->version = o ? o->version : VERSION_NONEXISTENT;
+
+    // Abort if we're trying to delete the wrong version.
+    respHdr->common.status = rejectOperation(&reqHdr->rejectRules,
+            respHdr->version);
+    if ((respHdr->common.status != STATUS_OK) || !o) {
+        return;
+    }
+
+    t->RaiseVersion(o->version + 1);
+
+    ObjectTombstone tomb;
+    log->getSegmentIdOffset(o, &tomb.segmentId, &tomb.segmentOffset);
+
+    // Mark the deleted object as free first, since the append could
+    // invalidate it
+    log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
+    const void* ret = log->append(
+        LOG_ENTRY_TYPE_OBJECT_TOMBSTONE, &tomb, sizeof(tomb));
+    assert(ret);
+    t->Delete(reqHdr->id);
+}
+
+/**
+ * Top-level server method to handle the WRITE request.  See the
+ * documentation for the corresponding method in Client for complete
+ * information about what this request does.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains parameters
+ *      for this operation.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call; can be
+ *      used to read additional information beyond the request header
+ *      and/or append additional information to the response buffer.
+ */
+void
+Server::write(const WriteRequest* reqHdr, WriteResponse* respHdr,
+        Transport::ServerRPC* rpc)
+{
+    respHdr->common.status = storeData(reqHdr->tableId, reqHdr->id,
+            &reqHdr->rejectRules, &rpc->recvPayload, sizeof(*reqHdr),
+            static_cast<uint32_t>(reqHdr->length), &respHdr->version);
+}
+
+/**
+ * Wait for an incoming RPC request, handle it, and return after
+ * sending a response.
+ */
+void
+Server::handleRpc()
+{
+    Transport::ServerRPC* rpc = transport->serverRecv();
+    Buffer* request = &rpc->recvPayload;
+    RpcResponseCommon* responseCommon = NULL;
+    try {
+        const RpcRequestCommon* header = reinterpret_cast
+                <const RpcRequestCommon*>(request->getRange(0,
+                sizeof(RpcRequestCommon)));
+        if (header == NULL) {
+            throw MessageTooShortError();
+        }
+        Metrics::setup(header->perfCounter);
+        Metrics::mark(MARK_RPC_PROCESSING_BEGIN);
+        Buffer* response = &rpc->replyPayload;
+        switch (header->type) {
+
+            #define CALL_HANDLER(nameInitialCap, nameLower) {                  \
+                nameInitialCap##Response* respHdr =                            \
+                        new(response, APPEND) nameInitialCap##Response;        \
+                responseCommon = &respHdr->common;                             \
+                const nameInitialCap##Request* reqHdr =                        \
+                        reinterpret_cast<const nameInitialCap##Request*>(      \
+                        request->getRange(0, sizeof(                           \
+                        nameInitialCap##Request)));                            \
+                if (reqHdr == NULL) {                                          \
+                    throw MessageTooShortError();                              \
+                }                                                              \
+                /* Clear the response header, so that unused fields are zero;  \
+                 * this makes tests more reproducible, and it is also needed   \
+                 * to avoid possible security problems where random server     \
+                 * info could leak out to clients through unused packet        \
+                 * fields. */                                                  \
+                memset(respHdr, 0, sizeof(nameInitialCap##Response));          \
+                nameLower(reqHdr, respHdr, rpc);                               \
+                break;                                                         \
+            }
+
+            case CREATE:        CALL_HANDLER(Create, create)
+            case CREATE_TABLE:  CALL_HANDLER(CreateTable, createTable)
+            case DROP_TABLE:    CALL_HANDLER(DropTable, dropTable)
+            case OPEN_TABLE:    CALL_HANDLER(OpenTable, openTable)
+            case PING:          CALL_HANDLER(Ping, ping)
+            case READ:          CALL_HANDLER(Read, read)
+            case REMOVE:        CALL_HANDLER(Remove, remove)
+            case WRITE:         CALL_HANDLER(Write, write)
+            default:
+                throw UnimplementedRequestError();
+        }
+    }
+    catch (ClientException e) {
+        Buffer* response = &rpc->replyPayload;
+        if (responseCommon == NULL) {
+            responseCommon = new(response, APPEND) RpcResponseCommon;
+        }
+        responseCommon->status = e.status;
+    }
+    Metrics::mark(MARK_RPC_PROCESSING_END);
+    responseCommon->counterValue = Metrics::read();
+    rpc->sendReply();
+}
+
+void __attribute__ ((noreturn))
+Server::run()
+{
+    if (config->restore) {
+        restore();
+    }
+    log->init();
+
+    while (true)
+        handleRpc();
+}
+
+/**
+ * Find and validate a string in a buffer.  This method is invoked
+ * by RPC handlers expecting a null-terminated string to be present
+ * in an incoming request. It makes sure that the buffer contains
+ * adequate space for a string of a given length at a given location
+ * in the buffer, and it verifies that the string is null-terminated
+ * and non-empty.
+ *
+ * \param buffer
+ *      Buffer containing the desired string; typically an RPC
+ *      request payload.
+ * \param offset
+ *      Location of the first byte of the string within the buffer.
+ * \param length
+ *      Total length of the string, including terminating null
+ *      character.
+ *
+ * \return
+ *      Pointer that can be used to access the string.  The string is
+ *      guaranteed to exist in its entirety and to be null-terminated.
+ *      (One condition we don't check for: premature termination via a
+ *      null character in the middle of the string).
+ *
+ * \exception MessageTooShort
+ *      The buffer isn't large enough for the expected size of the
+ *      string.
+ * \exception RequestFormatError
+ *      The string was not null-terminated or had zero length.
+ */
+const char*
+Server::getString(Buffer* buffer, uint32_t offset, uint32_t length) {
+    const char* result;
+    if (length == 0) {
+        throw RequestFormatError();
+    }
+    if (buffer->getTotalLength() < (offset + length)) {
+        throw MessageTooShortError();
+    }
+    result = reinterpret_cast<const char*>(buffer->getRange(offset, length));
+    if (result[length - 1] != '\0') {
+        throw RequestFormatError();
+    }
+    return result;
+}
+
+/**
+ * Validates a table identifier and returns the corresponding Table.
+ *
+ * \param tableId
+ *      Identifier for a desired table.
+ *
+ * \return
+ *      The table corresponding to tableId.
+ *
+ * \exception TableDoesntExist
+ *      Thrown if tableId does not correspond to a valid table.
+ */
+Table*
+Server::getTable(uint32_t tableId) {
+    if (tableId >= RC_NUM_TABLES) {
+        throw TableDoesntExistException();
+    }
+    Table* t = &tables[tableId];
+    if (*t->GetName() == '\0') {
+        throw TableDoesntExistException();
+    }
+    return t;
+}
+
+/*
+ * Check a set of RejectRules against the current state of an object
+ * to decide whether an operation is allowed.
+ *
+ * \param rejectRules
+ *      Specifies conditions under which the operation should fail.
+ * \param version
+ *      The current version of an object, or VERSION_NONEXISTENT
+ *      if the object does not currently exist (used to test rejectRules)
+ *
+ * \return
+ *      The return value is STATUS_OK if none of the reject rules
+ *      indicate that the operation should be rejected. Otherwise
+ *      the return value indicates the reason for the rejection.
+ */
+Status
+Server::rejectOperation(const RejectRules* rejectRules,
+                         uint64_t version)
+{
+    if (version == VERSION_NONEXISTENT) {
+        if (rejectRules->doesntExist) {
+            return STATUS_OBJECT_DOESNT_EXIST;
+        }
+        return STATUS_OK;
+    }
+    if (rejectRules->exists) {
+        return STATUS_OBJECT_EXISTS;
+    }
+    if (rejectRules->versionLeGiven &&
+            (version <= rejectRules->givenVersion)) {
+        return STATUS_WRONG_VERSION;
+    }
+    if (rejectRules->versionNeGiven &&
+            (version != rejectRules->givenVersion)) {
+        return STATUS_WRONG_VERSION;
+    }
+    return STATUS_OK;
+}
+
+//-----------------------------------------------------------------------
+// Everything below here is "old" code, meaning it probably needs to
+// get refactored at some point, it doesn't follow the coding conventions,
+// and there are no unit tests for it.
+//-----------------------------------------------------------------------
+
+struct obj_replay_cookie {
+    Server *server;
+    uint64_t used_bytes;
+};
 
 /**
  * Callback used by the log cleaner when it's cleaning a segment and evicts
@@ -154,7 +587,7 @@ Server::Read(Transport::ServerRPC *rpc)
  * \param[in]  cookie   the opaque state pointer registered with the callback
  */
 void
-ObjectEvictionCallback(log_entry_type_t type,
+objectEvictionCallback(log_entry_type_t type,
                     const void *p,
                     uint64_t len,
                     void *cookie)
@@ -184,6 +617,58 @@ ObjectEvictionCallback(log_entry_type_t type,
     }
 }
 
+void
+objectReplayCallback(log_entry_type_t type,
+                     const void *p,
+                     uint64_t len,
+                     void *cookiep)
+{
+    obj_replay_cookie *cookie = reinterpret_cast<obj_replay_cookie *>(cookiep);
+    Server *server = cookie->server;
+
+    //printf("ObjectReplayCallback: type %llu\n", type);
+
+    // Used to determine free_bytes after passing over the segment
+    cookie->used_bytes += len;
+
+    switch (type) {
+    case LOG_ENTRY_TYPE_OBJECT: {
+        const Object *obj = reinterpret_cast<const Object *>(p);
+        assert(obj);
+
+        Table *table = &server->tables[obj->table];
+        assert(table != NULL);
+
+        table->Delete(obj->id);
+        table->Put(obj->id, obj);
+    }
+        break;
+    case LOG_ENTRY_TYPE_OBJECT_TOMBSTONE:
+        assert(false);  //XXX- fixme
+        break;
+    case LOG_ENTRY_TYPE_SEGMENT_HEADER:
+    case LOG_ENTRY_TYPE_SEGMENT_CHECKSUM:
+        break;
+    default:
+        printf("!!! Unknown object type on log replay: 0x%llx", type);
+    }
+}
+
+void
+segmentReplayCallback(Segment *seg, void *cookie)
+{
+    // TODO(stutsman) we can restore bytes_stored in the log easily
+    // using the same approach as for the individual segments
+    Server *server = reinterpret_cast<Server *>(cookie);
+
+    obj_replay_cookie ocookie;
+    ocookie.server = server;
+    ocookie.used_bytes = 0;
+
+    server->log->forEachEntry(seg, objectReplayCallback, &ocookie);
+    seg->setUsedBytes(ocookie.used_bytes);
+}
+
 /**
  * Callback used by the log cleaner when it's cleaning a segment and evicts
  * a tombstone.
@@ -201,7 +686,7 @@ ObjectEvictionCallback(log_entry_type_t type,
  * \param[in]  cookie   the opaque state pointer registered with the callback
  */
 void
-TombstoneEvictionCallback(log_entry_type_t type,
+tombstoneEvictionCallback(log_entry_type_t type,
                     const void *p,
                     uint64_t len,
                     void *cookie)
@@ -226,41 +711,43 @@ TombstoneEvictionCallback(log_entry_type_t type,
     }
 }
 
-bool
-Server::StoreData(uint64_t table,
-                  uint64_t key,
-                  const rcrpc_reject_rules *reject_rules,
-                  Buffer *data, uint32_t dataOffset, uint32_t dataLength,
-                  uint64_t *new_version)
+void
+Server::restore()
 {
-    Table *t = &tables[table];
-    const Object *o = t->Get(key);
+    uint64_t restored_segs = log->restore();
+    printf("Log was able to restore %llu segs\n", restored_segs);
+    // TODO(stutsman) Walk the log here and rebuild metadata
+    log->forEachSegment(segmentReplayCallback, restored_segs, this);
+}
 
-    if (o != NULL) {
-        if (RejectOperation(reject_rules, o->version)) {
-            *new_version = o->version;
-            return false;
-        }
-    } else {
-        if (RejectOperation(reject_rules, RCRPC_VERSION_NONE)) {
-            *new_version = RCRPC_VERSION_NONE;
-            return false;
-        }
+Status
+Server::storeData(uint64_t tableId, uint64_t id,
+                  const RejectRules *rejectRules, Buffer *data,
+                  uint32_t dataOffset, uint32_t dataLength,
+                  uint64_t *newVersion)
+{
+    Table *t = getTable(tableId);
+    const Object *o = t->Get(id);
+    uint64_t version = (o != NULL) ? o->version : VERSION_NONEXISTENT;
+    Status status = rejectOperation(rejectRules, version);
+    if (status) {
+        *newVersion = version;
+        return status;
     }
 
-    DECLARE_OBJECT(new_o, dataLength);
+    DECLARE_OBJECT(newObject, dataLength);
 
-    new_o->id = key;
-    new_o->table = table;
+    newObject->id = id;
+    newObject->table = tableId;
     if (o != NULL)
-        new_o->version = o->version + 1;
+        newObject->version = o->version + 1;
     else
-        new_o->version = t->AllocateVersion();
-    assert(o == NULL || new_o->version > o->version);
+        newObject->version = t->AllocateVersion();
+    assert(o == NULL || newObject->version > o->version);
     // TODO(stutsman): dm's super-fast checksum here
-    new_o->checksum = 0x0BE70BE70BE70BE7ULL;
-    new_o->data_len = dataLength;
-    data->copy(dataOffset, dataLength, new_o->data);
+    newObject->checksum = 0x0BE70BE70BE70BE7ULL;
+    newObject->data_len = dataLength;
+    data->copy(dataOffset, dataLength, newObject->data);
 
     // mark the old object as freed _before_ writing the new object to the log.
     // if we do it afterwards, the log cleaner could be triggered and `o'
@@ -270,323 +757,12 @@ Server::StoreData(uint64_t table,
         log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
 
     const Object *objp = (const Object *)log->append(
-        LOG_ENTRY_TYPE_OBJECT, new_o, new_o->size());
+        LOG_ENTRY_TYPE_OBJECT, newObject, newObject->size());
     assert(objp != NULL);
-    t->Put(key, objp);
+    t->Put(id, objp);
 
-    *new_version = objp->version;
-    return true;
-}
-
-void
-Server::Write(Transport::ServerRPC *rpc)
-{
-    const rcrpc_write_request *req;
-
-    req = static_cast<rcrpc_write_request*>(
-        rpc->recvPayload.getRange(0, sizeof(*req)));
-
-    rcrpc_write_response *resp;
-    resp = new(&rpc->replyPayload, APPEND) rcrpc_write_response;
-
-    LOG(DEBUG, "Write %lu bytes of data to key %lu", req->buf_len, req->key);
-
-    assert(req->buf_len < (1UL << 32));
-    resp->written = StoreData(req->table, req->key, &req->reject_rules,
-                              &rpc->recvPayload,
-                              sizeof(*req),
-                              static_cast<uint32_t>(req->buf_len),
-                              &resp->version);
-}
-
-void
-Server::InsertKey(Transport::ServerRPC *rpc)
-{
-    const rcrpc_insert_request *req;
-    req = static_cast<rcrpc_insert_request*>(
-        rpc->recvPayload.getRange(0, sizeof(*req)));
-
-    rcrpc_insert_response *resp;
-    resp = new(&rpc->replyPayload, APPEND) rcrpc_insert_response;
-
-    Table *t = &tables[req->table];
-    uint64_t key = t->AllocateKey();
-
-    rcrpc_reject_rules reject_rules;
-    memset(&reject_rules, 0, sizeof(reject_rules));
-    reject_rules.object_exists = true;
-
-    assert(req->buf_len < (1UL << 32));
-    bool r = StoreData(req->table, key, &reject_rules,
-                       &rpc->recvPayload,
-                       sizeof(*req),
-                       static_cast<uint32_t>(req->buf_len),
-                       &resp->version);
-    assert(r);
-
-    resp->key = key;
-}
-
-void
-Server::DeleteKey(Transport::ServerRPC *rpc)
-{
-    const rcrpc_delete_request *req;
-    req = static_cast<rcrpc_delete_request*>(
-        rpc->recvPayload.getRange(0, sizeof(*req)));
-
-    rcrpc_delete_response *resp;
-    resp = new(&rpc->replyPayload, APPEND) rcrpc_delete_response;
-
-    resp->version = RCRPC_VERSION_NONE;
-    resp->deleted = false;
-
-    Table *t = &tables[req->table];
-    const Object *o = t->Get(req->key);
-    if (!o) {
-        /* leave RCRPC_VERSION_NONE in resp->version */
-        if (!RejectOperation(&req->reject_rules, RCRPC_VERSION_NONE))
-            resp->deleted = true;
-        return;
-    }
-
-    // abort if we're trying to delete the wrong version
-    // the client will note the discrepancy and figure it out
-    if (RejectOperation(&req->reject_rules, o->version)) {
-        resp->version = o->version;
-        return;
-    }
-    resp->deleted = true;
-
-    t->RaiseVersion(o->version + 1);
-
-    ObjectTombstone tomb;
-    log->getSegmentIdOffset(o, &tomb.segmentId, &tomb.segmentOffset);
-
-    // mark the deleted object as free first, since the append could
-    // invalidate it
-    log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
-    const void *ret = log->append(
-        LOG_ENTRY_TYPE_OBJECT_TOMBSTONE, &tomb, sizeof(tomb));
-    assert(ret);
-    t->Delete(req->key);
-}
-
-void
-Server::CreateTable(Transport::ServerRPC *rpc)
-{
-    const rcrpc_create_table_request *req;
-    req = static_cast<rcrpc_create_table_request*>(
-        rpc->recvPayload.getRange(0, sizeof(*req)));
-
-    int i;
-    for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].GetName(), req->name) == 0) {
-            // TODO(stutsman): Need to do better than this
-            throw Exception("Table exists");
-        }
-    }
-    for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].GetName(), "") == 0) {
-            tables[i].SetName(req->name);
-            break;
-        }
-    }
-    if (i == RC_NUM_TABLES) {
-        // TODO(stutsman): Need to do better than this
-        throw Exception("Out of tables");
-    }
-    LOG(DEBUG, "create table -> %d", i);
-}
-
-void
-Server::OpenTable(Transport::ServerRPC *rpc)
-{
-    const rcrpc_open_table_request *req;
-    req = static_cast<rcrpc_open_table_request*>(
-        rpc->recvPayload.getRange(0, sizeof(*req)));
-
-    rcrpc_open_table_response *resp;
-    resp = new(&rpc->replyPayload, APPEND) rcrpc_open_table_response;
-
-    int i;
-    for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].GetName(), req->name) == 0)
-            break;
-    }
-    if (i == RC_NUM_TABLES) {
-        // TODO(stutsman): Need to do better than this
-        throw Exception("No such table");
-    }
-    LOG(DEBUG, "open table -> %d", i);
-
-    resp->handle = i;
-}
-
-void
-Server::DropTable(Transport::ServerRPC *rpc)
-{
-    const rcrpc_drop_table_request *req;
-    req = static_cast<rcrpc_drop_table_request*>(
-        rpc->recvPayload.getRange(0, sizeof(*req)));
-
-    int i;
-    for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].GetName(), req->name) == 0) {
-            tables[i].SetName("");
-            break;
-        }
-    }
-    if (i == RC_NUM_TABLES) {
-        // TODO(stutsman): Need to do better than this
-        throw Exception("No such table");
-    }
-    LOG(DEBUG, "drop table -> %d", i);
-}
-
-struct obj_replay_cookie {
-    Server *server;
-    uint64_t used_bytes;
-};
-
-void
-ObjectReplayCallback(log_entry_type_t type,
-                     const void *p,
-                     uint64_t len,
-                     void *cookiep)
-{
-    obj_replay_cookie *cookie = static_cast<obj_replay_cookie *>(cookiep);
-    Server *server = cookie->server;
-
-    //printf("ObjectReplayCallback: type %llu\n", type);
-
-    // Used to determine free_bytes after passing over the segment
-    cookie->used_bytes += len;
-
-    switch (type) {
-    case LOG_ENTRY_TYPE_OBJECT: {
-        const Object *obj = static_cast<const Object *>(p);
-        assert(obj);
-
-        Table *table = &server->tables[obj->table];
-        assert(table != NULL);
-
-        table->Delete(obj->id);
-        table->Put(obj->id, obj);
-    }
-        break;
-    case LOG_ENTRY_TYPE_OBJECT_TOMBSTONE:
-        assert(false);  //XXX- fixme
-        break;
-    case LOG_ENTRY_TYPE_SEGMENT_HEADER:
-    case LOG_ENTRY_TYPE_SEGMENT_CHECKSUM:
-        break;
-    default:
-        printf("!!! Unknown object type on log replay: 0x%llx", type);
-    }
-}
-
-void
-SegmentReplayCallback(Segment *seg, void *cookie)
-{
-    // TODO(stutsman) we can restore bytes_stored in the log easily
-    // using the same approach as for the individual segments
-    Server *server = static_cast<Server *>(cookie);
-
-    obj_replay_cookie ocookie;
-    ocookie.server = server;
-    ocookie.used_bytes = 0;
-
-    server->log->forEachEntry(seg, ObjectReplayCallback, &ocookie);
-    seg->setUsedBytes(ocookie.used_bytes);
-}
-
-void
-Server::Restore()
-{
-    uint64_t restored_segs = log->restore();
-    printf("Log was able to restore %llu segs\n", restored_segs);
-    // TODO(stutsman) Walk the log here and rebuild metadata
-    log->forEachSegment(SegmentReplayCallback, restored_segs, this);
-}
-
-void
-Server::HandleRPC()
-{
-    Transport::ServerRPC *rpc = trans->serverRecv();
-
-    rcrpc_header *reqHeader = static_cast<rcrpc_header*>(
-        rpc->recvPayload.getRange(0, sizeof(*reqHeader)));
-    if (reqHeader == NULL)
-        return; // request too short
-
-    Metrics::setup(reqHeader->perf_counter);
-    Metrics::mark(MARK_RPC_PROCESSING_BEGIN);
-
-    rpc->recvPayload.truncateFront(sizeof(*reqHeader));
-
-    rcrpc_header *replyHeader = new(&rpc->replyPayload, PREPEND) rcrpc_header;
-
-    try {
-        switch ((enum RCRPC_TYPE) reqHeader->type) {
-
-#define HANDLE(rcrpc_upper, rcrpc_lower, handler)                              \
-        case RCRPC_##rcrpc_upper##_REQUEST:                                    \
-            /* adding one below to suppress "comparison is always false" */    \
-            if (rpc->recvPayload.getTotalLength() + 1 <                        \
-                sizeof0(rcrpc_##rcrpc_lower##_request) + 1)                    \
-                throw Exception("payload too short");                          \
-            Server::handler(rpc);                                              \
-            replyHeader->type = RCRPC_##rcrpc_upper##_RESPONSE;                \
-            assert(rpc->replyPayload.getTotalLength() >=                       \
-                   (sizeof(rcrpc_header) +                                     \
-                    sizeof0(rcrpc_##rcrpc_lower##_response)));                 \
-            break;                                                             \
-        case RCRPC_##rcrpc_upper##_RESPONSE:                                   \
-            throw Exception("server received RPC response")
-
-        HANDLE(PING, ping, Ping);
-        HANDLE(READ, read, Read);
-        HANDLE(WRITE, write, Write);
-        HANDLE(INSERT, insert, InsertKey);
-        HANDLE(DELETE, delete, DeleteKey);
-        HANDLE(CREATE_TABLE, create_table, CreateTable);
-        HANDLE(OPEN_TABLE, open_table, OpenTable);
-        HANDLE(DROP_TABLE, drop_table, DropTable);
-#undef HANDLE
-
-        case RCRPC_ERROR_RESPONSE:
-            throw Exception("server received RPC response");
-
-        default:
-            throw Exception("received unknown RPC type");
-        }
-    } catch (FatalError e) {
-        throw;
-    } catch (Exception e) {
-        fprintf(stderr, "Error while processing RPC: %s\n", e.message.c_str());
-        uint32_t msglen = static_cast<uint32_t>(e.message.length()) + 1;
-        rpc->replyPayload.truncateEnd(rpc->replyPayload.getTotalLength() -
-                                      sizeof(*replyHeader));
-        snprintf(new(&rpc->replyPayload, APPEND) char[msglen], msglen,
-                 "%s", e.message.c_str());
-        replyHeader->type = RCRPC_ERROR_RESPONSE;
-    }
-
-    Metrics::mark(MARK_RPC_PROCESSING_END);
-    replyHeader->perf_counter.value = Metrics::read();
-    rpc->sendReply();
-}
-
-void __attribute__ ((noreturn))
-Server::Run()
-{
-    if (config->restore) {
-        Restore();
-    }
-    log->init();
-
-    while (true)
-        HandleRPC();
+    *newVersion = objp->version;
+    return STATUS_OK;
 }
 
 } // namespace RAMCloud
