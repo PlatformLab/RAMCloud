@@ -115,6 +115,12 @@ include src/MakefragTest
 include src/misc/Makefrag
 include bindings/python/Makefrag
 
+# The following line allows developers to create private make rules
+# in the file private/MakefragPrivate.  The recommended approach is
+# for you to keep all private files (personal development hacks,
+# test scripts, etc.) in the "private" subdirectory.
+include $(wildcard private/MakefragPrivate)
+
 clean: tests-clean docs-clean
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
 
