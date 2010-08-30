@@ -63,10 +63,10 @@ class BackupHostTest : public CppUnit::TestFixture {
       public:
         virtual void Handle(const char *reqData, size_t len) {
             char respBuffer[1024];
-            backup_rpc *resp = reinterpret_cast<backup_rpc *>(&respBuffer[0]);
+            backup_rpc *resp = static_cast<backup_rpc *>(&respBuffer[0]);
 
             const backup_rpc *req =
-                reinterpret_cast<const backup_rpc *>(reqData);
+                static_cast<const backup_rpc *>(reqData);
             switch ((enum backup_rpc_type) req->hdr.type) {
             case BACKUP_RPC_WRITE_REQ:
                 assert(10 == req->write_req.seg_num);

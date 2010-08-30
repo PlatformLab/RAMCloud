@@ -24,9 +24,9 @@
 #define RAMCLOUD_METRICS_H
 
 #include <Common.h>
-
-#include <PerfCounterType.h>
 #include <Mark.h>
+#include <PerfCounterType.h>
+#include <Rpc.h>
 
 namespace RAMCloud {
 
@@ -61,7 +61,7 @@ class Metrics {
   public:
     static uint64_t read();
     static void setup(PerfCounterType type, Mark beginMark, Mark endMark);
-    static void setup(rcrpc_perf_counter which);
+    static void setup(RpcPerfCounter which);
     static void mark(Mark mark);
   private:
     /// Used to track whether a legal pattern of marks has been seen.

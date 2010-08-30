@@ -96,23 +96,15 @@ try
     LOG(NOTICE, "server: Listening on port %d", config.port);
 
     if (cpu != -1) {
-        cpu_set_t cpus;
-        CPU_ZERO(&cpus);
-        CPU_SET(cpu, &cpus);
-
-        int r = sched_setaffinity(0, sizeof(cpus), &cpus);
-        if (r < 0) {
-            LOG(ERROR, "server: Couldn't pin to core %d: %s",
-                cpu, strerror(errno));
-            exit(EXIT_FAILURE);
-        }
+        if (!pinToCpu(cpu))
+            DIE("server: Couldn't pin to core %d", cpu);
         LOG(DEBUG, "server: Pinned to core %d", cpu);
     }
 
     TCPTransport trans(config.address, config.port);
     Server server(&config, &trans);
 
-    server.Run();
+    server.run();
 
     return 0;
 } catch (RAMCloud::Exception e) {

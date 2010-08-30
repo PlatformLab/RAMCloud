@@ -210,10 +210,10 @@ class TxRAMCloud(RAMCloud):
         """Raised if the minitransaction was aborted due to reject rules.
 
         @ivar reasons: A mapping from (table_id, oid) to L{NoObjectError},
-                       L{ObjectExistsError}, L{VersionError}, or
-                       L{FabricatedVersionError}. Some non-empty subset of the
-                       objects of the transaction whose operation's reject rules
-                       have not been met will be present.
+                       L{ObjectExistsError}, or L{VersionError}. Some
+                       non-empty subset of the objects of the transaction
+                       whose operation's reject rules have not been met
+                       will be present.
         @type reasons: C{dict}
         """
 
@@ -346,10 +346,8 @@ class TxRAMCloud(RAMCloud):
         # object_doesnt_exist and there is no object to be deleted.
         # - Doesn't throw L{ramcloud.ObjectExists}.
         # - Throws L{ramcloud.VersionError} if user_reject_rules specifies
-        # version_eq_given and the version read matches the version given.
-        # - Throws L{ramcloud.FabricatedVersionError} if user_reject_rules
-        # specifies version_eq_given and the version read is older than the
-        # version given.
+        # version_eq_given and the version read matches the version given
+        # or is older than the version given.
 
         assert not user_reject_rules.object_exists
         assert not user_reject_rules.version_gt_given
@@ -358,7 +356,7 @@ class TxRAMCloud(RAMCloud):
             try:
                 # self.read_rr() makes sure there is object is not masked
                 version = self.read_rr(table_id, key, user_reject_rules)[1]
-            except (ramcloud.VersionError, ramcloud.FabricatedVersionError):
+            except (ramcloud.VersionError):
                 raise
             except ramcloud.NoObjectError:
                 # If there was no object, we're done.
@@ -404,10 +402,8 @@ class TxRAMCloud(RAMCloud):
         # updated.
         # - Doesn't throw L{ramcloud.ObjectExists}.
         # - Throws L{ramcloud.VersionError} if user_reject_rules specifies
-        # version_eq_given and the version read matches the version given.
-        # - Throws L{ramcloud.FabricatedVersionError} if user_reject_rules
-        # specifies version_eq_given and the version read is older than the
-        # version given.
+        # version_eq_given and the version read matches the version given
+        # or is older than the version given.
 
         assert user_reject_rules.object_doesnt_exist
         assert not user_reject_rules.object_exists
@@ -417,8 +413,7 @@ class TxRAMCloud(RAMCloud):
             # self.read_rr() makes sure the object is not masked
             try:
                 version = self.read_rr(table_id, key, user_reject_rules)[1]
-            except (ramcloud.NoObjectError, ramcloud.VersionError,
-                    ramcloud.FabricatedVersionError):
+            except (ramcloud.NoObjectError, ramcloud.VersionError):
                 raise
 
             # We can stop worrying about the user's given version now
@@ -557,9 +552,8 @@ class TxRAMCloud(RAMCloud):
         @raise Exception: If the object could not be masked because of
                           C{user_reject_rules}. Specifically, this is one of:
                           L{ramcloud.NoObjectError},
-                          L{ramcloud.ObjectExistsError},
-                          L{ramcloud.VersionError}, or
-                          L{ramcloud.FabricatedVersionError}.
+                          L{ramcloud.ObjectExistsError}, or
+                          L{ramcloud.VersionError}.
                           Additionally, the exception will have the attributes
                           C{table} and C{oid} set to parameter C{table_id} and
                           C{key}.
@@ -580,8 +574,7 @@ class TxRAMCloud(RAMCloud):
                             given_version=user_reject_rules.given_version)
             try:
                 data, version = self.read_rr(table_id, key, rr_read)
-            except (ramcloud.ObjectExistsError, ramcloud.VersionError,
-                    ramcloud.FabricatedVersionError), e:
+            except (ramcloud.ObjectExistsError, ramcloud.VersionError), e:
                 # The user asked for a reject
                 e.table = table_id
                 e.oid = key
@@ -835,7 +828,7 @@ class TxRAMCloud(RAMCloud):
         try:
             masked_versions = self._mask_objects(objects, mt, txid, timeout)
         except (ramcloud.NoObjectError, ramcloud.ObjectExistsError,
-                ramcloud.VersionError, ramcloud.FabricatedVersionError), e:
+                ramcloud.VersionError), e:
             a = self.TransactionRejected()
             a.reasons[(e.table, e.oid)] = e
             raise a

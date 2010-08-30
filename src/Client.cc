@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010 Stanford University
+/* Copyright (c) 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,769 +13,534 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
-#include <Client.h>
-
-#if RC_CLIENT_SHARED
-#include <semaphore.h>
-#include <sys/mman.h>
-#endif
+/**
+ * \file
+ * Implementation of RAMCloud::Client.
+ */
 
 #include <assert.h>
+#include <Client.h>
+#include <ClientException.h>
+#include <TCPTransport.h>
 
-using namespace RAMCloud; // NOLINT
+namespace RAMCloud {
 
-#if RC_CLIENT_SHARED
-struct rc_client_shared {
-    sem_t sem;
-};
-
-static void
-lock(struct rc_client *client)
-{
-    assert(sem_wait(&client->shared->sem) == 0);
-}
-
-static void
-unlock(struct rc_client *client)
-{
-    assert(sem_post(&client->shared->sem) == 0);
-}
-#else
-static void lock(struct rc_client *client) {}
-static void unlock(struct rc_client *client) {}
-#endif
+// Default RejectRules to use if none are provided by the caller.
+RejectRules defaultRejectRules;
 
 /**
- * Connect to a %RAMCloud.
+ * Construct a Client for a particular server address: ensures that
+ * the cluster exists and opens a connection with the cluster coordinator.
  *
- * The caller should later use rc_disconnect() to disconnect from the
- * %RAMCloud.
- *
- * \param[in]  client   a newly allocated client
- * \param[in]  serverAddr
- *     The IP address the remote server is listening on.
- * \param[in]  serverPort
- *     The port the remote server is listening on.
- * \return error code (see values below)
- * \retval  0 on success
- * \retval other reserved for future use
+ * \param serverAddr
+ *      Name of the desired server host (IP address/name).
+ * \param serverPort
+ *      Port number to use for server connection.
+ * \exception CouldntConnectException
+ *      Couldn't connect to the server.
  */
-int
-rc_connect(struct rc_client *client, const char *serverAddr, int serverPort)
+
+Client::Client(const char* serverAddr, int serverPort)
+        : status(STATUS_OK),  counterValue(0), service(NULL),
+          transport(NULL), weOwnTransportAndService(true),
+          perfCounter()
 {
-#if RC_CLIENT_SHARED
-    void *s = mmap(NULL, sizeof(struct rc_client_shared),
-                   PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
-    client->shared = static_cast<rc_client_shared*>(s);
-    assert(client->shared != MAP_FAILED);
-    assert(sem_init(&client->shared->sem, 1, 1) == 0);
-#endif
-
-    client->serv = new Service();
-    client->serv->setIp(serverAddr);
-    client->serv->setPort(serverPort);
-
-    client->trans = new TCPTransport(NULL, 0);
-
-    return 0;
+    // The code below is a temporary hack until we get a real
+    // cluster manager: it allows us to communicate with a single
+    // RAMCloud server.
+    service = new Service();
+    service->setIp(serverAddr);
+    service->setPort(serverPort);
+    transport = new TCPTransport(NULL, 0);
 }
 
 /**
- * Disconnect from a %RAMCloud.
+ * Construct a Client object to use a specific Transport and Service;
+ * used primarily for testing.
  *
- * \param[in]  client   a connected client
+ * \param service
+ *      Service that will respond to RPC requests.
+ * \param transport
+ *      Object used to communicate with the server.
+ * \exception CouldntConnectException
+ *      Couldn't connect to the server.
+ */
+
+Client::Client(Service* service, Transport* transport)
+        : status(STATUS_OK),  counterValue(0), service(service),
+          transport(transport), weOwnTransportAndService(false),
+          perfCounter()  { }
+
+/**
+ * Destructor for Client objects: releases all resources for the
+ * cluster and aborts RPCs in progress.
+ */
+Client::~Client()
+{
+    if (weOwnTransportAndService) {
+        delete service;
+        delete transport;
+    }
+}
+
+/**
+ * Cancel any performance counter request previously specified by a call to
+ * selectPerfCounter.
  */
 void
-rc_disconnect(struct rc_client *client)
+Client::clearPerfCounter()
 {
-    delete client->serv;
-    delete client->trans;
+    static RpcPerfCounter none = {0, 0, 0};
+    perfCounter = none;
 }
 
 /**
- * \var ERROR_MSG_LEN
- * The maximum length of a %RAMCloud error message.
+ * Create a new object in a table, with an id assigned by the server.
  *
- * \TODO The max length of a %RAMCloud error message belongs with the RPC
- *      definitions.
+ * \param tableId
+ *      The table in which the new object is to be created (return
+ *      value from a previous call to openTable).
+ * \param buf
+ *      Address of the first byte of the contents for the new object;
+ *      must contain at least length bytes.
+ * \param length
+ *      Size in bytes of the new object.
+ * \param[out] version
+ *      If non-NULL, the version number of the new object is returned
+ *      here; guaranteed to be greater than that of any previous
+ *      object that used the same id in the same table.
+ *      
+ * \return
+ *      The identifier for the new object: unique within the table
+ *      and guaranteed not to be in use already. Generally, servers
+ *      choose ids sequentially starting at 1 (but they may need
+ *      to skip over ids previously created using \c write).
+ *
+ * \exception InternalError
  */
-enum { ERROR_MSG_LEN = 256 };
-
-/**
- * A buffer for the last %RAMCloud error that occurred.
- *
- * See rc_last_error() and rc_handle_errors().
- *
- * \TODO The error message should go in the client struct.
- */
-static char rc_error_message[ERROR_MSG_LEN];
-
-/**
- * Return the error message for the last %RAMCloud error that occurred.
- *
- * \return error message \n
- *      The returned pointer is owned by the callee. Do not free it. \n
- *      This value is undefined if no %RAMCloud error has occurred.
- * \warning This function is not reentrant.
- */
-const char*
-rc_last_error(void)
+uint64_t
+Client::create(uint32_t tableId, const void* buf, uint32_t length,
+        uint64_t* version)
 {
-    return &rc_error_message[0];
-}
+    Buffer req, resp;
+    CreateRequest* reqHdr;
+    const CreateResponse* respHdr;
 
-/**
- * Print a %RAMCloud error from an RPC response.
- *
- * See rc_last_error() to retrieve the extracted error message.
- *
- * \param[in]  respBuf the RPC response, which must be of type
- *                     RCRPC_ERROR_RESPONSE.
- */
-static void
-rc_handle_errors(Buffer *respBuf)
-{
-    uint32_t messageLength = respBuf->getTotalLength();
-    char *message = static_cast<char*>(respBuf->getRange(0, messageLength));
-    fprintf(stderr, "... '%s'\n", message);
-    strncpy(&rc_error_message[0], message, messageLength);
-}
+    reqHdr = new(&req, APPEND) CreateRequest;
+    reqHdr->common.type = CREATE;
+    reqHdr->common.perfCounter = perfCounter;
+    reqHdr->tableId = tableId;
+    reqHdr->length = length;
+    Buffer::Chunk::appendToBuffer(&req, buf, length);
+    transport->clientSend(service, &req, &resp)->getReply();
 
-static int
-sendrcv_rpc(rc_client *client,
-            Buffer *req, enum RCRPC_TYPE req_type, size_t min_req_size,
-            Buffer *resp, enum RCRPC_TYPE resp_type, size_t min_resp_size)
-__attribute__ ((warn_unused_result));
-
-/**
- * Send an RPC request and receive the response.
- *
- * This function should not be called directly. Rather, ::SENDRCV_RPC should be
- * used.
- *
- * \param[in] client        The client connected to the destination of this RPC.
- * \param[in] req           See #SENDRCV_RPC.
- * \param[in] req_type      the RPC type expected in the header of the request
- * \param[in] min_req_size  the smallest acceptable size of the request
- * \param[out] resp         See #SENDRCV_RPC.
- * \param[in] resp_type     the RPC type expected in the header of the response
- * \param[in] min_resp_size the smallest acceptable size of the response
- * \return error code (see below)
- * \retval  0 success
- * \retval -1 on %RAMCloud error (see rc_last_error())
- */
-static int
-sendrcv_rpc(rc_client *client,
-            Buffer *req, enum RCRPC_TYPE req_type, size_t min_req_size,
-            Buffer *resp, enum RCRPC_TYPE resp_type, size_t min_resp_size)
-{
-    struct rcrpc_header *reqHeader;
-    struct rcrpc_header *respHeader;
-
-    reqHeader = new(req, PREPEND) rcrpc_header;
-    reqHeader->type = (uint32_t) req_type;
-    assert(req->getTotalLength() >= (uint32_t) min_req_size);
-    reqHeader->perf_counter.value = client->perf_counter_select.value;
-
-    client->trans->clientSend(client->serv, req, resp)->getReply();
-
-    respHeader = static_cast<rcrpc_header*>(
-        resp->getRange(0, sizeof(*respHeader)));
-    if (respHeader == NULL)
-        return -1;
-    resp->truncateFront(sizeof(*respHeader));
-
-    client->perf_counter = respHeader->perf_counter.value;
-
-    if (respHeader->type == RCRPC_ERROR_RESPONSE) {
-        rc_handle_errors(resp);
-        return -1;
+    respHdr = static_cast<const CreateResponse*>(
+             resp.getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL) {
+        throwShortResponseError(&resp);
     }
-
-    if (respHeader->type != static_cast<uint32_t>(resp_type))
-        return -1;
-
-    if (resp->getTotalLength() < min_resp_size)
-        return -1;
-
-    return 0;
+    counterValue = respHdr->common.counterValue;
+    if (version != NULL) {
+        *version = respHdr->version;
+    }
+    status = respHdr->common.status;
+    if (status != STATUS_OK) {
+        ClientException::throwException(status);
+    }
+    return respHdr->id;
 }
 
 /**
- * Send an RPC request and receive the response.
+ * Create a new table.
  *
- * This is a wrapper around sendrcv_rpc() for convenience.
+ * \param name
+ *      Name for the new table (NULL-terminated string).
  *
- * The caller is required to have a rc_client struct in its scope under the
- * identifier \c client.
- *
- * \param[in] rcrpc_upper   the name of the RPC in uppercase as a literal
- * \param[in] rcrpc_lower   the name of the RPC in lowercase as a literal
- * \param[in] query  The request Buffer to send out, which should not have an
- *                   rcrpc_header yet.
- * \param[out] resp An empty Buffer to fill in with the response. The response
- *                  is guaranteed to be of the correct RPC type iff this call
- *                  returns 0. There will be an rcrpc_header on the front of
- *                  this for now.
- * \return error code as an \c int (see below)
- * \retval  0 success
- * \retval -1 on %RAMCloud error (see rc_last_error())
+ * \exception NoTableSpaceException
+ * \exception InternalError
  */
-#define SENDRCV_RPC(rcrpc_upper, rcrpc_lower, query, resp)                     \
-    ({                                                                         \
-        sendrcv_rpc(                                                           \
-                client,                                                        \
-                query,                                                         \
-                RCRPC_##rcrpc_upper##_REQUEST,                                 \
-                sizeof0(rcrpc_##rcrpc_lower##_request),                        \
-                resp,                                                          \
-                RCRPC_##rcrpc_upper##_RESPONSE,                                \
-                sizeof0(rcrpc_##rcrpc_lower##_response));                      \
-    })
+void
+Client::createTable(const char* name)
+{
+    Buffer req, resp;
+    uint32_t length = strlen(name) + 1;
+    CreateTableRequest* reqHdr;
+    const CreateTableResponse* respHdr;
+
+    reqHdr = new(&req, APPEND) CreateTableRequest;
+    reqHdr->common.type = CREATE_TABLE;
+    reqHdr->common.perfCounter = perfCounter;
+    reqHdr->nameLength = length;
+    memcpy(new(&req, APPEND) char[length], name, length);
+    transport->clientSend(service, &req, &resp)->getReply();
+
+    respHdr = static_cast<const CreateTableResponse*>(
+             resp.getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL) {
+        throwShortResponseError(&resp);
+    }
+    counterValue = respHdr->common.counterValue;
+    status = respHdr->common.status;
+    if (status != STATUS_OK) {
+        ClientException::throwException(status);
+    }
+}
 
 /**
- * Determine which reject rule caused an operation to fail.
+ * Delete a table.
  *
- * \see rcrpc_reject_rules
+ * All objects in the table are implicitly deleted, along with any
+ * other information associated with the table (such as, someday,
+ * indexes).  If the table does not currently exist than the operation
+ * returns successfully without actually doing anything.
  *
- * \param[in] reject_rules   the reasons for the operation to abort
- * \param[in] got_version    the version of the object, or #RCRPC_VERSION_NONE
- *      if it does not exist
- * \return error code as an \c int (see below)
- * \retval 0 No reject rule was violated.
- * \retval 1 The object doesn't exist and
- *      rcrpc_reject_rules.object_doesnt_exist is set.
- * \retval 2 The object exists and rcrpc_reject_rules.object_exists is set.
- * \retval 3 The object exists, rcrpc_reject_rules.version_eq_given is set,
- *      and \a got_version is equal to rcrpc_reject_rules.given_version.
- * \retval 4 The object exists, rcrpc_reject_rules.version_gt_given is set,
- *      and \a got_version is greater than rcrpc_reject_rules.given_version.
- * \retval 5 The object exists, rcrpc_reject_rules.version_eq_given or
- *      rcrpc_reject_rules.version_gt_given is set, and \a got_version is less
- *      than rcrpc_reject_rules.given_version. This should be considered a
- *      critical application consistency error since applications should never
- *      fabricate version numbers.
- * \TODO Try to get rid of the magic values 1-5.
+ * \param name
+ *      Name of the table to delete (NULL-terminated string).
+ *  
+ * \exception InternalError
  */
-static int
-reject_reason(const struct rcrpc_reject_rules *reject_rules,
-              uint64_t got_version)
+void
+Client::dropTable(const char* name)
 {
-    if (got_version == RCRPC_VERSION_NONE) {
-        if (reject_rules->object_doesnt_exist) {
-            return 1;
+    Buffer req, resp;
+    uint32_t length = strlen(name) + 1;
+    DropTableRequest* reqHdr;
+    const DropTableResponse* respHdr;
+
+    reqHdr = new(&req, APPEND) DropTableRequest;
+    reqHdr->common.type = DROP_TABLE;
+    reqHdr->common.perfCounter = perfCounter;
+    reqHdr->nameLength = length;
+    memcpy(new(&req, APPEND) char[length], name, length);
+    transport->clientSend(service, &req, &resp)->getReply();
+
+    respHdr = static_cast<const DropTableResponse*>(
+             resp.getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL) {
+        throwShortResponseError(&resp);
+    }
+    counterValue = respHdr->common.counterValue;
+    status = respHdr->common.status;
+    if (status != STATUS_OK) {
+        ClientException::throwException(status);
+    }
+}
+
+/**
+ * Look up a table by name and return a small integer handle that
+ * can be used to access the table.
+ *
+ * \param name
+ *      Name of the desired table (NULL-terminated string).
+ *      
+ * \return
+ *      The return value is an identifier for the table; this is used
+ *      instead of the table's name for most RAMCloud operations
+ *      involving the table.
+ *
+ * \exception TableDoesntExistException
+ * \exception InternalError
+ */
+uint32_t
+Client::openTable(const char* name)
+{
+    Buffer req, resp;
+    uint32_t length = strlen(name) + 1;
+    OpenTableRequest* reqHdr;
+    const OpenTableResponse* respHdr;
+
+    reqHdr = new(&req, APPEND) OpenTableRequest;
+    reqHdr->common.type = OPEN_TABLE;
+    reqHdr->common.perfCounter = perfCounter;
+    reqHdr->nameLength = length;
+    memcpy(new(&req, APPEND) char[length], name, length);
+    transport->clientSend(service, &req, &resp)->getReply();
+
+    respHdr = static_cast<const OpenTableResponse*>(
+             resp.getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL) {
+        throwShortResponseError(&resp);
+    }
+    counterValue = respHdr->common.counterValue;
+    status = respHdr->common.status;
+    if (status != STATUS_OK) {
+        ClientException::throwException(status);
+    }
+    return respHdr->tableId;
+}
+
+/**
+ * Test that a server exists and is responsive.
+ *
+ * This operation issues a no-op RPC request, which causes
+ * communication with the given server but doesn't actually do
+ * anything on the server.
+ *
+ * \exception InternalError
+ */
+void
+Client::ping()
+{
+    Buffer req, resp;
+    PingRequest* reqHdr;
+    const PingResponse* respHdr;
+
+    reqHdr = new(&req, APPEND) PingRequest;
+    reqHdr->common.type = PING;
+    reqHdr->common.perfCounter = perfCounter;
+    transport->clientSend(service, &req, &resp)->getReply();
+
+    respHdr = static_cast<const PingResponse*>(
+             resp.getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL) {
+        throwShortResponseError(&resp);
+    }
+    counterValue = respHdr->common.counterValue;
+    status = respHdr->common.status;
+    if (status != STATUS_OK) {
+        ClientException::throwException(status);
+    }
+}
+
+/**
+ * Read the current contents of an object.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to openTable).
+ * \param id
+ *      Identifier within tableId of the object to be read.
+ * \param[out] value
+ *      After a successful return, this Buffer will hold the
+ *      contents of the desired object.
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the read
+ *      should be aborted with an error.
+ * \param[out] version
+ *      If non-NULL, the version number of the object is returned
+ *      here.
+ *
+ * \exception RejectRulesException
+ * \exception InternalError
+ */
+void
+Client::read(uint32_t tableId, uint64_t id, Buffer* value,
+        const RejectRules* rejectRules, uint64_t* version)
+{
+    Buffer req;
+    ReadRequest* reqHdr;
+    const ReadResponse* respHdr;
+    uint32_t length;
+
+    reqHdr = new(&req, APPEND) ReadRequest;
+    reqHdr->common.type = READ;
+    reqHdr->common.perfCounter = perfCounter;
+    reqHdr->id = id;
+    reqHdr->tableId = tableId;
+    reqHdr->pad1 = 0;                            // Needed only for tesing.
+    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    transport->clientSend(service, &req, value)->getReply();
+
+    respHdr = static_cast<const ReadResponse*>(
+             value->getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL) {
+        throwShortResponseError(value);
+    }
+    counterValue = respHdr->common.counterValue;
+    status = respHdr->common.status;
+    if (version != NULL) {
+        *version = respHdr->version;
+    }
+    length = respHdr->length;
+
+    // Truncate the response Buffer so that it consists of nothing
+    // but the object data.
+    value->truncateFront(sizeof(*respHdr));
+    uint32_t extra = value->getTotalLength() - length;
+    if (extra > 0) {
+        value->truncateEnd(extra);
+    }
+    if (status != STATUS_OK) {
+        ClientException::throwException(status);
+    }
+}
+
+/**
+ * Delete an object from a table. If the object does not currently exist
+ * and no rejectRules match, then the operation succeeds without doing
+ * anything.
+ *
+ * \param tableId
+ *      The table containing the object to be deleted (return value from
+ *      a previous call to openTable).
+ * \param id
+ *      Identifier within tableId of the object to be deleted.
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the delete
+ *      should be aborted with an error.  If NULL, the object is
+ *      deleted unconditionally.
+ * \param[out] version
+ *      If non-NULL, the version number of the object (prior to
+ *      deletion) is returned here.  If the object didn't exist
+ *      then 0 will be returned.
+ *
+ * \exception RejectRulesException
+ * \exception InternalError
+ */
+void
+Client::remove(uint32_t tableId, uint64_t id,
+        const RejectRules* rejectRules, uint64_t* version)
+{
+    Buffer req, resp;
+    RemoveRequest* reqHdr;
+    const RemoveResponse* respHdr;
+
+    reqHdr = new(&req, APPEND) RemoveRequest;
+    reqHdr->common.type = REMOVE;
+    reqHdr->common.perfCounter = perfCounter;
+    reqHdr->id = id;
+    reqHdr->tableId = tableId;
+    reqHdr->pad1 = 0;                            // Needed only for testing.
+    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    transport->clientSend(service, &req, &resp)->getReply();
+
+    respHdr = static_cast<const RemoveResponse*>(
+             resp.getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL) {
+        throwShortResponseError(&resp);
+    }
+    counterValue = respHdr->common.counterValue;
+    if (version != NULL) {
+        *version = respHdr->version;
+    }
+    status = respHdr->common.status;
+    if (status != STATUS_OK) {
+        ClientException::throwException(status);
+    }
+}
+
+/**
+ * Arrange for a performance metric to be collected by the server
+ * during each future RPC. The value of the metric can be read from
+ * the "counterValue" variable after each RPC.
+ *
+ * \param type
+ *      Specifies what to measure (elapsed time, cache misses, etc.)
+ * \param begin
+ *      Indicates a point during the RPC when measurement should start.
+ * \param end
+ *      Indicates a point during the RPC when measurement should stop.
+ */
+
+void
+Client::selectPerfCounter(PerfCounterType type, Mark begin, Mark end)
+{
+    perfCounter.beginMark = begin;
+    perfCounter.endMark = end;
+    perfCounter.counterType = type;
+}
+
+/**
+ * Write a specific object in a table; overwrite any existing
+ * object, or create a new object if none existed.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from a
+ *      previous call to openTable).
+ * \param id
+ *      Identifier within tableId of the object to be written; may or
+ *      may not refer to an existing object.
+ * \param buf
+ *      Address of the first byte of the new contents for the object;
+ *      must contain at least length bytes.
+ * \param length
+ *      Size in bytes of the new contents for the object.
+ * \param rejectRules
+ *      If non-NULL, specifies conditions under which the write
+ *      should be aborted with an error. NULL means the object should
+ *      be written unconditionally.
+ * \param[out] version
+ *      If non-NULL, the version number of the object is returned
+ *      here. If the operation was successful this will be the new
+ *      version for the object; if this object has ever existed
+ *      previously the new version is guaranteed to be greater than
+ *      any previous version of the object. If the operation failed
+ *      then the version number returned is the current version of
+ *      the object, or 0 if the object does not exist.
+ *
+ * \exception RejectRulesException
+ * \exception InternalError
+ */
+void
+Client::write(uint32_t tableId, uint64_t id, const void* buf, uint32_t length,
+        const RejectRules* rejectRules, uint64_t* version)
+{
+    Buffer req, resp;
+    WriteRequest* reqHdr;
+    const WriteResponse* respHdr;
+
+    reqHdr = new(&req, APPEND) WriteRequest;
+    reqHdr->common.type = WRITE;
+    reqHdr->common.perfCounter = perfCounter;
+    reqHdr->id = id;
+    reqHdr->tableId = tableId;
+    reqHdr->length = length;
+    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    Buffer::Chunk::appendToBuffer(&req, buf, length);
+    transport->clientSend(service, &req, &resp)->getReply();
+
+    respHdr = static_cast<const WriteResponse *>(
+             resp.getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL) {
+        throwShortResponseError(&resp);
+    }
+    counterValue = respHdr->common.counterValue;
+    if (version != NULL) {
+        *version = respHdr->version;
+    }
+    status = respHdr->common.status;
+    if (status != STATUS_OK) {
+        ClientException::throwException(status);
+    }
+}
+
+/**
+ * Generate an appropriate exception when an RPC response arrives that
+ * is too short to hold the full response header expected for this RPC.
+ * If this method is invoked it means the server found a problem before
+ * dispatching to a type-specific handler (e.g. the server didn't understand
+ * the RPC's type, or basic authentication failed).
+ *
+ * \param response
+ *      Contains the full response message from the server.
+ *
+ * \exception ClientException
+ *      This method always throws an exception; it never returns.
+ *      The exact type of the exception will depend on the status
+ *      value present in the packet (if any).
+ */
+void
+Client::throwShortResponseError(Buffer* response)
+{
+    const RpcResponseCommon* common =
+            static_cast<const RpcResponseCommon*>(
+            response->getRange(0, sizeof(RpcResponseCommon)));
+    if (common != NULL) {
+        counterValue = common->counterValue;
+        if (common->status == STATUS_OK) {
+            // This makes no sense: the server claims to have handled
+            // the RPC correctly, but it didn't return the right size
+            // response for this RPC; report an error.
+            status = STATUS_RESPONSE_FORMAT_ERROR;
+        } else {
+            status = common->status;
         }
     } else {
-        if (reject_rules->object_exists) {
-            return 2;
-        }
-        if (reject_rules->version_eq_given &&
-            got_version == reject_rules->given_version) {
-            return 3;
-        }
-        if (reject_rules->version_gt_given &&
-            got_version > reject_rules->given_version) {
-            return 4;
-        }
-        if ((reject_rules->version_eq_given ||
-             reject_rules->version_gt_given) &&
-            got_version < reject_rules->given_version) {
-            return 5;
-        }
+        // The packet wasn't even long enough to hold a standard
+        // header.
+        status = STATUS_RESPONSE_FORMAT_ERROR;
     }
-    return 0;
+    ClientException::throwException(status);
 }
 
-/**
- * Verify connectivity with a %RAMCloud.
- *
- * \param[in]  client   a connected client
- * \return error code (see values below)
- * \retval  0 on success
- * \retval -1 on %RAMCloud error (see rc_last_error())
- * \retval other reserved for future use
- * \see #ping_RPC_doc_hook(), the underlying RPC which this wraps
- */
-int
-rc_ping(struct rc_client *client)
-{
-    lock(client);
-
-    Buffer reqBuf;
-    Buffer respBuf;
-
-    int r = SENDRCV_RPC(PING, ping, &reqBuf, &respBuf);
-
-    unlock(client);
-    return r;
-}
-
-/**
- * Write (create or overwrite) an object in a %RAMCloud.
- *
- * This function can be used to create an object at a specified object ID. To
- * create an object with a server-assigned object ID, see rc_insert().
- *
- * If the object is created, the new version of the object is guaranteed to be
- * greater than that of any previous object that resided at the same \a table
- * and \a key. If the object overwrites an existing object at that \a key, the
- * new version number is guaranteed to be exactly 1 higher than the old version
- * number.
- *
- * \param[in]  client   a connected client
- * \param[in]  table    the table containing the object to be written
- * \param[in]  key      the object ID of the object to be written
- * \param[in]  reject_rules see reject_reason()
- * \param[out] got_version
- *      the version of the object after the write took effect \n
- *      If the write did not occur, this is set to the object's current
- *      version. \n
- *      If the caller is not interested, got_version may be \c NULL.
- * \param[in]  buf      the object's data
- * \param[in]  len      the size of the object's data in bytes
- * \return error code (see values below)
- * \retval  0 on success
- * \retval -1 on %RAMCloud error (see rc_last_error())
- * \retval  positive on reject by \a reject_rules, see reject_reason()
- * \see #write_RPC_doc_hook(), the underlying RPC which this wraps
- */
-int
-rc_write(struct rc_client *client,
-         uint64_t table,
-         uint64_t key,
-         const struct rcrpc_reject_rules *reject_rules,
-         uint64_t *got_version,
-         const char *buf,
-         uint64_t len)
-{
-    lock(client);
-
-    Buffer reqBuf;
-    Buffer respBuf;
-    struct rcrpc_write_request *query;
-    struct rcrpc_write_response *resp;
-
-    query = new(&reqBuf, APPEND) rcrpc_write_request;
-    query->table = table;
-    query->key = key;
-    memcpy(&query->reject_rules, reject_rules, sizeof(*reject_rules));
-    query->buf_len = len;
-    assert(len < (1UL << 32));
-
-    // This is safe since buf will outlive reqBuf.
-    Buffer::Chunk::appendToBuffer(&reqBuf, const_cast<char*>(buf),
-                                  static_cast<uint32_t>(len));
-
-    int r = SENDRCV_RPC(WRITE, write, &reqBuf, &respBuf);
-    if (r) {
-        goto out;
-    }
-
-    resp = static_cast<rcrpc_write_response*>(
-        respBuf.getRange(0, sizeof(*resp)));
-
-    if (got_version != NULL)
-        *got_version = resp->version;
-
-    if (!resp->written) {
-        r = reject_reason(reject_rules, resp->version);
-        assert(r > 0);
-        goto out;
-    }
-
-  out:
-    unlock(client);
-    return r;
-}
-
-/**
- * Create an object in a %RAMCloud with a server-assigned object ID.
- *
- * The new object is assigned an object ID based on the table's object ID
- * allocation strategy, which is yet to be officially defined.
- *
- * If the object is written, the new version of the object is guaranteed to be
- * greater than that of any previous object that resided at the same \a table
- * and \a key.
- *
- * \param[in]  client   a connected client
- * \param[in]  table    the table containing the object to be inserted
- * \param[in]  buf      the object's data
- * \param[in]  len      the size of the object's data in bytes
- * \param[out] key      the object ID of the object that was inserted
- * \return error code (see values below)
- * \retval  0 on success
- * \retval -1 on %RAMCloud error (see rc_last_error())
- * \retval other reserved for future use
- * \bug Currently, the server may assign an object ID that is already in use
- *      and overwrite an existing object. To work around this, do not use
- *      rc_insert() on tables that also have objects with small
- *      application-assigned object IDs (see rc_write()).
- * \see #insert_RPC_doc_hook(), the underlying RPC which this wraps
- */
-int
-rc_insert(struct rc_client *client,
-          uint64_t table,
-          const char *buf,
-          uint64_t len,
-          uint64_t *key)
-{
-    lock(client);
-
-    Buffer reqBuf;
-    Buffer respBuf;
-    struct rcrpc_insert_request *query;
-    struct rcrpc_insert_response *resp;
-
-    query = new(&reqBuf, APPEND) rcrpc_insert_request;
-
-    query->table = table;
-    query->buf_len = len;
-    assert(len < (1UL << 32));
-
-    // This is safe since buf will outlive reqBuf.
-    Buffer::Chunk::appendToBuffer(&reqBuf, const_cast<char*>(buf),
-                                  static_cast<uint32_t>(len));
-
-    int r = SENDRCV_RPC(INSERT, insert, &reqBuf, &respBuf);
-    if (r) {
-        goto out;
-    }
-
-    resp = static_cast<rcrpc_insert_response*>(
-        respBuf.getRange(0, sizeof(*resp)));
-
-    *key = resp->key;
-
-  out:
-    unlock(client);
-    return r;
-}
-
-/**
- * Delete an object from a %RAMCloud.
- *
- * \param[in]  client   a connected client
- * \param[in]  table    the table containing the object to be deleted
- * \param[in]  key      the object ID of the object to be deleted
- * \param[in]  reject_rules see reject_reason()
- * \param[out] got_version
- *      the version of the object, if it exists \n
- *      If the delete did not occur, this is set to the object's current
- *      version. \n
- *      If the object no longer exists, \a got_version is undefined.
- * \return error code (see values below)
- * \retval  0 on success
- * \retval -1 on %RAMCloud error (see rc_last_error())
- * \retval  positive on reject by \a reject_rules, see reject_reason()
- * \see #delete_RPC_doc_hook(), the underlying RPC which this wraps
- */
-int
-rc_delete(struct rc_client *client,
-          uint64_t table,
-          uint64_t key,
-          const struct rcrpc_reject_rules *reject_rules,
-          uint64_t *got_version)
-{
-    lock(client);
-
-    Buffer reqBuf;
-    Buffer respBuf;
-    struct rcrpc_delete_request *query;
-    struct rcrpc_delete_response *resp;
-
-    query = new(&reqBuf, APPEND) rcrpc_delete_request;
-    query->table = table;
-    query->key = key;
-    memcpy(&query->reject_rules, reject_rules, sizeof(*reject_rules));
-
-    int r = SENDRCV_RPC(DELETE, delete, &reqBuf, &respBuf);
-    if (r) {
-        goto out;
-    }
-
-    resp = static_cast<rcrpc_delete_response*>(
-        respBuf.getRange(0, sizeof(*resp)));
-
-    if (got_version != NULL)
-        *got_version = resp->version;
-
-    if (!resp->deleted) {
-        r = reject_reason(reject_rules, resp->version);
-        assert(r > 0);
-        goto out;
-    }
-
-  out:
-    unlock(client);
-    return r;
-}
-
-/**
- * Read an object from a %RAMCloud.
- *
- * \param[in]  client   a connected client
- * \param[in]  table    the table containing the object to be read
- * \param[in]  key      the object ID of the object to be read
- * \param[in]  reject_rules see reject_reason() \n
- *      rcrpc_reject_rules.object_doesnt_exist must be set.
- * \param[out] got_version
- *      the current version of the object \n
- *      If the caller is not interested, \a got_version may be \c NULL. \n
- *      If the object does not exist, \a got_version is undefined.
- * \param[out] buf      the object's data
- * \param[out] len      the size of the object's data in bytes
- * \return error code (see values below)
- * \retval  0 on success
- * \retval -1 on %RAMCloud error (see rc_last_error())
- * \retval  positive on reject by \a reject_rules, see reject_reason()
- * \see #read_RPC_doc_hook(), the underlying RPC which this wraps
- */
-int
-rc_read(struct rc_client *client,
-        uint64_t table,
-        uint64_t key,
-        const struct rcrpc_reject_rules *reject_rules,
-        uint64_t *got_version,
-        char *buf,
-        uint64_t *len)
-{
-    lock(client);
-
-    Buffer reqBuf;
-    Buffer respBuf;
-    struct rcrpc_read_request *query;
-    struct rcrpc_read_response *resp;
-
-    query = new(&reqBuf, APPEND) rcrpc_read_request;
-    query->table = table;
-    query->key = key;
-    memcpy(&query->reject_rules, reject_rules, sizeof(*reject_rules));
-    query->reject_rules.object_doesnt_exist = true;
-
-    int r = SENDRCV_RPC(READ, read, &reqBuf, &respBuf);
-    if (r)
-        goto out;
-
-    resp = static_cast<rcrpc_read_response*>(
-        respBuf.getRange(0, sizeof(*resp)));
-
-    if (got_version != NULL)
-        *got_version = resp->version;
-
-    *len = resp->buf_len;
-    assert(resp->buf_len < (1UL << 32));
-    // TODO(ongaro): Let's hope buf can fit buf_len bytes.
-    respBuf.copy(sizeof(*resp), static_cast<uint32_t>(resp->buf_len), buf);
-
-    r = reject_reason(&query->reject_rules, resp->version);
-
-  out:
-    unlock(client);
-    return r;
-}
-
-/**
- * Create a table in a %RAMCloud.
- *
- * \param[in]  client   a connected client
- * \param[in]  name     a string of no more than 64 characters identifying the
- *      table
- * \return error code (see values below)
- * \retval  0 on success
- * \retval -1 on %RAMCloud error (currently including table exists and system
- *      is out of space for tables; see rc_last_error())
- * \retval other reserved for future use
- * \bug I don't think the new table is guaranteed to contain no objects yet.
- * \TODO Table exists should not be a %RAMCloud error.
- * \see #create_table_RPC_doc_hook(), the underlying RPC which this wraps
- */
-int
-rc_create_table(struct rc_client *client, const char *name)
-{
-    lock(client);
-
-    Buffer reqBuf;
-    Buffer respBuf;
-    struct rcrpc_create_table_request *query;
-
-    query = new(&reqBuf, APPEND) rcrpc_create_table_request;
-    strncpy(query->name, name, sizeof(query->name));
-    query->name[sizeof(query->name) - 1] = '\0';
-
-    int r = SENDRCV_RPC(CREATE_TABLE, create_table, &reqBuf, &respBuf);
-
-    unlock(client);
-    return r;
-}
-
-/**
- * Open a table in a %RAMCloud.
- *
- * \param[in]  client   a connected client
- * \param[in]  name     a string of no more than 64 characters identifying the
- *      table
- * \param[out] table_id a handle for the open table
- * \return error code (see values below)
- * \retval  0 on success
- * \retval -1 on %RAMCloud error (currently including table does not exist; see
- *      rc_last_error())
- * \retval other reserved for future use
- * \TODO Table does not exist should not be a %RAMCloud error.
- * \see #open_table_RPC_doc_hook(), the underlying RPC which this wraps
- */
-int
-rc_open_table(struct rc_client *client, const char *name, uint64_t *table_id)
-{
-    lock(client);
-
-    Buffer reqBuf;
-    Buffer respBuf;
-    struct rcrpc_open_table_request *query;
-    struct rcrpc_open_table_response *resp;
-
-    query = new(&reqBuf, APPEND) rcrpc_open_table_request;
-    strncpy(query->name, name, sizeof(query->name));
-    query->name[sizeof(query->name) - 1] = '\0';
-
-    int r = SENDRCV_RPC(OPEN_TABLE, open_table, &reqBuf, &respBuf);
-    if (r)
-        goto out;
-
-    resp = static_cast<rcrpc_open_table_response*>(
-        respBuf.getRange(0, sizeof(*resp)));
-
-    *table_id = resp->handle;
-
-  out:
-    unlock(client);
-    return r;
-}
-
-/**
- * Delete a table in a %RAMCloud.
- *
- * \param[in]  client   a connected client
- * \param[in]  name     a string of no more than 64 characters identifying the
- *      table
- * \return error code (see values below)
- * \retval  0 on success
- * \retval -1 on %RAMCloud error (currently including table does not exist; see
- *      rc_last_error())
- * \retval other reserved for future use
- * \TODO Table does not exist should not be a %RAMCloud error.
- * \see #drop_table_RPC_doc_hook(), the underlying RPC which this wraps
- */
-int
-rc_drop_table(struct rc_client *client, const char *name)
-{
-    lock(client);
-
-    Buffer reqBuf;
-    Buffer respBuf;
-    struct rcrpc_drop_table_request *query;
-
-    query = new(&reqBuf, APPEND) rcrpc_drop_table_request;
-    strncpy(query->name, name, sizeof(query->name));
-    query->name[sizeof(query->name) - 1] = '\0';
-
-    int r = SENDRCV_RPC(DROP_TABLE, drop_table, &reqBuf, &respBuf);
-
-    unlock(client);
-    return r;
-}
-
-/**
- * Arrange for a particular performance metric to be gathered during each
- * subsequent RPC.
- *
- * After each client call the selected performance count can be
- * obtained using rc_read_perf_counter().  Measurements can be taken
- * of a cycle counter, CPU performance counter, or a simple mark event
- * counter.
- *
- * Since this function effectively sets up the meaning of the return value
- * of rc_read_perf_counter() one should look there for more details.
- *
- * \param[in] client
- *     A connected client.
- * \param[in] counterType
- *     Select timestamp (cycle) counter, CPU performance counter, or
- *     mark event count.
- * \param[in] beginMark
- *     Measure cycles or performance events starting at this point in
- *     the server code.  Count ::RAMCloud::Mark events matching this
- *     ::RAMCloud::Mark if increment counter type is selected.
- * \param[in] endMark
- *     Measure cycles or performance events until this point in the
- *     server code.  Unused if increment type counter is selected.
- */
-void rc_select_perf_counter(struct rc_client *client,
-                            enum RAMCloud::PerfCounterType counterType,
-                            enum RAMCloud::Mark beginMark,
-                            enum RAMCloud::Mark endMark)
-{
-    client->perf_counter_select.beginMark = beginMark;
-    client->perf_counter_select.endMark = endMark;
-    client->perf_counter_select.counterType = counterType;
-}
-
-/**
- * Get the selected measurement for the last RPC call to the Server.
- *
- * See rc_select_perf_counter() to set up performance counters.  It
- * is used to determine the meaning of the performance counter returned
- * by this function.
- *
- * \param[in] client
- *     A connected client.
- * \return
- *      The delta in the counter for cycle or performance counters.
- *      Otherwise, if increment type counters are active, return the
- *      number of times the selected ::RAMCloud::Mark event occurred.
- *      If multiple beginMark or endMark are encountered on a particular
- *      trace the measurement is from the first instance of beginMark to
- *      the last instance of endMark.  If a beginMark followed (not
- *      necessarily immediately) by an endMark never occurs 0 is returned.
- *      Note a return of 0 is also possible if marks were encountered but
- *      the performance counter saw no change between those marks.
- *      For increment type counters beginMark selects which
- *      ::RAMCloud::Mark events will be counted.  endMark is ignored in
- *      this case.
- */
-uint64_t rc_read_perf_counter(struct rc_client *client)
-{
-    return client->perf_counter;
-}
-
-/**
- * Allocate a new client.
- *
- * The caller should later use rc_free() to free the client struct.
- *
- * It is also legal for the caller to allocate memory for an rc_client struct
- * directly. This function is mostly a convenience for higher-level language
- * bindings.
- *
- * \return a newly allocated client, or \c NULL if the system is out of memory
- */
-struct rc_client *
-rc_new(void) {
-    return reinterpret_cast<struct rc_client*>(xmalloc(sizeof(struct rc_client)));
-}
-
-/**
- * Free a client.
- *
- * This function should only be called on rc_client structs allocated with
- * rc_new().
- *
- * \param[in] client    a client previously allocated with rc_new()
- */
-void
-rc_free(struct rc_client *client)
-{
-    free(client);
-}
+}  // namespace RAMCloud

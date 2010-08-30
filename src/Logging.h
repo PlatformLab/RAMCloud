@@ -60,6 +60,10 @@ class Logger {
                     const char* file, uint32_t line,
                     const char* format, ...)
         __attribute__((format(printf, 6, 7)));
+    std::string getMessage(LogModule module, LogLevel level,
+                           const char* file, uint32_t line,
+                           const char* format, ...)
+        __attribute__((format(printf, 6, 7)));
 
     /**
      * Return whether the current logging configuration includes messages of
@@ -112,6 +116,24 @@ extern Logger logger;
         RAMCloud::logger.logMessage(CURRENT_LOG_MODULE, level, \
                                     __FILE__, __LINE__, \
                                     format "\n", ##__VA_ARGS__); \
+} while (0)
+
+/**
+ * Log an ERROR message and throw a #RAMCloud::FatalError.
+ * The #CURRENT_LOG_MODULE macro should be set to the LogModule to which the
+ * message pertains.
+ * \param[in] format
+ *      See #LOG().
+ * \param[in] ...
+ *      See #LOG().
+ * \throw FatalError
+ *      Always thrown.
+ */
+#define DIE(format, ...) do { \
+    LOG(ERROR, format, ##__VA_ARGS__); \
+    throw FatalError(logger.getMessage(CURRENT_LOG_MODULE, ERROR, \
+                                       __FILE__, __LINE__, \
+                                       format, ##__VA_ARGS__)); \
 } while (0)
 
 #endif  // RAMCLOUD_LOGGING_H

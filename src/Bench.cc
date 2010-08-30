@@ -18,7 +18,6 @@
 #include <stdlib.h>
 
 #include <Client.h>
-#include <rcrpc.h>
 
 #include <assert.h>
 #include <getopt.h>
@@ -34,68 +33,39 @@ uint64_t size;
 char address[50];
 int port;
 int cpu = -1;
-double cyclesPerNs;
 
-struct rc_client client;
-struct rcrpc_reject_rules read_any;
-struct rcrpc_reject_rules write_any;
-uint64_t table;
-
-uint64_t
-cyclesPerSec()
-{
-    static uint64_t cyclesPerSec = 0;
-    if (cyclesPerSec)
-        return cyclesPerSec;
-    uint64_t start = rdtsc();
-    usleep(500 * 1000);
-    uint64_t end = rdtsc();
-    cyclesPerSec = (end - start) * 2;
-    return cyclesPerSec;
-}
+RC::Client *client;
+uint32_t table;
 
 void
 cleanup()
 {
-    assert(!rc_drop_table(&client, "test"));
-    rc_disconnect(&client);
+    client->dropTable("test");
+    delete client;
+    client = NULL;
 }
 
 void
 setup()
 {
     if (cpu != -1) {
-        cpu_set_t cpus;
-        CPU_ZERO(&cpus);
-        CPU_SET(cpu, &cpus);
-
-        int r = sched_setaffinity(0, sizeof(cpus), &cpus);
-        if (r < 0) {
-            fprintf(stderr, "Bench: Couldn't pin to core %d: %s\n",
-                    cpu, strerror(errno));
-            exit(EXIT_FAILURE);
-        }
-        printf("Bench: Pinned to core %d\n", cpu);
+        if (!pinToCpu(cpu))
+            DIE("bench: Couldn't pin to core %d", cpu);
+        LOG(DEBUG, "bench: Pinned to core %d", cpu);
     }
 
-    memset(&read_any, 0, sizeof(read_any));
-    read_any.object_doesnt_exist = true;
-
-    memset(&write_any, 0, sizeof(write_any));
-
-    rc_connect(&client, address, port);
+    client = new RC::Client(address, port);
 
     assert(!atexit(cleanup));
 
     RC::PerfCounterType type;
     type = pmcInsteadOfTSC ? RC::PERF_COUNTER_PMC : RC::PERF_COUNTER_TSC;
-    rc_select_perf_counter(&client, type,
-                           RC::MARK_RPC_PROCESSING_BEGIN,
-                           RC::MARK_RPC_PROCESSING_END);
+    client->selectPerfCounter(type,
+                              RC::MARK_RPC_PROCESSING_BEGIN,
+                              RC::MARK_RPC_PROCESSING_END);
 
-    if (rc_create_table(&client, "test"))
-        fprintf(stderr, "Warning: table \"test\" already exists.\n");
-    assert(!rc_open_table(&client, "test", &table));
+    client->createTable("test");
+    table = client->openTable("test");
 }
 
 void
@@ -108,12 +78,11 @@ bench(const char *name, uint64_t (f)(void))
     end = rdtsc();
 
     cycles = end - start;
-    printf("%s ns     %12.0f\n", name,
-           static_cast<double>(cycles) / cyclesPerNs);
+    printf("%s ns     %012lu\n", name,
+           cyclesToNanoseconds(cycles));
     printf("%s avgns  %12.2f\n", name,
-           static_cast<double>(cycles) /
-           static_cast<double>(count) /
-           cyclesPerNs);
+           static_cast<double>(cyclesToNanoseconds(cycles)) /
+           static_cast<double>(count));
     printf("%s ctr    %12.0f\n", name,
            static_cast<double>(serverCounter));
     printf("%s avgctr %12.2f\n", name,
@@ -126,26 +95,18 @@ bench(const char *name, uint64_t (f)(void))
 uint64_t
 writeOne()
 {
-    int r;
-
     char buf[size];
     memset(&buf[0], 0xFF, size);
     buf[size - 1] = 0;
 
-    r = rc_write(&client, table, 0, &write_any, NULL, &buf[0], size);
-    if (r) {
-        fprintf(stderr, "write failed\n");
-        cleanup();
-        exit(-1);
-    }
+    client->write(table, 0, &buf[0], size);
 
-    return rc_read_perf_counter(&client);
+    return client->counterValue;
 }
 
 uint64_t
 writeMany(void)
 {
-    int r;
     uint64_t serverCounter;
 
     char buf[size];
@@ -154,13 +115,8 @@ writeMany(void)
 
     serverCounter = 0;
     for (uint64_t i = 0; i < count; i++) {
-        r = rc_write(&client, table, i, &write_any, NULL, &buf[0], size);
-        if (r) {
-            fprintf(stderr, "write failed\n");
-            cleanup();
-            exit(-1);
-        }
-        serverCounter += rc_read_perf_counter(&client);
+        client->write(table, i, &buf[0], size);
+        serverCounter += client->counterValue;
     }
 
     return serverCounter;
@@ -169,26 +125,16 @@ writeMany(void)
 uint64_t
 readMany()
 {
-    int r;
     uint64_t serverCounter;
     uint64_t key;
 
-    char buf[size];
-    uint64_t bufLen;
-    memset(&buf[0], 0xFF, size);
-    buf[size - 1] = 0;
+    RC::Buffer value;
 
     serverCounter = 0;
     for (uint64_t i = 0; i < count; i++) {
         key = randomReads ? rand() % count : i;
-        r = rc_read(&client, table, multirow ? key : 0,
-                    &read_any, NULL, &buf[0], &bufLen);
-        if (r) {
-            fprintf(stderr, "read failed\n");
-            cleanup();
-            exit(-1);
-        }
-        serverCounter += rc_read_perf_counter(&client);
+        client->read(table, multirow ? key : 0, &value);
+        serverCounter += client->counterValue;
     }
 
     return serverCounter;
@@ -277,9 +223,6 @@ try
 {
     cmdline(argc, argv);
 
-    cyclesPerNs = static_cast<double>(cyclesPerSec()) /
-        (1000 * 1000 * 1000);
-
     printf("Reads: %lu, Size: %lu, Multirow: %lu, RandomReads: %lu\n",
            count, size, multirow, randomReads);
 
@@ -294,6 +237,6 @@ try
     BENCH(readMany);
 
     return 0;
-} catch (RAMCloud::Exception e) {
-    fprintf(stderr, "Bench: %s\n", e.message.c_str());
+} catch (RC::ClientException e) {
+    fprintf(stderr, "RAMCloud exception: %s\n", e.toString());
 }

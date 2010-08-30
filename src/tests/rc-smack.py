@@ -221,6 +221,7 @@ def main():
 
     c = ramcloud.RAMCloud()
     c.connect(options.address, options.port)
+    c.create_table("test")
 
     print "Running version smack"
     version_smack(c, smacks)

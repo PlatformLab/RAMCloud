@@ -403,7 +403,7 @@ BackupServer::extractMetadata(const void *p,
                               uint64_t offset,
                               RecoveryObjectMetadata *meta)
 {
-    const Object *obj = reinterpret_cast<const Object *>(p);
+    const Object *obj = static_cast<const Object *>(p);
     meta->key = obj->id;
     meta->table = obj->table;
     meta->version = obj->version;
@@ -645,11 +645,11 @@ BackupServer::handleHeartbeat(const backup_rpc *req, backup_rpc *resp)
 void
 BackupServer::handleRPC()
 {
-    backup_rpc *req;
+    const backup_rpc *req;
     backup_rpc *resp;
     Transport::ServerRpc *rpc = trans->serverRecv();
     // TODO(ongaro): Rework this to use Buffers properly.
-    req = reinterpret_cast<backup_rpc*>(
+    req = static_cast<const backup_rpc*>(
         rpc->recvPayload.getRange(0, rpc->recvPayload.getTotalLength()));
     void* respBuf = new(&rpc->replyPayload, MISC) char[RESP_BUF_LEN];
     resp = static_cast<backup_rpc *>(respBuf);

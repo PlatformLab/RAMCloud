@@ -51,7 +51,6 @@ using std::pair;
 // Then it complains that they're not included first, but really it wants
 // application headers last.
 #include <config.h> // NOLINT
-#include <rcrpc.h> // NOLINT
 
 // A macro to disallow the copy constructor and operator= functions
 // This should be used in the private: declarations for a class
@@ -60,6 +59,7 @@ using std::pair;
     void operator=(const TypeName&)
 
 #include <Logging.h> // NOLINT
+#include <Status.h>  // NOLINT
 
 /**
  * Allocate a new memory area.
@@ -181,7 +181,6 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
 #endif
 
 #ifdef __cplusplus
-void debug_dump64(const void *buf, uint64_t bytes);
 
 __inline __attribute__((always_inline, no_instrument_function))
 uint64_t _rdtsc();
@@ -326,6 +325,20 @@ struct Exception {
     std::string message;
     int errNo;
 };
+
+/**
+ * A fatal error that should exit the program.
+ */
+struct FatalError : public Exception {
+    explicit FatalError() {}
+    explicit FatalError(std::string msg) : Exception(msg) {}
+    explicit FatalError(int errNo) : Exception(errNo) {}
+    explicit FatalError(std::string msg, int errNo) : Exception(msg, errNo) {}
+};
+
+void debug_dump64(const void *buf, uint64_t bytes);
+bool pinToCpu(uint32_t cpu);
+
 
 } // end RAMCloud
 

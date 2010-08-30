@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010 Stanford University
+/* Copyright (c) 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,73 +21,77 @@
 #ifndef RAMCLOUD_CLIENT_H
 #define RAMCLOUD_CLIENT_H
 
-
-#include <stdbool.h>
-#include <config.h>
-
-#include <Common.h>
-
 #include <Buffer.h>
-#include <Service.h>
-#include <Transport.h>
-#include <TCPTransport.h>
-
-#include <PerfCounterType.h>
+#include <ClientException.h>
+#include <Common.h>
 #include <Mark.h>
+#include <PerfCounterType.h>
+#include <Rpc.h>
+#include <Service.h>
+#include <Status.h>
+#include <Transport.h>
 
-#if RC_CLIENT_SHARED
-struct rc_client_shared; // declared in Client.c
-#endif
+namespace RAMCloud {
 
-struct rc_client {
-    RAMCloud::Service* serv;
-    RAMCloud::Transport* trans;
-    rcrpc_perf_counter perf_counter_select;
-    uint32_t perf_counter;
-#if RC_CLIENT_SHARED
-    struct rc_client_shared *shared;
-#endif
+/**
+ * The Client class provides the primary interface used by applications to
+ * access a RAMCloud cluster.
+ *
+ * Each Client object provides access to a particular RAMCloud cluster;
+ * all of the RAMCloud RPC requests appear as methods on this object.
+ */
+class Client {
+  public:
+    Client(const char* serverAddr, int serverPort);
+    Client(Service* service, Transport* transport);
+    virtual ~Client();
+    void clearPerfCounter();
+    uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
+                    uint64_t* version = NULL);
+    void createTable(const char* name);
+    void dropTable(const char* name);
+    uint32_t openTable(const char* name);
+    void ping();
+    void read(uint32_t tableId, uint64_t id, Buffer* value,
+              const RejectRules* rejectRules = NULL,
+              uint64_t* version = NULL);
+    void remove(uint32_t tableId, uint64_t id,
+                const RejectRules* rejectRules = NULL,
+                uint64_t* version = NULL);
+    void selectPerfCounter(PerfCounterType type, Mark begin, Mark end);
+    void write(uint32_t tableId, uint64_t id, const void* buf,
+               uint32_t length, const RejectRules* rejectRules = NULL,
+               uint64_t* version = NULL);
+
+    /**
+     * Completion status from the most recent RPC completed for this client.
+     */
+    Status status;
+
+    /**
+     * Performance metric from the response in the most recent RPC (as
+     * requested by selectPerfCounter). If no metric was requested and done
+     * most recent RPC, then this value is 0.
+     */
+    uint32_t counterValue;
+
+  protected:
+    Service* service;              //!< For now we only know how to talk
+                                   //!< to a single RAMCloud server; this
+                                   //!< is a handle for that server.
+    Transport* transport;          //!< Provides communication with a service.
+    bool weOwnTransportAndService; //!< True means that transport and service
+                                   //!< were created by us (the Client class)
+                                   //!< and should be destroyed by us; false
+                                   //!< means they were provided externally.
+    RpcPerfCounter perfCounter;    //!< Every RPC request will ask the server
+                                   //!< to measure this during the execution
+                                   //!< of the RPC.
+
+    void throwShortResponseError(Buffer* response) __attribute__((noreturn));
+
+    DISALLOW_COPY_AND_ASSIGN(Client);
 };
+} // namespace RAMCloud
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-int rc_connect(struct rc_client *client,
-               const char* serverAddr, int serverPort);
-void rc_disconnect(struct rc_client *client);
-int rc_ping(struct rc_client *client);
-int rc_write(struct rc_client *client, uint64_t table, uint64_t key,
-             const struct rcrpc_reject_rules *reject_rules,
-             uint64_t *got_version, const char *buf, uint64_t len);
-int rc_insert(struct rc_client *client, uint64_t table, const char *buf,
-              uint64_t len, uint64_t *key);
-int rc_delete(struct rc_client *client, uint64_t table, uint64_t key,
-             const struct rcrpc_reject_rules *reject_rules,
-             uint64_t *got_version);
-int rc_read(struct rc_client *client, uint64_t table, uint64_t key,
-            const struct rcrpc_reject_rules *reject_rules,
-            uint64_t *got_version, char *buf, uint64_t *len);
-int rc_create_table(struct rc_client *client, const char *name);
-int rc_open_table(struct rc_client *client, const char *name,
-                  uint64_t *table_id);
-int rc_drop_table(struct rc_client *client, const char *name);
-
-void rc_select_perf_counter(struct rc_client *client,
-                            enum RAMCloud::PerfCounterType counterType,
-                            enum RAMCloud::Mark beginMark,
-                            enum RAMCloud::Mark endMark);
-uint64_t rc_read_perf_counter(struct rc_client *client);
-
-/* These aren't strictly necessary, but they make life easier for
- * foreign languages because they don't have to know how to allocate a
- * structure of the correct size */
-struct rc_client *rc_new(void);
-void rc_free(struct rc_client *client);
-const char* rc_last_error(void);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif
+#endif // RAMCLOUD_CLIENT_H

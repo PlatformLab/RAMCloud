@@ -469,11 +469,12 @@ class FastTransport : public Transport {
     class ServerSession : public Session {
         struct ServerChannel {
           public:
+            enum { INVALID_RPC_ID = ~(0u) };
             /// This creates broken in/out messages that are reinitialized
             /// by setup()
             ServerChannel()
                 : state(IDLE),
-                  rpcId(~0U),
+                  rpcId(INVALID_RPC_ID),
                   currentRpc(NULL),
                   inboundMsg(),
                   outboundMsg()
@@ -481,7 +482,7 @@ class FastTransport : public Transport {
             }
             void setup(Session* session, uint32_t channelId) {
                 state = IDLE;
-                rpcId = ~0U;
+                rpcId = INVALID_RPC_ID;
                 currentRpc = NULL;
                 inboundMsg.setup(session, channelId, false);
                 outboundMsg.setup(session, channelId, false);
@@ -634,10 +635,12 @@ class FastTransport : public Transport {
     template <typename T>
     class SessionTable {
       public:
-        /// A Session with this as nextFree is not itself free.
-        static const uint32_t NONE = ~0u;
-        /// A Session with this as nextFree is last Session in the free list.
-        static const uint32_t TAIL = ~0u - 1;
+        enum {
+            /// A Session with this as nextFree is not itself free.
+            NONE = ~(0u),
+            /// A Session with this as nextFree is last Session in the free list.
+            TAIL = ~(0u) - 1
+        };
         explicit SessionTable(FastTransport* transport)
             : transport(transport),
               sessions(),

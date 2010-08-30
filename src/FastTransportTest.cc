@@ -476,7 +476,8 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     {
         // Just here to flip us into a state where
         // channel.rpcId == 0
-        CPPUNIT_ASSERT_EQUAL(~0, session->channels[0].rpcId);
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
+                             session->channels[0].rpcId);
         MockReceived junk(0, 1, "foo");
         session->processInboundPacket(&junk);
         CPPUNIT_ASSERT_EQUAL(1, session->processReceivedDataCount);
@@ -494,7 +495,8 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     {
         // Just here to flip us into a state where
         // channel.rpcId == 0
-        CPPUNIT_ASSERT_EQUAL(~0, session->channels[0].rpcId);
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
+                             session->channels[0].rpcId);
         MockReceived junk(0, 1, "foo");
         session->processInboundPacket(&junk);
         CPPUNIT_ASSERT_EQUAL(1, session->processReceivedDataCount);
@@ -524,7 +526,8 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         uint32_t channelId = 6;
         // Just here to flip us into a state where
         // channel.rpcId == 0 and we have an RPC setup
-        CPPUNIT_ASSERT_EQUAL(~0, session->channels[channelId].rpcId);
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
+                             session->channels[0].rpcId);
         MockReceived junk(0, 1, "foo");
         junk.getHeader()->channelId = channelId;
         session->processInboundPacket(&junk);

@@ -155,10 +155,10 @@ BackupHost::getSegmentList(uint64_t *list,
     Buffer replyBuf;
     trans->clientSend(s, &buf, &replyBuf)->getReply();
 
-    backup_rpc *resp = reinterpret_cast<backup_rpc*>(
+    const backup_rpc *resp = static_cast<const backup_rpc*>(
         replyBuf.getRange(0, replyBuf.getTotalLength()));
 
-    uint64_t *tmpList = &resp->getsegmentlist_resp.seg_list[0];
+    const uint64_t *tmpList = &resp->getsegmentlist_resp.seg_list[0];
     uint32_t tmpCount = resp->getsegmentlist_resp.seg_list_count;
     if (debug_noisy)
         printf("Backup wants to restore %llu segments\n", tmpCount);
@@ -192,10 +192,11 @@ BackupHost::getSegmentMetadata(uint64_t segNum,
     Buffer replyBuf;
     trans->clientSend(s, &buf, &replyBuf)->getReply();
 
-    backup_rpc *resp = reinterpret_cast<backup_rpc*>(
+    const backup_rpc *resp = static_cast<const backup_rpc*>(
         replyBuf.getRange(0, replyBuf.getTotalLength()));
 
-    RecoveryObjectMetadata *tmpList = &resp->getsegmentmetadata_resp.list[0];
+    const RecoveryObjectMetadata *tmpList =
+            &resp->getsegmentmetadata_resp.list[0];
     uint32_t tmpCount = resp->getsegmentmetadata_resp.list_count;
     if (debug_noisy)
         printf("Backup wants to restore %llu objects\n", tmpCount);
@@ -227,7 +228,7 @@ BackupHost::retrieveSegment(uint64_t segNum, void *buf)
     Buffer replyBuf;
     trans->clientSend(s, &rpcBuf, &replyBuf)->getReply();
 
-    backup_rpc *resp = reinterpret_cast<backup_rpc*>(
+    const backup_rpc *resp = static_cast<const backup_rpc*>(
         replyBuf.getRange(0, replyBuf.getTotalLength()));
 
     if (debug_noisy)
