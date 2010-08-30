@@ -19,13 +19,15 @@
  */
 
 #include <BenchUtil.h>
+#include <errno.h>
+#include <sys/time.h>
 
 namespace RAMCloud {
 
 /**
  * Return the approximate number of cycles per second for this CPU.
- * The first time this function executes, it measures the elapsed cycles of a
- * usleep (3) call to determine the frequency of the CPU.
+ * The value is computed once during the first call, then reused in
+ * subsequent calls.
  * \return
  *      See above.
  */
@@ -35,11 +37,46 @@ getCyclesPerSecond()
     static uint64_t cycles = 0;
     if (cycles)
         return cycles;
-    uint64_t start = rdtsc();
-    usleep(500 * 1000);
-    uint64_t end = rdtsc();
-    cycles = (end - start) * 2;
-    return cycles;
+
+    // Overall strategy: take parallel time readings using both rdtsc
+    // and gettimeofday. After 10ms have elapsed, take the ratio between
+    // these readings.
+
+    struct timeval startTime, stopTime;
+    uint64_t startCycles, stopCycles, micros;
+    uint64_t oldCycles;
+
+    // There is one tricky aspect, which is that we could get interrupted
+    // between calling gettimeofday and reading the cycle counter, in which
+    // case we won't have corresponding readings.  To handle this (unlikely)
+    // case, compute the overall result repeatedly, and wait until we get
+    // two successive calculations that are within 0.1% of each other.
+    oldCycles = 0;
+    while (1) {
+        if (gettimeofday(&startTime, NULL) != 0) {
+            DIE("BenchUtil::getCyclesPerSecond couldn't read clock: %s",
+                    strerror(errno));
+        }
+        startCycles = rdtsc();
+        while (1) {
+            if (gettimeofday(&stopTime, NULL) != 0) {
+                DIE("BenchUtil::getCyclesPerSecond couldn't read clock: %s",
+                        strerror(errno));
+            }
+            stopCycles = rdtsc();
+            micros = (stopTime.tv_usec - startTime.tv_usec) +
+                    (stopTime.tv_sec - startTime.tv_sec)*1000000;
+            if (micros > 10000) {
+                cycles = 1000000*(stopCycles - startCycles) / micros;
+                break;
+            }
+        }
+        uint64_t delta = cycles/1000;
+        if ((oldCycles > (cycles - delta)) && (oldCycles < (cycles + delta))) {
+            return cycles;
+        }
+        oldCycles = cycles;
+    }
 }
 
 /**
@@ -54,6 +91,21 @@ uint64_t
 cyclesToNanoseconds(uint64_t cycles)
 {
     return (cycles * 1000 * 1000 / getCyclesPerSecond());
+}
+
+/**
+ * Given an elapsed number of cycles, return a floating-point number giving
+ * the corresponding time in seconds.
+ * \param cycles
+ *      An elapsed number of cycles.
+ * \return
+ *      The time in seconds corresponding to cycles.
+ */
+double
+cyclesToSeconds(uint64_t cycles)
+{
+    double result = cycles;
+    return result / getCyclesPerSecond();
 }
 
 } // end RAMCloud
