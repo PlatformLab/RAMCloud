@@ -1103,7 +1103,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
                 snprintf(tmp, max, "-, ");
             } else {
                 string payloadStr;
-                bufToString(payload, payloadLen, payloadStr);
+                bufToString(payload, payloadLen, &payloadStr);
                 payloadStr.resize(10);
 
                 snprintf(tmp, max, "(%s, %u), ",

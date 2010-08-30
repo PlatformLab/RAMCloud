@@ -154,7 +154,7 @@ friendlyRegerror(int errorCode, const regex_t* storage)
  *      that way, and everything else is output as 4-byte decimal integers.
  */
 void
-bufToString(const char *buf, uint32_t length, string& s)
+bufToString(const char *buf, uint32_t length, string* const s)
 {
     uint32_t i = 0;
     char temp[20];
@@ -165,7 +165,7 @@ bufToString(const char *buf, uint32_t length, string& s)
     // * 4 bytes output as a decimal integer
     // * or, a string output as a string
     while (i < length) {
-        s.append(separator);
+        s->append(separator);
         separator = " ";
         if ((i+4) <= length) {
             const char *p = &buf[i];
@@ -173,7 +173,7 @@ bufToString(const char *buf, uint32_t length, string& s)
                 int value = *reinterpret_cast<const int*>(p);
                 snprintf(temp, sizeof(temp), (value > 10000) ? "0x%x" : "%d",
                         value);
-                s.append(temp);
+                s->append(temp);
                 i += 4;
                 continue;
             }
@@ -190,15 +190,15 @@ bufToString(const char *buf, uint32_t length, string& s)
             // "expected results" string in tests (e.g. don't generate
             // backslashes).
             if ((c >= 0x20) && (c < 0x7f)) {
-                s.append(&c, 1);
+                s->append(&c, 1);
             } else if (c == '\0') {
-                s.append("/0");
+                s->append("/0");
             } else if (c == '\n') {
-                s.append("/n");
+                s->append("/n");
             } else {
                 uint32_t value = c & 0xff;
                 snprintf(temp, sizeof(temp), "/x%02x", value);
-                s.append(temp);
+                s->append(temp);
             }
             if (c == '\0') {
                 break;

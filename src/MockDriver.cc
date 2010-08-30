@@ -85,9 +85,9 @@ MockDriver::sendPacket(const sockaddr *addr,
 
     uint32_t take = 10;
     if (length < take) {
-        bufToString(buf, length, outputLog);
+        bufToString(buf, length, &outputLog);
     } else {
-        bufToString(buf, take, outputLog);
+        bufToString(buf, take, &outputLog);
         char tmp[50];
         snprintf(tmp, sizeof(tmp), " (+%u more)", length - take);
         outputLog += tmp;
@@ -150,7 +150,7 @@ MockDriver::setInput(char *msg, uint32_t msgLen) {
  *      that way, and everything else is output as 4-byte decimal integers.
  */
 void
-MockDriver::bufferToString(Buffer *buffer, string& s) {
+MockDriver::bufferToString(Buffer *buffer, string* const s) {
     uint32_t length = buffer->getTotalLength();
     char buf[length];
     buffer->copy(0, length, buf);
@@ -229,7 +229,7 @@ MockDriver::stringToBuffer(const char* s, Buffer *buffer) {
         }
     }
     string s2;
-    bufferToString(buffer, s2);
+    bufferToString(buffer, &s2);
 }
 
 string

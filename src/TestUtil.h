@@ -47,7 +47,7 @@ void assertMatchesPosixRegex(const char* pattern, const char* subject);
 
 namespace RAMCloud {
 
-void bufToString(const char *buf, uint32_t length, std::string& s);
+void bufToString(const char *buf, uint32_t length, string* const s);
 
 } // namespace RAMCloud
 

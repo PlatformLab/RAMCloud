@@ -47,7 +47,7 @@ class MockDriver : public Driver {
     virtual void release(char *payload, uint32_t len);
 
     void setInput(char* msg, uint32_t msgLen);
-    static void bufferToString(Buffer *buffer, string& s);
+    static void bufferToString(Buffer *buffer, string* const s);
     static void stringToBuffer(const char* s, Buffer* buffer);
     static string bufToHex(const void* buf, uint32_t bufLen);
 

@@ -638,7 +638,7 @@ class FastTransport : public Transport {
         enum {
             /// A Session with this as nextFree is not itself free.
             NONE = ~(0u),
-            /// A Session with this as nextFree is last Session in the free list.
+            /// A Session with this as nextFree is last Session in the list.
             TAIL = ~(0u) - 1
         };
         explicit SessionTable(FastTransport* transport)
