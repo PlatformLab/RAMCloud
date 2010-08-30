@@ -1,0 +1,9 @@
+rc_lat and ud_lat are simple 4-byte infiniband ping-pong benchmarks.
+
+rc_lat uses reliable connected queue pairs, whereas ud_lat uses
+unreliable datagram queue pairs. 
+
+Each binary is both client and server. The server is run with no
+arguments, whereas the client takes an IP address of the server.
+
+These are also reasonable references for infiniband connection setup.
