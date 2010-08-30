@@ -24,6 +24,7 @@
 
 uint64_t mockTSCValue = 0lu;
 uint64_t mockPMCValue = 0lu;
+uint64_t mockRandomValue = 0lu;
 
 // Output a binary buffer in 'hexdump -C' style.
 // Note that this exceeds 80 characters due to 64-bit offsets. Oh, well.

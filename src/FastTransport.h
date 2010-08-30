@@ -47,11 +47,21 @@ class FastTransport : public Transport {
     explicit FastTransport(Driver* driver);
     VIRTUAL_FOR_TESTING void poll();
     virtual ClientSession* getClientSession();
+
+    /**
+     * An RPC that manages an entire request/response cycle from
+     * the Client end.
+     *
+     * Once the RPC is created start() will initiated the RPC and getReply()
+     * will block until the response is complete and valid.
+     */
     class ClientRpc : public Transport::ClientRpc {
       public:
         void getReply();
 
+        /// Contains an RPC request payload including the RPC header.
         Buffer* const requestBuffer;
+        /// The destination Buffer for the RPC response.
         Buffer* const responseBuffer;
 
       private:
@@ -68,14 +78,25 @@ class FastTransport : public Transport {
             ABORTED,
         } state;
 
+        /// The Transport on which to send/receive the RPC.
         FastTransport* const transport;
+
+        /// The Service to which the RPC is directed.
         Service* service;
+
+        /// Extracted from service.  Stored because it's a pain to generate.
         const sockaddr serverAddress;
+
+        /// Length of serverAddress.
         socklen_t serverAddressLen;
+
+        /// Entries to allow this RPC to be placed in a channel queue.
         TAILQ_ENTRY(ClientRpc) channelQueueEntries;
+
         friend class FastTransport;
         friend class FastTransportTest;
         friend class ClientRpcTest;
+        friend class ClientSessionTest;
         DISALLOW_COPY_AND_ASSIGN(ClientRpc);
     };
 
@@ -150,6 +171,20 @@ class FastTransport : public Transport {
     // TODO(stutsman) Some parts of this stack don't initialize all these
     // fields, should we provide a constructor to zero them?
     struct Header {
+        Header()
+            : sessionToken(0),
+              rpcId(0),
+              clientSessionHint(0),
+              serverSessionHint(0),
+              fragNumber(0),
+              totalFrags(0),
+              channelId(0),
+              direction(CLIENT_TO_SERVER),
+              requestAck(0),
+              pleaseDrop(0),
+              reserved1(0),
+              payloadType(DATA)
+        {}
         enum PayloadType {
             DATA         = 0,
             ACK          = 1,
@@ -204,7 +239,7 @@ class FastTransport : public Transport {
             return s;
         }
         string toString() {
-            return headerToString(this, sizeof(this));
+            return headerToString(this, sizeof(*this));
         }
     } __attribute__((packed));
 
@@ -409,6 +444,7 @@ class FastTransport : public Transport {
         /// Handles idle session cleanup and retransmits due to timeout.
         Timer timer;
 
+        friend class ClientSessionTest;
         friend class OutboundMessageTest;
         DISALLOW_COPY_AND_ASSIGN(OutboundMessage);
     };
@@ -474,6 +510,8 @@ class FastTransport : public Transport {
         const uint32_t id;
 
       public:
+        static const uint64_t INVALID_TOKEN;
+        static const uint32_t INVALID_HINT;
         virtual uint32_t getId() {
             return id;
         }
@@ -496,9 +534,14 @@ class FastTransport : public Transport {
                                  Driver::Received* received);
         void processReceivedAck(ServerChannel* channel,
                                 Driver::Received* received);
+
+#if TESTING
+        uint32_t processReceivedDataCount;
+        uint32_t processReceivedAckCount;
+#endif
         // TODO(stutsman) template friend doesn't work - no idea why
         template <typename T> friend class SessionTable;
-
+        friend class ServerSessionTest;
         DISALLOW_COPY_AND_ASSIGN(ServerSession);
     };
 
@@ -509,16 +552,16 @@ class FastTransport : public Transport {
             /// by setup()
             ClientChannel()
                 : state(IDLE),
-                  rpcId(~0U),
-                  currentRpc(NULL),
+                  rpcId(0),
+                  currentRpc(0),
                   outboundMsg(),
                   inboundMsg()
             {
             }
             void setup(Session* session, uint32_t channelId) {
                 state = IDLE;
-                rpcId = ~0U;
-                currentRpc = NULL;
+                rpcId = 0;
+                currentRpc = 0;
                 bool useTimer = true;
                 outboundMsg.setup(session, channelId, useTimer);
                 inboundMsg.setup(session, channelId, useTimer);
@@ -560,6 +603,8 @@ class FastTransport : public Transport {
         ClientChannel* getAvailableChannel();
         void clearChannels();
       public:
+        static const uint64_t INVALID_TOKEN;
+        static const uint32_t INVALID_HINT;
         uint32_t nextFree;
         virtual uint32_t getId() {
             return id;
@@ -579,6 +624,7 @@ class FastTransport : public Transport {
       private:
         template <typename T> friend class SessionTable;
         friend class FastTransportTest;
+        friend class ClientSessionTest;
         friend class ClientRpcTest;
         friend class InboundMessageTest;
         friend class OutboundMessageTest;
@@ -682,6 +728,8 @@ class FastTransport : public Transport {
     friend class SessionTableTest;
     friend class InboundMessageTest;
     friend class OutboundMessageTest;
+    friend class ServerSessionTest;
+    friend class ClientSessionTest;
     friend class MockReceived;
     friend class Services;
     DISALLOW_COPY_AND_ASSIGN(FastTransport);

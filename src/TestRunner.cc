@@ -20,13 +20,63 @@
 #include <cppunit/ui/text/TestRunner.h>
 #include <cppunit/TestResult.h>
 
-int
-main(int ac, char *av[])
+#include <stdlib.h>
+#include <string.h>
+#include <getopt.h>
+
+char testName[256];
+bool progress = false;
+
+void __attribute__ ((noreturn))
+usage(char *arg0)
 {
+    printf("Usage: %s "
+            "[-p] [-t testName]\n"
+           "\t-t\t--test\tRun a specific test..\n"
+           "\t-p\t--progress\tShow test progress.\n",
+           arg0);
+    exit(EXIT_FAILURE);
+}
+
+void
+cmdline(int argc, char *argv[])
+{
+    struct option long_options[] = {
+        {"test", required_argument, NULL, 't'},
+        {"progress", no_argument, NULL, 'p'},
+        {0, 0, 0, 0},
+    };
+
+    int c;
+    int i = 0;
+    while ((c = getopt_long(argc, argv, "t:p",
+                            long_options, &i)) >= 0)
+    {
+        switch (c) {
+        case 't':
+            strncpy(testName, optarg, sizeof(testName));
+            testName[sizeof(testName) - 1] = '\0';
+            break;
+        case 'p':
+            progress = true;
+            break;
+        default:
+            usage(argv[0]);
+        }
+    }
+}
+
+int
+main(int argc, char *argv[])
+{
+    const char *defaultTest = "";
+    strncpy(testName, defaultTest, sizeof(testName));
+    cmdline(argc, argv);
+
     using namespace CppUnit;
 
     TextUi::TestRunner runner;
     TestFactoryRegistry &registry = TestFactoryRegistry::getRegistry();
     runner.addTest(registry.makeTest());
-    return !runner.run("", false);
+    return !runner.run(testName, false, true, progress);
 }

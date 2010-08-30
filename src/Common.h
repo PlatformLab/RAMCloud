@@ -212,6 +212,7 @@ _rdpmc(uint32_t counter)
 #if TESTING
 extern uint64_t mockTSCValue;
 extern uint64_t mockPMCValue;
+extern uint64_t mockRandomValue;
 __inline __attribute__((always_inline, no_instrument_function))
 uint64_t rdtsc();
 uint64_t
@@ -241,6 +242,28 @@ class MockTSC {
     ~MockTSC()
     {
         mockTSCValue = original;
+    }
+};
+__inline __attribute__((always_inline, no_instrument_function))
+long generateRandom(void); // NOLINT
+long // NOLINT
+generateRandom()
+{
+    if (mockRandomValue)
+        return mockRandomValue;
+    return random();
+}
+class MockRandom {
+    uint64_t original;
+  public:
+    explicit MockRandom(uint64_t value)
+        : original(mockRandomValue)
+    {
+        mockRandomValue = value;
+    }
+    ~MockRandom()
+    {
+        mockRandomValue = original;
     }
 };
 #else
