@@ -76,6 +76,10 @@ Server::Server(const ServerConfig* config,
     log->registerType(LOG_ENTRY_TYPE_OBJECT, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJECT_TOMBSTONE,
             tombstoneEvictionCallback, this);
+
+    for (int i = 0; i < RC_NUM_TABLES; i++) {
+        tables[i] = NULL;
+    }
 }
 
 /*
@@ -83,6 +87,11 @@ Server::Server(const ServerConfig* config,
  */
 Server::~Server()
 {
+    for (int i = 0; i < RC_NUM_TABLES; i++) {
+        if (tables[i] != NULL) {
+            delete tables[i];
+        }
+    }
     delete backup;
 }
 
@@ -149,7 +158,7 @@ Server::createTable(const CreateTableRequest* reqHdr,
 
     // See if we already have a table with the given name.
     for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].GetName(), name) == 0) {
+        if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
             // Table already exists; do nothing.
             return;
         }
@@ -158,8 +167,9 @@ Server::createTable(const CreateTableRequest* reqHdr,
     // Find an empty slot in the table of tables and use it for the
     // new table.
     for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].GetName(), "") == 0) {
-            tables[i].SetName(name);
+        if (tables[i] == NULL) {
+            tables[i] = new Table();
+            tables[i]->SetName(name);
             return;
         }
     }
@@ -193,8 +203,9 @@ Server::dropTable(const DropTableRequest* reqHdr, DropTableResponse* respHdr,
     const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
             reqHdr->nameLength);
     for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].GetName(), name) == 0) {
-            tables[i].SetName("");
+        if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
+            delete tables[i];
+            tables[i] = NULL;
             break;
         }
     }
@@ -227,7 +238,7 @@ Server::openTable(const OpenTableRequest* reqHdr, OpenTableResponse* respHdr,
     const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
             reqHdr->nameLength);
     for (i = 0; i < RC_NUM_TABLES; i++) {
-        if (strcmp(tables[i].GetName(), name) == 0) {
+        if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
             respHdr->tableId = i;
             return;
         }
@@ -515,8 +526,8 @@ Server::getTable(uint32_t tableId) {
     if (tableId >= RC_NUM_TABLES) {
         throw TableDoesntExistException();
     }
-    Table* t = &tables[tableId];
-    if (*t->GetName() == '\0') {
+    Table* t = tables[tableId];
+    if (t == NULL) {
         throw TableDoesntExistException();
     }
     return t;
@@ -603,7 +614,7 @@ objectEvictionCallback(log_entry_type_t type,
     const Object *evict_obj = static_cast<const Object *>(p);
     assert(evict_obj != NULL);
 
-    Table *tbl = &svr->tables[evict_obj->table];
+    Table *tbl = svr->tables[evict_obj->table];
     assert(tbl != NULL);
 
     const Object *tbl_obj = tbl->Get(evict_obj->id);
@@ -636,7 +647,7 @@ objectReplayCallback(log_entry_type_t type,
         const Object *obj = static_cast<const Object *>(p);
         assert(obj);
 
-        Table *table = &server->tables[obj->table];
+        Table *table = server->tables[obj->table];
         assert(table != NULL);
 
         table->Delete(obj->id);

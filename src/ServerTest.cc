@@ -37,6 +37,9 @@ class TServer : public Server {
     const char* tGetString(Buffer* buffer, uint32_t offset, uint32_t length) {
         return getString(buffer, offset, length);
     }
+    Table** tGetAllTables() {
+        return tables;
+    }
     Table* tGetTable(uint32_t tableId) {
         return getTable(tableId);
     }
@@ -48,6 +51,8 @@ class TServer : public Server {
 
 class ServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(ServerTest);
+    CPPUNIT_TEST(test_constructor_initializeTables);
+    CPPUNIT_TEST(test_destructor_deleteTables);
     CPPUNIT_TEST(test_create_basics);
     CPPUNIT_TEST(test_create_badTable);
     CPPUNIT_TEST(test_createTable_basics);
@@ -113,8 +118,28 @@ class ServerTest : public CppUnit::TestFixture {
         server->handleRpc();
     }
 
-    // No tests for constructors or destructor: nothing interesting to
-    // test (yet).
+    void test_constructor_initializeTables() {
+        Table** tables = server->tGetAllTables();
+        for (int i = 0; i < RC_NUM_TABLES; i++) {
+            if (tables[i] != NULL) {
+                char message[100];
+                snprintf(message, sizeof(message),
+                        "table index %d wasn't null", i);
+                CPPUNIT_FAIL(message);
+            }
+        }
+    }
+
+    void test_destructor_deleteTables() {
+        TServer* s = new TServer(&config, transport, NULL);
+        Table::numDeletes = 0;
+        Table** tables = s->tGetAllTables();
+        tables[0] = new Table();
+        tables[7] = new Table();
+        tables[RC_NUM_TABLES-1] = new Table();
+        delete s;
+        CPPUNIT_ASSERT_EQUAL(3, Table::numDeletes);
+    }
 
     void test_create_basics() {
         rpc("8 0 3 t1");                         // Create table t1.

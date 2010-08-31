@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,20 +15,13 @@
 
 /**
  * \file
- * Header file for utilities useful in benchmarking.
+ * Implementation for Table.
  */
 
-#include <Common.h>
-
-#ifndef RAMCLOUD_BENCHUTIL_H
-#define RAMCLOUD_BENCHUTIL_H
+#include <Table.h>
 
 namespace RAMCloud {
 
-uint64_t getCyclesPerSecond();
-uint64_t cyclesToNanoseconds(uint64_t cycles);
-double cyclesToSeconds(uint64_t cycles);
+int Table::numDeletes = 0;
 
-} // end RAMCloud
-
-#endif
+} // namespace RAMCloud

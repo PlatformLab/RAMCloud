@@ -42,6 +42,11 @@ class Table {
         name[0] = '\0';
     }
 
+    ~Table()
+    {
+        numDeletes++;
+    }
+
     const char *GetName() { return &name[0]; }
 
     /**
@@ -113,6 +118,12 @@ class Table {
     void Delete(uint64_t key) {
         object_map.remove(key);
     }
+
+    /**
+     * Counts the number of times that tables have been deleted; used
+     * for testing.
+     */
+    static int numDeletes;
 
   private:
 

@@ -1,0 +1,11 @@
+This module resolves virtual addresses to physical addresses of gigabyte
+superpages.
+
+It creates a /proc/hugetlbfs node, which users can pread(2) at the desired
+virtual address offset. An 8-byte pointer to the corresponding physical
+address is returned by the call.
+
+NB: The user must first access the gigabyte page to fault in the kernel
+mapping. The module simply walks the page table, which seemed simpler than
+trying to find out how to pull the requisite information from the hugetlbfs
+code.

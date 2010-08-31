@@ -1,0 +1,9 @@
+This is a userlevel hack to the ixgbe driver in 2.6.32.
+
+kernel/ixgbe_dev.c contains the userlevel mapping junk. User applications
+use /dev devices (e.g. /dev/ixgbe@0000:04:00.0) to mmap device registers
+and obtain the mac address.
+
+user/driver.cc is a simple ping-pong benchmark, but contains most of
+the code needed for a simple userlevel driver. It requires
+``hugetlbphys'' to obtain physical addresses for gigabyte superpages.
