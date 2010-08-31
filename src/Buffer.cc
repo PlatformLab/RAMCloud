@@ -68,6 +68,26 @@ Buffer::Allocation::~Allocation() {
 }
 
 /**
+ * Reinitialize an Allocation, as if it had been newly constructed.
+ * \param[in] prependSize
+ *      The number of bytes of the Allocation for prepend data. Same
+ *      meaning as constructor argument.
+ * \param[in] totalSize
+ *      The number of bytes of total data the Allocation manages. Same
+ *      meaning as constructor argument.
+ */
+void
+Buffer::Allocation::reset(uint32_t prependSize, uint32_t totalSize)
+{
+    next = NULL;
+    prependTop = prependSize;
+    appendTop = prependSize;
+    chunkTop = totalSize;
+    assert((totalSize & 0x7) == 0);
+    assert(prependSize <= totalSize);
+}
+
+/**
  * Try to allocate space for prepend data of a given size.
  * \param[in] size  The size in bytes to allocate for prepend data.
  * \return  A pointer to the allocated space or \c NULL if there is not enough
@@ -127,6 +147,16 @@ Buffer::Buffer()
  * Deallocate the memory allocated by this Buffer.
  */
 Buffer::~Buffer() {
+    reset();
+}
+
+/**
+ * Truncate the buffer to zero length and free all resources associated
+ * with it. The Buffer will end up in the same state it had immediately
+ * after initial construction.
+ */
+void
+Buffer::reset() {
     { // free the list of chunks
         Chunk* current = chunks;
         while (current != NULL) {
@@ -150,6 +180,14 @@ Buffer::~Buffer() {
             }
         }
     }
+
+    // Restore state to what it was at construction time.
+    totalLength = 0;
+    numberChunks = 0;
+    chunks = NULL;
+    initialAllocationContainer.reset();
+    allocations = &initialAllocationContainer.allocation;
+    nextAllocationSize = INITIAL_ALLOCATION_SIZE << 1;
 }
 
 /**
@@ -555,7 +593,7 @@ string Buffer::debugString() {
  */
 void
 Buffer::fillFromString(const char* s) {
-    truncateFront(getTotalLength());
+    reset();
     uint32_t i, length;
     length = strlen(s);
     for (i = 0; i < length; ) {
@@ -612,7 +650,10 @@ Buffer::fillFromString(const char* s) {
 }
 
 /**
- * Remove the first \a length bytes from the Buffer.
+ * Remove the first \a length bytes from the Buffer.  This reduces the
+ * amount of information visible in the Buffer but does not free
+ * memory allocations such as those created with allocateChunk or
+ * allocateAppend.
  * \param[in] length
  *      The number of bytes to be removed from the beginning of the Buffer.
  *      If this exceeds the size of the Buffer, the Buffer will become empty.
@@ -640,7 +681,10 @@ Buffer::truncateFront(uint32_t length)
 }
 
 /**
- * Remove the last \a length bytes from the Buffer.
+ * Remove the last \a length bytes from the Buffer.  This reduces the
+ * amount of information visible in the Buffer but does not free
+ * memory allocations such as those created with allocateChunk or
+ * allocateAppend.
  * \param[in] length
  *      The number of bytes to be removed from the end of the Buffer.
  *      If this exceeds the size of the Buffer, the Buffer will become empty.

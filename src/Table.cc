@@ -22,7 +22,6 @@
 
 namespace RAMCloud {
 
-
 /**
  * Counts the number of times that tables have been deleted; used
  * for testing.
