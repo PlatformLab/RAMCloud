@@ -32,11 +32,12 @@ TESTS_SRCFILES := \
 TESTS_OBJFILES := $(TESTS_SRCFILES)
 TESTS_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
 TESTS_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
-TESTS_OBJFILES := $(TESTS_OBJFILES) \
+TESTS_OBJFILES := $(sort \
+               $(TESTS_OBJFILES) \
                $(SHARED_OBJFILES) \
                $(SERVER_OBJFILES) \
-               $(CLIENT_STATIC_OBJFILES) \
-               $(BACKUP_OBJFILES)
+               $(CLIENT_OBJFILES) \
+               $(BACKUP_OBJFILES))
 
 TESTS_LIB := -lcppunit -ldl
 

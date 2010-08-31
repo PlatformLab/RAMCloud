@@ -1,21 +1,25 @@
-OBJDIRS += client_static client_shared \
-	shared_static shared_shared
+OBJDIRS += client_shared
 
 CLIENT_SRCFILES := \
+		src/Buffer.cc \
 		src/CClient.cc \
 		src/Client.cc \
 		src/ClientException.cc \
-		src/Status.cc
+		src/Common.cc \
+		src/Driver.cc \
+		src/FastTransport.cc \
+		src/Logging.cc \
+		src/Status.cc \
+		src/TCPTransport.cc \
+		src/UDPDriver.cc
 
-CLIENT_STATIC_OBJFILES := $(CLIENT_SRCFILES)
-CLIENT_STATIC_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/client_static/%.o, $(CLIENT_STATIC_OBJFILES))
-CLIENT_STATIC_OBJFILES := $(CLIENT_STATIC_OBJFILES) $(OBJDIR)/Buffer.o $(OBJDIR)/Common.o $(OBJDIR)/TCPTransport.o $(OBJDIR)/Logging.o
+CLIENT_OBJFILES := $(CLIENT_SRCFILES)
+CLIENT_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(CLIENT_OBJFILES))
 
 CLIENT_SHARED_OBJFILES := $(CLIENT_SRCFILES)
 CLIENT_SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/client_shared/%.o, $(CLIENT_SHARED_OBJFILES))
-CLIENT_SHARED_OBJFILES := $(CLIENT_SHARED_OBJFILES) $(OBJDIR)/Buffer.o $(OBJDIR)/Common.o $(OBJDIR)/TCPTransport.o $(OBJDIR)/Logging.o
 
-$(OBJDIR)/client_static/%.o: $(TOP)/src/%.cc
+$(OBJDIR)/%.o: $(TOP)/src/%.cc
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<)
 
@@ -23,15 +27,7 @@ $(OBJDIR)/client_shared/%.o: $(TOP)/src/%.cc
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<,-fPIC)
 
-$(OBJDIR)/shared_static/%.o: $(TOP)/src/%.cc
-	@mkdir -p $(@D)
-	$(call run-cxx,$@,$<)
-
-$(OBJDIR)/shared_shared/%.o: $(TOP)/src/%.cc
-	@mkdir -p $(@D)
-	$(call run-cxx,$@,$<,-fPIC)
-
-$(OBJDIR)/libramcloud.a: $(CLIENT_STATIC_OBJFILES)
+$(OBJDIR)/libramcloud.a: $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(AR) rcs $@ $^
 

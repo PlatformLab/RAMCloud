@@ -30,6 +30,7 @@
 #include <Service.h>
 #include <Status.h>
 #include <Transport.h>
+#include <UDPDriver.h>
 
 namespace RAMCloud {
 
@@ -79,6 +80,7 @@ class Client {
     Service* service;              //!< For now we only know how to talk
                                    //!< to a single RAMCloud server; this
                                    //!< is a handle for that server.
+    UDPDriver* driver;
     Transport* transport;          //!< Provides communication with a service.
     bool weOwnTransportAndService; //!< True means that transport and service
                                    //!< were created by us (the Client class)

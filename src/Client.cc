@@ -22,6 +22,7 @@
 #include <Client.h>
 #include <ClientException.h>
 #include <TCPTransport.h>
+#include <FastTransport.h>
 
 namespace RAMCloud {
 
@@ -42,7 +43,7 @@ RejectRules defaultRejectRules;
 
 Client::Client(const char* serverAddr, int serverPort)
         : status(STATUS_OK),  counterValue(0), service(NULL),
-          transport(NULL), weOwnTransportAndService(true),
+          driver(0), transport(NULL), weOwnTransportAndService(true),
           perfCounter()
 {
     // The code below is a temporary hack until we get a real
@@ -51,7 +52,12 @@ Client::Client(const char* serverAddr, int serverPort)
     service = new Service();
     service->setIp(serverAddr);
     service->setPort(serverPort);
-    transport = new TCPTransport(NULL, 0);
+    if (USE_FASTTRANSPORT) {
+        driver = new UDPDriver();
+        transport = new FastTransport(driver);
+    } else {
+        transport = new TCPTransport(NULL, 0);
+    }
 }
 
 /**
@@ -68,7 +74,7 @@ Client::Client(const char* serverAddr, int serverPort)
 
 Client::Client(Service* service, Transport* transport)
         : status(STATUS_OK),  counterValue(0), service(service),
-          transport(transport), weOwnTransportAndService(false),
+          driver(0), transport(transport), weOwnTransportAndService(false),
           perfCounter()  { }
 
 /**
@@ -80,6 +86,7 @@ Client::~Client()
     if (weOwnTransportAndService) {
         delete service;
         delete transport;
+        delete driver;
     }
 }
 

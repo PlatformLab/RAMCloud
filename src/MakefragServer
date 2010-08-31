@@ -1,12 +1,14 @@
 SERVER_SRCFILES := \
+        src/ClientException.cc \
         src/HashTable.cc \
         src/Metrics.cc \
         src/CycleCounter.cc \
-        src/Server.cc
+        src/Server.cc \
+        src/Status.cc
 
 SERVER_OBJFILES := $(SERVER_SRCFILES)
 SERVER_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(SERVER_OBJFILES))
-SERVER_OBJFILES := $(SERVER_OBJFILES) $(SHARED_OBJFILES) $(CLIENT_STATIC_OBJFILES)
+SERVER_OBJFILES := $(SERVER_OBJFILES) $(SHARED_OBJFILES)
 
 $(OBJDIR)/server: $(SERVER_OBJFILES) $(OBJDIR)/ServerMain.o
 	@mkdir -p $(@D)

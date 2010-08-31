@@ -37,7 +37,8 @@ struct ServerConfig {
     bool restore;
     int port;
     char address[50];
-    ServerConfig() : restore(false), port(SVRPORT) {
+    ServerConfig() : restore(false), port(SVRPORT)
+    {
         strncpy(address, SVRADDR, sizeof(address));
         address[sizeof(address) - 1] = '\0';
     }
