@@ -27,7 +27,8 @@ namespace RAMCloud {
  * Create a FastTransport attached to a particular Driver
  *
  * \param driver
- *      The driver over which packets should be sent.
+ *      The lower-level driver (presumably to an unreliable mechanism) to
+ *      send/receive fragments on.
  */
 FastTransport::FastTransport(Driver* driver)
     : driver(driver),
@@ -41,6 +42,10 @@ FastTransport::FastTransport(Driver* driver)
 }
 
 // TODO(stutsman) Why is this public?
+/**
+ * Try to get a packet from the Driver and process it, checking for
+ * ready timer events in between.
+ */
 void
 FastTransport::poll()
 {
@@ -49,7 +54,12 @@ FastTransport::poll()
     fireTimers();
 }
 
-// TODO(stutsman) What should the actual interface be for sessions?
+/**
+ * Reuse an existing ClientSession or create and return a new one.
+ *
+ * \return
+ *      A ClientSession that is IDLE and ready for use.
+ */
 FastTransport::ClientSession*
 FastTransport::getClientSession()
 {
@@ -69,6 +79,7 @@ FastTransport::clientSend(Service* service,
     return rpc;
 }
 
+// See Transport::serverRecv().
 FastTransport::ServerRpc*
 FastTransport::serverRecv()
 {
@@ -79,6 +90,17 @@ FastTransport::serverRecv()
     return rpc;
 }
 
+/**
+ * Get a packet from the Driver and dispatch it to the appropriate handler.
+ *
+ * Dispatch is decided on Header::direction then to the appropriate
+ * ClientSession or ServerSession.  If the request is to the Server and is
+ * a SESSION_OPEN request then a new ServerSession is created and the
+ * appropriate SessionOpenResponse is sent to the client.
+ *
+ * \return
+ *      true unless the Driver encountered an error.
+ */
 bool
 FastTransport::tryProcessPacket()
 {
@@ -140,6 +162,14 @@ FastTransport::tryProcessPacket()
     return true;
 }
 
+/**
+ * Schedule Timer::fireTimer() to be called when the system TSC reaches when.
+ *
+ * \param timer
+ *      The Timer on which to call fireTimer().
+ * \param when
+ *      fireTimer() is called when rdtsc() is at or beyond this timestamp.
+ */
 void
 FastTransport::addTimer(Timer* timer, uint64_t when)
 {
@@ -149,6 +179,12 @@ FastTransport::addTimer(Timer* timer, uint64_t when)
     }
 }
 
+/**
+ * Deschedule a Timer.
+ *
+ * \param timer
+ *      The Timer to deschedule.
+ */
 void
 FastTransport::removeTimer(Timer* timer)
 {
@@ -158,6 +194,7 @@ FastTransport::removeTimer(Timer* timer)
     }
 }
 
+/// Invoke fireTimer() on any expired, scheduled Timer.
 void
 FastTransport::fireTimers()
 {
@@ -172,11 +209,17 @@ FastTransport::fireTimers()
     }
 }
 
+/**
+ * Send a fragment through the transport's driver.
+ *
+ * Randomly augments fragments with pleaseDrop bit for testing.
+ * See Driver::sendPacket().
+ */
 void
 FastTransport::sendPacket(const sockaddr* address,
-           socklen_t addressLength,
-           Header* header,
-           Buffer::Iterator* payload)
+                          socklen_t addressLength,
+                          Header* header,
+                          Buffer::Iterator* payload)
 {
     header->pleaseDrop = (generateRandom() % 100) < PACKET_LOSS_PERCENTAGE;
     driver->sendPacket(address, addressLength,
@@ -184,12 +227,24 @@ FastTransport::sendPacket(const sockaddr* address,
                        payload);
 }
 
+/**
+ * \return
+ *      Number of bytes of RPC data that can fit in a fragment (including the
+ *      RPC headers).
+ */
 uint32_t
 FastTransport::dataPerFragment()
 {
     return driver->getMaxPayloadSize() - sizeof(Header);
 }
 
+/**
+ * \param dataBuffer
+ *      A Buffer intended for transmission over this transport.
+ * \return
+ *      Number of fragments that would be required to send dataBuffer over
+ *      this transport.
+ */
 uint32_t
 FastTransport::numFrags(const Buffer* dataBuffer)
 {
@@ -311,6 +366,9 @@ FastTransport::ClientRpc::start()
 
 // --- ServerRpc ---
 
+/**
+ * Create a ServerRpc attached to a ServerSession on a particular channel.
+ */
 FastTransport::ServerRpc::ServerRpc(ServerSession* session,
                                     uint8_t channelId)
     : session(session),
@@ -319,11 +377,13 @@ FastTransport::ServerRpc::ServerRpc(ServerSession* session,
 {
 }
 
+/**
+ * Begin sending the RPC response.
+ */
 void
 FastTransport::ServerRpc::sendReply()
 {
     session->beginSending(channelId);
-    // don't forget to delete(this) eventually
 }
 
 // --- PayloadChunk ---

@@ -39,6 +39,10 @@
 
 namespace RAMCloud {
 
+/**
+ * A Transport which supports simple, but reliable RPCs over unreliable
+ * networks.
+ */
 class FastTransport : public Transport {
     class Session;
     class ServerSession;
@@ -49,8 +53,7 @@ class FastTransport : public Transport {
     virtual ClientSession* getClientSession();
 
     /**
-     * An RPC that manages an entire request/response cycle from
-     * the Client end.
+     * Manages an entire request/response cycle from the Client perspective.
      *
      * Once the RPC is created start() will initiated the RPC and getReply()
      * will block until the response is complete and valid.
@@ -71,11 +74,12 @@ class FastTransport : public Transport {
         void completed();
         void start();
 
+        /// Current state of the RPC.
         enum {
-            IDLE,
-            IN_PROGRESS,
-            COMPLETED,
-            ABORTED,
+            IDLE,           /// Initial state, required for start().
+            IN_PROGRESS,    /// State of a start()ed but incomplete RPC.
+            COMPLETED,      /// State of an RPC after request/response cycle.
+            ABORTED,        /// State of an RPC after a failure.
         } state;
 
         /// The Transport on which to send/receive the RPC.
@@ -103,6 +107,9 @@ class FastTransport : public Transport {
     virtual ClientRpc* clientSend(Service* service,
                                   Buffer* request, Buffer* response);
 
+    /**
+     * Manages an entire request/response cycle from the Server perspective.
+     */
     class ServerRpc : public Transport::ServerRpc {
       public:
         ServerRpc(ServerSession* session, uint8_t channelId);
@@ -130,17 +137,32 @@ class FastTransport : public Transport {
     enum { TIMEOUTS_UNTIL_ABORTING = 500 }; // >= 5 s
     enum { SESSION_TIMEOUT_NS = 60lu * 60 * 1000 * 1000 * 1000 }; // 30 min
 
+    /**
+     * Abstract base class for all timer events.
+     *
+     * FastTransport maintains a list of active events and invokes fireTimer()
+     * when the current TSC reaches when.
+     */
     class Timer {
       public:
           Timer() : when(0), listEntries() {}
+          /// The action to perform if the system TSC reaches when.
           virtual void fireTimer(uint64_t now) = 0;
           virtual ~Timer() {}
+          /// When TSC is >= when the FastTransport will call fireTimer().
           uint64_t when;
+          /// Entries to allow timer events to be placed in lists.
           LIST_ENTRY(Timer) listEntries;
       private:
         DISALLOW_COPY_AND_ASSIGN(Timer);
     };
 
+    /**
+     * A Buffer::Chunk that is comprised of memory leased out by the Driver.
+     *
+     * PayloadChunk behaves like any other Buffer::Chunk except it returns
+     * its memory to the Driver when the Buffer is deleted.
+     */
     class PayloadChunk : public Buffer::Chunk {
       public:
         static PayloadChunk* prependToBuffer(Buffer* buffer,
@@ -162,14 +184,18 @@ class FastTransport : public Transport {
                      Driver* driver,
                      char* const payload,
                      uint32_t payloadLength);
+        /// Return the PayloadChunk memory here.
         Driver* const driver;
+        /// The memory backing the chunk and which is to be returned.
         char* const payload;
+        /// Length of the memory region starting at payload.
         const uint32_t payloadLength;
         DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
 
-    // TODO(stutsman) Some parts of this stack don't initialize all these
-    // fields, should we provide a constructor to zero them?
+    /**
+     * Wire-format for FastTransport fragment Headers.
+     */
     struct Header {
         Header()
             : sessionToken(0),
@@ -217,6 +243,9 @@ class FastTransport : public Transport {
         Direction getDirection() {
             return static_cast<Direction>(direction);
         }
+        /**
+         * For unit testing; convert a header in a buffer to a string.
+         */
         static string headerToString(const void* header, uint32_t headerLen) {
             assert(headerLen == sizeof(Header));
             const Header* self = static_cast<const Header*>(header);
@@ -238,21 +267,39 @@ class FastTransport : public Transport {
             s += tmp;
             return s;
         }
+        /// For unit testing; convert this header to a string.
         string toString() {
             return headerToString(this, sizeof(*this));
         }
     } __attribute__((packed));
 
+    /**
+     * Wire-format for response with PayloadType SESSION_OPEN.
+     */
     struct SessionOpenResponse {
+        /// The highest available channelId available on the receiver.
         uint8_t maxChannelId;
     } __attribute__((packed));
 
+    /**
+     * Wire-format for the ACK response payload.
+     */
     struct AckResponse {
+        /**
+         * Convenience constructor to create a complete ACK response payload.
+         *
+         * \param firstMissingFrag
+         *      See member documentation.
+         * \param stagingVector
+         *      See member documentation.
+         */
         AckResponse(uint16_t firstMissingFrag,
                     uint32_t stagingVector = 0)
             : firstMissingFrag(firstMissingFrag),
               stagingVector(stagingVector) {}
+        /// See InboundMessage::firstMissingFrag.
         uint16_t firstMissingFrag;
+        /// Bit vector of frags beyond firstMissingFrag that have been received.
         uint32_t stagingVector;
     } __attribute__((packed));
 
@@ -281,11 +328,6 @@ class FastTransport : public Transport {
         void sendAck();
         void clear();
         void init(uint16_t totalFrags, Buffer* dataBuffer);
-        /**
-         * \return
-         *      Whether the full message has been received and added
-         *      to the dataBuffer.
-         */
         bool processReceivedData(Driver::Received* received);
       private:
         /// The transport to which this message belongs.  Set by setup().
@@ -356,7 +398,22 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(InboundMessage);
     };
 
+    /**
+     * OutboundMessage handles sending an RPC from the initiator's side.
+     *
+     * An OutboundMessage must first be associated (permantently) with a
+     * particular Session, Channel, and timer configuration using setup().
+     *
+     * Users of OutboundMessage call beginSending() and funnel subsequest ACK
+     * responses to the message using processReceivedAck().  Between the ACK
+     * responses and internal timers the message will ensure reliable delivery
+     * of the RPC request.  Once a data fragment is received from the RPC
+     * destination is should be assumed that the RPC response has begun and
+     * this OutboundMessage is done.  The message must be reset by calling
+     * clear() to allow future calls to beginSending().
+     */
     class OutboundMessage {
+        /// Magic "timestamp" value used to indicate no retransmit is needed.
         static const uint64_t ACKED = ~(0lu) - 1;
       public:
         OutboundMessage();
@@ -449,6 +506,11 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(OutboundMessage);
     };
 
+    /**
+     * Base class for ClientSession and ServerSession; allows InboundMessage
+     * and OutboundMessage to be agnostic about which type of Session it is
+     * associated with.
+     */
     class Session {
       public:
         virtual void fillHeader(Header* const header,
@@ -466,24 +528,34 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(Session);
     };
 
+    /**
+     * Manages all communication between a particular client and server.
+     */
     class ServerSession : public Session {
+
+        /**
+         * The state assoicated with an ongoing RPC.
+         */
         struct ServerChannel {
           public:
+            /// Trash for rpcId for when ServerChannel is IDLE.
             enum { INVALID_RPC_ID = ~(0u) };
+
             /// This creates broken in/out messages that are reinitialized
-            /// by setup()
+            /// by setup().
             ServerChannel()
                 : state(IDLE),
                   rpcId(INVALID_RPC_ID),
-                  currentRpc(NULL),
+                  currentRpc(0),
                   inboundMsg(),
                   outboundMsg()
             {
             }
+
             void setup(Session* session, uint32_t channelId) {
                 state = IDLE;
                 rpcId = INVALID_RPC_ID;
-                currentRpc = NULL;
+                currentRpc = 0;
                 inboundMsg.setup(session, channelId, false);
                 outboundMsg.setup(session, channelId, false);
             }

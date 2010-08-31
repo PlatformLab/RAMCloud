@@ -35,18 +35,21 @@ uint16_t port;
 int cpu;
 bool generate;
 int multi;
+bool sameServer;
 
 void __attribute__ ((noreturn))
 usage(char *arg0)
 {
     printf("Usage: %s "
-            "[-p port] [-a address] [-c cpu] [-g] [-n servers]\n"
+            "[-p port] [-a address] [-c cpu] [-g] [-m serverCount] [-s]\n"
            "\t-p\t--port\t\tChoose which port to connect to.\n"
            "\t-a\t--address\tChoose which address to connect to.\n"
-           "\t-c\t--cpu\t\tRestrict the test to a specific CPU (0 indexed).\n",
-           "\t-g\t--generate\t\tGenerate junk traffic.\n",
+           "\t-c\t--cpu\t\tRestrict the test to a specific CPU (0 indexed).\n"
+           "\t-g\t--generate\tGenerate junk traffic.\n"
            "\t-m\t--multi\t\tConnect to addl servers on same addr on port "
-                "range starting at supplied port.\n",
+                "range starting at supplied port.\n"
+           "\t-s\t--same\t\tConnect to number of times by -m, but "
+                "to the same address/port (multi conn to same server)\n\n",
            arg0);
     exit(EXIT_FAILURE);
 }
@@ -60,6 +63,7 @@ cmdline(int argc, char *argv[])
     cpu = -1;
     generate = false;
     multi = 1;
+    sameServer = false;
 
     struct option long_options[] = {
         {"address", required_argument, NULL, 'a'},
@@ -67,12 +71,13 @@ cmdline(int argc, char *argv[])
         {"cpu", required_argument, NULL, 'c'},
         {"generate", no_argument, NULL, 'g'},
         {"multi", required_argument, NULL, 'm'},
+        {"same", no_argument, NULL, 's'},
         {0, 0, 0, 0},
     };
 
     int c;
     int i = 0;
-    while ((c = getopt_long(argc, argv, "a:p:c:gm:",
+    while ((c = getopt_long(argc, argv, "a:p:c:gm:s",
                             long_options, &i)) >= 0)
     {
         switch (c) {
@@ -93,6 +98,9 @@ cmdline(int argc, char *argv[])
             multi = atoi(optarg);
             assert(multi > 0 and multi < 100);
             break;
+        case 's':
+            sameServer = true;
+            break;
         default:
             usage(argv[0]);
         }
@@ -107,7 +115,7 @@ try
 
     cmdline(argc, argv);
 
-    logger.setLogLevel(TRANSPORT_MODULE, DEBUG);
+    logger.setLogLevels(WARNING);
 
     UDPDriver d;
     FastTransport tx(&d);
@@ -115,23 +123,23 @@ try
     Service service[multi];
     for (int i = 0; i < multi; i++) {
         service[i].setIp(address);
-        service[i].setPort(port + i);
+        service[i].setPort(port + (sameServer ? 0 : i));
     }
 
     if (!generate) {
         char sendbuf[1024];
         char recvbuf[multi][1024];
         FastTransport::ClientRpc* rpcs[multi];
-        Buffer response[multi];
         LOG(DEBUG, "Sending to %d servers", multi);
         while (fgets(sendbuf, sizeof(sendbuf), stdin) != NULL) {
+            Buffer response[multi];
+            Buffer request[multi];
             for (int i = 0; i < multi; i++) {
-                Buffer request;
-                Buffer::Chunk::appendToBuffer(&request, sendbuf,
+                Buffer::Chunk::appendToBuffer(&request[i], sendbuf,
                     static_cast<uint32_t>(strlen(sendbuf)));
                 LOG(DEBUG, "Sending out request %d to port %d",
                     i, service[i].getPort());
-                rpcs[i] = tx.clientSend(&service[i], &request, &response[i]);
+                rpcs[i] = tx.clientSend(&service[i], &request[i], &response[i]);
             }
 
             for (int i = 0; i < multi; i++) {
