@@ -90,7 +90,13 @@ class Server {
      */
     Log* log;
 
-    Table tables[RC_NUM_TABLES];
+    /**
+     * Information about all of the tables in the system. Tables are
+     * allocated lazily: a NULL entry means the corresponding table
+     * does not yet exist.
+     */
+    Table *tables[RC_NUM_TABLES];
+
     friend void objectEvictionCallback(log_entry_type_t type,
             const void* p, uint64_t len, void* cookie);
     friend void tombstoneEvictionCallback(log_entry_type_t type,

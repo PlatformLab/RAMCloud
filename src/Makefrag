@@ -1,6 +1,7 @@
 OBJDIRS += $(OBJDIR)
 
 SHARED_SRCFILES := \
+                src/BenchUtil.cc \
                 src/Common.cc \
                 src/Logging.cc \
                 src/Log.cc \
@@ -9,6 +10,7 @@ SHARED_SRCFILES := \
                 src/rabinpoly.cc \
                 src/Buffer.cc \
                 src/Service.cc \
+                src/Table.cc \
                 src/TCPTransport.cc
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)
