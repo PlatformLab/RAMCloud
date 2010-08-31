@@ -91,27 +91,6 @@ class Driver {
     virtual ~Driver();
 };
 
-class UDPDriver : public Driver {
-  public:
-    static const uint32_t MAX_PAYLOAD_SIZE = 1400;
-    virtual uint32_t getMaxPayloadSize();
-    virtual void sendPacket(const sockaddr *addr,
-                            socklen_t addrlen,
-                            void *header,
-                            uint32_t headerLen,
-                            Buffer::Iterator *payload);
-    virtual bool tryRecvPacket(Received *received);
-    virtual void release(char *payload, uint32_t len);
-    UDPDriver();
-    UDPDriver(const sockaddr *addr, socklen_t addrlen);
-    virtual ~UDPDriver();
-  private:
-    void send(const Buffer* payload);
-    int socketFd;
-    int packetBufsUtilized;
-    DISALLOW_COPY_AND_ASSIGN(UDPDriver);
-};
-
 }  // namespace RAMCloud
 
 #endif

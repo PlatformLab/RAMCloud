@@ -11,6 +11,7 @@ SHARED_SRCFILES := \
                 src/Buffer.cc \
                 src/Service.cc \
                 src/Driver.cc \
+                src/UDPDriver.cc \
                 src/TCPTransport.cc \
                 src/FastTransport.cc \
                 src/Table.cc

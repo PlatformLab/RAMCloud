@@ -18,6 +18,7 @@
 #include <Service.h>
 #include <FastTransport.h>
 #include <CycleCounter.h>
+#include <UDPDriver.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
