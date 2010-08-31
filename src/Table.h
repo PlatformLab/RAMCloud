@@ -119,10 +119,6 @@ class Table {
         object_map.remove(key);
     }
 
-    /**
-     * Counts the number of times that tables have been deleted; used
-     * for testing.
-     */
     static int numDeletes;
 
   private:

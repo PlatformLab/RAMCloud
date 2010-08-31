@@ -88,9 +88,7 @@ Server::Server(const ServerConfig* config,
 Server::~Server()
 {
     for (int i = 0; i < RC_NUM_TABLES; i++) {
-        if (tables[i] != NULL) {
-            delete tables[i];
-        }
+        delete tables[i];
     }
     delete backup;
 }
