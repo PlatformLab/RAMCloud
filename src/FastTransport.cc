@@ -73,6 +73,11 @@ FastTransport::clientSend(Service* service,
                           Buffer* request,
                           Buffer* response)
 {
+    // Clear the response buffer if needed
+    uint32_t length = response->getTotalLength();
+    if (length)
+        response->truncateFront(length);
+
     ClientRpc* rpc = new(request, MISC) ClientRpc(this, service,
                                                   request, response);
     rpc->start();
