@@ -98,10 +98,7 @@ void
 TCPTransport::MessageSocket::recv(Buffer* payload)
 {
     assert(fd >= 0);
-    uint32_t length = payload->getTotalLength();
-    if (length != 0) {
-        payload->truncateFront(length);
-    }
+    payload->reset();
 
     // receive header
     Header header;

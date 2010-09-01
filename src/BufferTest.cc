@@ -57,6 +57,8 @@ class BufferAllocationTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_destructor);
 
+    CPPUNIT_TEST(test_reset);
+
     CPPUNIT_TEST(test_allocateChunk);
     CPPUNIT_TEST(test_allocatePrepend);
     CPPUNIT_TEST(test_allocateAppend);
@@ -91,6 +93,19 @@ class BufferAllocationTest : public CppUnit::TestFixture {
     }
 
     void test_destructor() {
+    }
+
+    void test_reset() {
+        a->allocateChunk(32);
+        a->allocatePrepend(16);
+        a->allocateAppend(64);
+        a->next = a;
+        a->reset(32, 256);
+
+        CPPUNIT_ASSERT(a->next == NULL);
+        CPPUNIT_ASSERT_EQUAL(32, a->prependTop);
+        CPPUNIT_ASSERT_EQUAL(32, a->appendTop);
+        CPPUNIT_ASSERT_EQUAL(256, a->chunkTop);
     }
 
     void test_allocateChunk() {
@@ -165,6 +180,8 @@ class BufferTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_destructor);
+
+    CPPUNIT_TEST(test_reset);
 
     CPPUNIT_TEST(test_newAllocation);
     CPPUNIT_TEST(test_allocateChunk);
@@ -249,6 +266,36 @@ class BufferTest : public CppUnit::TestFixture {
 
     void test_destructor() {
         // I don't know how I'd test this anymore.
+    }
+
+    void test_reset() {
+        // Create a Chunk subclass that records when it is destructed.
+        static int numChunkDeletes = 0;
+        class TChunk : public Buffer::Chunk {
+          public:
+            TChunk(const void* data, uint32_t length)
+                    : Chunk(data, length) {}
+            virtual ~TChunk() {
+                numChunkDeletes++;
+            }
+            static TChunk* appendToBuffer(Buffer* buffer, const char* s) {
+                TChunk* chunk = new(buffer, CHUNK) TChunk(s, strlen(s));
+                buffer->appendChunk(chunk);
+                return chunk;
+            }
+        };
+        Buffer b;
+        TChunk::appendToBuffer(&b, "abcd");
+        TChunk::appendToBuffer(&b, "12345");
+        CPPUNIT_ASSERT_EQUAL("abcd12345", b.toString());
+        b.reset();
+        CPPUNIT_ASSERT_EQUAL(2, numChunkDeletes);
+        CPPUNIT_ASSERT_EQUAL(0, b.totalLength);
+        CPPUNIT_ASSERT_EQUAL(0, b.numberChunks);
+        CPPUNIT_ASSERT_EQUAL(NULL, b.chunks);
+        CPPUNIT_ASSERT_EQUAL(&b.initialAllocationContainer.allocation,
+                             b.allocations);
+        CPPUNIT_ASSERT_EQUAL(2048, b.allocations->chunkTop);
     }
 
     void test_newAllocation() {

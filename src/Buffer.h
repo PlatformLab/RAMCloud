@@ -177,6 +177,7 @@ class Buffer {
         void* allocatePrepend(uint32_t size);
         void* allocateAppend(uint32_t size);
         void* allocateChunk(uint32_t size);
+        void reset(uint32_t prependSize, uint32_t totalSize);
 
       private:
 
@@ -412,6 +413,7 @@ class Buffer {
     uint32_t peek(uint32_t offset, const void** returnPtr);
     const void* getRange(uint32_t offset, uint32_t length);
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
+    void reset();
     string debugString();
     string toString();
     void fillFromString(const char* s);
@@ -500,6 +502,11 @@ class Buffer {
     struct InitialAllocationContainer {
         InitialAllocationContainer() : allocation(INITIAL_ALLOCATION_SIZE >> 3,
                                                   INITIAL_ALLOCATION_SIZE) {}
+        void reset()
+        {
+            allocation.reset(INITIAL_ALLOCATION_SIZE >> 3,
+                              INITIAL_ALLOCATION_SIZE);
+        }
         Allocation allocation;
       private:
         // At least INITIAL_ALLOCATION_SIZE bytes of usable space must directly
