@@ -23,6 +23,10 @@
 
 namespace RAMCloud {
 
+// --- FastTransport ---
+
+// - public -
+
 /**
  * Create a FastTransport attached to a particular Driver
  *
@@ -39,32 +43,6 @@ FastTransport::FastTransport(Driver* driver)
 {
     TAILQ_INIT(&serverReadyQueue);
     LIST_INIT(&timerList);
-}
-
-// TODO(stutsman) Why is this public?
-/**
- * Try to get a packet from the Driver and process it, checking for
- * ready timer events in between.
- */
-void
-FastTransport::poll()
-{
-    while (tryProcessPacket())
-        fireTimers();
-    fireTimers();
-}
-
-/**
- * Reuse an existing ClientSession or create and return a new one.
- *
- * \return
- *      A ClientSession that is IDLE and ready for use.
- */
-FastTransport::ClientSession*
-FastTransport::getClientSession()
-{
-    clientSessions.expire();
-    return clientSessions.get();
 }
 
 // See Transport::clientSend().
@@ -95,6 +73,131 @@ FastTransport::serverRecv()
     return rpc;
 }
 
+// - private -
+
+/**
+ * Schedule Timer::fireTimer() to be called when the system TSC reaches when.
+ *
+ * If timer is already scheduled it will be rescheduled for when.
+ *
+ * \param timer
+ *      The Timer on which to call fireTimer().
+ * \param when
+ *      fireTimer() is called when rdtsc() is at or beyond this timestamp.
+ */
+void
+FastTransport::addTimer(Timer* timer, uint64_t when)
+{
+    timer->when = when;
+    if (!LIST_IS_IN(timer, listEntries)) {
+        LIST_INSERT_HEAD(&timerList, timer, listEntries);
+    }
+}
+
+/**
+ * \return
+ *      Number of bytes of RPC data that can fit in a fragment (including the
+ *      RPC headers).
+ */
+uint32_t
+FastTransport::dataPerFragment()
+{
+    return driver->getMaxPayloadSize() - sizeof(Header);
+}
+
+/**
+ * Invoke fireTimer() on any expired, scheduled Timer after removing it
+ * from the timer event queue.
+ *
+ * Any timer that would like to be fired again later needs to
+ * reschedule itself.
+ */
+void
+FastTransport::fireTimers()
+{
+    uint64_t now = rdtsc();
+    Timer* timer, *tmp;
+    // Safe version needed because updates can occur during iteration
+    LIST_FOREACH_SAFE(timer, &timerList, listEntries, tmp) {
+        if (timer->when && timer->when <= now) {
+            removeTimer(timer);
+            timer->fireTimer(now);
+       }
+    }
+}
+
+/**
+ * Reuse an existing ClientSession or create and return a new one.
+ *
+ * \return
+ *      A ClientSession that is IDLE and ready for use.
+ */
+FastTransport::ClientSession*
+FastTransport::getClientSession()
+{
+    clientSessions.expire();
+    return clientSessions.get();
+}
+
+/**
+ * \param dataBuffer
+ *      A Buffer intended for transmission over this transport.
+ * \return
+ *      Number of fragments that would be required to send dataBuffer over
+ *      this transport.
+ */
+uint32_t
+FastTransport::numFrags(const Buffer* dataBuffer)
+{
+    return ((dataBuffer->getTotalLength() + dataPerFragment() - 1) /
+             dataPerFragment());
+}
+
+/**
+ * Deschedule a Timer.
+ *
+ * \param timer
+ *      The Timer to deschedule.
+ */
+void
+FastTransport::removeTimer(Timer* timer)
+{
+    timer->when = 0;
+    if (LIST_IS_IN(timer, listEntries)) {
+        LIST_REMOVE(timer, listEntries);
+    }
+}
+
+/**
+ * Try to get a request from the Driver and queue it, dispatching
+ * ready timer events in between.
+ */
+void
+FastTransport::poll()
+{
+    while (tryProcessPacket())
+        fireTimers();
+    fireTimers();
+}
+
+/**
+ * Send a fragment through the transport's driver.
+ *
+ * Randomly augments fragments with pleaseDrop bit for testing.
+ * See Driver::sendPacket().
+ */
+void
+FastTransport::sendPacket(const sockaddr* address,
+                          socklen_t addressLength,
+                          Header* header,
+                          Buffer::Iterator* payload)
+{
+    header->pleaseDrop = (generateRandom() % 100) < PACKET_LOSS_PERCENTAGE;
+    driver->sendPacket(address, addressLength,
+                       header, sizeof(*header),
+                       payload);
+}
+
 /**
  * Get a packet from the Driver and dispatch it to the appropriate handler.
  *
@@ -104,27 +207,33 @@ FastTransport::serverRecv()
  * appropriate SessionOpenResponse is sent to the client.
  *
  * \return
- *      true unless the Driver encountered an error.
+ *      true unless the Driver didn't have a packet ready or encountered an
+ *      error.
  */
 bool
 FastTransport::tryProcessPacket()
 {
     Driver::Received received;
-    if (!driver->tryRecvPacket(&received))
+    if (!driver->tryRecvPacket(&received)) {
+        TEST_LOG("no packet ready");
         return false;
+    }
 
     Header* header = received.getOffset<Header>(0);
     if (header == NULL) {
         LOG(DEBUG, "packet too small");
         return true;
     }
-    if (header->pleaseDrop)
+    if (header->pleaseDrop) {
+        TEST_LOG("dropped");
         return true;
+    }
 
     if (header->getDirection() == Header::CLIENT_TO_SERVER) {
         if (header->serverSessionHint < serverSessions.size()) {
             ServerSession* session = serverSessions[header->serverSessionHint];
             if (session->getToken() == header->sessionToken) {
+                TEST_LOG("calling ServerSession::processInboundPacket");
                 session->processInboundPacket(&received);
                 return true;
             } else {
@@ -159,102 +268,13 @@ FastTransport::tryProcessPacket()
     } else {
         if (header->clientSessionHint < clientSessions.size()) {
             ClientSession* session = clientSessions[header->clientSessionHint];
+            TEST_LOG("client session processing packet");
             session->processInboundPacket(&received);
         } else {
             LOG(DEBUG, "Bad client session hint");
         }
     }
     return true;
-}
-
-/**
- * Schedule Timer::fireTimer() to be called when the system TSC reaches when.
- *
- * \param timer
- *      The Timer on which to call fireTimer().
- * \param when
- *      fireTimer() is called when rdtsc() is at or beyond this timestamp.
- */
-void
-FastTransport::addTimer(Timer* timer, uint64_t when)
-{
-    timer->when = when;
-    if (!LIST_IS_IN(timer, listEntries)) {
-        LIST_INSERT_HEAD(&timerList, timer, listEntries);
-    }
-}
-
-/**
- * Deschedule a Timer.
- *
- * \param timer
- *      The Timer to deschedule.
- */
-void
-FastTransport::removeTimer(Timer* timer)
-{
-    timer->when = 0;
-    if (LIST_IS_IN(timer, listEntries)) {
-        LIST_REMOVE(timer, listEntries);
-    }
-}
-
-/// Invoke fireTimer() on any expired, scheduled Timer.
-void
-FastTransport::fireTimers()
-{
-    uint64_t now = rdtsc();
-    Timer* timer;
-    LIST_FOREACH(timer, &timerList, listEntries) {
-        if (timer->when && timer->when < now) {
-            removeTimer(timer);
-            timer->when = 0;
-            timer->fireTimer(now);
-       }
-    }
-}
-
-/**
- * Send a fragment through the transport's driver.
- *
- * Randomly augments fragments with pleaseDrop bit for testing.
- * See Driver::sendPacket().
- */
-void
-FastTransport::sendPacket(const sockaddr* address,
-                          socklen_t addressLength,
-                          Header* header,
-                          Buffer::Iterator* payload)
-{
-    header->pleaseDrop = (generateRandom() % 100) < PACKET_LOSS_PERCENTAGE;
-    driver->sendPacket(address, addressLength,
-                       header, sizeof(*header),
-                       payload);
-}
-
-/**
- * \return
- *      Number of bytes of RPC data that can fit in a fragment (including the
- *      RPC headers).
- */
-uint32_t
-FastTransport::dataPerFragment()
-{
-    return driver->getMaxPayloadSize() - sizeof(Header);
-}
-
-/**
- * \param dataBuffer
- *      A Buffer intended for transmission over this transport.
- * \return
- *      Number of fragments that would be required to send dataBuffer over
- *      this transport.
- */
-uint32_t
-FastTransport::numFrags(const Buffer* dataBuffer)
-{
-    return ((dataBuffer->getTotalLength() + dataPerFragment() - 1) /
-             dataPerFragment());
 }
 
 // --- ClientRpc ---

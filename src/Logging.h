@@ -25,6 +25,35 @@
 
 namespace RAMCloud {
 
+namespace TestLog {
+    void log(const char* func, const char* format, ...)
+        __attribute__((format(gnu_printf, 2, 3)));
+    void clear();
+    void enable();
+    void disable();
+    string get();
+    void setPredicate(bool (*pred)(string));
+    struct Enable {
+        Enable() { enable(); }
+        Enable(bool (*pred)(string))
+        {
+            setPredicate(pred);
+            enable();
+        }
+        ~Enable() { disable(); }
+    };
+} // namespace RAMCloud::TestLog
+
+} // namespace RAMCloud
+#if TESTING
+#define TEST_LOG(format, ...) \
+    TestLog::log(__PRETTY_FUNCTION__, format, ##__VA_ARGS__)
+#else
+#define TEST_LOG(format, ...)
+#endif
+
+namespace RAMCloud {
+
 /**
  * The levels of verbosity for messages logged with #LOG.
  */
@@ -116,6 +145,7 @@ extern Logger logger;
         RAMCloud::logger.logMessage(CURRENT_LOG_MODULE, level, \
                                     __FILE__, __LINE__, \
                                     format "\n", ##__VA_ARGS__); \
+    TEST_LOG(format, ##__VA_ARGS__); \
 } while (0)
 
 /**

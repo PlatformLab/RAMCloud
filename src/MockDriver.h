@@ -46,7 +46,7 @@ class MockDriver : public Driver {
     virtual bool tryRecvPacket(Received *received);
     virtual void release(char *payload, uint32_t len);
 
-    void setInput(char* msg, uint32_t msgLen);
+    void setInput(Driver::Received* received);
     static void bufferToString(Buffer *buffer, string* const s);
     static void stringToBuffer(const char* s, Buffer* buffer);
     static string bufToHex(const void* buf, uint32_t bufLen);
@@ -60,8 +60,7 @@ class MockDriver : public Driver {
      * Used as the next input message required by either serverRecv
      * or getReply.
      */
-    char* inputMessage;
-    uint32_t inputMessageLen;
+    Driver::Received* inputReceived;
 
     // The following variables count calls to various methods, for use
     // by tests.

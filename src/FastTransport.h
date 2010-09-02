@@ -49,8 +49,6 @@ class FastTransport : public Transport {
     class ClientSession;
   public:
     explicit FastTransport(Driver* driver);
-    VIRTUAL_FOR_TESTING void poll();
-    virtual ClientSession* getClientSession();
 
     /**
      * Manages an entire request/response cycle from the Client perspective.
@@ -612,6 +610,7 @@ class FastTransport : public Transport {
         uint32_t processReceivedDataCount;
         uint32_t processReceivedAckCount;
 #endif
+        friend class FastTransportTest;
         // TODO(stutsman) template friend doesn't work - no idea why
         template <typename T> friend class SessionTable;
         friend class ServerSessionTest;
@@ -783,14 +782,16 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(SessionTable);
     };
 
-    bool tryProcessPacket();
     void addTimer(Timer* timer, uint64_t when);
-    void removeTimer(Timer* timer);
+    uint32_t dataPerFragment();
     void fireTimers();
+    virtual ClientSession* getClientSession();
+    uint32_t numFrags(const Buffer* dataBuffer);
+    VIRTUAL_FOR_TESTING void poll();
+    void removeTimer(Timer* timer);
     void sendPacket(const sockaddr* address, socklen_t addressLength,
                     Header* header, Buffer::Iterator* payload);
-    uint32_t dataPerFragment();
-    uint32_t numFrags(const Buffer* dataBuffer);
+    bool tryProcessPacket();
 
     Driver* const driver;
     SessionTable<ServerSession> serverSessions;

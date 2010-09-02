@@ -42,11 +42,6 @@ void assertEquals(void *expected, const void *actual,
 namespace RAMCloud {
 
 void assertMatchesPosixRegex(const char* pattern, const char* subject);
-
-} // namespace RAMCloud
-
-namespace RAMCloud {
-
 void bufToString(const char *buf, uint32_t length, string* const s);
 
 } // namespace RAMCloud

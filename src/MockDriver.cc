@@ -31,7 +31,7 @@ namespace RAMCloud {
  * Construct a MockDriver which does not include the header in the outputLog.
  */
 MockDriver::MockDriver()
-            : outputLog(), inputMessage(0), inputMessageLen(0),
+            : outputLog(), inputReceived(0),
               sendPacketCount(0), tryRecvPacketCount(0),
               releaseCount(0), headerToString(0)
 {
@@ -42,7 +42,7 @@ MockDriver::MockDriver()
  * the outputLog.
  */
 MockDriver::MockDriver(HeaderToString headerToString)
-            : outputLog(), inputMessage(0), inputMessageLen(0),
+            : outputLog(), inputReceived(0),
               sendPacketCount(0), tryRecvPacketCount(0),
               releaseCount(0), headerToString(headerToString)
 {
@@ -104,13 +104,16 @@ MockDriver::tryRecvPacket(Driver::Received *received)
 {
     tryRecvPacketCount++;
 
-    if (!inputMessage)
+    if (!inputReceived)
         return false;
 
-    received->addrlen = 0;
-    received->payload = inputMessage;
-    received->len = inputMessageLen;
+    received->addrlen = inputReceived->addrlen;
+    // dangerous, but only used in testing
+    received->payload = inputReceived->payload;
+    received->len = inputReceived->len;
     received->driver = this;
+
+    inputReceived = 0;
 
     return true;
 }
@@ -122,20 +125,18 @@ MockDriver::release(char *payload, uint32_t len)
 }
 
 /**
- * This method is invoked by tests to provide a string that will
+ * This method is invoked by tests to provide a Received that will
  * be used to synthesize an input message the next time one is
  * needed (such as for a packet).
  *
- * \param msg
- *      A string representation of the contents of a buffer;
- *      see stringToBuffer documentation for details.
- * \param msgLen
- *      The length of msg.
+ * \param received
+ *      A Driver::Received to return from the next call to
+ *      tryRecvPacket(); probably a MockReceived, even.
  */
 void
-MockDriver::setInput(char *msg, uint32_t msgLen) {
-    inputMessage = msg;
-    inputMessageLen = msgLen;
+MockDriver::setInput(Driver::Received* received)
+{
+    inputReceived = received;
 }
 
 /**

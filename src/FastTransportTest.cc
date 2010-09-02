@@ -36,16 +36,9 @@ class MockReceived : public Driver::Received {
     {
         payload = new char[len];
         memcpy(getContents(), msg, len - sizeof(FastTransport::Header));
-        FastTransport::Header *header = getHeader();
+        FastTransport::Header *header = new(payload) FastTransport::Header;
         header->fragNumber = fragNumber;
         header->totalFrags = totalFrags;
-        header->requestAck = 0;
-        header->rpcId = 0;
-        header->channelId = 0;
-        header->direction = FastTransport::Header::SERVER_TO_CLIENT;
-        header->clientSessionHint = 0;
-        header->serverSessionHint = 0;
-        header->sessionToken = 0;
     }
   public:
     MockReceived(uint32_t fragNumber,
@@ -94,18 +87,62 @@ class MockReceived : public Driver::Received {
 
 class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST_SUITE(FastTransportTest);
-    CPPUNIT_TEST(test_queue_is_in);
+    CPPUNIT_TEST(test_queue_isIn);
     CPPUNIT_TEST(test_clientSend);
+    CPPUNIT_TEST(test_clientSend_nonEmptyBuffer);
     CPPUNIT_TEST(test_serverRecv);
-    CPPUNIT_TEST(test_clientRPC_send);
+    CPPUNIT_TEST(test_addTimer_notIn);
+    CPPUNIT_TEST(test_addTimer_alreadyIn);
+    CPPUNIT_TEST(test_fireTimers);
+    CPPUNIT_TEST(test_getClientSession_noneExpirable);
+    CPPUNIT_TEST(test_getClientSession_reuseExpired);
+    CPPUNIT_TEST(test_removeTimer_notIn);
+    CPPUNIT_TEST(test_removeTimer_alreadyIn);
+    CPPUNIT_TEST(test_poll);
+    CPPUNIT_TEST(test_poll_noIter);
+    CPPUNIT_TEST(test_tryProcessPacket_noPacketReady);
+    CPPUNIT_TEST(test_tryProcessPacket_tooSmall);
+    CPPUNIT_TEST(test_tryProcessPacket_dropped);
+    CPPUNIT_TEST(test_tryProcessPacket_c2sGoodHint);
+    CPPUNIT_TEST(test_tryProcessPacket_c2sBadHintOpenSession);
+    CPPUNIT_TEST(test_tryProcessPacket_c2sBadSession);
+    CPPUNIT_TEST(test_tryProcessPacket_s2cGoodHint);
+    CPPUNIT_TEST(test_tryProcessPacket_s2cBadHint);
     CPPUNIT_TEST_SUITE_END();
 
   public:
 
-    FastTransportTest() : FastTransport(0) {}
+    void
+    setUp()
+    {
+        driver = new MockDriver(Header::headerToString);
+        transport = new FastTransport(driver);
+
+        service = new Service();
+        service->setIp(address);
+        service->setPort(port);
+
+        request = new Buffer();
+        response = new Buffer();
+    }
 
     void
-    test_queue_is_in()
+    tearDown()
+    {
+        delete response;
+        delete request;
+        delete service;
+        delete transport;
+        delete driver;
+    }
+
+    FastTransportTest()
+        : FastTransport(0), request(0), response(0), service(0),
+          transport(0), driver(0), address("1.2.3.4"), port(1234)
+    {}
+
+    void
+    test_queue_isIn()
     {
         struct QTest {
             explicit QTest(int i) : i(i), entry() {}
@@ -141,52 +178,322 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     void
     test_clientSend()
     {
-        MockDriver d;
-        FastTransport t(&d);
-        Buffer request;
-        Buffer response;
-
-        Service service;
-        service.setIp("0.0.0.0");
-        service.setPort(0);
-
         ClientRpc* rpc =
-            t.clientSend(&service, &request, &response);
+            transport->clientSend(service, request, response);
         CPPUNIT_ASSERT(rpc != 0);
+    }
+
+    void
+    test_clientSend_nonEmptyBuffer()
+    {
+        response->fillFromString("junk");
+        transport->clientSend(service, request, response);
+        CPPUNIT_ASSERT_EQUAL("", response->debugString());
     }
 
     void
     test_serverRecv()
     {
-        FastTransport transport(NULL);
         ServerRpc rpc(NULL, 0);
-        TAILQ_INSERT_TAIL(&transport.serverReadyQueue, &rpc, readyQueueEntries);
-        CPPUNIT_ASSERT_EQUAL(&rpc, transport.serverRecv());
+        TAILQ_INSERT_TAIL(&transport->serverReadyQueue,
+                          &rpc, readyQueueEntries);
+        CPPUNIT_ASSERT_EQUAL(&rpc, transport->serverRecv());
+    }
+
+    // Used in {add,remove,fire}Timer tests
+    struct MockTimer : public Timer {
+        MockTimer() : Timer(), fireTimerCount(0), expectWhen(0) {}
+        explicit MockTimer(uint64_t expectWhen)
+            : Timer(), fireTimerCount(0), expectWhen(expectWhen) {}
+        virtual void fireTimer(uint64_t now)
+        {
+            if (expectWhen)
+                CPPUNIT_ASSERT_EQUAL(expectWhen, now);
+            fireTimerCount++;
+        }
+        uint32_t fireTimerCount;
+        uint64_t expectWhen;
+    };
+
+    void
+    test_addTimer_notIn()
+    {
+        MockTimer timer;
+        transport->addTimer(&timer, 1);
+
+        CPPUNIT_ASSERT_EQUAL(&timer, LIST_FIRST(&transport->timerList));
+        CPPUNIT_ASSERT_EQUAL(1, timer.when);
     }
 
     void
-    test_clientRPC_send()
+    test_addTimer_alreadyIn()
     {
-        MockDriver d;
-        FastTransport t(&d);
-        Buffer request;
-        Buffer response;
+        MockTimer timer;
+        transport->addTimer(&timer, 1);
+        transport->addTimer(&timer, 2);
 
-        Service service;
-        service.setIp("0.0.0.0");
-        service.setPort(0);
+        uint32_t count = 0;
+        Timer* timerp;
+        LIST_FOREACH(timerp, &transport->timerList, listEntries) {
+            CPPUNIT_ASSERT_EQUAL(timerp, LIST_FIRST(&transport->timerList));
+            count++;
+        }
+        CPPUNIT_ASSERT_EQUAL(1, count);
+        CPPUNIT_ASSERT_EQUAL(2, timer.when);
+    }
 
-        t.clientSend(&service, &request, &response);
-        // After the send we should have a session in our service
-        CPPUNIT_ASSERT(service.getSession() != 0);
+    void
+    test_fireTimers()
+    {
+        uint64_t tsc = 10;
+        MockTSC _(tsc);
 
-        // If we do an additional send we should use the same session
-        void* s = service.getSession();
-        t.clientSend(&service, &request, &response);
-        CPPUNIT_ASSERT_EQUAL(s, service.getSession());
+        MockTimer timer1(tsc);
+        transport->addTimer(&timer1, tsc - 1);
+        MockTimer timer2(tsc);
+        transport->addTimer(&timer2, tsc + 1);
+        MockTimer timer3(tsc);
+        transport->addTimer(&timer3, tsc);
+
+        transport->fireTimers();
+
+        CPPUNIT_ASSERT_EQUAL(1, timer1.fireTimerCount);
+        CPPUNIT_ASSERT_EQUAL(0, timer2.fireTimerCount);
+        CPPUNIT_ASSERT_EQUAL(1, timer3.fireTimerCount);
+        // Make sure 2 is now at the front as the unfired event
+        CPPUNIT_ASSERT_EQUAL(&timer2, LIST_FIRST(&transport->timerList));
+
+        // Ensure that events don't get called twice
+        transport->fireTimers();
+        CPPUNIT_ASSERT_EQUAL(1, timer1.fireTimerCount);
+        CPPUNIT_ASSERT_EQUAL(0, timer2.fireTimerCount);
+        CPPUNIT_ASSERT_EQUAL(1, timer3.fireTimerCount);
+    }
+
+    void
+    test_getClientSession_noneExpirable()
+    {
+        CPPUNIT_ASSERT_EQUAL(0, transport->clientSessions.size());
+        ClientSession* session = transport->getClientSession();
+        CPPUNIT_ASSERT(0 != session);
+        CPPUNIT_ASSERT_EQUAL(1, transport->clientSessions.size());
+    }
+
+    void
+    test_getClientSession_reuseExpired()
+    {
+        CPPUNIT_ASSERT_EQUAL(0, transport->clientSessions.size());
+        ClientSession* firstSession = transport->getClientSession();
+        ClientSession* lastSession = transport->getClientSession();
+        CPPUNIT_ASSERT_EQUAL(firstSession, lastSession);
+        CPPUNIT_ASSERT_EQUAL(1, transport->clientSessions.size());
+    }
+
+    void
+    test_removeTimer_notIn()
+    {
+        MockTimer timer;
+        timer.when = 9999;
+        CPPUNIT_ASSERT(LIST_EMPTY(&transport->timerList));
+        transport->removeTimer(&timer);
+        CPPUNIT_ASSERT(LIST_EMPTY(&transport->timerList));
+        CPPUNIT_ASSERT_EQUAL(0, timer.when);
+    }
+
+    void
+    test_removeTimer_alreadyIn()
+    {
+        MockTimer timer;
+        transport->addTimer(&timer, 999);
+        CPPUNIT_ASSERT_EQUAL(&timer, LIST_FIRST(&transport->timerList));
+        transport->removeTimer(&timer);
+        CPPUNIT_ASSERT(LIST_EMPTY(&transport->timerList));
+        CPPUNIT_ASSERT_EQUAL(0, timer.when);
+    }
+
+    void
+    test_poll()
+    {
+        MockTSC _(1);
+        MockTimer timer;
+        transport->addTimer(&timer, 1);
+
+        MockReceived recvd(0, 1, "");
+        driver->setInput(&recvd);
+        transport->poll();
+
+        CPPUNIT_ASSERT_EQUAL(2, driver->tryRecvPacketCount);
+        CPPUNIT_ASSERT(LIST_EMPTY(&transport->timerList));
+        CPPUNIT_ASSERT_EQUAL(1, timer.fireTimerCount);
+    }
+
+    void
+    test_poll_noIter()
+    {
+        MockTSC _(1);
+        MockTimer timer;
+        transport->addTimer(&timer, 1);
+
+        transport->poll();
+
+        CPPUNIT_ASSERT_EQUAL(1, driver->tryRecvPacketCount);
+        CPPUNIT_ASSERT(LIST_EMPTY(&transport->timerList));
+        CPPUNIT_ASSERT_EQUAL(1, timer.fireTimerCount);
+    }
+
+    /// A predicate to limit TestLog messages to tryProcessPacket
+    static bool
+    tppPred(string s)
+    {
+        return s == "bool RAMCloud::FastTransport::tryProcessPacket()";
+    }
+
+    void
+    test_tryProcessPacket_noPacketReady()
+    {
+        TestLog::Enable _(&tppPred);
+
+        bool result = transport->tryProcessPacket();
+        CPPUNIT_ASSERT_EQUAL(false, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "no packet ready", TestLog::get());
+    }
+
+    void
+    test_tryProcessPacket_tooSmall()
+    {
+        TestLog::Enable _(&tppPred);
+
+        MockReceived recvd(0, 1, "");
+        // corrupt the size
+        recvd.len = 1;
+        driver->setInput(&recvd);
+
+        bool result = transport->tryProcessPacket();
+        CPPUNIT_ASSERT_EQUAL(true, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "packet too small", TestLog::get());
+    }
+
+    void
+    test_tryProcessPacket_dropped()
+    {
+        TestLog::Enable _(&tppPred);
+
+        MockReceived recvd(0, 1, "");
+        recvd.getHeader()->pleaseDrop = 1;
+        driver->setInput(&recvd);
+
+        bool result = transport->tryProcessPacket();
+        CPPUNIT_ASSERT_EQUAL(true, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "dropped", TestLog::get());
+    }
+
+    void
+    test_tryProcessPacket_c2sGoodHint()
+    {
+        TestLog::Enable _(&tppPred);
+
+        ServerSession* session = transport->serverSessions.get();
+        MockReceived recvd(0, 1, "");
+        recvd.getHeader()->sessionToken = session->token;
+        driver->setInput(&recvd);
+
+        bool result = transport->tryProcessPacket();
+        CPPUNIT_ASSERT_EQUAL(true, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "calling ServerSession::processInboundPacket", TestLog::get());
+    }
+
+    void
+    test_tryProcessPacket_c2sBadHintOpenSession()
+    {
+        TestLog::Enable _(&tppPred);
+
+        ServerSession* session = transport->serverSessions.get();
+        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
+        recvd.getHeader()->sessionToken = session->token + 1;
+        recvd.getHeader()->payloadType = Header::SESSION_OPEN;
+        driver->setInput(&recvd);
+
+        bool result = transport->tryProcessPacket();
+        CPPUNIT_ASSERT_EQUAL(true, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "bad token | "
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "session open", TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(1, transport->serverSessions.size());
+    }
+
+    void
+    test_tryProcessPacket_c2sBadSession()
+    {
+        TestLog::Enable _(&tppPred);
+
+        MockReceived recvd(0, 1, "");
+        driver->setInput(&recvd);
+
+        bool result = transport->tryProcessPacket();
+        CPPUNIT_ASSERT_EQUAL(true, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "bad session", TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(
+            "{ sessionToken:0 rpcId:0 clientSessionHint:0 "
+              "serverSessionHint:0 0/0 frags channel:0 dir:1 reqACK:0 "
+              "drop:0 payloadType:4 } ", driver->outputLog);
+    }
+
+    void
+    test_tryProcessPacket_s2cGoodHint()
+    {
+        TestLog::Enable _(&tppPred);
+
+        transport->getClientSession();
+
+        MockReceived recvd(0, 1, "");
+        recvd.getHeader()->direction = Header::SERVER_TO_CLIENT;
+        driver->setInput(&recvd);
+
+        bool result = transport->tryProcessPacket();
+        CPPUNIT_ASSERT_EQUAL(true, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "client session processing packet", TestLog::get());
+    }
+
+    void
+    test_tryProcessPacket_s2cBadHint()
+    {
+        TestLog::Enable _(&tppPred);
+
+        MockReceived recvd(0, 1, "");
+        recvd.getHeader()->direction = Header::SERVER_TO_CLIENT;
+        driver->setInput(&recvd);
+
+        bool result = transport->tryProcessPacket();
+        CPPUNIT_ASSERT_EQUAL(true, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "Bad client session hint", TestLog::get());
     }
 
   private:
+    Buffer* request;
+    Buffer* response;
+    Service* service;
+    FastTransport* transport;
+    MockDriver* driver;
+    const char* address;
+    uint16_t port;
+
     DISALLOW_COPY_AND_ASSIGN(FastTransportTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(FastTransportTest);
