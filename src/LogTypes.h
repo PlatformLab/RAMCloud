@@ -18,7 +18,7 @@
 
 namespace RAMCloud {
 
-enum log_entry_type_t {
+enum LogEntryType {
     LOG_ENTRY_TYPE_SEGMENT_HEADER   = 0x72646873, // "shdr" in little endian
     LOG_ENTRY_TYPE_SEGMENT_CHECKSUM = 0x6b686373, // "schk" in little endian
     LOG_ENTRY_TYPE_OBJECT           = 0x216a626f, // "obj!" in little endian

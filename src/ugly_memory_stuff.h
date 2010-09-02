@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 /**
  * \file
  * A dumping ground for some memory allocation-related stuff. The issue RAM-48
@@ -46,12 +44,12 @@ xmalloc_aligned_hugetlb(uint64_t len)
         }
         p = (uintptr_t)mmap(0, maxmem, PROT_READ | PROT_WRITE,
                             MAP_SHARED, fd, 0);
-        if ((void *)p == MAP_FAILED) {
+        if (reinterpret_cast<void*>(p) == MAP_FAILED) {
             perror("mmap");
             exit(1);
         }
         memset(reinterpret_cast<void *>(p), 0, maxmem);
-        printf("Allocated hugetlb region at %p\n", (void *)p);
+        printf("Allocated hugetlb region at %p\n", reinterpret_cast<void*>(p));
     }
 
     len += (64 - (len & 63));
@@ -64,7 +62,7 @@ xmalloc_aligned_hugetlb(uint64_t len)
     uintptr_t r = p;
     p += len;
 
-    return ((void *)r);
+    return (reinterpret_cast<void*>(r));
 }
 
 #endif

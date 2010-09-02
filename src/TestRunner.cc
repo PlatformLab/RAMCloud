@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 #include <cppunit/CompilerOutputter.h>
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/ui/text/TestRunner.h>
@@ -23,10 +21,9 @@
 int
 main(int ac, char *av[])
 {
-    using namespace CppUnit;
-
-    TextUi::TestRunner runner;
-    TestFactoryRegistry &registry = TestFactoryRegistry::getRegistry();
+    CppUnit::TextUi::TestRunner runner;
+    CppUnit::TestFactoryRegistry &registry =
+            CppUnit::TestFactoryRegistry::getRegistry();
     runner.addTest(registry.makeTest());
     return !runner.run("", false);
 }

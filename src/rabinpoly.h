@@ -17,54 +17,53 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 #ifndef RAMCLOUD_RABINPOLY_H
 #define RAMCLOUD_RABINPOLY_H 1
 
 #include <sys/types.h>
 #include <string.h>
 
-uint64_t polymod (uint64_t nh, uint64_t nl, uint64_t d);
-uint64_t polygcd (uint64_t x, uint64_t y);
-void polymult (uint64_t *php, uint64_t *plp, uint64_t x, uint64_t y);
-uint64_t polymmult (uint64_t x, uint64_t y, uint64_t d);
-bool polyirreducible (uint64_t f);
+uint64_t polymod(uint64_t nh, uint64_t nl, uint64_t d);
+uint64_t polygcd(uint64_t x, uint64_t y);
+void polymult(uint64_t *php, uint64_t *plp, uint64_t x, uint64_t y);
+uint64_t polymmult(uint64_t x, uint64_t y, uint64_t d);
+bool polyirreducible(uint64_t f);
 
 class rabinpoly {
     int shift;
     uint64_t T[256];                    // Lookup table for mod
-    void calcT ();
-public:
+    void calcT();
+  public:
     const uint64_t poly;                // Actual polynomial
 
-    explicit rabinpoly (uint64_t poly);
-    uint64_t append8 (uint64_t p, uint8_t m) const
+    explicit rabinpoly(uint64_t poly);
+    virtual ~rabinpoly() { }
+    uint64_t append8(uint64_t p, uint8_t m) const
         { return ((p << 8) | m) ^ T[p >> shift]; }
 };
 
 class window : public rabinpoly {
-public:
+  public:
     enum {size = 48};
     //enum {size = 24};
-private:
+  private:
     uint64_t fingerprint;
     int bufpos;
     uint64_t U[256];
     uint8_t buf[size];
 
-public:
-    window (uint64_t poly);
-    uint64_t slide8 (uint8_t m) {
+  public:
+    explicit window(uint64_t poly);
+    uint64_t slide8(uint8_t m) {
         if (++bufpos >= size)
             bufpos = 0;
         uint8_t om = buf[bufpos];
         buf[bufpos] = m;
-        return fingerprint = append8 (fingerprint ^ U[om], m);
+        return fingerprint = append8(fingerprint ^ U[om], m);
     }
-    void reset () {
+    void reset() {
         fingerprint = 0;
-        bzero ((char*) buf, sizeof (buf));
+        bzero(reinterpret_cast<char*>(buf), sizeof(buf));
     }
 };
 

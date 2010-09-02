@@ -450,7 +450,7 @@ BackupServer::getSegmentMetadata(uint64_t segNum,
     Segment seg(&buf[0], SEGMENT_SIZE, 0);
 
     LogEntryIterator iterator(&seg);
-    const log_entry *entry;
+    const LogEntry *entry;
     const void *p;
     uint64_t offset;
 

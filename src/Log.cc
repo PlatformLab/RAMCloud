@@ -13,47 +13,49 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [GCCWARN=5]
-// RAMCloud pragma [CPPLINT=0]
+/**
+ * \file
+ * Implementation of #RAMCloud::Log.
+ */
 
 #include <Log.h>
 
-static const uint64_t cleaner_hiwat = 20;
-static const uint64_t cleaner_lowat = 10;
+static const uint64_t cleanerHiWater = 20;
+static const uint64_t cleanerLowWater = 10;
 
 namespace RAMCloud {
 
 /**
- * Simple iterator for running through a Segment's (log_entry, blob) pairs.
+ * Simple iterator for running through a Segment's (LogEntry, blob) pairs.
  */
 LogEntryIterator::LogEntryIterator(const Segment *s)
     : segment(s), next(0)
 {
     assert(s != NULL);
-    next = (const struct log_entry *)s->getBase();
+    next = (const struct LogEntry *)s->getBase();
     assert(next != NULL);
     if (next->type != LOG_ENTRY_TYPE_SEGMENT_HEADER) {
         printf("next type is not seg hdr, but %llx\n", next->type);
     }
     assert(next->type == LOG_ENTRY_TYPE_SEGMENT_HEADER);
-    assert(next->length == sizeof(struct segment_header));
+    assert(next->length == sizeof(struct SegmentHeader));
 }
 
 /**
- * Get the next (log_entry, blob) pair from the Segment, returning immutable
- * pointers to the log_entry structure and the object iself, as well as the
- * byte offset of the log_entry structure in the Segment.
+ * Get the next (LogEntry, blob) pair from the Segment, returning immutable
+ * pointers to the LogEntry structure and the object iself, as well as the
+ * byte offset of the LogEntry structure in the Segment.
  *
- * \param[out]   le     Immutable log_entry structure pointer
+ * \param[out]   le     Immutable LogEntry structure pointer
  * \param[out]   p      Immutable blob pointer
- * \param[out]   offset If non-NULL, store the offset of the log_entry in the
+ * \param[out]   offset If non-NULL, store the offset of the LogEntry in the
  *                      Segment.
  * \return True or False
- * \retval True if there was another (log_entry, blob) pair.
+ * \retval True if there was another (LogEntry, blob) pair.
  * \retval False if the Segment has been iterated through.
  */
 bool
-LogEntryIterator::getNextAndOffset(const struct log_entry **le,
+LogEntryIterator::getNextAndOffset(const struct LogEntry **le,
                                    const void **p,
                                    uint64_t *offset)
 {
@@ -63,13 +65,14 @@ LogEntryIterator::getNextAndOffset(const struct log_entry **le,
     if (le != NULL)
         *le = next;
     if (p != NULL)
-        *p = (uint8_t *)next + sizeof(*next);
+        *p = reinterpret_cast<const uint8_t*>(next) + sizeof(*next);
 
-    const struct log_entry *nle =
-        (struct log_entry *)((uint8_t *)next + sizeof(*next) + next->length);
+    const struct LogEntry *nle =
+            (struct LogEntry *)(reinterpret_cast<const uint8_t*>(next) +
+            sizeof(*next) + next->length);
     if (next->length != 0 &&
-        next->type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM &&
-        segment->checkRange(nle, sizeof(*nle))) {
+            next->type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM &&
+            segment->checkRange(nle, sizeof(*nle))) {
         assert(segment->checkRange(nle, sizeof(*nle) + nle->length));
         next = nle;
     } else {
@@ -77,29 +80,29 @@ LogEntryIterator::getNextAndOffset(const struct log_entry **le,
     }
     if (next && offset)
         *offset = reinterpret_cast<uintptr_t>(next) -
-            reinterpret_cast<uintptr_t>(segment->getBase());
+                reinterpret_cast<uintptr_t>(segment->getBase());
 
     return true;
 }
 
 /**
- * Get the next (log_entry, blob) pair from the Segment, returning immutable
- * pointers to the log_entry structure and the object iself.
+ * Get the next (LogEntry, blob) pair from the Segment, returning immutable
+ * pointers to the LogEntry structure and the object iself.
  *
- * \param[out]   le     Immutable log_entry structure pointer
+ * \param[out]   le     Immutable LogEntry structure pointer
  * \param[out]   p      Immutable blob pointer
  * \return True or False
- * \retval True if there was another (log_entry, blob) pair.
+ * \retval True if there was another (LogEntry, blob) pair.
  * \retval False if the Segment has been iterated through.
  */
 bool
-LogEntryIterator::getNext(const struct log_entry **le, const void **p)
+LogEntryIterator::getNext(const struct LogEntry **le, const void **p)
 {
     return getNextAndOffset(le, p, 0);
 }
 
-  /**************************/
- /**** Public Interface ****/
+/**************************/
+/**** Public Interface ****/
 /**************************/
 
 Log::Log(const uint64_t segsize,
@@ -108,35 +111,35 @@ Log::Log(const uint64_t segsize,
          BackupClient *backup_client)
     : numCallbacks(0),
       nextSegmentId(SEGMENT_INVALID_ID + 1),
-      max_append(0),
-      segment_size(segsize),
+      maxAppend(0),
+      segmentSize(segsize),
       base(buf),
       segments(0),
       head(0),
-      free_list(0),
-      nsegments(len / segment_size),
-      nfree_list(0),
-      bytes_stored(0),
+      freeList(0),
+      nsegments(len / segmentSize),
+      nFreeList(0),
+      bytesStored(0),
       cleaning(false),
       backup(backup_client)
 {
     // at a minimum, we'll have a segment header, one object, and a segment
     // checksum
-    uint64_t min_meta = (3 * sizeof(struct log_entry)) +
-        sizeof(struct segment_header) + sizeof(struct segment_checksum);
-    assert(min_meta <= len);
-    max_append = segment_size - min_meta;
+    uint64_t minMeta = (3 * sizeof(struct LogEntry)) +
+            sizeof(struct SegmentHeader) + sizeof(struct SegmentChecksum);
+    assert(minMeta <= len);
+    maxAppend = segmentSize - minMeta;
 
-    segments = (Segment **)xmalloc(nsegments * sizeof(segments[0]));
+    segments = static_cast<Segment**>(xmalloc(nsegments * sizeof(segments[0])));
     for (uint64_t i = 0; i < nsegments; i++) {
-        void *base  = (uint8_t *)buf + (i * segment_size);
-        segments[i] = new Segment(base, segment_size, backup);
-        free_list   = segments[i]->link(free_list);
-        nfree_list++;
+        void *base  = static_cast<uint8_t*>(buf) + (i * segmentSize);
+        segments[i] = new Segment(base, segmentSize, backup);
+        freeList   = segments[i]->link(freeList);
+        nFreeList++;
     }
 
-    assert(nsegments == nfree_list);
-    assert(nfree_list > 0);
+    assert(nsegments == nFreeList);
+    assert(nFreeList > 0);
 }
 
 /**
@@ -148,16 +151,16 @@ Log::Log(const uint64_t segsize,
  * \param[in]   cookie  Opaque cookie to provide to the callback.
  */
 void
-Log::forEachEntry(const Segment *seg, log_entry_cb_t cb, void *cookie)
+Log::forEachEntry(const Segment *seg, LogEntryCallback cb, void *cookie)
 {
     assert(cb);
 
     LogEntryIterator lei(seg);
-    const log_entry *le;
+    const LogEntry *le;
     const void *p;
 
     while (lei.getNext(&le, &p)) {
-        cb((log_entry_type_t)le->type, p, le->length, cookie);
+        cb((LogEntryType)le->type, p, le->length, cookie);
         // TODO(stutsman) maybe return amount to add to bytes stored?
     }
 }
@@ -172,7 +175,7 @@ Log::forEachEntry(const Segment *seg, log_entry_cb_t cb, void *cookie)
  * \param[in]   cookie  Opaque cookie to provide to the callback.
  */
 void
-Log::forEachSegment(log_segment_cb_t cb, uint64_t limit, void *cookie)
+Log::forEachSegment(LogSegmentCallback cb, uint64_t limit, void *cookie)
 {
     for (uint64_t i = 0; i < nsegments && i < limit; i++)
         cb(segments[i], cookie);
@@ -186,9 +189,9 @@ Log::forEachSegment(log_segment_cb_t cb, uint64_t limit, void *cookie)
 uint64_t
 Log::restore()
 {
-    // TODO Sort this list?
+    // TODO(rumble) Sort this list?
     printf("Restoring from backup before service\n");
-    // TODO this is wrong for now - how do we want to determine the
+    // TODO(rumble) this is wrong for now - how do we want to determine the
     // number (or max num) of segment frames on backups?
     uint64_t list[nsegments];
     size_t count = backup->getSegmentList(&list[0], nsegments);
@@ -201,9 +204,9 @@ Log::restore()
     assert(count <= nsegments);
     for (uint64_t i = 0; i < count; i++) {
         printf("Restoring %llu:\n", i);
-        head      = free_list;
-        free_list = free_list->unlink();
-        nfree_list--;
+        head      = freeList;
+        freeList = freeList->unlink();
+        nFreeList--;
         head->restore(list[i]);
     }
 
@@ -218,12 +221,12 @@ Log::restore()
 void
 Log::init()
 {
-    head = free_list;
-    free_list = free_list->unlink();
-    nfree_list--;
+    head = freeList;
+    freeList = freeList->unlink();
+    nFreeList--;
     head->ready(allocateSegmentId());
 
-    struct segment_header sh;
+    struct SegmentHeader sh;
     sh.id = 0;
 
     const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER,
@@ -288,7 +291,7 @@ Log::getSegmentIdOffset(const void *p, uint64_t *id, uint32_t *offset) const
  * \retval A valid pointer into the Log if the append succeeded.
  */
 const void *
-Log::append(log_entry_type_t type, const void *buf, const uint64_t len)
+Log::append(LogEntryType type, const void *buf, const uint64_t len)
 {
     if (type == LOG_ENTRY_TYPE_SEGMENT_HEADER ||
         type == LOG_ENTRY_TYPE_SEGMENT_CHECKSUM)
@@ -305,19 +308,19 @@ Log::append(log_entry_type_t type, const void *buf, const uint64_t len)
  * \param[in]   len     Length of the blob being freed.
  */
 void
-Log::free(log_entry_type_t type, const void *buf, const uint64_t len)
+Log::free(LogEntryType type, const void *buf, const uint64_t len)
 {
-    struct log_entry *le = (struct log_entry *)((uintptr_t)buf -
+    struct LogEntry *le = (struct LogEntry *)((uintptr_t)buf -
                                                     sizeof(*le));
     Segment *s = getSegment(le, len + sizeof(*le));
 
-    assert(le->type == type);
+    assert(le->type == static_cast<uint32_t>(type));
     assert(le->length == len);
     assert(type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
            type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM);
-    assert(len <= bytes_stored);
+    assert(len <= bytesStored);
 
-    // Note that we do not adjust the 'bytes_stored' count here,
+    // Note that we do not adjust the 'bytesStored' count here,
     // but do so only during cleaning.
 
     s->free(len + sizeof(*le));
@@ -329,9 +332,9 @@ Log::free(log_entry_type_t type, const void *buf, const uint64_t len)
         assert(!cleaning);
 
         assert(s->unlink() == NULL);
-        free_list = s->link(free_list);
-        assert(free_list->getUtilization() == 0);
-        nfree_list++;
+        freeList = s->link(freeList);
+        assert(freeList->getUtilization() == 0);
+        nFreeList++;
         if (s == head) {
             retireHead();
             assert(head == NULL);
@@ -349,12 +352,13 @@ Log::free(log_entry_type_t type, const void *buf, const uint64_t len)
  * \param[in]   cookie      An opaque cookie to be provided to the callback.
  */
 void
-Log::registerType(log_entry_type_t type,
-                  log_eviction_cb_t evict_cb,
+Log::registerType(LogEntryType type,
+                  LogEvictionCallback evict_cb,
                   void *cookie)
 {
     assert(evict_cb != NULL);
-    assert(numCallbacks < sizeof(callbacks)/sizeof(callbacks[0]));
+    assert(numCallbacks < static_cast<int>(sizeof(callbacks)/
+                sizeof(callbacks[0])));
 
     callbacks[numCallbacks].cb = evict_cb;
     callbacks[numCallbacks].type = type;
@@ -371,19 +375,20 @@ Log::printStats()
 {
     printf("::LOG STATS::\n");
     printf("  segment len:           %" PRIu64 " (%.3fMB)\n",
-           segment_size, (float)segment_size / (1024*1024));
+           segmentSize, static_cast<float>(segmentSize) / (1024*1024));
     printf("  num segments:          %" PRIu64 "\n",
            nsegments);
     printf("  cumulative storage:    %" PRIu64 " (%.3fMB)\n",
-           (nsegments * segment_size),
-           (float)(nsegments * segment_size) / (1024*1024));
+           (nsegments * segmentSize),
+           static_cast<float>(nsegments * segmentSize) / (1024*1024));
     printf("  non-meta bytes stored: %" PRIu64 " (%.3fMB)\n",
-           bytes_stored, (float)bytes_stored / (1024*1024));
+           bytesStored, static_cast<float>(bytesStored) / (1024*1024));
     printf("  non-meta utilization:  %.3f%%\n",
-           (float)bytes_stored / (nsegments * segment_size) * 100.0);
+           static_cast<float>(bytesStored) / (nsegments * segmentSize) *
+           100.0);
     printf("  non-meta efficiency:   %.3f%%\n",
-           (float)bytes_stored / ((nsegments - nfree_list) *
-                                  segment_size) * 100.0);
+           static_cast<float>(bytesStored) / ((nsegments - nFreeList) *
+           segmentSize) * 100.0);
 }
 
 /**
@@ -395,11 +400,11 @@ Log::printStats()
 uint64_t
 Log::getMaximumAppend()
 {
-    return max_append;
+    return maxAppend;
 }
 
-  /*************************/
- /**** Private Methods ****/
+/*************************/
+/**** Private Methods ****/
 /*************************/
 
 /**
@@ -422,8 +427,8 @@ Log::allocateSegmentId()
  * \retval NULL if the given entry type was not registered.
  * \retval A valid callback function pointer if the type was registered.
  */
-log_eviction_cb_t
-Log::getEvictionCallback(log_entry_type_t type, void **cookie)
+LogEvictionCallback
+Log::getEvictionCallback(LogEntryType type, void **cookie)
 {
     for (int i = 0; i < numCallbacks; i++) {
         if (callbacks[i].type == type) {
@@ -450,15 +455,15 @@ Log::getSegment(const void *p, uint64_t len) const
 {
     uintptr_t up  = (uintptr_t)p;
     uintptr_t ub  = (uintptr_t)base;
-    uintptr_t max = (uintptr_t)base + (segment_size * nsegments);
+    uintptr_t max = (uintptr_t)base + (segmentSize * nsegments);
 
     assert(up >= ub && (up + len) <= max);
-    uintptr_t segno = (up - ub) / segment_size;
+    uintptr_t segno = (up - ub) / segmentSize;
     assert(segno < nsegments);
 
     Segment *s = segments[segno];
     uintptr_t sb = (uintptr_t)s->getBase();
-    assert(up >= sb && (up + len) <= (sb + segment_size));
+    assert(up >= sb && (up + len) <= (sb + segmentSize));
 
     return (s);
 }
@@ -472,7 +477,7 @@ Log::getSegment(const void *p, uint64_t len) const
  * we do not recurse into cleaning!
  *
  * Segments are cleaned until the number of Segments on the free list reaches
- * 'cleaner_hiwat'.
+ * 'cleanerHiWater'.
  */
 void
 Log::clean()
@@ -497,11 +502,11 @@ Log::clean()
         if (s == head)
             continue;
 
-        if (nfree_list >= cleaner_hiwat)
+        if (nFreeList >= cleanerHiWater)
             break;
 
         uint64_t util = s->getUtilization();
-        if (util != 0 && util < (3 * segment_size / 4)) {
+        if (util != 0 && util < (3 * segmentSize / 4)) {
             // Note that since our segments are immutable (when not writing to
             // the head) we may certainly iterate over objects for which
             // log_free() has already been called. That's fine - it's up to the
@@ -511,28 +516,28 @@ Log::clean()
             // since for already freed space, we'll double-count.
 
             LogEntryIterator lei(s);
-            const struct log_entry *le;
+            const struct LogEntry *le;
             const void *p;
 
             while (lei.getNext(&le, &p)) {
                 void *cookie;
-                log_eviction_cb_t cb =
-                    getEvictionCallback((log_entry_type_t)le->type, &cookie);
+                LogEvictionCallback cb =
+                    getEvictionCallback((LogEntryType)le->type, &cookie);
 
                 if (le->type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
                     le->type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
-                    assert(le->length <= bytes_stored);
-                    bytes_stored -= le->length;
+                    assert(le->length <= bytesStored);
+                    bytesStored -= le->length;
                 }
 
                 if (cb != NULL)
-                    cb((log_entry_type_t)le->type, p, le->length, cookie);
+                    cb((LogEntryType)le->type, p, le->length, cookie);
             }
 
             assert(s->unlink() == NULL);
             s->reset();
-            free_list = s->link(free_list);
-            nfree_list++;
+            freeList = s->link(freeList);
+            nFreeList++;
         }
     }
 
@@ -555,7 +560,7 @@ Log::newHead()
 
     assert(head == NULL);
 
-    if (nfree_list < cleaner_lowat) {
+    if (nFreeList < cleanerLowWater) {
         clean();
 
         // while cleaning, we may have had to re-write live
@@ -571,19 +576,19 @@ Log::newHead()
 
     assert(head == NULL);
 
-    if (free_list == NULL) {
-        assert(nfree_list == 0);
+    if (freeList == NULL) {
+        assert(nFreeList == 0);
         return false;
     }
 
-    head = free_list;
-    free_list = head->unlink();
-    nfree_list--;
+    head = freeList;
+    freeList = head->unlink();
+    nFreeList--;
     head->ready(allocateSegmentId());
 
     assert(head->getUtilization() == 0);
 
-    struct segment_header sh;
+    struct SegmentHeader sh;
     sh.id = head->getId();
 
     const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER,
@@ -601,9 +606,9 @@ Log::checksumHead()
 {
     assert(head != NULL);
     assert(head->getFreeTail() >=
-           (sizeof(struct log_entry) + sizeof(struct segment_checksum)));
+           (sizeof(struct LogEntry) + sizeof(struct SegmentChecksum)));
 
-    struct segment_checksum sc;
+    struct SegmentChecksum sc;
     sc.checksum = 0xbeefcafebeefcafeULL;
     appendAnyType(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM, &sc, sizeof(sc));
 }
@@ -636,23 +641,23 @@ Log::retireHead()
  * \retval A valid pointer into the Log if the append succeeded.
  */
 const void *
-Log::appendAnyType(log_entry_type_t type, const void *buf, const uint64_t len)
+Log::appendAnyType(LogEntryType type, const void *buf, const uint64_t len)
 {
-    assert(len <= max_append);
+    assert(len <= maxAppend);
 
     if (head == NULL && !newHead())
         return NULL;
 
-    assert(len < segment_size);
+    assert(len < segmentSize);
 
     // ensure enough room exists to write the log entry meta, the object, and
     // reserve space for the checksum & meta at the end
-    struct log_entry le;
-    uint64_t needed = len + (2 * sizeof(le)) + sizeof(struct segment_checksum);
+    struct LogEntry le;
+    uint64_t needed = len + (2 * sizeof(le)) + sizeof(struct SegmentChecksum);
     if (head->getFreeTail() < needed) {
         if (type == LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
             assert(head->getFreeTail() >=
-                   (sizeof(le) + sizeof(struct segment_checksum)));
+                   (sizeof(le) + sizeof(struct SegmentChecksum)));
         } else {
             if (!newHead())
                 return NULL;
@@ -677,8 +682,8 @@ Log::appendAnyType(log_entry_type_t type, const void *buf, const uint64_t len)
 
     if (type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
         type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
-        bytes_stored += len;
-        assert(bytes_stored <= (nsegments * segment_size));
+        bytesStored += len;
+        assert(bytesStored <= (nsegments * segmentSize));
     }
 
     return r;

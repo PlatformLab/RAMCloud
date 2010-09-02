@@ -28,11 +28,11 @@
 
 namespace RAMCloud {
 
-void objectEvictionCallback(log_entry_type_t type,
+void objectEvictionCallback(LogEntryType type,
                          const void* p,
                          uint64_t len,
                          void* cookie);
-void tombstoneEvictionCallback(log_entry_type_t type,
+void tombstoneEvictionCallback(LogEntryType type,
                          const void* p,
                          uint64_t len,
                          void* cookie);
@@ -596,7 +596,7 @@ struct obj_replay_cookie {
  * \param[in]  cookie   the opaque state pointer registered with the callback
  */
 void
-objectEvictionCallback(log_entry_type_t type,
+objectEvictionCallback(LogEntryType type,
                     const void *p,
                     uint64_t len,
                     void *cookie)
@@ -627,7 +627,7 @@ objectEvictionCallback(log_entry_type_t type,
 }
 
 void
-objectReplayCallback(log_entry_type_t type,
+objectReplayCallback(LogEntryType type,
                      const void *p,
                      uint64_t len,
                      void *cookiep)
@@ -666,7 +666,7 @@ objectReplayCallback(log_entry_type_t type,
 void
 segmentReplayCallback(Segment *seg, void *cookie)
 {
-    // TODO(stutsman) we can restore bytes_stored in the log easily
+    // TODO(stutsman) we can restore bytesStored in the log easily
     // using the same approach as for the individual segments
     Server *server = static_cast<Server *>(cookie);
 
@@ -695,7 +695,7 @@ segmentReplayCallback(Segment *seg, void *cookie)
  * \param[in]  cookie   the opaque state pointer registered with the callback
  */
 void
-tombstoneEvictionCallback(log_entry_type_t type,
+tombstoneEvictionCallback(LogEntryType type,
                     const void *p,
                     uint64_t len,
                     void *cookie)

@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 #include <config.h>
 
 #include <Server.h>
@@ -51,10 +49,10 @@ cmdline(int argc, char *argv[], RAMCloud::ServerConfig *config)
         {"address", required_argument, NULL, 'a'},
         {"cpu", required_argument, NULL, 'a'},
         {"verbose", optional_argument, NULL, 'v'},
-        {0,0,0,0},
+        {0, 0, 0, 0},
     };
 
-    while((c = getopt_long(argc, argv, "rp:a:c:v::", long_options, &i)) >= 0) {
+    while ((c = getopt_long(argc, argv, "rp:a:c:v::", long_options, &i)) >= 0) {
         switch (c) {
         case 'r':
             config->restore = true;

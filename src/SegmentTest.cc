@@ -12,9 +12,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [GCCWARN=5]
-// RAMCloud pragma [CPPLINT=0]
-
 #include <Common.h>
 #include <Segment.h>
 #include <BackupClient.h>
@@ -37,6 +34,7 @@ class SegmentTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(TestGetUtilization);
     CPPUNIT_TEST(TestCheckRange);
     CPPUNIT_TEST(TestFinalize);
+    CPPUNIT_TEST(TestRestore);
     CPPUNIT_TEST(TestLink);
     CPPUNIT_TEST(TestUnlink);
     CPPUNIT_TEST_SUITE_END();
@@ -67,9 +65,9 @@ class SegmentTest : public CppUnit::TestFixture {
     void
     TestInit()
     {
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, seg->total_bytes);
-        CPPUNIT_ASSERT_EQUAL(seg->total_bytes, seg->free_bytes);
-        CPPUNIT_ASSERT_EQUAL(seg->total_bytes, seg->tail_bytes);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, seg->totalBytes);
+        CPPUNIT_ASSERT_EQUAL(seg->totalBytes, seg->freeBytes);
+        CPPUNIT_ASSERT_EQUAL(seg->totalBytes, seg->tailBytes);
         CPPUNIT_ASSERT_EQUAL(false, seg->isMutable);
         CPPUNIT_ASSERT_EQUAL(SEGMENT_INVALID_ID, seg->id);
         CPPUNIT_ASSERT_EQUAL(backup, seg->backup);
@@ -98,7 +96,7 @@ class SegmentTest : public CppUnit::TestFixture {
         TestInit();
     }
 
-    void 
+    void
     TestAppend()
     {
         TestReady();
@@ -106,9 +104,9 @@ class SegmentTest : public CppUnit::TestFixture {
         const void *p = seg->append("hi!", 4);
 
         CPPUNIT_ASSERT(p != NULL);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, seg->total_bytes);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE - 4, seg->free_bytes);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE - 4, seg->tail_bytes);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, seg->totalBytes);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE - 4, seg->freeBytes);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE - 4, seg->tailBytes);
     }
 
     void
@@ -120,9 +118,9 @@ class SegmentTest : public CppUnit::TestFixture {
         const void *p = seg->append(buf, SEGMENT_SIZE);
 
         CPPUNIT_ASSERT(p != NULL);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, seg->total_bytes);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->free_bytes);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->tail_bytes);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, seg->totalBytes);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->freeBytes);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->tailBytes);
         CPPUNIT_ASSERT(memcmp(p, buf, SEGMENT_SIZE) == 0);
 
         free(buf);
@@ -133,9 +131,9 @@ class SegmentTest : public CppUnit::TestFixture {
     {
         TestReady();
 
-        uint64_t last = seg->tail_bytes;
+        uint64_t last = seg->tailBytes;
         for (int i = 0; ; i++) {
-            char chr = (char)i;
+            char chr = i;
             const void *p = seg->append(&chr, 1);
             if (p == NULL)
                 break;
@@ -144,14 +142,14 @@ class SegmentTest : public CppUnit::TestFixture {
             // on my machine (using 3MB segments). -Diego
             if (memcmp(p, &chr, 1) != 0)
                 CPPUNIT_ASSERT(false);
-            if (seg->tail_bytes + 1 != last)
+            if (seg->tailBytes + 1 != last)
                 CPPUNIT_ASSERT(false);
 
-            last = seg->tail_bytes;
+            last = seg->tailBytes;
         }
 
-        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->free_bytes);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->tail_bytes);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->freeBytes);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->tailBytes);
     }
 
     void
@@ -168,11 +166,11 @@ class SegmentTest : public CppUnit::TestFixture {
         TestReady();
         seg->append("obj0_version0!", 15);
         seg->append("obj0_version1!", 15);
-        CPPUNIT_ASSERT_EQUAL(seg->total_bytes - 30, seg->free_bytes);
-        CPPUNIT_ASSERT_EQUAL(seg->total_bytes - 30, seg->tail_bytes);
+        CPPUNIT_ASSERT_EQUAL(seg->totalBytes - 30, seg->freeBytes);
+        CPPUNIT_ASSERT_EQUAL(seg->totalBytes - 30, seg->tailBytes);
         seg->free(15);
-        CPPUNIT_ASSERT_EQUAL(seg->total_bytes - 15, seg->free_bytes);
-        CPPUNIT_ASSERT_EQUAL(seg->total_bytes - 30, seg->tail_bytes);
+        CPPUNIT_ASSERT_EQUAL(seg->totalBytes - 15, seg->freeBytes);
+        CPPUNIT_ASSERT_EQUAL(seg->totalBytes - 30, seg->tailBytes);
     }
 
     void
@@ -180,9 +178,9 @@ class SegmentTest : public CppUnit::TestFixture {
     {
         TestReady();
         CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->getUtilization());
-        
+
         char buf[10000];
-        seg->append(buf, sizeof(buf)); 
+        seg->append(buf, sizeof(buf));
         CPPUNIT_ASSERT_EQUAL(sizeof(buf), seg->getUtilization());
 
         seg->free(1001);
@@ -237,7 +235,7 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(n == seg->next);
         CPPUNIT_ASSERT(seg == n->prev);
         CPPUNIT_ASSERT(NULL == n->next);
-    
+
         delete n;
     }
 
@@ -246,7 +244,7 @@ class SegmentTest : public CppUnit::TestFixture {
     {
         Segment *ret = seg->unlink();
         CPPUNIT_ASSERT(NULL == ret);
-    
+
         char buf[100];
         Segment *n = new Segment(buf, sizeof(buf), backup);
 
@@ -259,13 +257,13 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(NULL == n->prev);
 
         seg->link(n);
-        ret = n->unlink();    
+        ret = n->unlink();
         CPPUNIT_ASSERT(NULL == ret);
         CPPUNIT_ASSERT(NULL == seg->next);
         CPPUNIT_ASSERT(NULL == seg->prev);
         CPPUNIT_ASSERT(NULL == n->next);
         CPPUNIT_ASSERT(NULL == n->prev);
-    
+
         delete n;
     }
 

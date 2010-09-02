@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 #include <Bitmap.h>
 
 #include <cppunit/extensions/HelperMacros.h>
@@ -22,7 +20,6 @@
 namespace RAMCloud {
 
 class BitmapTest : public CppUnit::TestFixture {
-    DISALLOW_COPY_AND_ASSIGN(BitmapTest);
     CPPUNIT_TEST_SUITE(BitmapTest);
     CPPUNIT_TEST(test__sanityCheck);
     CPPUNIT_TEST_SUITE_END();
@@ -99,6 +96,7 @@ class BitmapTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(f.nextSet(0) == 5);
     }
 
+    DISALLOW_COPY_AND_ASSIGN(BitmapTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BitmapTest);
 
