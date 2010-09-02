@@ -23,6 +23,7 @@ TESTS_SRCFILES := \
         src/LoggingTest.cc \
         src/MetricsTest.cc \
         src/StatusTest.cc \
+        src/ServiceLocatorTest.cc \
         src/TestRunner.cc \
         src/TestUtil.cc \
         src/MockTransport.cc \
@@ -39,7 +40,7 @@ TESTS_OBJFILES := $(sort \
                $(CLIENT_OBJFILES) \
                $(BACKUP_OBJFILES))
 
-TESTS_LIB := -lcppunit -ldl
+TESTS_LIB := -lcppunit -ldl -lpcrecpp -lm
 
 $(OBJDIR)/%Test.cc: $(TOP)/src/%Test.in.cc $(TOP)/mock.py
 	$(TOP)/mock.py $< $@
@@ -55,27 +56,27 @@ test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telne
 
 $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) -o $@ $^
+	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/Echo: $(OBJDIR)/Echo.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) -o $@ $^
+	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/FastEcho: $(OBJDIR)/FastEcho.o $(OBJDIR)/Driver.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) -o $@ $^
+	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/Telnet: $(OBJDIR)/Telnet.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) -o $@ $^
+	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/FastTelnet: $(OBJDIR)/FastTelnet.o $(OBJDIR)/Driver.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) -o $@ $^
+	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
-	$(CXX) -o $@ $^
+	$(CXX) $(LIBS) -o $@ $^
 
 .PHONY: mockpy-test
 mockpy-test:

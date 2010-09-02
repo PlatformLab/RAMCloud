@@ -23,6 +23,7 @@
 #define RAMCLOUD_COMMON_H
 
 // requires 0x for cstdint
+#define __STDC_LIMIT_MACROS
 #include <stdint.h>
 
 // #include <cinttypes> // this requires c++0x support because it's c99

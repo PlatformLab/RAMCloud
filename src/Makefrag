@@ -10,6 +10,7 @@ SHARED_SRCFILES := \
                 src/rabinpoly.cc \
                 src/Buffer.cc \
                 src/Service.cc \
+                src/ServiceLocator.cc \
                 src/Driver.cc \
                 src/UDPDriver.cc \
                 src/TCPTransport.cc \
