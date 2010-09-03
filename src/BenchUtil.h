@@ -18,7 +18,7 @@
  * Header file for utilities useful in benchmarking.
  */
 
-#include <Common.h>
+#include "Common.h"
 
 #ifndef RAMCLOUD_BENCHUTIL_H
 #define RAMCLOUD_BENCHUTIL_H

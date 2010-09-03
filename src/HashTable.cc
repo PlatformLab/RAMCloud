@@ -18,16 +18,15 @@
  * Implementation for HashTable.
  */
 
-#include <HashTable.h>
-
-#include <Common.h>
-#include <ugly_memory_stuff.h>
-
 #include <stdint.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
+
+#include "Common.h"
+#include "HashTable.h"
+#include "ugly_memory_stuff.h"
 
 namespace RAMCloud {
 

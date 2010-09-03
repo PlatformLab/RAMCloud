@@ -18,9 +18,9 @@
  * This file implements functions in the Static:: namespace
  */
 
-#include <Common.h>
-#include <Status.h>
-#include <ClientException.h>
+#include "Common.h"
+#include "Status.h"
+#include "ClientException.h"
 
 namespace RAMCloud {
 

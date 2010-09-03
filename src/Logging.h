@@ -21,7 +21,7 @@
 #ifndef RAMCLOUD_LOGGING_H
 #define RAMCLOUD_LOGGING_H
 
-#include <Common.h>
+#include "Common.h"
 
 namespace RAMCloud {
 

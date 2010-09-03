@@ -16,9 +16,9 @@
 #ifndef RAMCLOUD_SEGMENT_H
 #define RAMCLOUD_SEGMENT_H
 
-#include <Common.h>
+#include "Common.h"
 
-#include <BackupClient.h>
+#include "BackupClient.h"
 
 namespace RAMCloud {
 

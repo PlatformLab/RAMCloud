@@ -12,12 +12,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Common.h>
-#include <Segment.h>
-#include <BackupClient.h>
-#include <config.h> // for SEGMENT_SIZE
-
 #include <cppunit/extensions/HelperMacros.h>
+
+#include "Common.h"
+#include "Segment.h"
+#include "BackupClient.h"
+#include "config.h"
 
 namespace RAMCloud {
 

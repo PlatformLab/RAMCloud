@@ -21,8 +21,8 @@
 #ifndef RAMCLOUD_TABLE_H
 #define RAMCLOUD_TABLE_H
 
-#include <Common.h>
-#include <HashTable.h>
+#include "Common.h"
+#include "HashTable.h"
 
 namespace RAMCloud {
 

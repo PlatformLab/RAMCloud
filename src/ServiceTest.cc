@@ -17,9 +17,9 @@
  * \file ServiceTest.cc Unit tests for Service.
  */
 
-#include <Service.h>
-
 #include <cppunit/extensions/HelperMacros.h>
+
+#include "Service.h"
 
 namespace RAMCloud {
 

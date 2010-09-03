@@ -18,7 +18,7 @@
  * Contains the implementation for the RAMCloud::Buffer class.
  */
 
-#include <Buffer.h>
+#include "Buffer.h"
 
 #include <string.h>
 #include <algorithm>

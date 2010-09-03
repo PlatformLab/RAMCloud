@@ -27,14 +27,14 @@
 #define BEGIN_MOCK "fail, see above"
 #define END_MOCK "fail, see above"
 
-#include <Common.h>
-#include <TCPTransport.h>
-
 #include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <cppunit/extensions/HelperMacros.h>
+
+#include "Common.h"
+#include "TCPTransport.h"
 
 namespace RAMCloud {
 

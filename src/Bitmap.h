@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Common.h>
+#include "Common.h"
 
 #ifndef RAMCLOUD_BITMAP_H
 #define RAMCLOUD_BITMAP_H

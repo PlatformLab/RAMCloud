@@ -18,17 +18,15 @@
  * Unit tests for BackupServer.
  */
 
-#include <BackupServer.h>
-
-#include <backuprpc.h>
-#include <Log.h>
-#include <Server.h>
-#include <MockTransport.h>
-
 #include <cppunit/extensions/HelperMacros.h>
-
 #include <string>
 #include <cstring>
+
+#include "BackupServer.h"
+#include "backuprpc.h"
+#include "Log.h"
+#include "Server.h"
+#include "MockTransport.h"
 
 namespace RAMCloud {
 

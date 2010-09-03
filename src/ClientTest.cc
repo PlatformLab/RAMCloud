@@ -18,11 +18,11 @@
  * Unit tests for RAMCloud::Client.
  */
 
-#include <Buffer.h>
-#include <Common.h>
-#include <Client.h>
-#include <TestUtil.h>
-#include <MockTransport.h>
+#include "Buffer.h"
+#include "Common.h"
+#include "Client.h"
+#include "TestUtil.h"
+#include "MockTransport.h"
 
 namespace RAMCloud {
 

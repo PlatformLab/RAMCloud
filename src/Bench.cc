@@ -16,12 +16,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-
-#include <Client.h>
-
 #include <assert.h>
 #include <getopt.h>
 #include <errno.h>
+
+#include "Client.h"
 
 namespace RC = RAMCloud;
 

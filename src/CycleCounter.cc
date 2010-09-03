@@ -18,7 +18,7 @@
  * Implementation for CycleCounter.
  */
 
-#include <CycleCounter.h>
+#include "CycleCounter.h"
 
 namespace RAMCloud {
 

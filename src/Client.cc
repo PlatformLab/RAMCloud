@@ -19,9 +19,9 @@
  */
 
 #include <assert.h>
-#include <Client.h>
-#include <ClientException.h>
-#include <TCPTransport.h>
+#include "Client.h"
+#include "ClientException.h"
+#include "TCPTransport.h"
 
 namespace RAMCloud {
 

@@ -18,7 +18,7 @@
  * Implementation of #RAMCloud::Segment.
  */
 
-#include <Segment.h>
+#include "Segment.h"
 
 namespace RAMCloud {
 

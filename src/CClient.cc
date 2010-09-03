@@ -18,10 +18,10 @@
  * This file provides a C wrapper around the RAMCloud client code.
  */
 
-#include <Client.h>
-#include <CClient.h>
-#include <ClientException.h>
-#include <TCPTransport.h>
+#include "Client.h"
+#include "CClient.h"
+#include "ClientException.h"
+#include "TCPTransport.h"
 
 using namespace RAMCloud;
 

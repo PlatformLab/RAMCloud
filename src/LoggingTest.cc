@@ -18,7 +18,7 @@
  * Unit tests for debug logs.
  */
 
-#include <TestUtil.h>
+#include "TestUtil.h"
 
 namespace RAMCloud {
 

@@ -13,9 +13,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Bitmap.h>
-
 #include <cppunit/extensions/HelperMacros.h>
+
+#include "Bitmap.h"
 
 namespace RAMCloud {
 

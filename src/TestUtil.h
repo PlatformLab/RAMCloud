@@ -22,9 +22,9 @@
 #ifndef RAMCLOUD_TESTUTIL_H
 #define RAMCLOUD_TESTUTIL_H
 
-#include <Common.h>
 #include <cppunit/extensions/HelperMacros.h>
 #include <regex.h>
+#include "Common.h"
 
 namespace CppUnit {
 

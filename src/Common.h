@@ -46,10 +46,7 @@
 using std::string;
 #endif
 
-// cpplint thinks these are system headers since we're using angle brackets.
-// Then it complains that they're not included first, but really it wants
-// application headers last.
-#include <config.h> // NOLINT
+#include "config.h"
 
 // A macro to disallow the copy constructor and operator= functions
 // This should be used in the private: declarations for a class
@@ -57,8 +54,8 @@ using std::string;
     TypeName(const TypeName&);             \
     void operator=(const TypeName&)
 
-#include <Logging.h> // NOLINT
-#include <Status.h>  // NOLINT
+#include "Logging.h"
+#include "Status.h"
 
 /**
  * Allocate a new memory area.

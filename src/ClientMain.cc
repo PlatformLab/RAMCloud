@@ -13,13 +13,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-//#include <Common.h>
-#include <Client.h>
 #include <stdio.h>
 #include <string.h>
 #include <getopt.h>
-
 #include <assert.h>
+
+#include "Client.h"
 
 namespace RC = RAMCloud;
 

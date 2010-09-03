@@ -13,14 +13,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config.h>
-
-#include <Server.h>
-#include <TCPTransport.h>
-
 #include <stdlib.h>
 #include <getopt.h>
 #include <errno.h>
+
+#include "config.h"
+#include "Server.h"
+#include "TCPTransport.h"
 
 static int cpu = -1;
 

@@ -21,7 +21,7 @@
 #ifndef RAMCLOUD_OBJECT_H
 #define RAMCLOUD_OBJECT_H
 
-#include <Common.h>
+#include "Common.h"
 
 namespace RAMCloud {
 

@@ -21,8 +21,9 @@
 #ifndef RAMCLOUD_BACKUPRPC_H
 #define RAMCLOUD_BACKUPRPC_H
 
-#include <Common.h>
 #include <string>
+
+#include "Common.h"
 
 namespace RAMCloud {
 

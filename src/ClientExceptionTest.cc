@@ -18,8 +18,8 @@
  * Unit tests for everything defined by ClientException.h.
  */
 
-#include <ClientException.h>
-#include <TestUtil.h>
+#include "ClientException.h"
+#include "TestUtil.h"
 
 namespace RAMCloud {
 

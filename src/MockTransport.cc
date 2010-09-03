@@ -19,7 +19,7 @@
  * without an actual network.
  */
 
-#include <MockTransport.h>
+#include "MockTransport.h"
 
 namespace RAMCloud {
 

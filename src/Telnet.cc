@@ -13,14 +13,14 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Common.h>
-#include <Buffer.h>
-#include <Service.h>
-#include <TCPTransport.h>
-
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+
+#include "Common.h"
+#include "Buffer.h"
+#include "Service.h"
+#include "TCPTransport.h"
 
 /**
  * \file

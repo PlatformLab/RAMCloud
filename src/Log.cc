@@ -18,7 +18,7 @@
  * Implementation of #RAMCloud::Log.
  */
 
-#include <Log.h>
+#include "Log.h"
 
 static const uint64_t cleanerHiWater = 20;
 static const uint64_t cleanerLowWater = 10;
