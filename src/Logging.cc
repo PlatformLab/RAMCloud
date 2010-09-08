@@ -24,6 +24,114 @@
 
 namespace RAMCloud {
 
+namespace TestLog {
+    /**
+     * The current predicate which is used to select test log entries.
+     * This symbol is not exported.
+     */
+    bool (*predicate)(string) = 0;
+
+    /**
+     * Whether test log entries should be recorded.
+     * This symbol is not exported.
+     */
+    bool enabled = false;
+
+    /**
+     * The current test log.
+     * This symbol is not exported.
+     */
+    string message;
+
+    /// Clear the contents of the test log.
+    void
+    clear()
+    {
+        message = "";
+    }
+
+    /**
+     * Clear the test log and quit recording test log entries and
+     * remove any predicate that was installed.
+     */
+    void
+    disable()
+    {
+        clear();
+        enabled = false;
+        predicate = NULL;
+    }
+
+    /// Clear the test log and begin recording test log entries.
+    void
+    enable()
+    {
+        clear();
+        enabled = true;
+    }
+
+    /**
+     * Returns the current test log.
+     *
+     * \return
+     *      The current test log.
+     */
+    string
+    get()
+    {
+        return message;
+    }
+
+    /**
+     * Don't call this directly, see TEST_LOG instead.
+     *
+     * Log a message to the test log for unit testing.
+     *
+     * \param[in] func
+     *      The result of __PRETTY_FUNCTION__.
+     * \param[in] format
+     *      See #LOG except the string should end with a newline character.
+     * \param[in] ...
+     *      See #LOG.
+     */
+    void
+    log(const char* func,
+        const char* format, ...)
+    {
+        va_list ap;
+        char line[512];
+
+        if (predicate && !predicate(func))
+            return;
+
+        if (message.length())
+            message += " | ";
+
+        snprintf(line, sizeof(line), "%s: ", func);
+        message += line;
+
+        va_start(ap, format);
+        vsnprintf(line, sizeof(line), format, ap);
+        va_end(ap);
+        message += line;
+    }
+
+    /**
+     * Install a predicate to select only the relevant test log entries.
+     *
+     * \param[in] pred
+     *      A predicate which is passed the value of __PRETTY_FUNCTION__
+     *      from the TEST_LOG call site.  The predicate should return true
+     *      precisely when the test log entry for the corresponding TEST_LOG
+     *      invocation should be included in the test log.
+     */
+    void
+    setPredicate(bool (*pred)(string))
+    {
+        predicate = pred;
+    }
+} // end RAMCloud::TestLog
+
 Logger logger(NOTICE);
 
 /**
@@ -237,96 +345,6 @@ Logger::getMessage(LogModule module, LogLevel level,
 
     return message;
 }
-
-namespace TestLog {
-    bool (*predicate)(string) = 0;
-    bool enabled = false;
-    string message;
-
-    /// Clear the contents of the test log.
-    void
-    clear()
-    {
-        message = "";
-    }
-
-    /// Clear the test log and quit recording test log entries.
-    void
-    disable()
-    {
-        clear();
-        enabled = false;
-    }
-
-    /// Clear the test log and begin recording test log entries.
-    void
-    enable()
-    {
-        clear();
-        enabled = true;
-    }
-
-    /**
-     * Returns the current test log.
-     *
-     * \return
-     *      The current test log.
-     */
-    string
-    get()
-    {
-        return message;
-    }
-
-    /**
-     * Don't call this directly, see TEST_LOG instead.
-     *
-     * Log a message to the test log for unit testing.
-     *
-     * \param[in] func
-     *      The result of __PRETTY_FUNCTION__.
-     * \param[in] format
-     *      See #LOG except the string should end with a newline character.
-     * \param[in] ...
-     *      See #LOG.
-     */
-    void
-    log(const char* func,
-        const char* format, ...)
-    {
-        va_list ap;
-        char line[512];
-
-        if (predicate && !predicate(func))
-            return;
-
-        if (message.length())
-            message += " | ";
-
-        snprintf(line, sizeof(line), "%s: ", func);
-        message += line;
-
-        va_start(ap, format);
-        vsnprintf(line, sizeof(line), format, ap);
-        va_end(ap);
-        message += line;
-    }
-
-    /**
-     * Install a predicate to select only the relevant test log entries.
-     *
-     * \param[in] pred
-     *      A predicate which is passed the value of __PRETTY_FUNCTION__ 
-     *      from the TEST_LOG call site.  The predicate should return true
-     *      precisely when the test log entry for the corresponding TEST_LOG
-     *      invocation should be included in the test log.
-     */
-    void
-    setPredicate(bool (*pred)(string))
-    {
-        predicate = pred;
-    }
-} // end RAMCloud::TestLog
 
 } // end RAMCloud
 

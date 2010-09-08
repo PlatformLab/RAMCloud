@@ -35,11 +35,11 @@ namespace RAMCloud {
  *      send/receive fragments on.
  */
 FastTransport::FastTransport(Driver* driver)
-    : driver(driver),
-      serverSessions(this),
-      clientSessions(this),
-      serverReadyQueue(),
-      timerList()
+    : driver(driver)
+    , clientSessions(this)
+    , serverSessions(this)
+    , serverReadyQueue()
+    , timerList()
 {
     TAILQ_INIT(&serverReadyQueue);
     LIST_INIT(&timerList);
@@ -140,11 +140,13 @@ FastTransport::getClientSession()
 }
 
 /**
+ * Number of fragments that would be required to send dataBuffer over
+ * this transport.
+ *
  * \param dataBuffer
  *      A Buffer intended for transmission over this transport.
  * \return
- *      Number of fragments that would be required to send dataBuffer over
- *      this transport.
+ *      See method description.
  */
 uint32_t
 FastTransport::numFrags(const Buffer* dataBuffer)
@@ -206,9 +208,11 @@ FastTransport::sendPacket(const sockaddr* address,
  * a SESSION_OPEN request then a new ServerSession is created and the
  * appropriate SessionOpenResponse is sent to the client.
  *
- * \return
- *      true unless the Driver didn't have a packet ready or encountered an
+ * \retval false
+ *      if the Driver didn't have a packet ready or encountered an
  *      error.
+ * \retval true
+ *      otherwise.
  */
 bool
 FastTransport::tryProcessPacket()
@@ -289,21 +293,21 @@ FastTransport::tryProcessPacket()
  *      The Service this RPC is addressed to.
  * \param request
  *      The request payload including RPC headers.
- * \param response
+ * \param[out] response
  *      The response payload including the RPC headers.
  */
 FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
                                     Service* service,
                                     Buffer* request,
                                     Buffer* response)
-    : requestBuffer(request),
-      responseBuffer(response),
-      state(IDLE),
-      transport(transport),
-      service(service),
-      serverAddress(),
-      serverAddressLen(0),
-      channelQueueEntries()
+    : requestBuffer(request)
+    , responseBuffer(response)
+    , state(IDLE)
+    , transport(transport)
+    , service(service)
+    , serverAddress()
+    , serverAddressLen(0)
+    , channelQueueEntries()
 {
     sockaddr_in *addr = const_cast<sockaddr_in*>(
         reinterpret_cast<const sockaddr_in*>(&serverAddress));
@@ -344,14 +348,14 @@ FastTransport::ClientRpc::getReply()
     }
 }
 
-/// Change state to ABORTED.
+/// Change state to ABORTED.  Internal to FastTransport.
 void
 FastTransport::ClientRpc::aborted()
 {
     state = ABORTED;
 }
 
-/// Change state to COMPLETED.
+/// Change state to COMPLETED.  Internal to FastTransport.
 void
 FastTransport::ClientRpc::completed()
 {
@@ -359,7 +363,7 @@ FastTransport::ClientRpc::completed()
 }
 
 /**
- * Begin a RPC.  This is only used internally by FastTransport.
+ * Begin a RPC.  Internal to FastTransport.
  *
  * The RPC will reuse a session that is cached in the Service instance
  * it is connecting to or will acquire a new session automatically in order
@@ -385,7 +389,7 @@ FastTransport::ClientRpc::start()
     if (!session->isConnected())
         session->connect(&serverAddress, serverAddressLen);
     service->setSession(session);
-    LOG(DEBUG, "Using session id %u", session->getId());
+    LOG(DEBUG, "Using session id %u", session->id);
     session->startRpc(this);
 }
 
@@ -393,12 +397,17 @@ FastTransport::ClientRpc::start()
 
 /**
  * Create a ServerRpc attached to a ServerSession on a particular channel.
+ *
+ * \param session
+ *      The ServerSession this RPC is associated with.
+ * \param channelId
+ *      The channel in session on which to handle this RPC.
  */
 FastTransport::ServerRpc::ServerRpc(ServerSession* session,
                                     uint8_t channelId)
-    : session(session),
-      channelId(channelId),
-      readyQueueEntries()
+    : session(session)
+    , channelId(channelId)
+    , readyQueueEntries()
 {
 }
 
@@ -449,6 +458,7 @@ FastTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
     return chunk;
 }
 
+/// Returns memory to the Driver once the Chunk is discarded.
 FastTransport::PayloadChunk::~PayloadChunk()
 {
     if (driver)
@@ -460,10 +470,10 @@ FastTransport::PayloadChunk::PayloadChunk(void* data,
                                           Driver* driver,
                                           char* const payload,
                                           uint32_t payloadLength)
-    : Buffer::Chunk(data, dataLength),
-      driver(driver),
-      payload(payload),
-      payloadLength(payloadLength)
+    : Buffer::Chunk(data, dataLength)
+    , driver(driver)
+    , payload(payload)
+    , payloadLength(payloadLength)
 {
 }
 
@@ -476,14 +486,14 @@ FastTransport::PayloadChunk::PayloadChunk(void* data,
  * is not ready to receive fragments.
  */
 FastTransport::InboundMessage::InboundMessage()
-    : transport(0),
-      session(0),
-      channelId(0),
-      totalFrags(0),
-      firstMissingFrag(0),
-      dataStagingRing(),
-      dataBuffer(NULL),
-      timer(false, this)
+    : transport(NULL)
+    , session(NULL)
+    , channelId(0)
+    , totalFrags(0)
+    , firstMissingFrag(0)
+    , dataStagingRing()
+    , dataBuffer(NULL)
+    , timer(false, this)
 {
 }
 
@@ -504,6 +514,8 @@ FastTransport::InboundMessage::~InboundMessage()
  * are allocated as an array (hence with the default constructor) requiring
  * additional post-constructor setup.
  *
+ * \param transport
+ *      The FastTranport this message is associated with.
  * \param session
  *      The Session belonging to this message.
  * \param channelId
@@ -512,12 +524,13 @@ FastTransport::InboundMessage::~InboundMessage()
  *      Whether this message should respond to timer events.
  */
 void
-FastTransport::InboundMessage::setup(Session* session,
+FastTransport::InboundMessage::setup(FastTransport* transport,
+                                     Session* session,
                                      uint32_t channelId,
                                      bool useTimer)
 {
+    this->transport = transport;
     this->session = session;
-    this->transport = session->transport;
     this->channelId = channelId;
     if (timer.useTimer)
         transport->removeTimer(&timer);
@@ -697,17 +710,24 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
 }
 
 // --- OutboundMessage ---
+
+/**
+ * Construct an OutboundMessage which is NOT yet ready to use.
+ *
+ * NOTE: until setup() has been called this instance
+ * is not ready to send fragments.
+ */
 FastTransport::OutboundMessage::OutboundMessage()
-    : transport(0),
-      session(0),
-      channelId(0),
-      sendBuffer(0),
-      firstMissingFrag(0),
-      totalFrags(0),
-      packetsSinceAckReq(0),
-      sentTimes(),
-      numAcked(0),
-      timer(false, this)
+    : transport(NULL)
+    , session(NULL)
+    , channelId(0)
+    , sendBuffer(0)
+    , firstMissingFrag(0)
+    , totalFrags(0)
+    , packetsSinceAckReq(0)
+    , sentTimes()
+    , numAcked(0)
+    , timer(false, this)
 {
 }
 
@@ -719,20 +739,23 @@ FastTransport::OutboundMessage::OutboundMessage()
  * are allocated as an array (hence with the default constructor) requiring
  * additional post-constructor setup.
  *
+ * \param transport
+ *      The FastTranport this message is associated with.
  * \param session
- *      The Session belonging to this message.
+ *      The Session this message is associated with.
  * \param channelId
  *      The ID of the channel this message belongs to.
  * \param useTimer
  *      Whether this message should respond to timer events.
  */
 void
-FastTransport::OutboundMessage::setup(Session* session,
+FastTransport::OutboundMessage::setup(FastTransport* transport,
+                                      Session* session,
                                       uint32_t channelId,
                                       bool useTimer)
 {
+    this->transport = transport;
     this->session = session;
-    this->transport = session->transport;
     this->channelId = channelId;
     clear();
     timer.useTimer = useTimer;
@@ -852,7 +875,7 @@ FastTransport::OutboundMessage::send()
  *
  * Notice this function calls send() to try to send additional fragments.
  *
- * Side-effect:
+ * Side-effects:
  *  - firstMissingFrag and sentTimes may advance.
  *  - fragments may be marked as ACKED.
  *  - send() may be freed up to send further packets.
@@ -938,45 +961,92 @@ const uint64_t FastTransport::ServerSession::INVALID_TOKEN =
                                                         0xcccccccccccccccclu;
 const uint32_t FastTransport::ServerSession::INVALID_HINT = 0xccccccccu;
 
+/**
+ * Create a session associated with a particular transport with offset
+ * into the transport's serverSessionTable of sessionId.
+ *
+ * \param transport
+ *      The FastTransport with which this Session is associated.
+ * \param sessionId
+ *      This session's offset in FastTransport::serverSessionTable.  This
+ *      is used as the serverSessionHint in packets to the client so the
+ *      client can return the hint and get fast access to this ServerSession.
+ */
 FastTransport::ServerSession::ServerSession(FastTransport* transport,
                                             uint32_t sessionId)
-    : Session(transport),
-      token(INVALID_TOKEN),
-      clientSessionHint(INVALID_HINT),
-      lastActivityTime(0),
-      clientAddress(),
-      clientAddressLen(0),
-      id(sessionId),
-      nextFree(FastTransport::SessionTable<ServerSession>::NONE)
-#if TESTING
-        , processReceivedDataCount(0)
-        , processReceivedAckCount(0)
-#endif
+    : Session(transport, sessionId)
+    , nextFree(FastTransport::SessionTable<ServerSession>::NONE)
+    , clientAddress()
+    , clientAddressLen(0)
+    , clientSessionHint(INVALID_HINT)
+    , lastActivityTime(0)
+    , token(INVALID_TOKEN)
 {
     memset(&clientAddress, 0xcc, sizeof(clientAddress));
     for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++)
-        channels[i].setup(this, i);
+        channels[i].setup(transport, this, i);
 }
 
-uint64_t
-FastTransport::ServerSession::getToken()
+/**
+ * Switch from PROCESSING to SENDING_WAITING and initiate transfer of the
+ * RPC response from the server to the client.
+ *
+ * Preconditions:
+ *  - The caller must ensure that the indicated channel is PROCESSING.
+ *
+ * \param channelId
+ *      Send the response on this channelId, which is currently PROCESSING.
+ */
+void
+FastTransport::ServerSession::beginSending(uint8_t channelId)
 {
-    return token;
+    ServerChannel* channel = &channels[channelId];
+    assert(channel->state == ServerChannel::PROCESSING);
+    channel->state = ServerChannel::SENDING_WAITING;
+    Buffer* responseBuffer = &channel->currentRpc->replyPayload;
+    channel->outboundMsg.beginSending(responseBuffer);
+    lastActivityTime = rdtsc();
 }
 
-const sockaddr*
-FastTransport::ServerSession::getAddress(socklen_t *len)
+/// This shouldn't ever be called.
+void
+FastTransport::ServerSession::close()
 {
-    *len = clientAddressLen;
-    return &clientAddress;
+    LOG(WARNING, "ServerSession::close should never be called");
 }
 
-uint64_t
-FastTransport::ServerSession::getLastActivityTime()
+// See Session::expire().
+bool
+FastTransport::ServerSession::expire()
 {
-    return lastActivityTime;
+    if (lastActivityTime == 0)
+        return true;
+
+    for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++) {
+        if (channels[i].state == ServerChannel::PROCESSING)
+            return false;
+    }
+
+    for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++) {
+        if (channels[i].state == ServerChannel::IDLE)
+            continue;
+        channels[i].state = ServerChannel::IDLE;
+        channels[i].rpcId = ~0U;
+        delete channels[i].currentRpc;
+        channels[i].currentRpc = NULL;
+        channels[i].inboundMsg.clear();
+        channels[i].outboundMsg.clear();
+    }
+
+    token = INVALID_TOKEN;
+    clientSessionHint = INVALID_HINT;
+    lastActivityTime = 0;
+    memset(&clientAddress, 0xcc, sizeof(clientAddress));
+
+    return true;
 }
 
+// See Session::fillHeader().
 void
 FastTransport::ServerSession::fillHeader(Header* const header,
                                          uint8_t channelId) const
@@ -989,6 +1059,103 @@ FastTransport::ServerSession::fillHeader(Header* const header,
     header->sessionToken = token;
 }
 
+// See Session::getAddress().
+const sockaddr*
+FastTransport::ServerSession::getAddress(socklen_t *len)
+{
+    *len = clientAddressLen;
+    return &clientAddress;
+}
+
+// See Session::getLastActivityTime().
+uint64_t
+FastTransport::ServerSession::getLastActivityTime()
+{
+    return lastActivityTime;
+}
+
+/**
+ * Returns the authentication token the client needs to succesfully
+ * reassociate with this session.
+ *
+ * \return
+ *      See method description.
+ */
+uint64_t
+FastTransport::ServerSession::getToken()
+{
+    return token;
+}
+
+/**
+ * Dispatch an incoming packet to the correct action for this session.
+ *
+ * \param received
+ *      A packet wrapped up in a Driver::Received.
+ */
+void
+FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
+{
+    lastActivityTime = rdtsc();
+    Header* header = received->getOffset<Header>(0);
+    if (header->channelId >= NUM_CHANNELS_PER_SESSION) {
+        LOG(DEBUG, "drop due to invalid channel");
+        return;
+    }
+
+    ServerChannel* channel = &channels[header->channelId];
+    if (channel->rpcId == header->rpcId) {
+        // Incoming packet is part of the current RPC
+        switch (header->getPayloadType()) {
+        case Header::DATA:
+            TEST_LOG("processReceivedData");
+            processReceivedData(channel, received);
+            break;
+        case Header::ACK:
+            TEST_LOG("processReceivedAck");
+            processReceivedAck(channel, received);
+            break;
+        default:
+            LOG(DEBUG, "drop current rpcId with bad type");
+        }
+    } else if (channel->rpcId + 1 == header->rpcId) {
+        TEST_LOG("start a new RPC");
+        // Incoming packet is part of the next RPC
+        // clear everything out and setup for next RPC
+        switch (header->getPayloadType()) {
+        case Header::DATA: {
+            channel->state = ServerChannel::RECEIVING;
+            channel->rpcId = header->rpcId;
+            channel->inboundMsg.clear();
+            channel->outboundMsg.clear();
+            delete channel->currentRpc;
+            channel->currentRpc = new ServerRpc(this,
+                                                header->channelId);
+            Buffer* recvBuffer = &channel->currentRpc->recvPayload;
+            channel->inboundMsg.init(header->totalFrags, recvBuffer);
+            TEST_LOG("processReceivedData");
+            processReceivedData(channel, received);
+            break;
+        }
+        default:
+            LOG(DEBUG, "drop new rpcId with bad type");
+        }
+    } else {
+        LOG(DEBUG, "drop old packet");
+    }
+}
+
+/**
+ * Create a new session and send the SessionOpenResponse to the client.
+ *
+ * \param clientAddress
+ *      Address of the session initiator.
+ * \param clientAddressLen
+ *      Length of clientAddress.
+ * \param clientSessionHint
+ *      The offset into the client's SessionTable to quickly associate
+ *      packets from this session with the correct ClientSession.
+ */
 void
 FastTransport::ServerSession::startSession(const sockaddr *clientAddress,
                                            socklen_t clientAddressLen,
@@ -1020,111 +1187,46 @@ FastTransport::ServerSession::startSession(const sockaddr *clientAddress,
     lastActivityTime = rdtsc();
 }
 
+// - private -
+
 /**
- * Dispatch an incoming packet to the correct handler for this session.
+ * Process an ACK on a particular channel.
+ *
+ * Side-effect:
+ *  - This may free some window and transmit more packets.
+ *
+ * \param channel
+ *      The channel to process the ACK on.
+ * \param received
+ *      The ACK packet encapsulated in a Driver::Received.
  */
 void
-FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
+FastTransport::ServerSession::processReceivedAck(ServerChannel* channel,
+                                                 Driver::Received* received)
 {
-    lastActivityTime = rdtsc();
-    Header* header = received->getOffset<Header>(0);
-    if (header->channelId >= NUM_CHANNELS_PER_SESSION) {
-        LOG(DEBUG, "drop due to invalid channel");
-        return;
-    }
-
-    ServerChannel* channel = &channels[header->channelId];
-    if (channel->rpcId == header->rpcId) {
-        // Incoming packet is part of the current RPC
-        switch (header->getPayloadType()) {
-        case Header::DATA:
-            processReceivedData(channel, received);
-            break;
-        case Header::ACK:
-            processReceivedAck(channel, received);
-            break;
-        default:
-            LOG(DEBUG, "drop current rpcId with bad type");
-        }
-    } else if (channel->rpcId + 1 == header->rpcId) {
-        // Incoming packet is part of the next RPC
-        // clear everything out and setup for next RPC
-        switch (header->getPayloadType()) {
-        case Header::DATA: {
-            channel->state = ServerChannel::RECEIVING;
-            channel->rpcId = header->rpcId;
-            channel->inboundMsg.clear();
-            channel->outboundMsg.clear();
-            delete channel->currentRpc;
-            channel->currentRpc = new ServerRpc(this,
-                                                header->channelId);
-            Buffer* recvBuffer = &channel->currentRpc->recvPayload;
-            channel->inboundMsg.init(header->totalFrags, recvBuffer);
-            processReceivedData(channel, received);
-            break;
-        }
-        default:
-            LOG(DEBUG, "drop new rpcId with bad type");
-        }
-    } else {
-        LOG(DEBUG, "drop old packet");
-    }
+    if (channel->state == ServerChannel::SENDING_WAITING)
+        channel->outboundMsg.processReceivedAck(received);
 }
 
-void
-FastTransport::ServerSession::beginSending(uint8_t channelId)
-{
-    ServerChannel* channel = &channels[channelId];
-    assert(channel->state == ServerChannel::PROCESSING);
-    channel->state = ServerChannel::SENDING_WAITING;
-    Buffer* responseBuffer = &channel->currentRpc->replyPayload;
-    channel->outboundMsg.beginSending(responseBuffer);
-    lastActivityTime = rdtsc();
-}
-
-void
-FastTransport::ServerSession::close()
-{
-    LOG(WARNING, "ServerSession::close should never be called");
-}
-
-bool
-FastTransport::ServerSession::expire()
-{
-    if (lastActivityTime == 0)
-        return true;
-
-    for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++) {
-        if (channels[i].state == ServerChannel::PROCESSING)
-            return false;
-    }
-
-    for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++) {
-        if (channels[i].state == ServerChannel::IDLE)
-            continue;
-        channels[i].state = ServerChannel::IDLE;
-        channels[i].rpcId = ~0U;
-        delete channels[i].currentRpc;
-        channels[i].currentRpc = NULL;
-        channels[i].inboundMsg.clear();
-        channels[i].outboundMsg.clear();
-    }
-
-    token = INVALID_TOKEN;
-    clientSessionHint = INVALID_HINT;
-    lastActivityTime = 0;
-    memset(&clientAddress, 0xcc, sizeof(clientAddress));
-
-    return true;
-}
-
+/**
+ * Process a data fragment on a particular channel.
+ *
+ * Routing the packet to the correct handler is a function of the current
+ * state of the channel.
+ *
+ * Side-effect:
+ *  - channel->state will transition from RECEIVING to PROCESSING if the
+ *    full request has been received.
+ *
+ * \param channel
+ *      The channel to process the ACK on.
+ * \param received
+ *      The ACK packet encapsulated in a Driver::Received.
+ */
 void
 FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
                                                   Driver::Received* received)
 {
-#if TESTING
-    processReceivedDataCount++;
-#endif
     Header* header = received->getOffset<Header>(0);
     switch (channel->state) {
     case ServerChannel::IDLE:
@@ -1150,17 +1252,6 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
     }
 }
 
-void
-FastTransport::ServerSession::processReceivedAck(ServerChannel* channel,
-                                                 Driver::Received* received)
-{
-#if TESTING
-    processReceivedAckCount++;
-#endif
-    if (channel->state == ServerChannel::SENDING_WAITING)
-        channel->outboundMsg.processReceivedAck(received);
-}
-
 // --- ClientSession ---
 
 const uint64_t FastTransport::ClientSession::INVALID_TOKEN =
@@ -1168,142 +1259,61 @@ const uint64_t FastTransport::ClientSession::INVALID_TOKEN =
 const uint32_t FastTransport::ClientSession::INVALID_HINT = 0xccccccccu;
 
 /**
- * Establishes a connected session and begins any queued RPCs on as many
- * channels as are available.
+ * Create a session associated with a particular transport with offset
+ * into the transport's serverSessionTable of sessionId.
  *
- * \param received
- *      A Driver::Received wrapping an RPC packet with a SessionOpenResponse
- *      contained within.
+ * \param transport
+ *      The FastTransport with which this Session is associated.
+ * \param sessionId
+ *      This session's offset in FastTransport::serverSessionTable.  This
+ *      is used as the serverSessionHint in packets to the client so the
+ *      client can return the hint and get fast access to this ServerSession.
  */
-void
-FastTransport::ClientSession::processSessionOpenResponse(
-        Driver::Received* received)
-{
-    // TODO(stutsman) Better idea just to log this and allow it to go through?
-    if (numChannels > 0)
-        return;
-    Header* header = received->getOffset<Header>(0);
-    SessionOpenResponse* response =
-        received->getOffset<SessionOpenResponse>(sizeof(*header));
-    serverSessionHint = header->serverSessionHint;
-    token = header->sessionToken;
-    LOG(DEBUG, "response max avail: %u", response->maxChannelId);
-    numChannels = response->maxChannelId + 1;
-    if (MAX_NUM_CHANNELS_PER_SESSION < numChannels)
-        numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-    LOG(DEBUG, "Session open response: numChannels: %u", numChannels);
-    allocateChannels();
-    for (uint32_t i = 0; i < numChannels; i++) {
-        if (TAILQ_EMPTY(&channelQueue))
-            break;
-        LOG(DEBUG, "Assigned RPC to channel: %u", i);
-        ClientRpc* rpc = TAILQ_FIRST(&channelQueue);
-        TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
-        channels[i].state = ClientChannel::SENDING;
-        channels[i].currentRpc = rpc;
-        channels[i].outboundMsg.beginSending(rpc->requestBuffer);
-    }
-}
-
-/**
- * Allocates numChannels worth of Channels in this Session.
- *
- * This is separated out so that testing methods can allocate Channels
- * without having to mock out a SessionOpenResponse.
- */
-void
-FastTransport::ClientSession::allocateChannels()
-{
-    channels = new ClientChannel[numChannels];
-    for (uint32_t i = 0; i < numChannels; i++)
-        channels[i].setup(this, i);
-}
-
-void
-FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
-                                                  Driver::Received* received)
-{
-    // Discard if idle
-    if (channel->state == ClientChannel::IDLE)
-        return;
-    Header* header = received->getOffset<Header>(0);
-    // If sending end sending and start receiving
-    if (channel->state == ClientChannel::SENDING) {
-        channel->outboundMsg.clear();
-        channel->inboundMsg.init(header->totalFrags,
-                                 channel->currentRpc->responseBuffer);
-        channel->state = ClientChannel::RECEIVING;
-    }
-    if (channel->inboundMsg.processReceivedData(received)) {
-        // InboundMsg has gotten its last fragment
-        channel->currentRpc->completed();
-        channel->rpcId += 1;
-        channel->outboundMsg.clear();
-        channel->inboundMsg.clear();
-        if (TAILQ_EMPTY(&channelQueue)) {
-            channel->state = ClientChannel::IDLE;
-            channel->currentRpc = 0;
-        } else {
-            ClientRpc *rpc = TAILQ_FIRST(&channelQueue);
-            assert(rpc->channelQueueEntries.tqe_prev);
-            TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
-            channel->state = ClientChannel::SENDING;
-            channel->currentRpc = rpc;
-            channel->outboundMsg.beginSending(rpc->requestBuffer);
-        }
-    }
-}
-
-void
-FastTransport::ClientSession::processReceivedAck(ClientChannel* channel,
-                                                 Driver::Received* received)
-{
-    if (channel->state == ClientChannel::SENDING)
-        channel->outboundMsg.processReceivedAck(received);
-}
-
-FastTransport::ClientSession::ClientChannel*
-FastTransport::ClientSession::getAvailableChannel()
-{
-    for (uint32_t i = 0; i < numChannels; i++) {
-        if (channels[i].state == ClientChannel::IDLE)
-            return &channels[i];
-    }
-    return 0;
-}
-
-void
-FastTransport::ClientSession::clearChannels()
-{
-    numChannels = 0;
-    delete[] channels;
-    channels = 0;
-}
-
 FastTransport::ClientSession::ClientSession(FastTransport* transport,
                                             uint32_t sessionId)
-    : Session(transport),
-      channels(NULL),
-      numChannels(0),
-      token(INVALID_TOKEN),
-      serverSessionHint(INVALID_HINT),
-      lastActivityTime(0),
-      serverAddress(),
-      serverAddressLen(0),
-      channelQueue(),
-      id(sessionId),
-      nextFree(FastTransport::SessionTable<ClientSession>::NONE)
+    : Session(transport, sessionId)
+    , nextFree(FastTransport::SessionTable<ClientSession>::NONE)
+    , channels(0)
+    , channelQueue()
+    , lastActivityTime(0)
+    , numChannels(0)
+    , token(INVALID_TOKEN)
+    , serverAddress()
+    , serverAddressLen(0)
+    , serverSessionHint(INVALID_HINT)
 {
     memset(&serverAddress, 0xcc, sizeof(serverAddress));
     TAILQ_INIT(&channelQueue);
 }
 
-bool
-FastTransport::ClientSession::isConnected()
+// See Session::close().
+void
+FastTransport::ClientSession::close()
 {
-    return (numChannels != 0);
+    LOG(DEBUG, "Closing session");
+    for (uint32_t i = 0; i < numChannels; i++) {
+        if (channels[i].currentRpc)
+            channels[i].currentRpc->aborted();
+    }
+    while (!TAILQ_EMPTY(&channelQueue)) {
+        ClientRpc* rpc = TAILQ_FIRST(&channelQueue);
+        TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
+        rpc->aborted();
+    }
+    clearChannels();
+    serverSessionHint = INVALID_HINT;
+    token = INVALID_TOKEN;
 }
 
+/**
+ * Send a session open request to serverAddress and establishing an
+ * open ServerSession on the remote end.
+ *
+ * \param serverAddress
+ *      The address of the RPC server to connect to.
+ * \param serverAddressLen
+ *      The length of serverAddress.
+ */
 void
 FastTransport::ClientSession::connect(const sockaddr* serverAddress,
                                       socklen_t serverAddressLen)
@@ -1332,19 +1342,21 @@ FastTransport::ClientSession::connect(const sockaddr* serverAddress,
     lastActivityTime = rdtsc();
 }
 
-const sockaddr*
-FastTransport::ClientSession::getAddress(socklen_t *len)
+// See Session::expire().
+bool
+FastTransport::ClientSession::expire()
 {
-    *len = serverAddressLen;
-    return &serverAddress;
+    for (uint32_t i = 0; i < numChannels; i++) {
+        if (channels[i].currentRpc)
+            return false;
+    }
+    if (!TAILQ_EMPTY(&channelQueue))
+        return false;
+    close();
+    return true;
 }
 
-uint64_t
-FastTransport::ClientSession::getLastActivityTime()
-{
-    return lastActivityTime;
-}
-
+// See Session::fillHeader().
 void
 FastTransport::ClientSession::fillHeader(Header* const header,
                                          uint8_t channelId) const
@@ -1357,6 +1369,39 @@ FastTransport::ClientSession::fillHeader(Header* const header,
     header->sessionToken = token;
 }
 
+// See Session::getAddress().
+const sockaddr*
+FastTransport::ClientSession::getAddress(socklen_t *len)
+{
+    *len = serverAddressLen;
+    return &serverAddress;
+}
+
+// See Session::getLastActivityTime().
+uint64_t
+FastTransport::ClientSession::getLastActivityTime()
+{
+    return lastActivityTime;
+}
+
+/**
+ * Return whether this session is currently connect to a remote endpoint.
+ *
+ * \return
+ *      See method description.
+ */
+bool
+FastTransport::ClientSession::isConnected()
+{
+    return (numChannels != 0);
+}
+
+/**
+ * Dispatch an incoming packet to the correct action for this session.
+ *
+ * \param received
+ *      A packet wrapped up in a Driver::Received.
+ */
 void
 FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
 {
@@ -1432,45 +1477,157 @@ FastTransport::ClientSession::startRpc(ClientRpc* rpc)
     }
 }
 
+// - private -
+
 /**
- * Abort all ongoing and queued RPCs and reset ClientSession in to a
- * reusable state.
+ * Allocates numChannels worth of Channels in this Session.
+ *
+ * This is separated out so that testing methods can allocate Channels
+ * without having to mock out a SessionOpenResponse.
  */
 void
-FastTransport::ClientSession::close()
+FastTransport::ClientSession::allocateChannels()
 {
-    LOG(DEBUG, "Closing session");
-    for (uint32_t i = 0; i < numChannels; i++) {
-        if (channels[i].currentRpc)
-            channels[i].currentRpc->aborted();
-    }
-    while (!TAILQ_EMPTY(&channelQueue)) {
-        ClientRpc* rpc = TAILQ_FIRST(&channelQueue);
-        TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
-        rpc->aborted();
-    }
-    clearChannels();
-    serverSessionHint = INVALID_HINT;
-    token = INVALID_TOKEN;
+    channels = new ClientChannel[numChannels];
+    for (uint32_t i = 0; i < numChannels; i++)
+        channels[i].setup(transport, this, i);
 }
 
 /**
- * Close this ClientSession if it is not servicing any RPC.
+ * Reset this session to 0 channels and free associated resources.
+ */
+void
+FastTransport::ClientSession::clearChannels()
+{
+    numChannels = 0;
+    delete[] channels;
+    channels = 0;
+}
+
+/**
+ * Return an IDLE channel which can be used to service an RPC or 0
+ * if none are IDLE.
  *
  * \return
- *      Whether the ClientSession is now closed.
+ *      See method description.
  */
-bool
-FastTransport::ClientSession::expire()
+FastTransport::ClientSession::ClientChannel*
+FastTransport::ClientSession::getAvailableChannel()
 {
     for (uint32_t i = 0; i < numChannels; i++) {
-        if (channels[i].currentRpc)
-            return false;
+        if (channels[i].state == ClientChannel::IDLE)
+            return &channels[i];
     }
-    if (!TAILQ_EMPTY(&channelQueue))
-        return false;
-    close();
-    return true;
+    return 0;
+}
+
+/**
+ * Process an ACK on a particular channel.
+ *
+ * Side-effect:
+ *  - This may free some window and transmit more packets.
+ *
+ * \param channel
+ *      The channel to process the ACK on.
+ * \param received
+ *      The ACK packet encapsulated in a Driver::Received.
+ */
+void
+FastTransport::ClientSession::processReceivedAck(ClientChannel* channel,
+                                                 Driver::Received* received)
+{
+    if (channel->state == ClientChannel::SENDING)
+        channel->outboundMsg.processReceivedAck(received);
+}
+
+/**
+ * Process a data fragment on a particular channel.
+ *
+ * Routing the packet to the correct handler is a function of the current
+ * state of the channel.
+ *
+ * Side-effects:
+ *  - If data is received while the channel is SENDING it transitions to
+ *    RECEIVING.
+ *  - If the channel completes its RPC it goes onto the available channel
+ *    queue.
+ *
+ * \param channel
+ *      The channel to process the ACK on.
+ * \param received
+ *      The ACK packet encapsulated in a Driver::Received.
+ */
+void
+FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
+                                                  Driver::Received* received)
+{
+    // Discard if idle
+    if (channel->state == ClientChannel::IDLE)
+        return;
+    Header* header = received->getOffset<Header>(0);
+    // If sending end sending and start receiving
+    if (channel->state == ClientChannel::SENDING) {
+        channel->outboundMsg.clear();
+        channel->inboundMsg.init(header->totalFrags,
+                                 channel->currentRpc->responseBuffer);
+        channel->state = ClientChannel::RECEIVING;
+    }
+    if (channel->inboundMsg.processReceivedData(received)) {
+        // InboundMsg has gotten its last fragment
+        channel->currentRpc->completed();
+        channel->rpcId += 1;
+        channel->outboundMsg.clear();
+        channel->inboundMsg.clear();
+        if (TAILQ_EMPTY(&channelQueue)) {
+            channel->state = ClientChannel::IDLE;
+            channel->currentRpc = 0;
+        } else {
+            ClientRpc *rpc = TAILQ_FIRST(&channelQueue);
+            assert(rpc->channelQueueEntries.tqe_prev);
+            TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
+            channel->state = ClientChannel::SENDING;
+            channel->currentRpc = rpc;
+            channel->outboundMsg.beginSending(rpc->requestBuffer);
+        }
+    }
+}
+
+/**
+ * Establishes a connected session and begins any queued RPCs on as many
+ * channels as are available.
+ *
+ * \param received
+ *      A Driver::Received wrapping an RPC packet with a SessionOpenResponse
+ *      contained within.
+ */
+void
+FastTransport::ClientSession::processSessionOpenResponse(
+        Driver::Received* received)
+{
+    // TODO(stutsman) Better idea just to log this and allow it to go through?
+    if (numChannels > 0)
+        return;
+    Header* header = received->getOffset<Header>(0);
+    SessionOpenResponse* response =
+        received->getOffset<SessionOpenResponse>(sizeof(*header));
+    serverSessionHint = header->serverSessionHint;
+    token = header->sessionToken;
+    LOG(DEBUG, "response max avail: %u", response->maxChannelId);
+    numChannels = response->maxChannelId + 1;
+    if (MAX_NUM_CHANNELS_PER_SESSION < numChannels)
+        numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+    LOG(DEBUG, "Session open response: numChannels: %u", numChannels);
+    allocateChannels();
+    for (uint32_t i = 0; i < numChannels; i++) {
+        if (TAILQ_EMPTY(&channelQueue))
+            break;
+        LOG(DEBUG, "Assigned RPC to channel: %u", i);
+        ClientRpc* rpc = TAILQ_FIRST(&channelQueue);
+        TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
+        channels[i].state = ClientChannel::SENDING;
+        channels[i].currentRpc = rpc;
+        channels[i].outboundMsg.beginSending(rpc->requestBuffer);
+    }
 }
 
 } // end RAMCloud

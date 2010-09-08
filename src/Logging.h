@@ -25,27 +25,99 @@
 
 namespace RAMCloud {
 
+/**
+ * A module for capturing "test log entries" to facilitate unit testing.
+ *
+ * TEST_LOG calls can be removed by disabling TESTING.  Further, test logging
+ * can be run time toggled using enable() and disable() to prevent unit tests
+ * which aren't interested in the test log from accumulating the log in RAM.
+ *
+ * The easiest interface is to simply instantiate Enable at the beginning of a
+ * test method.
+ *
+ * Example:
+ * \code
+ * void
+ * FooClass::methodToTest()
+ * {
+ *     TEST_LOG("log message");
+ * }
+ *
+ * void
+ * test()
+ * {
+ *     TestLog::Enable _;
+ *
+ *     foo->methodName();
+ *
+ *     CPPUNIT_ASSERT_EQUAL(
+ *         "void RAMCloud::FooClass:methodToTest(): log message",
+ *         TestLog::get());
+ * }
+ * \endcode
+ *
+ * TEST_LOG calls in deeper calls may be irrelevant to a specific unit test
+ * so a predicate can be specified using setPredicate or as an argument to
+ * the constructor of Enable to select only interesting test log entries.
+ * See setPredicate() for more detail.
+ */
 namespace TestLog {
+    void clear();
+    void disable();
+    void enable();
+    string get();
     void log(const char* func, const char* format, ...)
         __attribute__((format(gnu_printf, 2, 3)));
-    void clear();
-    void enable();
-    void disable();
-    string get();
     void setPredicate(bool (*pred)(string));
+
+    /**
+     * Clear and enable the test log on construction, clear and disable it
+     * on destruction.
+     *
+     * Allows one to instrument a function in an exception safe way with
+     * test logging just by sticking one of these on the stack.
+     */
     struct Enable {
-        Enable() { enable(); }
+        /// Clear and enable/disable the test log on construction/destruction.
+        Enable()
+        {
+            enable();
+        }
+
+        /**
+         * Clear and enable/disable the test log on construction/destruction
+         * using a particular predicate to filter test log entries.
+         *
+         * \param[in] pred
+         *      See setPredicate().
+         */
         Enable(bool (*pred)(string))
         {
             setPredicate(pred);
             enable();
         }
-        ~Enable() { disable(); }
+
+        /// Clear and disable test logging automatically.
+        ~Enable()
+        {
+            disable();
+        }
     };
 } // namespace RAMCloud::TestLog
 
 } // namespace RAMCloud
 #if TESTING
+/**
+ * Log an entry in the test log for use in unit tests.
+ *
+ * See RAMCloud::TestLog for examples on how to use this for testing.
+ *
+ * \param[in] format
+ *      A printf-style format string for the message. It should not have a line
+ *      break at the end.
+ * \param[in] ...
+ *      The arguments to the format string.
+ */
 #define TEST_LOG(format, ...) \
     TestLog::log(__PRETTY_FUNCTION__, format, ##__VA_ARGS__)
 #else
