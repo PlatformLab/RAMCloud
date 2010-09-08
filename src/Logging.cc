@@ -101,7 +101,7 @@ namespace TestLog {
         va_list ap;
         char line[512];
 
-        if (predicate && !predicate(func))
+        if (!enabled || (predicate && !predicate(func)))
             return;
 
         if (message.length())
