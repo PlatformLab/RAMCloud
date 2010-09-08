@@ -29,7 +29,6 @@ Driver::~Driver()
 void
 Driver::release(char *payload, uint32_t len)
 {
-    delete[] payload;
 }
 
 } // namespace RAMCloud
