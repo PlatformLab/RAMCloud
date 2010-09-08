@@ -20,9 +20,9 @@
  * Unit tests for RAMCloud::Metrics and RAMCloud::BlockMetric.
  */
 
-#include <Metrics.h>
-
 #include <cppunit/extensions/HelperMacros.h>
+
+#include "Metrics.h"
 
 namespace RAMCloud {
 

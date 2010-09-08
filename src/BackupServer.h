@@ -23,15 +23,14 @@
 #ifndef RAMCLOUD_BACKUPSERVER_H
 #define RAMCLOUD_BACKUPSERVER_H
 
-#include <Common.h>
-
-#include <backuprpc.h>
-#include <BackupClient.h>
-#include <Bitmap.h>
-#include <Service.h>
-#include <Transport.h>
-
 #include <string>
+
+#include "Common.h"
+#include "backuprpc.h"
+#include "BackupClient.h"
+#include "Bitmap.h"
+#include "Service.h"
+#include "Transport.h"
 
 namespace RAMCloud {
 

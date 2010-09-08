@@ -22,8 +22,8 @@
 #ifndef RAMCLOUD_RPC_H
 #define RAMCLOUD_RPC_H
 
-#include <RejectRules.h>
-#include <Status.h>
+#include "RejectRules.h"
+#include "Status.h"
 
 namespace RAMCloud {
 

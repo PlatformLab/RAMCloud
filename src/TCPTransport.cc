@@ -18,10 +18,6 @@
  * Implementation for the TCPTransport class.
  */
 
-#include <Common.h>
-
-#include <TCPTransport.h>
-
 #include <limits.h>
 #include <unistd.h>
 #include <errno.h>
@@ -29,8 +25,10 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <poll.h>
-
 #include <memory>
+
+#include "Common.h"
+#include "TCPTransport.h"
 
 namespace RAMCloud {
 

@@ -18,8 +18,8 @@
  * Unit tests for functions defined in Status.cc.
  */
 
-#include <Status.h>
-#include <TestUtil.h>
+#include "Status.h"
+#include "TestUtil.h"
 
 namespace RAMCloud {
 

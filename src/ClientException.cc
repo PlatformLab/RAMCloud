@@ -18,7 +18,7 @@
  * Implementation of RAMCloud::ClientException.
  */
 
-#include <ClientException.h>
+#include "ClientException.h"
 
 namespace RAMCloud {
 

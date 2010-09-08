@@ -21,8 +21,8 @@
 #include <string.h>
 #include <strings.h>
 
-#include <Buffer.h>
-#include <TestUtil.h>
+#include "Buffer.h"
+#include "TestUtil.h"
 
 namespace RAMCloud {
 

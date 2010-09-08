@@ -24,7 +24,7 @@
 #ifndef RAMCLOUD_CLIENTEXCEPTION_H
 #define RAMCLOUD_CLIENTEXCEPTION_H
 
-#include <Status.h>
+#include "Status.h"
 
 namespace RAMCloud {
 

@@ -18,11 +18,10 @@
  * A performance benchmark for the HashTable.
  */
 
-#include <Common.h>
-
-#include <HashTable.h>
-
 #include <math.h>
+
+#include "Common.h"
+#include "HashTable.h"
 
 namespace RAMCloud {
 

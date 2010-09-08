@@ -18,10 +18,10 @@
  * Unit tests for BackupClient.
  */
 
-#include <BackupClient.h>
-#include <MockTransport.h>
-
 #include <cppunit/extensions/HelperMacros.h>
+
+#include "BackupClient.h"
+#include "MockTransport.h"
 
 namespace RAMCloud {
 

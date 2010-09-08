@@ -20,7 +20,7 @@
  */
 
 #include <string.h>
-#include <TestUtil.h>
+#include "TestUtil.h"
 
 // The following code extends CppUnit to enable CPPUNIT_ASSERT_EQUAL
 // to be used on some additional combinations of types that aren't

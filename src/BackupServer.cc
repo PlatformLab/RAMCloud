@@ -20,21 +20,18 @@
  * to complete the work requested by the RPCs.
  */
 
-#include <BackupServer.h>
-
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-
-#include <Buffer.h>
-#include <Log.h>
-#include <Segment.h>
-
 #include <cstdio>
-
 #include <cerrno>
+
+#include "BackupServer.h"
+#include "Buffer.h"
+#include "Log.h"
+#include "Segment.h"
 
 namespace RAMCloud {
 
@@ -450,7 +447,7 @@ BackupServer::getSegmentMetadata(uint64_t segNum,
     Segment seg(&buf[0], SEGMENT_SIZE, 0);
 
     LogEntryIterator iterator(&seg);
-    const log_entry *entry;
+    const LogEntry *entry;
     const void *p;
     uint64_t offset;
 

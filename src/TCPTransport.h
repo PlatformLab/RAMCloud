@@ -21,14 +21,13 @@
 #ifndef RAMCLOUD_TCPTRANSPORT_H
 #define RAMCLOUD_TCPTRANSPORT_H
 
-#include <Common.h>
-#include <Transport.h>
-
 #include <sys/socket.h>
 #include <netinet/in.h>
-
 #include <map>
 #include <list>
+
+#include "Common.h"
+#include "Transport.h"
 
 namespace RAMCloud {
 
@@ -231,7 +230,7 @@ class TCPTransport : public Transport {
          * Constructor for TCPServerRpc.
          *
          * Normally this sets #serverSocket to #realServerSocket. If
-         * #mockServerSocket is not \c NULL, however, it will be set to that
+         * mockServerSocket is not \c NULL, however, it will be set to that
          * instead (used for testing).
          */
         // TODO(ongaro): Move constructor into cc file?
@@ -277,7 +276,7 @@ class TCPTransport : public Transport {
          * Constructor for TCPClientRpc.
          *
          * Normally this sets #clientSocket to #realClientSocket. If
-         * #mockClientSocket is not \c NULL, however, it will be set to that
+         * mockClientSocket is not \c NULL, however, it will be set to that
          * instead (used for testing).
          */
         // TODO(ongaro): Move constructor into cc file?

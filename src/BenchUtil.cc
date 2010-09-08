@@ -18,7 +18,7 @@
  * Implementation for utilities useful in benchmarking.
  */
 
-#include <BenchUtil.h>
+#include "BenchUtil.h"
 #include <errno.h>
 #include <sys/time.h>
 

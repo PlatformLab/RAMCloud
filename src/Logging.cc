@@ -20,7 +20,7 @@
 
 #include <stdarg.h>
 #include <sys/time.h>
-#include <Logging.h>
+#include "Logging.h"
 
 namespace RAMCloud {
 

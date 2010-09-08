@@ -21,9 +21,9 @@
 #ifndef RAMCLOUD_HASHTABLE_H
 #define RAMCLOUD_HASHTABLE_H
 
-#include <Common.h>
-#include <Object.h>
-#include <CycleCounter.h>
+#include "Common.h"
+#include "Object.h"
+#include "CycleCounter.h"
 
 namespace RAMCloud {
 

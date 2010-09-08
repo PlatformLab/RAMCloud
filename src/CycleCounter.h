@@ -21,7 +21,7 @@
 #ifndef RAMCLOUD_CYCLECOUNTER_H
 #define RAMCLOUD_CYCLECOUNTER_H
 
-#include <Common.h>
+#include "Common.h"
 
 namespace RAMCloud {
 

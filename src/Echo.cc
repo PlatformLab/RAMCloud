@@ -13,9 +13,9 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Common.h>
-#include <Buffer.h>
-#include <TCPTransport.h>
+#include "Common.h"
+#include "Buffer.h"
+#include "TCPTransport.h"
 
 /**
  * \file

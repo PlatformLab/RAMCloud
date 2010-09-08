@@ -18,7 +18,7 @@
  * Implementation for Table.
  */
 
-#include <Table.h>
+#include "Table.h"
 
 namespace RAMCloud {
 

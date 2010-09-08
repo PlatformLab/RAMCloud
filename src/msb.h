@@ -17,7 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
+/**
+ * \file
+ * This file was copied from someplace else and doesn't conform
+ * to RAMCloud coding conventions yet.
+ */
 
 #ifndef RAMCLOUD_MSB_H
 #define RAMCLOUD_MSB_H 1
@@ -49,7 +53,7 @@ const char bytemsb[0x100] = {
 /* Find last set (most significant bit) */
 static inline unsigned int fls32 (uint32_t) __attribute__ ((const));
 static inline unsigned int
-fls32 (uint32_t v)
+fls32(uint32_t v)
 {
   if (v & 0xffff0000) {
     if (v & 0xff000000)
@@ -64,33 +68,33 @@ fls32 (uint32_t v)
 }
 
 /* Ceiling of log base 2 */
-static inline int log2c32 (uint32_t) __attribute__ ((const));
+static inline int log2c32(uint32_t) __attribute__ ((const));
 static inline int
-log2c32 (uint32_t v)
+log2c32(uint32_t v)
 {
-  return v ? (int) fls32 (v - 1) : -1;
+  return v ? static_cast<int>(fls32(v - 1)) : -1;
 }
 
-static inline unsigned int fls64 (uint64_t) __attribute__ ((const));
+static inline unsigned int fls64(uint64_t) __attribute__ ((const));
 static inline unsigned int
-fls64 (uint64_t v)
+fls64(uint64_t v)
 {
   uint32_t h;
   if ((h = v >> 32))
-    return 32 + fls32 (h);
+    return 32 + fls32(h);
   else
-    return fls32 ((uint32_t) v);
+    return fls32((uint32_t) v);
 }
 
-static inline int log2c64 (uint64_t) __attribute__ ((const));
+static inline int log2c64(uint64_t) __attribute__ ((const));
 static inline int
-log2c64 (uint64_t v)
+log2c64(uint64_t v)
 {
-  return v ? (int) fls64 (v - 1) : -1;
+  return v ? static_cast<int>(fls64(v - 1)) : -1;
 }
 
-#define fls(v) (sizeof (v) > 4 ? fls64 (v) : fls32 (v))
-#define log2c(v) (sizeof (v) > 4 ? log2c64 (v) : log2c32 (v))
+#define fls(v) (sizeof (v) > 4 ? fls64(v) : fls32(v))
+#define log2c(v) (sizeof (v) > 4 ? log2c64(v) : log2c32(v))
 
 /*
  * For symmetry, a 64-bit find first set, "ffs," that finds the least
@@ -100,24 +104,25 @@ log2c64 (uint64_t v)
 EXTERN_C const char bytelsb[];
 
 static inline unsigned int
-ffs32 (uint32_t v)
+ffs32(uint32_t v)
 {
   if (v & 0xffff) {
     if (int vv = v & 0xff)
       return bytelsb[vv];
     else
       return 8 + bytelsb[v >> 8 & 0xff];
+  } else {
+    if (int vv = v & 0xff0000)
+        return 16 + bytelsb[vv >> 16];
+    else if (v)
+        return 24 + bytelsb[v >> 24 & 0xff];
+    else
+        return 0;
   }
-  else if (int vv = v & 0xff0000)
-    return 16 + bytelsb[vv >> 16];
-  else if (v)
-    return 24 + bytelsb[v >> 24 & 0xff];
-  else
-    return 0;
 }
 
 static inline unsigned int
-ffs64 (uint64_t v)
+ffs64(uint64_t v)
 {
   uint32_t l;
   if ((l = v & 0xffffffff))
@@ -128,7 +133,7 @@ ffs64 (uint64_t v)
     return 0;
 }
 
-#define ffs(v) (sizeof (v) > 4 ? ffs64 (v) : ffs32 (v))
+#define ffs(v) (sizeof (v) > 4 ? ffs64(v) : ffs32(v))
 
 #undef EXTERN_C
 

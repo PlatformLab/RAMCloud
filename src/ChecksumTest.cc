@@ -13,12 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [GCCWARN=5]
-
-#include <Common.h>
-#include <rabinpoly.h>
-
 #include <cppunit/extensions/HelperMacros.h>
+
+#include "Common.h"
+#include "rabinpoly.h"
 
 class ChecksumTest : public CppUnit::TestFixture {
   public:

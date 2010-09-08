@@ -16,23 +16,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [GCCWARN=5]
-// RAMCloud pragma [CPPLINT=0]
+#include "Common.h"
 
-#include <Common.h>
-
-#include <rabinpoly.h>
-#include <msb.h>
+#include "rabinpoly.h"
+#include "msb.h"
 #ifndef INT64
 # define INT64(n) n##LL
 #endif
 #define MSB64 INT64(0x8000000000000000)
 
 uint64_t
-polymod (uint64_t nh, uint64_t nl, uint64_t d)
+polymod(uint64_t nh, uint64_t nl, uint64_t d)
 {
     //  assert (d);
-    int k = fls64 (d) - 1;
+    int k = fls64(d) - 1;
     d <<= 63 - k;
 
     if (nh) {
@@ -53,26 +50,26 @@ polymod (uint64_t nh, uint64_t nl, uint64_t d)
 }
 
 uint64_t
-polygcd (uint64_t x, uint64_t y)
+polygcd(uint64_t x, uint64_t y)
 {
     for (;;) {
         if (!y)
             return x;
-        x = polymod (0, x, y);
+        x = polymod(0, x, y);
         if (!x)
             return y;
-        y = polymod (0, y, x);
+        y = polymod(0, y, x);
     }
 }
 
 void
-polymult (uint64_t *php, uint64_t *plp, uint64_t x, uint64_t y)
+polymult(uint64_t *php, uint64_t *plp, uint64_t x, uint64_t y)
 {
     uint64_t ph = 0, pl = 0;
     if (x & 1)
         pl = y;
     for (int i = 1; i < 64; i++)
-        if (x & (INT64 (1) << i)) {
+        if (x & (INT64(1) << i)) {
             ph ^= y >> (64 - i);
             pl ^= y << i;
         }
@@ -83,51 +80,51 @@ polymult (uint64_t *php, uint64_t *plp, uint64_t x, uint64_t y)
 }
 
 uint64_t
-polymmult (uint64_t x, uint64_t y, uint64_t d)
+polymmult(uint64_t x, uint64_t y, uint64_t d)
 {
   uint64_t h, l;
-  polymult (&h, &l, x, y);
-  return polymod (h, l, d);
+  polymult(&h, &l, x, y);
+  return polymod(h, l, d);
 }
 
 bool
-polyirreducible (uint64_t f)
+polyirreducible(uint64_t f)
 {
     uint64_t u = 2;
-    int m = (fls64 (f) - 1) >> 1;
+    int m = (fls64(f) - 1) >> 1;
     for (int i = 0; i < m; i++) {
-        u = polymmult (u, u, f);
-        if (polygcd (f, u ^ 2) != 1)
+        u = polymmult(u, u, f);
+        if (polygcd(f, u ^ 2) != 1)
             return false;
     }
     return true;
 }
 
 void
-rabinpoly::calcT ()
+rabinpoly::calcT()
 {
     //  assert (poly >= 0x100);
-    int xshift = fls64 (poly) - 1;
+    int xshift = fls64(poly) - 1;
     shift = xshift - 8;
-    uint64_t T1 = polymod (0, INT64 (1) << xshift, poly);
+    uint64_t T1 = polymod(0, INT64(1) << xshift, poly);
     for (int j = 0; j < 256; j++) {
-        T[j] = polymmult (j, T1, poly) | ((uint64_t) j << xshift);
+        T[j] = polymmult(j, T1, poly) | ((uint64_t) j << xshift);
     }
 }
 
-rabinpoly::rabinpoly (uint64_t p)
-    : poly (p)
+rabinpoly::rabinpoly(uint64_t p)
+    : shift(0), poly(p)
 {
-    calcT ();
+    calcT();
 }
 
-window::window (uint64_t poly)
-    : rabinpoly (poly), fingerprint (0), bufpos (-1)
+window::window(uint64_t poly)
+    : rabinpoly(poly), fingerprint(0), bufpos(-1)
 {
     uint64_t sizeshift = 1;
     for (int i = 1; i < size; i++)
-        sizeshift = append8 (sizeshift, 0);
+        sizeshift = append8(sizeshift, 0);
     for (int i = 0; i < 256; i++)
-        U[i] = polymmult (i, sizeshift, poly);
-    bzero ((char*) buf, sizeof (buf));
+        U[i] = polymmult(i, sizeshift, poly);
+    bzero(reinterpret_cast<char*>(buf), sizeof(buf));
 }

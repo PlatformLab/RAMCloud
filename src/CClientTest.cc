@@ -18,12 +18,12 @@
  * Unit tests for RAMCloud::CClient.
  */
 
-#include <Client.h>
-#include <CClient.h>
-#include <Mark.h>
-#include <PerfCounterType.h>
-#include <TestUtil.h>
-#include <MockTransport.h>
+#include "Client.h"
+#include "CClient.h"
+#include "Mark.h"
+#include "PerfCounterType.h"
+#include "TestUtil.h"
+#include "MockTransport.h"
 
 class CClientTest : public CppUnit::TestFixture {
 

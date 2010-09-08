@@ -20,7 +20,7 @@
 #ifndef RAMCLOUD_SERVICE_H
 #define RAMCLOUD_SERVICE_H
 
-#include <Common.h>
+#include "Common.h"
 
 namespace RAMCloud {
 

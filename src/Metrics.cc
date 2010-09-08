@@ -20,7 +20,7 @@
  * Implementation file for the RAMCloud::Metrics class.
  */
 
-#include <Metrics.h>
+#include "Metrics.h"
 
 namespace RAMCloud {
 

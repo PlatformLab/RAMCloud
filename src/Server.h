@@ -21,14 +21,14 @@
 #ifndef RAMCLOUD_SERVER_H
 #define RAMCLOUD_SERVER_H
 
-#include <Common.h>
-#include <Object.h>
-#include <Log.h>
-#include <BackupClient.h>
-#include <HashTable.h>
-#include <Rpc.h>
-#include <Table.h>
-#include <Transport.h>
+#include "Common.h"
+#include "Object.h"
+#include "Log.h"
+#include "BackupClient.h"
+#include "HashTable.h"
+#include "Rpc.h"
+#include "Table.h"
+#include "Transport.h"
 
 namespace RAMCloud {
 
@@ -98,12 +98,12 @@ class Server {
      */
     Table *tables[RC_NUM_TABLES];
 
-    friend void objectEvictionCallback(log_entry_type_t type,
+    friend void objectEvictionCallback(LogEntryType type,
             const void* p, uint64_t len, void* cookie);
-    friend void tombstoneEvictionCallback(log_entry_type_t type,
+    friend void tombstoneEvictionCallback(LogEntryType type,
             const void* p, uint64_t len, void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
-    friend void objectReplayCallback(log_entry_type_t type,
+    friend void objectReplayCallback(LogEntryType type,
             const void* p, uint64_t len, void* cookie);
     const char* getString(Buffer* buffer, uint32_t offset, uint32_t length);
     Table* getTable(uint32_t tableId);

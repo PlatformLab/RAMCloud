@@ -20,10 +20,10 @@
 
 #include <arpa/inet.h>
 
-#include <config.h>
+#include "config.h"
 
-#include <BackupServer.h>
-#include <TCPTransport.h>
+#include "BackupServer.h"
+#include "TCPTransport.h"
 
 /**
  * Instantiates a backup server using the configuration information in

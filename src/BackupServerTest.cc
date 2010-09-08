@@ -18,17 +18,15 @@
  * Unit tests for BackupServer.
  */
 
-#include <BackupServer.h>
-
-#include <backuprpc.h>
-#include <Log.h>
-#include <Server.h>
-#include <MockTransport.h>
-
 #include <cppunit/extensions/HelperMacros.h>
-
 #include <string>
 #include <cstring>
+
+#include "BackupServer.h"
+#include "backuprpc.h"
+#include "Log.h"
+#include "Server.h"
+#include "MockTransport.h"
 
 namespace RAMCloud {
 
@@ -484,8 +482,8 @@ class BackupServerTest : public CppUnit::TestFixture {
     uint32_t
     writeMockHeader(BackupServer *backup, uint64_t segNum)
     {
-        log_entry logEntry;
-        segment_header segmentHeader;
+        LogEntry logEntry;
+        SegmentHeader segmentHeader;
 
         logEntry.type = LOG_ENTRY_TYPE_SEGMENT_HEADER;
         logEntry.length = sizeof(segmentHeader);
@@ -522,7 +520,7 @@ class BackupServerTest : public CppUnit::TestFixture {
                     uint64_t key,
                     uint32_t offset)
     {
-        log_entry logEntry;
+        LogEntry logEntry;
         DECLARE_OBJECT(o, 8);
 
         o->id = key;

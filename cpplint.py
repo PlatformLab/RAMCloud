@@ -2230,9 +2230,10 @@ def CheckIncludeLine(filename, clean_lines, linenum, include_state, error):
   line = clean_lines.lines[linenum]
 
   # "include" should use the new style "foo/bar.h" instead of just "bar.h"
+  # RAMCloud modification: don't insist on this approach.
   # if _RE_PATTERN_INCLUDE_NEW_STYLE.search(line):
-  #  error(filename, linenum, 'build/include', 4,
-  #        'Include the directory when naming .h files')
+  #   error(filename, linenum, 'build/include', 4,
+  #         'Include the directory when naming .h files')
 
   # we shouldn't include a file more than once. actually, there are a
   # handful of instances where doing so is okay, but in general it's

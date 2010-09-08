@@ -18,10 +18,10 @@
  * Unit tests for HashTable.cc.
  */
 
-#include <TestUtil.h>
+#include "TestUtil.h"
 
-#include <HashTable.h>
-#include <Object.h>
+#include "HashTable.h"
+#include "Object.h"
 
 namespace RAMCloud {
 
