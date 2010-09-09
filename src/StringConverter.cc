@@ -68,23 +68,53 @@ StringConverter::convert<bool>(const string& value) const
     throw BadFormatException(value);
 }
 
-#define CONVERT_VALUE_FLOATING(type, strtoxfn) \
-template<> type \
-StringConverter::convert<type>(const string& value) const \
-{ \
-    const char* valueCStr = value.c_str(); \
-    char* end; \
-    errno = 0; \
-    type v = strtoxfn(valueCStr, &end); \
-    if (errno != 0) \
-        throw OutOfRangeException(value); \
-    if (*end != '\0' || *valueCStr == '\0') \
-        throw BadFormatException(value); \
-    return v; \
+template<> float
+StringConverter::convert<float>(const string& value) const
+{
+    return convertFloating<float, strtof>(value);
 }
 
-CONVERT_VALUE_FLOATING(float, strtof);
-CONVERT_VALUE_FLOATING(double, strtod);
+template<> double
+StringConverter::convert<double>(const string& value) const
+{
+    return convertFloating<double, strtod>(value);
+}
+
+template<> int8_t
+StringConverter::convert<int8_t>(const string& value) const
+{
+    return convertUsingLossOfPrecision<int8_t, int64_t>(value);
+}
+
+template<> uint8_t
+StringConverter::convert<uint8_t>(const string& value) const
+{
+    return convertUsingLossOfPrecision<uint8_t, uint64_t>(value);
+}
+
+template<> int16_t
+StringConverter::convert<int16_t>(const string& value) const
+{
+    return convertUsingLossOfPrecision<int16_t, int64_t>(value);
+}
+
+template<> uint16_t
+StringConverter::convert<uint16_t>(const string& value) const
+{
+    return convertUsingLossOfPrecision<uint16_t, uint64_t>(value);
+}
+
+template<> int32_t
+StringConverter::convert<int32_t>(const string& value) const
+{
+    return convertUsingLossOfPrecision<int32_t, int64_t>(value);
+}
+
+template<> uint32_t
+StringConverter::convert<uint32_t>(const string& value) const
+{
+    return convertUsingLossOfPrecision<uint32_t, uint64_t>(value);
+}
 
 template<> int64_t
 StringConverter::convert<int64_t>(const string& value) const
@@ -116,32 +146,52 @@ StringConverter::convert<uint64_t>(const string& value) const
     return v;
 }
 
-#define CONVERT_VALUE_SIGNED(type) \
-template<> type \
-StringConverter::convert<type>(const string& value) const \
-{ \
-    int64_t v = convert<int64_t>(value); \
-    if (static_cast<int64_t>(static_cast<type>(v)) != v) \
-        throw OutOfRangeException(value); \
-    return static_cast<type>(v); \
+// Helpers:
+
+/**
+ * A helper for coercing floating point types. 
+ * \param value
+ *      See #convert().
+ * \tparam T
+ *      See #convert().
+ * \tparam strtox
+ *      A function that behaves like strtod (3).
+ * return
+ *      See #convert().
+ */
+template<typename T, T (*strtox)(const char*, char**)> T
+StringConverter::convertFloating(const string& value) const
+{
+    const char* valueCStr = value.c_str();
+    char* end;
+    errno = 0;
+    T v = strtox(valueCStr, &end);
+    if (errno != 0)
+        throw OutOfRangeException(value);
+    if (*end != '\0' || *valueCStr == '\0')
+        throw BadFormatException(value);
+    return v;
 }
 
-CONVERT_VALUE_SIGNED(int8_t);
-CONVERT_VALUE_SIGNED(int16_t);
-CONVERT_VALUE_SIGNED(int32_t);
-
-#define CONVERT_VALUE_UNSIGNED(type) \
-template<> type \
-StringConverter::convert<type>(const string& value) const \
-{ \
-    uint64_t v = convert<uint64_t>(value); \
-    if (static_cast<uint64_t>(static_cast<type>(v)) != v) \
-        throw OutOfRangeException(value); \
-    return static_cast<type>(v); \
+/**
+ * A helper for coercing smaller integer types using the convert
+ * implementation of a larger integer type. 
+ * \param value
+ *      See #convert().
+ * \tparam T
+ *      See #convert().
+ * \tparam P
+ *      A type similar to T but with more precision.
+ * return
+ *      See #convert().
+ */
+template<typename T, typename P> T
+StringConverter::convertUsingLossOfPrecision(const string& value) const
+{
+    P v = convert<P>(value);
+    if (static_cast<P>(static_cast<T>(v)) != v)
+        throw OutOfRangeException(value);
+    return static_cast<T>(v);
 }
-
-CONVERT_VALUE_UNSIGNED(uint8_t);
-CONVERT_VALUE_UNSIGNED(uint16_t);
-CONVERT_VALUE_UNSIGNED(uint32_t);
 
 } // namespace RAMCloud

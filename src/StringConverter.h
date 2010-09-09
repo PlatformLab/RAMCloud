@@ -106,6 +106,14 @@ class StringConverter {
      *      The value could not be coerced to the given type.
      */
     template<typename T> T convert(const string& value) const;
+
+  private:
+
+    template<typename T, T (*strtox)(const char*, char**)> T
+    convertFloating(const string& value) const;
+
+    template<typename T, typename P> T
+    convertUsingLossOfPrecision(const string& value) const;
 };
 
 } // end RAMCloud
