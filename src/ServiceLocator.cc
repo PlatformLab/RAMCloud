@@ -38,6 +38,8 @@ ServiceLocator::ServiceLocator(const string& serviceLocator)
       options()
 {
 
+    // Building up regular expressions to parse the service locator string:
+
 // Optional whitespace.
 #define SPACES " *"
 
@@ -81,6 +83,8 @@ ServiceLocator::ServiceLocator(const string& serviceLocator)
 
     pcrecpp::StringPiece remainingSubject(serviceLocator);
 
+    // Each iteration through the following loop parses one element of the
+    // protocol.
     while (true) {
         string protocolComponent;
         // Sentinel will be non-empty when there are no more protocol
@@ -100,6 +104,7 @@ ServiceLocator::ServiceLocator(const string& serviceLocator)
             break;
     }
 
+    // Each iteration through the following loop parses one key-value pair.
     while (!remainingSubject.empty()) {
         string key;
         string value;
@@ -205,7 +210,7 @@ ServiceLocator::convertValue<uint64_t>(const string& value)
     const char* valueCStr = value.c_str();
     char* end;
     if (*valueCStr == '-')
-        throw BadFormatException(value);
+        throw OutOfRangeException(value);
     errno = 0;
     uint64_t v = strtoul(valueCStr, &end, 0);
     if (errno != 0)
@@ -243,7 +248,7 @@ CONVERT_VALUE_UNSIGNED(uint8_t);
 CONVERT_VALUE_UNSIGNED(uint16_t);
 CONVERT_VALUE_UNSIGNED(uint32_t);
 
-// Identical to:
+// Simpler form without a type template parameter, identical to:
 // T getOption<T=const string&>(const string& key)
 // (This isn't a doxygen comment because doxygen concatenates this
 // documentation with that of getOption<> for getOption<>).
@@ -253,7 +258,7 @@ ServiceLocator::getOption(const string& key) const
     return getOption<const string&>(key);
 }
 
-// Identical to:
+// Simpler form without a type template parameter, identical to:
 // T getOption<T=const string&>(const string& key, T defaultValue)
 const string&
 ServiceLocator::getOption(const string& key, const string& defaultValue) const

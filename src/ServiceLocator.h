@@ -292,7 +292,8 @@ class ServiceLocator {
     DISALLOW_COPY_AND_ASSIGN(ServiceLocator);
 };
 
-// Unfortunately, these need to be defined in the header file:
+// Unfortunately, these need to be defined in the header file because they're
+// templates that are instantiated in multiple files:
 
 /**
  * Return the value for the option with the given key, coerced to the given

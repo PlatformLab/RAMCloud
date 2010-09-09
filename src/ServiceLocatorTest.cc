@@ -307,7 +307,7 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
         CV_EQUAL(uint8_t, UINT8_MAX, "+255");
         CV_EQUAL(uint8_t, UINT8_MAX, "+0xff");
         CV_OUT_OF_RANGE(uint8_t, "256");
-        CV_BAD_FORMAT(uint8_t, "-0");
+        CV_OUT_OF_RANGE(uint8_t, "-0");
         CV_BAD_FORMAT(uint8_t, "x");
         CV_BAD_FORMAT(uint8_t, "0x");
         CV_BAD_FORMAT(uint8_t, "0xy");
@@ -320,7 +320,7 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
         CV_EQUAL(uint16_t, UINT16_MAX, "+65535");
         CV_EQUAL(uint16_t, UINT16_MAX, "+0xffff");
         CV_OUT_OF_RANGE(uint16_t, "65536");
-        CV_BAD_FORMAT(uint16_t, "-0");
+        CV_OUT_OF_RANGE(uint16_t, "-0");
         CV_BAD_FORMAT(uint16_t, "x");
         CV_BAD_FORMAT(uint16_t, "0x");
         CV_BAD_FORMAT(uint16_t, "0xy");
@@ -333,7 +333,7 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
         CV_EQUAL(uint32_t, UINT32_MAX, "+4294967295");
         CV_EQUAL(uint32_t, UINT32_MAX, "+0xffffffff");
         CV_OUT_OF_RANGE(uint32_t, "4294967296");
-        CV_BAD_FORMAT(uint32_t, "-0");
+        CV_OUT_OF_RANGE(uint32_t, "-0");
         CV_BAD_FORMAT(uint32_t, "x");
         CV_BAD_FORMAT(uint32_t, "0x");
         CV_BAD_FORMAT(uint32_t, "0xy");
@@ -346,7 +346,7 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
         CV_EQUAL(uint64_t, UINT64_MAX, "+18446744073709551615");
         CV_EQUAL(uint64_t, UINT64_MAX, "+0xffffffffffffffff");
         CV_OUT_OF_RANGE(uint64_t, "18446744073709551616");
-        CV_BAD_FORMAT(uint64_t, "-0");
+        CV_OUT_OF_RANGE(uint64_t, "-0");
         CV_BAD_FORMAT(uint64_t, "x");
         CV_BAD_FORMAT(uint64_t, "0x");
         CV_BAD_FORMAT(uint64_t, "0xy");
