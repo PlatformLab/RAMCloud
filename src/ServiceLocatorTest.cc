@@ -33,6 +33,7 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_constructor_escapingData);
     CPPUNIT_TEST(test_protocolStack);
     CPPUNIT_TEST(test_getOption);
+    CPPUNIT_TEST(test_hasOption);
     CPPUNIT_TEST_SUITE_END();
 
 /**
@@ -135,6 +136,12 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(sl.getOption<uint8_t>("foo"),
                              ServiceLocator::NoSuchKeyException);
         CPPUNIT_ASSERT_EQUAL(7, sl.getOption<uint8_t>("foo", 7));
+    }
+
+    void test_hasOption() {
+        ServiceLocator sl("cat: meow=1");
+        CPPUNIT_ASSERT(sl.hasOption("meow"));
+        CPPUNIT_ASSERT(!sl.hasOption("moo"));
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(ServiceLocatorTest);

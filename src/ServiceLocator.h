@@ -112,6 +112,17 @@ class ServiceLocator {
                             const string& defaultValue) const;
 
     /**
+     * Return whether the given key names an option that was specified.
+     * \param key
+     *      See above.
+     * \return
+     *      See above.
+     */
+    bool hasOption(const string& key) const {
+        return (options.find(key) != options.end());
+    }
+
+    /**
      * Return the original service locator string passed to the constructor.
      * \return
      *      See above.
