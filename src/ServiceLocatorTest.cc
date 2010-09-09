@@ -59,9 +59,9 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
     ServiceLocatorTest() {}
 
     void test_usageExample() {
-        ServiceLocator sl("tcp+ip: host=example.org, port=8081");
-        CPPUNIT_ASSERT_EQUAL("tcp", sl.popProtocol());
-        CPPUNIT_ASSERT_EQUAL("ip", sl.popProtocol());
+        ServiceLocator sl("fast+udp: host=example.org, port=8081");
+        CPPUNIT_ASSERT_EQUAL("fast", sl.popProtocol());
+        CPPUNIT_ASSERT_EQUAL("udp", sl.popProtocol());
         CPPUNIT_ASSERT_EQUAL("example.org", sl.getOption("host"));
         CPPUNIT_ASSERT_EQUAL(8081, sl.getOption<uint16_t>("port"));
         CPPUNIT_ASSERT_EQUAL(0x8001,
@@ -69,62 +69,62 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
     }
 
     void test_constructor_normal() {
-        string s("tcp+ip: host=example.org, port=8081, port=8082");
+        string s("fast+udp: host=example.org, port=8081, port=8082");
         ServiceLocator sl(s);
         CPPUNIT_ASSERT_EQUAL(s, sl.originalString);
-        CPPUNIT_ASSERT_EQUAL("tcp+ip", sl.getOriginalProtocol());
-        CPPUNIT_ASSERT_EQUAL("tcp", sl.getProtocolStack().at(0));
-        CPPUNIT_ASSERT_EQUAL("ip", sl.getProtocolStack().at(1));
+        CPPUNIT_ASSERT_EQUAL("fast+udp", sl.getOriginalProtocol());
+        CPPUNIT_ASSERT_EQUAL("fast", sl.getProtocolStack().at(0));
+        CPPUNIT_ASSERT_EQUAL("udp", sl.getProtocolStack().at(1));
         CPPUNIT_ASSERT_EQUAL("example.org", sl.getOption("host"));
         CPPUNIT_ASSERT_EQUAL("8082", sl.getOption("port"));
     }
 
     void test_constructor_goodInput() {
-        CONSTRUCTOR_OK(1, 0, "tcp:");
-        CONSTRUCTOR_OK(1, 2, " tcp : x = y , z = \"a\" , ");
-        CONSTRUCTOR_OK(1, 1, "tcp: x=\"=\\\",\"");
-        CONSTRUCTOR_OK(2, 0, "tcp+ip:");
-        CONSTRUCTOR_OK(2, 0, "3tcp+ip_V4:");
-        CONSTRUCTOR_OK(1, 1, "tcp: 3x_Y7=2");
-        CONSTRUCTOR_OK(1, 1, "tcp: port=");
+        CONSTRUCTOR_OK(1, 0, "fast:");
+        CONSTRUCTOR_OK(1, 2, " fast : x = y , z = \"a\" , ");
+        CONSTRUCTOR_OK(1, 1, "fast: x=\"=\\\",\"");
+        CONSTRUCTOR_OK(2, 0, "fast+udp:");
+        CONSTRUCTOR_OK(2, 0, "3fast+udp_V4:");
+        CONSTRUCTOR_OK(1, 1, "fast: 3x_Y7=2");
+        CONSTRUCTOR_OK(1, 1, "fast: port=");
     }
 
     void test_constructor_badInput() {
-        CONSTRUCTOR_BAD("tcp");
-        CONSTRUCTOR_BAD("tcp: x");
-        CONSTRUCTOR_BAD("tcp ,");
-        CONSTRUCTOR_BAD("tcp x,");
-        CONSTRUCTOR_BAD("tcp: x=y,y");
-        CONSTRUCTOR_BAD("tcp + ip: ");
+        CONSTRUCTOR_BAD("fast");
+        CONSTRUCTOR_BAD("fast: x");
+        CONSTRUCTOR_BAD("fast ,");
+        CONSTRUCTOR_BAD("fast x,");
+        CONSTRUCTOR_BAD("fast: x=y,y");
+        CONSTRUCTOR_BAD("fast + udp: ");
     }
 
     void test_constructor_escapingControl() {
-        ServiceLocator sl("tcp: a=\\\"\\,\\\", b=\"\\\"\"");
+        ServiceLocator sl("fast: a=\\\"\\,\\\", b=\"\\\"\"");
         CPPUNIT_ASSERT_EQUAL("\",\"", sl.getOption("a"));
         CPPUNIT_ASSERT_EQUAL("\"", sl.getOption("b"));
     }
 
     void test_constructor_escapingData() {
-        ServiceLocator sl("tcp: a=\\x, b=\"\\x\"");
+        ServiceLocator sl("fast: a=\\x, b=\"\\x\"");
         CPPUNIT_ASSERT_EQUAL("\\x", sl.getOption("a"));
         CPPUNIT_ASSERT_EQUAL("\\x", sl.getOption("b"));
     }
 
     void test_protocolStack() {
-        ServiceLocator sl("tcp+ip:");
-        CPPUNIT_ASSERT_EQUAL("tcp", sl.peekProtocol());
-        CPPUNIT_ASSERT_EQUAL("tcp", sl.popProtocol());
-        CPPUNIT_ASSERT_EQUAL("ip", sl.popProtocol());
+        ServiceLocator sl("fast+udp:");
+        CPPUNIT_ASSERT_EQUAL("fast", sl.peekProtocol());
+        CPPUNIT_ASSERT_EQUAL("fast", sl.popProtocol());
+        CPPUNIT_ASSERT_EQUAL("udp", sl.popProtocol());
         CPPUNIT_ASSERT_THROW(sl.peekProtocol(),
                              ServiceLocator::NoMoreProtocolsException);
         CPPUNIT_ASSERT_THROW(sl.popProtocol(),
                              ServiceLocator::NoMoreProtocolsException);
         sl.resetProtocolStack();
-        CPPUNIT_ASSERT_EQUAL("tcp", sl.peekProtocol());
+        CPPUNIT_ASSERT_EQUAL("fast", sl.peekProtocol());
     }
 
     void test_getOption() {
-        ServiceLocator sl("tcp: host=example.org, port=8081");
+        ServiceLocator sl("fast: host=example.org, port=8081");
         CPPUNIT_ASSERT_THROW(sl.getOption<uint16_t>("host"),
                              StringConverter::BadFormatException);
         CPPUNIT_ASSERT_THROW(sl.getOption<uint16_t>("host", 4),

@@ -42,9 +42,9 @@ namespace RAMCloud {
  * see #RAMCloud::ServiceLocatorTest::test_usageExample().
  *
  * For example, in the service locator string
- *  "tcp+ip: host=example.org, port=8081"
- * the protocol is tcp+ip and the options are a host of example.org and a port
- * of 8081. The protocol stack has tcp at the top, followed by ip.
+ *  "fast+udp: host=example.org, port=8081"
+ * the protocol is fast+udp and the options are a host of example.org and a
+ * port of 8081. The protocol stack has fast at the top, followed by udp.
  */
 class ServiceLocator {
   friend class ServiceLocatorTest;
