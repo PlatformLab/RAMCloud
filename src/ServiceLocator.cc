@@ -23,6 +23,11 @@
 namespace RAMCloud {
 
 /**
+ * Used in #getOption() to convert string values to requested types.
+ */
+StringConverter ServiceLocator::stringConverter;
+
+/**
  * Construct a service locator from a string representation.
  * \param serviceLocator
  *      A string like "tcp: host=example.org, port=8081". If an option is
@@ -127,126 +132,6 @@ ServiceLocator::ServiceLocator(const string& serviceLocator)
         options[key] = value;
     }
 }
-
-template<> const string&
-ServiceLocator::convertValue<const string&>(const string& value)
-{
-    return value;
-}
-
-template<> const char*
-ServiceLocator::convertValue<const char*>(const string& value)
-{
-    return value.c_str();
-}
-
-template<> bool
-ServiceLocator::convertValue<bool>(const string& value)
-{
-    const char* valueCStr = value.c_str();
-    if (value.length() == 1) {
-        switch (*valueCStr) {
-            case '0':
-            case 'n':
-            case 'N':
-            case 'f':
-            case 'F':
-                return false;
-            case '1':
-            case 'y':
-            case 'Y':
-            case 't':
-            case 'T':
-                return true;
-            default:
-                break;
-        }
-    } else if (strcasecmp(valueCStr, "false") == 0) // NOLINT
-        return false;
-    else if (strcasecmp(valueCStr, "no") == 0)
-        return false;
-    else if (strcasecmp(valueCStr, "true") == 0)
-        return true;
-    else if (strcasecmp(valueCStr, "yes") == 0)
-        return true;
-    throw BadFormatException(value);
-}
-
-#define CONVERT_VALUE_FLOATING(type, strtoxfn) \
-template<> type \
-ServiceLocator::convertValue<type>(const string& value) \
-{ \
-    const char* valueCStr = value.c_str(); \
-    char* end; \
-    errno = 0; \
-    type v = strtoxfn(valueCStr, &end); \
-    if (errno != 0) \
-        throw OutOfRangeException(value); \
-    if (*end != '\0' || *valueCStr == '\0') \
-        throw BadFormatException(value); \
-    return v; \
-}
-
-CONVERT_VALUE_FLOATING(float, strtof);
-CONVERT_VALUE_FLOATING(double, strtod);
-
-template<> int64_t
-ServiceLocator::convertValue<int64_t>(const string& value)
-{
-    const char* valueCStr = value.c_str();
-    char* end;
-    errno = 0;
-    int64_t v = strtol(valueCStr, &end, 0);
-    if (errno != 0)
-        throw OutOfRangeException(value);
-    if (*end != '\0' || *valueCStr == '\0')
-        throw BadFormatException(value);
-    return v;
-}
-
-template<> uint64_t
-ServiceLocator::convertValue<uint64_t>(const string& value)
-{
-    const char* valueCStr = value.c_str();
-    char* end;
-    if (*valueCStr == '-')
-        throw OutOfRangeException(value);
-    errno = 0;
-    uint64_t v = strtoul(valueCStr, &end, 0);
-    if (errno != 0)
-        throw OutOfRangeException(value);
-    if (*end != '\0' || *valueCStr == '\0')
-        throw BadFormatException(value);
-    return v;
-}
-
-#define CONVERT_VALUE_SIGNED(type) \
-template<> type \
-ServiceLocator::convertValue<type>(const string& value) \
-{ \
-    int64_t v = convertValue<int64_t>(value); \
-    if (static_cast<int64_t>(static_cast<type>(v)) != v) \
-        throw OutOfRangeException(value); \
-    return static_cast<type>(v); \
-}
-
-CONVERT_VALUE_SIGNED(int8_t);
-CONVERT_VALUE_SIGNED(int16_t);
-CONVERT_VALUE_SIGNED(int32_t);
-
-#define CONVERT_VALUE_UNSIGNED(type) \
-template<> type \
-ServiceLocator::convertValue<type>(const string& value) \
-{ \
-    uint64_t v = convertValue<uint64_t>(value); \
-    if (static_cast<uint64_t>(static_cast<type>(v)) != v) \
-        throw OutOfRangeException(value); \
-    return static_cast<type>(v); \
-}
-
-CONVERT_VALUE_UNSIGNED(uint8_t);
-CONVERT_VALUE_UNSIGNED(uint16_t);
-CONVERT_VALUE_UNSIGNED(uint32_t);
 
 // Simpler form without a type template parameter, identical to:
 // T getOption<T=const string&>(const string& key)

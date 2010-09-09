@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "Common.h"
+#include "StringConverter.h"
 
 namespace RAMCloud {
 
@@ -97,59 +98,6 @@ class ServiceLocator {
                 "' was not found in the ServiceLocator.";
         }
         string key;
-    };
-
-
-    /**
-     * An abstract exception type that is a superclass of
-     * #RAMCloud::ServiceLocator::BadFormatException, and
-     * #RAMCloud::ServiceLocator::OutOfRangeException.
-     * This is useful for catching malformed values in general.
-     */
-    struct BadValueException : public Exception {
-      protected:
-        BadValueException(const string& key, const string& value)
-            : key(), value(value) {
-            setKey(key);
-        }
-        explicit BadValueException(const string& value)
-            : key(), value(value) {
-            message = "The value '" + value + "' was invalid.";
-        }
-      public:
-        /**
-         * Update #key. This is useful if the key was not available at the time
-         * the exception was thrown but only higher up the stack.
-         */
-        void setKey(const string& key) {
-            this->key = key;
-            message = "The value '" + value + "' for option '" + key +
-                "' was invalid.";
-        }
-        string key;
-        string value;
-    };
-
-    /**
-     * An exception thrown when the option with the given key did not have the
-     * right format to be coerced to the requested type.
-     */
-    struct BadFormatException : public BadValueException {
-        BadFormatException(const string& key, const string& value)
-            : BadValueException(key, value) {}
-        explicit BadFormatException(const string& value)
-            : BadValueException(value) {}
-    };
-
-    /**
-     * An exception thrown when the option with the given key was too big or
-     * too small to be coerced to the requested type.
-     */
-    struct OutOfRangeException : public BadValueException {
-        OutOfRangeException(const string& key, const string& value)
-            : BadValueException(key, value) {}
-        explicit OutOfRangeException(const string& value)
-            : BadValueException(value) {}
     };
 
     explicit ServiceLocator(const string& serviceLocator);
@@ -247,18 +195,7 @@ class ServiceLocator {
 
   private:
 
-    /**
-     * Coerce a value from a string to the given type.
-     * \param value
-     *      The string to be coerced.
-     * \tparam T
-     *      The type to which to coerce the value.
-     *      There is a limited list of valid types allowed here, and any others
-     *      will result in a linker error. See #getOption for this list.
-     * \throw BadValueException
-     *      The value could not be coerced to the given type.
-     */
-    template<typename T> static T convertValue(const string& value);
+    static StringConverter stringConverter;
 
     /**
      * See #getOriginalString().
@@ -302,26 +239,13 @@ class ServiceLocator {
  *      The key for the desired option.
  * \tparam T
  *      The type to which to coerce the option's value.
- *      The only valid types are as follows, and any others will result in a
- *      linker error:
- *       - const string&
- *       - const char*
- *       - bool
- *       - float
- *       - double
- *       - int8_t
- *       - uint8_t
- *       - int16_t
- *       - uint16_t
- *       - int32_t
- *       - uint32_t
- *       - int64_t
- *       - uint64_t
+ *      The only valid types are as follows those for which
+ *      #RAMCloud::StringConverter::convert() may be called.
  * \return
  *      See above.
  * \throw NoSuchKeyException
  *      The key does not name an option that was specified.
- * \throw BadValueException
+ * \throw #RAMCloud::StringConverter::BadValueException
  *      The value could not be coerced to the given type.
  */
 template<typename T> T
@@ -330,11 +254,11 @@ ServiceLocator::getOption(const string& key) const {
     if (i == options.end())
         throw NoSuchKeyException(key);
     try {
-        return convertValue<T>(i->second);
-    } catch (BadFormatException e) {
+        return stringConverter.convert<T>(i->second);
+    } catch (StringConverter::BadFormatException e) {
         e.key = key;
         throw;
-    } catch (OutOfRangeException e) {
+    } catch (StringConverter::OutOfRangeException e) {
         e.key = key;
         throw;
     }
@@ -353,7 +277,7 @@ ServiceLocator::getOption(const string& key) const {
  *      The value for the option with the given key, coerced to the given type.
  *      If the key does not name an available option, \a defaultValue will be
  *      returned.
- * \throw BadValueException
+ * \throw #RAMCloud::StringConverter::BadValueException
  *      The value could not be coerced to the given type.
  */
 template<typename T> T
@@ -362,11 +286,11 @@ ServiceLocator::getOption(const string& key, T defaultValue) const {
     if (i == options.end())
         return defaultValue;
     try {
-        return convertValue<T>(i->second);
-    } catch (BadFormatException e) {
+        return stringConverter.convert<T>(i->second);
+    } catch (StringConverter::BadFormatException e) {
         e.key = key;
         throw;
-    } catch (OutOfRangeException e) {
+    } catch (StringConverter::OutOfRangeException e) {
         e.key = key;
         throw;
     }

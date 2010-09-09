@@ -11,6 +11,7 @@ SHARED_SRCFILES := \
                 src/Buffer.cc \
                 src/Service.cc \
                 src/ServiceLocator.cc \
+                src/StringConverter.cc \
                 src/Driver.cc \
                 src/UDPDriver.cc \
                 src/TCPTransport.cc \

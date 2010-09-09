@@ -24,6 +24,7 @@ TESTS_SRCFILES := \
         src/MetricsTest.cc \
         src/StatusTest.cc \
         src/ServiceLocatorTest.cc \
+        src/StringConverterTest.cc \
         src/TestRunner.cc \
         src/TestUtil.cc \
         src/MockTransport.cc \
