@@ -44,7 +44,7 @@ namespace RAMCloud {
  * For example, in the service locator string
  *  "fast+udp: host=example.org, port=8081"
  * the protocol is fast+udp and the options are a host of example.org and a
- * port of 8081. The protocol stack has fast at the top, followed by udp.
+ * port of 8081.
  */
 class ServiceLocator {
   friend class ServiceLocatorTest;
@@ -73,19 +73,6 @@ class ServiceLocator {
          * causing trouble.
          */
         string remaining;
-    };
-
-    /**
-     * An exception thrown when peeking or popping past the end of the protocol
-     * stack.
-     */
-    struct NoMoreProtocolsException : public Exception {
-        explicit NoMoreProtocolsException(const string& protocol)
-            : protocol(protocol) {
-            message = "Peek or pop past the end of a protocol stack: '" +
-                protocol + "'";
-        }
-        string protocol;
     };
 
     /**
@@ -139,69 +126,8 @@ class ServiceLocator {
      * \return
      *      See above.
      */
-    const string& getOriginalProtocol() const {
-        return originalProtocol;
-    }
-
-    /**
-     * Return the individual protocols specified in the original protocol
-     * string, indexed from left to right.
-     * \return
-     *      See above.
-     */
-    const std::vector<string>& getProtocolStack() const {
-        return protocolStack;
-    }
-
-    /**
-     * Return the number of times pop can be called before it throws
-     * a NoMoreProtocolsException.
-     * \return
-     *      See above.
-     */
-    bool getNumProtocolsRemaining() const {
-        return protocolStack.size() - protocolStackIndex;
-    }
-
-    /**
-     * Return the next protocol off the protocol stack.
-     * \return
-     *      See above.
-     * \throw NoMoreProtocolsException
-     *      Attempting to peek past the end of the protocol stack.
-     *      See #getNumProtocolsRemaining().
-     */
-    const string& peekProtocol() const {
-        try {
-            return protocolStack.at(protocolStackIndex);
-        } catch (std::out_of_range e) {
-            throw NoMoreProtocolsException(originalProtocol);
-        }
-    }
-
-    /**
-     * Pop the next protocol off the protocol stack.
-     * \return
-     *      See above.
-     * \throw NoMoreProtocolsException
-     *      Attempting to pop past the end of the protocol stack.
-     *      See #getNumProtocolsRemaining().
-     */
-    const string& popProtocol() {
-        try {
-            return protocolStack.at(protocolStackIndex++);
-        } catch (std::out_of_range e) {
-            throw NoMoreProtocolsException(originalProtocol);
-        }
-    }
-
-    /**
-     * Restore all the protocols that have been popped off the protocol stack.
-     * The next call to #peekProtocol or #popProtocol will return the very
-     * first protocol from #originalProtocol.
-     */
-    void resetProtocolStack() {
-        protocolStackIndex = 0;
+    const string& getProtocol() const {
+        return protocol;
     }
 
   private:
@@ -214,22 +140,10 @@ class ServiceLocator {
     const string originalString;
 
     /**
-     * See #getOriginalProtocol().
+     * See #getProtocol().
      * This is const after construction.
      */
-    string originalProtocol;
-
-    /**
-     * See #getProtocolStack().
-     * This is const after construction.
-     */
-    std::vector<string> protocolStack;
-
-    /**
-     * The index into #protocolStack of the string that the next call to peek
-     * or pop should return.
-     */
-    uint32_t protocolStackIndex;
+    string protocol;
 
     /**
      * A map from key to value of parsed options from #originalString.

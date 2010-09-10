@@ -38,9 +38,7 @@ StringConverter ServiceLocator::stringConverter;
  *      \a serviceLocator could not be parsed.
  */
 ServiceLocator::ServiceLocator(const string& serviceLocator)
-    : originalString(serviceLocator),
-      originalProtocol(), protocolStack(), protocolStackIndex(0),
-      options()
+    : originalString(serviceLocator), protocol(), options()
 {
 
     // Building up regular expressions to parse the service locator string:
@@ -48,14 +46,13 @@ ServiceLocator::ServiceLocator(const string& serviceLocator)
 // Optional whitespace.
 #define SPACES " *"
 
-// A '+'-separated component of a protocol.
-#define PROTOCOL "\\w+"
-// A pattern to consume a protocol component, up to and including the ':'. The
-// first group is the protocol component, and the second group is a ':' for the
-// last protocol component or empty otherwise.
-#define PROTOCOL_PATTERN SPACES "(" PROTOCOL ")(?:\\+|" SPACES "(:)" SPACES ")"
+// The protocol.
+#define PROTOCOL "[\\w\\+]+"
+// A pattern to consume a protocol, up to and including the ':' and any spaces
+// following it. The first group is the protocol.
+#define PROTOCOL_PATTERN SPACES "(" PROTOCOL ")" SPACES ":" SPACES
     static const pcrecpp::RE protocolRe(PROTOCOL_PATTERN);
-    assert(protocolRe.NumberOfCapturingGroups() == 2);
+    assert(protocolRe.NumberOfCapturingGroups() == 1);
 #undef PROTOCOL_PATTERN
 #undef PROTOCOL
 
@@ -88,25 +85,11 @@ ServiceLocator::ServiceLocator(const string& serviceLocator)
 
     pcrecpp::StringPiece remainingSubject(serviceLocator);
 
-    // Each iteration through the following loop parses one element of the
-    // protocol.
-    while (true) {
-        string protocolComponent;
-        // Sentinel will be non-empty when there are no more protocol
-        // components to consume.
-        string sentinel;
-        bool r = protocolRe.Consume(&remainingSubject, &protocolComponent,
-                                    &sentinel);
-        if (!r) {
-            throw BadServiceLocatorException(serviceLocator,
-                                             remainingSubject.as_string());
-        }
-        protocolStack.push_back(protocolComponent);
-        originalProtocol += protocolComponent;
-        if (sentinel.empty())
-            originalProtocol += "+";
-        else
-            break;
+    // Parse out the protocol.
+    bool r = protocolRe.Consume(&remainingSubject, &protocol);
+    if (!r) {
+        throw BadServiceLocatorException(serviceLocator,
+                                         remainingSubject.as_string());
     }
 
     // Each iteration through the following loop parses one key-value pair.

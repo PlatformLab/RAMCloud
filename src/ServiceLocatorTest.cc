@@ -31,7 +31,6 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_constructor_badInput);
     CPPUNIT_TEST(test_constructor_escapingControl);
     CPPUNIT_TEST(test_constructor_escapingData);
-    CPPUNIT_TEST(test_protocolStack);
     CPPUNIT_TEST(test_getOption);
     CPPUNIT_TEST(test_hasOption);
     CPPUNIT_TEST_SUITE_END();
@@ -40,13 +39,10 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
  * Assert the service locator string parses with the right number of protocols
  * and options.
  */
-#define CONSTRUCTOR_OK(numProtocols, numOptions, string) \
+#define CONSTRUCTOR_OK(numOptions, string) \
     CPPUNIT_ASSERT_NO_THROW( \
-        ServiceLocator sl(string); \
-        CPPUNIT_ASSERT_EQUAL(numProtocols, \
-                             sl.getProtocolStack().size()); \
         CPPUNIT_ASSERT_EQUAL(numOptions, \
-                             sl.options.size());)
+                             ServiceLocator(string).options.size());)
 
 /**
  * Make sure the service locator string doesn't parse.
@@ -60,8 +56,7 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
 
     void test_usageExample() {
         ServiceLocator sl("fast+udp: host=example.org, port=8081");
-        CPPUNIT_ASSERT_EQUAL("fast", sl.popProtocol());
-        CPPUNIT_ASSERT_EQUAL("udp", sl.popProtocol());
+        CPPUNIT_ASSERT_EQUAL("fast+udp", sl.getProtocol());
         CPPUNIT_ASSERT_EQUAL("example.org", sl.getOption("host"));
         CPPUNIT_ASSERT_EQUAL(8081, sl.getOption<uint16_t>("port"));
         CPPUNIT_ASSERT_EQUAL(0x8001,
@@ -72,21 +67,19 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
         string s("fast+udp: host=example.org, port=8081, port=8082");
         ServiceLocator sl(s);
         CPPUNIT_ASSERT_EQUAL(s, sl.originalString);
-        CPPUNIT_ASSERT_EQUAL("fast+udp", sl.getOriginalProtocol());
-        CPPUNIT_ASSERT_EQUAL("fast", sl.getProtocolStack().at(0));
-        CPPUNIT_ASSERT_EQUAL("udp", sl.getProtocolStack().at(1));
+        CPPUNIT_ASSERT_EQUAL("fast+udp", sl.getProtocol());
         CPPUNIT_ASSERT_EQUAL("example.org", sl.getOption("host"));
         CPPUNIT_ASSERT_EQUAL("8082", sl.getOption("port"));
     }
 
     void test_constructor_goodInput() {
-        CONSTRUCTOR_OK(1, 0, "fast:");
-        CONSTRUCTOR_OK(1, 2, " fast : x = y , z = \"a\" , ");
-        CONSTRUCTOR_OK(1, 1, "fast: x=\"=\\\",\"");
-        CONSTRUCTOR_OK(2, 0, "fast+udp:");
-        CONSTRUCTOR_OK(2, 0, "3fast+udp_V4:");
-        CONSTRUCTOR_OK(1, 1, "fast: 3x_Y7=2");
-        CONSTRUCTOR_OK(1, 1, "fast: port=");
+        CONSTRUCTOR_OK(0, "fast:");
+        CONSTRUCTOR_OK(2, " fast : x = y , z = \"a\" , ");
+        CONSTRUCTOR_OK(1, "fast: x=\"=\\\",\"");
+        CONSTRUCTOR_OK(0, "fast+udp:");
+        CONSTRUCTOR_OK(0, "3fast+udp_V4:");
+        CONSTRUCTOR_OK(1, "fast: 3x_Y7=2");
+        CONSTRUCTOR_OK(1, "fast: port=");
     }
 
     void test_constructor_badInput() {
@@ -108,19 +101,6 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
         ServiceLocator sl("fast: a=\\x, b=\"\\x\"");
         CPPUNIT_ASSERT_EQUAL("\\x", sl.getOption("a"));
         CPPUNIT_ASSERT_EQUAL("\\x", sl.getOption("b"));
-    }
-
-    void test_protocolStack() {
-        ServiceLocator sl("fast+udp:");
-        CPPUNIT_ASSERT_EQUAL("fast", sl.peekProtocol());
-        CPPUNIT_ASSERT_EQUAL("fast", sl.popProtocol());
-        CPPUNIT_ASSERT_EQUAL("udp", sl.popProtocol());
-        CPPUNIT_ASSERT_THROW(sl.peekProtocol(),
-                             ServiceLocator::NoMoreProtocolsException);
-        CPPUNIT_ASSERT_THROW(sl.popProtocol(),
-                             ServiceLocator::NoMoreProtocolsException);
-        sl.resetProtocolStack();
-        CPPUNIT_ASSERT_EQUAL("fast", sl.peekProtocol());
     }
 
     void test_getOption() {
