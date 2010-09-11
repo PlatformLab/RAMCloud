@@ -140,6 +140,24 @@ ServiceLocator::init(pcrecpp::StringPiece* remainingServiceLocator)
 
 #undef SPACES
 
+    // A replacement pattern to remove slashes from quoted values.
+    // Each match should be replaced with the first group, which is the
+    // character that was escaped (a quote).
+    static const pcrecpp::RE unescapeQuotedRe("\\\\(\")");
+    assert(unescapeQuotedRe.NumberOfCapturingGroups() == 1);
+
+    // A replacement pattern to remove slashes from unquoted value.
+    // Each match should be replaced with the first group, which is the
+    // character that was escaped (a quote, comma, or semicolon).
+    static const pcrecpp::RE unescapeUnquotedRe("\\\\([\",;])");
+    assert(unescapeUnquotedRe.NumberOfCapturingGroups() == 1);
+
+    // A replacement pattern to remove leading and trailing whitespace.
+    // Each match should be replaced with the empty string.
+    static const pcrecpp::RE stripRe("(?:^ *| *$)");
+    assert(stripRe.NumberOfCapturingGroups() == 0);
+
+
     pcrecpp::StringPiece originalRemaining(*remainingServiceLocator);
 
     // Stop parsing if this is non-empty. The ';' is stored here.
@@ -168,11 +186,11 @@ ServiceLocator::init(pcrecpp::StringPiece* remainingServiceLocator)
                 // remove escape characters from internal quotes.
                 value.erase(0, 1);
                 value.erase(value.size() - 1, 1);
-                pcrecpp::RE("\\\\(\")").GlobalReplace("\\1", &value);
+                unescapeQuotedRe.GlobalReplace("\\1", &value);
             } else {
                 // The value was not quoted. Remove escape characters from
                 // quotes, commas, and semicolons.
-                pcrecpp::RE("\\\\([\",;])").GlobalReplace("\\1", &value);
+                unescapeUnquotedRe.GlobalReplace("\\1", &value);
             }
         }
         options[key] = value;
@@ -184,7 +202,7 @@ ServiceLocator::init(pcrecpp::StringPiece* remainingServiceLocator)
     originalRemaining.CopyToString(&originalString);
 
     // Strip leading and trailing whitespace from originalString.
-    pcrecpp::RE("(^ *| *$)").GlobalReplace("", &originalString);
+    stripRe.GlobalReplace("", &originalString);
 }
 
 // Simpler form without a type template parameter, identical to:
