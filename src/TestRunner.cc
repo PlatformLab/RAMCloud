@@ -13,14 +13,21 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <cppunit/CompilerOutputter.h>
-#include <cppunit/extensions/TestFactoryRegistry.h>
-#include <cppunit/ui/text/TestRunner.h>
-#include <cppunit/TestResult.h>
-
+#include <getopt.h>
 #include <stdlib.h>
 #include <string.h>
-#include <getopt.h>
+
+#include <cppunit/CompilerOutputter.h>
+#include <cppunit/Message.h>
+#include <cppunit/Protector.h>
+#include <cppunit/TestResult.h>
+#include <cppunit/extensions/TestFactoryRegistry.h>
+#include <cppunit/extensions/TypeInfoHelper.h>
+#include <cppunit/ui/text/TestRunner.h>
+
+#include <typeinfo>
+
+#include "Common.h"
 
 char testName[256];
 bool progress = false;
@@ -72,8 +79,29 @@ main(int argc, char *argv[])
     cmdline(argc, argv);
 
     CppUnit::TextUi::TestRunner runner;
-    CppUnit::TestFactoryRegistry &registry =
+    CppUnit::TestFactoryRegistry& registry =
             CppUnit::TestFactoryRegistry::getRegistry();
+
+    // This thing will print RAMCloud::Exception::message when RAMCloud
+    // exceptions are thrown in our unit tests.
+    class RAMCloudProtector : public CppUnit::Protector {
+        bool protect(const CppUnit::Functor& functor,
+                     const CppUnit::ProtectorContext& context) {
+            try {
+                return functor();
+            } catch (const RAMCloud::Exception& e) {
+                std::string className(
+                    CppUnit::TypeInfoHelper::getClassName(typeid(e)));
+                CppUnit::Message message(className + ":\n    " + e.message);
+                reportError(context, message);
+            }
+            return false;
+        }
+    };
+    // CppUnit's ProtectorChain::pop() will call delete on our protector, so I
+    // guess they want us to use new to allocate it.
+    runner.eventManager().pushProtector(new RAMCloudProtector());
+
     runner.addTest(registry.makeTest());
     return !runner.run(testName, false, true, progress);
 }
