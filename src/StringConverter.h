@@ -38,25 +38,10 @@ class StringConverter {
      */
     struct BadValueException : public Exception {
       protected:
-        BadValueException(const string& key, const string& value)
-            : key(), value(value) {
-            setKey(key);
-        }
-        explicit BadValueException(const string& value)
-            : key(), value(value) {
+        explicit BadValueException(const string& value) : value(value) {
             message = "The value '" + value + "' was invalid.";
         }
       public:
-        /**
-         * Update #key. This is useful if the key was not available at the time
-         * the exception was thrown but only higher up the stack.
-         */
-        void setKey(const string& key) {
-            this->key = key;
-            message = "The value '" + value + "' for option '" + key +
-                "' was invalid.";
-        }
-        string key;
         string value;
     };
 
@@ -65,8 +50,6 @@ class StringConverter {
      * right format to be coerced to the requested type.
      */
     struct BadFormatException : public BadValueException {
-        BadFormatException(const string& key, const string& value)
-            : BadValueException(key, value) {}
         explicit BadFormatException(const string& value)
             : BadValueException(value) {}
     };
@@ -76,8 +59,6 @@ class StringConverter {
      * too small to be coerced to the requested type.
      */
     struct OutOfRangeException : public BadValueException {
-        OutOfRangeException(const string& key, const string& value)
-            : BadValueException(key, value) {}
         explicit OutOfRangeException(const string& value)
             : BadValueException(value) {}
     };

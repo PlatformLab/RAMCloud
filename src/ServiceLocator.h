@@ -184,15 +184,7 @@ ServiceLocator::getOption(const string& key) const {
     std::map<string, string>::const_iterator i = options.find(key);
     if (i == options.end())
         throw NoSuchKeyException(key);
-    try {
-        return stringConverter.convert<T>(i->second);
-    } catch (StringConverter::BadFormatException e) {
-        e.key = key;
-        throw;
-    } catch (StringConverter::OutOfRangeException e) {
-        e.key = key;
-        throw;
-    }
+    return stringConverter.convert<T>(i->second);
 }
 
 /**
@@ -216,15 +208,7 @@ ServiceLocator::getOption(const string& key, T defaultValue) const {
     std::map<string, string>::const_iterator i = options.find(key);
     if (i == options.end())
         return defaultValue;
-    try {
-        return stringConverter.convert<T>(i->second);
-    } catch (StringConverter::BadFormatException e) {
-        e.key = key;
-        throw;
-    } catch (StringConverter::OutOfRangeException e) {
-        e.key = key;
-        throw;
-    }
+    return stringConverter.convert<T>(i->second);
 }
 
 } // end RAMCloud
