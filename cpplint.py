@@ -148,6 +148,8 @@ Syntax: cpplint.py [--verbose=#] [--output=vs7] [--filter=-x,+y,...]
 _ERROR_CATEGORIES = '''\
   ramcloud/undeclared_test
   ramcloud/throw_new
+  ramcloud/include
+  ramcloud/cppunit
   build/class
   build/deprecated
   build/endif_comment
@@ -2269,6 +2271,15 @@ def CheckIncludeLine(filename, clean_lines, linenum, include_state, error):
       if not include_state.IsInAlphabeticalOrder(include):
         error(filename, linenum, 'build/include_alpha', 4,
               'Include "%s" not in alphabetical order' % include)
+
+      if not Search(r'\bNOLINT\b', line):
+          if is_system and os.path.exists('src/%s' % include):
+            error(filename, linenum, 'ramcloud/include', 4,
+                  'Use quotes for including RAMCloud files.')
+          if (include.startswith('cppunit/') and
+              not fileinfo.BaseName().startswith('Test')):
+            error(filename, linenum, 'ramcloud/cppunit', 4,
+                  'Include TestUtil.h instead of cppunit files.')
 
   # Look for any of the stream classes that are part of standard C++.
   match = _RE_PATTERN_INCLUDE.match(line)

@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <cppunit/extensions/HelperMacros.h>
+#include "TestUtil.h"
 
 #include "Bitmap.h"
 

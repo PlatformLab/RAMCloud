@@ -31,7 +31,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <cppunit/extensions/HelperMacros.h>
+#include "TestUtil.h"
 
 #include "Common.h"
 #include "TCPTransport.h"

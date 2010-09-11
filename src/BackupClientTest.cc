@@ -18,7 +18,7 @@
  * Unit tests for BackupClient.
  */
 
-#include <cppunit/extensions/HelperMacros.h>
+#include "TestUtil.h"
 
 #include "BackupClient.h"
 #include "MockTransport.h"
