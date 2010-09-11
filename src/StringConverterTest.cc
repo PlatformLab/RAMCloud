@@ -27,6 +27,7 @@ namespace RAMCloud {
 
 class StringConverterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(StringConverterTest);
+    CPPUNIT_TEST(test_BadValueException_constructor);
     CPPUNIT_TEST(test_convert_toStrings);
     CPPUNIT_TEST(test_convert_toBool);
     CPPUNIT_TEST(test_convert_toFloat);
@@ -64,6 +65,12 @@ class StringConverterTest : public CppUnit::TestFixture {
 
   public:
     StringConverterTest() : stringConverter() {}
+
+    void test_BadValueException_constructor() {
+        StringConverter::BadFormatException e("rofl");
+        CPPUNIT_ASSERT_EQUAL("The value 'rofl' was invalid.", e.message);
+        CPPUNIT_ASSERT_EQUAL("rofl", e.value);
+    }
 
     void test_convert_toStrings() {
         const std::string s("hi");

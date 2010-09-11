@@ -162,16 +162,18 @@ ServiceLocator::init(pcrecpp::StringPiece* remainingServiceLocator)
             throw BadServiceLocatorException(originalRemaining.as_string(),
                                          remainingServiceLocator->as_string());
         }
-        if (!value.empty() && value[0] == '"') {
-            // The value was quoted. Strip the surrounding quotes and remove
-            // escape characters from internal quotes.
-            value.erase(0, 1);
-            value.erase(value.size() - 1, 1);
-            pcrecpp::RE("\\\\(\")").GlobalReplace("\\1", &value);
-        } else {
-            // The value was not quoted. Remove escape characters from
-            // quotes, commas, and semicolons.
-            pcrecpp::RE("\\\\([\",;])").GlobalReplace("\\1", &value);
+        if (!value.empty()) {
+            if (value[0] == '"') {
+                // The value was quoted. Strip the surrounding quotes and
+                // remove escape characters from internal quotes.
+                value.erase(0, 1);
+                value.erase(value.size() - 1, 1);
+                pcrecpp::RE("\\\\(\")").GlobalReplace("\\1", &value);
+            } else {
+                // The value was not quoted. Remove escape characters from
+                // quotes, commas, and semicolons.
+                pcrecpp::RE("\\\\([\",;])").GlobalReplace("\\1", &value);
+            }
         }
         options[key] = value;
     }
