@@ -26,6 +26,7 @@ namespace RAMCloud {
 class ServiceLocatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(ServiceLocatorTest);
     CPPUNIT_TEST(test_usageExample);
+    CPPUNIT_TEST(test_parseServiceLocators);
     CPPUNIT_TEST(test_constructor_normal);
     CPPUNIT_TEST(test_constructor_goodInput);
     CPPUNIT_TEST(test_constructor_badInput);
@@ -63,6 +64,24 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
                              sl.getOption<uint16_t>("etherType", 0x8001));
     }
 
+    void test_parseServiceLocators() {
+        std::vector<ServiceLocator> locators;
+        ServiceLocator::parseServiceLocators("fast: ; tcp: port=3;x:",
+                                             &locators);
+        CPPUNIT_ASSERT_EQUAL(3, locators.size());
+        CPPUNIT_ASSERT_EQUAL("fast:", locators.at(0).getOriginalString());
+        CPPUNIT_ASSERT_EQUAL("tcp: port=3",
+                             locators.at(1).getOriginalString());
+        CPPUNIT_ASSERT_EQUAL("x:", locators.at(2).getOriginalString());
+
+        locators.clear();
+        CPPUNIT_ASSERT_THROW(
+            ServiceLocator::parseServiceLocators("fast: ; tcp: port=3;!",
+                                                 &locators),
+            ServiceLocator::BadServiceLocatorException);
+        CPPUNIT_ASSERT_EQUAL(0, locators.size());
+    }
+
     void test_constructor_normal() {
         string s("fast+udp: host=example.org, port=8081, port=8082");
         ServiceLocator sl(s);
@@ -89,6 +108,7 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
         CONSTRUCTOR_BAD("fast x,");
         CONSTRUCTOR_BAD("fast: x=y,y");
         CONSTRUCTOR_BAD("fast + udp: ");
+        CONSTRUCTOR_BAD("fast: ; slow: ;");
     }
 
     void test_constructor_escapingControl() {

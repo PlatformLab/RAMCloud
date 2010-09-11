@@ -87,6 +87,10 @@ class ServiceLocator {
         string key;
     };
 
+    static void
+    parseServiceLocators(const string& serviceLocator,
+                         std::vector<ServiceLocator>* locators);
+
     explicit ServiceLocator(const string& serviceLocator);
 
     template<typename T> T getOption(const string& key) const;
@@ -131,13 +135,17 @@ class ServiceLocator {
     }
 
   private:
+    ServiceLocator();
+
+    void init(pcrecpp::StringPiece* serviceLocator);
 
     static StringConverter stringConverter;
 
     /**
      * See #getOriginalString().
+     * This is const after construction.
      */
-    const string originalString;
+    string originalString;
 
     /**
      * See #getProtocol().
@@ -150,8 +158,6 @@ class ServiceLocator {
      * This is const after construction.
      */
     std::map<string, string> options;
-
-    DISALLOW_COPY_AND_ASSIGN(ServiceLocator);
 };
 
 // Unfortunately, these need to be defined in the header file because they're
