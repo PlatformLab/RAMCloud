@@ -40,11 +40,6 @@ namespace RAMCloud {
  * arguments for how to communicate with the service, including addressing
  * information and protocol options. For an example of how to use this class,
  * see #RAMCloud::ServiceLocatorTest::test_usageExample().
- *
- * For example, in the service locator string
- *  "fast+udp: host=example.org, port=8081"
- * the protocol is fast+udp and the options are a host of example.org and a
- * port of 8081.
  */
 class ServiceLocator {
   friend class ServiceLocatorTest;

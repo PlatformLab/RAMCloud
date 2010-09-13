@@ -72,7 +72,7 @@ class StringConverter {
      *      follows, and any others will result in a linker error:
      *       - const string&
      *       - const char*
-     *       - bool
+     *       - bool \n
      *       - float
      *       - double
      *       - int8_t
@@ -83,6 +83,16 @@ class StringConverter {
      *       - uint32_t
      *       - int64_t
      *       - uint64_t
+     *
+     * For bool, valid values are 0/f/false/n/no for false and 1/t/true/y/yes
+     * for true (case insensitive).
+     *
+     * For integers, valid values can be expressed in decimal or hex. A
+     * preceding '+' is optional for positive values.
+     *
+     * For floating point numbers, valid values include 'nan', 'inf', and
+     * 'infinity'.
+     *
      * \throw BadValueException
      *      The value could not be coerced to the given type.
      */

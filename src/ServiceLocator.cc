@@ -28,31 +28,29 @@ namespace RAMCloud {
 StringConverter ServiceLocator::stringConverter;
 
 /**
- * Parse a ServiceLocator objects from a service locator string.
+ * Parse a list of ServiceLocator objects from a service locator string.
  * \param[in] serviceLocator
- *      A ';'-delimited list of service locator strings.
+ *      A ';'-delimited list of \ref ServiceLocatorStrings.
  * \param[out] locators
  *      An empty vector to be filled with ServiceLocator objects parsed from
  *      \a serviceLocator.
  * \throw BadServiceLocatorException
- *      Any part of \a serviceLocator could not be parsed.
+ *      Any part of \a serviceLocator could not be parsed. In this case,
+ *      \a locators will not be modified.
  */
 void
 ServiceLocator::parseServiceLocators(const string& serviceLocator,
                                      std::vector<ServiceLocator>* locators)
 {
     assert(locators->empty());
+    std::vector<ServiceLocator> ret;
     pcrecpp::StringPiece remainingServiceLocator(serviceLocator);
-    try {
-        while (!remainingServiceLocator.empty()) {
-            ServiceLocator locator;
-            locator.init(&remainingServiceLocator);
-            locators->push_back(locator);
-        }
-    } catch (...) {
-        locators->clear();
-        throw;
+    while (!remainingServiceLocator.empty()) {
+        ServiceLocator locator;
+        locator.init(&remainingServiceLocator);
+        ret.push_back(locator);
     }
+    locators->swap(ret);
 }
 
 /**
@@ -62,12 +60,11 @@ ServiceLocator::ServiceLocator()
     : originalString(), protocol(), options() {}
 
 /**
- * Construct a service locator from a string representation.
+ * Construct a ServiceLocator from a string representation.
  * \param serviceLocator
- *      A string like "tcp: host=example.org, port=8081". If an option is
- *      specified multiple times in the string, only the last time is used.
- *      Double-quotes and commas should be escaped with a backslash in unquoted
- *      values for options.
+ *      A \ref ServiceLocatorStrings with a single way of accessing a service.
+ *      If you have a string that might describe multiple ways of accessing a
+ *      service, you want #parseServiceLocators() instead.
  * \throw BadServiceLocatorException
  *      \a serviceLocator could not be parsed.
  */
@@ -86,11 +83,11 @@ ServiceLocator::ServiceLocator(const string& serviceLocator)
  * Initialize a ServiceLocator from a string representation.
  * This is a private helper for the constructor and #parseServiceLocators().
  * \param remainingServiceLocator
- *      A ';'-delimited list of service locator strings. This will be advanced
- *      through the next ';'.
+ *      A ';'-delimited list of \ref ServiceLocatorStrings. This will be
+ *      advanced through the next ';'.
  * \throw BadServiceLocatorException
- *      The first service locator of \a remainingServiceLocator could not be
- *      parsed.
+ *      The first alternative way of accessing the service specified in \a
+ *      remainingServiceLocator could not be parsed.
  */
 void
 ServiceLocator::init(pcrecpp::StringPiece* remainingServiceLocator)
