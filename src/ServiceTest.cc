@@ -17,7 +17,7 @@
  * \file ServiceTest.cc Unit tests for Service.
  */
 
-#include <cppunit/extensions/HelperMacros.h>
+#include "TestUtil.h"
 
 #include "Service.h"
 

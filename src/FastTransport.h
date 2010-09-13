@@ -24,9 +24,10 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 #include <arpa/inet.h>
-#include <queue.h>
 
 #include <vector>
+
+#include "queue.h"
 
 #include "Common.h"
 #include "Transport.h"

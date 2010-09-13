@@ -18,8 +18,8 @@
  * Unit tests for #RAMCloud::Ring.
  */
 
-#include <TestUtil.h>
-#include <Ring.h>
+#include "TestUtil.h"
+#include "Ring.h"
 
 namespace RAMCloud {
 

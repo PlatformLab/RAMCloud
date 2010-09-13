@@ -21,8 +21,8 @@
 #ifndef RAMCLOUD_UDPDRIVER_H
 #define RAMCLOUD_UDPDRIVER_H
 
-#include <Common.h>
-#include <Driver.h>
+#include "Common.h"
+#include "Driver.h"
 
 namespace RAMCloud {
 

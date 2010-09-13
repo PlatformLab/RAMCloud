@@ -20,7 +20,7 @@
  * Unit tests for RAMCloud::Metrics and RAMCloud::BlockMetric.
  */
 
-#include <cppunit/extensions/HelperMacros.h>
+#include "TestUtil.h"
 
 #include "Metrics.h"
 

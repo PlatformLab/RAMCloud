@@ -18,10 +18,10 @@
  * Unit tests for BackupServer.
  */
 
-#include <cppunit/extensions/HelperMacros.h>
 #include <string>
 #include <cstring>
 
+#include "TestUtil.h"
 #include "BackupServer.h"
 #include "backuprpc.h"
 #include "Log.h"
