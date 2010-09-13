@@ -27,37 +27,51 @@
 
 /**
  * \file
- * An echo server over FastTransport.
+ * A simple echo server over FastTransport used for sanity checking.
  */
 
+/// The address to bind on.
 char address[50];
+/// The port to listen on.
 uint16_t port;
-int cpu;
 
-void __attribute__ ((noreturn))
+static void __attribute__((noreturn)) usage(char *arg0);
+/**
+ * Print help and exit.
+ *
+ * \param arg0
+ *      The name of the executable used to launch this process.
+ */
+static void
 usage(char *arg0)
 {
     printf("Usage: %s "
-            "[-p port] [-a address] [-c cpu]\n"
+            "[-p port] [-a address]\n"
            "\t-p\t--port\t\tChoose which port to connect to.\n"
-           "\t-a\t--address\tChoose which address to connect to.\n"
-           "\t-c\t--cpu\t\tRestrict the test to a specific CPU (0 indexed).\n",
+           "\t-a\t--address\tChoose which address to connect to.\n",
            arg0);
     exit(EXIT_FAILURE);
 }
 
-void
+/**
+ * Process commandline args.  Sets up defaults for the globals above and
+ * populates them accoring to user passed parameters.
+ *
+ * \param argc
+ *      The number of command line args.
+ * \param argv
+ *      An array of length argc containing the command line args.
+ */
+static void
 cmdline(int argc, char *argv[])
 {
     port = 12242;
     strncpy(address, "127.0.0.1", sizeof(address));
     address[sizeof(address) - 1] = '\0';
-    cpu = -1;
 
     struct option long_options[] = {
         {"address", required_argument, NULL, 'a'},
         {"port", required_argument, NULL, 'p'},
-        {"cpu", required_argument, NULL, 'c'},
         {0, 0, 0, 0},
     };
 
@@ -74,15 +88,21 @@ cmdline(int argc, char *argv[])
         case 'p':
             port = atoi(optarg);
             break;
-        case 'c':
-            cpu = atoi(optarg);
-            break;
         default:
             usage(argv[0]);
         }
     }
 }
 
+/**
+ * Entry point for the program.  Sets up a server which listens for packets
+ * and returns them to the sender.
+ *
+ * \param argc
+ *      The number of command line args.
+ * \param argv
+ *      An array of length argc containing the command line args.
+ */
 int
 main(int argc, char *argv[])
 try

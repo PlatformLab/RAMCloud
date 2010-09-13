@@ -13,14 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * This file defines an implementation of Driver that allows unit
- * tests to run without a network or a remote counterpart (it logs
- * output packets and provides a mechanism for prespecifying input
- * packets).
- */
-
 #include <string>
 #include "Driver.h"
 
@@ -29,32 +21,37 @@
 
 namespace RAMCloud {
 
+/**
+ * A Driver that allows unit tests to run without a network or a
+ * remote counterpart.  It logs output packets and provides a mechanism for
+ * prespecifying input packets.
+ */
 class MockDriver : public Driver {
   public:
+    /// The type of a customer header serializer.  See headerToString.
     typedef string (*HeaderToString)(const void*, uint32_t);
 
     MockDriver();
     explicit MockDriver(HeaderToString headerToString);
     virtual ~MockDriver() {}
-
+    static void bufferToString(Buffer *buffer, string* const s);
+    static string bufToHex(const void* buf, uint32_t bufLen);
     virtual uint32_t getMaxPayloadSize() { return 1400; }
+    virtual void release(char *payload, uint32_t len);
     virtual void sendPacket(const sockaddr *addr,
                             socklen_t addrlen,
                             void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
-    virtual bool tryRecvPacket(Received *received);
-    virtual void release(char *payload, uint32_t len);
-
     void setInput(Driver::Received* received);
-    static void bufferToString(Buffer *buffer, string* const s);
     static void stringToBuffer(const char* s, Buffer* buffer);
-    static string bufToHex(const void* buf, uint32_t bufLen);
+    virtual bool tryRecvPacket(Received *received);
 
     /**
-     * Records information from each call to send/recv packets.
+     * A function that serializes the header using a specific string format.
+     * Headers aren't included in the log string if this is NULL.
      */
-    string outputLog;
+    HeaderToString headerToString;
 
     /**
      * Used as the next input message required by either serverRecv
@@ -62,13 +59,16 @@ class MockDriver : public Driver {
      */
     Driver::Received* inputReceived;
 
+    /**
+     * Records information from each call to send/recv packets.
+     */
+    string outputLog;
+
     // The following variables count calls to various methods, for use
     // by tests.
     uint32_t sendPacketCount;
     uint32_t tryRecvPacketCount;
     uint32_t releaseCount;
-
-    HeaderToString headerToString;
 
     DISALLOW_COPY_AND_ASSIGN(MockDriver);
 };

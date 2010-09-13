@@ -13,41 +13,61 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation of a class that implements Driver for tests,
- * without an actual network.
- */
-
 #include "MockDriver.h"
 
 #include "TestUtil.h"
 
 namespace RAMCloud {
 
-// --- MockDriver ---
-
 /**
  * Construct a MockDriver which does not include the header in the outputLog.
  */
 MockDriver::MockDriver()
-            : outputLog(), inputReceived(0),
-              sendPacketCount(0), tryRecvPacketCount(0),
-              releaseCount(0), headerToString(0)
+            : headerToString(0)
+            , inputReceived(0)
+            , outputLog()
+            , sendPacketCount(0)
+            , tryRecvPacketCount(0)
+            , releaseCount(0)
 {
 }
 
 /**
  * Construct a MockDriver with a custom serializer for the opaque header in
  * the outputLog.
+ *
+ * \param headerToString
+ *      A pointer to a function which serializes a Header into a format
+ *      for prefixing packets in the outputLog.
  */
 MockDriver::MockDriver(HeaderToString headerToString)
-            : outputLog(), inputReceived(0),
-              sendPacketCount(0), tryRecvPacketCount(0),
-              releaseCount(0), headerToString(headerToString)
+            : headerToString(headerToString)
+            , inputReceived(0)
+            , outputLog()
+            , sendPacketCount(0)
+            , tryRecvPacketCount(0)
+            , releaseCount(0)
 {
 }
 
+/**
+ * Counts number of times release is called to allow unit tests to check
+ * that Driver resources are properly reclaimed.
+ *
+ * See Driver::release().
+ */
+void
+MockDriver::release(char *payload, uint32_t len)
+{
+    releaseCount++;
+}
+
+/**
+ * Counts number of times sendPacket for unit tests and logs the sent
+ * packet to outputLog.
+ *
+ * See Driver::release().
+ */
 void
 MockDriver::sendPacket(const sockaddr *addr,
                        socklen_t addrlen,
@@ -61,7 +81,7 @@ MockDriver::sendPacket(const sockaddr *addr,
         outputLog.append(" | ");
 
     // TODO(stutsman) Append target address as well once we settle on
-    // format of addresses in the system
+    // format of addresses in the system?
 
     if (headerToString && header) {
         outputLog += headerToString(header, headerLen);
@@ -96,8 +116,10 @@ MockDriver::sendPacket(const sockaddr *addr,
 
 /**
  * Wait for an incoming packet. This is a fake method that uses
- * a request message explicitly provided by the test, or an empty
+ * a message explicitly provided by the test, or an empty
  * buffer if none was provided.
+ *
+ * See Driver::tryRecvPacket.
  */
 bool
 MockDriver::tryRecvPacket(Driver::Received *received)
@@ -116,12 +138,6 @@ MockDriver::tryRecvPacket(Driver::Received *received)
     inputReceived = 0;
 
     return true;
-}
-
-void
-MockDriver::release(char *payload, uint32_t len)
-{
-    releaseCount++;
 }
 
 /**
@@ -233,6 +249,14 @@ MockDriver::stringToBuffer(const char* s, Buffer *buffer) {
     bufferToString(buffer, &s2);
 }
 
+/**
+ * Create a string representation of a range of bytes.
+ *
+ * \param buf
+ *      The start of the region to stringify.
+ * \param bufLen
+ *      The number of bytes to stringify.
+ */
 string
 MockDriver::bufToHex(const void* buf, uint32_t bufLen)
 {

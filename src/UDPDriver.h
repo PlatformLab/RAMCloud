@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for #RAMCloud::UDPDriver.
- */
-
 #ifndef RAMCLOUD_UDPDRIVER_H
 #define RAMCLOUD_UDPDRIVER_H
 
@@ -26,24 +21,36 @@
 
 namespace RAMCloud {
 
+/**
+ * A Driver for kernel-provided UDP communication.  Simple packet send/receive
+ * style interface. See Driver for more detail.
+ */
 class UDPDriver : public Driver {
   public:
+    /// The maximum number bytes we can stuff in a UDP packet payload.
     static const uint32_t MAX_PAYLOAD_SIZE = 1400;
+
+    UDPDriver();
+    UDPDriver(const sockaddr *addr, socklen_t addrlen);
+    virtual ~UDPDriver();
     virtual uint32_t getMaxPayloadSize();
+    virtual void release(char *payload, uint32_t len);
     virtual void sendPacket(const sockaddr *addr,
                             socklen_t addrlen,
                             void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
     virtual bool tryRecvPacket(Received *received);
-    virtual void release(char *payload, uint32_t len);
-    UDPDriver();
-    UDPDriver(const sockaddr *addr, socklen_t addrlen);
-    virtual ~UDPDriver();
+
   private:
     void send(const Buffer* payload);
+
+    /// File descriptor of the UDP socket this driver uses for communication.
     int socketFd;
+
+    /// Tracks number of outstanding allocated payloads.  For detecting leaks.
     int packetBufsUtilized;
+
     DISALLOW_COPY_AND_ASSIGN(UDPDriver);
 };
 

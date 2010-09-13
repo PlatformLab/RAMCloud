@@ -32,21 +32,31 @@
  * A telnet client over FastTransport.
  */
 
+/// The address to connect to.
 char address[50];
+/// The port to connect to.
 uint16_t port;
-int cpu;
+/// Generate fake data if true, else read data from stdin.
 bool generate;
+/// Number of remote servers to connect to.
 int multi;
+/// If true changes meaning to make multi connections to a single server.
 bool sameServer;
 
-void __attribute__ ((noreturn))
+static void __attribute__((noreturn)) usage(char *arg0);
+/**
+ * Print help and exit.
+ *
+ * \param arg0
+ *      The name of the executable used to launch this process.
+ */
+static void
 usage(char *arg0)
 {
     printf("Usage: %s "
-            "[-p port] [-a address] [-c cpu] [-g] [-m serverCount] [-s]\n"
+            "[-p port] [-a address] [-g] [-m serverCount] [-s]\n"
            "\t-p\t--port\t\tChoose which port to connect to.\n"
            "\t-a\t--address\tChoose which address to connect to.\n"
-           "\t-c\t--cpu\t\tRestrict the test to a specific CPU (0 indexed).\n"
            "\t-g\t--generate\tGenerate junk traffic.\n"
            "\t-m\t--multi\t\tConnect to addl servers on same addr on port "
                 "range starting at supplied port.\n"
@@ -56,13 +66,21 @@ usage(char *arg0)
     exit(EXIT_FAILURE);
 }
 
-void
+/**
+ * Process commandline args.  Sets up defaults for the globals above and
+ * populates them accoring to user passed parameters.
+ *
+ * \param argc
+ *      The number of command line args.
+ * \param argv
+ *      An array of length argc containing the command line args.
+ */
+static void
 cmdline(int argc, char *argv[])
 {
     port = 12242;
     strncpy(address, "127.0.0.1", sizeof(address));
     address[sizeof(address) - 1] = '\0';
-    cpu = -1;
     generate = false;
     multi = 1;
     sameServer = false;
@@ -70,7 +88,6 @@ cmdline(int argc, char *argv[])
     struct option long_options[] = {
         {"address", required_argument, NULL, 'a'},
         {"port", required_argument, NULL, 'p'},
-        {"cpu", required_argument, NULL, 'c'},
         {"generate", no_argument, NULL, 'g'},
         {"multi", required_argument, NULL, 'm'},
         {"same", no_argument, NULL, 's'},
@@ -90,9 +107,6 @@ cmdline(int argc, char *argv[])
         case 'p':
             port = atoi(optarg);
             break;
-        case 'c':
-            cpu = atoi(optarg);
-            break;
         case 'g':
             generate = true;
             break;
@@ -109,6 +123,17 @@ cmdline(int argc, char *argv[])
     }
 }
 
+/**
+ * Entry point for the program.  Acts as a client which sends packets
+ * to servers and expects a response.  If generate then just send garbage
+ * and discard the results.  If !generate then send stdin and receive to
+ * stdout.
+ *
+ * \param argc
+ *      The number of command line args.
+ * \param argv
+ *      An array of length argc containing the command line args.
+ */
 int
 main(int argc, char *argv[])
 try

@@ -27,14 +27,11 @@
 
 namespace RAMCloud {
 
-void
-UDPDriver::release(char *payload, uint32_t len)
-{
-    packetBufsUtilized--;
-    assert(packetBufsUtilized >= 0);
-    delete[] payload;
-}
-
+/**
+ * Construct a UDPDriver that is unbound to any particular UDP address.
+ *
+ * For use by clients.
+ */
 UDPDriver::UDPDriver()
     : socketFd(-1), packetBufsUtilized(0)
 {
@@ -44,6 +41,16 @@ UDPDriver::UDPDriver()
     socketFd = fd;
 }
 
+/**
+ * Construct a UDPDriver that is bound to a particular UDP address.
+ *
+ * For use by servers.
+ *
+ * \param addr
+ *      The address to bind to.
+ * \param addrlen
+ *      The length of addr.
+ */
 UDPDriver::UDPDriver(const sockaddr *addr, socklen_t addrlen)
     : socketFd(-1), packetBufsUtilized(0)
 {
@@ -64,6 +71,7 @@ UDPDriver::UDPDriver(const sockaddr *addr, socklen_t addrlen)
     socketFd = fd;
 }
 
+/// Close the UDP socket.
 UDPDriver::~UDPDriver()
 {
     if (packetBufsUtilized != 0)
@@ -72,12 +80,23 @@ UDPDriver::~UDPDriver()
     close(socketFd);
 }
 
+/// The maximum number bytes we can stuff in a UDP packet payload.
 uint32_t
 UDPDriver::getMaxPayloadSize()
 {
     return MAX_PAYLOAD_SIZE;
 }
 
+// See Driver::release().
+void
+UDPDriver::release(char *payload, uint32_t len)
+{
+    packetBufsUtilized--;
+    assert(packetBufsUtilized >= 0);
+    delete[] payload;
+}
+
+// See Driver::sendPacket().
 void
 UDPDriver::sendPacket(const sockaddr *addr,
                       socklen_t addrlen,
@@ -123,6 +142,7 @@ UDPDriver::sendPacket(const sockaddr *addr,
     assert(static_cast<size_t>(r) == totalLength);
 }
 
+// See Driver::tryRecvPacket().
 bool
 UDPDriver::tryRecvPacket(Received *received)
 {
