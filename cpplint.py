@@ -833,10 +833,10 @@ def RemoveMultiLineComments(filename, lines, error):
       error(filename, lineix_begin + 1, 'readability/multiline_comment', 5,
             'Could not find end of multi-line comment')
       return
-    if count == 1:
-        if r'\file' not in lines[lineix_begin + 1]:
-            error(filename, lineix_begin + 1, 'readability/multiline_comment',
-                  5, r'Second comment in file should be Doxygen \file comment.')
+    #if count == 1:
+    #    if r'\file' not in lines[lineix_begin + 1]:
+    #        error(filename, lineix_begin + 1, 'readability/multiline_comment',
+    #              5, r'Second comment in file should be Doxygen \file comment.')
     RemoveMultiLineCommentsFromRange(lines, lineix_begin, lineix_end + 1)
     lineix = lineix_end + 1
     count += 1
