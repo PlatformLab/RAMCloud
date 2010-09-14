@@ -23,8 +23,6 @@
 #include "MockTransport.h"
 #include "FastTransport.h"
 
-#include "queue.h"
-
 namespace RAMCloud {
 
 class MockReceived : public Driver::Received {
@@ -89,7 +87,6 @@ class MockReceived : public Driver::Received {
 
 class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST_SUITE(FastTransportTest);
-    CPPUNIT_TEST(test_queue_isIn);
     CPPUNIT_TEST(test_clientSend);
     CPPUNIT_TEST(test_clientSend_nonEmptyBuffer);
     CPPUNIT_TEST(test_serverRecv);
@@ -150,40 +147,6 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     {}
 
     void
-    test_queue_isIn()
-    {
-        struct QTest {
-            explicit QTest(int i) : i(i), entry() {}
-            int i;
-            LIST_ENTRY(QTest) entry;
-        };
-        LIST_HEAD(QTestHead, QTest) list;
-        LIST_INIT(&list);
-
-        QTest o1(1);
-        QTest o2(2);
-
-        CPPUNIT_ASSERT(!LIST_IS_IN(&o1, entry));
-        CPPUNIT_ASSERT(!LIST_IS_IN(&o2, entry));
-
-        LIST_INSERT_HEAD(&list, &o2, entry);
-        LIST_INSERT_HEAD(&list, &o1, entry);
-
-        QTest *elm;
-        int i = 1;
-        LIST_FOREACH(elm, &list, entry) {
-            CPPUNIT_ASSERT(LIST_IS_IN(elm, entry));
-            CPPUNIT_ASSERT_EQUAL(i, elm->i);
-            i++;
-        }
-
-        LIST_REMOVE(&o2, entry);
-
-        CPPUNIT_ASSERT(LIST_IS_IN(&o1, entry));
-        CPPUNIT_ASSERT(!LIST_IS_IN(&o2, entry));
-    }
-
-    void
     test_clientSend()
     {
         ClientRpc* rpc =
@@ -203,8 +166,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     test_serverRecv()
     {
         ServerRpc rpc(NULL, 0);
-        TAILQ_INSERT_TAIL(&transport->serverReadyQueue,
-                          &rpc, readyQueueEntries);
+        transport->serverReadyQueue.push_back(rpc);
         CPPUNIT_ASSERT_EQUAL(&rpc, transport->serverRecv());
     }
 
@@ -236,8 +198,9 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         MockTimer timer;
         transport->addTimer(&timer, 1);
 
-        CPPUNIT_ASSERT_EQUAL(&timer, LIST_FIRST(&transport->timerList));
+        CPPUNIT_ASSERT_EQUAL(&timer, &transport->timerList.front());
         CPPUNIT_ASSERT_EQUAL(1, timer.when);
+        transport->timerList.pop_front(); // satisfy boost assertion
     }
 
     void
@@ -246,15 +209,9 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         MockTimer timer;
         transport->addTimer(&timer, 1);
         transport->addTimer(&timer, 2);
-
-        uint32_t count = 0;
-        Timer* timerp;
-        LIST_FOREACH(timerp, &transport->timerList, listEntries) {
-            CPPUNIT_ASSERT_EQUAL(timerp, LIST_FIRST(&transport->timerList));
-            count++;
-        }
-        CPPUNIT_ASSERT_EQUAL(1, count);
+        CPPUNIT_ASSERT_EQUAL(1, transport->timerList.size());
         CPPUNIT_ASSERT_EQUAL(2, timer.when);
+        transport->timerList.pop_front(); // satisfy boost assertion
     }
 
     void
@@ -276,13 +233,15 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(0, timer2.fireTimerCount);
         CPPUNIT_ASSERT_EQUAL(1, timer3.fireTimerCount);
         // Make sure 2 is now at the front as the unfired event
-        CPPUNIT_ASSERT_EQUAL(&timer2, LIST_FIRST(&transport->timerList));
+        CPPUNIT_ASSERT_EQUAL(&timer2, &transport->timerList.front());
 
         // Ensure that events don't get called twice
         transport->fireTimers();
         CPPUNIT_ASSERT_EQUAL(1, timer1.fireTimerCount);
         CPPUNIT_ASSERT_EQUAL(0, timer2.fireTimerCount);
         CPPUNIT_ASSERT_EQUAL(1, timer3.fireTimerCount);
+
+        transport->timerList.pop_front(); // satisfy boost assertion
     }
 
     void
@@ -309,9 +268,9 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     {
         MockTimer timer;
         timer.when = 9999;
-        CPPUNIT_ASSERT(LIST_EMPTY(&transport->timerList));
+        CPPUNIT_ASSERT(transport->timerList.empty());
         transport->removeTimer(&timer);
-        CPPUNIT_ASSERT(LIST_EMPTY(&transport->timerList));
+        CPPUNIT_ASSERT(transport->timerList.empty());
         CPPUNIT_ASSERT_EQUAL(0, timer.when);
     }
 
@@ -320,9 +279,9 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     {
         MockTimer timer;
         transport->addTimer(&timer, 999);
-        CPPUNIT_ASSERT_EQUAL(&timer, LIST_FIRST(&transport->timerList));
+        CPPUNIT_ASSERT_EQUAL(&timer, &transport->timerList.front());
         transport->removeTimer(&timer);
-        CPPUNIT_ASSERT(LIST_EMPTY(&transport->timerList));
+        CPPUNIT_ASSERT(transport->timerList.empty());
         CPPUNIT_ASSERT_EQUAL(0, timer.when);
     }
 
@@ -338,7 +297,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         transport->poll();
 
         CPPUNIT_ASSERT_EQUAL(2, driver->tryRecvPacketCount);
-        CPPUNIT_ASSERT(LIST_EMPTY(&transport->timerList));
+        CPPUNIT_ASSERT(transport->timerList.empty());
         CPPUNIT_ASSERT_EQUAL(1, timer.fireTimerCount);
     }
 
@@ -352,7 +311,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         transport->poll();
 
         CPPUNIT_ASSERT_EQUAL(1, driver->tryRecvPacketCount);
-        CPPUNIT_ASSERT(LIST_EMPTY(&transport->timerList));
+        CPPUNIT_ASSERT(transport->timerList.empty());
         CPPUNIT_ASSERT_EQUAL(1, timer.fireTimerCount);
     }
 
@@ -983,7 +942,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         session->processReceivedData(channel, &lastRecvd);
         CPPUNIT_ASSERT_EQUAL("first | last", recvBuffer.debugString());
         CPPUNIT_ASSERT_EQUAL(channel->currentRpc,
-            TAILQ_LAST(&transport->serverReadyQueue, ServerReadyQueueHead));
+                             &transport->serverReadyQueue.back());
         CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::PROCESSING,
                              session->channels[0].state);
     }
@@ -1100,7 +1059,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
 
         // Insert an RPC into the work queue
         ClientRpc rpc(transport, service, request, response);
-        TAILQ_INSERT_TAIL(&session->channelQueue, &rpc, channelQueueEntries);
+        session->channelQueue.push_back(rpc);
 
         session->processSessionOpenResponse(&recvd);
 
@@ -1112,7 +1071,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
 
         // Make sure our queued RPC made it onto the channel from the queue
         CPPUNIT_ASSERT_EQUAL(&rpc, session->channels[0].currentRpc);
-        CPPUNIT_ASSERT(TAILQ_EMPTY(&session->channelQueue));
+        CPPUNIT_ASSERT(session->channelQueue.empty());
 
         // Make sure we bailed on once the queue was empty
         CPPUNIT_ASSERT_EQUAL(0, session->channels[1].currentRpc);
@@ -1143,7 +1102,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     test_processReceivedData_transitionSendToReceive()
     {
         ClientRpc rpc(transport, service, request, response);
-        TAILQ_INSERT_TAIL(&session->channelQueue, &rpc, channelQueueEntries);
+        session->channelQueue.push_back(rpc);
 
         SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
         MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
@@ -1160,7 +1119,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     test_processReceivedData_queueEmpty()
     {
         ClientRpc rpc(transport, service, request, response);
-        TAILQ_INSERT_TAIL(&session->channelQueue, &rpc, channelQueueEntries);
+        session->channelQueue.push_back(rpc);
 
         SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
         MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
@@ -1180,14 +1139,14 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     test_processReceivedData_getWorkFromQueue()
     {
         ClientRpc rpc1(transport, service, request, response);
-        TAILQ_INSERT_TAIL(&session->channelQueue, &rpc1, channelQueueEntries);
+        session->channelQueue.push_back(rpc1);
 
         SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
         MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
         session->processSessionOpenResponse(&initRecvd);
 
         ClientRpc rpc2(transport, service, request, response);
-        TAILQ_INSERT_TAIL(&session->channelQueue, &rpc2, channelQueueEntries);
+        session->channelQueue.push_back(rpc2);
 
         MockReceived recvd(0, 1, "God hates ponies.");
         ClientSession::ClientChannel* channel = &session->channels[0];
@@ -1196,7 +1155,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::SENDING,
                              channel->state);
         CPPUNIT_ASSERT_EQUAL(&rpc2, channel->currentRpc);
-        CPPUNIT_ASSERT(TAILQ_EMPTY(&session->channelQueue));
+        CPPUNIT_ASSERT(session->channelQueue.empty());
     }
 
     void
@@ -1313,7 +1272,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     {
         session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
-        CPPUNIT_ASSERT(TAILQ_EMPTY(&session->channelQueue));
+        CPPUNIT_ASSERT(session->channelQueue.empty());
 
         // Put an RPC on one of the channels
         ClientRpc* rpc = new ClientRpc(transport, service, request, response);
@@ -1325,7 +1284,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         session->processInboundPacket(&recvd);
 
         // Make sure the RPC made it back onto the queue safely
-        CPPUNIT_ASSERT_EQUAL(rpc, TAILQ_FIRST(&session->channelQueue));
+        CPPUNIT_ASSERT_EQUAL(rpc, &session->channelQueue.front());
 
         CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_HINT,
                              session->serverSessionHint);
@@ -1340,10 +1299,11 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_startRpc_noAvailableChannel()
     {
-        CPPUNIT_ASSERT(TAILQ_EMPTY(&session->channelQueue));
+        CPPUNIT_ASSERT(session->channelQueue.empty());
         ClientRpc rpc(transport, service, request, response);
         session->startRpc(&rpc);
-        CPPUNIT_ASSERT_EQUAL(&rpc, TAILQ_FIRST(&session->channelQueue));
+        CPPUNIT_ASSERT_EQUAL(&rpc, &session->channelQueue.front());
+        session->channelQueue.pop_front(); // satisfy boost assertion
     }
 
     void
@@ -1374,7 +1334,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         ClientRpc rpc1(transport, service, request, response);
         ClientRpc rpc2(transport, service, request, response);
         ClientRpc rpc3(transport, service, request, response);
-        TAILQ_INSERT_TAIL(&session->channelQueue, &rpc3, channelQueueEntries);
+        session->channelQueue.push_back(rpc3);
 
         session->channels[0].currentRpc = &rpc1;
         session->channels[1].currentRpc = &rpc2;
@@ -1382,7 +1342,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         session->close();
         CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc1.state);
         CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc2.state);
-        CPPUNIT_ASSERT(TAILQ_EMPTY(&session->channelQueue));
+        CPPUNIT_ASSERT(session->channelQueue.empty());
         CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc3.state);
         CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_HINT,
                              session->serverSessionHint);
@@ -1409,10 +1369,12 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         session->allocateChannels();
 
         ClientRpc rpc(transport, service, request, response);
-        TAILQ_INSERT_TAIL(&session->channelQueue, &rpc, channelQueueEntries);
+        session->channelQueue.push_back(rpc);
 
         bool didClose = session->expire();
         CPPUNIT_ASSERT_EQUAL(false, didClose);
+
+        session->channelQueue.pop_front(); // satisfy boost assertion
     }
 
     void
@@ -1580,7 +1542,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
 
         CPPUNIT_ASSERT_EQUAL(999, msg->totalFrags);
         CPPUNIT_ASSERT_EQUAL(&buffer, msg->dataBuffer);
-        CPPUNIT_ASSERT_EQUAL(true, LIST_IS_IN(&msg->timer, listEntries));
+        CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
     }
 
     void
@@ -1591,7 +1553,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         setUp(2, useTimer);
 
         transport->addTimer(&msg->timer, 999);
-        CPPUNIT_ASSERT_EQUAL(true, LIST_IS_IN(&msg->timer, listEntries));
+        CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
 
         for (;;) {
             ClientSession* session = transport->getClientSession();
@@ -1602,7 +1564,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
             CPPUNIT_ASSERT_EQUAL(0, msg->timer.when);
             CPPUNIT_ASSERT_EQUAL(0, msg->timer.numTimeouts);
             CPPUNIT_ASSERT_EQUAL(useTimer, msg->timer.useTimer);
-            CPPUNIT_ASSERT_EQUAL(false, LIST_IS_IN(&msg->timer, listEntries));
+            CPPUNIT_ASSERT(!msg->timer.listEntries.is_linked());
             if (!useTimer)
                 break;
             useTimer = !useTimer;
@@ -1618,7 +1580,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
 
         char junk[0];
         transport->addTimer(&msg->timer, 1000);
-        CPPUNIT_ASSERT_EQUAL(true, LIST_IS_IN(&msg->timer, listEntries));
+        CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
         msg->dataStagingRing[10] = std::pair<char*, uint32_t>(junk, 1);
         msg->dataStagingRing[13] = std::pair<char*, uint32_t>(junk, 1);
 
@@ -1633,7 +1595,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
                              "-, -, -, -,", s);
         CPPUNIT_ASSERT_EQUAL(0, msg->dataBuffer);
         CPPUNIT_ASSERT_EQUAL(2, driver->releaseCount);
-        CPPUNIT_ASSERT_EQUAL(false, LIST_IS_IN(&msg->timer, listEntries));
+        CPPUNIT_ASSERT(!msg->timer.listEntries.is_linked());
     }
 
     void
@@ -1753,7 +1715,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         recvd.getHeader()->requestAck = 1;
         msg->processReceivedData(&recvd);
 
-        CPPUNIT_ASSERT_EQUAL(true, LIST_IS_IN(&msg->timer, listEntries));
+        CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
         CPPUNIT_ASSERT(TIMEOUT_NS <= msg->timer.when);
     }
 
@@ -1865,8 +1827,15 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
 
     void tearDown()
     {
-        if (msg)
+        if (msg) {
+            // satisfy boost assertion
+            if (msg->timer.listEntries.is_linked()) {
+                Timer& t(msg->timer);
+                TimerList::iterator i(transport->timerList.iterator_to(t));
+                transport->timerList.erase(i);
+            }
             delete msg;
+        }
         if (buffer)
             delete buffer;
         if (transport)
@@ -1898,7 +1867,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
                              "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
                              "0, 0, 0,", s);
         CPPUNIT_ASSERT_EQUAL(0, msg->numAcked);
-        CPPUNIT_ASSERT_EQUAL(false, LIST_IS_IN(&msg->timer, listEntries));
+        CPPUNIT_ASSERT(!msg->timer.listEntries.is_linked());
         CPPUNIT_ASSERT_EQUAL(0, msg->timer.when);
         CPPUNIT_ASSERT_EQUAL(0, msg->timer.numTimeouts);
     }
@@ -2008,10 +1977,10 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         msg->sentTimes[3] = 0;
 
         CPPUNIT_ASSERT_EQUAL(0, msg->timer.when);
-        CPPUNIT_ASSERT(!LIST_IS_IN(&msg->timer, listEntries));
+        CPPUNIT_ASSERT(!msg->timer.listEntries.is_linked());
         msg->send();
         CPPUNIT_ASSERT_EQUAL(99 + TIMEOUT_NS, msg->timer.when);
-        CPPUNIT_ASSERT(LIST_IS_IN(&msg->timer, listEntries));
+        CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
     }
 
     void
