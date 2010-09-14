@@ -41,8 +41,6 @@ FastTransport::FastTransport(Driver* driver)
     , serverReadyQueue()
     , timerList()
 {
-    TAILQ_INIT(&serverReadyQueue);
-    LIST_INIT(&timerList);
 }
 
 // See Transport::clientSend().
@@ -66,10 +64,10 @@ FastTransport::clientSend(Service* service,
 FastTransport::ServerRpc*
 FastTransport::serverRecv()
 {
-    ServerRpc* rpc;
-    while ((rpc = TAILQ_FIRST(&serverReadyQueue)) == NULL)
+    while (serverReadyQueue.empty())
         poll();
-    TAILQ_REMOVE(&serverReadyQueue, rpc, readyQueueEntries);
+    ServerRpc* rpc = &serverReadyQueue.front();
+    serverReadyQueue.pop_front();
     return rpc;
 }
 
@@ -89,9 +87,8 @@ void
 FastTransport::addTimer(Timer* timer, uint64_t when)
 {
     timer->when = when;
-    if (!LIST_IS_IN(timer, listEntries)) {
-        LIST_INSERT_HEAD(&timerList, timer, listEntries);
-    }
+    if (!timer->listEntries.is_linked())
+        timerList.push_front(*timer);
 }
 
 /**
@@ -116,13 +113,15 @@ void
 FastTransport::fireTimers()
 {
     uint64_t now = rdtsc();
-    Timer* timer, *tmp;
-    // Safe version needed because updates can occur during iteration
-    LIST_FOREACH_SAFE(timer, &timerList, listEntries, tmp) {
-        if (timer->when && timer->when <= now) {
-            removeTimer(timer);
-            timer->fireTimer(now);
-       }
+    TimerList::iterator iter(timerList.begin());
+    while (iter != timerList.end()) {
+        Timer& timer(*iter);
+        if (timer.when && timer.when <= now) {
+            iter = timerList.erase(iter);
+            timer.fireTimer(now);
+        } else {
+            ++iter;
+        }
     }
 }
 
@@ -165,9 +164,8 @@ void
 FastTransport::removeTimer(Timer* timer)
 {
     timer->when = 0;
-    if (LIST_IS_IN(timer, listEntries)) {
-        LIST_REMOVE(timer, listEntries);
-    }
+    if (timer->listEntries.is_linked())
+        timerList.erase(timerList.iterator_to(*timer));
 }
 
 /**
@@ -1233,9 +1231,7 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
         break;
     case ServerChannel::RECEIVING:
         if (channel->inboundMsg.processReceivedData(received)) {
-            TAILQ_INSERT_TAIL(&transport->serverReadyQueue,
-                              channel->currentRpc,
-                              readyQueueEntries);
+            transport->serverReadyQueue.push_back(*channel->currentRpc);
             channel->state = ServerChannel::PROCESSING;
         }
         break;
@@ -1283,7 +1279,6 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
     , serverSessionHint(INVALID_HINT)
 {
     memset(&serverAddress, 0xcc, sizeof(serverAddress));
-    TAILQ_INIT(&channelQueue);
 }
 
 // See Session::close().
@@ -1295,10 +1290,11 @@ FastTransport::ClientSession::close()
         if (channels[i].currentRpc)
             channels[i].currentRpc->aborted();
     }
-    while (!TAILQ_EMPTY(&channelQueue)) {
-        ClientRpc* rpc = TAILQ_FIRST(&channelQueue);
-        TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
-        rpc->aborted();
+    ChannelQueue::iterator iter(channelQueue.begin());
+    while (iter != channelQueue.end()) {
+        ClientRpc& rpc(*iter);
+        iter = channelQueue.erase(iter);
+        rpc.aborted();
     }
     clearChannels();
     serverSessionHint = INVALID_HINT;
@@ -1350,7 +1346,7 @@ FastTransport::ClientSession::expire()
         if (channels[i].currentRpc)
             return false;
     }
-    if (!TAILQ_EMPTY(&channelQueue))
+    if (!channelQueue.empty())
         return false;
     close();
     return true;
@@ -1428,11 +1424,8 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
             // if any current RPCs in channels requeue them
             // and try to reconnect
             for (uint32_t i = 0; i < numChannels; i++) {
-                if (channels[i].currentRpc) {
-                    TAILQ_INSERT_TAIL(&channelQueue,
-                                      channels[i].currentRpc,
-                                      channelQueueEntries);
-                }
+                if (channels[i].currentRpc)
+                    channelQueue.push_back(*channels[i].currentRpc);
             }
             clearChannels();
             serverSessionHint = INVALID_HINT;
@@ -1468,7 +1461,7 @@ FastTransport::ClientSession::startRpc(ClientRpc* rpc)
     ClientChannel* channel = getAvailableChannel();
     if (!channel) {
         LOG(DEBUG, "Queueing RPC");
-        TAILQ_INSERT_TAIL(&channelQueue, rpc, channelQueueEntries);
+        channelQueue.push_back(*rpc);
     } else {
         assert(channel->state == ClientChannel::IDLE);
         channel->state = ClientChannel::SENDING;
@@ -1578,13 +1571,12 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
         channel->rpcId += 1;
         channel->outboundMsg.clear();
         channel->inboundMsg.clear();
-        if (TAILQ_EMPTY(&channelQueue)) {
+        if (channelQueue.empty()) {
             channel->state = ClientChannel::IDLE;
             channel->currentRpc = 0;
         } else {
-            ClientRpc *rpc = TAILQ_FIRST(&channelQueue);
-            assert(rpc->channelQueueEntries.tqe_prev);
-            TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
+            ClientRpc* rpc = &channelQueue.front();
+            channelQueue.pop_front();
             channel->state = ClientChannel::SENDING;
             channel->currentRpc = rpc;
             channel->outboundMsg.beginSending(rpc->requestBuffer);
@@ -1619,11 +1611,11 @@ FastTransport::ClientSession::processSessionOpenResponse(
     LOG(DEBUG, "Session open response: numChannels: %u", numChannels);
     allocateChannels();
     for (uint32_t i = 0; i < numChannels; i++) {
-        if (TAILQ_EMPTY(&channelQueue))
+        if (channelQueue.empty())
             break;
         LOG(DEBUG, "Assigned RPC to channel: %u", i);
-        ClientRpc* rpc = TAILQ_FIRST(&channelQueue);
-        TAILQ_REMOVE(&channelQueue, rpc, channelQueueEntries);
+        ClientRpc* rpc = &channelQueue.front();
+        channelQueue.pop_front();
         channels[i].state = ClientChannel::SENDING;
         channels[i].currentRpc = rpc;
         channels[i].outboundMsg.beginSending(rpc->requestBuffer);

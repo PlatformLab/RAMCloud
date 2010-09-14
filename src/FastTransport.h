@@ -27,13 +27,12 @@
 
 #include <vector>
 
-#include "queue.h"
-
 #include "Common.h"
 #include "Transport.h"
 #include "Driver.h"
 #include "Ring.h"
 #include "Service.h"
+#include "BoostIntrusive.h"
 
 #undef CURRENT_LOG_MODULE
 #define CURRENT_LOG_MODULE TRANSPORT_MODULE
@@ -93,9 +92,11 @@ class FastTransport : public Transport {
         /// Length of serverAddress.
         socklen_t serverAddressLen;
 
+      public:
         /// Entries to allow this RPC to be placed in a channel queue.
-        TAILQ_ENTRY(ClientRpc) channelQueueEntries;
+        IntrusiveListHook channelQueueEntries;
 
+      private:
         friend class FastTransport;
         friend class FastTransportTest;
         friend class ClientRpcTest;
@@ -116,7 +117,9 @@ class FastTransport : public Transport {
       private:
         ServerSession* const session;
         const uint8_t channelId;
-        TAILQ_ENTRY(ServerRpc) readyQueueEntries;
+      public:
+        IntrusiveListHook readyQueueEntries;
+      private:
         friend class FastTransport;
         friend class FastTransportTest;
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);
@@ -165,7 +168,7 @@ class FastTransport : public Transport {
           /// When TSC is >= when the FastTransport will call fireTimer().
           uint64_t when;
           /// Entries to allow timer events to be placed in lists.
-          LIST_ENTRY(Timer) listEntries;
+          IntrusiveListHook listEntries;
       private:
         DISALLOW_COPY_AND_ASSIGN(Timer);
     };
@@ -867,7 +870,8 @@ class FastTransport : public Transport {
          */
         ClientChannel *channels;
 
-        TAILQ_HEAD(ChannelQueueHead, ClientRpc) channelQueue;
+        INTRUSIVE_LIST_TYPEDEF(ClientRpc, channelQueueEntries) ChannelQueue;
+        ChannelQueue channelQueue;
 
         uint64_t lastActivityTime;  ///< TSC when last packet came from client.
 
@@ -1061,10 +1065,12 @@ class FastTransport : public Transport {
     SessionTable<ServerSession> serverSessions;
 
     /// Holds incoming RPCs until the Server is ready (see serverRecv()).
-    TAILQ_HEAD(ServerReadyQueueHead, ServerRpc) serverReadyQueue;
+    INTRUSIVE_LIST_TYPEDEF(ServerRpc, readyQueueEntries) ServerReadyQueue;
+    ServerReadyQueue serverReadyQueue;
 
     /// Timer event list to track events until they are fired.
-    LIST_HEAD(TimerListHead, Timer) timerList;
+    INTRUSIVE_LIST_TYPEDEF(Timer, listEntries) TimerList;
+    TimerList timerList;
 
     friend class FastTransportTest;
     friend class ClientRpcTest;
