@@ -771,94 +771,88 @@ Buffer::convertChar(char c, string *out) {
  * Create an iterator for the contents of a Buffer.
  * The iterator starts on the first chunk of the Buffer, so you should use
  * #isDone(), #getData(), and #getLength() before the first call to #next().
- * \param[in] buffer
+ * \param buffer
  *      The Buffer over which to iterate.
  */
 Buffer::Iterator::Iterator(const Buffer& buffer)
-    : current(buffer.chunks),
-      currentOffset(0),
-      offset(0),
-      length(buffer.totalLength),
-      totalLength(buffer.totalLength),
-      numberChunks(buffer.numberChunks)
+    : current(buffer.chunks)
+    , currentOffset(0)
+    , length(buffer.totalLength)
+    , offset(0)
+    , numberChunks(buffer.numberChunks)
+    , numberChunksIsValid(true)
 {
 }
 
 /**
- * Construct an iterator that only returns chunks corresponding data
- * between an offset and length in the Buffer.
+ * Construct an iterator that only walks chunks with data corresponding
+ * to a byte range in the Buffer.
  *
  * Any calls to getData(), getLength(), getNumberChunks(), or getTotalLength()
  * are appropriately adjusted even when iteration end points don't correspond
  * to chunk boundaries.
  *
- * \param[in] buffer
+ * \param buffer
  *      The Buffer over which to iterate.
- * \param[in] offset
+ * \param off
  *      The offset into the Buffer which should be returned by the first
  *      call to getData().
- * \param[in] length
+ * \param len
  *      The number of bytes to iterate across before the iterator isDone().
  *      Notice if this exceeds the bounds of the buffer then isDone() may occur
- *      before length number of bytes have been iterated over.
+ *      before len number of bytes have been iterated over.
  */
 Buffer::Iterator::Iterator(const Buffer& buffer,
-                           uint32_t offset,
-                           uint32_t length)
-    : current(buffer.chunks),
-      currentOffset(0),
-      offset(offset),
-      length(length),
-      totalLength(buffer.totalLength),
-      numberChunks(0)
+                           uint32_t off,
+                           uint32_t len)
+    : current(buffer.chunks)
+    , currentOffset(0)
+    , length(len)
+    , offset(off)
+    , numberChunks(0)
+    , numberChunksIsValid(false)
 {
+    // Clip offset and length if they are out of range.
+    offset = std::min(off, buffer.totalLength);
+    length = std::min(len, buffer.totalLength - offset);
+
+    // Advance Iterator up to the first chunk with data from the subrange.
     while (!isDone() && currentOffset + current->length <= offset)
         next();
-
-    // Determine the number of chunks this iter will visit
-    Chunk* c = current;
-    uint32_t o = currentOffset;
-    while (c && (offset + length > o)) {
-        o += c->length;
-        c = c->next;
-        numberChunks++;
-    }
-
-    totalLength = std::min(length, totalLength - offset);
 }
 
 /**
  * Copy constructor for Buffer::Iterator.
  */
 Buffer::Iterator::Iterator(const Iterator& other)
-    : current(other.current),
-      currentOffset(other.currentOffset),
-      offset(other.offset),
-      length(other.length),
-      totalLength(other.totalLength),
-      numberChunks(other.numberChunks)
+    : current(other.current)
+    , currentOffset(other.currentOffset)
+    , length(other.length)
+    , offset(other.offset)
+    , numberChunks(other.numberChunks)
+    , numberChunksIsValid(other.numberChunksIsValid)
 {
 }
 
 /**
  * Destructor for Buffer::Iterator.
  */
-Buffer::Iterator::~Iterator() {
-    current = NULL;
+Buffer::Iterator::~Iterator()
+{
 }
 
 /**
  * Assignment for Buffer::Iterator.
  */
 Buffer::Iterator&
-Buffer::Iterator::operator=(const Iterator& other) {
+Buffer::Iterator::operator=(const Iterator& other)
+{
     if (&other == this)
         return *this;
     current = other.current;
     currentOffset = other.currentOffset;
     offset = other.offset;
     length = other.length;
-    totalLength = other.totalLength;
     numberChunks = other.numberChunks;
     return *this;
 }
@@ -871,29 +865,44 @@ Buffer::Iterator::operator=(const Iterator& other) {
  *      requested subrange. If this is \c true, it is illegal to
  *      use #next(), #getData(), and #getLength().
  */
-bool Buffer::Iterator::isDone() const {
-    // done if no more chunks or the current chunk beyond end point
-    return (current == NULL ||
-            (offset + length <= currentOffset));
+bool
+Buffer::Iterator::isDone() const
+{
+    // Done if the current chunk start is beyond end point
+    return currentOffset >= offset + length;
 }
 
 /**
  * Advance to the next chunk in the Buffer.
  */
-void Buffer::Iterator::next() {
-    if (current != NULL) {
-        currentOffset += current->length;
-        current = current->next;
-    }
+void
+Buffer::Iterator::next()
+{
+    if (isDone())
+        return;
+    currentOffset += current->length;
+    current = current->next;
 }
 
 /**
- * Return the data pointer at the current chunk.
+ * Return a pointer to the first byte of data in the current chunk that is
+ * part of the range of iteration. If this iterator is covering only a
+ * subrange of the buffer, then this may not be the first byte in the chunk.
  */
-const void* Buffer::Iterator::getData() const {
-    assert(current != NULL);
+const void*
+Buffer::Iterator::getData() const
+{
     uint32_t startOffset = 0;
-    if (offset > currentOffset && offset < currentOffset + current->length)
+    uint32_t endOfCurrentChunk = currentOffset + current->length;
+
+    // Does current contain offset?  If so, adjust bytes on front not returned.
+    //   In detail: If we are on the start chunk and we have a non-zero offset
+    //   (the only case where offset > currentOffset is possible) then
+    //   tweak the return value.
+    //   Note: It's not possible for an offset into current to happen except
+    //   on the starting chunk since the constructor guarantees to seek the
+    //   Iterator up to the first Chunk that will have data accessed from it.
+    if (offset > currentOffset && offset < endOfCurrentChunk)
         startOffset = offset - currentOffset;
     return static_cast<const char *>(current->data) + startOffset;
 }
@@ -901,16 +910,25 @@ const void* Buffer::Iterator::getData() const {
 /**
  * Return the length of the data at the current chunk.
  */
-uint32_t Buffer::Iterator::getLength() const {
-    assert(current != NULL);
-    uint32_t startAdj = 0;
-    if (offset > currentOffset && offset < currentOffset + current->length)
-        startAdj = offset - currentOffset;
-    uint32_t endAdj = 0;
-    if ((offset + length > currentOffset) &&
-        (offset + length < currentOffset + current->length))
-        endAdj = (currentOffset + current->length) - (offset + length);
-    return current->length - startAdj - endAdj;
+uint32_t
+Buffer::Iterator::getLength() const
+{
+    // Just the length of the current chunk with a few possible adjustments.
+    uint32_t result = current->length;
+
+    uint32_t end = offset + length;
+    uint32_t endOfCurrentChunk = currentOffset + current->length;
+
+    // Does current contain offset?  If so, adjust bytes on front not returned.
+    // See the comment in getData for detailed explanation, if needed.
+    if (offset > currentOffset && offset < endOfCurrentChunk)
+        result -= offset - currentOffset;
+
+    // Does current contain end?  If so, adjust bytes on end not returned.
+    if (end > currentOffset && end < endOfCurrentChunk)
+        result -= endOfCurrentChunk - end;
+
+    return result;
 }
 
 /**
@@ -921,7 +939,7 @@ uint32_t Buffer::Iterator::getLength() const {
 uint32_t
 Buffer::Iterator::getTotalLength() const
 {
-    return totalLength;
+    return length;
 }
 
 /**
@@ -930,10 +948,27 @@ Buffer::Iterator::getTotalLength() const
  * buffer requested, if any.  This number may be higher than the
  * number of chunks visited if a length is specified as part of the
  * iterator subrange.
+ * If this is an Iterator on a Buffer subrange then this value is
+ * computed lazily on the first call to this method and cached for
+ * subsequent calls.
  */
 uint32_t
 Buffer::Iterator::getNumberChunks() const
 {
+    if (!numberChunksIsValid) {
+        // Determine the number of chunks this iter will visit and
+        // cache for future calls
+        Buffer::Iterator* self = const_cast<Buffer::Iterator*>(this);
+        Chunk* c = current;
+        uint32_t o = currentOffset;
+        while (c && (offset + length > o)) {
+            o += c->length;
+            c = c->next;
+            self->numberChunks++;
+        }
+        self->numberChunksIsValid = true;
+    }
+
     return numberChunks;
 }
 

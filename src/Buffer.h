@@ -380,29 +380,41 @@ class Buffer {
          * This starts out as #chunks and ends up at \c NULL.
          */
         Chunk* current;
+
         /**
          * The offset into the buffer of the the first byte of current.
          */
         uint32_t currentOffset;
-        /**
-         * The index in bytes into the buffer that the first call
-         * to getData() should return.
-         */
-        uint32_t offset;
+
         /**
          * The number of bytes starting from offset that should be iterated
-         * over before this isDone().
+         * over before this isDone().  If this value is initialized to a
+         * length that together with offset indicates a range that is out
+         * bounds then the length will be trimmed so that offset + length
+         * extends precisely to the end of the Buffer.
          */
         uint32_t length;
+
         /**
-         * The length in bytes that the iterator will return.
+         * The index in bytes into the buffer that the first call
+         * to getData() should return.  If this value is initialized
+         * to an offset that is out of range in the constructor then
+         * it will be trimmed to match the length of the Buffer.
          */
-        uint32_t totalLength;
+        uint32_t offset;
+
         /**
          * An upper bound on the number of chunks the iterator will
-         * iterate over.
+         * iterate over.  Calculated lazily in the case of an Iterator
+         * that only covers a subrange, see getNumberChunks.
          */
         uint32_t numberChunks;
+
+        /**
+         * Used by getNumberChunks to determine if numberChunks needs to
+         * be computed still or not.
+         */
+        uint32_t numberChunksIsValid;
 
       friend class BufferIteratorTest;
     };

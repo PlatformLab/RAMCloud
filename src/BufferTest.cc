@@ -591,232 +591,182 @@ class BufferTest : public CppUnit::TestFixture {
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferTest);
 
+
 class BufferIteratorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(BufferIteratorTest);
-    CPPUNIT_TEST(test_normal);
+    CPPUNIT_TEST(test_constructor_subrange);
+    CPPUNIT_TEST(test_constructor_lengthOutOfBounds);
+    CPPUNIT_TEST(test_constructor_offsetOutOfBounds);
     CPPUNIT_TEST(test_isDone);
     CPPUNIT_TEST(test_next);
     CPPUNIT_TEST(test_getData);
+    CPPUNIT_TEST(test_getData_onChunkBoundary);
+    CPPUNIT_TEST(test_getData_offsetAdjustment);
     CPPUNIT_TEST(test_getLength);
-    CPPUNIT_TEST(test_subRangeIter_normal);
-    CPPUNIT_TEST(test_subRangeIter_isDone);
-    CPPUNIT_TEST(test_subRangeIter_getData);
-    CPPUNIT_TEST(test_subRangeIter_getLength);
-    CPPUNIT_TEST(test_subRangeIter_getTotalLength);
-    CPPUNIT_TEST(test_subRangeIter_getNumberChunks);
-    CPPUNIT_TEST(test_subRangeIter_badRange);
+    CPPUNIT_TEST(test_getLength_startAdjustment);
+    CPPUNIT_TEST(test_getLength_endAdjustment);
+    CPPUNIT_TEST(test_getTotalLength);
+    CPPUNIT_TEST(test_getNumberChunks);
+    CPPUNIT_TEST(test_getNumberChunks_offsetIntoBuffer);
+    CPPUNIT_TEST(test_getNumberChunks_sanityBeyondTheEnd);
     CPPUNIT_TEST_SUITE_END();
+
+    Buffer* oneChunk;
+    Buffer* twoChunks;
+    Buffer::Iterator* oneIter;
+    Buffer::Iterator* twoIter;
     char x[30];
 
   public:
-    void test_normal() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
 
-        Buffer::Iterator iter(b);
-        CPPUNIT_ASSERT(!iter.isDone());
-        CPPUNIT_ASSERT_EQUAL(&x[0], iter.getData());
-        CPPUNIT_ASSERT_EQUAL(10, iter.getLength());
-        CPPUNIT_ASSERT_EQUAL(2, iter.getNumberChunks());
-        CPPUNIT_ASSERT_EQUAL(30, iter.getTotalLength());
-        iter.next();
-        CPPUNIT_ASSERT(iter.current != NULL);
-        CPPUNIT_ASSERT(!iter.isDone());
-        CPPUNIT_ASSERT_EQUAL(&x[10], iter.getData());
-        CPPUNIT_ASSERT_EQUAL(20U, iter.getLength());
-        iter.next();
+    BufferIteratorTest()
+        : oneChunk(NULL)
+        , twoChunks(NULL)
+        , oneIter(NULL)
+        , twoIter(NULL)
+    {
+    }
+
+    void
+    setUp()
+    {
+        oneChunk = new Buffer();
+        twoChunks = new Buffer();
+
+        Buffer::Chunk::appendToBuffer(oneChunk, &x[0], 10);
+
+        Buffer::Chunk::appendToBuffer(twoChunks, &x[0], 10);
+        Buffer::Chunk::appendToBuffer(twoChunks, &x[10], 20);
+
+        oneIter = new Buffer::Iterator(*oneChunk);
+        twoIter = new Buffer::Iterator(*twoChunks);
+    }
+
+    void
+    tearDown()
+    {
+        delete twoIter;
+        delete oneIter;
+        delete twoChunks;
+        delete oneChunk;
+    }
+
+    void test_constructor_subrange()
+    {
+        Buffer::Iterator iter(*twoChunks, 12, 15);
+        CPPUNIT_ASSERT_EQUAL(iter.current, twoChunks->chunks->next);
+        CPPUNIT_ASSERT_EQUAL(12, iter.offset);
+        CPPUNIT_ASSERT_EQUAL(15, iter.length);
+    }
+
+    void test_constructor_lengthOutOfBounds()
+    {
+        Buffer::Iterator iter(*twoChunks, 12, 100000);
+        CPPUNIT_ASSERT_EQUAL(18, iter.length);
+    }
+
+    void test_constructor_offsetOutOfBounds()
+    {
+        Buffer::Iterator iter(*twoChunks, 100000, 1);
+        CPPUNIT_ASSERT_EQUAL(30, iter.offset);
+    }
+
+    void test_isDone()
+    {
+        Buffer zeroChunks;
+        Buffer::Iterator iter(zeroChunks);
         CPPUNIT_ASSERT(iter.isDone());
+
+        CPPUNIT_ASSERT(!twoIter->isDone());
+        twoIter->next();
+        CPPUNIT_ASSERT(!twoIter->isDone());
+        twoIter->next();
+        CPPUNIT_ASSERT(twoIter->isDone());
     }
 
-    void test_isDone() {
-        Buffer b;
+    void test_next()
+    {
+        // Pointing at the chunk.
+        CPPUNIT_ASSERT_EQUAL(oneIter->current, oneChunk->chunks);
 
-        { // empty Buffer
-            Buffer::Iterator iter(b);
-            CPPUNIT_ASSERT(iter.isDone());
-        }
+        oneIter->next();
+        // Pointing beyond the chunk.
+        CPPUNIT_ASSERT_EQUAL(oneIter->current, oneChunk->chunks->next);
+        CPPUNIT_ASSERT(oneIter->isDone());
 
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
-
-        { // nonempty buffer
-            Buffer::Iterator iter(b);
-            CPPUNIT_ASSERT(!iter.isDone());
-            iter.next();
-            CPPUNIT_ASSERT(!iter.isDone());
-            iter.next();
-            CPPUNIT_ASSERT(iter.isDone());
-        }
+        oneIter->next();
+        // Nothing should've changed since we were already done.
+        CPPUNIT_ASSERT_EQUAL(oneIter->current, oneChunk->chunks->next);
     }
 
-    void test_next() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Iterator iter(b);
-        CPPUNIT_ASSERT_EQUAL(iter.current, b.chunks);
-        iter.next();
-        CPPUNIT_ASSERT_EQUAL(iter.current, b.chunks->next);
+    void test_getData()
+    {
+        // Trivial case; no subrange adjustments.
+        CPPUNIT_ASSERT_EQUAL(static_cast<const char *>(oneIter->getData()),
+                             &x[0]);
     }
 
-    void test_getData() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Iterator iter(b);
-        CPPUNIT_ASSERT_EQUAL(static_cast<const char *>(iter.getData()),
-                &x[0]);
+    void test_getData_onChunkBoundary()
+    {
+        // Start right on chunk boundary.
+        Buffer::Iterator iter(*twoChunks, 10, 15);
+        CPPUNIT_ASSERT_EQUAL(&x[10], iter.getData());
     }
 
-    void test_getLength() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Iterator iter(b);
-        CPPUNIT_ASSERT_EQUAL(iter.getLength(), 10);
+    void test_getData_offsetAdjustment()
+    {
+        // Start some distance into second chunk; startOffset adjustment.
+        Buffer::Iterator iter(*twoChunks, 12, 15);
+        CPPUNIT_ASSERT_EQUAL(&x[12], iter.getData());
     }
 
-    void test_subRangeIter_normal() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
+    void test_getLength()
+    {
+        // straight-through, no branches taken
+        CPPUNIT_ASSERT_EQUAL(oneIter->getLength(), 10);
+    }
 
-        Buffer::Iterator iter(b, 2, 13);
-        CPPUNIT_ASSERT(!iter.isDone());
-        CPPUNIT_ASSERT_EQUAL(2, iter.getNumberChunks());
-        CPPUNIT_ASSERT_EQUAL(8 + 5, iter.getTotalLength());
-        CPPUNIT_ASSERT_EQUAL(&x[2], iter.getData());
+    void test_getLength_startAdjustment()
+    {
+        // adjust due to unused region at front of current
+        Buffer::Iterator iter(*twoChunks, 2, 27);
         CPPUNIT_ASSERT_EQUAL(8, iter.getLength());
-        iter.next();
-        CPPUNIT_ASSERT(iter.current != NULL);
-        CPPUNIT_ASSERT(!iter.isDone());
-        CPPUNIT_ASSERT_EQUAL(&x[10], iter.getData());
-        CPPUNIT_ASSERT_EQUAL(5, iter.getLength());
-        iter.next();
-        CPPUNIT_ASSERT(iter.isDone());
     }
 
-    void test_subRangeIter_isDone() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
-
-        { // end point on first chunk
-            Buffer::Iterator iter(b, 0, 1);
-            CPPUNIT_ASSERT(!iter.isDone());
-            iter.next();
-            CPPUNIT_ASSERT(iter.isDone());
-            iter.next();
-            CPPUNIT_ASSERT(iter.isDone());
-        }
-
-        { // length exact same as a chunk size
-            Buffer::Iterator iter(b, 0, 10);
-            CPPUNIT_ASSERT(!iter.isDone());
-            iter.next();
-            CPPUNIT_ASSERT(iter.isDone());
-            iter.next();
-            CPPUNIT_ASSERT(iter.isDone());
-        }
-
-        { // done before we start
-            Buffer::Iterator iter(b, 0, 0);
-            CPPUNIT_ASSERT(iter.isDone());
-        }
+    void test_getLength_endAdjustment()
+    {
+        // adjust due to unused region at end of current
+        Buffer::Iterator iter(*twoChunks, 0, 7);
+        CPPUNIT_ASSERT_EQUAL(7, iter.getLength());
     }
 
-    void test_subRangeIter_getData() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
-
-        { // start right on chunk boundary
-            Buffer::Iterator iter(b, 10, 15);
-            CPPUNIT_ASSERT(!iter.isDone());
-            CPPUNIT_ASSERT_EQUAL(&x[10], iter.getData());
-        }
-
-        { // start some distance into the second chunk
-            Buffer::Iterator iter(b, 12, 15);
-            CPPUNIT_ASSERT(!iter.isDone());
-            CPPUNIT_ASSERT_EQUAL(&x[12], iter.getData());
-        }
+    void test_getTotalLength()
+    {
+        // Runs off the end
+        Buffer::Iterator iter(*twoChunks, 29, 2);
+        CPPUNIT_ASSERT_EQUAL(1, iter.getTotalLength());
     }
 
-    void test_subRangeIter_getLength() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
-
-        { // startAdj non-zero
-            Buffer::Iterator iter(b, 2, 27);
-            CPPUNIT_ASSERT(!iter.isDone());
-            CPPUNIT_ASSERT_EQUAL(8, iter.getLength());
-        }
-
-        { // endAdj non-zero
-            Buffer::Iterator iter(b, 0, 7);
-            CPPUNIT_ASSERT(!iter.isDone());
-            CPPUNIT_ASSERT_EQUAL(7, iter.getLength());
-        }
-
-        { // startAdj and endAdj non-zero
-            Buffer::Iterator iter(b, 2, 5);
-            CPPUNIT_ASSERT(!iter.isDone());
-            CPPUNIT_ASSERT_EQUAL(5, iter.getLength());
-        }
+    void test_getNumberChunks()
+    {
+        CPPUNIT_ASSERT_EQUAL(2, twoIter->getNumberChunks());
     }
 
-    void test_subRangeIter_getTotalLength() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
-        { // startAdj + endAdj > totalLength
-            Buffer::Iterator iter(b, 29, 2);
-            CPPUNIT_ASSERT(!iter.isDone());
-            CPPUNIT_ASSERT_EQUAL(1, iter.getTotalLength());
-        }
+    void test_getNumberChunks_offsetIntoBuffer()
+    {
+        Buffer::Iterator iter(*twoChunks, 11, 10000);
+        CPPUNIT_ASSERT(!iter.numberChunksIsValid);
+        CPPUNIT_ASSERT_EQUAL(1, iter.getNumberChunks());
+        CPPUNIT_ASSERT(iter.numberChunksIsValid);
     }
 
-    void test_subRangeIter_getNumberChunks() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
-        { // easy case
-            Buffer::Iterator iter(b);
-            CPPUNIT_ASSERT(!iter.isDone());
-            CPPUNIT_ASSERT_EQUAL(2, iter.getNumberChunks());
-        }
-        { // using offset/length
-            Buffer::Iterator iter(b, 11, 10000);
-            CPPUNIT_ASSERT(!iter.isDone());
-            CPPUNIT_ASSERT_EQUAL(1, iter.getNumberChunks());
-        }
-        { // edge case, beyond end
-            Buffer::Iterator iter(b, 100000, 100000);
-            CPPUNIT_ASSERT(iter.isDone());
-            CPPUNIT_ASSERT_EQUAL(0, iter.getNumberChunks());
-        }
+    void test_getNumberChunks_sanityBeyondTheEnd()
+    {
+        Buffer::Iterator iter(*twoChunks, 100000, 100000);
+        CPPUNIT_ASSERT_EQUAL(0, iter.getNumberChunks());
     }
 
-    void test_subRangeIter_badRange() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, &x[0], 10);
-        Buffer::Chunk::appendToBuffer(&b, &x[10], 20);
-
-        { // start beyond end of iter
-            Buffer::Iterator iter(b, 10000, 10);
-            CPPUNIT_ASSERT(iter.isDone());
-        }
-
-        { // end beyond end of iter
-            Buffer::Iterator iter(b, 0, 100000);
-            CPPUNIT_ASSERT(!iter.isDone());
-            iter.next();
-            CPPUNIT_ASSERT(!iter.isDone());
-            iter.next();
-            CPPUNIT_ASSERT(iter.isDone());
-        }
-    }
-
+    DISALLOW_COPY_AND_ASSIGN(BufferIteratorTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferIteratorTest);
 
