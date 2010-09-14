@@ -37,7 +37,7 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 # -Wconversion
 # Failed deconstructor inlines are generating noise
 # -Winline
-LIBS := -lrt
+LIBS := -lrt -lpcrecpp
 # -lrt required for temporary semaphore. See RC_CLIENT_SHARED and RAM-39.
 INCLUDES := -I$(TOP)/src
 
