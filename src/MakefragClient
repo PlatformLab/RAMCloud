@@ -1,17 +1,18 @@
 OBJDIRS += client_shared
 
 CLIENT_SRCFILES := \
-		src/Buffer.cc \
-		src/CClient.cc \
-		src/Client.cc \
-		src/ClientException.cc \
-		src/Common.cc \
-		src/Driver.cc \
-		src/FastTransport.cc \
-		src/Logging.cc \
-		src/Status.cc \
-		src/TCPTransport.cc \
-		src/UDPDriver.cc
+		   src/Buffer.cc \
+		   src/CClient.cc \
+		   src/Client.cc \
+		   src/ClientException.cc \
+		   src/Common.cc \
+		   src/Driver.cc \
+		   src/FastTransport.cc \
+		   src/Logging.cc \
+		   src/Status.cc \
+		   src/TCPTransport.cc \
+		   src/UDPDriver.cc \
+		   $(NULL)
 
 CLIENT_OBJFILES := $(CLIENT_SRCFILES)
 CLIENT_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(CLIENT_OBJFILES))

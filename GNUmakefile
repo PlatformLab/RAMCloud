@@ -56,6 +56,7 @@ AR := ar
 PERL := perl
 LINT := python cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays,-build/include_what_you_use
 PRAGMAS := ./pragmas.py
+NULL := # useful for terminating lists of files
 
 # run-cc:
 # Compile a C source file to an object file.

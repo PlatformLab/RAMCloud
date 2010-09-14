@@ -1,22 +1,23 @@
 OBJDIRS += $(OBJDIR)
 
 SHARED_SRCFILES := \
-                src/BenchUtil.cc \
-                src/Common.cc \
-                src/Logging.cc \
-                src/Log.cc \
-                src/Segment.cc \
-                src/BackupClient.cc \
-                src/rabinpoly.cc \
-                src/Buffer.cc \
-                src/Service.cc \
-                src/ServiceLocator.cc \
-                src/StringConverter.cc \
-                src/Driver.cc \
-                src/UDPDriver.cc \
-                src/TCPTransport.cc \
-                src/FastTransport.cc \
-                src/Table.cc
+		   src/BackupClient.cc \
+		   src/BenchUtil.cc \
+		   src/Buffer.cc \
+		   src/Common.cc \
+		   src/Driver.cc \
+		   src/FastTransport.cc \
+		   src/Log.cc \
+		   src/Logging.cc \
+		   src/Segment.cc \
+		   src/Service.cc \
+		   src/ServiceLocator.cc \
+		   src/StringConverter.cc \
+		   src/TCPTransport.cc \
+		   src/Table.cc \
+		   src/UDPDriver.cc \
+		   src/rabinpoly.cc \
+		   $(NULL)
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)
 SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))

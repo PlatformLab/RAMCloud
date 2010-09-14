@@ -1,5 +1,6 @@
 BACKUP_SRCFILES := \
-        src/BackupServer.cc
+		   src/BackupServer.cc \
+		   $(NULL)
 
 BACKUP_OBJFILES := $(BACKUP_SRCFILES)
 BACKUP_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(BACKUP_OBJFILES))
