@@ -23,6 +23,17 @@
 
 namespace RAMCloud {
 
+class Person {
+  public:
+    Person() : name(), queueEntries() {}
+    string name;
+    IntrusiveListHook queueEntries;
+  private:
+    DISALLOW_COPY_AND_ASSIGN(Person);
+};
+
+INTRUSIVE_LIST_TYPEDEF(Person, queueEntries) PersonList;
+static PersonList personList;
 
 class BoostIntrusiveTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(BoostIntrusiveTest);
@@ -31,18 +42,6 @@ class BoostIntrusiveTest : public CppUnit::TestFixture {
 
   public:
     void test_list_example() {
-        class Person {
-          public:
-            Person() : name(), queueEntries() {}
-            string name;
-            IntrusiveListHook queueEntries;
-          private:
-            DISALLOW_COPY_AND_ASSIGN(Person);
-        };
-
-        INTRUSIVE_LIST_TYPEDEF(Person, queueEntries) PersonList;
-        PersonList personList;
-
         Person x, y, z;
 
         personList.push_back(x);
