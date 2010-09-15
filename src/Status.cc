@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * This file implements functions in the Static:: namespace
- */
-
 #include "Common.h"
 #include "Status.h"
 #include "ClientException.h"

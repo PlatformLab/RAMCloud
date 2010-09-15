@@ -17,12 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * This file was copied from someplace else and doesn't conform
- * to RAMCloud coding conventions yet.
- */
-
 #ifndef RAMCLOUD_MSB_H
 #define RAMCLOUD_MSB_H 1
 

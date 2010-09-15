@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for BackupServer.
- */
-
 #include <string>
 #include <cstring>
 

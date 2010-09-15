@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for #RAMCloud::ServiceLocator.
- */
-
 #include "TestUtil.h"
 #include "ServiceLocator.h"
 

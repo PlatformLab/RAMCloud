@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for everything defined by ClientException.h.
- */
-
 #include "ClientException.h"
 #include "TestUtil.h"
 

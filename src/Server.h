@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Defines the top-level Server class.
- */
-
 #ifndef RAMCLOUD_SERVER_H
 #define RAMCLOUD_SERVER_H
 

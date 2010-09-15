@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation of #RAMCloud::Log.
- */
-
 #include "Log.h"
 
 static const uint64_t cleanerHiWater = 20;

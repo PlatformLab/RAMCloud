@@ -13,17 +13,11 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for RAMCloud::TCPTransport.
- *
- * Everything between BEGIN_MOCK and END_MOCK is handled by the Python
- * preprocessor to this file, TCPTransportTestMock.py. The things that look
- * like methods in between those actually declare expected method invocations.
- * Look at how a couple examples translate to TCPTransportTest.cc and you'll
- * figure it out.
- */
-
+// Everything between BEGIN_MOCK and END_MOCK is handled by the Python
+// preprocessor to this file, TCPTransportTestMock.py. The things that look
+// like methods in between those actually declare expected method invocations.
+// Look at how a couple examples translate to TCPTransportTest.cc and you'll
+// figure it out.
 #define BEGIN_MOCK "fail, see above"
 #define END_MOCK "fail, see above"
 

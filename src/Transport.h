@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for the RAMCloud::Transport class and its exceptions.
- */
-
 #ifndef RAMCLOUD_TRANSPORT_H
 #define RAMCLOUD_TRANSPORT_H
 

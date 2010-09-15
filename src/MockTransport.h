@@ -13,14 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * This file defines an implementation of Transport that allows unit
- * tests to run without a network or a remote counterpart (it logs
- * output packets and provides a mechanism for prespecifying input
- * packets).
- */
-
 #include <string>
 
 #include "Transport.h"
@@ -30,6 +22,12 @@
 
 namespace RAMCloud {
 
+/**
+ * This class defines an implementation of Transport that allows unit
+ * tests to run without a network or a remote counterpart (it logs
+ * output packets and provides a mechanism for prespecifying input
+ * packets).
+ */
 class MockTransport : public Transport {
   public:
     MockTransport();

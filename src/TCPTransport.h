@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for the RAMCloud::TCPTransport class.
- */
-
 #ifndef RAMCLOUD_TCPTRANSPORT_H
 #define RAMCLOUD_TCPTRANSPORT_H
 

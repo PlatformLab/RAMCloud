@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation of #RAMCloud::FastTransport.
- */
-
 #include "FastTransport.h"
 #include "MockDriver.h"
 

@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for #RAMCloud::Object and #RAMCloud::ObjectTombstone.
- */
-
 #ifndef RAMCLOUD_OBJECT_H
 #define RAMCLOUD_OBJECT_H
 

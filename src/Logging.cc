@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation for debug logs.
- */
-
 #include <stdarg.h>
 #include <sys/time.h>
 #include "Logging.h"

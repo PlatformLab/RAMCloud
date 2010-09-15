@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation for #RAMCloud::UDPDriver.
- */
-
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>

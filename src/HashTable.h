@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for HashTable.
- */
-
 #ifndef RAMCLOUD_HASHTABLE_H
 #define RAMCLOUD_HASHTABLE_H
 

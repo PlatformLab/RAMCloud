@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for #RAMCloud::StringConverter.
- */
-
 #include <math.h>
 
 #include "TestUtil.h"

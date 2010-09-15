@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Contains the implementation for the RAMCloud::Buffer class.
- */
-
 #include "Buffer.h"
 
 #include <string.h>

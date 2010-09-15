@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for RAMCloud::CClient.
- */
-
 #include "Client.h"
 #include "CClient.h"
 #include "Mark.h"

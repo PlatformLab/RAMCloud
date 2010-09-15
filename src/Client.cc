@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation of RAMCloud::Client.
- */
-
 #include <assert.h>
 #include "Client.h"
 #include "ClientException.h"

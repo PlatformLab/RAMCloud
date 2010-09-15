@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation for HashTable.
- */
-
 #include <stdint.h>
 #include <cstdio>
 #include <cstdlib>

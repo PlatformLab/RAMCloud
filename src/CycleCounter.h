@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for the RAMCloud::CycleCounter class.
- */
-
 #ifndef RAMCLOUD_CYCLECOUNTER_H
 #define RAMCLOUD_CYCLECOUNTER_H
 

@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for #RAMCloud::ServiceLocator.
- */
-
 #ifndef RAMCLOUD_SERVICELOCATOR_H
 #define RAMCLOUD_SERVICELOCATOR_H
 

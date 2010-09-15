@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation for the TCPTransport class.
- */
-
 #include <limits.h>
 #include <unistd.h>
 #include <errno.h>

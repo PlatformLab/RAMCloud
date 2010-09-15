@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation of #RAMCloud::Server.
- */
-
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Metrics.h"
