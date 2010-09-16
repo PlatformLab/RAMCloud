@@ -1079,7 +1079,7 @@ def CheckForUndeclaredTestMethods(filename, lines, error):
         m = Search('CPPUNIT_TEST\s*\(\s*(\w+)\s*\)', line)
         if m:
             declared.append(m.group(1))
-        m = Search('([tT]est\w+)\(\)', line)
+        m = Search('(test\w+)\(\)', line)
         if m and not Search(r'\bNOLINT\b', line):
             defined.append((i, m.group(1)))
     for i, extra in defined:
