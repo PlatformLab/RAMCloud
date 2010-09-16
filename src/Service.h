@@ -13,10 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file Service.h Header file for the Service class.
- */
-
 #ifndef RAMCLOUD_SERVICE_H
 #define RAMCLOUD_SERVICE_H
 

@@ -13,10 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file ServiceTest.cc Unit tests for Service.
- */
-
 #include "TestUtil.h"
 
 #include "Service.h"

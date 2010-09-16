@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for the RAMCloud::Mark enum.
- */
-
 #ifndef RAMCLOUD_MARK_H
 #define RAMCLOUD_MARK_H
 

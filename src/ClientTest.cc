@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for RAMCloud::Client.
- */
-
 #include "Buffer.h"
 #include "Common.h"
 #include "Client.h"

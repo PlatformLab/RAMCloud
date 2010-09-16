@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Declaration of #RAMCloud::FastTransport.
- */
-
 #ifndef RAMCLOUD_FASTTRANSPORT_H
 #define RAMCLOUD_FASTTRANSPORT_H
 

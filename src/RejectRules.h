@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Defines the RejectRules class.
- */
-
 #ifndef RAMCLOUD_REJECTRULES_H
 #define RAMCLOUD_REJECTRULES_H
 

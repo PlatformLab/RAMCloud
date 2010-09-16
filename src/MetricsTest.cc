@@ -15,11 +15,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for RAMCloud::Metrics and RAMCloud::BlockMetric.
- */
-
 #include "TestUtil.h"
 
 #include "Metrics.h"

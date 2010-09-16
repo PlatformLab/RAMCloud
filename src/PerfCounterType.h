@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for the RAMCloud::PerfCounterType enum.
- */
-
 #ifndef RAMCLOUD_PERFCOUNTERTYPE_H
 #define RAMCLOUD_PERFCOUNTERTYPE_H
 

@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for debug logs.
- */
-
 #include "TestUtil.h"
 
 namespace RAMCloud {

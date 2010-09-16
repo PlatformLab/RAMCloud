@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Defines the Table class.
- */
-
 #ifndef RAMCLOUD_TABLE_H
 #define RAMCLOUD_TABLE_H
 

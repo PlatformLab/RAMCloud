@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for #RAMCloud::FastTransport.
- */
-
 #include "TestUtil.h"
 #include "MockDriver.h"
 #include "MockTransport.h"

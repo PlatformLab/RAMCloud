@@ -13,18 +13,11 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation of #RAMCloud::Ring.
- */
-
 #ifndef RAMCLOUD_RING_H
 #define RAMCLOUD_RING_H
 
 #include "Common.h"
-
 #include "TestUtil.h"
-
 
 namespace RAMCloud {
 

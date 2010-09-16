@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for functions defined in Status.cc.
- */
-
 #include "Status.h"
 #include "TestUtil.h"
 

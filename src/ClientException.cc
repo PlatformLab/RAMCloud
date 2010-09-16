@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation of RAMCloud::ClientException.
- */
-
 #include "ClientException.h"
 
 namespace RAMCloud {

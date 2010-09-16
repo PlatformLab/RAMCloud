@@ -13,12 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation of a class that implements Transport for tests,
- * without an actual network.
- */
-
 #include "MockTransport.h"
 #include "TestUtil.h"
 

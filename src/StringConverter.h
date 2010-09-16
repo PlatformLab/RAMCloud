@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for #RAMCloud::StringConverter.
- */
-
 #ifndef RAMCLOUD_STRINGCONVERTER_H
 #define RAMCLOUD_STRINGCONVERTER_H
 

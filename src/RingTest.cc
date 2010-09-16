@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Unit tests for #RAMCloud::Ring.
- */
-
 #include "TestUtil.h"
 #include "Ring.h"
 

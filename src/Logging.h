@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for debug logs.
- */
-
 #ifndef RAMCLOUD_LOGGING_H
 #define RAMCLOUD_LOGGING_H
 

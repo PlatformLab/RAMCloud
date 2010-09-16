@@ -15,11 +15,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for the RAMCloud::Metrics class.
- */
-
 #ifndef RAMCLOUD_METRICS_H
 #define RAMCLOUD_METRICS_H
 

@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation of #RAMCloud::Segment.
- */
-
 #include "Segment.h"
 
 namespace RAMCloud {

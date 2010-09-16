@@ -13,10 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file Service.cc Implementation of the Service class.
- */
-
 #include "Service.h"
 
 namespace RAMCloud {

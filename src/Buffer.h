@@ -13,11 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Header file for the RAMCloud::Buffer class.
- */
-
 #ifndef RAMCLOUD_BUFFER_H
 #define RAMCLOUD_BUFFER_H
 

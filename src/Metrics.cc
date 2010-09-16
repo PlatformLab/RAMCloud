@@ -15,11 +15,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Implementation file for the RAMCloud::Metrics class.
- */
-
 #include "Metrics.h"
 
 namespace RAMCloud {

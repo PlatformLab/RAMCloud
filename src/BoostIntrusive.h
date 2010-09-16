@@ -30,13 +30,13 @@ namespace RAMCloud {
 /**
  * The type that you should put into your class to add instances of that class
  * to an intrusive list.
- * For a usage example, see #BoostIntrusiveTest::test_list_example().
+ * For a usage example, see BoostIntrusiveTest::test_list_example().
  */
 typedef boost::intrusive::list_member_hook<> IntrusiveListHook;
 
 /**
  * Create a name for the type of an intrusive list.
- * For a usage example, see #BoostIntrusiveTest::test_list_example().
+ * For a usage example, see BoostIntrusiveTest::test_list_example().
  * \param entryType
  *      The name of the class whose instances you intend to add to intrusive
  *      lists of this type.

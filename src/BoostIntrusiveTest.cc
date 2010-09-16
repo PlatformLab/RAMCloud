@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Usage examples for BoostIntrusive.h.
- */
-
 #include "TestUtil.h"
 #include "BoostIntrusive.h"
 
