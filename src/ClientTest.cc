@@ -287,7 +287,7 @@ class ClientTest : public CppUnit::TestFixture {
                 transport->outputLog);
         CPPUNIT_ASSERT_EQUAL(222, client->counterValue);
         CPPUNIT_ASSERT_EQUAL(0x500000004ull, version);
-        CPPUNIT_ASSERT_EQUAL("abcdef", result.toString());
+        CPPUNIT_ASSERT_EQUAL("abcdef", toString(&result));
     }
     void test_read_shortResponse() {
         Buffer result;
@@ -308,7 +308,7 @@ class ClientTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, client->status);
         CPPUNIT_ASSERT_EQUAL("clientSend: 12 0x1003002 2 1 44 0 0 0 0 0",
                 transport->outputLog);
-        CPPUNIT_ASSERT_EQUAL("abcdefg/0", result.toString());
+        CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&result));
     }
     void test_read_throwException() {
         Buffer result;
@@ -324,7 +324,7 @@ class ClientTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(4, status);
         CPPUNIT_ASSERT_EQUAL(4, client->status);
         CPPUNIT_ASSERT_EQUAL(0x500000004ull, version);
-        CPPUNIT_ASSERT_EQUAL("abcdefg/0", result.toString());
+        CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&result));
     }
 
     void test_remove_basics() {

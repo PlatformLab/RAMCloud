@@ -141,21 +141,48 @@ friendlyRegerror(int errorCode, const regex_t* storage)
 }
 
 /**
- * Append a printable representation of the contents of the memory
+ * Convert a character to a printable form (if it isn't already) and append
+ * to a string. This method is used by other methods such as
+ * bufferToDebugString and toString.
+ *
+ * \param c
+ *      Character to convert.
+ * \param[out] out
+ *      Append the converted result here. Non-printing characters get
+ *      converted to a form using "/" (not "\"!).  This produces a result
+ *      that can be cut and pasted from test output into test code: the
+ *      result will never contain any characters that require quoting
+ *      if used in a C string, such as backslashes or quotes.
+ */
+void
+convertChar(char c, string *out) {
+    if ((c >= 0x20) && (c < 0x7f) && (c != '"') && (c != '\\')) {
+        out->append(&c, 1);
+    } else if (c == '\0') {
+        out->append("/0");
+    } else if (c == '\n') {
+        out->append("/n");
+    } else {
+        char temp[20];
+        uint32_t value = c & 0xff;
+        snprintf(temp, sizeof(temp), "/x%02x", value);
+        out->append(temp);
+    }
+}
+
+/**
+ * Create a printable representation of the contents of the memory
  * to a string.
  *
  * \param buf
  *      Convert the contents of this to ASCII.
  * \param length
  *      The length of the data in buf.
- * \param[out] s
- *      Append the converted value here. The output format is intended
- *      to simplify testing: things that look like strings are output
- *      that way, and everything else is output as 4-byte decimal integers.
  */
-void
-bufToString(const char *buf, uint32_t length, string* const s)
+string
+toString(const char *buf, uint32_t length)
 {
+    string s;
     uint32_t i = 0;
     char temp[20];
     const char* separator = "";
@@ -165,46 +192,101 @@ bufToString(const char *buf, uint32_t length, string* const s)
     // * 4 bytes output as a decimal integer
     // * or, a string output as a string
     while (i < length) {
-        s->append(separator);
+        s.append(separator);
         separator = " ";
         if ((i+4) <= length) {
             const char *p = &buf[i];
             if ((p[0] < ' ') || (p[1] < ' ')) {
                 int value = *reinterpret_cast<const int*>(p);
-                snprintf(temp, sizeof(temp), (value > 10000) ? "0x%x" : "%d",
+                snprintf(temp, sizeof(temp),
+                        ((value > 10000) || (value < -1000)) ? "0x%x" : "%d",
                         value);
-                s->append(temp);
+                s.append(temp);
                 i += 4;
                 continue;
             }
         }
 
         // This chunk of data looks like a string, so output it out as one.
-
         while (i < length) {
             char c = buf[i];
             i++;
-
-            // Output one character; format special characters in a way
-            // that makes it easy to cut and paste this output into an
-            // "expected results" string in tests (e.g. don't generate
-            // backslashes).
-            if ((c >= 0x20) && (c < 0x7f)) {
-                s->append(&c, 1);
-            } else if (c == '\0') {
-                s->append("/0");
-            } else if (c == '\n') {
-                s->append("/n");
-            } else {
-                uint32_t value = c & 0xff;
-                snprintf(temp, sizeof(temp), "/x%02x", value);
-                s->append(temp);
-            }
+            convertChar(c, &s);
             if (c == '\0') {
                 break;
             }
         }
     }
+
+    return s;
+}
+
+/**
+ * Create a printable representation of the contents of the buffer.
+ * The string representation was designed primarily for printing
+ * network packets during testing.
+ *
+ * \param buffer
+ *      The Buffer to create a string representation of.
+ * \return
+ *      A string describing the contents of
+ *      buffer. The string consists of one or more items separated
+ *      by white space, with each item representing a range of bytes
+ *      in the buffer (these ranges do not necessarily correspond to
+ *      the buffer's internal chunks).  A chunk can be either an integer
+ *      representing 4 contiguous bytes of the buffer or a null-terminated
+ *      string representing any number of bytes.  String format is preferred,
+ *      but is only used for things that look like strings.  Integers
+ *      are printed in decimal if they are small, otherwise hexadecimal.
+ */
+string
+toString(Buffer* buffer)
+{
+    uint32_t length = buffer->getTotalLength();
+    const char* buf = static_cast<const char*>(buffer->getRange(0, length));
+    return toString(buf, length);
+}
+
+/**
+ * Generate a string describing the contents of the buffer in a way
+ * that displays its internal chunk structure.
+ *
+ * \return A string that describes the contents of the buffer. It
+ *         consists of the contents of the various chunks separated
+ *         by " | ", with long chunks abbreviated and non-printing
+ *         characters converted to something printable.
+ */
+string
+bufferToDebugString(Buffer* buffer)
+{
+    // The following declaration defines the maximum number of characters
+    // to display from each chunk.
+    static const uint32_t CHUNK_LIMIT = 20;
+    const char *separator = "";
+    char temp[20];
+    uint32_t chunkLength;
+    string s;
+
+    for (uint32_t offset = 0; ; offset += chunkLength) {
+        const char *chunk;
+        chunkLength = buffer->peek(offset,
+                                   reinterpret_cast<const void **>(&chunk));
+        if (chunkLength == 0)
+            break;
+        s.append(separator);
+        separator = " | ";
+        for (uint32_t i = 0; i < chunkLength; i++) {
+            if (i >= CHUNK_LIMIT) {
+                // This chunk is too big to print in its entirety;
+                // just print a count of the remaining characters.
+                snprintf(temp, sizeof(temp), "(+%d chars)", chunkLength-i);
+                s.append(temp);
+                break;
+            }
+            convertChar(chunk[i], &s);
+        }
+    }
+    return s;
 }
 
 /**

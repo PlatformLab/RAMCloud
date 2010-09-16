@@ -30,6 +30,7 @@ TESTS_SRCFILES := \
 		  src/StringConverterTest.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \
+		  src/TestUtilTest.cc \
 		  $(TESTS_PYMOCK_OUTFILES)
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)

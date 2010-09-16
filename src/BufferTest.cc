@@ -203,17 +203,10 @@ class BufferTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_copy_noop);
     CPPUNIT_TEST(test_copy_normal);
 
-    CPPUNIT_TEST(test_toString);
-
-    CPPUNIT_TEST(test_debugString);
-    CPPUNIT_TEST(test_toString_stringNotTerminated);
-
     CPPUNIT_TEST(test_fillFromString);
 
     CPPUNIT_TEST(test_truncateFront);
     CPPUNIT_TEST(test_truncateEnd);
-
-    CPPUNIT_TEST(test_convertChar);
 
     CPPUNIT_TEST_SUITE_END();
 
@@ -287,7 +280,7 @@ class BufferTest : public CppUnit::TestFixture {
         Buffer b;
         TChunk::appendToBuffer(&b, "abcd");
         TChunk::appendToBuffer(&b, "12345");
-        CPPUNIT_ASSERT_EQUAL("abcd12345", b.toString());
+        CPPUNIT_ASSERT_EQUAL("abcd12345", toString(&b));
         b.reset();
         CPPUNIT_ASSERT_EQUAL(2, numChunkDeletes);
         CPPUNIT_ASSERT_EQUAL(0, b.totalLength);
@@ -382,7 +375,7 @@ class BufferTest : public CppUnit::TestFixture {
         Buffer::Chunk::prependToBuffer(&b, testStr2, 10);
         Buffer::Chunk::prependToBuffer(&b, testStr1, 10);
         CPPUNIT_ASSERT_EQUAL("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
-                b.debugString());
+                bufferToDebugString(&b));
     }
 
     void test_append() {
@@ -392,7 +385,7 @@ class BufferTest : public CppUnit::TestFixture {
         Buffer::Chunk::appendToBuffer(&b, testStr2, 10);
         Buffer::Chunk::appendToBuffer(&b, testStr3, 10);
         CPPUNIT_ASSERT_EQUAL("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
-                b.debugString());
+                bufferToDebugString(&b));
     }
 
     void test_peek_normal() {
@@ -487,52 +480,20 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("0klmnop78901234567890123456789", scratch);
     }
 
-    void test_toString() {
-        Buffer b;
-        int32_t *ip = new(&b, APPEND) int32_t;
-        *ip = -45;
-        ip = new(&b, APPEND) int32_t;
-        *ip = 0x1020304;
-        char *p = new(&b, APPEND) char[10];
-        memcpy(p, "abcdefghi", 10);
-        ip = new(&b, APPEND) int32_t;
-        *ip = 99;
-        CPPUNIT_ASSERT_EQUAL("-45 0x1020304 abcdefghi/0 99",
-                             b.toString());
-    }
-    void test_toString_stringNotTerminated() {
-        Buffer b;
-        char *p = new(&b, APPEND) char[5];
-        memcpy(p, "abcdefghi", 5);
-        CPPUNIT_ASSERT_EQUAL("abcde", b.toString());
-    }
-
-    void test_debugString() {
-        Buffer b;
-        Buffer::Chunk::appendToBuffer(&b, "abc\nxyz", 7);
-        Buffer::Chunk::appendToBuffer(&b,
-            "0123456789012345678901234567890abcdefg",
-            37);
-        Buffer::Chunk::appendToBuffer(&b, "xyz", 3);
-        CPPUNIT_ASSERT_EQUAL("abc/nxyz | 01234567890123456789(+17 chars) "
-                             "| xyz",
-                             b.debugString());
-    }
-
     void test_fillFromString() {
         Buffer b;
 
         // Hexadecimal numbers
         b.fillFromString("0xAFaf0900 0xa");
-        CPPUNIT_ASSERT_EQUAL("0xafaf0900 10", b.toString());
+        CPPUNIT_ASSERT_EQUAL("0xafaf0900 10", toString(&b));
 
         // Decimal numbers
         b.fillFromString("123 -456");
-        CPPUNIT_ASSERT_EQUAL("123 -456", b.toString());
+        CPPUNIT_ASSERT_EQUAL("123 -456", toString(&b));
 
         // Strings
         b.fillFromString("abc def");
-        CPPUNIT_ASSERT_EQUAL("abc/0 def/0", b.toString());
+        CPPUNIT_ASSERT_EQUAL("abc/0 def/0", toString(&b));
     }
 
     void test_truncateFront() {
@@ -543,16 +504,16 @@ class BufferTest : public CppUnit::TestFixture {
         Buffer::Chunk::appendToBuffer(&b, "def", 3);
         Buffer::Chunk::appendToBuffer(&b, "ghi", 3);
         b.truncateFront(0);
-        CPPUNIT_ASSERT_EQUAL("abc | def | ghi", b.debugString());
+        CPPUNIT_ASSERT_EQUAL("abc | def | ghi", bufferToDebugString(&b));
         CPPUNIT_ASSERT_EQUAL(9, b.getTotalLength());
         b.truncateFront(4);
-        CPPUNIT_ASSERT_EQUAL("ef | ghi", b.debugString());
+        CPPUNIT_ASSERT_EQUAL("ef | ghi", bufferToDebugString(&b));
         CPPUNIT_ASSERT_EQUAL(5, b.getTotalLength());
         b.truncateFront(2);
-        CPPUNIT_ASSERT_EQUAL("ghi", b.debugString());
+        CPPUNIT_ASSERT_EQUAL("ghi", bufferToDebugString(&b));
         CPPUNIT_ASSERT_EQUAL(3, b.getTotalLength());
         b.truncateFront(5);
-        CPPUNIT_ASSERT_EQUAL("", b.debugString());
+        CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(&b));
         CPPUNIT_ASSERT_EQUAL(0, b.getTotalLength());
     }
 
@@ -564,27 +525,17 @@ class BufferTest : public CppUnit::TestFixture {
         Buffer::Chunk::appendToBuffer(&b, "def", 3);
         Buffer::Chunk::appendToBuffer(&b, "ghi", 3);
         b.truncateEnd(0);
-        CPPUNIT_ASSERT_EQUAL("abc | def | ghi", b.debugString());
+        CPPUNIT_ASSERT_EQUAL("abc | def | ghi", bufferToDebugString(&b));
         CPPUNIT_ASSERT_EQUAL(9, b.getTotalLength());
         b.truncateEnd(4);
-        CPPUNIT_ASSERT_EQUAL("abc | de", b.debugString());
+        CPPUNIT_ASSERT_EQUAL("abc | de", bufferToDebugString(&b));
         CPPUNIT_ASSERT_EQUAL(5, b.getTotalLength());
         b.truncateEnd(2);
-        CPPUNIT_ASSERT_EQUAL("abc", b.debugString());
+        CPPUNIT_ASSERT_EQUAL("abc", bufferToDebugString(&b));
         CPPUNIT_ASSERT_EQUAL(3, b.getTotalLength());
         b.truncateEnd(5);
-        CPPUNIT_ASSERT_EQUAL("", b.debugString());
+        CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(&b));
         CPPUNIT_ASSERT_EQUAL(0, b.getTotalLength());
-    }
-
-    void test_convertChar() {
-        Buffer b;
-        const char *test = "abc \x17--\x80--\x3--\n--\x7f--\\--\"--";
-        uint32_t length = strlen(test) + 1;
-        memcpy(static_cast<char*>(new(&b, APPEND) char[length]),
-                test, length);
-        CPPUNIT_ASSERT_EQUAL("abc /x17--/x80--/x03--/n--/x7f--/x5c--/x22--/0",
-                b.toString());
     }
 
     DISALLOW_COPY_AND_ASSIGN(BufferTest);
@@ -792,7 +743,7 @@ class BufferAllocatorTest : public CppUnit::TestFixture {
         *y = 'y';
         NotARawChunk::prependToBuffer(&buf, y, sizeof(*y));
         *(new(&buf, PREPEND) char) = 'x';
-        CPPUNIT_ASSERT_EQUAL("x | y | yz", buf.debugString());
+        CPPUNIT_ASSERT_EQUAL("x | y | yz", bufferToDebugString(&buf));
     }
 
     void test_new_append() {
@@ -806,7 +757,7 @@ class BufferAllocatorTest : public CppUnit::TestFixture {
         *y = 'y';
         NotARawChunk::appendToBuffer(&buf, y, sizeof(*y));
         *(new(&buf, APPEND) char) = 'x';
-        CPPUNIT_ASSERT_EQUAL("zy | y | x", buf.debugString());
+        CPPUNIT_ASSERT_EQUAL("zy | y | x", bufferToDebugString(&buf));
     }
 
     void test_new_chunk() {

@@ -25,6 +25,7 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <regex.h>
 #include "Common.h"
+#include "Buffer.h"
 
 // The following redefinitions are based on CppUnit code, so they probably need
 // to be licensed under the LGPL. They've been redefined to add a catch clause
@@ -95,7 +96,10 @@ void assertEquals(void *expected, const void *actual,
 namespace RAMCloud {
 
 void assertMatchesPosixRegex(const char* pattern, const char* subject);
-void bufToString(const char *buf, uint32_t length, string* const s);
+void convertChar(char c, string *out);
+string toString(const char *buf, uint32_t length);
+string toString(Buffer* buffer);
+string bufferToDebugString(Buffer* buffer);
 
 } // namespace RAMCloud
 

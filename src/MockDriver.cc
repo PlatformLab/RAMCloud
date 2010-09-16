@@ -105,9 +105,9 @@ MockDriver::sendPacket(const sockaddr *addr,
 
     uint32_t take = 10;
     if (length < take) {
-        bufToString(buf, length, &outputLog);
+        outputLog += toString(buf, length);
     } else {
-        bufToString(buf, take, &outputLog);
+        outputLog += toString(buf, take);
         char tmp[50];
         snprintf(tmp, sizeof(tmp), " (+%u more)", length - take);
         outputLog += tmp;
@@ -153,100 +153,6 @@ void
 MockDriver::setInput(Driver::Received* received)
 {
     inputReceived = received;
-}
-
-/**
- * Append a printable representation of the contents of the buffer
- * to a string.
- *
- * \param buffer
- *      Convert the contents of this to ASCII.
- * \param[out] s
- *      Append the converted value here. The output format is intended
- *      to simplify testing: things that look like strings are output
- *      that way, and everything else is output as 4-byte decimal integers.
- */
-void
-MockDriver::bufferToString(Buffer *buffer, string* const s) {
-    uint32_t length = buffer->getTotalLength();
-    char buf[length];
-    buffer->copy(0, length, buf);
-    bufToString(buf, length, s);
-}
-
-/**
- * Fill in the contents of the buffer from a textual description.
- *
- * \param s
- *      Describes what to put in the buffer. Consists of one or more
- *      substrings separated by spaces. If a substring starts with a
- *      digit or "-" is assumed to be a decimal number, which is converted
- *      to a 4-byte signed integer in the buffer. Otherwise the
- *      characters of the substrate are appended to the buffer, with
- *      an additional null terminating character.
- * \param[out] buffer
- *      Where to store the results of conversion; any existing contents
- *      are discarded.
- */
-void
-MockDriver::stringToBuffer(const char* s, Buffer *buffer) {
-    buffer->truncateFront(buffer->getTotalLength());
-
-    uint32_t i, length;
-    length = strlen(s);
-    for (i = 0; i < length; ) {
-        char c = s[i];
-        if ((c == '0') && (s[i+1] == 'x')) {
-            // Hexadecimal number
-            int value = 0;
-            i += 2;
-            while (i < length) {
-                char c = s[i];
-                i++;
-                if (c == ' ') {
-                    break;
-                }
-                if (c <= '9') {
-                    value = 16*value + (c - '0');
-                } else if ((c >= 'a') && (c <= 'f')) {
-                    value = 16*value + 10 + (c - 'a');
-                } else {
-                    value = 16*value + 10 + (c - 'A');
-                }
-            }
-            *(new(buffer, APPEND) int32_t) = value;
-        } else if ((c == '-') || ((c >= '0') && (c <= '9'))) {
-            // Decimal number
-            int value = 0;
-            int sign = (c == '-') ? -1 : 1;
-            if (c == '-') {
-                sign = -1;
-                i++;
-            }
-            while (i < length) {
-                char c = s[i];
-                i++;
-                if (c == ' ') {
-                    break;
-                }
-                value = 10*value + (c - '0');
-            }
-            *(new(buffer, APPEND) int32_t) = value * sign;
-        } else {
-            // String
-            while (i < length) {
-                char c = s[i];
-                i++;
-                if (c == ' ') {
-                    break;
-                }
-                *(new(buffer, APPEND) char) = c;
-            }
-            *(new(buffer, APPEND) char) = 0;
-        }
-    }
-    string s2;
-    bufferToString(buffer, &s2);
 }
 
 /**

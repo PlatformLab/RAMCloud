@@ -159,7 +159,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     {
         response->fillFromString("junk");
         transport->clientSend(service, request, response);
-        CPPUNIT_ASSERT_EQUAL("", response->debugString());
+        CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(response));
     }
 
     void
@@ -933,14 +933,15 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         // if not taken (not last fragment)
         MockReceived firstRecvd(0, totalFrags, "first");
         session->processReceivedData(channel, &firstRecvd);
-        CPPUNIT_ASSERT_EQUAL("first", recvBuffer.debugString());
+        CPPUNIT_ASSERT_EQUAL("first", bufferToDebugString(&recvBuffer));
         CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::RECEIVING,
                              session->channels[0].state);
 
         // if taken (last fragment)
         MockReceived lastRecvd(1, totalFrags, "last");
         session->processReceivedData(channel, &lastRecvd);
-        CPPUNIT_ASSERT_EQUAL("first | last", recvBuffer.debugString());
+        CPPUNIT_ASSERT_EQUAL("first | last",
+                             bufferToDebugString(&recvBuffer));
         CPPUNIT_ASSERT_EQUAL(channel->currentRpc,
                              &transport->serverReadyQueue.back());
         CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::PROCESSING,
@@ -1437,8 +1438,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
             if (!payload) {
                 snprintf(tmp, max, "-, ");
             } else {
-                string payloadStr;
-                bufToString(payload, payloadLen, &payloadStr);
+                string payloadStr = toString(payload, payloadLen);
                 payloadStr.resize(10);
 
                 snprintf(tmp, max, "(%s, %u), ",
@@ -1606,7 +1606,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         MockReceived recvd(0, msg->totalFrags + 1, "God hates ponies.");
         bool result = msg->processReceivedData(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
-        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->debugString());
+        CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(msg->dataBuffer));
         CPPUNIT_ASSERT_EQUAL(0, msg->firstMissingFrag);
         CPPUNIT_ASSERT_EQUAL(0, recvd.stealCount);
     }
@@ -1623,7 +1623,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         bool result = msg->processReceivedData(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
         CPPUNIT_ASSERT_EQUAL("God hates ponies.",
-                             msg->dataBuffer->debugString());
+                             bufferToDebugString(msg->dataBuffer));
         CPPUNIT_ASSERT_EQUAL(1, msg->firstMissingFrag);
         // TODO(stutsman) Looking for feedback about how to make the dSRToString
         // catch these types of cases easily
@@ -1635,7 +1635,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         result = msg->processReceivedData(&nextRecvd);
         CPPUNIT_ASSERT_EQUAL(true, result);
         CPPUNIT_ASSERT_EQUAL("God hates ponies. | I hate ponies, also.",
-                             msg->dataBuffer->debugString());
+                             bufferToDebugString(msg->dataBuffer));
         CPPUNIT_ASSERT_EQUAL(msg->totalFrags, msg->firstMissingFrag);
         CPPUNIT_ASSERT_EQUAL(3, msg->dataStagingRing[0].second);
         CPPUNIT_ASSERT_EQUAL(1, nextRecvd.stealCount);
@@ -1652,7 +1652,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         MockReceived recvd(1, msg->totalFrags, "I hate ponies, also.");
         bool result = msg->processReceivedData(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
-        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->debugString());
+        CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(msg->dataBuffer));
         CPPUNIT_ASSERT_EQUAL(recvd.payload, msg->dataStagingRing[0].first);
         CPPUNIT_ASSERT_EQUAL(recvd.len, msg->dataStagingRing[0].second);
 
@@ -1661,7 +1661,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         result = msg->processReceivedData(&nextRecvd);
         CPPUNIT_ASSERT_EQUAL(true, result);
         CPPUNIT_ASSERT_EQUAL("God hates ponies. | I hate ponies, also.",
-                             msg->dataBuffer->debugString());
+                             bufferToDebugString(msg->dataBuffer));
         CPPUNIT_ASSERT_EQUAL(3, msg->dataStagingRing[0].second);
     }
 
@@ -1680,7 +1680,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         MockReceived recvd(2, totalFrags, "pkt two");
         bool result = msg->processReceivedData(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
-        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->debugString());
+        CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(msg->dataBuffer));
         CPPUNIT_ASSERT_EQUAL(recvd.payload, msg->dataStagingRing[1].first);
         CPPUNIT_ASSERT_EQUAL(recvd.len, msg->dataStagingRing[1].second);
         CPPUNIT_ASSERT_EQUAL(1, recvd.stealCount);
@@ -1689,7 +1689,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         MockReceived nextRecvd(1, totalFrags, "pkt one");
         result = msg->processReceivedData(&nextRecvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
-        CPPUNIT_ASSERT_EQUAL("", msg->dataBuffer->debugString());
+        CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(msg->dataBuffer));
         CPPUNIT_ASSERT_EQUAL(nextRecvd.payload, msg->dataStagingRing[0].first);
         CPPUNIT_ASSERT_EQUAL(nextRecvd.len, msg->dataStagingRing[0].second);
         CPPUNIT_ASSERT_EQUAL(1, nextRecvd.stealCount);

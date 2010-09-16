@@ -44,7 +44,6 @@ class MockDriver : public Driver {
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
     void setInput(Driver::Received* received);
-    static void stringToBuffer(const char* s, Buffer* buffer);
     virtual bool tryRecvPacket(Received *received);
 
     /**

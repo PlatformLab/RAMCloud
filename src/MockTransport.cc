@@ -20,6 +20,7 @@
  */
 
 #include "MockTransport.h"
+#include "TestUtil.h"
 
 namespace RAMCloud {
 
@@ -68,7 +69,7 @@ MockTransport::clientSend(Service* service, Buffer* payload,
         outputLog.append(" | ");
     }
     outputLog.append("clientSend: ");
-    outputLog.append(payload->toString());
+    outputLog.append(toString(payload));
     return new MockClientRpc(this, response);
 }
 
@@ -117,7 +118,7 @@ MockTransport::MockServerRpc::sendReply() {
         transport->outputLog.append(" | ");
     }
     transport->outputLog.append("serverReply: ");
-    transport->outputLog.append(replyPayload.toString());
+    transport->outputLog.append(toString(&replyPayload));
     delete this;
 }
 
