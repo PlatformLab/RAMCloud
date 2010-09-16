@@ -1,5 +1,5 @@
 function portslay {
-    pid=$(lsof -t -iTCP:$port)
+    pid=$(lsof -t -i:$port)
     running=$?
     if [ $running -eq 0 ]; then
         kill $pid
