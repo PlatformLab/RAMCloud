@@ -231,8 +231,8 @@ HashTable::HashTable(uint64_t numBuckets)
     uint64_t i, j;
 
     if (numBuckets != this->numBuckets) {
-        fprintf(stderr, "Warning: HashTable truncated to %lu buckets "
-                        "(nearest power of two)\n", this->numBuckets);
+        LOG(DEBUG, "HashTable truncated to %lu buckets "
+                    "(nearest power of two)", this->numBuckets);
     }
 
     size_t bucketsSize = this->numBuckets * sizeof(CacheLine);
