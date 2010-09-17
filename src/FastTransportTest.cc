@@ -90,6 +90,8 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_fireTimers);
     CPPUNIT_TEST(test_getClientSession_noneExpirable);
     CPPUNIT_TEST(test_getClientSession_reuseExpired);
+    CPPUNIT_TEST(test_numFrags_fullPacket);
+    CPPUNIT_TEST(test_numFrags_oneByteTooBig);
     CPPUNIT_TEST(test_removeTimer_notIn);
     CPPUNIT_TEST(test_removeTimer_alreadyIn);
     CPPUNIT_TEST(test_poll);
@@ -256,6 +258,22 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         ClientSession* lastSession = transport->getClientSession();
         CPPUNIT_ASSERT_EQUAL(firstSession, lastSession);
         CPPUNIT_ASSERT_EQUAL(1, transport->clientSessions.size());
+    }
+
+    void
+    test_numFrags_fullPacket()
+    {
+        Buffer b;
+        new(&b, APPEND) char[transport->dataPerFragment()];
+        CPPUNIT_ASSERT_EQUAL(1, transport->numFrags(&b));
+    }
+
+    void
+    test_numFrags_oneByteTooBig()
+    {
+        Buffer b;
+        new(&b, APPEND) char[transport->dataPerFragment() + 1];
+        CPPUNIT_ASSERT_EQUAL(2, transport->numFrags(&b));
     }
 
     void
@@ -471,11 +489,11 @@ CPPUNIT_TEST_SUITE_REGISTRATION(FastTransportTest);
 
 class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST_SUITE(ClientRpcTest);
+    CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_getReply_idle);
     CPPUNIT_TEST(test_getReply_inProgress);
     CPPUNIT_TEST(test_getReply_completed);
     CPPUNIT_TEST(test_getReply_aborted);
-    CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_start_noExistingSession);
     CPPUNIT_TEST(test_start_cachedSessionNotConnected);
     CPPUNIT_TEST(test_start_cachedAndConnectedSession);
@@ -558,6 +576,18 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
     }
 
     void
+    test_constructor()
+    {
+        CPPUNIT_ASSERT_EQUAL(request, rpc->requestBuffer);
+        CPPUNIT_ASSERT_EQUAL(response, rpc->responseBuffer);
+        CPPUNIT_ASSERT_EQUAL(ClientRpc::IDLE, rpc->state);
+        CPPUNIT_ASSERT_EQUAL(transport, rpc->transport);
+        CPPUNIT_ASSERT_EQUAL(service, rpc->service);
+        // TODO(stutsman) Should test sockaddr contents
+        CPPUNIT_ASSERT_EQUAL(sizeof(sockaddr_in), rpc->serverAddressLen);
+    }
+
+    void
     test_getReply_idle()
     {
         rpc->state = ClientRpc::IDLE;
@@ -598,18 +628,6 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
             threw = true;
         }
         CPPUNIT_ASSERT(threw);
-    }
-
-    void
-    test_constructor()
-    {
-        CPPUNIT_ASSERT_EQUAL(request, rpc->requestBuffer);
-        CPPUNIT_ASSERT_EQUAL(response, rpc->responseBuffer);
-        CPPUNIT_ASSERT_EQUAL(ClientRpc::IDLE, rpc->state);
-        CPPUNIT_ASSERT_EQUAL(transport, rpc->transport);
-        CPPUNIT_ASSERT_EQUAL(service, rpc->service);
-        // TODO(stutsman) Should test sockaddr contents
-        CPPUNIT_ASSERT_EQUAL(sizeof(sockaddr_in), rpc->serverAddressLen);
     }
 
     void
@@ -673,733 +691,6 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
     DISALLOW_COPY_AND_ASSIGN(ClientRpcTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(ClientRpcTest);
-
-// --- ServerSessionTest ---
-
-class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
-    CPPUNIT_TEST_SUITE(ServerSessionTest);
-    CPPUNIT_TEST(test_startSession);
-    CPPUNIT_TEST(test_processInboundPacket_badChannel);
-    CPPUNIT_TEST(test_processInboundPacket_currentRpcReceivedDataPacket);
-    CPPUNIT_TEST(test_processInboundPacket_currentRpcReceivedAckPacket);
-    CPPUNIT_TEST(test_processInboundPacket_nextRpcReceivedDataPacket);
-    CPPUNIT_TEST(test_beginSending);
-    CPPUNIT_TEST(test_expire_noActivity);
-    CPPUNIT_TEST(test_expire_channelStillProcessing);
-    CPPUNIT_TEST(test_expire_channelRecvOrSendWait);
-    CPPUNIT_TEST(test_processReceivedData_receiving);
-    CPPUNIT_TEST(test_processReceivedData_processing);
-    CPPUNIT_TEST_SUITE_END();
-
-  public:
-    ServerSessionTest()
-        : FastTransport(NULL)
-        , driver(NULL)
-        , transport(NULL)
-        , session(NULL)
-        , sessionId(0x98765432)
-        , addr()
-        , addrp(NULL)
-        , addrLen(0)
-        , address("1.2.3.4")
-        , port(12345)
-    {
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        assert(inet_aton(&address[0], &addr.sin_addr));
-        addrLen = sizeof(addr);
-        addrp = reinterpret_cast<sockaddr*>(&addr);
-    }
-
-    void
-    setUp()
-    {
-        driver = new MockDriver(Header::headerToString);
-        transport = new FastTransport(driver);
-        session = new ServerSession(transport, sessionId);
-    }
-
-    void
-    tearDown()
-    {
-        delete driver;
-        delete transport;
-        delete session;
-    }
-
-    void
-    test_startSession()
-    {
-        const uint64_t tsc = 9898;
-        MockTSC _(tsc);
-        const uint32_t rand = 0x7676;
-        MockRandom __(rand);
-
-        uint32_t clientSessionHint = 0x12345678u;
-        session->startSession(addrp, addrLen, clientSessionHint);
-        CPPUNIT_ASSERT_EQUAL(addrLen, session->clientAddressLen);
-        CPPUNIT_ASSERT(!memcmp(addrp, &session->clientAddress, addrLen));
-        CPPUNIT_ASSERT_EQUAL(clientSessionHint, session->clientSessionHint);
-        CPPUNIT_ASSERT_EQUAL((static_cast<uint64_t>(rand) << 32) | rand,
-                             session->token);
-        CPPUNIT_ASSERT_EQUAL(
-            "{ sessionToken:767600007676 rpcId:0 clientSessionHint:12345678 "
-            "serverSessionHint:98765432 0/0 frags channel:0 dir:1 reqACK:0 "
-            "drop:0 payloadType:2 } /x07",
-            driver->outputLog);
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
-    }
-
-    void
-    test_processInboundPacket_badChannel()
-    {
-        const uint64_t tsc = 9898;
-        MockTSC _(tsc);
-
-        MockReceived recvd(0, 1, "");
-        recvd.getHeader()->channelId = NUM_CHANNELS_PER_SESSION;
-
-        session->processInboundPacket(&recvd);
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
-    }
-
-    /// A predicate to limit TestLog messages to processInboundPacket
-    static bool pipPred(string s)
-    {
-        return (s == "void RAMCloud::FastTransport::ServerSession::"
-                     "processInboundPacket(RAMCloud::Driver::Received*)");
-    }
-
-    void
-    test_processInboundPacket_currentRpcReceivedDataPacket()
-    {
-        TestLog::Enable _(&pipPred);
-
-        // Just here to flip us into a state where
-        // channel.rpcId == 0
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
-                             session->channels[0].rpcId);
-        MockReceived junk(0, 2, "foo");
-        // Just to start the currentRpc
-        session->processInboundPacket(&junk);
-        TestLog::clear();
-
-        CPPUNIT_ASSERT_EQUAL(0, session->channels[0].rpcId);
-        // This one exercises the code path we are interested in
-        MockReceived recvd(0, 1, "foo");
-        session->processInboundPacket(&recvd);
-        CPPUNIT_ASSERT_EQUAL(
-            "void RAMCloud::FastTransport::ServerSession::"
-            "processInboundPacket(RAMCloud::Driver::Received*): "
-            "processReceivedData",
-            TestLog::get());
-    }
-
-    void
-    test_processInboundPacket_currentRpcReceivedAckPacket()
-    {
-        TestLog::Enable _;
-
-        // Just here to flip us into a state where
-        // channel.rpcId == 0
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
-                             session->channels[0].rpcId);
-        MockReceived junk(0, 2, "foo");
-        session->processInboundPacket(&junk);
-        TestLog::clear();
-
-        AckResponse ackResp(1, 0);
-        MockReceived recvd(0, 1, &ackResp, sizeof(AckResponse));
-
-        session->processInboundPacket(&recvd);
-        CPPUNIT_ASSERT_EQUAL(
-            "void RAMCloud::FastTransport::ServerSession::"
-            "processInboundPacket(RAMCloud::Driver::Received*): "
-            "processReceivedAck",
-            TestLog::get());
-    }
-
-    void
-    test_processInboundPacket_nextRpcReceivedDataPacket()
-    {
-        TestLog::Enable _;
-        MockReceived recvd(0, 1, "God hates ponies.");
-
-        session->processInboundPacket(&recvd);
-        CPPUNIT_ASSERT_EQUAL(
-            "void RAMCloud::FastTransport::ServerSession::"
-            "processInboundPacket(RAMCloud::Driver::Received*): "
-            "start a new RPC | "
-            "void RAMCloud::FastTransport::ServerSession::"
-            "processInboundPacket(RAMCloud::Driver::Received*): "
-            "processReceivedData",
-            TestLog::get());
-    }
-
-    void
-    test_beginSending()
-    {
-        const uint64_t tsc = 9898;
-        MockTSC _(tsc);
-
-        uint32_t channelId = 6;
-        // Just here to flip us into a state where
-        // channel.rpcId == 0 and we have an RPC setup
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
-                             session->channels[0].rpcId);
-        MockReceived junk(0, 1, "foo");
-        junk.getHeader()->channelId = channelId;
-        session->processInboundPacket(&junk);
-
-        session->beginSending(channelId);
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::SENDING_WAITING,
-                             session->channels[channelId].state);
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
-    }
-
-    void
-    test_expire_noActivity()
-    {
-        CPPUNIT_ASSERT_EQUAL(0, session->lastActivityTime);
-        CPPUNIT_ASSERT(session->expire());
-    }
-
-    void
-    test_expire_channelStillProcessing()
-    {
-        session->lastActivityTime = 1;
-        session->channels[NUM_CHANNELS_PER_SESSION - 1].state =
-            ServerSession::ServerChannel::PROCESSING;
-        CPPUNIT_ASSERT(!session->expire());
-    }
-
-    void
-    test_expire_channelRecvOrSendWait()
-    {
-        session->lastActivityTime = 1;
-        for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++)
-            session->channels[i].state =
-                ServerSession::ServerChannel::IDLE;
-        uint32_t magic = 19281;
-        session->channels[0].rpcId = magic;
-        session->channels[1].state =
-            ServerSession::ServerChannel::RECEIVING;
-        session->channels[1].currentRpc = new ServerRpc(session, 1);
-        session->channels[2].state =
-            ServerSession::ServerChannel::SENDING_WAITING;
-        session->channels[2].currentRpc = new ServerRpc(session, 2);
-
-        CPPUNIT_ASSERT(session->expire());
-
-        // ensure 0 got skipped
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::IDLE,
-                             session->channels[0].state);
-        CPPUNIT_ASSERT_EQUAL(magic, session->channels[0].rpcId);
-
-        // ensure 1 got reset
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::IDLE,
-                             session->channels[1].state);
-        CPPUNIT_ASSERT_EQUAL(~(0u), session->channels[1].rpcId);
-        CPPUNIT_ASSERT_EQUAL(0, session->channels[1].currentRpc);
-
-        // ensure 2 got reset
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::IDLE,
-                             session->channels[2].state);
-        CPPUNIT_ASSERT_EQUAL(~(0u), session->channels[2].rpcId);
-        CPPUNIT_ASSERT_EQUAL(0, session->channels[2].currentRpc);
-
-        // check the minor tid-bits at the end
-        CPPUNIT_ASSERT_EQUAL(ServerSession::INVALID_TOKEN, session->token);
-        CPPUNIT_ASSERT_EQUAL(ServerSession::INVALID_HINT,
-                             session->clientSessionHint);
-        CPPUNIT_ASSERT_EQUAL(0, session->lastActivityTime);
-    }
-
-    void
-    test_processReceivedData_receiving()
-    {
-        ServerSession::ServerChannel* channel = &session->channels[0];
-        channel->state = ServerSession::ServerChannel::RECEIVING;
-        channel->currentRpc = new ServerRpc(session, 0);
-        uint32_t totalFrags = 2;
-        Buffer recvBuffer;
-        channel->inboundMsg.init(totalFrags, &recvBuffer);
-
-        // if not taken (not last fragment)
-        MockReceived firstRecvd(0, totalFrags, "first");
-        session->processReceivedData(channel, &firstRecvd);
-        CPPUNIT_ASSERT_EQUAL("first", bufferToDebugString(&recvBuffer));
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::RECEIVING,
-                             session->channels[0].state);
-
-        // if taken (last fragment)
-        MockReceived lastRecvd(1, totalFrags, "last");
-        session->processReceivedData(channel, &lastRecvd);
-        CPPUNIT_ASSERT_EQUAL("first | last",
-                             bufferToDebugString(&recvBuffer));
-        CPPUNIT_ASSERT_EQUAL(channel->currentRpc,
-                             &transport->serverReadyQueue.back());
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::PROCESSING,
-                             session->channels[0].state);
-    }
-
-    void
-    test_processReceivedData_processing()
-    {
-        MockReceived recvd(0, 1, "");
-        recvd.getHeader()->requestAck = 1;
-
-        ServerSession::ServerChannel* channel = &session->channels[0];
-        channel->state = ServerSession::ServerChannel::PROCESSING;
-        session->processReceivedData(channel, &recvd);
-
-        CPPUNIT_ASSERT(string::npos != driver->outputLog.find("payloadType:1"));
-    }
-
-  private:
-    MockDriver* driver;
-    FastTransport* transport;
-    ServerSession* session;
-    const uint32_t sessionId;
-    sockaddr_in addr;
-    sockaddr* addrp;
-    socklen_t addrLen;
-    const char* address;
-    const uint16_t port;
-
-    DISALLOW_COPY_AND_ASSIGN(ServerSessionTest);
-};
-CPPUNIT_TEST_SUITE_REGISTRATION(ServerSessionTest);
-
-// --- ClientSessionTest ---
-
-class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
-    CPPUNIT_TEST_SUITE(ClientSessionTest);
-    CPPUNIT_TEST(test_processSessionOpenResponse);
-    CPPUNIT_TEST(test_processSessionOpenResponse_tooManyChannelsOnServer);
-    CPPUNIT_TEST(test_allocateChannels);
-    CPPUNIT_TEST(test_processReceivedData_transitionSendToReceive);
-    CPPUNIT_TEST(test_processReceivedData_queueEmpty);
-    CPPUNIT_TEST(test_processReceivedData_getWorkFromQueue);
-    CPPUNIT_TEST(test_getAvailableChannel);
-    CPPUNIT_TEST(test_connect);
-    CPPUNIT_TEST(test_fillHeader);
-    CPPUNIT_TEST(test_processInboundPacket_sessionOpen);
-    CPPUNIT_TEST(test_processInboundPacket_invalidChannel);
-    CPPUNIT_TEST(test_processInboundPacket_data);
-    CPPUNIT_TEST(test_processInboundPacket_ack);
-    CPPUNIT_TEST(test_processInboundPacket_badSession);
-    CPPUNIT_TEST(test_startRpc_noAvailableChannel);
-    CPPUNIT_TEST(test_startRpc_availableChannel);
-    CPPUNIT_TEST(test_close);
-    CPPUNIT_TEST(test_expire_activeOnChannel);
-    CPPUNIT_TEST(test_expire_rpcQueued);
-    CPPUNIT_TEST(test_expire_nothingActive);
-    CPPUNIT_TEST_SUITE_END();
-
-  public:
-    ClientSessionTest()
-        : FastTransport(NULL)
-        , driver(NULL)
-        , transport(NULL)
-        , session(NULL)
-        , service(NULL)
-        , request(NULL)
-        , response(NULL)
-        , sessionId(0x98765432)
-        , addr()
-        , addrp(NULL)
-        , addrLen(0)
-        , address("1.2.3.4")
-        , port(12345)
-    {
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        assert(inet_aton(&address[0], &addr.sin_addr));
-        addrLen = sizeof(addr);
-        addrp = reinterpret_cast<sockaddr*>(&addr);
-    }
-
-    void
-    setUp()
-    {
-        driver = new MockDriver(Header::headerToString);
-        transport = new FastTransport(driver);
-        session = new ClientSession(transport, sessionId);
-        service = new Service();
-        service->setIp(address);
-        service->setPort(port);
-        request = new Buffer();
-        response = new Buffer();
-    }
-
-    void
-    tearDown()
-    {
-        delete response;
-        delete request;
-        delete service;
-        delete session;
-        delete transport;
-        delete driver;
-    }
-
-    void
-    test_processSessionOpenResponse()
-    {
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
-        MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
-        Header* header = recvd.getHeader();
-        header->serverSessionHint = 0x192837;
-        header->sessionToken = 0x1212343456567878;
-
-        // Insert an RPC into the work queue
-        ClientRpc rpc(transport, service, request, response);
-        session->channelQueue.push_back(rpc);
-
-        session->processSessionOpenResponse(&recvd);
-
-        CPPUNIT_ASSERT_EQUAL(true, session->isConnected());
-        CPPUNIT_ASSERT_EQUAL(header->serverSessionHint,
-                             session->serverSessionHint);
-        CPPUNIT_ASSERT_EQUAL(header->sessionToken, session->token);
-        CPPUNIT_ASSERT_EQUAL(NUM_CHANNELS_PER_SESSION, session->numChannels);
-
-        // Make sure our queued RPC made it onto the channel from the queue
-        CPPUNIT_ASSERT_EQUAL(&rpc, session->channels[0].currentRpc);
-        CPPUNIT_ASSERT(session->channelQueue.empty());
-
-        // Make sure we bailed on once the queue was empty
-        CPPUNIT_ASSERT_EQUAL(0, session->channels[1].currentRpc);
-    }
-
-    void
-    test_processSessionOpenResponse_tooManyChannelsOnServer()
-    {
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION + 1 };
-        MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
-
-        session->processSessionOpenResponse(&recvd);
-
-        CPPUNIT_ASSERT_EQUAL(NUM_CHANNELS_PER_SESSION, session->numChannels);
-    }
-
-    void
-    test_allocateChannels()
-    {
-        CPPUNIT_ASSERT(!session->channels);
-        session->allocateChannels();
-        CPPUNIT_ASSERT(session->channels);
-        for (uint32_t i = 0; i < session->numChannels; i++)
-            CPPUNIT_ASSERT_EQUAL(0, session->channels[i].currentRpc);
-    }
-
-    void
-    test_processReceivedData_transitionSendToReceive()
-    {
-        ClientRpc rpc(transport, service, request, response);
-        session->channelQueue.push_back(rpc);
-
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
-        MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
-        session->processSessionOpenResponse(&initRecvd);
-
-        MockReceived recvd(0, 2, "God hates ponies.");
-        ClientSession::ClientChannel* channel = &session->channels[0];
-        session->processReceivedData(channel, &recvd);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::RECEIVING,
-                             channel->state);
-    }
-
-    void
-    test_processReceivedData_queueEmpty()
-    {
-        ClientRpc rpc(transport, service, request, response);
-        session->channelQueue.push_back(rpc);
-
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
-        MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
-        session->processSessionOpenResponse(&initRecvd);
-
-        MockReceived recvd(0, 1, "God hates ponies.");
-        ClientSession::ClientChannel* channel = &session->channels[0];
-        uint32_t prevRpcId = channel->rpcId;
-        session->processReceivedData(channel, &recvd);
-        CPPUNIT_ASSERT_EQUAL(prevRpcId + 1, channel->rpcId);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::IDLE,
-                             channel->state);
-        CPPUNIT_ASSERT_EQUAL(0, channel->currentRpc);
-    }
-
-    void
-    test_processReceivedData_getWorkFromQueue()
-    {
-        ClientRpc rpc1(transport, service, request, response);
-        session->channelQueue.push_back(rpc1);
-
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
-        MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
-        session->processSessionOpenResponse(&initRecvd);
-
-        ClientRpc rpc2(transport, service, request, response);
-        session->channelQueue.push_back(rpc2);
-
-        MockReceived recvd(0, 1, "God hates ponies.");
-        ClientSession::ClientChannel* channel = &session->channels[0];
-        session->processReceivedData(channel, &recvd);
-        CPPUNIT_ASSERT_EQUAL(1, channel->rpcId);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::SENDING,
-                             channel->state);
-        CPPUNIT_ASSERT_EQUAL(&rpc2, channel->currentRpc);
-        CPPUNIT_ASSERT(session->channelQueue.empty());
-    }
-
-    void
-    test_getAvailableChannel()
-    {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-        session->allocateChannels();
-        uint32_t i = 0;
-        for (;;) {
-            ClientSession::ClientChannel* channel =
-                session->getAvailableChannel();
-            if (!channel)
-                break;
-            channel->state = ClientSession::ClientChannel::SENDING;
-            i++;
-        }
-        CPPUNIT_ASSERT_EQUAL(session->numChannels, i);
-    }
-
-    void
-    test_connect()
-    {
-        uint64_t tsc = 91291;
-        MockTSC _(tsc);
-
-        session->connect(addrp, addrLen);
-        CPPUNIT_ASSERT(!memcmp(addrp, &session->serverAddress, addrLen));
-        CPPUNIT_ASSERT_EQUAL(
-            "{ sessionToken:cccccccccccccccc rpcId:0 "
-            "clientSessionHint:98765432 serverSessionHint:cccccccc "
-            "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
-            driver->outputLog);
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
-    }
-
-    void
-    test_fillHeader()
-    {
-        Header header;
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-        session->allocateChannels();
-        session->fillHeader(&header, 6);
-        CPPUNIT_ASSERT_EQUAL(
-            "{ sessionToken:cccccccccccccccc rpcId:0 "
-            "clientSessionHint:98765432 serverSessionHint:cccccccc "
-            "0/0 frags channel:6 dir:0 reqACK:0 drop:0 payloadType:0 }",
-            header.toString());
-    }
-
-    void
-    test_processInboundPacket_sessionOpen()
-    {
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
-        MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
-        recvd.getHeader()->payloadType = Header::SESSION_OPEN;
-
-        session->processInboundPacket(&recvd);
-        CPPUNIT_ASSERT_EQUAL(true, session->isConnected());
-    }
-
-    void
-    test_processInboundPacket_invalidChannel()
-    {
-        MockReceived recvd(0, 1, "");
-
-        session->processInboundPacket(&recvd);
-        CPPUNIT_ASSERT_EQUAL(false, session->isConnected());
-    }
-
-    void
-    test_processInboundPacket_data()
-    {
-        uint64_t tsc = 91291;
-        MockTSC _(tsc);
-
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-        session->allocateChannels();
-        ClientSession::ClientChannel* channel = session->getAvailableChannel();
-        CPPUNIT_ASSERT(channel);
-        channel->state = ClientSession::ClientChannel::SENDING;
-        channel->currentRpc = new ClientRpc(transport, service,
-                                            request, response);
-
-        MockReceived recvd(0, 2, "first of two");
-        session->processInboundPacket(&recvd);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::RECEIVING,
-                             channel->state);
-
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
-    }
-
-    void
-    test_processInboundPacket_ack()
-    {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-        session->allocateChannels();
-        ClientSession::ClientChannel* channel = session->getAvailableChannel();
-        CPPUNIT_ASSERT(channel);
-        channel->state = ClientSession::ClientChannel::SENDING;
-
-        channel->outboundMsg.totalFrags = 5;
-        channel->outboundMsg.sendBuffer = request;
-
-        AckResponse ackResp(2, 0);
-        MockReceived recvd(0, 5, &ackResp, sizeof(AckResponse));
-        recvd.getHeader()->payloadType = Header::ACK;
-
-        session->processInboundPacket(&recvd);
-        CPPUNIT_ASSERT_EQUAL(2, channel->outboundMsg.firstMissingFrag);
-    }
-
-    void
-    test_processInboundPacket_badSession()
-    {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-        session->allocateChannels();
-        CPPUNIT_ASSERT(session->channelQueue.empty());
-
-        // Put an RPC on one of the channels
-        ClientRpc* rpc = new ClientRpc(transport, service, request, response);
-        session->channels[1].currentRpc = rpc;
-
-        MockReceived recvd(0, 1, "");
-        recvd.getHeader()->payloadType = Header::BAD_SESSION;
-
-        session->processInboundPacket(&recvd);
-
-        // Make sure the RPC made it back onto the queue safely
-        CPPUNIT_ASSERT_EQUAL(rpc, &session->channelQueue.front());
-
-        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_HINT,
-                             session->serverSessionHint);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_TOKEN, session->token);
-        CPPUNIT_ASSERT_EQUAL(
-            "{ sessionToken:cccccccccccccccc rpcId:0 "
-            "clientSessionHint:98765432 serverSessionHint:cccccccc "
-            "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
-            driver->outputLog);
-    }
-
-    void
-    test_startRpc_noAvailableChannel()
-    {
-        CPPUNIT_ASSERT(session->channelQueue.empty());
-        ClientRpc rpc(transport, service, request, response);
-        session->startRpc(&rpc);
-        CPPUNIT_ASSERT_EQUAL(&rpc, &session->channelQueue.front());
-        session->channelQueue.pop_front(); // satisfy boost assertion
-    }
-
-    void
-    test_startRpc_availableChannel()
-    {
-        uint64_t tsc = 98328;
-        MockTSC _(tsc);
-
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-        session->allocateChannels();
-
-        ClientRpc rpc(transport, service, request, response);
-        session->startRpc(&rpc);
-        ClientSession::ClientChannel* channel = &session->channels[0];
-        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::SENDING,
-                             channel->state);
-        CPPUNIT_ASSERT_EQUAL(&rpc, channel->currentRpc);
-
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
-    }
-
-    void
-    test_close()
-    {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-        session->allocateChannels();
-
-        ClientRpc rpc1(transport, service, request, response);
-        ClientRpc rpc2(transport, service, request, response);
-        ClientRpc rpc3(transport, service, request, response);
-        session->channelQueue.push_back(rpc3);
-
-        session->channels[0].currentRpc = &rpc1;
-        session->channels[1].currentRpc = &rpc2;
-
-        session->close();
-        CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc1.state);
-        CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc2.state);
-        CPPUNIT_ASSERT(session->channelQueue.empty());
-        CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc3.state);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_HINT,
-                             session->serverSessionHint);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_TOKEN, session->token);
-    }
-
-    void
-    test_expire_activeOnChannel()
-    {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-        session->allocateChannels();
-
-        ClientRpc rpc(transport, service, request, response);
-        session->channels[0].currentRpc = &rpc;
-
-        bool didClose = session->expire();
-        CPPUNIT_ASSERT_EQUAL(false, didClose);
-    }
-
-    void
-    test_expire_rpcQueued()
-    {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-        session->allocateChannels();
-
-        ClientRpc rpc(transport, service, request, response);
-        session->channelQueue.push_back(rpc);
-
-        bool didClose = session->expire();
-        CPPUNIT_ASSERT_EQUAL(false, didClose);
-
-        session->channelQueue.pop_front(); // satisfy boost assertion
-    }
-
-    void
-    test_expire_nothingActive()
-    {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-        session->allocateChannels();
-
-        bool didClose = session->expire();
-        CPPUNIT_ASSERT_EQUAL(true, didClose);
-    }
-
-  private:
-    MockDriver* driver;
-    FastTransport* transport;
-    ClientSession* session;
-    Service* service;
-    Buffer* request;
-    Buffer* response;
-    const uint32_t sessionId;
-    sockaddr_in addr;
-    sockaddr* addrp;
-    socklen_t addrLen;
-    const char* address;
-    const uint16_t port;
-
-    DISALLOW_COPY_AND_ASSIGN(ClientSessionTest);
-};
-CPPUNIT_TEST_SUITE_REGISTRATION(ClientSessionTest);
 
 // --- InboundMessageTest ---
 
@@ -2082,6 +1373,733 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     DISALLOW_COPY_AND_ASSIGN(OutboundMessageTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(OutboundMessageTest);
+
+// --- ServerSessionTest ---
+
+class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
+    CPPUNIT_TEST_SUITE(ServerSessionTest);
+    CPPUNIT_TEST(test_beginSending);
+    CPPUNIT_TEST(test_expire_noActivity);
+    CPPUNIT_TEST(test_expire_channelStillProcessing);
+    CPPUNIT_TEST(test_expire_channelRecvOrSendWait);
+    CPPUNIT_TEST(test_processInboundPacket_badChannel);
+    CPPUNIT_TEST(test_processInboundPacket_currentRpcReceivedDataPacket);
+    CPPUNIT_TEST(test_processInboundPacket_currentRpcReceivedAckPacket);
+    CPPUNIT_TEST(test_processInboundPacket_nextRpcReceivedDataPacket);
+    CPPUNIT_TEST(test_startSession);
+    CPPUNIT_TEST(test_processReceivedData_receiving);
+    CPPUNIT_TEST(test_processReceivedData_processing);
+    CPPUNIT_TEST_SUITE_END();
+
+  public:
+    ServerSessionTest()
+        : FastTransport(NULL)
+        , driver(NULL)
+        , transport(NULL)
+        , session(NULL)
+        , sessionId(0x98765432)
+        , addr()
+        , addrp(NULL)
+        , addrLen(0)
+        , address("1.2.3.4")
+        , port(12345)
+    {
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        assert(inet_aton(&address[0], &addr.sin_addr));
+        addrLen = sizeof(addr);
+        addrp = reinterpret_cast<sockaddr*>(&addr);
+    }
+
+    void
+    setUp()
+    {
+        driver = new MockDriver(Header::headerToString);
+        transport = new FastTransport(driver);
+        session = new ServerSession(transport, sessionId);
+    }
+
+    void
+    tearDown()
+    {
+        delete driver;
+        delete transport;
+        delete session;
+    }
+
+    void
+    test_beginSending()
+    {
+        const uint64_t tsc = 9898;
+        MockTSC _(tsc);
+
+        uint32_t channelId = 6;
+        // Just here to flip us into a state where
+        // channel.rpcId == 0 and we have an RPC setup
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
+                             session->channels[0].rpcId);
+        MockReceived junk(0, 1, "foo");
+        junk.getHeader()->channelId = channelId;
+        session->processInboundPacket(&junk);
+
+        session->beginSending(channelId);
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::SENDING_WAITING,
+                             session->channels[channelId].state);
+        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+    }
+
+    void
+    test_expire_noActivity()
+    {
+        CPPUNIT_ASSERT_EQUAL(0, session->lastActivityTime);
+        CPPUNIT_ASSERT(session->expire());
+    }
+
+    void
+    test_expire_channelStillProcessing()
+    {
+        session->lastActivityTime = 1;
+        session->channels[NUM_CHANNELS_PER_SESSION - 1].state =
+            ServerSession::ServerChannel::PROCESSING;
+        CPPUNIT_ASSERT(!session->expire());
+    }
+
+    void
+    test_expire_channelRecvOrSendWait()
+    {
+        session->lastActivityTime = 1;
+        for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++)
+            session->channels[i].state =
+                ServerSession::ServerChannel::IDLE;
+        uint32_t magic = 19281;
+        session->channels[0].rpcId = magic;
+        session->channels[1].state =
+            ServerSession::ServerChannel::RECEIVING;
+        session->channels[1].currentRpc = new ServerRpc(session, 1);
+        session->channels[2].state =
+            ServerSession::ServerChannel::SENDING_WAITING;
+        session->channels[2].currentRpc = new ServerRpc(session, 2);
+
+        CPPUNIT_ASSERT(session->expire());
+
+        // ensure 0 got skipped
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::IDLE,
+                             session->channels[0].state);
+        CPPUNIT_ASSERT_EQUAL(magic, session->channels[0].rpcId);
+
+        // ensure 1 got reset
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::IDLE,
+                             session->channels[1].state);
+        CPPUNIT_ASSERT_EQUAL(~(0u), session->channels[1].rpcId);
+        CPPUNIT_ASSERT_EQUAL(0, session->channels[1].currentRpc);
+
+        // ensure 2 got reset
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::IDLE,
+                             session->channels[2].state);
+        CPPUNIT_ASSERT_EQUAL(~(0u), session->channels[2].rpcId);
+        CPPUNIT_ASSERT_EQUAL(0, session->channels[2].currentRpc);
+
+        // check the minor tid-bits at the end
+        CPPUNIT_ASSERT_EQUAL(ServerSession::INVALID_TOKEN, session->token);
+        CPPUNIT_ASSERT_EQUAL(ServerSession::INVALID_HINT,
+                             session->clientSessionHint);
+        CPPUNIT_ASSERT_EQUAL(0, session->lastActivityTime);
+    }
+
+    void
+    test_processInboundPacket_badChannel()
+    {
+        const uint64_t tsc = 9898;
+        MockTSC _(tsc);
+
+        MockReceived recvd(0, 1, "");
+        recvd.getHeader()->channelId = NUM_CHANNELS_PER_SESSION;
+
+        session->processInboundPacket(&recvd);
+        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+    }
+
+    /// A predicate to limit TestLog messages to processInboundPacket
+    static bool pipPred(string s)
+    {
+        return (s == "void RAMCloud::FastTransport::ServerSession::"
+                     "processInboundPacket(RAMCloud::Driver::Received*)");
+    }
+
+    void
+    test_processInboundPacket_currentRpcReceivedDataPacket()
+    {
+        TestLog::Enable _(&pipPred);
+
+        // Just here to flip us into a state where
+        // channel.rpcId == 0
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
+                             session->channels[0].rpcId);
+        MockReceived junk(0, 2, "foo");
+        // Just to start the currentRpc
+        session->processInboundPacket(&junk);
+        TestLog::clear();
+
+        CPPUNIT_ASSERT_EQUAL(0, session->channels[0].rpcId);
+        // This one exercises the code path we are interested in
+        MockReceived recvd(0, 1, "foo");
+        session->processInboundPacket(&recvd);
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::FastTransport::ServerSession::"
+            "processInboundPacket(RAMCloud::Driver::Received*): "
+            "processReceivedData",
+            TestLog::get());
+    }
+
+    void
+    test_processInboundPacket_currentRpcReceivedAckPacket()
+    {
+        TestLog::Enable _;
+
+        // Just here to flip us into a state where
+        // channel.rpcId == 0
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
+                             session->channels[0].rpcId);
+        MockReceived junk(0, 2, "foo");
+        session->processInboundPacket(&junk);
+        TestLog::clear();
+
+        AckResponse ackResp(1, 0);
+        MockReceived recvd(0, 1, &ackResp, sizeof(AckResponse));
+
+        session->processInboundPacket(&recvd);
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::FastTransport::ServerSession::"
+            "processInboundPacket(RAMCloud::Driver::Received*): "
+            "processReceivedAck",
+            TestLog::get());
+    }
+
+    void
+    test_processInboundPacket_nextRpcReceivedDataPacket()
+    {
+        TestLog::Enable _;
+        MockReceived recvd(0, 1, "God hates ponies.");
+
+        session->processInboundPacket(&recvd);
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::FastTransport::ServerSession::"
+            "processInboundPacket(RAMCloud::Driver::Received*): "
+            "start a new RPC | "
+            "void RAMCloud::FastTransport::ServerSession::"
+            "processInboundPacket(RAMCloud::Driver::Received*): "
+            "processReceivedData",
+            TestLog::get());
+    }
+
+    void
+    test_startSession()
+    {
+        const uint64_t tsc = 9898;
+        MockTSC _(tsc);
+        const uint32_t rand = 0x7676;
+        MockRandom __(rand);
+
+        uint32_t clientSessionHint = 0x12345678u;
+        session->startSession(addrp, addrLen, clientSessionHint);
+        CPPUNIT_ASSERT_EQUAL(addrLen, session->clientAddressLen);
+        CPPUNIT_ASSERT(!memcmp(addrp, &session->clientAddress, addrLen));
+        CPPUNIT_ASSERT_EQUAL(clientSessionHint, session->clientSessionHint);
+        CPPUNIT_ASSERT_EQUAL((static_cast<uint64_t>(rand) << 32) | rand,
+                             session->token);
+        CPPUNIT_ASSERT_EQUAL(
+            "{ sessionToken:767600007676 rpcId:0 clientSessionHint:12345678 "
+            "serverSessionHint:98765432 0/0 frags channel:0 dir:1 reqACK:0 "
+            "drop:0 payloadType:2 } /x07",
+            driver->outputLog);
+        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+    }
+
+    void
+    test_processReceivedData_receiving()
+    {
+        ServerSession::ServerChannel* channel = &session->channels[0];
+        channel->state = ServerSession::ServerChannel::RECEIVING;
+        channel->currentRpc = new ServerRpc(session, 0);
+        uint32_t totalFrags = 2;
+        Buffer recvBuffer;
+        channel->inboundMsg.init(totalFrags, &recvBuffer);
+
+        // if not taken (not last fragment)
+        MockReceived firstRecvd(0, totalFrags, "first");
+        session->processReceivedData(channel, &firstRecvd);
+        CPPUNIT_ASSERT_EQUAL("first", bufferToDebugString(&recvBuffer));
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::RECEIVING,
+                             session->channels[0].state);
+
+        // if taken (last fragment)
+        MockReceived lastRecvd(1, totalFrags, "last");
+        session->processReceivedData(channel, &lastRecvd);
+        CPPUNIT_ASSERT_EQUAL("first | last",
+                             bufferToDebugString(&recvBuffer));
+        CPPUNIT_ASSERT_EQUAL(channel->currentRpc,
+                             &transport->serverReadyQueue.back());
+        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::PROCESSING,
+                             session->channels[0].state);
+    }
+
+    void
+    test_processReceivedData_processing()
+    {
+        MockReceived recvd(0, 1, "");
+        recvd.getHeader()->requestAck = 1;
+
+        ServerSession::ServerChannel* channel = &session->channels[0];
+        channel->state = ServerSession::ServerChannel::PROCESSING;
+        session->processReceivedData(channel, &recvd);
+
+        CPPUNIT_ASSERT(string::npos != driver->outputLog.find("payloadType:1"));
+    }
+
+  private:
+    MockDriver* driver;
+    FastTransport* transport;
+    ServerSession* session;
+    const uint32_t sessionId;
+    sockaddr_in addr;
+    sockaddr* addrp;
+    socklen_t addrLen;
+    const char* address;
+    const uint16_t port;
+
+    DISALLOW_COPY_AND_ASSIGN(ServerSessionTest);
+};
+CPPUNIT_TEST_SUITE_REGISTRATION(ServerSessionTest);
+
+// --- ClientSessionTest ---
+
+class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
+    CPPUNIT_TEST_SUITE(ClientSessionTest);
+    CPPUNIT_TEST(test_close);
+    CPPUNIT_TEST(test_connect);
+    CPPUNIT_TEST(test_expire_activeOnChannel);
+    CPPUNIT_TEST(test_expire_rpcQueued);
+    CPPUNIT_TEST(test_expire_nothingActive);
+    CPPUNIT_TEST(test_fillHeader);
+    CPPUNIT_TEST(test_processInboundPacket_sessionOpen);
+    CPPUNIT_TEST(test_processInboundPacket_invalidChannel);
+    CPPUNIT_TEST(test_processInboundPacket_data);
+    CPPUNIT_TEST(test_processInboundPacket_ack);
+    CPPUNIT_TEST(test_processInboundPacket_badSession);
+    CPPUNIT_TEST(test_startRpc_noAvailableChannel);
+    CPPUNIT_TEST(test_startRpc_availableChannel);
+    CPPUNIT_TEST(test_allocateChannels);
+    CPPUNIT_TEST(test_getAvailableChannel);
+    CPPUNIT_TEST(test_processReceivedData_transitionSendToReceive);
+    CPPUNIT_TEST(test_processReceivedData_queueEmpty);
+    CPPUNIT_TEST(test_processReceivedData_getWorkFromQueue);
+    CPPUNIT_TEST(test_processSessionOpenResponse);
+    CPPUNIT_TEST(test_processSessionOpenResponse_tooManyChannelsOnServer);
+    CPPUNIT_TEST_SUITE_END();
+
+  public:
+    ClientSessionTest()
+        : FastTransport(NULL)
+        , driver(NULL)
+        , transport(NULL)
+        , session(NULL)
+        , service(NULL)
+        , request(NULL)
+        , response(NULL)
+        , sessionId(0x98765432)
+        , addr()
+        , addrp(NULL)
+        , addrLen(0)
+        , address("1.2.3.4")
+        , port(12345)
+    {
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        assert(inet_aton(&address[0], &addr.sin_addr));
+        addrLen = sizeof(addr);
+        addrp = reinterpret_cast<sockaddr*>(&addr);
+    }
+
+    void
+    setUp()
+    {
+        driver = new MockDriver(Header::headerToString);
+        transport = new FastTransport(driver);
+        session = new ClientSession(transport, sessionId);
+        service = new Service();
+        service->setIp(address);
+        service->setPort(port);
+        request = new Buffer();
+        response = new Buffer();
+    }
+
+    void
+    tearDown()
+    {
+        delete response;
+        delete request;
+        delete service;
+        delete session;
+        delete transport;
+        delete driver;
+    }
+
+    void
+    test_close()
+    {
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+
+        ClientRpc rpc1(transport, service, request, response);
+        ClientRpc rpc2(transport, service, request, response);
+        ClientRpc rpc3(transport, service, request, response);
+        session->channelQueue.push_back(rpc3);
+
+        session->channels[0].currentRpc = &rpc1;
+        session->channels[1].currentRpc = &rpc2;
+
+        session->close();
+        CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc1.state);
+        CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc2.state);
+        CPPUNIT_ASSERT(session->channelQueue.empty());
+        CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc3.state);
+        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_HINT,
+                             session->serverSessionHint);
+        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_TOKEN, session->token);
+    }
+
+    void
+    test_connect()
+    {
+        uint64_t tsc = 91291;
+        MockTSC _(tsc);
+
+        session->connect(addrp, addrLen);
+        CPPUNIT_ASSERT(!memcmp(addrp, &session->serverAddress, addrLen));
+        CPPUNIT_ASSERT_EQUAL(
+            "{ sessionToken:cccccccccccccccc rpcId:0 "
+            "clientSessionHint:98765432 serverSessionHint:cccccccc "
+            "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
+            driver->outputLog);
+        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+    }
+
+    void
+    test_expire_activeOnChannel()
+    {
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+
+        ClientRpc rpc(transport, service, request, response);
+        session->channels[0].currentRpc = &rpc;
+
+        bool didClose = session->expire();
+        CPPUNIT_ASSERT_EQUAL(false, didClose);
+    }
+
+    void
+    test_expire_rpcQueued()
+    {
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+
+        ClientRpc rpc(transport, service, request, response);
+        session->channelQueue.push_back(rpc);
+
+        bool didClose = session->expire();
+        CPPUNIT_ASSERT_EQUAL(false, didClose);
+
+        session->channelQueue.pop_front(); // satisfy boost assertion
+    }
+
+    void
+    test_expire_nothingActive()
+    {
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+
+        bool didClose = session->expire();
+        CPPUNIT_ASSERT_EQUAL(true, didClose);
+    }
+
+    void
+    test_fillHeader()
+    {
+        Header header;
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+        session->fillHeader(&header, 6);
+        CPPUNIT_ASSERT_EQUAL(
+            "{ sessionToken:cccccccccccccccc rpcId:0 "
+            "clientSessionHint:98765432 serverSessionHint:cccccccc "
+            "0/0 frags channel:6 dir:0 reqACK:0 drop:0 payloadType:0 }",
+            header.toString());
+    }
+
+    void
+    test_processInboundPacket_sessionOpen()
+    {
+        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
+        recvd.getHeader()->payloadType = Header::SESSION_OPEN;
+
+        session->processInboundPacket(&recvd);
+        CPPUNIT_ASSERT_EQUAL(true, session->isConnected());
+    }
+
+    void
+    test_processInboundPacket_invalidChannel()
+    {
+        MockReceived recvd(0, 1, "");
+
+        session->processInboundPacket(&recvd);
+        CPPUNIT_ASSERT_EQUAL(false, session->isConnected());
+    }
+
+    void
+    test_processInboundPacket_data()
+    {
+        uint64_t tsc = 91291;
+        MockTSC _(tsc);
+
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+        ClientSession::ClientChannel* channel = session->getAvailableChannel();
+        CPPUNIT_ASSERT(channel);
+        channel->state = ClientSession::ClientChannel::SENDING;
+        channel->currentRpc = new ClientRpc(transport, service,
+                                            request, response);
+
+        MockReceived recvd(0, 2, "first of two");
+        session->processInboundPacket(&recvd);
+        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::RECEIVING,
+                             channel->state);
+
+        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+    }
+
+    void
+    test_processInboundPacket_ack()
+    {
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+        ClientSession::ClientChannel* channel = session->getAvailableChannel();
+        CPPUNIT_ASSERT(channel);
+        channel->state = ClientSession::ClientChannel::SENDING;
+
+        channel->outboundMsg.totalFrags = 5;
+        channel->outboundMsg.sendBuffer = request;
+
+        AckResponse ackResp(2, 0);
+        MockReceived recvd(0, 5, &ackResp, sizeof(AckResponse));
+        recvd.getHeader()->payloadType = Header::ACK;
+
+        session->processInboundPacket(&recvd);
+        CPPUNIT_ASSERT_EQUAL(2, channel->outboundMsg.firstMissingFrag);
+    }
+
+    void
+    test_processInboundPacket_badSession()
+    {
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+        CPPUNIT_ASSERT(session->channelQueue.empty());
+
+        // Put an RPC on one of the channels
+        ClientRpc* rpc = new ClientRpc(transport, service, request, response);
+        session->channels[1].currentRpc = rpc;
+
+        MockReceived recvd(0, 1, "");
+        recvd.getHeader()->payloadType = Header::BAD_SESSION;
+
+        session->processInboundPacket(&recvd);
+
+        // Make sure the RPC made it back onto the queue safely
+        CPPUNIT_ASSERT_EQUAL(rpc, &session->channelQueue.front());
+
+        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_HINT,
+                             session->serverSessionHint);
+        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_TOKEN, session->token);
+        CPPUNIT_ASSERT_EQUAL(
+            "{ sessionToken:cccccccccccccccc rpcId:0 "
+            "clientSessionHint:98765432 serverSessionHint:cccccccc "
+            "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
+            driver->outputLog);
+    }
+
+    void
+    test_startRpc_noAvailableChannel()
+    {
+        CPPUNIT_ASSERT(session->channelQueue.empty());
+        ClientRpc rpc(transport, service, request, response);
+        session->startRpc(&rpc);
+        CPPUNIT_ASSERT_EQUAL(&rpc, &session->channelQueue.front());
+        session->channelQueue.pop_front(); // satisfy boost assertion
+    }
+
+    void
+    test_startRpc_availableChannel()
+    {
+        uint64_t tsc = 98328;
+        MockTSC _(tsc);
+
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+
+        ClientRpc rpc(transport, service, request, response);
+        session->startRpc(&rpc);
+        ClientSession::ClientChannel* channel = &session->channels[0];
+        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::SENDING,
+                             channel->state);
+        CPPUNIT_ASSERT_EQUAL(&rpc, channel->currentRpc);
+
+        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+    }
+
+    void
+    test_allocateChannels()
+    {
+        CPPUNIT_ASSERT(!session->channels);
+        session->allocateChannels();
+        CPPUNIT_ASSERT(session->channels);
+        for (uint32_t i = 0; i < session->numChannels; i++)
+            CPPUNIT_ASSERT_EQUAL(0, session->channels[i].currentRpc);
+    }
+
+    void
+    test_getAvailableChannel()
+    {
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+        uint32_t i = 0;
+        for (;;) {
+            ClientSession::ClientChannel* channel =
+                session->getAvailableChannel();
+            if (!channel)
+                break;
+            channel->state = ClientSession::ClientChannel::SENDING;
+            i++;
+        }
+        CPPUNIT_ASSERT_EQUAL(session->numChannels, i);
+    }
+
+    void
+    test_processReceivedData_transitionSendToReceive()
+    {
+        ClientRpc rpc(transport, service, request, response);
+        session->channelQueue.push_back(rpc);
+
+        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
+        session->processSessionOpenResponse(&initRecvd);
+
+        MockReceived recvd(0, 2, "God hates ponies.");
+        ClientSession::ClientChannel* channel = &session->channels[0];
+        session->processReceivedData(channel, &recvd);
+        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::RECEIVING,
+                             channel->state);
+    }
+
+    void
+    test_processReceivedData_queueEmpty()
+    {
+        ClientRpc rpc(transport, service, request, response);
+        session->channelQueue.push_back(rpc);
+
+        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
+        session->processSessionOpenResponse(&initRecvd);
+
+        MockReceived recvd(0, 1, "God hates ponies.");
+        ClientSession::ClientChannel* channel = &session->channels[0];
+        uint32_t prevRpcId = channel->rpcId;
+        session->processReceivedData(channel, &recvd);
+        CPPUNIT_ASSERT_EQUAL(prevRpcId + 1, channel->rpcId);
+        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::IDLE,
+                             channel->state);
+        CPPUNIT_ASSERT_EQUAL(0, channel->currentRpc);
+    }
+
+    void
+    test_processReceivedData_getWorkFromQueue()
+    {
+        ClientRpc rpc1(transport, service, request, response);
+        session->channelQueue.push_back(rpc1);
+
+        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
+        session->processSessionOpenResponse(&initRecvd);
+
+        ClientRpc rpc2(transport, service, request, response);
+        session->channelQueue.push_back(rpc2);
+
+        MockReceived recvd(0, 1, "God hates ponies.");
+        ClientSession::ClientChannel* channel = &session->channels[0];
+        session->processReceivedData(channel, &recvd);
+        CPPUNIT_ASSERT_EQUAL(1, channel->rpcId);
+        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::SENDING,
+                             channel->state);
+        CPPUNIT_ASSERT_EQUAL(&rpc2, channel->currentRpc);
+        CPPUNIT_ASSERT(session->channelQueue.empty());
+    }
+
+    void
+    test_processSessionOpenResponse()
+    {
+        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
+        Header* header = recvd.getHeader();
+        header->serverSessionHint = 0x192837;
+        header->sessionToken = 0x1212343456567878;
+
+        // Insert an RPC into the work queue
+        ClientRpc rpc(transport, service, request, response);
+        session->channelQueue.push_back(rpc);
+
+        session->processSessionOpenResponse(&recvd);
+
+        CPPUNIT_ASSERT_EQUAL(true, session->isConnected());
+        CPPUNIT_ASSERT_EQUAL(header->serverSessionHint,
+                             session->serverSessionHint);
+        CPPUNIT_ASSERT_EQUAL(header->sessionToken, session->token);
+        CPPUNIT_ASSERT_EQUAL(NUM_CHANNELS_PER_SESSION, session->numChannels);
+
+        // Make sure our queued RPC made it onto the channel from the queue
+        CPPUNIT_ASSERT_EQUAL(&rpc, session->channels[0].currentRpc);
+        CPPUNIT_ASSERT(session->channelQueue.empty());
+
+        // Make sure we bailed on once the queue was empty
+        CPPUNIT_ASSERT_EQUAL(0, session->channels[1].currentRpc);
+    }
+
+    void
+    test_processSessionOpenResponse_tooManyChannelsOnServer()
+    {
+        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION + 1 };
+        MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
+
+        session->processSessionOpenResponse(&recvd);
+
+        CPPUNIT_ASSERT_EQUAL(NUM_CHANNELS_PER_SESSION, session->numChannels);
+    }
+
+  private:
+    MockDriver* driver;
+    FastTransport* transport;
+    ClientSession* session;
+    Service* service;
+    Buffer* request;
+    Buffer* response;
+    const uint32_t sessionId;
+    sockaddr_in addr;
+    sockaddr* addrp;
+    socklen_t addrLen;
+    const char* address;
+    const uint16_t port;
+
+    DISALLOW_COPY_AND_ASSIGN(ClientSessionTest);
+};
+CPPUNIT_TEST_SUITE_REGISTRATION(ClientSessionTest);
 
 // --- SessionTableTest ---
 
