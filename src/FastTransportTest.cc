@@ -255,6 +255,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     {
         CPPUNIT_ASSERT_EQUAL(0, transport->clientSessions.size());
         ClientSession* firstSession = transport->getClientSession();
+        MockTSC _(SESSION_TIMEOUT_NS * 2);
         ClientSession* lastSession = transport->getClientSession();
         CPPUNIT_ASSERT_EQUAL(firstSession, lastSession);
         CPPUNIT_ASSERT_EQUAL(1, transport->clientSessions.size());
@@ -403,6 +404,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         TestLog::Enable _(&tppPred);
 
         ServerSession* session = transport->serverSessions.get();
+        MockTSC __(SESSION_TIMEOUT_NS * 2);
         SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
         MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
         recvd.getHeader()->sessionToken = session->token + 1;
