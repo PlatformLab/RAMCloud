@@ -92,6 +92,9 @@ UDPDriver::release(char *payload, uint32_t len)
 }
 
 // See Driver::sendPacket().
+// UDPDriver::sendPacket currently guarantees that the caller is free to
+// discard or reuse the memory associated with payload and header once
+// on return from this method.
 void
 UDPDriver::sendPacket(const sockaddr *addr,
                       socklen_t addrlen,
