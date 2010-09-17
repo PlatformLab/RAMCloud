@@ -57,8 +57,6 @@ ChecksumTest::TestSimple()
     f = 0;
     for (uint64_t i = 0; i < strlen(data); i++)
         f = p->append8(f, data[i]);
-
-    printf("Fingerprint: %llx\n", f);
     delete p;
 
     p = new rabinpoly(poly);
@@ -66,8 +64,6 @@ ChecksumTest::TestSimple()
     g = 0;
     for (uint64_t i = 0; i < strlen(data); i++)
         g = p->append8(g, data[i]);
-
-    printf("Fingerprint: %llx\n", g);
     delete p;
 
     CPPUNIT_ASSERT(f == g);
