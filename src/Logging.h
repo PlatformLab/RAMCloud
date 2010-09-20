@@ -57,7 +57,7 @@ namespace RAMCloud {
  * See setPredicate() for more detail.
  */
 namespace TestLog {
-    void clear();
+    void reset();
     void disable();
     void enable();
     string get();
@@ -66,21 +66,21 @@ namespace TestLog {
     void setPredicate(bool (*pred)(string));
 
     /**
-     * Clear and enable the test log on construction, clear and disable it
+     * Reset and enable the test log on construction, reset and disable it
      * on destruction.
      *
      * Allows one to instrument a function in an exception safe way with
      * test logging just by sticking one of these on the stack.
      */
     struct Enable {
-        /// Clear and enable/disable the test log on construction/destruction.
+        /// Reset and enable/disable the test log on construction/destruction.
         Enable()
         {
             enable();
         }
 
         /**
-         * Clear and enable/disable the test log on construction/destruction
+         * Reset and enable/disable the test log on construction/destruction
          * using a particular predicate to filter test log entries.
          *
          * \param[in] pred
@@ -92,7 +92,7 @@ namespace TestLog {
             enable();
         }
 
-        /// Clear and disable test logging automatically.
+        /// Reset and disable test logging automatically.
         ~Enable()
         {
             disable();

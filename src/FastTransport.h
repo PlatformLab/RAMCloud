@@ -35,8 +35,8 @@
 namespace RAMCloud {
 
 /**
- * A Transport which supports simple, but reliable RPCs over unreliable
- * networks.  See Transport for more information.
+ * A Transport which supports simple, but reliable RPCs using unreliable
+ * datagram protocols (Drivers).  See Transport for more information.
  */
 class FastTransport : public Transport {
     class Session;
@@ -55,17 +55,18 @@ class FastTransport : public Transport {
       public:
         void getReply();
 
-        /// Contains an RPC request payload including the RPC header.
-        Buffer* const requestBuffer;
-        /// The destination Buffer for the RPC response.
-        Buffer* const responseBuffer;
-
       private:
         ClientRpc(FastTransport* transport, Service* service,
                   Buffer* request, Buffer* response);
         void aborted();
         void completed();
         void start();
+
+        /// Contains an RPC request payload including the RPC header.
+        Buffer* const requestBuffer;
+
+        /// The destination Buffer for the RPC response.
+        Buffer* const responseBuffer;
 
         /// Current state of the RPC.
         enum {
@@ -87,7 +88,6 @@ class FastTransport : public Transport {
         /// Length of serverAddress.
         socklen_t serverAddressLen;
 
-      public:
         /// Entries to allow this RPC to be placed in a channel queue.
         IntrusiveListHook channelQueueEntries;
 
@@ -109,12 +109,20 @@ class FastTransport : public Transport {
       public:
         ServerRpc(ServerSession* session, uint8_t channelId);
         void sendReply();
+
       private:
+        /// The ServerSession this RPC is being handled on.
         ServerSession* const session;
+
+        /// The channel number in session this RPC is being handled on.
         const uint8_t channelId;
-      public:
+
+        /**
+         * Links for a list of RPCs waiting for service.
+         * See FastTransport::serverReadyQueue;
+         */
         IntrusiveListHook readyQueueEntries;
-      private:
+
         friend class FastTransport;
         friend class FastTransportTest;
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);
@@ -123,44 +131,71 @@ class FastTransport : public Transport {
     virtual ServerRpc* serverRecv();
 
   private:
-    /// Max number of ongoing RPCs per Session.
+    /**
+     * Max number of concurrent RPCs per Session.
+     *
+     * A fixed number of channels which the server-side allocates
+     * and returns in session open responses.
+     */
     enum { NUM_CHANNELS_PER_SESSION = 8 };
+
     /**
      * Max number of channels to take advantage of on the client if they
      * are available on the server.
+     *
+     * If the server is prepared to handle RPCs on more channels than this
+     * just use this number and leave the rest unused.  The client
+     * dynamically allocates up to this number of channels after receiving a
+     * session open response. See ClientSession::processSessionOpenResponse().
      */
     enum { MAX_NUM_CHANNELS_PER_SESSION = 8 };
+
     /// Simulate uniform packet loss with this percentage.
     enum { PACKET_LOSS_PERCENTAGE = 0 };
+
     /**
      * firstMissingFrag + MAX_STAGING_FRAGMENTS - 1 is the highest fragNumber
-     * that can be received.
+     * that can be received without being thrown on the floor.  Indirectly
+     * limits the highest packet number that can be acked.
+     *
+     * This prevents the sender/receiver from having to buffer an unbounded
+     * number of fragments before they can be appended to a buffer allowing
+     * for static allocation of fragment and ackresponse storage.
      */
     enum { MAX_STAGING_FRAGMENTS = 32 };
+
     /// Maximum number of in-flight non-acked fragments.
     enum { WINDOW_SIZE = 10 };
+
     /// Sender requests ack every REQ_ACK_AFTERth packet.
     enum { REQ_ACK_AFTER = 5 };
+
     /// Time after last send for fragment before assuming lost/resending in ns.
     enum { TIMEOUT_NS = 10 * 1000 * 1000 }; // 10 ms
+
     /// Periods of TIMEOUT_NS that can pass in a row before failing this RPC.
     enum { TIMEOUTS_UNTIL_ABORTING = 500 }; // >= 5 s
+
     /// Time after which a Session is considered dead if no activity is seen.
     enum { SESSION_TIMEOUT_NS = 60lu * 60 * 1000 * 1000 * 1000 }; // 30 min
 
     /**
      * Abstract base class for all timer events.
      *
-     * FastTransport maintains a list of active events and invokes fireTimer()
-     * when the current TSC reaches when.
+     * FastTransport maintains a list of active events and invokes
+     * onTimerFired() when the current TSC reaches when.
      */
     class Timer {
       public:
           Timer() : when(0), listEntries() {}
-          /// The action to perform if the system TSC reaches when.
-          virtual void fireTimer(uint64_t now) = 0;
+          /**
+           * Invoked when the system TSC reaches when. Defined in a
+           * subclass to carry out a timer-specific action such as
+           * retransmitting a packet.
+           */
+          virtual void onTimerFired(uint64_t now) = 0;
           virtual ~Timer() {}
-          /// When TSC is >= when the FastTransport will call fireTimer().
+          /// When TSC is >= when the FastTransport will call onTimerFired().
           uint64_t when;
           /// Entries to allow timer events to be placed in lists.
           IntrusiveListHook listEntries;
@@ -169,7 +204,9 @@ class FastTransport : public Transport {
     };
 
     /**
-     * A Buffer::Chunk that is comprised of memory leased out by the Driver.
+     * A Buffer::Chunk that is comprised of memory for incoming packets,
+     * owned by the Driver but loaned to us during the processing of an
+     * incoming RPC so the message doesn't have to be copied.
      *
      * PayloadChunk behaves like any other Buffer::Chunk except it returns
      * its memory to the Driver when the Buffer is deleted.
@@ -195,12 +232,16 @@ class FastTransport : public Transport {
                      Driver* driver,
                      char* const payload,
                      uint32_t payloadLength);
+
         /// Return the PayloadChunk memory here.
         Driver* const driver;
+
         /// The memory backing the chunk and which is to be returned.
         char* const payload;
+
         /// Length of the memory region starting at payload.
         const uint32_t payloadLength;
+
         DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
 
@@ -221,43 +262,112 @@ class FastTransport : public Transport {
             , pleaseDrop(0)
             , reserved1(0)
             , payloadType(DATA)
-        {}
+        {
+        }
+
+        /**
+         * Legal values for payloadType field (a 4-bit field).
+         */
         enum PayloadType {
-            DATA         = 0,
-            ACK          = 1,
-            SESSION_OPEN = 2,
+            DATA         = 0,   ///< Payload contains user data.
+            ACK          = 1,   ///< Payload contains AckResponse.
+            SESSION_OPEN = 2,   ///< SessionOpenRequest or SessionOpenResponse
             RESERVED1    = 3,
-            BAD_SESSION  = 4,
+            BAD_SESSION  = 4,   ///< Payload invalid, requested session bad.
             RESERVED2    = 5,
             RESERVED3    = 6,
             RESERVED4    = 7
         };
+
+        /// Values for direction field.
         enum Direction {
-            CLIENT_TO_SERVER = 0,
-            SERVER_TO_CLIENT = 1
+            CLIENT_TO_SERVER = 0,   ///< Fragment is part of a client request.
+            SERVER_TO_CLIENT = 1    ///< Fragment is part of a server response.
         };
+
+        /**
+         * Authentication token initially provided to a client by a server on
+         * SessionOpenResponse.  The client must provide this token on each
+         * following request reusing the same session.
+         */
         uint64_t sessionToken;
+
+        /**
+         * Strictly increasing identifier to disambiguate (along with
+         * sessionToken and channelId) which rpc this fragment is a part of.
+         */
         uint32_t rpcId;
+
+        /**
+         * Offset into clientSessionTable of the ClientSession of this rpc.
+         * Used for fast fragment to session association.  This must be
+         * correct or the client will drop the packet after mismatching
+         * the sessionToken.
+         */
         uint32_t clientSessionHint;
+
+        /**
+         * Offset into serverSessionTable of the ServerSession of this rpc.
+         * Used for fast fragment to session association.  This must be
+         * correct or the server will drop the packet after mismatching
+         * the sessionToken.
+         */
         uint32_t serverSessionHint;
+
+        /**
+         * Position of this fragment in the rpc request or response starting
+         * from 0 (for both request and response).
+         */
         uint16_t fragNumber;
+
+        /**
+         * Total number of fragments the receiver should expect.  If
+         * fragNumber == (totalFrags - 1) then this is the last fragment
+         * in the request or response.
+         */
         uint16_t totalFrags;
+
+        /**
+         * Which "channel" this rpc is being handled on.  Channels represent
+         * concurrent rpcs being handled at a particular endpoint.
+         */
         uint8_t channelId;
+
+        /// Indicates whether going to the server or client.  See Direction.
         uint8_t direction:1;
+
+        /// If this is set the receiver should emit an AckResponse.
         uint8_t requestAck:1;
+
+        /// This fragment should be dropped for testing and simulation purposes.
         uint8_t pleaseDrop:1;
+
+        /// Padding
         uint8_t reserved1:1;
+
+        /**
+         * Describes how the bytes in this fragment following this header
+         * should be interpreted.  See PayloadType.
+         */
         uint8_t payloadType:4;
-        PayloadType getPayloadType() {
+
+        /// See payloadType.
+        PayloadType getPayloadType()
+        {
             return static_cast<PayloadType>(payloadType);
         }
-        Direction getDirection() {
+
+        /// See direction.
+        Direction getDirection()
+        {
             return static_cast<Direction>(direction);
         }
+
         /**
          * For unit testing; convert a header in a buffer to a string.
          */
-        static string headerToString(const void* header, uint32_t headerLen) {
+        static string headerToString(const void* header, uint32_t headerLen)
+        {
             assert(headerLen == sizeof(Header));
             const Header* self = static_cast<const Header*>(header);
             string s;
@@ -278,8 +388,10 @@ class FastTransport : public Transport {
             s += tmp;
             return s;
         }
+
         /// For unit testing; convert this header to a string.
-        string toString() {
+        string toString()
+        {
             return headerToString(this, sizeof(*this));
         }
     } __attribute__((packed));
@@ -288,7 +400,10 @@ class FastTransport : public Transport {
      * Wire-format for response with PayloadType SESSION_OPEN.
      */
     struct SessionOpenResponse {
-        /// The highest available channelId available on the receiver.
+        /**
+         * The highest channelId that the client is allowed to use in future
+         * RPCs on this session.
+         */
         uint8_t maxChannelId;
     } __attribute__((packed));
 
@@ -308,21 +423,29 @@ class FastTransport : public Transport {
                     uint32_t stagingVector = 0)
             : firstMissingFrag(firstMissingFrag)
             , stagingVector(stagingVector)
-        {}
+        {
+        }
+
         /// See InboundMessage::firstMissingFrag.
         uint16_t firstMissingFrag;
+
         /**
          * Bit vector describing which frags beyond firstMissingFrag
-         * have been received.
+         * have been received.  The first bit corresponds to the
+         * (firstMissingFrag + 1)th fragment.
          */
         uint32_t stagingVector;
     } __attribute__((packed));
+
+    // Make sure our AckResponse can actually hold enough.
+    static_assert(sizeof(AckResponse::stagingVector) * 8 >=
+                  MAX_STAGING_FRAGMENTS);
 
     /**
      * InboundMessage accumulates and assembles fragments into a complete
      * incoming message.
      *
-     * An incoming message must first be associated (permantently) with a
+     * An incoming message must first be associated (permanently) with a
      * particular Session, Channel, and timer configuration using setup().
      * To start assembling a message init() is first called to tell the
      * message object how many fragments to expect and where to place the
@@ -332,7 +455,7 @@ class FastTransport : public Transport {
      * a Driver::Received to processReceivedData which takes care of the
      * details.
      *
-     * Once an instance is no longer is use clear() must be called to allow
+     * Once an instance is no longer is use reset() must be called to allow
      * future reuse of the instance.
      */
     class InboundMessage {
@@ -342,7 +465,7 @@ class FastTransport : public Transport {
         void setup(FastTransport* transport, Session* session,
                    uint32_t channelId, bool useTimer);
         void sendAck();
-        void clear();
+        void reset();
         void init(uint16_t totalFrags, Buffer* dataBuffer);
         bool processReceivedData(Driver::Received* received);
       private:
@@ -355,8 +478,7 @@ class FastTransport : public Transport {
         /// The channel ID to which this message belongs.  Set by setup().
         uint32_t channelId;
 
-        /// The number of fragments to aggregate before considering this
-        /// message complete.  Set by init().
+        /// Total number of fragments that make up this message. Set by init().
         uint32_t totalFrags;
 
         /// fragNumber of the earliest fragment that is still missing from
@@ -368,13 +490,23 @@ class FastTransport : public Transport {
          * buffer yet because fragments preceding them are still missing.
          *
          * This structure holds both a pointer to the data and the length.
+         * The 0th pair corresponds to the (firstMissingFrag + 1)th fragment.
+         *
+         * The memory region covered by each pair has been stolen from the
+         * Driver and responsibility is passed to higher levels by eventually
+         * wrapping it as a PayloadChunk.
+         *
+         * If this message has reset() called on it it will return any
+         * memory pointed to by these pairs to the Driver.
          */
         Ring<std::pair<char*, uint32_t>,
              MAX_STAGING_FRAGMENTS> dataStagingRing;
 
         /**
-         * The place to accumulate the result message.  Valid once
-         * processReceivedData returns true.
+         * The place to accumulate the result message.  Valid and available
+         * for use at higher levels once processReceivedData returns true.
+         *
+         * It contains fragNumbers 0 up to but not including firstMissingFrag.
          */
         Buffer* dataBuffer;
 
@@ -385,28 +517,27 @@ class FastTransport : public Transport {
          */
         class Timer : public FastTransport::Timer {
           public:
-            Timer(bool useTimer, InboundMessage* const inboundMsg)
-                : useTimer(useTimer)
-                , numTimeouts(0)
-                , inboundMsg(inboundMsg)
-            {
-            }
-            virtual void fireTimer(uint64_t now) {
-                numTimeouts++;
-                if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
-                    inboundMsg->session->close();
-                } else {
-                    inboundMsg->transport->addTimer(this,
-                                                    rdtsc() + TIMEOUT_NS);
-                    inboundMsg->sendAck();
-                }
-            }
+            explicit Timer(InboundMessage* const inboundMsg);
+            virtual void onTimerFired(uint64_t now);
+
+            /**
+             * Whether this timer is being used by inboundMsg.
+             *
+             * Used to indicate whether the timer needs to be removed from
+             * the timer queue when inboundMsg is reset or reused.
+             */
             bool useTimer;
+
+            /// Number of times the timer has fired during this InboundMessage.
             uint32_t numTimeouts;
+
           private:
+            /// The InboundMessage this timer sendAcks on or resets if fired.
             InboundMessage* const inboundMsg;
+
             DISALLOW_COPY_AND_ASSIGN(Timer);
         };
+
         /// Handles idle session cleanup and ACKs due to timeout.
         Timer timer;
 
@@ -418,28 +549,28 @@ class FastTransport : public Transport {
     /**
      * OutboundMessage handles sending an RPC from the initiator's side.
      *
-     * An OutboundMessage must first be associated (permantently) with a
+     * An OutboundMessage must first be associated (permanently) with a
      * particular Session, Channel, and timer configuration using setup().
      *
      * Users of OutboundMessage call beginSending() and funnel subsequest ACK
      * responses to the message using processReceivedAck().  Between the ACK
      * responses and internal timers the message will ensure reliable delivery
-     * of the RPC request.  Once a data fragment is received from the RPC
-     * destination is should be assumed that the RPC response has begun and
-     * this OutboundMessage is done.  The message must be reset by calling
-     * clear() to allow future calls to beginSending().
+     * of the RPC request.  If the OutboundMessage represents a request once a
+     * data fragment is received from the RPC destination it should be assumed
+     * that the RPC response has begun and this OutboundMessage is done.
+     * The message must be reset by calling reset() to allow future calls to
+     * beginSending().
      */
     class OutboundMessage {
-        /// Magic "timestamp" value used to indicate no retransmit is needed.
-        static const uint64_t ACKED = ~(0lu) - 1;
       public:
         OutboundMessage();
         void setup(FastTransport* transport, Session* session,
                    uint32_t channelId, bool useTimer);
-        void clear();
+        void reset();
         void beginSending(Buffer* dataBuffer);
         void send();
         bool processReceivedAck(Driver::Received* received);
+
       private:
         void sendOneData(uint32_t fragNumber, bool forceRequestAck = false);
 
@@ -471,10 +602,16 @@ class FastTransport : public Transport {
          uint32_t packetsSinceAckReq;
 
         /**
+         * Magic "timestamp" value used in sentTimes to indicate that the
+         * corresponding fragment never needs to be retransmitted.
+         */
+        static const uint64_t ACKED = ~(0lu);
+
+        /**
          * A record of when unacknowledged fragments were sent, which is useful
          * for retransmission.
          * A Ring of MAX_STAGING_FRAGMENTS + 1 timestamps, where each entry
-         * corresponds with the time the firstMissingFrag + i-th packet was sent
+         * contains the TSC of the (firstMissingFrag + i)th packet was sent
          * (0 if it has never been sent), or ACKED if it has already been
          * acknowledged by the receiving end.
          */
@@ -496,27 +633,27 @@ class FastTransport : public Transport {
          */
         class Timer : public FastTransport::Timer {
           public:
-            Timer(bool useTimer, OutboundMessage* const outboundMsg)
-                : useTimer(useTimer)
-                , numTimeouts(0)
-                , outboundMsg(outboundMsg)
-            {
-            }
-            virtual void fireTimer(uint64_t now) {
-                numTimeouts++;
-                if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
-                    LOG(DEBUG, "Closing session due to timeout");
-                    outboundMsg->session->close();
-                } else {
-                    outboundMsg->send();
-                }
-            }
+            explicit Timer(OutboundMessage* const outboundMsg);
+            virtual void onTimerFired(uint64_t now);
+
+            /**
+             * Whether this timer is being used by inboundMsg.
+             *
+             * Used to indicate whether the timer needs to be removed from
+             * the timer queue when inboundMsg is reset or reused.
+             */
             bool useTimer;
+
+            /// Number of times the timer has fired during this InboundMessage.
             uint32_t numTimeouts;
+
           private:
+            /// Message this timer resends packets for or closes when fired.
             OutboundMessage* const outboundMsg;
+
             DISALLOW_COPY_AND_ASSIGN(Timer);
         };
+
         /// Handles idle session cleanup and retransmits due to timeout.
         Timer timer;
 
@@ -564,6 +701,10 @@ class FastTransport : public Transport {
         /**
          * Close this ClientSession if it is not servicing any RPC.
          *
+         * Called periodically to try to reclaim inactive sessions, generally
+         * just before Session is allocated (e.g. before the serverSessionTable
+         * is expanded, or during getClientSession()).
+         *
          * \return
          *      Whether the ClientSession is now closed.
          */
@@ -593,8 +734,8 @@ class FastTransport : public Transport {
         virtual const sockaddr* getAddress(socklen_t *len) = 0;
 
         /**
-         * The time stamp counter in ns of the last time this session saw
-         * meaningful activity from the remote party.
+         * The time stamp counter in ns of the last time this session
+         * received a packet from the remote party.
          */
         virtual uint64_t getLastActivityTime() = 0;
 
@@ -607,7 +748,7 @@ class FastTransport : public Transport {
         const uint32_t id;
 
       protected:
-        /// The FastTransport this session is associcated with.
+        /// The FastTransport this session is associated with.
         FastTransport* const transport;
 
       private:
@@ -672,7 +813,7 @@ class FastTransport : public Transport {
             /**
              * Initialize a channel and make it ready for use.
              *
-             * Resets the channel to an IDLE state and clears its
+             * Resets the channel to an IDLE state and resets its
              * InboundMessage and OutboundMessage.
              *
              * \param transport
@@ -693,7 +834,7 @@ class FastTransport : public Transport {
                 outboundMsg.setup(transport, session, channelId, false);
             }
 
-            /// The RPC this channel is actively servicing.
+            /// The RPC this channel is actively servicing, or NULL if none.
             ServerRpc* currentRpc;
 
             /// The RPC request is accumulated here.
@@ -703,7 +844,8 @@ class FastTransport : public Transport {
             OutboundMessage outboundMsg;
 
             /**
-             * The rpcId of the active RPC.
+             * Disambiguates fragments on subsequent rpcs to the same session
+             * and channel.
              *
              * This increments each time a new RPC is started on a particular
              * channel for a particular session.
@@ -737,12 +879,17 @@ class FastTransport : public Transport {
         socklen_t clientAddressLen;
 
         /**
-         * An index into the client SessionTable used to fast path the token
-         * check and reassociate this session with the client-side state.
+         * A token provided by the client about this session. We return this to
+         * the client in responses to help it locate its information about the
+         * session.
          */
         uint32_t clientSessionHint;
 
-        uint64_t lastActivityTime;  ///< TSC when last packet came from client.
+        /**
+         * TSC when last packet came from client or 0 if this Session isn't
+         * active.
+         */
+        uint64_t lastActivityTime;
 
         uint64_t token;             ///< Value used to authenciate the client.
 
@@ -778,7 +925,7 @@ class FastTransport : public Transport {
         static const uint32_t INVALID_HINT;
 
         /**
-         * Used to maintain a linked list of free session in a
+         * Used to maintain a linked list of free sessions in a
          * SessionTable.  See SessionTable for more detail.
          *
          * \bug Only public because the template friend doesn't work.
@@ -787,9 +934,9 @@ class FastTransport : public Transport {
 
       private:
         /**
-         * The state assoicated with an ongoing RPC.
+         * The state associated with an ongoing RPC.
          */
-        struct ClientChannel {
+        class ClientChannel {
           public:
             /**
              * This creates broken in/out messages that are reinitialized
@@ -807,7 +954,7 @@ class FastTransport : public Transport {
             /**
              * Initialize a channel and make it ready for use.
              *
-             * Resets the channel to an IDLE state and clears its
+             * Resets the channel to an IDLE state and resets its
              * InboundMessage and OutboundMessage.
              *
              * \param transport
@@ -849,7 +996,11 @@ class FastTransport : public Transport {
             /// Current state of the channel.
             enum {
                 IDLE,       ///< Not handling an RPC.
-                SENDING,    ///< OutboundMessage transmitting.
+                /**
+                 * OutboundMessage transmitting, move to RECEIVING when the first
+                 * response packet is received.
+                 */
+                SENDING,
                 RECEIVING,  ///< InboundMessage is receiving.
             } state;
 
@@ -866,18 +1017,35 @@ class FastTransport : public Transport {
         ClientChannel *channels;
 
         INTRUSIVE_LIST_TYPEDEF(ClientRpc, channelQueueEntries) ChannelQueue;
+
+        /**
+         * Queue of ClientRpcs currently awaiting service.  This session
+         * pops Rpcs from this queue and processes them channels as they
+         * become free.
+         */
         ChannelQueue channelQueue;
 
-        uint64_t lastActivityTime;  ///< TSC when last packet came from client.
+        /**
+         * TSC when last packet came from server or 0 if this Session isn't
+         * active.
+         */
+        uint64_t lastActivityTime;
 
-        uint32_t numChannels;       ///< Number of channels in this session.
-        uint64_t token;             ///< Value used to authenciate the client.
-        sockaddr serverAddress;     ///< Where to send the response.
+        /// Number of concurrent RPCs allowed in this session.
+        uint32_t numChannels;
+
+        /**
+         * Authentication token provided by the server to identify this client;
+         * must be presented in all fragment headers.
+         */
+        uint64_t token;
+
+        sockaddr serverAddress;     ///< Where to send requests.
         socklen_t serverAddressLen;
         uint32_t serverSessionHint; ///< Session offset in remote SessionTable
 
         void allocateChannels();
-        void clearChannels();
+        void resetChannels();
         ClientChannel* getAvailableChannel();
         void processReceivedAck(ClientChannel* channel,
                                 Driver::Received* received);
@@ -899,6 +1067,10 @@ class FastTransport : public Transport {
      *
      * Internally handles allocation and reuse of Sessions and also allows
      * fast access to sessions by offset into an indexed structure.
+     *
+     * \tparam T
+     *      The type of Sessions this table manages.  Either ServerSession
+     *      or ClientSession.
      */
     template <typename T>
     class SessionTable {
@@ -906,7 +1078,7 @@ class FastTransport : public Transport {
         enum {
             /// A Session with this as nextFree is not itself free.
             NONE = ~(0u),
-            /// A Session with this as nextFree is last Session in the list.
+            /// A Session with this as nextFree is last Session in the free list
             TAIL = ~(0u) - 1
         };
 
@@ -929,6 +1101,9 @@ class FastTransport : public Transport {
          * Fast access to a session by a sessionHint (which is simply an
          * offset into the SessionTable).
          *
+         * Note: The caller is responsible for bounds checking this otherwise
+         * the access is unsafe.
+         *
          * \param sessionHint
          *      Which entry in the table to return.
          * \return
@@ -940,7 +1115,7 @@ class FastTransport : public Transport {
         }
 
         /**
-         * Return a free Session, preferrably reused.
+         * Return a free Session, preferably reused.
          *
          * If all existing Sessions are currently busy the SessionTable is
          * extended and a new Session is returned.
@@ -982,13 +1157,12 @@ class FastTransport : public Transport {
          * beyond SESSION_TIMEOUT_NS, calling Session::expire() on them
          * and returning them to the free list if possible.
          *
-         * \param sessionsToCheck
-         *      The number of sessions check for expiry.  Expiry always
-         *      proceeds from where it last left off.  If unspecified,
-         *      5 sessions will be checked for expiry.
+         * This implementation checks 5 sessions to see if they are ready
+         * to be reused before returning.
          */
-        void expire(uint32_t sessionsToCheck = 5)
+        void expire()
         {
+            const uint32_t sessionsToCheck = 5;
             uint64_t now = rdtsc();
             for (uint32_t i = 0; i < sessionsToCheck; i++) {
                 lastCleanedIndex++;
@@ -1026,7 +1200,7 @@ class FastTransport : public Transport {
          */
         uint32_t firstFree;
 
-        /// Tracks where to resume exipy probing on calls to expire().
+        /// Tracks where to resume expiry probing on calls to expire().
         uint32_t lastCleanedIndex;
 
         /// The actual table of session pointers.

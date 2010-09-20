@@ -171,21 +171,21 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     struct MockTimer : public Timer {
         MockTimer()
             : Timer()
-            , fireTimerCount(0)
+            , onTimerFiredCount(0)
             , expectWhen(0)
         {}
         explicit MockTimer(uint64_t expectWhen)
             : Timer()
-            , fireTimerCount(0)
+            , onTimerFiredCount(0)
             , expectWhen(expectWhen)
         {}
-        virtual void fireTimer(uint64_t now)
+        virtual void onTimerFired(uint64_t now)
         {
             if (expectWhen)
                 CPPUNIT_ASSERT_EQUAL(expectWhen, now);
-            fireTimerCount++;
+            onTimerFiredCount++;
         }
-        uint32_t fireTimerCount;
+        uint32_t onTimerFiredCount;
         uint64_t expectWhen;
     };
 
@@ -226,17 +226,17 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
 
         transport->fireTimers();
 
-        CPPUNIT_ASSERT_EQUAL(1, timer1.fireTimerCount);
-        CPPUNIT_ASSERT_EQUAL(0, timer2.fireTimerCount);
-        CPPUNIT_ASSERT_EQUAL(1, timer3.fireTimerCount);
+        CPPUNIT_ASSERT_EQUAL(1, timer1.onTimerFiredCount);
+        CPPUNIT_ASSERT_EQUAL(0, timer2.onTimerFiredCount);
+        CPPUNIT_ASSERT_EQUAL(1, timer3.onTimerFiredCount);
         // Make sure 2 is now at the front as the unfired event
         CPPUNIT_ASSERT_EQUAL(&timer2, &transport->timerList.front());
 
         // Ensure that events don't get called twice
         transport->fireTimers();
-        CPPUNIT_ASSERT_EQUAL(1, timer1.fireTimerCount);
-        CPPUNIT_ASSERT_EQUAL(0, timer2.fireTimerCount);
-        CPPUNIT_ASSERT_EQUAL(1, timer3.fireTimerCount);
+        CPPUNIT_ASSERT_EQUAL(1, timer1.onTimerFiredCount);
+        CPPUNIT_ASSERT_EQUAL(0, timer2.onTimerFiredCount);
+        CPPUNIT_ASSERT_EQUAL(1, timer3.onTimerFiredCount);
 
         transport->timerList.pop_front(); // satisfy boost assertion
     }
@@ -312,7 +312,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
 
         CPPUNIT_ASSERT_EQUAL(2, driver->tryRecvPacketCount);
         CPPUNIT_ASSERT(transport->timerList.empty());
-        CPPUNIT_ASSERT_EQUAL(1, timer.fireTimerCount);
+        CPPUNIT_ASSERT_EQUAL(1, timer.onTimerFiredCount);
     }
 
     void
@@ -326,7 +326,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
 
         CPPUNIT_ASSERT_EQUAL(1, driver->tryRecvPacketCount);
         CPPUNIT_ASSERT(transport->timerList.empty());
-        CPPUNIT_ASSERT_EQUAL(1, timer.fireTimerCount);
+        CPPUNIT_ASSERT_EQUAL(1, timer.onTimerFiredCount);
     }
 
     /// A predicate to limit TestLog messages to tryProcessPacket
@@ -699,7 +699,7 @@ CPPUNIT_TEST_SUITE_REGISTRATION(ClientRpcTest);
 class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST_SUITE(InboundMessageTest);
     CPPUNIT_TEST(test_sendAck);
-    CPPUNIT_TEST(test_clear);
+    CPPUNIT_TEST(test_reset);
     CPPUNIT_TEST(test_init);
     CPPUNIT_TEST(test_setup);
     CPPUNIT_TEST(test_processReceivedData_totalFragMismatch);
@@ -774,7 +774,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         session->allocateChannels();
         msg->setup(transport, session, channelId, useTimer);
 
-        msg->clear();
+        msg->reset();
         msg->init(totalFrags, buffer);
 
         // Initialize dataStagingRing to check invariants after calls
@@ -862,7 +862,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
     }
 
     void
-    test_clear()
+    test_reset()
     {
         setUp(2, true);
 
@@ -872,7 +872,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         msg->dataStagingRing[10] = std::pair<char*, uint32_t>(junk, 1);
         msg->dataStagingRing[13] = std::pair<char*, uint32_t>(junk, 1);
 
-        msg->clear();
+        msg->reset();
 
         CPPUNIT_ASSERT_EQUAL(0, msg->totalFrags);
         CPPUNIT_ASSERT_EQUAL(0, msg->firstMissingFrag);
@@ -1021,7 +1021,7 @@ CPPUNIT_TEST_SUITE_REGISTRATION(InboundMessageTest);
 
 class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST_SUITE(OutboundMessageTest);
-    CPPUNIT_TEST(test_clear);
+    CPPUNIT_TEST(test_reset);
     CPPUNIT_TEST(test_setup);
     CPPUNIT_TEST(test_beginSending);
     CPPUNIT_TEST(test_send);
@@ -1104,7 +1104,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         session->allocateChannels();
         msg->setup(transport, session, channelId, useTimer);
 
-        msg->clear();
+        msg->reset();
 
         // same as a call to beginSending without the implicit call to send()
         msg->sendBuffer = buffer;
@@ -1136,15 +1136,15 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
 
     /**
      * Simple check, but also checks subtler details regarding timers.
-     * If the message was using the timer clear must remove it.
+     * If the message was using the timer reset must remove it.
      */
     void
-    test_clear()
+    test_reset()
     {
         setUp(1600, true);
         transport->addTimer(&msg->timer, 999);
 
-        msg->clear();
+        msg->reset();
 
         CPPUNIT_ASSERT_EQUAL(0, msg->sendBuffer);
         CPPUNIT_ASSERT_EQUAL(0, msg->firstMissingFrag);
@@ -1540,7 +1540,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         MockReceived junk(0, 2, "foo");
         // Just to start the currentRpc
         session->processInboundPacket(&junk);
-        TestLog::clear();
+        TestLog::reset();
 
         CPPUNIT_ASSERT_EQUAL(0, session->channels[0].rpcId);
         // This one exercises the code path we are interested in
@@ -1564,7 +1564,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
                              session->channels[0].rpcId);
         MockReceived junk(0, 2, "foo");
         session->processInboundPacket(&junk);
-        TestLog::clear();
+        TestLog::reset();
 
         AckResponse ackResp(1, 0);
         MockReceived recvd(0, 1, &ackResp, sizeof(AckResponse));

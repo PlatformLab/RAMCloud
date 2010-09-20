@@ -69,14 +69,14 @@ FastTransport::serverRecv()
 // - private -
 
 /**
- * Schedule Timer::fireTimer() to be called when the system TSC reaches when.
+ * Schedule Timer::onTimerFired() to be called when the system TSC reaches when.
  *
  * If timer is already scheduled it will be rescheduled for when.
  *
  * \param timer
- *      The Timer on which to call fireTimer().
+ *      The Timer on which to call onTimerFired().
  * \param when
- *      fireTimer() is called when rdtsc() is at or beyond this timestamp.
+ *      onTimerFired() is called when rdtsc() is at or beyond this timestamp.
  */
 void
 FastTransport::addTimer(Timer* timer, uint64_t when)
@@ -98,7 +98,7 @@ FastTransport::dataPerFragment()
 }
 
 /**
- * Invoke fireTimer() on any expired, scheduled Timer after removing it
+ * Invoke onTimerFired() on any expired, scheduled Timer after removing it
  * from the timer event queue.
  *
  * Any timer that would like to be fired again later needs to
@@ -113,7 +113,7 @@ FastTransport::fireTimers()
         Timer& timer(*iter);
         if (timer.when && timer.when <= now) {
             iter = timerList.erase(iter);
-            timer.fireTimer(now);
+            timer.onTimerFired(now);
         } else {
             ++iter;
         }
@@ -486,7 +486,7 @@ FastTransport::InboundMessage::InboundMessage()
     , firstMissingFrag(0)
     , dataStagingRing()
     , dataBuffer(NULL)
-    , timer(false, this)
+    , timer(this)
 {
 }
 
@@ -496,7 +496,7 @@ FastTransport::InboundMessage::InboundMessage()
  */
 FastTransport::InboundMessage::~InboundMessage()
 {
-    clear();
+    reset();
 }
 
 /**
@@ -566,7 +566,7 @@ FastTransport::InboundMessage::sendAck()
  * removes any timer events associated with the message.
  */
 void
-FastTransport::InboundMessage::clear()
+FastTransport::InboundMessage::reset()
 {
     totalFrags = 0;
     firstMissingFrag = 0;
@@ -583,7 +583,7 @@ FastTransport::InboundMessage::clear()
 }
 
 /**
- * Initialize a previously cleared InboundMessage for use.
+ * Initialize a previously reset InboundMessage for use.
  *
  * This must be called before a previously inactive InboundMessage is ready
  * to receive fragments.
@@ -597,7 +597,7 @@ void
 FastTransport::InboundMessage::init(uint16_t totalFrags,
                                     Buffer* dataBuffer)
 {
-    clear();
+    reset();
     this->totalFrags = totalFrags;
     this->dataBuffer = dataBuffer;
     if (timer.useTimer)
@@ -702,6 +702,46 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     return firstMissingFrag == totalFrags;
 }
 
+// --- InboundMessage::Timer ---
+
+/**
+ * Used to declare one Timer per InboundMessage.  Otherwise unused.
+ *
+ * \param inboundMsg
+ *      The InboundMessage this timer will close or send an ACK for
+ *      when the timer trips.
+ */
+FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
+    : useTimer(false)
+    , numTimeouts(0)
+    , inboundMsg(inboundMsg)
+{
+}
+
+/**
+ * If this message is taking too long then close it (TIMEOUT_NS *
+ * TIMEOUTS_UNTIL_ABORTING), otherwise send an AckResponse.
+ *
+ * This prevents the connection from stalling if incoming fragments
+ * with Header::requestAck set are lost.
+ *
+ * See FastTransport::Timer for general information on timers.
+ */
+void
+FastTransport::InboundMessage::Timer::onTimerFired(uint64_t now)
+{
+    numTimeouts++;
+    // TODO(stutsman) Do we really want to kill an entire session
+    // because one message is stalled?
+    if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
+        inboundMsg->session->close();
+    } else {
+        inboundMsg->transport->addTimer(this,
+                                        now + TIMEOUT_NS);
+        inboundMsg->sendAck();
+    }
+}
+
 // --- OutboundMessage ---
 
 /**
@@ -720,7 +760,7 @@ FastTransport::OutboundMessage::OutboundMessage()
     , packetsSinceAckReq(0)
     , sentTimes()
     , numAcked(0)
-    , timer(false, this)
+    , timer(this)
 {
 }
 
@@ -750,7 +790,7 @@ FastTransport::OutboundMessage::setup(FastTransport* transport,
     this->transport = transport;
     this->session = session;
     this->channelId = channelId;
-    clear();
+    reset();
     timer.useTimer = useTimer;
 }
 
@@ -761,7 +801,7 @@ FastTransport::OutboundMessage::setup(FastTransport* transport,
  * by calling beginSending() on it.
  */
 void
-FastTransport::OutboundMessage::clear()
+FastTransport::OutboundMessage::reset()
 {
     sendBuffer = NULL;
     firstMissingFrag = 0;
@@ -802,7 +842,7 @@ FastTransport::OutboundMessage::beginSending(Buffer* dataBuffer)
  * for ACK.
  *
  * Pre-conditions:
- *  - beginSending() must have been called since the last call to clear().
+ *  - beginSending() must have been called since the last call to reset().
  *
  * Side-effects:
  *  - sentTimes is updated to reflect any sent packets.
@@ -948,6 +988,41 @@ FastTransport::OutboundMessage::sendOneData(uint32_t fragNumber,
         packetsSinceAckReq++;
 }
 
+// -- OutboundMessage::Timer ---
+
+/**
+ * Used to declare one Timer per OutboundMessage.  Otherwise unused.
+ *
+ * \param outboundMsg
+ *      The OutboundMessage this timer will close or resend fragments for
+ *      when the timer trips.
+ */
+FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
+    : useTimer(false)
+    , numTimeouts(0)
+    , outboundMsg(outboundMsg)
+{
+}
+
+/**
+ * If this message is taking too long then close it (TIMEOUT_NS *
+ * TIMEOUTS_UNTIL_ABORTING), otherwise resend unacked packets
+ * that were sent awhile ago.
+ *
+ * See FastTransport::Timer for general information on timers.
+ */
+void
+FastTransport::OutboundMessage::Timer::onTimerFired(uint64_t now)
+{
+    numTimeouts++;
+    if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
+        LOG(DEBUG, "Closing session due to timeout");
+        outboundMsg->session->close();
+    } else {
+        outboundMsg->send();
+    }
+}
+
 // --- ServerSession ---
 
 const uint64_t FastTransport::ServerSession::INVALID_TOKEN =
@@ -1027,8 +1102,8 @@ FastTransport::ServerSession::expire()
         channels[i].rpcId = ~0U;
         delete channels[i].currentRpc;
         channels[i].currentRpc = NULL;
-        channels[i].inboundMsg.clear();
-        channels[i].outboundMsg.clear();
+        channels[i].inboundMsg.reset();
+        channels[i].outboundMsg.reset();
     }
 
     token = INVALID_TOKEN;
@@ -1114,13 +1189,13 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
     } else if (channel->rpcId + 1 == header->rpcId) {
         TEST_LOG("start a new RPC");
         // Incoming packet is part of the next RPC
-        // clear everything out and setup for next RPC
+        // reset everything out and setup for next RPC
         switch (header->getPayloadType()) {
         case Header::DATA: {
             channel->state = ServerChannel::RECEIVING;
             channel->rpcId = header->rpcId;
-            channel->inboundMsg.clear();
-            channel->outboundMsg.clear();
+            channel->inboundMsg.reset();
+            channel->outboundMsg.reset();
             delete channel->currentRpc;
             channel->currentRpc = new ServerRpc(this,
                                                 header->channelId);
@@ -1291,7 +1366,7 @@ FastTransport::ClientSession::close()
         iter = channelQueue.erase(iter);
         rpc.aborted();
     }
-    clearChannels();
+    resetChannels();
     serverSessionHint = INVALID_HINT;
     token = INVALID_TOKEN;
 }
@@ -1422,7 +1497,7 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
                 if (channels[i].currentRpc)
                     channelQueue.push_back(*channels[i].currentRpc);
             }
-            clearChannels();
+            resetChannels();
             serverSessionHint = INVALID_HINT;
             token = INVALID_TOKEN;
             connect(0, 0);
@@ -1485,7 +1560,7 @@ FastTransport::ClientSession::allocateChannels()
  * Reset this session to 0 channels and free associated resources.
  */
 void
-FastTransport::ClientSession::clearChannels()
+FastTransport::ClientSession::resetChannels()
 {
     numChannels = 0;
     delete[] channels;
@@ -1555,7 +1630,7 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
     Header* header = received->getOffset<Header>(0);
     // If sending end sending and start receiving
     if (channel->state == ClientChannel::SENDING) {
-        channel->outboundMsg.clear();
+        channel->outboundMsg.reset();
         channel->inboundMsg.init(header->totalFrags,
                                  channel->currentRpc->responseBuffer);
         channel->state = ClientChannel::RECEIVING;
@@ -1564,8 +1639,8 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
         // InboundMsg has gotten its last fragment
         channel->currentRpc->completed();
         channel->rpcId += 1;
-        channel->outboundMsg.clear();
-        channel->inboundMsg.clear();
+        channel->outboundMsg.reset();
+        channel->inboundMsg.reset();
         if (channelQueue.empty()) {
             channel->state = ClientChannel::IDLE;
             channel->currentRpc = 0;

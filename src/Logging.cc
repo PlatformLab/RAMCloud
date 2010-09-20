@@ -38,30 +38,30 @@ namespace TestLog {
      */
     string message;
 
-    /// Clear the contents of the test log.
+    /// Reset the contents of the test log.
     void
-    clear()
+    reset()
     {
         message = "";
     }
 
     /**
-     * Clear the test log and quit recording test log entries and
+     * Reset the test log and quit recording test log entries and
      * remove any predicate that was installed.
      */
     void
     disable()
     {
-        clear();
+        reset();
         enabled = false;
         predicate = NULL;
     }
 
-    /// Clear the test log and begin recording test log entries.
+    /// Reset the test log and begin recording test log entries.
     void
     enable()
     {
-        clear();
+        reset();
         enabled = true;
     }
 
