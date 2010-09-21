@@ -134,7 +134,7 @@ class MockParseRange(object):
         out.line('%s() : state(0) {' % self.mock_class)
         out.line('}')
         out.line('~%s() {' % self.mock_class)
-        out.line('    CPPUNIT_ASSERT(state == %d);' % len(steps))
+        out.line('    CPPUNIT_ASSERT_EQUAL(%d, state);' % len(steps))
         out.line('}')
         for method_lineno, (first, middle, last) in methods.values():
             out.lineno = method_lineno

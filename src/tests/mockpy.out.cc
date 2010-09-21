@@ -45,7 +45,7 @@ class mock : public stub {
 #line 10 "src/tests/mockpy.in.cc"
     ~mock() {
 #line 10 "src/tests/mockpy.in.cc"
-        CPPUNIT_ASSERT(state == 3);
+        CPPUNIT_ASSERT_EQUAL(3, state);
 #line 10 "src/tests/mockpy.in.cc"
     }
 #line 15 "src/tests/mockpy.in.cc"
