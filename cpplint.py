@@ -2179,7 +2179,8 @@ def _ClassifyInclude(fileinfo, include, is_system):
   # This is a list of all standard c++ header files, except
   # those already checked for above.
   is_stl_h = include in _STL_HEADERS
-  is_cpp_h = is_stl_h or include in _CPP_HEADERS
+  is_cpp_h = (is_stl_h or include in _CPP_HEADERS or
+              include.startswith('boost/'))
 
   if is_system:
     if is_cpp_h:
