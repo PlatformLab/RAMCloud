@@ -71,8 +71,11 @@ def load_so():
         raise not_found
     try:
         so = ctypes.cdll.LoadLibrary(path)
-    except OSError:
-        raise not_found
+    except OSError, e:
+        if 'No such file or directory' in str(e):
+            raise not_found
+        else:
+            raise
 
     def malloc_errcheck(result, func, arguments):
         if result == 0:
