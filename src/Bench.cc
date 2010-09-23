@@ -21,6 +21,7 @@
 #include <errno.h>
 
 #include "Client.h"
+#include "BenchUtil.h"
 
 namespace RC = RAMCloud;
 
@@ -48,9 +49,9 @@ void
 setup()
 {
     if (cpu != -1) {
-        if (!pinToCpu(cpu))
+        if (!RC::pinToCpu(cpu))
             DIE("bench: Couldn't pin to core %d", cpu);
-        LOG(DEBUG, "bench: Pinned to core %d", cpu);
+        LOG(RC::DEBUG, "bench: Pinned to core %d", cpu);
     }
 
     client = new RC::Client(address, port);
@@ -78,9 +79,9 @@ bench(const char *name, uint64_t (f)(void))
 
     cycles = end - start;
     printf("%s ns     %012lu\n", name,
-           cyclesToNanoseconds(cycles));
+           RC::cyclesToNanoseconds(cycles));
     printf("%s avgns  %12.2f\n", name,
-           static_cast<double>(cyclesToNanoseconds(cycles)) /
+           static_cast<double>(RC::cyclesToNanoseconds(cycles)) /
            static_cast<double>(count));
     printf("%s ctr    %12.0f\n", name,
            static_cast<double>(serverCounter));

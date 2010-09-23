@@ -30,7 +30,7 @@
 #include "BoostIntrusive.h"
 
 #undef CURRENT_LOG_MODULE
-#define CURRENT_LOG_MODULE TRANSPORT_MODULE
+#define CURRENT_LOG_MODULE RAMCloud::TRANSPORT_MODULE
 
 namespace RAMCloud {
 

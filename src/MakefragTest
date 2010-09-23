@@ -77,7 +77,7 @@ $(OBJDIR)/FastTelnet: $(OBJDIR)/FastTelnet.o $(OBJDIR)/Driver.o $(SHARED_OBJFILE
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
-$(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/libramcloud.a $(OBJDIR)/BenchUtil.o
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 

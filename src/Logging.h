@@ -114,7 +114,7 @@ namespace TestLog {
  *      The arguments to the format string.
  */
 #define TEST_LOG(format, ...) \
-    TestLog::log(__PRETTY_FUNCTION__, format, ##__VA_ARGS__)
+    RAMCloud::TestLog::log(__PRETTY_FUNCTION__, format, ##__VA_ARGS__)
 #else
 #define TEST_LOG(format, ...)
 #endif
@@ -193,7 +193,7 @@ extern Logger logger;
 
 } // end RAMCloud
 
-#define CURRENT_LOG_MODULE DEFAULT_LOG_MODULE
+#define CURRENT_LOG_MODULE RAMCloud::DEFAULT_LOG_MODULE
 
 /**
  * Log a message for the system administrator.
@@ -227,10 +227,12 @@ extern Logger logger;
  *      Always thrown.
  */
 #define DIE(format, ...) do { \
-    LOG(ERROR, format, ##__VA_ARGS__); \
-    throw FatalError(logger.getMessage(CURRENT_LOG_MODULE, ERROR, \
-                                       __FILE__, __LINE__, \
-                                       format, ##__VA_ARGS__)); \
+    LOG(RAMCloud::ERROR, format, ##__VA_ARGS__); \
+    throw RAMCloud::FatalError(RAMCloud::logger.getMessage( \
+                                CURRENT_LOG_MODULE, \
+                                RAMCloud::ERROR, \
+                                __FILE__, __LINE__, \
+                                format, ##__VA_ARGS__)); \
 } while (0)
 
 #endif  // RAMCLOUD_LOGGING_H
