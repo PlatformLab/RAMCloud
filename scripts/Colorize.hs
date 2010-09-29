@@ -19,28 +19,34 @@ module Main where
 import System.Console.ANSI
 import Data.List
 import Text.Regex
+import Text.Regex.Posix
 import System.Posix.Directory
 import System.IO.Unsafe
+import System.IO
 
 --- Config ---
-markup = [ ("error:",           colorPutStrLn Vivid Red)
-         , ("!!!FAILURES!!!",   colorPutStrLn Vivid Red)
-         , ("undefined",        colorPutStrLn Vivid Red)
-         , ("assertion",        colorPutStrLn Vivid Red)
-         , ("within",           colorPutStrLn Dull Red)
-         , ("note:",            colorPutStrLn Vivid Blue)
-         , ("warning:",         colorPutStrLn Vivid Yellow)
-         , ("instantiated",     colorPutStrLn Vivid Green)
-         , ("from",             colorPutStrLn Vivid Green)
-         , ("In",               colorPutStrLn Dull Green)
-         , ("g++",              colorPutStrLn Vivid Black)
-         , ("ar",               colorPutStrLn Vivid Black)
-         , ("perl",             colorPutStrLn Vivid Black)
-         , ("mock.py",          colorPutStrLn Vivid Black)
+markup = [ ("error:",           colorPutStrLn BoldIntensity Vivid Cyan)
+         , ("!!!FAILURES!!!",   colorPutStrLn NormalIntensity Vivid Cyan)
+         , ("undefined",        colorPutStrLn NormalIntensity Vivid Cyan)
+         , ("assertion",        colorPutStrLn NormalIntensity Vivid Cyan)
+         , ("within",           colorPutStrLn NormalIntensity Dull Cyan)
+         , ("note:",            colorPutStrLn NormalIntensity Vivid White)
+         , ("warning:",         colorPutStrLn NormalIntensity Vivid Yellow)
+         , ("instantiated",     colorPutStrLn NormalIntensity Vivid Green)
+         , ("from",             colorPutStrLn NormalIntensity Vivid Green)
+         , ("In",               colorPutStrLn NormalIntensity Dull Green)
+         , ("g++",              colorPutStrLn NormalIntensity Dull Yellow)
+         , ("ar",               colorPutStrLn NormalIntensity Dull Yellow)
+         , ("perl",             colorPutStrLn NormalIntensity Dull Yellow)
+         , ("mock.py",          colorPutStrLn NormalIntensity Dull Yellow)
+         , ("cpplint",          colorPutStrLn NormalIntensity Dull Yellow)
+         , ("make:",            colorPutStrLn BoldIntensity Dull Green)
          ]
 
 ss = "std::basic_string<char, std::char_traits<char>, std::allocator<char> >"
-substs = [ (ss, "string") ]
+substs = [ (ss, "string")
+         , ("python cpplint.py", "cpplint")
+         ]
 
 prefixsToStrip = [cwd ++ "/src/", cwd ++ "/"]
   where cwd = unsafePerformIO getWorkingDirectory
@@ -49,6 +55,7 @@ prefixsToStrip = [cwd ++ "/src/", cwd ++ "/"]
 cleanup = id
         |. elideCompiles ["g++", "ar"]
         |. killFollowing "perl"
+        |. killFollowing "python cpplint.py"
         |. stripPaths
         |. applySubsts
         |. markLine
@@ -87,10 +94,9 @@ elideCompile line word =
 -- | Replace all words in the line beyond the first with "..." if the first
 --   word matches the given word.
 killFollowing word line =
-  if not (null w) && head w == word
+  if line =~ ("^" ++ word)
      then unwords [word, "..."]
      else line
-  where w = words line
 
 -- | Apply pairs from substs on the line.  The first string in each pair is a
 --   regular expression pattern which is replaced with the second string from
@@ -110,11 +116,13 @@ markLine l = foldl combine putStrLn markup $ l
               then action'
               else action
 
--- | Print line with intensity and color.
-colorPutStrLn intensity color line = do
-  setSGR [SetColor Foreground intensity color]
+-- | Print line with consoleIntensity, colorIntensity and color.
+colorPutStrLn consoleIntensity colorIntensity color line = do
+  setSGR [SetConsoleIntensity consoleIntensity,
+          SetColor Foreground colorIntensity color]
   putStrLn line
   setSGR [Reset]
+  hFlush stdout
 
 main = do
     contents <- getContents
