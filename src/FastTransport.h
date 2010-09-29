@@ -58,8 +58,8 @@ class FastTransport : public Transport {
       private:
         ClientRpc(FastTransport* transport, Service* service,
                   Buffer* request, Buffer* response);
-        void aborted();
-        void completed();
+        void abort();
+        void complete();
         void start();
 
         /// Contains an RPC request payload including the RPC header.
@@ -103,19 +103,27 @@ class FastTransport : public Transport {
                                   Buffer* request, Buffer* response);
 
     /**
-     * Manages an entire request/response cycle from the Server perspective.
+     * Serves as a unit of storage allocation for per Rpc server state.
      */
     class ServerRpc : public Transport::ServerRpc {
       public:
-        ServerRpc(ServerSession* session, uint8_t channelId);
+        ServerRpc();
+        virtual ~ServerRpc();
+        void reset();
+        void setup(ServerSession* session, uint8_t channelId);
         void sendReply();
 
       private:
-        /// The ServerSession this RPC is being handled on.
-        ServerSession* const session;
+        void maybeDequeue();
 
-        /// The channel number in session this RPC is being handled on.
-        const uint8_t channelId;
+        /// The ServerSession this RPC is being handled on, const after setup().
+        ServerSession* session;
+
+        /**
+         * The channel number in session this RPC is being handled on,
+         * const after setup().
+         */
+        uint8_t channelId;
 
         /**
          * Links for a list of RPCs waiting for service.
@@ -124,6 +132,7 @@ class FastTransport : public Transport {
         IntrusiveListHook readyQueueEntries;
 
         friend class FastTransport;
+        friend class ServerSessionTest;
         friend class FastTransportTest;
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
@@ -339,7 +348,14 @@ class FastTransport : public Transport {
         /// If this is set the receiver should emit an AckResponse.
         uint8_t requestAck:1;
 
-        /// This fragment should be dropped for testing and simulation purposes.
+        /**
+         * This fragment should be dropped for testing and simulation purposes.
+         *
+         * FastTransport still sends this packet, but the recipient throws it
+         * on the floor without processing it.  This allows debugging tools like
+         * Wireshark to capture the packet still as compared to dropping it
+         * before the packet is sent.
+         */
         uint8_t pleaseDrop:1;
 
         /// Padding
@@ -675,6 +691,9 @@ class FastTransport : public Transport {
      */
     class Session {
       protected:
+        /// Used to trash the token field; shouldn't be seen on the wire.
+        static const uint64_t INVALID_TOKEN;
+
         /**
          * Create a session and permanently associate it with a FastTransport.
          *
@@ -686,6 +705,7 @@ class FastTransport : public Transport {
         explicit Session(FastTransport* transport, uint32_t id)
             : id(id)
             , transport(transport)
+            , token(INVALID_TOKEN)
         {}
 
       public:
@@ -740,6 +760,19 @@ class FastTransport : public Transport {
         virtual uint64_t getLastActivityTime() = 0;
 
         /**
+         * Returns the authentication token the client needs to succesfully
+         * reassociate with a ServerSession.
+         *
+         * \return
+         *      See method description.
+         */
+        uint64_t
+        getToken()
+        {
+            return token;
+        }
+
+        /**
          * This session's offset in FastTransport::serverSessions and 
          * FastTransport::clientSessions.
          * Used to provide the remote party with a hint enabling fast
@@ -747,9 +780,18 @@ class FastTransport : public Transport {
          */
         const uint32_t id;
 
-      protected:
         /// The FastTransport this session is associated with.
         FastTransport* const transport;
+
+      protected:
+        /**
+         * Authentication token provided by the server. For ClientSession
+         * this to identifes the client to the server, for ServerSession
+         * it is used to identify the client.
+         * Must be presented in all fragment headers that are associated
+         * with a Session.
+         */
+        uint64_t token;
 
       private:
         DISALLOW_COPY_AND_ASSIGN(Session);
@@ -768,14 +810,10 @@ class FastTransport : public Transport {
         virtual void fillHeader(Header* const header, uint8_t channelId) const;
         virtual const sockaddr* getAddress(socklen_t *len);
         uint64_t getLastActivityTime();
-        uint64_t getToken();
         void processInboundPacket(Driver::Received* received);
         void startSession(const sockaddr *clientAddress,
                           socklen_t clientAddressLen,
                           uint32_t clientSessionHint);
-
-        /// Used to trash the token field; shouldn't be seen on the wire.
-        static const uint64_t INVALID_TOKEN;
 
         /// Used to trash the hint field; shouldn't be seen on the wire.
         static const uint32_t INVALID_HINT;
@@ -802,7 +840,7 @@ class FastTransport : public Transport {
              * by setup().
              */
             ServerChannel()
-                : currentRpc(NULL)
+                : currentRpc()
                 , inboundMsg()
                 , outboundMsg()
                 , rpcId(INVALID_RPC_ID)
@@ -824,18 +862,18 @@ class FastTransport : public Transport {
              *      The particular channel in session this channel represents.
              */
             void setup(FastTransport* transport,
-                       Session* session,
+                       ServerSession* session,
                        uint32_t channelId)
             {
                 state = IDLE;
                 rpcId = INVALID_RPC_ID;
-                currentRpc = NULL;
+                currentRpc.reset();
                 inboundMsg.setup(transport, session, channelId, false);
                 outboundMsg.setup(transport, session, channelId, false);
             }
 
-            /// The RPC this channel is actively servicing, or NULL if none.
-            ServerRpc* currentRpc;
+            /// The RPC this channel is actively servicing, or invalid if none.
+            ServerRpc currentRpc;
 
             /// The RPC request is accumulated here.
             InboundMessage inboundMsg;
@@ -891,8 +929,6 @@ class FastTransport : public Transport {
          */
         uint64_t lastActivityTime;
 
-        uint64_t token;             ///< Value used to authenciate the client.
-
         friend class FastTransportTest;
         // TODO(stutsman) template friend doesn't work - no idea why
         template <typename T> friend class SessionTable;
@@ -917,9 +953,6 @@ class FastTransport : public Transport {
         bool isConnected();
         void processInboundPacket(Driver::Received* received);
         void startRpc(ClientRpc* rpc);
-
-        /// Used to trash the token field; shouldn't be seen on the wire.
-        static const uint64_t INVALID_TOKEN;
 
         /// Used to trash the hint field; shouldn't be seen on the wire.
         static const uint32_t INVALID_HINT;
@@ -1033,12 +1066,6 @@ class FastTransport : public Transport {
 
         /// Number of concurrent RPCs allowed in this session.
         uint32_t numChannels;
-
-        /**
-         * Authentication token provided by the server to identify this client;
-         * must be presented in all fragment headers.
-         */
-        uint64_t token;
 
         sockaddr serverAddress;     ///< Where to send requests.
         socklen_t serverAddressLen;

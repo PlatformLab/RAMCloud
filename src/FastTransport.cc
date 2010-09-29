@@ -47,7 +47,7 @@ FastTransport::clientSend(Service* service,
     // Clear the response buffer if needed
     uint32_t length = response->getTotalLength();
     if (length)
-        response->truncateFront(length);
+        response->reset();
 
     ClientRpc* rpc = new(request, MISC) ClientRpc(this, service,
                                                   request, response);
@@ -145,8 +145,9 @@ FastTransport::getClientSession()
 uint32_t
 FastTransport::numFrags(const Buffer* dataBuffer)
 {
-    return ((dataBuffer->getTotalLength() + dataPerFragment() - 1) /
-             dataPerFragment());
+    uint32_t perFragment = dataPerFragment();
+    return (dataBuffer->getTotalLength() + perFragment - 1) /
+            perFragment;
 }
 
 /**
@@ -164,8 +165,13 @@ FastTransport::removeTimer(Timer* timer)
 }
 
 /**
- * Try to get a request from the Driver and queue it, dispatching
- * ready timer events in between.
+ * Try to get fragments from the Driver and accumulate an rpc request,
+ * dispatching ready timer events in between.
+ *
+ * This method returns when the Driver no longer has incoming fragments
+ * queued.
+ *
+ * This is only called by the server.
  */
 void
 FastTransport::poll()
@@ -194,18 +200,13 @@ FastTransport::sendPacket(const sockaddr* address,
 }
 
 /**
- * Get a packet from the Driver and dispatch it to the appropriate handler.
- *
- * Dispatch is decided on Header::direction then to the appropriate
- * ClientSession or ServerSession.  If the request is to the Server and is
- * a SESSION_OPEN request then a new ServerSession is created and the
- * appropriate SessionOpenResponse is sent to the client.
+ * Get a single packet from the Driver and dispatch it to the appropriate
+ * handler.
  *
  * \retval false
- *      if the Driver didn't have a packet ready or encountered an
- *      error.
+ *      If the Driver didn't have a packet ready.
  * \retval true
- *      otherwise.
+ *      A packet was processed and more may be waiting.
  */
 bool
 FastTransport::tryProcessPacket()
@@ -227,6 +228,8 @@ FastTransport::tryProcessPacket()
     }
 
     if (header->getDirection() == Header::CLIENT_TO_SERVER) {
+        // Packet is from the client being processed on the server.
+        // TODO(stutsman) Move token checks into session (and remove getToken method)
         if (header->serverSessionHint < serverSessions.size()) {
             ServerSession* session = serverSessions[header->serverSessionHint];
             if (session->getToken() == header->sessionToken) {
@@ -237,17 +240,17 @@ FastTransport::tryProcessPacket()
                 LOG(DEBUG, "bad token");
             }
         }
-        switch (header->getPayloadType()) {
-        case Header::SESSION_OPEN: {
+        if (header->getPayloadType() == Header::SESSION_OPEN) {
+            // Start a new session on this server for the client.
             LOG(DEBUG, "session open");
             serverSessions.expire();
             ServerSession* session = serverSessions.get();
             session->startSession(&received.addr,
                                   received.addrlen,
                                   header->clientSessionHint);
-            break;
-        }
-        default: {
+        } else {
+            // Client wasn't asking for a new session and failed to provide
+            // a valid token, so let them know they've got the wrong number.
             LOG(DEBUG, "bad session");
             Header replyHeader;
             replyHeader.sessionToken = header->sessionToken;
@@ -259,14 +262,19 @@ FastTransport::tryProcessPacket()
             replyHeader.direction = Header::SERVER_TO_CLIENT;
             sendPacket(&received.addr, received.addrlen,
                        &replyHeader, NULL);
-            break;
-        }
         }
     } else {
+        // Packet is from the server being processed on the client.
+        // TODO(stutsman) Move token checks into session (and remove getToken method)
         if (header->clientSessionHint < clientSessions.size()) {
             ClientSession* session = clientSessions[header->clientSessionHint];
             TEST_LOG("client session processing packet");
-            session->processInboundPacket(&received);
+            if (session->getToken() == header->sessionToken ||
+                header->getPayloadType() == Header::SESSION_OPEN) {
+                session->processInboundPacket(&received);
+            } else {
+                LOG(DEBUG, "Bad fragment token, client dropping");
+            }
         } else {
             LOG(DEBUG, "Bad client session hint");
         }
@@ -324,6 +332,10 @@ FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
 void
 FastTransport::ClientRpc::getReply()
 {
+    // No need to "delete this;" on our way out of the method
+    // it is handled by the response buffer destructor since this
+    // ClientRpc is in it's MISC memory.
+
     while (true) {
         switch (state) {
         case IDLE:
@@ -343,14 +355,14 @@ FastTransport::ClientRpc::getReply()
 
 /// Change state to ABORTED.  Internal to FastTransport.
 void
-FastTransport::ClientRpc::aborted()
+FastTransport::ClientRpc::abort()
 {
     state = ABORTED;
 }
 
 /// Change state to COMPLETED.  Internal to FastTransport.
 void
-FastTransport::ClientRpc::completed()
+FastTransport::ClientRpc::complete()
 {
     state = COMPLETED;
 }
@@ -389,19 +401,66 @@ FastTransport::ClientRpc::start()
 // --- ServerRpc ---
 
 /**
- * Create a ServerRpc attached to a ServerSession on a particular channel.
+ * Create a ServerRpc. Used to allocate ServerRpc as part of ServerChannel, see
+ * setup() for per RPC initialization.
+ */
+FastTransport::ServerRpc::ServerRpc()
+    : session(NULL)
+    , channelId(0)
+    , readyQueueEntries()
+{
+}
+
+/// Make sure this RPC isn't still in a list.  Should only happen during testing.
+FastTransport::ServerRpc::~ServerRpc()
+{
+    maybeDequeue();
+}
+
+/**
+ * Reset a ServerRpc to a unused state.
+ */
+void
+FastTransport::ServerRpc::reset()
+{
+    maybeDequeue();
+    recvPayload.reset();
+    replyPayload.reset();
+    session = NULL;
+    channelId = 0;
+}
+
+/**
+ * If queued in FastTransport::serverReadyQueue then dequeue it.
+ *
+ * Used internally to ensure this RPC isn't in a list still after reset()
+ * or delete.
+ */
+void
+FastTransport::ServerRpc::maybeDequeue()
+{
+    if (session) {
+        ServerReadyQueue* q = &session->transport->serverReadyQueue;
+        if (readyQueueEntries.is_linked())
+            q->erase(q->iterator_to(*this));
+    }
+}
+
+/**
+ * Initialize a ServerRpc to a ServerSession on a particular channel.
  *
  * \param session
  *      The ServerSession this RPC is associated with.
  * \param channelId
  *      The channel in session on which to handle this RPC.
  */
-FastTransport::ServerRpc::ServerRpc(ServerSession* session,
-                                    uint8_t channelId)
-    : session(session)
-    , channelId(channelId)
-    , readyQueueEntries()
+void
+FastTransport::ServerRpc::setup(ServerSession* session,
+                                uint8_t channelId)
 {
+    reset();
+    this->session = session;
+    this->channelId = channelId;
 }
 
 /**
@@ -415,6 +474,28 @@ FastTransport::ServerRpc::sendReply()
 
 // --- PayloadChunk ---
 
+/**
+ * Append a subregion of payload data which releases the memory to the
+ * Driver that allocated it when it's containing Buffer is destroyed.
+ *
+ * \param buffer
+ *      The Buffer to append the data to.
+ * \param data
+ *      The address of the data to appear in the Buffer.  This must be
+ *      inside the payload range specified later in the arguments.  The
+ *      idea is that if there is some data at the front or end of the
+ *      payload region that should be "stripped" before placing it in
+ *      the Buffer that can be done here (i.e. Header).
+ * \param dataLength
+ *      The length in bytes of the region starting at data that is a
+ *      subregion of the payload.
+ * \param driver
+ *      The Driver to release() this payload to on Buffer destruction.
+ * \param payload
+ *      The address to release() to the Driver on destruction.
+ * \param payloadLength
+ *      The length of the resources starting at payload to release.
+ */
 FastTransport::PayloadChunk*
 FastTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
                                              char* data,
@@ -433,6 +514,28 @@ FastTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
     return chunk;
 }
 
+/**
+ * Prepend a subregion of payload data which releases the memory to the
+ * Driver that allocated it when it's containing Buffer is destroyed.
+ *
+ * \param buffer
+ *      The Buffer to prepend the data to.
+ * \param data
+ *      The address of the data to appear in the Buffer.  This must be
+ *      inside the payload range specified later in the arguments.  The
+ *      idea is that if there is some data at the front or end of the
+ *      payload region that should be "stripped" before placing it in
+ *      the Buffer that can be done here (i.e. Header).
+ * \param dataLength
+ *      The length in bytes of the region starting at data that is a
+ *      subregion of the payload.
+ * \param driver
+ *      The Driver to release() this payload to on Buffer destruction.
+ * \param payload
+ *      The address to release() to the Driver on destruction.
+ * \param payloadLength
+ *      The length of the resources starting at payload to release.
+ */
 FastTransport::PayloadChunk*
 FastTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
                                             char* data,
@@ -458,6 +561,26 @@ FastTransport::PayloadChunk::~PayloadChunk()
         driver->release(payload, payloadLength);
 }
 
+/**
+ * Construct a PayloadChunk which will release it's resources to the
+ * Driver that allocated it when it's containing Buffer is destroyed.
+ *
+ * \param data
+ *      The address of the data to appear in the Buffer.  This must be
+ *      inside the payload range specified later in the arguments.  The
+ *      idea is that if there is some data at the front or end of the
+ *      payload region that should be "stripped" before placing it in
+ *      the Buffer that can be done here (i.e. Header).
+ * \param dataLength
+ *      The length in bytes of the region starting at data that is a
+ *      subregion of the payload.
+ * \param driver
+ *      The Driver to release() this payload to on Buffer destruction.
+ * \param payload
+ *      The address to release() to the Driver on destruction.
+ * \param payloadLength
+ *      The length of the resources starting at payload to release.
+ */
 FastTransport::PayloadChunk::PayloadChunk(void* data,
                                           uint32_t dataLength,
                                           Driver* driver,
@@ -606,32 +729,12 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
 
 /**
  * Take a single fragment and incorporate it as part of this message.
- *
- * If the fragment header disagrees on the total length of the message
- * with the value set on init() the packet is ignored.
- *
- * If the fragNumber matches the firstMissingFrag of this message then
- * it is concatenated to the message's buffer along with any other packets
- * following this fragments in the dataStagingRing that are contiguous and
- * have no other missing fragments preceding them in the message.
- *
- * If the fragNumber exceeds the firstMissingFrag of this message then
- * it is stored in the dataStagingRing to be appended according to the
- * case outlined in the paragraph above.
- *
- * Any packet data that will be returned as part of the Buffer is "stolen"
- * from the Driver::Received object, and the Buffer's Chunk object is
- * responsible for returning the memory to the Driver later.  Any packet data
- * that goes unused (that which is not stolen) will be returned to the driver
- * when the Driver::Received is deleted.
- *
- * This code also notices if the incoming fragment has sendAck set.  If it
- * does then sendAck is called directly after handling this packet as above.
+ * Additionally, send an ACK if this packet was marked with an ACK request.
  *
  * \param received
  *      A single fragment wrapped in a Driver::Received.
  * \return
- *      Whether the full message has been received and the dataBuffer is now
+ *      True if the full message has been received and the dataBuffer is now
  *      complete and valid.
  */
 bool
@@ -641,14 +744,22 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     Header *header = reinterpret_cast<Header*>(received->payload);
 
     if (header->totalFrags != totalFrags) {
-        // What's wrong with the other end?
+        // If the fragment header disagrees on the total length of the message
+        // with the value set on init() the packet is ignored.
         LOG(DEBUG, "header->totalFrags != totalFrags");
         return firstMissingFrag == totalFrags;
     }
 
     if (header->fragNumber == firstMissingFrag) {
+        // If the fragNumber matches the firstMissingFrag of this message then
+        // it is concatenated to the message's buffer along with any other
+        // packets following this fragments in the dataStagingRing that are
+        // contiguous and have no other missing fragments preceding them in
+        // the message.
         uint32_t length;
+        // Take responsibility for returning the memory to the Driver.
         char *payload = received->steal(&length);
+        // Give that responsibility to dataBuffer's destructor.
         PayloadChunk::appendToBuffer(dataBuffer,
                                      payload + sizeof(Header),
                                      length - sizeof(Header),
@@ -656,6 +767,13 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                                      payload,
                                      length);
         firstMissingFrag++;
+
+        // Advance the staging ring (and possibly firstMissingFrag) to
+        // restore the invariants:
+        //  - firstMissingFrag refers to the first fragment we have not yet
+        //    received.
+        //  - slot 0 in dataStagingRing refers to the fragment *after*
+        //    firstMissingFrag.
         while (true) {
             // TODO(stutsman) ring serializer for unit test assertions
             std::pair<char*, uint32_t> pair = dataStagingRing[0];
@@ -664,6 +782,9 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
             dataStagingRing.advance(1);
             if (!payload)
                 break;
+            // Give that responsibility to dataBuffer's destructor, notice
+            // this responsibility was stolen on a prior method invocation
+            // in the else block below.
             PayloadChunk::appendToBuffer(dataBuffer,
                                          payload + sizeof(Header),
                                          length - sizeof(Header),
@@ -673,6 +794,9 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
             firstMissingFrag++;
         }
     } else if (header->fragNumber > firstMissingFrag) {
+        // If the fragNumber exceeds the firstMissingFrag of this message then
+        // it is stored in the dataStagingRing to be appended by the above
+        // block on a future call to this method.
         if ((header->fragNumber - firstMissingFrag) >
             MAX_STAGING_FRAGMENTS) {
             LOG(DEBUG, "fragNumber too big");
@@ -680,6 +804,10 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
             uint32_t i = header->fragNumber - firstMissingFrag - 1;
             if (!dataStagingRing[i].first) {
                 uint32_t length;
+                // Take responsibility for returning the memory to the Driver.
+                // Notice responsibilty for the memory will be transferred to
+                // dataBuffer when this fragment is eventually appended on
+                // a future method invocation in other half of this if-else.
                 char* payload = received->steal(&length);
                 dataStagingRing[i] =
                     std::pair<char*, uint32_t>(payload, length);
@@ -816,7 +944,7 @@ FastTransport::OutboundMessage::reset()
 }
 
 /**
- * Begin sending a buffer.  Requires the buffer be inactive (clear() was
+ * Begin sending a buffer.  Requires the message to be inactive (clear() was
  * called on it).
  *
  * \param dataBuffer
@@ -1023,10 +1151,12 @@ FastTransport::OutboundMessage::Timer::onTimerFired(uint64_t now)
     }
 }
 
+// -- Session ---
+
+const uint64_t FastTransport::Session::INVALID_TOKEN = 0xcccccccccccccccclu;
+
 // --- ServerSession ---
 
-const uint64_t FastTransport::ServerSession::INVALID_TOKEN =
-                                                        0xcccccccccccccccclu;
 const uint32_t FastTransport::ServerSession::INVALID_HINT = 0xccccccccu;
 
 /**
@@ -1048,7 +1178,6 @@ FastTransport::ServerSession::ServerSession(FastTransport* transport,
     , clientAddressLen(0)
     , clientSessionHint(INVALID_HINT)
     , lastActivityTime(0)
-    , token(INVALID_TOKEN)
 {
     memset(&clientAddress, 0xcc, sizeof(clientAddress));
     for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++)
@@ -1071,7 +1200,7 @@ FastTransport::ServerSession::beginSending(uint8_t channelId)
     ServerChannel* channel = &channels[channelId];
     assert(channel->state == ServerChannel::PROCESSING);
     channel->state = ServerChannel::SENDING_WAITING;
-    Buffer* responseBuffer = &channel->currentRpc->replyPayload;
+    Buffer* responseBuffer = &channel->currentRpc.replyPayload;
     channel->outboundMsg.beginSending(responseBuffer);
     lastActivityTime = rdtsc();
 }
@@ -1100,8 +1229,7 @@ FastTransport::ServerSession::expire()
             continue;
         channels[i].state = ServerChannel::IDLE;
         channels[i].rpcId = ~0U;
-        delete channels[i].currentRpc;
-        channels[i].currentRpc = NULL;
+        channels[i].currentRpc.reset();
         channels[i].inboundMsg.reset();
         channels[i].outboundMsg.reset();
     }
@@ -1140,19 +1268,6 @@ uint64_t
 FastTransport::ServerSession::getLastActivityTime()
 {
     return lastActivityTime;
-}
-
-/**
- * Returns the authentication token the client needs to succesfully
- * reassociate with this session.
- *
- * \return
- *      See method description.
- */
-uint64_t
-FastTransport::ServerSession::getToken()
-{
-    return token;
 }
 
 /**
@@ -1196,10 +1311,8 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
             channel->rpcId = header->rpcId;
             channel->inboundMsg.reset();
             channel->outboundMsg.reset();
-            delete channel->currentRpc;
-            channel->currentRpc = new ServerRpc(this,
-                                                header->channelId);
-            Buffer* recvBuffer = &channel->currentRpc->recvPayload;
+            channel->currentRpc.setup(this, header->channelId);
+            Buffer* recvBuffer = &channel->currentRpc.recvPayload;
             channel->inboundMsg.init(header->totalFrags, recvBuffer);
             TEST_LOG("processReceivedData");
             processReceivedData(channel, received);
@@ -1301,7 +1414,7 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
         break;
     case ServerChannel::RECEIVING:
         if (channel->inboundMsg.processReceivedData(received)) {
-            transport->serverReadyQueue.push_back(*channel->currentRpc);
+            transport->serverReadyQueue.push_back(channel->currentRpc);
             channel->state = ServerChannel::PROCESSING;
         }
         break;
@@ -1320,8 +1433,6 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
 
 // --- ClientSession ---
 
-const uint64_t FastTransport::ClientSession::INVALID_TOKEN =
-                                                        0xcccccccccccccccclu;
 const uint32_t FastTransport::ClientSession::INVALID_HINT = 0xccccccccu;
 
 /**
@@ -1343,7 +1454,6 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
     , channelQueue()
     , lastActivityTime(0)
     , numChannels(0)
-    , token(INVALID_TOKEN)
     , serverAddress()
     , serverAddressLen(0)
     , serverSessionHint(INVALID_HINT)
@@ -1358,13 +1468,13 @@ FastTransport::ClientSession::close()
     LOG(DEBUG, "Closing session");
     for (uint32_t i = 0; i < numChannels; i++) {
         if (channels[i].currentRpc)
-            channels[i].currentRpc->aborted();
+            channels[i].currentRpc->abort();
     }
     ChannelQueue::iterator iter(channelQueue.begin());
     while (iter != channelQueue.end()) {
         ClientRpc& rpc(*iter);
         iter = channelQueue.erase(iter);
-        rpc.aborted();
+        rpc.abort();
     }
     resetChannels();
     serverSessionHint = INVALID_HINT;
@@ -1637,7 +1747,7 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
     }
     if (channel->inboundMsg.processReceivedData(received)) {
         // InboundMsg has gotten its last fragment
-        channel->currentRpc->completed();
+        channel->currentRpc->complete();
         channel->rpcId += 1;
         channel->outboundMsg.reset();
         channel->inboundMsg.reset();

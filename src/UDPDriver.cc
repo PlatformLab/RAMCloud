@@ -152,7 +152,10 @@ UDPDriver::tryRecvPacket(Received *received)
                      &received->addr, &received->addrlen);
     if (r == -1) {
         delete[] payload;
-        return false;
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            return false;
+        // TODO(stutsman) We could probably recover from a lot of errors here.
+        throw UnrecoverableDriverException(errno);
     }
     received->len = r;
 

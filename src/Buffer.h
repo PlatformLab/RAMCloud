@@ -421,8 +421,6 @@ class Buffer {
     const void* getRange(uint32_t offset, uint32_t length);
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
     void reset();
-    string debugString();
-    string toString();
     void fillFromString(const char* s);
 
     void truncateFront(uint32_t length);

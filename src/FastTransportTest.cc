@@ -103,6 +103,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_tryProcessPacket_c2sBadHintOpenSession);
     CPPUNIT_TEST(test_tryProcessPacket_c2sBadSession);
     CPPUNIT_TEST(test_tryProcessPacket_s2cGoodHint);
+    CPPUNIT_TEST(test_tryProcessPacket_s2cGoodHintBadToken);
     CPPUNIT_TEST(test_tryProcessPacket_s2cBadHint);
     CPPUNIT_TEST_SUITE_END();
 
@@ -162,7 +163,8 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     void
     test_serverRecv()
     {
-        ServerRpc rpc(NULL, 0);
+        ServerRpc rpc;
+        rpc.setup(NULL, 0);
         transport->serverReadyQueue.push_back(rpc);
         CPPUNIT_ASSERT_EQUAL(&rpc, transport->serverRecv());
     }
@@ -445,6 +447,25 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     {
         TestLog::Enable _(&tppPred);
 
+        ClientSession* session = transport->getClientSession();
+
+        MockReceived recvd(0, 1, "");
+        recvd.getHeader()->direction = Header::SERVER_TO_CLIENT;
+        session->token = recvd.getHeader()->sessionToken;
+        driver->setInput(&recvd);
+
+        bool result = transport->tryProcessPacket();
+        CPPUNIT_ASSERT_EQUAL(true, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "client session processing packet", TestLog::get());
+    }
+
+    void
+    test_tryProcessPacket_s2cGoodHintBadToken()
+    {
+        TestLog::Enable _(&tppPred);
+
         transport->getClientSession();
 
         MockReceived recvd(0, 1, "");
@@ -455,7 +476,9 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(true, result);
         CPPUNIT_ASSERT_EQUAL(
             "bool RAMCloud::FastTransport::tryProcessPacket(): "
-            "client session processing packet", TestLog::get());
+            "client session processing packet | "
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "Bad fragment token, client dropping", TestLog::get());
     }
 
     void
@@ -1424,9 +1447,9 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     tearDown()
     {
-        delete driver;
-        delete transport;
         delete session;
+        delete transport;
+        delete driver;
     }
 
     void
@@ -1477,10 +1500,10 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         session->channels[0].rpcId = magic;
         session->channels[1].state =
             ServerSession::ServerChannel::RECEIVING;
-        session->channels[1].currentRpc = new ServerRpc(session, 1);
+        session->channels[1].currentRpc.setup(session, 1);
         session->channels[2].state =
             ServerSession::ServerChannel::SENDING_WAITING;
-        session->channels[2].currentRpc = new ServerRpc(session, 2);
+        session->channels[2].currentRpc.setup(session, 2);
 
         CPPUNIT_ASSERT(session->expire());
 
@@ -1493,13 +1516,13 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::IDLE,
                              session->channels[1].state);
         CPPUNIT_ASSERT_EQUAL(~(0u), session->channels[1].rpcId);
-        CPPUNIT_ASSERT_EQUAL(0, session->channels[1].currentRpc);
+        CPPUNIT_ASSERT_EQUAL(0, session->channels[1].currentRpc.session);
 
         // ensure 2 got reset
         CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::IDLE,
                              session->channels[2].state);
         CPPUNIT_ASSERT_EQUAL(~(0u), session->channels[2].rpcId);
-        CPPUNIT_ASSERT_EQUAL(0, session->channels[2].currentRpc);
+        CPPUNIT_ASSERT_EQUAL(0, session->channels[2].currentRpc.session);
 
         // check the minor tid-bits at the end
         CPPUNIT_ASSERT_EQUAL(ServerSession::INVALID_TOKEN, session->token);
@@ -1622,7 +1645,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     {
         ServerSession::ServerChannel* channel = &session->channels[0];
         channel->state = ServerSession::ServerChannel::RECEIVING;
-        channel->currentRpc = new ServerRpc(session, 0);
+        channel->currentRpc.setup(session, 0);
         uint32_t totalFrags = 2;
         Buffer recvBuffer;
         channel->inboundMsg.init(totalFrags, &recvBuffer);
@@ -1639,7 +1662,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         session->processReceivedData(channel, &lastRecvd);
         CPPUNIT_ASSERT_EQUAL("first | last",
                              bufferToDebugString(&recvBuffer));
-        CPPUNIT_ASSERT_EQUAL(channel->currentRpc,
+        CPPUNIT_ASSERT_EQUAL(&channel->currentRpc,
                              &transport->serverReadyQueue.back());
         CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::PROCESSING,
                              session->channels[0].state);
