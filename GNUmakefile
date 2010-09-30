@@ -104,7 +104,7 @@ endef
 all:
 
 tests: test
-test: python-test mockpy-test
+test: all python-test mockpy-test
 
 .SUFFIXES:
 
