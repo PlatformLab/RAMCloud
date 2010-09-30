@@ -34,7 +34,7 @@ $(OBJDIR)/libramcloud.a: $(CLIENT_OBJFILES)
 
 $(OBJDIR)/libramcloud.so: $(CLIENT_SHARED_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) -shared -o $@ $^
+	$(CXX) -shared $(LIBS) -o $@ $^ -Wl,--no-undefined
 
 $(OBJDIR)/client: $(OBJDIR)/ClientMain.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
