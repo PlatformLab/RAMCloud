@@ -229,7 +229,8 @@ FastTransport::tryProcessPacket()
 
     if (header->getDirection() == Header::CLIENT_TO_SERVER) {
         // Packet is from the client being processed on the server.
-        // TODO(stutsman) Move token checks into session (and remove getToken method)
+        // TODO(stutsman) Move token checks into session (and remove getToken
+        // method)
         if (header->serverSessionHint < serverSessions.size()) {
             ServerSession* session = serverSessions[header->serverSessionHint];
             if (session->getToken() == header->sessionToken) {
@@ -265,7 +266,8 @@ FastTransport::tryProcessPacket()
         }
     } else {
         // Packet is from the server being processed on the client.
-        // TODO(stutsman) Move token checks into session (and remove getToken method)
+        // TODO(stutsman) Move token checks into session (and remove getToken
+        // method)
         if (header->clientSessionHint < clientSessions.size()) {
             ClientSession* session = clientSessions[header->clientSessionHint];
             TEST_LOG("client session processing packet");
@@ -411,7 +413,8 @@ FastTransport::ServerRpc::ServerRpc()
 {
 }
 
-/// Make sure this RPC isn't still in a list.  Should only happen during testing.
+/// Make sure this RPC isn't still in a list.  Should only happen during
+/// testing.
 FastTransport::ServerRpc::~ServerRpc()
 {
     maybeDequeue();
