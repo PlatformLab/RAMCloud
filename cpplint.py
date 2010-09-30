@@ -2350,9 +2350,10 @@ def CheckLanguage(filename, clean_lines, linenum, file_extension, include_state,
     if not Search(
         r'(swap|Swap|operator[<>][<>])\s*\(\s*(?:[\w:]|<.*>)+\s*&',
         fnline):
-      error(filename, linenum, 'runtime/references', 2,
-            'Is this a non-const reference? '
-            'If so, make const or use a pointer.')
+      if not Search('BOOST_FOREACH', fnline): # allow BOOST_FOREACH
+          error(filename, linenum, 'runtime/references', 2,
+                'Is this a non-const reference? '
+                'If so, make const or use a pointer.')
 
   # Check to see if they're using an conversion function cast.
   # I just try to capture the most common basic types, though there are more.
