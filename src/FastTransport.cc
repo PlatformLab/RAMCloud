@@ -229,8 +229,7 @@ FastTransport::tryProcessPacket()
 
     if (header->getDirection() == Header::CLIENT_TO_SERVER) {
         // Packet is from the client being processed on the server.
-        // TODO(stutsman) Move token checks into session (and remove getToken
-        // method)
+        // TODO(stutsman) Move token checks into session (remove getToken)
         if (header->serverSessionHint < serverSessions.size()) {
             ServerSession* session = serverSessions[header->serverSessionHint];
             if (session->getToken() == header->sessionToken) {
@@ -266,8 +265,7 @@ FastTransport::tryProcessPacket()
         }
     } else {
         // Packet is from the server being processed on the client.
-        // TODO(stutsman) Move token checks into session (and remove getToken
-        // method)
+        // TODO(stutsman) Move token checks into session (remove getToken)
         if (header->clientSessionHint < clientSessions.size()) {
             ClientSession* session = clientSessions[header->clientSessionHint];
             TEST_LOG("client session processing packet");
@@ -413,8 +411,7 @@ FastTransport::ServerRpc::ServerRpc()
 {
 }
 
-/// Make sure this RPC isn't still in a list.  Should only happen during
-/// testing.
+/// Make sure this RPC isn't still in a list.  Only happens during testing.
 FastTransport::ServerRpc::~ServerRpc()
 {
     maybeDequeue();
@@ -963,26 +960,29 @@ FastTransport::OutboundMessage::beginSending(Buffer* dataBuffer)
 }
 
 /**
- * Send out data packets and update timestamps/status in sentTimes.
- *
- * If a packet is retransmitted due to a timeout it is sent with a request
- * for ACK and no further packets are transmitted until the next event
- * (either an additional timeout or an ACK is processed).  If no packet
- * is retransmitted then the call will send as many fresh data packets as
- * the window allows with every REQ_ACK_AFTER th packet marked as request
- * for ACK.
+ * Send out data fragments and update timestamps/status in sentTimes as far
+ * as the window allows or until the first retransmit requesting ACKs where
+ * appropriate.
  *
  * Pre-conditions:
  *  - beginSending() must have been called since the last call to reset().
- *
- * Side-effects:
- *  - sentTimes is updated to reflect any sent packets.
- *  - If timers are enabled for this message then the timer is scheduled
- *    to fire when the next packet retransmit timeout occurs.
  */
 void
 FastTransport::OutboundMessage::send()
 {
+    /*
+     * If a packet is retransmitted due to a timeout it is sent with a request
+     * for ACK and no further packets are transmitted until the next event
+     * (either an additional timeout or an ACK is processed).  If no packet
+     * is retransmitted then the call will send as many fresh data packets as
+     * the window allows with every REQ_ACK_AFTER th packet marked as request
+     * for ACK.
+     *
+     * Side-effects:
+     *  - sentTimes is updated to reflect any sent packets.
+     *  - If timers are enabled for this message then the timer is scheduled
+     *    to fire when the next packet retransmit timeout occurs.
+     */
     uint64_t now = rdtsc();
 
     // First, decide on candidate range of packets to send/resend
@@ -1047,6 +1047,8 @@ FastTransport::OutboundMessage::send()
  * \param received
  *      Data received from a sender containing a packet header and a valid
  *      AckResponse payload.
+ * \return
+ *      true if the entire message is complete (has been acked).
  */
 bool
 FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
@@ -1054,15 +1056,18 @@ FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
     if (!sendBuffer)
         return false;
 
-    assert(received->len >= sizeof(Header) + sizeof(AckResponse));
+    if (received->len < sizeof(Header) + sizeof(AckResponse)) {
+        LOG(DEBUG, "Malformed ACK packet");
+        return false;
+    }
     AckResponse *ack =
         received->getOffset<AckResponse>(sizeof(Header));
 
     if (ack->firstMissingFrag < firstMissingFrag) {
         LOG(DEBUG, "OutboundMessage dropped stale ACK");
     } else if (ack->firstMissingFrag > totalFrags) {
-        LOG(DEBUG, "OutboundMessage dropped invalid ACK"
-                   "(shouldn't happen)");
+        LOG(DEBUG, "OutboundMessage dropped invalid ACK,"
+                   "firstMissingFrag beyond the end of the message");
     } else if (ack->firstMissingFrag >
              (firstMissingFrag + sentTimes.getLength())) {
         LOG(DEBUG, "OutboundMessage dropped ACK that advanced too far "
@@ -1086,11 +1091,9 @@ FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
 /**
  * Send out a single data fragment drawn from sendBuffer.
  *
- * This function also augments the packet header with the request ACK bit
- * if REQ_ACK_AFTER packets have been sent without requesting an ACK.
- *
  * \param fragNumber
- *      The fragment number to place in the packet header.
+ *      The fragment number to place in the packet header and which fragment
+ *      of the sendBuffer to transmit.
  * \param requestAck
  *      The packet header will have the request ACK bit set.
  */
