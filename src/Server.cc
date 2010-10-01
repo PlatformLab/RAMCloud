@@ -18,8 +18,8 @@
 #include "Metrics.h"
 #include "Server.h"
 #include "Rpc.h"
-#include "Service.h"
 #include "Transport.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -38,31 +38,21 @@ void tombstoneEvictionCallback(LogEntryType type,
  * \param config
  *      Contains various parameters that configure the operation of
  *      this server.
- * \param transport
- *      Transport object that this server uses to receive requests
- *      from clients and send replies back to them.
  * \param backupClient
  *      Provides a mechanism for replicating changes to other servers.
  *      If NULL then we create a default backup object.
  */
 Server::Server(const ServerConfig* config,
-               Transport* transport,
                BackupClient* backupClient)
-    : config(config), transport(transport), backup(backupClient), log(0)
+    : config(config), backup(backupClient), log(0)
 {
     void* p = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
 
     if (!backup) {
         MultiBackupClient* multiBackup = new MultiBackupClient();
         if (BACKUP) {
-            // This Service object will be deallocated in ~BackupHost().
-            Service* s = new Service();
-            s->setPort(BACKSVRPORT);
-            s->setIp(BACKSVRADDR);
-
-            // NOTE The backup client takes care of freeing the Service and
-            // Transport objects.
-            multiBackup->addHost(s, transport);
+            multiBackup->addHost(transportManager.getSession(BACKSVRADDR,
+                                                             BACKSVRPORT));
         }
         backup = multiBackup;
     }
@@ -385,7 +375,7 @@ Server::write(const WriteRequest* reqHdr, WriteResponse* respHdr,
 void
 Server::handleRpc()
 {
-    Transport::ServerRpc* rpc = transport->serverRecv();
+    Transport::ServerRpc* rpc = transportManager.serverRecv();
     Buffer* request = &rpc->recvPayload;
     RpcResponseCommon* responseCommon = NULL;
     try {

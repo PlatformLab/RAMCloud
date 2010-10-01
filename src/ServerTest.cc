@@ -19,6 +19,7 @@
 #include "Server.h"
 #include "TestUtil.h"
 #include "MockTransport.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -26,9 +27,8 @@ namespace RAMCloud {
 // info from the Server class.
 class TServer : public Server {
   public:
-    TServer(const ServerConfig* config, Transport* transIn,
-            BackupClient* backupClient = 0)
-            : Server(config, transIn, backupClient) { }
+    TServer(const ServerConfig* config, BackupClient* backupClient = 0)
+            : Server(config, backupClient) { }
     const char* tGetString(Buffer* buffer, uint32_t offset, uint32_t length) {
         return getString(buffer, offset, length);
     }
@@ -92,11 +92,13 @@ class ServerTest : public CppUnit::TestFixture {
     ServerTest() : transport(NULL), server(NULL), config() { }
     void setUp() {
         transport = new MockTransport();
-        server = new TServer(&config, transport, NULL);
+        transportManager.registerMock(transport);
+        server = new TServer(&config, NULL);
     }
 
     void tearDown() {
         delete server;
+        transportManager.unregisterMock();
         delete transport;
     }
 
@@ -126,7 +128,7 @@ class ServerTest : public CppUnit::TestFixture {
     }
 
     void test_destructor_deleteTables() {
-        TServer* s = new TServer(&config, transport, NULL);
+        TServer* s = new TServer(&config, NULL);
         Table::numDeletes = 0;
         Table** tables = s->tGetAllTables();
         tables[0] = new Table();

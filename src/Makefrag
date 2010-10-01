@@ -10,11 +10,11 @@ SHARED_SRCFILES := \
 		   src/Log.cc \
 		   src/Logging.cc \
 		   src/Segment.cc \
-		   src/Service.cc \
 		   src/ServiceLocator.cc \
 		   src/StringConverter.cc \
 		   src/TCPTransport.cc \
 		   src/Table.cc \
+		   src/TransportManager.cc \
 		   src/UDPDriver.cc \
 		   src/rabinpoly.cc \
 		   $(NULL)

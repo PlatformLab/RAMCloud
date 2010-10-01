@@ -47,8 +47,7 @@ struct ServerConfig {
 class Server {
   public:
     Server(const ServerConfig* config,
-                    Transport* transIn,
-                    BackupClient* backupClient = 0);
+           BackupClient* backupClient = 0);
     virtual ~Server();
     void handleRpc();
     void run();
@@ -77,7 +76,6 @@ class Server {
     // The following variables are copies of constructor arguments;
     // see constructor documentation for details.
     const ServerConfig* config;
-    Transport* transport;
     BackupClient* backup;
 
     /**

@@ -18,12 +18,10 @@
  * Provides a way to launch a standalone backup server.
  */
 
-#include <arpa/inet.h>
-
 #include "config.h"
 
 #include "BackupServer.h"
-#include "TCPTransport.h"
+#include "TransportManager.h"
 
 /**
  * Instantiates a backup server using the configuration information in
@@ -33,16 +31,10 @@
 int
 main()
 {
-    using ::RAMCloud::BackupServer;
-    using ::RAMCloud::Service;
-    using ::RAMCloud::TCPTransport;
+    using namespace RAMCloud;
 
-    Service backupService;
-    backupService.setIp(BACKSVRADDR);
-    backupService.setPort(BACKSVRPORT);
-
-    TCPTransport trans(BACKCLNTADDR, BACKCLNTPORT);
-    BackupServer server(&backupService, &trans, BACKUP_LOG_PATH);
+    transportManager.initialize(BACKSVRADDR, BACKSVRPORT);
+    BackupServer server(BACKUP_LOG_PATH);
 
     server.run();
 

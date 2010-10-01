@@ -18,6 +18,7 @@
 #include "Client.h"
 #include "TestUtil.h"
 #include "MockTransport.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -25,8 +26,7 @@ namespace RAMCloud {
 // info from the Client class.
 class TClient : public Client {
   public:
-    TClient(Service* service, Transport* transport)
-            : Client(service, transport) { }
+    explicit TClient(const char* serviceLocator) : Client(serviceLocator) { }
     void tThrowShortResponseError(Buffer* response) {
         throwShortResponseError(response);
     }
@@ -80,14 +80,14 @@ class ClientTest : public CppUnit::TestFixture {
 
   public:
     MockTransport* transport;
-    Service service;
     TClient* client;
     RejectRules rules;
 
-    ClientTest() : transport(NULL), service(), client(NULL), rules() { }
+    ClientTest() : transport(NULL), client(NULL), rules() { }
     void setUp() {
         transport = new MockTransport();
-        client = new TClient(&service, transport);
+        transportManager.registerMock(transport);
+        client = new TClient("mock:");
         client->selectPerfCounter(static_cast<PerfCounterType>(1),
                 static_cast<Mark>(2), static_cast<Mark>(3));
         memset(&rules, 0, sizeof(rules));
@@ -100,6 +100,7 @@ class ClientTest : public CppUnit::TestFixture {
 
     void tearDown() {
         delete client;
+        transportManager.unregisterMock();
         delete transport;
     }
 

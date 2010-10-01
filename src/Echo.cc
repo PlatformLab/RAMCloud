@@ -15,21 +15,21 @@
 
 #include "Common.h"
 #include "Buffer.h"
-#include "TCPTransport.h"
+#include "TransportManager.h"
 
 /**
  * \file
- * An echo server over TCPTransport.
+ * An echo server.
  */
 
 int
 main()
 {
     using namespace RAMCloud; // NOLINT
-    TCPTransport tx(SVRADDR, SVRPORT);
+    transportManager.initialize(SVRADDR, SVRPORT);
     while (true) {
         Buffer payload;
-        Transport::ServerRpc* rpc = tx.serverRecv();
+        Transport::ServerRpc* rpc = transportManager.serverRecv();
         Buffer::Iterator iter(rpc->recvPayload);
         while (!iter.isDone()) {
             Buffer::Chunk::appendToBuffer(&rpc->replyPayload,

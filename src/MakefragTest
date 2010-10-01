@@ -25,12 +25,12 @@ TESTS_SRCFILES := \
 		  src/ServerTest.cc \
 		  src/ServerTest.cc \
 		  src/ServiceLocatorTest.cc \
-		  src/ServiceTest.cc \
 		  src/StatusTest.cc \
 		  src/StringConverterTest.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
+		  src/TransportManagerTest.cc \
 		  $(TESTS_PYMOCK_OUTFILES)
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)

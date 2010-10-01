@@ -21,9 +21,7 @@
 
 #include "Common.h"
 #include "Buffer.h"
-#include "FastTransport.h"
-
-#include "UDPDriver.h"
+#include "TransportManager.h"
 
 /**
  * \file
@@ -113,19 +111,11 @@ try
 
     logger.setLogLevel(TRANSPORT_MODULE, DEBUG);
 
-    sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    if (inet_aton(&address[0], &addr.sin_addr) == 0)
-        throw Exception("inet_aton failed");
-
-    UDPDriver d(reinterpret_cast<const sockaddr *>(&addr),
-                static_cast<socklen_t>(sizeof(addr)));
-    FastTransport tx(&d);
+    transportManager.initialize(address, port);
 
     while (true) {
         Buffer payload;
-        Transport::ServerRpc* rpc = tx.serverRecv();
+        Transport::ServerRpc* rpc = transportManager.serverRecv();
         Buffer::Iterator iter(rpc->recvPayload);
         while (!iter.isDone()) {
             Buffer::Chunk::appendToBuffer(&rpc->replyPayload,

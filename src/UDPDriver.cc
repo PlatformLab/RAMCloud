@@ -14,6 +14,8 @@
  */
 
 #include <errno.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
@@ -23,30 +25,11 @@
 namespace RAMCloud {
 
 /**
- * Construct a UDPDriver that is unbound to any particular UDP address.
- *
- * For use by clients.
- */
-UDPDriver::UDPDriver()
-    : socketFd(-1), packetBufsUtilized(0)
-{
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd == -1)
-        throw UnrecoverableDriverException(errno);
-    socketFd = fd;
-}
-
-/**
  * Construct a UDPDriver that is bound to a particular UDP address.
  *
  * For use by servers.
- *
- * \param addr
- *      The address to bind to.
- * \param addrlen
- *      The length of addr.
  */
-UDPDriver::UDPDriver(const sockaddr *addr, socklen_t addrlen)
+UDPDriver::UDPDriver(const ServiceLocator* localServiceLocator)
     : socketFd(-1), packetBufsUtilized(0)
 {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -55,12 +38,25 @@ UDPDriver::UDPDriver(const sockaddr *addr, socklen_t addrlen)
         throw UnrecoverableDriverException(errno);
     }
 
-    int r = bind(fd, addr, addrlen);
-    if (r == -1) {
-        int e = errno;
-        close(fd);
-        LOG(ERROR, "Couldn't bind socket");
-        throw UnrecoverableDriverException(e);
+    if (localServiceLocator != NULL) {
+        const char* ip = localServiceLocator->getOption<const char*>("ip");
+        uint16_t port = localServiceLocator->getOption<uint16_t>("port");
+
+        sockaddr addrStorage;
+        sockaddr_in *addr = const_cast<sockaddr_in*>(
+            reinterpret_cast<const sockaddr_in*>(&addrStorage));
+        addr->sin_family = AF_INET;
+        addr->sin_port = htons(port);
+        if (inet_aton(ip, &addr->sin_addr) == 0)
+            throw UnrecoverableDriverException("inet_aton failed");
+
+        int r = bind(fd, &addrStorage, sizeof(*addr));
+        if (r == -1) {
+            int e = errno;
+            close(fd);
+            LOG(ERROR, "Couldn't bind socket");
+            throw UnrecoverableDriverException(e);
+        }
     }
 
     socketFd = fd;

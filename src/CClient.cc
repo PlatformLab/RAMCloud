@@ -21,7 +21,6 @@
 #include "Client.h"
 #include "CClient.h"
 #include "ClientException.h"
-#include "TCPTransport.h"
 
 using namespace RAMCloud;
 

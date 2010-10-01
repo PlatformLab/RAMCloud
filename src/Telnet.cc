@@ -13,35 +13,30 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
 #include "Common.h"
 #include "Buffer.h"
-#include "Service.h"
-#include "TCPTransport.h"
+#include "TransportManager.h"
 
 /**
  * \file
- * A telnet client over TCPTransport.
+ * A telnet client.
  */
 
 int
 main()
 {
     using namespace RAMCloud; // NOLINT
-    Service service;
-    service.setIp(SVRADDR);
-    service.setPort(SVRPORT);
-    TCPTransport tx(NULL, 0);
+
+    Transport::SessionRef session(
+        transportManager.getSession(SVRADDR, SVRPORT));
+
     char buf[1024];
     while (fgets(buf, sizeof(buf), stdin) != NULL) {
         Buffer request;
         Buffer response;
         Buffer::Chunk::appendToBuffer(&request, buf,
                                       static_cast<uint32_t>(strlen(buf)));
-        tx.clientSend(&service, &request, &response)->getReply();
+        session->clientSend(&request, &response)->getReply();
 
         uint32_t respLen = response.getTotalLength();
         if (respLen >= sizeof(buf))

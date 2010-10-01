@@ -14,7 +14,6 @@
  */
 
 #include "FastTransport.h"
-#include "MockDriver.h"
 
 namespace RAMCloud {
 
@@ -27,7 +26,8 @@ namespace RAMCloud {
  *
  * \param driver
  *      The lower-level driver (presumably to an unreliable mechanism) to
- *      send/receive fragments on.
+ *      send/receive fragments on. The transport takes ownership of this driver
+ *      and will delete it in the destructor.
  */
 FastTransport::FastTransport(Driver* driver)
     : driver(driver)
@@ -38,29 +38,28 @@ FastTransport::FastTransport(Driver* driver)
 {
 }
 
-// See Transport::clientSend().
-FastTransport::ClientRpc*
-FastTransport::clientSend(Service* service,
-                          Buffer* request,
-                          Buffer* response)
+FastTransport::~FastTransport()
 {
-    // Clear the response buffer if needed
-    uint32_t length = response->getTotalLength();
-    if (length)
-        response->reset();
+    delete driver;
+}
 
-    ClientRpc* rpc = new(request, MISC) ClientRpc(this, service,
-                                                  request, response);
-    rpc->start();
-    return rpc;
+// See Transport::getSession().
+Transport::SessionRef
+FastTransport::getSession(const ServiceLocator* serviceLocator)
+{
+    clientSessions.expire();
+    ClientSession* session = clientSessions.get();
+    session->init(serviceLocator);
+    return session;
 }
 
 // See Transport::serverRecv().
 FastTransport::ServerRpc*
 FastTransport::serverRecv()
 {
-    while (serverReadyQueue.empty())
-        poll();
+    poll();
+    if (serverReadyQueue.empty())
+        return NULL;
     ServerRpc* rpc = &serverReadyQueue.front();
     serverReadyQueue.pop_front();
     return rpc;
@@ -118,19 +117,6 @@ FastTransport::fireTimers()
             ++iter;
         }
     }
-}
-
-/**
- * Reuse an existing ClientSession or create and return a new one.
- *
- * \return
- *      A ClientSession that is IDLE and ready for use.
- */
-FastTransport::ClientSession*
-FastTransport::getClientSession()
-{
-    clientSessions.expire();
-    return clientSessions.get();
 }
 
 /**
@@ -292,33 +278,20 @@ FastTransport::tryProcessPacket()
  *
  * \param transport
  *      The Transport this RPC is to be emitted on.
- * \param service
- *      The Service this RPC is addressed to.
  * \param request
  *      The request payload including RPC headers.
  * \param[out] response
  *      The response payload including the RPC headers.
  */
 FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
-                                    Service* service,
                                     Buffer* request,
                                     Buffer* response)
     : requestBuffer(request)
     , responseBuffer(response)
-    , state(IDLE)
+    , state(IN_PROGRESS)
     , transport(transport)
-    , service(service)
-    , serverAddress()
-    , serverAddressLen(0)
     , channelQueueEntries()
 {
-    sockaddr_in *addr = const_cast<sockaddr_in*>(
-        reinterpret_cast<const sockaddr_in*>(&serverAddress));
-    addr->sin_family = AF_INET;
-    addr->sin_port = htons(service->getPort());
-    if (inet_aton(service->getIp(), &addr->sin_addr) == 0)
-        throw Exception("inet_aton failed");
-    serverAddressLen = sizeof(*addr);
 }
 
 // TODO(stutsman) getReply should return something or be renamed
@@ -340,9 +313,6 @@ FastTransport::ClientRpc::getReply()
 
     while (true) {
         switch (state) {
-        case IDLE:
-            LOG(ERROR, "getReply() shouldn't be possible while IDLE");
-            return;
         case IN_PROGRESS:
         default:
             transport->poll();
@@ -367,37 +337,6 @@ void
 FastTransport::ClientRpc::complete()
 {
     state = COMPLETED;
-}
-
-/**
- * Begin a RPC.  Internal to FastTransport.
- *
- * The RPC will reuse a session that is cached in the Service instance
- * it is connecting to or will acquire a new session automatically in order
- * to complete this RPC.
- *
- * Pre-conditions
- *  - The caller must ensure that this RPC is IDLE.
- * Post-conditions
- *  - RPC is IN_PROGRESS.
- *  - session is valid and connected.
- * Side-effects
- *  - The RPC's Service will be populated with the current session for reuse
- *    on future calls.
- */
-void
-FastTransport::ClientRpc::start()
-{
-    state = IN_PROGRESS;
-    ClientSession* session =
-        static_cast<ClientSession*>(service->getSession());
-    if (!session)
-        session = transport->clientSessions.get();
-    if (!session->isConnected())
-        session->connect(&serverAddress, serverAddressLen);
-    service->setSession(session);
-    LOG(DEBUG, "Using session id %u", session->id);
-    session->startRpc(this);
 }
 
 // --- ServerRpc ---
@@ -1451,7 +1390,7 @@ const uint32_t FastTransport::ClientSession::INVALID_HINT = 0xccccccccu;
  */
 FastTransport::ClientSession::ClientSession(FastTransport* transport,
                                             uint32_t sessionId)
-    : Session(transport, sessionId)
+    : FastTransport::Session(transport, sessionId)
     , nextFree(FastTransport::SessionTable<ClientSession>::NONE)
     , channels(0)
     , channelQueue()
@@ -1484,25 +1423,50 @@ FastTransport::ClientSession::close()
     token = INVALID_TOKEN;
 }
 
+// See Transport::Session::clientSend().
+FastTransport::ClientRpc*
+FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
+{
+    // Clear the response buffer if needed
+    uint32_t length = response->getTotalLength();
+    if (length)
+        response->reset();
+
+    ClientRpc* rpc = new(request, MISC) ClientRpc(transport,
+                                                  request, response);
+
+    // rpc will be performed immediately on the first available channel or
+    // queued until a channel is idle if none are currently available.
+    lastActivityTime = rdtsc();
+    if (!isConnected()) {
+        // TODO(ongaro): Check to make sure there is no outstanding session
+        // open request in flight first.
+        connect();
+        LOG(DEBUG, "Queueing RPC");
+        channelQueue.push_back(*rpc);
+    } else {
+        ClientChannel* channel = getAvailableChannel();
+        if (!channel) {
+            LOG(DEBUG, "Queueing RPC");
+            channelQueue.push_back(*rpc);
+        } else {
+            assert(channel->state == ClientChannel::IDLE);
+            channel->state = ClientChannel::SENDING;
+            channel->currentRpc = rpc;
+            channel->outboundMsg.beginSending(rpc->requestBuffer);
+        }
+    }
+
+    return rpc;
+}
+
 /**
  * Send a session open request to serverAddress and establishing an
  * open ServerSession on the remote end.
- *
- * \param serverAddress
- *      The address of the RPC server to connect to.
- * \param serverAddressLen
- *      The length of serverAddress.
  */
 void
-FastTransport::ClientSession::connect(const sockaddr* serverAddress,
-                                      socklen_t serverAddressLen)
+FastTransport::ClientSession::connect()
 {
-    if (serverAddress) {
-        assert(sizeof(this->serverAddress) >= serverAddressLen);
-        memcpy(&this->serverAddress, serverAddress, serverAddressLen);
-        this->serverAddressLen = serverAddressLen;
-    }
-
     // TODO(ongaro): Would it be possible to open a session like other
     // RPCs?
 
@@ -1525,6 +1489,8 @@ FastTransport::ClientSession::connect(const sockaddr* serverAddress,
 bool
 FastTransport::ClientSession::expire()
 {
+    if (refCount > 0)
+        return false;
     for (uint32_t i = 0; i < numChannels; i++) {
         if (channels[i].currentRpc)
             return false;
@@ -1561,6 +1527,23 @@ uint64_t
 FastTransport::ClientSession::getLastActivityTime()
 {
     return lastActivityTime;
+}
+
+/**
+ * Set the remote address on a client session.
+ */
+void
+FastTransport::ClientSession::init(const ServiceLocator* serviceLocator)
+{
+    sockaddr_in *addr = const_cast<sockaddr_in*>(
+        reinterpret_cast<const sockaddr_in*>(&serverAddress));
+    addr->sin_family = AF_INET;
+    addr->sin_port = htons(serviceLocator->getOption<uint16_t>("port"));
+    if (inet_aton(serviceLocator->getOption<const char*>("ip"),
+                  &addr->sin_addr) == 0) {
+        throw Exception("inet_aton failed");
+    }
+    serverAddressLen = sizeof(*addr);
 }
 
 /**
@@ -1613,7 +1596,7 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
             resetChannels();
             serverSessionHint = INVALID_HINT;
             token = INVALID_TOKEN;
-            connect(0, 0);
+            connect();
             break;
         default:
             LOG(DEBUG, "drop current rpcId with bad type");
@@ -1625,31 +1608,6 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
         } else {
             LOG(DEBUG, "drop old packet");
         }
-    }
-}
-
-/**
- * Perform a ClientRpc.
- *
- * rpc will be performed immediately on the first available channel or
- * queued until a channel is idle if none are currently available.
- *
- * \param rpc
- *      The ClientRpc to perform.
- */
-void
-FastTransport::ClientSession::startRpc(ClientRpc* rpc)
-{
-    lastActivityTime = rdtsc();
-    ClientChannel* channel = getAvailableChannel();
-    if (!channel) {
-        LOG(DEBUG, "Queueing RPC");
-        channelQueue.push_back(*rpc);
-    } else {
-        assert(channel->state == ClientChannel::IDLE);
-        channel->state = ClientChannel::SENDING;
-        channel->currentRpc = rpc;
-        channel->outboundMsg.beginSending(rpc->requestBuffer);
     }
 }
 

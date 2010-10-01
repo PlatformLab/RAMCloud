@@ -9,8 +9,11 @@ CLIENT_SRCFILES := \
 		   src/Driver.cc \
 		   src/FastTransport.cc \
 		   src/Logging.cc \
+		   src/ServiceLocator.cc \
 		   src/Status.cc \
+		   src/StringConverter.cc \
 		   src/TCPTransport.cc \
+		   src/TransportManager.cc \
 		   src/UDPDriver.cc \
 		   $(NULL)
 

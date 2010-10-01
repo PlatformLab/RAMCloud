@@ -22,10 +22,8 @@
 #include "Mark.h"
 #include "PerfCounterType.h"
 #include "Rpc.h"
-#include "Service.h"
 #include "Status.h"
 #include "Transport.h"
-#include "UDPDriver.h"
 
 namespace RAMCloud {
 
@@ -39,7 +37,7 @@ namespace RAMCloud {
 class Client {
   public:
     Client(const char* serverAddr, int serverPort);
-    Client(Service* service, Transport* transport);
+    explicit Client(const char* serviceLocator);
     virtual ~Client();
     void clearPerfCounter();
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
@@ -72,15 +70,9 @@ class Client {
     uint32_t counterValue;
 
   protected:
-    Service* service;              //!< For now we only know how to talk
+    Transport::SessionRef session; //!< For now we only know how to talk
                                    //!< to a single RAMCloud server; this
                                    //!< is a handle for that server.
-    UDPDriver* driver;
-    Transport* transport;          //!< Provides communication with a service.
-    bool weOwnTransportAndService; //!< True means that transport and service
-                                   //!< were created by us (the Client class)
-                                   //!< and should be destroyed by us; false
-                                   //!< means they were provided externally.
     RpcPerfCounter perfCounter;    //!< Every RPC request will ask the server
                                    //!< to measure this during the execution
                                    //!< of the RPC.

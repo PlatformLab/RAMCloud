@@ -177,6 +177,13 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
 #define sizeof0(x) sizeof(x)
 #endif
 
+/**
+ * Useful for ignoring the results of functions that emit a warning when their
+ * results are ignored. Not to discourage anyone, but if you're using this
+ * macro, you're probably doing something hacky.
+ */
+#define IGNORE_RESULT(x) if (x) {}
+
 #ifdef __cplusplus
 
 __inline __attribute__((always_inline, no_instrument_function))

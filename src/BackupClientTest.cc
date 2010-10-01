@@ -24,7 +24,6 @@ namespace RAMCloud {
  * Unit tests for BackupHost
  */
 class BackupHostTest : public CppUnit::TestFixture {
-    Service *service;
     MockTransport *transport;
 
     const std::string testMessage;
@@ -39,7 +38,7 @@ class BackupHostTest : public CppUnit::TestFixture {
 
   public:
     BackupHostTest()
-            : service(0), transport(0), testMessage("God hates ponies."),
+            : transport(0), testMessage("God hates ponies."),
               testMessageLen(0)
     {
         testMessageLen = static_cast<uint32_t>(testMessage.length());
@@ -111,8 +110,6 @@ class BackupHostTest : public CppUnit::TestFixture {
     void
     setUp()
     {
-        // The Service object will be deallocated by BackupHost.
-        service = new Service();
         transport = new MockTransport();
     }
 
@@ -129,7 +126,7 @@ class BackupHostTest : public CppUnit::TestFixture {
     void
     test_writeSegment_normal()
     {
-        BackupHost host(service, transport);
+        BackupHost host(transport->getSession());
 
         const char *data = "junk";
         const int32_t len = static_cast<uint32_t>(strlen(data)) + 1;
@@ -143,7 +140,7 @@ class BackupHostTest : public CppUnit::TestFixture {
     void
     test_getSegmentMetadata_normal()
     {
-        BackupHost host(service, transport);
+        BackupHost host(transport->getSession());
 
         uint32_t metasSize = 4;
         RecoveryObjectMetadata metas[4];

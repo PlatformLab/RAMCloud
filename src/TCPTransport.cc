@@ -189,6 +189,8 @@ TCPTransport::MessageSocket::send(const Buffer* payload)
 /**
  * Initialize a ServerSocket.
  * You should call this exactly once before using the object.
+ * \throw TransportException
+ *      There were no clients connection requests waiting.
  * \throw UnrecoverableTransportException
  *      Errors from #TCPTransport::ListenSocket::accept().
  */
@@ -197,33 +199,38 @@ TCPTransport::ServerSocket::init(ListenSocket* listenSocket)
 {
     assert(fd < 0);
     fd = listenSocket->accept();
+    if (fd < 0)
+        throw TransportException();
 }
 
 /**
  * Construct a ListenSocket and begin listening for incoming connections.
  *
- * If you pass \c NULL for \a ip or 0 for \a port, this is a no-op.
- *
- * \param ip
- *      The IP address to listen on in numbers-and-dots notation (as a string).
- *      The caller may modify this buffer following the return of this
- *      constructor.
- * \param port
- *      The port number to listen on in host byte order.
- * \exception UnrecoverableTransportException
- *      Bad IP address.
+ * \param serviceLocator
+ *      The address to listen on. If you pass \c NULL here, this instance
+ *      becomes a useless stub.
+ * \throw NoSuchKeyException
+ *      Service locator option missing.
+ * \throw BadValueException
+ *      Service locator option malformed.
  * \exception UnrecoverableTransportException
  *      Errors trying to create, bind, listen to the socket.
  */
-TCPTransport::ListenSocket::ListenSocket(const char* ip, uint16_t port)
+TCPTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
 {
-    if (ip == NULL || port == 0)
+    if (serviceLocator == NULL)
         return;
 
+    const char* ip = serviceLocator->getOption<const char*>("ip");
+    uint16_t port = serviceLocator->getOption<uint16_t>("port");
+
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
-    if (fd == -1) {
+    if (fd == -1)
         throw UnrecoverableTransportException(errno);
-    }
+
+    int r = sys->fcntl(fd, F_SETFL, O_NONBLOCK);
+    if (r != 0)
+        throw UnrecoverableTransportException(errno);
 
     int optval = 1;
     (void) sys->setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval,
@@ -247,9 +254,10 @@ TCPTransport::ListenSocket::ListenSocket(const char* ip, uint16_t port)
 }
 
 /**
- * Accept a new connection.
+ * Accept a new connection if one is waiting.
  * \return
- *      A non-negative file descriptor for the new connection.
+ *      A non-negative file descriptor for the new connection, or -1 if no
+ *      connection requests were waiting.
  * \throw UnrecoverableTransportException
  *      Non-transient errors accepting a new connection.
  */
@@ -260,25 +268,28 @@ TCPTransport::ListenSocket::accept()
     // you're not allowed to accept now.
     assert(fd > 0);
 
-    while (true) {
-        int acceptedFd = sys->accept(fd, NULL, NULL);
-        if (acceptedFd >= 0)
-            return acceptedFd;
-        switch (errno) {
-            case EHOSTDOWN:
-            case EHOSTUNREACH:
-            case ENETDOWN:
-            case ENETUNREACH:
-            case ENONET:
-            case ENOPROTOOPT:
-            case EOPNOTSUPP:
-            case EPROTO:
-                // According to the man page, you're supposed to treat these as
-                // retry on Linux.
-                break;
-            default:
-                throw UnrecoverableTransportException(errno);
-        }
+    int acceptedFd = sys->accept(fd, NULL, NULL);
+    if (acceptedFd >= 0)
+        return acceptedFd;
+    switch (errno) {
+        // According to the man page, you're supposed to treat these as
+        // retry on Linux.
+        case EHOSTDOWN:
+        case EHOSTUNREACH:
+        case ENETDOWN:
+        case ENETUNREACH:
+        case ENONET:
+        case ENOPROTOOPT:
+        case EOPNOTSUPP:
+        case EPROTO:
+            return -1;
+
+        // No incoming connections are currently available.
+        case EAGAIN:
+            return -1;
+
+        default:
+            throw UnrecoverableTransportException(errno);
     }
 }
 
@@ -349,50 +360,26 @@ TCPTransport::TCPClientRpc::getReply()
     clientSocket->recv(reply);
 }
 
-/**
- * Constructor for TCPTransport.
- *
- * If this is a client transport only, use \c NULL for \a ip and 0 for \a port.
- * It is then illegal to call #serverRecv().
- *
- * \param ip
- *      The IP address to listen on in numbers-and-dots notation (as a string).
- *      The caller may modify this buffer following the return of this
- *      constructor. For client transports, see above.
- * \param port
- *      The port number to listen on in host byte order. For client transports,
- *      see above.
- * \exception UnrecoverableTransportException
- *      Errors trying to listen on the IP address and port.
- */
-TCPTransport::TCPTransport(const char* ip, uint16_t port)
-    : listenSocket(ip, port)
-{
-}
-
 Transport::ServerRpc*
 TCPTransport::serverRecv()
 {
     std::auto_ptr<TCPServerRpc> rpc(new TCPServerRpc());
 
-    while (true) {
+    try {
         rpc->serverSocket->init(&listenSocket);
-        try {
-            rpc->serverSocket->recv(&rpc->recvPayload);
-            break;
-        } catch (TransportException e) {}
+        rpc->serverSocket->recv(&rpc->recvPayload);
+    } catch (TransportException e) {
+        return NULL;
     }
-
     return rpc.release();
 }
 
 Transport::ClientRpc*
-TCPTransport::clientSend(Service* service, Buffer* request,
-                         Buffer* response)
+TCPTransport::TCPSession::clientSend(Buffer* request, Buffer* response)
 {
     std::auto_ptr<TCPClientRpc> rpc(new TCPClientRpc());
 
-    rpc->clientSocket->init(service->getIp(), service->getPort());
+    rpc->clientSocket->init(ip, port);
     rpc->clientSocket->send(request);
     rpc->reply = response;
 
