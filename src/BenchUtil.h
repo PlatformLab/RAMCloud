@@ -28,6 +28,7 @@ namespace RAMCloud {
 uint64_t getCyclesPerSecond();
 uint64_t cyclesToNanoseconds(uint64_t cycles);
 double cyclesToSeconds(uint64_t cycles);
+uint64_t nanosecondsToCycles(uint64_t ns);
 
 } // end RAMCloud
 

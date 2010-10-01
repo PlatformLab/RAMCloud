@@ -2,6 +2,7 @@ OBJDIRS += client_shared
 
 CLIENT_SRCFILES := \
 		   src/Buffer.cc \
+           src/BenchUtil.cc \
 		   src/CClient.cc \
 		   src/Client.cc \
 		   src/ClientException.cc \

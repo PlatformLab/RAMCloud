@@ -27,6 +27,7 @@
 #include "Driver.h"
 #include "Ring.h"
 #include "BoostIntrusive.h"
+#include "BenchUtil.h"
 
 #undef CURRENT_LOG_MODULE
 #define CURRENT_LOG_MODULE RAMCloud::TRANSPORT_MODULE
@@ -176,6 +177,40 @@ class FastTransport : public Transport {
 
     /// Time after which a Session is considered dead if no activity is seen.
     enum { SESSION_TIMEOUT_NS = 60lu * 60 * 1000 * 1000 * 1000 }; // 30 min
+
+    /**
+     * Number of cycles this CPU's TSC should increment before considering
+     * a fragment to be timed out.
+     */
+    static uint64_t
+    timeoutCycles()
+    {
+#if TESTING
+        if (mockTSCValue)
+            return 2 * TIMEOUT_NS;
+#endif
+        static uint64_t value = 0;
+        if (value == 0)
+            value = nanosecondsToCycles(TIMEOUT_NS);
+        return value;
+    }
+
+    /**
+     * Number of cycles this CPU's TSC should increment before considering
+     * a session to be timed out.
+     */
+    static uint64_t
+    sessionTimeoutCycles()
+    {
+#if TESTING
+        if (mockTSCValue)
+            return 2 * SESSION_TIMEOUT_NS;
+#endif
+        static uint64_t value = 0;
+        if (value == 0)
+            value = nanosecondsToCycles(SESSION_TIMEOUT_NS);
+        return value;
+    }
 
     /**
      * Abstract base class for all timer events.
@@ -1173,7 +1208,7 @@ class FastTransport : public Transport {
 
         /**
          * Scan the table looking for Session whose lastActivityTime is
-         * beyond SESSION_TIMEOUT_NS, calling Session::expire() on them
+         * beyond sessionTimeoutCycles(), calling Session::expire() on them
          * and returning them to the free list if possible.
          *
          * This implementation checks 5 sessions to see if they are ready
@@ -1193,7 +1228,7 @@ class FastTransport : public Transport {
                 T* session = sessions[lastCleanedIndex];
                 if (session->nextFree == NONE &&
                     (session->getLastActivityTime() +
-                     SESSION_TIMEOUT_NS <= now)) {
+                     sessionTimeoutCycles() <= now)) {
                     if (session->expire())
                         put(session);
                 }

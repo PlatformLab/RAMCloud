@@ -663,7 +663,7 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
     this->totalFrags = totalFrags;
     this->dataBuffer = dataBuffer;
     if (timer.useTimer)
-        transport->addTimer(&timer, rdtsc() + TIMEOUT_NS);
+        transport->addTimer(&timer, rdtsc() + timeoutCycles());
 }
 
 /**
@@ -764,7 +764,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     if (header->requestAck)
         sendAck();
     if (timer.useTimer)
-         transport->addTimer(&timer, rdtsc() + TIMEOUT_NS);
+         transport->addTimer(&timer, rdtsc() + timeoutCycles());
 
     return firstMissingFrag == totalFrags;
 }
@@ -786,7 +786,7 @@ FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
 }
 
 /**
- * If this message is taking too long then close it (TIMEOUT_NS *
+ * If this message is taking too long then close it (timeoutCycles() *
  * TIMEOUTS_UNTIL_ABORTING), otherwise send an AckResponse.
  *
  * This prevents the connection from stalling if incoming fragments
@@ -804,7 +804,7 @@ FastTransport::InboundMessage::Timer::onTimerFired(uint64_t now)
         inboundMsg->session->close();
     } else {
         inboundMsg->transport->addTimer(this,
-                                        now + TIMEOUT_NS);
+                                        now + timeoutCycles());
         inboundMsg->sendAck();
     }
 }
@@ -939,7 +939,7 @@ FastTransport::OutboundMessage::send()
         uint64_t sentTime = sentTimes[i];
         // skip if ACKED or if already sent but not yet timed out
         if ((sentTime == ACKED) ||
-            (sentTime != 0 && sentTime + TIMEOUT_NS >= now))
+            (sentTime != 0 && sentTime + timeoutCycles() >= now))
             continue;
         // isRetransmit if already sent and timed out (guaranteed by if above)
         bool isRetransmit = sentTime != 0;
@@ -969,7 +969,7 @@ FastTransport::OutboundMessage::send()
                     oldest = sentTime;
         }
         if (oldest != ~(0lu))
-            transport->addTimer(&timer, oldest + TIMEOUT_NS);
+            transport->addTimer(&timer, oldest + timeoutCycles());
     }
 }
 
@@ -1078,7 +1078,7 @@ FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
 }
 
 /**
- * If this message is taking too long then close it (TIMEOUT_NS *
+ * If this message is taking too long then close it (timeoutCycles() *
  * TIMEOUTS_UNTIL_ABORTING), otherwise resend unacked packets
  * that were sent awhile ago.
  *

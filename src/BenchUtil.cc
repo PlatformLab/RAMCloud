@@ -108,4 +108,18 @@ cyclesToSeconds(uint64_t cycles)
     return result / getCyclesPerSecond();
 }
 
+/**
+ * Given a number of nanoseconds, return an approximate number of
+ * cycles for an equivalent time length.
+ * \param ns
+ *      Number of nanoseconds.
+ * \return
+ *      The approximate number of cycles for the same time length.
+ */
+uint64_t
+nanosecondsToCycles(uint64_t ns)
+{
+    return (ns * getCyclesPerSecond()) / 1000 * 1000 * 1000;
+}
+
 } // end RAMCloud

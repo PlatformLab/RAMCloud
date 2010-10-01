@@ -389,7 +389,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         TestLog::Enable _(&tppPred);
 
         ServerSession* session = transport->serverSessions.get();
-        MockTSC __(SESSION_TIMEOUT_NS * 2);
+        MockTSC __(sessionTimeoutCycles() * 2);
         SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
         MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
         recvd.getHeader()->sessionToken = session->token + 1;
@@ -945,7 +945,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         msg->processReceivedData(&recvd);
 
         CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
-        CPPUNIT_ASSERT(TIMEOUT_NS <= msg->timer.when);
+        CPPUNIT_ASSERT(timeoutCycles() <= msg->timer.when);
     }
 
   private:
@@ -1010,7 +1010,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         , session()
         , buffer(NULL)
         , msg(NULL)
-        , tsc(999 + TIMEOUT_NS)
+        , tsc(999 + 2 * TIMEOUT_NS)
     {
     }
 
@@ -1150,7 +1150,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     void
     test_send_nothingToSend()
     {
-        msg->sentTimes[0] = tsc - TIMEOUT_NS;
+        msg->sentTimes[0] = tsc - timeoutCycles();
         msg->sentTimes[1] = OutboundMessage::ACKED;
         msg->numAcked = 1;
 
@@ -1162,7 +1162,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     test_send_dueToTimeout()
     {
         // this will get resent due to timeout
-        msg->sentTimes[0] = tsc - TIMEOUT_NS - 1;
+        msg->sentTimes[0] = tsc - timeoutCycles() - 1;
         // note that though this is ready to send it will not go out
         // because the protocol out sends out a single packet when
         // a retransmit occurs
@@ -1213,7 +1213,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(0, msg->timer.when);
         CPPUNIT_ASSERT(!msg->timer.listEntries.is_linked());
         msg->send();
-        CPPUNIT_ASSERT_EQUAL(99 + TIMEOUT_NS, msg->timer.when);
+        CPPUNIT_ASSERT_EQUAL(99 + timeoutCycles(), msg->timer.when);
         CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
     }
 
@@ -1235,7 +1235,8 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         msg->send();
         string s;
         sentTimesRingToString(msg->sentTimes, s);
-        CPPUNIT_ASSERT_EQUAL("10000999, 10000999, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
+        CPPUNIT_ASSERT_EQUAL("20000999, 20000999, 0, 0, 0, "
+                             "0, 0, 0, 0, 0, 0, "
                              "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
                              "0, 0, 0, 0, 0, 0,", s);
         s = "";
@@ -1266,7 +1267,8 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
 
         string s;
         sentTimesRingToString(msg->sentTimes, s);
-        CPPUNIT_ASSERT_EQUAL("10000999, 10000999, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
+        CPPUNIT_ASSERT_EQUAL("20000999, 20000999, 0, 0, 0, "
+                             "0, 0, 0, 0, 0, 0, "
                              "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
                              "0, 0, 0, 0, 0, 0,", s);
         s = "";
@@ -1280,7 +1282,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         s = "";
         sentTimesRingToString(msg->sentTimes, s);
         CPPUNIT_ASSERT_EQUAL(
-            "10000999, ACKED, ACKED, ACKED, ACKED, ACKED, "
+            "20000999, ACKED, ACKED, ACKED, ACKED, ACKED, "
             "ACKED, ACKED, ACKED, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
             "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,",
             s);
@@ -2225,7 +2227,7 @@ class SessionTableTest : public CppUnit::TestFixture, FastTransport {
     void
     test_expire()
     {
-        uint64_t tsc = SESSION_TIMEOUT_NS;
+        uint64_t tsc = sessionTimeoutCycles();
         MockTSC _(tsc);
         SessionTable<MockSession> st(NULL);
 
