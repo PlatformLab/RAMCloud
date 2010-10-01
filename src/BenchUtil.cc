@@ -90,7 +90,7 @@ getCyclesPerSecond()
 uint64_t
 cyclesToNanoseconds(uint64_t cycles)
 {
-    return (cycles * 1000 * 1000 / getCyclesPerSecond());
+    return (cycles * 1000 * 1000 * 1000 / getCyclesPerSecond());
 }
 
 /**
