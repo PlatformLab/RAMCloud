@@ -26,7 +26,6 @@
 #include "Transport.h"
 #include "Driver.h"
 #include "Ring.h"
-#include "Service.h"
 #include "BoostIntrusive.h"
 
 #undef CURRENT_LOG_MODULE
@@ -44,6 +43,7 @@ class FastTransport : public Transport {
     class ClientSession;
   public:
     explicit FastTransport(Driver* driver);
+    ~FastTransport();
 
     /**
      * Manages an entire request/response cycle from the client perspective.
@@ -56,11 +56,10 @@ class FastTransport : public Transport {
         void getReply();
 
       private:
-        ClientRpc(FastTransport* transport, Service* service,
+        ClientRpc(FastTransport* transport,
                   Buffer* request, Buffer* response);
         void abort();
         void complete();
-        void start();
 
         /// Contains an RPC request payload including the RPC header.
         Buffer* const requestBuffer;
@@ -70,23 +69,13 @@ class FastTransport : public Transport {
 
         /// Current state of the RPC.
         enum {
-            IDLE,           ///< Initial state, required for start().
-            IN_PROGRESS,    ///< State of a start()ed but incomplete RPC.
+            IN_PROGRESS,    ///< State of an incomplete RPC.
             COMPLETED,      ///< State of an RPC after request/response cycle.
             ABORTED,        ///< State of an RPC after a failure.
         } state;
 
         /// The Transport on which to send/receive the RPC.
         FastTransport* const transport;
-
-        /// The Service to which the RPC is directed.
-        Service* service;
-
-        /// Extracted from service.  Stored because it's a pain to generate.
-        const sockaddr serverAddress;
-
-        /// Length of serverAddress.
-        socklen_t serverAddressLen;
 
         /// Entries to allow this RPC to be placed in a channel queue.
         IntrusiveListHook channelQueueEntries;
@@ -99,8 +88,8 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(ClientRpc);
     };
 
-    virtual ClientRpc* clientSend(Service* service,
-                                  Buffer* request, Buffer* response);
+    virtual Transport::SessionRef
+    getSession(const ServiceLocator* serviceLocator);
 
     /**
      * Serves as a unit of storage allocation for per Rpc server state.
@@ -940,19 +929,22 @@ class FastTransport : public Transport {
      * Manages RPCs between a particular client and server from
      * the client perspective.
      */
-    class ClientSession : public Session {
+    class ClientSession : public Session, public Transport::Session {
       public:
         ClientSession(FastTransport* transport, uint32_t sessionId);
+
+        ClientRpc* clientSend(Buffer* request, Buffer* response);
+
         void close();
-        void connect(const sockaddr* serverAddress,
-                     socklen_t serverAddressLen);
+        void connect();
         bool expire();
         void fillHeader(Header* const header, uint8_t channelId) const;
         const sockaddr* getAddress(socklen_t *len);
         uint64_t getLastActivityTime();
+        void init(const ServiceLocator* serviceLocator);
         bool isConnected();
         void processInboundPacket(Driver::Received* received);
-        void startRpc(ClientRpc* rpc);
+        void release() { expire(); }
 
         /// Used to trash the hint field; shouldn't be seen on the wire.
         static const uint32_t INVALID_HINT;
@@ -998,7 +990,7 @@ class FastTransport : public Transport {
              *      The particular channel in session this channel represents.
              */
             void setup(FastTransport* transport,
-                       Session* session,
+                       FastTransport::Session* session,
                        uint32_t channelId)
             {
                 state = IDLE;
@@ -1243,7 +1235,6 @@ class FastTransport : public Transport {
     void addTimer(Timer* timer, uint64_t when);
     uint32_t dataPerFragment();
     void fireTimers();
-    virtual ClientSession* getClientSession();
     uint32_t numFrags(const Buffer* dataBuffer);
     VIRTUAL_FOR_TESTING void poll();
     void removeTimer(Timer* timer);

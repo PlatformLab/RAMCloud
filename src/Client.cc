@@ -16,8 +16,7 @@
 #include <assert.h>
 #include "Client.h"
 #include "ClientException.h"
-#include "FastTransport.h"
-#include "TCPTransport.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -25,52 +24,30 @@ namespace RAMCloud {
 RejectRules defaultRejectRules;
 
 /**
- * Construct a Client for a particular server address: ensures that
- * the cluster exists and opens a connection with the cluster coordinator.
- *
- * \param serverAddr
- *      Name of the desired server host (IP address/name).
- * \param serverPort
- *      Port number to use for server connection.
- * \exception CouldntConnectException
- *      Couldn't connect to the server.
+ * For temporary use until service locator strings are fully adopted.
+ * See the other constructor for details.
  */
-
 Client::Client(const char* serverAddr, int serverPort)
-        : status(STATUS_OK),  counterValue(0), service(NULL),
-          driver(0), transport(NULL), weOwnTransportAndService(true),
-          perfCounter()
-{
-    // The code below is a temporary hack until we get a real
-    // cluster manager: it allows us to communicate with a single
-    // RAMCloud server.
-    service = new Service();
-    service->setIp(serverAddr);
-    service->setPort(serverPort);
-    if (USE_FASTTRANSPORT) {
-        driver = new UDPDriver();
-        transport = new FastTransport(driver);
-    } else {
-        transport = new TCPTransport(NULL, 0);
-    }
-}
+        : status(STATUS_OK),  counterValue(0),
+          session(transportManager.getSession(serverAddr, serverPort)),
+          perfCounter() { }
 
 /**
- * Construct a Client object to use a specific Transport and Service;
- * used primarily for testing.
+ * Construct a Client for a particular service: opens a connection with the
+ * service.
  *
- * \param service
- *      Service that will respond to RPC requests.
- * \param transport
- *      Object used to communicate with the server.
+ * \param serviceLocator
+ *      The service locator for the master (later this will be for the
+ *      coordinator).
+ *      See \ref ServiceLocatorStrings.
  * \exception CouldntConnectException
  *      Couldn't connect to the server.
  */
+Client::Client(const char* serviceLocator)
+        : status(STATUS_OK),  counterValue(0),
+          session(transportManager.getSession(serviceLocator)),
+          perfCounter() { }
 
-Client::Client(Service* service, Transport* transport)
-        : status(STATUS_OK),  counterValue(0), service(service),
-          driver(0), transport(transport), weOwnTransportAndService(false),
-          perfCounter()  { }
 
 /**
  * Destructor for Client objects: releases all resources for the
@@ -78,11 +55,6 @@ Client::Client(Service* service, Transport* transport)
  */
 Client::~Client()
 {
-    if (weOwnTransportAndService) {
-        delete service;
-        delete transport;
-        delete driver;
-    }
 }
 
 /**
@@ -134,7 +106,7 @@ Client::create(uint32_t tableId, const void* buf, uint32_t length,
     reqHdr->tableId = tableId;
     reqHdr->length = length;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
-    transport->clientSend(service, &req, &resp)->getReply();
+    session->clientSend(&req, &resp)->getReply();
 
     respHdr = static_cast<const CreateResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
@@ -174,7 +146,7 @@ Client::createTable(const char* name)
     reqHdr->common.perfCounter = perfCounter;
     reqHdr->nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
-    transport->clientSend(service, &req, &resp)->getReply();
+    session->clientSend(&req, &resp)->getReply();
 
     respHdr = static_cast<const CreateTableResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
@@ -214,7 +186,7 @@ Client::dropTable(const char* name)
     reqHdr->common.perfCounter = perfCounter;
     reqHdr->nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
-    transport->clientSend(service, &req, &resp)->getReply();
+    session->clientSend(&req, &resp)->getReply();
 
     respHdr = static_cast<const DropTableResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
@@ -256,7 +228,7 @@ Client::openTable(const char* name)
     reqHdr->common.perfCounter = perfCounter;
     reqHdr->nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
-    transport->clientSend(service, &req, &resp)->getReply();
+    session->clientSend(&req, &resp)->getReply();
 
     respHdr = static_cast<const OpenTableResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
@@ -290,7 +262,7 @@ Client::ping()
     reqHdr = new(&req, APPEND) PingRequest;
     reqHdr->common.type = PING;
     reqHdr->common.perfCounter = perfCounter;
-    transport->clientSend(service, &req, &resp)->getReply();
+    session->clientSend(&req, &resp)->getReply();
 
     respHdr = static_cast<const PingResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
@@ -341,7 +313,7 @@ Client::read(uint32_t tableId, uint64_t id, Buffer* value,
     reqHdr->tableId = tableId;
     reqHdr->pad1 = 0;                            // Needed only for tesing.
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    transport->clientSend(service, &req, value)->getReply();
+    session->clientSend(&req, value)->getReply();
 
     respHdr = static_cast<const ReadResponse*>(
              value->getRange(0, sizeof(*respHdr)));
@@ -404,7 +376,7 @@ Client::remove(uint32_t tableId, uint64_t id,
     reqHdr->tableId = tableId;
     reqHdr->pad1 = 0;                            // Needed only for testing.
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    transport->clientSend(service, &req, &resp)->getReply();
+    session->clientSend(&req, &resp)->getReply();
 
     respHdr = static_cast<const RemoveResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
@@ -489,7 +461,7 @@ Client::write(uint32_t tableId, uint64_t id, const void* buf, uint32_t length,
     reqHdr->length = length;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
-    transport->clientSend(service, &req, &resp)->getReply();
+    session->clientSend(&req, &resp)->getReply();
 
     respHdr = static_cast<const WriteResponse *>(
              resp.getRange(0, sizeof(*respHdr)));

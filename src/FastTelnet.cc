@@ -21,10 +21,8 @@
 
 #include "Common.h"
 #include "Buffer.h"
-#include "Service.h"
-#include "FastTransport.h"
+#include "TransportManager.h"
 #include "CycleCounter.h"
-#include "UDPDriver.h"
 
 
 /**
@@ -144,19 +142,16 @@ try
 
     logger.setLogLevels(WARNING);
 
-    UDPDriver d;
-    FastTransport tx(&d);
-
-    Service service[multi];
+    Transport::SessionRef session[multi];
     for (int i = 0; i < multi; i++) {
-        service[i].setIp(address);
-        service[i].setPort(port + (sameServer ? 0 : i));
+        session[i] = transportManager.getSession(address,
+                                                 port + (sameServer ? 0 : i));
     }
 
     if (!generate) {
         char sendbuf[1024];
         char recvbuf[multi][1024];
-        FastTransport::ClientRpc* rpcs[multi];
+        Transport::ClientRpc* rpcs[multi];
         LOG(DEBUG, "Sending to %d servers", multi);
         while (fgets(sendbuf, sizeof(sendbuf), stdin) != NULL) {
             Buffer response[multi];
@@ -165,8 +160,8 @@ try
                 Buffer::Chunk::appendToBuffer(&request[i], sendbuf,
                     static_cast<uint32_t>(strlen(sendbuf)));
                 LOG(DEBUG, "Sending out request %d to port %d",
-                    i, service[i].getPort());
-                rpcs[i] = tx.clientSend(&service[i], &request[i], &response[i]);
+                    i, port + (sameServer ? 0 : i));
+                rpcs[i] = session[i]->clientSend(&request[i], &response[i]);
             }
 
             for (int i = 0; i < multi; i++) {
@@ -192,7 +187,7 @@ try
             for (uint32_t i = 0; i < totalFrags; i++)
                 Buffer::Chunk::appendToBuffer(&request, buf, sizeof(buf));
             CycleCounter c;
-            tx.clientSend(&service[0], &request, &response)->getReply();
+            session[0]->clientSend(&request, &response)->getReply();
         }
     }
     return 0;

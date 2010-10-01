@@ -17,9 +17,10 @@
 #define RAMCLOUD_TRANSPORT_H
 
 #include <string>
+#include <boost/intrusive_ptr.hpp>
 
 #include "Common.h"
-#include "Service.h"
+#include "ServiceLocator.h"
 #include "Buffer.h"
 
 namespace RAMCloud {
@@ -85,7 +86,7 @@ class Transport {
         /**
          * Wait for the RPC response to arrive.
          *
-         * The response will be available in the #::Buffer passed to
+         * The response will be available in the #Buffer passed to
          * #clientSend() when this call returns.
          *
          * You should discard all pointers to this #ClientRpc object after this
@@ -144,6 +145,68 @@ class Transport {
     };
 
     /**
+     * A handle to send RPCs to a particular service.
+     */
+    class Session {
+      public:
+        Session() : refCount(0) {}
+        virtual ~Session() {
+            assert(refCount == 0);
+        }
+
+        /**
+         * Called when the reference count to this session drops to 0.
+         */
+        virtual void release() = 0;
+
+        /**
+         * Send an RPC request.
+         * \param[in] request
+         *      The RPC request payload to send. The caller must not modify or
+         *      even access \a request until the corresponding call to
+         *      #Transport::ClientRpc::getReply() returns. The Transport may
+         *      add new chunks to \a request but will not modify its existing
+         *      chunks.
+         * \param[out] response
+         *      An initialized Buffer that will be filled in with the received
+         *      RPC response. The caller must not access \a response until the
+         *      corresponding call to #Transport::ClientRpc::getReply()
+         *      returns.
+         * \return
+         *      The RPC object through which to receive the reply. The caller
+         *      must use #Transport::ClientRpc::getReply() to release the
+         *      resources associated with this object.
+         * \throw TransportException
+         *      If the service is unavailable.
+         */
+        virtual ClientRpc* clientSend(Buffer* request, Buffer* response)
+            __attribute__((warn_unused_result)) = 0;
+
+        /// Used by boost::intrusive_ptr. Do not call explicitly.
+        friend void intrusive_ptr_add_ref(Session* session) {
+            ++session->refCount;
+        }
+
+        /// Used by boost::intrusive_ptr. Do not call explicitly.
+        friend void intrusive_ptr_release(Session* session) {
+            if (--session->refCount == 0)
+                session->release();
+        }
+
+      protected:
+        uint32_t refCount;
+      private:
+        DISALLOW_COPY_AND_ASSIGN(Session);
+    };
+
+    /**
+     * A reference to a #Session object on which to send client RPC requests.
+     * When no more references to a session exist, the transport may reclaim
+     * its memory.
+     */
+    typedef boost::intrusive_ptr<Session> SessionRef;
+
+    /**
      * Constructor for Transport.
      */
     Transport() {}
@@ -154,37 +217,25 @@ class Transport {
     virtual ~Transport() {}
 
     /**
-     * Wait for any RPC request to arrive.
+     * Get the next RPC request that has arrived.
      * \return
-     *      The RPC object through which to send a reply. The caller must use
-     *      either #Transport::ServerRpc::sendReply() to release the resources
-     *      associated with this object.
+     *      The RPC object through which to send a reply, or NULL of no RPC
+     *      requests were waiting. The caller must use either
+     *      #Transport::ServerRpc::sendReply() to release the resources
+     *      associated with this object (if it is not NULL).
      */
     virtual ServerRpc* serverRecv() __attribute__((warn_unused_result)) = 0;
 
     /**
-     * Send an RPC request.
-     * \param[in] service
-     *      The service to which the request shall be sent.
-     * \param[in] request
-     *      The RPC request payload to send. The caller must not modify or even
-     *      access \a request until the corresponding call to
-     *      #Transport::ClientRpc::getReply() returns. The Transport may add
-     *      new chunks to \a request but will not modify its existing chunks.
-     * \param[out] response
-     *      An initialized Buffer that will be filled in with the received RPC
-     *      response. The caller must not access \a response until the
-     *      corresponding call to #Transport::ClientRpc::getReply() returns.
-     * \return
-     *      The RPC object through which to receive the reply. The caller must
-     *      use #Transport::ClientRpc::getReply() to release the resources
-     *      associated with this object.
+     * Return a session that will communicate with the given service locator.
+     * \throw NoSuchKeyException
+     *      Service locator option missing.
+     * \throw BadValueException
+     *      Service locator option malformed.
      * \throw TransportException
-     *      If \a service is unavailable.
+     *      The transport can't open a session for \a serviceLocator.
      */
-    virtual ClientRpc* clientSend(Service* service, Buffer* request,
-                                  Buffer* response)
-        __attribute__((warn_unused_result)) = 0;
+    virtual SessionRef getSession(const ServiceLocator* serviceLocator) = 0;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(Transport);

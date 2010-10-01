@@ -18,6 +18,7 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <fcntl.h>
 #include <map>
 #include <list>
 
@@ -35,12 +36,19 @@ class TCPTransport : public Transport {
   friend class SocketTest;
 
   public:
-    TCPTransport(const char* ip, uint16_t port);
+    /**
+     * Construct a TCPTransport instance.
+     * For exceptions, see #ListenSocket().
+     * \param serviceLocator
+     *      If non-NULL, the address on which to receive RPC requests.
+     */
+    explicit TCPTransport(const ServiceLocator* serviceLocator = NULL)
+        : listenSocket(serviceLocator) {}
 
     ServerRpc* serverRecv() __attribute__((warn_unused_result));
-    ClientRpc* clientSend(Service* service, Buffer* request,
-                          Buffer* response)
-        __attribute__((warn_unused_result));
+    SessionRef getSession(const ServiceLocator* serviceLocator) {
+        return new TCPSession(serviceLocator);
+    }
 
     /**
      * A layer of indirection for the system calls used by TCPTransport.
@@ -71,6 +79,10 @@ class TCPTransport : public Transport {
         int connect(int sockfd, const struct sockaddr *addr,
                     socklen_t addrlen) {
             return ::connect(sockfd, addr, addrlen);
+        }
+        VIRTUAL_FOR_TESTING
+        int fcntl(int fd, int cmd, int arg1) {
+            return ::fcntl(fd, cmd, arg1);
         }
         VIRTUAL_FOR_TESTING
         int listen(int sockfd, int backlog) {
@@ -190,7 +202,7 @@ class TCPTransport : public Transport {
       friend class SocketTest;
       friend class TCPTransportTest;
       public:
-        ListenSocket(const char* ip, uint16_t port);
+        explicit ListenSocket(const ServiceLocator* serviceLocator = NULL);
       private:
         int accept();
         DISALLOW_COPY_AND_ASSIGN(ListenSocket);
@@ -310,6 +322,24 @@ class TCPTransport : public Transport {
     };
 
   private:
+
+    class TCPSession : public Session {
+      public:
+        explicit TCPSession(const ServiceLocator* serviceLocator)
+            : ip(), port() {
+            strncpy(ip, serviceLocator->getOption<const char*>("ip"),
+                    sizeof(ip));
+            port = serviceLocator->getOption<uint16_t>("port");
+        }
+        ClientRpc* clientSend(Buffer* request, Buffer* response)
+            __attribute__((warn_unused_result));
+        void release() {
+            delete this;
+        }
+      private:
+        char ip[16];
+        uint16_t port;
+    };
 
     /**
      * The socket on which to listen for new connections.

@@ -31,22 +31,35 @@ MockTransport::MockTransport()
               clientSendCount(0), clientRecvCount(0) { }
 
 /**
- * Wait for an incoming request. This is a fake method that uses
- * a request message explicitly provided by the test, or an empty
- * buffer if none was provided.
+ * Return an incoming request. This is a fake method that uses a request
+ * message explicitly provided by the test, or returns NULL.
  */
 Transport::ServerRpc*
 MockTransport::serverRecv() {
-    return new MockServerRpc(this);
+    if (inputMessage == NULL)
+       return NULL;
+    else
+       return new MockServerRpc(this);
 }
+
+Transport::SessionRef
+MockTransport::getSession(const ServiceLocator* serviceLocator)
+{
+    return new MockSession(this, serviceLocator);
+}
+
+Transport::SessionRef
+MockTransport::getSession()
+{
+    return new MockSession(this);
+}
+
 
 /**
  * Issue an RPC request using this transport.
  *
  * This is a fake method; it simply logs information about the request.
  *
- * \param service
- *      Indicates which service the request should be sent to.
  * \param payload
  *      Contents of the request message.
  * \param[out] response
@@ -57,14 +70,13 @@ MockTransport::serverRecv() {
  *          space in this Allocation.
  */
 Transport::ClientRpc*
-MockTransport::clientSend(Service* service, Buffer* payload,
-                          Buffer* response) {
-    if (outputLog.length() != 0) {
-        outputLog.append(" | ");
+MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response) {
+    if (transport->outputLog.length() != 0) {
+        transport->outputLog.append(" | ");
     }
-    outputLog.append("clientSend: ");
-    outputLog.append(toString(payload));
-    return new MockClientRpc(this, response);
+    transport->outputLog.append("clientSend: ");
+    transport->outputLog.append(toString(payload));
+    return new MockClientRpc(transport, response);
 }
 
 /**

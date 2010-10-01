@@ -33,8 +33,13 @@ class MockTransport : public Transport {
     MockTransport();
     virtual ~MockTransport() { }
     virtual ServerRpc* serverRecv();
-    virtual ClientRpc* clientSend(Service* service, Buffer* payload,
-                                  Buffer* response);
+
+    virtual Transport::SessionRef
+    getSession(const ServiceLocator* serviceLocator);
+
+    virtual Transport::SessionRef
+    getSession();
+
     void setInput(const char* message);
 
     class MockServerRpc : public ServerRpc {
@@ -55,6 +60,24 @@ class MockTransport : public Transport {
             MockTransport* transport;
             Buffer* response;
             DISALLOW_COPY_AND_ASSIGN(MockClientRpc);
+    };
+
+    class MockSession : public Session {
+        public:
+            explicit MockSession(MockTransport* transport)
+                : transport(transport),
+                serviceLocator(ServiceLocator("mock: anonymous=1")) {}
+            MockSession(MockTransport* transport,
+                        const ServiceLocator* serviceLocator)
+                : transport(transport), serviceLocator(*serviceLocator) {}
+            virtual ClientRpc* clientSend(Buffer* payload, Buffer* response);
+            virtual void release() {
+                delete this;
+            }
+        private:
+            MockTransport* transport;
+            const ServiceLocator serviceLocator;
+            DISALLOW_COPY_AND_ASSIGN(MockSession);
     };
 
     /**

@@ -18,6 +18,7 @@
 #include "Mark.h"
 #include "PerfCounterType.h"
 #include "TestUtil.h"
+#include "TransportManager.h"
 #include "MockTransport.h"
 
 class CClientTest : public CppUnit::TestFixture {
@@ -55,8 +56,8 @@ class CClientTest : public CppUnit::TestFixture {
     CClientTest(): transport(NULL), client(NULL), rules(), status() { }
     void setUp() {
         transport = new RAMCloud::MockTransport();
-        struct RAMCloud::Client* foo = new RAMCloud::Client(
-                new RAMCloud::Service(), transport);
+        RAMCloud::transportManager.registerMock(transport);
+        struct RAMCloud::Client* foo = new RAMCloud::Client("mock:");
         CPPUNIT_ASSERT_EQUAL(RAMCloud::STATUS_OK,
                 rc_connectWithClient(foo, & client));
         bzero(&rules, sizeof(rules));
@@ -69,6 +70,7 @@ class CClientTest : public CppUnit::TestFixture {
 
     void tearDown() {
         rc_disconnect(client);
+        RAMCloud::transportManager.unregisterMock();
         delete transport;
     }
 

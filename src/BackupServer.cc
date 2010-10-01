@@ -32,6 +32,7 @@
 #include "Buffer.h"
 #include "Log.h"
 #include "Segment.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -41,13 +42,10 @@ const bool debug_backup = false;
 static const uint64_t RESP_BUF_LEN = (1 << 20);
 
 /**
- * \param[in]  servIn   The Service that represents this BackupServer.
- * \param[in]  transIn  The Transport object that the BackupServer uses.
  * \param[in]  logPath  The file in which to store the local log on disk.
  */
-BackupServer::BackupServer(Service *servIn, Transport* transIn,
-                           const char *logPath)
-        : serv(servIn), trans(transIn), logFD(-1), seg(0),
+BackupServer::BackupServer(const char *logPath)
+        : logFD(-1), seg(0),
           openSegNum(INVALID_SEGMENT_NUM), freeMap(true)
 {
     static_assert(LOG_SPACE == SEGMENT_FRAMES * SEGMENT_SIZE);
@@ -644,7 +642,7 @@ BackupServer::handleRPC()
 {
     const backup_rpc *req;
     backup_rpc *resp;
-    Transport::ServerRpc *rpc = trans->serverRecv();
+    Transport::ServerRpc *rpc = transportManager.serverRecv();
     // TODO(ongaro): Rework this to use Buffers properly.
     req = static_cast<const backup_rpc*>(
         rpc->recvPayload.getRange(0, rpc->recvPayload.getTotalLength()));

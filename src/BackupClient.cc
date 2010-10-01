@@ -31,23 +31,17 @@ namespace RAMCloud {
 const bool debug_noisy = false;
 
 /**
- * NOTICE: The BackupHost takes care of deleting the Service object once it is
- * no longer needed. The host should be considered to have full ownership of it
- * and the caller should discontinue any use or responsiblity for it. The
- * transport object is still owned by the caller.
- *
- * \param[in]  sIn      The Service that represents the BackupHost.
- * \param[in]  transIn  The Transport object to use when communicating with this
- *                      BackupHost.
+ * Constructor for BackupHost.
+ * \param[in] session
+ *      The Session by which to communicate with the BackupHost.
  */
-BackupHost::BackupHost(Service *sIn, Transport *transIn)
-        : s(sIn), trans(transIn)
+BackupHost::BackupHost(Transport::SessionRef session)
+        : session(session)
 {
 }
 
 BackupHost::~BackupHost()
 {
-    delete s;
 }
 
 void
@@ -63,7 +57,7 @@ BackupHost::heartbeat()
 
 
     Buffer reply;
-    trans->clientSend(s, &buf, &reply)->getReply();
+    session->clientSend(&buf, &reply)->getReply();
 
     if (debug_noisy)
         printf("Heartbeat ok\n");
@@ -93,7 +87,7 @@ BackupHost::writeSegment(uint64_t segNum,
     Buffer::Chunk::appendToBuffer(&buf, const_cast<void*>(data), len);
 
     Buffer reply;
-    trans->clientSend(s, &buf, &reply)->getReply();
+    session->clientSend(&buf, &reply)->getReply();
 
     // TODO(aravindn): Not verifying response?
 }
@@ -111,7 +105,7 @@ BackupHost::commitSegment(uint64_t segNum)
     req->commit_req.seg_num = segNum;
 
     Buffer reply;
-    trans->clientSend(s, &buf, &reply)->getReply();
+    session->clientSend(&buf, &reply)->getReply();
 
     // TODO(aravindn): Not verifying response?
 
@@ -132,7 +126,7 @@ BackupHost::freeSegment(uint64_t segNum)
     req->free_req.seg_num = segNum;
 
     Buffer reply;
-    trans->clientSend(s, &buf, &reply)->getReply();
+    session->clientSend(&buf, &reply)->getReply();
 
     // TODO(aravindn): Not verifying response?
 
@@ -153,7 +147,7 @@ BackupHost::getSegmentList(uint64_t *list,
     req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTLIST_REQ_LEN);
 
     Buffer replyBuf;
-    trans->clientSend(s, &buf, &replyBuf)->getReply();
+    session->clientSend(&buf, &replyBuf)->getReply();
 
     const backup_rpc *resp = static_cast<const backup_rpc*>(
         replyBuf.getRange(0, replyBuf.getTotalLength()));
@@ -190,7 +184,7 @@ BackupHost::getSegmentMetadata(uint64_t segNum,
     req->getsegmentmetadata_req.seg_num = segNum;
 
     Buffer replyBuf;
-    trans->clientSend(s, &buf, &replyBuf)->getReply();
+    session->clientSend(&buf, &replyBuf)->getReply();
 
     const backup_rpc *resp = static_cast<const backup_rpc*>(
         replyBuf.getRange(0, replyBuf.getTotalLength()));
@@ -226,7 +220,7 @@ BackupHost::retrieveSegment(uint64_t segNum, void *buf)
     req->retrieve_req.seg_num = segNum;
 
     Buffer replyBuf;
-    trans->clientSend(s, &rpcBuf, &replyBuf)->getReply();
+    session->clientSend(&rpcBuf, &replyBuf)->getReply();
 
     const backup_rpc *resp = static_cast<const backup_rpc*>(
         replyBuf.getRange(0, replyBuf.getTotalLength()));
@@ -253,18 +247,12 @@ MultiBackupClient::~MultiBackupClient()
         delete host;
 }
 
-/**
- * NOTICE: The BackupClient takes care of deleting the Service and Transport
- * objects once it is no longer needed.  The client should be considered to have
- * full ownership of it and the caller should discontinue any use or
- * responbility for it.
- */
 void
-MultiBackupClient::addHost(Service *s, Transport *t)
+MultiBackupClient::addHost(Transport::SessionRef session)
 {
     if (host)
         throw BackupRPCException("Only one backup host currently supported");
-    host = new BackupHost(s, t);
+    host = new BackupHost(session);
 }
 
 void

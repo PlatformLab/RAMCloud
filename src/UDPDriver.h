@@ -18,6 +18,7 @@
 
 #include "Common.h"
 #include "Driver.h"
+#include "ServiceLocator.h"
 
 namespace RAMCloud {
 
@@ -30,8 +31,7 @@ class UDPDriver : public Driver {
     /// The maximum number bytes we can stuff in a UDP packet payload.
     static const uint32_t MAX_PAYLOAD_SIZE = 1400;
 
-    UDPDriver();
-    UDPDriver(const sockaddr *addr, socklen_t addrlen);
+    explicit UDPDriver(const ServiceLocator* localServiceLocator = NULL);
     virtual ~UDPDriver();
     virtual uint32_t getMaxPayloadSize();
     virtual void release(char *payload, uint32_t len);

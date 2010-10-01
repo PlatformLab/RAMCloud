@@ -18,11 +18,8 @@
 #include <errno.h>
 
 #include "config.h"
-#include "Driver.h"
-#include "FastTransport.h"
 #include "Server.h"
-#include "TCPTransport.h"
-#include "UDPDriver.h"
+#include "TransportManager.h"
 
 static int cpu = -1;
 
@@ -101,29 +98,10 @@ try
         LOG(DEBUG, "server: Pinned to core %d", cpu);
     }
 
-    Driver* driver = 0;
-    Transport* transport = 0;
-    if (USE_FASTTRANSPORT) {
-        LOG(NOTICE, "server: Using FastTransport");
-        sockaddr_in addr;
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(config.port);
-        if (inet_aton(&config.address[0], &addr.sin_addr) == 0)
-            DIE("inet_aton failed");
-        driver = new UDPDriver(reinterpret_cast<const sockaddr *>(&addr),
-                               static_cast<socklen_t>(sizeof(addr)));
-        transport = new FastTransport(driver);
-    } else {
-        LOG(NOTICE, "server: Using TCPTransport");
-        transport = new TCPTransport(config.address, config.port);
-    }
+    transportManager.initialize(config.address, config.port);
 
-    Server server(&config, transport);
+    Server server(&config);
     server.run();
-
-    delete transport;
-    if (driver)
-        delete driver;
 
     return 0;
 } catch (RAMCloud::Exception e) {
