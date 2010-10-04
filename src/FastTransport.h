@@ -34,6 +34,41 @@
 
 namespace RAMCloud {
 
+/*
+ * Control flow in/under FastTransport can be rather hairy.  Below a rough
+ * stack trace is given for when a packet follows through the FastTransport
+ * layer just to give a developer a rough idea of where to look.
+ *
+ * - Client Outbound
+ *  - ClientSession::clientSend
+ *   - ClientSession::getAvailableChannel
+ *  - OutboundMessage::beginSending
+ *  - OutboundMessage::send
+ *  - OutboundMessage::sendOneData
+ *
+ * - Server Inbound
+ *  - FastTransport::serverRecv
+ *  - FastTransport::poll
+ *  - FastTransport::tryProcessPacket
+ *  - ServerSession::processInboundPacket
+ *  - ServerSession::processReceivedData
+ *  - InboundMessage::processReceivedData
+ *
+ * - Server Outbound
+ *  - ServerRpc::sendReply
+ *  - ServerSession::beginSending
+ *  - OutboundMessage::beginSending
+ *  - OutboundMessage::send
+ *
+ * - Client Inbound
+ *  - ClientRpc::getReply
+ *  - FastTransport::poll
+ *  - FastTransport::tryProcessPacket
+ *  - ClientSession::processReceivedData
+ *  - ClientSession::processReceivedData
+ *  - InboundMessage::processReceivedData
+ */
+
 /**
  * A Transport which supports simple, but reliable RPCs using unreliable
  * datagram protocols (Drivers).  See Transport for more information.
