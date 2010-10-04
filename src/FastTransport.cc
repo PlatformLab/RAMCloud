@@ -40,6 +40,10 @@ FastTransport::FastTransport(Driver* driver)
 
 FastTransport::~FastTransport()
 {
+    // Sessions must be destroyed before the driver
+    // since they might hold driver memory.
+    serverSessions.clear();
+    clientSessions.clear();
     delete driver;
 }
 
@@ -831,6 +835,12 @@ FastTransport::OutboundMessage::OutboundMessage()
 {
 }
 
+FastTransport::OutboundMessage::~OutboundMessage()
+{
+    if (timer.useTimer)
+        transport->removeTimer(&timer);
+}
+
 /**
  * One-time initialization that permanently attaches this instance to
  * a particular Session, channelId, and timer status.
@@ -1129,6 +1139,11 @@ FastTransport::ServerSession::ServerSession(FastTransport* transport,
         channels[i].setup(transport, this, i);
 }
 
+FastTransport::ServerSession::~ServerSession()
+{
+    assert(expire());
+}
+
 /**
  * Switch from PROCESSING to SENDING_WAITING and initiate transfer of the
  * RPC response from the server to the client.
@@ -1404,6 +1419,11 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
     , serverSessionHint(INVALID_HINT)
 {
     memset(&serverAddress, 0xcc, sizeof(serverAddress));
+}
+
+FastTransport::ClientSession::~ClientSession()
+{
+    assert(expire());
 }
 
 // See Session::close().

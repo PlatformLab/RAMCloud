@@ -381,6 +381,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(
             "bool RAMCloud::FastTransport::tryProcessPacket(): "
             "calling ServerSession::processInboundPacket", TestLog::get());
+        session->channels[0].state = ServerSession::ServerChannel::IDLE;
     }
 
     void
@@ -1071,6 +1072,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
             }
             delete msg;
         }
+        session = NULL;
         if (buffer)
             delete buffer;
         if (transport)
@@ -1412,6 +1414,8 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         session->channels[NUM_CHANNELS_PER_SESSION - 1].state =
             ServerSession::ServerChannel::PROCESSING;
         CPPUNIT_ASSERT(!session->expire());
+        session->channels[NUM_CHANNELS_PER_SESSION - 1].state =
+            ServerSession::ServerChannel::IDLE;
     }
 
     void
@@ -1540,6 +1544,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
             "processInboundPacket(RAMCloud::Driver::Received*): "
             "processReceivedData",
             TestLog::get());
+        session->channels[0].state = ServerSession::ServerChannel::IDLE;
     }
 
     void
@@ -1726,6 +1731,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
                              channel->state);
         CPPUNIT_ASSERT_EQUAL(rpc, channel->currentRpc);
         CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+        channel->currentRpc = NULL;
     }
 
     void
@@ -1734,6 +1740,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         response->fillFromString("junk");
         IGNORE_RESULT(session->clientSend(request, response));
         CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(response));
+        session->channelQueue.pop_front();
     }
 
     void
@@ -1798,6 +1805,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
 
         bool didClose = session->expire();
         CPPUNIT_ASSERT_EQUAL(false, didClose);
+        session->channels[0].currentRpc = NULL;
     }
 
     void
@@ -1887,6 +1895,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
                              channel->state);
 
         CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+        channel->currentRpc = NULL;
     }
 
     void
@@ -1936,6 +1945,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
             "clientSessionHint:98765432 serverSessionHint:cccccccc "
             "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
             driver->outputLog);
+        session->channelQueue.pop_front();
     }
 
     void
@@ -1980,6 +1990,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         session->processReceivedData(channel, &recvd);
         CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::RECEIVING,
                              channel->state);
+        channel->currentRpc = NULL;
     }
 
     void
@@ -2023,6 +2034,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
                              channel->state);
         CPPUNIT_ASSERT_EQUAL(&rpc2, channel->currentRpc);
         CPPUNIT_ASSERT(session->channelQueue.empty());
+        channel->currentRpc = NULL;
     }
 
     void
@@ -2052,6 +2064,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
 
         // Make sure we bailed on once the queue was empty
         CPPUNIT_ASSERT_EQUAL(0, session->channels[1].currentRpc);
+        session->channels[0].currentRpc = NULL;
     }
 
     void

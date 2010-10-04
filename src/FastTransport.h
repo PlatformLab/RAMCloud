@@ -639,6 +639,7 @@ class FastTransport : public Transport {
     class OutboundMessage {
       public:
         OutboundMessage();
+        ~OutboundMessage();
         void setup(FastTransport* transport, Session* session,
                    uint32_t channelId, bool useTimer);
         void reset();
@@ -863,6 +864,7 @@ class FastTransport : public Transport {
     class ServerSession : public Session {
       public:
         ServerSession(FastTransport* transport, uint32_t sessionId);
+        ~ServerSession();
         void beginSending(uint8_t channelId);
         virtual void close();
         virtual bool expire();
@@ -1002,6 +1004,7 @@ class FastTransport : public Transport {
     class ClientSession : public Session, public Transport::Session {
       public:
         ClientSession(FastTransport* transport, uint32_t sessionId);
+        ~ClientSession();
 
         ClientRpc* clientSend(Buffer* request, Buffer* response);
 
@@ -1184,6 +1187,22 @@ class FastTransport : public Transport {
             , sessions()
             , transport(transport)
         {
+        }
+
+        ~SessionTable() {
+            for (uint32_t i = 0; i < sessions.size(); i++)
+                delete sessions[i];
+        }
+
+        /**
+         * Free all existing sessions and reset the table to its initial state.
+         */
+        void clear() {
+            for (uint32_t i = 0; i < sessions.size(); i++)
+                delete sessions[i];
+            sessions.clear();
+            lastCleanedIndex = 0;
+            firstFree = TAIL;
         }
 
         /**
