@@ -21,6 +21,7 @@ TESTS_SRCFILES := \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
+		  src/RingTest.cc \
 		  src/SegmentTest.cc \
 		  src/ServerTest.cc \
 		  src/ServerTest.cc \
@@ -56,6 +57,9 @@ $(OBJDIR)/test: $(TESTS_OBJFILES)
 # Telnet. I just wanted to make sure it continues to build over time.
 test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet $(OBJDIR)/FastEcho $(OBJDIR)/FastTelnet
 	$(OBJDIR)/test
+
+ftest: $(OBJDIR)/test
+	scripts/forking_test_runner.py
 
 $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
