@@ -613,7 +613,7 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
         bool threw = false;
         try {
             rpc->getReply();
-        } catch (TransportException e) {
+        } catch (TransportException& e) {
             threw = true;
         }
         CPPUNIT_ASSERT(threw);

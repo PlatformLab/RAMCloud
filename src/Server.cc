@@ -422,8 +422,7 @@ Server::handleRpc()
             default:
                 throw UnimplementedRequestError();
         }
-    }
-    catch (ClientException e) {
+    } catch (ClientException& e) {
         Buffer* response = &rpc->replyPayload;
         if (responseCommon == NULL) {
             responseCommon = new(response, APPEND) RpcResponseCommon;

@@ -171,6 +171,6 @@ try
 
     client.dropTable("test");
     return 0;
-} catch (RAMCloud::ClientException e) {
+} catch (RAMCloud::ClientException& e) {
     fprintf(stderr, "RAMCloud exception: %s\n", e.toString());
 }

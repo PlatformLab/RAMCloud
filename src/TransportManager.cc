@@ -136,7 +136,7 @@ TransportManager::getSession(const char* serviceLocator)
             Transport* transport = protocolTransport.second;
             try {
                 return transport->getSession(&locator);
-            } catch (TransportException e) {
+            } catch (TransportException& e) {
                 // TODO(ongaro): Transport::getName() would be nice here.
                 LOG(DEBUG, "Transport %p refused to open session for %s",
                     transport, locator.getOriginalString().c_str());

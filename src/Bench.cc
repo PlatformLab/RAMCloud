@@ -237,6 +237,6 @@ try
     BENCH(readMany);
 
     return 0;
-} catch (RC::ClientException e) {
+} catch (RC::ClientException& e) {
     fprintf(stderr, "RAMCloud exception: %s\n", e.toString());
 }

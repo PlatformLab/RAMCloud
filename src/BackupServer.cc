@@ -678,7 +678,7 @@ BackupServer::handleRPC()
         default:
             throw BackupInvalidRPCOpException();
         };
-    } catch (BackupException e) {
+    } catch (BackupException& e) {
         fprintf(stderr, "Error while processing RPC: %s\n", e.message.c_str());
         size_t emsglen = e.message.length();
         size_t rpclen = BACKUP_RPC_ERROR_RESP_LEN_WODATA + emsglen + 1;

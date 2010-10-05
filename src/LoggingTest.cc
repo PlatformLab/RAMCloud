@@ -148,7 +148,7 @@ class LoggerTest : public CppUnit::TestFixture {
         assert(logger.stream != NULL);
         try {
             DIE("rofl: %d", 3);
-        } catch (RAMCloud::FatalError e) {
+        } catch (RAMCloud::FatalError& e) {
             int64_t streamPos = ftell(logger.stream);
             fclose(logger.stream);
             CPPUNIT_ASSERT(streamPos > 0);

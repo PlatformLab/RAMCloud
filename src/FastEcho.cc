@@ -129,7 +129,7 @@ try
         rpc->sendReply();
     }
     return 0;
-} catch (RAMCloud::Exception e) {
+} catch (RAMCloud::Exception& e) {
     using namespace RAMCloud;
     LOG(ERROR, "FastEcho: %s\n", e.message.c_str());
 }

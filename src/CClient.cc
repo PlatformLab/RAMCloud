@@ -52,7 +52,7 @@ Status rc_connect(const char* serverAddr, int serverPort,
     struct rc_client* client = new rc_client;
     try {
         client->client = new Client(serverAddr, serverPort);
-    } catch (CouldntConnectException e) {
+    } catch (CouldntConnectException& e) {
         delete client;
         return e.status;
     }
@@ -122,7 +122,7 @@ Status rc_create(struct rc_client* client, uint32_t tableId,
 {
     try {
         *id = client->client->create(tableId, buf, length, version);
-    } catch (ClientException e) {
+    } catch (ClientException& e) {
         return e.status;
     }
     return STATUS_OK;
@@ -133,7 +133,7 @@ rc_createTable(struct rc_client* client, const char* name)
 {
     try {
         client->client->createTable(name);
-    } catch (ClientException e) {
+    } catch (ClientException& e) {
         return e.status;
     }
     return STATUS_OK;
@@ -144,7 +144,7 @@ rc_dropTable(struct rc_client* client, const char* name)
 {
     try {
         client->client->dropTable(name);
-    } catch (ClientException e) {
+    } catch (ClientException& e) {
         return e.status;
     }
     return STATUS_OK;
@@ -180,7 +180,7 @@ rc_openTable(struct rc_client* client, const char* name,
 {
     try {
         *tableId = client->client->openTable(name);
-    } catch (ClientException e) {
+    } catch (ClientException& e) {
         return e.status;
     }
     return STATUS_OK;
@@ -191,7 +191,7 @@ rc_ping(struct rc_client* client)
 {
     try {
         client->client->ping();
-    } catch (ClientException e) {
+    } catch (ClientException& e) {
         return e.status;
     }
     return STATUS_OK;
@@ -241,7 +241,7 @@ rc_read(struct rc_client* client, uint32_t tableId, uint64_t id,
             bytesToCopy = maxLength;
         }
         result.copy(0, bytesToCopy, buf);
-    } catch (ClientException e) {
+    } catch (ClientException& e) {
         *actualLength = 0;
         return e.status;
     }
@@ -254,7 +254,7 @@ rc_remove(struct rc_client* client, uint32_t tableId, uint64_t id,
 {
     try {
         client->client->remove(tableId, id, rejectRules, version);
-    } catch (ClientException e) {
+    } catch (ClientException& e) {
         return e.status;
     }
     return STATUS_OK;
@@ -292,7 +292,7 @@ rc_write(struct rc_client* client, uint32_t tableId, uint64_t id,
     try {
         client->client->write(tableId, id, buf, length, rejectRules,
                 version);
-    } catch (ClientException e) {
+    } catch (ClientException& e) {
         return e.status;
     }
     return STATUS_OK;

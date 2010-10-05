@@ -124,7 +124,7 @@ class BackupServerTest : public CppUnit::TestFixture {
                                    "non-existant directory for log path.",
                                    false);
             CPPUNIT_ASSERT(false);
-        } catch (BackupLogIOException e) {}
+        } catch (BackupLogIOException& e) {}
     }
 
     // TODO(stutsman) There are some other things to test in the
@@ -139,7 +139,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         try {
             backup.writeSegment(INVALID_SEGMENT_NUM, 0, "test", 5);
             CPPUNIT_ASSERT(false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     // Ensure that segments must be committed before new writeSegments
@@ -157,7 +157,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             backup.writeSegment(1, 0,
                                 testMessage.c_str(), testMessageLen);
             CPPUNIT_ASSERT(false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
 
         CPPUNIT_ASSERT(!strncmp(testMessage.c_str(),
                                 backup.seg, testMessageLen));
@@ -172,7 +172,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         try {
             backup.writeSegment(0, 0, buf, SEGMENT_SIZE + 256);
             CPPUNIT_ASSERT(false);
-        } catch (BackupSegmentOverflowException e) {}
+        } catch (BackupSegmentOverflowException& e) {}
     }
 
     void
@@ -184,7 +184,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             backup.writeSegment(0, SEGMENT_SIZE,
                          testMessage.c_str(), testMessageLen);
             CPPUNIT_ASSERT(false);
-        } catch (BackupSegmentOverflowException e) {}
+        } catch (BackupSegmentOverflowException& e) {}
     }
 
     // Test offset is ok but runs off the end
@@ -197,7 +197,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             backup.writeSegment(0, SEGMENT_SIZE - 2,
                                 testMessage.c_str(), testMessageLen);
             CPPUNIT_ASSERT(false);
-        } catch (BackupSegmentOverflowException e) {}
+        } catch (BackupSegmentOverflowException& e) {}
     }
 
     // Make sure flush fails if we have no free segment frames
@@ -214,7 +214,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         try {
             backup.flushSegment();
             CPPUNIT_ASSERT(false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     void
@@ -246,7 +246,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         try {
             backup.flushSegment();
             CPPUNIT_ASSERT(false);
-        } catch (BackupLogIOException e) {}
+        } catch (BackupLogIOException& e) {}
     }
 
     void
@@ -257,7 +257,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         try {
             backup.commitSegment(INVALID_SEGMENT_NUM);
             CPPUNIT_ASSERT(false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     void
@@ -304,7 +304,7 @@ class BackupServerTest : public CppUnit::TestFixture {
                                 testMessage.c_str(), testMessageLen);
             backup.commitSegment(1);
             CPPUNIT_ASSERT(false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     void
@@ -316,7 +316,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         try {
             backup.commitSegment(0);
             CPPUNIT_ASSERT(false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     void
@@ -327,7 +327,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         try {
             backup.freeSegment(INVALID_SEGMENT_NUM);
             CPPUNIT_ASSERT(false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     void
@@ -338,7 +338,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         try {
             backup.freeSegment(77);
             CPPUNIT_ASSERT(false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     void
@@ -364,7 +364,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             // Try to freeSegment non-existent
             backup.freeSegment(76);
             CPPUNIT_ASSERT(false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     void
@@ -376,7 +376,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             // Try to fetch INVALID_SEGMENT_NUM
             backup.retrieveSegment(INVALID_SEGMENT_NUM, &buf[0]);
             CPPUNIT_ASSERT(false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     void
@@ -438,7 +438,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             backup.getSegmentList(&list[0], count);
             CPPUNIT_ASSERT_MESSAGE("getSegmentList with too short "
                                    " list space should have failed", false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     void
@@ -552,7 +552,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT_MESSAGE("getSegmentMetadata should fail "
                                    "when there is no such stored segment",
                                    false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     void
@@ -573,7 +573,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             uint32_t listElements = backup.getSegmentMetadata(76, &list[0],
                                                               listSize);
             CPPUNIT_ASSERT_EQUAL((uint32_t)0, listElements);
-        } catch (BackupException e) {
+        } catch (BackupException& e) {
             CPPUNIT_ASSERT_MESSAGE(e.message, false);
         }
     }
@@ -602,7 +602,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             listElements = backup.getSegmentMetadata(82, &list[0],
                                                      listSize);
             CPPUNIT_ASSERT_EQUAL((uint32_t)1, listElements);
-        } catch (BackupException e) {
+        } catch (BackupException& e) {
             CPPUNIT_ASSERT_MESSAGE(e.message, false);
         }
     }
@@ -620,7 +620,7 @@ class BackupServerTest : public CppUnit::TestFixture {
                                                               listSize);
             listElements++;             // supressed unused warning
             CPPUNIT_ASSERT(false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
     void
@@ -642,7 +642,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         try {
             backup.frameForSegNum(76);
             CPPUNIT_ASSERT_MESSAGE("Should have thrown an exception", false);
-        } catch (BackupException e) {}
+        } catch (BackupException& e) {}
     }
 
 };

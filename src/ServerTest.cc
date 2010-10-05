@@ -366,7 +366,7 @@ class ServerTest : public CppUnit::TestFixture {
         Status status = Status(-1);
         try {
             server->tGetString(&buffer, 0, 0);
-        } catch (RequestFormatError e) {
+        } catch (RequestFormatError& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(8, status);
@@ -377,7 +377,7 @@ class ServerTest : public CppUnit::TestFixture {
         Status status = Status(-1);
         try {
             server->tGetString(&buffer, 2, 5);
-        } catch (MessageTooShortError e) {
+        } catch (MessageTooShortError& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(6, status);
@@ -388,7 +388,7 @@ class ServerTest : public CppUnit::TestFixture {
         Status status = Status(-1);
         try {
             server->tGetString(&buffer, 1, 3);
-        } catch (RequestFormatError e) {
+        } catch (RequestFormatError& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(8, status);
@@ -401,7 +401,7 @@ class ServerTest : public CppUnit::TestFixture {
         Status status = Status(-1);
         try {
             server->tGetTable(1000);
-        } catch (TableDoesntExistException e) {
+        } catch (TableDoesntExistException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(1, status);
@@ -410,7 +410,7 @@ class ServerTest : public CppUnit::TestFixture {
         status = Status(-1);
         try {
             server->tGetTable(6);
-        } catch (TableDoesntExistException e) {
+        } catch (TableDoesntExistException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(1, status);

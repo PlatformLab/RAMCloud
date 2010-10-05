@@ -39,14 +39,14 @@ do {                                                                          \
                          CPPUNIT_GET_PARAMETER_STRING(ExceptionType));        \
     try {                                                                     \
         expression;                                                           \
-    } catch (const ExceptionType &) {                                         \
+    } catch (const ExceptionType&) {                                          \
         break;                                                                \
-    } catch (const RAMCloud::Exception &e) {                                  \
+    } catch (const RAMCloud::Exception& e) {                                  \
         cpputMsg_.addDetail("Actual  : " +                                    \
                             CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
                                     "RAMCloud::Exception or derived"));       \
         cpputMsg_.addDetail(std::string("    ") + e.message);                 \
-    } catch (const std::exception &e) {                                       \
+    } catch (const std::exception& e) {                                       \
         cpputMsg_.addDetail("Actual  : " +                                    \
                              CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,               \
                                      "std::exception or derived"));           \
@@ -64,12 +64,12 @@ do {                                                                          \
     try {                                                                     \
         expression;                                                           \
         break;                                                                \
-    } catch (const RAMCloud::Exception &e) {                                  \
+    } catch (const RAMCloud::Exception& e) {                                  \
         cpputMsg_.addDetail("Caught: " +                                      \
                             CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
                                     "RAMCloud::Exception or derived"));       \
         cpputMsg_.addDetail(std::string("    ") + e.message);                 \
-    } catch (const std::exception &e) {                                       \
+    } catch (const std::exception& e) {                                       \
         cpputMsg_.addDetail("Caught: " +                                      \
                             CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
                                     "std::exception or derived"));            \

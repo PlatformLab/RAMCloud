@@ -51,21 +51,21 @@ class ClientExceptionTest : public CppUnit::TestFixture {
             string got;
             try {
                 ClientException::throwException(Status(i));
-            } catch (RejectRulesException e) {
+            } catch (RejectRulesException& e) {
                 if (reject.length() != 0) {
                     reject += " ";
                 }
                 reject += e.toSymbol();
                 got += "caught exception ";
                 got += e.toSymbol();
-            } catch (InternalError e) {
+            } catch (InternalError& e) {
                 if (internal.length() != 0) {
                     internal += " ";
                 }
                 internal += e.toSymbol();
                 got += "caught exception ";
                 got += e.toSymbol();
-            } catch (ClientException e) {
+            } catch (ClientException& e) {
                 got += "caught exception ";
                 got += e.toSymbol();
             }
@@ -83,9 +83,9 @@ class ClientExceptionTest : public CppUnit::TestFixture {
         string msg = "no exception occurred";
         try {
             ClientException::throwException(STATUS_WRONG_VERSION);
-        } catch (WrongVersionException e) {
+        } catch (WrongVersionException& e) {
             msg = "WrongVersionException thrown";
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             msg = "ClientException thrown";
         }
         CPPUNIT_ASSERT_EQUAL("WrongVersionException thrown", msg);
@@ -95,10 +95,10 @@ class ClientExceptionTest : public CppUnit::TestFixture {
         Status status;
         try {
             ClientException::throwException(Status(STATUS_MAX_VALUE+1));
-        } catch (InternalError e) {
+        } catch (InternalError& e) {
             msg = "InternalError thrown";
             status = e.status;
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             msg = "ClientException thrown";
             status = e.status;
         }
