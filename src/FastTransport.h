@@ -989,7 +989,7 @@ class FastTransport : public Transport {
         uint64_t lastActivityTime;
 
         friend class FastTransportTest;
-        // TODO(stutsman) template friend doesn't work - no idea why
+        // template friend doesn't work - no idea why
         template <typename T> friend class SessionTable;
         friend class ServerSessionTest;
         DISALLOW_COPY_AND_ASSIGN(ServerSession);

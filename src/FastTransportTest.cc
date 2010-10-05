@@ -854,8 +854,6 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL("God hates ponies.",
                              bufferToDebugString(msg->dataBuffer));
         CPPUNIT_ASSERT_EQUAL(1, msg->firstMissingFrag);
-        // TODO(stutsman) Looking for feedback about how to make the dSRToString
-        // catch these types of cases easily
         CPPUNIT_ASSERT_EQUAL(2, msg->dataStagingRing[0].second);
         CPPUNIT_ASSERT_EQUAL(1, recvd.stealCount);
 

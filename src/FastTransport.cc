@@ -215,7 +215,6 @@ FastTransport::tryProcessPacket()
 
     if (header->getDirection() == Header::CLIENT_TO_SERVER) {
         // Packet is from the client being processed on the server.
-        // TODO(stutsman) Move token checks into session (remove getToken)
         if (header->serverSessionHint < serverSessions.size()) {
             ServerSession* session = serverSessions[header->serverSessionHint];
             if (session->getToken() == header->sessionToken) {
@@ -251,7 +250,6 @@ FastTransport::tryProcessPacket()
         }
     } else {
         // Packet is from the server being processed on the client.
-        // TODO(stutsman) Move token checks into session (remove getToken)
         if (header->clientSessionHint < clientSessions.size()) {
             ClientSession* session = clientSessions[header->clientSessionHint];
             TEST_LOG("client session processing packet");
@@ -292,7 +290,6 @@ FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
 {
 }
 
-// TODO(stutsman) getReply should return something or be renamed
 /**
  * Blocks until the response buffer associated with this RPC is valid and
  * populated.
@@ -714,7 +711,6 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
         //  - slot 0 in dataStagingRing refers to the fragment *after*
         //    firstMissingFrag.
         while (true) {
-            // TODO(stutsman) ring serializer for unit test assertions
             std::pair<char*, uint32_t> pair = dataStagingRing[0];
             char* payload = pair.first;
             uint32_t length = pair.second;
@@ -759,8 +755,6 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
         // stale, no-op
     }
 
-    // TODO(ongaro): Have caller call this->sendAck() instead.
-    // TODO(stutsman) this stuff should move?
     if (header->requestAck)
         sendAck();
     if (timer.useTimer)
@@ -798,8 +792,8 @@ void
 FastTransport::InboundMessage::Timer::onTimerFired(uint64_t now)
 {
     numTimeouts++;
-    // TODO(stutsman) Do we really want to kill an entire session
-    // because one message is stalled?
+    // NOTE: Kills the entire session because one message is stalled.
+    //       We could make this less aggressive if we think they might recover.
     if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
         inboundMsg->session->close();
     } else {
