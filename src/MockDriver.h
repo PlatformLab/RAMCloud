@@ -15,6 +15,7 @@
 
 #include <string>
 #include "Driver.h"
+#include "ServiceLocator.h"
 
 #ifndef RAMCLOUD_MOCKDRIVER_H
 #define RAMCLOUD_MOCKDRIVER_H
@@ -28,6 +29,22 @@ namespace RAMCloud {
  */
 class MockDriver : public Driver {
   public:
+    struct MockAddress : public Address {
+        explicit MockAddress(const ServiceLocator* serviceLocator)
+            : serviceLocator(*serviceLocator) {}
+        MockAddress(const MockAddress& other)
+            : Address(other), serviceLocator(other.serviceLocator) {}
+        MockAddress* clone() const {
+            return new MockAddress(*this);
+        }
+        bool operator==(const MockAddress& other) const {
+            return (this->serviceLocator == other.serviceLocator);
+        }
+        ServiceLocator serviceLocator;
+      private:
+        void operator=(const MockAddress&);
+    };
+
     /// The type of a customer header serializer.  See headerToString.
     typedef string (*HeaderToString)(const void*, uint32_t);
 
@@ -38,13 +55,16 @@ class MockDriver : public Driver {
     static string bufToHex(const void* buf, uint32_t bufLen);
     virtual uint32_t getMaxPayloadSize() { return 1400; }
     virtual void release(char *payload, uint32_t len);
-    virtual void sendPacket(const sockaddr *addr,
-                            socklen_t addrlen,
+    virtual void sendPacket(const Address* addr,
                             void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
     void setInput(Driver::Received* received);
     virtual bool tryRecvPacket(Received *received);
+
+    virtual Address* newAddress(const ServiceLocator* serviceLocator) {
+        return new MockAddress(serviceLocator);
+    }
 
     /**
      * A function that serializes the header using a specific string format.

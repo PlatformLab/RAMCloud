@@ -21,6 +21,7 @@
 
 #include "Common.h"
 #include "UDPDriver.h"
+#include "ServiceLocator.h"
 
 namespace RAMCloud {
 
@@ -84,7 +85,9 @@ UDPDriver::release(char *payload, uint32_t len)
 {
     packetBufsUtilized--;
     assert(packetBufsUtilized >= 0);
-    delete[] payload;
+    AddressPayload* addressPayload =
+        reinterpret_cast<AddressPayload*>(payload - sizeof(AddressPayload));
+    free(addressPayload);
 }
 
 // See Driver::sendPacket().
@@ -92,8 +95,7 @@ UDPDriver::release(char *payload, uint32_t len)
 // discard or reuse the memory associated with payload and header once
 // on return from this method.
 void
-UDPDriver::sendPacket(const sockaddr *addr,
-                      socklen_t addrlen,
+UDPDriver::sendPacket(const Address *addr,
                       void *header,
                       uint32_t headerLen,
                       Buffer::Iterator *payload)
@@ -122,8 +124,9 @@ UDPDriver::sendPacket(const sockaddr *addr,
     msg.msg_iov = iov;
     msg.msg_iovlen = iovecs;
 
-    msg.msg_name = const_cast<sockaddr *>(addr);
-    msg.msg_namelen = addrlen;
+    const sockaddr* a = &(static_cast<const UDPAddress*>(addr)->address);
+    msg.msg_name = const_cast<sockaddr *>(a);
+    msg.msg_namelen = sizeof(*a);
 
     ssize_t r = sendmsg(socketFd, &msg, 0);
     if (r == -1) {
@@ -140,14 +143,14 @@ UDPDriver::sendPacket(const sockaddr *addr,
 bool
 UDPDriver::tryRecvPacket(Received *received)
 {
-    char *payload = new char[getMaxPayloadSize()];
-
-    received->addrlen = sizeof(received->addr);
-    int r = recvfrom(socketFd, payload, getMaxPayloadSize(),
+    void* storage = malloc(sizeof(AddressPayload) + getMaxPayloadSize());
+    AddressPayload* addressPayload = new(storage) AddressPayload();
+    socklen_t addrlen = sizeof(&addressPayload->udpAddress.address);
+    int r = recvfrom(socketFd, addressPayload->payload, getMaxPayloadSize(),
                      MSG_DONTWAIT,
-                     &received->addr, &received->addrlen);
+                     &addressPayload->udpAddress.address, &addrlen);
     if (r == -1) {
-        delete[] payload;
+        free(addressPayload);
         if (errno == EAGAIN || errno == EWOULDBLOCK)
             return false;
         // TODO(stutsman) We could probably recover from a lot of errors here.
@@ -156,10 +159,24 @@ UDPDriver::tryRecvPacket(Received *received)
     received->len = r;
 
     packetBufsUtilized++;
-    received->payload = payload;
+    received->payload = addressPayload->payload;
+    received->sender = &addressPayload->udpAddress;
     received->driver = this;
 
     return true;
+}
+
+UDPDriver::UDPAddress::UDPAddress(const ServiceLocator* serviceLocator)
+    : address()
+{
+    sockaddr_in *addr = const_cast<sockaddr_in*>(
+        reinterpret_cast<const sockaddr_in*>(&address));
+    addr->sin_family = AF_INET;
+    addr->sin_port = htons(serviceLocator->getOption<uint16_t>("port"));
+    if (inet_aton(serviceLocator->getOption<const char*>("ip"),
+                  &addr->sin_addr) == 0) {
+        throw Exception("inet_aton failed");
+    }
 }
 
 } // namespace RAMCloud

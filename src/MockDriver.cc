@@ -69,8 +69,7 @@ MockDriver::release(char *payload, uint32_t len)
  * See Driver::release().
  */
 void
-MockDriver::sendPacket(const sockaddr *addr,
-                       socklen_t addrlen,
+MockDriver::sendPacket(const Address *addr,
                        void *header,
                        uint32_t headerLen,
                        Buffer::Iterator *payload)
@@ -129,8 +128,8 @@ MockDriver::tryRecvPacket(Driver::Received *received)
     if (!inputReceived)
         return false;
 
-    received->addrlen = inputReceived->addrlen;
     // dangerous, but only used in testing
+    received->sender = inputReceived->sender;
     received->payload = inputReceived->payload;
     received->len = inputReceived->len;
     received->driver = this;

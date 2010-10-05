@@ -40,6 +40,10 @@ FastTransport::FastTransport(Driver* driver)
 
 FastTransport::~FastTransport()
 {
+    // Sessions must be destroyed before the driver
+    // since they might hold driver memory.
+    serverSessions.clear();
+    clientSessions.clear();
     delete driver;
 }
 
@@ -174,15 +178,12 @@ FastTransport::poll()
  * See Driver::sendPacket().
  */
 void
-FastTransport::sendPacket(const sockaddr* address,
-                          socklen_t addressLength,
+FastTransport::sendPacket(const Driver::Address* address,
                           Header* header,
                           Buffer::Iterator* payload)
 {
     header->pleaseDrop = (generateRandom() % 100) < PACKET_LOSS_PERCENTAGE;
-    driver->sendPacket(address, addressLength,
-                       header, sizeof(*header),
-                       payload);
+    driver->sendPacket(address, header, sizeof(*header), payload);
 }
 
 /**
@@ -230,8 +231,7 @@ FastTransport::tryProcessPacket()
             LOG(DEBUG, "session open");
             serverSessions.expire();
             ServerSession* session = serverSessions.get();
-            session->startSession(&received.addr,
-                                  received.addrlen,
+            session->startSession(received.sender,
                                   header->clientSessionHint);
         } else {
             // Client wasn't asking for a new session and failed to provide
@@ -245,8 +245,7 @@ FastTransport::tryProcessPacket()
             replyHeader.channelId = header->channelId;
             replyHeader.payloadType = Header::BAD_SESSION;
             replyHeader.direction = Header::SERVER_TO_CLIENT;
-            sendPacket(&received.addr, received.addrlen,
-                       &replyHeader, NULL);
+            sendPacket(received.sender, &replyHeader, NULL);
         }
     } else {
         // Packet is from the server being processed on the client.
@@ -608,13 +607,8 @@ FastTransport::InboundMessage::sendAck()
         if (elt.first)
             ackResponse->stagingVector |= (1 << i);
     }
-    socklen_t addrlen;
-    const sockaddr* addr = session->getAddress(&addrlen);
     Buffer::Iterator iter(payloadBuffer);
-    transport->sendPacket(addr,
-                          addrlen,
-                          &header,
-                          &iter);
+    transport->sendPacket(session->getAddress(), &header, &iter);
 }
 
 /**
@@ -823,6 +817,12 @@ FastTransport::OutboundMessage::OutboundMessage()
     , numAcked(0)
     , timer(this)
 {
+}
+
+FastTransport::OutboundMessage::~OutboundMessage()
+{
+    if (timer.useTimer)
+        transport->removeTimer(&timer);
 }
 
 /**
@@ -1044,10 +1044,7 @@ FastTransport::OutboundMessage::sendOneData(uint32_t fragNumber,
     Buffer::Iterator iter(*sendBuffer,
                           fragNumber * dataPerFragment,
                           dataPerFragment);
-
-    socklen_t addrlen;
-    const sockaddr* addr = session->getAddress(&addrlen);
-    transport->sendPacket(addr, addrlen, &header, &iter);
+    transport->sendPacket(session->getAddress(), &header, &iter);
 
     if (requestAck)
         packetsSinceAckReq = 0;
@@ -1114,13 +1111,16 @@ FastTransport::ServerSession::ServerSession(FastTransport* transport,
     : Session(transport, sessionId)
     , nextFree(FastTransport::SessionTable<ServerSession>::NONE)
     , clientAddress()
-    , clientAddressLen(0)
     , clientSessionHint(INVALID_HINT)
     , lastActivityTime(0)
 {
-    memset(&clientAddress, 0xcc, sizeof(clientAddress));
     for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++)
         channels[i].setup(transport, this, i);
+}
+
+FastTransport::ServerSession::~ServerSession()
+{
+    assert(expire());
 }
 
 /**
@@ -1176,7 +1176,7 @@ FastTransport::ServerSession::expire()
     token = INVALID_TOKEN;
     clientSessionHint = INVALID_HINT;
     lastActivityTime = 0;
-    memset(&clientAddress, 0xcc, sizeof(clientAddress));
+    clientAddress.reset();
 
     return true;
 }
@@ -1195,11 +1195,10 @@ FastTransport::ServerSession::fillHeader(Header* const header,
 }
 
 // See Session::getAddress().
-const sockaddr*
-FastTransport::ServerSession::getAddress(socklen_t *len)
+const Driver::Address*
+FastTransport::ServerSession::getAddress()
 {
-    *len = clientAddressLen;
-    return &clientAddress;
+    return clientAddress.get();
 }
 
 // See Session::getLastActivityTime().
@@ -1270,20 +1269,16 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
  *
  * \param clientAddress
  *      Address of the session initiator.
- * \param clientAddressLen
- *      Length of clientAddress.
  * \param clientSessionHint
  *      The offset into the client's SessionTable to quickly associate
  *      packets from this session with the correct ClientSession.
  */
 void
-FastTransport::ServerSession::startSession(const sockaddr *clientAddress,
-                                           socklen_t clientAddressLen,
-                                           uint32_t clientSessionHint)
+FastTransport::ServerSession::startSession(
+                                       const Driver::Address* clientAddress,
+                                       uint32_t clientSessionHint)
 {
-    assert(sizeof(this->clientAddress) >= clientAddressLen);
-    memcpy(&this->clientAddress, clientAddress, clientAddressLen);
-    this->clientAddressLen = clientAddressLen;
+    this->clientAddress.reset(clientAddress->clone());
     this->clientSessionHint = clientSessionHint;
     token = ((generateRandom() << 32) | generateRandom());
 
@@ -1302,8 +1297,7 @@ FastTransport::ServerSession::startSession(const sockaddr *clientAddress,
     sessionOpen = new(&payload, APPEND) SessionOpenResponse;
     sessionOpen->maxChannelId = NUM_CHANNELS_PER_SESSION - 1;
     Buffer::Iterator payloadIter(payload);
-    transport->sendPacket(&this->clientAddress, this->clientAddressLen,
-                          &header, &payloadIter);
+    transport->sendPacket(this->clientAddress.get(), &header, &payloadIter);
     lastActivityTime = rdtsc();
 }
 
@@ -1394,10 +1388,13 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
     , lastActivityTime(0)
     , numChannels(0)
     , serverAddress()
-    , serverAddressLen(0)
     , serverSessionHint(INVALID_HINT)
 {
-    memset(&serverAddress, 0xcc, sizeof(serverAddress));
+}
+
+FastTransport::ClientSession::~ClientSession()
+{
+    assert(expire());
 }
 
 // See Session::close().
@@ -1476,9 +1473,7 @@ FastTransport::ClientSession::connect()
     header.channelId = 0;
     header.requestAck = 0;
     header.payloadType = Header::SESSION_OPEN;
-    transport->sendPacket(&this->serverAddress,
-                          this->serverAddressLen,
-                          &header, NULL);
+    transport->sendPacket(serverAddress.get(), &header, NULL);
     lastActivityTime = rdtsc();
 }
 
@@ -1512,11 +1507,10 @@ FastTransport::ClientSession::fillHeader(Header* const header,
 }
 
 // See Session::getAddress().
-const sockaddr*
-FastTransport::ClientSession::getAddress(socklen_t *len)
+const Driver::Address*
+FastTransport::ClientSession::getAddress()
 {
-    *len = serverAddressLen;
-    return &serverAddress;
+    return serverAddress.get();
 }
 
 // See Session::getLastActivityTime().
@@ -1532,15 +1526,7 @@ FastTransport::ClientSession::getLastActivityTime()
 void
 FastTransport::ClientSession::init(const ServiceLocator* serviceLocator)
 {
-    sockaddr_in *addr = const_cast<sockaddr_in*>(
-        reinterpret_cast<const sockaddr_in*>(&serverAddress));
-    addr->sin_family = AF_INET;
-    addr->sin_port = htons(serviceLocator->getOption<uint16_t>("port"));
-    if (inet_aton(serviceLocator->getOption<const char*>("ip"),
-                  &addr->sin_addr) == 0) {
-        throw Exception("inet_aton failed");
-    }
-    serverAddressLen = sizeof(*addr);
+    serverAddress.reset(transport->driver->newAddress(serviceLocator));
 }
 
 /**

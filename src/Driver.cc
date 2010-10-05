@@ -37,8 +37,7 @@ Driver::release(char *payload, uint32_t len)
 
 /// Construct a received containing no data and unassociated with a Driver.
 Driver::Received::Received()
-    :  addr()
-    , addrlen(0)
+    :  sender(NULL)
     , driver(0)
     , len(0)
     , payload(0)

@@ -18,6 +18,8 @@
 #include "Common.h"
 #include "rabinpoly.h"
 
+namespace RAMCloud {
+
 class ChecksumTest : public CppUnit::TestFixture {
   public:
     void setUp();
@@ -68,3 +70,5 @@ ChecksumTest::TestSimple()
 
     CPPUNIT_ASSERT(f == g);
 }
+
+} // namespace RAMCloud

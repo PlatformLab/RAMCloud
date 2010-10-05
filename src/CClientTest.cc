@@ -21,6 +21,8 @@
 #include "TransportManager.h"
 #include "MockTransport.h"
 
+namespace RAMCloud {
+
 class CClientTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(CClientTest);
@@ -261,3 +263,5 @@ class CClientTest : public CppUnit::TestFixture {
     DISALLOW_COPY_AND_ASSIGN(CClientTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(CClientTest);
+
+} // namespace RAMCloud

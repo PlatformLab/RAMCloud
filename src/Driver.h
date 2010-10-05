@@ -16,9 +16,6 @@
 #ifndef RAMCLOUD_DRIVER_H
 #define RAMCLOUD_DRIVER_H
 
-#include <sys/types.h>
-#include <sys/socket.h>
-
 #include "Common.h"
 #include "Buffer.h"
 
@@ -26,6 +23,8 @@
 #define CURRENT_LOG_MODULE RAMCloud::TRANSPORT_MODULE
 
 namespace RAMCloud {
+
+class ServiceLocator;
 
 /**
  * Sends and receives packets.  Abstract class.
@@ -35,6 +34,25 @@ namespace RAMCloud {
  */
 class Driver {
   public:
+
+    /**
+     * A base class for Driver-specific network addresses.
+     */
+    class Address {
+      protected:
+        Address() {}
+        Address(const Address& other) {}
+      public:
+        virtual ~Address() {}
+        /**
+         * Copies an address.
+         * \return
+         *      An address that the caller must free later.
+         */
+        virtual Address* clone() const = 0;
+    };
+
+    typedef std::auto_ptr<Address> AddressPtr;
 
     /**
      * Represents a received packet.
@@ -57,10 +75,7 @@ class Driver {
         VIRTUAL_FOR_TESTING char *steal(uint32_t *len);
 
         /// Address from which this data was received.
-        sockaddr addr;
-
-        /// Length of addr.
-        socklen_t addrlen;
+        const Address* sender;
 
         /// Driver the Received came from, where resources should be returned.
         Driver *driver;
@@ -83,16 +98,28 @@ class Driver {
     virtual void release(char *payload, uint32_t len);
 
     /**
+     * Return a new Driver-specific network address for the given service
+     * locator.
+     * \param serviceLocator
+     *      See above.
+     * \return
+     *      An address that must be deleted later by the caller.
+     * \throw NoSuchKeyException
+     *      Service locator option missing.
+     * \throw BadValueException
+     *      Service locator option malformed.
+     */
+    virtual Address* newAddress(const ServiceLocator* serviceLocator) = 0;
+
+    /**
      * Send a single packet out over this Driver.
      *
      * header provides a means to slip data onto the front of the packet
      * without having to pay for a prepend to the Buffer containing the
      * packet payload data.
      *
-     * \param addr
+     * \param recipient
      *      The address the packet should go to.
-     * \param addrlen
-     *      The length of addr.
      * \param header
      *      Bytes placed in the packet ahead of those from payload.
      * \param headerLen
@@ -101,8 +128,7 @@ class Driver {
      *      A buffer iterator positioned at the bytes for the payload to
      *      follow the headerLen bytes from header.
      */
-    virtual void sendPacket(const sockaddr *addr,
-                            socklen_t addrlen,
+    virtual void sendPacket(const Address* recipient,
                             void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload) = 0;

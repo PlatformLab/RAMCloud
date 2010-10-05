@@ -145,7 +145,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(1, transport->clientSessions.size());
         ClientSession* clientSession =
             static_cast<ClientSession*>(session.get());
-        CPPUNIT_ASSERT(0 != clientSession->serverAddressLen);
+        CPPUNIT_ASSERT(0 != clientSession->serverAddress.get());
     }
 
     void
@@ -381,6 +381,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(
             "bool RAMCloud::FastTransport::tryProcessPacket(): "
             "calling ServerSession::processInboundPacket", TestLog::get());
+        session->channels[0].state = ServerSession::ServerChannel::IDLE;
     }
 
     void
@@ -394,6 +395,8 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
         recvd.getHeader()->sessionToken = session->token + 1;
         recvd.getHeader()->payloadType = Header::SESSION_OPEN;
+        ServiceLocator sl("mock:");
+        recvd.sender = driver->newAddress(&sl);
         driver->setInput(&recvd);
 
         bool result = transport->tryProcessPacket();
@@ -1069,6 +1072,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
             }
             delete msg;
         }
+        session = NULL;
         if (buffer)
             delete buffer;
         if (transport)
@@ -1347,17 +1351,10 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         , transport(NULL)
         , session(NULL)
         , sessionId(0x98765432)
-        , addr()
-        , addrp(NULL)
-        , addrLen(0)
+        , driverAddress(NULL)
         , address("1.2.3.4")
         , port(12345)
     {
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        assert(inet_aton(&address[0], &addr.sin_addr));
-        addrLen = sizeof(addr);
-        addrp = reinterpret_cast<sockaddr*>(&addr);
     }
 
     void
@@ -1366,11 +1363,14 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         driver = new MockDriver(Header::headerToString);
         transport = new FastTransport(driver);
         session = new ServerSession(transport, sessionId);
+        ServiceLocator sl("mock: ip=1.2.3.4, port=12345");
+        driverAddress = driver->newAddress(&sl);
     }
 
     void
     tearDown()
     {
+        delete driverAddress;
         delete session;
         delete transport;
     }
@@ -1410,6 +1410,8 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         session->channels[NUM_CHANNELS_PER_SESSION - 1].state =
             ServerSession::ServerChannel::PROCESSING;
         CPPUNIT_ASSERT(!session->expire());
+        session->channels[NUM_CHANNELS_PER_SESSION - 1].state =
+            ServerSession::ServerChannel::IDLE;
     }
 
     void
@@ -1538,6 +1540,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
             "processInboundPacket(RAMCloud::Driver::Received*): "
             "processReceivedData",
             TestLog::get());
+        session->channels[0].state = ServerSession::ServerChannel::IDLE;
     }
 
     void
@@ -1549,9 +1552,11 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         MockRandom __(rand);
 
         uint32_t clientSessionHint = 0x12345678u;
-        session->startSession(addrp, addrLen, clientSessionHint);
-        CPPUNIT_ASSERT_EQUAL(addrLen, session->clientAddressLen);
-        CPPUNIT_ASSERT(!memcmp(addrp, &session->clientAddress, addrLen));
+        session->startSession(driverAddress, clientSessionHint);
+        CPPUNIT_ASSERT(
+            *static_cast<MockDriver::MockAddress*>(driverAddress) ==
+            *static_cast<MockDriver::MockAddress*>(
+                session->clientAddress.get()));
         CPPUNIT_ASSERT_EQUAL(clientSessionHint, session->clientSessionHint);
         CPPUNIT_ASSERT_EQUAL((static_cast<uint64_t>(rand) << 32) | rand,
                              session->token);
@@ -1609,9 +1614,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     FastTransport* transport;
     ServerSession* session;
     const uint32_t sessionId;
-    sockaddr_in addr;
-    sockaddr* addrp;
-    socklen_t addrLen;
+    Driver::Address* driverAddress;
     const char* address;
     const uint16_t port;
 
@@ -1724,6 +1727,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
                              channel->state);
         CPPUNIT_ASSERT_EQUAL(rpc, channel->currentRpc);
         CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+        channel->currentRpc = NULL;
     }
 
     void
@@ -1732,6 +1736,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         response->fillFromString("junk");
         IGNORE_RESULT(session->clientSend(request, response));
         CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(response));
+        session->channelQueue.pop_front();
     }
 
     void
@@ -1796,6 +1801,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
 
         bool didClose = session->expire();
         CPPUNIT_ASSERT_EQUAL(false, didClose);
+        session->channels[0].currentRpc = NULL;
     }
 
     void
@@ -1842,7 +1848,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     {
         ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=0x3742");
         session->init(&serviceLocator);
-        CPPUNIT_ASSERT(0 != session->serverAddressLen);
+        CPPUNIT_ASSERT(0 != session->serverAddress.get());
     }
 
     void
@@ -1885,6 +1891,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
                              channel->state);
 
         CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+        channel->currentRpc = NULL;
     }
 
     void
@@ -1934,6 +1941,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
             "clientSessionHint:98765432 serverSessionHint:cccccccc "
             "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
             driver->outputLog);
+        session->channelQueue.pop_front();
     }
 
     void
@@ -1978,6 +1986,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         session->processReceivedData(channel, &recvd);
         CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::RECEIVING,
                              channel->state);
+        channel->currentRpc = NULL;
     }
 
     void
@@ -2021,6 +2030,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
                              channel->state);
         CPPUNIT_ASSERT_EQUAL(&rpc2, channel->currentRpc);
         CPPUNIT_ASSERT(session->channelQueue.empty());
+        channel->currentRpc = NULL;
     }
 
     void
@@ -2050,6 +2060,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
 
         // Make sure we bailed on once the queue was empty
         CPPUNIT_ASSERT_EQUAL(0, session->channels[1].currentRpc);
+        session->channels[0].currentRpc = NULL;
     }
 
     void
