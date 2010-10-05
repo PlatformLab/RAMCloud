@@ -30,6 +30,7 @@ RejectRules defaultRejectRules;
 Client::Client(const char* serverAddr, int serverPort)
         : status(STATUS_OK),  counterValue(0),
           session(transportManager.getSession(serverAddr, serverPort)),
+          objectFinder(session),
           perfCounter() { }
 
 /**
@@ -46,6 +47,7 @@ Client::Client(const char* serverAddr, int serverPort)
 Client::Client(const char* serviceLocator)
         : status(STATUS_OK),  counterValue(0),
           session(transportManager.getSession(serviceLocator)),
+          objectFinder(session),
           perfCounter() { }
 
 
@@ -106,7 +108,8 @@ Client::create(uint32_t tableId, const void* buf, uint32_t length,
     reqHdr->tableId = tableId;
     reqHdr->length = length;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
-    session->clientSend(&req, &resp)->getReply();
+    Transport::Transport::SessionRef master(objectFinder.lookupHead(tableId));
+    master->clientSend(&req, &resp)->getReply();
 
     respHdr = static_cast<const CreateResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
@@ -313,7 +316,8 @@ Client::read(uint32_t tableId, uint64_t id, Buffer* value,
     reqHdr->tableId = tableId;
     reqHdr->pad1 = 0;                            // Needed only for tesing.
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    session->clientSend(&req, value)->getReply();
+    Transport::SessionRef master(objectFinder.lookup(tableId, id));
+    master->clientSend(&req, value)->getReply();
 
     respHdr = static_cast<const ReadResponse*>(
              value->getRange(0, sizeof(*respHdr)));
@@ -376,7 +380,8 @@ Client::remove(uint32_t tableId, uint64_t id,
     reqHdr->tableId = tableId;
     reqHdr->pad1 = 0;                            // Needed only for testing.
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    session->clientSend(&req, &resp)->getReply();
+    Transport::SessionRef master(objectFinder.lookup(tableId, id));
+    master->clientSend(&req, &resp)->getReply();
 
     respHdr = static_cast<const RemoveResponse*>(
              resp.getRange(0, sizeof(*respHdr)));
@@ -461,7 +466,8 @@ Client::write(uint32_t tableId, uint64_t id, const void* buf, uint32_t length,
     reqHdr->length = length;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
-    session->clientSend(&req, &resp)->getReply();
+    Transport::SessionRef master(objectFinder.lookup(tableId, id));
+    master->clientSend(&req, &resp)->getReply();
 
     respHdr = static_cast<const WriteResponse *>(
              resp.getRange(0, sizeof(*respHdr)));
