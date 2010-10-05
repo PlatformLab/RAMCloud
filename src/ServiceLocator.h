@@ -124,6 +124,10 @@ class ServiceLocator {
         return protocol;
     }
 
+    bool operator==(const ServiceLocator& other) const {
+        return (this->originalString == other.originalString);
+    }
+
   private:
     ServiceLocator();
 

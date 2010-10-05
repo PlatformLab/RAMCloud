@@ -145,7 +145,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(1, transport->clientSessions.size());
         ClientSession* clientSession =
             static_cast<ClientSession*>(session.get());
-        CPPUNIT_ASSERT(0 != clientSession->serverAddressLen);
+        CPPUNIT_ASSERT(0 != clientSession->serverAddress.get());
     }
 
     void
@@ -395,6 +395,8 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
         recvd.getHeader()->sessionToken = session->token + 1;
         recvd.getHeader()->payloadType = Header::SESSION_OPEN;
+        ServiceLocator sl("mock:");
+        recvd.sender = driver->newAddress(&sl);
         driver->setInput(&recvd);
 
         bool result = transport->tryProcessPacket();
@@ -1351,17 +1353,10 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         , transport(NULL)
         , session(NULL)
         , sessionId(0x98765432)
-        , addr()
-        , addrp(NULL)
-        , addrLen(0)
+        , driverAddress(NULL)
         , address("1.2.3.4")
         , port(12345)
     {
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        assert(inet_aton(&address[0], &addr.sin_addr));
-        addrLen = sizeof(addr);
-        addrp = reinterpret_cast<sockaddr*>(&addr);
     }
 
     void
@@ -1370,11 +1365,14 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         driver = new MockDriver(Header::headerToString);
         transport = new FastTransport(driver);
         session = new ServerSession(transport, sessionId);
+        ServiceLocator sl("mock: ip=1.2.3.4, port=12345");
+        driverAddress = driver->newAddress(&sl);
     }
 
     void
     tearDown()
     {
+        delete driverAddress;
         delete session;
         delete transport;
     }
@@ -1556,9 +1554,11 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         MockRandom __(rand);
 
         uint32_t clientSessionHint = 0x12345678u;
-        session->startSession(addrp, addrLen, clientSessionHint);
-        CPPUNIT_ASSERT_EQUAL(addrLen, session->clientAddressLen);
-        CPPUNIT_ASSERT(!memcmp(addrp, &session->clientAddress, addrLen));
+        session->startSession(driverAddress, clientSessionHint);
+        CPPUNIT_ASSERT(
+            *static_cast<MockDriver::MockAddress*>(driverAddress) ==
+            *static_cast<MockDriver::MockAddress*>(
+                session->clientAddress.get()));
         CPPUNIT_ASSERT_EQUAL(clientSessionHint, session->clientSessionHint);
         CPPUNIT_ASSERT_EQUAL((static_cast<uint64_t>(rand) << 32) | rand,
                              session->token);
@@ -1616,9 +1616,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     FastTransport* transport;
     ServerSession* session;
     const uint32_t sessionId;
-    sockaddr_in addr;
-    sockaddr* addrp;
-    socklen_t addrLen;
+    Driver::Address* driverAddress;
     const char* address;
     const uint16_t port;
 
@@ -1852,7 +1850,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     {
         ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=0x3742");
         session->init(&serviceLocator);
-        CPPUNIT_ASSERT(0 != session->serverAddressLen);
+        CPPUNIT_ASSERT(0 != session->serverAddress.get());
     }
 
     void

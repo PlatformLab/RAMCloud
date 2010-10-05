@@ -18,7 +18,6 @@
 
 #include "Common.h"
 #include "Driver.h"
-#include "ServiceLocator.h"
 
 namespace RAMCloud {
 
@@ -35,15 +34,39 @@ class UDPDriver : public Driver {
     virtual ~UDPDriver();
     virtual uint32_t getMaxPayloadSize();
     virtual void release(char *payload, uint32_t len);
-    virtual void sendPacket(const sockaddr *addr,
-                            socklen_t addrlen,
+    virtual void sendPacket(const Address *addr,
                             void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
     virtual bool tryRecvPacket(Received *received);
 
+    virtual Address* newAddress(const ServiceLocator* serviceLocator) {
+        return new UDPAddress(serviceLocator);
+    }
+
   private:
-    void send(const Buffer* payload);
+    struct UDPAddress : Address {
+        UDPAddress() : address() {}
+        explicit UDPAddress(const ServiceLocator* serviceLocator);
+        UDPAddress(const UDPAddress& other)
+            : Address(other), address(other.address) {}
+        UDPAddress* clone() const {
+            return new UDPAddress(*this);
+        }
+        sockaddr address;
+      private:
+        void operator=(UDPAddress&);
+    };
+
+    /**
+     * Concatenates a UDPAddress and a variable-length payload.
+     * Used for received packets.
+     */
+    struct AddressPayload {
+        AddressPayload() : udpAddress() {}
+        UDPAddress udpAddress;
+        char payload[0];
+    };
 
     /// File descriptor of the UDP socket this driver uses for communication.
     int socketFd;

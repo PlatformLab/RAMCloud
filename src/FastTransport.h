@@ -811,7 +811,7 @@ class FastTransport : public Transport {
          * \return
          *      See method description.
          */
-        virtual const sockaddr* getAddress(socklen_t *len) = 0;
+        virtual const Driver::Address* getAddress() = 0;
 
         /**
          * The time stamp counter in ns of the last time this session
@@ -869,11 +869,10 @@ class FastTransport : public Transport {
         virtual void close();
         virtual bool expire();
         virtual void fillHeader(Header* const header, uint8_t channelId) const;
-        virtual const sockaddr* getAddress(socklen_t *len);
+        virtual const Driver::Address* getAddress();
         uint64_t getLastActivityTime();
         void processInboundPacket(Driver::Received* received);
-        void startSession(const sockaddr *clientAddress,
-                          socklen_t clientAddressLen,
+        void startSession(const Driver::Address* clientAddress,
                           uint32_t clientSessionHint);
 
         /// Used to trash the hint field; shouldn't be seen on the wire.
@@ -974,8 +973,7 @@ class FastTransport : public Transport {
          */
         ServerChannel channels[NUM_CHANNELS_PER_SESSION];
 
-        sockaddr clientAddress;     ///< Where to send the response.
-        socklen_t clientAddressLen;
+        Driver::AddressPtr clientAddress;     ///< Where to send the response.
 
         /**
          * A token provided by the client about this session. We return this to
@@ -1012,7 +1010,7 @@ class FastTransport : public Transport {
         void connect();
         bool expire();
         void fillHeader(Header* const header, uint8_t channelId) const;
-        const sockaddr* getAddress(socklen_t *len);
+        const Driver::Address* getAddress();
         uint64_t getLastActivityTime();
         void init(const ServiceLocator* serviceLocator);
         bool isConnected();
@@ -1132,8 +1130,7 @@ class FastTransport : public Transport {
         /// Number of concurrent RPCs allowed in this session.
         uint32_t numChannels;
 
-        sockaddr serverAddress;     ///< Where to send requests.
-        socklen_t serverAddressLen;
+        Driver::AddressPtr serverAddress;     ///< Where to send requests.
         uint32_t serverSessionHint; ///< Session offset in remote SessionTable
 
         void allocateChannels();
@@ -1327,7 +1324,7 @@ class FastTransport : public Transport {
     uint32_t numFrags(const Buffer* dataBuffer);
     VIRTUAL_FOR_TESTING void poll();
     void removeTimer(Timer* timer);
-    void sendPacket(const sockaddr* address, socklen_t addressLength,
+    void sendPacket(const Driver::Address* address,
                     Header* header, Buffer::Iterator* payload);
     bool tryProcessPacket();
 
