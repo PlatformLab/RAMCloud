@@ -545,10 +545,13 @@ FastTransport::InboundMessage::InboundMessage()
     , channelId(0)
     , totalFrags(0)
     , firstMissingFrag(0)
-    , dataStagingRing()
+    , dataStagingWindow()
     , dataBuffer(NULL)
     , timer(this)
 {
+    // The staging window always starts with the packet *after*
+    // firstMissingFrag.
+    dataStagingWindow.advance();
 }
 
 /**
@@ -605,8 +608,9 @@ FastTransport::InboundMessage::sendAck()
     Buffer payloadBuffer;
     AckResponse *ackResponse =
         new(&payloadBuffer, APPEND) AckResponse(firstMissingFrag);
-    for (uint32_t i = 0; i < dataStagingRing.getLength(); i++) {
-        std::pair<char*, uint32_t> elt = dataStagingRing[i];
+    for (uint32_t i = 0; i < dataStagingWindow.getLength(); i++) {
+        std::pair<char*, uint32_t> elt =
+            dataStagingWindow[firstMissingFrag + 1 + i];
         if (elt.first)
             ackResponse->stagingVector |= (1 << i);
     }
@@ -624,15 +628,17 @@ FastTransport::InboundMessage::sendAck()
 void
 FastTransport::InboundMessage::reset()
 {
-    totalFrags = 0;
-    firstMissingFrag = 0;
-    dataBuffer = NULL;
-    for (uint32_t i = 0; i < dataStagingRing.getLength(); i++) {
-        std::pair<char*, uint32_t> elt = dataStagingRing[i];
+    for (uint32_t i = 0; i < dataStagingWindow.getLength(); i++) {
+        std::pair<char*, uint32_t> elt =
+            dataStagingWindow[firstMissingFrag + 1 + i];
         if (elt.first)
             transport->driver->release(elt.first, elt.second);
     }
-    dataStagingRing.clear();
+    totalFrags = 0;
+    dataStagingWindow.reset();
+    dataStagingWindow.advance();
+    firstMissingFrag = 0;
+    dataBuffer = NULL;
     timer.startTime = 0;
     if (timer.useTimer)
          transport->removeTimer(&timer);
@@ -686,7 +692,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     if (header->fragNumber == firstMissingFrag) {
         // If the fragNumber matches the firstMissingFrag of this message then
         // it is concatenated to the message's buffer along with any other
-        // packets following this fragments in the dataStagingRing that are
+        // packets following this fragments in the dataStagingWindow that are
         // contiguous and have no other missing fragments preceding them in
         // the message.
         uint32_t length;
@@ -699,19 +705,20 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                                      transport->driver,
                                      payload,
                                      length);
-        firstMissingFrag++;
 
-        // Advance the staging ring (and possibly firstMissingFrag) to
-        // restore the invariants:
+        // Advance the staging window (and firstMissingFrag) to restore the
+        // invariants:
         //  - firstMissingFrag refers to the first fragment we have not yet
         //    received.
-        //  - slot 0 in dataStagingRing refers to the fragment *after*
-        //    firstMissingFrag.
+        //  - the first slot in dataStagingWindow refers to the fragment
+        //    *after* firstMissingFrag.
         while (true) {
-            std::pair<char*, uint32_t> pair = dataStagingRing[0];
+            std::pair<char*, uint32_t> pair =
+                dataStagingWindow[firstMissingFrag + 1];
             char* payload = pair.first;
             uint32_t length = pair.second;
-            dataStagingRing.advance(1);
+            dataStagingWindow.advance();
+            firstMissingFrag++;
             if (!payload)
                 break;
             // Give that responsibility to dataBuffer's destructor, notice
@@ -723,25 +730,23 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                                          transport->driver,
                                          payload,
                                          length);
-            firstMissingFrag++;
         }
     } else if (header->fragNumber > firstMissingFrag) {
         // If the fragNumber exceeds the firstMissingFrag of this message then
-        // it is stored in the dataStagingRing to be appended by the above
+        // it is stored in the dataStagingWindow to be appended by the above
         // block on a future call to this method.
         if ((header->fragNumber - firstMissingFrag) >
             MAX_STAGING_FRAGMENTS) {
             LOG(DEBUG, "fragNumber too big");
         } else {
-            uint32_t i = header->fragNumber - firstMissingFrag - 1;
-            if (!dataStagingRing[i].first) {
+            if (!dataStagingWindow[header->fragNumber].first) {
                 uint32_t length;
                 // Take responsibility for returning the memory to the Driver.
                 // Notice responsibilty for the memory will be transferred to
                 // dataBuffer when this fragment is eventually appended on
                 // a future method invocation in other half of this if-else.
                 char* payload = received->steal(&length);
-                dataStagingRing[i] =
+                dataStagingWindow[header->fragNumber] =
                     std::pair<char*, uint32_t>(payload, length);
             } else {
                 LOG(DEBUG, "duplicate fragment %d received",
@@ -868,7 +873,7 @@ FastTransport::OutboundMessage::reset()
     firstMissingFrag = 0;
     totalFrags = 0;
     packetsSinceAckReq = 0;
-    sentTimes.clear();
+    sentTimes.reset();
     numAcked = 0;
     if (timer.useTimer)
         transport->removeTimer(&timer);
@@ -929,22 +934,22 @@ FastTransport::OutboundMessage::send()
     stop = std::min(stop, firstMissingFrag + MAX_STAGING_FRAGMENTS + 1);
 
     // Send frags from candidate range
-    for (uint32_t i = 0; i < stop - firstMissingFrag; i++) {
-        uint64_t sentTime = sentTimes[i];
+    for (uint32_t fragNumber = firstMissingFrag; fragNumber < stop;
+            fragNumber++) {
+        uint64_t sentTime = sentTimes[fragNumber];
         // skip if ACKED or if already sent but not yet timed out
         if ((sentTime == ACKED) ||
             (sentTime != 0 && sentTime + timeoutCycles() >= now))
             continue;
         // isRetransmit if already sent and timed out (guaranteed by if above)
         bool isRetransmit = sentTime != 0;
-        uint32_t fragNumber = firstMissingFrag + i;
         // requestAck if retransmit or
         // haven't asked for ack in awhile and this is not the last frag
         bool requestAck = isRetransmit ||
             (packetsSinceAckReq == REQ_ACK_AFTER - 1 &&
              fragNumber != totalFrags - 1);
         sendOneData(fragNumber, requestAck);
-        sentTimes[i] = now;
+        sentTimes[fragNumber] = now;
         if (isRetransmit)
             break;
     }
@@ -953,8 +958,9 @@ FastTransport::OutboundMessage::send()
     // schedule a timer just after that
     if (timer.useTimer) {
         uint64_t oldest = ~(0lu);
-        for (uint32_t i = 0; i < stop - firstMissingFrag; i++) {
-            uint64_t sentTime = sentTimes[i];
+        for (uint32_t fragNumber = firstMissingFrag; fragNumber < stop;
+                fragNumber++) {
+            uint64_t sentTime = sentTimes[fragNumber];
             // if we reach a not-sent, the rest must be not-sent
             if (!sentTime)
                 break;
@@ -1012,7 +1018,7 @@ FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
         for (uint32_t i = 0; i < sentTimes.getLength() - 1; i++) {
             bool acked = (ack->stagingVector >> i) & 1;
             if (acked) {
-                sentTimes[i + 1] = ACKED;
+                sentTimes[firstMissingFrag + i + 1] = ACKED;
                 numAcked++;
             }
         }

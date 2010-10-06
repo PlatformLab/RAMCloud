@@ -25,7 +25,7 @@
 #include "Common.h"
 #include "Transport.h"
 #include "Driver.h"
-#include "Ring.h"
+#include "Window.h"
 #include "BoostIntrusive.h"
 #include "BenchUtil.h"
 
@@ -577,7 +577,8 @@ class FastTransport : public Transport {
          * buffer yet because fragments preceding them are still missing.
          *
          * This structure holds both a pointer to the data and the length.
-         * The 0th pair corresponds to the (firstMissingFrag + 1)th fragment.
+         * The first element in the window corresponds to the
+         * (firstMissingFrag + 1)th fragment.
          *
          * The memory region covered by each pair has been stolen from the
          * Driver and responsibility is passed to higher levels by eventually
@@ -586,8 +587,8 @@ class FastTransport : public Transport {
          * If this message has reset() called on it it will return any
          * memory pointed to by these pairs to the Driver.
          */
-        Ring<std::pair<char*, uint32_t>,
-             MAX_STAGING_FRAGMENTS> dataStagingRing;
+        Window<std::pair<char*, uint32_t>,
+             MAX_STAGING_FRAGMENTS> dataStagingWindow;
 
         /**
          * The place to accumulate the result message.  Valid and available
@@ -695,12 +696,12 @@ class FastTransport : public Transport {
         /**
          * A record of when unacknowledged fragments were sent, which is useful
          * for retransmission.
-         * A Ring of MAX_STAGING_FRAGMENTS + 1 timestamps, where each entry
+         * A Window of MAX_STAGING_FRAGMENTS + 1 timestamps, where each entry
          * contains the TSC of the (firstMissingFrag + i)th packet was sent
          * (0 if it has never been sent), or ACKED if it has already been
          * acknowledged by the receiving end.
          */
-        Ring<uint64_t, MAX_STAGING_FRAGMENTS + 1> sentTimes;
+        Window<uint64_t, MAX_STAGING_FRAGMENTS + 1> sentTimes;
 
         /**
          * The total number of fragments the receiving end has acknowledged, in
