@@ -119,7 +119,7 @@ cyclesToSeconds(uint64_t cycles)
 uint64_t
 nanosecondsToCycles(uint64_t ns)
 {
-    return (ns * getCyclesPerSecond()) / 1000 * 1000 * 1000;
+    return (ns * getCyclesPerSecond()) / (1000 * 1000 * 1000);
 }
 
 } // end RAMCloud
