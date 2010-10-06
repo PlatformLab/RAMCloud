@@ -849,7 +849,7 @@ Buffer::Iterator::getNumberChunks() const
  * \param[in] buffer
  *      The Buffer in which to prepend the memory.
  * \param[in] prepend
- *      This should be #::RAMCloud::PREPEND_T::PREPEND.
+ *      This should be #::RAMCloud::PREPEND.
  * \return
  *      The newly allocated memory region of size \a numBytes, which will be
  *      automatically deallocated in this Buffer's destructor. May not be
@@ -886,7 +886,7 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
  * \param[in] buffer
  *      The Buffer in which to append the memory.
  * \param[in] append
- *      This should be #::RAMCloud::APPEND_T::APPEND.
+ *      This should be #::RAMCloud::APPEND.
  * \return
  *      The newly allocated memory region of size \a numBytes, which will be
  *      automatically deallocated in this Buffer's destructor. May not be
@@ -925,7 +925,7 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
  * \param[in] buffer
  *      The Buffer in which to allocate the memory.
  * \param[in] chunk
- *      This should be #::RAMCloud::CHUNK_T::CHUNK.
+ *      This should be #::RAMCloud::CHUNK.
  * \return
  *      The newly allocated memory region of size \a numBytes, which will be
  *      automatically deallocated in this Buffer's destructor. Will be aligned
@@ -949,7 +949,7 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
  * \param[in] buffer
  *      The Buffer in which to allocate the memory.
  * \param[in] misc
- *      This should be #::RAMCloud::MISC_T::MISC.
+ *      This should be #::RAMCloud::MISC.
  * \return
  *      The newly allocated memory region of size \a numBytes, which will be
  *      automatically deallocated in this Buffer's destructor. May not be
