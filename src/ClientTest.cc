@@ -127,7 +127,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("");
         try {
             client->create(14, "Sample text.", 10);
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(STATUS_RESPONSE_FORMAT_ERROR, status);
@@ -142,7 +142,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("4 0 7 3 4 1");
         try {
             client->create(14, "Sample text.", 10);
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(4, status);
@@ -162,7 +162,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("");
         try {
             client->createTable("table12345");
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(STATUS_RESPONSE_FORMAT_ERROR, status);
@@ -172,7 +172,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("4 0");
         try {
             client->createTable("table12345");
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(4, status);
@@ -192,7 +192,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("");
         try {
             client->dropTable("tableToDrop");
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(STATUS_RESPONSE_FORMAT_ERROR, status);
@@ -202,7 +202,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("4 0");
         try {
             client->dropTable("tableToDrop");
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(4, status);
@@ -223,7 +223,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("");
         try {
             client->openTable("table6");
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(STATUS_RESPONSE_FORMAT_ERROR, status);
@@ -233,7 +233,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("4 0 16");
         try {
             client->openTable("table6");
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(4, status);
@@ -253,7 +253,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("");
         try {
             client->ping();
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(STATUS_RESPONSE_FORMAT_ERROR, status);
@@ -263,7 +263,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("4 0");
         try {
             client->ping();
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(4, status);
@@ -292,7 +292,7 @@ class ClientTest : public CppUnit::TestFixture {
         try {
             client->read(44, 0x100000002ull, &result);
             client->ping();
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(STATUS_RESPONSE_FORMAT_ERROR, status);
@@ -314,7 +314,7 @@ class ClientTest : public CppUnit::TestFixture {
         try {
             client->read(44, 0x100000002ull, &result, NULL, &version);
             client->ping();
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(4, status);
@@ -344,7 +344,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("");
         try {
             client->remove(44, 0x100000002ull);
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(STATUS_RESPONSE_FORMAT_ERROR, status);
@@ -355,7 +355,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("4 0 8 6");
         try {
             client->remove(44, 0x100000002ull, NULL, &version);
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(4, status);
@@ -392,7 +392,7 @@ class ClientTest : public CppUnit::TestFixture {
         transport->setInput("");
         try {
             client->write(99, 0x500000004, "Sample text.", 10);
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(STATUS_RESPONSE_FORMAT_ERROR, status);
@@ -404,7 +404,7 @@ class ClientTest : public CppUnit::TestFixture {
         try {
             client->write(99, 0x500000004, "Sample text.", 10, &rules,
                     &version);
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(4, status);
@@ -421,7 +421,7 @@ class ClientTest : public CppUnit::TestFixture {
         status = STATUS_OK;
         try {
             client->tThrowShortResponseError(&b);
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(9, status);
@@ -431,7 +431,7 @@ class ClientTest : public CppUnit::TestFixture {
         status = STATUS_OK;
         try {
             client->tThrowShortResponseError(&b);
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(7, status);
@@ -441,7 +441,7 @@ class ClientTest : public CppUnit::TestFixture {
         status = STATUS_OK;
         try {
             client->tThrowShortResponseError(&b);
-        } catch (ClientException e) {
+        } catch (ClientException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(9, status);

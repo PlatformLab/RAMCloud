@@ -148,6 +148,7 @@ Syntax: cpplint.py [--verbose=#] [--output=vs7] [--filter=-x,+y,...]
 _ERROR_CATEGORIES = '''\
   ramcloud/undeclared_test
   ramcloud/throw_new
+  ramcloud/catch_ref
   ramcloud/include
   ramcloud/cppunit
   build/class
@@ -1094,6 +1095,13 @@ def CheckForThrowNew(filename, lines, error):
             error(filename, i, 'ramcloud/throw_new', 5,
                   'You should not throw heap-allocated objects.')
 
+def CheckForCatchByNonRef(filename, lines, error):
+    # this isn't perfect...
+    regex = r'\bcatch\s*\((\s*const)?\s*[\w:]+?[^&]\s*\w+\s*\)'
+    for i, line in enumerate(lines):
+        if Search(regex, line) and not Search(r'\bNOLINT\b', line):
+            error(filename, i, 'ramcloud/catch_ref', 5,
+                  'You should catch by reference.')
 
 def CheckForMultilineCommentsAndStrings(filename, clean_lines, linenum, error):
   """Logs an error if we see /* ... */ or "..." that extend past one line.
@@ -2350,7 +2358,8 @@ def CheckLanguage(filename, clean_lines, linenum, file_extension, include_state,
     if not Search(
         r'(swap|Swap|operator[<>][<>])\s*\(\s*(?:[\w:]|<.*>)+\s*&',
         fnline):
-      if not Search('BOOST_FOREACH', fnline): # allow BOOST_FOREACH
+      if (not Search('BOOST_FOREACH', fnline) and # allow BOOST_FOREACH
+          not Search(' catch ', fnline)): # allow catch by ref
           error(filename, linenum, 'runtime/references', 2,
                 'Is this a non-const reference? '
                 'If so, make const or use a pointer.')
@@ -2928,7 +2937,7 @@ def ProcessFileData(filename, file_extension, lines, error):
 
   CheckForUndeclaredTestMethods(filename, lines, error)
   CheckForThrowNew(filename, lines, error)
-
+  CheckForCatchByNonRef(filename, lines, error)
 
 def ProcessFile(filename, vlevel):
   """Does google-lint on a single file.

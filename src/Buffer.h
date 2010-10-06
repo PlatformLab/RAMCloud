@@ -206,7 +206,7 @@ class Buffer {
      *    instances are allocated with the Buffer's allocator.
      *  - Implement static prependToBuffer() and appendToBuffer() methods that
      *    allocate a new instance with <tt>new(buffer, CHUNK) MyChunkType</tt>
-     *    and then call #::prependChunkToBuffer or #::appendChunkToBuffer.
+     *    and then call #prependChunkToBuffer or #appendChunkToBuffer.
      */
     class Chunk {
       friend class Buffer;

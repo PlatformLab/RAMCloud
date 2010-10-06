@@ -368,7 +368,7 @@ TCPTransport::serverRecv()
     try {
         rpc->serverSocket->init(&listenSocket);
         rpc->serverSocket->recv(&rpc->recvPayload);
-    } catch (TransportException e) {
+    } catch (TransportException& e) {
         return NULL;
     }
     return rpc.release();

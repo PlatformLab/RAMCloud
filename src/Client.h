@@ -23,6 +23,7 @@
 #include "PerfCounterType.h"
 #include "Rpc.h"
 #include "Status.h"
+#include "ObjectFinder.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -73,6 +74,7 @@ class Client {
     Transport::SessionRef session; //!< For now we only know how to talk
                                    //!< to a single RAMCloud server; this
                                    //!< is a handle for that server.
+    ObjectFinder objectFinder;
     RpcPerfCounter perfCounter;    //!< Every RPC request will ask the server
                                    //!< to measure this during the execution
                                    //!< of the RPC.
