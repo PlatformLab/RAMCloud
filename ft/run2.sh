@@ -6,15 +6,15 @@ CLIENT="python client.py"
 while getopts "sc" OPT; do
     case $OPT in
         s)
-            SERVER="../obj.fasttransport/FastEcho -c 0"
+            SERVER="../obj.master/FastEcho"
             ;;
         c)
-            CLIENT="../obj.fasttransport/FastTelnet -c 1 -g"
+            CLIENT="../obj.master/FastTelnet -g"
             ;;
     esac
 done
 
-(cd ..; make ./obj.fasttransport/Fast{Echo,Telnet})
+(cd ..; make ./obj.master/Fast{Echo,Telnet})
 TIME=1
 CAP_FILE=/tmp/x.cap
 sudo rm -f $CAP_FILE

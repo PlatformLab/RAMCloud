@@ -198,10 +198,11 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     test_addTimer_notIn()
     {
         MockTimer timer;
-        transport->addTimer(&timer, 1);
+        transport->addTimer(&timer, 1, 2);
 
         CPPUNIT_ASSERT_EQUAL(&timer, &transport->timerList.front());
-        CPPUNIT_ASSERT_EQUAL(1, timer.when);
+        CPPUNIT_ASSERT_EQUAL(1, timer.startTime);
+        CPPUNIT_ASSERT_EQUAL(3, timer.when);
         transport->timerList.pop_front(); // satisfy boost assertion
     }
 
@@ -209,8 +210,8 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     test_addTimer_alreadyIn()
     {
         MockTimer timer;
-        transport->addTimer(&timer, 1);
-        transport->addTimer(&timer, 2);
+        transport->addTimer(&timer, 0, 1);
+        transport->addTimer(&timer, 0, 2);
         CPPUNIT_ASSERT_EQUAL(1, transport->timerList.size());
         CPPUNIT_ASSERT_EQUAL(2, timer.when);
         transport->timerList.pop_front(); // satisfy boost assertion
@@ -223,11 +224,11 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         MockTSC _(tsc);
 
         MockTimer timer1(tsc);
-        transport->addTimer(&timer1, tsc - 1);
+        transport->addTimer(&timer1, 0, tsc - 1);
         MockTimer timer2(tsc);
-        transport->addTimer(&timer2, tsc + 1);
+        transport->addTimer(&timer2, 0, tsc + 1);
         MockTimer timer3(tsc);
-        transport->addTimer(&timer3, tsc);
+        transport->addTimer(&timer3, 0, tsc);
 
         transport->fireTimers();
 
@@ -277,7 +278,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     test_removeTimer_alreadyIn()
     {
         MockTimer timer;
-        transport->addTimer(&timer, 999);
+        transport->addTimer(&timer, 0, 999);
         CPPUNIT_ASSERT_EQUAL(&timer, &transport->timerList.front());
         transport->removeTimer(&timer);
         CPPUNIT_ASSERT(transport->timerList.empty());
@@ -289,7 +290,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     {
         MockTSC _(1);
         MockTimer timer;
-        transport->addTimer(&timer, 1);
+        transport->addTimer(&timer, 0, 1);
 
         MockReceived recvd(0, 1, "");
         driver->setInput(&recvd);
@@ -305,7 +306,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     {
         MockTSC _(1);
         MockTimer timer;
-        transport->addTimer(&timer, 1);
+        transport->addTimer(&timer, 0, 1);
 
         transport->poll();
 
@@ -390,7 +391,8 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         TestLog::Enable _(&tppPred);
 
         ServerSession* session = transport->serverSessions.get();
-        MockTSC __(sessionTimeoutCycles() * 2);
+        MockTSC __(1); // force sessionTimeoutCycles to be deterministic
+        MockTSC ___(sessionTimeoutCycles() * 2);
         SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
         MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
         recvd.getHeader()->sessionToken = session->token + 1;
@@ -783,7 +785,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         uint32_t channelId = 5;
         setUp(2, useTimer);
 
-        transport->addTimer(&msg->timer, 999);
+        transport->addTimer(&msg->timer, 0, 999);
         CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
 
         ClientSession* clientSession =
@@ -794,7 +796,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
             CPPUNIT_ASSERT_EQUAL(transport, msg->transport);
             CPPUNIT_ASSERT_EQUAL(channelId, msg->channelId);
             CPPUNIT_ASSERT_EQUAL(0, msg->timer.when);
-            CPPUNIT_ASSERT_EQUAL(0, msg->timer.numTimeouts);
+            CPPUNIT_ASSERT_EQUAL(0, msg->timer.startTime);
             CPPUNIT_ASSERT_EQUAL(useTimer, msg->timer.useTimer);
             CPPUNIT_ASSERT(!msg->timer.listEntries.is_linked());
             if (!useTimer)
@@ -811,7 +813,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         setUp(2, true);
 
         char junk[0];
-        transport->addTimer(&msg->timer, 1000);
+        transport->addTimer(&msg->timer, 0, 1000);
         CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
         msg->dataStagingRing[10] = std::pair<char*, uint32_t>(junk, 1);
         msg->dataStagingRing[13] = std::pair<char*, uint32_t>(junk, 1);
@@ -1089,7 +1091,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     test_reset()
     {
         setUp(1600, true);
-        transport->addTimer(&msg->timer, 999);
+        transport->addTimer(&msg->timer, 0, 999);
 
         msg->reset();
 
@@ -1104,7 +1106,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(0, msg->numAcked);
         CPPUNIT_ASSERT(!msg->timer.listEntries.is_linked());
         CPPUNIT_ASSERT_EQUAL(0, msg->timer.when);
-        CPPUNIT_ASSERT_EQUAL(0, msg->timer.numTimeouts);
+        CPPUNIT_ASSERT_EQUAL(0, msg->timer.startTime);
     }
 
     void
@@ -1632,6 +1634,8 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_clientSend_nonEmptyBuffer);
     CPPUNIT_TEST(test_close);
     CPPUNIT_TEST(test_connect);
+    CPPUNIT_TEST(test_connect_sessionOpenRequestRetransmit);
+    CPPUNIT_TEST(test_connect_sessionOpenRequestTimeout);
     CPPUNIT_TEST(test_expire_activeRef);
     CPPUNIT_TEST(test_expire_activeOnChannel);
     CPPUNIT_TEST(test_expire_rpcQueued);
@@ -1643,6 +1647,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_processInboundPacket_data);
     CPPUNIT_TEST(test_processInboundPacket_ack);
     CPPUNIT_TEST(test_processInboundPacket_badSession);
+    CPPUNIT_TEST(test_sendSessionOpenRequest);
     CPPUNIT_TEST(test_allocateChannels);
     CPPUNIT_TEST(test_getAvailableChannel);
     CPPUNIT_TEST(test_processReceivedData_transitionSendToReceive);
@@ -1771,6 +1776,11 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
 
         ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
         session->init(&serviceLocator);
+
+        session->connect();
+        CPPUNIT_ASSERT_EQUAL(true, session->timer.sessionOpenRequestInFlight);
+
+        // ensure the second call doesn't send an additional SessionOpenReq
         session->connect();
         CPPUNIT_ASSERT_EQUAL(
             "{ sessionToken:cccccccccccccccc rpcId:0 "
@@ -1778,6 +1788,54 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
             "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
             driver->outputLog);
         CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+    }
+
+    void
+    test_connect_sessionOpenRequestRetransmit()
+    {
+        uint64_t tsc = 91291;
+        MockTSC _(tsc);
+
+        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
+        session->init(&serviceLocator);
+
+        session->connect();
+        CPPUNIT_ASSERT_EQUAL(true, session->timer.sessionOpenRequestInFlight);
+
+        MockTSC __(tsc + timeoutCycles() + 1);
+        transport->fireTimers();
+
+        CPPUNIT_ASSERT_EQUAL(
+            "{ sessionToken:cccccccccccccccc rpcId:0 "
+            "clientSessionHint:98765432 serverSessionHint:cccccccc "
+            "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 }  | "
+            "{ sessionToken:cccccccccccccccc rpcId:0 "
+            "clientSessionHint:98765432 serverSessionHint:cccccccc "
+            "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
+            driver->outputLog);
+    }
+
+    void
+    test_connect_sessionOpenRequestTimeout()
+    {
+        uint64_t tsc = 91291;
+        MockTSC _(tsc);
+
+        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
+        session->init(&serviceLocator);
+
+        session->connect();
+        CPPUNIT_ASSERT_EQUAL(true, session->timer.sessionOpenRequestInFlight);
+
+        ClientRpc rpc(transport, request, response);
+        session->channelQueue.push_back(rpc);
+
+        MockTSC __(tsc + 2 * sessionTimeoutCycles());
+        transport->fireTimers();
+        CPPUNIT_ASSERT_EQUAL(false, session->timer.sessionOpenRequestInFlight);
+
+        CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc.state);
+        CPPUNIT_ASSERT(!rpc.channelQueueEntries.is_linked());
     }
 
     void
@@ -1942,6 +2000,24 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
             "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
             driver->outputLog);
         session->channelQueue.pop_front();
+    }
+
+    void
+    test_sendSessionOpenRequest()
+    {
+        uint64_t tsc = 91291;
+        MockTSC _(tsc);
+
+        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
+        session->init(&serviceLocator);
+        session->sendSessionOpenRequest();
+        CPPUNIT_ASSERT_EQUAL(
+            "{ sessionToken:cccccccccccccccc rpcId:0 "
+            "clientSessionHint:98765432 serverSessionHint:cccccccc "
+            "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
+            driver->outputLog);
+        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+        transport->removeTimer(&session->timer);
     }
 
     void
@@ -2236,6 +2312,7 @@ class SessionTableTest : public CppUnit::TestFixture, FastTransport {
     void
     test_expire()
     {
+        MockTSC __(1); // force sessionTimeoutCycles to be deterministic
         uint64_t tsc = sessionTimeoutCycles();
         MockTSC _(tsc);
         SessionTable<MockSession> st(NULL);

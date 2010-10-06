@@ -255,7 +255,13 @@ class FastTransport : public Transport {
      */
     class Timer {
       public:
-          Timer() : when(0), listEntries() {}
+          Timer()
+              : startTime(0)
+              , when(0)
+              , listEntries()
+          {
+          }
+
           /**
            * Invoked when the system TSC reaches when. Defined in a
            * subclass to carry out a timer-specific action such as
@@ -263,10 +269,16 @@ class FastTransport : public Transport {
            */
           virtual void onTimerFired(uint64_t now) = 0;
           virtual ~Timer() {}
+
+          /// TSC of when the timer was added, 0 otherwise.
+          uint64_t startTime;
+
           /// When TSC is >= when the FastTransport will call onTimerFired().
           uint64_t when;
+
           /// Entries to allow timer events to be placed in lists.
           IntrusiveListHook listEntries;
+
       private:
         DISALLOW_COPY_AND_ASSIGN(Timer);
     };
@@ -603,9 +615,6 @@ class FastTransport : public Transport {
              */
             bool useTimer;
 
-            /// Number of times the timer has fired during this InboundMessage.
-            uint32_t numTimeouts;
-
           private:
             /// The InboundMessage this timer sendAcks on or resets if fired.
             InboundMessage* const inboundMsg;
@@ -719,9 +728,6 @@ class FastTransport : public Transport {
              * the timer queue when inboundMsg is reset or reused.
              */
             bool useTimer;
-
-            /// Number of times the timer has fired during this InboundMessage.
-            uint32_t numTimeouts;
 
           private:
             /// Message this timer resends packets for or closes when fired.
@@ -1016,6 +1022,7 @@ class FastTransport : public Transport {
         bool isConnected();
         void processInboundPacket(Driver::Received* received);
         void release() { expire(); }
+        void sendSessionOpenRequest();
 
         /// Used to trash the hint field; shouldn't be seen on the wire.
         static const uint32_t INVALID_HINT;
@@ -1104,7 +1111,28 @@ class FastTransport : public Transport {
             DISALLOW_COPY_AND_ASSIGN(ClientChannel);
         };
 
-        // TODO(ongaro): session open timer
+        /**
+         * Handles timeouts and retries in SessionOpenRequests.
+         */
+        class Timer : public FastTransport::Timer {
+          public:
+            explicit Timer(ClientSession* session);
+            virtual void onTimerFired(uint64_t now);
+            void start();
+
+            /// TSC of when the timer placed in the timer queue.
+            /**
+             * The ClientSession which will be closed after
+             * TIMEOUT_NS * TIMEOUTS_UNTIL_ABORTING nanoseconds.
+             */
+            ClientSession* session;
+
+            /// ClientSession is waiting for a SessionOpenResponse or timeout.
+            bool sessionOpenRequestInFlight;
+
+          private:
+            DISALLOW_COPY_AND_ASSIGN(Timer);
+        };
 
         /**
          * The channels for this session.
@@ -1132,6 +1160,8 @@ class FastTransport : public Transport {
 
         Driver::AddressPtr serverAddress;     ///< Where to send requests.
         uint32_t serverSessionHint; ///< Session offset in remote SessionTable
+
+        Timer timer; ///< Tracks timeout for SessionOpenRequests.
 
         void allocateChannels();
         void resetChannels();
@@ -1318,7 +1348,7 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(SessionTable);
     };
 
-    void addTimer(Timer* timer, uint64_t when);
+    void addTimer(Timer* timer, uint64_t now, uint64_t cyclesToWait);
     uint32_t dataPerFragment();
     void fireTimers();
     uint32_t numFrags(const Buffer* dataBuffer);

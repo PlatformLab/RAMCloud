@@ -78,13 +78,16 @@ FastTransport::serverRecv()
  *
  * \param timer
  *      The Timer on which to call onTimerFired().
- * \param when
- *      onTimerFired() is called when rdtsc() is at or beyond this timestamp.
+ * \param now
+ *      Roughly the current TSC.
+ * \param cyclesToWait
+ *      onTimerFired() is called when rdtsc() is now + cyclesToWait or beyond.
  */
 void
-FastTransport::addTimer(Timer* timer, uint64_t when)
+FastTransport::addTimer(Timer* timer, uint64_t now, uint64_t cyclesToWait)
 {
-    timer->when = when;
+    timer->startTime = now;
+    timer->when = now + cyclesToWait;
     if (!timer->listEntries.is_linked())
         timerList.push_front(*timer);
 }
@@ -586,7 +589,7 @@ FastTransport::InboundMessage::setup(FastTransport* transport,
     if (timer.useTimer)
         transport->removeTimer(&timer);
     timer.when = 0;
-    timer.numTimeouts = 0;
+    timer.startTime = 0;
     timer.useTimer = useTimer;
 }
 
@@ -630,7 +633,7 @@ FastTransport::InboundMessage::reset()
             transport->driver->release(elt.first, elt.second);
     }
     dataStagingRing.clear();
-    timer.numTimeouts = 0;
+    timer.startTime = 0;
     if (timer.useTimer)
          transport->removeTimer(&timer);
 }
@@ -654,7 +657,7 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
     this->totalFrags = totalFrags;
     this->dataBuffer = dataBuffer;
     if (timer.useTimer)
-        transport->addTimer(&timer, rdtsc() + timeoutCycles());
+        transport->addTimer(&timer, rdtsc(), timeoutCycles());
 }
 
 /**
@@ -752,7 +755,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     if (header->requestAck)
         sendAck();
     if (timer.useTimer)
-         transport->addTimer(&timer, rdtsc() + timeoutCycles());
+         transport->addTimer(&timer, rdtsc(), timeoutCycles());
 
     return firstMissingFrag == totalFrags;
 }
@@ -768,7 +771,6 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
  */
 FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
     : useTimer(false)
-    , numTimeouts(0)
     , inboundMsg(inboundMsg)
 {
 }
@@ -785,14 +787,12 @@ FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
 void
 FastTransport::InboundMessage::Timer::onTimerFired(uint64_t now)
 {
-    numTimeouts++;
     // NOTE: Kills the entire session because one message is stalled.
     //       We could make this less aggressive if we think they might recover.
-    if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
+    if (now - startTime > sessionTimeoutCycles()) {
         inboundMsg->session->close();
     } else {
-        inboundMsg->transport->addTimer(this,
-                                        now + timeoutCycles());
+        inboundMsg->transport->addTimer(this, now, timeoutCycles());
         inboundMsg->sendAck();
     }
 }
@@ -873,7 +873,7 @@ FastTransport::OutboundMessage::reset()
     if (timer.useTimer)
         transport->removeTimer(&timer);
     timer.when = 0;
-    timer.numTimeouts = 0;
+    timer.startTime = 0;
 }
 
 /**
@@ -963,7 +963,7 @@ FastTransport::OutboundMessage::send()
                     oldest = sentTime;
         }
         if (oldest != ~(0lu))
-            transport->addTimer(&timer, oldest + timeoutCycles());
+            transport->addTimer(&timer, oldest, timeoutCycles());
     }
 }
 
@@ -1063,7 +1063,6 @@ FastTransport::OutboundMessage::sendOneData(uint32_t fragNumber,
  */
 FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
     : useTimer(false)
-    , numTimeouts(0)
     , outboundMsg(outboundMsg)
 {
 }
@@ -1078,8 +1077,7 @@ FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
 void
 FastTransport::OutboundMessage::Timer::onTimerFired(uint64_t now)
 {
-    numTimeouts++;
-    if (numTimeouts == TIMEOUTS_UNTIL_ABORTING) {
+    if (now - startTime > sessionTimeoutCycles()) {
         LOG(DEBUG, "Closing session due to timeout");
         outboundMsg->session->close();
     } else {
@@ -1389,6 +1387,7 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
     , numChannels(0)
     , serverAddress()
     , serverSessionHint(INVALID_HINT)
+    , timer(this)
 {
 }
 
@@ -1415,6 +1414,8 @@ FastTransport::ClientSession::close()
     resetChannels();
     serverSessionHint = INVALID_HINT;
     token = INVALID_TOKEN;
+    if (timer.listEntries.is_linked())
+        transport->removeTimer(&timer);
 }
 
 // See Transport::Session::clientSend().
@@ -1433,8 +1434,6 @@ FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
     // queued until a channel is idle if none are currently available.
     lastActivityTime = rdtsc();
     if (!isConnected()) {
-        // TODO(ongaro): Check to make sure there is no outstanding session
-        // open request in flight first.
         connect();
         LOG(DEBUG, "Queueing RPC");
         channelQueue.push_back(*rpc);
@@ -1455,26 +1454,18 @@ FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
 }
 
 /**
- * Send a session open request to serverAddress and establishing an
- * open ServerSession on the remote end.
+ * Send a session open request if one isn't currently "in flight" to
+ * serverAddress and establish an open ServerSession on the remote end.
  */
 void
 FastTransport::ClientSession::connect()
 {
-    // TODO(ongaro): Would it be possible to open a session like other
-    // RPCs?
+    if (timer.sessionOpenRequestInFlight)
+        return;
 
-    Header header;
-    header.direction = Header::CLIENT_TO_SERVER;
-    header.clientSessionHint = id;
-    header.serverSessionHint = serverSessionHint;
-    header.sessionToken = token;
-    header.rpcId = 0;
-    header.channelId = 0;
-    header.requestAck = 0;
-    header.payloadType = Header::SESSION_OPEN;
-    transport->sendPacket(serverAddress.get(), &header, NULL);
-    lastActivityTime = rdtsc();
+    sendSessionOpenRequest();
+
+    timer.start();
 }
 
 // See Session::expire().
@@ -1592,6 +1583,30 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
             LOG(DEBUG, "drop old packet");
         }
     }
+}
+
+/**
+ * Send a SessionOpenRequest packet.
+ */
+void
+FastTransport::ClientSession::sendSessionOpenRequest()
+{
+    Header header;
+    header.direction = Header::CLIENT_TO_SERVER;
+    header.clientSessionHint = id;
+    header.serverSessionHint = serverSessionHint;
+    header.sessionToken = token;
+    header.rpcId = 0;
+    header.channelId = 0;
+    header.requestAck = 0;
+    header.payloadType = Header::SESSION_OPEN;
+    transport->sendPacket(serverAddress.get(),
+                          &header, NULL);
+
+    // Schedule the timer to resend if no response.
+    uint64_t now = rdtsc();
+    transport->addTimer(&timer, now, timeoutCycles());
+    lastActivityTime = now;
 }
 
 // - private -
@@ -1720,9 +1735,13 @@ void
 FastTransport::ClientSession::processSessionOpenResponse(
         Driver::Received* received)
 {
-    // TODO(stutsman) Better idea just to log this and allow it to go through?
     if (numChannels > 0)
         return;
+
+    // Clear the SessionOpenRequest retransmit timer
+    if (timer.listEntries.is_linked())
+        transport->removeTimer(&timer);
+
     Header* header = received->getOffset<Header>(0);
     SessionOpenResponse* response =
         received->getOffset<SessionOpenResponse>(sizeof(*header));
@@ -1744,6 +1763,31 @@ FastTransport::ClientSession::processSessionOpenResponse(
         channels[i].currentRpc = rpc;
         channels[i].outboundMsg.beginSending(rpc->requestBuffer);
     }
+}
+
+// --- ClientSession::Timer ---
+FastTransport::ClientSession::Timer::Timer(ClientSession* session)
+    : session(session)
+    , sessionOpenRequestInFlight(false)
+{
+}
+
+void
+FastTransport::ClientSession::Timer::onTimerFired(uint64_t now)
+{
+    if (now - startTime > sessionTimeoutCycles()) {
+        sessionOpenRequestInFlight = false;
+        session->close();
+    } else {
+        session->sendSessionOpenRequest();
+    }
+}
+
+void
+FastTransport::ClientSession::Timer::start()
+{
+    sessionOpenRequestInFlight = true;
+    startTime = 0;
 }
 
 } // end RAMCloud
