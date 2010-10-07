@@ -185,7 +185,9 @@ FastTransport::sendPacket(const Driver::Address* address,
                           Header* header,
                           Buffer::Iterator* payload)
 {
+#if TESTING
     header->pleaseDrop = (generateRandom() % 100) < PACKET_LOSS_PERCENTAGE;
+#endif
     driver->sendPacket(address, header, sizeof(*header), payload);
 }
 
@@ -1331,9 +1333,9 @@ FastTransport::ServerSession::processReceivedAck(ServerChannel* channel,
  *    full request has been received.
  *
  * \param channel
- *      The channel to process the ACK on.
+ *      The channel to process the data on.
  * \param received
- *      The ACK packet encapsulated in a Driver::Received.
+ *      The data packet encapsulated in a Driver::Received.
  */
 void
 FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
@@ -1675,9 +1677,6 @@ FastTransport::ClientSession::processReceivedAck(ClientChannel* channel,
 /**
  * Process a data fragment on a particular channel.
  *
- * Routing the packet to the correct handler is a function of the current
- * state of the channel.
- *
  * Side-effects:
  *  - If data is received while the channel is SENDING it transitions to
  *    RECEIVING.
@@ -1687,7 +1686,7 @@ FastTransport::ClientSession::processReceivedAck(ClientChannel* channel,
  * \param channel
  *      The channel to process the ACK on.
  * \param received
- *      The ACK packet encapsulated in a Driver::Received.
+ *      The data packet encapsulated in a Driver::Received.
  */
 void
 FastTransport::ClientSession::processReceivedData(ClientChannel* channel,

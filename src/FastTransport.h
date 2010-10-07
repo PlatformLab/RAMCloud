@@ -699,6 +699,9 @@ class FastTransport : public Transport {
          * contains the TSC of the (firstMissingFrag + i)th packet was sent
          * (0 if it has never been sent), or ACKED if it has already been
          * acknowledged by the receiving end.
+         * The 0th entry is implicitly ACKED when an AckResponse advances
+         * the firstMissingFrag.  The 1th through 33th entries correspond
+         * to each in the ACK bit vector the AckResponse.
          */
         Ring<uint64_t, MAX_STAGING_FRAGMENTS + 1> sentTimes;
 
