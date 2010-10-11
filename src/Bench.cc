@@ -167,7 +167,7 @@ try
          "Measure using rdpmc instead of rdtsc")
         ("server,s",
          RC::ProgramOptions::value<string>(&serverLocator)->
-           default_value("fast+udp:ip=127.0.0.1,port=12242"),
+           default_value("fast+udp:host=127.0.0.1,port=12242"),
          "RAMCloud server to connect to")
         ("size,S",
          RC::ProgramOptions::value<uint64_t>(&size)->

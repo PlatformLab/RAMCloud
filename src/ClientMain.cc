@@ -45,7 +45,7 @@ try
     clientOptions.add_options()
         ("server,s",
          RC::ProgramOptions::value<string>(&config.serverLocator)->
-            default_value("fast+udp:ip=127.0.0.1,port=12345"),
+            default_value("fast+udp:host=127.0.0.1,port=12345"),
          "RAMCloud server to connect to");
 
     RC::OptionParser optionParser(clientOptions, argc, argv);

@@ -40,6 +40,9 @@ class MockDriver : public Driver {
         bool operator==(const MockAddress& other) const {
             return (this->serviceLocator == other.serviceLocator);
         }
+        string toString() const {
+            return serviceLocator.getOriginalString();
+        }
         ServiceLocator serviceLocator;
       private:
         void operator=(const MockAddress&);

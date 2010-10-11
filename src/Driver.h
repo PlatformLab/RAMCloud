@@ -50,6 +50,12 @@ class Driver {
          *      An address that the caller must free later.
          */
         virtual Address* clone() const = 0;
+
+        /**
+         * Return a string describing the contents of this Address (for
+         * debugging, logging, etc).
+         */
+        virtual string toString() const = 0;
     };
 
     typedef std::auto_ptr<Address> AddressPtr;

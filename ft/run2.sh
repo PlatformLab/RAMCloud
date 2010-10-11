@@ -9,7 +9,7 @@ while getopts "sc" OPT; do
             SERVER="../obj.master/Echo"
             ;;
         c)
-            CLIENT="../obj.master/Telnet -g -s fast+udp:ip=127.0.0.1,port=12242"
+            CLIENT="../obj.master/Telnet -g -s fast+udp:host=127.0.0.1,port=12242"
             ;;
     esac
 done

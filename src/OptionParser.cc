@@ -118,7 +118,7 @@ OptionParser::setup(int argc, char* argv[])
          "Default log level for all modules, see LogLevel")
         ("local,L",
          po::value<string>(&options.localLocator)->
-           default_value("fast+udp:ip=0.0.0.0,port=12242"),
+           default_value("fast+udp:host=0.0.0.0,port=12242"),
          "Service locator to listen on")
         ("coordinator,C",
          po::value<string>(&options.coordinatorLocator),

@@ -19,7 +19,7 @@
 namespace RAMCloud {
 
 namespace {
-const char* localLocator = "fast+udp:ip=1.2.3.4,port=54321";
+const char* localLocator = "fast+udp:host=1.2.3.4,port=54321";
 const char* coordinatorLocator = "tcp:ip=4.3.2.1,port=12345";
 }
 

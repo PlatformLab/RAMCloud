@@ -13,10 +13,10 @@ VER=$(git log -1 | grep '^commit' | awk '{print $2;}')
 DATE=$(git log -1 --date=short | grep '^Date:' | awk '{print $2;}')
 
 # Start a server and run tests
-$OBJDIR/server -L fast+udp:ip=0.0.0.0,port=$port > /dev/null 2>&1 &
+$OBJDIR/server -L fast+udp:host=0.0.0.0,port=$port > /dev/null 2>&1 &
 sleep .1
 
-VAL=$($OBJDIR/Bench -s fast+udp:ip=127.0.0.1,port=$port -R -S 1000 -n 10000 | \
+VAL=$($OBJDIR/Bench -s fast+udp:host=127.0.0.1,port=$port -R -S 1000 -n 10000 | \
         grep '^readMany avgns' | awk '{print $3;}')
 RETVAL=$?
 
