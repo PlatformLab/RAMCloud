@@ -24,16 +24,6 @@ namespace RAMCloud {
 RejectRules defaultRejectRules;
 
 /**
- * For temporary use until service locator strings are fully adopted.
- * See the other constructor for details.
- */
-Client::Client(const char* serverAddr, int serverPort)
-        : status(STATUS_OK),  counterValue(0),
-          session(transportManager.getSession(serverAddr, serverPort)),
-          objectFinder(session),
-          perfCounter() { }
-
-/**
  * Construct a Client for a particular service: opens a connection with the
  * service.
  *
@@ -49,7 +39,6 @@ Client::Client(const char* serviceLocator)
           session(transportManager.getSession(serviceLocator)),
           objectFinder(session),
           perfCounter() { }
-
 
 /**
  * Destructor for Client objects: releases all resources for the

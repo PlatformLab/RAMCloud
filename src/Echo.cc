@@ -13,20 +13,42 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#include <getopt.h>
+
 #include "Common.h"
 #include "Buffer.h"
+#include "OptionParser.h"
 #include "TransportManager.h"
 
 /**
  * \file
- * An echo server.
+ * A simple echo server over FastTransport used for sanity checking.
  */
 
+/**
+ * Entry point for the program.  Sets up a server which listens for packets
+ * and returns them to the sender.
+ *
+ * \param argc
+ *      The number of command line args.
+ * \param argv
+ *      An array of length argc containing the command line args.
+ */
 int
-main()
+main(int argc, char *argv[])
+try
 {
-    using namespace RAMCloud; // NOLINT
-    transportManager.initialize(SVRADDR, SVRPORT);
+    using namespace RAMCloud;
+
+    logger.setLogLevel(TRANSPORT_MODULE, DEBUG);
+
+    OptionParser optionParser(argc, argv);
+    transportManager.initialize(optionParser.options.getLocalLocator().c_str());
+
     while (true) {
         Buffer payload;
         Transport::ServerRpc* rpc = transportManager.serverRecv();
@@ -43,4 +65,7 @@ main()
         rpc->sendReply();
     }
     return 0;
-};
+} catch (RAMCloud::Exception& e) {
+    using namespace RAMCloud;
+    LOG(ERROR, "FastEcho: %s\n", e.message.c_str());
+}

@@ -42,23 +42,27 @@ const bool debug_backup = false;
 static const uint64_t RESP_BUF_LEN = (1 << 20);
 
 /**
- * \param[in]  logPath  The file in which to store the local log on disk.
+ * \param logPath
+ *      The file in which to store the local log on disk.
+ * \param logOpenFlags
+ *      Extra options for the log file open
+ *      (most likely O_DIRECT or the default, 0).
  */
-BackupServer::BackupServer(const char *logPath)
+BackupServer::BackupServer(const char *logPath, int logOpenFlags)
         : logFD(-1), seg(0),
           openSegNum(INVALID_SEGMENT_NUM), freeMap(true)
 {
     static_assert(LOG_SPACE == SEGMENT_FRAMES * SEGMENT_SIZE);
 
     logFD = open(logPath,
-                  O_CREAT | O_RDWR | BACKUP_LOG_FLAGS,
+                  O_CREAT | O_RDWR | logOpenFlags,
                   0666);
     if (logFD == -1)
         throw BackupLogIOException(errno);
 
     seg = static_cast<char*>(xmemalign(getpagesize(), SEGMENT_SIZE));
 
-    if (!(BACKUP_LOG_FLAGS & O_DIRECT))
+    if (!(logOpenFlags & O_DIRECT))
         reserveSpace();
 
     for (uint64_t i = 0; i < SEGMENT_FRAMES; i++)

@@ -18,79 +18,33 @@
 #include <errno.h>
 
 #include "config.h"
+#include "OptionParser.h"
 #include "Server.h"
 #include "TransportManager.h"
 
-static int cpu = -1;
-
-void __attribute__ ((noreturn))
-usage(char *arg0)
-{
-    printf("Usage: %s [-r] [-p port] [-a address] [-c cpu] [-v [level]]\n"
-           "\t-r\t--restore\tRestore from backup before serving.\n"
-           "\t-p\t--port\t\tChoose which port to listen on.\n"
-           "\t-a\t--address\tChoose which address to listen on.\n"
-           "\t-c\t--cpu\t\tRestrict the server to a specific CPU (0 indexed).\n"
-           "\t-v\t--verbose\tSet or increase the log level.\n",
-           arg0);
-    exit(EXIT_FAILURE);
-}
-
-void
-cmdline(int argc, char *argv[], RAMCloud::ServerConfig *config)
-{
-    using namespace RAMCloud;
-    int i = 0;
-    int c;
-    struct option long_options[] = {
-        {"restore", no_argument, NULL, 'r'},
-        {"port", required_argument, NULL, 'p'},
-        {"address", required_argument, NULL, 'a'},
-        {"cpu", required_argument, NULL, 'a'},
-        {"verbose", optional_argument, NULL, 'v'},
-        {0, 0, 0, 0},
-    };
-
-    while ((c = getopt_long(argc, argv, "rp:a:c:v::", long_options, &i)) >= 0) {
-        switch (c) {
-        case 'r':
-            config->restore = true;
-            break;
-        case 'p':
-            config->port = atoi(optarg);
-            if (config->port > 65536 || config->port < 0)
-                usage(argv[0]);
-            break;
-        case 'a':
-            strncpy(config->address, optarg, sizeof(config->address));
-            config->address[sizeof(config->address) - 1] = '\0';
-            break;
-        case 'c':
-            cpu = atoi(optarg);
-            break;
-        case 'v':
-            if (optarg == NULL)
-                logger.changeLogLevels(1);
-            else
-                logger.setLogLevels(atoi(optarg));
-            break;
-        default:
-            usage(argv[0]);
-            break;
-        }
-    }
-}
+static int cpu;
 
 int
 main(int argc, char *argv[])
 try
 {
     using namespace RAMCloud;
-    ServerConfig config;
-    cmdline(argc, argv, &config);
 
-    LOG(NOTICE, "server: Listening on interface %s", config.address);
-    LOG(NOTICE, "server: Listening on port %d", config.port);
+    ServerConfig config;
+
+    OptionsDescription serverOptions("Server");
+    serverOptions.add_options()
+        ("cpu,c",
+         ProgramOptions::value<int>(&cpu)->
+            default_value(-1),
+         "CPU mask to pin to");
+
+    OptionParser optionParser(serverOptions, argc, argv);
+
+    config.coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    config.localLocator = optionParser.options.getLocalLocator();
+
+    LOG(NOTICE, "server: Listening on %s", config.localLocator.c_str());
 
     if (cpu != -1) {
         if (!pinToCpu(cpu))
@@ -98,7 +52,7 @@ try
         LOG(DEBUG, "server: Pinned to core %d", cpu);
     }
 
-    transportManager.initialize(config.address, config.port);
+    transportManager.initialize(config.localLocator.c_str());
 
     Server server(&config);
     server.run();

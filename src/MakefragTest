@@ -18,6 +18,8 @@ TESTS_SRCFILES := \
 		  src/HashTableTest.cc \
 		  src/LogTest.cc \
 		  src/LoggingTest.cc \
+		  src/OptionParser.cc \
+		  src/OptionParserTest.cc \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
@@ -44,7 +46,7 @@ TESTS_OBJFILES := $(sort \
                $(CLIENT_OBJFILES) \
                $(BACKUP_OBJFILES))
 
-TESTS_LIB := -lcppunit -ldl -lpcrecpp -lm
+TESTS_LIB := -lcppunit -ldl $(LIBS)
 
 $(OBJDIR)/%Test.cc: $(TOP)/src/%Test.in.cc $(TOP)/mock.py
 	$(TOP)/mock.py $< $@
@@ -55,7 +57,7 @@ $(OBJDIR)/test: $(TESTS_OBJFILES)
 
 # TODO(ongaro) The unit tests don't actually call HashTableBenchmark, Echo, or
 # Telnet. I just wanted to make sure it continues to build over time.
-test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet $(OBJDIR)/FastEcho $(OBJDIR)/FastTelnet
+test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet $(OBJDIR)/Bench
 	$(OBJDIR)/test
 
 ftest: $(OBJDIR)/test
@@ -69,19 +71,11 @@ $(OBJDIR)/Echo: $(OBJDIR)/Echo.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
-$(OBJDIR)/FastEcho: $(OBJDIR)/FastEcho.o $(OBJDIR)/Driver.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
-
 $(OBJDIR)/Telnet: $(OBJDIR)/Telnet.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
-$(OBJDIR)/FastTelnet: $(OBJDIR)/FastTelnet.o $(OBJDIR)/Driver.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^
-
-$(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/libramcloud.a $(OBJDIR)/BenchUtil.o
+$(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 

@@ -37,7 +37,6 @@ namespace RAMCloud {
  */
 class Client {
   public:
-    Client(const char* serverAddr, int serverPort);
     explicit Client(const char* serviceLocator);
     virtual ~Client();
     void clearPerfCounter();

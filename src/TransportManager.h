@@ -47,38 +47,6 @@ class TransportManager {
     Transport::SessionRef getSession(const char* serviceLocator);
     Transport::ServerRpc* serverRecv();
 
-    /**
-     * This method exists temporarily for convenience until service locators
-     * are fully adopted.
-     * See #getSession(const char* serviceLocator).
-     */
-    Transport::SessionRef getSession(const char* ip, uint16_t port) {
-        char buf[100];
-        int r = snprintf(buf, sizeof(buf),
-                         "%s: ip=%s, port=%d",
-                         USE_FASTTRANSPORT ? "fast+udp" : "tcp",
-                         ip,
-                         port);
-        assert(r < static_cast<int64_t>(sizeof(buf)));
-        return getSession(buf);
-    }
-
-    /**
-     * This method exists temporarily for convenience until service locators
-     * are fully adopted.
-     * See #initialize(const char* serviceLocator).
-     */
-    void initialize(const char* ip, uint16_t port) {
-        char buf[200];
-        int r = snprintf(buf, sizeof(buf),
-                         "fast+udp: ip=%s, port=%d;"
-                         "tcp: ip=%s, port=%d",
-                         ip, port,
-                         ip, port);
-        assert(r < static_cast<int64_t>(sizeof(buf)));
-        initialize(buf);
-    }
-
 #if TESTING
     /**
      * Register a mock transport instance for unit testing.

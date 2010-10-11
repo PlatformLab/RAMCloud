@@ -20,19 +20,21 @@
 #include <getopt.h>
 #include <errno.h>
 
+#include <string>
+
 #include "Client.h"
 #include "BenchUtil.h"
+#include "OptionParser.h"
 
 namespace RC = RAMCloud;
 
-uint64_t multirow;
-uint64_t randomReads;
+std::string serverLocator;
+bool multirow;
+bool randomReads;
 bool pmcInsteadOfTSC;
 uint64_t count;
 uint64_t size;
-char address[50];
-int port;
-int cpu = -1;
+int cpu;
 
 RC::Client *client;
 uint32_t table;
@@ -54,7 +56,7 @@ setup()
         LOG(RC::DEBUG, "bench: Pinned to core %d", cpu);
     }
 
-    client = new RC::Client(address, port);
+    client = new RC::Client(serverLocator.c_str());
 
     assert(!atexit(cleanup));
 
@@ -78,7 +80,7 @@ bench(const char *name, uint64_t (f)(void))
     end = rdtsc();
 
     cycles = end - start;
-    printf("%s ns     %012lu\n", name,
+    printf("%s ns     %12lu\n", name,
            RC::cyclesToNanoseconds(cycles));
     printf("%s avgns  %12.2f\n", name,
            static_cast<double>(RC::cyclesToNanoseconds(cycles)) /
@@ -140,88 +142,41 @@ readMany()
     return serverCounter;
 }
 
-void __attribute__ ((noreturn))
-usage(char *arg0)
-{
-    printf("Usage: %s [-n number] [-s size] [-M] [-R] [-P] "
-            "[-p port] [-a address] [-c cpu]\n"
-           "\t-n\t--number\tNumber of iterations to write/read.\n"
-           "\t-s\t--size\t\tSize of objects to write/read.\n"
-           "\t-M\t--multirow\tWrite objects equal to number parameter..\n"
-           "\t-R\t--random\tRestore from backup before serving.\n"
-           "\t-P\t--performance\tReturn CPU performance counter from server.\n"
-           "\t-p\t--port\t\tChoose which port to connect to.\n"
-           "\t-a\t--address\tChoose which address to connect to.\n"
-           "\t-c\t--cpu\t\tRestrict the test to a specific CPU (0 indexed).\n",
-           arg0);
-    exit(EXIT_FAILURE);
-}
-
-void
-cmdline(int argc, char *argv[])
-{
-    count = 10000;
-    size = 100;
-    multirow = 0;
-    port = SVRPORT;
-    strncpy(address, SVRADDR, sizeof(address));
-    address[sizeof(address) - 1] = '\0';
-
-    struct option long_options[] = {
-        {"number", required_argument, NULL, 'n'},
-        {"size", required_argument, NULL, 's'},
-        {"multirow", no_argument, NULL, 'M'},
-        {"random", no_argument, NULL, 'R'},
-        {"performance", no_argument, NULL, 'P'},
-        {"address", required_argument, NULL, 'a'},
-        {"port", required_argument, NULL, 'p'},
-        {"cpu", required_argument, NULL, 'a'},
-        {0, 0, 0, 0},
-    };
-
-    int c;
-    int i = 0;
-    while ((c = getopt_long(argc, argv, "n:s:MRPa:p:c:",
-                            long_options, &i)) >= 0)
-    {
-        switch (c) {
-        case 'n':
-            count = atol(optarg);
-            break;
-        case 's':
-            size = atol(optarg);
-            break;
-        case 'M':
-            multirow = 1;
-            break;
-        case 'R':
-            multirow = 1;
-            randomReads = 1;
-            break;
-        case 'P':
-            pmcInsteadOfTSC = 1;
-            break;
-        case 'a':
-            strncpy(address, optarg, sizeof(address));
-            address[sizeof(address) - 1] = '\0';
-            break;
-        case 'p':
-            port = atoi(optarg);
-            break;
-        case 'c':
-            cpu = atoi(optarg);
-            break;
-        default:
-            usage(argv[0]);
-        }
-    }
-}
-
 int
 main(int argc, char *argv[])
 try
 {
-    cmdline(argc, argv);
+    RC::OptionsDescription benchOptions("Bench");
+    benchOptions.add_options()
+        ("cpu,c",
+         RC::ProgramOptions::value<int>(&cpu)->
+           default_value(-1),
+         "CPU mask to pin to")
+        ("multirow,m",
+         RC::ProgramOptions::bool_switch(&multirow),
+         "Write number of objects equal to number parameter.")
+        ("number,n",
+         RC::ProgramOptions::value<uint64_t>(&count)->
+           default_value(10000),
+         "Number of iterations to write/read.")
+        ("random,R",
+         RC::ProgramOptions::bool_switch(&randomReads),
+         "Randomize key order instead of incremental.")
+        ("performance,P",
+         RC::ProgramOptions::bool_switch(&pmcInsteadOfTSC),
+         "Measure using rdpmc instead of rdtsc")
+        ("server,s",
+         RC::ProgramOptions::value<string>(&serverLocator)->
+           default_value("fast+udp:ip=127.0.0.1,port=12242"),
+         "RAMCloud server to connect to")
+        ("size,S",
+         RC::ProgramOptions::value<uint64_t>(&size)->
+           default_value(100),
+         "Size in bytes of objects to write/read.");
+
+    RC::OptionParser optionParser(benchOptions, argc, argv);
+
+    printf("client: Connecting to %s\n", serverLocator.c_str());
 
     printf("Reads: %lu, Size: %lu, Multirow: %lu, RandomReads: %lu\n",
            count, size, multirow, randomReads);
@@ -239,4 +194,6 @@ try
     return 0;
 } catch (RC::ClientException& e) {
     fprintf(stderr, "RAMCloud exception: %s\n", e.toString());
+} catch (RAMCloud::Exception& e) {
+    fprintf(stderr, "RAMCloud exception: %s\n", e.message.c_str());
 }

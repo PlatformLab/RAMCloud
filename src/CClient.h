@@ -31,7 +31,7 @@
 extern "C" {
 #endif
 
-RAMCloud::Status    rc_connect(const char* serverAddr, int serverPort,
+RAMCloud::Status    rc_connect(const char* serverLocator,
                             struct rc_client** newClient);
 RAMCloud::Status    rc_connectWithClient(
                             struct RAMCloud::Client* existingClient,

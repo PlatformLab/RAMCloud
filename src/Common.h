@@ -43,8 +43,12 @@
 #include <memory>
 #include <cassert>
 #include <string>
+#include <vector>
+#include <boost/foreach.hpp>
 using std::string;
 using std::pair;
+using std::vector;
+#define foreach BOOST_FOREACH
 #endif
 
 #include "config.h"

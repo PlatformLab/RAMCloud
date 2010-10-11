@@ -50,10 +50,7 @@ Server::Server(const ServerConfig* config,
 
     if (!backup) {
         MultiBackupClient* multiBackup = new MultiBackupClient();
-        if (BACKUP) {
-            multiBackup->addHost(transportManager.getSession(BACKSVRADDR,
-                                                             BACKSVRPORT));
-        }
+        // TODO(stutsman) Populate multiBackup list from coordinator
         backup = multiBackup;
     }
 
@@ -437,9 +434,6 @@ Server::handleRpc()
 void __attribute__ ((noreturn))
 Server::run()
 {
-    if (config->restore) {
-        restore();
-    }
     log->init();
 
     while (true)

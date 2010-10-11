@@ -9,6 +9,7 @@ SHARED_SRCFILES := \
 		   src/FastTransport.cc \
 		   src/Log.cc \
 		   src/Logging.cc \
+		   src/OptionParser.cc \
 		   src/Segment.cc \
 		   src/ServiceLocator.cc \
 		   src/StringConverter.cc \

@@ -13,37 +13,117 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#include <getopt.h>
+
+#include <iostream>
+#include <vector>
+
 #include "Common.h"
 #include "Buffer.h"
+#include "CycleCounter.h"
+#include "OptionParser.h"
 #include "TransportManager.h"
 
 /**
  * \file
- * A telnet client.
+ * A telnet client over FastTransport.
  */
 
+/// Generate fake data if true, else read data from stdin.
+bool generate;
+
+/// Service locators of the hosts to bounce data off of.
+vector<string> serverLocators;
+
+/**
+ * Entry point for the program.  Acts as a client which sends packets
+ * to servers and expects a response.  If generate then just send garbage
+ * and discard the results.  If !generate then send stdin and receive to
+ * stdout.
+ *
+ * \param argc
+ *      The number of command line args.
+ * \param argv
+ *      An array of length argc containing the command line args.
+ */
 int
-main()
+main(int argc, char *argv[])
+try
 {
     using namespace RAMCloud; // NOLINT
 
-    Transport::SessionRef session(
-        transportManager.getSession(SVRADDR, SVRPORT));
+    // FastTelnet specific options
+    OptionsDescription telnetOptions("Telnet");
+    telnetOptions.add_options()
+        ("generate,g",
+         ProgramOptions::bool_switch(&generate),
+         "Continuously send random data")
+        ("server,s",
+         ProgramOptions::value<vector<string> >(&serverLocators),
+         "Server locator of server, can be repeated to send to all");
 
-    char buf[1024];
-    while (fgets(buf, sizeof(buf), stdin) != NULL) {
-        Buffer request;
-        Buffer response;
-        Buffer::Chunk::appendToBuffer(&request, buf,
-                                      static_cast<uint32_t>(strlen(buf)));
-        session->clientSend(&request, &response)->getReply();
+    OptionParser optionParser(telnetOptions, argc, argv);
 
-        uint32_t respLen = response.getTotalLength();
-        if (respLen >= sizeof(buf))
-            return 1;
-        buf[respLen] = '\0';
-        response.copy(0, respLen, buf);
-        fputs(static_cast<char*>(buf), stdout);
+    if (!serverLocators.size()) {
+        optionParser.usage();
+        DIE("Error: No servers specified to telnet to.");
+    }
+
+    logger.setLogLevels(WARNING);
+
+    int serverCount = serverLocators.size();
+    Transport::SessionRef session[serverCount];
+    for (int i = 0; i < serverCount; i++)
+        session[i] = transportManager.getSession(serverLocators[i].c_str());
+
+    if (!generate) {
+        char sendbuf[1024];
+        char recvbuf[serverCount][1024];
+        Transport::ClientRpc* rpcs[serverCount];
+        LOG(DEBUG, "Sending to %d servers", serverCount);
+        while (fgets(sendbuf, sizeof(sendbuf), stdin) != NULL) {
+            Buffer response[serverCount];
+            Buffer request[serverCount];
+            for (int i = 0; i < serverCount; i++) {
+                Buffer::Chunk::appendToBuffer(&request[i], sendbuf,
+                    static_cast<uint32_t>(strlen(sendbuf)));
+                LOG(DEBUG, "Sending out request %d to %s",
+                    i, serverLocators[i].c_str());
+                rpcs[i] = session[i]->clientSend(&request[i], &response[i]);
+            }
+
+            for (int i = 0; i < serverCount; i++) {
+                LOG(DEBUG, "Getting reply %d", i);
+                rpcs[i]->getReply();
+                uint32_t respLen = response[i].getTotalLength();
+                if (respLen >= sizeof(recvbuf[i])) {
+                    LOG(WARNING, "Failed to get reply %d", i);
+                    break;
+                }
+                recvbuf[i][respLen] = '\0';
+                response[i].copy(0, respLen, recvbuf[i]);
+                fputs(static_cast<char*>(recvbuf[i]), stdout);
+            }
+        }
+    } else {
+        char buf[1024];
+        memset(buf, 0xcc, sizeof(buf));
+        while (true) {
+            Buffer request;
+            Buffer response;
+            uint64_t totalFrags = (random() & 0x3FF);
+            for (uint32_t i = 0; i < totalFrags; i++)
+                Buffer::Chunk::appendToBuffer(&request, buf, sizeof(buf));
+            CycleCounter c;
+            session[0]->clientSend(&request, &response)->getReply();
+        }
     }
     return 0;
-};
+} catch (RAMCloud::Exception& e) {
+    using namespace RAMCloud;
+    LOG(ERROR, "%s", e.message.c_str());
+}

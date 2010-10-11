@@ -109,13 +109,12 @@ def load_so():
     id                  = ctypes.c_uint64
     len                 = ctypes.c_uint32
     name                = ctypes.c_char_p
-    port                = ctypes.c_uint32
     rejectRules         = POINTER(RejectRules)
     status              = ctypes.c_int
     table               = ctypes.c_uint32
     version             = ctypes.c_uint64
 
-    so.rc_connect.argtypes = [address, port, POINTER(client)]
+    so.rc_connect.argtypes = [address, POINTER(client)]
     so.rc_connect.restype  = status
 
     so.rc_disconnect.argtypes = [client]
@@ -198,8 +197,8 @@ class RAMCloud(object):
             raise VersionError(reject_rules.given_version, actual_version)
         raise RCException(status)
 
-    def connect(self, address='127.0.0.1', port=11111):
-        s = so.rc_connect(address, port, ctypes.byref(self.client))
+    def connect(self, serverLocator='fast+udp:ip=127.0.0.1,port=12242'):
+        s = so.rc_connect(serverLocator, ctypes.byref(self.client))
         self.handle_error(s)
 
     def create(self, table_id, id, data):

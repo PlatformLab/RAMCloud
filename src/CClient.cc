@@ -34,10 +34,8 @@ struct rc_client {
 /**
  * Create a new client connection to a RAMCloud cluster.
  *
- * \param serverAddr
- *      Name of the desired server host (IP address/name).
- * \param serverPort
- *      Port number to use for server connection.
+ * \param serverLocator
+ *      A service locator string for the desired server host.
  * \param[out] newClient
  *      A pointer to the new client connection is returned here
  *      if the return value is STATUS_OK.  This pointer is passed
@@ -46,12 +44,11 @@ struct rc_client {
  * \return
  *      STATUS_OK or STATUS_COULDNT_CONNECT.
  */
-Status rc_connect(const char* serverAddr, int serverPort,
-        struct rc_client** newClient)
+Status rc_connect(const char* serverLocator, struct rc_client** newClient)
 {
     struct rc_client* client = new rc_client;
     try {
-        client->client = new Client(serverAddr, serverPort);
+        client->client = new Client(serverLocator);
     } catch (CouldntConnectException& e) {
         delete client;
         return e.status;

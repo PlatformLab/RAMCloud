@@ -6,10 +6,10 @@ port=11114
 
 portslay $port
 
-$OBJDIR/server -p $port > /dev/null 2>&1 &
+$OBJDIR/server -L fast+udp:ip=127.0.0.1,port=$port > /dev/null 2>&1 &
 sleep .1
 
-retval=$($OBJDIR/client -p $port > /dev/null)
+retval=$($OBJDIR/client -s fast+udp:ip=127.0.0.1,port=$port > /dev/null)
 
 portslay $port
 

@@ -10,10 +10,10 @@ source scripts/common.bash
 portslay $port
 
 # Start a server and run tests
-$OBJDIR/server -p $port > /dev/null 2>&1 &
+$OBJDIR/server -L fast+udp:ip=127.0.0.1,port=$port > /dev/null 2>&1 &
 sleep .1
 
-$OBJDIR/Bench -p $port $*
+$OBJDIR/Bench -s fast+udp:ip=127.0.0.1,port=$port $*
 RETVAL=$?
 
 portslay $port

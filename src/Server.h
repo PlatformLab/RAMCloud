@@ -28,14 +28,13 @@
 namespace RAMCloud {
 
 struct ServerConfig {
-    // Restore from backups before resuming operation
-    bool restore;
-    int port;
-    char address[50];
-    ServerConfig() : restore(false), port(SVRPORT)
+    string coordinatorLocator;
+    string localLocator;
+
+    ServerConfig()
+        : coordinatorLocator()
+        , localLocator()
     {
-        strncpy(address, SVRADDR, sizeof(address));
-        address[sizeof(address) - 1] = '\0';
     }
 };
 

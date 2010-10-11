@@ -66,7 +66,7 @@ const uint64_t INVALID_SEGMENT_NUM = ~(0ull);
 class BackupServer : BackupClient {
   public:
     explicit BackupServer();
-    explicit BackupServer(const char *logPath);
+    explicit BackupServer(const char *logPath, int logOpenFlags = 0);
     virtual ~BackupServer();
     void run();
   private:

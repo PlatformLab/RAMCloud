@@ -10,6 +10,7 @@ CLIENT_SRCFILES := \
 		   src/Driver.cc \
 		   src/FastTransport.cc \
 		   src/Logging.cc \
+		   src/OptionParser.cc \
 		   src/ServiceLocator.cc \
 		   src/Status.cc \
 		   src/StringConverter.cc \

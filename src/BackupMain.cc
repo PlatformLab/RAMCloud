@@ -21,6 +21,7 @@
 #include "config.h"
 
 #include "BackupServer.h"
+#include "OptionParser.h"
 #include "TransportManager.h"
 
 /**
@@ -29,12 +30,34 @@
  * master servers.
  */
 int
-main()
+main(int argc, char* argv[])
 {
     using namespace RAMCloud;
 
-    transportManager.initialize(BACKSVRADDR, BACKSVRPORT);
-    BackupServer server(BACKUP_LOG_PATH);
+    // CPU mask for binding the backup to a specific set of cores.
+    int cpu;
+
+    OptionsDescription extraOptions("Backup");
+    extraOptions.add_options()
+        ("cpu,c",
+         ProgramOptions::value<int>(&cpu)->
+            default_value(-1),
+         "CPU mask to pin to");
+
+    OptionParser optionParser(extraOptions, argc, argv);
+    const string& locator = optionParser.options.getLocalLocator();
+
+    LOG(NOTICE, "backup: Listening on %s", locator.c_str());
+
+    if (cpu != -1) {
+        if (!pinToCpu(cpu))
+            DIE("backup: Couldn't pin to core %d", cpu);
+        LOG(DEBUG, "backup: Pinned to core %d", cpu);
+    }
+
+    transportManager.initialize(locator.c_str());
+
+    BackupServer server("backup.log", 0);
 
     server.run();
 
