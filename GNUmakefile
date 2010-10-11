@@ -37,8 +37,7 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 # -Wconversion
 # Failed deconstructor inlines are generating noise
 # -Winline
-LIBS := -lrt -lpcrecpp -lboost_program_options
-# -lrt required for temporary semaphore. See RC_CLIENT_SHARED and RAM-39.
+LIBS := -lpcrecpp -lboost_program_options
 INCLUDES := -I$(TOP)/src
 
 
@@ -122,7 +121,7 @@ include bindings/python/Makefrag
 # test scripts, etc.) in the "private" subdirectory.
 include $(wildcard private/MakefragPrivate)
 
-clean: tests-clean docs-clean
+clean: tests-clean docs-clean tags-clean
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
 
 # Lazy rule so this doesn't happen unless make check is invoked
@@ -156,9 +155,16 @@ docs: python-docs
 docs-clean: python-docs-clean
 	rm -rf docs/doxygen/
 
+tags: 
+	find . -type f | grep -v "\.git" | xargs etags
+	find . -type f | grep -v "\.git" | xargs ctags
+
+tags-clean:
+	rm TAGS tags
+
 # The following target is useful for debugging Makefiles; it
 # prints the value of a make variable.
 print-%:
 	@echo $* = $($*)
 
-.PHONY: all always clean check doc docs docs-clean test tests install uninstall
+.PHONY: all always clean check doc docs docs-clean tags tags-clean test tests install uninstall
