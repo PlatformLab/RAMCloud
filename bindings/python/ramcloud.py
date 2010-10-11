@@ -184,8 +184,7 @@ class RAMCloud(object):
     def __del__(self):
         if self.client.value != None:
             so.rc_disconnect(self.client)
-        self.client.value = ctypes.c_void_p()
-        
+
     def handle_error(self, status, actual_version=0):
         if status == 0:
             return
