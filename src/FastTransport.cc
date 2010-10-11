@@ -49,7 +49,7 @@ FastTransport::~FastTransport()
 
 // See Transport::getSession().
 Transport::SessionRef
-FastTransport::getSession(const ServiceLocator* serviceLocator)
+FastTransport::getSession(const ServiceLocator& serviceLocator)
 {
     clientSessions.expire();
     ClientSession* session = clientSessions.get();
@@ -100,7 +100,7 @@ FastTransport::addTimer(Timer* timer, uint64_t now, uint64_t cyclesToWait)
 uint32_t
 FastTransport::dataPerFragment()
 {
-    return driver->getMaxPayloadSize() - sizeof(Header);
+    return driver->getMaxPacketSize() - sizeof(Header);
 }
 
 /**
@@ -1523,7 +1523,7 @@ FastTransport::ClientSession::getLastActivityTime()
  * Set the remote address on a client session.
  */
 void
-FastTransport::ClientSession::init(const ServiceLocator* serviceLocator)
+FastTransport::ClientSession::init(const ServiceLocator& serviceLocator)
 {
     serverAddress.reset(transport->driver->newAddress(serviceLocator));
 }

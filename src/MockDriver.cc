@@ -70,7 +70,7 @@ MockDriver::release(char *payload, uint32_t len)
  */
 void
 MockDriver::sendPacket(const Address *addr,
-                       void *header,
+                       const void *header,
                        uint32_t headerLen,
                        Buffer::Iterator *payload)
 {

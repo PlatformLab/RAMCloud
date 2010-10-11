@@ -235,7 +235,7 @@ class Transport {
      * \throw TransportException
      *      The transport can't open a session for \a serviceLocator.
      */
-    virtual SessionRef getSession(const ServiceLocator* serviceLocator) = 0;
+    virtual SessionRef getSession(const ServiceLocator& serviceLocator) = 0;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(Transport);

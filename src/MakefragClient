@@ -9,6 +9,7 @@ CLIENT_SRCFILES := \
 		   src/Common.cc \
 		   src/Driver.cc \
 		   src/FastTransport.cc \
+		   src/IpAddress.cc \
 		   src/Logging.cc \
 		   src/OptionParser.cc \
 		   src/ServiceLocator.cc \
@@ -16,7 +17,7 @@ CLIENT_SRCFILES := \
 		   src/StringConverter.cc \
 		   src/TCPTransport.cc \
 		   src/TransportManager.cc \
-		   src/UDPDriver.cc \
+		   src/UdpDriver.cc \
 		   $(NULL)
 
 CLIENT_OBJFILES := $(CLIENT_SRCFILES)

@@ -30,8 +30,8 @@ namespace RAMCloud {
 class MockDriver : public Driver {
   public:
     struct MockAddress : public Address {
-        explicit MockAddress(const ServiceLocator* serviceLocator)
-            : serviceLocator(*serviceLocator) {}
+        explicit MockAddress(const ServiceLocator& serviceLocator)
+            : serviceLocator(serviceLocator) {}
         MockAddress(const MockAddress& other)
             : Address(other), serviceLocator(other.serviceLocator) {}
         MockAddress* clone() const {
@@ -53,16 +53,16 @@ class MockDriver : public Driver {
     virtual ~MockDriver() {}
     static void bufferToString(Buffer *buffer, string* const s);
     static string bufToHex(const void* buf, uint32_t bufLen);
-    virtual uint32_t getMaxPayloadSize() { return 1400; }
+    virtual uint32_t getMaxPacketSize() { return 1400; }
     virtual void release(char *payload, uint32_t len);
     virtual void sendPacket(const Address* addr,
-                            void *header,
+                            const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
     void setInput(Driver::Received* received);
     virtual bool tryRecvPacket(Received *received);
 
-    virtual Address* newAddress(const ServiceLocator* serviceLocator) {
+    virtual Address* newAddress(const ServiceLocator& serviceLocator) {
         return new MockAddress(serviceLocator);
     }
 

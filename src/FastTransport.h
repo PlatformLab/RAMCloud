@@ -125,7 +125,7 @@ class FastTransport : public Transport {
     };
 
     virtual Transport::SessionRef
-    getSession(const ServiceLocator* serviceLocator);
+    getSession(const ServiceLocator& serviceLocator);
 
     /**
      * Serves as a unit of storage allocation for per Rpc server state.
@@ -1022,7 +1022,7 @@ class FastTransport : public Transport {
         void fillHeader(Header* const header, uint8_t channelId) const;
         const Driver::Address* getAddress();
         uint64_t getLastActivityTime();
-        void init(const ServiceLocator* serviceLocator);
+        void init(const ServiceLocator& serviceLocator);
         bool isConnected();
         void processInboundPacket(Driver::Received* received);
         void release() { expire(); }

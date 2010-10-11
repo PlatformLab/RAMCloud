@@ -35,7 +35,7 @@ class MockTransport : public Transport {
     virtual ServerRpc* serverRecv();
 
     virtual Transport::SessionRef
-    getSession(const ServiceLocator* serviceLocator);
+    getSession(const ServiceLocator& serviceLocator);
 
     virtual Transport::SessionRef
     getSession();
@@ -68,8 +68,8 @@ class MockTransport : public Transport {
                 : transport(transport),
                 serviceLocator(ServiceLocator("mock: anonymous=1")) {}
             MockSession(MockTransport* transport,
-                        const ServiceLocator* serviceLocator)
-                : transport(transport), serviceLocator(*serviceLocator) {}
+                        const ServiceLocator& serviceLocator)
+                : transport(transport), serviceLocator(serviceLocator) {}
             virtual ClientRpc* clientSend(Buffer* payload, Buffer* response);
             virtual void release() {
                 delete this;

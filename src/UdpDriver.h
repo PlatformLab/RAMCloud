@@ -18,6 +18,7 @@
 
 #include "Common.h"
 #include "Driver.h"
+#include "IpAddress.h"
 
 namespace RAMCloud {
 
@@ -25,46 +26,32 @@ namespace RAMCloud {
  * A Driver for kernel-provided UDP communication.  Simple packet send/receive
  * style interface. See Driver for more detail.
  */
-class UDPDriver : public Driver {
+class UdpDriver : public Driver {
   public:
     /// The maximum number bytes we can stuff in a UDP packet payload.
     static const uint32_t MAX_PAYLOAD_SIZE = 1400;
 
-    explicit UDPDriver(const ServiceLocator* localServiceLocator = NULL);
-    virtual ~UDPDriver();
-    virtual uint32_t getMaxPayloadSize();
+    explicit UdpDriver(const ServiceLocator* localServiceLocator = NULL);
+    virtual ~UdpDriver();
+    virtual uint32_t getMaxPacketSize();
     virtual void release(char *payload, uint32_t len);
     virtual void sendPacket(const Address *addr,
-                            void *header,
+                            const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
     virtual bool tryRecvPacket(Received *received);
 
-    virtual Address* newAddress(const ServiceLocator* serviceLocator) {
-        return new UDPAddress(serviceLocator);
+    virtual Address* newAddress(const ServiceLocator& serviceLocator) {
+        return new IpAddress(serviceLocator);
     }
 
-  private:
-    struct UDPAddress : Address {
-        UDPAddress() : address() {}
-        explicit UDPAddress(const ServiceLocator* serviceLocator);
-        UDPAddress(const UDPAddress& other)
-            : Address(other), address(other.address) {}
-        UDPAddress* clone() const {
-            return new UDPAddress(*this);
-        }
-        sockaddr address;
-      private:
-        void operator=(UDPAddress&);
-    };
-
     /**
-     * Concatenates a UDPAddress and a variable-length payload.
+     * Concatenates a UdpAddress and a variable-length payload.
      * Used for received packets.
      */
     struct AddressPayload {
-        AddressPayload() : udpAddress() {}
-        UDPAddress udpAddress;
+        AddressPayload() : ipAddress() {}
+        IpAddress ipAddress;
         char payload[0];
     };
 
@@ -74,7 +61,7 @@ class UDPDriver : public Driver {
     /// Tracks number of outstanding allocated payloads.  For detecting leaks.
     int packetBufsUtilized;
 
-    DISALLOW_COPY_AND_ASSIGN(UDPDriver);
+    DISALLOW_COPY_AND_ASSIGN(UdpDriver);
 };
 
 } // end RAMCloud

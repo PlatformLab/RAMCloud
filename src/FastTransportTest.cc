@@ -73,6 +73,7 @@ class MockReceived : public Driver::Received {
     ~MockReceived()
     {
         delete[] payload;
+        payload = NULL;
     }
     int stealCount;
     DISALLOW_COPY_AND_ASSIGN(MockReceived);
@@ -140,7 +141,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     test_getSession_noneExpirable()
     {
         CPPUNIT_ASSERT_EQUAL(0, transport->clientSessions.size());
-        SessionRef session = transport->getSession(&serviceLocator);
+        SessionRef session = transport->getSession(serviceLocator);
         CPPUNIT_ASSERT(0 != session.get());
         CPPUNIT_ASSERT_EQUAL(1, transport->clientSessions.size());
         ClientSession* clientSession =
@@ -153,10 +154,10 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     {
         CPPUNIT_ASSERT_EQUAL(0, transport->clientSessions.size());
         Transport::Session* firstSession =
-            transport->getSession(&serviceLocator).get();
+            transport->getSession(serviceLocator).get();
         MockTSC _(SESSION_TIMEOUT_NS * 2);
         Transport::Session* lastSession =
-            transport->getSession(&serviceLocator).get();
+            transport->getSession(serviceLocator).get();
         CPPUNIT_ASSERT_EQUAL(firstSession, lastSession);
         CPPUNIT_ASSERT_EQUAL(1, transport->clientSessions.size());
     }
@@ -398,7 +399,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         recvd.getHeader()->sessionToken = session->token + 1;
         recvd.getHeader()->payloadType = Header::SESSION_OPEN;
         ServiceLocator sl("mock:");
-        recvd.sender = driver->newAddress(&sl);
+        recvd.sender = driver->newAddress(sl);
         driver->setInput(&recvd);
 
         bool result = transport->tryProcessPacket();
@@ -435,7 +436,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     {
         TestLog::Enable _(&tppPred);
 
-        SessionRef session = transport->getSession(&serviceLocator);
+        SessionRef session = transport->getSession(serviceLocator);
         ClientSession* clientSession =
             static_cast<ClientSession*>(session.get());
 
@@ -456,7 +457,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     {
         TestLog::Enable _(&tppPred);
 
-        transport->getSession(&serviceLocator);
+        transport->getSession(serviceLocator);
 
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->direction = Header::SERVER_TO_CLIENT;
@@ -712,7 +713,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         msg = new InboundMessage();
 
         ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=1234");
-        session = transport->getSession(&serviceLocator);
+        session = transport->getSession(serviceLocator);
 
         ClientSession* clientSession =
             static_cast<ClientSession*>(session.get());
@@ -1049,7 +1050,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         uint32_t channelId = 5;
 
         ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=1234");
-        session = transport->getSession(&serviceLocator);
+        session = transport->getSession(serviceLocator);
         ClientSession* clientSession =
             static_cast<ClientSession*>(session.get());
         clientSession->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
@@ -1189,7 +1190,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     void
     test_send_ackAfter()
     {
-        setUp(driver->getMaxPayloadSize() * 7, false);
+        setUp(driver->getMaxPacketSize() * 7, false);
 
         msg->send();
         string s = driver->outputLog;
@@ -1200,7 +1201,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     void
     test_send_dontAckLast()
     {
-        setUp(driver->getMaxPayloadSize() * 4, false);
+        setUp(driver->getMaxPacketSize() * 4, false);
 
         msg->send();
         string s = driver->outputLog;
@@ -1211,7 +1212,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     void
     test_send_timers()
     {
-        setUp(driver->getMaxPayloadSize() * 4, true);
+        setUp(driver->getMaxPacketSize() * 4, true);
 
         msg->sentTimes[0] = 100;
         msg->sentTimes[1] = OutboundMessage::ACKED;
@@ -1370,7 +1371,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         transport = new FastTransport(driver);
         session = new ServerSession(transport, sessionId);
         ServiceLocator sl("mock: ip=1.2.3.4, port=12345");
-        driverAddress = driver->newAddress(&sl);
+        driverAddress = driver->newAddress(sl);
     }
 
     void
@@ -1779,7 +1780,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         MockTSC _(tsc);
 
         ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
-        session->init(&serviceLocator);
+        session->init(serviceLocator);
 
         session->connect();
         CPPUNIT_ASSERT_EQUAL(true, session->timer.sessionOpenRequestInFlight);
@@ -1801,7 +1802,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         MockTSC _(tsc);
 
         ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
-        session->init(&serviceLocator);
+        session->init(serviceLocator);
 
         session->connect();
         CPPUNIT_ASSERT_EQUAL(true, session->timer.sessionOpenRequestInFlight);
@@ -1826,7 +1827,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         MockTSC _(tsc);
 
         ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
-        session->init(&serviceLocator);
+        session->init(serviceLocator);
 
         session->connect();
         CPPUNIT_ASSERT_EQUAL(true, session->timer.sessionOpenRequestInFlight);
@@ -1909,7 +1910,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     test_init()
     {
         ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=0x3742");
-        session->init(&serviceLocator);
+        session->init(serviceLocator);
         CPPUNIT_ASSERT(0 != session->serverAddress.get());
     }
 
@@ -2013,7 +2014,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         MockTSC _(tsc);
 
         ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
-        session->init(&serviceLocator);
+        session->init(serviceLocator);
         session->sendSessionOpenRequest();
         CPPUNIT_ASSERT_EQUAL(
             "{ sessionToken:cccccccccccccccc rpcId:0 "

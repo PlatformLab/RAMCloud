@@ -887,7 +887,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         Buffer response;
         send_expect = &payload;
         ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=0xef01");
-        Transport::SessionRef session(t.getSession(&serviceLocator));
+        Transport::SessionRef session(t.getSession(serviceLocator));
         delete session->clientSend(&payload, &response);
     }
 

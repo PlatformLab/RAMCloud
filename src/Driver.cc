@@ -51,7 +51,7 @@ Driver::Received::Received()
  */
 Driver::Received::~Received()
 {
-    if (driver && payload)
+    if (payload)
         driver->release(payload, len);
 }
 

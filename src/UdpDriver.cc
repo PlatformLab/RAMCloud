@@ -20,42 +20,36 @@
 #include <sys/socket.h>
 
 #include "Common.h"
-#include "UDPDriver.h"
+#include "UdpDriver.h"
 #include "ServiceLocator.h"
 
 namespace RAMCloud {
 
 /**
- * Construct a UDPDriver that is bound to a particular UDP address.
+ * Construct a UdpDriver.
  *
- * For use by servers.
+ * \param localServiceLocator
+ *      Specifies a particular socket on which this driver will listen
+ *      for incoming packets. Must include "host" and "port" options
+ *      identifying the desired socket.  If NULL then a port will be
+ *      chosen by system software. Typically the socket is specified
+ *      explicitly for server-side drivers but not for client-side
+ *      drivers.
  */
-UDPDriver::UDPDriver(const ServiceLocator* localServiceLocator)
+UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
     : socketFd(-1), packetBufsUtilized(0)
 {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
-        LOG(ERROR, "Couldn't create socket");
         throw UnrecoverableDriverException(errno);
     }
 
     if (localServiceLocator != NULL) {
-        const char* ip = localServiceLocator->getOption<const char*>("ip");
-        uint16_t port = localServiceLocator->getOption<uint16_t>("port");
-
-        sockaddr addrStorage;
-        sockaddr_in *addr = const_cast<sockaddr_in*>(
-            reinterpret_cast<const sockaddr_in*>(&addrStorage));
-        addr->sin_family = AF_INET;
-        addr->sin_port = htons(port);
-        if (inet_aton(ip, &addr->sin_addr) == 0)
-            throw UnrecoverableDriverException("inet_aton failed");
-
-        int r = bind(fd, &addrStorage, sizeof(*addr));
+        IpAddress ipAddress(*localServiceLocator);
+        int r = bind(fd, &ipAddress.address, sizeof(ipAddress.address));
         if (r == -1) {
             int e = errno;
             close(fd);
-            LOG(ERROR, "Couldn't bind socket");
             throw UnrecoverableDriverException(e);
         }
     }
@@ -63,8 +57,11 @@ UDPDriver::UDPDriver(const ServiceLocator* localServiceLocator)
     socketFd = fd;
 }
 
-/// Close the UDP socket.
-UDPDriver::~UDPDriver()
+/**
+ * Destroy a UdpDriver. The socket associated with this driver is
+ * closed.
+ */
+UdpDriver::~UdpDriver()
 {
     if (packetBufsUtilized != 0)
         LOG(WARNING, "packetBufsUtilized: %d",
@@ -72,16 +69,16 @@ UDPDriver::~UDPDriver()
     close(socketFd);
 }
 
-/// The maximum number bytes we can stuff in a UDP packet payload.
+// See docs in Driver class.
 uint32_t
-UDPDriver::getMaxPayloadSize()
+UdpDriver::getMaxPacketSize()
 {
     return MAX_PAYLOAD_SIZE;
 }
 
-// See Driver::release().
+// See docs in Driver class.
 void
-UDPDriver::release(char *payload, uint32_t len)
+UdpDriver::release(char *payload, uint32_t len)
 {
     packetBufsUtilized--;
     assert(packetBufsUtilized >= 0);
@@ -91,24 +88,24 @@ UDPDriver::release(char *payload, uint32_t len)
 }
 
 // See Driver::sendPacket().
-// UDPDriver::sendPacket currently guarantees that the caller is free to
+// UdpDriver::sendPacket currently guarantees that the caller is free to
 // discard or reuse the memory associated with payload and header once
-// on return from this method.
+// this method returns.
 void
-UDPDriver::sendPacket(const Address *addr,
-                      void *header,
+UdpDriver::sendPacket(const Address *addr,
+                      const void *header,
                       uint32_t headerLen,
                       Buffer::Iterator *payload)
 {
     uint32_t totalLength = headerLen +
                            (payload ? payload->getTotalLength() : 0);
-    assert(totalLength <= getMaxPayloadSize());
+    assert(totalLength <= MAX_PAYLOAD_SIZE);
 
     // one for header, the rest for payload
     uint32_t iovecs = 1 + (payload ? payload->getNumberChunks() : 0);
 
     struct iovec iov[iovecs];
-    iov[0].iov_base = header;
+    iov[0].iov_base = const_cast<void*>(header);
     iov[0].iov_len = headerLen;
 
     uint32_t i = 1;
@@ -124,7 +121,7 @@ UDPDriver::sendPacket(const Address *addr,
     msg.msg_iov = iov;
     msg.msg_iovlen = iovecs;
 
-    const sockaddr* a = &(static_cast<const UDPAddress*>(addr)->address);
+    const sockaddr* a = &(static_cast<const IpAddress*>(addr)->address);
     msg.msg_name = const_cast<sockaddr *>(a);
     msg.msg_namelen = sizeof(*a);
 
@@ -133,22 +130,21 @@ UDPDriver::sendPacket(const Address *addr,
         int e = errno;
         close(socketFd);
         socketFd = -1;
-        LOG(ERROR, "Couldn't sendmsg");
         throw UnrecoverableDriverException(e);
     }
     assert(static_cast<size_t>(r) == totalLength);
 }
 
-// See Driver::tryRecvPacket().
+// See docs in Driver class.
 bool
-UDPDriver::tryRecvPacket(Received *received)
+UdpDriver::tryRecvPacket(Received *received)
 {
-    void* storage = malloc(sizeof(AddressPayload) + getMaxPayloadSize());
+    void* storage = malloc(sizeof(AddressPayload) + MAX_PAYLOAD_SIZE);
     AddressPayload* addressPayload = new(storage) AddressPayload();
-    socklen_t addrlen = sizeof(&addressPayload->udpAddress.address);
-    int r = recvfrom(socketFd, addressPayload->payload, getMaxPayloadSize(),
+    socklen_t addrlen = sizeof(&addressPayload->ipAddress.address);
+    int r = recvfrom(socketFd, addressPayload->payload, MAX_PAYLOAD_SIZE,
                      MSG_DONTWAIT,
-                     &addressPayload->udpAddress.address, &addrlen);
+                     &addressPayload->ipAddress.address, &addrlen);
     if (r == -1) {
         free(addressPayload);
         if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -160,23 +156,10 @@ UDPDriver::tryRecvPacket(Received *received)
 
     packetBufsUtilized++;
     received->payload = addressPayload->payload;
-    received->sender = &addressPayload->udpAddress;
+    received->sender = &addressPayload->ipAddress;
     received->driver = this;
 
     return true;
-}
-
-UDPDriver::UDPAddress::UDPAddress(const ServiceLocator* serviceLocator)
-    : address()
-{
-    sockaddr_in *addr = const_cast<sockaddr_in*>(
-        reinterpret_cast<const sockaddr_in*>(&address));
-    addr->sin_family = AF_INET;
-    addr->sin_port = htons(serviceLocator->getOption<uint16_t>("port"));
-    if (inet_aton(serviceLocator->getOption<const char*>("ip"),
-                  &addr->sin_addr) == 0) {
-        throw Exception("inet_aton failed");
-    }
 }
 
 } // namespace RAMCloud

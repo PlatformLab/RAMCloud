@@ -29,7 +29,7 @@ class ServiceLocator;
 /**
  * Sends and receives packets.  Abstract class.
  *
- * For use with FastTransport.  See UDPDriver for an example of a concrete
+ * For use with FastTransport.  See UdpDriver for an example of a concrete
  * implementation.
  */
 class Driver {
@@ -77,13 +77,16 @@ class Driver {
         /// Address from which this data was received.
         const Address* sender;
 
-        /// Driver the Received came from, where resources should be returned.
+        /// Driver the packet came from, where resources should be returned.
         Driver *driver;
 
         /// Length in bytes of received data.
         uint32_t len;
 
-        /// The start of the received data.
+        /// The start of the received data.  If non-NULL then we must return
+        /// this storage to the driver when this object is deleted.  NULL means
+        /// someone else (e.g. the Transport module) has taken responsibility
+        /// for it.
         char *payload;
 
       private:
@@ -92,8 +95,11 @@ class Driver {
 
     virtual ~Driver();
 
-    /// The number of bytes of payload this Driver can transmit per fragment.
-    virtual uint32_t getMaxPayloadSize() = 0;
+    /**
+     * The maximum number of bytes this Driver can transmit in a single call
+     * to sendPacket including both header and payload.
+     */
+    virtual uint32_t getMaxPacketSize() = 0;
 
     virtual void release(char *payload, uint32_t len);
 
@@ -109,7 +115,7 @@ class Driver {
      * \throw BadValueException
      *      Service locator option malformed.
      */
-    virtual Address* newAddress(const ServiceLocator* serviceLocator) = 0;
+    virtual Address* newAddress(const ServiceLocator& serviceLocator) = 0;
 
     /**
      * Send a single packet out over this Driver.
@@ -129,7 +135,7 @@ class Driver {
      *      follow the headerLen bytes from header.
      */
     virtual void sendPacket(const Address* recipient,
-                            void *header,
+                            const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload) = 0;
 

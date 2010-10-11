@@ -46,7 +46,7 @@ class TCPTransport : public Transport {
         : listenSocket(serviceLocator) {}
 
     ServerRpc* serverRecv() __attribute__((warn_unused_result));
-    SessionRef getSession(const ServiceLocator* serviceLocator) {
+    SessionRef getSession(const ServiceLocator& serviceLocator) {
         return new TCPSession(serviceLocator);
     }
 
@@ -325,11 +325,11 @@ class TCPTransport : public Transport {
 
     class TCPSession : public Session {
       public:
-        explicit TCPSession(const ServiceLocator* serviceLocator)
+        explicit TCPSession(const ServiceLocator& serviceLocator)
             : ip(), port() {
-            strncpy(ip, serviceLocator->getOption<const char*>("ip"),
+            strncpy(ip, serviceLocator.getOption<const char*>("ip"),
                     sizeof(ip));
-            port = serviceLocator->getOption<uint16_t>("port");
+            port = serviceLocator.getOption<uint16_t>("port");
         }
         ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result));

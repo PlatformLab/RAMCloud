@@ -43,7 +43,7 @@ MockTransport::serverRecv() {
 }
 
 Transport::SessionRef
-MockTransport::getSession(const ServiceLocator* serviceLocator)
+MockTransport::getSession(const ServiceLocator& serviceLocator)
 {
     return new MockSession(this, serviceLocator);
 }

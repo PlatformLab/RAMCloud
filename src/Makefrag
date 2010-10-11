@@ -7,6 +7,7 @@ SHARED_SRCFILES := \
 		   src/Common.cc \
 		   src/Driver.cc \
 		   src/FastTransport.cc \
+		   src/IpAddress.cc \
 		   src/Log.cc \
 		   src/Logging.cc \
 		   src/OptionParser.cc \
@@ -16,7 +17,7 @@ SHARED_SRCFILES := \
 		   src/TCPTransport.cc \
 		   src/Table.cc \
 		   src/TransportManager.cc \
-		   src/UDPDriver.cc \
+		   src/UdpDriver.cc \
 		   src/rabinpoly.cc \
 		   $(NULL)
 

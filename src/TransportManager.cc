@@ -18,7 +18,7 @@
 
 #include "TCPTransport.h"
 #include "FastTransport.h"
-#include "UDPDriver.h"
+#include "UdpDriver.h"
 
 namespace RAMCloud {
 
@@ -34,7 +34,7 @@ static struct FastUdpTransportFactory : public TransportFactory {
     FastUdpTransportFactory()
         : TransportFactory("fast+kernelUdp", "fast+udp") {}
     Transport* createTransport(const ServiceLocator* localServiceLocator) {
-        return new FastTransport(new UDPDriver(localServiceLocator));
+        return new FastTransport(new UdpDriver(localServiceLocator));
     }
 } fastUdpTransportFactory;
 
@@ -135,7 +135,7 @@ TransportManager::getSession(const char* serviceLocator)
                       transports.equal_range(locator.getProtocol())) {
             Transport* transport = protocolTransport.second;
             try {
-                return transport->getSession(&locator);
+                return transport->getSession(locator);
             } catch (TransportException& e) {
                 // TODO(ongaro): Transport::getName() would be nice here.
                 LOG(DEBUG, "Transport %p refused to open session for %s",
