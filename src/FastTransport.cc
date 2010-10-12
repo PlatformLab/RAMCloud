@@ -1367,9 +1367,22 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
             channel->inboundMsg.sendAck();
         break;
     case ServerChannel::SENDING_WAITING:
-        // TODO(stutsman) Need to understand why this happens
-        // and eliminate this send
-        LOG(WARNING, "Received extraneous packet while sending");
+        /*
+         * This is an extremely subtle and racy case.  This can happen when
+         * the sender believes a fragment didn't make it to the receiver
+         * and resends when in reality the receiver simply hasn't received
+         * the earlier transmission.  With low timeouts this can occur
+         * consistently when CPUs are contended because the kernel
+         * scheduler has a rather long period.
+         */
+        if (received->len < sizeof(Header))
+            LOG(DEBUG, "Extraneous packet too small to contain Header");
+        else
+            LOG(DEBUG, "Extraneous packet Header: %s",
+                Header::headerToString(received->payload,
+                                       sizeof(Header)).c_str());
+        // Ignore the incoming packet and continue to send the response.
+        // Hopefully this will appease the sender spamming us.
         channel->outboundMsg.send();
         break;
     }
