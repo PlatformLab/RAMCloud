@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_UDPDRIVER_H
 #define RAMCLOUD_UDPDRIVER_H
 
+#include <vector>
+
 #include "Common.h"
 #include "Driver.h"
 #include "IpAddress.h"
@@ -49,14 +51,18 @@ class UdpDriver : public Driver {
      * Concatenates a UdpAddress and a variable-length payload.
      * Used for received packets.
      */
-    struct AddressPayload {
-        AddressPayload() : ipAddress() {}
+    struct PacketBuf {
+        PacketBuf() : ipAddress() {}
         IpAddress ipAddress;
         char payload[0];
     };
 
     /// File descriptor of the UDP socket this driver uses for communication.
     int socketFd;
+
+    /// Holds packet buffers that are no longer in use, for use any future
+    // requests; saves the overhead of calling malloc/free for each request.
+    std::vector<PacketBuf*> freePacketBufs;
 
     /// Tracks number of outstanding allocated payloads.  For detecting leaks.
     int packetBufsUtilized;

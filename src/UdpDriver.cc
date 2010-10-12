@@ -37,7 +37,7 @@ namespace RAMCloud {
  *      drivers.
  */
 UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
-    : socketFd(-1), packetBufsUtilized(0)
+    : socketFd(-1), freePacketBufs(), packetBufsUtilized(0)
 {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
@@ -82,9 +82,8 @@ UdpDriver::release(char *payload, uint32_t len)
 {
     packetBufsUtilized--;
     assert(packetBufsUtilized >= 0);
-    AddressPayload* addressPayload =
-        reinterpret_cast<AddressPayload*>(payload - sizeof(AddressPayload));
-    free(addressPayload);
+    freePacketBufs.push_back(reinterpret_cast<PacketBuf*>
+            (payload - sizeof(PacketBuf)));
 }
 
 // See Driver::sendPacket().
@@ -139,14 +138,20 @@ UdpDriver::sendPacket(const Address *addr,
 bool
 UdpDriver::tryRecvPacket(Received *received)
 {
-    void* storage = malloc(sizeof(AddressPayload) + MAX_PAYLOAD_SIZE);
-    AddressPayload* addressPayload = new(storage) AddressPayload();
-    socklen_t addrlen = sizeof(&addressPayload->ipAddress.address);
-    int r = recvfrom(socketFd, addressPayload->payload, MAX_PAYLOAD_SIZE,
+    PacketBuf* buffer;
+    if (freePacketBufs.size() > 0) {
+        buffer = freePacketBufs.back();
+        freePacketBufs.pop_back();
+    } else {
+        buffer = new(malloc(sizeof(PacketBuf) + MAX_PAYLOAD_SIZE))
+                PacketBuf();
+    }
+    socklen_t addrlen = sizeof(&buffer->ipAddress.address);
+    int r = recvfrom(socketFd, buffer->payload, MAX_PAYLOAD_SIZE,
                      MSG_DONTWAIT,
-                     &addressPayload->ipAddress.address, &addrlen);
+                     &buffer->ipAddress.address, &addrlen);
     if (r == -1) {
-        free(addressPayload);
+        free(buffer);
         if (errno == EAGAIN || errno == EWOULDBLOCK)
             return false;
         // TODO(stutsman) We could probably recover from a lot of errors here.
@@ -155,8 +160,8 @@ UdpDriver::tryRecvPacket(Received *received)
     received->len = r;
 
     packetBufsUtilized++;
-    received->payload = addressPayload->payload;
-    received->sender = &addressPayload->ipAddress;
+    received->payload = buffer->payload;
+    received->sender = &buffer->ipAddress;
     received->driver = this;
 
     return true;

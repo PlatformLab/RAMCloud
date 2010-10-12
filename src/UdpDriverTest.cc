@@ -28,6 +28,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_sendPacket_multipleChunks);
     CPPUNIT_TEST(test_tryRecvPacket_noPacketAvailable);
     CPPUNIT_TEST(test_tryRecvPacket_multiplePackets);
+    CPPUNIT_TEST(test_freePacketBufs);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -54,6 +55,14 @@ class UdpDriverTest : public CppUnit::TestFixture {
         delete serverAddress;
         delete server;
         delete client;
+    }
+
+    void sendMessage(UdpDriver *driver, IpAddress *address,
+            const char *header, const char *payload) {
+        Buffer message;
+        Buffer::Chunk::appendToBuffer(&message, payload, strlen(payload));
+        Buffer::Iterator iterator(message);
+        driver->sendPacket(address, header, strlen(header), &iterator);
     }
 
     void test_basics() {
@@ -145,18 +154,9 @@ class UdpDriverTest : public CppUnit::TestFixture {
 
     void test_tryRecvPacket_multiplePackets() {
         Driver::Received received1, received2, received3;
-        Buffer message;
-        Buffer::Chunk::appendToBuffer(&message, "first", 5);
-        Buffer::Iterator iterator(message);
-        client->sendPacket(serverAddress, "header:", 7, &iterator);
-        message.reset();
-        Buffer::Chunk::appendToBuffer(&message, "second", 6);
-        Buffer::Iterator iterator2(message);
-        client->sendPacket(serverAddress, "header:", 7, &iterator2);
-        message.reset();
-        Buffer::Chunk::appendToBuffer(&message, "third", 5);
-        Buffer::Iterator iterator3(message);
-        client->sendPacket(serverAddress, "header:", 7, &iterator3);
+        sendMessage(client, serverAddress, "header:", "first");
+        sendMessage(client, serverAddress, "header:", "second");
+        sendMessage(client, serverAddress, "header:", "third");
         CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received1));
         CPPUNIT_ASSERT_EQUAL("header:first",
                 toString(received1.payload, received1.len));
@@ -166,6 +166,42 @@ class UdpDriverTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received3));
         CPPUNIT_ASSERT_EQUAL("header:third",
                 toString(received3.payload, received3.len));
+    }
+
+    void test_freePacketBufs() {
+        // This test exercises the facilities for reusing old packet buffers
+        // without having to call malloc for each received packet.
+
+        // First, force the allocation of 3 packet buffers and make sure they
+        // get freed when the Received structures are destroyed.
+        Driver::Received received1;
+        {
+            Driver::Received received2, received3;
+            sendMessage(client, serverAddress, "header:", "first");
+            sendMessage(client, serverAddress, "header:", "second");
+            sendMessage(client, serverAddress, "header:", "third");
+            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received1));
+            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received2));
+            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received3));
+            CPPUNIT_ASSERT_EQUAL(0, server->freePacketBufs.size());
+        }
+        CPPUNIT_ASSERT_EQUAL(2, server->freePacketBufs.size());
+
+        // Now receive 3 more messages and make sure they use existing buffers,
+        // if available.
+        {
+            Driver::Received received4, received5, received6;
+            sendMessage(client, serverAddress, "header:", "fourth");
+            sendMessage(client, serverAddress, "header:", "fifth");
+            sendMessage(client, serverAddress, "header:", "sixth");
+            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received4));
+            CPPUNIT_ASSERT_EQUAL(1, server->freePacketBufs.size());
+            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received5));
+            CPPUNIT_ASSERT_EQUAL(0, server->freePacketBufs.size());
+            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received6));
+            CPPUNIT_ASSERT_EQUAL(0, server->freePacketBufs.size());
+        }
+        CPPUNIT_ASSERT_EQUAL(3, server->freePacketBufs.size());
     }
 
   private:

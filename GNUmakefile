@@ -160,7 +160,7 @@ tags:
 	find . -type f | grep -v "\.git" | xargs ctags
 
 tags-clean:
-	rm TAGS tags
+	rm -f TAGS tags
 
 # The following target is useful for debugging Makefiles; it
 # prints the value of a make variable.
