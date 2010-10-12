@@ -92,10 +92,7 @@ UdpDriver::release(char *payload, uint32_t len)
             (payload - sizeof(PacketBuf)));
 }
 
-// See Driver::sendPacket().
-// UdpDriver::sendPacket currently guarantees that the caller is free to
-// discard or reuse the memory associated with payload and header once
-// this method returns.
+// See docs in Driver class.
 void
 UdpDriver::sendPacket(const Address *addr,
                       const void *header,

@@ -124,7 +124,10 @@ class Driver {
     virtual Address* newAddress(const ServiceLocator& serviceLocator) = 0;
 
     /**
-     * Send a single packet out over this Driver.
+     * Send a single packet out over this Driver. The method doesn't return
+     * until header and payload have been read and the packet is "on the wire";
+     * the caller can safely discard or reuse the memory associated with payload
+     * and header once the method returns.
      *
      * header provides a means to slip data onto the front of the packet
      * without having to pay for a prepend to the Buffer containing the
@@ -138,7 +141,8 @@ class Driver {
      *      Length in bytes of the data in header.
      * \param payload
      *      A buffer iterator positioned at the bytes for the payload to
-     *      follow the headerLen bytes from header.
+     *      follow the headerLen bytes from header.  May be NULL to
+     *      indicate "no payload".
      */
     virtual void sendPacket(const Address* recipient,
                             const void *header,
