@@ -15,15 +15,15 @@ TESTS_SRCFILES := \
 		  src/ClientExceptionTest.cc \
 		  src/ClientTest.cc \
 		  src/FastTransportTest.cc \
-		  src/IpAddressTest.cc \
 		  src/HashTableTest.cc \
+		  src/IpAddressTest.cc \
 		  src/LogTest.cc \
 		  src/LoggingTest.cc \
-		  src/OptionParser.cc \
-		  src/OptionParserTest.cc \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
+		  src/OptionParser.cc \
+		  src/OptionParserTest.cc \
 		  src/SegmentTest.cc \
 		  src/ServerTest.cc \
 		  src/ServerTest.cc \
@@ -33,8 +33,8 @@ TESTS_SRCFILES := \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
-		  src/UdpDriverTest.cc \
 		  src/TransportManagerTest.cc \
+		  src/UdpDriverTest.cc \
 		  src/WindowTest.cc \
 		  $(TESTS_PYMOCK_OUTFILES)
 
