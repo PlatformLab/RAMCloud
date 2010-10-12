@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# Copyright (c) 2009-2010 Stanford University
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+# iterative make
+
+repeat=1
+paging=1
+color=1
+
+while getopts "cpr" OPT; do
+    case $OPT in
+        c)
+            color=0
+            ;;
+        p)
+            paging=0
+            ;;
+        r)
+            repeat=0
+            ;;
+    esac
+done
+shift $(($OPTIND - 1))
+
+if [[ $color -eq 1 ]]; then
+    colorizer="runhaskell scripts/Colorize.hs"
+else
+    colorizer="cat"
+fi
+
+if [[ $repeat -eq 0 && $paging -eq 0 ]]; then
+    make $* 2>&1 | $colorizer
+elif [[ $repeat -eq 0 && $paging -eq 1 ]]; then
+    make $* 2>&1 | $colorizer | less -R
+elif [[ $repeat -eq 1 && $paging -eq 0 ]]; then
+    true
+    while [[ $? ]]; do
+        make $* 2>&1 | $colorizer
+        echo -n "Continue..."
+        read
+    done
+elif [[ $repeat -eq 1 && $paging -eq 1 ]]; then
+    true
+    while [[ $? ]]; do
+        sleep 0.5 # give fast user a chance to kill the script
+        make $* 2>&1 | $colorizer | less -R
+    done
+fi
