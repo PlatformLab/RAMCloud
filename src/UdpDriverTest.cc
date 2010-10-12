@@ -23,6 +23,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_basics);
     CPPUNIT_TEST(test_constructor_socketInUse);
     CPPUNIT_TEST(test_destructor_closeSocket);
+    CPPUNIT_TEST(test_destructor_freeBuffers);
     CPPUNIT_TEST(test_sendPacket_headerEmpty);
     CPPUNIT_TEST(test_sendPacket_payloadEmpty);
     CPPUNIT_TEST(test_sendPacket_multipleChunks);
@@ -53,7 +54,9 @@ class UdpDriverTest : public CppUnit::TestFixture {
     void tearDown() {
         delete serverLocator;
         delete serverAddress;
-        delete server;
+        if (server != NULL) {
+            delete server;
+        }
         delete client;
     }
 
@@ -110,6 +113,22 @@ class UdpDriverTest : public CppUnit::TestFixture {
                     e.message.c_str());
         }
         CPPUNIT_ASSERT_EQUAL("no exception", exceptionMessage);
+    }
+    void test_destructor_freeBuffers() {
+        {
+            Driver::Received received1, received2, received3;
+            sendMessage(client, serverAddress, "header:", "first");
+            sendMessage(client, serverAddress, "header:", "second");
+            sendMessage(client, serverAddress, "header:", "third");
+            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received1));
+            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received2));
+            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received3));
+            CPPUNIT_ASSERT_EQUAL(0, server->freePacketBufs.size());
+        }
+        UdpDriver::packetBufsFreed = 0;
+        delete server;
+        server = NULL;
+        CPPUNIT_ASSERT_EQUAL(3, UdpDriver::packetBufsFreed);
     }
 
     void test_sendPacket_headerEmpty() {

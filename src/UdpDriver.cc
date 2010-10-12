@@ -25,6 +25,8 @@
 
 namespace RAMCloud {
 
+int UdpDriver::packetBufsFreed = 0;
+
 /**
  * Construct a UdpDriver.
  *
@@ -66,6 +68,10 @@ UdpDriver::~UdpDriver()
     if (packetBufsUtilized != 0)
         LOG(WARNING, "packetBufsUtilized: %d",
             packetBufsUtilized);
+    for (int i = freePacketBufs.size()-1; i >= 0; i--) {
+        free(freePacketBufs[i]);
+        packetBufsFreed++;
+    }
     close(socketFd);
 }
 

@@ -67,6 +67,10 @@ class UdpDriver : public Driver {
     /// Tracks number of outstanding allocated payloads.  For detecting leaks.
     int packetBufsUtilized;
 
+    /// Counts the number of packet buffers freed during destructors;
+    /// used primarily for testing.
+    static int packetBufsFreed;
+
     DISALLOW_COPY_AND_ASSIGN(UdpDriver);
 };
 
