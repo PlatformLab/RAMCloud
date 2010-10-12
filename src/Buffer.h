@@ -419,6 +419,25 @@ class Buffer {
 
     uint32_t peek(uint32_t offset, const void** returnPtr);
     const void* getRange(uint32_t offset, uint32_t length);
+
+    /**
+     * Convenience for getRange.
+     * \return
+     *      sizeof(\a T) bytes starting at \a offset.
+     */
+    template<typename T> const T* getOffset(uint32_t offset) {
+        return static_cast<const T*>(getRange(offset, sizeof(T)));
+    }
+
+    /**
+     * Convenience for getRange.
+     * \return
+     *      sizeof(\a T) bytes at the beginning of the Buffer.
+     */
+    template<typename T> const T* getStart() {
+        return getOffset<T>(0);
+    }
+
     uint32_t copy(uint32_t offset, uint32_t length, void* dest); // NOLINT
     void reset();
     void fillFromString(const char* s);

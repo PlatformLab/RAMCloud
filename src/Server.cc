@@ -376,9 +376,7 @@ Server::handleRpc()
     Buffer* request = &rpc->recvPayload;
     RpcResponseCommon* responseCommon = NULL;
     try {
-        const RpcRequestCommon* header = static_cast
-                <const RpcRequestCommon*>(request->getRange(0,
-                sizeof(RpcRequestCommon)));
+        const RpcRequestCommon* header = request->getStart<RpcRequestCommon>();
         if (header == NULL) {
             throw MessageTooShortError();
         }
@@ -392,9 +390,7 @@ Server::handleRpc()
                         new(response, APPEND) nameInitialCap##Response;        \
                 responseCommon = &respHdr->common;                             \
                 const nameInitialCap##Request* reqHdr =                        \
-                        static_cast<const nameInitialCap##Request*>(      \
-                        request->getRange(0, sizeof(                           \
-                        nameInitialCap##Request)));                            \
+                        request->getStart<nameInitialCap##Request>();          \
                 if (reqHdr == NULL) {                                          \
                     throw MessageTooShortError();                              \
                 }                                                              \
