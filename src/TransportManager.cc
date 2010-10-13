@@ -18,6 +18,7 @@
 
 #include "TCPTransport.h"
 #include "FastTransport.h"
+#include "InfRCTransport.h"
 #include "UdpDriver.h"
 
 namespace RAMCloud {
@@ -38,6 +39,14 @@ static struct FastUdpTransportFactory : public TransportFactory {
     }
 } fastUdpTransportFactory;
 
+static struct InfRCTransportFactory : public TransportFactory {
+    InfRCTransportFactory()
+        : TransportFactory("infinibandrc", "infrc") {}
+    Transport* createTransport(const ServiceLocator* localServiceLocator) {
+        return new InfRCTransport(localServiceLocator);
+    }
+} infRCTransportFactory;
+
 
 /**
  * The single instance of #TransportManager.
@@ -53,6 +62,7 @@ TransportManager::TransportManager()
 {
     transportFactories.insert(&tcpTransportFactory);
     transportFactories.insert(&fastUdpTransportFactory);
+    transportFactories.insert(&infRCTransportFactory);
 }
 
 TransportManager::~TransportManager()
