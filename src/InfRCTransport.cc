@@ -41,6 +41,39 @@
 
 namespace RAMCloud {
 
+static const char*
+wcStatusToString(int status)
+{
+    static const char *lookup[] = {
+        "SUCCESS",
+        "LOC_LEN_ERR",
+        "LOC_QP_OP_ERR",
+        "LOC_EEC_OP_ERR",
+        "LOC_PROT_ERR",
+        "WR_FLUSH_ERR",
+        "MW_BIND_ERR",
+        "BAD_RESP_ERR",
+        "LOC_ACCESS_ERR",
+        "REM_INV_REQ_ERR",
+        "REM_ACCESS_ERR",
+        "REM_OP_ERR",
+        "RETRY_EXC_ERR",
+        "RNR_RETRY_EXC_ERR",
+        "LOC_RDD_VIOL_ERR",
+        "REM_INV_RD_REQ_ERR",
+        "REM_ABORT_ERR",
+        "INV_EECN_ERR",
+        "INV_EEC_STATE_ERR",
+        "FATAL_ERR",
+        "RESP_TIMEOUT_ERR",
+        "GENERAL_ERR"
+    };
+
+    if (status < IBV_WC_SUCCESS || status > IBV_WC_GENERAL_ERR)
+        return "<status out of range!>";
+    return lookup[status];
+}
+
 //------------------------------
 // InfRCTransport class
 //------------------------------
@@ -438,6 +471,8 @@ InfRCTransport::ibPostSendAndWait(QueuePair* qp, BufferDescriptor *bd,
     while (ibv_poll_cq(txcq, 1, &wc) < 1)
         ;
     if (wc.status != IBV_WC_SUCCESS) {
+        LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
+            wc.status, wcStatusToString(wc.status));
         throw TransportException("ibPostSend failed");
     }
 }
@@ -535,7 +570,8 @@ InfRCTransport::ClientRpc::getReply()
     while (ibv_poll_cq(qp->rxcq, 1, &wc) < 1)
         ;
     if (wc.status != IBV_WC_SUCCESS) {
-        LOG(ERROR, "%s: wc.status != IBV_WC_SUCCESS", __func__);
+        LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
+            wc.status, wcStatusToString(wc.status));
         throw TransportException(wc.status);
     }
 
