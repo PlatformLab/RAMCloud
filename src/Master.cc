@@ -51,12 +51,6 @@ Master::Master(const ServerConfig* config,
 {
     void* p = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
 
-    if (!backup) {
-        MultiBackupClient* multiBackup = new MultiBackupClient();
-        // TODO(stutsman) Populate multiBackup list from coordinator
-        backup = multiBackup;
-    }
-
     log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, backup);
     log->registerType(LOG_ENTRY_TYPE_OBJECT, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJECT_TOMBSTONE,
@@ -72,7 +66,6 @@ Master::~Master()
     for (int i = 0; i < RC_NUM_TABLES; i++) {
         delete tables[i];
     }
-    delete backup;
 }
 
 void
@@ -442,21 +435,6 @@ objectReplayCallback(LogEntryType type,
     }
 }
 
-void
-segmentReplayCallback(Segment *seg, void *cookie)
-{
-    // TODO(stutsman) we can restore bytesStored in the log easily
-    // using the same approach as for the individual segments
-    Master *server = static_cast<Master *>(cookie);
-
-    obj_replay_cookie ocookie;
-    ocookie.server = server;
-    ocookie.used_bytes = 0;
-
-    server->log->forEachEntry(seg, objectReplayCallback, &ocookie);
-    seg->setUsedBytes(ocookie.used_bytes);
-}
-
 /**
  * Callback used by the log cleaner when it's cleaning a segment and evicts
  * a tombstone.
@@ -497,15 +475,6 @@ tombstoneEvictionCallback(LogEntryType type,
             LOG_ENTRY_TYPE_OBJECT_TOMBSTONE, tomb, sizeof(*tomb));
         assert(ret != NULL);
     }
-}
-
-void
-Master::restore()
-{
-    uint64_t restored_segs = log->restore();
-    printf("Log was able to restore %llu segs\n", restored_segs);
-    // TODO(stutsman) Walk the log here and rebuild metadata
-    log->forEachSegment(segmentReplayCallback, restored_segs, this);
 }
 
 void

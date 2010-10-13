@@ -223,25 +223,6 @@ Segment::finalize()
 }
 
 /**
- * Restore a previously backed-up Segment into the present Segment.
- *
- * \param restoreSegId
- *      The segment identifier to restore as.
- */
-void
-Segment::restore(uint64_t restoreSegId)
-{
-    assert(id == SEGMENT_INVALID_ID);
-
-    //printf("Segment restoring from %llu:\n", restoreSegId);
-    backup->retrieveSegment(restoreSegId, base);
-    // TODO(stutsman) restore all sorts of state/invariants
-    // It seems we want to restore this information by making a single
-    // pass which happens in the server to rebuild the hashtable
-    id = restoreSegId;
-}
-
-/**
  * Link the Segment into a doubly-linked list.
  *
  * \param n

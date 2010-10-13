@@ -20,15 +20,14 @@
  * handle all the backup needs of the masters.
  */
 
-#include <cstdio>
-
 #include "BackupClient.h"
 #include "Buffer.h"
-#include "backuprpc.h"
+#include "ClientException.h"
+#include "Mark.h"
+#include "PerfCounterType.h"
+#include "Rpc.h"
 
 namespace RAMCloud {
-
-const bool debug_noisy = false;
 
 /**
  * Constructor for BackupHost.
@@ -36,7 +35,9 @@ const bool debug_noisy = false;
  *      The Session by which to communicate with the BackupHost.
  */
 BackupHost::BackupHost(Transport::SessionRef session)
-        : session(session)
+        : counterValue(0)
+        , session(session)
+        , status(STATUS_OK)
 {
 }
 
@@ -45,196 +46,161 @@ BackupHost::~BackupHost()
 }
 
 void
-BackupHost::heartbeat()
-{
-    if (debug_noisy)
-        printf("Sending Heartbeat to backup\n");
-
-    Buffer buf;
-    backup_rpc* req = new(&buf, APPEND) backup_rpc;
-    req->hdr.type = BACKUP_RPC_HEARTBEAT_REQ;
-    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_HEARTBEAT_REQ_LEN);
-
-
-    Buffer reply;
-    session->clientSend(&buf, &reply)->getReply();
-
-    if (debug_noisy)
-        printf("Heartbeat ok\n");
-}
-
-void
 BackupHost::writeSegment(uint64_t segNum,
                          uint32_t offset,
                          const void *data,
                          uint32_t len)
 {
-    if (debug_noisy)
-        printf("Sending Write to backup\n");
+    Buffer req, resp;
+    BackupWriteRequest* reqHdr;
+    const BackupWriteResponse* respHdr;
 
-    Buffer buf;
+    reqHdr = new(&req, APPEND) BackupWriteRequest;
+    reqHdr->common.type = BACKUP_WRITE;
+    reqHdr->common.perfCounter.beginMark = MARK_NONE;
+    reqHdr->common.perfCounter.endMark = MARK_NONE;
+    reqHdr->common.perfCounter.counterType = PERF_COUNTER_TSC;
+    reqHdr->segmentNumber = segNum;
+    reqHdr->offset = offset;
+    reqHdr->length = len;
+    Buffer::Chunk::appendToBuffer(&req, data, len);
+    session->clientSend(&req, &resp)->getReply();
 
-    backup_rpc* req = new(&buf, APPEND) backup_rpc;
-    req->hdr.type = BACKUP_RPC_WRITE_REQ;
-    req->hdr.len = BACKUP_RPC_WRITE_REQ_LEN_WODATA + len;
-    if (req->hdr.len > MAX_RPC_LEN)
-        throw BackupRPCException("Write RPC would be too long");
-    req->write_req.seg_num = segNum;
-    req->write_req.off = offset;
-    req->write_req.len = len;
-
-    // Safe to append data with a raw Chunk because it will outlive buf.
-    Buffer::Chunk::appendToBuffer(&buf, const_cast<void*>(data), len);
-
-    Buffer reply;
-    session->clientSend(&buf, &reply)->getReply();
-
-    // TODO(aravindn): Not verifying response?
-}
-
-void
-BackupHost::commitSegment(uint64_t segNum)
-{
-    if (debug_noisy)
-        printf("Sending Commit to backup\n");
-
-    Buffer buf;
-    backup_rpc *req = new(&buf, APPEND) backup_rpc;
-    req->hdr.type = BACKUP_RPC_COMMIT_REQ;
-    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_COMMIT_REQ_LEN);
-    req->commit_req.seg_num = segNum;
-
-    Buffer reply;
-    session->clientSend(&buf, &reply)->getReply();
-
-    // TODO(aravindn): Not verifying response?
-
-    if (debug_noisy)
-        printf("Commit ok\n");
+    respHdr = static_cast<const BackupWriteResponse*>(
+             resp.getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL)
+        throwShortResponseError(&resp);
+    counterValue = respHdr->common.counterValue;
+    status = respHdr->common.status;
+    if (status != STATUS_OK)
+        ClientException::throwException(status);
 }
 
 void
 BackupHost::freeSegment(uint64_t segNum)
 {
-    if (debug_noisy)
-        printf("Sending Free to backup\n");
+    Buffer req, resp;
+    BackupFreeRequest* reqHdr;
+    const BackupFreeResponse* respHdr;
 
-    Buffer buf;
-    backup_rpc *req = new(&buf, APPEND) backup_rpc;
-    req->hdr.type = BACKUP_RPC_FREE_REQ;
-    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_FREE_REQ_LEN);
-    req->free_req.seg_num = segNum;
+    reqHdr = new(&req, APPEND) BackupFreeRequest;
+    reqHdr->common.type = BACKUP_FREE;
+    reqHdr->common.perfCounter.beginMark = MARK_NONE;
+    reqHdr->common.perfCounter.endMark = MARK_NONE;
+    reqHdr->common.perfCounter.counterType = PERF_COUNTER_TSC;
+    reqHdr->segmentNumber = segNum;
+    session->clientSend(&req, &resp)->getReply();
 
-    Buffer reply;
-    session->clientSend(&buf, &reply)->getReply();
+    respHdr = static_cast<const BackupFreeResponse*>(
+             resp.getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL)
+        throwShortResponseError(&resp);
+    counterValue = respHdr->common.counterValue;
+    status = respHdr->common.status;
+    if (status != STATUS_OK)
+        ClientException::throwException(status);
+}
 
-    // TODO(aravindn): Not verifying response?
+void
+BackupHost::commitSegment(uint64_t segNum)
+{
+    Buffer req, resp;
+    BackupFreeRequest* reqHdr;
+    const BackupFreeResponse* respHdr;
 
-    if (debug_noisy)
-        printf("Free ok\n");
+    reqHdr = new(&req, APPEND) BackupFreeRequest;
+    reqHdr->common.type = BACKUP_COMMIT;
+    reqHdr->common.perfCounter.beginMark = MARK_NONE;
+    reqHdr->common.perfCounter.endMark = MARK_NONE;
+    reqHdr->common.perfCounter.counterType = PERF_COUNTER_TSC;
+    reqHdr->segmentNumber = segNum;
+    session->clientSend(&req, &resp)->getReply();
+
+    respHdr = static_cast<const BackupFreeResponse*>(
+             resp.getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL)
+        throwShortResponseError(&resp);
+    counterValue = respHdr->common.counterValue;
+    status = respHdr->common.status;
+    if (status != STATUS_OK)
+        ClientException::throwException(status);
 }
 
 uint32_t
 BackupHost::getSegmentList(uint64_t *list,
                            uint32_t maxSize)
 {
-    if (debug_noisy)
-        printf("Sending GetSegmentList to backup\n");
+    Buffer req, resp;
+    BackupGetSegmentListRequest* reqHdr;
+    const BackupGetSegmentListResponse* respHdr;
 
-    Buffer buf;
-    backup_rpc* req = new(&buf, APPEND) backup_rpc;
-    req->hdr.type = BACKUP_RPC_GETSEGMENTLIST_REQ;
-    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTLIST_REQ_LEN);
+    reqHdr = new(&req, APPEND) BackupGetSegmentListRequest;
+    reqHdr->common.type = BACKUP_GETSEGMENTLIST;
+    reqHdr->common.perfCounter.beginMark = MARK_NONE;
+    reqHdr->common.perfCounter.endMark = MARK_NONE;
+    reqHdr->common.perfCounter.counterType = PERF_COUNTER_TSC;
+    Buffer::Chunk::appendToBuffer(&req, list, maxSize * sizeof(*list));
+    session->clientSend(&req, &resp)->getReply();
 
-    Buffer replyBuf;
-    session->clientSend(&buf, &replyBuf)->getReply();
+    respHdr = static_cast<const BackupGetSegmentListResponse*>(
+             resp.getRange(0, sizeof(*respHdr)));
+    if (respHdr == NULL)
+        throwShortResponseError(&resp);
+    counterValue = respHdr->common.counterValue;
+    status = respHdr->common.status;
+    if (status != STATUS_OK)
+        ClientException::throwException(status);
 
-    const backup_rpc *resp = static_cast<const backup_rpc*>(
-        replyBuf.getRange(0, replyBuf.getTotalLength()));
+    uint32_t segmentListCount = respHdr->segmentListCount;
+    if (maxSize < segmentListCount)
+        throw BackupClientException("Provided a segment id buffer "
+                                    "that was too small");
 
-    const uint64_t *tmpList = &resp->getsegmentlist_resp.seg_list[0];
-    uint32_t tmpCount = resp->getsegmentlist_resp.seg_list_count;
-    if (debug_noisy)
-        printf("Backup wants to restore %llu segments\n", tmpCount);
+    const uint64_t* tmpList = static_cast<const uint64_t*>(
+             resp.getRange(0, segmentListCount * sizeof(*list)));
+    memcpy(list, tmpList, segmentListCount * sizeof(*list));
 
-    if (maxSize < tmpCount)
-        throw BackupRPCException("Provided a segment id buffer "
-                                 "that was too small");
-    // TODO(stutsman) we need to return this sorted and merged with
-    // segs from other backups
-    memcpy(list, tmpList, tmpCount * sizeof(uint64_t));
-
-    if (debug_noisy)
-        printf("GetSegmentList ok\n");
-    return tmpCount;
+    return segmentListCount;
 }
 
-uint32_t
-BackupHost::getSegmentMetadata(uint64_t segNum,
-                               RecoveryObjectMetadata *list,
-                               uint32_t maxSize)
-{
-    if (debug_noisy)
-        printf("Sending GetSegmentMetadata to backup\n");
-
-    Buffer buf;
-    backup_rpc* req = new(&buf, APPEND) backup_rpc;
-    req->hdr.type = BACKUP_RPC_GETSEGMENTMETADATA_REQ;
-    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_GETSEGMENTMETADATA_REQ_LEN);
-    req->getsegmentmetadata_req.seg_num = segNum;
-
-    Buffer replyBuf;
-    session->clientSend(&buf, &replyBuf)->getReply();
-
-    const backup_rpc *resp = static_cast<const backup_rpc*>(
-        replyBuf.getRange(0, replyBuf.getTotalLength()));
-
-    const RecoveryObjectMetadata *tmpList =
-            &resp->getsegmentmetadata_resp.list[0];
-    uint32_t tmpCount = resp->getsegmentmetadata_resp.list_count;
-    if (debug_noisy)
-        printf("Backup wants to restore %llu objects\n", tmpCount);
-
-    if (maxSize < tmpCount)
-        throw BackupRPCException("Provided a segment id buffer "
-                                 "that was too small");
-    // TODO(stutsman) we need to return this sorted and merged with
-    // segs from other backups
-    memcpy(list, tmpList, tmpCount * sizeof(RecoveryObjectMetadata));
-
-    if (debug_noisy)
-        printf("GetSegmentMetadata ok\n");
-    return tmpCount;
-}
-
+/**
+ * Generate an appropriate exception when an RPC response arrives that
+ * is too short to hold the full response header expected for this RPC.
+ * If this method is invoked it means the server found a problem before
+ * dispatching to a type-specific handler (e.g. the server didn't understand
+ * the RPC's type, or basic authentication failed).
+ *
+ * \param response
+ *      Contains the full response message from the server.
+ *
+ * \exception ClientException
+ *      This method always throws an exception; it never returns.
+ *      The exact type of the exception will depend on the status
+ *      value present in the packet (if any).
+ */
 void
-BackupHost::retrieveSegment(uint64_t segNum, void *buf)
+BackupHost::throwShortResponseError(Buffer* response)
 {
-    if (debug_noisy)
-        printf("Sending Retrieve to backup\n");
-
-    Buffer rpcBuf;
-    backup_rpc* req = new(&rpcBuf, APPEND) backup_rpc;
-    req->hdr.type = BACKUP_RPC_RETRIEVE_REQ;
-    req->hdr.len = static_cast<uint32_t>(BACKUP_RPC_RETRIEVE_REQ_LEN);
-    req->retrieve_req.seg_num = segNum;
-
-    Buffer replyBuf;
-    session->clientSend(&rpcBuf, &replyBuf)->getReply();
-
-    const backup_rpc *resp = static_cast<const backup_rpc*>(
-        replyBuf.getRange(0, replyBuf.getTotalLength()));
-
-    if (debug_noisy)
-        printf("Retrieved segment %llu of length %llu\n",
-               segNum, resp->retrieve_resp.data_len);
-    memcpy(buf, resp->retrieve_resp.data, resp->retrieve_resp.data_len);
-
-    if (debug_noisy)
-        printf("Retrieve ok\n");
+    const RpcResponseCommon* common =
+            static_cast<const RpcResponseCommon*>(
+            response->getRange(0, sizeof(RpcResponseCommon)));
+    if (common != NULL) {
+        counterValue = common->counterValue;
+        if (common->status == STATUS_OK) {
+            // This makes no sense: the server claims to have handled
+            // the RPC correctly, but it didn't return the right size
+            // response for this RPC; report an error.
+            status = STATUS_RESPONSE_FORMAT_ERROR;
+        } else {
+            status = common->status;
+        }
+    } else {
+        // The packet wasn't even long enough to hold a standard
+        // header.
+        status = STATUS_RESPONSE_FORMAT_ERROR;
+    }
+    ClientException::throwException(status);
 }
-
-// --- BackupClient ---
 
 MultiBackupClient::MultiBackupClient()
     : host(0)
@@ -251,15 +217,8 @@ void
 MultiBackupClient::addHost(Transport::SessionRef session)
 {
     if (host)
-        throw BackupRPCException("Only one backup host currently supported");
+        throw BackupClientException("Only one backup host currently supported");
     host = new BackupHost(session);
-}
-
-void
-MultiBackupClient::heartbeat()
-{
-    if (host)
-        host->heartbeat();
 }
 
 void
@@ -294,24 +253,6 @@ MultiBackupClient::getSegmentList(uint64_t *list,
         return host->getSegmentList(list, maxSize);
     }
     return 0;
-}
-
-uint32_t
-MultiBackupClient::getSegmentMetadata(uint64_t segNum,
-                                      RecoveryObjectMetadata *list,
-                                      uint32_t maxSize)
-{
-    if (host)
-        return host->getSegmentMetadata(segNum, list, maxSize);
-    return 0;
-}
-
-void
-MultiBackupClient::retrieveSegment(uint64_t segNum,
-                                   void *buf)
-{
-    if (host)
-        host->retrieveSegment(segNum, buf);
 }
 
 } // namespace RAMCloud

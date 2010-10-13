@@ -32,15 +32,19 @@ namespace RAMCloud {
  * headers, which selects the particular operation to perform.
  */
 enum RpcType {
-    PING           = 7,
-    CREATE_TABLE   = 8,
-    OPEN_TABLE     = 9,
-    DROP_TABLE     = 10,
-    CREATE         = 11,
-    READ           = 12,
-    WRITE          = 13,
-    REMOVE         = 14,
-    ENLIST_SERVER  = 15,
+    PING                    = 7,
+    CREATE_TABLE            = 8,
+    OPEN_TABLE              = 9,
+    DROP_TABLE              = 10,
+    CREATE                  = 11,
+    READ                    = 12,
+    WRITE                   = 13,
+    REMOVE                  = 14,
+    ENLIST_SERVER           = 15,
+    BACKUP_COMMIT           = 128,
+    BACKUP_FREE             = 129,
+    BACKUP_GETSEGMENTLIST   = 130,
+    BACKUP_WRITE            = 131,
 };
 
 /**
@@ -212,7 +216,6 @@ struct WriteRpc {
     };
 };
 
-
 // Coordinator RPCs follow, see Coordinator.cc
 struct EnlistServerRpc {
     static const RpcType type = ENLIST_SERVER;
@@ -228,6 +231,46 @@ struct EnlistServerRpc {
         uint64_t serverId;
     };
 };
+
+// -- Backup RPCs ---
+
+struct BackupCommitRequest {
+    RpcRequestCommon common;
+    uint64_t segmentNumber;     ///< Target segment to flush to disk.
+};
+struct BackupCommitResponse {
+    RpcResponseCommon common;
+};
+
+struct BackupFreeRequest {
+    RpcRequestCommon common;
+    uint64_t segmentNumber;     ///< Target segment to free on disk.
+};
+struct BackupFreeResponse {
+    RpcResponseCommon common;
+};
+
+struct BackupGetSegmentListRequest {
+    RpcRequestCommon common;
+};
+struct BackupGetSegmentListResponse {
+    RpcResponseCommon common;
+    uint32_t segmentListCount;  ///< Number of 64-bit segment ids which follow.
+    // Back-to-back packing of 64-bit segment ids, segmentListCount total.
+};
+
+struct BackupWriteRequest {
+    RpcRequestCommon common;
+    uint64_t segmentNumber;     ///< Target segment to update.
+    uint32_t offset;            ///< Offset into this segment to write at.
+    uint32_t length;            ///< Number of bytes to write.
+    // Opaque byte string follows with data to write.
+};
+struct BackupWriteResponse {
+    RpcResponseCommon common;
+};
+
+// --- Magic numbers ---
 
 /**
  * Largest allowable RAMCloud object, in bytes.  It's not clear whether

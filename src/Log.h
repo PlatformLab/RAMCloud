@@ -55,7 +55,6 @@ typedef void (*LogEvictionCallback)(LogEntryType, const void *,
                                     const uint64_t, void *);
 typedef void (*LogEntryCallback)(LogEntryType,
                                  const void *, const uint64_t, void *);
-typedef void (*LogSegmentCallback)(Segment *, void *);
 
 class Log {
   public:
@@ -67,11 +66,8 @@ class Log {
     void        printStats();
     uint64_t    getMaximumAppend();
     void        init();
-    uint64_t    restore();
     bool        isSegmentLive(uint64_t) const;
     void        getSegmentIdOffset(const void *, uint64_t *, uint32_t *) const;
-    void        forEachSegment(LogSegmentCallback, uint64_t, void *);
-    void        forEachEntry(const Segment *, LogEntryCallback, void *);
 
   private:
     void        clean(void);

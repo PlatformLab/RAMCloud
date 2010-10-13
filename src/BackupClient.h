@@ -25,9 +25,22 @@
 
 #include "Common.h"
 #include "Transport.h"
-#include "backuprpc.h"
 
 namespace RAMCloud {
+
+/**
+ * The base class for all exceptions that can be generated within
+ * clients by the BackupServer.
+ */
+class BackupClientException {
+  public:
+    explicit BackupClientException(string message)
+    {
+    }
+    virtual ~BackupClientException()
+    {
+    }
+};
 
 /**
  * The interface for an object that can act as a backup server no
@@ -36,16 +49,11 @@ namespace RAMCloud {
 class BackupClient {
   public:
     virtual ~BackupClient() {}
-    virtual void heartbeat() = 0;
     virtual void writeSegment(uint64_t segNum, uint32_t offset,
                               const void *data, uint32_t len) = 0;
     virtual void commitSegment(uint64_t segNum) = 0;
     virtual void freeSegment(uint64_t segNum) = 0;
     virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize) = 0;
-    virtual uint32_t getSegmentMetadata(uint64_t segNum,
-                                        RecoveryObjectMetadata *list,
-                                        uint32_t maxSize) = 0;
-    virtual void retrieveSegment(uint64_t segNum, void *buf) = 0;
 };
 
 /**
@@ -58,36 +66,32 @@ class BackupHost : public BackupClient {
     explicit BackupHost(Transport::SessionRef session);
     virtual ~BackupHost();
 
-    virtual void heartbeat();
     virtual void writeSegment(uint64_t segNum, uint32_t offset,
                               const void *data, uint32_t len);
     virtual void commitSegment(uint64_t segNum);
     virtual void freeSegment(uint64_t segNum);
     virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
 
-    /**
-     * Given a segment number return a list of object metadata sufficient
-     * for recovery that are stored in that segment.
-     *
-     * \param[in] segNum
-     *     The segment number from which to extract the metadata.
-     * \param[out] list
-     *     The place to store the metadata.
-     * \param[in] maxSize
-     *     The number of elements that the list buffer can hold.
-     * \return
-     *     The number of elements actually placed in list.
-     * \exception BackupException
-     *     If INVALID_SEGMENT_NUM is passed as seg_num or
-     *     if there is an error reading the segment from the backup
-     *     storage.
-     */
-    virtual uint32_t getSegmentMetadata(uint64_t segNum,
-                                        RecoveryObjectMetadata *list,
-                                        uint32_t maxSize);
-    virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
+    void throwShortResponseError(Buffer* response);
+
+    /**
+     * Performance metric from the response in the most recent RPC (as
+     * requested by selectPerfCounter). If no metric was requested and done
+     * most recent RPC, then this value is 0.
+     */
+    uint32_t counterValue;
+
+    /**
+     * A session with a backup server.
+     */
     Transport::SessionRef session;
+
+    /**
+     * Completion status from the most recent RPC completed for this client.
+     */
+    Status status;
+
     DISALLOW_COPY_AND_ASSIGN(BackupHost);
 };
 
@@ -106,16 +110,11 @@ class MultiBackupClient : public BackupClient {
     virtual ~MultiBackupClient();
     void addHost(Transport::SessionRef session);
 
-    virtual void heartbeat();
     virtual void writeSegment(uint64_t segNum, uint32_t offset,
                               const void *data, uint32_t len);
     virtual void commitSegment(uint64_t segNum);
     virtual void freeSegment(uint64_t segNum);
     virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
-    virtual uint32_t getSegmentMetadata(uint64_t segNum,
-                                        RecoveryObjectMetadata *list,
-                                        uint32_t maxSize);
-    virtual void retrieveSegment(uint64_t segNum, void *buf);
   private:
     BackupHost *host;
     DISALLOW_COPY_AND_ASSIGN(MultiBackupClient);

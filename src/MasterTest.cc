@@ -58,19 +58,22 @@ class MasterTest : public CppUnit::TestFixture {
     MockTransport* transport;
     Master* server;
     ServerConfig config;
+    MultiBackupClient* backup;
 
-    MasterTest() : transport(NULL), server(NULL), config() {
+    MasterTest() : transport(NULL), server(NULL), config(), backup(NULL) {
         config.coordinatorLocator = "mock:";
     }
 
     void setUp() {
         transport = new MockTransport();
         transportManager.registerMock(transport);
-        server = new Master(&config, NULL);
+        backup = new MultiBackupClient();
+        server = new Master(&config, backup);
     }
 
     void tearDown() {
         delete server;
+        delete backup;
         transportManager.unregisterMock();
         delete transport;
     }

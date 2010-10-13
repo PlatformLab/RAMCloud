@@ -46,7 +46,7 @@ struct ServerConfig {
 class Master : public Server {
   public:
     Master(const ServerConfig* config,
-           BackupClient* backupClient = 0);
+           BackupClient* backup);
     virtual ~Master();
     void run();
 
@@ -107,7 +107,6 @@ class Master : public Server {
             const void* p, uint64_t len, void* cookie);
     Table* getTable(uint32_t tableId);
     void rejectOperation(const RejectRules* rejectRules, uint64_t version);
-    void restore();
     void storeData(uint64_t table, uint64_t id,
                    const RejectRules* rejectRules, Buffer* data,
                    uint32_t dataOffset, uint32_t dataLength,
