@@ -21,6 +21,7 @@
 
 #include <string>
 
+#include "Common.h"
 #include "Transport.h"
 #include <infiniband/verbs.h>
 #include <boost/unordered_map.hpp>
@@ -36,11 +37,12 @@ class InfRCTransport : public Transport {
     class  QueuePair;
 
   public:
-    InfRCTransport(const ServiceLocator* serviceLocator);
+    explicit InfRCTransport(const ServiceLocator* serviceLocator = NULL);
     ~InfRCTransport() { }
     ServerRpc* serverRecv() __attribute__((warn_unused_result));
-    ClientRpc* clientSend(Service* service, Buffer* payload,
-        Buffer* response) __attribute__((warn_unused_result));
+    SessionRef getSession(const ServiceLocator& serviceLocator) {
+        return new InfRCSession(this, serviceLocator);
+    }
     uint32_t getMaxRpcSize() const;
 
     class ServerRpc : public Transport::ServerRpc {
@@ -73,9 +75,23 @@ class InfRCTransport : public Transport {
     // maximum RPC size we'll permit. we'll use 8MB plus a little overhead. 
     static const uint32_t MAX_RPC_SIZE = (8 * 1024 * 1024) + 4096;
     static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 64;
-    static const uint32_t MAX_SHARED_RX_SGE_COUNT = 64;
+    static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 64;
-    static const uint32_t MAX_TX_SGE_COUNT = 64;
+    static const uint32_t MAX_TX_SGE_COUNT = 8;
+
+    class InfRCSession : public Session {
+      public:
+        explicit InfRCSession(InfRCTransport *transport,
+            const ServiceLocator& serviceLocator);
+        Transport::ClientRpc* clientSend(Buffer* request, Buffer* response)
+            __attribute__((warn_unused_result));
+        void release();
+
+      private:
+        InfRCTransport *transport;
+        QueuePair* qp;
+        DISALLOW_COPY_AND_ASSIGN(InfRCSession);
+    };
 
     // wrap an RX or TX buffer registered with the HCA
     struct BufferDescriptor {
@@ -148,8 +164,8 @@ class InfRCTransport : public Transport {
     BufferDescriptor allocateBufferDescriptorAndRegister();
 
     // queue pair connection setup helpers
-    void clientTrySetupQueuePair(Service* service);
-    void serverTrySetupQueuePair();
+    QueuePair* clientTrySetupQueuePair(const char* ip, int port);
+    void       serverTrySetupQueuePair();
 
     BufferDescriptor    rxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
     int                 currentRxBuffer;

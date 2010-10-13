@@ -29,6 +29,7 @@
 #include "Common.h"
 #include "Transport.h"
 #include "InfRCTransport.h"
+#include "ServiceLocator.h"
 
 #define check_error_null(x,s)                               \
     do {                                                    \
@@ -56,14 +57,24 @@ InfRCTransport::InfRCTransport(const ServiceLocator *serviceLocator)
       pd(NULL),
       rxcq(NULL),
       txcq(NULL),
-      ibPhysicalPort(-1),
+      ibPhysicalPort(1),
+      udpListenPort(0),
       setupSocket(-1),
       queuePairMap()
 {
     static_assert(sizeof(InfRCTransport::QueuePairTuple) == 10);
 
-    ibPhysicalPort = serviceLocator->getOption("PhysicalPort");
-    udpListenPort  = serviceLocator->getOption("ListenPort");
+    if (serviceLocator == NULL)
+        return;
+
+    const char *ibDeviceName = NULL;
+
+    try {
+        ibDeviceName   = serviceLocator->getOption<const char *>("DeviceName");
+        ibPhysicalPort = serviceLocator->getOption<int>("PhysicalPort");
+        udpListenPort  = serviceLocator->getOption<int>("ListenPort");
+   } catch (ServiceLocator::NoSuchKeyException& e) {
+   }
 
     // Step 1:
     //  Set up the udp socket we use for out-of-band infiniband handshaking. 
@@ -119,14 +130,12 @@ InfRCTransport::InfRCTransport(const ServiceLocator *serviceLocator)
     // post receive buffer work requests to this queue only. the motiviation
     // is to avoid having to post at least one buffer to every single queue
     // pair (we may have thousands of them with megabyte buffers).
-    ibv_srq_init_attr sia = {
-        NULL,
-        {
-            MAX_SHARED_RX_QUEUE_DEPTH,
-            MAX_SHARED_RX_SGE_COUNT,
-            0                               // only relevant for XRC
-        }
-    };
+    ibv_srq_init_attr sia;
+    memset(&sia, 0, sizeof(sia));
+    sia.srq_context = ctxt;
+    sia.attr.max_wr = MAX_SHARED_RX_QUEUE_DEPTH;
+    sia.attr.max_sge = MAX_SHARED_RX_SGE_COUNT;
+
     srq = ibv_create_srq(pd, &sia);
     check_error_null(srq, "failed to create shared receive queue");
 
@@ -184,6 +193,24 @@ InfRCTransport::serverRecv()
     }
 }
 
+InfRCTransport::InfRCSession::InfRCSession(InfRCTransport *transport,
+    const ServiceLocator& serviceLocator)
+    : transport(transport),
+      qp(NULL)
+{
+    const char *ip = serviceLocator.getOption<const char*>("ip");
+    int port = serviceLocator.getOption<uint16_t>("port");
+
+    // create and set up a new queue pair for this client
+    qp = transport->clientTrySetupQueuePair(ip, port);
+}
+
+void
+InfRCTransport::InfRCSession::release()
+{
+    delete this;
+}
+
 /**
  * Issue an RPC request using this transport.
  *
@@ -191,7 +218,7 @@ InfRCTransport::serverRecv()
  *
  * \param service
  *      Indicates which service the request should be sent to.
- * \param payload
+ * \param request
  *      Contents of the request message.
  * \param[out] response
  *      When a response arrives, the response message will be made
@@ -201,33 +228,27 @@ InfRCTransport::serverRecv()
  *          space in this Allocation.
  */
 Transport::ClientRpc*
-InfRCTransport::clientSend(Service* service, Buffer* payload, Buffer* response)
+InfRCTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
 {
-    if (payload->getTotalLength() > getMaxRpcSize()) {
-        throw TransportException("client payload exceeds maximum rpc size");
-    }
+    InfRCTransport *t = transport;
 
-    // do we need to create and set up a new queue pair?
-    if (service->getSession() == NULL) {
-        clientTrySetupQueuePair(service);
+    if (request->getTotalLength() > t->getMaxRpcSize()) {
+        throw TransportException("client request exceeds maximum rpc size");
     }
-
-    QueuePair *qp = static_cast<QueuePair *>(service->getSession());
-    assert(qp != NULL);
 
     // send out the request
-    BufferDescriptor* bd = &txBuffers[currentTxBuffer];
-    currentTxBuffer = (currentTxBuffer + 1) % MAX_TX_QUEUE_DEPTH;
-    payload->copy(0, payload->getTotalLength(), bd->buffer);
-    ibPostSendAndWait(qp, bd, payload->getTotalLength());
+    BufferDescriptor* bd = &t->txBuffers[t->currentTxBuffer];
+    t->currentTxBuffer = (t->currentTxBuffer + 1) % MAX_TX_QUEUE_DEPTH;
+    request->copy(0, request->getTotalLength(), bd->buffer);
+    t->ibPostSendAndWait(qp, bd, request->getTotalLength());
 
-    ClientRpc *rpc = new(payload, MISC) ClientRpc(this, qp, response);
+    ClientRpc *rpc = new(request, MISC) ClientRpc(transport, qp, response);
 
     return rpc;
 }
 
-void
-InfRCTransport::clientTrySetupQueuePair(Service* service)
+InfRCTransport::QueuePair*
+InfRCTransport::clientTrySetupQueuePair(const char* ip, int port)
 {
     // XXX for slightly more security/robustness, we might want to have
     //     the client include a nonce with their request and have the
@@ -235,8 +256,8 @@ InfRCTransport::clientTrySetupQueuePair(Service* service)
 
     sockaddr_in sin;
     sin.sin_family = PF_INET;
-    sin.sin_addr.s_addr = inet_addr(service->getIp());
-    sin.sin_port = htons(service->getPort());
+    sin.sin_addr.s_addr = inet_addr(ip);
+    sin.sin_port = htons(port);
 
     // create a new QueuePair and send its parameters to the server so it
     // can create its qp and reply with its parameters.
@@ -268,8 +289,7 @@ InfRCTransport::clientTrySetupQueuePair(Service* service)
     // plumb up our queue pair with the server's parameters.
     qp->plumb(&incomingQpt);
 
-    // save our QueuePair for future client calls
-    service->setSession(qp);
+    return qp;
 }
 
 void
