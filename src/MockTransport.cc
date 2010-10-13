@@ -128,15 +128,6 @@ MockTransport::MockServerRpc::sendReply() {
     delete this;
 }
 
-/**
- * End an RPC without sending a response. This method is obsolete
- * and should eventually be eliminated.
- */
-void
-MockTransport::MockServerRpc::ignore() {
-    delete this;
-}
-
 //-------------------------------------
 // MockTransport::MockClientRpc class
 //-------------------------------------

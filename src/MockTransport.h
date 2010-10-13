@@ -46,7 +46,6 @@ class MockTransport : public Transport {
         public:
             explicit MockServerRpc(MockTransport* transport);
             void sendReply();
-            void ignore();
         private:
             MockTransport* transport;
             DISALLOW_COPY_AND_ASSIGN(MockServerRpc);
