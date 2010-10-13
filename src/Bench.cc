@@ -22,7 +22,7 @@
 
 #include <string>
 
-#include "Client.h"
+#include "RamCloudClient.h"
 #include "BenchUtil.h"
 #include "OptionParser.h"
 
@@ -36,7 +36,7 @@ uint64_t count;
 uint64_t size;
 int cpu;
 
-RC::Client *client;
+RC::RamCloudClient *client;
 uint32_t table;
 
 void
@@ -56,7 +56,7 @@ setup()
         LOG(RC::DEBUG, "bench: Pinned to core %d", cpu);
     }
 
-    client = new RC::Client(serverLocator.c_str());
+    client = new RC::RamCloudClient(serverLocator.c_str());
 
     assert(!atexit(cleanup));
 

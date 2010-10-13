@@ -13,8 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Client.h"
-#include "CClient.h"
+#include "RamCloudClient.h"
+#include "RamCloudCClient.h"
 #include "Mark.h"
 #include "PerfCounterType.h"
 #include "TestUtil.h"
@@ -59,7 +59,8 @@ class CClientTest : public CppUnit::TestFixture {
     void setUp() {
         transport = new RAMCloud::MockTransport();
         RAMCloud::transportManager.registerMock(transport);
-        struct RAMCloud::Client* foo = new RAMCloud::Client("mock:");
+        struct RAMCloud::RamCloudClient* foo =
+            new RAMCloud::RamCloudClient("mock:");
         CPPUNIT_ASSERT_EQUAL(RAMCloud::STATUS_OK,
                 rc_connectWithClient(foo, & client));
         bzero(&rules, sizeof(rules));
