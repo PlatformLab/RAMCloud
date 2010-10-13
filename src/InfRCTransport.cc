@@ -48,7 +48,7 @@ namespace RAMCloud {
 /**
  * Construct a InfRCTransport.
  */
-InfRCTransport::InfRCTransport(const ServiceLocator *serviceLocator)
+InfRCTransport::InfRCTransport(const ServiceLocator *sl)
     : currentRxBuffer(0),
       currentTxBuffer(0),
       srq(NULL),
@@ -64,17 +64,21 @@ InfRCTransport::InfRCTransport(const ServiceLocator *serviceLocator)
 {
     static_assert(sizeof(InfRCTransport::QueuePairTuple) == 10);
 
-    if (serviceLocator == NULL)
-        return;
-
     const char *ibDeviceName = NULL;
 
-    try {
-        ibDeviceName   = serviceLocator->getOption<const char *>("DeviceName");
-        ibPhysicalPort = serviceLocator->getOption<int>("PhysicalPort");
-        udpListenPort  = serviceLocator->getOption<int>("ListenPort");
-   } catch (ServiceLocator::NoSuchKeyException& e) {
-   }
+    if (sl != NULL) {
+        try {
+            ibDeviceName   = sl->getOption<const char *>("dev");
+        } catch (ServiceLocator::NoSuchKeyException& e) {}
+
+        try {
+            ibPhysicalPort = sl->getOption<int>("devport");
+        } catch (ServiceLocator::NoSuchKeyException& e) {}
+
+        try {
+            udpListenPort  = sl->getOption<int>("port");
+        } catch (ServiceLocator::NoSuchKeyException& e) {}
+    }
 
     // Step 1:
     //  Set up the udp socket we use for out-of-band infiniband handshaking. 
@@ -88,7 +92,7 @@ InfRCTransport::InfRCTransport(const ServiceLocator *serviceLocator)
     // If this is a server socket, bind it. 
     // For clients, the kernel will automatically assign a dynamic port
     // upon the first transmission.
-    if (udpListenPort != 0) {
+    if (sl != NULL) {
         struct sockaddr_in sin;
         sin.sin_family = PF_INET;
         sin.sin_port   = htons(udpListenPort);
@@ -115,7 +119,7 @@ InfRCTransport::InfRCTransport(const ServiceLocator *serviceLocator)
 
     // Step 2:
     //  Set up the initial verbs necessities: open the device, allocate
-    //  protection domains, register buffers.
+    //  protection domain, create shared receive queue, register buffers.
 
 	dev = ibFindDevice(ibDeviceName);
     check_error_null(dev, "failed to find infiniband device");
@@ -165,7 +169,7 @@ InfRCTransport::serverRecv()
     // query the infiniband adapter first. if there's nothing to process,
     // try to read a datagram from a connecting client.
     // in the future, this should occur in separate threads.
-
+printf("SERVER RECV\n");
     while (1) {
         ibv_wc wc;
 
@@ -177,11 +181,9 @@ InfRCTransport::serverRecv()
                     reinterpret_cast<BufferDescriptor*>(wc.wr_id);
 
                 ServerRpc *r = new ServerRpc(this, qp);
-                Buffer::Chunk::appendToBuffer(&r->recvPayload,
-                    bd->buffer, wc.byte_len);
-// XXX----  we aren't doing any copies, so we need to post this buffer
-// XXX      back to the shared recv queue when ignore() or sendReply() is
-// XXX      called.
+                PayloadChunk::appendToBuffer(&r->recvPayload, bd->buffer,
+                    wc.byte_len, this, bd);
+
                 return r;
             }
 
@@ -194,12 +196,12 @@ InfRCTransport::serverRecv()
 }
 
 InfRCTransport::InfRCSession::InfRCSession(InfRCTransport *transport,
-    const ServiceLocator& serviceLocator)
+    const ServiceLocator& sl)
     : transport(transport),
       qp(NULL)
 {
-    const char *ip = serviceLocator.getOption<const char*>("ip");
-    int port = serviceLocator.getOption<uint16_t>("port");
+    const char *ip = sl.getOption<const char*>("ip");
+    int port = sl.getOption<uint16_t>("port");
 
     // create and set up a new queue pair for this client
     qp = transport->clientTrySetupQueuePair(ip, port);
@@ -242,7 +244,12 @@ InfRCTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
     request->copy(0, request->getTotalLength(), bd->buffer);
     t->ibPostSendAndWait(qp, bd, request->getTotalLength());
 
-    ClientRpc *rpc = new(request, MISC) ClientRpc(transport, qp, response);
+    // construct in the response Buffer 
+    //
+    // we do this because we're loaning one of our registered receive buffers
+    // to the caller of getReply() and need to issue it back to the HCA when
+    // they're done with it.
+    ClientRpc *rpc = new(response, MISC) ClientRpc(transport, qp, response);
 
     return rpc;
 }
@@ -267,22 +274,22 @@ InfRCTransport::clientTrySetupQueuePair(const char* ip, int port)
 
     ssize_t len = sendto(setupSocket, &outgoingQpt, sizeof(outgoingQpt), 0,
         (sockaddr *)&sin, sizeof(sin));
-    if (len != sizeof(sin)) {
-        // xxx log?!
+    if (len != sizeof(outgoingQpt)) {
+        LOG(ERROR, "%s: sendto was short: %Zd", __func__, len);
         delete qp;
         throw TransportException(len);
     }
-
+printf("CLIENT TRY SETUP SENT REQUEST\n");
     QueuePairTuple incomingQpt;
     socklen_t sinlen = sizeof(sin);
     len = recvfrom(setupSocket, &incomingQpt, sizeof(incomingQpt), 0,
         (sockaddr *)&sin, &sinlen);
     if (len != sizeof(incomingQpt)) {
-        // xxx log?
+        LOG(ERROR, "%s: recvfrom was short: %Zd", __func__, len);
         delete qp;
         throw TransportException(len);
     }
-
+printf("CLIENT TRY SETUP GOT RESPONSE!\n");
     // XXX- probably good to have that nonce...
     // XXX- also, need to add timeout/retry here.
 
@@ -312,7 +319,7 @@ InfRCTransport::serverTrySetupQueuePair()
             __func__, len);
         return;
     } 
-    
+printf("SERVER TRY SETUP QUEUE PAIR GOT REQUEST!\n");
     // create a new queue pair, set it up according to our client's parameters,
     // and feed back our lid, qpn, and psn information so they can complete
     // the out-of-band handshake.
@@ -481,6 +488,9 @@ InfRCTransport::ServerRpc::ServerRpc(InfRCTransport* transport, QueuePair* qp)
 void
 InfRCTransport::ServerRpc::sendReply()
 {
+    // "delete this;" on our way out of the method
+    std::auto_ptr<InfRCTransport::ServerRpc> suicide(this);
+
     InfRCTransport *t = transport;
 
     if (replyPayload.getTotalLength() > t->getMaxRpcSize()) {
@@ -491,16 +501,6 @@ InfRCTransport::ServerRpc::sendReply()
     t->currentTxBuffer = (t->currentTxBuffer + 1) % MAX_TX_QUEUE_DEPTH;
     replyPayload.copy(0, replyPayload.getTotalLength(), bd->buffer);
     t->ibPostSendAndWait(qp, bd, replyPayload.getTotalLength());
-}
-
-/**
- * End an RPC without sending a response. This method is obsolete
- * and should eventually be eliminated.
- */
-void
-InfRCTransport::ServerRpc::ignore()
-{
-    assert(0);
 }
 
 //-------------------------------------
@@ -519,18 +519,9 @@ InfRCTransport::ClientRpc::ClientRpc(InfRCTransport* transport,
                                      QueuePair* qp, Buffer* response)
     : transport(transport),
       qp(qp),
-      response(response),
-      replyDescriptor(NULL)
+      response(response)
 {
 
-}
-
-InfRCTransport::ClientRpc::~ClientRpc()
-{
-    // if the client had receive an RX buffer via getReply, be sure to
-    // post it back to the HCA here.
-    if (replyDescriptor != NULL)
-        transport->ibPostSrqReceive(replyDescriptor);
 }
 
 /**
@@ -549,12 +540,13 @@ InfRCTransport::ClientRpc::getReply()
         throw TransportException(wc.status);
     }
 
-    replyDescriptor = &t->rxBuffers[t->currentRxBuffer];
-    assert(wc.wr_id == (uint64_t)replyDescriptor);
-    assert(replyDescriptor->inUse);
+    BufferDescriptor* bd = &t->rxBuffers[t->currentRxBuffer];
+    assert(wc.wr_id == (uint64_t)bd);
+    assert(bd->inUse);
 
-    Buffer::Chunk::appendToBuffer(response,
-        replyDescriptor->buffer, wc.byte_len);
+    PayloadChunk::appendToBuffer(response, bd->buffer, wc.byte_len, t, bd);
+
+    t->currentRxBuffer = (t->currentRxBuffer + 1) % MAX_SHARED_RX_QUEUE_DEPTH; 
 }
 
 //-------------------------------------
@@ -709,6 +701,93 @@ InfRCTransport::QueuePair::getRemoteLid() const
     }
 
     return qpa.ah_attr.dlid;
+}
+
+//-------------------------------------
+// InfRCTransport::PayloadChunk class
+//-------------------------------------
+
+/**
+ * Append a subregion of payload data which releases the memory to the
+ * HCA when its containing Buffer is destroyed.
+ *
+ * \param buffer
+ *      The Buffer to append the data to.
+ * \param data
+ *      The address of the data to appear in the Buffer.
+ * \param dataLength
+ *      The length in bytes of the region starting at data that is a
+ *      subregion of the payload.
+ * \param bd 
+ *      The BufferDescriptor to return to the HCA on Buffer destruction.
+ */
+InfRCTransport::PayloadChunk*
+InfRCTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
+                                             char* data,
+                                             uint32_t dataLength,
+                                             InfRCTransport* transport,
+                                             BufferDescriptor* bd)
+{
+    PayloadChunk* chunk =
+        new(buffer, CHUNK) PayloadChunk(data, dataLength, transport, bd);
+    Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
+    return chunk;
+}
+
+/**
+ * Prepend a subregion of payload data which releases the memory to the
+ * HCA when its containing Buffer is destroyed.
+ *
+ * \param buffer
+ *      The Buffer to prepend the data to.
+ * \param data
+ *      The address of the data to appear in the Buffer.
+ * \param dataLength
+ *      The length in bytes of the region starting at data that is a
+ *      subregion of the payload.
+ * \param bd
+ *      The BufferDescriptor to return to the HCA on Buffer destruction.
+ */
+InfRCTransport::PayloadChunk*
+InfRCTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
+                                            char* data,
+                                            uint32_t dataLength,
+                                            InfRCTransport* transport,
+                                            BufferDescriptor* bd)
+{
+    PayloadChunk* chunk =
+        new(buffer, CHUNK) PayloadChunk(data, dataLength, transport, bd);
+    Buffer::Chunk::appendChunkToBuffer(buffer, chunk);
+    return chunk;
+}
+
+/// Returns memory to the HCA once the Chunk is discarded.
+InfRCTransport::PayloadChunk::~PayloadChunk()
+{
+printf("ClientRpc DESTRUCTOR!\n");
+    transport->ibPostSrqReceive(bd);
+}
+
+/**
+ * Construct a PayloadChunk which will release it's resources to the
+ * HCA its containing Buffer is destroyed.
+ *
+ * \param data
+ *      The address of the data to appear in the Buffer.
+ * \param dataLength
+ *      The length in bytes of the region starting at data that is a
+ *      subregion of the payload.
+ * \param bd 
+ *      The BufferDescriptor to return to the HCA on Buffer destruction.
+ */
+InfRCTransport::PayloadChunk::PayloadChunk(void* data,
+                                          uint32_t dataLength,
+                                          InfRCTransport *transport,
+                                          BufferDescriptor* bd)
+    : Buffer::Chunk(data, dataLength),
+      transport(transport),
+      bd(bd)
+{
 }
 
 }  // namespace RAMCloud

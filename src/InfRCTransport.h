@@ -37,11 +37,11 @@ class InfRCTransport : public Transport {
     class  QueuePair;
 
   public:
-    explicit InfRCTransport(const ServiceLocator* serviceLocator = NULL);
+    explicit InfRCTransport(const ServiceLocator* sl = NULL);
     ~InfRCTransport() { }
     ServerRpc* serverRecv() __attribute__((warn_unused_result));
-    SessionRef getSession(const ServiceLocator& serviceLocator) {
-        return new InfRCSession(this, serviceLocator);
+    SessionRef getSession(const ServiceLocator& sl) {
+        return new InfRCSession(this, sl);
     }
     uint32_t getMaxRpcSize() const;
 
@@ -49,7 +49,6 @@ class InfRCTransport : public Transport {
         public:
             explicit ServerRpc(InfRCTransport* transport, QueuePair* qp);
             void sendReply();
-            void ignore();
         private:
             InfRCTransport* transport;
             QueuePair*      qp;
@@ -61,20 +60,18 @@ class InfRCTransport : public Transport {
             explicit ClientRpc(InfRCTransport* transport,
                                QueuePair* qp,
                                Buffer* response);
-            ~ClientRpc();
             void getReply();
         private:
             InfRCTransport*     transport;
             QueuePair*          qp;
             Buffer*             response;
-            BufferDescriptor*   replyDescriptor;
             DISALLOW_COPY_AND_ASSIGN(ClientRpc);
     };
 
   private:
     // maximum RPC size we'll permit. we'll use 8MB plus a little overhead. 
     static const uint32_t MAX_RPC_SIZE = (8 * 1024 * 1024) + 4096;
-    static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 64;
+    static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 4;
     static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 64;
     static const uint32_t MAX_TX_SGE_COUNT = 8;
@@ -82,7 +79,7 @@ class InfRCTransport : public Transport {
     class InfRCSession : public Session {
       public:
         explicit InfRCSession(InfRCTransport *transport,
-            const ServiceLocator& serviceLocator);
+            const ServiceLocator& sl);
         Transport::ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result));
         void release();
@@ -153,6 +150,42 @@ class InfRCTransport : public Transport {
         uint32_t    initialPsn;     // initial packet sequence number
 
         DISALLOW_COPY_AND_ASSIGN(QueuePair);
+    };
+
+    /**
+     * A Buffer::Chunk that is comprised of memory for incoming packets,
+     * owned by the HCA but loaned to us during the processing of an
+     * incoming RPC so the message doesn't have to be copied.
+     *
+     * PayloadChunk behaves like any other Buffer::Chunk except it returns
+     * its memory to the HCA when the Buffer is deleted.
+     */
+    class PayloadChunk : public Buffer::Chunk {
+      public:
+        static PayloadChunk* prependToBuffer(Buffer* buffer,
+                                             char* data,
+                                             uint32_t dataLength,
+                                             InfRCTransport* transport, 
+                                             BufferDescriptor* bd);
+        static PayloadChunk* appendToBuffer(Buffer* buffer,
+                                            char* data,
+                                            uint32_t dataLength,
+                                            InfRCTransport* transport,
+                                            BufferDescriptor* bd);
+        ~PayloadChunk();
+
+      private:
+        PayloadChunk(void* data,
+                     uint32_t dataLength,
+                     InfRCTransport* transport,
+                     BufferDescriptor* bd);
+
+        InfRCTransport* transport;
+
+        /// Return the PayloadChunk memory here.
+        BufferDescriptor* const bd;
+
+        DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
 
     // infiniband helper functions
