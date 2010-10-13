@@ -1,5 +1,13 @@
 OBJDIRS += client_shared
 
+ifeq ($(INFINIBAND),yes)
+INFINIBAND_SRCFILES := \
+           src/InfRCTransport.cc \
+           $(NULL)
+else
+INFINIBAND_SRCFILES :=
+endif
+
 CLIENT_SRCFILES := \
 		   src/BenchUtil.cc \
 		   src/Buffer.cc \
@@ -18,6 +26,7 @@ CLIENT_SRCFILES := \
 		   src/TCPTransport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
+		   $(INFINIBAND_SRCFILES) \
 		   $(NULL)
 
 CLIENT_OBJFILES := $(CLIENT_SRCFILES)

@@ -5,6 +5,7 @@
 #       http://aegis.sourceforge.net/auug97.pdf
 
 DEBUG := yes
+INFINIBAND := no
 
 ## Create a separate build directory for each git branch and for each arch
 OBJSUFFIX := $(shell git symbolic-ref -q HEAD | \
@@ -14,14 +15,17 @@ OBJDIR	:= obj$(OBJSUFFIX)
 
 TOP	:= $(shell echo $${PWD-`pwd`})
 
-BASECFLAGS :=
-OPTFLAG	 := -O3
 ifeq ($(DEBUG),yes)
+BASECFLAGS := -g
+OPTFLAG	 :=
 DEBUGFLAGS :=
 else
+BASECFLAGS :=
+OPTFLAG := -O3
 DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
 endif
-COMFLAGS := $(BASECFLAGS) -g $(OPTFLAG) -fno-strict-aliasing \
+
+COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
 	        -fno-builtin -MD
 COMWARNS := -Wall -Wformat=2 -Wextra \
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute \
@@ -40,6 +44,10 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 LIBS := -lpcrecpp -lboost_program_options
 INCLUDES := -I$(TOP)/src
 
+ifeq ($(INFINIBAND),yes)
+COMFLAGS += -DINFINIBAND
+LIBS += -libverbs
+endif
 
 CFLAGS_BASE := $(COMFLAGS) -std=gnu99 $(LIBS) $(INCLUDES)
 CFLAGS_NOWERROR := $(CFLAGS_BASE) $(CWARNS)

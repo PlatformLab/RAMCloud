@@ -1,5 +1,13 @@
 OBJDIRS += $(OBJDIR)
 
+ifeq ($(INFINIBAND),yes)
+INFINIBAND_SRCFILES := \
+           src/InfRCTransport.cc \
+           $(NULL)
+else
+INFINIBAND_SRCFILES :=
+endif
+
 SHARED_SRCFILES := \
 		   src/BackupClient.cc \
 		   src/BenchUtil.cc \
@@ -19,6 +27,7 @@ SHARED_SRCFILES := \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
 		   src/rabinpoly.cc \
+           $(INFINIBAND_SRCFILES) \
 		   $(NULL)
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)

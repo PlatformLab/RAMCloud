@@ -18,8 +18,11 @@
 
 #include "TCPTransport.h"
 #include "FastTransport.h"
-#include "InfRCTransport.h"
 #include "UdpDriver.h"
+
+#ifdef INFINIBAND
+#include "InfRCTransport.h"
+#endif
 
 namespace RAMCloud {
 
@@ -39,6 +42,7 @@ static struct FastUdpTransportFactory : public TransportFactory {
     }
 } fastUdpTransportFactory;
 
+#ifdef INFINIBAND
 static struct InfRCTransportFactory : public TransportFactory {
     InfRCTransportFactory()
         : TransportFactory("infinibandrc", "infrc") {}
@@ -46,7 +50,7 @@ static struct InfRCTransportFactory : public TransportFactory {
         return new InfRCTransport(localServiceLocator);
     }
 } infRCTransportFactory;
-
+#endif
 
 /**
  * The single instance of #TransportManager.
@@ -62,7 +66,9 @@ TransportManager::TransportManager()
 {
     transportFactories.insert(&tcpTransportFactory);
     transportFactories.insert(&fastUdpTransportFactory);
+#ifdef INFINIBAND
     transportFactories.insert(&infRCTransportFactory);
+#endif
 }
 
 TransportManager::~TransportManager()
