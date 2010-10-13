@@ -216,6 +216,16 @@ _rdpmc(uint32_t counter)
     return ((uint64_t) lo) | (((uint64_t) hi) << 32);
 }
 
+/// Yield the current task to the scheduler.
+static inline void
+yield()
+{
+#if YIELD
+    extern int sched_yield();
+    sched_yield(); // always returns 0 on linux
+#endif
+}
+
 #if TESTING
 extern uint64_t mockTSCValue;
 extern uint64_t mockPMCValue;

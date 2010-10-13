@@ -173,6 +173,7 @@ TransportManager::serverRecv()
 {
     if (!initialized || listening.empty())
         throw UnrecoverableTransportException("no transports to listen on");
+    uint8_t i = 0;
     while (true) {
         if (nextToListen >= listening.size())
             nextToListen = 0;
@@ -181,6 +182,9 @@ TransportManager::serverRecv()
         Transport::ServerRpc* rpc = transport->serverRecv();
         if (rpc != NULL)
             return rpc;
+        if (++i == 0) { // On machines with a small number of cores,
+            yield();    // give other tasks a chance to run.
+        }
     }
 }
 

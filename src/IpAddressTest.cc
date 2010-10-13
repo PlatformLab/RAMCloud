@@ -52,9 +52,9 @@ class IpAddressTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("ok",
                 tryLocator("fast+udp: host=www.yahoo.com, port=80"));
         CPPUNIT_ASSERT_EQUAL("Service locator 'fast+udp: "
-                "host=garbageHostName, port=80' couldn't be converted "
-                "to IP address: couldn't find host 'garbageHostName'",
-                tryLocator("fast+udp: host=garbageHostName, port=80"));
+                "host=garbage.host.name, port=80' couldn't be converted "
+                "to IP address: couldn't find host 'garbage.host.name'",
+                tryLocator("fast+udp: host=garbage.host.name, port=80"));
         CPPUNIT_ASSERT_EQUAL("Service locator 'fast+udp: port=80' couldn't "
                 "be converted to IP address: The option with key 'host' "
                 "was not found in the ServiceLocator.",
