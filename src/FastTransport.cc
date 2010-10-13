@@ -310,6 +310,7 @@ FastTransport::ClientRpc::getReply()
     // it is handled by the response buffer destructor since this
     // ClientRpc is in it's MISC memory.
 
+    uint8_t i = 0;
     while (true) {
         switch (state) {
         case IN_PROGRESS:
@@ -321,6 +322,8 @@ FastTransport::ClientRpc::getReply()
         case ABORTED:
             throw TransportException("RPC aborted");
         }
+        if (++i == 0) // On machines with a small number of cores,
+            yield();  // give other tasks a chance to run.
     }
 }
 
