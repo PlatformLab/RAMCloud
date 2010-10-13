@@ -169,7 +169,6 @@ InfRCTransport::serverRecv()
     // query the infiniband adapter first. if there's nothing to process,
     // try to read a datagram from a connecting client.
     // in the future, this should occur in separate threads.
-printf("SERVER RECV\n");
     while (1) {
         ibv_wc wc;
 
@@ -279,7 +278,7 @@ InfRCTransport::clientTrySetupQueuePair(const char* ip, int port)
         delete qp;
         throw TransportException(len);
     }
-printf("CLIENT TRY SETUP SENT REQUEST\n");
+
     QueuePairTuple incomingQpt;
     socklen_t sinlen = sizeof(sin);
     len = recvfrom(setupSocket, &incomingQpt, sizeof(incomingQpt), 0,
@@ -289,7 +288,7 @@ printf("CLIENT TRY SETUP SENT REQUEST\n");
         delete qp;
         throw TransportException(len);
     }
-printf("CLIENT TRY SETUP GOT RESPONSE!\n");
+
     // XXX- probably good to have that nonce...
     // XXX- also, need to add timeout/retry here.
 
@@ -319,7 +318,7 @@ InfRCTransport::serverTrySetupQueuePair()
             __func__, len);
         return;
     } 
-printf("SERVER TRY SETUP QUEUE PAIR GOT REQUEST!\n");
+
     // create a new queue pair, set it up according to our client's parameters,
     // and feed back our lid, qpn, and psn information so they can complete
     // the out-of-band handshake.
@@ -764,7 +763,6 @@ InfRCTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
 /// Returns memory to the HCA once the Chunk is discarded.
 InfRCTransport::PayloadChunk::~PayloadChunk()
 {
-printf("ClientRpc DESTRUCTOR!\n");
     transport->ibPostSrqReceive(bd);
 }
 
