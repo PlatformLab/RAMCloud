@@ -13,6 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// RAMCloud pragma [CPPLINT=0]
+
 /**
  * \file
  * This file defines an implementation of Transport for Infiniband

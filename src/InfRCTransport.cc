@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// RAMCloud pragma [CPPLINT=0]
+
 /**
  * \file
  * Implementation of an Infiniband reliable transport layer using reliable
