@@ -10,10 +10,8 @@ TESTS_SRCFILES := \
 		  src/BitmapTest.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
-		  src/CClientTest.cc \
 		  src/ChecksumTest.cc \
 		  src/ClientExceptionTest.cc \
-		  src/ClientTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/IpAddressTest.cc \
@@ -24,6 +22,8 @@ TESTS_SRCFILES := \
 		  src/MockTransport.cc \
 		  src/OptionParser.cc \
 		  src/OptionParserTest.cc \
+		  src/RamCloudCClientTest.cc \
+		  src/RamCloudClientTest.cc \
 		  src/SegmentTest.cc \
 		  src/ServerTest.cc \
 		  src/ServerTest.cc \

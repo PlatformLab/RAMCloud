@@ -77,7 +77,7 @@ Server::~Server()
 
 /**
  * Top-level server method to handle the CREATE request.  See the
- * documentation for the corresponding method in Client for complete
+ * documentation for the corresponding method in RamCloudClient for complete
  * information about what this request does.
  *
  * \param reqHdr
@@ -112,7 +112,7 @@ Server::create(const CreateRequest* reqHdr, CreateResponse* respHdr,
 
 /**
  * Top-level server method to handle the CREATE_TABLE request.  See the
- * documentation for the corresponding method in Client for complete
+ * documentation for the corresponding method in RamCloudClient for complete
  * information about what this request does.
  *
  * \param reqHdr
@@ -159,7 +159,7 @@ Server::createTable(const CreateTableRequest* reqHdr,
 
 /**
  * Top-level server method to handle the DROP_TABLE request.  See the
- * documentation for the corresponding method in Client for complete
+ * documentation for the corresponding method in RamCloudClient for complete
  * information about what this request does.
  *
  * \param reqHdr
@@ -194,7 +194,7 @@ Server::dropTable(const DropTableRequest* reqHdr, DropTableResponse* respHdr,
 
 /**
  * Top-level server method to handle the OPEN_TABLE request.  See the
- * documentation for the corresponding method in Client for complete
+ * documentation for the corresponding method in RamCloudClient for complete
  * information about what this request does.
  *
  * \param reqHdr
@@ -229,7 +229,7 @@ Server::openTable(const OpenTableRequest* reqHdr, OpenTableResponse* respHdr,
 
 /**
  * Top-level server method to handle the PING request.  See the
- * documentation for the corresponding method in Client for complete
+ * documentation for the corresponding method in RamCloudClient for complete
  * information about what this request does.
  *
  * \param reqHdr
@@ -248,7 +248,7 @@ Server::ping(const PingRequest* reqHdr, PingResponse* respHdr,
 
 /**
  * Top-level server method to handle the READ request.  See the
- * documentation for the corresponding method in Client for complete
+ * documentation for the corresponding method in RamCloudClient for complete
  * information about what this request does.
  *
  * \param reqHdr
@@ -293,7 +293,7 @@ Server::read(const ReadRequest* reqHdr, ReadResponse* respHdr,
 
 /**
  * Top-level server method to handle the REMOVE request.  See the
- * documentation for the corresponding method in Client for complete
+ * documentation for the corresponding method in RamCloudClient for complete
  * information about what this request does.
  *
  * \param reqHdr
@@ -340,7 +340,7 @@ Server::remove(const RemoveRequest* reqHdr, RemoveResponse* respHdr,
 
 /**
  * Top-level server method to handle the WRITE request.  See the
- * documentation for the corresponding method in Client for complete
+ * documentation for the corresponding method in RamCloudClient for complete
  * information about what this request does.
  *
  * \param reqHdr

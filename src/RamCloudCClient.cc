@@ -18,8 +18,8 @@
  * This file provides a C wrapper around the RAMCloud client code.
  */
 
-#include "Client.h"
-#include "CClient.h"
+#include "RamCloudClient.h"
+#include "RamCloudCClient.h"
 #include "ClientException.h"
 
 using namespace RAMCloud;
@@ -28,7 +28,7 @@ using namespace RAMCloud;
  * Wrapper structure for C clients.
  */
 struct rc_client {
-    Client* client;
+    RamCloudClient* client;
 };
 
 /**
@@ -48,7 +48,7 @@ Status rc_connect(const char* serverLocator, struct rc_client** newClient)
 {
     struct rc_client* client = new rc_client;
     try {
-        client->client = new Client(serverLocator);
+        client->client = new RamCloudClient(serverLocator);
     } catch (CouldntConnectException& e) {
         delete client;
         return e.status;
@@ -58,11 +58,11 @@ Status rc_connect(const char* serverLocator, struct rc_client** newClient)
 }
 
 /**
- * Create a C rc_client based on an existing C++ Client.  Intended
+ * Create a C rc_client based on an existing C++ RamCloudClient.  Intended
  * primarily for testing.
  *
  * \param existingClient
- *      An existing Client object that will be used for communication
+ *      An existing RamCloudClient object that will be used for communication
  *      with the server.
  * \param[out] newClient
  *      A pointer to the new client connection is returned here.
@@ -73,7 +73,7 @@ Status rc_connect(const char* serverLocator, struct rc_client** newClient)
  *      STATUS_OK or STATUS_COULDNT_CONNECT.
  */
 Status rc_connectWithClient(
-        struct Client* existingClient,
+        struct RamCloudClient* existingClient,
         struct rc_client** newClient)
 {
     struct rc_client* client = new rc_client;
@@ -107,12 +107,12 @@ rc_clearPerfCounter(struct rc_client* client)
 }
 
 // Most of the methods below are all just wrappers around the corresponding
-// Client methods, except for the following differences:
+// RamCloudClient methods, except for the following differences:
 // * RPC requests here return Status values, whereas the C++ methods
 //   generate exceptions.
 // * Anything returned as result by a C++ method is returned by a
 //   pointer argument here.
-// See the documentation in Client.cc for details.
+// See the documentation in RamCloudClient.cc for details.
 
 Status rc_create(struct rc_client* client, uint32_t tableId,
         const void* buf, uint32_t length, uint64_t* id, uint64_t* version)
@@ -195,7 +195,7 @@ rc_ping(struct rc_client* client)
 }
 
 /**
- * Similar to Client::read, except copies the return value out to a
+ * Similar to RamCloudClient::read, except copies the return value out to a
  * fixed-length buffer rather than returning a Buffer object.
  *
  * \param client

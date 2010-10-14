@@ -82,7 +82,7 @@ struct RpcResponseCommon {
 // For each RPC there are two structures below, one describing
 // the header for the request and one describing the header for
 // the response.  For details on what the individual fields mean,
-// see the documentation for the corresponding methods in Client.cc;
+// see the documentation for the corresponding methods in RamCloudClient.cc;
 // for the most part the arguments to those methods are passed directly
 // to the corresponding fields of the RPC header, and the fields of
 // the RPC response are returned as the results of the method.

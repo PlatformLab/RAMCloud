@@ -15,7 +15,7 @@
 
 #include "Buffer.h"
 #include "Common.h"
-#include "Client.h"
+#include "RamCloudClient.h"
 #include "TestUtil.h"
 #include "MockTransport.h"
 #include "TransportManager.h"
@@ -23,10 +23,11 @@
 namespace RAMCloud {
 
 // The following class exists in order to expose private
-// info from the Client class.
-class TClient : public Client {
+// info from the RamCloudClient class.
+class TClient : public RamCloudClient {
   public:
-    explicit TClient(const char* serviceLocator) : Client(serviceLocator) { }
+    explicit TClient(const char* serviceLocator)
+        : RamCloudClient(serviceLocator) { }
     void tThrowShortResponseError(Buffer* response) {
         throwShortResponseError(response);
     }

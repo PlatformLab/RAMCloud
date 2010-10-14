@@ -14,7 +14,7 @@
  */
 
 #include <assert.h>
-#include "Client.h"
+#include "RamCloudClient.h"
 #include "ClientException.h"
 #include "TransportManager.h"
 
@@ -24,7 +24,7 @@ namespace RAMCloud {
 RejectRules defaultRejectRules;
 
 /**
- * Construct a Client for a particular service: opens a connection with the
+ * Construct a RamCloudClient for a particular service: opens a connection with the
  * service.
  *
  * \param serviceLocator
@@ -34,17 +34,17 @@ RejectRules defaultRejectRules;
  * \exception CouldntConnectException
  *      Couldn't connect to the server.
  */
-Client::Client(const char* serviceLocator)
+RamCloudClient::RamCloudClient(const char* serviceLocator)
         : status(STATUS_OK),  counterValue(0),
           session(transportManager.getSession(serviceLocator)),
           objectFinder(session),
           perfCounter() { }
 
 /**
- * Destructor for Client objects: releases all resources for the
+ * Destructor for RamCloudClient objects: releases all resources for the
  * cluster and aborts RPCs in progress.
  */
-Client::~Client()
+RamCloudClient::~RamCloudClient()
 {
 }
 
@@ -53,7 +53,7 @@ Client::~Client()
  * selectPerfCounter.
  */
 void
-Client::clearPerfCounter()
+RamCloudClient::clearPerfCounter()
 {
     static RpcPerfCounter none = {0, 0, 0};
     perfCounter = none;
@@ -84,7 +84,7 @@ Client::clearPerfCounter()
  * \exception InternalError
  */
 uint64_t
-Client::create(uint32_t tableId, const void* buf, uint32_t length,
+RamCloudClient::create(uint32_t tableId, const void* buf, uint32_t length,
         uint64_t* version)
 {
     Buffer req, resp;
@@ -125,7 +125,7 @@ Client::create(uint32_t tableId, const void* buf, uint32_t length,
  * \exception InternalError
  */
 void
-Client::createTable(const char* name)
+RamCloudClient::createTable(const char* name)
 {
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
@@ -164,7 +164,7 @@ Client::createTable(const char* name)
  * \exception InternalError
  */
 void
-Client::dropTable(const char* name)
+RamCloudClient::dropTable(const char* name)
 {
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
@@ -205,7 +205,7 @@ Client::dropTable(const char* name)
  * \exception InternalError
  */
 uint32_t
-Client::openTable(const char* name)
+RamCloudClient::openTable(const char* name)
 {
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
@@ -241,7 +241,7 @@ Client::openTable(const char* name)
  * \exception InternalError
  */
 void
-Client::ping()
+RamCloudClient::ping()
 {
     Buffer req, resp;
     PingRequest* reqHdr;
@@ -285,7 +285,7 @@ Client::ping()
  * \exception InternalError
  */
 void
-Client::read(uint32_t tableId, uint64_t id, Buffer* value,
+RamCloudClient::read(uint32_t tableId, uint64_t id, Buffer* value,
         const RejectRules* rejectRules, uint64_t* version)
 {
     Buffer req;
@@ -349,7 +349,7 @@ Client::read(uint32_t tableId, uint64_t id, Buffer* value,
  * \exception InternalError
  */
 void
-Client::remove(uint32_t tableId, uint64_t id,
+RamCloudClient::remove(uint32_t tableId, uint64_t id,
         const RejectRules* rejectRules, uint64_t* version)
 {
     Buffer req, resp;
@@ -394,7 +394,7 @@ Client::remove(uint32_t tableId, uint64_t id,
  */
 
 void
-Client::selectPerfCounter(PerfCounterType type, Mark begin, Mark end)
+RamCloudClient::selectPerfCounter(PerfCounterType type, Mark begin, Mark end)
 {
     perfCounter.beginMark = begin;
     perfCounter.endMark = end;
@@ -433,8 +433,9 @@ Client::selectPerfCounter(PerfCounterType type, Mark begin, Mark end)
  * \exception InternalError
  */
 void
-Client::write(uint32_t tableId, uint64_t id, const void* buf, uint32_t length,
-        const RejectRules* rejectRules, uint64_t* version)
+RamCloudClient::write(uint32_t tableId, uint64_t id,
+                      const void* buf, uint32_t length,
+                      const RejectRules* rejectRules, uint64_t* version)
 {
     Buffer req, resp;
     WriteRequest* reqHdr;
@@ -481,7 +482,7 @@ Client::write(uint32_t tableId, uint64_t id, const void* buf, uint32_t length,
  *      value present in the packet (if any).
  */
 void
-Client::throwShortResponseError(Buffer* response)
+RamCloudClient::throwShortResponseError(Buffer* response)
 {
     const RpcResponseCommon* common =
         response->getStart<RpcResponseCommon>();

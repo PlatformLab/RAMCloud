@@ -18,8 +18,8 @@
  * This file defines RAMCloud features available from C rather than C++.
  */
 
-#ifndef RAMCLOUD_CCLIENT_H
-#define RAMCLOUD_CCLIENT_H
+#ifndef RAMCLOUD_RAMCLOUDCCLIENT_H
+#define RAMCLOUD_RAMCLOUDCCLIENT_H
 
 #include "Common.h"
 #include "Mark.h"
@@ -34,7 +34,7 @@ extern "C" {
 RAMCloud::Status    rc_connect(const char* serverLocator,
                             struct rc_client** newClient);
 RAMCloud::Status    rc_connectWithClient(
-                            struct RAMCloud::Client* existingClient,
+                            struct RAMCloud::RamCloudClient* existingClient,
                             struct rc_client** newClient);
 void                rc_disconnect(struct rc_client* client);
 
@@ -72,4 +72,4 @@ RAMCloud::Status    rc_write(struct rc_client* client, uint32_t tableId,
 }
 #endif
 
-#endif // RAMCLOUD_CCLIENT_H
+#endif // RAMCLOUD_RAMCLOUDCCLIENT_H
