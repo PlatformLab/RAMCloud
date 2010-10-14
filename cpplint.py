@@ -2347,6 +2347,8 @@ def CheckLanguage(filename, clean_lines, linenum, file_extension, include_state,
   # version, we're willing for const to be before typename or after
   # Don't check the implemention on same line.
   fnline = line.split('{', 1)[0]
+  """
+  RAMCloud: non-const references are allowed
   if (len(re.findall(r'\([^()]*\b(?:[\w:]|<[^()]*>)+(\s?&|&\s?)\w+', fnline)) >
       len(re.findall(r'\([^()]*\bconst\s+(?:typename\s+)?(?:struct\s+)?'
                      r'(?:[\w:]|<[^()]*>)+(\s?&|&\s?)\w+', fnline)) +
@@ -2363,6 +2365,7 @@ def CheckLanguage(filename, clean_lines, linenum, file_extension, include_state,
           error(filename, linenum, 'runtime/references', 2,
                 'Is this a non-const reference? '
                 'If so, make const or use a pointer.')
+  """
 
   # Check to see if they're using an conversion function cast.
   # I just try to capture the most common basic types, though there are more.
