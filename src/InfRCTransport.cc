@@ -694,7 +694,7 @@ InfRCTransport::ClientRpc::getReply()
     if (wc.status != IBV_WC_SUCCESS) {
         LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
             wc.status, wcStatusToString(wc.status));
-        transport->ibPostSrqReceive(bd);
+        transport->ibPostSrqReceive(&t->rxBuffers[t->currentRxBuffer]);
         t->currentRxBuffer = (t->currentRxBuffer + 1) %
             MAX_SHARED_RX_QUEUE_DEPTH; 
         throw TransportException(wc.status);
