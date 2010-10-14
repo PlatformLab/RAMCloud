@@ -620,6 +620,8 @@ InfRCTransport::getMaxRpcSize() const
  *
  * \param transport
  *      The InfRCTransport object that this RPC is associated with.
+ * \param qp
+ *      The QueuePair associated with this RPC request.
  */
 InfRCTransport::ServerRpc::ServerRpc(InfRCTransport* transport, QueuePair* qp)
     : transport(transport),
@@ -660,7 +662,7 @@ InfRCTransport::ServerRpc::sendReply()
  *
  * \param transport
  *      The InfRCTransport object that this RPC is associated with.
- * \param QueuePair
+ * \param qp
  *      The QueuePair that is being used for thi RPC.
  * \param[out] response
  *      Buffer in which the response message should be placed.
@@ -939,6 +941,8 @@ InfRCTransport::QueuePair::getRemoteLid() const
  * \param dataLength
  *      The length in bytes of the region starting at data that is a
  *      subregion of the payload.
+ * \param transport
+ *      The transport that owns the provided BufferDescriptor 'bd'.
  * \param bd 
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
@@ -966,6 +970,8 @@ InfRCTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
  * \param dataLength
  *      The length in bytes of the region starting at data that is a
  *      subregion of the payload.
+ * \param transport
+ *      The transport that owns the provided BufferDescriptor 'bd'.
  * \param bd
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
@@ -997,6 +1003,8 @@ InfRCTransport::PayloadChunk::~PayloadChunk()
  * \param dataLength
  *      The length in bytes of the region starting at data that is a
  *      subregion of the payload.
+ * \param transport
+ *      The transport that owns the provided BufferDescriptor 'bd'.
  * \param bd 
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
