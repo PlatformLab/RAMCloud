@@ -11,6 +11,7 @@ endif
 CLIENT_SRCFILES := \
 		   src/BenchUtil.cc \
 		   src/Buffer.cc \
+		   src/Client.cc \
 		   src/ClientException.cc \
 		   src/Common.cc \
 		   src/Driver.cc \

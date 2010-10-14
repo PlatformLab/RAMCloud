@@ -12,6 +12,7 @@ TESTS_SRCFILES := \
 		  src/BufferTest.cc \
 		  src/ChecksumTest.cc \
 		  src/ClientExceptionTest.cc \
+		  src/ClientTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/IpAddressTest.cc \

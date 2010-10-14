@@ -13,9 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <assert.h>
 #include "RamCloudClient.h"
-#include "ClientException.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -35,29 +33,8 @@ RejectRules defaultRejectRules;
  *      Couldn't connect to the server.
  */
 RamCloudClient::RamCloudClient(const char* serviceLocator)
-        : status(STATUS_OK),  counterValue(0),
-          session(transportManager.getSession(serviceLocator)),
-          objectFinder(session),
-          perfCounter() { }
-
-/**
- * Destructor for RamCloudClient objects: releases all resources for the
- * cluster and aborts RPCs in progress.
- */
-RamCloudClient::~RamCloudClient()
-{
-}
-
-/**
- * Cancel any performance counter request previously specified by a call to
- * selectPerfCounter.
- */
-void
-RamCloudClient::clearPerfCounter()
-{
-    static RpcPerfCounter none = {0, 0, 0};
-    perfCounter = none;
-}
+        : session(transportManager.getSession(serviceLocator)),
+          objectFinder(session) { }
 
 /**
  * Create a new object in a table, with an id assigned by the server.
@@ -88,31 +65,16 @@ RamCloudClient::create(uint32_t tableId, const void* buf, uint32_t length,
         uint64_t* version)
 {
     Buffer req, resp;
-    CreateRequest* reqHdr;
-    const CreateResponse* respHdr;
-
-    reqHdr = new(&req, APPEND) CreateRequest;
-    reqHdr->common.type = CREATE;
-    reqHdr->common.perfCounter = perfCounter;
-    reqHdr->tableId = tableId;
-    reqHdr->length = length;
+    CreateRpc::Request& reqHdr(allocHeader<CreateRpc>(req));
+    reqHdr.tableId = tableId;
+    reqHdr.length = length;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
-    Transport::Transport::SessionRef master(objectFinder.lookupHead(tableId));
-    master->clientSend(&req, &resp)->getReply();
-
-    respHdr = resp.getStart<CreateResponse>();
-    if (respHdr == NULL) {
-        throwShortResponseError(&resp);
-    }
-    counterValue = respHdr->common.counterValue;
-    if (version != NULL) {
-        *version = respHdr->version;
-    }
-    status = respHdr->common.status;
-    if (status != STATUS_OK) {
-        ClientException::throwException(status);
-    }
-    return respHdr->id;
+    Transport::SessionRef master(objectFinder.lookupHead(tableId));
+    const CreateRpc::Response& respHdr(sendRecv<CreateRpc>(master, req, resp));
+    if (version != NULL)
+        *version = respHdr.version;
+    checkStatus();
+    return respHdr.id;
 }
 
 /**
@@ -129,25 +91,11 @@ RamCloudClient::createTable(const char* name)
 {
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
-    CreateTableRequest* reqHdr;
-    const CreateTableResponse* respHdr;
-
-    reqHdr = new(&req, APPEND) CreateTableRequest;
-    reqHdr->common.type = CREATE_TABLE;
-    reqHdr->common.perfCounter = perfCounter;
-    reqHdr->nameLength = length;
+    CreateTableRpc::Request& reqHdr(allocHeader<CreateTableRpc>(req));
+    reqHdr.nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
-    session->clientSend(&req, &resp)->getReply();
-
-    respHdr = resp.getStart<CreateTableResponse>();
-    if (respHdr == NULL) {
-        throwShortResponseError(&resp);
-    }
-    counterValue = respHdr->common.counterValue;
-    status = respHdr->common.status;
-    if (status != STATUS_OK) {
-        ClientException::throwException(status);
-    }
+    sendRecv<CreateTableRpc>(session, req, resp);
+    checkStatus();
 }
 
 /**
@@ -168,25 +116,11 @@ RamCloudClient::dropTable(const char* name)
 {
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
-    DropTableRequest* reqHdr;
-    const DropTableResponse* respHdr;
-
-    reqHdr = new(&req, APPEND) DropTableRequest;
-    reqHdr->common.type = DROP_TABLE;
-    reqHdr->common.perfCounter = perfCounter;
-    reqHdr->nameLength = length;
+    DropTableRpc::Request& reqHdr(allocHeader<DropTableRpc>(req));
+    reqHdr.nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
-    session->clientSend(&req, &resp)->getReply();
-
-    respHdr = resp.getStart<DropTableResponse>();
-    if (respHdr == NULL) {
-        throwShortResponseError(&resp);
-    }
-    counterValue = respHdr->common.counterValue;
-    status = respHdr->common.status;
-    if (status != STATUS_OK) {
-        ClientException::throwException(status);
-    }
+    sendRecv<DropTableRpc>(session, req, resp);
+    checkStatus();
 }
 
 /**
@@ -209,26 +143,13 @@ RamCloudClient::openTable(const char* name)
 {
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
-    OpenTableRequest* reqHdr;
-    const OpenTableResponse* respHdr;
-
-    reqHdr = new(&req, APPEND) OpenTableRequest;
-    reqHdr->common.type = OPEN_TABLE;
-    reqHdr->common.perfCounter = perfCounter;
-    reqHdr->nameLength = length;
+    OpenTableRpc::Request& reqHdr(allocHeader<OpenTableRpc>(req));
+    reqHdr.nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
-    session->clientSend(&req, &resp)->getReply();
-
-    respHdr = resp.getStart<OpenTableResponse>();
-    if (respHdr == NULL) {
-        throwShortResponseError(&resp);
-    }
-    counterValue = respHdr->common.counterValue;
-    status = respHdr->common.status;
-    if (status != STATUS_OK) {
-        ClientException::throwException(status);
-    }
-    return respHdr->tableId;
+    const OpenTableRpc::Response& respHdr(
+        sendRecv<OpenTableRpc>(session, req, resp));
+    checkStatus();
+    return respHdr.tableId;
 }
 
 /**
@@ -244,23 +165,9 @@ void
 RamCloudClient::ping()
 {
     Buffer req, resp;
-    PingRequest* reqHdr;
-    const PingResponse* respHdr;
-
-    reqHdr = new(&req, APPEND) PingRequest;
-    reqHdr->common.type = PING;
-    reqHdr->common.perfCounter = perfCounter;
-    session->clientSend(&req, &resp)->getReply();
-
-    respHdr = resp.getStart<PingResponse>();
-    if (respHdr == NULL) {
-        throwShortResponseError(&resp);
-    }
-    counterValue = respHdr->common.counterValue;
-    status = respHdr->common.status;
-    if (status != STATUS_OK) {
-        ClientException::throwException(status);
-    }
+    allocHeader<PingRpc>(req);
+    sendRecv<PingRpc>(session, req, resp);
+    checkStatus();
 }
 
 /**
@@ -289,41 +196,24 @@ RamCloudClient::read(uint32_t tableId, uint64_t id, Buffer* value,
         const RejectRules* rejectRules, uint64_t* version)
 {
     Buffer req;
-    ReadRequest* reqHdr;
-    const ReadResponse* respHdr;
     uint32_t length;
-
-    reqHdr = new(&req, APPEND) ReadRequest;
-    reqHdr->common.type = READ;
-    reqHdr->common.perfCounter = perfCounter;
-    reqHdr->id = id;
-    reqHdr->tableId = tableId;
-    reqHdr->pad1 = 0;                            // Needed only for tesing.
-    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    ReadRpc::Request& reqHdr(allocHeader<ReadRpc>(req));
+    reqHdr.id = id;
+    reqHdr.tableId = tableId;
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     Transport::SessionRef master(objectFinder.lookup(tableId, id));
-    master->clientSend(&req, value)->getReply();
-
-    respHdr = value->getStart<ReadResponse>();
-    if (respHdr == NULL) {
-        throwShortResponseError(value);
-    }
-    counterValue = respHdr->common.counterValue;
-    status = respHdr->common.status;
-    if (version != NULL) {
-        *version = respHdr->version;
-    }
-    length = respHdr->length;
+    const ReadRpc::Response& respHdr(sendRecv<ReadRpc>(master, req, *value));
+    if (version != NULL)
+        *version = respHdr.version;
+    length = respHdr.length;
 
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
-    value->truncateFront(sizeof(*respHdr));
+    value->truncateFront(sizeof(respHdr));
     uint32_t extra = value->getTotalLength() - length;
-    if (extra > 0) {
+    if (extra > 0)
         value->truncateEnd(extra);
-    }
-    if (status != STATUS_OK) {
-        ClientException::throwException(status);
-    }
+    checkStatus();
 }
 
 /**
@@ -353,52 +243,15 @@ RamCloudClient::remove(uint32_t tableId, uint64_t id,
         const RejectRules* rejectRules, uint64_t* version)
 {
     Buffer req, resp;
-    RemoveRequest* reqHdr;
-    const RemoveResponse* respHdr;
-
-    reqHdr = new(&req, APPEND) RemoveRequest;
-    reqHdr->common.type = REMOVE;
-    reqHdr->common.perfCounter = perfCounter;
-    reqHdr->id = id;
-    reqHdr->tableId = tableId;
-    reqHdr->pad1 = 0;                            // Needed only for testing.
-    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    RemoveRpc::Request& reqHdr(allocHeader<RemoveRpc>(req));
+    reqHdr.id = id;
+    reqHdr.tableId = tableId;
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     Transport::SessionRef master(objectFinder.lookup(tableId, id));
-    master->clientSend(&req, &resp)->getReply();
-
-    respHdr = resp.getStart<RemoveResponse>();
-    if (respHdr == NULL) {
-        throwShortResponseError(&resp);
-    }
-    counterValue = respHdr->common.counterValue;
-    if (version != NULL) {
-        *version = respHdr->version;
-    }
-    status = respHdr->common.status;
-    if (status != STATUS_OK) {
-        ClientException::throwException(status);
-    }
-}
-
-/**
- * Arrange for a performance metric to be collected by the server
- * during each future RPC. The value of the metric can be read from
- * the "counterValue" variable after each RPC.
- *
- * \param type
- *      Specifies what to measure (elapsed time, cache misses, etc.)
- * \param begin
- *      Indicates a point during the RPC when measurement should start.
- * \param end
- *      Indicates a point during the RPC when measurement should stop.
- */
-
-void
-RamCloudClient::selectPerfCounter(PerfCounterType type, Mark begin, Mark end)
-{
-    perfCounter.beginMark = begin;
-    perfCounter.endMark = end;
-    perfCounter.counterType = type;
+    const RemoveRpc::Response& respHdr(sendRecv<RemoveRpc>(master, req, resp));
+    if (version != NULL)
+        *version = respHdr.version;
+    checkStatus();
 }
 
 /**
@@ -438,70 +291,17 @@ RamCloudClient::write(uint32_t tableId, uint64_t id,
                       const RejectRules* rejectRules, uint64_t* version)
 {
     Buffer req, resp;
-    WriteRequest* reqHdr;
-    const WriteResponse* respHdr;
-
-    reqHdr = new(&req, APPEND) WriteRequest;
-    reqHdr->common.type = WRITE;
-    reqHdr->common.perfCounter = perfCounter;
-    reqHdr->id = id;
-    reqHdr->tableId = tableId;
-    reqHdr->length = length;
-    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    WriteRpc::Request& reqHdr(allocHeader<WriteRpc>(req));
+    reqHdr.id = id;
+    reqHdr.tableId = tableId;
+    reqHdr.length = length;
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
     Transport::SessionRef master(objectFinder.lookup(tableId, id));
-    master->clientSend(&req, &resp)->getReply();
-
-    respHdr = resp.getStart<WriteResponse>();
-    if (respHdr == NULL) {
-        throwShortResponseError(&resp);
-    }
-    counterValue = respHdr->common.counterValue;
-    if (version != NULL) {
-        *version = respHdr->version;
-    }
-    status = respHdr->common.status;
-    if (status != STATUS_OK) {
-        ClientException::throwException(status);
-    }
-}
-
-/**
- * Generate an appropriate exception when an RPC response arrives that
- * is too short to hold the full response header expected for this RPC.
- * If this method is invoked it means the server found a problem before
- * dispatching to a type-specific handler (e.g. the server didn't understand
- * the RPC's type, or basic authentication failed).
- *
- * \param response
- *      Contains the full response message from the server.
- *
- * \exception ClientException
- *      This method always throws an exception; it never returns.
- *      The exact type of the exception will depend on the status
- *      value present in the packet (if any).
- */
-void
-RamCloudClient::throwShortResponseError(Buffer* response)
-{
-    const RpcResponseCommon* common =
-        response->getStart<RpcResponseCommon>();
-    if (common != NULL) {
-        counterValue = common->counterValue;
-        if (common->status == STATUS_OK) {
-            // This makes no sense: the server claims to have handled
-            // the RPC correctly, but it didn't return the right size
-            // response for this RPC; report an error.
-            status = STATUS_RESPONSE_FORMAT_ERROR;
-        } else {
-            status = common->status;
-        }
-    } else {
-        // The packet wasn't even long enough to hold a standard
-        // header.
-        status = STATUS_RESPONSE_FORMAT_ERROR;
-    }
-    ClientException::throwException(status);
+    const WriteRpc::Response& respHdr(sendRecv<WriteRpc>(master, req, resp));
+    if (version != NULL)
+        *version = respHdr.version;
+    checkStatus();
 }
 
 }  // namespace RAMCloud

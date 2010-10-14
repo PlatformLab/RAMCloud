@@ -82,7 +82,7 @@ Status rc_connectWithClient(
     return STATUS_OK;
 }
 
-/*
+/**
  * End a connection to a RAMCloud cluster and delete the client object.
  *
  * \param client

@@ -91,100 +91,124 @@ struct RpcResponseCommon {
 // explicit (removing these fields has no effect on the layout of
 // the records).
 
-struct CreateRequest {
-    RpcRequestCommon common;
-    uint32_t tableId;
-    uint32_t length;              // Length of the value in bytes. The
-                                  // actual bytes follow immediately after
-                                  // this header.
-};
-struct CreateResponse {
-    RpcResponseCommon common;
-    uint64_t id;
-    uint64_t version;
-};
-
-struct CreateTableRequest {
-    RpcRequestCommon common;
-    uint32_t nameLength;          // Number of bytes in the name,
-                                  // including terminating NULL
-                                  // character. The bytes of the name
-                                  // follow immediately after this header.
-};
-struct CreateTableResponse {
-    RpcResponseCommon common;
+struct CreateRpc {
+    static const RpcType type = CREATE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t tableId;
+        uint32_t length;              // Length of the value in bytes. The
+                                      // actual bytes follow immediately after
+                                      // this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t id;
+        uint64_t version;
+    };
 };
 
-struct DropTableRequest {
-    RpcRequestCommon common;
-    uint32_t nameLength;          // Number of bytes in the name,
-                                  // including terminating NULL
-                                  // character. The bytes of the name
-                                  // follow immediately after this header.
-};
-struct DropTableResponse {
-    RpcResponseCommon common;
-};
-
-struct OpenTableRequest {
-    RpcRequestCommon common;
-    uint32_t nameLength;          // Number of bytes in the name,
-                                  // including terminating NULL
-                                  // character. The bytes of the name
-                                  // follow immediately after this header.
-};
-struct OpenTableResponse {
-    RpcResponseCommon common;
-    uint32_t tableId;
+struct CreateTableRpc {
+    static const RpcType type = CREATE_TABLE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t nameLength;          // Number of bytes in the name,
+                                      // including terminating NULL
+                                      // character. The bytes of the name
+                                      // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
 };
 
-struct PingRequest {
-    RpcRequestCommon common;
-};
-struct PingResponse {
-    RpcResponseCommon common;
-};
-
-struct ReadRequest {
-    RpcRequestCommon common;
-    uint64_t id;
-    uint32_t tableId;
-    uint32_t pad1;
-    RejectRules rejectRules;
-};
-struct ReadResponse {
-    RpcResponseCommon common;
-    uint64_t version;
-    uint32_t length;              // Length of the object's value in bytes.
-                                  // The actual bytes of the object follow
-                                  // immediately after this header.
-    uint32_t pad1;
+struct DropTableRpc {
+    static const RpcType type = DROP_TABLE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t nameLength;          // Number of bytes in the name,
+                                      // including terminating NULL
+                                      // character. The bytes of the name
+                                      // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
 };
 
-struct RemoveRequest {
-    RpcRequestCommon common;
-    uint64_t id;
-    uint32_t tableId;
-    uint32_t pad1;
-    RejectRules rejectRules;
-};
-struct RemoveResponse {
-    RpcResponseCommon common;
-    uint64_t version;
+struct OpenTableRpc {
+    static const RpcType type = OPEN_TABLE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t nameLength;          // Number of bytes in the name,
+                                      // including terminating NULL
+                                      // character. The bytes of the name
+                                      // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint32_t tableId;
+    };
 };
 
-struct WriteRequest {
-    RpcRequestCommon common;
-    uint64_t id;
-    uint32_t tableId;
-    uint32_t length;              // Length of the object's value in bytes.
-                                  // The actual bytes of the object follow
-                                  // immediately after this header.
-    RejectRules rejectRules;
+struct PingRpc {
+    static const RpcType type = PING;
+    struct Request {
+        RpcRequestCommon common;
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
 };
-struct WriteResponse {
-    RpcResponseCommon common;
-    uint64_t version;
+
+struct ReadRpc {
+    static const RpcType type = READ;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t id;
+        uint32_t tableId;
+        uint32_t pad1;
+        RejectRules rejectRules;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t version;
+        uint32_t length;              // Length of the object's value in bytes.
+                                      // The actual bytes of the object follow
+                                      // immediately after this header.
+        uint32_t pad1;
+    };
+};
+
+struct RemoveRpc {
+    static const RpcType type = REMOVE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t id;
+        uint32_t tableId;
+        uint32_t pad1;
+        RejectRules rejectRules;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t version;
+    };
+};
+
+struct WriteRpc {
+    static const RpcType type = WRITE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t id;
+        uint32_t tableId;
+        uint32_t length;              // Length of the object's value in bytes.
+                                      // The actual bytes of the object follow
+                                      // immediately after this header.
+        RejectRules rejectRules;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t version;
+    };
 };
 
 /**

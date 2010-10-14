@@ -88,7 +88,8 @@ class CClientTest : public CppUnit::TestFixture {
         rc_clearPerfCounter(client);
         transport->setInput("12345 222");
         status = rc_ping(client);
-        CPPUNIT_ASSERT_EQUAL("clientSend: 7 0x5007006 | clientSend: 7 0",
+        CPPUNIT_ASSERT_EQUAL("clientSend: 7 0x5007006 | "
+                             "clientSend: 7 0x2000000",
                 transport->outputLog);
     }
 

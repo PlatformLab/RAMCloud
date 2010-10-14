@@ -51,24 +51,30 @@ class Server {
     void handleRpc();
     void run();
 
-    void create(const CreateRequest* reqHdr, CreateResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void createTable(const CreateTableRequest* reqHdr,
-            CreateTableResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void dropTable(const DropTableRequest* reqHdr, DropTableResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void openTable(const OpenTableRequest* reqHdr, OpenTableResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void ping(const PingRequest* reqHdr, PingResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void read(const ReadRequest* reqHdr, ReadResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void remove(const RemoveRequest* reqHdr, RemoveResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void write(const WriteRequest* reqHdr, WriteResponse* respHdr,
-            Transport::ServerRpc* rpc);
-
+    void create(const CreateRpc::Request* reqHdr,
+                CreateRpc::Response* respHdr,
+                Transport::ServerRpc* rpc);
+    void createTable(const CreateTableRpc::Request* reqHdr,
+                     CreateTableRpc::Response* respHdr,
+                     Transport::ServerRpc* rpc);
+    void dropTable(const DropTableRpc::Request* reqHdr,
+                   DropTableRpc::Response* respHdr,
+                   Transport::ServerRpc* rpc);
+    void openTable(const OpenTableRpc::Request* reqHdr,
+                   OpenTableRpc::Response* respHdr,
+                   Transport::ServerRpc* rpc);
+    void ping(const PingRpc::Request* reqHdr,
+              PingRpc::Response* respHdr,
+              Transport::ServerRpc* rpc);
+    void read(const ReadRpc::Request* reqHdr,
+              ReadRpc::Response* respHdr,
+              Transport::ServerRpc* rpc);
+    void remove(const RemoveRpc::Request* reqHdr,
+                RemoveRpc::Response* respHdr,
+                Transport::ServerRpc* rpc);
+    void write(const WriteRpc::Request* reqHdr,
+               WriteRpc::Response* respHdr,
+               Transport::ServerRpc* rpc);
 
   protected:
 

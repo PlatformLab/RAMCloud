@@ -9,6 +9,8 @@ INFINIBAND_SRCFILES :=
 endif
 
 SHARED_SRCFILES := \
+		   src/Client.cc \
+		   src/ClientException.cc \
 		   src/BackupClient.cc \
 		   src/BenchUtil.cc \
 		   src/Buffer.cc \
@@ -23,6 +25,7 @@ SHARED_SRCFILES := \
 		   src/Segment.cc \
 		   src/ServiceLocator.cc \
 		   src/StringConverter.cc \
+		   src/Status.cc \
 		   src/TCPTransport.cc \
 		   src/Table.cc \
 		   src/TransportManager.cc \

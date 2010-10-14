@@ -94,8 +94,9 @@ Server::~Server()
  *      and/or append additional information to the response buffer.
  */
 void
-Server::create(const CreateRequest* reqHdr, CreateResponse* respHdr,
-        Transport::ServerRpc* rpc)
+Server::create(const CreateRpc::Request* reqHdr,
+               CreateRpc::Response* respHdr,
+               Transport::ServerRpc* rpc)
 {
     Table* t = getTable(reqHdr->tableId);
     uint64_t id = t->AllocateKey();
@@ -129,8 +130,9 @@ Server::create(const CreateRequest* reqHdr, CreateResponse* respHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::createTable(const CreateTableRequest* reqHdr,
-                    CreateTableResponse* respHdr, Transport::ServerRpc* rpc)
+Server::createTable(const CreateTableRpc::Request* reqHdr,
+                    CreateTableRpc::Response* respHdr,
+                    Transport::ServerRpc* rpc)
 {
     int i;
     const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
@@ -176,8 +178,9 @@ Server::createTable(const CreateTableRequest* reqHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::dropTable(const DropTableRequest* reqHdr, DropTableResponse* respHdr,
-            Transport::ServerRpc* rpc)
+Server::dropTable(const DropTableRpc::Request* reqHdr,
+                  DropTableRpc::Response* respHdr,
+                  Transport::ServerRpc* rpc)
 {
     int i;
     const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
@@ -211,8 +214,9 @@ Server::dropTable(const DropTableRequest* reqHdr, DropTableResponse* respHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::openTable(const OpenTableRequest* reqHdr, OpenTableResponse* respHdr,
-            Transport::ServerRpc* rpc)
+Server::openTable(const OpenTableRpc::Request* reqHdr,
+                  OpenTableRpc::Response* respHdr,
+                  Transport::ServerRpc* rpc)
 {
     int i;
     const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
@@ -240,8 +244,9 @@ Server::openTable(const OpenTableRequest* reqHdr, OpenTableResponse* respHdr,
  *      Ignored.
  */
 void
-Server::ping(const PingRequest* reqHdr, PingResponse* respHdr,
-            Transport::ServerRpc* rpc)
+Server::ping(const PingRpc::Request* reqHdr,
+             PingRpc::Response* respHdr,
+             Transport::ServerRpc* rpc)
 {
     // Nothing to do here.
 }
@@ -265,8 +270,9 @@ Server::ping(const PingRequest* reqHdr, PingResponse* respHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::read(const ReadRequest* reqHdr, ReadResponse* respHdr,
-        Transport::ServerRpc* rpc)
+Server::read(const ReadRpc::Request* reqHdr,
+             ReadRpc::Response* respHdr,
+             Transport::ServerRpc* rpc)
 {
     Table* t = getTable(reqHdr->tableId);
     const Object* o = t->Get(reqHdr->id);
@@ -310,8 +316,9 @@ Server::read(const ReadRequest* reqHdr, ReadResponse* respHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::remove(const RemoveRequest* reqHdr, RemoveResponse* respHdr,
-        Transport::ServerRpc* rpc)
+Server::remove(const RemoveRpc::Request* reqHdr,
+               RemoveRpc::Response* respHdr,
+               Transport::ServerRpc* rpc)
 {
     Table* t = getTable(reqHdr->tableId);
     const Object* o = t->Get(reqHdr->id);
@@ -357,8 +364,9 @@ Server::remove(const RemoveRequest* reqHdr, RemoveResponse* respHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::write(const WriteRequest* reqHdr, WriteResponse* respHdr,
-        Transport::ServerRpc* rpc)
+Server::write(const WriteRpc::Request* reqHdr,
+              WriteRpc::Response* respHdr,
+              Transport::ServerRpc* rpc)
 {
     respHdr->common.status = storeData(reqHdr->tableId, reqHdr->id,
             &reqHdr->rejectRules, &rpc->recvPayload, sizeof(*reqHdr),
@@ -385,12 +393,11 @@ Server::handleRpc()
         Buffer* response = &rpc->replyPayload;
         switch (header->type) {
 
-            #define CALL_HANDLER(nameInitialCap, nameLower) {                  \
-                nameInitialCap##Response* respHdr =                            \
-                        new(response, APPEND) nameInitialCap##Response;        \
+            #define CALL_HANDLER(Rpc, handler) {                               \
+                Rpc::Response* respHdr = new(response, APPEND) Rpc::Response;  \
                 responseCommon = &respHdr->common;                             \
-                const nameInitialCap##Request* reqHdr =                        \
-                        request->getStart<nameInitialCap##Request>();          \
+                const Rpc::Request* reqHdr =                                   \
+                        request->getStart<Rpc::Request>();                     \
                 if (reqHdr == NULL) {                                          \
                     throw MessageTooShortError();                              \
                 }                                                              \
@@ -399,19 +406,19 @@ Server::handleRpc()
                  * to avoid possible security problems where random server     \
                  * info could leak out to clients through unused packet        \
                  * fields. */                                                  \
-                memset(respHdr, 0, sizeof(nameInitialCap##Response));          \
-                nameLower(reqHdr, respHdr, rpc);                               \
+                memset(respHdr, 0, sizeof(Rpc::Response));                     \
+                handler(reqHdr, respHdr, rpc);                                 \
                 break;                                                         \
             }
 
-            case CREATE:        CALL_HANDLER(Create, create)
-            case CREATE_TABLE:  CALL_HANDLER(CreateTable, createTable)
-            case DROP_TABLE:    CALL_HANDLER(DropTable, dropTable)
-            case OPEN_TABLE:    CALL_HANDLER(OpenTable, openTable)
-            case PING:          CALL_HANDLER(Ping, ping)
-            case READ:          CALL_HANDLER(Read, read)
-            case REMOVE:        CALL_HANDLER(Remove, remove)
-            case WRITE:         CALL_HANDLER(Write, write)
+            case CREATE:        CALL_HANDLER(CreateRpc, create)
+            case CREATE_TABLE:  CALL_HANDLER(CreateTableRpc, createTable)
+            case DROP_TABLE:    CALL_HANDLER(DropTableRpc, dropTable)
+            case OPEN_TABLE:    CALL_HANDLER(OpenTableRpc, openTable)
+            case PING:          CALL_HANDLER(PingRpc, ping)
+            case READ:          CALL_HANDLER(ReadRpc, read)
+            case REMOVE:        CALL_HANDLER(RemoveRpc, remove)
+            case WRITE:         CALL_HANDLER(WriteRpc, write)
             default:
                 throw UnimplementedRequestError();
         }
