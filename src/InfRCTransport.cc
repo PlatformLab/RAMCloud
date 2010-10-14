@@ -15,8 +15,36 @@
 
 /**
  * \file
- * Implementation of a class that implements Transport for tests,
- * without an actual network.
+ * Implementation of an Infiniband reliable transport layer using reliable
+ * connected queue pairs. Handshaking is done over IP/UDP and addressing
+ * is based on that, i.e. addresses look like normal IP/UDP addresses
+ * because the infiniband queue pair set up is bootstrapped over UDP.
+ *
+ * The transport uses a common pool of receive and transmit buffers that
+ * are pre-registered with the HCA for direct access. All receive buffers
+ * are placed on a shared receive queue, which lets us poll a single location
+ * for RPC receive events. Each buffer is sized large enough for the maximum
+ * possible RPC size for simplicity. (XXX It's unclear to me what happens if
+ * we send a buffer too large for the receiver.)
+ *
+ * To demultiplex from the shared receive queue, we stash pointers in the
+ * 64-bit `wr_id' field of the work request.
+ *
+ * Connected queue pairs require some bootstrapping, which we do as follows:
+ *  - The server maintains a UDP listen port.
+ *  - Clients establish QPs by sending their tuples to the server as a request.
+ *    Tuples are basically (address, queue pair number, sequence number),
+ *    similar to TCP.
+ *  - Servers receive client tuples, create an associated queue pair, and
+ *    reply via UDP with their QP's tuple.
+ *  - Clients receive the server's tuple reply and complete their queue pair
+ *    setup. Communication over infiniband is ready to go. 
+ *
+ * Of course, using UDP means these things can get lost. We should have a
+ * mechanism for cleaning up halfway-completed QPs that occur when clients
+ * die before completing or never get the server's UDP response. Similarly,
+ * clients right now block forever if the request is lost. They should time
+ * out and retry, although at what level retries should occur isn't clear.
  */
 
 #include <errno.h>
@@ -41,6 +69,10 @@
 
 namespace RAMCloud {
 
+/**
+ * Given a string representation of the `status' field from Verbs
+ * struct `ibv_wc'.
+ */
 static const char*
 wcStatusToString(int status)
 {
@@ -80,6 +112,11 @@ wcStatusToString(int status)
 
 /**
  * Construct a InfRCTransport.
+ *
+ * \param sl
+ *      The ServiceLocator describing which HCA to use and the IP/UDP
+ *      address and port numbers to use for handshaking. If NULL,
+ *      the transport will be configured for client use only.
  */
 InfRCTransport::InfRCTransport(const ServiceLocator *sl)
     : currentRxBuffer(0),
@@ -195,6 +232,11 @@ InfRCTransport::InfRCTransport(const ServiceLocator *sl)
 
 /**
  * Wait for an incoming request.
+ *
+ * The server polls the infiniband shared receive queue, as well as
+ * the UDP setup socket. The former contains incoming RPCs, whereas
+ * the latter is used to set up QueuePairs between clients and the
+ * server, as an out-of-band handshake is needed.
  */
 Transport::ServerRpc*
 InfRCTransport::serverRecv()
@@ -227,6 +269,14 @@ InfRCTransport::serverRecv()
     }
 }
 
+/**
+ * Construct a Session object for the public #getSession() interface.
+ *
+ * \param transport
+ *      The transport this Session will be associated with.
+ * \param sl
+ *      The ServiceLocator describing the server to communicate with.
+ */
 InfRCTransport::InfRCSession::InfRCSession(InfRCTransport *transport,
     const ServiceLocator& sl)
     : transport(transport),
@@ -239,6 +289,9 @@ InfRCTransport::InfRCSession::InfRCSession(InfRCTransport *transport,
     qp = transport->clientTrySetupQueuePair(ip, port);
 }
 
+/**
+ * Destroy the Session.
+ */
 void
 InfRCTransport::InfRCSession::release()
 {
@@ -246,12 +299,8 @@ InfRCTransport::InfRCSession::release()
 }
 
 /**
- * Issue an RPC request using this transport.
+ * Issue an RPC request using infiniband.
  *
- * XXXXX this method needs real comments. 
- *
- * \param service
- *      Indicates which service the request should be sent to.
  * \param request
  *      Contents of the request message.
  * \param[out] response
@@ -286,6 +335,12 @@ InfRCTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
     return rpc;
 }
 
+/**
+ * Attempt to set up a QueuePair with the given server. The client
+ * allocates a QueuePair and sends the necessary tuple to the
+ * server to begin the handshake. The server then replies with its
+ * QueuePair tuple information. This is all done over IP/UDP.
+ */
 InfRCTransport::QueuePair*
 InfRCTransport::clientTrySetupQueuePair(const char* ip, int port)
 {
@@ -331,6 +386,13 @@ InfRCTransport::clientTrySetupQueuePair(const char* ip, int port)
     return qp;
 }
 
+/**
+ * Attempt to set up QueuePair with a connecting remote client. This
+ * function does a non-blocking receive of an incoming client handshake,
+ * creates the appropriate QueuePair on the server, and replies with its
+ * parameters so that the client can complete its handshake and plumb
+ * their QueuePair.
+ */
 void
 InfRCTransport::serverTrySetupQueuePair()
 {
@@ -378,6 +440,13 @@ InfRCTransport::serverTrySetupQueuePair()
     queuePairMap[qp->getLocalQpNumber()] = qp;
 }
 
+/**
+ * Find an installed infiniband device by name.
+ *
+ * \param name
+ *      The string name of the interface to look for. If NULL,
+ *      return the first one returned by the Verbs library.
+ */
 ibv_device*
 InfRCTransport::ibFindDevice(const char *name)
 {
@@ -398,6 +467,10 @@ InfRCTransport::ibFindDevice(const char *name)
 	return NULL;
 }
 
+/**
+ * Obtain the infiniband "local ID" of the currently used device and
+ * port.
+ */
 int
 InfRCTransport::ibGetLid()
 {
@@ -410,6 +483,12 @@ InfRCTransport::ibGetLid()
 	return ipa.lid;
 }
 
+/**
+ * Add the given BufferDescriptor to the shared receive queue.
+ * 
+ * \param bd
+ *      The BufferDescriptor to add to the queue.
+ */
 void
 InfRCTransport::ibPostSrqReceive(BufferDescriptor *bd)
 {
@@ -436,6 +515,17 @@ InfRCTransport::ibPostSrqReceive(BufferDescriptor *bd)
     }
 }
 
+/**
+ * Asychronously transmit the packet described by 'bd' on queue pair 'qp'.
+ * This function returns immediately. 
+ *
+ * \param qp
+ *      The QueuePair on which to transmit the packet.
+ * \param bd
+ *      The BufferDescriptor that contains the data to be transmitted.
+ * \param length
+ *      The number of bytes used by the packet in the given BufferDescriptor.
+ */
 void
 InfRCTransport::ibPostSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length)
 {
@@ -461,6 +551,18 @@ InfRCTransport::ibPostSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length)
     }
 }
 
+/**
+ * Synchronously transmit the packet described by 'bd' on queue pair 'qp'.
+ * This function waits to the HCA to return a completion status before
+ * returning.
+ *
+ * \param qp
+ *      The QueuePair on which to transmit the packet.
+ * \param bd
+ *      The BufferDescriptor that contains the data to be transmitted.
+ * \param length
+ *      The number of bytes used by the packet in the given BufferDescriptor.
+ */
 void
 InfRCTransport::ibPostSendAndWait(QueuePair* qp, BufferDescriptor *bd,
     uint32_t length)
@@ -477,6 +579,10 @@ InfRCTransport::ibPostSendAndWait(QueuePair* qp, BufferDescriptor *bd,
     }
 }
 
+/**
+ * Allocate a BufferDescriptor and register the backing memory with
+ * the HCA.
+ */
 InfRCTransport::BufferDescriptor
 InfRCTransport::allocateBufferDescriptorAndRegister()
 {
@@ -491,6 +597,12 @@ InfRCTransport::allocateBufferDescriptorAndRegister()
     return BufferDescriptor((char *)p, mr, id++);
 }
 
+/**
+ * Obtain the maximum rpc size. This is limited by the infiniband
+ * specification to 2GB(!), though we artificially limit it to a
+ * little more than a segment size to avoid allocating too much 
+ * space in RX buffers.
+ */
 uint32_t
 InfRCTransport::getMaxRpcSize() const
 {
@@ -516,8 +628,10 @@ InfRCTransport::ServerRpc::ServerRpc(InfRCTransport* transport, QueuePair* qp)
 }
 
 /**
- * Send a reply for an RPC. This method just logs the contents of
- * the reply message and deletes this reply object.
+ * Send a reply for an RPC.
+ *
+ * Transmits are done using a copy into a pre-registered HCA buffer.
+ * The function blocks until the HCA returns success or failure.
  */
 void
 InfRCTransport::ServerRpc::sendReply()
@@ -546,6 +660,8 @@ InfRCTransport::ServerRpc::sendReply()
  *
  * \param transport
  *      The InfRCTransport object that this RPC is associated with.
+ * \param QueuePair
+ *      The QueuePair that is being used for thi RPC.
  * \param[out] response
  *      Buffer in which the response message should be placed.
  */
@@ -559,7 +675,13 @@ InfRCTransport::ClientRpc::ClientRpc(InfRCTransport* transport,
 }
 
 /**
- * Wait for a response to arrive for this RPC.
+ * Blocks until the response buffer associated with this RPC is valid and
+ * populated.
+ *
+ * This method must be called for each RPC before its result can be used.
+ *
+ * \throws TransportException
+ *      If the RPC aborted.
  */
 void
 InfRCTransport::ClientRpc::getReply()
@@ -572,6 +694,9 @@ InfRCTransport::ClientRpc::getReply()
     if (wc.status != IBV_WC_SUCCESS) {
         LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
             wc.status, wcStatusToString(wc.status));
+        transport->ibPostSrqReceive(bd);
+        t->currentRxBuffer = (t->currentRxBuffer + 1) %
+            MAX_SHARED_RX_QUEUE_DEPTH; 
         throw TransportException(wc.status);
     }
 
@@ -588,6 +713,35 @@ InfRCTransport::ClientRpc::getReply()
 // InfRCTransport::QueuePair class
 //-------------------------------------
 
+/**
+ * Construct a QueuePair. This object hides some of the ugly
+ * initialisation of Infiniband "queue pairs", which are single-side
+ * transmit and receive queues. Somewhat confusingly, each communicating
+ * end has a QueuePair, which are bound (one might say "paired", but that's
+ * even more confusing). This object is somewhat analogous to a TCB in TCP. 
+ *
+ * After this method completes, the QueuePair will be in the INIT state.
+ * A later call to #plumb() will transition it into the RTS state for
+ * regular use.
+ *
+ * \param ibPhysicalPort
+ *      The physical port on the HCA we will use this QueuePair on.
+ *      The default is 1, though some devices have multiple ports.
+ * \param pd
+ *      The Verbs protection domain this QueuePair will be associated
+ *      with. Only memory registered under this domain can be handled
+ *      by this QueuePair.
+ * \param srq
+ *      The Verbs shared receive queue to associate this QueuePair
+ *      with. All writes received will use WQEs placed on the
+ *      shared queue.
+ * \param txcq
+ *      The Verbs completion queue to be used for transmissions on
+ *      this QueuePair.
+ * \param rxcq
+ *      The Verbs completion queue to be used for receives on this
+ *      QueuePair.
+ */
 InfRCTransport::QueuePair::QueuePair(int ibPhysicalPort, ibv_pd *pd,
     ibv_srq *srq, ibv_cq *txcq, ibv_cq *rxcq)
     : ibPhysicalPort(ibPhysicalPort),
@@ -630,18 +784,32 @@ InfRCTransport::QueuePair::QueuePair(int ibPhysicalPort, ibv_pd *pd,
                                       IBV_QP_ACCESS_FLAGS);
     if (ret) {
         ibv_destroy_qp(qp);
-        // XXX log??
+        LOG(ERROR, "%s: failed to transition to INIT state", __func__);
         throw TransportException(ret);
     }
 
     initialPsn = lrand48() & 0xffffff;
 }
 
+/**
+ * Destroy the QueuePair by freeing the Verbs resources allocated.
+ */
 InfRCTransport::QueuePair::~QueuePair()
 {
     ibv_destroy_qp(qp);
 }
 
+/**
+ * Bring an newly created QueuePair into the RTS state, enabling
+ * regular bidirectional communication. This is necessary before
+ * the QueuePair may be used.
+ *
+ * \param qpt
+ *      QueuePairTuple representing the remote QueuePair. The Verbs
+ *      interface requires us to exchange handshaking information
+ *      manually. This includes initial sequence numbers, queue pair
+ *      numbers, and the HCA infiniband addresses.
+ */
 void
 InfRCTransport::QueuePair::plumb(QueuePairTuple *qpt)
 {
@@ -669,7 +837,7 @@ InfRCTransport::QueuePair::plumb(QueuePairTuple *qpt)
                                 IBV_QP_MIN_RNR_TIMER |
                                 IBV_QP_MAX_DEST_RD_ATOMIC);
     if (r) {
-        // XXX LOG?
+        LOG(ERROR, "%s: failed to transition to RTR state", __func__);
         throw TransportException(r);
     }
 
@@ -688,7 +856,7 @@ InfRCTransport::QueuePair::plumb(QueuePairTuple *qpt)
                                 IBV_QP_SQ_PSN |
                                 IBV_QP_MAX_QP_RD_ATOMIC);
     if (r) {
-        // XXX log??
+        LOG(ERROR, "%s: failed to transition to RTS state", __func__);
         throw TransportException(r);
     }
 
@@ -696,18 +864,31 @@ InfRCTransport::QueuePair::plumb(QueuePairTuple *qpt)
     // setting up their end. 
 }
 
+/**
+ * Get the initial packet sequence number for this QueuePair.
+ * This is randomly generated on creation. It should not be confused
+ * with the remote side's PSN, which is set in #plumb(). 
+ */
 uint32_t
 InfRCTransport::QueuePair::getInitialPsn() const
 {
     return initialPsn;
 }
 
+/**
+ * Get the local queue pair number for this QueuePair.
+ * QPNs are analogous to UDP/TCP port numbers.
+ */
 uint32_t
 InfRCTransport::QueuePair::getLocalQpNumber() const
 {
     return qp->qp_num;
 }
 
+/**
+ * Get the remote queue pair number for this QueuePair, as set in #plumb().
+ * QPNs are analogous to UDP/TCP port numbers.
+ */
 uint32_t
 InfRCTransport::QueuePair::getRemoteQpNumber() const
 {
@@ -723,6 +904,11 @@ InfRCTransport::QueuePair::getRemoteQpNumber() const
     return qpa.dest_qp_num;
 }
 
+/**
+ * Get the remote infiniband address for this QueuePair, as set in #plumb().
+ * LIDs are "local IDs" in infiniband terminology. They are short, locally
+ * routable addresses.
+ */
 uint16_t
 InfRCTransport::QueuePair::getRemoteLid() const
 {
