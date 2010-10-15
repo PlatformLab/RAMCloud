@@ -95,7 +95,7 @@ void assertEquals(void *expected, const void *actual,
 
 namespace RAMCloud {
 
-void assertMatchesPosixRegex(const char* pattern, const char* subject);
+void assertMatchesPosixRegex(const string& pattern, const string& subject);
 void convertChar(char c, string *out);
 string toString(const char *buf, uint32_t length);
 string toString(Buffer* buffer);
