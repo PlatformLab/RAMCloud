@@ -317,6 +317,9 @@ InfRCTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
 {
     InfRCTransport *t = transport;
 
+    // ensure Buffer is empty first (may need to free resources)
+    response->reset();
+
     if (request->getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException("client request exceeds maximum rpc size");
     }
