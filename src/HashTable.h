@@ -84,7 +84,7 @@ class HashTable {
          * BIN_WIDTH * 2, etc.
          * Bins is allocated on the heap because it ends up being several tens
          * of kilobytes in size. This in turn makes HashTable too big, which
-         * makes Table too big, which makes Server too big, which causes a
+         * makes Table too big, which makes Master too big, which causes a
          * segfault before the start of main.
          */
         uint64_t *bins;

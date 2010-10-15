@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_SERVER_H
-#define RAMCLOUD_SERVER_H
+#ifndef RAMCLOUD_MASTER_H
+#define RAMCLOUD_MASTER_H
 
 #include "Common.h"
 #include "Object.h"
@@ -43,11 +43,11 @@ struct ServerConfig {
  * respond to client RPC requests to manipulate objects stored on the
  * server.
  */
-class Server {
+class Master {
   public:
-    Server(const ServerConfig* config,
+    Master(const ServerConfig* config,
            BackupClient* backupClient = 0);
-    virtual ~Server();
+    virtual ~Master();
     void handleRpc();
     void run();
 
@@ -111,9 +111,9 @@ class Server {
             const RejectRules* rejectRules, Buffer* data,
             uint32_t dataOffset, uint32_t dataLength,
             uint64_t* newVersion);
-    DISALLOW_COPY_AND_ASSIGN(Server);
+    DISALLOW_COPY_AND_ASSIGN(Master);
 };
 
 } // namespace RAMCloud
 
-#endif // RAMCLOUD_SERVER_H
+#endif // RAMCLOUD_MASTER_H

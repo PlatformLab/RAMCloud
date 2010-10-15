@@ -19,7 +19,7 @@
 
 #include "config.h"
 #include "OptionParser.h"
-#include "Server.h"
+#include "Master.h"
 #include "TransportManager.h"
 
 static int cpu;
@@ -32,7 +32,7 @@ try
 
     ServerConfig config;
 
-    OptionsDescription serverOptions("Server");
+    OptionsDescription serverOptions("Master");
     serverOptions.add_options()
         ("cpu,c",
          ProgramOptions::value<int>(&cpu)->
@@ -54,7 +54,7 @@ try
 
     transportManager.initialize(config.localLocator.c_str());
 
-    Server server(&config);
+    Master server(&config);
     server.run();
 
     return 0;

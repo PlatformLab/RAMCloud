@@ -16,7 +16,7 @@
 #include "Buffer.h"
 #include "Common.h"
 #include "ClientException.h"
-#include "Server.h"
+#include "Master.h"
 #include "TestUtil.h"
 #include "MockTransport.h"
 #include "TransportManager.h"
@@ -24,11 +24,11 @@
 namespace RAMCloud {
 
 // The following class exists in order to expose private
-// info from the Server class.
-class TServer : public Server {
+// info from the Master class.
+class TMaster : public Master {
   public:
-    TServer(const ServerConfig* config, BackupClient* backupClient = 0)
-            : Server(config, backupClient) { }
+    TMaster(const ServerConfig* config, BackupClient* backupClient = 0)
+            : Master(config, backupClient) { }
     const char* tGetString(Buffer* buffer, uint32_t offset, uint32_t length) {
         return getString(buffer, offset, length);
     }
@@ -44,8 +44,8 @@ class TServer : public Server {
     }
 };
 
-class ServerTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(ServerTest);
+class MasterTest : public CppUnit::TestFixture {
+    CPPUNIT_TEST_SUITE(MasterTest);
     CPPUNIT_TEST(test_constructor_initializeTables);
     CPPUNIT_TEST(test_destructor_deleteTables);
     CPPUNIT_TEST(test_create_basics);
@@ -86,14 +86,14 @@ class ServerTest : public CppUnit::TestFixture {
 
   public:
     MockTransport* transport;
-    TServer* server;
+    TMaster* server;
     ServerConfig config;
 
-    ServerTest() : transport(NULL), server(NULL), config() { }
+    MasterTest() : transport(NULL), server(NULL), config() { }
     void setUp() {
         transport = new MockTransport();
         transportManager.registerMock(transport);
-        server = new TServer(&config, NULL);
+        server = new TMaster(&config, NULL);
     }
 
     void tearDown() {
@@ -128,7 +128,7 @@ class ServerTest : public CppUnit::TestFixture {
     }
 
     void test_destructor_deleteTables() {
-        TServer* s = new TServer(&config, NULL);
+        TMaster* s = new TMaster(&config, NULL);
         Table::numDeletes = 0;
         Table** tables = s->tGetAllTables();
         tables[0] = new Table();
@@ -463,8 +463,8 @@ class ServerTest : public CppUnit::TestFixture {
                 server->tRejectOperation(&rules, 0x400000002));
     }
 
-    DISALLOW_COPY_AND_ASSIGN(ServerTest);
+    DISALLOW_COPY_AND_ASSIGN(MasterTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(ServerTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(MasterTest);
 
 }  // namespace RAMCloud

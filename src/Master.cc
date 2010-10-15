@@ -16,7 +16,7 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Metrics.h"
-#include "Server.h"
+#include "Master.h"
 #include "Rpc.h"
 #include "Transport.h"
 #include "TransportManager.h"
@@ -33,7 +33,7 @@ void tombstoneEvictionCallback(LogEntryType type,
                          void* cookie);
 
 /**
- * Construct a Server.
+ * Construct a Master.
  *
  * \param config
  *      Contains various parameters that configure the operation of
@@ -42,7 +42,7 @@ void tombstoneEvictionCallback(LogEntryType type,
  *      Provides a mechanism for replicating changes to other servers.
  *      If NULL then we create a default backup object.
  */
-Server::Server(const ServerConfig* config,
+Master::Master(const ServerConfig* config,
                BackupClient* backupClient)
     : config(config), backup(backupClient), log(0)
 {
@@ -65,9 +65,9 @@ Server::Server(const ServerConfig* config,
 }
 
 /*
- * Destructor for Server objects.
+ * Destructor for Master objects.
  */
-Server::~Server()
+Master::~Master()
 {
     for (int i = 0; i < RC_NUM_TABLES; i++) {
         delete tables[i];
@@ -94,7 +94,7 @@ Server::~Server()
  *      and/or append additional information to the response buffer.
  */
 void
-Server::create(const CreateRpc::Request* reqHdr,
+Master::create(const CreateRpc::Request* reqHdr,
                CreateRpc::Response* respHdr,
                Transport::ServerRpc* rpc)
 {
@@ -130,7 +130,7 @@ Server::create(const CreateRpc::Request* reqHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::createTable(const CreateTableRpc::Request* reqHdr,
+Master::createTable(const CreateTableRpc::Request* reqHdr,
                     CreateTableRpc::Response* respHdr,
                     Transport::ServerRpc* rpc)
 {
@@ -178,7 +178,7 @@ Server::createTable(const CreateTableRpc::Request* reqHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::dropTable(const DropTableRpc::Request* reqHdr,
+Master::dropTable(const DropTableRpc::Request* reqHdr,
                   DropTableRpc::Response* respHdr,
                   Transport::ServerRpc* rpc)
 {
@@ -214,7 +214,7 @@ Server::dropTable(const DropTableRpc::Request* reqHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::openTable(const OpenTableRpc::Request* reqHdr,
+Master::openTable(const OpenTableRpc::Request* reqHdr,
                   OpenTableRpc::Response* respHdr,
                   Transport::ServerRpc* rpc)
 {
@@ -244,7 +244,7 @@ Server::openTable(const OpenTableRpc::Request* reqHdr,
  *      Ignored.
  */
 void
-Server::ping(const PingRpc::Request* reqHdr,
+Master::ping(const PingRpc::Request* reqHdr,
              PingRpc::Response* respHdr,
              Transport::ServerRpc* rpc)
 {
@@ -270,7 +270,7 @@ Server::ping(const PingRpc::Request* reqHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::read(const ReadRpc::Request* reqHdr,
+Master::read(const ReadRpc::Request* reqHdr,
              ReadRpc::Response* respHdr,
              Transport::ServerRpc* rpc)
 {
@@ -316,7 +316,7 @@ Server::read(const ReadRpc::Request* reqHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::remove(const RemoveRpc::Request* reqHdr,
+Master::remove(const RemoveRpc::Request* reqHdr,
                RemoveRpc::Response* respHdr,
                Transport::ServerRpc* rpc)
 {
@@ -364,7 +364,7 @@ Server::remove(const RemoveRpc::Request* reqHdr,
  *      and/or append additional information to the response buffer.
  */
 void
-Server::write(const WriteRpc::Request* reqHdr,
+Master::write(const WriteRpc::Request* reqHdr,
               WriteRpc::Response* respHdr,
               Transport::ServerRpc* rpc)
 {
@@ -378,7 +378,7 @@ Server::write(const WriteRpc::Request* reqHdr,
  * sending a response.
  */
 void
-Server::handleRpc()
+Master::handleRpc()
 {
     Transport::ServerRpc* rpc = transportManager.serverRecv();
     Buffer* request = &rpc->recvPayload;
@@ -435,7 +435,7 @@ Server::handleRpc()
 }
 
 void __attribute__ ((noreturn))
-Server::run()
+Master::run()
 {
     log->init();
 
@@ -473,7 +473,7 @@ Server::run()
  *      The string was not null-terminated or had zero length.
  */
 const char*
-Server::getString(Buffer* buffer, uint32_t offset, uint32_t length) {
+Master::getString(Buffer* buffer, uint32_t offset, uint32_t length) {
     const char* result;
     if (length == 0) {
         throw RequestFormatError();
@@ -501,7 +501,7 @@ Server::getString(Buffer* buffer, uint32_t offset, uint32_t length) {
  *      Thrown if tableId does not correspond to a valid table.
  */
 Table*
-Server::getTable(uint32_t tableId) {
+Master::getTable(uint32_t tableId) {
     if (tableId >= RC_NUM_TABLES) {
         throw TableDoesntExistException();
     }
@@ -528,7 +528,7 @@ Server::getTable(uint32_t tableId) {
  *      the return value indicates the reason for the rejection.
  */
 Status
-Server::rejectOperation(const RejectRules* rejectRules,
+Master::rejectOperation(const RejectRules* rejectRules,
                          uint64_t version)
 {
     if (version == VERSION_NONEXISTENT) {
@@ -558,7 +558,7 @@ Server::rejectOperation(const RejectRules* rejectRules,
 //-----------------------------------------------------------------------
 
 struct obj_replay_cookie {
-    Server *server;
+    Master *server;
     uint64_t used_bytes;
 };
 
@@ -584,7 +584,7 @@ objectEvictionCallback(LogEntryType type,
 {
     assert(type == LOG_ENTRY_TYPE_OBJECT);
 
-    Server *svr = static_cast<Server *>(cookie);
+    Master *svr = static_cast<Master *>(cookie);
     assert(svr != NULL);
 
     Log *log = svr->log;
@@ -614,7 +614,7 @@ objectReplayCallback(LogEntryType type,
                      void *cookiep)
 {
     obj_replay_cookie *cookie = static_cast<obj_replay_cookie *>(cookiep);
-    Server *server = cookie->server;
+    Master *server = cookie->server;
 
     //printf("ObjectReplayCallback: type %llu\n", type);
 
@@ -649,7 +649,7 @@ segmentReplayCallback(Segment *seg, void *cookie)
 {
     // TODO(stutsman) we can restore bytesStored in the log easily
     // using the same approach as for the individual segments
-    Server *server = static_cast<Server *>(cookie);
+    Master *server = static_cast<Master *>(cookie);
 
     obj_replay_cookie ocookie;
     ocookie.server = server;
@@ -683,7 +683,7 @@ tombstoneEvictionCallback(LogEntryType type,
 {
     assert(type == LOG_ENTRY_TYPE_OBJECT_TOMBSTONE);
 
-    Server *svr = static_cast<Server *>(cookie);
+    Master *svr = static_cast<Master *>(cookie);
     assert(svr != NULL);
 
     Log *log = svr->log;
@@ -702,7 +702,7 @@ tombstoneEvictionCallback(LogEntryType type,
 }
 
 void
-Server::restore()
+Master::restore()
 {
     uint64_t restored_segs = log->restore();
     printf("Log was able to restore %llu segs\n", restored_segs);
@@ -711,7 +711,7 @@ Server::restore()
 }
 
 Status
-Server::storeData(uint64_t tableId, uint64_t id,
+Master::storeData(uint64_t tableId, uint64_t id,
                   const RejectRules *rejectRules, Buffer *data,
                   uint32_t dataOffset, uint32_t dataLength,
                   uint64_t *newVersion)

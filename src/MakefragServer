@@ -2,8 +2,8 @@ SERVER_SRCFILES := \
 		   src/ClientException.cc \
 		   src/CycleCounter.cc \
 		   src/HashTable.cc \
+		   src/Master.cc \
 		   src/Metrics.cc \
-		   src/Server.cc \
 		   src/Status.cc \
 		   $(NULL)
 
