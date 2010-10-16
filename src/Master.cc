@@ -15,7 +15,6 @@
 
 #include "Buffer.h"
 #include "ClientException.h"
-#include "Metrics.h"
 #include "Master.h"
 #include "Rpc.h"
 #include "Transport.h"
@@ -64,9 +63,6 @@ Master::Master(const ServerConfig* config,
     }
 }
 
-/*
- * Destructor for Master objects.
- */
 Master::~Master()
 {
     for (int i = 0; i < RC_NUM_TABLES; i++) {
@@ -75,68 +71,83 @@ Master::~Master()
     delete backup;
 }
 
+void
+Master::dispatch(RpcType type, Transport::ServerRpc& rpc)
+{
+    switch (type) {
+        case CreateRpc::type:
+            callHandler<CreateRpc, Master, &Master::create>(rpc);
+            break;
+        case CreateTableRpc::type:
+            callHandler<CreateTableRpc, Master, &Master::createTable>(rpc);
+            break;
+        case DropTableRpc::type:
+            callHandler<DropTableRpc, Master, &Master::dropTable>(rpc);
+            break;
+        case OpenTableRpc::type:
+            callHandler<OpenTableRpc, Master, &Master::openTable>(rpc);
+            break;
+        case PingRpc::type:
+            callHandler<PingRpc, Server, &Server::ping>(rpc);
+            break;
+        case ReadRpc::type:
+            callHandler<ReadRpc, Master, &Master::read>(rpc);
+            break;
+        case RemoveRpc::type:
+            callHandler<RemoveRpc, Master, &Master::remove>(rpc);
+            break;
+        case WriteRpc::type:
+            callHandler<WriteRpc, Master, &Master::write>(rpc);
+            break;
+        default:
+            throw UnimplementedRequestError();
+    }
+}
+
+void __attribute__ ((noreturn))
+Master::run()
+{
+    log->init();
+    while (true)
+        handleRpc<Master>();
+}
+
 /**
- * Top-level server method to handle the CREATE request.  See the
- * documentation for the corresponding method in RamCloudClient for complete
- * information about what this request does.
- *
- * \param reqHdr
- *      Header from the incoming RPC request; contains parameters
- *      for this operation.
- * \param[out] respHdr
- *      Header for the response that will be returned to the client.
- *      The caller has pre-allocated the right amount of space in the
- *      response buffer for this type of request, and has zeroed out
- *      its contents (so, for example, status is already zero).
- * \param[out] rpc
- *      Complete information about the remote procedure call; can be
- *      used to read additional information beyond the request header
- *      and/or append additional information to the response buffer.
+ * Top-level server method to handle the CREATE request.
+ * See the documentation for the corresponding method in RamCloudClient for
+ * complete information about what this request does.
+ * \copydetails Server::ping
  */
 void
-Master::create(const CreateRpc::Request* reqHdr,
-               CreateRpc::Response* respHdr,
-               Transport::ServerRpc* rpc)
+Master::create(const CreateRpc::Request& reqHdr,
+               CreateRpc::Response& respHdr,
+               Transport::ServerRpc& rpc)
 {
-    Table* t = getTable(reqHdr->tableId);
+    Table* t = getTable(reqHdr.tableId);
     uint64_t id = t->AllocateKey();
 
     RejectRules rejectRules;
     memset(&rejectRules, 0, sizeof(RejectRules));
     rejectRules.exists = 1;
 
-    respHdr->common.status = storeData(reqHdr->tableId, id, &rejectRules,
-            &rpc->recvPayload, sizeof(*reqHdr), reqHdr->length,
-            &respHdr->version);
-    respHdr->id = id;
+    storeData(reqHdr.tableId, id, &rejectRules,
+              &rpc.recvPayload, sizeof(reqHdr), reqHdr.length,
+              &respHdr.version);
+    respHdr.id = id;
 }
 
 /**
- * Top-level server method to handle the CREATE_TABLE request.  See the
- * documentation for the corresponding method in RamCloudClient for complete
- * information about what this request does.
- *
- * \param reqHdr
- *      Header from the incoming RPC request; contains parameters
- *      for this operation.
- * \param[out] respHdr
- *      Header for the response that will be returned to the client.
- *      The caller has pre-allocated the right amount of space in the
- *      response buffer for this type of request, and has zeroed out
- *      its contents (so, for example, status is already zero).
- * \param[out] rpc
- *      Complete information about the remote procedure call; can be
- *      used to read additional information beyond the request header
- *      and/or append additional information to the response buffer.
+ * Top-level server method to handle the CREATE_TABLE request.
+ * \copydetails create
  */
 void
-Master::createTable(const CreateTableRpc::Request* reqHdr,
-                    CreateTableRpc::Response* respHdr,
-                    Transport::ServerRpc* rpc)
+Master::createTable(const CreateTableRpc::Request& reqHdr,
+                    CreateTableRpc::Response& respHdr,
+                    Transport::ServerRpc& rpc)
 {
     int i;
-    const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
-            reqHdr->nameLength);
+    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
+                                 reqHdr.nameLength);
 
     // See if we already have a table with the given name.
     for (i = 0; i < RC_NUM_TABLES; i++) {
@@ -155,36 +166,22 @@ Master::createTable(const CreateTableRpc::Request* reqHdr,
             return;
         }
     }
-    respHdr->common.status = STATUS_NO_TABLE_SPACE;
+    throw NoTableSpaceException();
 }
 
 
 /**
- * Top-level server method to handle the DROP_TABLE request.  See the
- * documentation for the corresponding method in RamCloudClient for complete
- * information about what this request does.
- *
- * \param reqHdr
- *      Header from the incoming RPC request; contains parameters
- *      for this operation.
- * \param[out] respHdr
- *      Header for the response that will be returned to the client.
- *      The caller has pre-allocated the right amount of space in the
- *      response buffer for this type of request, and has zeroed out
- *      its contents (so, for example, status is already zero).
- * \param[out] rpc
- *      Complete information about the remote procedure call; can be
- *      used to read additional information beyond the request header
- *      and/or append additional information to the response buffer.
+ * Top-level server method to handle the DROP_TABLE request.
+ * \copydetails create
  */
 void
-Master::dropTable(const DropTableRpc::Request* reqHdr,
-                  DropTableRpc::Response* respHdr,
-                  Transport::ServerRpc* rpc)
+Master::dropTable(const DropTableRpc::Request& reqHdr,
+                  DropTableRpc::Response& respHdr,
+                  Transport::ServerRpc& rpc)
 {
     int i;
-    const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
-            reqHdr->nameLength);
+    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
+                                 reqHdr.nameLength);
     for (i = 0; i < RC_NUM_TABLES; i++) {
         if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
             delete tables[i];
@@ -196,140 +193,72 @@ Master::dropTable(const DropTableRpc::Request* reqHdr,
 }
 
 /**
- * Top-level server method to handle the OPEN_TABLE request.  See the
- * documentation for the corresponding method in RamCloudClient for complete
- * information about what this request does.
- *
- * \param reqHdr
- *      Header from the incoming RPC request; contains parameters
- *      for this operation.
- * \param[out] respHdr
- *      Header for the response that will be returned to the client.
- *      The caller has pre-allocated the right amount of space in the
- *      response buffer for this type of request, and has zeroed out
- *      its contents (so, for example, status is already zero).
- * \param[out] rpc
- *      Complete information about the remote procedure call; can be
- *      used to read additional information beyond the request header
- *      and/or append additional information to the response buffer.
+ * Top-level server method to handle the OPEN_TABLE request.
+ * \copydetails create
  */
 void
-Master::openTable(const OpenTableRpc::Request* reqHdr,
-                  OpenTableRpc::Response* respHdr,
-                  Transport::ServerRpc* rpc)
+Master::openTable(const OpenTableRpc::Request& reqHdr,
+                  OpenTableRpc::Response& respHdr,
+                  Transport::ServerRpc& rpc)
 {
     int i;
-    const char* name = getString(&rpc->recvPayload, sizeof(*reqHdr),
-            reqHdr->nameLength);
+    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
+                                 reqHdr.nameLength);
     for (i = 0; i < RC_NUM_TABLES; i++) {
         if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
-            respHdr->tableId = i;
+            respHdr.tableId = i;
             return;
         }
     }
     throw TableDoesntExistException();
 }
 
-
 /**
- * Top-level server method to handle the PING request.  See the
- * documentation for the corresponding method in RamCloudClient for complete
- * information about what this request does.
- *
- * \param reqHdr
- *      Ignored.
- * \param[out] respHdr
- *      Ignored.
- * \param[out] rpc
- *      Ignored.
+ * Top-level server method to handle the READ request.
+ * \copydetails create
  */
 void
-Master::ping(const PingRpc::Request* reqHdr,
-             PingRpc::Response* respHdr,
-             Transport::ServerRpc* rpc)
+Master::read(const ReadRpc::Request& reqHdr,
+             ReadRpc::Response& respHdr,
+             Transport::ServerRpc& rpc)
 {
-    // Nothing to do here.
-}
-
-/**
- * Top-level server method to handle the READ request.  See the
- * documentation for the corresponding method in RamCloudClient for complete
- * information about what this request does.
- *
- * \param reqHdr
- *      Header from the incoming RPC request; contains parameters
- *      for this operation.
- * \param[out] respHdr
- *      Header for the response that will be returned to the client.
- *      The caller has pre-allocated the right amount of space in the
- *      response buffer for this type of request, and has zeroed out
- *      its contents (so, for example, status is already zero).
- * \param[out] rpc
- *      Complete information about the remote procedure call; can be
- *      used to read additional information beyond the request header
- *      and/or append additional information to the response buffer.
- */
-void
-Master::read(const ReadRpc::Request* reqHdr,
-             ReadRpc::Response* respHdr,
-             Transport::ServerRpc* rpc)
-{
-    Table* t = getTable(reqHdr->tableId);
-    const Object* o = t->Get(reqHdr->id);
+    Table* t = getTable(reqHdr.tableId);
+    const Object* o = t->Get(reqHdr.id);
     if (!o) {
         // Automatic reject: can't read a non-existent object
         // Return null version
-        respHdr->common.status = STATUS_OBJECT_DOESNT_EXIST;
-        respHdr->length = 0;
-        respHdr->version = VERSION_NONEXISTENT;
+        throw ObjectDoesntExistException();
         return;
     }
 
-    respHdr->version = o->version;
-    respHdr->common.status = rejectOperation(&reqHdr->rejectRules,
-            o->version);
-    if (respHdr->common.status)
-        return;
-    Buffer::Chunk::appendToBuffer(&rpc->replyPayload,
-            o->data, static_cast<uint32_t>(o->data_len));
+    respHdr.version = o->version;
+    rejectOperation(&reqHdr.rejectRules, o->version);
+    Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
+                                  o->data, static_cast<uint32_t>(o->data_len));
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
     // from scribbling over o->data.
-    respHdr->length = o->data_len;
+    respHdr.length = o->data_len;
 }
 
 /**
- * Top-level server method to handle the REMOVE request.  See the
- * documentation for the corresponding method in RamCloudClient for complete
- * information about what this request does.
- *
- * \param reqHdr
- *      Header from the incoming RPC request; contains parameters
- *      for this operation.
- * \param[out] respHdr
- *      Header for the response that will be returned to the client.
- *      The caller has pre-allocated the right amount of space in the
- *      response buffer for this type of request, and has zeroed out
- *      its contents (so, for example, status is already zero).
- * \param[out] rpc
- *      Complete information about the remote procedure call; can be
- *      used to read additional information beyond the request header
- *      and/or append additional information to the response buffer.
+ * Top-level server method to handle the REMOVE request.
+ * \copydetails create
  */
 void
-Master::remove(const RemoveRpc::Request* reqHdr,
-               RemoveRpc::Response* respHdr,
-               Transport::ServerRpc* rpc)
+Master::remove(const RemoveRpc::Request& reqHdr,
+               RemoveRpc::Response& respHdr,
+               Transport::ServerRpc& rpc)
 {
-    Table* t = getTable(reqHdr->tableId);
-    const Object* o = t->Get(reqHdr->id);
-    respHdr->version = o ? o->version : VERSION_NONEXISTENT;
-
-    // Abort if we're trying to delete the wrong version.
-    respHdr->common.status = rejectOperation(&reqHdr->rejectRules,
-            respHdr->version);
-    if ((respHdr->common.status != STATUS_OK) || !o) {
+    Table* t = getTable(reqHdr.tableId);
+    const Object* o = t->Get(reqHdr.id);
+    if (o == NULL) {
+        rejectOperation(&reqHdr.rejectRules, VERSION_NONEXISTENT);
         return;
     }
+    respHdr.version = o->version;
+
+    // Abort if we're trying to delete the wrong version.
+    rejectOperation(&reqHdr.rejectRules, respHdr.version);
 
     t->RaiseVersion(o->version + 1);
 
@@ -342,150 +271,21 @@ Master::remove(const RemoveRpc::Request* reqHdr,
     const void* ret = log->append(
         LOG_ENTRY_TYPE_OBJECT_TOMBSTONE, &tomb, sizeof(tomb));
     assert(ret);
-    t->Delete(reqHdr->id);
+    t->Delete(reqHdr.id);
 }
 
 /**
- * Top-level server method to handle the WRITE request.  See the
- * documentation for the corresponding method in RamCloudClient for complete
- * information about what this request does.
- *
- * \param reqHdr
- *      Header from the incoming RPC request; contains parameters
- *      for this operation.
- * \param[out] respHdr
- *      Header for the response that will be returned to the client.
- *      The caller has pre-allocated the right amount of space in the
- *      response buffer for this type of request, and has zeroed out
- *      its contents (so, for example, status is already zero).
- * \param[out] rpc
- *      Complete information about the remote procedure call; can be
- *      used to read additional information beyond the request header
- *      and/or append additional information to the response buffer.
+ * Top-level server method to handle the WRITE request.
+ * \copydetails create
  */
 void
-Master::write(const WriteRpc::Request* reqHdr,
-              WriteRpc::Response* respHdr,
-              Transport::ServerRpc* rpc)
+Master::write(const WriteRpc::Request& reqHdr,
+              WriteRpc::Response& respHdr,
+              Transport::ServerRpc& rpc)
 {
-    respHdr->common.status = storeData(reqHdr->tableId, reqHdr->id,
-            &reqHdr->rejectRules, &rpc->recvPayload, sizeof(*reqHdr),
-            static_cast<uint32_t>(reqHdr->length), &respHdr->version);
-}
-
-/**
- * Wait for an incoming RPC request, handle it, and return after
- * sending a response.
- */
-void
-Master::handleRpc()
-{
-    Transport::ServerRpc* rpc = transportManager.serverRecv();
-    Buffer* request = &rpc->recvPayload;
-    RpcResponseCommon* responseCommon = NULL;
-    try {
-        const RpcRequestCommon* header = request->getStart<RpcRequestCommon>();
-        if (header == NULL) {
-            throw MessageTooShortError();
-        }
-        Metrics::setup(header->perfCounter);
-        Metrics::mark(MARK_RPC_PROCESSING_BEGIN);
-        Buffer* response = &rpc->replyPayload;
-        switch (header->type) {
-
-            #define CALL_HANDLER(Rpc, handler) {                               \
-                Rpc::Response* respHdr = new(response, APPEND) Rpc::Response;  \
-                responseCommon = &respHdr->common;                             \
-                const Rpc::Request* reqHdr =                                   \
-                        request->getStart<Rpc::Request>();                     \
-                if (reqHdr == NULL) {                                          \
-                    throw MessageTooShortError();                              \
-                }                                                              \
-                /* Clear the response header, so that unused fields are zero;  \
-                 * this makes tests more reproducible, and it is also needed   \
-                 * to avoid possible security problems where random server     \
-                 * info could leak out to clients through unused packet        \
-                 * fields. */                                                  \
-                memset(respHdr, 0, sizeof(Rpc::Response));                     \
-                handler(reqHdr, respHdr, rpc);                                 \
-                break;                                                         \
-            }
-
-            case CREATE:        CALL_HANDLER(CreateRpc, create)
-            case CREATE_TABLE:  CALL_HANDLER(CreateTableRpc, createTable)
-            case DROP_TABLE:    CALL_HANDLER(DropTableRpc, dropTable)
-            case OPEN_TABLE:    CALL_HANDLER(OpenTableRpc, openTable)
-            case PING:          CALL_HANDLER(PingRpc, ping)
-            case READ:          CALL_HANDLER(ReadRpc, read)
-            case REMOVE:        CALL_HANDLER(RemoveRpc, remove)
-            case WRITE:         CALL_HANDLER(WriteRpc, write)
-            default:
-                throw UnimplementedRequestError();
-        }
-    } catch (ClientException& e) {
-        Buffer* response = &rpc->replyPayload;
-        if (responseCommon == NULL) {
-            responseCommon = new(response, APPEND) RpcResponseCommon;
-        }
-        responseCommon->status = e.status;
-    }
-    Metrics::mark(MARK_RPC_PROCESSING_END);
-    responseCommon->counterValue = Metrics::read();
-    rpc->sendReply();
-}
-
-void __attribute__ ((noreturn))
-Master::run()
-{
-    log->init();
-
-    while (true)
-        handleRpc();
-}
-
-/**
- * Find and validate a string in a buffer.  This method is invoked
- * by RPC handlers expecting a null-terminated string to be present
- * in an incoming request. It makes sure that the buffer contains
- * adequate space for a string of a given length at a given location
- * in the buffer, and it verifies that the string is null-terminated
- * and non-empty.
- *
- * \param buffer
- *      Buffer containing the desired string; typically an RPC
- *      request payload.
- * \param offset
- *      Location of the first byte of the string within the buffer.
- * \param length
- *      Total length of the string, including terminating null
- *      character.
- *
- * \return
- *      Pointer that can be used to access the string.  The string is
- *      guaranteed to exist in its entirety and to be null-terminated.
- *      (One condition we don't check for: premature termination via a
- *      null character in the middle of the string).
- *
- * \exception MessageTooShort
- *      The buffer isn't large enough for the expected size of the
- *      string.
- * \exception RequestFormatError
- *      The string was not null-terminated or had zero length.
- */
-const char*
-Master::getString(Buffer* buffer, uint32_t offset, uint32_t length) {
-    const char* result;
-    if (length == 0) {
-        throw RequestFormatError();
-    }
-    if (buffer->getTotalLength() < (offset + length)) {
-        throw MessageTooShortError();
-    }
-    result = static_cast<const char*>(buffer->getRange(offset, length));
-    if (result[length - 1] != '\0') {
-        throw RequestFormatError();
-    }
-    return result;
+    storeData(reqHdr.tableId, reqHdr.id,
+              &reqHdr.rejectRules, &rpc.recvPayload, sizeof(reqHdr),
+              static_cast<uint32_t>(reqHdr.length), &respHdr.version);
 }
 
 /**
@@ -512,7 +312,7 @@ Master::getTable(uint32_t tableId) {
     return t;
 }
 
-/*
+/**
  * Check a set of RejectRules against the current state of an object
  * to decide whether an operation is allowed.
  *
@@ -527,28 +327,20 @@ Master::getTable(uint32_t tableId) {
  *      indicate that the operation should be rejected. Otherwise
  *      the return value indicates the reason for the rejection.
  */
-Status
-Master::rejectOperation(const RejectRules* rejectRules,
-                         uint64_t version)
+void
+Master::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 {
     if (version == VERSION_NONEXISTENT) {
-        if (rejectRules->doesntExist) {
-            return STATUS_OBJECT_DOESNT_EXIST;
-        }
-        return STATUS_OK;
+        if (rejectRules->doesntExist)
+            throw ObjectDoesntExistException();
+        return;
     }
-    if (rejectRules->exists) {
-        return STATUS_OBJECT_EXISTS;
-    }
-    if (rejectRules->versionLeGiven &&
-            (version <= rejectRules->givenVersion)) {
-        return STATUS_WRONG_VERSION;
-    }
-    if (rejectRules->versionNeGiven &&
-            (version != rejectRules->givenVersion)) {
-        return STATUS_WRONG_VERSION;
-    }
-    return STATUS_OK;
+    if (rejectRules->exists)
+        throw ObjectExistsException();
+    if (rejectRules->versionLeGiven && version <= rejectRules->givenVersion)
+        throw WrongVersionException();
+    if (rejectRules->versionNeGiven && version != rejectRules->givenVersion)
+        throw WrongVersionException();
 }
 
 //-----------------------------------------------------------------------
@@ -710,7 +502,7 @@ Master::restore()
     log->forEachSegment(segmentReplayCallback, restored_segs, this);
 }
 
-Status
+void
 Master::storeData(uint64_t tableId, uint64_t id,
                   const RejectRules *rejectRules, Buffer *data,
                   uint32_t dataOffset, uint32_t dataLength,
@@ -719,10 +511,11 @@ Master::storeData(uint64_t tableId, uint64_t id,
     Table *t = getTable(tableId);
     const Object *o = t->Get(id);
     uint64_t version = (o != NULL) ? o->version : VERSION_NONEXISTENT;
-    Status status = rejectOperation(rejectRules, version);
-    if (status) {
+    try {
+        rejectOperation(rejectRules, version);
+    } catch (...) {
         *newVersion = version;
-        return status;
+        throw;
     }
 
     DECLARE_OBJECT(newObject, dataLength);
@@ -752,7 +545,6 @@ Master::storeData(uint64_t tableId, uint64_t id,
     t->Put(id, objp);
 
     *newVersion = objp->version;
-    return STATUS_OK;
 }
 
 } // namespace RAMCloud

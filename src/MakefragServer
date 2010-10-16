@@ -4,6 +4,7 @@ SERVER_SRCFILES := \
 		   src/HashTable.cc \
 		   src/Master.cc \
 		   src/Metrics.cc \
+		   src/Server.cc \
 		   src/Status.cc \
 		   $(NULL)
 

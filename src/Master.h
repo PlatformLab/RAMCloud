@@ -21,9 +21,8 @@
 #include "Log.h"
 #include "BackupClient.h"
 #include "HashTable.h"
-#include "Rpc.h"
+#include "Server.h"
 #include "Table.h"
-#include "Transport.h"
 
 namespace RAMCloud {
 
@@ -43,40 +42,37 @@ struct ServerConfig {
  * respond to client RPC requests to manipulate objects stored on the
  * server.
  */
-class Master {
+class Master : public Server {
   public:
     Master(const ServerConfig* config,
            BackupClient* backupClient = 0);
     virtual ~Master();
-    void handleRpc();
     void run();
 
-    void create(const CreateRpc::Request* reqHdr,
-                CreateRpc::Response* respHdr,
-                Transport::ServerRpc* rpc);
-    void createTable(const CreateTableRpc::Request* reqHdr,
-                     CreateTableRpc::Response* respHdr,
-                     Transport::ServerRpc* rpc);
-    void dropTable(const DropTableRpc::Request* reqHdr,
-                   DropTableRpc::Response* respHdr,
-                   Transport::ServerRpc* rpc);
-    void openTable(const OpenTableRpc::Request* reqHdr,
-                   OpenTableRpc::Response* respHdr,
-                   Transport::ServerRpc* rpc);
-    void ping(const PingRpc::Request* reqHdr,
-              PingRpc::Response* respHdr,
-              Transport::ServerRpc* rpc);
-    void read(const ReadRpc::Request* reqHdr,
-              ReadRpc::Response* respHdr,
-              Transport::ServerRpc* rpc);
-    void remove(const RemoveRpc::Request* reqHdr,
-                RemoveRpc::Response* respHdr,
-                Transport::ServerRpc* rpc);
-    void write(const WriteRpc::Request* reqHdr,
-               WriteRpc::Response* respHdr,
-               Transport::ServerRpc* rpc);
-
-  protected:
+  private:
+    void dispatch(RpcType type,
+                  Transport::ServerRpc& rpc);
+    void create(const CreateRpc::Request& reqHdr,
+                CreateRpc::Response& respHdr,
+                Transport::ServerRpc& rpc);
+    void createTable(const CreateTableRpc::Request& reqHdr,
+                     CreateTableRpc::Response& respHdr,
+                     Transport::ServerRpc& rpc);
+    void dropTable(const DropTableRpc::Request& reqHdr,
+                   DropTableRpc::Response& respHdr,
+                   Transport::ServerRpc& rpc);
+    void openTable(const OpenTableRpc::Request& reqHdr,
+                   OpenTableRpc::Response& respHdr,
+                   Transport::ServerRpc& rpc);
+    void read(const ReadRpc::Request& reqHdr,
+              ReadRpc::Response& respHdr,
+              Transport::ServerRpc& rpc);
+    void remove(const RemoveRpc::Request& reqHdr,
+                RemoveRpc::Response& respHdr,
+                Transport::ServerRpc& rpc);
+    void write(const WriteRpc::Request& reqHdr,
+               WriteRpc::Response& respHdr,
+               Transport::ServerRpc& rpc);
 
     // The following variables are copies of constructor arguments;
     // see constructor documentation for details.
@@ -103,14 +99,15 @@ class Master {
     friend void segmentReplayCallback(Segment* seg, void* cookie);
     friend void objectReplayCallback(LogEntryType type,
             const void* p, uint64_t len, void* cookie);
-    const char* getString(Buffer* buffer, uint32_t offset, uint32_t length);
     Table* getTable(uint32_t tableId);
-    Status rejectOperation(const RejectRules* rejectRules, uint64_t version);
+    void rejectOperation(const RejectRules* rejectRules, uint64_t version);
     void restore();
-    Status storeData(uint64_t table, uint64_t id,
-            const RejectRules* rejectRules, Buffer* data,
-            uint32_t dataOffset, uint32_t dataLength,
-            uint64_t* newVersion);
+    void storeData(uint64_t table, uint64_t id,
+                   const RejectRules* rejectRules, Buffer* data,
+                   uint32_t dataOffset, uint32_t dataLength,
+                   uint64_t* newVersion);
+    friend class Server;
+    friend class MasterTest;
     DISALLOW_COPY_AND_ASSIGN(Master);
 };
 

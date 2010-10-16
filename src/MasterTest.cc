@@ -23,27 +23,6 @@
 
 namespace RAMCloud {
 
-// The following class exists in order to expose private
-// info from the Master class.
-class TMaster : public Master {
-  public:
-    TMaster(const ServerConfig* config, BackupClient* backupClient = 0)
-            : Master(config, backupClient) { }
-    const char* tGetString(Buffer* buffer, uint32_t offset, uint32_t length) {
-        return getString(buffer, offset, length);
-    }
-    Table** tGetAllTables() {
-        return tables;
-    }
-    Table* tGetTable(uint32_t tableId) {
-        return getTable(tableId);
-    }
-    Status tRejectOperation(const RejectRules* rejectRules,
-            uint64_t version) {
-        return rejectOperation(rejectRules, version);
-    }
-};
-
 class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(MasterTest);
     CPPUNIT_TEST(test_constructor_initializeTables);
@@ -71,29 +50,20 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_remove_objectAlreadyDeletedRejectRules);
     CPPUNIT_TEST(test_remove_objectAlreadyDeleted);
     CPPUNIT_TEST(test_write);
-    CPPUNIT_TEST(test_handleRpc_messageTooShortForCommon);
-    CPPUNIT_TEST(test_handleRpc_headerTooShort);
-    CPPUNIT_TEST(test_handleRpc_unknownMessageType);
-    CPPUNIT_TEST(test_handleRpc_allocateCommonAfterError);
-    CPPUNIT_TEST(test_handleRpc_collectPerformanceInfo);
-    CPPUNIT_TEST(test_getString_basics);
-    CPPUNIT_TEST(test_getString_lengthZero);
-    CPPUNIT_TEST(test_getString_bufferTooShort);
-    CPPUNIT_TEST(test_getString_stringNotTerminated);
     CPPUNIT_TEST(test_getTable);
     CPPUNIT_TEST(test_rejectOperation);
     CPPUNIT_TEST_SUITE_END();
 
   public:
     MockTransport* transport;
-    TMaster* server;
+    Master* server;
     ServerConfig config;
 
     MasterTest() : transport(NULL), server(NULL), config() { }
     void setUp() {
         transport = new MockTransport();
         transportManager.registerMock(transport);
-        server = new TMaster(&config, NULL);
+        server = new Master(&config, NULL);
     }
 
     void tearDown() {
@@ -112,11 +82,11 @@ class MasterTest : public CppUnit::TestFixture {
      */
     void rpc(const char* input) {
         transport->setInput(input);
-        server->handleRpc();
+        server->handleRpc<Master>();
     }
 
     void test_constructor_initializeTables() {
-        Table** tables = server->tGetAllTables();
+        Table** tables = server->tables;
         for (int i = 0; i < RC_NUM_TABLES; i++) {
             if (tables[i] != NULL) {
                 char message[100];
@@ -128,9 +98,9 @@ class MasterTest : public CppUnit::TestFixture {
     }
 
     void test_destructor_deleteTables() {
-        TMaster* s = new TMaster(&config, NULL);
+        Master* s = new Master(&config, NULL);
         Table::numDeletes = 0;
-        Table** tables = s->tGetAllTables();
+        Table** tables = s->tables;
         tables[0] = new Table();
         tables[7] = new Table();
         tables[RC_NUM_TABLES-1] = new Table();
@@ -169,8 +139,7 @@ class MasterTest : public CppUnit::TestFixture {
                 transport->outputLog);
     }
     void test_createTable_badName() {
-        transport->setInput("8 20");
-        server->handleRpc();
+        rpc("8 20");
         CPPUNIT_ASSERT_EQUAL("serverReply: 6 0", transport->outputLog);
     }
     void test_createTable_reuseExistingName() {
@@ -328,79 +297,13 @@ class MasterTest : public CppUnit::TestFixture {
                 "serverReply: 0 0 3 0 8 0 item0-v3", transport->outputLog);
     }
 
-    void test_handleRpc_messageTooShortForCommon() {
-        rpc("abcdef");
-        CPPUNIT_ASSERT_EQUAL("serverReply: 6 0", transport->outputLog);
-    }
-    void test_handleRpc_headerTooShort() {
-        rpc("8 0");
-        CPPUNIT_ASSERT_EQUAL("serverReply: 6 0", transport->outputLog);
-    }
-    void test_handleRpc_unknownMessageType() {
-        rpc("12345 0");
-        CPPUNIT_ASSERT_EQUAL("serverReply: 7 0", transport->outputLog);
-    }
-    void test_handleRpc_allocateCommonAfterError() {
-        rpc("");
-        CPPUNIT_ASSERT_EQUAL("serverReply: 6 0", transport->outputLog);
-    }
-    void test_handleRpc_collectPerformanceInfo() {
-        rpc("7 0x2001");
-        int status = -1, counter = -1;
-        sscanf(transport->outputLog.c_str(), "serverReply: %d %d", // NOLINT
-                &status, &counter);
-        CPPUNIT_ASSERT_EQUAL(0, status);
-        if (counter == 0) {
-            CPPUNIT_ASSERT_EQUAL("perfCounter != 0", "perfCounter == 0");
-        }
-    }
-
-    void test_getString_basics() {
-        Buffer buffer;
-        buffer.fillFromString("abcdefg");
-        const char* result = server->tGetString(&buffer, 3, 5);
-        CPPUNIT_ASSERT_EQUAL("defg", result);
-    }
-    void test_getString_lengthZero() {
-        Buffer buffer;
-        Status status = Status(-1);
-        try {
-            server->tGetString(&buffer, 0, 0);
-        } catch (RequestFormatError& e) {
-            status = e.status;
-        }
-        CPPUNIT_ASSERT_EQUAL(8, status);
-    }
-    void test_getString_bufferTooShort() {
-        Buffer buffer;
-        buffer.fillFromString("abcde");
-        Status status = Status(-1);
-        try {
-            server->tGetString(&buffer, 2, 5);
-        } catch (MessageTooShortError& e) {
-            status = e.status;
-        }
-        CPPUNIT_ASSERT_EQUAL(6, status);
-    }
-    void test_getString_stringNotTerminated() {
-        Buffer buffer;
-        buffer.fillFromString("abcde");
-        Status status = Status(-1);
-        try {
-            server->tGetString(&buffer, 1, 3);
-        } catch (RequestFormatError& e) {
-            status = e.status;
-        }
-        CPPUNIT_ASSERT_EQUAL(8, status);
-    }
-
     void test_getTable() {
         rpc("8 0 7 table1");                     // Create table 0.
 
         // Table index out of range.
         Status status = Status(-1);
         try {
-            server->tGetTable(1000);
+            server->getTable(1000);
         } catch (TableDoesntExistException& e) {
             status = e.status;
         }
@@ -409,14 +312,14 @@ class MasterTest : public CppUnit::TestFixture {
         // Table index in range, but table doesn't exist.
         status = Status(-1);
         try {
-            server->tGetTable(6);
+            server->getTable(6);
         } catch (TableDoesntExistException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(1, status);
 
         // Table exists.
-        CPPUNIT_ASSERT_EQUAL("table1", server->tGetTable(0)->GetName());
+        CPPUNIT_ASSERT_EQUAL("table1", server->getTable(0)->GetName());
     }
 
     void test_rejectOperation() {
@@ -426,41 +329,47 @@ class MasterTest : public CppUnit::TestFixture {
         // Fail: object doesn't exist.
         rules = empty;
         rules.doesntExist = 1;
-        CPPUNIT_ASSERT_EQUAL(2,
-                server->tRejectOperation(&rules, VERSION_NONEXISTENT));
+        CPPUNIT_ASSERT_THROW(
+                server->rejectOperation(&rules, VERSION_NONEXISTENT),
+                ObjectDoesntExistException);
 
         // Succeed: object doesn't exist.
         rules = empty;
         rules.exists = rules.versionLeGiven = rules.versionNeGiven = 1;
-        CPPUNIT_ASSERT_EQUAL(0,
-                server->tRejectOperation(&rules, VERSION_NONEXISTENT));
+        CPPUNIT_ASSERT_NO_THROW(
+                server->rejectOperation(&rules, VERSION_NONEXISTENT));
 
         // Fail: object exists.
         rules = empty;
         rules.exists = 1;
-        CPPUNIT_ASSERT_EQUAL(3, server->tRejectOperation(&rules, 2));
+        CPPUNIT_ASSERT_THROW(server->rejectOperation(&rules, 2),
+                             ObjectExistsException);
 
         // versionLeGiven.
         rules = empty;
         rules.givenVersion = 0x400000001;
         rules.versionLeGiven = 1;
-        CPPUNIT_ASSERT_EQUAL(4,
-                server->tRejectOperation(&rules, 0x400000000));
-        CPPUNIT_ASSERT_EQUAL(4,
-                server->tRejectOperation(&rules, 0x400000001));
-        CPPUNIT_ASSERT_EQUAL(0,
-                server->tRejectOperation(&rules, 0x400000002));
+        CPPUNIT_ASSERT_THROW(
+                server->rejectOperation(&rules, 0x400000000),
+                WrongVersionException);
+        CPPUNIT_ASSERT_THROW(
+                server->rejectOperation(&rules, 0x400000001),
+                WrongVersionException);
+        CPPUNIT_ASSERT_NO_THROW(
+                server->rejectOperation(&rules, 0x400000002));
 
         // versionNeGiven.
         rules = empty;
         rules.givenVersion = 0x400000001;
         rules.versionNeGiven = 1;
-        CPPUNIT_ASSERT_EQUAL(4,
-                server->tRejectOperation(&rules, 0x400000000));
-        CPPUNIT_ASSERT_EQUAL(0,
-                server->tRejectOperation(&rules, 0x400000001));
-        CPPUNIT_ASSERT_EQUAL(4,
-                server->tRejectOperation(&rules, 0x400000002));
+        CPPUNIT_ASSERT_THROW(
+                server->rejectOperation(&rules, 0x400000000),
+                WrongVersionException);
+        CPPUNIT_ASSERT_NO_THROW(
+                server->rejectOperation(&rules, 0x400000001));
+        CPPUNIT_ASSERT_THROW(
+                server->rejectOperation(&rules, 0x400000002),
+                WrongVersionException);
     }
 
     DISALLOW_COPY_AND_ASSIGN(MasterTest);
