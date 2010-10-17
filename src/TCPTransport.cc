@@ -220,9 +220,7 @@ TCPTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
 {
     if (serviceLocator == NULL)
         return;
-
-    const char* ip = serviceLocator->getOption<const char*>("ip");
-    uint16_t port = serviceLocator->getOption<uint16_t>("port");
+    IpAddress address(*serviceLocator);
 
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1)
@@ -236,13 +234,7 @@ TCPTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
     (void) sys->setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval,
                            sizeof(optval));
 
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    if (inet_aton(ip, &addr.sin_addr) == 0)
-        throw UnrecoverableTransportException("Bad IP address");
-
-    if (sys->bind(fd, (struct sockaddr*) &addr, sizeof(addr)) == -1) {
+    if (sys->bind(fd, &address.address, sizeof(address.address)) == -1) {
         // destructor will close fd
         throw UnrecoverableTransportException(errno);
     }
@@ -301,10 +293,8 @@ TCPTransport::ListenSocket::accept()
  *
  * You should call this exactly once before using the object.
  *
- * \param ip
- *      The IP address to connect to in numbers-and-dots notation.
- * \param port
- *      The port to connect to in host byte order.
+ * \param address
+ *      Identifies the socket to connect to.
  * \throw UnrecoverableTransportException
  *      Error creating socket or fatal error connecting.
  * \throw UnrecoverableTransportException
@@ -313,21 +303,14 @@ TCPTransport::ListenSocket::accept()
  *      Server refused connection or timed out.
  */
 void
-TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
+TCPTransport::ClientSocket::init(const IpAddress& address)
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
         throw UnrecoverableTransportException(errno);
     }
 
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    if (inet_aton(ip, &addr.sin_addr) == 0)
-        throw UnrecoverableTransportException("Bad IP address");
-
-    int r = sys->connect(fd, reinterpret_cast<struct sockaddr*>(&addr),
-                         sizeof(addr));
+    int r = sys->connect(fd, &address.address, sizeof(address.address));
     if (r == -1) {
         int e = errno;
         sys->close(fd);
@@ -379,7 +362,7 @@ TCPTransport::TCPSession::clientSend(Buffer* request, Buffer* response)
 {
     std::auto_ptr<TCPClientRpc> rpc(new TCPClientRpc());
 
-    rpc->clientSocket->init(ip, port);
+    rpc->clientSocket->init(address);
     rpc->clientSocket->send(request);
     rpc->reply = response;
 

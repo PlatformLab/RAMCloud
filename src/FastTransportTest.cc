@@ -130,7 +130,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         : FastTransport(NULL)
         , request(NULL)
         , response(NULL)
-        , serviceLocator("fast+udp: ip=1.2.3.4, port=1234")
+        , serviceLocator("fast+udp: host=1.2.3.4, port=1234")
         , transport(NULL)
         , driver(NULL)
         , address("1.2.3.4")
@@ -712,7 +712,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
 
         msg = new InboundMessage();
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=1234");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=1234");
         session = transport->getSession(serviceLocator);
 
         ClientSession* clientSession =
@@ -1049,7 +1049,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
 
         uint32_t channelId = 5;
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=1234");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=1234");
         session = transport->getSession(serviceLocator);
         ClientSession* clientSession =
             static_cast<ClientSession*>(session.get());
@@ -1370,7 +1370,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         driver = new MockDriver(Header::headerToString);
         transport = new FastTransport(driver);
         session = new ServerSession(transport, sessionId);
-        ServiceLocator sl("mock: ip=1.2.3.4, port=12345");
+        ServiceLocator sl("mock: host=1.2.3.4, port=12345");
         driverAddress = driver->newAddress(sl);
     }
 
@@ -1779,7 +1779,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         uint64_t tsc = 91291;
         MockTSC _(tsc);
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
 
         session->connect();
@@ -1801,7 +1801,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         uint64_t tsc = 91291;
         MockTSC _(tsc);
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
 
         session->connect();
@@ -1826,7 +1826,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         uint64_t tsc = 91291;
         MockTSC _(tsc);
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
 
         session->connect();
@@ -1909,7 +1909,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_init()
     {
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=0x3742");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=0x3742");
         session->init(serviceLocator);
         CPPUNIT_ASSERT(0 != session->serverAddress.get());
     }
@@ -2013,7 +2013,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         uint64_t tsc = 91291;
         MockTSC _(tsc);
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
         session->sendSessionOpenRequest();
         CPPUNIT_ASSERT_EQUAL(

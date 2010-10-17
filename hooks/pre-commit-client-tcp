@@ -6,10 +6,10 @@ port=11114
 
 portslay $port
 
-$OBJDIR/server -L tcp:ip=127.0.0.1,port=$port > /dev/null 2>&1 &
+$OBJDIR/server -L tcp:host=127.0.0.1,port=$port > /dev/null 2>&1 &
 sleep .1
 
-retval=$($OBJDIR/client -s tcp:ip=127.0.0.1,port=$port > /dev/null)
+retval=$($OBJDIR/client -s tcp:host=127.0.0.1,port=$port > /dev/null)
 
 portslay $port
 

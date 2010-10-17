@@ -23,6 +23,7 @@
 #include <list>
 
 #include "Common.h"
+#include "IpAddress.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -220,7 +221,7 @@ class TCPTransport : public Transport {
          */
         ClientSocket() {}
 
-        VIRTUAL_FOR_TESTING void init(const char* ip, uint16_t port);
+        VIRTUAL_FOR_TESTING void init(const IpAddress& address);
       private:
         DISALLOW_COPY_AND_ASSIGN(ClientSocket);
     };
@@ -326,10 +327,7 @@ class TCPTransport : public Transport {
     class TCPSession : public Session {
       public:
         explicit TCPSession(const ServiceLocator& serviceLocator)
-            : ip(), port() {
-            strncpy(ip, serviceLocator.getOption<const char*>("ip"),
-                    sizeof(ip));
-            port = serviceLocator.getOption<uint16_t>("port");
+            : address(serviceLocator) {
         }
         ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result));
@@ -337,8 +335,7 @@ class TCPTransport : public Transport {
             delete this;
         }
       private:
-        char ip[16];
-        uint16_t port;
+        IpAddress address;
     };
 
     /**
