@@ -23,53 +23,53 @@
 #include <memory>
 
 #include "Common.h"
-#include "TCPTransport.h"
+#include "TcpTransport.h"
 
 namespace RAMCloud {
 
 /**
- * The TCPTransport::Syscalls implementation that is used except for unit
+ * The TcpTransport::Syscalls implementation that is used except for unit
  * testing.
- * See #RAMCloud::TCPTransport::sys.
+ * See #RAMCloud::TcpTransport::sys.
  */
 #if !TESTING
 static
 #endif
-TCPTransport::Syscalls realSyscalls;
+TcpTransport::Syscalls realSyscalls;
 
 /**
- * A pointer to the TCPTransport::Syscalls implementation in actual use.
+ * A pointer to the TcpTransport::Syscalls implementation in actual use.
  * Used for unit testing, but normally set to #realSyscalls.
  */
-TCPTransport::Syscalls* TCPTransport::sys = &realSyscalls;
+TcpTransport::Syscalls* TcpTransport::sys = &realSyscalls;
 
 #if TESTING
 /**
  * A pointer to a mock client socket to use temporarily during
  * construction. Used for unit testing. Normally set to \c NULL.
  */
-TCPTransport::ServerSocket*
-    TCPTransport::TCPServerRpc::mockServerSocket = NULL;
+TcpTransport::ServerSocket*
+    TcpTransport::TcpServerRpc::mockServerSocket = NULL;
 
 /**
  * A pointer to a mock client socket to use temporarily during
  * construction. Used for unit testing. Normally set to \c NULL.
  */
-TCPTransport::ClientSocket*
-    TCPTransport::TCPClientRpc::mockClientSocket = NULL;
+TcpTransport::ClientSocket*
+    TcpTransport::TcpClientRpc::mockClientSocket = NULL;
 #endif
 
 /**
  * Constructor for Socket.
  */
-TCPTransport::Socket::Socket() : fd(-1)
+TcpTransport::Socket::Socket() : fd(-1)
 {
 }
 
 /**
  * Destructor for socket. Will close #fd if it exists.
  */
-TCPTransport::Socket::~Socket()
+TcpTransport::Socket::~Socket()
 {
     if (fd >= 0) {
         sys->close(fd);
@@ -88,7 +88,7 @@ TCPTransport::Socket::~Socket()
  *      There was an error on the connection.
  */
 void
-TCPTransport::MessageSocket::recv(Buffer* payload)
+TcpTransport::MessageSocket::recv(Buffer* payload)
 {
     assert(fd >= 0);
     payload->reset();
@@ -148,7 +148,7 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
  *      There was an error on the connection.
  */
 void
-TCPTransport::MessageSocket::send(const Buffer* payload)
+TcpTransport::MessageSocket::send(const Buffer* payload)
 {
     assert(fd >= 0);
 
@@ -192,10 +192,10 @@ TCPTransport::MessageSocket::send(const Buffer* payload)
  * \throw TransportException
  *      There were no clients connection requests waiting.
  * \throw UnrecoverableTransportException
- *      Errors from #TCPTransport::ListenSocket::accept().
+ *      Errors from #TcpTransport::ListenSocket::accept().
  */
 void
-TCPTransport::ServerSocket::init(ListenSocket* listenSocket)
+TcpTransport::ServerSocket::init(ListenSocket* listenSocket)
 {
     assert(fd < 0);
     fd = listenSocket->accept();
@@ -216,7 +216,7 @@ TCPTransport::ServerSocket::init(ListenSocket* listenSocket)
  * \exception UnrecoverableTransportException
  *      Errors trying to create, bind, listen to the socket.
  */
-TCPTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
+TcpTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
 {
     if (serviceLocator == NULL)
         return;
@@ -254,7 +254,7 @@ TCPTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
  *      Non-transient errors accepting a new connection.
  */
 int
-TCPTransport::ListenSocket::accept()
+TcpTransport::ListenSocket::accept()
 {
     // If you opted out of listening in the constructor,
     // you're not allowed to accept now.
@@ -303,7 +303,7 @@ TCPTransport::ListenSocket::accept()
  *      Server refused connection or timed out.
  */
 void
-TCPTransport::ClientSocket::init(const IpAddress& address)
+TcpTransport::ClientSocket::init(const IpAddress& address)
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -326,27 +326,27 @@ TCPTransport::ClientSocket::init(const IpAddress& address)
 }
 
 void
-TCPTransport::TCPServerRpc::sendReply()
+TcpTransport::TcpServerRpc::sendReply()
 {
     // "delete this;" on our way out of the method
-    std::auto_ptr<TCPServerRpc> suicide(this);
+    std::auto_ptr<TcpServerRpc> suicide(this);
 
     serverSocket->send(&replyPayload);
 }
 
 void
-TCPTransport::TCPClientRpc::getReply()
+TcpTransport::TcpClientRpc::getReply()
 {
     // "delete this;" on our way out of the method
-    std::auto_ptr<TCPClientRpc> suicide(this);
+    std::auto_ptr<TcpClientRpc> suicide(this);
 
     clientSocket->recv(reply);
 }
 
 Transport::ServerRpc*
-TCPTransport::serverRecv()
+TcpTransport::serverRecv()
 {
-    std::auto_ptr<TCPServerRpc> rpc(new TCPServerRpc());
+    std::auto_ptr<TcpServerRpc> rpc(new TcpServerRpc());
 
     try {
         rpc->serverSocket->init(&listenSocket);
@@ -358,9 +358,9 @@ TCPTransport::serverRecv()
 }
 
 Transport::ClientRpc*
-TCPTransport::TCPSession::clientSend(Buffer* request, Buffer* response)
+TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* response)
 {
-    std::auto_ptr<TCPClientRpc> rpc(new TCPClientRpc());
+    std::auto_ptr<TcpClientRpc> rpc(new TcpClientRpc());
 
     rpc->clientSocket->init(address);
     rpc->clientSocket->send(request);

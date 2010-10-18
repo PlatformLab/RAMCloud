@@ -1,7 +1,7 @@
 OBJDIRS += tests
 
 TESTS_PYMOCK_SRCFILES := \
-		src/TCPTransportTest.in.cc
+		src/TcpTransportTest.in.cc
 TESTS_PYMOCK_OUTFILES := $(patsubst src/%.in.cc, $(OBJDIR)/%.cc, $(TESTS_PYMOCK_SRCFILES))
 
 TESTS_SRCFILES := \
@@ -90,7 +90,7 @@ mockpy-test:
 	 diff -u src/tests/mockpy.out.cc $(OBJDIR)/mockpytest.out.cc
 
 tests-clean:
-	rm -f $(TOP)/src/TCPTransportTest.cc
+	rm -f $(TOP)/src/TcpTransportTest.cc
 
 .PHONY: test-smack
 test-smack: client $(OBJDIR)/server

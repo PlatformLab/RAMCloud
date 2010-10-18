@@ -16,7 +16,7 @@
 #include "TransportManager.h"
 #include "TransportFactory.h"
 
-#include "TCPTransport.h"
+#include "TcpTransport.h"
 #include "FastTransport.h"
 #include "UdpDriver.h"
 
@@ -30,7 +30,7 @@ static struct TcpTransportFactory : public TransportFactory {
     TcpTransportFactory()
         : TransportFactory("kernelTcp", "tcp") {}
     Transport* createTransport(const ServiceLocator* localServiceLocator) {
-        return new TCPTransport(localServiceLocator);
+        return new TcpTransport(localServiceLocator);
     }
 } tcpTransportFactory;
 
