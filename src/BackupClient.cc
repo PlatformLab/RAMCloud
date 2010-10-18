@@ -46,213 +46,173 @@ BackupHost::~BackupHost()
 }
 
 void
-BackupHost::writeSegment(uint64_t segNum,
+BackupHost::commitSegment(uint64_t serverId,
+                          uint64_t segmentId)
+{
+    Buffer req, resp;
+    BackupCommitRpc::Request& reqHdr(allocHeader<BackupCommitRpc>(req));
+    reqHdr.serverId = serverId;
+    reqHdr.segmentId = segmentId;
+    sendRecv<BackupCommitRpc>(session, req, resp);
+    checkStatus();
+}
+
+void
+BackupHost::freeSegment(uint64_t serverId,
+                        uint64_t segmentId)
+{
+    Buffer req, resp;
+    BackupFreeRpc::Request& reqHdr(allocHeader<BackupFreeRpc>(req));
+    reqHdr.serverId = serverId;
+    reqHdr.segmentId = segmentId;
+    sendRecv<BackupFreeRpc>(session, req, resp);
+    checkStatus();
+}
+
+vector<BackupClient::RecoveredObject>
+BackupHost::getRecoveryData(uint64_t serverId, const TabletMap& tablets)
+{
+    Buffer req, resp;
+    BackupGetRecoveryDataRpc::Request&
+        reqHdr(allocHeader<BackupGetRecoveryDataRpc>(req));
+    reqHdr.serverId = serverId;
+    // TODO(stutsman) pass tablets argument!
+    const BackupGetRecoveryDataRpc::Response&
+        respHdr(sendRecv<BackupGetRecoveryDataRpc>(session, req, resp));
+    checkStatus();
+
+    uint64_t recoveredObjectCount = respHdr.recoveredObjectCount;
+    resp.truncateFront(sizeof(respHdr));
+    BackupClient::RecoveredObject const * recoveredObjectsRaw =
+        resp.getStart<RecoveredObject>();
+    vector<BackupClient::RecoveredObject> objects;
+    std::copy(recoveredObjectsRaw,
+              recoveredObjectsRaw + recoveredObjectCount,
+              objects.begin());
+    return objects;
+}
+
+void
+BackupHost::openSegment(uint64_t serverId,
+                        uint64_t segmentId)
+{
+    Buffer req, resp;
+    BackupOpenRpc::Request& reqHdr(allocHeader<BackupOpenRpc>(req));
+    reqHdr.serverId = serverId;
+    reqHdr.segmentId = segmentId;
+    sendRecv<BackupOpenRpc>(session, req, resp);
+    checkStatus();
+}
+
+vector<uint64_t>
+BackupHost::startReadingData(uint64_t serverId)
+{
+    Buffer req, resp;
+    BackupStartReadingDataRpc::Request&
+        reqHdr(allocHeader<BackupStartReadingDataRpc>(req));
+    reqHdr.serverId = serverId;
+    // TODO(stutsman) pass tablets argument!
+    const BackupStartReadingDataRpc::Response&
+        respHdr(sendRecv<BackupStartReadingDataRpc>(session, req, resp));
+    checkStatus();
+
+    uint64_t segmentIdCount = respHdr.segmentIdCount;
+    resp.truncateFront(sizeof(respHdr));
+    uint64_t const * segmentIdsRaw = resp.getStart<uint64_t>();
+    vector<uint64_t> segmentIds;
+    std::copy(segmentIdsRaw,
+              segmentIdsRaw + segmentIdCount,
+              segmentIds.begin());
+    return segmentIds;
+}
+
+void
+BackupHost::writeSegment(uint64_t serverId,
+                         uint64_t segmentId,
                          uint32_t offset,
-                         const void *data,
-                         uint32_t len)
+                         const void *buf,
+                         uint32_t length)
 {
     Buffer req, resp;
-    BackupWriteRequest* reqHdr;
-    const BackupWriteResponse* respHdr;
-
-    reqHdr = new(&req, APPEND) BackupWriteRequest;
-    reqHdr->common.type = BACKUP_WRITE;
-    reqHdr->common.perfCounter.beginMark = MARK_NONE;
-    reqHdr->common.perfCounter.endMark = MARK_NONE;
-    reqHdr->common.perfCounter.counterType = PERF_COUNTER_TSC;
-    reqHdr->segmentNumber = segNum;
-    reqHdr->offset = offset;
-    reqHdr->length = len;
-    Buffer::Chunk::appendToBuffer(&req, data, len);
-    session->clientSend(&req, &resp)->getReply();
-
-    respHdr = static_cast<const BackupWriteResponse*>(
-             resp.getRange(0, sizeof(*respHdr)));
-    if (respHdr == NULL)
-        throwShortResponseError(&resp);
-    counterValue = respHdr->common.counterValue;
-    status = respHdr->common.status;
-    if (status != STATUS_OK)
-        ClientException::throwException(status);
+    BackupWriteRpc::Request& reqHdr(allocHeader<BackupWriteRpc>(req));
+    reqHdr.serverId = serverId;
+    reqHdr.segmentId = segmentId;
+    reqHdr.offset = offset;
+    reqHdr.length = length;
+    Buffer::Chunk::appendToBuffer(&req, buf, length);
+    sendRecv<BackupWriteRpc>(session, req, resp);
+    checkStatus();
 }
 
-void
-BackupHost::freeSegment(uint64_t segNum)
-{
-    Buffer req, resp;
-    BackupFreeRequest* reqHdr;
-    const BackupFreeResponse* respHdr;
-
-    reqHdr = new(&req, APPEND) BackupFreeRequest;
-    reqHdr->common.type = BACKUP_FREE;
-    reqHdr->common.perfCounter.beginMark = MARK_NONE;
-    reqHdr->common.perfCounter.endMark = MARK_NONE;
-    reqHdr->common.perfCounter.counterType = PERF_COUNTER_TSC;
-    reqHdr->segmentNumber = segNum;
-    session->clientSend(&req, &resp)->getReply();
-
-    respHdr = static_cast<const BackupFreeResponse*>(
-             resp.getRange(0, sizeof(*respHdr)));
-    if (respHdr == NULL)
-        throwShortResponseError(&resp);
-    counterValue = respHdr->common.counterValue;
-    status = respHdr->common.status;
-    if (status != STATUS_OK)
-        ClientException::throwException(status);
-}
-
-void
-BackupHost::commitSegment(uint64_t segNum)
-{
-    Buffer req, resp;
-    BackupFreeRequest* reqHdr;
-    const BackupFreeResponse* respHdr;
-
-    reqHdr = new(&req, APPEND) BackupFreeRequest;
-    reqHdr->common.type = BACKUP_COMMIT;
-    reqHdr->common.perfCounter.beginMark = MARK_NONE;
-    reqHdr->common.perfCounter.endMark = MARK_NONE;
-    reqHdr->common.perfCounter.counterType = PERF_COUNTER_TSC;
-    reqHdr->segmentNumber = segNum;
-    session->clientSend(&req, &resp)->getReply();
-
-    respHdr = static_cast<const BackupFreeResponse*>(
-             resp.getRange(0, sizeof(*respHdr)));
-    if (respHdr == NULL)
-        throwShortResponseError(&resp);
-    counterValue = respHdr->common.counterValue;
-    status = respHdr->common.status;
-    if (status != STATUS_OK)
-        ClientException::throwException(status);
-}
-
-uint32_t
-BackupHost::getSegmentList(uint64_t *list,
-                           uint32_t maxSize)
-{
-    Buffer req, resp;
-    BackupGetSegmentListRequest* reqHdr;
-    const BackupGetSegmentListResponse* respHdr;
-
-    reqHdr = new(&req, APPEND) BackupGetSegmentListRequest;
-    reqHdr->common.type = BACKUP_GETSEGMENTLIST;
-    reqHdr->common.perfCounter.beginMark = MARK_NONE;
-    reqHdr->common.perfCounter.endMark = MARK_NONE;
-    reqHdr->common.perfCounter.counterType = PERF_COUNTER_TSC;
-    Buffer::Chunk::appendToBuffer(&req, list, maxSize * sizeof(*list));
-    session->clientSend(&req, &resp)->getReply();
-
-    respHdr = static_cast<const BackupGetSegmentListResponse*>(
-             resp.getRange(0, sizeof(*respHdr)));
-    if (respHdr == NULL)
-        throwShortResponseError(&resp);
-    counterValue = respHdr->common.counterValue;
-    status = respHdr->common.status;
-    if (status != STATUS_OK)
-        ClientException::throwException(status);
-
-    uint32_t segmentListCount = respHdr->segmentListCount;
-    if (maxSize < segmentListCount)
-        throw BackupClientException("Provided a segment id buffer "
-                                    "that was too small");
-
-    const uint64_t* tmpList = static_cast<const uint64_t*>(
-             resp.getRange(0, segmentListCount * sizeof(*list)));
-    memcpy(list, tmpList, segmentListCount * sizeof(*list));
-
-    return segmentListCount;
-}
-
-/**
- * Generate an appropriate exception when an RPC response arrives that
- * is too short to hold the full response header expected for this RPC.
- * If this method is invoked it means the server found a problem before
- * dispatching to a type-specific handler (e.g. the server didn't understand
- * the RPC's type, or basic authentication failed).
- *
- * \param response
- *      Contains the full response message from the server.
- *
- * \exception ClientException
- *      This method always throws an exception; it never returns.
- *      The exact type of the exception will depend on the status
- *      value present in the packet (if any).
- */
-void
-BackupHost::throwShortResponseError(Buffer* response)
-{
-    const RpcResponseCommon* common =
-            static_cast<const RpcResponseCommon*>(
-            response->getRange(0, sizeof(RpcResponseCommon)));
-    if (common != NULL) {
-        counterValue = common->counterValue;
-        if (common->status == STATUS_OK) {
-            // This makes no sense: the server claims to have handled
-            // the RPC correctly, but it didn't return the right size
-            // response for this RPC; report an error.
-            status = STATUS_RESPONSE_FORMAT_ERROR;
-        } else {
-            status = common->status;
-        }
-    } else {
-        // The packet wasn't even long enough to hold a standard
-        // header.
-        status = STATUS_RESPONSE_FORMAT_ERROR;
-    }
-    ClientException::throwException(status);
-}
-
-MultiBackupClient::MultiBackupClient()
+BackupManager::BackupManager()
     : host(0)
 {
 }
 
-MultiBackupClient::~MultiBackupClient()
+BackupManager::~BackupManager()
 {
     if (host)
         delete host;
 }
 
 void
-MultiBackupClient::addHost(Transport::SessionRef session)
+BackupManager::addHost(Transport::SessionRef session)
 {
     if (host)
-        throw BackupClientException("Only one backup host currently supported");
+        DIE("%s: Adding multiple hosts not implemented", __func__);
     host = new BackupHost(session);
 }
 
 void
-MultiBackupClient::writeSegment(uint64_t segNum,
-                                uint32_t offset,
-                                const void *data,
-                                uint32_t len)
+BackupManager::commitSegment(uint64_t serverId,
+                             uint64_t segmentId)
 {
     if (host)
-        host->writeSegment(segNum, offset, data, len);
+        host->commitSegment(serverId, segmentId);
 }
 
 void
-MultiBackupClient::commitSegment(uint64_t segNum)
+BackupManager::freeSegment(uint64_t serverId,
+                           uint64_t segmentId)
 {
     if (host)
-        host->commitSegment(segNum);
+        host->freeSegment(serverId, segmentId);
+}
+
+vector<BackupClient::RecoveredObject>
+BackupManager::getRecoveryData(uint64_t serverId,
+                               const TabletMap& tablets)
+{
+    if (host)
+        return host->getRecoveryData(serverId, tablets);
+    return vector<BackupClient::RecoveredObject>();
 }
 
 void
-MultiBackupClient::freeSegment(uint64_t segNum)
+BackupManager::openSegment(uint64_t serverId,
+                           uint64_t segmentId)
 {
     if (host)
-        host->freeSegment(segNum);
+        host->openSegment(serverId, segmentId);
 }
 
-uint32_t
-MultiBackupClient::getSegmentList(uint64_t *list,
-                                  uint32_t maxSize)
+vector<uint64_t>
+BackupManager::startReadingData(uint64_t serverId)
 {
-    if (host) {
-        return host->getSegmentList(list, maxSize);
-    }
-    return 0;
+    if (host)
+        return host->startReadingData(serverId);
+    return vector<uint64_t>();
+}
+
+void
+BackupManager::writeSegment(uint64_t serverId,
+                            uint64_t segmentId,
+                            uint32_t offset,
+                            const void *data,
+                            uint32_t len)
+{
+    if (host)
+        host->writeSegment(serverId, segmentId, offset, data, len);
 }
 
 } // namespace RAMCloud

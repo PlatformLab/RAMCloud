@@ -1,6 +1,6 @@
 /* Copyright (c) 2009 Stanford University
  *
- * Permission to use, copy, modify, and distribute this software for any
+* Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -49,16 +49,16 @@ namespace RAMCloud {
  */
 BackupServer::BackupServer(const char *logPath, int logOpenFlags)
     : freeMap(true)
-    , logFD(-1)
-    , openSegNum(INVALID_SEGMENT_NUM)
+    , logFd(-1)
+    , openSegmentId(INVALID_SEGMENT_NUM)
     , seg(0)
 {
     static_assert(LOG_SPACE == SEGMENT_FRAMES * SEGMENT_SIZE);
 
-    logFD = open(logPath,
+    logFd = open(logPath,
                   O_CREAT | O_RDWR | logOpenFlags,
                   0666);
-    if (logFD == -1)
+    if (logFd == -1)
         throw BackupLogIOException(errno);
 
     seg = static_cast<char*>(xmemalign(getpagesize(), SEGMENT_SIZE));
@@ -78,7 +78,7 @@ BackupServer::~BackupServer()
     flushSegment();
     free(seg);
 
-    int r = close(logFD);
+    int r = close(logFd);
     if (r == -1)
         LOG(ERROR, "Couldn't close backup log");
 }
@@ -127,22 +127,22 @@ BackupServer::run()
  * to be defined.
  */
 void
-BackupServer::commitSegment(const BackupCommitRequest* reqHdr,
-                            BackupCommitResponse* respHdr,
+BackupServer::commitSegment(const BackupCommitRpc::Request* reqHdr,
+                            BackupCommitRpc::Response* respHdr,
                             Transport::ServerRpc* rpc)
 {
     // Write out the current segment to disk if any
-    if (reqHdr->segmentNumber == INVALID_SEGMENT_NUM)
+    if (reqHdr->segmentId == INVALID_SEGMENT_NUM)
         throw BackupException("Invalid segment number");
-    else if (reqHdr->segmentNumber != openSegNum)
+    else if (reqHdr->segmentId != openSegmentId)
         throw BackupException("Cannot commit a segment other than the most "
                               "recently written one at the moment");
 
-    LOG(DEBUG, "Now writing to segment %lu", reqHdr->segmentNumber);
+    LOG(DEBUG, "Now writing to segment %lu", reqHdr->segmentId);
     flushSegment();
 
     // Close the segment
-    openSegNum = INVALID_SEGMENT_NUM;
+    openSegmentId = INVALID_SEGMENT_NUM;
 }
 
 /**
@@ -194,15 +194,15 @@ BackupServer::flushSegment()
     if (next == -1)
         throw BackupException("Out of free segment frames");
 
-    LOG(DEBUG, "Write active segment (%ld) to frame %ld", openSegNum, next);
+    LOG(DEBUG, "Write active segment (%ld) to frame %ld", openSegmentId, next);
 
-    segmentAtFrame[next] = openSegNum;
+    segmentAtFrame[next] = openSegmentId;
     freeMap.clear(next);
 
-    off_t off = lseek(logFD, segFrameOff(next), SEEK_SET);
+    off_t off = lseek(logFd, segFrameOff(next), SEEK_SET);
     if (off == -1)
         throw BackupLogIOException(errno);
-    ssize_t r = write(logFD, seg, SEGMENT_SIZE);
+    ssize_t r = write(logFd, seg, SEGMENT_SIZE);
     if (r != SEGMENT_SIZE)
         throw BackupLogIOException(errno);
 
@@ -213,7 +213,7 @@ BackupServer::flushSegment()
  * Given a segment id return the segment frame in the backup file
  * where that segment is stored.
  *
- * \param segNum
+ * \param segmentId
  *     The target segment for which the frame number
  *     is needed.
  * \return
@@ -226,10 +226,10 @@ BackupServer::flushSegment()
  *      segment frames gets large
  */
 uint64_t
-BackupServer::frameForSegNum(uint64_t segNum)
+BackupServer::frameForSegmentId(uint64_t segmentId)
 {
     for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
-        if (segmentAtFrame[i] == segNum) {
+        if (segmentAtFrame[i] == segmentId) {
             return i;
         }
     }
@@ -239,7 +239,7 @@ BackupServer::frameForSegNum(uint64_t segNum)
 /**
  * Removes the specified segment from permanent storage.
  *
- * After this call completes the segment number segNum will no longer
+ * After this call completes the segment number segmentId will no longer
  * be in permanent storage and will not be recovered during recover.
  *
  * \param reqHdr
@@ -249,7 +249,7 @@ BackupServer::frameForSegNum(uint64_t segNum)
  * \param rpc
  *      The Rpc being serviced.
  * \exception BackupException if INVALID_SEGMENT_NUM is passed as
- *                segNum.
+ *                segmentId.
  * \exception BackupLogIOException if there are no free segment frames
  *                on the storage.  Indicates the backup's storage file
  *                is full.
@@ -263,74 +263,45 @@ BackupServer::frameForSegNum(uint64_t segNum)
  * to be defined.
  */
 void
-BackupServer::freeSegment(const BackupFreeRequest* reqHdr,
-                          BackupFreeResponse* respHdr,
+BackupServer::freeSegment(const BackupFreeRpc::Request* reqHdr,
+                          BackupFreeRpc::Response* respHdr,
                           Transport::ServerRpc* rpc)
 {
-    LOG(DEBUG, "Free segment %lu\n", reqHdr->segmentNumber);
-    if (reqHdr->segmentNumber == INVALID_SEGMENT_NUM)
+    LOG(DEBUG, "Free segment %lu\n", reqHdr->segmentId);
+    if (reqHdr->segmentId == INVALID_SEGMENT_NUM)
         throw BackupException("What the hell are you feeding me? "
                               "Bad segment number!");
 
     // Note - this call throws BackupException if no such segment
     // exists, which is exactly what we want to happen if we are fed a
-    // segNum we have no idea about
-    uint64_t frameNumber = frameForSegNum(reqHdr->segmentNumber);
+    // segmentId we have no idea about
+    uint64_t frameNumber = frameForSegmentId(reqHdr->segmentId);
     segmentAtFrame[frameNumber] = INVALID_SEGMENT_NUM;
     freeMap.set(frameNumber);
     LOG(DEBUG, "Freed segment in frame %lu\n", frameNumber);
 }
 
 /**
- * Return a list of all the segment numbers stored on this server.
- *
- * Calling this method while a segment is active will cause the backup
- * to assume the master has crashed and is trying to recover.  It
- * will, therefore, first commit the current open segment before
- * returning the segment list.
+ * Return the data for a particular tablet that was recovered by a call
+ * to startReadingData().
  *
  * \param reqHdr
- *      Header of the Rpc request.
+ *      Header of the Rpc request which contains the Rpc arguments.
  * \param respHdr
- *      Header for the Rpc response containing the number of segment numbers
- *      being returned following the respHdr.
+ *      Header for the Rpc response containing a count of RecoveredObjects being
+ *      returned.
  * \param rpc
- *      The Rpc being serviced, used to append segment numbers to the response
- *      following respHdr.
- * \bug
- *     Currently this method relies on soft-state on the backup that
- *     isn't recovered after crash
+ *      The Rpc being serviced.  A back-to-back list of RecoveredObjects
+ *      follows the respHdr in this buffer of length
+ *      respHdr->recoveredObjectCount.
  */
 void
-BackupServer::getSegmentList(const BackupGetSegmentListRequest* reqHdr,
-                             BackupGetSegmentListResponse* respHdr,
-                             Transport::ServerRpc* rpc)
+BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request* reqHdr,
+                              BackupGetRecoveryDataRpc::Response* respHdr,
+                              Transport::ServerRpc* rpc)
 {
-    if (openSegNum != INVALID_SEGMENT_NUM) {
-        LOG(WARNING, "getSegmentList: We must be in recovery, writing out "
-                     "current active segment before proceeding");
-        // TODO(stutsman) redundant with commitSegment but withouy RPC wrap
-        flushSegment();
-        // Close the segment
-        openSegNum = INVALID_SEGMENT_NUM;
-    }
-
-    uint32_t count = 0;
-    for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
-        if (segmentAtFrame[i] != INVALID_SEGMENT_NUM)
-            count++;
-    }
-    LOG(DEBUG, "Final active segment count to return %u", count);
-
-    uint64_t* list = new(&rpc->replyPayload, APPEND) uint64_t[count];
-    for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
-        if (segmentAtFrame[i] != INVALID_SEGMENT_NUM) {
-            *list = segmentAtFrame[i];
-            list++;
-        }
-    }
-
-    respHdr->segmentListCount = count;
+    LOG(ERROR, "Unimplemented: %s", __func__);
+    throw UnimplementedRequestError();
 }
 
 /**
@@ -344,9 +315,7 @@ BackupServer::handleRpc()
     Buffer* request = &rpc->recvPayload;
     RpcResponseCommon* responseCommon = NULL;
     try {
-        const RpcRequestCommon* header = static_cast
-                <const RpcRequestCommon*>(request->getRange(0,
-                sizeof(RpcRequestCommon)));
+        const RpcRequestCommon* header = request->getStart<RpcRequestCommon>();
         if (header == NULL) {
             throw MessageTooShortError();
         }
@@ -355,14 +324,11 @@ BackupServer::handleRpc()
         Buffer* response = &rpc->replyPayload;
         switch (header->type) {
 
-            #define CALL_HANDLER(nameInitialCap, nameLower) {                  \
-                nameInitialCap##Response* respHdr =                            \
-                        new(response, APPEND) nameInitialCap##Response;        \
+            #define CALL_HANDLER(Rpc, handler) {                               \
+                Rpc::Response* respHdr = new(response, APPEND) Rpc::Response;  \
                 responseCommon = &respHdr->common;                             \
-                const nameInitialCap##Request* reqHdr =                        \
-                        static_cast<const nameInitialCap##Request*>(           \
-                        request->getRange(0, sizeof(                           \
-                        nameInitialCap##Request)));                            \
+                const Rpc::Request* reqHdr =                                   \
+                        request->getStart<Rpc::Request>();                     \
                 if (reqHdr == NULL) {                                          \
                     throw MessageTooShortError();                              \
                 }                                                              \
@@ -371,19 +337,23 @@ BackupServer::handleRpc()
                  * to avoid possible security problems where random server     \
                  * info could leak out to clients through unused packet        \
                  * fields. */                                                  \
-                memset(respHdr, 0, sizeof(nameInitialCap##Response));          \
-                nameLower(reqHdr, respHdr, rpc);                               \
+                memset(respHdr, 0, sizeof(Rpc::Response));                     \
+                handler(reqHdr, respHdr, rpc);                                 \
                 break;                                                         \
             }
 
-            case BACKUP_WRITE:
-                CALL_HANDLER(BackupWrite, writeSegment);
             case BACKUP_COMMIT:
-                CALL_HANDLER(BackupCommit, commitSegment);
+                CALL_HANDLER(BackupCommitRpc, commitSegment);
             case BACKUP_FREE:
-                CALL_HANDLER(BackupFree, freeSegment);
-            case BACKUP_GETSEGMENTLIST:
-                CALL_HANDLER(BackupGetSegmentList, getSegmentList);
+                CALL_HANDLER(BackupFreeRpc, freeSegment);
+            case BACKUP_GETRECOVERYDATA:
+                CALL_HANDLER(BackupGetRecoveryDataRpc, getRecoveryData);
+            case BACKUP_OPEN:
+                CALL_HANDLER(BackupOpenRpc, openSegment);
+            case BACKUP_STARTREADINGDATA:
+                CALL_HANDLER(BackupStartReadingDataRpc, startReadingData);
+            case BACKUP_WRITE:
+                CALL_HANDLER(BackupWriteRpc, writeSegment);
             default:
                 throw UnimplementedRequestError();
         }
@@ -400,6 +370,30 @@ BackupServer::handleRpc()
 }
 
 /**
+ * Allocate space to receive backup writes for a segment.
+ *
+ * \param reqHdr
+ *      Header of the Rpc request which contains the Rpc arguments.
+ * \param respHdr
+ *      Header for the Rpc response.
+ * \param rpc
+ *      The Rpc being serviced.
+ */
+void
+BackupServer::openSegment(const BackupOpenRpc::Request* reqHdr,
+                          BackupOpenRpc::Response* respHdr,
+                          Transport::ServerRpc* rpc)
+{
+    LOG(ERROR, "Unimplemented: %s", __func__);
+    if (reqHdr->segmentId == INVALID_SEGMENT_NUM)
+        throw BackupException("Invalid segment number");
+
+    // Allocate a segment or pull it from pool.
+    // Enter it into the table of open segments.
+    throw UnimplementedRequestError();
+}
+
+/**
  * Reserves the full backup space needed on disk during operation.
  *
  * This is intended for use when the backup is running against a
@@ -413,9 +407,32 @@ void
 BackupServer::reserveSpace()
 {
     LOG(DEBUG, "Reserving %lu bytes of log space\n", LOG_SPACE);
-    int r = ftruncate(logFD, LOG_SPACE);
+    int r = ftruncate(logFd, LOG_SPACE);
     if (r == -1)
         throw BackupLogIOException(errno);
+}
+
+/**
+ * Begin reading disk data for a Master and bucketing the objects in the
+ * Segments according to a requested TabletMap, returning a list of backed
+ * up Segments this backup has for the Master.
+ *
+ * \param reqHdr
+ *      Header of the Rpc request which contains the Rpc arguments.
+ * \param respHdr
+ *      Header for the Rpc response containing a count of segmentIds being
+ *      returned.
+ * \param rpc
+ *      The Rpc being serviced.  A back-to-back list of uint64_t segmentIds
+ *      follows the respHdr in this buffer of length respHdr->segmentIdCount.
+ */
+void
+BackupServer::startReadingData(const BackupStartReadingDataRpc::Request* reqHdr,
+                               BackupStartReadingDataRpc::Response* respHdr,
+                               Transport::ServerRpc* rpc)
+{
+    LOG(ERROR, "Unimplemented: %s", __func__);
+    throw UnimplementedRequestError();
 }
 
 /**
@@ -431,9 +448,9 @@ BackupServer::reserveSpace()
  *      The Rpc being serviced, used for access to the opaque bytes to
  *      be written which follow reqHdr.
  * \exception BackupException
- *     If the requested segmentNumber to write is  INVALID_SEGMENT_NUM 
+ *     If the requested segmentId to write is  INVALID_SEGMENT_NUM
  *     or another segment was written to without a following
- *     commitSegment() before writing to this segNum.
+ *     commitSegment() before writing to this segmentId.
  * \exception BackupSegmentOverflowException
  *     If the write request is beyond the end of the segment.
  * \bug
@@ -444,15 +461,19 @@ BackupServer::reserveSpace()
  *     to be defined.
  */
 void
-BackupServer::writeSegment(const BackupWriteRequest* reqHdr,
-                           BackupWriteResponse* respHdr,
+BackupServer::writeSegment(const BackupWriteRpc::Request* reqHdr,
+                           BackupWriteRpc::Response* respHdr,
                            Transport::ServerRpc* rpc)
 {
-    if (reqHdr->segmentNumber == INVALID_SEGMENT_NUM)
+    LOG(DEBUG, "Writing %u bytes at %u to %lu:%lu", reqHdr->length,
+                                                    reqHdr->offset,
+                                                    reqHdr->serverId,
+                                                    reqHdr->segmentId);
+    if (reqHdr->segmentId == INVALID_SEGMENT_NUM)
         throw BackupException("Invalid segment number");
-    if (openSegNum == INVALID_SEGMENT_NUM)
-        openSegNum = reqHdr->segmentNumber;
-    else if (openSegNum != reqHdr->segmentNumber)
+    if (openSegmentId == INVALID_SEGMENT_NUM)
+        openSegmentId = reqHdr->segmentId;
+    else if (openSegmentId != reqHdr->segmentId)
         throw BackupException("Backup server currently doesn't "
                               "allow multiple ongoing segments");
 

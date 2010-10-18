@@ -23,37 +23,63 @@
 #ifndef RAMCLOUD_BACKUPCLIENT_H
 #define RAMCLOUD_BACKUPCLIENT_H
 
+#include "Client.h"
 #include "Common.h"
+#include "Object.h"
 #include "Transport.h"
 
 namespace RAMCloud {
 
-/**
- * The base class for all exceptions that can be generated within
- * clients by the BackupServer.
- */
-class BackupClientException {
-  public:
-    explicit BackupClientException(string message)
-    {
-    }
-    virtual ~BackupClientException()
-    {
-    }
+// TODO(stutsman) delete this soon!
+class TabletMap {
 };
 
 /**
  * The interface for an object that can act as a backup server no
  * matter the transport or location.
  */
-class BackupClient {
+class BackupClient : public Client {
   public:
+    struct RecoveredObject {
+        uint64_t segmentId;
+        //Object object;
+    };
+
     virtual ~BackupClient() {}
-    virtual void writeSegment(uint64_t segNum, uint32_t offset,
-                              const void *data, uint32_t len) = 0;
-    virtual void commitSegment(uint64_t segNum) = 0;
-    virtual void freeSegment(uint64_t segNum) = 0;
-    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize) = 0;
+    virtual void commitSegment(uint64_t serverId, uint64_t segmentId) = 0;
+    virtual void freeSegment(uint64_t serverId, uint64_t segmentId) = 0;
+
+    /** 
+     * Get the objects stored for the given tablets of the given server.
+     */
+    virtual vector<RecoveredObject> getRecoveryData(uint64_t serverId,
+                                                    const TabletMap& tablets)=0;
+
+    /**
+     * Allocate space to receive backup writes for a segment.
+     *
+     * \param serverId
+     *      Id of this server.
+     * \param segmentId
+     *      Id of the segment to be backed up.
+     */
+    virtual void openSegment(uint64_t serverId, uint64_t segmentId) = 0;
+
+    /** 
+     * Begin reading the objects stored for the given server from disk.
+     * \return
+     *      A set of segment IDs for that server which will be read from disk.
+     */
+    virtual vector<uint64_t> startReadingData(uint64_t serverId) = 0;
+
+    /**
+     * Write the byte range specified in an open segment on the backup.
+     */
+    virtual void writeSegment(uint64_t serverId,
+                              uint64_t segmentId,
+                              uint32_t offset,
+                              const void *buf,
+                              uint32_t length) = 0;
 };
 
 /**
@@ -66,11 +92,17 @@ class BackupHost : public BackupClient {
     explicit BackupHost(Transport::SessionRef session);
     virtual ~BackupHost();
 
-    virtual void writeSegment(uint64_t segNum, uint32_t offset,
-                              const void *data, uint32_t len);
-    virtual void commitSegment(uint64_t segNum);
-    virtual void freeSegment(uint64_t segNum);
-    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
+    virtual void commitSegment(uint64_t serverId, uint64_t segmentId);
+    virtual void freeSegment(uint64_t serverId, uint64_t segmentId);
+    virtual vector<RecoveredObject> getRecoveryData(uint64_t serverId,
+                                                    const TabletMap& tablets);
+    virtual void openSegment(uint64_t serverId, uint64_t segmentId);
+    virtual vector<uint64_t> startReadingData(uint64_t serverId);
+    virtual void writeSegment(uint64_t serverId,
+                              uint64_t segmentId,
+                              uint32_t offset,
+                              const void *bug,
+                              uint32_t length);
 
   private:
     void throwShortResponseError(Buffer* response);
@@ -99,25 +131,32 @@ class BackupHost : public BackupClient {
  * A backup consisting of a multiple remote hosts.
  *
  * The precise set of backup hosts is selected by creating BackupHost
- * instances and adding them to the MultiBackupClient instance via
+ * instances and adding them to the BackupManager instance via
  * addHost().
  *
  * \implements BackupClient
  */
-class MultiBackupClient : public BackupClient {
+class BackupManager : public BackupClient {
   public:
-    explicit MultiBackupClient();
-    virtual ~MultiBackupClient();
+    explicit BackupManager();
+    virtual ~BackupManager();
     void addHost(Transport::SessionRef session);
 
-    virtual void writeSegment(uint64_t segNum, uint32_t offset,
-                              const void *data, uint32_t len);
-    virtual void commitSegment(uint64_t segNum);
-    virtual void freeSegment(uint64_t segNum);
-    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
+    virtual void commitSegment(uint64_t serverId, uint64_t segmentId);
+    virtual void freeSegment(uint64_t serverId, uint64_t segmentId);
+    virtual vector<RecoveredObject> getRecoveryData(uint64_t serverId,
+                                                    const TabletMap& tablets);
+    virtual void openSegment(uint64_t serverId, uint64_t segmentId);
+    virtual vector<uint64_t> startReadingData(uint64_t serverId);
+    virtual void writeSegment(uint64_t serverId,
+                              uint64_t segmentId,
+                              uint32_t offset,
+                              const void *buf,
+                              uint32_t length);
+
   private:
     BackupHost *host;
-    DISALLOW_COPY_AND_ASSIGN(MultiBackupClient);
+    DISALLOW_COPY_AND_ASSIGN(BackupManager);
 };
 
 } // namespace RAMCloud

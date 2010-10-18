@@ -43,8 +43,10 @@ enum RpcType {
     ENLIST_SERVER           = 15,
     BACKUP_COMMIT           = 128,
     BACKUP_FREE             = 129,
-    BACKUP_GETSEGMENTLIST   = 130,
-    BACKUP_WRITE            = 131,
+    BACKUP_GETRECOVERYDATA  = 130,
+    BACKUP_OPEN             = 131,
+    BACKUP_STARTREADINGDATA = 132,
+    BACKUP_WRITE            = 133,
 };
 
 /**
@@ -234,40 +236,85 @@ struct EnlistServerRpc {
 
 // -- Backup RPCs ---
 
-struct BackupCommitRequest {
-    RpcRequestCommon common;
-    uint64_t segmentNumber;     ///< Target segment to flush to disk.
-};
-struct BackupCommitResponse {
-    RpcResponseCommon common;
-};
-
-struct BackupFreeRequest {
-    RpcRequestCommon common;
-    uint64_t segmentNumber;     ///< Target segment to free on disk.
-};
-struct BackupFreeResponse {
-    RpcResponseCommon common;
+struct BackupCommitRpc {
+    static const RpcType type = BACKUP_COMMIT;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t serverId;      ///< Server Id from whom the request is coming.
+        uint64_t segmentId;     ///< Target segment to flush to disk.
+        RejectRules rejectRules;
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
 };
 
-struct BackupGetSegmentListRequest {
-    RpcRequestCommon common;
-};
-struct BackupGetSegmentListResponse {
-    RpcResponseCommon common;
-    uint32_t segmentListCount;  ///< Number of 64-bit segment ids which follow.
-    // Back-to-back packing of 64-bit segment ids, segmentListCount total.
+struct BackupFreeRpc {
+    static const RpcType type = BACKUP_FREE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t serverId;      ///< Server Id from whom the request is coming.
+        uint64_t segmentId;     ///< Target segment to discard from backup.
+        RejectRules rejectRules;
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
 };
 
-struct BackupWriteRequest {
-    RpcRequestCommon common;
-    uint64_t segmentNumber;     ///< Target segment to update.
-    uint32_t offset;            ///< Offset into this segment to write at.
-    uint32_t length;            ///< Number of bytes to write.
-    // Opaque byte string follows with data to write.
+struct BackupGetRecoveryDataRpc {
+    static const RpcType type = BACKUP_GETRECOVERYDATA;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t serverId;      ///< Server Id from whom the request is coming.
+        // TODO(stutsman) serialized TabletMap
+    };
+    struct Response {
+        uint32_t recoveredObjectCount;///< Number of objects in reply payload.
+        RpcResponseCommon common;
+    };
 };
-struct BackupWriteResponse {
-    RpcResponseCommon common;
+
+struct BackupOpenRpc {
+    static const RpcType type = BACKUP_OPEN;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t serverId;      ///< Server Id from whom the request is coming.
+        uint64_t segmentId;     ///< Target segment to open on the backup.
+        RejectRules rejectRules;
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct BackupStartReadingDataRpc {
+    static const RpcType type = BACKUP_STARTREADINGDATA;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t serverId;      ///< Server Id from whom the request is coming.
+        RejectRules rejectRules;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint32_t segmentIdCount;    ///< Number of segmentIds in reply payload.
+        // A series of segmentIdCount uint64_t segmentIds follows.
+    };
+};
+
+struct BackupWriteRpc {
+    static const RpcType type = BACKUP_WRITE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t serverId;          ///< Server from whom the request is coming.
+        uint64_t segmentId;         ///< Target segment to update.
+        uint32_t offset;            ///< Offset into this segment to write at.
+        uint32_t length;            ///< Number of bytes to write.
+        // Opaque byte string follows with data to write.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
 };
 
 // --- Magic numbers ---

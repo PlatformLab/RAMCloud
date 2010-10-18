@@ -61,11 +61,11 @@ try
 
     transportManager.initialize(config.localLocator.c_str());
 
-    MultiBackupClient multiBackup;
+    BackupManager backup;
     foreach (string& locator, backupLocators)
-        multiBackup.addHost(transportManager.getSession(locator.c_str()));
+        backup.addHost(transportManager.getSession(locator.c_str()));
 
-    Master server(&config, &multiBackup);
+    Master server(&config, &backup);
     server.run();
 
     return 0;

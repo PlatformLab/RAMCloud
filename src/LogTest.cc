@@ -42,7 +42,7 @@ class LogTest : public CppUnit::TestFixture {
 
     RAMCloud::Log *log;
     void *logBase;
-    MultiBackupClient *backup;
+    BackupManager* backup;
 
   public:
     LogTest() : log(NULL), logBase(NULL), backup(NULL) { }
@@ -50,7 +50,7 @@ class LogTest : public CppUnit::TestFixture {
     setUp()
     {
         logBase = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
-        backup = new MultiBackupClient();
+        backup = new BackupManager();
         log = new RAMCloud::Log(SEGMENT_SIZE, logBase,
             SEGMENT_SIZE * SEGMENT_COUNT, backup);
 

@@ -67,21 +67,27 @@ class BackupServer {
     ~BackupServer();
     void run();
   private:
-    void commitSegment(const BackupCommitRequest* reqHdr,
-                       BackupCommitResponse* respHdr,
+    void commitSegment(const BackupCommitRpc::Request* reqHdr,
+                       BackupCommitRpc::Response* respHdr,
                        Transport::ServerRpc* rpc);
     void flushSegment();
-    void freeSegment(const BackupFreeRequest* reqHdr,
-                     BackupFreeResponse* respHdr,
+    void freeSegment(const BackupFreeRpc::Request* reqHdr,
+                     BackupFreeRpc::Response* respHdr,
                      Transport::ServerRpc* rpc);
-    uint64_t frameForSegNum(uint64_t segnum);
-    void getSegmentList(const BackupGetSegmentListRequest* reqHdr,
-                        BackupGetSegmentListResponse* respHdr,
-                        Transport::ServerRpc* rpc);
+    uint64_t frameForSegmentId(uint64_t segmentId);
     void handleRpc();
+    void getRecoveryData(const BackupGetRecoveryDataRpc::Request* reqHdr,
+                         BackupGetRecoveryDataRpc::Response* respHdr,
+                         Transport::ServerRpc* rpc);
+    void openSegment(const BackupOpenRpc::Request* reqHdr,
+                     BackupOpenRpc::Response* respHdr,
+                     Transport::ServerRpc* rpc);
     void reserveSpace();
-    void writeSegment(const BackupWriteRequest* req,
-                      BackupWriteResponse* resp,
+    void startReadingData(const BackupStartReadingDataRpc::Request* reqHdr,
+                          BackupStartReadingDataRpc::Response* respHdr,
+                          Transport::ServerRpc* rpc);
+    void writeSegment(const BackupWriteRpc::Request* req,
+                      BackupWriteRpc::Response* resp,
                       Transport::ServerRpc* rpc);
 
     /**
@@ -91,10 +97,10 @@ class BackupServer {
     Bitmap<SEGMENT_FRAMES> freeMap;
 
     /** A file descriptor for the log file */
-    int logFD;
+    int logFd;
 
-    /** Segment number of the active segment */
-    uint64_t openSegNum;
+    /** Segment Id of the active segment */
+    uint64_t openSegmentId;
 
     /**
      * The start of the active segment, it is pagesize aligned to

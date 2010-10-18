@@ -58,7 +58,7 @@ class MasterTest : public CppUnit::TestFixture {
     MockTransport* transport;
     Master* server;
     ServerConfig config;
-    MultiBackupClient* backup;
+    BackupManager* backup;
 
     MasterTest() : transport(NULL), server(NULL), config(), backup(NULL) {
         config.coordinatorLocator = "mock:";
@@ -67,7 +67,7 @@ class MasterTest : public CppUnit::TestFixture {
     void setUp() {
         transport = new MockTransport();
         transportManager.registerMock(transport);
-        backup = new MultiBackupClient();
+        backup = new BackupManager();
         server = new Master(&config, backup);
     }
 
