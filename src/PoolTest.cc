@@ -152,7 +152,7 @@ class GrowablePoolTest : public CppUnit::TestFixture {
     void
     test_allocate()
     {
-        GrowablePool pool(blockSize, allocationSize);
+        AutoPool pool(blockSize, allocationSize);
         CPPUNIT_ASSERT(pool.allocate());
         CPPUNIT_ASSERT(pool.allocate());
         CPPUNIT_ASSERT(pool.allocate());
@@ -161,12 +161,12 @@ class GrowablePoolTest : public CppUnit::TestFixture {
     void
     test_grow()
     {
-        GrowablePool pool(blockSize, allocationSize);
+        AutoPool pool(blockSize, allocationSize);
+        CPPUNIT_ASSERT_EQUAL(0, pool.allocations.size());
+        CPPUNIT_ASSERT_EQUAL(0, pool.getFreeBlockCount());
+        pool.grow();
         CPPUNIT_ASSERT_EQUAL(1, pool.allocations.size());
         CPPUNIT_ASSERT_EQUAL(2, pool.getFreeBlockCount());
-        pool.grow();
-        CPPUNIT_ASSERT_EQUAL(2, pool.allocations.size());
-        CPPUNIT_ASSERT_EQUAL(4, pool.getFreeBlockCount());
     }
 
     DISALLOW_COPY_AND_ASSIGN(GrowablePoolTest);

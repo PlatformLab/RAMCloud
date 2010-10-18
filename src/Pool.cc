@@ -18,6 +18,10 @@
 
 namespace RAMCloud {
 
+Mallocator mallocator;
+AlignedAllocator pageAlignedAllocator(getpagesize());
+AlignedAllocator segmentAlignedAllocator(SEGMENT_SIZE);
+
 /**
  * Creates a Pool without any blocks.  They can be added later via
  * addAllocation().
@@ -112,65 +116,6 @@ uint64_t
 Pool::getFreeBlockCount() const
 {
     return blocks.size();
-}
-
-// --- GrowablePool ---
-
-/**
- * Creates a GrowablePool and allocates memory to provide the initial set
- * of blocks.
- *
- * \param blockSize
- *      The size of the block to be returned by allocate().
- * \param allocationSize
- *      The number of bytes to allocate for form the initial set of blocks.
- *      Note: If allocationSize is not divisible by blockSize then some bytes
- *      will not be used.
- */
-GrowablePool::GrowablePool(uint64_t blockSize, uint64_t allocationSize)
-    : Pool(blockSize)
-    , allocations()
-    , allocationSize(allocationSize)
-{
-    grow();
-}
-
-/**
- * Frees up all the allocations backing the blocks in this GrowablePool.
- */
-GrowablePool::~GrowablePool()
-{
-    foreach (void* allocation, allocations)
-        free(allocation);
-}
-
-/**
- * Return a block from the Pool and mark it as in use; for type safety prefer
- * new(size_t_, Pool*).  If this GrowablePool is out of free blocks more
- * will be allocated to facilitate the request.
- */
-void*
-GrowablePool::allocate()
-{
-    void* addr;
-    while (!(addr = Pool::allocate()))
-        grow();
-    return addr;
-}
-
-// - private -
-
-/**
- * Grow this GrowablePool by allocating allocationSize more memory, dividing
- * it into blocks, and adding it to the pool.  This is guaranteed to succeed
- * or crash if no memory is available.
- */
-void
-GrowablePool::grow()
-{
-    void* allocation = xmalloc(allocationSize);
-    allocations.push_back(allocation);
-    addAllocation(allocation, allocationSize);
 }
 
 } // namespace RAMCloud
