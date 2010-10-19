@@ -27,6 +27,7 @@
 #include "BackupClient.h"
 #include "Bitmap.h"
 #include "Rpc.h"
+#include "Server.h"
 
 namespace RAMCloud {
 
@@ -61,34 +62,35 @@ const uint64_t LOG_SPACE = SEGMENT_FRAMES * SEGMENT_SIZE;
 
 const uint64_t INVALID_SEGMENT_NUM = ~(0ull);
 
-class BackupServer {
+class BackupServer : public Server {
   public:
     explicit BackupServer(const char *logPath, int logOpenFlags = 0);
-    ~BackupServer();
+    virtual ~BackupServer();
     void run();
   private:
-    void commitSegment(const BackupCommitRpc::Request* reqHdr,
-                       BackupCommitRpc::Response* respHdr,
-                       Transport::ServerRpc* rpc);
+    void commitSegment(const BackupCommitRpc::Request& reqHdr,
+                       BackupCommitRpc::Response& respHdr,
+                       Transport::ServerRpc& rpc);
+    void dispatch(RpcType type,
+                  Transport::ServerRpc& rpc);
     void flushSegment();
-    void freeSegment(const BackupFreeRpc::Request* reqHdr,
-                     BackupFreeRpc::Response* respHdr,
-                     Transport::ServerRpc* rpc);
+    void freeSegment(const BackupFreeRpc::Request& reqHdr,
+                     BackupFreeRpc::Response& respHdr,
+                     Transport::ServerRpc& rpc);
     uint64_t frameForSegmentId(uint64_t segmentId);
-    void handleRpc();
-    void getRecoveryData(const BackupGetRecoveryDataRpc::Request* reqHdr,
-                         BackupGetRecoveryDataRpc::Response* respHdr,
-                         Transport::ServerRpc* rpc);
-    void openSegment(const BackupOpenRpc::Request* reqHdr,
-                     BackupOpenRpc::Response* respHdr,
-                     Transport::ServerRpc* rpc);
+    void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
+                         BackupGetRecoveryDataRpc::Response& respHdr,
+                         Transport::ServerRpc& rpc);
+    void openSegment(const BackupOpenRpc::Request& reqHdr,
+                     BackupOpenRpc::Response& respHdr,
+                     Transport::ServerRpc& rpc);
     void reserveSpace();
-    void startReadingData(const BackupStartReadingDataRpc::Request* reqHdr,
-                          BackupStartReadingDataRpc::Response* respHdr,
-                          Transport::ServerRpc* rpc);
-    void writeSegment(const BackupWriteRpc::Request* req,
-                      BackupWriteRpc::Response* resp,
-                      Transport::ServerRpc* rpc);
+    void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
+                          BackupStartReadingDataRpc::Response& respHdr,
+                          Transport::ServerRpc& rpc);
+    void writeSegment(const BackupWriteRpc::Request& req,
+                      BackupWriteRpc::Response& resp,
+                      Transport::ServerRpc& rpc);
 
     /**
      * Tracks which segment frames are free on disk (i.e. frames that
@@ -115,6 +117,7 @@ class BackupServer {
      */
     uint64_t segmentAtFrame[SEGMENT_FRAMES];
 
+    friend class Server;
     friend class BackupServerTest;
     DISALLOW_COPY_AND_ASSIGN(BackupServer);
 };
