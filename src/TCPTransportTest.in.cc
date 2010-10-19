@@ -875,8 +875,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
 
         BEGIN_MOCK(TS, ClientSocketStub);
             init(address) {
-                CPPUNIT_ASSERT(strcmp("1.2.3.4:61185",
-                        address.toString().c_str()) == 0);
+                CPPUNIT_ASSERT_EQUAL("1.2.3.4:61185", address.toString());
             }
             send(payload == send_expect) {
             }
