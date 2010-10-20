@@ -240,9 +240,8 @@ struct BackupCommitRpc {
     static const RpcType type = BACKUP_COMMIT;
     struct Request {
         RpcRequestCommon common;
-        uint64_t serverId;      ///< Server Id from whom the request is coming.
+        uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t segmentId;     ///< Target segment to flush to disk.
-        RejectRules rejectRules;
     };
     struct Response {
         RpcResponseCommon common;
@@ -253,9 +252,8 @@ struct BackupFreeRpc {
     static const RpcType type = BACKUP_FREE;
     struct Request {
         RpcRequestCommon common;
-        uint64_t serverId;      ///< Server Id from whom the request is coming.
+        uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t segmentId;     ///< Target segment to discard from backup.
-        RejectRules rejectRules;
     };
     struct Response {
         RpcResponseCommon common;
@@ -266,7 +264,7 @@ struct BackupGetRecoveryDataRpc {
     static const RpcType type = BACKUP_GETRECOVERYDATA;
     struct Request {
         RpcRequestCommon common;
-        uint64_t serverId;      ///< Server Id from whom the request is coming.
+        uint64_t masterId;      ///< Server Id from whom the request is coming.
         // TODO(stutsman) serialized TabletMap
     };
     struct Response {
@@ -279,9 +277,8 @@ struct BackupOpenRpc {
     static const RpcType type = BACKUP_OPEN;
     struct Request {
         RpcRequestCommon common;
-        uint64_t serverId;      ///< Server Id from whom the request is coming.
+        uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t segmentId;     ///< Target segment to open on the backup.
-        RejectRules rejectRules;
     };
     struct Response {
         RpcResponseCommon common;
@@ -292,8 +289,7 @@ struct BackupStartReadingDataRpc {
     static const RpcType type = BACKUP_STARTREADINGDATA;
     struct Request {
         RpcRequestCommon common;
-        uint64_t serverId;      ///< Server Id from whom the request is coming.
-        RejectRules rejectRules;
+        uint64_t masterId;      ///< Server Id from whom the request is coming.
     };
     struct Response {
         RpcResponseCommon common;
@@ -306,7 +302,7 @@ struct BackupWriteRpc {
     static const RpcType type = BACKUP_WRITE;
     struct Request {
         RpcRequestCommon common;
-        uint64_t serverId;          ///< Server from whom the request is coming.
+        uint64_t masterId;          ///< Server from whom the request is coming.
         uint64_t segmentId;         ///< Target segment to update.
         uint32_t offset;            ///< Offset into this segment to write at.
         uint32_t length;            ///< Number of bytes to write.

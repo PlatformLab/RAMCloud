@@ -1,4 +1,5 @@
 BACKUP_SRCFILES := \
+		   src/BackupStorage.cc \
 		   src/BackupServer.cc \
 		   $(NULL)
 

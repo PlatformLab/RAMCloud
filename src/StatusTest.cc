@@ -34,7 +34,7 @@ class StatusTest : public CppUnit::TestFixture {
                 statusToString(Status(0)));
         CPPUNIT_ASSERT_EQUAL("object has wrong version",
                 statusToString(STATUS_WRONG_VERSION));
-        CPPUNIT_ASSERT_EQUAL("couldn't connect to RAMCloud cluster",
+        CPPUNIT_ASSERT_EQUAL("segment overflow",
                 statusToString(STATUS_MAX_VALUE));
         CPPUNIT_ASSERT_EQUAL("unrecognized RAMCloud error",
                 statusToString(Status(STATUS_MAX_VALUE+1)));
@@ -46,7 +46,7 @@ class StatusTest : public CppUnit::TestFixture {
                 statusToSymbol(Status(0)));
         CPPUNIT_ASSERT_EQUAL("STATUS_WRONG_VERSION",
                 statusToSymbol(STATUS_WRONG_VERSION));
-        CPPUNIT_ASSERT_EQUAL("STATUS_COULDNT_CONNECT",
+        CPPUNIT_ASSERT_EQUAL("STATUS_BACKUP_SEGMENT_OVERFLOW",
                 statusToSymbol(STATUS_MAX_VALUE));
         CPPUNIT_ASSERT_EQUAL("STATUS_UNKNOWN",
                 statusToSymbol(Status(STATUS_MAX_VALUE+1)));

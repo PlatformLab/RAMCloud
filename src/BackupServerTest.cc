@@ -32,21 +32,123 @@ namespace RAMCloud {
 class BackupServerTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(BackupServerTest);
+    CPPUNIT_TEST(test_openSegment);
+    CPPUNIT_TEST(test_openSegment_alreadyOpen);
+    CPPUNIT_TEST(test_writeSegment);
+    CPPUNIT_TEST(test_writeSegment_segmentNotOpen);
+    CPPUNIT_TEST(test_writeSegment_badOffset);
+    CPPUNIT_TEST(test_writeSegment_badLength);
+    CPPUNIT_TEST(test_writeSegment_badOffsetPlusLength);
     CPPUNIT_TEST_SUITE_END();
+
+    BackupServer* backup;
+    const uint32_t segmentSize;
+    const uint32_t segmentFrames;
+    BackupStorage* storage;
+    MockTransport* transport;
 
   public:
     BackupServerTest()
+        : backup(NULL)
+        , segmentSize(1 << 16)
+        , segmentFrames(2)
+        , storage(NULL)
+        , transport(NULL)
     {
     }
 
     void
     setUp()
     {
+        transport = new MockTransport();
+        transportManager.registerMock(transport);
+        storage = new InMemoryStorage(segmentSize, segmentFrames);
+        backup = new BackupServer(*storage);
     }
 
     void
     tearDown()
     {
+        delete backup;
+        delete storage;
+    }
+
+    void
+    rpc(const char* input)
+    {
+        transport->setInput(input);
+        backup->handleRpc<BackupServer>();
+    }
+
+    void
+    test_openSegment()
+    {
+        rpc("131 0 99 0 88 0");             // open 99,88
+        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0", transport->outputLog);
+        BackupServer::SegmentInfo &info =
+            backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
+        CPPUNIT_ASSERT(NULL != info.segment);
+        char* address =
+            static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
+                getAddress();
+        CPPUNIT_ASSERT(NULL != address);
+    }
+
+    void
+    test_openSegment_alreadyOpen()
+    {
+        rpc("131 0 99 0 88 0");             // open 99,88
+        rpc("131 0 99 0 88 0");             // open 99,88
+        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 12 0",
+                             transport->outputLog);
+    }
+
+    void
+    test_writeSegment()
+    {
+        rpc("131 0 99 0 88 0");             // open 99,88
+        rpc("133 0 99 0 88 0 10 4 test");   // write 99,88 at 10 for 4 bytes
+        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 0 0",
+                             transport->outputLog);
+        BackupServer::SegmentInfo &info =
+            backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
+        CPPUNIT_ASSERT(NULL != info.segment);
+        CPPUNIT_ASSERT_EQUAL("test", &info.segment[10]);
+    }
+
+    void
+    test_writeSegment_segmentNotOpen()
+    {
+        rpc("133 0 99 0 88 0 0 0");             // write 99,88
+        CPPUNIT_ASSERT_EQUAL("serverReply: 11 0",
+                             transport->outputLog);
+    }
+
+    void
+    test_writeSegment_badOffset()
+    {
+        rpc("131 0 99 0 88 0");                 // open 99,88
+        rpc("133 0 99 0 88 0 9999999 4 test");  // write 99,88 out of bounds
+        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 13 0",
+                             transport->outputLog);
+    }
+
+    void
+    test_writeSegment_badLength()
+    {
+        rpc("131 0 99 0 88 0");                 // open 99,88
+        rpc("133 0 99 0 88 0 0 9999999 test");  // write 99,88 too long
+        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 13 0",
+                             transport->outputLog);
+    }
+
+    void
+    test_writeSegment_badOffsetPlusLength()
+    {
+        rpc("131 0 99 0 88 0");                   // open 99,88
+        rpc("133 0 99 0 88 0 50000 50000 test");  // write 99,88 too far/long
+        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 13 0",
+                             transport->outputLog);
     }
 
   private:

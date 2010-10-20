@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -46,36 +46,36 @@ class BackupClient : public Client {
     };
 
     virtual ~BackupClient() {}
-    virtual void commitSegment(uint64_t serverId, uint64_t segmentId) = 0;
-    virtual void freeSegment(uint64_t serverId, uint64_t segmentId) = 0;
+    virtual void commitSegment(uint64_t masterId, uint64_t segmentId) = 0;
+    virtual void freeSegment(uint64_t masterId, uint64_t segmentId) = 0;
 
     /** 
      * Get the objects stored for the given tablets of the given server.
      */
-    virtual vector<RecoveredObject> getRecoveryData(uint64_t serverId,
+    virtual vector<RecoveredObject> getRecoveryData(uint64_t masterId,
                                                     const TabletMap& tablets)=0;
 
     /**
      * Allocate space to receive backup writes for a segment.
      *
-     * \param serverId
+     * \param masterId
      *      Id of this server.
      * \param segmentId
      *      Id of the segment to be backed up.
      */
-    virtual void openSegment(uint64_t serverId, uint64_t segmentId) = 0;
+    virtual void openSegment(uint64_t masterId, uint64_t segmentId) = 0;
 
     /** 
      * Begin reading the objects stored for the given server from disk.
      * \return
      *      A set of segment IDs for that server which will be read from disk.
      */
-    virtual vector<uint64_t> startReadingData(uint64_t serverId) = 0;
+    virtual vector<uint64_t> startReadingData(uint64_t masterId) = 0;
 
     /**
      * Write the byte range specified in an open segment on the backup.
      */
-    virtual void writeSegment(uint64_t serverId,
+    virtual void writeSegment(uint64_t masterId,
                               uint64_t segmentId,
                               uint32_t offset,
                               const void *buf,
@@ -92,13 +92,13 @@ class BackupHost : public BackupClient {
     explicit BackupHost(Transport::SessionRef session);
     virtual ~BackupHost();
 
-    virtual void commitSegment(uint64_t serverId, uint64_t segmentId);
-    virtual void freeSegment(uint64_t serverId, uint64_t segmentId);
-    virtual vector<RecoveredObject> getRecoveryData(uint64_t serverId,
+    virtual void commitSegment(uint64_t masterId, uint64_t segmentId);
+    virtual void freeSegment(uint64_t masterId, uint64_t segmentId);
+    virtual vector<RecoveredObject> getRecoveryData(uint64_t masterId,
                                                     const TabletMap& tablets);
-    virtual void openSegment(uint64_t serverId, uint64_t segmentId);
-    virtual vector<uint64_t> startReadingData(uint64_t serverId);
-    virtual void writeSegment(uint64_t serverId,
+    virtual void openSegment(uint64_t masterId, uint64_t segmentId);
+    virtual vector<uint64_t> startReadingData(uint64_t masterId);
+    virtual void writeSegment(uint64_t masterId,
                               uint64_t segmentId,
                               uint32_t offset,
                               const void *bug,
@@ -142,13 +142,13 @@ class BackupManager : public BackupClient {
     virtual ~BackupManager();
     void addHost(Transport::SessionRef session);
 
-    virtual void commitSegment(uint64_t serverId, uint64_t segmentId);
-    virtual void freeSegment(uint64_t serverId, uint64_t segmentId);
-    virtual vector<RecoveredObject> getRecoveryData(uint64_t serverId,
+    virtual void commitSegment(uint64_t masterId, uint64_t segmentId);
+    virtual void freeSegment(uint64_t masterId, uint64_t segmentId);
+    virtual vector<RecoveredObject> getRecoveryData(uint64_t masterId,
                                                     const TabletMap& tablets);
-    virtual void openSegment(uint64_t serverId, uint64_t segmentId);
-    virtual vector<uint64_t> startReadingData(uint64_t serverId);
-    virtual void writeSegment(uint64_t serverId,
+    virtual void openSegment(uint64_t masterId, uint64_t segmentId);
+    virtual vector<uint64_t> startReadingData(uint64_t masterId);
+    virtual void writeSegment(uint64_t masterId,
                               uint64_t segmentId,
                               uint32_t offset,
                               const void *buf,

@@ -21,6 +21,7 @@
 #include "config.h"
 
 #include "BackupServer.h"
+#include "BackupStorage.h"
 #include "OptionParser.h"
 #include "TransportManager.h"
 
@@ -58,7 +59,8 @@ main(int argc, char* argv[])
     // Set the address for the backup to listen on.
     transportManager.initialize(locator.c_str());
 
-    BackupServer server("backup.log", 0);
+    SingleFileStorage storage(SEGMENT_SIZE, 16, "backup.log", 0);
+    BackupServer server(storage);
     server.run();
 
     return 0;

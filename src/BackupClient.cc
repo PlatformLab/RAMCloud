@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -11,13 +11,6 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-
-/**
- * \file
- * Implementations for master server-side backup RPC stubs.  The
- * classes herein send requests to the backup servers transparently to
- * handle all the backup needs of the masters.
  */
 
 #include "BackupClient.h"
@@ -46,36 +39,36 @@ BackupHost::~BackupHost()
 }
 
 void
-BackupHost::commitSegment(uint64_t serverId,
+BackupHost::commitSegment(uint64_t masterId,
                           uint64_t segmentId)
 {
     Buffer req, resp;
     BackupCommitRpc::Request& reqHdr(allocHeader<BackupCommitRpc>(req));
-    reqHdr.serverId = serverId;
+    reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
     sendRecv<BackupCommitRpc>(session, req, resp);
     checkStatus();
 }
 
 void
-BackupHost::freeSegment(uint64_t serverId,
+BackupHost::freeSegment(uint64_t masterId,
                         uint64_t segmentId)
 {
     Buffer req, resp;
     BackupFreeRpc::Request& reqHdr(allocHeader<BackupFreeRpc>(req));
-    reqHdr.serverId = serverId;
+    reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
     sendRecv<BackupFreeRpc>(session, req, resp);
     checkStatus();
 }
 
 vector<BackupClient::RecoveredObject>
-BackupHost::getRecoveryData(uint64_t serverId, const TabletMap& tablets)
+BackupHost::getRecoveryData(uint64_t masterId, const TabletMap& tablets)
 {
     Buffer req, resp;
     BackupGetRecoveryDataRpc::Request&
         reqHdr(allocHeader<BackupGetRecoveryDataRpc>(req));
-    reqHdr.serverId = serverId;
+    reqHdr.masterId = masterId;
     // TODO(stutsman) pass tablets argument!
     const BackupGetRecoveryDataRpc::Response&
         respHdr(sendRecv<BackupGetRecoveryDataRpc>(session, req, resp));
@@ -93,24 +86,24 @@ BackupHost::getRecoveryData(uint64_t serverId, const TabletMap& tablets)
 }
 
 void
-BackupHost::openSegment(uint64_t serverId,
+BackupHost::openSegment(uint64_t masterId,
                         uint64_t segmentId)
 {
     Buffer req, resp;
     BackupOpenRpc::Request& reqHdr(allocHeader<BackupOpenRpc>(req));
-    reqHdr.serverId = serverId;
+    reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
     sendRecv<BackupOpenRpc>(session, req, resp);
     checkStatus();
 }
 
 vector<uint64_t>
-BackupHost::startReadingData(uint64_t serverId)
+BackupHost::startReadingData(uint64_t masterId)
 {
     Buffer req, resp;
     BackupStartReadingDataRpc::Request&
         reqHdr(allocHeader<BackupStartReadingDataRpc>(req));
-    reqHdr.serverId = serverId;
+    reqHdr.masterId = masterId;
     // TODO(stutsman) pass tablets argument!
     const BackupStartReadingDataRpc::Response&
         respHdr(sendRecv<BackupStartReadingDataRpc>(session, req, resp));
@@ -127,7 +120,7 @@ BackupHost::startReadingData(uint64_t serverId)
 }
 
 void
-BackupHost::writeSegment(uint64_t serverId,
+BackupHost::writeSegment(uint64_t masterId,
                          uint64_t segmentId,
                          uint32_t offset,
                          const void *buf,
@@ -135,7 +128,7 @@ BackupHost::writeSegment(uint64_t serverId,
 {
     Buffer req, resp;
     BackupWriteRpc::Request& reqHdr(allocHeader<BackupWriteRpc>(req));
-    reqHdr.serverId = serverId;
+    reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
     reqHdr.offset = offset;
     reqHdr.length = length;
@@ -164,55 +157,55 @@ BackupManager::addHost(Transport::SessionRef session)
 }
 
 void
-BackupManager::commitSegment(uint64_t serverId,
+BackupManager::commitSegment(uint64_t masterId,
                              uint64_t segmentId)
 {
     if (host)
-        host->commitSegment(serverId, segmentId);
+        host->commitSegment(masterId, segmentId);
 }
 
 void
-BackupManager::freeSegment(uint64_t serverId,
+BackupManager::freeSegment(uint64_t masterId,
                            uint64_t segmentId)
 {
     if (host)
-        host->freeSegment(serverId, segmentId);
+        host->freeSegment(masterId, segmentId);
 }
 
 vector<BackupClient::RecoveredObject>
-BackupManager::getRecoveryData(uint64_t serverId,
+BackupManager::getRecoveryData(uint64_t masterId,
                                const TabletMap& tablets)
 {
     if (host)
-        return host->getRecoveryData(serverId, tablets);
+        return host->getRecoveryData(masterId, tablets);
     return vector<BackupClient::RecoveredObject>();
 }
 
 void
-BackupManager::openSegment(uint64_t serverId,
+BackupManager::openSegment(uint64_t masterId,
                            uint64_t segmentId)
 {
     if (host)
-        host->openSegment(serverId, segmentId);
+        host->openSegment(masterId, segmentId);
 }
 
 vector<uint64_t>
-BackupManager::startReadingData(uint64_t serverId)
+BackupManager::startReadingData(uint64_t masterId)
 {
     if (host)
-        return host->startReadingData(serverId);
+        return host->startReadingData(masterId);
     return vector<uint64_t>();
 }
 
 void
-BackupManager::writeSegment(uint64_t serverId,
+BackupManager::writeSegment(uint64_t masterId,
                             uint64_t segmentId,
                             uint32_t offset,
                             const void *data,
                             uint32_t len)
 {
     if (host)
-        host->writeSegment(serverId, segmentId, offset, data, len);
+        host->writeSegment(masterId, segmentId, offset, data, len);
 }
 
 } // namespace RAMCloud
