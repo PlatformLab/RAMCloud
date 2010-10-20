@@ -186,7 +186,9 @@ FastTransport::sendPacket(const Driver::Address* address,
                           Buffer::Iterator* payload)
 {
 #if TESTING
-    header->pleaseDrop = (generateRandom() % 100) < PACKET_LOSS_PERCENTAGE;
+    // both sides have +1 to silence gcc when PACKET_LOSS_PERCENTAGE is 0
+    header->pleaseDrop = ((generateRandom() % 100) + 1 <
+                          PACKET_LOSS_PERCENTAGE + 1);
 #endif
     driver->sendPacket(address, header, sizeof(*header), payload);
 }

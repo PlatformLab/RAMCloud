@@ -13,6 +13,7 @@ TESTS_SRCFILES := \
 		  src/ChecksumTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClientTest.cc \
+		  src/CommonTest.cc \
 		  src/CoordinatorServerTest.cc \
 		  src/CoordinatorTest.cc \
 		  src/FastTransportTest.cc \

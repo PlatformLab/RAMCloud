@@ -30,7 +30,7 @@ namespace RAMCloud {
  */
 class CoordinatorServer : public Server {
   public:
-    CoordinatorServer() : nextServerId(random()) {}
+    CoordinatorServer() : nextServerId(generateRandom()) {}
     virtual ~CoordinatorServer() {}
     void run();
 
