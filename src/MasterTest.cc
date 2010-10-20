@@ -59,7 +59,10 @@ class MasterTest : public CppUnit::TestFixture {
     Master* server;
     ServerConfig config;
 
-    MasterTest() : transport(NULL), server(NULL), config() { }
+    MasterTest() : transport(NULL), server(NULL), config() {
+        config.coordinatorLocator = "mock:";
+    }
+
     void setUp() {
         transport = new MockTransport();
         transportManager.registerMock(transport);

@@ -13,6 +13,8 @@ TESTS_SRCFILES := \
 		  src/ChecksumTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClientTest.cc \
+		  src/CoordinatorServerTest.cc \
+		  src/CoordinatorTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/IpAddressTest.cc \
@@ -47,6 +49,7 @@ TESTS_OBJFILES := $(sort \
                $(TESTS_OBJFILES) \
                $(SHARED_OBJFILES) \
                $(SERVER_OBJFILES) \
+               $(COORDINATOR_OBJFILES) \
                $(CLIENT_OBJFILES) \
                $(BACKUP_OBJFILES))
 

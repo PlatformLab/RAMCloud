@@ -3,14 +3,22 @@
 source scripts/common.bash
 
 port=11114
+cport=$(( $port + 1 ))
+
+masterLocator=tcp:host=127.0.0.1,port=$port
+coordinatorLocator=tcp:host=127.0.0.1,port=$cport
 
 portslay $port
+portslay $cport
 
-$OBJDIR/server -L tcp:host=127.0.0.1,port=$port > /dev/null 2>&1 &
+$OBJDIR/coordinator -C $coordinatorLocator > /dev/null 2>&1 &
+$OBJDIR/server -L $masterLocator -C $coordinatorLocator > /dev/null 2>&1 &
 sleep .1
 
-retval=$($OBJDIR/client -s tcp:host=127.0.0.1,port=$port > /dev/null)
+$OBJDIR/client -s $masterLocator > /dev/null 2>&1
+retval=$?
 
 portslay $port
+portslay $cport
 
 exit $retval

@@ -43,7 +43,11 @@ void tombstoneEvictionCallback(LogEntryType type,
  */
 Master::Master(const ServerConfig* config,
                BackupClient* backupClient)
-    : config(config), backup(backupClient), log(0)
+    : config(config)
+    , coordinator(config->coordinatorLocator.c_str())
+    , serverId(0)
+    , backup(backupClient)
+    , log(0)
 {
     void* p = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
 
@@ -108,6 +112,8 @@ void __attribute__ ((noreturn))
 Master::run()
 {
     log->init();
+    serverId = coordinator.enlistServer(config->localLocator);
+    LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
         handleRpc<Master>();
 }

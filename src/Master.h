@@ -17,6 +17,7 @@
 #define RAMCLOUD_MASTER_H
 
 #include "Common.h"
+#include "Coordinator.h"
 #include "Object.h"
 #include "Log.h"
 #include "BackupClient.h"
@@ -77,6 +78,11 @@ class Master : public Server {
     // The following variables are copies of constructor arguments;
     // see constructor documentation for details.
     const ServerConfig* config;
+
+    Coordinator coordinator;
+
+    uint64_t serverId;
+
     BackupClient* backup;
 
     /**

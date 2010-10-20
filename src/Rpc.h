@@ -39,7 +39,8 @@ enum RpcType {
     CREATE         = 11,
     READ           = 12,
     WRITE          = 13,
-    REMOVE         = 14
+    REMOVE         = 14,
+    ENLIST_SERVER  = 15,
 };
 
 /**
@@ -208,6 +209,23 @@ struct WriteRpc {
     struct Response {
         RpcResponseCommon common;
         uint64_t version;
+    };
+};
+
+
+// Coordinator RPCs follow, see Coordinator.cc
+struct EnlistServerRpc {
+    static const RpcType type = ENLIST_SERVER;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
+                                       // including terminating NULL character.
+                                       // The bytes of the service locator
+                                       // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t serverId;
     };
 };
 
