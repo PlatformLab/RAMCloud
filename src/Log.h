@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009, 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,97 +16,59 @@
 #ifndef RAMCLOUD_LOG_H
 #define RAMCLOUD_LOG_H
 
-#include "Common.h"
+#include <stdint.h>
+#include <LogTypes.h>
+#include <Segment.h>
+#include <Pool.h>
+#include <boost/unordered_map.hpp>
 
-#include "Object.h"
-#include "LogTypes.h"
-#include "Segment.h"
-#include "BackupClient.h"
+using boost::unordered_map;
 
 namespace RAMCloud {
 
-struct LogEntry {
-    uint32_t  type;
-    uint32_t  length;
-};
-
-struct SegmentHeader {
-    uint64_t id;
-};
-
-struct SegmentChecksum {
-    uint64_t checksum;
-};
-
-class LogEntryIterator {
-  public:
-    explicit LogEntryIterator(const Segment *s);
-    bool getNextAndOffset(const struct LogEntry **le,
-                          const void **p,
-                          uint64_t *offset);
-    bool getNext(const struct LogEntry **le, const void **p);
-  private:
-    const Segment *segment;
-    const struct LogEntry *next;
-    DISALLOW_COPY_AND_ASSIGN(LogEntryIterator);
-};
-
-typedef void (*LogEvictionCallback)(LogEntryType, const void *,
-                                    const uint64_t, void *);
-typedef void (*LogEntryCallback)(LogEntryType,
-                                 const void *, const uint64_t, void *);
 typedef void (*LogSegmentCallback)(Segment *, void *);
 
 class Log {
   public:
-    Log(const uint64_t, void *, const uint64_t, BackupClient *);
+    Log(uint64_t logId, Pool *segmentAllocator);
     ~Log() {}
-    const void *append(LogEntryType, const void *, uint64_t);
-    void        free(LogEntryType, const void *, uint64_t);
-    void        registerType(LogEntryType, LogEvictionCallback, void *);
-    void        printStats();
-    uint64_t    getMaximumAppend();
-    void        init();
-    uint64_t    restore();
-    bool        isSegmentLive(uint64_t) const;
-    void        getSegmentIdOffset(const void *, uint64_t *, uint32_t *) const;
-    void        forEachSegment(LogSegmentCallback, uint64_t, void *);
-    void        forEachEntry(const Segment *, LogEntryCallback, void *);
+    const void *append(LogEntryType type,
+                       const void *buffer, uint64_t length);
+    void        free(const void *buffer, const uint64_t length);
+    void        registerType(LogEntryType type,
+                             log_eviction_cb_t evictionCB, void *evictionArg);
+    uint64_t    getSegmentId(const void *p);
+    bool        isSegmentLive(uint64_t segmentId) const;
+    void        forEachSegment(LogSegmentCallback cb, uint64_t limit,
+                               void *cookie) const;
 
   private:
-    void        clean(void);
-    bool        newHead();
-    void        checksumHead();
-    void        retireHead();
-    const void *appendAnyType(LogEntryType, const void *, uint64_t);
+    void                 addToActiveMaps(Segment *s);
+    void                 eraseFromActiveMaps(Segment *s);
+
+    Pool       *segmentAllocator;
     uint64_t    allocateSegmentId();
-    LogEvictionCallback getEvictionCallback(LogEntryType, void **);
-    Segment    *getSegment(const void *, uint64_t) const;
+    uint64_t    nextSegmentId;
+    uint64_t    logId;
+    uint64_t    maximumAppendableBytes;
 
-    struct {
-        LogEvictionCallback cb;
-        LogEntryType  type;
-        void *cookie;
-    } callbacks[10];
-    int      numCallbacks;
+    /// Current head of the log
+    Segment *head;
 
-    uint64_t nextSegmentId;  // next segment Id
-    uint64_t maxAppend;      // max bytes append() can ever take
-    uint64_t segmentSize;    // size of each segment in bytes
-    void    *base;           // base of all segments
-    Segment **segments;      // array of all segments
-    Segment *head;           // head of the log
-    Segment *freeList;       // free (utilization == 0) segments
-    uint64_t nsegments;      // total number of segments in the system
-    uint64_t nFreeList;      // number of segments in free list
-    uint64_t bytesStored;    // bytes stored in the log (non-metadata only)
-    bool     cleaning;       // presently cleaning the log
-    BackupClient *backup;
+    /// Eviction and liveness callbacks
+    unordered_map<LogEntryType, LogTypeCallback *> callbackMap;
 
-    friend class LogTest;
+    /// Segment Id -> Segment * lookup within the active list
+    unordered_map<uint64_t, Segment *> activeIdMap;
+
+    /// Segment base address -> Segment * lookup within the active list
+    unordered_map<uintptr_t, Segment *> activeBaseAddressMap;
+
     DISALLOW_COPY_AND_ASSIGN(Log);
+
+    friend class LogCleaner;
 };
 
 } // namespace
 
-#endif // !_LOG_H_
+#endif // !RAMCLOUD_LOG_H

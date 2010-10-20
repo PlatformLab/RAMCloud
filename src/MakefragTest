@@ -15,7 +15,6 @@ TESTS_SRCFILES := \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/IpAddressTest.cc \
-		  src/LogTest.cc \
 		  src/LoggingTest.cc \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \
@@ -25,7 +24,6 @@ TESTS_SRCFILES := \
 		  src/PoolTest.cc \
 		  src/RamCloudCClientTest.cc \
 		  src/RamCloudClientTest.cc \
-		  src/SegmentTest.cc \
 		  src/ServerTest.cc \
 		  src/ServerTest.cc \
 		  src/ServiceLocatorTest.cc \

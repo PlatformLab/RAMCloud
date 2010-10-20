@@ -32,7 +32,9 @@
 #include "Buffer.h"
 #include "Log.h"
 #include "Segment.h"
+#include "SegmentIterator.h"
 #include "TransportManager.h"
+#include "Object.h"
 
 namespace RAMCloud {
 
@@ -446,19 +448,15 @@ BackupServer::getSegmentMetadata(uint64_t segNum,
 
     // TODO(stutsman) NULL backup_client is dangerous - we may want to
     // decouple segments from backups somehow
-    Segment seg(&buf[0], SEGMENT_SIZE, 0);
-
-    LogEntryIterator iterator(&seg);
-    const LogEntry *entry;
-    const void *p;
-    uint64_t offset;
+    Segment seg(0, &buf[0], SEGMENT_SIZE);
 
     // Walk the buffer and pull out metadata
-    while (iterator.getNextAndOffset(&entry, &p, &offset)) {
-        if (entry->type != LOG_ENTRY_TYPE_OBJECT)
+    for (SegmentIterator iterator(&seg); !iterator.isDone(); iterator.next()) {
+        if (iterator.getType() != LOG_ENTRY_TYPE_OBJ)
             continue;
         RecoveryObjectMetadata *meta = &list[count++];
-        extractMetadata(p, offset, meta);
+        extractMetadata(iterator.getPointer(), iterator.getOffset(), meta);
+        iterator.next();
     }
 
     if (debug_backup)

@@ -54,10 +54,10 @@ Server::Server(const ServerConfig* config,
         backup = multiBackup;
     }
 
-    log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, backup);
-    log->registerType(LOG_ENTRY_TYPE_OBJECT, objectEvictionCallback, this);
-    log->registerType(LOG_ENTRY_TYPE_OBJECT_TOMBSTONE,
-            tombstoneEvictionCallback, this);
+    Pool *pool = new Pool(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT); 
+    log = new Log(0, pool);
+    log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
+    log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 
     for (int i = 0; i < RC_NUM_TABLES; i++) {
         tables[i] = NULL;
@@ -326,14 +326,12 @@ Server::remove(const RemoveRequest* reqHdr, RemoveResponse* respHdr,
 
     t->RaiseVersion(o->version + 1);
 
-    ObjectTombstone tomb;
-    log->getSegmentIdOffset(o, &tomb.segmentId, &tomb.segmentOffset);
+    ObjectTombstone tomb(log->getSegmentId((void *)o), o);
 
     // Mark the deleted object as free first, since the append could
     // invalidate it
-    log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
-    const void* ret = log->append(
-        LOG_ENTRY_TYPE_OBJECT_TOMBSTONE, &tomb, sizeof(tomb));
+    log->free(o, o->size());
+    const void* ret = log->append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
     assert(ret);
     t->Delete(reqHdr->id);
 }
@@ -430,8 +428,6 @@ Server::handleRpc()
 void __attribute__ ((noreturn))
 Server::run()
 {
-    log->init();
-
     while (true)
         handleRpc();
 }
@@ -557,14 +553,14 @@ struct obj_replay_cookie {
 
 /**
  * Callback used by the log cleaner when it's cleaning a segment and evicts
- * an object (LOG_ENTRY_TYPE_OBJECT).
+ * an object (LOG_ENTRY_TYPE_OBJ).
  *
  * Upon return, the object will be discarded. Objects must therefore be
  * perpetuated when the object being evicted is exactly the object referenced
  * by the hash table. Otherwise, it's an old object and a tombstone for it
  * exists.
  *
- * \param[in]  type     type of the evictee (LOG_ENTRY_TYPE_OBJECT)
+ * \param[in]  type     type of the evictee (LOG_ENTRY_TYPE_OBJ)
  * \param[in]  p        opaque pointer to the immutable entry in the log 
  * \param[in]  len      size of the log entry being evicted
  * \param[in]  cookie   the opaque state pointer registered with the callback
@@ -575,7 +571,7 @@ objectEvictionCallback(LogEntryType type,
                     uint64_t len,
                     void *cookie)
 {
-    assert(type == LOG_ENTRY_TYPE_OBJECT);
+    assert(type == LOG_ENTRY_TYPE_OBJ);
 
     Server *svr = static_cast<Server *>(cookie);
     assert(svr != NULL);
@@ -594,7 +590,7 @@ objectEvictionCallback(LogEntryType type,
     // simple pointer comparison suffices
     if (tbl_obj == evict_obj) {
         const Object *objp = (const Object *)log->append(
-            LOG_ENTRY_TYPE_OBJECT, evict_obj, evict_obj->size());
+            LOG_ENTRY_TYPE_OBJ, evict_obj, evict_obj->size());
         assert(objp != NULL);
         tbl->Put(evict_obj->id, objp);
     }
@@ -615,7 +611,7 @@ objectReplayCallback(LogEntryType type,
     cookie->used_bytes += len;
 
     switch (type) {
-    case LOG_ENTRY_TYPE_OBJECT: {
+    case LOG_ENTRY_TYPE_OBJ: {
         const Object *obj = static_cast<const Object *>(p);
         assert(obj);
 
@@ -626,30 +622,15 @@ objectReplayCallback(LogEntryType type,
         table->Put(obj->id, obj);
     }
         break;
-    case LOG_ENTRY_TYPE_OBJECT_TOMBSTONE:
+    case LOG_ENTRY_TYPE_OBJTOMB:
         assert(false);  //XXX- fixme
         break;
-    case LOG_ENTRY_TYPE_SEGMENT_HEADER:
-    case LOG_ENTRY_TYPE_SEGMENT_CHECKSUM:
+    case LOG_ENTRY_TYPE_SEGHEADER:
+    case LOG_ENTRY_TYPE_SEGFOOTER:
         break;
     default:
         printf("!!! Unknown object type on log replay: 0x%llx", type);
     }
-}
-
-void
-segmentReplayCallback(Segment *seg, void *cookie)
-{
-    // TODO(stutsman) we can restore bytesStored in the log easily
-    // using the same approach as for the individual segments
-    Server *server = static_cast<Server *>(cookie);
-
-    obj_replay_cookie ocookie;
-    ocookie.server = server;
-    ocookie.used_bytes = 0;
-
-    server->log->forEachEntry(seg, objectReplayCallback, &ocookie);
-    seg->setUsedBytes(ocookie.used_bytes);
 }
 
 /**
@@ -663,7 +644,7 @@ segmentReplayCallback(Segment *seg, void *cookie)
  * be cleared before its referant object if a newer object or tombstone
  * exists), but we don't worry about that now.
  *
- * \param[in]  type     type of the evictee (LOG_ENTRY_TYPE_OBJECT_TOMBSTONE)
+ * \param[in]  type     type of the evictee (LOG_ENTRY_TYPE_OBJTOMB)
  * \param[in]  p        opaque pointer to the immutable entry in the log 
  * \param[in]  len      size of the log entry being evicted
  * \param[in]  cookie   the opaque state pointer registered with the callback
@@ -674,7 +655,7 @@ tombstoneEvictionCallback(LogEntryType type,
                     uint64_t len,
                     void *cookie)
 {
-    assert(type == LOG_ENTRY_TYPE_OBJECT_TOMBSTONE);
+    assert(type == LOG_ENTRY_TYPE_OBJTOMB);
 
     Server *svr = static_cast<Server *>(cookie);
     assert(svr != NULL);
@@ -689,18 +670,9 @@ tombstoneEvictionCallback(LogEntryType type,
     // see if the referant is still there
     if (log->isSegmentLive(tomb->segmentId)) {
         const void *ret = log->append(
-            LOG_ENTRY_TYPE_OBJECT_TOMBSTONE, tomb, sizeof(*tomb));
+            LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb));
         assert(ret != NULL);
     }
-}
-
-void
-Server::restore()
-{
-    uint64_t restored_segs = log->restore();
-    printf("Log was able to restore %llu segs\n", restored_segs);
-    // TODO(stutsman) Walk the log here and rebuild metadata
-    log->forEachSegment(segmentReplayCallback, restored_segs, this);
 }
 
 Status
@@ -737,10 +709,10 @@ Server::storeData(uint64_t tableId, uint64_t id,
     // reclaimed // before log->append() returns. The subsequent free breaks,
     // as that segment may have been reset.
     if (o != NULL)
-        log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
+        log->free(o, o->size());
 
     const Object *objp = (const Object *)log->append(
-        LOG_ENTRY_TYPE_OBJECT, newObject, newObject->size());
+        LOG_ENTRY_TYPE_OBJ, newObject, newObject->size());
     assert(objp != NULL);
     t->Put(id, objp);
 

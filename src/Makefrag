@@ -17,10 +17,12 @@ SHARED_SRCFILES := \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
 		   src/Log.cc \
+		   src/LogCleaner.cc \
 		   src/Logging.cc \
 		   src/OptionParser.cc \
 		   src/Pool.cc \
 		   src/Segment.cc \
+		   src/SegmentIterator.cc \
 		   src/ServiceLocator.cc \
 		   src/StringConverter.cc \
 		   src/TCPTransport.cc \

@@ -477,14 +477,14 @@ class BackupServerTest : public CppUnit::TestFixture {
     uint32_t
     writeMockHeader(BackupServer *backup, uint64_t segNum)
     {
-        LogEntry logEntry;
+        SegmentEntry logEntry;
         SegmentHeader segmentHeader;
 
-        logEntry.type = LOG_ENTRY_TYPE_SEGMENT_HEADER;
+        logEntry.type = LOG_ENTRY_TYPE_SEGHEADER;
         logEntry.length = sizeof(segmentHeader);
         backup->writeSegment(segNum, 0, &logEntry, sizeof(logEntry));
 
-        segmentHeader.id = segNum;
+        segmentHeader.segmentId = segNum;
         backup->writeSegment(segNum, sizeof(logEntry),
                             &segmentHeader, sizeof(segmentHeader));
         return sizeof(logEntry) + sizeof(segmentHeader);
@@ -515,7 +515,7 @@ class BackupServerTest : public CppUnit::TestFixture {
                     uint64_t key,
                     uint32_t offset)
     {
-        LogEntry logEntry;
+        SegmentEntry logEntry;
         DECLARE_OBJECT(o, 8);
 
         o->id = key;
@@ -525,7 +525,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         o->data_len = 8;
         *(reinterpret_cast<uint64_t *>(o->data)) = 0x1234567890123456ULL;
 
-        logEntry.type = LOG_ENTRY_TYPE_OBJECT;
+        logEntry.type = LOG_ENTRY_TYPE_OBJ;
         logEntry.length = sizeof(*o) + 8;
         backup->writeSegment(segNum, offset, &logEntry, sizeof(logEntry));
 

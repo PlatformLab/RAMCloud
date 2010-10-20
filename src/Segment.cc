@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009, 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,273 +13,153 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Segment.h"
+// RAMCloud pragma [GCCWARN=5]
+// RAMCloud pragma [CPPLINT=0]
+
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <Segment.h>
+#include <SegmentIterator.h>
+#include <LogTypes.h>
 
 namespace RAMCloud {
 
-Segment::Segment(void *buf,
-                 const uint64_t len,
-                 BackupClient *backupClient)
-    : base(buf),
-      isMutable(false),
-      id(SEGMENT_INVALID_ID),
-      totalBytes(len),
-      freeBytes(totalBytes),
-      tailBytes(totalBytes),
-      backup(backupClient),
-      next(0),
-      prev(0)
+Segment::Segment(Pool *allocator, uint64_t logId, uint64_t segmentId)
+    : baseAddress(allocator->allocate()),
+      id(segmentId),
+      capacity(allocator->getBlockSize()),
+      tail(0),
+      bytesFreed(0)
 {
-    assert(buf != NULL);
-    assert(len > 0);
+    // failed to allocate from the Pool
+    if (baseAddress == NULL)
+        throw 0;
+
+    // segments must be `capacity'-aligned for fast baseAddress computation
+    // we could add a power-of-2 segment size restriction to make it even faster
+    if ((uintptr_t)baseAddress % capacity)
+        throw 0;
+
+    SegmentHeader header = { logId, id, capacity };
+    const void *p = append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
+    assert(p != NULL);
+}
+
+Segment::Segment(uint64_t segmentId, void *baseAddress, uint64_t capacity)
+    : baseAddress(baseAddress),
+      id(segmentId),
+      capacity(capacity),
+      tail(0),
+      bytesFreed(0)
+{
+    // XXX
 }
 
 Segment::~Segment()
 {
+    static_assert(sizeof(SegmentEntry) == 8);
+    static_assert(sizeof(SegmentHeader) == 24);
+    static_assert(sizeof(SegmentFooter) == 8);
 }
 
-/**
- * Ready an empty, inactive segment by repurposing it with a new segment
- * identifier and making it mutable. This must be called before a previously
- * reset or newly allocated Segment is used.
- *
- * \param newId
- *      The new segment identifier.
- */
-void
-Segment::ready(uint64_t newId)
-{
-    assert(!isMutable);
-    assert(id == SEGMENT_INVALID_ID);
-
-    isMutable = true;
-    id        = newId;
-}
-
-/**
- * Reset the Segment by marking all storage as free and invalidating its
- * identifier. The Segment cannot be used until it is made ready again and
- * assigned a new identifier.
- */
-void
-Segment::reset()
-{
-    assert(!isMutable);
-
-    if (id != SEGMENT_INVALID_ID)
-        backup->freeSegment(id);
-
-    freeBytes  = totalBytes;
-    tailBytes  = totalBytes;
-    isMutable   = false;
-    id          = SEGMENT_INVALID_ID;
-    memset(base, 0xcc, totalBytes);
-}
-
-/**
- * Append data to the Segment. 
- *
- * \param  buf
- *      Pointer to the data. 
- * \param len
- *      Byte length of the data pointed to by buf.
- * \return
- *      An immutable pointer to the location of the data in the Segment,
- *      or NULL if there is insufficient space in the Segment.
- */
 const void *
-Segment::append(const void *buf, const uint64_t len)
+Segment::append(LogEntryType type, const void *buffer, uint64_t length)
 {
-    assert(isMutable);
-    assert(id != SEGMENT_INVALID_ID);
-
-    if (tailBytes < len)
+    if (type == LOG_ENTRY_TYPE_SEGFOOTER || appendableBytes() < length)
         return NULL;
 
-    assert(freeBytes >= len);
-
-    uint64_t offset = totalBytes - tailBytes;
-    void *loc = static_cast<uint8_t*>(base) + offset;
-
-    memcpy(loc, buf, len);
-    backup->writeSegment(id, offset, buf, len);
-    freeBytes -= len;
-    tailBytes -= len;
-
-    return loc;
+    return appendForced(type, buffer, length);
 }
 
-/**
- * Mark space the Segment as free (no longer used). The Segment's contents are
- * left unmodified. This only affects metadata used for maintaining utilisation
- * information.
- *
- * \param len
- *      Number of bytes newly freed bytes.
- */
 void
-Segment::free(uint64_t len)
+Segment::free(const uint64_t length)
 {
-    assert((len + freeBytes) <= totalBytes);
-    freeBytes += len;
+    bytesFreed += length;
+    assert(bytesFreed <= capacity);
 }
 
-/**
- * Obtain an immutable pointer to the first of this Segment's contiguous
- * data bytes.
- *
- * \return
- *      An immutable pointer to the Segment data's start address.
- */
+void
+Segment::close()
+{
+    SegmentFooter footer = { -1 };
+    const void *p = appendForced(LOG_ENTRY_TYPE_SEGFOOTER,
+                                 &footer, sizeof(footer));
+    assert(p != NULL);
+
+    // chew up remaining space to ensure that any future append() will fail
+    tail += appendableBytes();
+}
+
 const void *
-Segment::getBase() const
+Segment::getBaseAddress() const
 {
-    return base;
+    return baseAddress;
 }
 
-/**
- * Obtain the Segment's segment identifier.
- *
- * \return
- *      The segment's identifier, or SEGMENT_INVALID_ID if the Segment
- *      has not been readied.
- *
- */
 uint64_t
 Segment::getId() const
 {
     return id;
 }
 
-/**
- * Obtain the number of bytes left to be written at the end of this Segment.
- *
- * \return
- *      The number of free bytes at the tail.
- */
-uint64_t
-Segment::getFreeTail() const
-{
-    return tailBytes;
-}
-
-/**
- * Obtain the Segment's length in bytes.
- *
- * \return
- *      The number of bytes the Segment can store.
- */
 uint64_t
 Segment::getLength() const
 {
-    return totalBytes;
+    return capacity;
 }
 
-/**
- * Obtain the Segment's utilisation, i.e. the difference between the Segment's
- * size and the number of total free bytes in the Segment (not only free bytes
- * at the tail).
- *
- * \return
- *      The number of bytes the Segment is currently using.
- */
 uint64_t
-Segment::getUtilization() const
+Segment::appendableBytes() const
 {
-    return totalBytes - freeBytes;
+    uint64_t freeBytes = capacity - tail;
+    uint64_t headRoom  = sizeof(SegmentEntry) + sizeof(SegmentFooter);
+
+    // possible if called after segment has been closed
+    if (freeBytes < headRoom)
+        return 0;
+
+    if ((freeBytes - headRoom) < sizeof(SegmentEntry))
+        return 0;
+
+    return freeBytes - headRoom - sizeof(SegmentEntry);
 }
 
-/**
- * Determine whether the provided pointer points within the Segment and that
- * the specified number of bytes are also within the Segment, i.e. given an
- * address range, check to see if it all fits within the Segment.
- *
- * \param p
- *      A pointer to anywhere.
- * \param len
- *      The number of bytes from the pointer to check.
- * \return
- *      True if the range is valid, or false if the range is invalid.
- */
-bool
-Segment::checkRange(const void *p, uint64_t len) const
-{
-    uintptr_t up = (uintptr_t)p;
-    uintptr_t ub = (uintptr_t)base;
-
-    return (up >= ub && (up + len) <= (ub + totalBytes));
-}
-
-/**
- * Finalise a Segment when done with it. The Segment is marked as immutable
- * and committed to the backup.
- */
 void
-Segment::finalize()
+Segment::forEachEntry(SegmentEntryCallback cb, void *cookie) const
 {
-    assert(id != SEGMENT_INVALID_ID);
-    isMutable = false;
-    backup->commitSegment(id);
+    for (SegmentIterator i(this); !i.isDone(); i.next())
+        cb(i.getType(), i.getPointer(), i.getLength(), cookie);
 }
 
-/**
- * Restore a previously backed-up Segment into the present Segment.
- *
- * \param restoreSegId
- *      The segment identifier to restore as.
- */
-void
-Segment::restore(uint64_t restoreSegId)
-{
-    assert(id == SEGMENT_INVALID_ID);
+////////////////////////////////////////
+/// Private Methods
+////////////////////////////////////////
 
-    //printf("Segment restoring from %llu:\n", restoreSegId);
-    backup->retrieveSegment(restoreSegId, base);
-    // TODO(stutsman) restore all sorts of state/invariants
-    // It seems we want to restore this information by making a single
-    // pass which happens in the server to rebuild the hashtable
-    id = restoreSegId;
+const void *
+Segment::append(const void *buffer, uint64_t length)
+{
+    void *p = (uint8_t *)baseAddress + tail;
+    memcpy(p, buffer, length);
+    tail += length;
+    assert(tail <= capacity);
+    return p;
 }
 
-/**
- * Link the Segment into a doubly-linked list.
- *
- * \param n
- *      The Segment to insert before, or NULL to insert at the end.
- * \return
- *      A pointer to this Segment (useful for inlining insertions).
- */
-Segment *
-Segment::link(Segment *n)
+const void *
+Segment::appendForced(LogEntryType type, const void *buffer, uint64_t length)
 {
-    assert(prev == NULL && next == NULL);
-    assert(n == NULL || n->prev == NULL);
+    uint64_t freeBytes = capacity - tail;
+    uint64_t needBytes = sizeof(SegmentEntry) + length;
+    if (freeBytes < needBytes)
+        return NULL;
 
-    if (n != NULL)
-        n->prev = this;
-    next = n;
-
-    return this;
-}
-
-/**
- * Remove the Segment from a doubly-linked list.
- *
- * \return
- *      A pointer to the following Segment (useful for inlining removals),
- *      or NULL if there is none. 
- */
-Segment *
-Segment::unlink()
-{
-    if (prev != NULL)
-        prev->next = next;
-    if (next != NULL)
-        next->prev = prev;
-
-    Segment *n = next;
-    prev = next = NULL;
-    return n;
+    SegmentEntry blob = { type, length };
+    append(&blob, sizeof(blob));
+    return append(buffer, length);
 }
 
 } // namespace

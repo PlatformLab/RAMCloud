@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009, 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,55 +13,73 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// RAMCloud pragma [CPPLINT=0]
+
 #ifndef RAMCLOUD_SEGMENT_H
 #define RAMCLOUD_SEGMENT_H
 
-#include "Common.h"
-
-#include "BackupClient.h"
+#include <stdint.h>
+#include <Pool.h>
+#include <LogTypes.h>
 
 namespace RAMCloud {
 
-#define SEGMENT_INVALID_ID  ((uint64_t)0)
+struct SegmentEntry {
+    LogEntryType type;
+    uint32_t     length;
+} __attribute__((__packed__));
+
+struct SegmentHeader {
+    uint64_t logId;
+    uint64_t segmentId;
+    uint64_t segmentLength;
+} __attribute__((__packed__));
+
+struct SegmentFooter {
+    uint64_t checksum;
+} __attribute__((__packed__));
+
+typedef void (*SegmentEntryCallback)(LogEntryType, const void *,
+                                     uint64_t, void *);
 
 class Segment {
   public:
-    Segment(void *, const uint64_t, BackupClient *);
-    ~Segment();
-    void        ready(uint64_t);
-    void        reset();
-    const void *append(const void *, const uint64_t);
-    void        free(uint64_t);
-    const void *getBase() const;
-    uint64_t getId() const;
-    uint64_t getFreeTail() const;
-    uint64_t getLength() const;
-    uint64_t getUtilization() const;
-    bool checkRange(const void *, uint64_t) const;
-    void finalize();
-    void restore(uint64_t restoreSegId);
-    Segment *link(Segment *n);
-    Segment *unlink();
-    void setUsedBytes(uint64_t ub) {
-        freeBytes = totalBytes - ub;
+    Segment(Pool *allocator, uint64_t logId, uint64_t segmentId);
+    Segment(uint64_t segmentId, void *baseAddress, uint64_t capacity);
+   ~Segment();
+
+    const void      *append(LogEntryType type, const void *buffer,
+                            uint64_t length);
+    void             free(const uint64_t length);
+    void             close();
+    const void      *getBaseAddress() const;
+
+    static uintptr_t
+    getBaseAddress(const void *buffer, uint64_t segmentSize)
+    {
+        uintptr_t base = (uintptr_t)buffer;
+        return base - (base % segmentSize);
     }
+
+    uint64_t         getId() const;
+    uint64_t         getLength() const;
+    uint64_t         appendableBytes() const;
+    void             forEachEntry(SegmentEntryCallback cb, void *cookie) const;
+
   private:
-    void     *base;
-    bool      isMutable;
-    uint64_t  id;                  // segment id
-    const uint64_t  totalBytes;    // capacity of the segment
-    uint64_t  freeBytes;           // bytes free in segment (anywhere)
-    uint64_t  tailBytes;           // bytes free in tail of segment (i.e.
-                                   // never written to)
-    BackupClient *backup;
+    const void      *append(const void *buffer, uint64_t length);
+    const void      *appendForced(LogEntryType type,
+                                  const void *buffer, uint64_t length);
 
-    Segment  *next, *prev;
+    void            *baseAddress;    // base address for the Segment
+    uint64_t         id;             // segment identification number
+    const uint64_t   capacity;       // total byte length of segment when empty
+    uint64_t         tail;           // offset to the next free byte in Segment
+    uint64_t         bytesFreed;     // bytes free()'d in this Segment
 
-    friend class SegmentTest;
-    friend class LogTest;
     DISALLOW_COPY_AND_ASSIGN(Segment);
 };
 
 } // namespace
 
-#endif // !_SEGMENT_H_
+#endif // !RAMCLOUD_SEGMENT_H
