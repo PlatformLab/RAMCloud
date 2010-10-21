@@ -22,9 +22,10 @@
 #include <map>
 #include <stdexcept>
 #include <vector>
+#include <boost/lexical_cast.hpp>
 
 #include "Common.h"
-#include "StringConverter.h"
+
 
 namespace RAMCloud {
 
@@ -85,12 +86,12 @@ class ServiceLocator {
 
     template<typename T> T getOption(const string& key) const;
 
-    const string& getOption(const string& key) const;
+    string getOption(const string& key) const;
 
     template<typename T> T getOption(const string& key, T defaultValue) const;
 
-    const string& getOption(const string& key,
-                            const string& defaultValue) const;
+    string getOption(const string& key,
+                     const string& defaultValue) const;
 
     /**
      * Return whether the given key names an option that was specified.
@@ -133,8 +134,6 @@ class ServiceLocator {
 
     void init(pcrecpp::StringPiece* serviceLocator);
 
-    static StringConverter stringConverter;
-
     /**
      * See #getOriginalString().
      * This is const after construction.
@@ -165,12 +164,12 @@ class ServiceLocator {
  * \tparam T
  *      The type to which to coerce the option's value.
  *      The only valid types are as follows those for which
- *      #RAMCloud::StringConverter::convert() may be called.
+ *      boost::lexical_cast<>() may be called.
  * \return
  *      See above.
  * \throw NoSuchKeyException
  *      The key does not name an option that was specified.
- * \throw #RAMCloud::StringConverter::BadValueException
+ * \throw boost::bad_lexical_cast
  *      The value could not be coerced to the given type.
  */
 template<typename T> T
@@ -178,7 +177,7 @@ ServiceLocator::getOption(const string& key) const {
     std::map<string, string>::const_iterator i = options.find(key);
     if (i == options.end())
         throw NoSuchKeyException(key);
-    return stringConverter.convert<T>(i->second);
+    return boost::lexical_cast<T>(i->second);
 }
 
 /**
@@ -194,7 +193,7 @@ ServiceLocator::getOption(const string& key) const {
  *      The value for the option with the given key, coerced to the given type.
  *      If the key does not name an available option, \a defaultValue will be
  *      returned.
- * \throw #RAMCloud::StringConverter::BadValueException
+ * \throw boost::bad_lexical_cast
  *      The value could not be coerced to the given type.
  */
 template<typename T> T
@@ -202,8 +201,16 @@ ServiceLocator::getOption(const string& key, T defaultValue) const {
     std::map<string, string>::const_iterator i = options.find(key);
     if (i == options.end())
         return defaultValue;
-    return stringConverter.convert<T>(i->second);
+    return boost::lexical_cast<T>(i->second);
 }
+
+template<> const char*
+ServiceLocator::getOption(const string& key) const;
+
+template<> const char*
+ServiceLocator::getOption(const string& key,
+                          const char* defaultValue) const;
+
 
 } // end RAMCloud
 

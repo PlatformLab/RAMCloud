@@ -66,8 +66,8 @@ class IpAddressTest : public CppUnit::TestFixture {
                 tryLocator("fast+udp: host=www.yahoo.com"));
         CPPUNIT_ASSERT_EQUAL("Service locator 'fast+udp: "
                 "host=www.yahoo.com, port=badInteger' couldn't be "
-                "converted to IP address: The value 'badInteger' was "
-                "invalid.",
+                "converted to IP address: bad lexical cast: source "
+                "type value could not be interpreted as target",
                 tryLocator("fast+udp: host=www.yahoo.com, port=badInteger"));
     }
 

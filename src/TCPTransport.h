@@ -327,9 +327,9 @@ class TCPTransport : public Transport {
       public:
         explicit TCPSession(const ServiceLocator& serviceLocator)
             : ip(), port() {
-            strncpy(ip, serviceLocator.getOption<const char*>("ip"),
-                    sizeof(ip));
-            port = serviceLocator.getOption<uint16_t>("port");
+          strncpy(ip, serviceLocator.getOption<std::string>("ip").c_str(),
+                  sizeof(ip));
+          port = serviceLocator.getOption<uint16_t>("port");
         }
         ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result));

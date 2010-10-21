@@ -40,18 +40,18 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
         sockaddr_in *addr = reinterpret_cast<sockaddr_in*>(&address);
         addr->sin_family = AF_INET;
 
-        const char *hostName = serviceLocator.getOption<const char*>("host");
-        hostent* host = gethostbyname(hostName);
+        std::string hostName = serviceLocator.getOption("host");
+        hostent* host = gethostbyname(hostName.c_str());
         if (host == NULL) {
             throw BadIpAddressException(std::string("couldn't find host '") +
-                    hostName + "'", serviceLocator);
+                                        hostName + "'", serviceLocator);
         }
         memcpy(&addr->sin_addr, host->h_addr, sizeof(addr->sin_addr));
         addr->sin_port = htons(serviceLocator.getOption<uint16_t>("port"));
     } catch (ServiceLocator::NoSuchKeyException& e) {
         throw BadIpAddressException(e.message, serviceLocator);
-    } catch (StringConverter::BadFormatException& e) {
-        throw BadIpAddressException(e.message, serviceLocator);
+    } catch (boost::bad_lexical_cast& e) {
+        throw BadIpAddressException(e.what(), serviceLocator);
     }
 }
 

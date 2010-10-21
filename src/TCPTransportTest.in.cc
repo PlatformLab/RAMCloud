@@ -506,7 +506,7 @@ class SocketTest : public CppUnit::TestFixture {
                 const struct sockaddr_in* a;
                 a = reinterpret_cast<const struct sockaddr_in*>(addr);
                 CPPUNIT_ASSERT(a->sin_family == AF_INET);
-                CPPUNIT_ASSERT(a->sin_port == htons(0xabcd));
+                CPPUNIT_ASSERT(a->sin_port == htons(8888));
                 CPPUNIT_ASSERT(a->sin_addr.s_addr == 0x04030201);
                 return 0;
             }
@@ -522,7 +522,7 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::sys = &ts;
 
-        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=0xabcd");
+        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=8888");
         TCPTransport::ListenSocket s(&serviceLocator);
     }
 
@@ -537,7 +537,7 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::sys = &ts;
 
-        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=0xabcd");
+        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=8888");
         try {
             TCPTransport::ListenSocket s(&serviceLocator);
             CPPUNIT_ASSERT(false);
@@ -571,7 +571,7 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TCPTransport::sys = &ts;
 
-        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=0xabcd");
+        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=8888");
         try {
             TCPTransport::ListenSocket s(&serviceLocator);
             CPPUNIT_ASSERT(false);
@@ -646,7 +646,7 @@ class SocketTest : public CppUnit::TestFixture {
                 const struct sockaddr_in* a;
                 a = reinterpret_cast<const struct sockaddr_in*>(addr);
                 CPPUNIT_ASSERT(a->sin_family == AF_INET);
-                CPPUNIT_ASSERT(a->sin_port == htons(0xabcd));
+                CPPUNIT_ASSERT(a->sin_port == htons(8888));
                 CPPUNIT_ASSERT(a->sin_addr.s_addr == 0x10204080);
                 return 0;
             }
@@ -659,7 +659,7 @@ class SocketTest : public CppUnit::TestFixture {
         TCPTransport::sys = &ts;
 
         TCPTransport::ClientSocket s;
-        s.init("128.64.32.16", 0xabcd);
+        s.init("128.64.32.16", 8888);
     }
 
     void test_ClientSocket_init_socketError() {
@@ -676,7 +676,7 @@ class SocketTest : public CppUnit::TestFixture {
 
         TCPTransport::ClientSocket s;
         try {
-            s.init("128.64.32.16", 0xabcd);
+            s.init("128.64.32.16", 8888);
             CPPUNIT_ASSERT(false);
         } catch (UnrecoverableTransportException& e) {}
     }
@@ -701,7 +701,7 @@ class SocketTest : public CppUnit::TestFixture {
 
         TCPTransport::ClientSocket s;
         try {
-            s.init("128.64.32.16", 0xabcd);
+            s.init("128.64.32.16", 8888);
             CPPUNIT_ASSERT(false);
         } catch (TransportException& e) {}
     }
@@ -726,7 +726,7 @@ class SocketTest : public CppUnit::TestFixture {
 
         TCPTransport::ClientSocket s;
         try {
-            s.init("128.64.32.16", 0xabcd);
+            s.init("128.64.32.16", 8888);
             CPPUNIT_ASSERT(false);
         } catch (UnrecoverableTransportException& e) {}
     }
@@ -870,7 +870,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         static Buffer* send_expect;
 
         BEGIN_MOCK(TS, ClientSocketStub);
-            init(ip, port == 0xef01) {
+            init(ip, port == 9999) {
                 CPPUNIT_ASSERT(strcmp(ip, "1.2.3.4") == 0);
             }
             send(payload == send_expect) {
@@ -884,7 +884,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         Buffer payload;
         Buffer response;
         send_expect = &payload;
-        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=0xef01");
+        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=9999");
         Transport::SessionRef session(t.getSession(serviceLocator));
         delete session->clientSend(&payload, &response);
     }

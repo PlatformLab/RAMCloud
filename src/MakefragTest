@@ -27,7 +27,6 @@ TESTS_SRCFILES := \
 		  src/RamCloudClientTest.cc \
 		  src/SegmentTest.cc \
 		  src/ServerTest.cc \
-		  src/ServerTest.cc \
 		  src/ServiceLocatorTest.cc \
 		  src/StatusTest.cc \
 		  src/StringConverterTest.cc \

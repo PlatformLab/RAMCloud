@@ -18,11 +18,6 @@
 namespace RAMCloud {
 
 /**
- * Used in #getOption() to convert string values to requested types.
- */
-StringConverter ServiceLocator::stringConverter;
-
-/**
  * Parse a list of ServiceLocator objects from a service locator string.
  * \param[in] serviceLocator
  *      A ';'-delimited list of \ref ServiceLocatorStrings.
@@ -201,18 +196,35 @@ ServiceLocator::init(pcrecpp::StringPiece* remainingServiceLocator)
 // T getOption<T=const string&>(const string& key)
 // (This isn't a doxygen comment because doxygen concatenates this
 // documentation with that of getOption<> for getOption<>).
-const string&
+string
 ServiceLocator::getOption(const string& key) const
 {
-    return getOption<const string&>(key);
+  return getOption<string>(key);
 }
 
 // Simpler form without a type template parameter, identical to:
 // T getOption<T=const string&>(const string& key, T defaultValue)
-const string&
-ServiceLocator::getOption(const string& key, const string& defaultValue) const
+string
+ServiceLocator::getOption(const string& key,
+                          const string& defaultValue) const
 {
-    return getOption<const string&>(key, defaultValue);
+    return getOption<string>(key, defaultValue);
 }
+
+// Specializations for char* so that a string version of lexical_cast
+// is used.
+template<> const char*
+ServiceLocator::getOption(const string& key) const
+{
+    return getOption<string>(key).c_str();
+}
+
+template<> const char*
+ServiceLocator::getOption(const string& key, const char* defaultValue)
+const
+{
+    return getOption<string>(key, defaultValue).c_str();
+}
+
 
 } // namespace RAMCloud

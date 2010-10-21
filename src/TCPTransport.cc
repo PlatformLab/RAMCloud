@@ -221,7 +221,7 @@ TCPTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
     if (serviceLocator == NULL)
         return;
 
-    const char* ip = serviceLocator->getOption<const char*>("ip");
+    const char* ip = serviceLocator->getOption<std::string>("ip").c_str();
     uint16_t port = serviceLocator->getOption<uint16_t>("port");
 
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);

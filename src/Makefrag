@@ -22,7 +22,6 @@ SHARED_SRCFILES := \
 		   src/Pool.cc \
 		   src/Segment.cc \
 		   src/ServiceLocator.cc \
-		   src/StringConverter.cc \
 		   src/TCPTransport.cc \
 		   src/Table.cc \
 		   src/TransportManager.cc \
