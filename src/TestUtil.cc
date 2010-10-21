@@ -60,9 +60,18 @@ struct assertion_traits<char*> {
 void
 assertEquals(const char* expected, const char* actual,
         SourceLine sourceLine, const std::string &message) {
-    if (strcmp(actual, expected) != 0) {
-        Asserter::failNotEqual(std::string(expected), std::string(actual),
-                sourceLine, message);
+    if (actual == NULL || expected == NULL) {
+        if (actual != expected) {
+            Asserter::failNotEqual(std::string(expected ?: "(NULL)"),
+                                   std::string(actual ?: "(NULL)"),
+                                   sourceLine, message);
+        }
+    } else {
+        if (strcmp(actual, expected) != 0) {
+            Asserter::failNotEqual(std::string(expected),
+                                   std::string(actual),
+                                   sourceLine, message);
+        }
     }
 }
 
