@@ -17,8 +17,8 @@
 
 namespace RAMCloud {
 
-class LoggerTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(LoggerTest);
+class LoggingTest : public CppUnit::TestFixture {
+    CPPUNIT_TEST_SUITE(LoggingTest);
     CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_setLogLevel);
     CPPUNIT_TEST(test_setLogLevel_int);
@@ -34,6 +34,10 @@ class LoggerTest : public CppUnit::TestFixture {
     static const uint32_t numLogLevels = static_cast<uint32_t>(NUM_LOG_LEVELS);
 
   public:
+
+    void setUp() {
+        logger.setLogLevels(NOTICE);
+    }
 
     void tearDown() {
         logger.stream = stderr;
@@ -161,6 +165,6 @@ class LoggerTest : public CppUnit::TestFixture {
         CPPUNIT_FAIL("FatalError not thrown");
     }
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(LoggerTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(LoggingTest);
 
 }  // namespace RAMCloud
