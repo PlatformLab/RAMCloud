@@ -32,6 +32,10 @@ namespace RAMCloud {
 class BackupServerTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(BackupServerTest);
+    CPPUNIT_TEST(test_commitSegment);
+    CPPUNIT_TEST(test_commitSegment_segmentNotOpen);
+    CPPUNIT_TEST(test_findSegmentInfo);
+    CPPUNIT_TEST(test_findSegmentInfo_notIn);
     CPPUNIT_TEST(test_openSegment);
     CPPUNIT_TEST(test_openSegment_alreadyOpen);
     CPPUNIT_TEST(test_writeSegment);
@@ -78,6 +82,48 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         transport->setInput(input);
         backup->handleRpc<BackupServer>();
+    }
+
+    void
+    test_findSegmentInfo()
+    {
+        BackupServer::SegmentInfo& info =
+            backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
+        BackupServer::SegmentInfo* infop = backup->findSegmentInfo(99, 88);
+        CPPUNIT_ASSERT(infop != NULL);
+        CPPUNIT_ASSERT_EQUAL(&info, infop);
+    }
+
+    void
+    test_findSegmentInfo_notIn()
+    {
+        CPPUNIT_ASSERT_EQUAL(NULL, backup->findSegmentInfo(99, 88));
+    }
+
+    void
+    test_commitSegment()
+    {
+        rpc("131 0 99 0 88 0");             // open 99,88
+        rpc("133 0 99 0 88 0 10 4 test");   // write 99,88 at 10 for 4 bytes
+        rpc("128 0 99 0 88 0");             // commit 99,88
+        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 0 0 | "
+                             "serverReply: 0 0",
+                             transport->outputLog);
+        BackupServer::SegmentInfo &info =
+            backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
+        char* storageAddress =
+            static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
+                getAddress();
+        CPPUNIT_ASSERT(NULL != storageAddress);
+        CPPUNIT_ASSERT_EQUAL("test", &storageAddress[10]);
+    }
+
+    void
+    test_commitSegment_segmentNotOpen()
+    {
+        rpc("128 0 99 0 88 0");             // commit 99,88
+        CPPUNIT_ASSERT_EQUAL("serverReply: 11 0",
+                             transport->outputLog);
     }
 
     void

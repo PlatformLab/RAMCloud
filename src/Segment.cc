@@ -54,6 +54,7 @@ Segment::ready(uint64_t newId)
 
     isMutable = true;
     id        = newId;
+    backup->openSegment(0, id);
 }
 
 /**

@@ -39,35 +39,6 @@ namespace RAMCloud {
  * Segments and to facilitate the recovery of object data when Masters crash.
  */
 class BackupServer : public Server {
-  public:
-    explicit BackupServer(BackupStorage& storage);
-    virtual ~BackupServer();
-    void run();
-    void dispatch(RpcType type, Transport::ServerRpc& rpc);
-
-  private:
-    void commitSegment(const BackupCommitRpc::Request& reqHdr,
-                       BackupCommitRpc::Response& respHdr,
-                       Transport::ServerRpc& rpc);
-    void flushSegment();
-    void freeSegment(const BackupFreeRpc::Request& reqHdr,
-                     BackupFreeRpc::Response& respHdr,
-                     Transport::ServerRpc& rpc);
-    uint64_t frameForSegmentId(uint64_t segmentId);
-    void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
-                         BackupGetRecoveryDataRpc::Response& respHdr,
-                         Transport::ServerRpc& rpc);
-    void openSegment(const BackupOpenRpc::Request& reqHdr,
-                     BackupOpenRpc::Response& respHdr,
-                     Transport::ServerRpc& rpc);
-    void reserveSpace();
-    void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
-                          BackupStartReadingDataRpc::Response& respHdr,
-                          Transport::ServerRpc& rpc);
-    void writeSegment(const BackupWriteRpc::Request& req,
-                      BackupWriteRpc::Response& resp,
-                      Transport::ServerRpc& rpc);
-
     /**
      * Metadata associated with each segment describing where in memory
      * and storage it resides.
@@ -88,6 +59,35 @@ class BackupServer : public Server {
         /// Handle to provide to the storage layer to access this segment.
         BackupStorage::Handle* storageHandle;
     };
+
+  public:
+    explicit BackupServer(BackupStorage& storage);
+    virtual ~BackupServer();
+    void run();
+    void dispatch(RpcType type, Transport::ServerRpc& rpc);
+
+  private:
+    void commitSegment(const BackupCommitRpc::Request& reqHdr,
+                       BackupCommitRpc::Response& respHdr,
+                       Transport::ServerRpc& rpc);
+    void flushSegment();
+    void freeSegment(const BackupFreeRpc::Request& reqHdr,
+                     BackupFreeRpc::Response& respHdr,
+                     Transport::ServerRpc& rpc);
+    SegmentInfo* findSegmentInfo(uint64_t masterId, uint64_t segmentId);
+    void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
+                         BackupGetRecoveryDataRpc::Response& respHdr,
+                         Transport::ServerRpc& rpc);
+    void openSegment(const BackupOpenRpc::Request& reqHdr,
+                     BackupOpenRpc::Response& respHdr,
+                     Transport::ServerRpc& rpc);
+    void reserveSpace();
+    void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
+                          BackupStartReadingDataRpc::Response& respHdr,
+                          Transport::ServerRpc& rpc);
+    void writeSegment(const BackupWriteRpc::Request& req,
+                      BackupWriteRpc::Response& resp,
+                      Transport::ServerRpc& rpc);
 
     /**
      * A pool of aligned segments (supporting O_DIRECT) to avoid
