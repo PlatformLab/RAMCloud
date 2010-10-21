@@ -45,9 +45,10 @@ class BackupStorage {
      */
     class Handle
     {
+      public:
+        virtual ~Handle() {}
       protected:
         Handle() {}
-        virtual ~Handle() {}
 
       DISALLOW_COPY_AND_ASSIGN(Handle);
     };
@@ -165,6 +166,7 @@ class SingleFileStorage : public BackupStorage {
     /// The number of segments this storage can store simultaneously.
     const uint32_t segmentFrames;
 
+    friend class SingleFileStorageTest;
     DISALLOW_COPY_AND_ASSIGN(SingleFileStorage);
 };
 

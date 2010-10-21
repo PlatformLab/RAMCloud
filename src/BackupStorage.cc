@@ -89,7 +89,16 @@ void
 SingleFileStorage::getSegment(const BackupStorage::Handle* handle,
                               char* segment)
 {
-    throw BackupStorageException("Unimplemented");
+    uint32_t sourceSegmentFrame =
+        static_cast<const Handle*>(handle)->getSegmentFrame();
+    off_t offset = lseek(fd,
+                         offsetOfSegmentFrame(sourceSegmentFrame),
+                         SEEK_SET);
+    if (offset == -1)
+        throw BackupStorageException(errno);
+    ssize_t r = read(fd, segment, segmentSize);
+    if (r != static_cast<ssize_t>(segmentSize))
+        throw BackupStorageException(errno);
 }
 
 // See BackupStorage::putSegment().
