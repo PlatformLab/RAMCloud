@@ -9,7 +9,6 @@ TESTS_SRCFILES := \
 		  src/BackupServerTest.cc \
 		  src/BackupStorage.cc \
 		  src/BackupStorageTest.cc \
-		  src/BitmapTest.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
 		  src/ChecksumTest.cc \

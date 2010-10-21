@@ -29,7 +29,6 @@
 #include "Common.h"
 #include "BackupClient.h"
 #include "BackupStorage.h"
-#include "Bitmap.h"
 #include "Rpc.h"
 #include "Server.h"
 
