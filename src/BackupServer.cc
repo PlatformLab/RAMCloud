@@ -84,6 +84,7 @@ BackupServer::commitSegment(const BackupCommitRpc::Request& reqHdr,
 
     storage.putSegment(info->storageHandle, info->segment);
     pool.free(info->segment);
+    info->segment = NULL;
 }
 
 /**
@@ -128,20 +129,15 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc)
 }
 
 /**
- * Flush an active segment to permanent storage.  Used internally.
- */
-void
-BackupServer::flushSegment()
-{
-    LOG(ERROR, "Unimplemented: %s", __func__);
-    throw UnimplementedRequestError();
-}
-
-/**
  * Removes the specified segment from permanent storage.
  *
  * After this call completes the segment number segmentId will no longer
  * be in permanent storage and will not be recovered during recovery.
+ *
+ * Failure with STATUS_BAD_SEGMENT_ID means the segment never existed
+ * on this backup or it has already been freed.  Failure with
+ * STATUS_BACKUP_SEGMENT_ALREADY_OPEN indicates that the segment is still
+ * open on this backup and must be committed before being freed.
  *
  * \param reqHdr
  *      Header of the Rpc request containing the segment number to free.
@@ -155,9 +151,16 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
                           BackupFreeRpc::Response& respHdr,
                           Transport::ServerRpc& rpc)
 {
-    LOG(ERROR, "Unimplemented: %s", __func__);
-    throw UnimplementedRequestError();
-    // TODO(stutsman) free handle as well
+    LOG(DEBUG, "Handle: %s", __func__);
+
+    SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
+    if (!info)
+        throw ClientException(STATUS_BACKUP_BAD_SEGMENT_ID);
+    if (info->segment)
+        throw ClientException(STATUS_BACKUP_SEGMENT_ALREADY_OPEN);
+
+    segments.erase(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
+    storage.free(info->storageHandle);
 }
 
 /**
@@ -236,14 +239,17 @@ BackupServer::openSegment(const BackupOpenRpc::Request& reqHdr,
     if (info)
         throw ClientException(STATUS_BACKUP_SEGMENT_ALREADY_OPEN);
 
-    // TODO(stutsman) RAII?  Need a stealable reference
-    // TODO(stutsman) Catch the exception and rebox (or check for NULL)?
+    // Get memory for staging the segment writes
     char* segment = static_cast<char*>(pool.malloc());
-
-    // Reserve the space for this on disk
-    // TODO(stutsman) Catch the exception and rebox to a ClientException
-    BackupStorage::Handle* handle =
-        storage.allocate(reqHdr.masterId, reqHdr.segmentId);
+    BackupStorage::Handle* handle;
+    try {
+        // Reserve the space for this on disk
+        handle = storage.allocate(reqHdr.masterId, reqHdr.segmentId);
+    } catch (...) {
+        // Release the staging memory if storage.allocate throws
+        pool.free(segment);
+        throw;
+    }
 
     segments[MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId)] =
         SegmentInfo(segment, handle);

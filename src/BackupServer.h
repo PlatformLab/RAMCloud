@@ -63,14 +63,14 @@ class BackupServer : public Server {
   public:
     explicit BackupServer(BackupStorage& storage);
     virtual ~BackupServer();
+    void dispatch(RpcType type,
+                  Transport::ServerRpc& rpc);
     void run();
-    void dispatch(RpcType type, Transport::ServerRpc& rpc);
 
   private:
     void commitSegment(const BackupCommitRpc::Request& reqHdr,
                        BackupCommitRpc::Response& respHdr,
                        Transport::ServerRpc& rpc);
-    void flushSegment();
     void freeSegment(const BackupFreeRpc::Request& reqHdr,
                      BackupFreeRpc::Response& respHdr,
                      Transport::ServerRpc& rpc);

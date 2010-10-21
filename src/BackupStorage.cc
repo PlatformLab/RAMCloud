@@ -23,6 +23,10 @@
 
 namespace RAMCloud {
 
+// --- BackupStorage::Handle ---
+
+uint32_t BackupStorage::Handle::allocatedHandlesCount = 0;
+
 // --- SingleFileStorage ---
 
 // - public -
@@ -82,6 +86,16 @@ SingleFileStorage::allocate(uint64_t masterId,
                                                 targetSegmentFrame);
     freeMap[targetSegmentFrame] = 0;
     return new Handle(targetSegmentFrame);
+}
+
+// See BackupStorage::free().
+void
+SingleFileStorage::free(BackupStorage::Handle* handle)
+{
+    uint32_t segmentFrame =
+        static_cast<const Handle*>(handle)->getSegmentFrame();
+    freeMap[segmentFrame] = 1;
+    delete handle;
 }
 
 // See BackupStorage::getSegment().
@@ -189,6 +203,17 @@ InMemoryStorage::allocate(uint64_t masterId,
     segmentFrames--;
     char* address = static_cast<char *>(pool.malloc());
     return new Handle(address);
+}
+
+// See BackupStorage::free().
+void
+InMemoryStorage::free(BackupStorage::Handle* handle)
+{
+    TEST_LOG("called");
+    char* address =
+        static_cast<const Handle*>(handle)->getAddress();
+    pool.free(address);
+    delete handle;
 }
 
 // See BackupStorage::getSegment().

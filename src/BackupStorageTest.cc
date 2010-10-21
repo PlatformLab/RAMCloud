@@ -38,6 +38,7 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_constructor_openFails);
     CPPUNIT_TEST(test_allocate);
     CPPUNIT_TEST(test_allocate_noFreeFrames);
+    CPPUNIT_TEST(test_free);
     CPPUNIT_TEST(test_getSegment);
     CPPUNIT_TEST(test_putSegment);
     CPPUNIT_TEST(test_putSegment_seekFailed);
@@ -66,6 +67,8 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
     {
         delete storage;
         unlink(path);
+        CPPUNIT_ASSERT_EQUAL(0,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -116,6 +119,13 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             std::auto_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
             BackupStorageException);
+    }
+
+    void
+    test_free()
+    {
+        BackupStorage::Handle* handle = storage->allocate(99, 0);
+        storage->free(handle);
     }
 
     void
@@ -174,6 +184,7 @@ class InMemoryStorageTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(InMemoryStorageTest);
     CPPUNIT_TEST(test_allocate);
     CPPUNIT_TEST(test_allocate_noFreeFrames);
+    CPPUNIT_TEST(test_free);
     CPPUNIT_TEST(test_getSegment);
     CPPUNIT_TEST(test_putSegment);
     CPPUNIT_TEST_SUITE_END();
@@ -219,6 +230,13 @@ class InMemoryStorageTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             std::auto_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
             BackupStorageException);
+    }
+
+    void
+    test_free()
+    {
+        BackupStorage::Handle* handle = storage->allocate(99, 0);
+        storage->free(handle);
     }
 
     void
