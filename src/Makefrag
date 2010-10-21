@@ -24,7 +24,6 @@ SHARED_SRCFILES := \
 		   src/Logging.cc \
 		   src/Metrics.cc \
 		   src/OptionParser.cc \
-		   src/Pool.cc \
 		   src/Segment.cc \
 		   src/Server.cc \
 		   src/ServiceLocator.cc \

@@ -28,7 +28,6 @@ TESTS_SRCFILES := \
 		  src/MockTransport.cc \
 		  src/OptionParser.cc \
 		  src/OptionParserTest.cc \
-		  src/PoolTest.cc \
 		  src/RamCloudCClientTest.cc \
 		  src/RamCloudClientTest.cc \
 		  src/SegmentTest.cc \
