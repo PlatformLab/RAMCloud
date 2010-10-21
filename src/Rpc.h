@@ -268,8 +268,8 @@ struct BackupGetRecoveryDataRpc {
         // TODO(stutsman) serialized TabletMap
     };
     struct Response {
-        uint32_t recoveredObjectCount;///< Number of objects in reply payload.
         RpcResponseCommon common;
+        uint32_t recoveredObjectCount;///< Number of objects in reply payload.
     };
 };
 

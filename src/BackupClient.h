@@ -13,13 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Declarations for master server-side backup RPC stubs.  The
- * classes herein send requests to the backup servers transparently to
- * handle all the backup needs of the masters.
- */
-
 #ifndef RAMCLOUD_BACKUPCLIENT_H
 #define RAMCLOUD_BACKUPCLIENT_H
 
@@ -83,7 +76,8 @@ class BackupClient : public Client {
 };
 
 /**
- * A backup consisting of a single remote host.
+ * A backup consisting of a single remote host.  BackupHost's primary
+ * role is to proxy calls via RPCs to a particular backup server.
  *
  * \implements BackupClient
  */
@@ -105,8 +99,6 @@ class BackupHost : public BackupClient {
                               uint32_t length);
 
   private:
-    void throwShortResponseError(Buffer* response);
-
     /**
      * Performance metric from the response in the most recent RPC (as
      * requested by selectPerfCounter). If no metric was requested and done
@@ -134,6 +126,10 @@ class BackupHost : public BackupClient {
  * instances and adding them to the BackupManager instance via
  * addHost().
  *
+ * Eventually this will be a more sophisticated not implementing
+ * BackupClient, but rather, scheduling and orchestrating the backup
+ * servers' for backup and recovery.
+ *
  * \implements BackupClient
  */
 class BackupManager : public BackupClient {
@@ -155,6 +151,7 @@ class BackupManager : public BackupClient {
                               uint32_t length);
 
   private:
+    /// The lone host to backup to for this dumb implementation.
     BackupHost *host;
     DISALLOW_COPY_AND_ASSIGN(BackupManager);
 };

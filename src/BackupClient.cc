@@ -23,9 +23,9 @@
 namespace RAMCloud {
 
 /**
- * Constructor for BackupHost.
- * \param[in] session
- *      The Session by which to communicate with the BackupHost.
+ * Create a BackupHost.
+ * \param session
+ *      The Session by which to communicate with the backup server.
  */
 BackupHost::BackupHost(Transport::SessionRef session)
         : counterValue(0)
@@ -38,6 +38,7 @@ BackupHost::~BackupHost()
 {
 }
 
+// See BackupClient::commitSegment().
 void
 BackupHost::commitSegment(uint64_t masterId,
                           uint64_t segmentId)
@@ -50,6 +51,7 @@ BackupHost::commitSegment(uint64_t masterId,
     checkStatus();
 }
 
+// See BackupClient::freeSegment().
 void
 BackupHost::freeSegment(uint64_t masterId,
                         uint64_t segmentId)
@@ -62,6 +64,7 @@ BackupHost::freeSegment(uint64_t masterId,
     checkStatus();
 }
 
+// See BackupClient::getRecoveryData().
 vector<BackupClient::RecoveredObject>
 BackupHost::getRecoveryData(uint64_t masterId, const TabletMap& tablets)
 {
@@ -70,6 +73,7 @@ BackupHost::getRecoveryData(uint64_t masterId, const TabletMap& tablets)
         reqHdr(allocHeader<BackupGetRecoveryDataRpc>(req));
     reqHdr.masterId = masterId;
     // TODO(stutsman) pass tablets argument!
+    // TODO(stutsman) complete unit test
     const BackupGetRecoveryDataRpc::Response&
         respHdr(sendRecv<BackupGetRecoveryDataRpc>(session, req, resp));
     checkStatus();
@@ -78,13 +82,12 @@ BackupHost::getRecoveryData(uint64_t masterId, const TabletMap& tablets)
     resp.truncateFront(sizeof(respHdr));
     BackupClient::RecoveredObject const * recoveredObjectsRaw =
         resp.getStart<RecoveredObject>();
-    vector<BackupClient::RecoveredObject> objects;
-    std::copy(recoveredObjectsRaw,
-              recoveredObjectsRaw + recoveredObjectCount,
-              objects.begin());
-    return objects;
+    return vector<BackupClient::RecoveredObject>(recoveredObjectsRaw,
+                                                 recoveredObjectsRaw +
+                                                    recoveredObjectCount);
 }
 
+// See BackupClient::openSegment().
 void
 BackupHost::openSegment(uint64_t masterId,
                         uint64_t segmentId)
@@ -97,6 +100,7 @@ BackupHost::openSegment(uint64_t masterId,
     checkStatus();
 }
 
+// See BackupClient::startReadingData().
 vector<uint64_t>
 BackupHost::startReadingData(uint64_t masterId)
 {
@@ -104,7 +108,6 @@ BackupHost::startReadingData(uint64_t masterId)
     BackupStartReadingDataRpc::Request&
         reqHdr(allocHeader<BackupStartReadingDataRpc>(req));
     reqHdr.masterId = masterId;
-    // TODO(stutsman) pass tablets argument!
     const BackupStartReadingDataRpc::Response&
         respHdr(sendRecv<BackupStartReadingDataRpc>(session, req, resp));
     checkStatus();
@@ -112,13 +115,10 @@ BackupHost::startReadingData(uint64_t masterId)
     uint64_t segmentIdCount = respHdr.segmentIdCount;
     resp.truncateFront(sizeof(respHdr));
     uint64_t const * segmentIdsRaw = resp.getStart<uint64_t>();
-    vector<uint64_t> segmentIds;
-    std::copy(segmentIdsRaw,
-              segmentIdsRaw + segmentIdCount,
-              segmentIds.begin());
-    return segmentIds;
+    return vector<uint64_t>(segmentIdsRaw, segmentIdsRaw + segmentIdCount);
 }
 
+// See BackupClient::writeSegment().
 void
 BackupHost::writeSegment(uint64_t masterId,
                          uint64_t segmentId,
@@ -137,17 +137,29 @@ BackupHost::writeSegment(uint64_t masterId,
     checkStatus();
 }
 
+// --- BackupManager ---
+
+/**
+ * Create a BackupManager, initially with no backup hosts to communicate
+ * with.  See addHost() to add remote backups.
+ */
 BackupManager::BackupManager()
     : host(0)
 {
 }
 
+/// Free up all BackupHosts.
 BackupManager::~BackupManager()
 {
     if (host)
         delete host;
 }
 
+/**
+ * \param session
+ *      The session over which to communicate with the backup.  See
+ *      TransportManager.
+ */
 void
 BackupManager::addHost(Transport::SessionRef session)
 {
@@ -156,6 +168,7 @@ BackupManager::addHost(Transport::SessionRef session)
     host = new BackupHost(session);
 }
 
+// See BackupClient::commitSegment.
 void
 BackupManager::commitSegment(uint64_t masterId,
                              uint64_t segmentId)
@@ -164,6 +177,7 @@ BackupManager::commitSegment(uint64_t masterId,
         host->commitSegment(masterId, segmentId);
 }
 
+// See BackupClient::freeSegment.
 void
 BackupManager::freeSegment(uint64_t masterId,
                            uint64_t segmentId)
@@ -172,6 +186,7 @@ BackupManager::freeSegment(uint64_t masterId,
         host->freeSegment(masterId, segmentId);
 }
 
+// See BackupClient::getRecoveryData.
 vector<BackupClient::RecoveredObject>
 BackupManager::getRecoveryData(uint64_t masterId,
                                const TabletMap& tablets)
@@ -181,6 +196,7 @@ BackupManager::getRecoveryData(uint64_t masterId,
     return vector<BackupClient::RecoveredObject>();
 }
 
+// See BackupClient::openSegment.
 void
 BackupManager::openSegment(uint64_t masterId,
                            uint64_t segmentId)
@@ -189,6 +205,7 @@ BackupManager::openSegment(uint64_t masterId,
         host->openSegment(masterId, segmentId);
 }
 
+// See BackupClient::startReadingData.
 vector<uint64_t>
 BackupManager::startReadingData(uint64_t masterId)
 {
@@ -197,6 +214,7 @@ BackupManager::startReadingData(uint64_t masterId)
     return vector<uint64_t>();
 }
 
+// See BackupClient::writeSegment.
 void
 BackupManager::writeSegment(uint64_t masterId,
                             uint64_t segmentId,
