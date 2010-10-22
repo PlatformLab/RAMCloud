@@ -52,7 +52,7 @@ static const uint64_t RESP_BUF_LEN = (1 << 20);
  */
 BackupServer::BackupServer(const char *logPath, int logOpenFlags)
         : logFD(-1), seg(0),
-          openSegNum(INVALID_SEGMENT_NUM), freeMap(true)
+          openSegNum(INVALID_SEGMENT_ID), freeMap(true)
 {
     static_assert(LOG_SPACE == SEGMENT_FRAMES * SEGMENT_SIZE);
 
@@ -68,7 +68,7 @@ BackupServer::BackupServer(const char *logPath, int logOpenFlags)
         reserveSpace();
 
     for (uint64_t i = 0; i < SEGMENT_FRAMES; i++)
-        segmentAtFrame[i] = INVALID_SEGMENT_NUM;
+        segmentAtFrame[i] = INVALID_SEGMENT_ID;
 }
 
 BackupServer::~BackupServer()
@@ -117,7 +117,7 @@ BackupServer::reserveSpace()
  * \param[in] len
  *     the size of the byte string
  * \exception BackupException
- *     If INVALID_SEGMENT_NUM is passed as
+ *     If INVALID_SEGMENT_ID is passed as
  *     seg_num or another segment was written to without a following
  *     commitSegment() before writing to this segNum.
  * \exception BackupSegmentOverflowException
@@ -135,9 +135,9 @@ BackupServer::writeSegment(uint64_t segNum,
                            const void *data,
                            uint32_t len)
 {
-    if (segNum == INVALID_SEGMENT_NUM)
+    if (segNum == INVALID_SEGMENT_ID)
         throw BackupException("Invalid segment number");
-    if (openSegNum == INVALID_SEGMENT_NUM)
+    if (openSegNum == INVALID_SEGMENT_ID)
         openSegNum = segNum;
     else if (openSegNum != segNum)
         throw BackupException("Backup server currently doesn't "
@@ -263,7 +263,7 @@ BackupServer::flushSegment()
  * calls Free() on it.
  *
  * \param[in] segNum the segment number to persist and close.
- * \exception BackupException if INVALID_SEGMENT_NUM is passed as
+ * \exception BackupException if INVALID_SEGMENT_ID is passed as
  *                seg_num.
  * \exception BackupException if seg_num passed is not the active
  *                segment number.
@@ -283,7 +283,7 @@ void
 BackupServer::commitSegment(uint64_t segNum)
 {
     // Write out the current segment to disk if any
-    if (segNum == INVALID_SEGMENT_NUM)
+    if (segNum == INVALID_SEGMENT_ID)
         throw BackupException("Invalid segment number");
     else if (segNum != openSegNum)
         throw BackupException("Cannot commit a segment other than the most "
@@ -294,7 +294,7 @@ BackupServer::commitSegment(uint64_t segNum)
     flushSegment();
 
     // Close the segment
-    openSegNum = INVALID_SEGMENT_NUM;
+    openSegNum = INVALID_SEGMENT_ID;
 }
 
 /**
@@ -305,7 +305,7 @@ BackupServer::commitSegment(uint64_t segNum)
  *
  * \param[in] segNum the segment number to remove from permanent
  *                storage.
- * \exception BackupException if INVALID_SEGMENT_NUM is passed as
+ * \exception BackupException if INVALID_SEGMENT_ID is passed as
  *                segNum.
  * \exception BackupLogIOException if there are no free segment frames
  *                on the storage.  Indicates the backup's storage file
@@ -324,7 +324,7 @@ BackupServer::freeSegment(uint64_t segNum)
 {
     if (debug_backup)
         printf("Free segment %llu\n", segNum);
-    if (segNum == INVALID_SEGMENT_NUM)
+    if (segNum == INVALID_SEGMENT_ID)
         throw BackupException("What the hell are you feeding me? "
                               "Bad segment number!");
 
@@ -332,7 +332,7 @@ BackupServer::freeSegment(uint64_t segNum)
     // exists, which is exactly what we want to happen if we are fed a
     // segNum we have no idea about
     uint64_t frameNumber = frameForSegNum(segNum);
-    segmentAtFrame[frameNumber] = INVALID_SEGMENT_NUM;
+    segmentAtFrame[frameNumber] = INVALID_SEGMENT_ID;
     freeMap.set(frameNumber);
     if (debug_backup)
         printf("Freed segment in frame %llu\n", frameNumber);
@@ -363,7 +363,7 @@ uint32_t
 BackupServer::getSegmentList(uint64_t *list,
                              uint32_t maxSize)
 {
-    if (openSegNum != INVALID_SEGMENT_NUM) {
+    if (openSegNum != INVALID_SEGMENT_ID) {
         if (debug_backup)
             printf("!!! GetSegmentList: We must be in recovery, writing out "
                    "current active segment before proceeding\n");
@@ -374,7 +374,7 @@ BackupServer::getSegmentList(uint64_t *list,
 
     uint32_t count = 0;
     for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
-        if (segmentAtFrame[i] != INVALID_SEGMENT_NUM) {
+        if (segmentAtFrame[i] != INVALID_SEGMENT_ID) {
             if (count == maxSize)
                 throw BackupException("Buffer too short to for segment ids");
             *list = segmentAtFrame[i];
@@ -425,7 +425,7 @@ BackupServer::extractMetadata(const void *p,
  * \return
  *     The number of elements actually placed in list.
  * \exception BackupException
- *     If INVALID_SEGMENT_NUM is passed as seg_num.
+ *     If INVALID_SEGMENT_ID is passed as seg_num.
  * \exception BackupLogIOException
  *     If there is an error seeking to or reading the segment frame in
  *     the storage.
@@ -448,7 +448,7 @@ BackupServer::getSegmentMetadata(uint64_t segNum,
 
     // TODO(stutsman) NULL backup_client is dangerous - we may want to
     // decouple segments from backups somehow
-    Segment seg(0, &buf[0], SEGMENT_SIZE);
+    Segment seg(0, 0, &buf[0], SEGMENT_SIZE);
 
     // Walk the buffer and pull out metadata
     for (SegmentIterator iterator(&seg); !iterator.isDone(); iterator.next()) {
@@ -474,7 +474,7 @@ BackupServer::getSegmentMetadata(uint64_t segNum,
  *     The place in memory to store the segment data.
  *     buf must be allocated to hold SEGMENT_SIZE data.
  * \exception BackupException
- *     If INVALID_SEGMENT_NUM is passed as seg_num.
+ *     If INVALID_SEGMENT_ID is passed as seg_num.
  * \exception BackupLogIOException
  *     If there is an error seeking to or reading the segment frame in
  *     the storage.
@@ -484,7 +484,7 @@ BackupServer::retrieveSegment(uint64_t segNum, void *buf)
 {
     if (debug_backup)
         printf("Retrieving segment %llu from disk\n", segNum);
-    if (segNum == INVALID_SEGMENT_NUM)
+    if (segNum == INVALID_SEGMENT_ID)
         throw BackupException("What the hell are you feeding me? "
                               "Bad segment number!");
 

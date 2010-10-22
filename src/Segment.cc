@@ -28,17 +28,14 @@
 
 namespace RAMCloud {
 
-Segment::Segment(Pool *allocator, uint64_t logId, uint64_t segmentId)
-    : baseAddress(allocator->allocate()),
+Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
+    uint64_t capacity)
+    : baseAddress(baseAddress),
       id(segmentId),
-      capacity(allocator->getBlockSize()),
+      capacity(capacity),
       tail(0),
       bytesFreed(0)
 {
-    // failed to allocate from the Pool
-    if (baseAddress == NULL)
-        throw 0;
-
     // segments must be `capacity'-aligned for fast baseAddress computation
     // we could add a power-of-2 segment size restriction to make it even faster
     if ((uintptr_t)baseAddress % capacity)
@@ -47,16 +44,6 @@ Segment::Segment(Pool *allocator, uint64_t logId, uint64_t segmentId)
     SegmentHeader header = { logId, id, capacity };
     const void *p = append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
     assert(p != NULL);
-}
-
-Segment::Segment(uint64_t segmentId, void *baseAddress, uint64_t capacity)
-    : baseAddress(baseAddress),
-      id(segmentId),
-      capacity(capacity),
-      tail(0),
-      bytesFreed(0)
-{
-    // XXX
 }
 
 Segment::~Segment()
@@ -72,7 +59,7 @@ Segment::append(LogEntryType type, const void *buffer, uint64_t length)
     if (type == LOG_ENTRY_TYPE_SEGFOOTER || appendableBytes() < length)
         return NULL;
 
-    return appendForced(type, buffer, length);
+    return forceAppendWithEntry(type, buffer, length);
 }
 
 void
@@ -86,7 +73,7 @@ void
 Segment::close()
 {
     SegmentFooter footer = { -1 };
-    const void *p = appendForced(LOG_ENTRY_TYPE_SEGFOOTER,
+    const void *p = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGFOOTER,
                                  &footer, sizeof(footer));
     assert(p != NULL);
 
@@ -140,7 +127,7 @@ Segment::forEachEntry(SegmentEntryCallback cb, void *cookie) const
 ////////////////////////////////////////
 
 const void *
-Segment::append(const void *buffer, uint64_t length)
+Segment::forceAppendBlob(const void *buffer, uint64_t length)
 {
     void *p = (uint8_t *)baseAddress + tail;
     memcpy(p, buffer, length);
@@ -150,16 +137,17 @@ Segment::append(const void *buffer, uint64_t length)
 }
 
 const void *
-Segment::appendForced(LogEntryType type, const void *buffer, uint64_t length)
+Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
+    uint64_t length)
 {
     uint64_t freeBytes = capacity - tail;
     uint64_t needBytes = sizeof(SegmentEntry) + length;
     if (freeBytes < needBytes)
         return NULL;
 
-    SegmentEntry blob = { type, length };
-    append(&blob, sizeof(blob));
-    return append(buffer, length);
+    SegmentEntry entry = { type, length };
+    forceAppendBlob(&entry, sizeof(entry));
+    return forceAppendBlob(buffer, length);
 }
 
 } // namespace

@@ -106,11 +106,11 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(backup.seg);
         CPPUNIT_ASSERT(!((uintptr_t)backup.seg & (pagesize - 1)));
 
-        CPPUNIT_ASSERT_EQUAL(INVALID_SEGMENT_NUM, backup.openSegNum);
+        CPPUNIT_ASSERT_EQUAL(INVALID_SEGMENT_ID, backup.openSegNum);
 
         for (uint64_t i = 0; i < SEGMENT_FRAMES; i++) {
             CPPUNIT_ASSERT(backup.freeMap.get(i));
-            CPPUNIT_ASSERT_EQUAL(INVALID_SEGMENT_NUM,
+            CPPUNIT_ASSERT_EQUAL(INVALID_SEGMENT_ID,
                                  backup.segmentAtFrame[i]);
         }
     }
@@ -130,14 +130,14 @@ class BackupServerTest : public CppUnit::TestFixture {
     // TODO(stutsman) There are some other things to test in the
     // constructor but they are only compile time selectable for now
 
-    // Ensure INVALID_SEGMENT_NUM cannot be used
+    // Ensure INVALID_SEGMENT_ID cannot be used
     void
     test_writeSegment_badSegmentNumber()
     {
         BackupServer backup(LOG_PATH);
 
         try {
-            backup.writeSegment(INVALID_SEGMENT_NUM, 0, "test", 5);
+            backup.writeSegment(INVALID_SEGMENT_ID, 0, "test", 5);
             CPPUNIT_ASSERT(false);
         } catch (BackupException& e) {}
     }
@@ -255,7 +255,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         BackupServer backup(LOG_PATH);
 
         try {
-            backup.commitSegment(INVALID_SEGMENT_NUM);
+            backup.commitSegment(INVALID_SEGMENT_ID);
             CPPUNIT_ASSERT(false);
         } catch (BackupException& e) {}
     }
@@ -325,7 +325,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         BackupServer backup(LOG_PATH);
 
         try {
-            backup.freeSegment(INVALID_SEGMENT_NUM);
+            backup.freeSegment(INVALID_SEGMENT_ID);
             CPPUNIT_ASSERT(false);
         } catch (BackupException& e) {}
     }
@@ -373,8 +373,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         BackupServer backup(LOG_PATH);
         char buf[SEGMENT_SIZE];
         try {
-            // Try to fetch INVALID_SEGMENT_NUM
-            backup.retrieveSegment(INVALID_SEGMENT_NUM, &buf[0]);
+            // Try to fetch INVALID_SEGMENT_ID
+            backup.retrieveSegment(INVALID_SEGMENT_ID, &buf[0]);
             CPPUNIT_ASSERT(false);
         } catch (BackupException& e) {}
     }

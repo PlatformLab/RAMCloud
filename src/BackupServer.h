@@ -61,8 +61,6 @@ struct BackupSegmentOverflowException : public BackupException {
 const uint64_t SEGMENT_FRAMES = SEGMENT_COUNT * 2;
 const uint64_t LOG_SPACE = SEGMENT_FRAMES * SEGMENT_SIZE;
 
-const uint64_t INVALID_SEGMENT_NUM = ~(0ull);
-
 class BackupServer : BackupClient {
   public:
     explicit BackupServer();

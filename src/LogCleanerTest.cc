@@ -24,58 +24,22 @@ namespace RAMCloud {
 /**
  * Unit tests for Log.
  */
-class LogTest : public CppUnit::TestFixture {
+class LogCleanerTest : public CppUnit::TestFixture {
 
-    DISALLOW_COPY_AND_ASSIGN(LogTest); // NOLINT
+    DISALLOW_COPY_AND_ASSIGN(LogCleanerTest); // NOLINT
 
-    CPPUNIT_TEST_SUITE(LogTest);
+    CPPUNIT_TEST_SUITE(LogCleanerTest);
     CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_isSegmentLive);
-    CPPUNIT_TEST(test_getSegmentId);
-    CPPUNIT_TEST(test_append);
-    CPPUNIT_TEST(free);
-    CPPUNIT_TEST(registerType);
-    CPPUNIT_TEST(forEachSegment);
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    LogTest() {}
+    LogCleanerTest() {}
 
     void
     test_constructor()
     {
     }
-
-    void
-    test_isSegmentLive()
-    {
-    }
-
-    void
-    test_getSegmentId()
-    {
-    }
-
-    void
-    test_append()
-    {
-    }
-
-    void
-    free()
-    {
-    }
-
-    void
-    registerType()
-    {
-    }
-
-    void
-    forEachSegment()
-    {
-    }
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(LogTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(LogCleanerTest);
 
 } // namespace RAMCloud

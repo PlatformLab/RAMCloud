@@ -27,7 +27,9 @@ namespace RAMCloud {
 Log::Log(uint64_t logId, Pool *segmentAllocator)
     : logId(logId), segmentAllocator(segmentAllocator), nextSegmentId(0)
 {
-    head = new Segment(segmentAllocator, logId, allocateSegmentId());
+    void *p = segmentAllocator->allocate();
+    head = new Segment(logId, allocateSegmentId(), p,
+        segmentAllocator->getBlockSize());
 
     addToActiveMaps(head);
 
@@ -69,10 +71,11 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
             head = NULL;
 
             try {
-                head = new Segment(segmentAllocator,
-                                   logId, allocateSegmentId());
+                void *p = segmentAllocator->allocate();
+                head = new Segment(logId, allocateSegmentId(), p,
+                    segmentAllocator->getBlockSize());
                 addToActiveMaps(head);
-            } catch (int e) {
+            } catch (...) {
                 return NULL;
             }
         }

@@ -42,10 +42,12 @@ struct SegmentFooter {
 typedef void (*SegmentEntryCallback)(LogEntryType, const void *,
                                      uint64_t, void *);
 
+const uint64_t INVALID_SEGMENT_ID = ~(0ull);
+
 class Segment {
   public:
-    Segment(Pool *allocator, uint64_t logId, uint64_t segmentId);
-    Segment(uint64_t segmentId, void *baseAddress, uint64_t capacity);
+    Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
+            uint64_t capacity);
    ~Segment();
 
     const void      *append(LogEntryType type, const void *buffer,
@@ -67,9 +69,9 @@ class Segment {
     void             forEachEntry(SegmentEntryCallback cb, void *cookie) const;
 
   private:
-    const void      *append(const void *buffer, uint64_t length);
-    const void      *appendForced(LogEntryType type,
-                                  const void *buffer, uint64_t length);
+    const void      *forceAppendBlob(const void *buffer, uint64_t length);
+    const void      *forceAppendWithEntry(LogEntryType type,
+                                          const void *buffer, uint64_t length);
 
     void            *baseAddress;    // base address for the Segment
     uint64_t         id;             // segment identification number
@@ -78,6 +80,8 @@ class Segment {
     uint64_t         bytesFreed;     // bytes free()'d in this Segment
 
     DISALLOW_COPY_AND_ASSIGN(Segment);
+
+    friend class SegmentTest;
 };
 
 } // namespace

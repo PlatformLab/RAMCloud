@@ -43,11 +43,11 @@ class Log {
                                void *cookie) const;
 
   private:
-    void                 addToActiveMaps(Segment *s);
-    void                 eraseFromActiveMaps(Segment *s);
+    void        addToActiveMaps(Segment *s);
+    void        eraseFromActiveMaps(Segment *s);
+    uint64_t    allocateSegmentId();
 
     Pool       *segmentAllocator;
-    uint64_t    allocateSegmentId();
     uint64_t    nextSegmentId;
     uint64_t    logId;
     uint64_t    maximumAppendableBytes;
