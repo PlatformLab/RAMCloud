@@ -1,34 +1,38 @@
 OBJDIRS += tests
 
 TESTS_PYMOCK_SRCFILES := \
-		src/TCPTransportTest.in.cc
+		src/TcpTransportTest.in.cc
 TESTS_PYMOCK_OUTFILES := $(patsubst src/%.in.cc, $(OBJDIR)/%.cc, $(TESTS_PYMOCK_SRCFILES))
 
 TESTS_SRCFILES := \
 		  src/BackupClientTest.cc \
 		  src/BackupServerTest.cc \
-		  src/BitmapTest.cc \
+		  src/BackupStorage.cc \
+		  src/BackupStorageTest.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
 		  src/ChecksumTest.cc \
 		  src/ClientExceptionTest.cc \
+		  src/ClientTest.cc \
+		  src/CommonTest.cc \
+		  src/CoordinatorServerTest.cc \
+		  src/CoordinatorTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/IpAddressTest.cc \
           src/LogTest.cc \
           src/LogCleanerTest.cc \
 		  src/LoggingTest.cc \
+		  src/MasterTest.cc \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
 		  src/OptionParser.cc \
 		  src/OptionParserTest.cc \
-		  src/PoolTest.cc \
 		  src/RamCloudCClientTest.cc \
 		  src/RamCloudClientTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
-		  src/ServerTest.cc \
 		  src/ServerTest.cc \
 		  src/ServiceLocatorTest.cc \
 		  src/StatusTest.cc \
@@ -48,6 +52,7 @@ TESTS_OBJFILES := $(sort \
                $(TESTS_OBJFILES) \
                $(SHARED_OBJFILES) \
                $(SERVER_OBJFILES) \
+               $(COORDINATOR_OBJFILES) \
                $(CLIENT_OBJFILES) \
                $(BACKUP_OBJFILES))
 
@@ -91,7 +96,7 @@ mockpy-test:
 	 diff -u src/tests/mockpy.out.cc $(OBJDIR)/mockpytest.out.cc
 
 tests-clean:
-	rm -f $(TOP)/src/TCPTransportTest.cc
+	rm -f $(TOP)/src/TcpTransportTest.cc
 
 .PHONY: test-smack
 test-smack: client $(OBJDIR)/server

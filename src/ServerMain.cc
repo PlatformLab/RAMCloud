@@ -18,8 +18,9 @@
 #include <errno.h>
 
 #include "config.h"
+#include "BackupClient.h"
 #include "OptionParser.h"
-#include "Server.h"
+#include "Master.h"
 #include "TransportManager.h"
 
 static int cpu;
@@ -31,15 +32,21 @@ try
     using namespace RAMCloud;
 
     ServerConfig config;
+    vector<string> backupLocators;
 
-    OptionsDescription serverOptions("Server");
+    OptionsDescription serverOptions("Master");
     serverOptions.add_options()
         ("cpu,c",
          ProgramOptions::value<int>(&cpu)->
             default_value(-1),
-         "CPU mask to pin to");
+         "CPU mask to pin to")
+        ("backup,b",
+         ProgramOptions::value<vector<string> >(&backupLocators),
+         "Backup locators to backup to, can specify more than one");
 
     OptionParser optionParser(serverOptions, argc, argv);
+
+    LOG(NOTICE, "Using %lu backups", backupLocators.size());
 
     config.coordinatorLocator = optionParser.options.getCoordinatorLocator();
     config.localLocator = optionParser.options.getLocalLocator();
@@ -54,7 +61,11 @@ try
 
     transportManager.initialize(config.localLocator.c_str());
 
-    Server server(&config);
+    BackupManager backup;
+    foreach (string& locator, backupLocators)
+        backup.addHost(transportManager.getSession(locator.c_str()));
+
+    Master server(&config, &backup);
     server.run();
 
     return 0;

@@ -14,9 +14,9 @@
  */
 
 // Everything between BEGIN_MOCK and END_MOCK is handled by the Python
-// preprocessor to this file, TCPTransportTestMock.py. The things that look
+// preprocessor to this file, TcpTransportTestMock.py. The things that look
 // like methods in between those actually declare expected method invocations.
-// Look at how a couple examples translate to TCPTransportTest.cc and you'll
+// Look at how a couple examples translate to TcpTransportTest.cc and you'll
 // figure it out.
 #define BEGIN_MOCK "fail, see above"
 #define END_MOCK "fail, see above"
@@ -28,15 +28,15 @@
 #include "TestUtil.h"
 
 #include "Common.h"
-#include "TCPTransport.h"
+#include "TcpTransport.h"
 
 namespace RAMCloud {
 
 /**
- * An implementation of TCPTransport::Syscalls that complains when invoked.
+ * An implementation of TcpTransport::Syscalls that complains when invoked.
  * The mock classes extend this.
  */
-BEGIN_STUB(SyscallsStub, TCPTransport::Syscalls);
+BEGIN_STUB(SyscallsStub, TcpTransport::Syscalls);
     int accept(int sockfd, struct sockaddr* addr, socklen_t* addrlen);
     int bind(int sockfd, const struct sockaddr* addr, socklen_t addrlen);
     int close(int fd);
@@ -51,27 +51,27 @@ BEGIN_STUB(SyscallsStub, TCPTransport::Syscalls);
 END_STUB();
 
 /**
- * An implementation of TCPTransport::ServerSocket that complains when invoked.
+ * An implementation of TcpTransport::ServerSocket that complains when invoked.
  * The mock classes extend this.
  */
-BEGIN_STUB(ServerSocketStub, TCPTransport::ServerSocket);
-    void init(TCPTransport::ListenSocket* listenSocket);
+BEGIN_STUB(ServerSocketStub, TcpTransport::ServerSocket);
+    void init(TcpTransport::ListenSocket* listenSocket);
     void recv(Buffer* payload);
     void send(const Buffer* payload);
 END_STUB();
 
 /**
- * An implementation of TCPTransport::ClientSocket that complains when invoked.
+ * An implementation of TcpTransport::ClientSocket that complains when invoked.
  * The mock classes extend this.
  */
-BEGIN_STUB(ClientSocketStub, TCPTransport::ClientSocket);
-    void init(const char* ip, uint16_t port);
+BEGIN_STUB(ClientSocketStub, TcpTransport::ClientSocket);
+    void init(const IpAddress &address);
     void recv(Buffer* payload);
     void send(const Buffer* payload);
 END_STUB();
 
 /**
- * Unit tests for TCPTransport::Socket and its subclasses.
+ * Unit tests for TcpTransport::Socket and its subclasses.
  */
 class SocketTest : public CppUnit::TestFixture {
     DISALLOW_COPY_AND_ASSIGN(SocketTest); // NOLINT
@@ -104,9 +104,9 @@ class SocketTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
     /**
-     * An instantiable TCPTransport::MessageSocket. That class is abstract.
+     * An instantiable TcpTransport::MessageSocket. That class is abstract.
      */
-    class XMessageSocket : public TCPTransport::MessageSocket {
+    class XMessageSocket : public TcpTransport::MessageSocket {
         public:
             XMessageSocket() {}
     };
@@ -115,9 +115,9 @@ class SocketTest : public CppUnit::TestFixture {
     SocketTest() {}
 
     void tearDown() {
-        // put TCPTransport::sys back to the real Syscalls implementation.
-        extern TCPTransport::Syscalls realSyscalls;
-        TCPTransport::sys = &realSyscalls;
+        // put TcpTransport::sys back to the real Syscalls implementation.
+        extern TcpTransport::Syscalls realSyscalls;
+        TcpTransport::sys = &realSyscalls;
     }
 
     void test_Socket_destructor() {
@@ -128,19 +128,19 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        TCPTransport::Socket s;
+        TcpTransport::Socket s;
         s.fd = 10;
     }
 
     // 0-byte message
     void test_MessageSocket_recv0() {
         BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+            recv(sockfd == 10, buf, len == sizeof(TcpTransport::Header), \
                  flags == MSG_WAITALL) {
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(buf);
+                TcpTransport::Header* header;
+                header = static_cast<TcpTransport::Header*>(buf);
                 header->len = 0;
                 return len;
             }
@@ -150,7 +150,7 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
         XMessageSocket s;
         Buffer payload;
@@ -162,10 +162,10 @@ class SocketTest : public CppUnit::TestFixture {
     // 8-byte message
     void test_MessageSocket_recv8() {
         BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+            recv(sockfd == 10, buf, len == sizeof(TcpTransport::Header), \
                  flags == MSG_WAITALL) {
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(buf);
+                TcpTransport::Header* header;
+                header = static_cast<TcpTransport::Header*>(buf);
                 header->len = 8;
                 return len;
             }
@@ -181,7 +181,7 @@ class SocketTest : public CppUnit::TestFixture {
         Buffer payload;
         {
             TS ts;
-            TCPTransport::sys = &ts;
+            TcpTransport::sys = &ts;
 
             XMessageSocket s;
             s.fd = 10;
@@ -196,10 +196,10 @@ class SocketTest : public CppUnit::TestFixture {
     // be cleared.
     void test_MessageSocket_recv_clearPayload() {
         BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+            recv(sockfd == 10, buf, len == sizeof(TcpTransport::Header), \
                  flags == MSG_WAITALL) {
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(buf);
+                TcpTransport::Header* header;
+                header = static_cast<TcpTransport::Header*>(buf);
                 header->len = 8;
                 return len;
             }
@@ -217,7 +217,7 @@ class SocketTest : public CppUnit::TestFixture {
         memcpy(new(&payload, APPEND) char[strlen(junk)], junk, strlen(junk));
         {
             TS ts;
-            TCPTransport::sys = &ts;
+            TcpTransport::sys = &ts;
 
             XMessageSocket s;
             s.fd = 10;
@@ -230,7 +230,7 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_MessageSocket_recv_hdrError() {
         BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+            recv(sockfd == 10, buf, len == sizeof(TcpTransport::Header), \
                  flags == MSG_WAITALL) {
                 errno = ENOMEM;
                 return -1;
@@ -242,7 +242,7 @@ class SocketTest : public CppUnit::TestFixture {
 
         Buffer payload;
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
         XMessageSocket s;
         s.fd = 10;
@@ -254,7 +254,7 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_MessageSocket_recv_hdrPeerClosed() {
         BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+            recv(sockfd == 10, buf, len == sizeof(TcpTransport::Header), \
                  flags == MSG_WAITALL) {
                 return 0;
             }
@@ -265,7 +265,7 @@ class SocketTest : public CppUnit::TestFixture {
 
         Buffer payload;
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
         XMessageSocket s;
         s.fd = 10;
@@ -277,10 +277,10 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_MessageSocket_recv_msgTooLong() {
         BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+            recv(sockfd == 10, buf, len == sizeof(TcpTransport::Header), \
                  flags == MSG_WAITALL) {
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(buf);
+                TcpTransport::Header* header;
+                header = static_cast<TcpTransport::Header*>(buf);
                 header->len = MAX_RPC_LEN + 1;
                 return len;
             }
@@ -291,7 +291,7 @@ class SocketTest : public CppUnit::TestFixture {
 
         Buffer payload;
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
         XMessageSocket s;
         s.fd = 10;
@@ -303,10 +303,10 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_MessageSocket_recv_dataError() {
         BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+            recv(sockfd == 10, buf, len == sizeof(TcpTransport::Header), \
                  flags == MSG_WAITALL) {
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(buf);
+                TcpTransport::Header* header;
+                header = static_cast<TcpTransport::Header*>(buf);
                 header->len = 8;
                 return len;
             }
@@ -321,7 +321,7 @@ class SocketTest : public CppUnit::TestFixture {
 
         Buffer payload;
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
         XMessageSocket s;
         s.fd = 10;
@@ -333,10 +333,10 @@ class SocketTest : public CppUnit::TestFixture {
 
     void test_MessageSocket_recv_dataPeerClosed() {
         BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TCPTransport::Header), \
+            recv(sockfd == 10, buf, len == sizeof(TcpTransport::Header), \
                  flags == MSG_WAITALL) {
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(buf);
+                TcpTransport::Header* header;
+                header = static_cast<TcpTransport::Header*>(buf);
                 header->len = 8;
                 return len;
             }
@@ -350,7 +350,7 @@ class SocketTest : public CppUnit::TestFixture {
 
         Buffer payload;
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
         XMessageSocket s;
         s.fd = 10;
@@ -371,8 +371,8 @@ class SocketTest : public CppUnit::TestFixture {
                 CPPUNIT_ASSERT(msg->msg_flags == 0);
                 CPPUNIT_ASSERT(msg->msg_iovlen == 1);
                 struct iovec* iov = msg->msg_iov;
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(iov[0].iov_base);
+                TcpTransport::Header* header;
+                header = static_cast<TcpTransport::Header*>(iov[0].iov_base);
                 CPPUNIT_ASSERT(iov[0].iov_len == sizeof(*header));
                 CPPUNIT_ASSERT(header->len == 0);
                 return sizeof(*header);
@@ -383,7 +383,7 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
         XMessageSocket s;
         Buffer payload;
@@ -401,8 +401,8 @@ class SocketTest : public CppUnit::TestFixture {
             sendmsg(sockfd == 10, msg, flags == 0) {
                 CPPUNIT_ASSERT(msg->msg_iovlen == 3);
                 struct iovec* iov = msg->msg_iov;
-                TCPTransport::Header* header;
-                header = static_cast<TCPTransport::Header*>(iov[0].iov_base);
+                TcpTransport::Header* header;
+                header = static_cast<TcpTransport::Header*>(iov[0].iov_base);
                 CPPUNIT_ASSERT(iov[0].iov_len == sizeof(*header));
                 CPPUNIT_ASSERT(header->len == 24);
                 CPPUNIT_ASSERT(iov[1].iov_base == &data[0]);
@@ -418,7 +418,7 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
         XMessageSocket s;
         Buffer payload;
@@ -447,10 +447,10 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        TCPTransport::ServerSocket s;
-        TCPTransport::ListenSocket listenSocket;
+        TcpTransport::ServerSocket s;
+        TcpTransport::ListenSocket listenSocket;
         listenSocket.fd = 10;
         s.init(&listenSocket);
         CPPUNIT_ASSERT(s.fd == 11);
@@ -470,10 +470,10 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        TCPTransport::ServerSocket s;
-        TCPTransport::ListenSocket listenSocket;
+        TcpTransport::ServerSocket s;
+        TcpTransport::ListenSocket listenSocket;
         listenSocket.fd = 10;
         CPPUNIT_ASSERT_THROW(s.init(&listenSocket), TransportException);
         CPPUNIT_ASSERT(s.fd == -1);
@@ -483,8 +483,8 @@ class SocketTest : public CppUnit::TestFixture {
         BEGIN_MOCK(TS, SyscallsStub);
         END_MOCK();
         TS ts;
-        TCPTransport::sys = &ts;
-        TCPTransport::ListenSocket s;
+        TcpTransport::sys = &ts;
+        TcpTransport::ListenSocket s;
     }
 
     void test_ListenSocket_constructor_normal() {
@@ -520,10 +520,10 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=0xabcd");
-        TCPTransport::ListenSocket s(&serviceLocator);
+        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=0xabcd");
+        TcpTransport::ListenSocket s(&serviceLocator);
     }
 
     void test_ListenSocket_constructor_socketError() {
@@ -535,11 +535,11 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=0xabcd");
+        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=0xabcd");
         try {
-            TCPTransport::ListenSocket s(&serviceLocator);
+            TcpTransport::ListenSocket s(&serviceLocator);
             CPPUNIT_ASSERT(false);
         } catch (UnrecoverableTransportException& e) {}
     }
@@ -569,11 +569,11 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=0xabcd");
+        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=0xabcd");
         try {
-            TCPTransport::ListenSocket s(&serviceLocator);
+            TcpTransport::ListenSocket s(&serviceLocator);
             CPPUNIT_ASSERT(false);
         } catch (UnrecoverableTransportException& e) {}
     }
@@ -589,9 +589,9 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        TCPTransport::ListenSocket s;
+        TcpTransport::ListenSocket s;
         s.fd = 10;
         CPPUNIT_ASSERT(s.accept() == 11);
     }
@@ -608,9 +608,9 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        TCPTransport::ListenSocket s;
+        TcpTransport::ListenSocket s;
         s.fd = 10;
         CPPUNIT_ASSERT(s.accept() == -1);
     }
@@ -627,9 +627,9 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        TCPTransport::ListenSocket s;
+        TcpTransport::ListenSocket s;
         s.fd = 10;
         try {
             s.accept();
@@ -645,9 +645,9 @@ class SocketTest : public CppUnit::TestFixture {
             connect(sockfd == 10, addr, addrlen == sizeof(struct sockaddr_in)) {
                 const struct sockaddr_in* a;
                 a = reinterpret_cast<const struct sockaddr_in*>(addr);
-                CPPUNIT_ASSERT(a->sin_family == AF_INET);
-                CPPUNIT_ASSERT(a->sin_port == htons(0xabcd));
-                CPPUNIT_ASSERT(a->sin_addr.s_addr == 0x10204080);
+                CPPUNIT_ASSERT_EQUAL(AF_INET, a->sin_family);
+                CPPUNIT_ASSERT_EQUAL(htons(0xabcd), a->sin_port);
+                CPPUNIT_ASSERT_EQUAL(0x10204080, a->sin_addr.s_addr);
                 return 0;
             }
             close(fd == 10) {
@@ -656,10 +656,11 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        TCPTransport::ClientSocket s;
-        s.init("128.64.32.16", 0xabcd);
+        TcpTransport::ClientSocket s;
+        s.init(IpAddress(ServiceLocator(
+                "tcp: host=128.64.32.16, port=43981")));
     }
 
     void test_ClientSocket_init_socketError() {
@@ -672,11 +673,12 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        TCPTransport::ClientSocket s;
+        TcpTransport::ClientSocket s;
         try {
-            s.init("128.64.32.16", 0xabcd);
+            s.init(IpAddress(ServiceLocator(
+                    "tcp: host=128.64.32.16, port=1234")));
             CPPUNIT_ASSERT(false);
         } catch (UnrecoverableTransportException& e) {}
     }
@@ -697,11 +699,12 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        TCPTransport::ClientSocket s;
+        TcpTransport::ClientSocket s;
         try {
-            s.init("128.64.32.16", 0xabcd);
+            s.init(IpAddress(ServiceLocator(
+                    "tcp: host=128.64.32.16, port=1234")));
             CPPUNIT_ASSERT(false);
         } catch (TransportException& e) {}
     }
@@ -722,11 +725,12 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::sys = &ts;
+        TcpTransport::sys = &ts;
 
-        TCPTransport::ClientSocket s;
+        TcpTransport::ClientSocket s;
         try {
-            s.init("128.64.32.16", 0xabcd);
+            s.init(IpAddress(ServiceLocator(
+                    "tcp: host=128.64.32.16, port=1234")));
             CPPUNIT_ASSERT(false);
         } catch (UnrecoverableTransportException& e) {}
     }
@@ -734,34 +738,34 @@ class SocketTest : public CppUnit::TestFixture {
 CPPUNIT_TEST_SUITE_REGISTRATION(SocketTest);
 
 /**
- * Unit tests for TCPTransport, TCPServerRpc, and TCPClientRpc.
+ * Unit tests for TcpTransport, TcpServerRpc, and TcpClientRpc.
  */
-class TCPTransportTest : public CppUnit::TestFixture {
-    DISALLOW_COPY_AND_ASSIGN(TCPTransportTest); // NOLINT
+class TcpTransportTest : public CppUnit::TestFixture {
+    DISALLOW_COPY_AND_ASSIGN(TcpTransportTest); // NOLINT
 
-    CPPUNIT_TEST_SUITE(TCPTransportTest);
-    CPPUNIT_TEST(test_TCPServerRpc_sendReply);
-    CPPUNIT_TEST(test_TCPClientRpc_getReply);
-    CPPUNIT_TEST(test_TCPTransport_constructor);
-    CPPUNIT_TEST(test_TCPTransport_serverRecv_normal);
-    CPPUNIT_TEST(test_TCPTransport_serverRecv_error);
-    CPPUNIT_TEST(test_TCPTransport_clientSend);
+    CPPUNIT_TEST_SUITE(TcpTransportTest);
+    CPPUNIT_TEST(test_TcpServerRpc_sendReply);
+    CPPUNIT_TEST(test_TcpClientRpc_getReply);
+    CPPUNIT_TEST(test_TcpTransport_constructor);
+    CPPUNIT_TEST(test_TcpTransport_serverRecv_normal);
+    CPPUNIT_TEST(test_TcpTransport_serverRecv_error);
+    CPPUNIT_TEST(test_TcpTransport_clientSend);
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    TCPTransportTest() {}
+    TcpTransportTest() {}
 
     void tearDown() {
         // disable mock socket instances
-        TCPTransport::TCPServerRpc::mockServerSocket = NULL;
-        TCPTransport::TCPClientRpc::mockClientSocket = NULL;
+        TcpTransport::TcpServerRpc::mockServerSocket = NULL;
+        TcpTransport::TcpClientRpc::mockClientSocket = NULL;
 
-        // put TCPTransport::sys back to the real Syscalls implementation.
-        extern TCPTransport::Syscalls realSyscalls;
-        TCPTransport::sys = &realSyscalls;
+        // put TcpTransport::sys back to the real Syscalls implementation.
+        extern TcpTransport::Syscalls realSyscalls;
+        TcpTransport::sys = &realSyscalls;
     }
 
-    void test_TCPServerRpc_sendReply() {
+    void test_TcpServerRpc_sendReply() {
         static Buffer* send_expect;
 
         BEGIN_MOCK(TS, ServerSocketStub);
@@ -770,7 +774,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::TCPServerRpc::mockServerSocket = &ts;
+        TcpTransport::TcpServerRpc::mockServerSocket = &ts;
 
         BEGIN_MOCK(TSC, SyscallsStub);
             close(fd == 10) {
@@ -779,16 +783,16 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TSC tsc;
-        TCPTransport::sys = &tsc;
+        TcpTransport::sys = &tsc;
 
-        TCPTransport t;
-        TCPTransport::TCPServerRpc* rpc = new TCPTransport::TCPServerRpc();
+        TcpTransport t;
+        TcpTransport::TcpServerRpc* rpc = new TcpTransport::TcpServerRpc();
         send_expect = &rpc->replyPayload;
         rpc->realServerSocket.fd = 10;
         rpc->sendReply();
     }
 
-    void test_TCPClientRpc_getReply() {
+    void test_TcpClientRpc_getReply() {
         static Buffer* recv_expect;
 
         BEGIN_MOCK(TS, ClientSocketStub);
@@ -797,7 +801,7 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::TCPClientRpc::mockClientSocket = &ts;
+        TcpTransport::TcpClientRpc::mockClientSocket = &ts;
 
         BEGIN_MOCK(TSC, SyscallsStub);
             close(fd == 10) {
@@ -806,25 +810,25 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TSC tsc;
-        TCPTransport::sys = &tsc;
+        TcpTransport::sys = &tsc;
 
-        TCPTransport t;
+        TcpTransport t;
         Buffer payload;
         recv_expect = &payload;
-        TCPTransport::TCPClientRpc* rpc = new TCPTransport::TCPClientRpc();
+        TcpTransport::TcpClientRpc* rpc = new TcpTransport::TcpClientRpc();
         rpc->reply = &payload;
         rpc->realClientSocket.fd = 10;
         rpc->getReply();
     }
 
-    void test_TCPTransport_constructor() {
+    void test_TcpTransport_constructor() {
         // the constructor doesn't add anything over ListenSocket(), so this is
         // just a placeholder
-        TCPTransport t;
+        TcpTransport t;
     }
 
-    void test_TCPTransport_serverRecv_normal() {
-        static TCPTransport::ListenSocket* init_expect;
+    void test_TcpTransport_serverRecv_normal() {
+        static TcpTransport::ListenSocket* init_expect;
         static Buffer* recv_expect;
 
         BEGIN_MOCK(TS, ServerSocketStub);
@@ -836,9 +840,9 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::TCPServerRpc::mockServerSocket = &ts;
+        TcpTransport::TcpServerRpc::mockServerSocket = &ts;
 
-        TCPTransport t;
+        TcpTransport t;
         init_expect = &t.listenSocket;
         Buffer payload;
         Transport::ServerRpc* rpc = t.serverRecv();
@@ -846,8 +850,8 @@ class TCPTransportTest : public CppUnit::TestFixture {
         delete rpc;
     }
 
-    void test_TCPTransport_serverRecv_error() {
-        static TCPTransport::ListenSocket* init_expect;
+    void test_TcpTransport_serverRecv_error() {
+        static TcpTransport::ListenSocket* init_expect;
 
         BEGIN_MOCK(TS, ServerSocketStub);
             init(listenSocket == init_expect) {
@@ -858,38 +862,38 @@ class TCPTransportTest : public CppUnit::TestFixture {
         END_MOCK();
 
         TS ts;
-        TCPTransport::TCPServerRpc::mockServerSocket = &ts;
+        TcpTransport::TcpServerRpc::mockServerSocket = &ts;
 
-        TCPTransport t;
+        TcpTransport t;
         init_expect = &t.listenSocket;
         Transport::ServerRpc* rpc = t.serverRecv();
         CPPUNIT_ASSERT(NULL == rpc);
     }
 
-    void test_TCPTransport_clientSend() {
+    void test_TcpTransport_clientSend() {
         static Buffer* send_expect;
 
         BEGIN_MOCK(TS, ClientSocketStub);
-            init(ip, port == 0xef01) {
-                CPPUNIT_ASSERT(strcmp(ip, "1.2.3.4") == 0);
+            init(address) {
+                CPPUNIT_ASSERT_EQUAL("1.2.3.4:61185", address.toString());
             }
             send(payload == send_expect) {
             }
         END_MOCK();
 
         TS ts;
-        TCPTransport::TCPClientRpc::mockClientSocket = &ts;
+        TcpTransport::TcpClientRpc::mockClientSocket = &ts;
 
-        TCPTransport t;
+        TcpTransport t;
         Buffer payload;
         Buffer response;
         send_expect = &payload;
-        ServiceLocator serviceLocator("tcp: ip=1.2.3.4, port=0xef01");
+        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=0xef01");
         Transport::SessionRef session(t.getSession(serviceLocator));
         delete session->clientSend(&payload, &response);
     }
 
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(TCPTransportTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(TcpTransportTest);
 
 } // namespace RAMCloud

@@ -23,6 +23,7 @@
 #include <list>
 
 #include "Common.h"
+#include "IpAddress.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -31,32 +32,32 @@ namespace RAMCloud {
  * An inefficient TCP-based Transport implementation.
  * This lets you execute RPCs, but it's not going to be fast.
  */
-class TCPTransport : public Transport {
-  friend class TCPTransportTest;
+class TcpTransport : public Transport {
+  friend class TcpTransportTest;
   friend class SocketTest;
 
   public:
     /**
-     * Construct a TCPTransport instance.
+     * Construct a TcpTransport instance.
      * For exceptions, see #ListenSocket().
      * \param serviceLocator
      *      If non-NULL, the address on which to receive RPC requests.
      */
-    explicit TCPTransport(const ServiceLocator* serviceLocator = NULL)
+    explicit TcpTransport(const ServiceLocator* serviceLocator = NULL)
         : listenSocket(serviceLocator) {}
 
     ServerRpc* serverRecv() __attribute__((warn_unused_result));
     SessionRef getSession(const ServiceLocator& serviceLocator) {
-        return new TCPSession(serviceLocator);
+        return new TcpSession(serviceLocator);
     }
 
     /**
-     * A layer of indirection for the system calls used by TCPTransport.
+     * A layer of indirection for the system calls used by TcpTransport.
      *
      * See the man pages for the identically named Linux/POSIX functions.
      *
      * This is only here for unit testing.
-     * This is only public for the static initializers in TCPTransport.cc.
+     * This is only public for the static initializers in TcpTransport.cc.
      */
     class Syscalls {
       public:
@@ -135,7 +136,7 @@ class TCPTransport : public Transport {
      * file descriptor when it's destroyed (see ~Socket()).
      */
     class Socket {
-      friend class TCPTransportTest;
+      friend class TcpTransportTest;
       friend class SocketTest;
       public:
         virtual ~Socket();
@@ -200,7 +201,7 @@ class TCPTransport : public Transport {
     class ListenSocket : public Socket {
       friend class ServerSocket;
       friend class SocketTest;
-      friend class TCPTransportTest;
+      friend class TcpTransportTest;
       public:
         explicit ListenSocket(const ServiceLocator* serviceLocator = NULL);
       private:
@@ -220,7 +221,7 @@ class TCPTransport : public Transport {
          */
         ClientSocket() {}
 
-        VIRTUAL_FOR_TESTING void init(const char* ip, uint16_t port);
+        VIRTUAL_FOR_TESTING void init(const IpAddress& address);
       private:
         DISALLOW_COPY_AND_ASSIGN(ClientSocket);
     };
@@ -229,19 +230,19 @@ class TCPTransport : public Transport {
     /**
      * The TCP implementation of Transport::ServerRpc.
      */
-    class TCPServerRpc : public Transport::ServerRpc {
-      friend class TCPTransportTest;
+    class TcpServerRpc : public Transport::ServerRpc {
+      friend class TcpTransportTest;
       public:
 
         /**
-         * Constructor for TCPServerRpc.
+         * Constructor for TcpServerRpc.
          *
          * Normally this sets #serverSocket to #realServerSocket. If
          * mockServerSocket is not \c NULL, however, it will be set to that
          * instead (used for testing).
          */
         // TODO(ongaro): Move constructor into cc file?
-        TCPServerRpc() : realServerSocket(), serverSocket(&realServerSocket) {
+        TcpServerRpc() : realServerSocket(), serverSocket(&realServerSocket) {
 #if TESTING
             if (mockServerSocket != NULL)
                 serverSocket = mockServerSocket;
@@ -269,25 +270,25 @@ class TCPTransport : public Transport {
 #endif
 
       private:
-        DISALLOW_COPY_AND_ASSIGN(TCPServerRpc);
+        DISALLOW_COPY_AND_ASSIGN(TcpServerRpc);
     };
 
     /**
      * The TCP implementation of Transport::ClientRpc.
      */
-    class TCPClientRpc : public Transport::ClientRpc {
-      friend class TCPTransportTest;
+    class TcpClientRpc : public Transport::ClientRpc {
+      friend class TcpTransportTest;
       public:
 
         /**
-         * Constructor for TCPClientRpc.
+         * Constructor for TcpClientRpc.
          *
          * Normally this sets #clientSocket to #realClientSocket. If
          * mockClientSocket is not \c NULL, however, it will be set to that
          * instead (used for testing).
          */
         // TODO(ongaro): Move constructor into cc file?
-        TCPClientRpc() : reply(NULL), realClientSocket(),
+        TcpClientRpc() : reply(NULL), realClientSocket(),
                          clientSocket(&realClientSocket) {
 #if TESTING
             if (mockClientSocket != NULL)
@@ -318,18 +319,15 @@ class TCPTransport : public Transport {
 #endif
 
       private:
-        DISALLOW_COPY_AND_ASSIGN(TCPClientRpc);
+        DISALLOW_COPY_AND_ASSIGN(TcpClientRpc);
     };
 
   private:
 
-    class TCPSession : public Session {
+    class TcpSession : public Session {
       public:
-        explicit TCPSession(const ServiceLocator& serviceLocator)
-            : ip(), port() {
-            strncpy(ip, serviceLocator.getOption<const char*>("ip"),
-                    sizeof(ip));
-            port = serviceLocator.getOption<uint16_t>("port");
+        explicit TcpSession(const ServiceLocator& serviceLocator)
+            : address(serviceLocator) {
         }
         ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result));
@@ -337,8 +335,7 @@ class TCPTransport : public Transport {
             delete this;
         }
       private:
-        char ip[16];
-        uint16_t port;
+        IpAddress address;
     };
 
     /**
@@ -349,7 +346,7 @@ class TCPTransport : public Transport {
 
     static Syscalls* sys;
 
-    DISALLOW_COPY_AND_ASSIGN(TCPTransport);
+    DISALLOW_COPY_AND_ASSIGN(TcpTransport);
 };
 
 }  // namespace RAMCloud

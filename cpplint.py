@@ -151,6 +151,7 @@ _ERROR_CATEGORIES = '''\
   ramcloud/catch_ref
   ramcloud/include
   ramcloud/cppunit
+  ramcloud/random
   build/class
   build/deprecated
   build/endif_comment
@@ -2469,6 +2470,11 @@ def CheckLanguage(filename, clean_lines, linenum, file_extension, include_state,
   if Search(r'\bsscanf\b', line):
     error(filename, linenum, 'runtime/printf', 1,
           'sscanf can be ok, but is slow and can overflow buffers.')
+
+  if (Search(r'\b(random|rand|rand_r|\wrand48)\(', line) and
+      not Search(r'\bNOLINT\b', line)):
+      error(filename, linenum, 'ramcloud/random', 5,
+            'Use generateRandom() rather than random(), rand(), etc')
 
   # Check if some verboten operator overloading is going on
   # TODO(unknown): catch out-of-line unary operator&:

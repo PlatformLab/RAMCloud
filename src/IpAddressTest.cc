@@ -44,13 +44,9 @@ class IpAddressTest : public CppUnit::TestFixture {
 
     void test_constructor() {
         CPPUNIT_ASSERT_EQUAL("ok",
-                tryLocator("fast+udp: host=www.yahoo.com, port=80"));
-        CPPUNIT_ASSERT_EQUAL("ok",
                 tryLocator("fast+udp: host=171.67.64.21, port=80"));
         CPPUNIT_ASSERT_EQUAL("ok",
                 tryLocator("fast+udp: host=localhost, port=80"));
-        CPPUNIT_ASSERT_EQUAL("ok",
-                tryLocator("fast+udp: host=www.yahoo.com, port=80"));
         CPPUNIT_ASSERT_EQUAL("Service locator 'fast+udp: "
                 "host=garbage.host.name, port=80' couldn't be converted "
                 "to IP address: couldn't find host 'garbage.host.name'",
@@ -60,15 +56,15 @@ class IpAddressTest : public CppUnit::TestFixture {
                 "was not found in the ServiceLocator.",
                 tryLocator("fast+udp: port=80"));
         CPPUNIT_ASSERT_EQUAL(
-                "Service locator 'fast+udp: host=www.yahoo.com' couldn't "
+                "Service locator 'fast+udp: host=localhost' couldn't "
                 "be converted to IP address: The option with key 'port' "
                 "was not found in the ServiceLocator.",
-                tryLocator("fast+udp: host=www.yahoo.com"));
+                tryLocator("fast+udp: host=localhost"));
         CPPUNIT_ASSERT_EQUAL("Service locator 'fast+udp: "
-                "host=www.yahoo.com, port=badInteger' couldn't be "
+                "host=localhost, port=badInteger' couldn't be "
                 "converted to IP address: The value 'badInteger' was "
                 "invalid.",
-                tryLocator("fast+udp: host=www.yahoo.com, port=badInteger"));
+                tryLocator("fast+udp: host=localhost, port=badInteger"));
     }
 
     void test_toString() {

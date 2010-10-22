@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010 Stanford University
+/* Copyright (c) 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,97 +17,104 @@
 #define RAMCLOUD_SERVER_H
 
 #include "Common.h"
-#include "Object.h"
-#include "Log.h"
-#include "BackupClient.h"
-#include "HashTable.h"
+#include "ClientException.h"
+#include "Metrics.h"
 #include "Rpc.h"
-#include "Table.h"
-#include "Transport.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
-struct ServerConfig {
-    string coordinatorLocator;
-    string localLocator;
-
-    ServerConfig()
-        : coordinatorLocator()
-        , localLocator()
-    {
-    }
-};
-
 /**
- * An object of this class represents a RAMCloud server, which can
- * respond to client RPC requests to manipulate objects stored on the
- * server.
+ * A base class for RPC servers. Although this class is meant to be subclassed,
+ * it serves PINGs so you can use it as a placeholder to aid in development.
  */
 class Server {
   public:
-    Server(const ServerConfig* config,
-           BackupClient* backupClient = 0);
-    virtual ~Server();
-    void handleRpc();
-    void run();
+    Server() {}
+    virtual ~Server() {}
+    virtual void run();
 
-    void create(const CreateRequest* reqHdr, CreateResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void createTable(const CreateTableRequest* reqHdr,
-            CreateTableResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void dropTable(const DropTableRequest* reqHdr, DropTableResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void openTable(const OpenTableRequest* reqHdr, OpenTableResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void ping(const PingRequest* reqHdr, PingResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void read(const ReadRequest* reqHdr, ReadResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void remove(const RemoveRequest* reqHdr, RemoveResponse* respHdr,
-            Transport::ServerRpc* rpc);
-    void write(const WriteRequest* reqHdr, WriteResponse* respHdr,
-            Transport::ServerRpc* rpc);
-
+    void ping(const PingRpc::Request& reqHdr,
+              PingRpc::Response& respHdr,
+              Transport::ServerRpc& rpc);
 
   protected:
+    void dispatch(RpcType type, Transport::ServerRpc& rpc);
 
-    // The following variables are copies of constructor arguments;
-    // see constructor documentation for details.
-    const ServerConfig* config;
-    BackupClient* backup;
+    const char*
+    getString(Buffer& buffer, uint32_t offset, uint32_t length) const;
 
-    /**
-     * The main in-memory data structure holding all of the data stored
-     * on this server.
-     */
-    Log* log;
 
     /**
-     * Information about all of the tables in the system. Tables are
-     * allocated lazily: a NULL entry means the corresponding table
-     * does not yet exist.
+     * Helper function to be used in dispatch.
+     * Extracts the request from the RPC, allocates and zeros space for the
+     * response, and calls the handler.
+     * \tparam Rpc
+     *      An RPC struct (e.g., PingRpc).
+     * \tparam S
+     *      The class which defines \a handler and is a subclass of Server.
+     * \tparam handler
+     *      The method of \a S which executes an RPC.
      */
-    Table *tables[RC_NUM_TABLES];
+    template <typename Rpc, typename S,
+              void (S::*handler)(const typename Rpc::Request&,
+                                 typename Rpc::Response&,
+                                 Transport::ServerRpc&)>
+    void
+    callHandler(Transport::ServerRpc& rpc) {
+        const typename Rpc::Request* reqHdr =
+            rpc.recvPayload.getStart<typename Rpc::Request>();
+        if (reqHdr == NULL)
+            throw MessageTooShortError();
+        typename Rpc::Response* respHdr =
+            new(&rpc.replyPayload, APPEND) typename Rpc::Response;
+        /* Clear the response header, so that unused fields are zero;
+         * this makes tests more reproducible, and it is also needed
+         * to avoid possible security problems where random server
+         * info could leak out to clients through unused packet
+         * fields. */
+        memset(respHdr, 0, sizeof(*respHdr));
+        (static_cast<S*>(this)->*handler)(*reqHdr, *respHdr, rpc);
+    }
 
-    friend void objectEvictionCallback(LogEntryType type,
-            const void* p, uint64_t len, void* cookie);
-    friend void tombstoneEvictionCallback(LogEntryType type,
-            const void* p, uint64_t len, void* cookie);
-    friend void segmentReplayCallback(Segment* seg, void* cookie);
-    friend void objectReplayCallback(LogEntryType type,
-            const void* p, uint64_t len, void* cookie);
-    const char* getString(Buffer* buffer, uint32_t offset, uint32_t length);
-    Table* getTable(uint32_t tableId);
-    Status rejectOperation(const RejectRules* rejectRules, uint64_t version);
-    void restore();
-    Status storeData(uint64_t table, uint64_t id,
-            const RejectRules* rejectRules, Buffer* data,
-            uint32_t dataOffset, uint32_t dataLength,
-            uint64_t* newVersion);
+    /**
+     * Wait for an incoming RPC request, dispatch it, and send a response.
+     */
+    template<typename S>
+    void
+    handleRpc() {
+        Transport::ServerRpc& rpc(*transportManager.serverRecv());
+        RpcResponseCommon* responseCommon = NULL;
+        try {
+            const RpcRequestCommon* header;
+            header = rpc.recvPayload.getStart<RpcRequestCommon>();
+            if (header == NULL)
+                throw MessageTooShortError();
+            Metrics::setup(header->perfCounter);
+            Metrics::mark(MARK_RPC_PROCESSING_BEGIN);
+            static_cast<S*>(this)->dispatch(header->type, rpc);
+            responseCommon = const_cast<RpcResponseCommon*>(
+                rpc.replyPayload.getStart<RpcResponseCommon>());
+        } catch (ClientException& e) {
+            responseCommon = const_cast<RpcResponseCommon*>(
+                rpc.replyPayload.getStart<RpcResponseCommon>());
+            if (responseCommon == NULL) {
+                responseCommon =
+                    new(&rpc.replyPayload, APPEND) RpcResponseCommon;
+            }
+            responseCommon->status = e.status;
+        }
+        Metrics::mark(MARK_RPC_PROCESSING_END);
+        responseCommon->counterValue = Metrics::read();
+        rpc.sendReply();
+    }
+
+  private:
+    friend class ServerTest;
     DISALLOW_COPY_AND_ASSIGN(Server);
 };
 
-} // namespace RAMCloud
 
-#endif // RAMCLOUD_SERVER_H
+} // end RAMCloud
+
+#endif  // RAMCLOUD_SERVER_H

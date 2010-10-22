@@ -175,6 +175,29 @@ FastTransport::poll()
 }
 
 /**
+ * Return a packet indicating BAD_SESSION.
+ *
+ * \param header
+ *      Header from the incoming packet that indicated a bad session.
+ * \param address
+ *      Indicates where to send the error packet. 
+ */
+void
+FastTransport::sendBadSessionError(Header *header,
+        const Driver::Address* address)
+{
+    Header replyHeader;
+    replyHeader.sessionToken = header->sessionToken;
+    replyHeader.rpcId = header->rpcId;
+    replyHeader.clientSessionHint = header->clientSessionHint;
+    replyHeader.serverSessionHint = header->serverSessionHint;
+    replyHeader.channelId = header->channelId;
+    replyHeader.payloadType = Header::BAD_SESSION;
+    replyHeader.direction = Header::SERVER_TO_CLIENT;
+    sendPacket(address, &replyHeader, NULL);
+}
+
+/**
  * Send a fragment through the transport's driver.
  *
  * Randomly augments fragments with pleaseDrop bit for testing.
@@ -186,7 +209,9 @@ FastTransport::sendPacket(const Driver::Address* address,
                           Buffer::Iterator* payload)
 {
 #if TESTING
-    header->pleaseDrop = (generateRandom() % 100) < PACKET_LOSS_PERCENTAGE;
+    // both sides have +1 to silence gcc when PACKET_LOSS_PERCENTAGE is 0
+    header->pleaseDrop = ((generateRandom() % 100) + 1 <
+                          PACKET_LOSS_PERCENTAGE + 1);
 #endif
     driver->sendPacket(address, header, sizeof(*header), payload);
 }
@@ -211,7 +236,9 @@ FastTransport::tryProcessPacket()
 
     Header* header = received.getOffset<Header>(0);
     if (header == NULL) {
-        LOG(DEBUG, "packet too small");
+        LOG(WARNING,
+            "packet too short (%d bytes)",
+            received.len);
         return true;
     }
     if (header->pleaseDrop) {
@@ -220,37 +247,33 @@ FastTransport::tryProcessPacket()
     }
 
     if (header->getDirection() == Header::CLIENT_TO_SERVER) {
-        // Packet is from the client being processed on the server.
-        if (header->serverSessionHint < serverSessions.size()) {
-            ServerSession* session = serverSessions[header->serverSessionHint];
-            if (session->getToken() == header->sessionToken) {
-                TEST_LOG("calling ServerSession::processInboundPacket");
-                session->processInboundPacket(&received);
-                return true;
+        // Packet is from the client being processed on the server; find
+        // an existing session or open a new one.
+        if (header->serverSessionHint >= serverSessions.size()) {
+            if (header->getPayloadType() == Header::SESSION_OPEN) {
+                // Start a new session on this server for the client.
+                LOG(DEBUG, "opening session %d", header->clientSessionHint);
+                serverSessions.expire();
+                ServerSession* session = serverSessions.get();
+                session->startSession(received.sender,
+                                      header->clientSessionHint);
             } else {
-                LOG(DEBUG, "bad token");
+                LOG(WARNING, "bad session hint %d", header->serverSessionHint);
+                sendBadSessionError(header, received.sender);
             }
+            return true;
         }
-        if (header->getPayloadType() == Header::SESSION_OPEN) {
-            // Start a new session on this server for the client.
-            LOG(DEBUG, "session open");
-            serverSessions.expire();
-            ServerSession* session = serverSessions.get();
-            session->startSession(received.sender,
-                                  header->clientSessionHint);
+        ServerSession* session = serverSessions[header->serverSessionHint];
+        if (session->getToken() == header->sessionToken) {
+            TEST_LOG("calling ServerSession::processInboundPacket");
+            session->processInboundPacket(&received);
+            return true;
         } else {
-            // Client wasn't asking for a new session and failed to provide
-            // a valid token, so let them know they've got the wrong number.
-            LOG(DEBUG, "bad session");
-            Header replyHeader;
-            replyHeader.sessionToken = header->sessionToken;
-            replyHeader.rpcId = header->rpcId;
-            replyHeader.clientSessionHint = header->clientSessionHint;
-            replyHeader.serverSessionHint = header->serverSessionHint;
-            replyHeader.channelId = header->channelId;
-            replyHeader.payloadType = Header::BAD_SESSION;
-            replyHeader.direction = Header::SERVER_TO_CLIENT;
-            sendPacket(received.sender, &replyHeader, NULL);
+            LOG(WARNING, "bad session token (0x%lx in session %d, "
+                "0x%lx in packet)", session->getToken(),
+                header->serverSessionHint, header->sessionToken);
+            sendBadSessionError(header, received.sender);
+            return true;
         }
     } else {
         // Packet is from the server being processed on the client.
@@ -261,10 +284,13 @@ FastTransport::tryProcessPacket()
                 header->getPayloadType() == Header::SESSION_OPEN) {
                 session->processInboundPacket(&received);
             } else {
-                LOG(DEBUG, "Bad fragment token, client dropping");
+                LOG(WARNING, "bad fragment token (0x%lx in session %d, "
+                    "0x%lx in packet), client dropping", session->getToken(),
+                    header->clientSessionHint, header->sessionToken);
             }
         } else {
-            LOG(DEBUG, "Bad client session hint");
+            LOG(WARNING, "bad client session hint %d",
+                header->clientSessionHint);
         }
     }
     return true;
@@ -690,7 +716,8 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     if (header->totalFrags != totalFrags) {
         // If the fragment header disagrees on the total length of the message
         // with the value set on init() the packet is ignored.
-        LOG(DEBUG, "header->totalFrags != totalFrags");
+        LOG(WARNING, "header->totalFrags (%d) != totalFrags (%d)",
+            header->totalFrags, totalFrags);
         return firstMissingFrag == totalFrags;
     }
 
@@ -742,7 +769,8 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
         // block on a future call to this method.
         if ((header->fragNumber - firstMissingFrag) >
             MAX_STAGING_FRAGMENTS) {
-            LOG(DEBUG, "fragNumber too big");
+            LOG(WARNING, "fragNumber %d out of range (last OK = %d)",
+                header->fragNumber, firstMissingFrag + MAX_STAGING_FRAGMENTS);
         } else {
             if (!dataStagingWindow[header->fragNumber].first) {
                 uint32_t length;
@@ -754,7 +782,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                 dataStagingWindow[header->fragNumber] =
                     std::pair<char*, uint32_t>(payload, length);
             } else {
-                LOG(DEBUG, "duplicate fragment %d received",
+                LOG(WARNING, "duplicate fragment %d received",
                     header->fragNumber);
             }
         }
@@ -1001,21 +1029,23 @@ FastTransport::OutboundMessage::processReceivedAck(Driver::Received* received)
         return false;
 
     if (received->len < sizeof(Header) + sizeof(AckResponse)) {
-        LOG(DEBUG, "Malformed ACK packet");
+        LOG(WARNING, "ACK packet too short (%d bytes)", received->len);
         return false;
     }
     AckResponse *ack =
         received->getOffset<AckResponse>(sizeof(Header));
 
     if (ack->firstMissingFrag < firstMissingFrag) {
-        LOG(DEBUG, "OutboundMessage dropped stale ACK");
+        LOG(WARNING, "stale ACK (ack->firstmissing: %d, firstMissingFrag: %d)",
+            ack->firstMissingFrag, firstMissingFrag);
     } else if (ack->firstMissingFrag > totalFrags) {
-        LOG(DEBUG, "OutboundMessage dropped invalid ACK,"
-                   "firstMissingFrag beyond the end of the message");
+        LOG(WARNING, "invalid ACK (firstMissingFrag %d > totalFrags %d)",
+            ack->firstMissingFrag, totalFrags);
     } else if (ack->firstMissingFrag >
              (firstMissingFrag + sentTimes.getLength())) {
-        LOG(DEBUG, "OutboundMessage dropped ACK that advanced too far "
-                   "(shouldn't happen)");
+        LOG(WARNING, "invalid ACK (firstMissingFrag %d beyond end "
+            "of window %d)", ack->firstMissingFrag,
+            firstMissingFrag + sentTimes.getLength());
     } else {
         sentTimes.advance(ack->firstMissingFrag - firstMissingFrag);
         firstMissingFrag = ack->firstMissingFrag;
@@ -1089,7 +1119,7 @@ void
 FastTransport::OutboundMessage::Timer::onTimerFired(uint64_t now)
 {
     if (now - startTime > sessionTimeoutCycles()) {
-        LOG(DEBUG, "Closing session due to timeout");
+        LOG(DEBUG, "closing session due to timeout");
         outboundMsg->session->close();
     } else {
         outboundMsg->send();
@@ -1157,7 +1187,7 @@ FastTransport::ServerSession::beginSending(uint8_t channelId)
 void
 FastTransport::ServerSession::close()
 {
-    LOG(WARNING, "ServerSession::close should never be called");
+    LOG(WARNING, "should never be called");
 }
 
 // See Session::expire().
@@ -1229,7 +1259,7 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
     lastActivityTime = rdtsc();
     Header* header = received->getOffset<Header>(0);
     if (header->channelId >= NUM_CHANNELS_PER_SESSION) {
-        LOG(DEBUG, "drop due to invalid channel");
+        LOG(WARNING, "invalid channel id %d", header->channelId);
         return;
     }
 
@@ -1246,7 +1276,8 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
             processReceivedAck(channel, received);
             break;
         default:
-            LOG(DEBUG, "drop current rpcId with bad type");
+            LOG(WARNING, "current rpcId has bad packet type %d",
+                header->getPayloadType());
         }
     } else if (channel->rpcId + 1 == header->rpcId) {
         TEST_LOG("start a new RPC");
@@ -1266,10 +1297,11 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
             break;
         }
         default:
-            LOG(DEBUG, "drop new rpcId with bad type");
+            LOG(WARNING, "new rpcId has bad type %d", header->getPayloadType());
         }
     } else {
-        LOG(DEBUG, "drop old packet");
+        LOG(WARNING, "packet from old RPC (packet rpcId: %d, channel rpcId: %d",
+            header->rpcId, channel->rpcId);
     }
 }
 
@@ -1365,9 +1397,22 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
             channel->inboundMsg.sendAck();
         break;
     case ServerChannel::SENDING_WAITING:
-        // TODO(stutsman) Need to understand why this happens
-        // and eliminate this send
-        LOG(WARNING, "Received extraneous packet while sending");
+        /*
+         * This is an extremely subtle and racy case.  This can happen when
+         * the sender believes a fragment didn't make it to the receiver
+         * and resends when in reality the receiver simply hasn't received
+         * the earlier transmission.  With low timeouts this can occur
+         * consistently when CPUs are contended because the kernel
+         * scheduler has a rather long period.
+         */
+        if (received->len < sizeof(Header))
+            LOG(DEBUG, "extraneous packet too small to contain Header");
+        else
+            LOG(DEBUG, "extraneous packet Header: %s",
+                Header::headerToString(received->payload,
+                                       sizeof(Header)).c_str());
+        // Ignore the incoming packet and continue to send the response.
+        // Hopefully this will appease the sender spamming us.
         channel->outboundMsg.send();
         break;
     }
@@ -1411,7 +1456,7 @@ FastTransport::ClientSession::~ClientSession()
 void
 FastTransport::ClientSession::close()
 {
-    LOG(DEBUG, "Closing session");
+    LOG(DEBUG, "closing session");
     for (uint32_t i = 0; i < numChannels; i++) {
         if (channels[i].currentRpc)
             channels[i].currentRpc->abort();
@@ -1446,12 +1491,12 @@ FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
     lastActivityTime = rdtsc();
     if (!isConnected()) {
         connect();
-        LOG(DEBUG, "Queueing RPC");
+        LOG(DEBUG, "queueing RPC");
         channelQueue.push_back(*rpc);
     } else {
         ClientChannel* channel = getAvailableChannel();
         if (!channel) {
-            LOG(DEBUG, "Queueing RPC");
+            LOG(DEBUG, "queueing RPC");
             channelQueue.push_back(*rpc);
         } else {
             assert(channel->state == ClientChannel::IDLE);
@@ -1558,7 +1603,7 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
         if (header->getPayloadType() == Header::SESSION_OPEN)
             processSessionOpenResponse(received);
         else
-            LOG(DEBUG, "drop due to invalid channel");
+            LOG(WARNING, "invalid channel id %d", header->channelId);
         return;
     }
 
@@ -1584,14 +1629,15 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
             connect();
             break;
         default:
-            LOG(DEBUG, "drop current rpcId with bad type");
+            LOG(WARNING, "bad payload type %d", header->getPayloadType());
         }
     } else {
         if (header->getPayloadType() == Header::DATA &&
             header->requestAck) {
-            LOG(DEBUG, "TODO: fake a full ACK response");
+            LOG(WARNING, "TODO: fake a full ACK response");
         } else {
-            LOG(DEBUG, "drop old packet");
+            LOG(WARNING, "out-of-order packet (got rpcId %d, "
+                "current rpcId %d)", header->rpcId, channel->rpcId);
         }
     }
 }
@@ -1759,12 +1805,12 @@ FastTransport::ClientSession::processSessionOpenResponse(
     numChannels = response->maxChannelId + 1;
     if (MAX_NUM_CHANNELS_PER_SESSION < numChannels)
         numChannels = MAX_NUM_CHANNELS_PER_SESSION;
-    LOG(DEBUG, "Session open response: numChannels: %u", numChannels);
+    LOG(DEBUG, "session open response: numChannels: %u", numChannels);
     allocateChannels();
     for (uint32_t i = 0; i < numChannels; i++) {
         if (channelQueue.empty())
             break;
-        LOG(DEBUG, "Assigned RPC to channel: %u", i);
+        LOG(DEBUG, "assigned RPC to channel: %u", i);
         ClientRpc* rpc = &channelQueue.front();
         channelQueue.pop_front();
         channels[i].state = ClientChannel::SENDING;

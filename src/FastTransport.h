@@ -388,9 +388,10 @@ class FastTransport : public Transport {
 
         /**
          * Offset into serverSessionTable of the ServerSession of this rpc.
-         * Used for fast fragment to session association.  This must be
+         * Used for fast fragment-to-session association.  This must be
          * correct or the server will drop the packet after mismatching
-         * the sessionToken.
+         * the sessionToken.  However: if payloadType is SESSION_OPEN then
+         * this must be INVALID_TOKEN.
          */
         uint32_t serverSessionHint;
 
@@ -885,7 +886,8 @@ class FastTransport : public Transport {
         void startSession(const Driver::Address* clientAddress,
                           uint32_t clientSessionHint);
 
-        /// Used to trash the hint field; shouldn't be seen on the wire.
+        /// Used to trash the hint field; shouldn't be seen on the wire except
+        /// when opening a new session.
         static const uint32_t INVALID_HINT;
 
         /**
@@ -1358,6 +1360,7 @@ class FastTransport : public Transport {
     uint32_t numFrags(const Buffer* dataBuffer);
     VIRTUAL_FOR_TESTING void poll();
     void removeTimer(Timer* timer);
+    void sendBadSessionError(Header *header, const Driver::Address* address);
     void sendPacket(const Driver::Address* address,
                     Header* header, Buffer::Iterator* payload);
     bool tryProcessPacket();

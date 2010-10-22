@@ -23,53 +23,53 @@
 #include <memory>
 
 #include "Common.h"
-#include "TCPTransport.h"
+#include "TcpTransport.h"
 
 namespace RAMCloud {
 
 /**
- * The TCPTransport::Syscalls implementation that is used except for unit
+ * The TcpTransport::Syscalls implementation that is used except for unit
  * testing.
- * See #RAMCloud::TCPTransport::sys.
+ * See #RAMCloud::TcpTransport::sys.
  */
 #if !TESTING
 static
 #endif
-TCPTransport::Syscalls realSyscalls;
+TcpTransport::Syscalls realSyscalls;
 
 /**
- * A pointer to the TCPTransport::Syscalls implementation in actual use.
+ * A pointer to the TcpTransport::Syscalls implementation in actual use.
  * Used for unit testing, but normally set to #realSyscalls.
  */
-TCPTransport::Syscalls* TCPTransport::sys = &realSyscalls;
+TcpTransport::Syscalls* TcpTransport::sys = &realSyscalls;
 
 #if TESTING
 /**
  * A pointer to a mock client socket to use temporarily during
  * construction. Used for unit testing. Normally set to \c NULL.
  */
-TCPTransport::ServerSocket*
-    TCPTransport::TCPServerRpc::mockServerSocket = NULL;
+TcpTransport::ServerSocket*
+    TcpTransport::TcpServerRpc::mockServerSocket = NULL;
 
 /**
  * A pointer to a mock client socket to use temporarily during
  * construction. Used for unit testing. Normally set to \c NULL.
  */
-TCPTransport::ClientSocket*
-    TCPTransport::TCPClientRpc::mockClientSocket = NULL;
+TcpTransport::ClientSocket*
+    TcpTransport::TcpClientRpc::mockClientSocket = NULL;
 #endif
 
 /**
  * Constructor for Socket.
  */
-TCPTransport::Socket::Socket() : fd(-1)
+TcpTransport::Socket::Socket() : fd(-1)
 {
 }
 
 /**
  * Destructor for socket. Will close #fd if it exists.
  */
-TCPTransport::Socket::~Socket()
+TcpTransport::Socket::~Socket()
 {
     if (fd >= 0) {
         sys->close(fd);
@@ -88,7 +88,7 @@ TCPTransport::Socket::~Socket()
  *      There was an error on the connection.
  */
 void
-TCPTransport::MessageSocket::recv(Buffer* payload)
+TcpTransport::MessageSocket::recv(Buffer* payload)
 {
     assert(fd >= 0);
     payload->reset();
@@ -148,7 +148,7 @@ TCPTransport::MessageSocket::recv(Buffer* payload)
  *      There was an error on the connection.
  */
 void
-TCPTransport::MessageSocket::send(const Buffer* payload)
+TcpTransport::MessageSocket::send(const Buffer* payload)
 {
     assert(fd >= 0);
 
@@ -192,10 +192,10 @@ TCPTransport::MessageSocket::send(const Buffer* payload)
  * \throw TransportException
  *      There were no clients connection requests waiting.
  * \throw UnrecoverableTransportException
- *      Errors from #TCPTransport::ListenSocket::accept().
+ *      Errors from #TcpTransport::ListenSocket::accept().
  */
 void
-TCPTransport::ServerSocket::init(ListenSocket* listenSocket)
+TcpTransport::ServerSocket::init(ListenSocket* listenSocket)
 {
     assert(fd < 0);
     fd = listenSocket->accept();
@@ -216,13 +216,11 @@ TCPTransport::ServerSocket::init(ListenSocket* listenSocket)
  * \exception UnrecoverableTransportException
  *      Errors trying to create, bind, listen to the socket.
  */
-TCPTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
+TcpTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
 {
     if (serviceLocator == NULL)
         return;
-
-    const char* ip = serviceLocator->getOption<const char*>("ip");
-    uint16_t port = serviceLocator->getOption<uint16_t>("port");
+    IpAddress address(*serviceLocator);
 
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1)
@@ -236,13 +234,7 @@ TCPTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
     (void) sys->setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval,
                            sizeof(optval));
 
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    if (inet_aton(ip, &addr.sin_addr) == 0)
-        throw UnrecoverableTransportException("Bad IP address");
-
-    if (sys->bind(fd, (struct sockaddr*) &addr, sizeof(addr)) == -1) {
+    if (sys->bind(fd, &address.address, sizeof(address.address)) == -1) {
         // destructor will close fd
         throw UnrecoverableTransportException(errno);
     }
@@ -262,7 +254,7 @@ TCPTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
  *      Non-transient errors accepting a new connection.
  */
 int
-TCPTransport::ListenSocket::accept()
+TcpTransport::ListenSocket::accept()
 {
     // If you opted out of listening in the constructor,
     // you're not allowed to accept now.
@@ -301,10 +293,8 @@ TCPTransport::ListenSocket::accept()
  *
  * You should call this exactly once before using the object.
  *
- * \param ip
- *      The IP address to connect to in numbers-and-dots notation.
- * \param port
- *      The port to connect to in host byte order.
+ * \param address
+ *      Identifies the socket to connect to.
  * \throw UnrecoverableTransportException
  *      Error creating socket or fatal error connecting.
  * \throw UnrecoverableTransportException
@@ -313,21 +303,14 @@ TCPTransport::ListenSocket::accept()
  *      Server refused connection or timed out.
  */
 void
-TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
+TcpTransport::ClientSocket::init(const IpAddress& address)
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
         throw UnrecoverableTransportException(errno);
     }
 
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    if (inet_aton(ip, &addr.sin_addr) == 0)
-        throw UnrecoverableTransportException("Bad IP address");
-
-    int r = sys->connect(fd, reinterpret_cast<struct sockaddr*>(&addr),
-                         sizeof(addr));
+    int r = sys->connect(fd, &address.address, sizeof(address.address));
     if (r == -1) {
         int e = errno;
         sys->close(fd);
@@ -343,27 +326,27 @@ TCPTransport::ClientSocket::init(const char* ip, uint16_t port)
 }
 
 void
-TCPTransport::TCPServerRpc::sendReply()
+TcpTransport::TcpServerRpc::sendReply()
 {
     // "delete this;" on our way out of the method
-    std::auto_ptr<TCPServerRpc> suicide(this);
+    std::auto_ptr<TcpServerRpc> suicide(this);
 
     serverSocket->send(&replyPayload);
 }
 
 void
-TCPTransport::TCPClientRpc::getReply()
+TcpTransport::TcpClientRpc::getReply()
 {
     // "delete this;" on our way out of the method
-    std::auto_ptr<TCPClientRpc> suicide(this);
+    std::auto_ptr<TcpClientRpc> suicide(this);
 
     clientSocket->recv(reply);
 }
 
 Transport::ServerRpc*
-TCPTransport::serverRecv()
+TcpTransport::serverRecv()
 {
-    std::auto_ptr<TCPServerRpc> rpc(new TCPServerRpc());
+    std::auto_ptr<TcpServerRpc> rpc(new TcpServerRpc());
 
     try {
         rpc->serverSocket->init(&listenSocket);
@@ -375,11 +358,11 @@ TCPTransport::serverRecv()
 }
 
 Transport::ClientRpc*
-TCPTransport::TCPSession::clientSend(Buffer* request, Buffer* response)
+TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* response)
 {
-    std::auto_ptr<TCPClientRpc> rpc(new TCPClientRpc());
+    std::auto_ptr<TcpClientRpc> rpc(new TcpClientRpc());
 
-    rpc->clientSocket->init(ip, port);
+    rpc->clientSocket->init(address);
     rpc->clientSocket->send(request);
     rpc->reply = response;
 

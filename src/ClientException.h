@@ -113,6 +113,15 @@ DEFINE_EXCEPTION(ResponseFormatError,
 DEFINE_EXCEPTION(CouldntConnectException,
                  STATUS_COULDNT_CONNECT,
                  ClientException)
+DEFINE_EXCEPTION(BackupBadSegmentIdException,
+                 STATUS_BACKUP_BAD_SEGMENT_ID,
+                 ClientException)
+DEFINE_EXCEPTION(BackupSegmentAlreadyOpenException,
+                 STATUS_BACKUP_SEGMENT_ALREADY_OPEN,
+                 ClientException)
+DEFINE_EXCEPTION(BackupSegmentOverflowException,
+                 STATUS_BACKUP_SEGMENT_OVERFLOW,
+                 ClientException)
 
 } // namespace RAMCloud
 
