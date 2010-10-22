@@ -51,9 +51,19 @@ class BackupStorage {
             allocatedHandlesCount--;
         }
 
-        static uint32_t getAllocatedHandlesCount()
+        static int32_t getAllocatedHandlesCount()
         {
             return allocatedHandlesCount;
+        }
+
+        /**
+         * Return the current value of allocatedHandlesCount and zero it.
+         */
+        static int32_t resetAllocatedHandlesCount()
+        {
+            int32_t old = allocatedHandlesCount;
+            allocatedHandlesCount = 0;
+            return old;
         }
 
       protected:
@@ -63,7 +73,7 @@ class BackupStorage {
         }
 
       private:
-        static uint32_t allocatedHandlesCount;
+        static int32_t allocatedHandlesCount;
 
       DISALLOW_COPY_AND_ASSIGN(Handle);
     };

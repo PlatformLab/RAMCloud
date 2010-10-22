@@ -25,7 +25,7 @@ namespace RAMCloud {
 
 // --- BackupStorage::Handle ---
 
-uint32_t BackupStorage::Handle::allocatedHandlesCount = 0;
+int32_t BackupStorage::Handle::allocatedHandlesCount = 0;
 
 // --- SingleFileStorage ---
 
@@ -94,6 +94,18 @@ SingleFileStorage::free(BackupStorage::Handle* handle)
 {
     uint32_t segmentFrame =
         static_cast<const Handle*>(handle)->getSegmentFrame();
+
+    off_t offset = lseek(fd,
+                         offsetOfSegmentFrame(segmentFrame),
+                         SEEK_SET);
+    if (offset == -1)
+        throw BackupStorageException(errno);
+    const char* killMessage = "FREE";
+    ssize_t killMessageLen = strlen(killMessage);
+    ssize_t r = write(fd, killMessage, killMessageLen);
+    if (r != killMessageLen)
+        throw BackupStorageException(errno);
+
     freeMap[segmentFrame] = 1;
     delete handle;
 }
@@ -212,6 +224,7 @@ InMemoryStorage::free(BackupStorage::Handle* handle)
     TEST_LOG("called");
     char* address =
         static_cast<const Handle*>(handle)->getAddress();
+    memcpy(address, "FREE", 4);
     pool.free(address);
     delete handle;
 }

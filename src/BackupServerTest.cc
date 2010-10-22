@@ -39,9 +39,12 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_freeSegment);
     CPPUNIT_TEST(test_freeSegment_stillOpen);
     CPPUNIT_TEST(test_freeSegment_noSuchSegment);
+    CPPUNIT_TEST(test_getRecoveryData);
     CPPUNIT_TEST(test_openSegment);
     CPPUNIT_TEST(test_openSegment_alreadyOpen);
     CPPUNIT_TEST(test_openSegment_outOfStorage);
+    CPPUNIT_TEST(test_startReadingData);
+    CPPUNIT_TEST(test_startReadingData_empty);
     CPPUNIT_TEST(test_writeSegment);
     CPPUNIT_TEST(test_writeSegment_segmentNotOpen);
     CPPUNIT_TEST(test_writeSegment_badOffset);
@@ -80,7 +83,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         delete backup;
         delete storage;
         CPPUNIT_ASSERT_EQUAL(0,
-            BackupStorage::Handle::getAllocatedHandlesCount());
+            BackupStorage::Handle::resetAllocatedHandlesCount());
     }
 
     void
@@ -161,6 +164,25 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     void
+    test_getRecoveryData()
+    {
+        rpc("131 0 99 0 88 0");             // open 99,88
+        rpc("133 0 99 0 88 0 0 16 0x72646873 8 88 0"); // write 99,88 header
+        // write 99,88 object
+        rpc("133 0 99 0 88 0 16 52 0x216a626f 44 1 0 0 0 2 0 99 99 4 test");
+        rpc("133 0 99 0 88 0 68 16 0x6b686373 8 99 99"); // write 99,88 footer
+        rpc("128 0 99 0 88 0");             // commit 99,88
+        rpc("132 0 99 0");                  // startReadingData 99
+        rpc("130 0 99 0");                  // getRecoveryData 99
+        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 0 0 | "
+                             "serverReply: 0 0 | serverReply: 0 0 | "
+                             "serverReply: 0 0 | serverReply: 0 0 1 88 0 | "
+                             "serverReply: 0 0 0",
+                             transport->outputLog);
+        freeStorageHandle(99, 88);
+    }
+
+    void
     test_commitSegment()
     {
         rpc("131 0 99 0 88 0");             // open 99,88
@@ -223,6 +245,24 @@ class BackupServerTest : public CppUnit::TestFixture {
             BackupStorageException);
         freeStorageHandle(99, 87);
         freeStorageHandle(99, 86);
+    }
+
+    void
+    test_startReadingData()
+    {
+        rpc("131 0 99 0 88 0"),         // open 99,88
+        rpc("132 0 99 0 88 0"),         // startReadingData 99,88
+        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 0 0 1 88 0",
+                             transport->outputLog);
+        freeStorageHandle(99, 88);
+    }
+
+    void
+    test_startReadingData_empty()
+    {
+        rpc("132 0 99 0 88 0"),         // startReadingData 99,88
+        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 0",
+                             transport->outputLog);
     }
 
     void

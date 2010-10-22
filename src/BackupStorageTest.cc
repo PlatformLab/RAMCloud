@@ -68,7 +68,7 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
         delete storage;
         unlink(path);
         CPPUNIT_ASSERT_EQUAL(0,
-            BackupStorage::Handle::getAllocatedHandlesCount());
+            BackupStorage::Handle::resetAllocatedHandlesCount());
     }
 
     void
@@ -126,6 +126,14 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
     {
         BackupStorage::Handle* handle = storage->allocate(99, 0);
         storage->free(handle);
+
+        CPPUNIT_ASSERT_EQUAL(1, storage->freeMap[0]);
+
+        char buf[4];
+        lseek(storage->fd, storage->offsetOfSegmentFrame(0), SEEK_SET);
+        read(storage->fd, &buf[0], 4);
+        CPPUNIT_ASSERT_EQUAL('F', buf[0]);
+        CPPUNIT_ASSERT_EQUAL('E', buf[3]);
     }
 
     void
@@ -211,6 +219,8 @@ class InMemoryStorageTest : public CppUnit::TestFixture {
     tearDown()
     {
         delete storage;
+        CPPUNIT_ASSERT_EQUAL(0,
+            BackupStorage::Handle::resetAllocatedHandlesCount());
     }
 
     void

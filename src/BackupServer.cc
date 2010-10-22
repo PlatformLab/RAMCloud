@@ -203,8 +203,40 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                               BackupGetRecoveryDataRpc::Response& respHdr,
                               Transport::ServerRpc& rpc)
 {
-    LOG(ERROR, "Unimplemented: %s", __func__);
-    throw UnimplementedRequestError();
+    LOG(DEBUG, "Handling: %s", __func__);
+
+    // TODO(stutsman) RAII
+    char* segment = new char[segmentSize];
+    //uint32_t partitions = 2;
+
+    for (SegmentsMap::iterator it = segments.begin();
+         it != segments.end(); it++)
+    {
+        uint64_t masterId = it->first.first;
+        if (masterId != reqHdr.masterId)
+            continue;
+
+        //uint64_t segmentId = it->first.second;
+        SegmentInfo &info = it->second;
+
+        storage.getSegment(info.storageHandle, segment);
+
+        // Iterate and bucket
+        // TODO(stutsman) shouldn't have to box this in a Segment
+        Segment s(segment, segmentSize, NULL);
+        LogEntryIterator it(&s);
+        const struct LogEntry *entry;
+        const void *p;
+
+        while (it.getNext(&entry, &p)) {
+            if (entry->type == LOG_ENTRY_TYPE_SEGMENT_HEADER ||
+                entry->type == LOG_ENTRY_TYPE_SEGMENT_CHECKSUM)
+                continue;
+            LOG(ERROR, "Found object or tombstone: %u %u",
+                entry->type, entry->length);
+        }
+    }
+
 }
 
 /**
@@ -274,8 +306,21 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                                BackupStartReadingDataRpc::Response& respHdr,
                                Transport::ServerRpc& rpc)
 {
-    LOG(ERROR, "Unimplemented: %s", __func__);
-    throw UnimplementedRequestError();
+    LOG(DEBUG, "Handling: %s", __func__);
+
+    // TODO(stutsman) use aio to get data into RAM before getRecoveryData
+    uint32_t segmentIdCount = 0;
+    for (SegmentsMap::iterator it = segments.begin();
+         it != segments.end(); it++)
+    {
+        if (it->first.first == reqHdr.masterId) {
+            Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
+                                          &it->first.second,
+                                          sizeof(it->first.second));
+            segmentIdCount++;
+        }
+    }
+    respHdr.segmentIdCount = segmentIdCount;
 }
 
 /**

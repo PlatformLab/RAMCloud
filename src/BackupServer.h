@@ -49,13 +49,16 @@ class BackupServer : public Server {
             , storageHandle(NULL)
         {
         }
+
         SegmentInfo(char* segment, BackupStorage::Handle* storageHandle)
             : segment(segment)
             , storageHandle(storageHandle)
         {
         }
+
         /// If NULL then this segment is not in memory.
         char* segment;
+
         /// Handle to provide to the storage layer to access this segment.
         BackupStorage::Handle* storageHandle;
     };
