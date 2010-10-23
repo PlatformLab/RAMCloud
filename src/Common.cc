@@ -18,9 +18,11 @@
  * Some definitions for stuff declared in Common.h.
  */
 
-#include "Common.h"
 #include <errno.h>
 #include <ctype.h>
+
+#include "Common.h"
+#include "Buffer.h"
 
 uint64_t mockTSCValue = 0lu;
 uint64_t mockPMCValue = 0lu;
@@ -65,6 +67,13 @@ debug_dump64(const void *buf, uint64_t bytes)
             hex[5], hex[6], hex[7], hex[8], hex[9], hex[10], hex[11],
             hex[12], hex[13], hex[14], hex[15], ascii);
     }
+}
+
+void
+debug_dump64(Buffer& buffer)
+{
+    uint32_t length = buffer.getTotalLength();
+    debug_dump64(buffer.getRange(0, length), length);
 }
 
 /**
