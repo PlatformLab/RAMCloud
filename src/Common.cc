@@ -76,6 +76,27 @@ debug_dump64(Buffer& buffer)
     debug_dump64(buffer.getRange(0, length), length);
 }
 
+uint64_t
+_generateRandom()
+{
+    // Each call to random returns 31 bits of randomness,
+    // so we need three to get 64 bits of randomness.
+    union {
+        struct {
+            uint64_t one:31;
+            uint64_t two:31;
+            uint64_t three:2;
+        };
+        uint64_t all;
+    } r;
+    static_assert(RAND_MAX >= (1 << 31));
+    r.all = 0;
+    r.one = random(); // NOLINT
+    r.two = random(); // NOLINT
+    r.three = random(); // NOLINT
+    return r.all;
+}
+
 /**
  * Pin the process to a particular CPU.
  * \param cpu

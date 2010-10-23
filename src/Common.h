@@ -216,6 +216,10 @@ _rdpmc(uint32_t counter)
     return ((uint64_t) lo) | (((uint64_t) hi) << 32);
 }
 
+namespace RAMCloud {
+uint64_t _generateRandom();
+}
+
 /// Yield the current task to the scheduler.
 static inline void
 yield()
@@ -268,22 +272,7 @@ generateRandom()
 {
     if (mockRandomValue)
         return mockRandomValue;
-    // Each call to random returns 31 bits of randomness,
-    // so we need three to get 64 bits of randomness.
-    union {
-        struct {
-            uint64_t one:31;
-            uint64_t two:31;
-            uint64_t three:2;
-        };
-        uint64_t all;
-    } r;
-    static_assert(RAND_MAX >= (1 << 31));
-    r.all = 0;
-    r.one = random(); // NOLINT
-    r.two = random(); // NOLINT
-    r.three = random(); // NOLINT
-    return r.all;
+    return RAMCloud::_generateRandom();
 }
 class MockRandom {
     uint64_t original;
@@ -301,6 +290,7 @@ class MockRandom {
 #else
 #define rdtsc() _rdtsc()
 #define rdpmc(c) _rdpmc(c)
+#define generateRandom() RAMCloud::_generateRandom()
 #endif
 
 #if TESTING
