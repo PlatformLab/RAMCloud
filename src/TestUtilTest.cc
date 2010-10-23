@@ -21,6 +21,7 @@ namespace RAMCloud {
 class TestUtilTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(TestUtilTest);
 
+    CPPUNIT_TEST(test_assertEquals_charStar);
     CPPUNIT_TEST(test_toString);
 
     CPPUNIT_TEST(test_bufferToDebugString);
@@ -33,6 +34,43 @@ class TestUtilTest : public CppUnit::TestFixture {
   public:
     TestUtilTest()
     {
+    }
+
+    void
+    test_assertEquals_charStar()
+    {
+        int catches = 0;
+        CPPUNIT_ASSERT_EQUAL(static_cast<const char*>(NULL),
+                             static_cast<const char*>(NULL));
+        try {
+            CPPUNIT_ASSERT_EQUAL(static_cast<const char*>(NULL), "hi");
+        } catch (CppUnit::Exception& e) {
+            CPPUNIT_ASSERT_EQUAL("equality assertion failed\n"
+                                 "- Expected: (NULL)\n"
+                                 "- Actual  : hi\n",
+                                 e.what());
+            ++catches;
+        }
+        try {
+            CPPUNIT_ASSERT_EQUAL("hi", static_cast<const char*>(NULL));
+        } catch (CppUnit::Exception& e) {
+            CPPUNIT_ASSERT_EQUAL("equality assertion failed\n"
+                                 "- Expected: hi\n"
+                                 "- Actual  : (NULL)\n",
+                                 e.what());
+            ++catches;
+        }
+        CPPUNIT_ASSERT_EQUAL("hi", "hi");
+        try {
+            CPPUNIT_ASSERT_EQUAL("bye", "hi");
+        } catch (CppUnit::Exception& e) {
+            CPPUNIT_ASSERT_EQUAL("equality assertion failed\n"
+                                 "- Expected: bye\n"
+                                 "- Actual  : hi\n",
+                                 e.what());
+            ++catches;
+        }
+        CPPUNIT_ASSERT_EQUAL(3, catches);
     }
 
     void

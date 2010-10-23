@@ -32,14 +32,21 @@ namespace RAMCloud {
  * headers, which selects the particular operation to perform.
  */
 enum RpcType {
-    PING           = 7,
-    CREATE_TABLE   = 8,
-    OPEN_TABLE     = 9,
-    DROP_TABLE     = 10,
-    CREATE         = 11,
-    READ           = 12,
-    WRITE          = 13,
-    REMOVE         = 14
+    PING                    = 7,
+    CREATE_TABLE            = 8,
+    OPEN_TABLE              = 9,
+    DROP_TABLE              = 10,
+    CREATE                  = 11,
+    READ                    = 12,
+    WRITE                   = 13,
+    REMOVE                  = 14,
+    ENLIST_SERVER           = 15,
+    BACKUP_COMMIT           = 128,
+    BACKUP_FREE             = 129,
+    BACKUP_GETRECOVERYDATA  = 130,
+    BACKUP_OPEN             = 131,
+    BACKUP_STARTREADINGDATA = 132,
+    BACKUP_WRITE            = 133,
 };
 
 /**
@@ -91,101 +98,222 @@ struct RpcResponseCommon {
 // explicit (removing these fields has no effect on the layout of
 // the records).
 
-struct CreateRequest {
-    RpcRequestCommon common;
-    uint32_t tableId;
-    uint32_t length;              // Length of the value in bytes. The
-                                  // actual bytes follow immediately after
-                                  // this header.
-};
-struct CreateResponse {
-    RpcResponseCommon common;
-    uint64_t id;
-    uint64_t version;
-};
-
-struct CreateTableRequest {
-    RpcRequestCommon common;
-    uint32_t nameLength;          // Number of bytes in the name,
-                                  // including terminating NULL
-                                  // character. The bytes of the name
-                                  // follow immediately after this header.
-};
-struct CreateTableResponse {
-    RpcResponseCommon common;
+struct CreateRpc {
+    static const RpcType type = CREATE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t tableId;
+        uint32_t length;              // Length of the value in bytes. The
+                                      // actual bytes follow immediately after
+                                      // this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t id;
+        uint64_t version;
+    };
 };
 
-struct DropTableRequest {
-    RpcRequestCommon common;
-    uint32_t nameLength;          // Number of bytes in the name,
-                                  // including terminating NULL
-                                  // character. The bytes of the name
-                                  // follow immediately after this header.
-};
-struct DropTableResponse {
-    RpcResponseCommon common;
-};
-
-struct OpenTableRequest {
-    RpcRequestCommon common;
-    uint32_t nameLength;          // Number of bytes in the name,
-                                  // including terminating NULL
-                                  // character. The bytes of the name
-                                  // follow immediately after this header.
-};
-struct OpenTableResponse {
-    RpcResponseCommon common;
-    uint32_t tableId;
+struct CreateTableRpc {
+    static const RpcType type = CREATE_TABLE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t nameLength;          // Number of bytes in the name,
+                                      // including terminating NULL
+                                      // character. The bytes of the name
+                                      // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
 };
 
-struct PingRequest {
-    RpcRequestCommon common;
-};
-struct PingResponse {
-    RpcResponseCommon common;
-};
-
-struct ReadRequest {
-    RpcRequestCommon common;
-    uint64_t id;
-    uint32_t tableId;
-    uint32_t pad1;
-    RejectRules rejectRules;
-};
-struct ReadResponse {
-    RpcResponseCommon common;
-    uint64_t version;
-    uint32_t length;              // Length of the object's value in bytes.
-                                  // The actual bytes of the object follow
-                                  // immediately after this header.
-    uint32_t pad1;
+struct DropTableRpc {
+    static const RpcType type = DROP_TABLE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t nameLength;          // Number of bytes in the name,
+                                      // including terminating NULL
+                                      // character. The bytes of the name
+                                      // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
 };
 
-struct RemoveRequest {
-    RpcRequestCommon common;
-    uint64_t id;
-    uint32_t tableId;
-    uint32_t pad1;
-    RejectRules rejectRules;
-};
-struct RemoveResponse {
-    RpcResponseCommon common;
-    uint64_t version;
+struct OpenTableRpc {
+    static const RpcType type = OPEN_TABLE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t nameLength;          // Number of bytes in the name,
+                                      // including terminating NULL
+                                      // character. The bytes of the name
+                                      // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint32_t tableId;
+    };
 };
 
-struct WriteRequest {
-    RpcRequestCommon common;
-    uint64_t id;
-    uint32_t tableId;
-    uint32_t length;              // Length of the object's value in bytes.
-                                  // The actual bytes of the object follow
-                                  // immediately after this header.
-    RejectRules rejectRules;
+struct PingRpc {
+    static const RpcType type = PING;
+    struct Request {
+        RpcRequestCommon common;
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
 };
-struct WriteResponse {
-    RpcResponseCommon common;
-    uint64_t version;
+
+struct ReadRpc {
+    static const RpcType type = READ;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t id;
+        uint32_t tableId;
+        uint32_t pad1;
+        RejectRules rejectRules;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t version;
+        uint32_t length;              // Length of the object's value in bytes.
+                                      // The actual bytes of the object follow
+                                      // immediately after this header.
+        uint32_t pad1;
+    };
 };
+
+struct RemoveRpc {
+    static const RpcType type = REMOVE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t id;
+        uint32_t tableId;
+        uint32_t pad1;
+        RejectRules rejectRules;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t version;
+    };
+};
+
+struct WriteRpc {
+    static const RpcType type = WRITE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t id;
+        uint32_t tableId;
+        uint32_t length;              // Length of the object's value in bytes.
+                                      // The actual bytes of the object follow
+                                      // immediately after this header.
+        RejectRules rejectRules;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t version;
+    };
+};
+
+// Coordinator RPCs follow, see Coordinator.cc
+struct EnlistServerRpc {
+    static const RpcType type = ENLIST_SERVER;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
+                                       // including terminating NULL character.
+                                       // The bytes of the service locator
+                                       // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t serverId;
+    };
+};
+
+// -- Backup RPCs ---
+
+struct BackupCommitRpc {
+    static const RpcType type = BACKUP_COMMIT;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;      ///< Server Id from whom the request is coming.
+        uint64_t segmentId;     ///< Target segment to flush to disk.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct BackupFreeRpc {
+    static const RpcType type = BACKUP_FREE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;      ///< Server Id from whom the request is coming.
+        uint64_t segmentId;     ///< Target segment to discard from backup.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct BackupGetRecoveryDataRpc {
+    static const RpcType type = BACKUP_GETRECOVERYDATA;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;      ///< Server Id from whom the request is coming.
+        // TODO(stutsman) serialized TabletMap
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint32_t recoveredObjectCount;///< Number of objects in reply payload.
+    };
+};
+
+struct BackupOpenRpc {
+    static const RpcType type = BACKUP_OPEN;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;      ///< Server Id from whom the request is coming.
+        uint64_t segmentId;     ///< Target segment to open on the backup.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct BackupStartReadingDataRpc {
+    static const RpcType type = BACKUP_STARTREADINGDATA;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;      ///< Server Id from whom the request is coming.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint32_t segmentIdCount;    ///< Number of segmentIds in reply payload.
+        // A series of segmentIdCount uint64_t segmentIds follows.
+    };
+};
+
+struct BackupWriteRpc {
+    static const RpcType type = BACKUP_WRITE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;          ///< Server from whom the request is coming.
+        uint64_t segmentId;         ///< Target segment to update.
+        uint32_t offset;            ///< Offset into this segment to write at.
+        uint32_t length;            ///< Number of bytes to write.
+        // Opaque byte string follows with data to write.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+// --- Magic numbers ---
 
 /**
  * Largest allowable RAMCloud object, in bytes.  It's not clear whether

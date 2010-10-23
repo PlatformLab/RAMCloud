@@ -67,7 +67,7 @@ Segment::reset()
     assert(!isMutable);
 
     if (id != SEGMENT_INVALID_ID)
-        backup->freeSegment(id);
+        backup->freeSegment(0, id);
 
     freeBytes  = totalBytes;
     tailBytes  = totalBytes;
@@ -102,7 +102,7 @@ Segment::append(const void *buf, const uint64_t len)
     void *loc = static_cast<uint8_t*>(base) + offset;
 
     memcpy(loc, buf, len);
-    backup->writeSegment(id, offset, buf, len);
+    backup->writeSegment(0, id, offset, buf, len);
     freeBytes -= len;
     tailBytes -= len;
 
@@ -219,26 +219,7 @@ Segment::finalize()
 {
     assert(id != SEGMENT_INVALID_ID);
     isMutable = false;
-    backup->commitSegment(id);
-}
-
-/**
- * Restore a previously backed-up Segment into the present Segment.
- *
- * \param restoreSegId
- *      The segment identifier to restore as.
- */
-void
-Segment::restore(uint64_t restoreSegId)
-{
-    assert(id == SEGMENT_INVALID_ID);
-
-    //printf("Segment restoring from %llu:\n", restoreSegId);
-    backup->retrieveSegment(restoreSegId, base);
-    // TODO(stutsman) restore all sorts of state/invariants
-    // It seems we want to restore this information by making a single
-    // pass which happens in the server to rebuild the hashtable
-    id = restoreSegId;
+    backup->commitSegment(0, id);
 }
 
 /**

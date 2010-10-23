@@ -115,7 +115,7 @@ try
         while (true) {
             Buffer request;
             Buffer response;
-            uint64_t totalFrags = (random() & 0x3FF);
+            uint64_t totalFrags = (generateRandom() & 0x3FF);
             for (uint32_t i = 0; i < totalFrags; i++)
                 Buffer::Chunk::appendToBuffer(&request, buf, sizeof(buf));
             CycleCounter c;

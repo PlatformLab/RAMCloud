@@ -1,0 +1,17 @@
+COORDINATOR_SRCFILES := \
+			src/ClientException.cc \
+			src/CoordinatorServer.cc \
+			src/Metrics.cc \
+			src/Server.cc \
+			src/Status.cc \
+			$(NULL)
+
+COORDINATOR_OBJFILES := $(COORDINATOR_SRCFILES)
+COORDINATOR_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(COORDINATOR_OBJFILES))
+COORDINATOR_OBJFILES := $(COORDINATOR_OBJFILES) $(SHARED_OBJFILES)
+
+$(OBJDIR)/coordinator: $(COORDINATOR_OBJFILES) $(OBJDIR)/CoordinatorMain.o
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+all: $(OBJDIR)/coordinator

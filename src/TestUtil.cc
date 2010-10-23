@@ -60,9 +60,18 @@ struct assertion_traits<char*> {
 void
 assertEquals(const char* expected, const char* actual,
         SourceLine sourceLine, const std::string &message) {
-    if (strcmp(actual, expected) != 0) {
-        Asserter::failNotEqual(std::string(expected), std::string(actual),
-                sourceLine, message);
+    if (actual == NULL || expected == NULL) {
+        if (actual != expected) {
+            Asserter::failNotEqual(std::string(expected ?: "(NULL)"),
+                                   std::string(actual ?: "(NULL)"),
+                                   sourceLine, message);
+        }
+    } else {
+        if (strcmp(actual, expected) != 0) {
+            Asserter::failNotEqual(std::string(expected),
+                                   std::string(actual),
+                                   sourceLine, message);
+        }
     }
 }
 
@@ -298,12 +307,12 @@ bufferToDebugString(Buffer* buffer)
  *      The string that should match \a pattern.
  */
 void
-assertMatchesPosixRegex(const char* pattern, const char* subject)
+assertMatchesPosixRegex(const string& pattern, const string& subject)
 {
     regex_t pregStorage;
     int r;
 
-    r = regcomp(&pregStorage, pattern, 0);
+    r = regcomp(&pregStorage, pattern.c_str(), 0);
     if (r != 0) {
         string errorMsg = "Pattern '";
         errorMsg += pattern;
@@ -312,7 +321,7 @@ assertMatchesPosixRegex(const char* pattern, const char* subject)
         CPPUNIT_FAIL(errorMsg);
     }
 
-    r = regexec(&pregStorage, subject, 0, NULL, 0);
+    r = regexec(&pregStorage, subject.c_str(), 0, NULL, 0);
     if (r != 0) {
         string errorMsg = "Pattern '";
         errorMsg += pattern;

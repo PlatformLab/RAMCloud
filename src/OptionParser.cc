@@ -121,7 +121,8 @@ OptionParser::setup(int argc, char* argv[])
            default_value("fast+udp:host=0.0.0.0,port=12242"),
          "Service locator to listen on")
         ("coordinator,C",
-         po::value<string>(&options.coordinatorLocator),
+         po::value<string>(&options.coordinatorLocator)->
+           default_value("fast+udp:host=0.0.0.0,port=12246"),
          "Service locator where the coordinator can be contacted");
 
     allOptions.add(commonOptions).add(configOptions).add(appOptions);

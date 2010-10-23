@@ -77,6 +77,12 @@ ClientException::throwException(Status status)
             throw ResponseFormatError();
         case STATUS_COULDNT_CONNECT:
             throw CouldntConnectException();
+        case STATUS_BACKUP_BAD_SEGMENT_ID:
+            throw BackupBadSegmentIdException();
+        case STATUS_BACKUP_SEGMENT_ALREADY_OPEN:
+            throw BackupSegmentAlreadyOpenException();
+        case STATUS_BACKUP_SEGMENT_OVERFLOW:
+            throw BackupSegmentOverflowException();
         default:
             throw InternalError(status);
     }

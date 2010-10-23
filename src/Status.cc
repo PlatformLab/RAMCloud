@@ -32,7 +32,10 @@ static const char* messages[] = {
     "invalid RPC request type",                  // UNIMPLEMENTED_REQUEST
     "RPC request improperly formatted",          // REQUEST_FORMAT_ERROR
     "RPC response improperly formatted",         // RESPONSE_FORMAT_ERROR
-    "couldn't connect to RAMCloud cluster"       // COULDNT_CONNECT
+    "couldn't connect to RAMCloud cluster",      // COULDNT_CONNECT
+    "bad segment id",                            // BACKUP_BAD_SEGMENT_ID
+    "segment already open",                      // BACKUP_SEGMENT_ALREADY_OPEN
+    "segment overflow",                          // BACKUP_SEGMENT_OVERFLOW
 };
 
 // The following table maps from a Status value to the internal name
@@ -48,7 +51,10 @@ static const char* symbols[] = {
     "STATUS_UNIMPLEMENTED_REQUEST",
     "STATUS_REQUEST_FORMAT_ERROR",
     "STATUS_RESPONSE_FORMAT_ERROR",
-    "STATUS_COULDNT_CONNECT"
+    "STATUS_COULDNT_CONNECT",
+    "STATUS_BACKUP_BAD_SEGMENT_ID",
+    "STATUS_BACKUP_SEGMENT_ALREADY_OPEN",
+    "STATUS_BACKUP_SEGMENT_OVERFLOW",
 };
 
 /**

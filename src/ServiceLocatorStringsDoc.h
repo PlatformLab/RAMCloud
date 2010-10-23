@@ -57,7 +57,8 @@ namespace RAMCloud {
  * any enclosed '"' characters should be escaped with '\'. For unquoted values,
  * any enclosed '"', ',', and ';' characters should be escaped with '\'.
  * Leading and trailing spaces are automatically stripped from any unquoted
- * values.
+ * values. There is no support for hexadecimal/octal number specification
+ * through a prefix like 0x.
  *
  * Spaces are optional and insignificant before and after each protocol, key,
  * value, ':', '=', ',', and ';'.

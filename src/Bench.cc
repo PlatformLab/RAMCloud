@@ -133,7 +133,7 @@ readMany()
     serverCounter = 0;
     for (uint64_t i = 0; i < count; i++) {
         RC::Buffer value;
-        key = randomReads ? rand() % count : i;
+        key = randomReads ? generateRandom() % count : i;
         client->read(table, multirow ? key : 0, &value);
         serverCounter += client->counterValue;
     }

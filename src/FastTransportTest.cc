@@ -95,12 +95,14 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_removeTimer_alreadyIn);
     CPPUNIT_TEST(test_poll);
     CPPUNIT_TEST(test_poll_noIter);
+    CPPUNIT_TEST(test_sendBadSessionError);
     CPPUNIT_TEST(test_tryProcessPacket_noPacketReady);
     CPPUNIT_TEST(test_tryProcessPacket_tooSmall);
     CPPUNIT_TEST(test_tryProcessPacket_dropped);
-    CPPUNIT_TEST(test_tryProcessPacket_c2sGoodHint);
     CPPUNIT_TEST(test_tryProcessPacket_c2sBadHintOpenSession);
     CPPUNIT_TEST(test_tryProcessPacket_c2sBadSession);
+    CPPUNIT_TEST(test_tryProcessPacket_c2sGoodHint);
+    CPPUNIT_TEST(test_tryProcessPacket_c2sGoodHintBadToken);
     CPPUNIT_TEST(test_tryProcessPacket_s2cGoodHint);
     CPPUNIT_TEST(test_tryProcessPacket_s2cGoodHintBadToken);
     CPPUNIT_TEST(test_tryProcessPacket_s2cBadHint);
@@ -116,6 +118,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
 
         request = new Buffer();
         response = new Buffer();
+        logger.setLogLevels(SILENT_LOG_LEVEL);
     }
 
     void
@@ -130,7 +133,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         : FastTransport(NULL)
         , request(NULL)
         , response(NULL)
-        , serviceLocator("fast+udp: ip=1.2.3.4, port=1234")
+        , serviceLocator("fast+udp: host=1.2.3.4, port=1234")
         , transport(NULL)
         , driver(NULL)
         , address("1.2.3.4")
@@ -316,6 +319,26 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(1, timer.onTimerFiredCount);
     }
 
+    void
+    test_sendBadSessionError()
+    {
+        MockReceived recvd(0, 1, "");
+        Header *header = recvd.getHeader();
+        header->sessionToken = 0xabcd;
+        header->rpcId = 3;
+        header->clientSessionHint = 4;
+        header->serverSessionHint = 5;
+        header->channelId = 6;
+        header->payloadType = 7;
+        header->direction = 1;
+        transport->sendBadSessionError(recvd.getHeader(),
+                                       recvd.sender);
+        CPPUNIT_ASSERT_EQUAL(
+            "{ sessionToken:abcd rpcId:3 clientSessionHint:4 "
+            "serverSessionHint:5 0/0 frags channel:6 dir:1 reqACK:0 "
+            "drop:0 payloadType:4 } ", driver->outputLog);
+    }
+
     /// A predicate to limit TestLog messages to tryProcessPacket
     static bool
     tppPred(string s)
@@ -349,7 +372,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(true, result);
         CPPUNIT_ASSERT_EQUAL(
             "bool RAMCloud::FastTransport::tryProcessPacket(): "
-            "packet too small", TestLog::get());
+            "packet too short (1 bytes)", TestLog::get());
     }
 
     void
@@ -366,6 +389,48 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(
             "bool RAMCloud::FastTransport::tryProcessPacket(): "
             "dropped", TestLog::get());
+    }
+
+    void
+    test_tryProcessPacket_c2sBadHintOpenSession()
+    {
+        TestLog::Enable _(&tppPred);
+
+        MockTSC __(1); // force sessionTimeoutCycles to be deterministic
+        MockTSC ___(sessionTimeoutCycles() * 2);
+        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
+        recvd.getHeader()->serverSessionHint = ClientSession::INVALID_HINT;
+        recvd.getHeader()->payloadType = Header::SESSION_OPEN;
+        ServiceLocator sl("mock:");
+        recvd.sender = driver->newAddress(sl);
+        driver->setInput(&recvd);
+
+        bool result = transport->tryProcessPacket();
+        CPPUNIT_ASSERT_EQUAL(true, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "opening session 0", TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(1, transport->serverSessions.size());
+    }
+
+    void
+    test_tryProcessPacket_c2sBadSession()
+    {
+        TestLog::Enable _(&tppPred);
+
+        MockReceived recvd(0, 1, "");
+        driver->setInput(&recvd);
+
+        bool result = transport->tryProcessPacket();
+        CPPUNIT_ASSERT_EQUAL(true, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::tryProcessPacket(): "
+            "bad session hint 0", TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(
+            "{ sessionToken:0 rpcId:0 clientSessionHint:0 "
+              "serverSessionHint:0 0/0 frags channel:0 dir:1 reqACK:0 "
+              "drop:0 payloadType:4 } ", driver->outputLog);
     }
 
     void
@@ -387,46 +452,23 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     }
 
     void
-    test_tryProcessPacket_c2sBadHintOpenSession()
+    test_tryProcessPacket_c2sGoodHintBadToken()
     {
         TestLog::Enable _(&tppPred);
 
         ServerSession* session = transport->serverSessions.get();
-        MockTSC __(1); // force sessionTimeoutCycles to be deterministic
-        MockTSC ___(sessionTimeoutCycles() * 2);
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
-        MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
-        recvd.getHeader()->sessionToken = session->token + 1;
-        recvd.getHeader()->payloadType = Header::SESSION_OPEN;
-        ServiceLocator sl("mock:");
-        recvd.sender = driver->newAddress(sl);
-        driver->setInput(&recvd);
-
-        bool result = transport->tryProcessPacket();
-        CPPUNIT_ASSERT_EQUAL(true, result);
-        CPPUNIT_ASSERT_EQUAL(
-            "bool RAMCloud::FastTransport::tryProcessPacket(): "
-            "bad token | "
-            "bool RAMCloud::FastTransport::tryProcessPacket(): "
-            "session open", TestLog::get());
-        CPPUNIT_ASSERT_EQUAL(1, transport->serverSessions.size());
-    }
-
-    void
-    test_tryProcessPacket_c2sBadSession()
-    {
-        TestLog::Enable _(&tppPred);
-
         MockReceived recvd(0, 1, "");
+        recvd.getHeader()->sessionToken = session->token+1;
         driver->setInput(&recvd);
 
         bool result = transport->tryProcessPacket();
         CPPUNIT_ASSERT_EQUAL(true, result);
         CPPUNIT_ASSERT_EQUAL(
             "bool RAMCloud::FastTransport::tryProcessPacket(): "
-            "bad session", TestLog::get());
+            "bad session token (0xcccccccccccccccc in session 0, "
+            "0xcccccccccccccccd in packet)", TestLog::get());
         CPPUNIT_ASSERT_EQUAL(
-            "{ sessionToken:0 rpcId:0 clientSessionHint:0 "
+            "{ sessionToken:cccccccccccccccd rpcId:0 clientSessionHint:0 "
               "serverSessionHint:0 0/0 frags channel:0 dir:1 reqACK:0 "
               "drop:0 payloadType:4 } ", driver->outputLog);
     }
@@ -469,7 +511,8 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
             "bool RAMCloud::FastTransport::tryProcessPacket(): "
             "client session processing packet | "
             "bool RAMCloud::FastTransport::tryProcessPacket(): "
-            "Bad fragment token, client dropping", TestLog::get());
+            "bad fragment token (0xcccccccccccccccc in session 0, "
+            "0x0 in packet), client dropping", TestLog::get());
     }
 
     void
@@ -485,7 +528,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(true, result);
         CPPUNIT_ASSERT_EQUAL(
             "bool RAMCloud::FastTransport::tryProcessPacket(): "
-            "Bad client session hint", TestLog::get());
+            "bad client session hint 0", TestLog::get());
     }
 
   private:
@@ -646,7 +689,9 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_processReceivedData_totalFragMismatch);
     CPPUNIT_TEST(test_processReceivedData_addFirstMissing);
     CPPUNIT_TEST(test_processReceivedData_addRunFromWindow);
+    CPPUNIT_TEST(test_processReceivedData_fragmentBeyondWindow);
     CPPUNIT_TEST(test_processReceivedData_addToWindow);
+    CPPUNIT_TEST(test_processReceivedData_duplicateFragment);
     CPPUNIT_TEST(test_processReceivedData_sendAckCalled);
     CPPUNIT_TEST(test_processReceivedData_timerAdded);
     CPPUNIT_TEST_SUITE_END();
@@ -712,7 +757,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
 
         msg = new InboundMessage();
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=1234");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=1234");
         session = transport->getSession(serviceLocator);
 
         ClientSession* clientSession =
@@ -838,6 +883,8 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
     void
     test_processReceivedData_totalFragMismatch()
     {
+        TestLog::Enable _;
+
         // NOTE Make sure to keep the MockReceiveds on the stack until
         // none of the data is in use as part of a buffer
         MockReceived recvd(0, msg->totalFrags + 1, "God hates ponies.");
@@ -846,6 +893,10 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(msg->dataBuffer));
         CPPUNIT_ASSERT_EQUAL(0, msg->firstMissingFrag);
         CPPUNIT_ASSERT_EQUAL(0, recvd.stealCount);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::InboundMessage::"
+            "processReceivedData(RAMCloud::Driver::Received*): "
+            "header->totalFrags (3) != totalFrags (2)", TestLog::get());
     }
 
     /**
@@ -901,6 +952,26 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(3, msg->dataStagingWindow[3].second);
     }
 
+    void
+    test_processReceivedData_fragmentBeyondWindow()
+    {
+        // test with longer connection
+        uint32_t totalFrags = 100;
+        setUp(totalFrags, false);
+        TestLog::Enable _;
+
+        // first recvd packet - out of order - ensure in window in right place
+        MockReceived recvd(33, totalFrags, "packet");
+        bool result = msg->processReceivedData(&recvd);
+        CPPUNIT_ASSERT_EQUAL(false, result);
+        CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(msg->dataBuffer));
+        CPPUNIT_ASSERT_EQUAL(0, recvd.stealCount);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::InboundMessage::"
+            "processReceivedData(RAMCloud::Driver::Received*): "
+            "fragNumber 33 out of range (last OK = 32)", TestLog::get());
+    }
+
     /**
      * Ensures that if an out-of-order packet is encountered it is properly
      * stored in the staging window to be moved in to the result buffer later.
@@ -930,6 +1001,31 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
                              msg->dataStagingWindow[1].first);
         CPPUNIT_ASSERT_EQUAL(nextRecvd.len, msg->dataStagingWindow[1].second);
         CPPUNIT_ASSERT_EQUAL(1, nextRecvd.stealCount);
+    }
+
+    void
+    test_processReceivedData_duplicateFragment()
+    {
+        // test with longer connection
+        uint32_t totalFrags = 100;
+        setUp(totalFrags, false);
+        TestLog::Enable _;
+
+        // first recvd packet - out of order
+        MockReceived recvd(2, totalFrags, "first is short");
+        bool result = msg->processReceivedData(&recvd);
+
+        // 2nd recvd packet - same fragment
+        MockReceived nextRecvd(2, totalFrags, "second is longer");
+        result = msg->processReceivedData(&nextRecvd);
+        CPPUNIT_ASSERT_EQUAL(false, result);
+        CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(msg->dataBuffer));
+        CPPUNIT_ASSERT_EQUAL(recvd.len, msg->dataStagingWindow[2].second);
+        CPPUNIT_ASSERT_EQUAL(0, nextRecvd.stealCount);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::InboundMessage::"
+            "processReceivedData(RAMCloud::Driver::Received*): "
+            "duplicate fragment 2 received", TestLog::get());
     }
 
     void
@@ -981,6 +1077,9 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_send_dontAckLast);
     CPPUNIT_TEST(test_send_timers);
     CPPUNIT_TEST(test_processReceivedAck_noSendBuffer);
+    CPPUNIT_TEST(test_processReceivedAck_packetTooShort);
+    CPPUNIT_TEST(test_processReceivedAck_ackPastMessageEnd);
+    CPPUNIT_TEST(test_processReceivedAck_ackPastWindowEnd);
     CPPUNIT_TEST(test_processReceivedAck_noneMissing);
     CPPUNIT_TEST(test_processReceivedAck_oneMissing);
     CPPUNIT_TEST(test_sendOneData_noRequestAck);
@@ -1049,7 +1148,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
 
         uint32_t channelId = 5;
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=1234");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=1234");
         session = transport->getSession(serviceLocator);
         ClientSession* clientSession =
             static_cast<ClientSession*>(session.get());
@@ -1234,6 +1333,56 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(false, result);
     }
 
+    void
+    test_processReceivedAck_packetTooShort()
+    {
+        TestLog::Enable _;
+        msg->send();
+        AckResponse ackResp(0, 0);
+        MockReceived recvd(0, msg->totalFrags, &ackResp,
+                           sizeof(AckResponse) - 1);
+        bool result = msg->processReceivedAck(&recvd);
+        CPPUNIT_ASSERT_EQUAL(false, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::OutboundMessage::"
+            "processReceivedAck(RAMCloud::Driver::Received*): "
+            "ACK packet too short (31 bytes)", TestLog::get());
+    }
+
+    void
+    test_processReceivedAck_ackPastMessageEnd()
+    {
+        TestLog::Enable _;
+        msg->send();
+        AckResponse ackResp(0, 0);
+        ackResp.firstMissingFrag = 3;
+        MockReceived recvd(0, msg->totalFrags, &ackResp, sizeof(AckResponse));
+        bool result = msg->processReceivedAck(&recvd);
+        CPPUNIT_ASSERT_EQUAL(false, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::OutboundMessage::processReceivedAck"
+            "(RAMCloud::Driver::Received*): invalid ACK "
+            "(firstMissingFrag 3 > totalFrags 2)", TestLog::get());
+    }
+
+    void
+    test_processReceivedAck_ackPastWindowEnd()
+    {
+        TestLog::Enable _;
+        msg->send();
+        msg->totalFrags = 50;
+        AckResponse ackResp(0, 0);
+        ackResp.firstMissingFrag = 34;
+        MockReceived recvd(0, msg->totalFrags, &ackResp, sizeof(AckResponse));
+        bool result = msg->processReceivedAck(&recvd);
+        CPPUNIT_ASSERT_EQUAL(false, result);
+        CPPUNIT_ASSERT_EQUAL(
+            "bool RAMCloud::FastTransport::OutboundMessage::"
+            "processReceivedAck(RAMCloud::Driver::Received*): "
+            "invalid ACK (firstMissingFrag 34 beyond end of window 33)",
+            TestLog::get());
+    }
+
     /**
      * No packets missing; just ensure that bookkeeping slides up to
      * match the receiver side.
@@ -1345,7 +1494,9 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_processInboundPacket_badChannel);
     CPPUNIT_TEST(test_processInboundPacket_currentRpcReceivedDataPacket);
     CPPUNIT_TEST(test_processInboundPacket_currentRpcReceivedAckPacket);
+    CPPUNIT_TEST(test_processInboundPacket_currentRpcBadPayloadType);
     CPPUNIT_TEST(test_processInboundPacket_nextRpcReceivedDataPacket);
+    CPPUNIT_TEST(test_processInboundPacket_newRpcBadPayloadType);
     CPPUNIT_TEST(test_startSession);
     CPPUNIT_TEST(test_processReceivedData_receiving);
     CPPUNIT_TEST(test_processReceivedData_processing);
@@ -1370,7 +1521,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         driver = new MockDriver(Header::headerToString);
         transport = new FastTransport(driver);
         session = new ServerSession(transport, sessionId);
-        ServiceLocator sl("mock: ip=1.2.3.4, port=12345");
+        ServiceLocator sl("mock: host=1.2.3.4, port=12345");
         driverAddress = driver->newAddress(sl);
     }
 
@@ -1466,6 +1617,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_processInboundPacket_badChannel()
     {
+        TestLog::Enable dummy;
         const uint64_t tsc = 9898;
         MockTSC _(tsc);
 
@@ -1474,6 +1626,10 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
 
         session->processInboundPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::FastTransport::ServerSession::"
+            "processInboundPacket(RAMCloud::Driver::Received*): "
+            "invalid channel id 8", TestLog::get());
     }
 
     /// A predicate to limit TestLog messages to processInboundPacket
@@ -1533,6 +1689,25 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     }
 
     void
+    test_processInboundPacket_currentRpcBadPayloadType()
+    {
+        TestLog::Enable _;
+
+        MockReceived junk(0, 2, "foo");
+        session->processInboundPacket(&junk);
+        TestLog::reset();
+
+        MockReceived recvd(1, 2, "foo");
+        recvd.getHeader()->payloadType = Header::RESERVED1;
+        session->processInboundPacket(&recvd);
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::FastTransport::ServerSession::"
+            "processInboundPacket(RAMCloud::Driver::Received*): "
+            "current rpcId has bad packet type 3",
+            TestLog::get());
+    }
+
+    void
     test_processInboundPacket_nextRpcReceivedDataPacket()
     {
         TestLog::Enable _;
@@ -1548,6 +1723,24 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
             "processReceivedData",
             TestLog::get());
         session->channels[0].state = ServerSession::ServerChannel::IDLE;
+    }
+
+    void
+    test_processInboundPacket_newRpcBadPayloadType()
+    {
+        TestLog::Enable _(&pipPred);
+
+        MockReceived recvd(0, 2, "foo");
+        recvd.getHeader()->payloadType = Header::RESERVED1;
+        session->processInboundPacket(&recvd);
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::FastTransport::ServerSession::"
+            "processInboundPacket(RAMCloud::Driver::Received*): "
+            "start a new RPC | "
+            "void RAMCloud::FastTransport::ServerSession::"
+            "processInboundPacket(RAMCloud::Driver::Received*): "
+            "new rpcId has bad type 3",
+            TestLog::get());
     }
 
     void
@@ -1652,6 +1845,8 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_processInboundPacket_data);
     CPPUNIT_TEST(test_processInboundPacket_ack);
     CPPUNIT_TEST(test_processInboundPacket_badSession);
+    CPPUNIT_TEST(test_processInboundPacket_badPayloadType);
+    CPPUNIT_TEST(test_processInboundPacket_stalePacket);
     CPPUNIT_TEST(test_sendSessionOpenRequest);
     CPPUNIT_TEST(test_allocateChannels);
     CPPUNIT_TEST(test_getAvailableChannel);
@@ -1779,7 +1974,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         uint64_t tsc = 91291;
         MockTSC _(tsc);
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
 
         session->connect();
@@ -1801,7 +1996,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         uint64_t tsc = 91291;
         MockTSC _(tsc);
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
 
         session->connect();
@@ -1826,7 +2021,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         uint64_t tsc = 91291;
         MockTSC _(tsc);
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
 
         session->connect();
@@ -1909,7 +2104,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_init()
     {
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=0x3742");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=0x3742");
         session->init(serviceLocator);
         CPPUNIT_ASSERT(0 != session->serverAddress.get());
     }
@@ -1928,10 +2123,16 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_processInboundPacket_invalidChannel()
     {
+        TestLog::Enable _;
         MockReceived recvd(0, 1, "");
 
         session->processInboundPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, session->isConnected());
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::FastTransport::ClientSession::"
+            "processInboundPacket(RAMCloud::Driver::Received*): "
+            "invalid channel id 0",
+            TestLog::get());
     }
 
     void
@@ -2008,12 +2209,59 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     }
 
     void
+    test_processInboundPacket_badPayloadType()
+    {
+        TestLog::Enable _;
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+        ClientSession::ClientChannel* channel = session->getAvailableChannel();
+        CPPUNIT_ASSERT(channel);
+        channel->state = ClientSession::ClientChannel::SENDING;
+        channel->currentRpc = new ClientRpc(transport,
+                                            request, response);
+
+        MockReceived recvd(0, 2, "packet data");
+        recvd.getHeader()->payloadType = Header::RESERVED1;
+        session->processInboundPacket(&recvd);
+        channel->currentRpc = NULL;
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::FastTransport::ClientSession::"
+            "processInboundPacket(RAMCloud::Driver::Received*): "
+            "bad payload type 3",
+            TestLog::get());
+    }
+
+    void
+    test_processInboundPacket_stalePacket()
+    {
+        TestLog::Enable _;
+        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+        ClientSession::ClientChannel* channel = session->getAvailableChannel();
+        CPPUNIT_ASSERT(channel);
+        channel->state = ClientSession::ClientChannel::SENDING;
+        channel->currentRpc = new ClientRpc(transport,
+                                            request, response);
+
+        MockReceived recvd(0, 2, "packet data");
+        recvd.getHeader()->rpcId = 3;
+        channel->rpcId = 4;
+        session->processInboundPacket(&recvd);
+        channel->currentRpc = NULL;
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::FastTransport::ClientSession::"
+            "processInboundPacket(RAMCloud::Driver::Received*): "
+            "out-of-order packet (got rpcId 3, current rpcId 4)",
+            TestLog::get());
+    }
+
+    void
     test_sendSessionOpenRequest()
     {
         uint64_t tsc = 91291;
         MockTSC _(tsc);
 
-        ServiceLocator serviceLocator("fast+udp: ip=1.2.3.4, port=12345");
+        ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
         session->sendSessionOpenRequest();
         CPPUNIT_ASSERT_EQUAL(

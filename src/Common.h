@@ -262,13 +262,28 @@ class MockTSC {
     }
 };
 __inline __attribute__((always_inline, no_instrument_function))
-long generateRandom(void); // NOLINT
-long // NOLINT
+uint64_t generateRandom(void);
+uint64_t
 generateRandom()
 {
     if (mockRandomValue)
         return mockRandomValue;
-    return random();
+    // Each call to random returns 31 bits of randomness,
+    // so we need three to get 64 bits of randomness.
+    union {
+        struct {
+            uint64_t one:31;
+            uint64_t two:31;
+            uint64_t three:2;
+        };
+        uint64_t all;
+    } r;
+    static_assert(RAND_MAX >= (1 << 31));
+    r.all = 0;
+    r.one = random(); // NOLINT
+    r.two = random(); // NOLINT
+    r.three = random(); // NOLINT
+    return r.all;
 }
 class MockRandom {
     uint64_t original;

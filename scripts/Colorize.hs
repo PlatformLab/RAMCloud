@@ -46,6 +46,8 @@ markup = [ ("error:",           colorPutStrLn BoldIntensity Vivid Cyan)
 ss = "std::basic_string<char, std::char_traits<char>, std::allocator<char> >"
 substs = [ (ss, "string")
          , ("python cpplint.py", "cpplint")
+         , ("boost::intrusive_ptr<RAMCloud::Transport::Session>",
+            "Transport::SessionRef")
          ]
 
 prefixsToStrip = [cwd ++ "/src/", cwd ++ "/"]

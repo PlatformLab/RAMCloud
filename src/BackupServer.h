@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,106 +23,96 @@
 #ifndef RAMCLOUD_BACKUPSERVER_H
 #define RAMCLOUD_BACKUPSERVER_H
 
-#include <string>
+#include <boost/pool/pool.hpp>
+#include <map>
 
 #include "Common.h"
-#include "backuprpc.h"
 #include "BackupClient.h"
-#include "Bitmap.h"
+#include "BackupStorage.h"
+#include "Rpc.h"
+#include "Server.h"
 
 namespace RAMCloud {
 
-struct BackupException : public Exception {
-    BackupException() : Exception() {}
-    explicit BackupException(std::string msg) : Exception(msg) {}
-    explicit BackupException(int errNo) : Exception(errNo) {}
-};
-
-struct BackupLogIOException : public BackupException {
-    BackupLogIOException() : BackupException() {}
-    explicit BackupLogIOException(std::string msg): BackupException(msg) {}
-    explicit BackupLogIOException(int errNo) : BackupException(errNo) {}
-};
-struct BackupInvalidRPCOpException : public BackupException {
-    BackupInvalidRPCOpException() : BackupException() {}
-    explicit BackupInvalidRPCOpException(std::string msg)
-        : BackupException(msg) {}
-    explicit BackupInvalidRPCOpException(int errNo)
-        : BackupException(errNo) {}
-};
-struct BackupSegmentOverflowException : public BackupException {
-    BackupSegmentOverflowException() : BackupException() {}
-    explicit BackupSegmentOverflowException(std::string msg)
-        : BackupException(msg) {}
-    explicit BackupSegmentOverflowException(int errNo)
-        : BackupException(errNo) {}
-};
-
-const uint64_t SEGMENT_FRAMES = SEGMENT_COUNT * 2;
-const uint64_t LOG_SPACE = SEGMENT_FRAMES * SEGMENT_SIZE;
-
-const uint64_t INVALID_SEGMENT_NUM = ~(0ull);
-
-class BackupServer : BackupClient {
+/**
+ * Handles Rpc requests from Masters and the Coordinator to persistently store
+ * Segments and to facilitate the recovery of object data when Masters crash.
+ */
+class BackupServer : public Server {
   public:
-    explicit BackupServer();
-    explicit BackupServer(const char *logPath, int logOpenFlags = 0);
+    explicit BackupServer(BackupStorage& storage);
     virtual ~BackupServer();
     void run();
+
   private:
-    void handleHeartbeat(const backup_rpc *req, backup_rpc *resp);
-    void handleWrite(const backup_rpc *req, backup_rpc *resp);
-    void handleBegin(const backup_rpc *req, backup_rpc *resp);
-    void handleCommit(const backup_rpc *req, backup_rpc *resp);
-    void handleFree(const backup_rpc *req, backup_rpc *resp);
-    void handleGetSegmentList(const backup_rpc *req, backup_rpc *resp);
-    void handleGetSegmentMetadata(const backup_rpc *req, backup_rpc *resp);
-    void handleRetrieve(const backup_rpc *req, backup_rpc *resp);
-
-    void handleRPC();
-
-    virtual void heartbeat() {}
-    virtual void writeSegment(uint64_t segNum, uint32_t offset,
-                              const void *data, uint32_t len);
-    virtual void commitSegment(uint64_t segNum);
-    virtual void freeSegment(uint64_t segNum);
-    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
-    virtual uint32_t getSegmentMetadata(uint64_t segNum,
-                                        RecoveryObjectMetadata *list,
-                                        uint32_t maxSize);
-    virtual void retrieveSegment(uint64_t segNum, void *buf);
-
+    void commitSegment(const BackupCommitRpc::Request& reqHdr,
+                       BackupCommitRpc::Response& respHdr,
+                       Transport::ServerRpc& rpc);
+    void dispatch(RpcType type,
+                  Transport::ServerRpc& rpc);
     void flushSegment();
-    void extractMetadata(const void *p,
-                         uint64_t offset,
-                         RecoveryObjectMetadata *meta);
-
+    void freeSegment(const BackupFreeRpc::Request& reqHdr,
+                     BackupFreeRpc::Response& respHdr,
+                     Transport::ServerRpc& rpc);
+    uint64_t frameForSegmentId(uint64_t segmentId);
+    void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
+                         BackupGetRecoveryDataRpc::Response& respHdr,
+                         Transport::ServerRpc& rpc);
+    void openSegment(const BackupOpenRpc::Request& reqHdr,
+                     BackupOpenRpc::Response& respHdr,
+                     Transport::ServerRpc& rpc);
     void reserveSpace();
-    uint64_t frameForSegNum(uint64_t segnum);
-
-    /** A file descriptor for the log file */
-    int logFD;
-    /**
-     * The start of the active segment, it is pagesize aligned to
-     * support O_DIRECT writes
-     */
-    char *seg;
-    /** Segment number of the active segment */
-    uint64_t openSegNum;
+    void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
+                          BackupStartReadingDataRpc::Response& respHdr,
+                          Transport::ServerRpc& rpc);
+    void writeSegment(const BackupWriteRpc::Request& req,
+                      BackupWriteRpc::Response& resp,
+                      Transport::ServerRpc& rpc);
 
     /**
-     * This array, given a segment frame, produces the current segment
-     * number that is stored there.
-     * SegmentFrame -> SegmentId
+     * Metadata associated with each segment describing where in memory
+     * and storage it resides.
      */
-    uint64_t segmentAtFrame[SEGMENT_FRAMES];
+    struct SegmentInfo {
+        SegmentInfo()
+            : segment(NULL)
+            , storageHandle(NULL)
+        {
+        }
+        SegmentInfo(char* segment, BackupStorage::Handle* storageHandle)
+            : segment(segment)
+            , storageHandle(storageHandle)
+        {
+        }
+        /// If NULL then this segment is not in memory.
+        char* segment;
+        /// Handle to provide to the storage layer to access this segment.
+        BackupStorage::Handle* storageHandle;
+    };
 
     /**
-     * Tracks which segment frames are free on disk (i.e. frames that
-     * contain live segments
+     * A pool of aligned segments (supporting O_DIRECT) to avoid
+     * the memory allocator.
      */
-    Bitmap<SEGMENT_FRAMES> freeMap;
+    boost::pool<> pool;
 
+    /// Type of the key for the segments map.
+    typedef pair<uint64_t, uint64_t> MasterSegmentIdPair;
+    /// Type of the segments map.
+    typedef std::map<MasterSegmentIdPair, SegmentInfo> SegmentsMap;
+    /**
+     * Mapping from (MasterId, SegmentId) to a SegmentInfo for segments
+     * that are currently open or in storage.
+     */
+    SegmentsMap segments;
+
+    /// The uniform size of each segment this backup deals with.
+    const uint32_t segmentSize;
+
+    /// The storage backend where committed segments are to be placed.
+    BackupStorage& storage;
+
+    friend class Server;
     friend class BackupServerTest;
     DISALLOW_COPY_AND_ASSIGN(BackupServer);
 };

@@ -42,7 +42,7 @@ class LogTest : public CppUnit::TestFixture {
 
     RAMCloud::Log *log;
     void *logBase;
-    MultiBackupClient *backup;
+    BackupManager* backup;
 
   public:
     LogTest() : log(NULL), logBase(NULL), backup(NULL) { }
@@ -50,7 +50,7 @@ class LogTest : public CppUnit::TestFixture {
     setUp()
     {
         logBase = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
-        backup = new MultiBackupClient();
+        backup = new BackupManager();
         log = new RAMCloud::Log(SEGMENT_SIZE, logBase,
             SEGMENT_SIZE * SEGMENT_COUNT, backup);
 
@@ -89,7 +89,7 @@ class LogTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT_EQUAL(false, log->isSegmentLive(SEGMENT_INVALID_ID));
 
-        for (int i = 0; i < SEGMENT_COUNT; i++) {
+        for (uint32_t i = 0; i < SEGMENT_COUNT; i++) {
             uint64_t id;
             uint32_t off;
 
@@ -222,7 +222,7 @@ class LogTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(log->getSegment(logBase, SEGMENT_SIZE) != NULL);
 
         uintptr_t b = (uintptr_t)logBase;
-        for (int i = 0; i < SEGMENT_COUNT; i++) {
+        for (uint32_t i = 0; i < SEGMENT_COUNT; i++) {
             CPPUNIT_ASSERT(log->getSegment(reinterpret_cast<void*>(b +
                         (i * SEGMENT_SIZE)), SEGMENT_SIZE) != NULL);
         }

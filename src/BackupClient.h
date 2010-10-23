@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,43 +13,71 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * Declarations for master server-side backup RPC stubs.  The
- * classes herein send requests to the backup servers transparently to
- * handle all the backup needs of the masters.
- */
-
 #ifndef RAMCLOUD_BACKUPCLIENT_H
 #define RAMCLOUD_BACKUPCLIENT_H
 
+#include "Client.h"
 #include "Common.h"
+#include "Object.h"
 #include "Transport.h"
-#include "backuprpc.h"
 
 namespace RAMCloud {
+
+// TODO(stutsman) delete this soon!
+class TabletMap {
+};
 
 /**
  * The interface for an object that can act as a backup server no
  * matter the transport or location.
  */
-class BackupClient {
+class BackupClient : public Client {
   public:
+    struct RecoveredObject {
+        uint64_t segmentId;
+        //Object object;
+    };
+
     virtual ~BackupClient() {}
-    virtual void heartbeat() = 0;
-    virtual void writeSegment(uint64_t segNum, uint32_t offset,
-                              const void *data, uint32_t len) = 0;
-    virtual void commitSegment(uint64_t segNum) = 0;
-    virtual void freeSegment(uint64_t segNum) = 0;
-    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize) = 0;
-    virtual uint32_t getSegmentMetadata(uint64_t segNum,
-                                        RecoveryObjectMetadata *list,
-                                        uint32_t maxSize) = 0;
-    virtual void retrieveSegment(uint64_t segNum, void *buf) = 0;
+    virtual void commitSegment(uint64_t masterId, uint64_t segmentId) = 0;
+    virtual void freeSegment(uint64_t masterId, uint64_t segmentId) = 0;
+
+    /** 
+     * Get the objects stored for the given tablets of the given server.
+     */
+    virtual vector<RecoveredObject> getRecoveryData(uint64_t masterId,
+                                                    const TabletMap& tablets)=0;
+
+    /**
+     * Allocate space to receive backup writes for a segment.
+     *
+     * \param masterId
+     *      Id of this server.
+     * \param segmentId
+     *      Id of the segment to be backed up.
+     */
+    virtual void openSegment(uint64_t masterId, uint64_t segmentId) = 0;
+
+    /** 
+     * Begin reading the objects stored for the given server from disk.
+     * \return
+     *      A set of segment IDs for that server which will be read from disk.
+     */
+    virtual vector<uint64_t> startReadingData(uint64_t masterId) = 0;
+
+    /**
+     * Write the byte range specified in an open segment on the backup.
+     */
+    virtual void writeSegment(uint64_t masterId,
+                              uint64_t segmentId,
+                              uint32_t offset,
+                              const void *buf,
+                              uint32_t length) = 0;
 };
 
 /**
- * A backup consisting of a single remote host.
+ * A backup consisting of a single remote host.  BackupHost's primary
+ * role is to proxy calls via RPCs to a particular backup server.
  *
  * \implements BackupClient
  */
@@ -58,36 +86,36 @@ class BackupHost : public BackupClient {
     explicit BackupHost(Transport::SessionRef session);
     virtual ~BackupHost();
 
-    virtual void heartbeat();
-    virtual void writeSegment(uint64_t segNum, uint32_t offset,
-                              const void *data, uint32_t len);
-    virtual void commitSegment(uint64_t segNum);
-    virtual void freeSegment(uint64_t segNum);
-    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
+    virtual void commitSegment(uint64_t masterId, uint64_t segmentId);
+    virtual void freeSegment(uint64_t masterId, uint64_t segmentId);
+    virtual vector<RecoveredObject> getRecoveryData(uint64_t masterId,
+                                                    const TabletMap& tablets);
+    virtual void openSegment(uint64_t masterId, uint64_t segmentId);
+    virtual vector<uint64_t> startReadingData(uint64_t masterId);
+    virtual void writeSegment(uint64_t masterId,
+                              uint64_t segmentId,
+                              uint32_t offset,
+                              const void *bug,
+                              uint32_t length);
+
+  private:
+    /**
+     * Performance metric from the response in the most recent RPC (as
+     * requested by selectPerfCounter). If no metric was requested and done
+     * most recent RPC, then this value is 0.
+     */
+    uint32_t counterValue;
 
     /**
-     * Given a segment number return a list of object metadata sufficient
-     * for recovery that are stored in that segment.
-     *
-     * \param[in] segNum
-     *     The segment number from which to extract the metadata.
-     * \param[out] list
-     *     The place to store the metadata.
-     * \param[in] maxSize
-     *     The number of elements that the list buffer can hold.
-     * \return
-     *     The number of elements actually placed in list.
-     * \exception BackupException
-     *     If INVALID_SEGMENT_NUM is passed as seg_num or
-     *     if there is an error reading the segment from the backup
-     *     storage.
+     * A session with a backup server.
      */
-    virtual uint32_t getSegmentMetadata(uint64_t segNum,
-                                        RecoveryObjectMetadata *list,
-                                        uint32_t maxSize);
-    virtual void retrieveSegment(uint64_t segNum, void *buf);
-  private:
     Transport::SessionRef session;
+
+    /**
+     * Completion status from the most recent RPC completed for this client.
+     */
+    Status status;
+
     DISALLOW_COPY_AND_ASSIGN(BackupHost);
 };
 
@@ -95,30 +123,37 @@ class BackupHost : public BackupClient {
  * A backup consisting of a multiple remote hosts.
  *
  * The precise set of backup hosts is selected by creating BackupHost
- * instances and adding them to the MultiBackupClient instance via
+ * instances and adding them to the BackupManager instance via
  * addHost().
+ *
+ * Eventually this will be a more sophisticated not implementing
+ * BackupClient, but rather, scheduling and orchestrating the backup
+ * servers' for backup and recovery.
  *
  * \implements BackupClient
  */
-class MultiBackupClient : public BackupClient {
+class BackupManager : public BackupClient {
   public:
-    explicit MultiBackupClient();
-    virtual ~MultiBackupClient();
+    explicit BackupManager();
+    virtual ~BackupManager();
     void addHost(Transport::SessionRef session);
 
-    virtual void heartbeat();
-    virtual void writeSegment(uint64_t segNum, uint32_t offset,
-                              const void *data, uint32_t len);
-    virtual void commitSegment(uint64_t segNum);
-    virtual void freeSegment(uint64_t segNum);
-    virtual uint32_t getSegmentList(uint64_t *list, uint32_t maxSize);
-    virtual uint32_t getSegmentMetadata(uint64_t segNum,
-                                        RecoveryObjectMetadata *list,
-                                        uint32_t maxSize);
-    virtual void retrieveSegment(uint64_t segNum, void *buf);
+    virtual void commitSegment(uint64_t masterId, uint64_t segmentId);
+    virtual void freeSegment(uint64_t masterId, uint64_t segmentId);
+    virtual vector<RecoveredObject> getRecoveryData(uint64_t masterId,
+                                                    const TabletMap& tablets);
+    virtual void openSegment(uint64_t masterId, uint64_t segmentId);
+    virtual vector<uint64_t> startReadingData(uint64_t masterId);
+    virtual void writeSegment(uint64_t masterId,
+                              uint64_t segmentId,
+                              uint32_t offset,
+                              const void *buf,
+                              uint32_t length);
+
   private:
+    /// The lone host to backup to for this dumb implementation.
     BackupHost *host;
-    DISALLOW_COPY_AND_ASSIGN(MultiBackupClient);
+    DISALLOW_COPY_AND_ASSIGN(BackupManager);
 };
 
 } // namespace RAMCloud

@@ -16,13 +16,8 @@
 #ifndef RAMCLOUD_RAMCLOUDCLIENT_H
 #define RAMCLOUD_RAMCLOUDCLIENT_H
 
-#include "Buffer.h"
-#include "ClientException.h"
+#include "Client.h"
 #include "Common.h"
-#include "Mark.h"
-#include "PerfCounterType.h"
-#include "Rpc.h"
-#include "Status.h"
 #include "ObjectFinder.h"
 #include "Transport.h"
 
@@ -35,11 +30,9 @@ namespace RAMCloud {
  * Each RamCloudClient object provides access to a particular RAMCloud cluster;
  * all of the RAMCloud RPC requests appear as methods on this object.
  */
-class RamCloudClient {
+class RamCloudClient : public Client {
   public:
     explicit RamCloudClient(const char* serviceLocator);
-    virtual ~RamCloudClient();
-    void clearPerfCounter();
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL);
     void createTable(const char* name);
@@ -52,33 +45,15 @@ class RamCloudClient {
     void remove(uint32_t tableId, uint64_t id,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);
-    void selectPerfCounter(PerfCounterType type, Mark begin, Mark end);
     void write(uint32_t tableId, uint64_t id, const void* buf,
                uint32_t length, const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL);
-
-    /**
-     * Completion status from the most recent RPC completed for this client.
-     */
-    Status status;
-
-    /**
-     * Performance metric from the response in the most recent RPC (as
-     * requested by selectPerfCounter). If no metric was requested and done
-     * most recent RPC, then this value is 0.
-     */
-    uint32_t counterValue;
 
   protected:
     Transport::SessionRef session; //!< For now we only know how to talk
                                    //!< to a single RAMCloud server; this
                                    //!< is a handle for that server.
     ObjectFinder objectFinder;
-    RpcPerfCounter perfCounter;    //!< Every RPC request will ask the server
-                                   //!< to measure this during the execution
-                                   //!< of the RPC.
-
-    void throwShortResponseError(Buffer* response) __attribute__((noreturn));
 
     DISALLOW_COPY_AND_ASSIGN(RamCloudClient);
 };

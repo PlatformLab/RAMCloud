@@ -193,6 +193,17 @@ ServiceLocator::getOption(const string& key) const {
  *      The value for the option with the given key, coerced to the given type.
  *      If the key does not name an available option, \a defaultValue will be
  *      returned.
+ *      0x cannot be used as a prefix to specify hexadecimal numbers.
+ *      If an unsigned integral type is expected, a sign cannot
+ *      precede it. 
+ *      Wrap-around effects will occur when signed integral types are
+ *      coerced into.
+ *      An out-of-range coercion will result in a
+ *      boost::bad_lexical_cast exception being thrown.
+ *      "0" and "1" are the only supported ways to specify boolean
+ *      values through strings.
+ *      If a int8_t or uint8_t is expected, conversions are treated
+ *      like they are being done to char types.
  * \throw boost::bad_lexical_cast
  *      The value could not be coerced to the given type.
  */

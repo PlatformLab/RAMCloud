@@ -32,18 +32,21 @@ namespace RAMCloud {
  * Not all status values can be returned by all operations.
  */
 enum Status {
-    STATUS_OK                       = 0,
-    STATUS_TABLE_DOESNT_EXIST       = 1,
-    STATUS_OBJECT_DOESNT_EXIST      = 2,
-    STATUS_OBJECT_EXISTS            = 3,
-    STATUS_WRONG_VERSION            = 4,
-    STATUS_NO_TABLE_SPACE           = 5,
-    STATUS_MESSAGE_TOO_SHORT        = 6,
-    STATUS_UNIMPLEMENTED_REQUEST    = 7,
-    STATUS_REQUEST_FORMAT_ERROR     = 8,
-    STATUS_RESPONSE_FORMAT_ERROR    = 9,
-    STATUS_COULDNT_CONNECT          = 10,
-    STATUS_MAX_VALUE                = 10
+    STATUS_OK                           = 0,
+    STATUS_TABLE_DOESNT_EXIST           = 1,
+    STATUS_OBJECT_DOESNT_EXIST          = 2,
+    STATUS_OBJECT_EXISTS                = 3,
+    STATUS_WRONG_VERSION                = 4,
+    STATUS_NO_TABLE_SPACE               = 5,
+    STATUS_MESSAGE_TOO_SHORT            = 6,
+    STATUS_UNIMPLEMENTED_REQUEST        = 7,
+    STATUS_REQUEST_FORMAT_ERROR         = 8,
+    STATUS_RESPONSE_FORMAT_ERROR        = 9,
+    STATUS_COULDNT_CONNECT              = 10,
+    STATUS_BACKUP_BAD_SEGMENT_ID        = 11,
+    STATUS_BACKUP_SEGMENT_ALREADY_OPEN  = 12,
+    STATUS_BACKUP_SEGMENT_OVERFLOW      = 13,
+    STATUS_MAX_VALUE                    = 13
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest

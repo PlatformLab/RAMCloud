@@ -39,7 +39,6 @@ class Segment {
     uint64_t getUtilization() const;
     bool checkRange(const void *, uint64_t) const;
     void finalize();
-    void restore(uint64_t restoreSegId);
     Segment *link(Segment *n);
     Segment *unlink();
     void setUsedBytes(uint64_t ub) {

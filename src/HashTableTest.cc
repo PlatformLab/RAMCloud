@@ -492,7 +492,7 @@ class HashTableTest : public CppUnit::TestFixture {
         uint64_t observedBits = 0UL;
         srand(1);
         for (uint32_t i = 0; i < 50; i++) {
-            uint64_t input = rand();
+            uint64_t input = generateRandom();
             observedBits |= HashTable::hash(input);
         }
         CPPUNIT_ASSERT_EQUAL(~0UL, observedBits);
