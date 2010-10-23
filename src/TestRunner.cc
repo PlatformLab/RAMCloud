@@ -28,6 +28,7 @@
 #include <typeinfo>
 
 #include "Common.h"
+#include "ClientException.h"
 
 char testName[256];
 bool progress = false;
@@ -93,6 +94,11 @@ main(int argc, char *argv[])
                 std::string className(
                     CppUnit::TypeInfoHelper::getClassName(typeid(e)));
                 CppUnit::Message message(className + ":\n    " + e.message);
+                reportError(context, message);
+            } catch (const RAMCloud::ClientException& e) {
+                std::string className(
+                    CppUnit::TypeInfoHelper::getClassName(typeid(e)));
+                CppUnit::Message message(className + ":\n    " + e.toString());
                 reportError(context, message);
             }
             return false;
