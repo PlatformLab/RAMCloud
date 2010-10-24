@@ -1841,7 +1841,7 @@ void
 FastTransport::ClientSession::Timer::start()
 {
     sessionOpenRequestInFlight = true;
-    startTime = 0;
+    startTime = rdtsc();
 }
 
 } // end RAMCloud
