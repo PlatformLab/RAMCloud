@@ -15,8 +15,10 @@
 
 #include "TestUtil.h"
 #include "Coordinator.h"
+#include "CoordinatorServer.h"
 #include "MockTransport.h"
 #include "TransportManager.h"
+#include "BindTransport.h"
 
 namespace RAMCloud {
 
@@ -25,14 +27,16 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_enlistServer);
     CPPUNIT_TEST_SUITE_END();
 
-    MockTransport* transport;
+    BindTransport* transport;
     Coordinator* coordinator;
+    CoordinatorServer* server;
 
   public:
-    CoordinatorTest() : transport(NULL), coordinator(NULL) {}
+    CoordinatorTest() : transport(NULL), coordinator(NULL), server(NULL) {}
 
     void setUp() {
-        transport = new MockTransport();
+        server = new CoordinatorServer();
+        transport = new BindTransport(*server);
         transportManager.registerMock(transport);
         coordinator = new Coordinator("mock:");
         TestLog::enable();
@@ -43,14 +47,13 @@ class CoordinatorTest : public CppUnit::TestFixture {
         delete coordinator;
         transportManager.unregisterMock();
         delete transport;
+        delete server;
     }
 
     void test_enlistServer() {
-        transport->setInput("0 0 2 0");
+        server->nextServerId = 2;
         uint64_t serverId =
             coordinator->enlistServer("tcp: host=foo, port=123");
-        CPPUNIT_ASSERT_EQUAL("clientSend: 15 0 23 tcp: host=foo, port=123",
-                transport->outputLog);
         CPPUNIT_ASSERT_EQUAL(2, serverId);
     }
 

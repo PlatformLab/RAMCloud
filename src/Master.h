@@ -49,10 +49,9 @@ class Master : public Server {
            BackupClient* backup);
     virtual ~Master();
     void run();
+    void dispatch(RpcType type, Transport::ServerRpc& rpc);
 
   private:
-    void dispatch(RpcType type,
-                  Transport::ServerRpc& rpc);
     void create(const CreateRpc::Request& reqHdr,
                 CreateRpc::Response& respHdr,
                 Transport::ServerRpc& rpc);
@@ -111,7 +110,6 @@ class Master : public Server {
                    const RejectRules* rejectRules, Buffer* data,
                    uint32_t dataOffset, uint32_t dataLength,
                    uint64_t* newVersion);
-    friend class Server;
     friend class MasterTest;
     DISALLOW_COPY_AND_ASSIGN(Master);
 };

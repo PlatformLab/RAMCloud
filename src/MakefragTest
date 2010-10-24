@@ -9,13 +9,13 @@ TESTS_SRCFILES := \
 		  src/BackupServerTest.cc \
 		  src/BackupStorage.cc \
 		  src/BackupStorageTest.cc \
+		  src/BindTransport.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
 		  src/ChecksumTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClientTest.cc \
 		  src/CommonTest.cc \
-		  src/CoordinatorServerTest.cc \
 		  src/CoordinatorTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \

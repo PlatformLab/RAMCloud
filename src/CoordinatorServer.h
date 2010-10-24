@@ -33,18 +33,16 @@ class CoordinatorServer : public Server {
     CoordinatorServer() : nextServerId(generateRandom()) {}
     virtual ~CoordinatorServer() {}
     void run();
-
-  private:
     void dispatch(RpcType type, Transport::ServerRpc& rpc);
 
+  private:
     void enlistServer(const EnlistServerRpc::Request& reqHdr,
                       EnlistServerRpc::Response& respHdr,
                       Transport::ServerRpc& rpc);
 
     uint64_t nextServerId;
 
-    friend class Server;
-    friend class CoordinatorServerTest;
+    friend class CoordinatorTest;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServer);
 };
 
