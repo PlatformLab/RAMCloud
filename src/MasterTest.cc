@@ -67,7 +67,7 @@ class MasterTest : public CppUnit::TestFixture {
     void setUp() {
         transport = new MockTransport();
         transportManager.registerMock(transport);
-        backup = new BackupManager();
+        backup = new BackupManager(0);
         server = new Master(&config, backup);
     }
 

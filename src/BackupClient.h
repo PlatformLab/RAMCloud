@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_BACKUPCLIENT_H
 #define RAMCLOUD_BACKUPCLIENT_H
 
+#include <list>
+
 #include "Client.h"
 #include "Common.h"
 #include "Object.h"
@@ -134,15 +136,21 @@ class BackupHost : public BackupClient {
  */
 class BackupManager : public BackupClient {
   public:
-    explicit BackupManager();
+    explicit BackupManager(uint32_t replicas = 2);
     virtual ~BackupManager();
-    void addHost(Transport::SessionRef session);
 
     virtual void commitSegment(uint64_t masterId, uint64_t segmentId);
     virtual void freeSegment(uint64_t masterId, uint64_t segmentId);
     virtual vector<RecoveredObject> getRecoveryData(uint64_t masterId,
                                                     const TabletMap& tablets);
     virtual void openSegment(uint64_t masterId, uint64_t segmentId);
+
+    void selectOpenHosts();
+
+    typedef pair<uint64_t, string> HostListPair;
+    typedef vector<HostListPair> HostList;
+    void setHostList(const HostList& hosts);
+
     virtual vector<uint64_t> startReadingData(uint64_t masterId);
     virtual void writeSegment(uint64_t masterId,
                               uint64_t segmentId,
@@ -151,8 +159,16 @@ class BackupManager : public BackupClient {
                               uint32_t length);
 
   private:
-    /// The lone host to backup to for this dumb implementation.
-    BackupHost *host;
+    /// The host pool to schedule backups from.
+    HostList hosts;
+
+    typedef std::list<BackupHost*> OpenHostList;
+    /// List of hosts currently containing an open segment for this master.
+    OpenHostList openHosts;
+
+    /// The number of backups to replicate each segment on.
+    uint32_t replicas;
+
     DISALLOW_COPY_AND_ASSIGN(BackupManager);
 };
 

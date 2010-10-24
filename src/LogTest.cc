@@ -50,7 +50,7 @@ class LogTest : public CppUnit::TestFixture {
     setUp()
     {
         logBase = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
-        backup = new BackupManager();
+        backup = new BackupManager(0);
         log = new RAMCloud::Log(SEGMENT_SIZE, logBase,
             SEGMENT_SIZE * SEGMENT_COUNT, backup);
 

@@ -19,6 +19,7 @@
 #include "TestUtil.h"
 #include "BackupServer.h"
 #include "Log.h"
+#include "Logging.h"
 #include "Master.h"
 #include "MockTransport.h"
 #include "Rpc.h"
@@ -66,6 +67,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         , storage(NULL)
         , transport(NULL)
     {
+        logger.setLogLevels(SILENT_LOG_LEVEL);
     }
 
     void

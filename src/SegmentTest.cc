@@ -50,7 +50,7 @@ class SegmentTest : public CppUnit::TestFixture {
     setUp()
     {
         segBase = xmalloc(SEGMENT_SIZE);
-        backup = new BackupManager();
+        backup = new BackupManager(0);
         seg = new RAMCloud::Segment(segBase, SEGMENT_SIZE, backup);
         TestInit();
     }
