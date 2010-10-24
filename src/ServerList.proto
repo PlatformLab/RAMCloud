@@ -13,35 +13,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_COORDINATOR_H
-#define RAMCLOUD_COORDINATOR_H
+package RAMCloud.ProtoBuf;
 
-#include "ServerList.pb.h"
+enum ServerType {
+  MASTER = 0;
+  BACKUP = 1;
+}
 
-#include "Common.h"
-#include "Client.h"
-#include "ClientException.h"
-#include "Rpc.h"
-#include "TransportManager.h"
-
-namespace RAMCloud {
-
-/**
- * Proxies methods as RPCs to the cluster coordinator.
- */
-class Coordinator : public Client {
-  public:
-    explicit Coordinator(const char* coordinatorLocator)
-        : session(transportManager.getSession(coordinatorLocator)) {}
-
-    uint64_t enlistServer(ServerType serverType, string localServiceLocator);
-    void getServerList(ProtoBuf::ServerList& serverList);
-
-  private:
-    Transport::SessionRef session;
-    DISALLOW_COPY_AND_ASSIGN(Coordinator);
-};
-
-} // end RAMCloud
-
-#endif  // RAMCLOUD_COORDINATOR_H
+message ServerList {
+  message Entry {
+    required ServerType server_type = 1;
+    required fixed64 server_id = 2;
+    required string service_locator = 3;
+  }
+  repeated Entry server = 1;
+}

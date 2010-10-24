@@ -28,6 +28,7 @@ TESTS_SRCFILES := \
 		  src/MockTransport.cc \
 		  src/OptionParser.cc \
 		  src/OptionParserTest.cc \
+		  src/ProtoBufTest.cc \
 		  src/RamCloudCClientTest.cc \
 		  src/RamCloudClientTest.cc \
 		  src/SegmentTest.cc \
@@ -40,6 +41,7 @@ TESTS_SRCFILES := \
 		  src/TransportManagerTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/WindowTest.cc \
+		  $(OBJDIR)/ProtoBufTest.pb.cc \
 		  $(TESTS_PYMOCK_OUTFILES)
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)

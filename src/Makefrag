@@ -1,5 +1,16 @@
 OBJDIRS += $(OBJDIR)
 
+AUTO_GEN_HEADERS := $(patsubst src/%.proto, $(OBJDIR)/%.pb.h, $(wildcard src/*.proto))
+.SECONDARY: $(AUTO_GEN_HEADERS)
+$(OBJDIR)/%.pb.cc $(OBJDIR)/%.pb.h: $(TOP)/src/%.proto
+	@mkdir -p $(OBJDIR)
+	@echo protoc ... $$(basename $<)
+	@cd $(TOP)/src/; \
+	protoc --cpp_out=$(TOP)/$(OBJDIR) $$(basename $<); \
+	echo "// RAMCloud pragma [GCCWARN=0]" >> $(TOP)/$(OBJDIR)/$$(basename $< .proto).pb.h; \
+	echo "// RAMCloud pragma [GCCWARN=0]" >> $(TOP)/$(OBJDIR)/$$(basename $< .proto).pb.cc
+
+
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
            src/InfRCTransport.cc \
@@ -42,13 +53,13 @@ SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
 $(TOP)/src/config.h:
 	cp $(TOP)/src/config.h.tmpl $@
 
-$(OBJDIR)/%.o: $(TOP)/src/%.cc $(TOP)/src/config.h
+$(OBJDIR)/%.o: $(TOP)/src/%.cc $(TOP)/src/config.h $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<, -fPIC)
 
 # If there's a cc file in the object dir, build it.
 # This is for auto-generated source code.
-$(OBJDIR)/%.o: $(OBJDIR)/%.cc $(TOP)/src/config.h
+$(OBJDIR)/%.o: $(OBJDIR)/%.cc $(TOP)/src/config.h $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<, -fPIC)
 

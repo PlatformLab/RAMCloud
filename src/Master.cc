@@ -105,7 +105,7 @@ void __attribute__ ((noreturn))
 Master::run()
 {
     log->init();
-    serverId = coordinator.enlistServer(config->localLocator);
+    serverId = coordinator.enlistServer(MASTER, config->localLocator);
     LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
         handleRpc<Master>();

@@ -25,6 +25,7 @@ namespace RAMCloud {
 class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(CoordinatorTest);
     CPPUNIT_TEST(test_enlistServer);
+    CPPUNIT_TEST(test_getServerList);
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
@@ -53,8 +54,24 @@ class CoordinatorTest : public CppUnit::TestFixture {
     void test_enlistServer() {
         server->nextServerId = 2;
         uint64_t serverId =
-            coordinator->enlistServer("tcp: host=foo, port=123");
+            coordinator->enlistServer(MASTER, "tcp:host=foo,port=123");
         CPPUNIT_ASSERT_EQUAL(2, serverId);
+        CPPUNIT_ASSERT_EQUAL("server { server_type: MASTER server_id: 2 "
+                             "service_locator: \"tcp:host=foo,port=123\" }",
+                             server->serverList.ShortDebugString());
+    }
+
+    void test_getServerList() {
+        server->nextServerId = 2;
+        coordinator->enlistServer(MASTER, "tcp:host=foo,port=123");
+        coordinator->enlistServer(BACKUP, "tcp:host=bar,port=123");
+        ProtoBuf::ServerList serverList;
+        coordinator->getServerList(serverList);
+        CPPUNIT_ASSERT_EQUAL("server { server_type: MASTER server_id: 2 "
+                             "service_locator: \"tcp:host=foo,port=123\" } "
+                             "server { server_type: BACKUP server_id: 3 "
+                             "service_locator: \"tcp:host=bar,port=123\" }",
+                             serverList.ShortDebugString());
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorTest);

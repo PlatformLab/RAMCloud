@@ -41,8 +41,8 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 # -Wconversion
 # Failed deconstructor inlines are generating noise
 # -Winline
-LIBS := -lpcrecpp -lboost_program_options
-INCLUDES := -I$(TOP)/src
+LIBS := -lpcrecpp -lboost_program_options -lprotobuf
+INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR)
 
 ifeq ($(INFINIBAND),yes)
 COMFLAGS += -DINFINIBAND

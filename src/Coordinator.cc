@@ -14,6 +14,7 @@
  */
 
 #include "Coordinator.h"
+#include "ProtoBuf.h"
 
 namespace RAMCloud {
 
@@ -23,7 +24,7 @@ namespace RAMCloud {
  *      A server ID guaranteed never to have been used before.
  */
 uint64_t
-Coordinator::enlistServer(string localServiceLocator)
+Coordinator::enlistServer(ServerType serverType, string localServiceLocator)
 {
     while (true) {
         try {
@@ -31,7 +32,8 @@ Coordinator::enlistServer(string localServiceLocator)
             Buffer resp;
             EnlistServerRpc::Request& reqHdr(
                 allocHeader<EnlistServerRpc>(req));
-            reqHdr.serviceLocatorLength = localServiceLocator.length();
+            reqHdr.serverType = serverType;
+            reqHdr.serviceLocatorLength = localServiceLocator.length() + 1;
             strncpy(new(&req, APPEND) char[reqHdr.serviceLocatorLength],
                     localServiceLocator.c_str(),
                     reqHdr.serviceLocatorLength);
@@ -46,6 +48,23 @@ Coordinator::enlistServer(string localServiceLocator)
             LOG(NOTICE, "retrying");
         }
     }
+}
+
+/**
+ * List all live servers.
+ * Masters call and cache this periodically to find backups.
+ */
+void
+Coordinator::getServerList(ProtoBuf::ServerList& serverList)
+{
+    Buffer req;
+    Buffer resp;
+    allocHeader<GetServerListRpc>(req);
+    const GetServerListRpc::Response& respHdr(
+        sendRecv<GetServerListRpc>(session, req, resp));
+    checkStatus();
+    ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
+                                respHdr.serverListLength, serverList);
 }
 
 } // namespace RAMCloud

@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_COORDINATORSERVER_H
 #define RAMCLOUD_COORDINATORSERVER_H
 
+#include "ServerList.pb.h"
+
 #include "Common.h"
 #include "ClientException.h"
 #include "Metrics.h"
@@ -30,7 +32,10 @@ namespace RAMCloud {
  */
 class CoordinatorServer : public Server {
   public:
-    CoordinatorServer() : nextServerId(generateRandom()) {}
+    CoordinatorServer()
+        : nextServerId(generateRandom())
+        , serverList()
+    {}
     virtual ~CoordinatorServer() {}
     void run();
     void dispatch(RpcType type, Transport::ServerRpc& rpc);
@@ -40,7 +45,12 @@ class CoordinatorServer : public Server {
                       EnlistServerRpc::Response& respHdr,
                       Transport::ServerRpc& rpc);
 
+    void getServerList(const GetServerListRpc::Request& reqHdr,
+                      GetServerListRpc::Response& respHdr,
+                      Transport::ServerRpc& rpc);
+
     uint64_t nextServerId;
+    ProtoBuf::ServerList serverList;
 
     friend class CoordinatorTest;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServer);

@@ -35,11 +35,7 @@ CLIENT_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(CLIENT_OBJFILES))
 CLIENT_SHARED_OBJFILES := $(CLIENT_SRCFILES)
 CLIENT_SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/client_shared/%.o, $(CLIENT_SHARED_OBJFILES))
 
-$(OBJDIR)/%.o: $(TOP)/src/%.cc
-	@mkdir -p $(@D)
-	$(call run-cxx,$@,$<)
-
-$(OBJDIR)/client_shared/%.o: $(TOP)/src/%.cc
+$(OBJDIR)/client_shared/%.o: $(TOP)/src/%.cc $(TOP)/src/config.h $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<,-fPIC)
 
