@@ -41,9 +41,9 @@ class SegmentIterator {
     void            CommonConstructor(void);
     bool            isEntryValid(const SegmentEntry *entry) const;
 
-    const void     *baseAddress;    // base address for the Segment
-    uint64_t        segmentLength;  // length of the segment in bytes
-    uint64_t        id;             // segment identification number
+    const void     *baseAddress;     // base address for the Segment
+    uint64_t        segmentCapacity; // maximum length of the segment in bytes
+    uint64_t        id;              // segment identification number
 
     // current iteration state
     LogEntryType     type;

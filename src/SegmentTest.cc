@@ -69,7 +69,7 @@ class SegmentTest : public CppUnit::TestFixture {
         SegmentHeader *sh = (SegmentHeader *)((char *)se + sizeof(*se));
         CPPUNIT_ASSERT_EQUAL(1020304050, sh->logId);
         CPPUNIT_ASSERT_EQUAL(98765, sh->segmentId);
-        CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), sh->segmentLength);
+        CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), sh->segmentCapacity);
     }
 
     void

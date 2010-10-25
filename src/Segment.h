@@ -19,7 +19,6 @@
 #define RAMCLOUD_SEGMENT_H
 
 #include <stdint.h>
-#include <Pool.h>
 #include <LogTypes.h>
 
 namespace RAMCloud {
@@ -32,7 +31,7 @@ struct SegmentEntry {
 struct SegmentHeader {
     uint64_t logId;
     uint64_t segmentId;
-    uint64_t segmentLength;
+    uint64_t segmentCapacity;
 } __attribute__((__packed__));
 
 struct SegmentFooter {
@@ -64,7 +63,7 @@ class Segment {
     }
 
     uint64_t         getId() const;
-    uint64_t         getLength() const;
+    uint64_t         getCapacity() const;
     uint64_t         appendableBytes() const;
     void             forEachEntry(SegmentEntryCallback cb, void *cookie) const;
 
@@ -82,6 +81,7 @@ class Segment {
     DISALLOW_COPY_AND_ASSIGN(Segment);
 
     friend class SegmentTest;
+    friend class LogTest;
 };
 
 } // namespace

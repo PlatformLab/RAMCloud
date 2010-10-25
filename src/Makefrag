@@ -26,11 +26,8 @@ SHARED_SRCFILES := \
 		   src/Metrics.cc \
 		   src/OptionParser.cc \
 		   src/Segment.cc \
-<<<<<<< HEAD
 		   src/SegmentIterator.cc \
-=======
 		   src/Server.cc \
->>>>>>> 89ba5eb56372eac3c9aa51697b6ef190444c89cf
 		   src/ServiceLocator.cc \
 		   src/Status.cc \
 		   src/StringConverter.cc \

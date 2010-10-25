@@ -28,38 +28,57 @@
 
 namespace RAMCloud {
 
+/**
+ * Construct a new SegmentIterator for the given Segment object.
+ * \param[in] segment
+ *      The Segment object to be iterated over.
+ * \return
+ *      The newly constructed SegmentIterator object.
+ */
 SegmentIterator::SegmentIterator(const Segment *segment)
     : baseAddress(segment->getBaseAddress()),
-      segmentLength(segment->getLength()),
+      segmentCapacity(segment->getCapacity()),
       id(segment->getId()),
       type(LOG_ENTRY_TYPE_INVALID),
       length(0),
-      blobPtr(0),
-      firstEntry(0),
-      currentEntry(0),
-      sawFooter(false)
+      blobPtr(NULL),
+      sawFooter(false),
+      firstEntry(NULL),
+      currentEntry(NULL)
 {
     CommonConstructor();
 }
 
+/**
+ * Construct a new SegmentIterator for a piece of memory that was or is used
+ * as the backing for a Segment object.
+ * \param[in] buffer
+ *      A pointer to the first byte of the Segment backing memory.
+ * \param[in] length
+ *      The length of the segment in bytes.
+ */
 SegmentIterator::SegmentIterator(const void *buffer, uint64_t length)
     : baseAddress(buffer),
-      segmentLength(length),
+      segmentCapacity(length),
       id(-1),
       type(LOG_ENTRY_TYPE_INVALID),
       length(0),
-      blobPtr(0),
-      firstEntry(0),
-      currentEntry(0),
-      sawFooter(false)
+      blobPtr(NULL),
+      sawFooter(false),
+      firstEntry(NULL),
+      currentEntry(NULL)
 {
     CommonConstructor();
 }
 
+/**
+ * Perform initialisation operations common to all constructors. This
+ * includes sanity checking and setting up the first iteration's state.
+ */
 void
 SegmentIterator::CommonConstructor()
 {
-    if (segmentLength < (sizeof(SegmentEntry) + sizeof(SegmentHeader)))
+    if (segmentCapacity < (sizeof(SegmentEntry) + sizeof(SegmentHeader)))
         throw 0;
 
     const SegmentEntry *entry = (const SegmentEntry *)baseAddress;
@@ -71,7 +90,7 @@ SegmentIterator::CommonConstructor()
 
     const SegmentHeader *header = (const SegmentHeader *)((char *)baseAddress +
         sizeof(SegmentEntry));
-    if (header->segmentLength != segmentLength)
+    if (header->segmentCapacity != segmentCapacity)
         throw 0;
 
     type    = entry->type;
@@ -81,10 +100,18 @@ SegmentIterator::CommonConstructor()
     currentEntry = firstEntry = entry;
 }
 
+/**
+ * Determine if the SegmentEntry provided is valid, i.e. that the SegmentEntry
+ * does not overrun or underrun the buffer.
+ * \param[in] entry
+ *      The entry to validate.
+ * \return
+ *      true if the entry is valid, false otherwise.
+ */
 bool
 SegmentIterator::isEntryValid(const SegmentEntry *entry) const
 {
-    uintptr_t lastByte      = (uintptr_t)baseAddress + segmentLength - 1;
+    uintptr_t lastByte      = (uintptr_t)baseAddress + segmentCapacity - 1;
     uintptr_t entryStart    = (uintptr_t)entry;
     uintptr_t entryLastByte = entryStart + entry->length + sizeof(*entry) - 1;
 
@@ -98,12 +125,22 @@ SegmentIterator::isEntryValid(const SegmentEntry *entry) const
     return true;
 }
 
+/**
+ * Test if the SegmentIterator has exhausted all entries.
+ * \return
+ *      true if there are no more entries left to iterate, else false.
+ */
 bool
 SegmentIterator::isDone() const
 {
     return (sawFooter || !isEntryValid(currentEntry));
 }
 
+/**
+ * Progress the iterator to the next entry in the Segment, if there is one.
+ * Future calls to #getType, #getLength, #getPointer, and #getOffset will
+ * reflect the next SegmentEntry's parameters.
+ */
 void
 SegmentIterator::next()
 {
@@ -134,6 +171,13 @@ SegmentIterator::next()
     currentEntry = entry;
 }
 
+/**
+ * Obtain the type of the SegmentEntry currently being iterated over.
+ * \return
+ *      The type of the current entry.
+ * \throw 0
+ *      An exception is thrown if the iterator has no more entries.
+ */
 LogEntryType
 SegmentIterator::getType() const
 {
@@ -142,6 +186,13 @@ SegmentIterator::getType() const
     return type;
 }
 
+/**
+ * Obtain the length of the SegmentEntry currently being iterated over.
+ * \return
+ *      The length of the current entry in bytes.
+ * \throw 0
+ *      An exception is thrown if the iterator has no more entries.
+ */
 uint64_t
 SegmentIterator::getLength() const
 {
@@ -150,6 +201,13 @@ SegmentIterator::getLength() const
     return length;
 }
 
+/**
+ * Obtain a const void* to the data associated with the current SegmentEntry. 
+ * \return
+ *      A const void* to the current data.
+ * \throw 0
+ *      An exception is thrown if the iterator has no more entries.
+ */
 const void *
 SegmentIterator::getPointer() const
 {
@@ -158,6 +216,15 @@ SegmentIterator::getPointer() const
     return blobPtr;
 }
 
+/**
+ * Obtain the byte offset of the current SegmentEntry's data within the Segment
+ * being iterated over. Note that the data offset is not the SegmentEntry
+ * structure, but the typed data immediately following it.
+ * \return
+ *      The byte offset of the current SegmentEntry's data.
+ * \throw 0
+ *      An exception is thrown if the iterator has no more entries.
+ */
 uint64_t
 SegmentIterator::getOffset() const
 {

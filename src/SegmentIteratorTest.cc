@@ -48,7 +48,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
 
         SegmentIterator si(&s);
         CPPUNIT_ASSERT_EQUAL((const void *)alignedBuf, si.baseAddress);
-        CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), si.segmentLength);
+        CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), si.segmentCapacity);
         CPPUNIT_ASSERT_EQUAL(98765, si.id);
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, si.type);
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), si.length);
@@ -60,7 +60,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
 
         SegmentIterator si2(alignedBuf, sizeof(alignedBuf));
         CPPUNIT_ASSERT_EQUAL((const void *)alignedBuf, si2.baseAddress);
-        CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), si2.segmentLength);
+        CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), si2.segmentCapacity);
         CPPUNIT_ASSERT_EQUAL(-1, si2.id);
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, si2.type);
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), si2.length);

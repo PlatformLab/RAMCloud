@@ -19,10 +19,11 @@
 #include <stdint.h>
 #include <LogTypes.h>
 #include <Segment.h>
-#include <Pool.h>
 #include <boost/unordered_map.hpp>
+#include <vector>
 
 using boost::unordered_map;
+using std::vector;
 
 namespace RAMCloud {
 
@@ -30,8 +31,9 @@ typedef void (*LogSegmentCallback)(Segment *, void *);
 
 class Log {
   public:
-    Log(uint64_t logId, Pool *segmentAllocator);
-    ~Log() {}
+    Log(uint64_t logId, uint64_t segmentSize);
+    ~Log();
+    void        addSegmentMemory(void *p);
     const void *append(LogEntryType type,
                        const void *buffer, uint64_t length);
     void        free(const void *buffer, const uint64_t length);
@@ -45,12 +47,15 @@ class Log {
   private:
     void        addToActiveMaps(Segment *s);
     void        eraseFromActiveMaps(Segment *s);
+    void        addToFreeList(void *p);
+    void       *getFromFreeList();
     uint64_t    allocateSegmentId();
 
-    Pool       *segmentAllocator;
-    uint64_t    nextSegmentId;
-    uint64_t    logId;
-    uint64_t    maximumAppendableBytes;
+    uint64_t       logId;
+    uint64_t       segmentSize;
+    vector<void *> segmentFreeList;
+    uint64_t       nextSegmentId;
+    uint64_t       maximumAppendableBytes;
 
     /// Current head of the log
     Segment *head;
@@ -66,6 +71,7 @@ class Log {
 
     DISALLOW_COPY_AND_ASSIGN(Log);
 
+    friend class LogTest;
     friend class LogCleaner;
 };
 
