@@ -66,14 +66,14 @@ class BackupServer : public Server {
   public:
     explicit BackupServer(BackupStorage& storage);
     virtual ~BackupServer();
+    void dispatch(RpcType type,
+                  Transport::ServerRpc& rpc);
     void run();
 
   private:
     void commitSegment(const BackupCommitRpc::Request& reqHdr,
                        BackupCommitRpc::Response& respHdr,
                        Transport::ServerRpc& rpc);
-    void dispatch(RpcType type,
-                  Transport::ServerRpc& rpc);
     void freeSegment(const BackupFreeRpc::Request& reqHdr,
                      BackupFreeRpc::Response& respHdr,
                      Transport::ServerRpc& rpc);
@@ -114,7 +114,6 @@ class BackupServer : public Server {
     /// The storage backend where committed segments are to be placed.
     BackupStorage& storage;
 
-    friend class Server;
     friend class BackupServerTest;
     DISALLOW_COPY_AND_ASSIGN(BackupServer);
 };
