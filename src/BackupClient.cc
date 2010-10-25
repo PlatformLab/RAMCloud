@@ -145,7 +145,8 @@ BackupHost::writeSegment(uint64_t masterId,
  * with.  See addHost() to add remote backups.
  */
 BackupManager::BackupManager(uint32_t replicas)
-    : hosts()
+    : coordinator()
+    , hosts()
     , openHosts()
     , replicas(replicas)
 {
@@ -200,9 +201,9 @@ BackupManager::openSegment(uint64_t masterId,
 }
 
 void
-BackupManager::setHostList(const BackupManager::HostList& hosts)
+BackupManager::setCoordinator(Coordinator& coordinator)
 {
-    this->hosts = hosts;
+    this->coordinator = &coordinator;
 }
 
 // See BackupClient::startReadingData.
@@ -240,19 +241,39 @@ BackupManager::writeSegment(uint64_t masterId,
 void
 BackupManager::selectOpenHosts()
 {
-    if (hosts.size() < replicas)
+    // TODO(ongaro): find better solution to unit tests segfaulting
+    if (coordinator == NULL)
+        return;
+
+    // TODO(ongaro): it's probably not ok to get a new server list this often
+    coordinator->getServerList(hosts);
+
+    const uint32_t numHosts(static_cast<uint32_t>(hosts.server_size()));
+
+    uint32_t numBackupHosts = 0;
+    foreach (const ProtoBuf::ServerList::Entry& entry, hosts.server()) {
+        if (entry.server_type() == ProtoBuf::BACKUP)
+            ++numBackupHosts;
+    }
+
+    if (numBackupHosts < replicas)
         DIE("Not enough backups to meet replication requirement");
 
     if (!openHosts.empty())
         DIE("Cannot select new backups when some are already open");
 
     uint64_t random = generateRandom();
-    for (uint32_t i = 0; i < replicas; i++) {
-        uint32_t index = random % hosts.size();
-        Transport::SessionRef session =
-            transportManager.getSession(hosts[index].second.c_str());
-        BackupHost* host = new BackupHost(session);
-        openHosts.push_back(host);
+    uint32_t i = 0;
+    while (i < replicas) {
+        uint32_t index = random % numHosts;
+        const ProtoBuf::ServerList::Entry& host(hosts.server(index));
+        if (host.server_type() == ProtoBuf::BACKUP) {
+            LOG(DEBUG, "Backing up to %s", host.service_locator().c_str());
+            Transport::SessionRef session =
+                transportManager.getSession(host.service_locator().c_str());
+            openHosts.push_back(new BackupHost(session));
+            i++;
+        }
         random++;
     }
 }

@@ -20,7 +20,9 @@
 
 #include "Client.h"
 #include "Common.h"
+#include "Coordinator.h"
 #include "Object.h"
+#include "ServerList.pb.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -145,9 +147,7 @@ class BackupManager : public BackupClient {
                                                     const TabletMap& tablets);
     virtual void openSegment(uint64_t masterId, uint64_t segmentId);
 
-    typedef pair<uint64_t, string> HostListPair;
-    typedef vector<HostListPair> HostList;
-    void setHostList(const HostList& hosts);
+    void setCoordinator(Coordinator& coordinator);
 
     virtual vector<uint64_t> startReadingData(uint64_t masterId);
     virtual void writeSegment(uint64_t masterId,
@@ -159,8 +159,10 @@ class BackupManager : public BackupClient {
   private:
     void selectOpenHosts();
 
+    Coordinator* coordinator;
+
     /// The host pool to schedule backups from.
-    HostList hosts;
+    ProtoBuf::ServerList hosts;
 
     typedef std::list<BackupHost*> OpenHostList;
     /// List of hosts currently containing an open segment for this master.

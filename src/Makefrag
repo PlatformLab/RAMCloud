@@ -44,11 +44,13 @@ SHARED_SRCFILES := \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
 		   src/rabinpoly.cc \
-           $(INFINIBAND_SRCFILES) \
+		   $(INFINIBAND_SRCFILES) \
+		   $(OBJDIR)/ServerList.pb.cc \
 		   $(NULL)
 
 SHARED_OBJFILES := $(SHARED_SRCFILES)
 SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
+SHARED_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
 
 $(TOP)/src/config.h:
 	cp $(TOP)/src/config.h.tmpl $@

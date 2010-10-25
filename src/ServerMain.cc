@@ -41,9 +41,6 @@ try
          ProgramOptions::value<int>(&cpu)->
             default_value(-1),
          "CPU mask to pin to")
-        ("backup,b",
-         ProgramOptions::value<vector<string> >(&backupLocators),
-         "Backup locators to backup to, can specify more than one")
         ("replicas,r",
          ProgramOptions::value<uint32_t>(&replicas)->
             default_value(0),
@@ -67,12 +64,8 @@ try
     transportManager.initialize(config.localLocator.c_str());
 
     BackupManager backup(replicas);
-    BackupManager::HostList hosts;
-    foreach (string& locator, backupLocators)
-        hosts.push_back(BackupManager::HostListPair(0, locator));
-    backup.setHostList(hosts);
-
     Master server(&config, &backup);
+    backup.setCoordinator(server.coordinator);
     server.run();
 
     return 0;

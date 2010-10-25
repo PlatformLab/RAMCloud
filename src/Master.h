@@ -78,8 +78,10 @@ class Master : public Server {
     // see constructor documentation for details.
     const ServerConfig* config;
 
+  public:
     Coordinator coordinator;
 
+  private:
     uint64_t serverId;
 
     BackupClient* backup;

@@ -3,7 +3,6 @@ COORDINATOR_SRCFILES := \
 			src/CoordinatorServer.cc \
 			src/Metrics.cc \
 			src/Server.cc \
-			src/ServerList.pb.cc \
 			src/Status.cc \
 			$(NULL)
 
