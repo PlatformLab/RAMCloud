@@ -205,26 +205,6 @@ BackupManager::setHostList(const BackupManager::HostList& hosts)
     this->hosts = hosts;
 }
 
-void
-BackupManager::selectOpenHosts()
-{
-    if (hosts.size() < replicas)
-        DIE("Not enough backups to meet replication requirement");
-
-    if (!openHosts.empty())
-        DIE("Cannot select new backups when some are already open");
-
-    uint64_t random = generateRandom();
-    for (uint32_t i = 0; i < replicas; i++) {
-        uint32_t index = random % hosts.size();
-        Transport::SessionRef session =
-            transportManager.getSession(hosts[index].second.c_str());
-        BackupHost* host = new BackupHost(session);
-        openHosts.push_back(host);
-        random++;
-    }
-}
-
 // See BackupClient::startReadingData.
 vector<uint64_t>
 BackupManager::startReadingData(uint64_t masterId)
@@ -248,6 +228,33 @@ BackupManager::writeSegment(uint64_t masterId,
     // TODO(stutsman) Exception during one of the writes?
     foreach (BackupHost* host, openHosts)
         host->writeSegment(masterId, segmentId, offset, data, len);
+}
+
+// - private -
+
+/**
+ * Open segments on replica number of backups.  Caller must ensure that
+ * no segments are currently open on any backups and that there are
+ * enough hosts to choose from.
+ */
+void
+BackupManager::selectOpenHosts()
+{
+    if (hosts.size() < replicas)
+        DIE("Not enough backups to meet replication requirement");
+
+    if (!openHosts.empty())
+        DIE("Cannot select new backups when some are already open");
+
+    uint64_t random = generateRandom();
+    for (uint32_t i = 0; i < replicas; i++) {
+        uint32_t index = random % hosts.size();
+        Transport::SessionRef session =
+            transportManager.getSession(hosts[index].second.c_str());
+        BackupHost* host = new BackupHost(session);
+        openHosts.push_back(host);
+        random++;
+    }
 }
 
 } // namespace RAMCloud

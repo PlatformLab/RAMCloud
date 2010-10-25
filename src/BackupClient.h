@@ -145,8 +145,6 @@ class BackupManager : public BackupClient {
                                                     const TabletMap& tablets);
     virtual void openSegment(uint64_t masterId, uint64_t segmentId);
 
-    void selectOpenHosts();
-
     typedef pair<uint64_t, string> HostListPair;
     typedef vector<HostListPair> HostList;
     void setHostList(const HostList& hosts);
@@ -159,6 +157,8 @@ class BackupManager : public BackupClient {
                               uint32_t length);
 
   private:
+    void selectOpenHosts();
+
     /// The host pool to schedule backups from.
     HostList hosts;
 
