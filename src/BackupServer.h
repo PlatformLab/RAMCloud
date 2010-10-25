@@ -29,6 +29,7 @@
 #include "Common.h"
 #include "BackupClient.h"
 #include "BackupStorage.h"
+#include "Coordinator.h"
 #include "Rpc.h"
 #include "Server.h"
 
@@ -64,7 +65,18 @@ class BackupServer : public Server {
     };
 
   public:
-    explicit BackupServer(BackupStorage& storage);
+    struct Config {
+        string coordinatorLocator;
+        string localLocator;
+        Config()
+            : coordinatorLocator()
+            , localLocator()
+        {
+        }
+    };
+
+    explicit BackupServer(const Config& config,
+                          BackupStorage& storage);
     virtual ~BackupServer();
     void dispatch(RpcType type,
                   Transport::ServerRpc& rpc);
@@ -91,6 +103,15 @@ class BackupServer : public Server {
     void writeSegment(const BackupWriteRpc::Request& req,
                       BackupWriteRpc::Response& resp,
                       Transport::ServerRpc& rpc);
+
+    /// Settings passed to the constructor
+    const Config& config;
+
+    /// Handle to cluster coordinator
+    Coordinator coordinator;
+
+    /// Coordinator-assigned ID for this backup server
+    uint64_t serverId;
 
     /**
      * A pool of aligned segments (supporting O_DIRECT) to avoid

@@ -27,11 +27,18 @@ namespace RAMCloud {
 /**
  * Create a BackupServer which is ready to run().
  *
+ * \param config
+ *      Settings for this instance. The caller guarantees that config will
+ *      exist for the duration of this BackupServer's lifetime.
  * \param storage
  *      The storage backend used to persist segments.
  */
-BackupServer::BackupServer(BackupStorage& storage)
-    : pool(storage.getSegmentSize())
+BackupServer::BackupServer(const Config& config,
+                           BackupStorage& storage)
+    : config(config)
+    , coordinator(config.coordinatorLocator.c_str())
+    , serverId(0)
+    , pool(storage.getSegmentSize())
     , segments()
     , segmentSize(storage.getSegmentSize())
     , storage(storage)
@@ -52,6 +59,8 @@ BackupServer::~BackupServer()
 void __attribute__ ((noreturn))
 BackupServer::run()
 {
+    serverId = coordinator.enlistServer(BACKUP, config.localLocator);
+    LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
         handleRpc<BackupServer>();
 }

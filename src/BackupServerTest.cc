@@ -57,6 +57,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     BackupStorage* storage;
+    BackupServer::Config* config;
     MockTransport* transport;
 
   public:
@@ -65,6 +66,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         , segmentSize(1 << 16)
         , segmentFrames(2)
         , storage(NULL)
+        , config(NULL)
         , transport(NULL)
     {
         logger.setLogLevels(SILENT_LOG_LEVEL);
@@ -75,8 +77,10 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         transport = new MockTransport();
         transportManager.registerMock(transport);
+        config = new BackupServer::Config();
+        config->coordinatorLocator = "mock:";
         storage = new InMemoryStorage(segmentSize, segmentFrames);
-        backup = new BackupServer(*storage);
+        backup = new BackupServer(*config, *storage);
     }
 
     void
@@ -84,6 +88,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         delete backup;
         delete storage;
+        delete config;
         CPPUNIT_ASSERT_EQUAL(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
     }
