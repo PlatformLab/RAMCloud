@@ -52,7 +52,7 @@ SHARED_OBJFILES := $(SHARED_SRCFILES)
 SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
 SHARED_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
 
-$(TOP)/src/config.h:
+$(TOP)/src/config.h: $(TOP)/src/config.h.tmpl
 	cp $(TOP)/src/config.h.tmpl $@
 
 $(OBJDIR)/%.o: $(TOP)/src/%.cc $(TOP)/src/config.h $(AUTO_GEN_HEADERS)
