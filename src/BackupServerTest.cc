@@ -20,7 +20,7 @@
 #include "BackupServer.h"
 #include "Log.h"
 #include "Logging.h"
-#include "Master.h"
+#include "MasterServer.h"
 #include "MockTransport.h"
 #include "Rpc.h"
 #include "TransportManager.h"

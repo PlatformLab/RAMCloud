@@ -33,7 +33,7 @@ $OBJDIR/coordinator -C $coordinatorLocator > /dev/null 2>&1 &
 $OBJDIR/server -L $masterLocator -C $coordinatorLocator > /dev/null 2>&1 &
 sleep .1
 
-python src/tests/rc-smack.py -n $count -s $masterLocator > $outfile
+python src/tests/rc-smack.py -n $count -s $coordinatorLocator > $outfile
 retval=$?
 
 # Kill the server

@@ -19,7 +19,7 @@
 
 #include "BackupClient.h"
 #include "OptionParser.h"
-#include "Master.h"
+#include "MasterServer.h"
 #include "TransportManager.h"
 
 static int cpu;
@@ -63,7 +63,7 @@ try
     transportManager.initialize(config.localLocator.c_str());
 
     BackupManager backup(replicas);
-    Master server(&config, &backup);
+    MasterServer server(&config, &backup);
     backup.setCoordinator(server.coordinator);
     server.run();
 

@@ -201,7 +201,7 @@ BackupManager::openSegment(uint64_t masterId,
 }
 
 void
-BackupManager::setCoordinator(Coordinator& coordinator)
+BackupManager::setCoordinator(CoordinatorClient& coordinator)
 {
     this->coordinator = &coordinator;
 }

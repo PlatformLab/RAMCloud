@@ -1,3 +1,4 @@
+
 /* Copyright (c) 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -13,8 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_RAMCLOUDCLIENT_H
-#define RAMCLOUD_RAMCLOUDCLIENT_H
+#ifndef RAMCLOUD_MASTERCLIENT_H
+#define RAMCLOUD_MASTERCLIENT_H
 
 #include "Client.h"
 #include "Common.h"
@@ -24,15 +25,11 @@
 namespace RAMCloud {
 
 /**
- * The RamCloudClient class provides the primary interface used by applications to
- * access a RAMCloud cluster.
- *
- * Each RamCloudClient object provides access to a particular RAMCloud cluster;
- * all of the RAMCloud RPC requests appear as methods on this object.
+ * TODO
  */
-class RamCloudClient : public Client {
+class MasterClient : public Client {
   public:
-    explicit RamCloudClient(const char* serviceLocator);
+    explicit MasterClient(Transport::SessionRef session) : session(session) {}
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL);
     void createTable(const char* name);
@@ -50,13 +47,9 @@ class RamCloudClient : public Client {
                uint64_t* version = NULL);
 
   protected:
-    Transport::SessionRef session; //!< For now we only know how to talk
-                                   //!< to a single RAMCloud server; this
-                                   //!< is a handle for that server.
-    ObjectFinder objectFinder;
-
-    DISALLOW_COPY_AND_ASSIGN(RamCloudClient);
+    Transport::SessionRef session;
+    DISALLOW_COPY_AND_ASSIGN(MasterClient);
 };
 } // namespace RAMCloud
 
-#endif // RAMCLOUD_RAMCLOUDCLIENT_H
+#endif // RAMCLOUD_MASTERCLIENT_H

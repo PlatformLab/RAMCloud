@@ -19,10 +19,11 @@ else
 INFINIBAND_SRCFILES :=
 endif
 
+# these files are compiled into everything but clients
 SHARED_SRCFILES := \
 		   src/Client.cc \
 		   src/ClientException.cc \
-		   src/Coordinator.cc \
+		   src/CoordinatorClient.cc \
 		   src/BackupClient.cc \
 		   src/BenchUtil.cc \
 		   src/Buffer.cc \
@@ -34,6 +35,7 @@ SHARED_SRCFILES := \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
 		   src/Logging.cc \
+		   src/MasterClient.cc \
 		   src/Metrics.cc \
 		   src/OptionParser.cc \
 		   src/Segment.cc \

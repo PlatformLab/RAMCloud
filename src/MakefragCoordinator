@@ -1,9 +1,5 @@
 COORDINATOR_SRCFILES := \
-			src/ClientException.cc \
 			src/CoordinatorServer.cc \
-			src/Metrics.cc \
-			src/Server.cc \
-			src/Status.cc \
 			$(NULL)
 
 COORDINATOR_OBJFILES := $(COORDINATOR_SRCFILES)

@@ -17,17 +17,36 @@
 #define RAMCLOUD_OBJECTFINDER_H
 
 #include "Common.h"
+#include "CoordinatorClient.h"
 #include "Transport.h"
 
 namespace RAMCloud {
 
 /**
  * The client uses this class to get session handles to masters.
+ * \warning
+ *      This implementation is a placeholder. For now, the only session
+ *      returned is one referring to the first master to have registered with
+ *      the coordinator.
  */
 class ObjectFinder {
   public:
-    explicit ObjectFinder(const Transport::SessionRef& master)
-        : master(master) {}
+    explicit ObjectFinder(CoordinatorClient& coordinator)
+        : coordinator(coordinator)
+        , master() {
+        ProtoBuf::ServerList serverList;
+        coordinator.getServerList(serverList);
+        while (true) {
+            foreach (const ProtoBuf::ServerList::Entry& entry,
+                     serverList.server()) {
+                if (entry.server_type() == ProtoBuf::MASTER) {
+                    master = transportManager.getSession(
+                                         entry.service_locator().c_str());
+                    return;
+                }
+            }
+        }
+    }
     Transport::SessionRef lookup(uint32_t table, uint64_t objectId) {
         return master;
     }
@@ -35,6 +54,7 @@ class ObjectFinder {
         return master;
     }
   private:
+    CoordinatorClient& coordinator;
     Transport::SessionRef master;
     DISALLOW_COPY_AND_ASSIGN(ObjectFinder);
 };

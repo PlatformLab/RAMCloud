@@ -20,7 +20,7 @@
 
 #include "Client.h"
 #include "Common.h"
-#include "Coordinator.h"
+#include "CoordinatorClient.h"
 #include "Object.h"
 #include "ServerList.pb.h"
 #include "Transport.h"
@@ -147,7 +147,7 @@ class BackupManager : public BackupClient {
                                                     const TabletMap& tablets);
     virtual void openSegment(uint64_t masterId, uint64_t segmentId);
 
-    void setCoordinator(Coordinator& coordinator);
+    void setCoordinator(CoordinatorClient& coordinator);
 
     virtual vector<uint64_t> startReadingData(uint64_t masterId);
     virtual void writeSegment(uint64_t masterId,
@@ -159,7 +159,7 @@ class BackupManager : public BackupClient {
   private:
     void selectOpenHosts();
 
-    Coordinator* coordinator;
+    CoordinatorClient* coordinator;
 
     /// The host pool to schedule backups from.
     ProtoBuf::ServerList hosts;

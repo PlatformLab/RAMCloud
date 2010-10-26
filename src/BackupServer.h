@@ -29,7 +29,7 @@
 #include "Common.h"
 #include "BackupClient.h"
 #include "BackupStorage.h"
-#include "Coordinator.h"
+#include "CoordinatorClient.h"
 #include "Rpc.h"
 #include "Server.h"
 
@@ -108,7 +108,7 @@ class BackupServer : public Server {
     const Config& config;
 
     /// Handle to cluster coordinator
-    Coordinator coordinator;
+    CoordinatorClient coordinator;
 
     /// Coordinator-assigned ID for this backup server
     uint64_t serverId;

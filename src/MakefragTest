@@ -7,7 +7,6 @@ TESTS_PYMOCK_OUTFILES := $(patsubst src/%.in.cc, $(OBJDIR)/%.cc, $(TESTS_PYMOCK_
 TESTS_SRCFILES := \
 		  src/BackupClientTest.cc \
 		  src/BackupServerTest.cc \
-		  src/BackupStorage.cc \
 		  src/BackupStorageTest.cc \
 		  src/BindTransport.cc \
 		  src/BoostIntrusiveTest.cc \
@@ -27,11 +26,8 @@ TESTS_SRCFILES := \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
-		  src/OptionParser.cc \
 		  src/OptionParserTest.cc \
 		  src/ProtoBufTest.cc \
-		  src/RamCloudCClientTest.cc \
-		  src/RamCloudClientTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
 		  src/ServerTest.cc \

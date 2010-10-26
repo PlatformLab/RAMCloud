@@ -15,7 +15,7 @@
 
 #include "Buffer.h"
 #include "ClientException.h"
-#include "Master.h"
+#include "MasterServer.h"
 #include "Rpc.h"
 #include "Segment.h"
 #include "Transport.h"
@@ -33,7 +33,7 @@ void tombstoneEvictionCallback(LogEntryType type,
                                void* cookie);
 
 /**
- * Construct a Master.
+ * Construct a MasterServer.
  *
  * \param config
  *      Contains various parameters that configure the operation of
@@ -42,8 +42,8 @@ void tombstoneEvictionCallback(LogEntryType type,
  *      Provides a mechanism for replicating changes to other servers.
  *      If NULL then we create a default backup object.
  */
-Master::Master(const ServerConfig* config,
-               BackupClient* backupClient)
+MasterServer::MasterServer(const ServerConfig* config,
+                           BackupClient* backupClient)
     : config(config)
     , coordinator(config->coordinatorLocator.c_str())
     , serverId(0)
@@ -60,7 +60,7 @@ Master::Master(const ServerConfig* config,
     }
 }
 
-Master::~Master()
+MasterServer::~MasterServer()
 {
     for (int i = 0; i < NUM_TABLES; i++) {
         delete tables[i];
@@ -70,32 +70,40 @@ Master::~Master()
 }
 
 void
-Master::dispatch(RpcType type, Transport::ServerRpc& rpc)
+MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc)
 {
     switch (type) {
         case CreateRpc::type:
-            callHandler<CreateRpc, Master, &Master::create>(rpc);
+            callHandler<CreateRpc, MasterServer,
+                        &MasterServer::create>(rpc);
             break;
         case CreateTableRpc::type:
-            callHandler<CreateTableRpc, Master, &Master::createTable>(rpc);
+            callHandler<CreateTableRpc, MasterServer,
+                        &MasterServer::createTable>(rpc);
             break;
         case DropTableRpc::type:
-            callHandler<DropTableRpc, Master, &Master::dropTable>(rpc);
+            callHandler<DropTableRpc, MasterServer,
+                        &MasterServer::dropTable>(rpc);
             break;
         case OpenTableRpc::type:
-            callHandler<OpenTableRpc, Master, &Master::openTable>(rpc);
+            callHandler<OpenTableRpc, MasterServer,
+                        &MasterServer::openTable>(rpc);
             break;
         case PingRpc::type:
-            callHandler<PingRpc, Server, &Server::ping>(rpc);
+            callHandler<PingRpc, Server,
+                        &Server::ping>(rpc);
             break;
         case ReadRpc::type:
-            callHandler<ReadRpc, Master, &Master::read>(rpc);
+            callHandler<ReadRpc, MasterServer,
+                        &MasterServer::read>(rpc);
             break;
         case RemoveRpc::type:
-            callHandler<RemoveRpc, Master, &Master::remove>(rpc);
+            callHandler<RemoveRpc, MasterServer,
+                        &MasterServer::remove>(rpc);
             break;
         case WriteRpc::type:
-            callHandler<WriteRpc, Master, &Master::write>(rpc);
+            callHandler<WriteRpc, MasterServer,
+                        &MasterServer::write>(rpc);
             break;
         default:
             throw UnimplementedRequestError();
@@ -103,12 +111,12 @@ Master::dispatch(RpcType type, Transport::ServerRpc& rpc)
 }
 
 void __attribute__ ((noreturn))
-Master::run()
+MasterServer::run()
 {
     serverId = coordinator.enlistServer(MASTER, config->localLocator);
     LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
-        handleRpc<Master>();
+        handleRpc<MasterServer>();
 }
 
 /**
@@ -118,9 +126,9 @@ Master::run()
  * \copydetails Server::ping
  */
 void
-Master::create(const CreateRpc::Request& reqHdr,
-               CreateRpc::Response& respHdr,
-               Transport::ServerRpc& rpc)
+MasterServer::create(const CreateRpc::Request& reqHdr,
+                     CreateRpc::Response& respHdr,
+                     Transport::ServerRpc& rpc)
 {
     Table* t = getTable(reqHdr.tableId);
     uint64_t id = t->AllocateKey();
@@ -140,9 +148,9 @@ Master::create(const CreateRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::createTable(const CreateTableRpc::Request& reqHdr,
-                    CreateTableRpc::Response& respHdr,
-                    Transport::ServerRpc& rpc)
+MasterServer::createTable(const CreateTableRpc::Request& reqHdr,
+                          CreateTableRpc::Response& respHdr,
+                          Transport::ServerRpc& rpc)
 {
     int i;
     const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
@@ -174,9 +182,9 @@ Master::createTable(const CreateTableRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::dropTable(const DropTableRpc::Request& reqHdr,
-                  DropTableRpc::Response& respHdr,
-                  Transport::ServerRpc& rpc)
+MasterServer::dropTable(const DropTableRpc::Request& reqHdr,
+                        DropTableRpc::Response& respHdr,
+                        Transport::ServerRpc& rpc)
 {
     int i;
     const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
@@ -196,9 +204,9 @@ Master::dropTable(const DropTableRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::openTable(const OpenTableRpc::Request& reqHdr,
-                  OpenTableRpc::Response& respHdr,
-                  Transport::ServerRpc& rpc)
+MasterServer::openTable(const OpenTableRpc::Request& reqHdr,
+                        OpenTableRpc::Response& respHdr,
+                        Transport::ServerRpc& rpc)
 {
     int i;
     const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
@@ -217,9 +225,9 @@ Master::openTable(const OpenTableRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::read(const ReadRpc::Request& reqHdr,
-             ReadRpc::Response& respHdr,
-             Transport::ServerRpc& rpc)
+MasterServer::read(const ReadRpc::Request& reqHdr,
+                   ReadRpc::Response& respHdr,
+                   Transport::ServerRpc& rpc)
 {
     Table* t = getTable(reqHdr.tableId);
     const Object* o = t->Get(reqHdr.id);
@@ -244,9 +252,9 @@ Master::read(const ReadRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::remove(const RemoveRpc::Request& reqHdr,
-               RemoveRpc::Response& respHdr,
-               Transport::ServerRpc& rpc)
+MasterServer::remove(const RemoveRpc::Request& reqHdr,
+                     RemoveRpc::Response& respHdr,
+                     Transport::ServerRpc& rpc)
 {
     Table* t = getTable(reqHdr.tableId);
     const Object* o = t->Get(reqHdr.id);
@@ -277,9 +285,9 @@ Master::remove(const RemoveRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::write(const WriteRpc::Request& reqHdr,
-              WriteRpc::Response& respHdr,
-              Transport::ServerRpc& rpc)
+MasterServer::write(const WriteRpc::Request& reqHdr,
+                    WriteRpc::Response& respHdr,
+                    Transport::ServerRpc& rpc)
 {
     storeData(reqHdr.tableId, reqHdr.id,
               &reqHdr.rejectRules, &rpc.recvPayload, sizeof(reqHdr),
@@ -299,7 +307,7 @@ Master::write(const WriteRpc::Request& reqHdr,
  *      Thrown if tableId does not correspond to a valid table.
  */
 Table*
-Master::getTable(uint32_t tableId) {
+MasterServer::getTable(uint32_t tableId) {
     if (tableId >= static_cast<uint32_t>(NUM_TABLES)) {
         throw TableDoesntExistException();
     }
@@ -326,7 +334,7 @@ Master::getTable(uint32_t tableId) {
  *      the return value indicates the reason for the rejection.
  */
 void
-Master::rejectOperation(const RejectRules* rejectRules, uint64_t version)
+MasterServer::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 {
     if (version == VERSION_NONEXISTENT) {
         if (rejectRules->doesntExist)
@@ -348,7 +356,7 @@ Master::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 //-----------------------------------------------------------------------
 
 struct obj_replay_cookie {
-    Master *server;
+    MasterServer *server;
     uint64_t used_bytes;
 };
 
@@ -378,7 +386,7 @@ objectEvictionCallback(LogEntryType type,
 {
     assert(type == LOG_ENTRY_TYPE_OBJ);
 
-    Master *svr = static_cast<Master *>(cookie);
+    MasterServer *svr = static_cast<MasterServer *>(cookie);
     assert(svr != NULL);
 
     Log *log = svr->log;
@@ -408,7 +416,7 @@ objectReplayCallback(LogEntryType type,
                      void *cookiep)
 {
     obj_replay_cookie *cookie = static_cast<obj_replay_cookie *>(cookiep);
-    Master *server = cookie->server;
+    MasterServer *server = cookie->server;
 
     //printf("ObjectReplayCallback: type %llu\n", type);
 
@@ -462,7 +470,7 @@ tombstoneEvictionCallback(LogEntryType type,
 {
     assert(type == LOG_ENTRY_TYPE_OBJTOMB);
 
-    Master *svr = static_cast<Master *>(cookie);
+    MasterServer *svr = static_cast<MasterServer *>(cookie);
     assert(svr != NULL);
 
     Log *log = svr->log;
@@ -481,10 +489,10 @@ tombstoneEvictionCallback(LogEntryType type,
 }
 
 void
-Master::storeData(uint64_t tableId, uint64_t id,
-                  const RejectRules* rejectRules, Buffer* data,
-                  uint32_t dataOffset, uint32_t dataLength,
-                  uint64_t* newVersion)
+MasterServer::storeData(uint64_t tableId, uint64_t id,
+                        const RejectRules* rejectRules, Buffer* data,
+                        uint32_t dataOffset, uint32_t dataLength,
+                        uint64_t* newVersion)
 {
     Table *t = getTable(tableId);
     const Object *o = t->Get(id);

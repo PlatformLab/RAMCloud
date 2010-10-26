@@ -14,7 +14,7 @@
  */
 
 #include "TestUtil.h"
-#include "Coordinator.h"
+#include "CoordinatorClient.h"
 #include "CoordinatorServer.h"
 #include "MockTransport.h"
 #include "TransportManager.h"
@@ -29,24 +29,24 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
-    Coordinator* coordinator;
+    CoordinatorClient* client;
     CoordinatorServer* server;
 
   public:
-    CoordinatorTest() : transport(NULL), coordinator(NULL), server(NULL) {}
+    CoordinatorTest() : transport(NULL), client(NULL), server(NULL) {}
 
     void setUp() {
         transport = new BindTransport();
         transportManager.registerMock(transport);
         server = new CoordinatorServer();
         transport->server = server;
-        coordinator = new Coordinator("mock:");
+        client = new CoordinatorClient("mock:");
         TestLog::enable();
     }
 
     void tearDown() {
         TestLog::disable();
-        delete coordinator;
+        delete client;
         delete server;
         transportManager.unregisterMock();
         delete transport;
@@ -55,7 +55,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     void test_enlistServer() {
         server->nextServerId = 2;
         uint64_t serverId =
-            coordinator->enlistServer(MASTER, "tcp:host=foo,port=123");
+            client->enlistServer(MASTER, "tcp:host=foo,port=123");
         CPPUNIT_ASSERT_EQUAL(2, serverId);
         CPPUNIT_ASSERT_EQUAL("server { server_type: MASTER server_id: 2 "
                              "service_locator: \"tcp:host=foo,port=123\" }",
@@ -64,10 +64,10 @@ class CoordinatorTest : public CppUnit::TestFixture {
 
     void test_getServerList() {
         server->nextServerId = 2;
-        coordinator->enlistServer(MASTER, "tcp:host=foo,port=123");
-        coordinator->enlistServer(BACKUP, "tcp:host=bar,port=123");
+        client->enlistServer(MASTER, "tcp:host=foo,port=123");
+        client->enlistServer(BACKUP, "tcp:host=bar,port=123");
         ProtoBuf::ServerList serverList;
-        coordinator->getServerList(serverList);
+        client->getServerList(serverList);
         CPPUNIT_ASSERT_EQUAL("server { server_type: MASTER server_id: 2 "
                              "service_locator: \"tcp:host=foo,port=123\" } "
                              "server { server_type: BACKUP server_id: 3 "
