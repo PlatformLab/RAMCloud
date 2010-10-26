@@ -154,27 +154,4 @@ MockDriver::setInput(Driver::Received* received)
     inputReceived = received;
 }
 
-/**
- * Create a string representation of a range of bytes.
- *
- * \param buf
- *      The start of the region to stringify.
- * \param bufLen
- *      The number of bytes to stringify.
- */
-string
-MockDriver::bufToHex(const void* buf, uint32_t bufLen)
-{
-    const unsigned char* cbuf = reinterpret_cast<const unsigned char*>(buf);
-    string s;
-    char c[4];
-
-    for (uint32_t i = 0; i < bufLen; i++) {
-        snprintf(c, sizeof(c), "%02x ", cbuf[i]);
-        s += c;
-    }
-
-    return s;
-}
-
 }  // namespace RAMCloud
