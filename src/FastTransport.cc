@@ -915,7 +915,8 @@ FastTransport::OutboundMessage::reset()
 }
 
 /**
- * Begin sending a buffer.  Requires the message to be inactive (clear() was
+ * Begin sending a buffer, sending as many fragments as permitted by
+ * the protocol.  Requires the message to be inactive (clear() was
  * called on it).
  *
  * \param dataBuffer
@@ -931,9 +932,11 @@ FastTransport::OutboundMessage::beginSending(Buffer* dataBuffer)
 }
 
 /**
- * Send out data fragments and update timestamps/status in sentTimes as far
- * as the window allows or until the first retransmit requesting ACKs where
- * appropriate.
+ * Send out additional data fragments and update timestamps/status in
+ * sentTimes as much as permitted by the current state of the world.
+ * This method is invoked by beginSending and then again later whenever
+ * something has occurred that may permit additional data fragments
+ * to be sent (such as the arrival of an ACK or the passage of time).
  *
  * Pre-conditions:
  *  - beginSending() must have been called since the last call to reset().
@@ -1135,8 +1138,7 @@ const uint64_t FastTransport::Session::INVALID_TOKEN = 0xcccccccccccccccclu;
 const uint32_t FastTransport::ServerSession::INVALID_HINT = 0xccccccccu;
 
 /**
- * Create a session associated with a particular transport with offset
- * into the transport's serverSessionTable of sessionId.
+ * Create a session associated with a particular transport.
  *
  * \param transport
  *      The FastTransport with which this Session is associated.
@@ -1311,8 +1313,8 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
  * \param clientAddress
  *      Address of the session initiator.
  * \param clientSessionHint
- *      The offset into the client's SessionTable to quickly associate
- *      packets from this session with the correct ClientSession.
+ *      Hint that the client uses to find informataion about this session;
+ *      must be included in messages to the client.
  */
 void
 FastTransport::ServerSession::startSession(
@@ -1385,6 +1387,7 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
     Header* header = received->getOffset<Header>(0);
     switch (channel->state) {
     case ServerChannel::IDLE:
+        LOG(WARNING, "data packet arrived for IDLE channel");
         break;
     case ServerChannel::RECEIVING:
         if (channel->inboundMsg.processReceivedData(received)) {
@@ -1423,8 +1426,7 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
 const uint32_t FastTransport::ClientSession::INVALID_HINT = 0xccccccccu;
 
 /**
- * Create a session associated with a particular transport with offset
- * into the transport's serverSessionTable of sessionId.
+ * Create a session associated with a particular transport.
  *
  * \param transport
  *      The FastTransport with which this Session is associated.
@@ -1592,7 +1594,9 @@ FastTransport::ClientSession::isConnected()
  * Dispatch an incoming packet to the correct action for this session.
  *
  * \param received
- *      A packet wrapped up in a Driver::Received.
+ *      A packet wrapped up in a Driver::Received.  The caller has
+ *      checked that the packet matches this session and that it is
+ *      a server-to-client packet.
  */
 void
 FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
@@ -1617,8 +1621,9 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
             processReceivedAck(channel, received);
             break;
         case Header::BAD_SESSION:
-            // if any current RPCs in channels requeue them
-            // and try to reconnect
+            // The server does not believe it has a matching session
+            // (perhaps it rebooted?).  Requeue any current RPCs and
+            // try to reconnect.
             for (uint32_t i = 0; i < numChannels; i++) {
                 if (channels[i].currentRpc)
                     channelQueue.push_back(*channels[i].currentRpc);
@@ -1741,16 +1746,21 @@ FastTransport::ClientSession::processReceivedAck(ClientChannel* channel,
  * \param channel
  *      The channel to process the ACK on.
  * \param received
- *      The data packet encapsulated in a Driver::Received.
+ *      The data packet encapsulated in a Driver::Received.  The caller
+ *      must have verified that the packet belongs to the current RPC for
+ *      channel and that it is a data packet.
  */
 void
 FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
                                                   Driver::Received* received)
 {
-    // Discard if idle
-    if (channel->state == ClientChannel::IDLE)
-        return;
     Header* header = received->getOffset<Header>(0);
+    // Discard if idle
+    if (channel->state == ClientChannel::IDLE) {
+        LOG(WARNING, "packet arrived on IDLE channel (rpcId %d)",
+            header->rpcId);
+        return;
+    }
     // If sending end sending and start receiving
     if (channel->state == ClientChannel::SENDING) {
         channel->outboundMsg.reset();
