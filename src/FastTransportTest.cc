@@ -1763,7 +1763,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(
             "{ sessionToken:767600007676 rpcId:0 clientSessionHint:12345678 "
             "serverSessionHint:98765432 0/0 frags channel:0 dir:1 reqACK:0 "
-            "drop:0 payloadType:2 } /x07",
+            "drop:0 payloadType:2 } /x08",
             driver->outputLog);
         CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
     }

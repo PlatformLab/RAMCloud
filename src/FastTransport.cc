@@ -1338,7 +1338,7 @@ FastTransport::ServerSession::startSession(
     Buffer payload;
     SessionOpenResponse* sessionOpen;
     sessionOpen = new(&payload, APPEND) SessionOpenResponse;
-    sessionOpen->maxChannelId = NUM_CHANNELS_PER_SESSION - 1;
+    sessionOpen->numChannels = NUM_CHANNELS_PER_SESSION;
     Buffer::Iterator payloadIter(payload);
     transport->sendPacket(this->clientAddress.get(), &header, &payloadIter);
     lastActivityTime = rdtsc();
@@ -1811,8 +1811,8 @@ FastTransport::ClientSession::processSessionOpenResponse(
         received->getOffset<SessionOpenResponse>(sizeof(*header));
     serverSessionHint = header->serverSessionHint;
     token = header->sessionToken;
-    LOG(DEBUG, "response max avail: %u", response->maxChannelId);
-    numChannels = response->maxChannelId + 1;
+    LOG(DEBUG, "response numChannels: %u", response->numChannels);
+    numChannels = response->numChannels;
     if (MAX_NUM_CHANNELS_PER_SESSION < numChannels)
         numChannels = MAX_NUM_CHANNELS_PER_SESSION;
     LOG(DEBUG, "session open response: numChannels: %u", numChannels);

@@ -489,10 +489,11 @@ class FastTransport : public Transport {
      */
     struct SessionOpenResponse {
         /**
-         * The highest channelId that the client is allowed to use in future
-         * RPCs on this session.
+         * The number of channels that the client is allowed to use in
+         * future RPCs on this session (channel ids must be in the
+         * range [0..numChannels-1]).
          */
-        uint8_t maxChannelId;
+        uint8_t numChannels;
     } __attribute__((packed));
 
     /**
