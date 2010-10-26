@@ -140,7 +140,7 @@ class LogTest : public CppUnit::TestFixture {
         const void *p2 = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         l.free(p2, sizeof(buf));
         Segment *s = l.activeIdMap[0];
-        CPPUNIT_ASSERT_EQUAL(64, s->bytesFreed);
+        CPPUNIT_ASSERT_EQUAL(64 + sizeof(SegmentEntry), s->bytesFreed);
 
         free(p);
     }

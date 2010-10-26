@@ -34,6 +34,8 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_isDone);
     CPPUNIT_TEST(test_next);
     CPPUNIT_TEST(test_getters);
+    CPPUNIT_TEST(test_isChecksumValid);
+    CPPUNIT_TEST(test_generateChecksum);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -235,6 +237,43 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
             threwException = true;
         }
         CPPUNIT_ASSERT(threwException);
+    }
+
+    void
+    test_isChecksumValid()
+    {
+        char alignedBuf[8192] __attribute__((aligned(8192)));
+
+        Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+
+        bool threwException = false;
+        try {
+            SegmentIterator i(&s);
+            CPPUNIT_ASSERT_EQUAL(true, i.isChecksumValid());
+        } catch (...) {
+            threwException = true;
+        }
+        CPPUNIT_ASSERT_EQUAL(true, threwException);
+
+        s.close();
+
+        SegmentIterator i(&s);
+        CPPUNIT_ASSERT_EQUAL(true, i.isChecksumValid());
+    }
+
+    void
+    test_generateChecksum()
+    {
+        char alignedBuf[8192] __attribute__((aligned(8192)));
+
+        Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+        s.close();
+
+        CPPUNIT_ASSERT_EQUAL(s.checksum,
+            SegmentIterator::generateChecksum(s.baseAddress, s.capacity));
+        CPPUNIT_ASSERT_EQUAL(s.checksum,
+            SegmentIterator::generateChecksum(s.baseAddress, s.capacity,
+                sizeof(SegmentEntry) * 2 + sizeof(SegmentHeader)));
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(SegmentIteratorTest);

@@ -53,6 +53,9 @@ Master::Master(const ServerConfig* config,
     log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 
+    LogCleaner* cleaner = new LogCleaner(log);
+    log->setCleaner(cleaner);
+
     for (int i = 0; i < SEGMENT_COUNT; i++) {
         void* p = xmemalign(SEGMENT_SIZE, SEGMENT_SIZE);
         log->addSegmentMemory(p);

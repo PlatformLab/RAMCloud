@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <rabinpoly.h>
 #include <Segment.h>
 #include <SegmentIterator.h>
 #include <LogTypes.h>
@@ -50,7 +51,10 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
       id(segmentId),
       capacity(capacity),
       tail(0),
-      bytesFreed(0)
+      bytesFreed(0),
+      rabinPoly(RABIN_POLYNOMIAL),
+      checksum(0),
+      immutable(false)
 {
     // segments must be `capacity'-aligned for fast baseAddress computation
     // we could add a power-of-2 segment size restriction to make it even faster
@@ -91,40 +95,57 @@ Segment::~Segment()
 const void *
 Segment::append(LogEntryType type, const void *buffer, uint64_t length)
 {
-    if (type == LOG_ENTRY_TYPE_SEGFOOTER || appendableBytes() < length)
+    if (immutable || type == LOG_ENTRY_TYPE_SEGFOOTER ||
+      appendableBytes() < length)
         return NULL;
 
     return forceAppendWithEntry(type, buffer, length);
 }
 
 /**
- * Mark bytes in this Segment as freed. This simply maintains a tally that
- * can be used to compute utilisation of the Segment.
+ * Mark bytes used by a single entry in this Segment as freed. This simply
+ * maintains a tally that can be used to compute utilisation of the Segment.
  * \param[in] length
  *      The number of bytes to mark as freed.
+ * \throw 0
+ *      An exception is thrown if more bytes are freed than were written
+ *      to the Segment using the #append method.
  */
 void
-Segment::free(const uint64_t length)
+Segment::free(uint64_t length)
 {
+    // be sure to account for SegmentEntry structs before each append
+    length += sizeof(SegmentEntry);
+
+    if ((bytesFreed + length) > tail)
+        throw 0;
+
     bytesFreed += length;
-    assert(bytesFreed <= capacity);
 }
 
 /**
  * Close the Segment. Once a Segment has been closed, it is considered
  * immutable, i.e. it cannot be appended to. Calling #free on a closed
  * Segment to maintain utilisation counts is still permitted. 
+ * \throw 0
+ *      An exception is thrown if an already closed Segment is closed again.
  */
 void
 Segment::close()
 {
-    SegmentFooter footer = { -1 };
-    const void *p = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGFOOTER,
-                                 &footer, sizeof(footer));
+    if (immutable)
+        throw 0;
+
+    SegmentEntry entry = { LOG_ENTRY_TYPE_SEGFOOTER, sizeof(SegmentFooter) };
+    const void *p = forceAppendBlob(&entry, sizeof(entry));
     assert(p != NULL);
 
-    // chew up remaining space to ensure that any future append() will fail
-    tail += appendableBytes();
+    SegmentFooter footer = { checksum };
+    p = forceAppendBlob(&footer, sizeof(footer), false);
+    assert(p != NULL);
+
+    // ensure that any future append() will fail
+    immutable = true;
 }
 
 /**
@@ -162,12 +183,13 @@ Segment::getCapacity() const
 uint64_t
 Segment::appendableBytes() const
 {
+    if (immutable)
+        return 0;
+
     uint64_t freeBytes = capacity - tail;
     uint64_t headRoom  = sizeof(SegmentEntry) + sizeof(SegmentFooter);
 
-    // possible if called after segment has been closed
-    if (freeBytes < headRoom)
-        return 0;
+    assert(freeBytes >= headRoom);
 
     if ((freeBytes - headRoom) < sizeof(SegmentEntry))
         return 0;
@@ -190,6 +212,17 @@ Segment::forEachEntry(SegmentEntryCallback cb, void *cookie) const
         cb(i.getType(), i.getPointer(), i.getLength(), cookie);
 }
 
+/**
+ * Return the Segment's utilisation as an integer percentage. This is
+ * calculated by taking into account the number of live bytes written to
+ * the Segment minus the freed bytes in proportion to its capacity.
+ */
+int
+Segment::getUtilisation() const
+{
+    return (100ULL * (tail - bytesFreed)) / capacity;
+}
+
 ////////////////////////////////////////
 /// Private Methods
 ////////////////////////////////////////
@@ -202,15 +235,35 @@ Segment::forEachEntry(SegmentEntryCallback cb, void *cookie) const
  *      Pointer to the data to be appended to the Segment's backing memory.
  * \param[in] length
  *      Length of the buffer to be appended in bytes.
+ * \param[in] updateChecksum
+ *      Optional boolean to disable updates to the Segment checksum. The
+ *      default is to update the running checksum while appending data, but
+ *      this can be stopped when appending the SegmentFooter, for instance.
+ * \return
+ *      A pointer into the Segment corresponding to the first byte that was
+ *      copied in to.
  */
 const void *
-Segment::forceAppendBlob(const void *buffer, uint64_t length)
+Segment::forceAppendBlob(const void *buffer, uint64_t length,
+    bool updateChecksum)
 {
     assert((tail + length) <= capacity);
-    void *p = (uint8_t *)baseAddress + tail;
-    memcpy(p, buffer, length);
+    assert(!immutable);
+
+    uint8_t *src = (uint8_t *)buffer;
+    uint8_t *dst = (uint8_t *)baseAddress + tail;
+
+    if (updateChecksum) {
+        for (uint64_t i = 0; i < length; i++) {
+            dst[i] = src[i];
+            checksum = rabinPoly.append8(checksum, src[i]);
+        }
+    } else {
+        memcpy(dst, src, length);
+    }
+
     tail += length;
-    return p;
+    return (void *)dst;
 }
 
 /**
@@ -222,11 +275,16 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length)
  *      Data to be appended to this Segment.
  * \param[in] length
  *      Length of the data to be appended in bytes.
+ * \return
+ *      A pointer into the Segment corresponding to the first data byte that
+ *      was copied in to (i.e. the contents are the same as #buffer).
  */
 const void *
 Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     uint64_t length)
 {
+    assert(!immutable);
+
     uint64_t freeBytes = capacity - tail;
     uint64_t needBytes = sizeof(SegmentEntry) + length;
     if (freeBytes < needBytes)

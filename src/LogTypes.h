@@ -43,7 +43,7 @@ class LogTypeCallback {
 
     const LogEntryType        type;
     const log_eviction_cb_t   evictionCB;
-    const void               *evictionArg;
+    void                     *evictionArg;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(LogTypeCallback);

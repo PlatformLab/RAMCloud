@@ -21,6 +21,7 @@
 #include <exception>
 
 #include <Log.h>
+#include <LogCleaner.h>
 
 namespace RAMCloud {
 
@@ -37,9 +38,9 @@ namespace RAMCloud {
  *      will succeed.
  */
 Log::Log(uint64_t logId, uint64_t segmentSize)
-    : logId(logId), segmentSize(segmentSize), segmentFreeList(), nextSegmentId(0),
-      maximumAppendableBytes(0), head(NULL), callbackMap(), activeIdMap(),
-      activeBaseAddressMap()
+    : logId(logId), segmentSize(segmentSize), segmentFreeList(),
+      nextSegmentId(0), maximumAppendableBytes(0), cleaner(NULL), head(NULL),
+      callbackMap(), activeIdMap(), activeBaseAddressMap()
 {
 }
 
@@ -51,6 +52,21 @@ Log::~Log()
     /// XXX:
     //      free Segment *s
     //      free LogTypeCallback *s
+}
+
+/**
+ * Associate a LogCleaner to with this Log.
+ * \param[in] cleaner
+ *      The LogCleaner object to be associated with this Log.
+ * \throw 0
+ *      An exception is thrown if a LogCleaner has already been associated.
+ */
+void
+Log::setCleaner(LogCleaner *cleaner)
+{
+    if (this->cleaner != NULL)
+        throw 0;
+    this->cleaner = cleaner;
 }
 
 /**
@@ -147,6 +163,9 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
 
             head = new Segment(logId, allocateSegmentId(), s, segmentSize);
             addToActiveMaps(head);
+
+            if (cleaner != NULL)
+                cleaner->clean(1);
         }
     } while (p == NULL);
 

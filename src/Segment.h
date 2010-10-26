@@ -18,6 +18,7 @@
 #ifndef RAMCLOUD_SEGMENT_H
 #define RAMCLOUD_SEGMENT_H
 
+#include <rabinpoly.h>
 #include <stdint.h>
 #include <LogTypes.h>
 
@@ -41,8 +42,6 @@ struct SegmentFooter {
 typedef void (*SegmentEntryCallback)(LogEntryType, const void *,
                                      uint64_t, void *);
 
-const uint64_t INVALID_SEGMENT_ID = ~(0ull);
-
 class Segment {
   public:
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
@@ -51,24 +50,37 @@ class Segment {
 
     const void      *append(LogEntryType type, const void *buffer,
                             uint64_t length);
-    void             free(const uint64_t length);
+    void             free(uint64_t length);
     void             close();
     const void      *getBaseAddress() const;
 
+    /**
+     * Obtain the base address of a Segment's backing memory given a pointer
+     * anywhere into that space and the original Segment's capacity.
+     * \param[in] buffer
+     *      A pointer into the Segment's backing memory.
+     * \param[in] segmentCapacity
+     *      The total capacity of the Segment in bytes.
+     */
     static uintptr_t
-    getBaseAddress(const void *buffer, uint64_t segmentSize)
+    getBaseAddress(const void *buffer, uint64_t segmentCapacity)
     {
         uintptr_t base = (uintptr_t)buffer;
-        return base - (base % segmentSize);
+        return base - (base % segmentCapacity);
     }
 
     uint64_t         getId() const;
     uint64_t         getCapacity() const;
     uint64_t         appendableBytes() const;
     void             forEachEntry(SegmentEntryCallback cb, void *cookie) const;
+    int              getUtilisation() const;
+
+    static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
+    static const uint64_t  RABIN_POLYNOMIAL = 0x92d42091a28158a5ull;
 
   private:
-    const void      *forceAppendBlob(const void *buffer, uint64_t length);
+    const void      *forceAppendBlob(const void *buffer, uint64_t length,
+                                     bool updateChecksum = true);
     const void      *forceAppendWithEntry(LogEntryType type,
                                           const void *buffer, uint64_t length);
 
@@ -77,10 +89,14 @@ class Segment {
     const uint64_t   capacity;       // total byte length of segment when empty
     uint64_t         tail;           // offset to the next free byte in Segment
     uint64_t         bytesFreed;     // bytes free()'d in this Segment
+    rabinpoly        rabinPoly;      // Rabin Polynomial class used for checksum
+    uint64_t         checksum;       // Latest Segment checksum
+    bool             immutable;      // when true the Segment cannot be altered
 
     DISALLOW_COPY_AND_ASSIGN(Segment);
 
     friend class SegmentTest;
+    friend class SegmentIteratorTest;
     friend class LogTest;
 };
 

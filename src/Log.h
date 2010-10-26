@@ -27,6 +27,9 @@ using std::vector;
 
 namespace RAMCloud {
 
+// forward decl around the circular Log/LogCleaner dependency
+class LogCleaner;
+
 typedef void (*LogSegmentCallback)(Segment *, void *);
 
 class Log {
@@ -37,6 +40,7 @@ class Log {
     const void *append(LogEntryType type,
                        const void *buffer, uint64_t length);
     void        free(const void *buffer, const uint64_t length);
+    void        setCleaner(LogCleaner *cleaner);
     void        registerType(LogEntryType type,
                              log_eviction_cb_t evictionCB, void *evictionArg);
     uint64_t    getSegmentId(const void *p);
@@ -56,11 +60,12 @@ class Log {
     vector<void *> segmentFreeList;
     uint64_t       nextSegmentId;
     uint64_t       maximumAppendableBytes;
+    LogCleaner    *cleaner;
 
     /// Current head of the log
     Segment *head;
 
-    /// Eviction and liveness callbacks
+    /// Per-LogEntryType callbacks (e.g. for eviction)
     unordered_map<LogEntryType, LogTypeCallback *> callbackMap;
 
     /// Segment Id -> Segment * lookup within the active list

@@ -19,8 +19,11 @@
 #include <assert.h>
 #include <stdint.h>
 
+#include <Common.h>
 #include <Log.h>
 #include <LogCleaner.h>
+#include <Segment.h>
+#include <SegmentIterator.h>
 
 namespace RAMCloud {
 
@@ -28,10 +31,67 @@ LogCleaner::LogCleaner(Log *log) : log(log)
 {
 }
 
-void
-LogCleaner::clean()
+static int
+compare(const void *a, const void *b)
 {
+    const Segment *segA = (Segment *)a;
+    const Segment *segB = (Segment *)b;
 
+    if (segA->getUtilisation() < segB->getUtilisation())
+        return -1;
+    if (segA->getUtilisation() > segB->getUtilisation())
+        return 1;
+    return 0;
+}
+
+uint64_t
+LogCleaner::clean(uint64_t numSegments)
+{
+    uint64_t i;
+    Segment *segments[log->activeIdMap.size() - 1];
+
+    unordered_map<uint64_t, Segment *>::iterator it =
+        log->activeIdMap.begin();
+    for (i = 0; it != log->activeIdMap.end(); it++) {
+        if (it->second != log->head) {
+            segments[i] = it->second;
+            i++;
+        }
+    }
+
+    qsort(segments, log->activeIdMap.size(), sizeof(segments[0]),
+        compare);
+
+    for (i = 0; i < log->activeIdMap.size() && i < numSegments; i++)
+        cleanSegment(segments[i]);
+
+
+    return i;
+}
+
+////////////////////////////////////////
+/// Private Methods
+////////////////////////////////////////
+
+void
+LogCleaner::cleanSegment(Segment *segment)
+{
+    for (SegmentIterator i(segment); !i.isDone(); i.next()) {
+        LogEntryType type = i.getType();
+
+        if (log->callbackMap.find(type) == log->callbackMap.end())
+            continue;
+
+        uint32_t length   = i.getLength();
+        const void *p     = i.getPointer();
+
+        LogTypeCallback *logCB = log->callbackMap[type];
+        logCB->evictionCB(type, p, length, logCB->evictionArg);
+    }
+
+    log->segmentFreeList.push_back(
+        const_cast<void *>(segment->getBaseAddress()));
+    delete segment;
 }
 
 } // namespace

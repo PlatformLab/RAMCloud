@@ -32,6 +32,7 @@ class SegmentTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_append);
     CPPUNIT_TEST(test_free);
     CPPUNIT_TEST(test_close);
+    CPPUNIT_TEST(test_getBaseAddress);
     CPPUNIT_TEST(test_appendableBytes);
     CPPUNIT_TEST(test_forEachEntry);
     CPPUNIT_TEST(test_forceAppendBlob);
@@ -82,6 +83,11 @@ class SegmentTest : public CppUnit::TestFixture {
         p = s.append(LOG_ENTRY_TYPE_SEGFOOTER, NULL, 0);
         CPPUNIT_ASSERT_EQUAL(NULL, p);
 
+        s.immutable = true;
+        p = s.append(LOG_ENTRY_TYPE_OBJ, alignedBuf, 1);
+        CPPUNIT_ASSERT_EQUAL(NULL, p);
+        s.immutable = false;
+
         p = s.append(LOG_ENTRY_TYPE_OBJ, NULL, s.appendableBytes() + 1);
         CPPUNIT_ASSERT_EQUAL(NULL, p);
 
@@ -107,8 +113,18 @@ class SegmentTest : public CppUnit::TestFixture {
         char alignedBuf[8192] __attribute__((aligned(8192)));
 
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
-        s.free(sizeof(alignedBuf));
-        CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), s.bytesFreed);
+
+        bool threwException = false;
+        try {
+            s.free(s.tail - sizeof(SegmentEntry) + 1);
+        } catch (...) {
+            threwException = true;
+        }
+
+        CPPUNIT_ASSERT_EQUAL(true, threwException);
+
+        s.free(s.tail - sizeof(SegmentEntry));
+        CPPUNIT_ASSERT_EQUAL(s.tail, s.bytesFreed);
     }
 
     void
@@ -125,11 +141,20 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentFooter), se->length);
 
         SegmentFooter *sf = (SegmentFooter *)((char *)se + sizeof(*se));
-        CPPUNIT_ASSERT_EQUAL(-1, sf->checksum);
+        CPPUNIT_ASSERT_EQUAL(0x6d1c79e5b226bcf8ull, sf->checksum);
 
         CPPUNIT_ASSERT_EQUAL(0, s.appendableBytes());
-        CPPUNIT_ASSERT_EQUAL(s.capacity - sizeof(SegmentEntry) * 2 -
-            sizeof(SegmentFooter), s.tail);
+        CPPUNIT_ASSERT_EQUAL(true, s.immutable);
+    }
+
+    // tests just the static method
+    void
+    test_getBaseAddress()
+    {
+        CPPUNIT_ASSERT_EQUAL(128, Segment::getBaseAddress((void *)128, 128));
+        CPPUNIT_ASSERT_EQUAL(128, Segment::getBaseAddress((void *)129, 128));
+        CPPUNIT_ASSERT_EQUAL(128, Segment::getBaseAddress((void *)255, 128));
+        CPPUNIT_ASSERT_EQUAL(256, Segment::getBaseAddress((void *)256, 128));
     }
 
     // The following tests are not ordered with respect to the code,

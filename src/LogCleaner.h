@@ -23,14 +23,19 @@
 
 namespace RAMCloud {
 
+// forward decl around the circular Log/LogCleaner dependency
+class Log;
+
 class LogCleaner {
   public:
     LogCleaner(Log *log);
-    void clean();
+    uint64_t clean(uint64_t numSegments);
     ~LogCleaner() {}
 
   private:
-    Log *log;
+    void cleanSegment(Segment *segment);
+
+    Log * const log;
 
     DISALLOW_COPY_AND_ASSIGN(LogCleaner);
 };

@@ -20,6 +20,7 @@
 #include "Coordinator.h"
 #include "Object.h"
 #include "Log.h"
+#include "LogCleaner.h"
 #include "BackupClient.h"
 #include "HashTable.h"
 #include "Server.h"

@@ -54,12 +54,12 @@ SegmentIterator::SegmentIterator(const Segment *segment)
  * as the backing for a Segment object.
  * \param[in] buffer
  *      A pointer to the first byte of the Segment backing memory.
- * \param[in] length
- *      The length of the segment in bytes.
+ * \param[in] capacity 
+ *      The total capacity of the Segment in bytes.
  */
-SegmentIterator::SegmentIterator(const void *buffer, uint64_t length)
+SegmentIterator::SegmentIterator(const void *buffer, uint64_t capacity)
     : baseAddress(buffer),
-      segmentCapacity(length),
+      segmentCapacity(capacity),
       id(-1),
       type(LOG_ENTRY_TYPE_INVALID),
       length(0),
@@ -133,7 +133,7 @@ SegmentIterator::isEntryValid(const SegmentEntry *entry) const
 bool
 SegmentIterator::isDone() const
 {
-    return (sawFooter || !isEntryValid(currentEntry));
+    return (sawFooter || currentEntry == NULL || !isEntryValid(currentEntry));
 }
 
 /**
@@ -231,6 +231,35 @@ SegmentIterator::getOffset() const
     if (currentEntry == NULL)
         throw 0;
     return (uintptr_t)blobPtr - (uintptr_t)baseAddress;
+}
+
+/**
+ * Determine whether the checksum appended to the Segment this iterator
+ * is associated with is correct. If a checksum does not exist, an
+ * exception is thrown.
+ * \return
+ *      true if the check is valid, else false.
+ * \throw 0
+ *      An exception is thrown if no checksum is present in the Segment.
+ */
+bool
+SegmentIterator::isChecksumValid() const
+{
+    // find the checksum
+    SegmentIterator i(baseAddress, segmentCapacity);
+    while (!i.isDone()) {
+        if (i.getType() == LOG_ENTRY_TYPE_SEGFOOTER)
+            break;
+        i.next();
+    }
+
+    if (i.isDone())
+        throw 0;
+
+    const SegmentFooter *f = (SegmentFooter *)i.getPointer();
+
+    return (f->checksum == SegmentIterator::generateChecksum(baseAddress,
+        segmentCapacity));
 }
 
 } // namespace
