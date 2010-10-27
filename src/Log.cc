@@ -183,7 +183,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
 /**
  * Mark bytes in Log as freed. This simply maintains a per-Segment tally that
  * can be used to compute utilisation of individual Log Segments.
- * \param[in] buffer
+ * \param[in] p
  *      A pointer into the Segment as returned by an #append call.
  */
 void

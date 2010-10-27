@@ -174,7 +174,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     test_getRecoveryData()
     {
         rpc("131 0 99 0 88 0");             // open 99,88
-        rpc("133 0 99 0 88 0 0 16 0x72646873 24 88 0 65536"); // write 99,88 header
+        rpc("133 0 99 0 88 0 0 16 0x72646873 24 88 0"); // write 99,88 header
         // write 99,88 object
         rpc("133 0 99 0 88 0 16 52 0x216a626f 44 1 0 0 0 2 0 99 99 4 test");
         rpc("133 0 99 0 88 0 68 16 0x6b686373 8 99 99"); // write 99,88 footer

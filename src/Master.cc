@@ -521,7 +521,8 @@ Master::storeData(uint64_t tableId, uint64_t id,
 
         uint64_t segmentId = log->getSegmentId(o);
         ObjectTombstone tomb(segmentId, o);
-        const void *p = log->append(LOG_ENTRY_TYPE_OBJTOMB, &tomb,sizeof(tomb));
+        const void *p = log->append(LOG_ENTRY_TYPE_OBJTOMB,
+            &tomb, sizeof(tomb));
         assert(p != NULL);
     }
 
