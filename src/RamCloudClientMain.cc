@@ -146,6 +146,8 @@ try
     return 0;
 } catch (RAMCloud::ClientException& e) {
     fprintf(stderr, "RAMCloud exception: %s\n", e.toString());
+    return 1;
 } catch (RAMCloud::Exception& e) {
     fprintf(stderr, "RAMCloud exception: %s\n", e.message.c_str());
+    return 1;
 }
