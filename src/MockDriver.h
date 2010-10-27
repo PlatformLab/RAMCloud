@@ -54,7 +54,6 @@ class MockDriver : public Driver {
     MockDriver();
     explicit MockDriver(HeaderToString headerToString);
     virtual ~MockDriver() {}
-    static void bufferToString(Buffer *buffer, string* const s);
     virtual uint32_t getMaxPacketSize() { return 1400; }
     virtual void release(char *payload, uint32_t len);
     virtual void sendPacket(const Address* addr,
