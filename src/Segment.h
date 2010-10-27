@@ -18,9 +18,10 @@
 #ifndef RAMCLOUD_SEGMENT_H
 #define RAMCLOUD_SEGMENT_H
 
-#include <rabinpoly.h>
 #include <stdint.h>
-#include <LogTypes.h>
+
+#include "rabinpoly.h"
+#include "LogTypes.h"
 
 namespace RAMCloud {
 
@@ -69,6 +70,7 @@ class Segment {
     void             forEachEntry(SegmentEntryCallback cb, void *cookie) const;
     int              getUtilisation() const;
 
+    static const uint32_t  SEGMENT_SIZE = 8 * 1024 * 1024;
     static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
     static const uint64_t  RABIN_POLYNOMIAL = 0x92d42091a28158a5ull;
 

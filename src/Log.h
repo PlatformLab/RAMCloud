@@ -17,10 +17,11 @@
 #define RAMCLOUD_LOG_H
 
 #include <stdint.h>
-#include <LogTypes.h>
-#include <Segment.h>
 #include <boost/unordered_map.hpp>
 #include <vector>
+
+#include "LogTypes.h"
+#include "Segment.h"
 
 using boost::unordered_map;
 using std::vector;

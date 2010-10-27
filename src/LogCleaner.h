@@ -16,10 +16,10 @@
 #ifndef RAMCLOUD_LOGCLEANER_H
 #define RAMCLOUD_LOGCLEANER_H
 
-#include <Common.h>
-#include <LogTypes.h>
-#include <Log.h>
-#include <Segment.h>
+#include "Common.h"
+#include "LogTypes.h"
+#include "Log.h"
+#include "Segment.h"
 
 namespace RAMCloud {
 

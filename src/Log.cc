@@ -20,8 +20,8 @@
 #include <stdint.h>
 #include <exception>
 
-#include <Log.h>
-#include <LogCleaner.h>
+#include "Log.h"
+#include "LogCleaner.h"
 
 namespace RAMCloud {
 

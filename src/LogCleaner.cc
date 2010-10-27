@@ -19,11 +19,11 @@
 #include <assert.h>
 #include <stdint.h>
 
-#include <Common.h>
-#include <Log.h>
-#include <LogCleaner.h>
-#include <Segment.h>
-#include <SegmentIterator.h>
+#include "Common.h"
+#include "Log.h"
+#include "LogCleaner.h"
+#include "Segment.h"
+#include "SegmentIterator.h"
 
 namespace RAMCloud {
 

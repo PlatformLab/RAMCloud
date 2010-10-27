@@ -19,8 +19,9 @@
 #define RAMCLOUD_SEGMENTITERATOR_H
 
 #include <stdint.h>
-#include <Segment.h>
 #include <vector>
+#include "Segment.h"
+
 using std::vector;
 
 namespace RAMCloud {

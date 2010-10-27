@@ -22,9 +22,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <Segment.h>
-#include <SegmentIterator.h>
-#include <LogTypes.h>
+#include "Segment.h"
+#include "SegmentIterator.h"
+#include "LogTypes.h"
 
 namespace RAMCloud {
 

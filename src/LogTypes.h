@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_LOGTYPES_H
 #define RAMCLOUD_LOGTYPES_H
 
-#include <Common.h>
+#include "Common.h"
 
 namespace RAMCloud {
 

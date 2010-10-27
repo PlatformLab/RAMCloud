@@ -17,6 +17,7 @@
 #include "ClientException.h"
 #include "Master.h"
 #include "Rpc.h"
+#include "Segment.h"
 #include "Transport.h"
 #include "TransportManager.h"
 
@@ -49,7 +50,8 @@ Master::Master(const ServerConfig* config,
     , backup(backupClient)
     , log(0)
 {
-    log = new Log(0, SEGMENT_SIZE * SEGMENT_COUNT, SEGMENT_SIZE);
+    log = new Log(0, Segment::SEGMENT_SIZE * SEGMENT_COUNT,
+        Segment::SEGMENT_SIZE);
     log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 
