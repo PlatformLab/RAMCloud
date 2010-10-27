@@ -29,10 +29,15 @@ namespace RAMCloud {
  */
 class BindTransport : public Transport {
   public:
-    explicit BindTransport(Server& server) : server(server) {}
+    explicit BindTransport(Server* server = NULL)
+        : server(server)
+        , waitingRequest(NULL)
+    {}
 
     ServerRpc* serverRecv() {
-        throw Exception("BindTransport::serverRecv should never be called");
+        ServerRpc* ret = waitingRequest;
+        waitingRequest = NULL;
+        return ret;
     }
 
     Transport::SessionRef
@@ -82,7 +87,10 @@ class BindTransport : public Transport {
             DISALLOW_COPY_AND_ASSIGN(BindSession);
     };
 
-    Server& server;
+  public:
+    Server* server;
+  private:
+    ServerRpc* waitingRequest;
     DISALLOW_COPY_AND_ASSIGN(BindTransport);
 };
 

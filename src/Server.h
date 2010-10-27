@@ -110,6 +110,7 @@ class Server {
 
   private:
     friend class ServerTest;
+    friend class BindTransport;
     DISALLOW_COPY_AND_ASSIGN(Server);
 };
 

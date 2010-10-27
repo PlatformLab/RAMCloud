@@ -36,9 +36,10 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CoordinatorTest() : transport(NULL), coordinator(NULL), server(NULL) {}
 
     void setUp() {
-        server = new CoordinatorServer();
-        transport = new BindTransport(*server);
+        transport = new BindTransport();
         transportManager.registerMock(transport);
+        server = new CoordinatorServer();
+        transport->server = server;
         coordinator = new Coordinator("mock:");
         TestLog::enable();
     }
@@ -46,9 +47,9 @@ class CoordinatorTest : public CppUnit::TestFixture {
     void tearDown() {
         TestLog::disable();
         delete coordinator;
+        delete server;
         transportManager.unregisterMock();
         delete transport;
-        delete server;
     }
 
     void test_enlistServer() {
