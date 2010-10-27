@@ -17,7 +17,6 @@
 #include <getopt.h>
 #include <errno.h>
 
-#include "config.h"
 #include "BackupClient.h"
 #include "OptionParser.h"
 #include "Master.h"
@@ -72,4 +71,5 @@ try
 } catch (RAMCloud::Exception& e) {
     using namespace RAMCloud;
     LOG(ERROR, "server: %s", e.message.c_str());
+    return 1;
 }

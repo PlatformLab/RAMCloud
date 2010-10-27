@@ -93,7 +93,7 @@ class MasterTest : public CppUnit::TestFixture {
 
     void test_constructor_initializeTables() {
         Table** tables = server->tables;
-        for (int i = 0; i < RC_NUM_TABLES; i++) {
+        for (int i = 0; i < Master::NUM_TABLES; i++) {
             if (tables[i] != NULL) {
                 char message[100];
                 snprintf(message, sizeof(message),
@@ -108,8 +108,8 @@ class MasterTest : public CppUnit::TestFixture {
         Table::numDeletes = 0;
         Table** tables = s->tables;
         tables[0] = new Table();
-        tables[7] = new Table();
-        tables[RC_NUM_TABLES-1] = new Table();
+        tables[2] = new Table();
+        tables[Master::NUM_TABLES-1] = new Table();
         delete s;
         CPPUNIT_ASSERT_EQUAL(3, Table::numDeletes);
     }
@@ -161,7 +161,7 @@ class MasterTest : public CppUnit::TestFixture {
     }
     void test_createTable_outOfTableSpace() {
         // Fill up the table of tables.
-        for (int i = 0; i < 256; ++i) {
+        for (int i = 0; i < Master::NUM_TABLES; ++i) {
             char message[100];
             snprintf(message, sizeof(message), "8 0 5 t%03d", i);
             rpc(message);

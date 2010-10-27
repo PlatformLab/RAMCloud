@@ -18,7 +18,7 @@ TOP	:= $(shell echo $${PWD-`pwd`})
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
 OPTFLAG	 :=
-DEBUGFLAGS :=
+DEBUGFLAGS := -DPERF_COUNTERS=1 -DTESTING=1
 else
 BASECFLAGS :=
 OPTFLAG := -O3

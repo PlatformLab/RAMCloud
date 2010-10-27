@@ -53,14 +53,14 @@ Master::Master(const ServerConfig* config,
     log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 
-    for (int i = 0; i < RC_NUM_TABLES; i++) {
+    for (int i = 0; i < NUM_TABLES; i++) {
         tables[i] = NULL;
     }
 }
 
 Master::~Master()
 {
-    for (int i = 0; i < RC_NUM_TABLES; i++) {
+    for (int i = 0; i < NUM_TABLES; i++) {
         delete tables[i];
     }
 
@@ -147,7 +147,7 @@ Master::createTable(const CreateTableRpc::Request& reqHdr,
                                  reqHdr.nameLength);
 
     // See if we already have a table with the given name.
-    for (i = 0; i < RC_NUM_TABLES; i++) {
+    for (i = 0; i < NUM_TABLES; i++) {
         if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
             // Table already exists; do nothing.
             return;
@@ -156,7 +156,7 @@ Master::createTable(const CreateTableRpc::Request& reqHdr,
 
     // Find an empty slot in the table of tables and use it for the
     // new table.
-    for (i = 0; i < RC_NUM_TABLES; i++) {
+    for (i = 0; i < NUM_TABLES; i++) {
         if (tables[i] == NULL) {
             tables[i] = new Table();
             tables[i]->SetName(name);
@@ -179,7 +179,7 @@ Master::dropTable(const DropTableRpc::Request& reqHdr,
     int i;
     const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
-    for (i = 0; i < RC_NUM_TABLES; i++) {
+    for (i = 0; i < NUM_TABLES; i++) {
         if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
             delete tables[i];
             tables[i] = NULL;
@@ -201,7 +201,7 @@ Master::openTable(const OpenTableRpc::Request& reqHdr,
     int i;
     const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
-    for (i = 0; i < RC_NUM_TABLES; i++) {
+    for (i = 0; i < NUM_TABLES; i++) {
         if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
             respHdr.tableId = i;
             return;
@@ -298,7 +298,7 @@ Master::write(const WriteRpc::Request& reqHdr,
  */
 Table*
 Master::getTable(uint32_t tableId) {
-    if (tableId >= RC_NUM_TABLES) {
+    if (tableId >= static_cast<uint32_t>(NUM_TABLES)) {
         throw TableDoesntExistException();
     }
     Table* t = tables[tableId];

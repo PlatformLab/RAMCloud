@@ -46,6 +46,12 @@ struct ServerConfig {
  */
 class Master : public Server {
   public:
+    /// The max number of tables a Master will serve.
+    static const int NUM_TABLES = 4;
+
+    /// The number of segments a Master can contain.
+    static const uint32_t SEGMENT_COUNT =  64;
+
     Master(const ServerConfig* config,
            BackupClient* backup);
     virtual ~Master();
@@ -98,7 +104,7 @@ class Master : public Server {
      * allocated lazily: a NULL entry means the corresponding table
      * does not yet exist.
      */
-    Table *tables[RC_NUM_TABLES];
+    Table *tables[NUM_TABLES];
 
     friend void objectEvictionCallback(LogEntryType type,
             const void* p, uint64_t len, void* cookie);

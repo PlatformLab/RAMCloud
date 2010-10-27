@@ -54,17 +54,14 @@ SHARED_OBJFILES := $(SHARED_SRCFILES)
 SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
 SHARED_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
 
-$(TOP)/src/config.h: $(TOP)/src/config.h.tmpl
-	cp $(TOP)/src/config.h.tmpl $@
-
-$(OBJDIR)/%.o: $(TOP)/src/%.cc $(TOP)/src/config.h $(AUTO_GEN_HEADERS)
+$(OBJDIR)/%.o: $(TOP)/src/%.cc $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<, -fPIC)
 
 # If there's a cc file in the object dir, build it.
 # This is for auto-generated source code.
-$(OBJDIR)/%.o: $(OBJDIR)/%.cc $(TOP)/src/config.h $(AUTO_GEN_HEADERS)
+$(OBJDIR)/%.o: $(OBJDIR)/%.cc $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<, -fPIC)
 
-all: $(TOP)/src/config.h
+all:
