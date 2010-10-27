@@ -48,10 +48,10 @@ uint64_t
 LogCleaner::clean(uint64_t numSegments)
 {
     uint64_t i;
-    Segment *segments[log->activeIdMap.size() - 1];
+    uint64_t maxCleanableSegs = log->activeIdMap.size() - 1;  // ignore head
+    Segment *segments[maxCleanableSegs];
 
-    unordered_map<uint64_t, Segment *>::iterator it =
-        log->activeIdMap.begin();
+    ActiveIdMap::iterator it = log->activeIdMap.begin();
     for (i = 0; it != log->activeIdMap.end(); it++) {
         if (it->second != log->head) {
             segments[i] = it->second;
@@ -59,12 +59,10 @@ LogCleaner::clean(uint64_t numSegments)
         }
     }
 
-    qsort(segments, log->activeIdMap.size(), sizeof(segments[0]),
-        compare);
+    qsort(segments, maxCleanableSegs, sizeof(segments[0]), compare);
 
-    for (i = 0; i < log->activeIdMap.size() && i < numSegments; i++)
+    for (i = 0; i < std::min(maxCleanableSegs, numSegments); i++)
         cleanSegment(segments[i]);
-
 
     return i;
 }
@@ -89,8 +87,8 @@ LogCleaner::cleanSegment(Segment *segment)
         logCB->evictionCB(type, p, length, logCB->evictionArg);
     }
 
-    log->segmentFreeList.push_back(
-        const_cast<void *>(segment->getBaseAddress()));
+    log->eraseFromActiveMaps(segment);
+    log->addToFreeList(const_cast<void *>(segment->getBaseAddress()));
     delete segment;
 }
 

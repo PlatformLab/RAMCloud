@@ -506,7 +506,7 @@ class SocketTest : public CppUnit::TestFixture {
                 const struct sockaddr_in* a;
                 a = reinterpret_cast<const struct sockaddr_in*>(addr);
                 CPPUNIT_ASSERT(a->sin_family == AF_INET);
-                CPPUNIT_ASSERT(a->sin_port == htons(0xabcd));
+                CPPUNIT_ASSERT(a->sin_port == htons(8888));
                 CPPUNIT_ASSERT(a->sin_addr.s_addr == 0x04030201);
                 return 0;
             }
@@ -522,7 +522,7 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TcpTransport::sys = &ts;
 
-        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=0xabcd");
+        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=8888");
         TcpTransport::ListenSocket s(&serviceLocator);
     }
 
@@ -537,7 +537,7 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TcpTransport::sys = &ts;
 
-        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=0xabcd");
+        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=8888");
         try {
             TcpTransport::ListenSocket s(&serviceLocator);
             CPPUNIT_ASSERT(false);
@@ -571,7 +571,7 @@ class SocketTest : public CppUnit::TestFixture {
         TS ts;
         TcpTransport::sys = &ts;
 
-        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=0xabcd");
+        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=8888");
         try {
             TcpTransport::ListenSocket s(&serviceLocator);
             CPPUNIT_ASSERT(false);
@@ -646,7 +646,7 @@ class SocketTest : public CppUnit::TestFixture {
                 const struct sockaddr_in* a;
                 a = reinterpret_cast<const struct sockaddr_in*>(addr);
                 CPPUNIT_ASSERT_EQUAL(AF_INET, a->sin_family);
-                CPPUNIT_ASSERT_EQUAL(htons(0xabcd), a->sin_port);
+                CPPUNIT_ASSERT_EQUAL(htons(8888), a->sin_port);
                 CPPUNIT_ASSERT_EQUAL(0x10204080, a->sin_addr.s_addr);
                 return 0;
             }
@@ -660,7 +660,7 @@ class SocketTest : public CppUnit::TestFixture {
 
         TcpTransport::ClientSocket s;
         s.init(IpAddress(ServiceLocator(
-                "tcp: host=128.64.32.16, port=43981")));
+                "tcp: host=128.64.32.16, port=8888")));
     }
 
     void test_ClientSocket_init_socketError() {
@@ -678,7 +678,7 @@ class SocketTest : public CppUnit::TestFixture {
         TcpTransport::ClientSocket s;
         try {
             s.init(IpAddress(ServiceLocator(
-                    "tcp: host=128.64.32.16, port=1234")));
+                    "tcp: host=128.64.32.16, port=8888")));
             CPPUNIT_ASSERT(false);
         } catch (UnrecoverableTransportException& e) {}
     }
@@ -704,7 +704,7 @@ class SocketTest : public CppUnit::TestFixture {
         TcpTransport::ClientSocket s;
         try {
             s.init(IpAddress(ServiceLocator(
-                    "tcp: host=128.64.32.16, port=1234")));
+                    "tcp: host=128.64.32.16, port=8888")));
             CPPUNIT_ASSERT(false);
         } catch (TransportException& e) {}
     }
@@ -730,7 +730,7 @@ class SocketTest : public CppUnit::TestFixture {
         TcpTransport::ClientSocket s;
         try {
             s.init(IpAddress(ServiceLocator(
-                    "tcp: host=128.64.32.16, port=1234")));
+                    "tcp: host=128.64.32.16, port=8888")));
             CPPUNIT_ASSERT(false);
         } catch (UnrecoverableTransportException& e) {}
     }
@@ -875,7 +875,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
 
         BEGIN_MOCK(TS, ClientSocketStub);
             init(address) {
-                CPPUNIT_ASSERT_EQUAL("1.2.3.4:61185", address.toString());
+                CPPUNIT_ASSERT_EQUAL("1.2.3.4:9999", address.toString());
             }
             send(payload == send_expect) {
             }
@@ -888,7 +888,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         Buffer payload;
         Buffer response;
         send_expect = &payload;
-        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=0xef01");
+        ServiceLocator serviceLocator("tcp: host=1.2.3.4, port=9999");
         Transport::SessionRef session(t.getSession(serviceLocator));
         delete session->clientSend(&payload, &response);
     }

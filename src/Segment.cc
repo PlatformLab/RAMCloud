@@ -36,10 +36,7 @@ namespace RAMCloud {
  * \param[in] segmentId
  *      The unique identifier for this Segment.
  * \param[in] baseAddress
- *      A pointer to memory that will back this Segment. This memory must be
- *      aligned to the size of the Segment in bytes, i.e. the capacity. Doing
- *      so permits quick calculation of the baseAddress from a random pointer
- *      into the Segment.
+ *      A pointer to memory that will back this Segment.
  * \param[in] capacity
  *      The size of the backing memory pointed to by baseAddress in bytes.
  * \return
@@ -54,13 +51,8 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
       bytesFreed(0),
       rabinPoly(RABIN_POLYNOMIAL),
       checksum(0),
-      immutable(false)
+      closed(false)
 {
-    // segments must be `capacity'-aligned for fast baseAddress computation
-    // we could add a power-of-2 segment size restriction to make it even faster
-    if ((uintptr_t)baseAddress % capacity)
-        throw 0;
-
     SegmentHeader header = { logId, id, capacity };
     const void *p = append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
     assert(p != NULL);
@@ -73,7 +65,7 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
 Segment::~Segment()
 {
     static_assert(sizeof(SegmentEntry) == 8);
-    static_assert(sizeof(SegmentHeader) == 24);
+    static_assert(sizeof(SegmentHeader) == 20);
     static_assert(sizeof(SegmentFooter) == 8);
 }
 
@@ -95,7 +87,7 @@ Segment::~Segment()
 const void *
 Segment::append(LogEntryType type, const void *buffer, uint64_t length)
 {
-    if (immutable || type == LOG_ENTRY_TYPE_SEGFOOTER ||
+    if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
       appendableBytes() < length)
         return NULL;
 
@@ -105,36 +97,38 @@ Segment::append(LogEntryType type, const void *buffer, uint64_t length)
 /**
  * Mark bytes used by a single entry in this Segment as freed. This simply
  * maintains a tally that can be used to compute utilisation of the Segment.
- * \param[in] length
- *      The number of bytes to mark as freed.
- * \throw 0
- *      An exception is thrown if more bytes are freed than were written
- *      to the Segment using the #append method.
+ * \param[in] p
+ *      A pointer into the Segment as returned by an #append call.
  */
 void
-Segment::free(uint64_t length)
+Segment::free(const void *p)
 {
-    // be sure to account for SegmentEntry structs before each append
-    length += sizeof(SegmentEntry);
+    assert((uintptr_t)p >= ((uintptr_t)baseAddress + sizeof(SegmentEntry)));
+    assert((uintptr_t)p <  ((uintptr_t)baseAddress + capacity)); 
 
-    if ((bytesFreed + length) > tail)
-        throw 0;
+    const SegmentEntry *entry = (const SegmentEntry *)
+        ((const uintptr_t)p - sizeof(SegmentEntry));
+
+    // be sure to account for SegmentEntry structs before each append
+    uint64_t length = entry->length + sizeof(SegmentEntry);
+
+    assert((bytesFreed + length) <= tail);
 
     bytesFreed += length;
 }
 
 /**
  * Close the Segment. Once a Segment has been closed, it is considered
- * immutable, i.e. it cannot be appended to. Calling #free on a closed
+ * closed, i.e. it cannot be appended to. Calling #free on a closed
  * Segment to maintain utilisation counts is still permitted. 
- * \throw 0
- *      An exception is thrown if an already closed Segment is closed again.
+ * \throw SegmentException
+ *      An exception is thrown if the Segment has already been closed.
  */
 void
 Segment::close()
 {
-    if (immutable)
-        throw 0;
+    if (closed)
+        throw SegmentException("Segment has already been closed");
 
     SegmentEntry entry = { LOG_ENTRY_TYPE_SEGFOOTER, sizeof(SegmentFooter) };
     const void *p = forceAppendBlob(&entry, sizeof(entry));
@@ -145,7 +139,7 @@ Segment::close()
     assert(p != NULL);
 
     // ensure that any future append() will fail
-    immutable = true;
+    closed = true;
 }
 
 /**
@@ -183,7 +177,7 @@ Segment::getCapacity() const
 uint64_t
 Segment::appendableBytes() const
 {
-    if (immutable)
+    if (closed)
         return 0;
 
     uint64_t freeBytes = capacity - tail;
@@ -248,7 +242,7 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length,
     bool updateChecksum)
 {
     assert((tail + length) <= capacity);
-    assert(!immutable);
+    assert(!closed);
 
     uint8_t *src = (uint8_t *)buffer;
     uint8_t *dst = (uint8_t *)baseAddress + tail;
@@ -283,7 +277,7 @@ const void *
 Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     uint64_t length)
 {
-    assert(!immutable);
+    assert(!closed);
 
     uint64_t freeBytes = capacity - tail;
     uint64_t needBytes = sizeof(SegmentEntry) + length;

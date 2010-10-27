@@ -24,6 +24,7 @@
 #include "TransportManager.h"
 
 static int cpu;
+static uint32_t replicas;
 
 int
 main(int argc, char *argv[])
@@ -40,9 +41,10 @@ try
          ProgramOptions::value<int>(&cpu)->
             default_value(-1),
          "CPU mask to pin to")
-        ("backup,b",
-         ProgramOptions::value<vector<string> >(&backupLocators),
-         "Backup locators to backup to, can specify more than one");
+        ("replicas,r",
+         ProgramOptions::value<uint32_t>(&replicas)->
+            default_value(0),
+         "Number of backups required for each segment");
 
     OptionParser optionParser(serverOptions, argc, argv);
 
@@ -61,11 +63,9 @@ try
 
     transportManager.initialize(config.localLocator.c_str());
 
-    BackupManager backup;
-    foreach (string& locator, backupLocators)
-        backup.addHost(transportManager.getSession(locator.c_str()));
-
+    BackupManager backup(replicas);
     Master server(&config, &backup);
+    backup.setCoordinator(server.coordinator);
     server.run();
 
     return 0;

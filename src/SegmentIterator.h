@@ -25,6 +25,16 @@ using std::vector;
 
 namespace RAMCloud {
 
+/**
+ * An exception that is thrown when the SegmentIterator class is provided
+ * invalid method arguments.
+ */
+struct SegmentIteratorException : public Exception {
+    SegmentIteratorException() : Exception() {}
+    explicit SegmentIteratorException(std::string msg) : Exception(msg) {}
+    explicit SegmentIteratorException(int errNo) : Exception(errNo) {}
+};
+
 class SegmentIterator {
   public:
     SegmentIterator(const Segment *segment);

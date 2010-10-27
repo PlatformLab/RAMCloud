@@ -49,17 +49,9 @@ Master::Master(const ServerConfig* config,
     , backup(backupClient)
     , log(0)
 {
-    log = new Log(0, SEGMENT_SIZE);
+    log = new Log(0, SEGMENT_SIZE * SEGMENT_COUNT, SEGMENT_SIZE);
     log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
-
-    LogCleaner* cleaner = new LogCleaner(log);
-    log->setCleaner(cleaner);
-
-    for (int i = 0; i < SEGMENT_COUNT; i++) {
-        void* p = xmemalign(SEGMENT_SIZE, SEGMENT_SIZE);
-        log->addSegmentMemory(p);
-    }
 
     for (int i = 0; i < RC_NUM_TABLES; i++) {
         tables[i] = NULL;
@@ -71,6 +63,8 @@ Master::~Master()
     for (int i = 0; i < RC_NUM_TABLES; i++) {
         delete tables[i];
     }
+
+    delete log;
 }
 
 void
@@ -109,7 +103,7 @@ Master::dispatch(RpcType type, Transport::ServerRpc& rpc)
 void __attribute__ ((noreturn))
 Master::run()
 {
-    serverId = coordinator.enlistServer(config->localLocator);
+    serverId = coordinator.enlistServer(MASTER, config->localLocator);
     LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
         handleRpc<Master>();
@@ -269,7 +263,7 @@ Master::remove(const RemoveRpc::Request& reqHdr,
 
     // Mark the deleted object as free first, since the append could
     // invalidate it
-    log->free(o, o->size());
+    log->free(o);
     const void* ret = log->append(
         LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
     assert(ret);
@@ -521,7 +515,7 @@ Master::storeData(uint64_t tableId, uint64_t id,
         // log. If we do it afterwards, the LogCleaner could be triggered and
         // `o' could be reclaimed before log->append() returns. The subsequent
         // free then breaks, as that Segment may have been cleaned.
-        log->free(o, o->size());
+        log->free(o);
 
         uint64_t segmentId = log->getSegmentId(o);
         ObjectTombstone tomb(segmentId, o);

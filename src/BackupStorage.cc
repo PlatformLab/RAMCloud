@@ -23,6 +23,10 @@
 
 namespace RAMCloud {
 
+// --- BackupStorage::Handle ---
+
+int32_t BackupStorage::Handle::allocatedHandlesCount = 0;
+
 // --- SingleFileStorage ---
 
 // - public -
@@ -82,6 +86,28 @@ SingleFileStorage::allocate(uint64_t masterId,
                                                 targetSegmentFrame);
     freeMap[targetSegmentFrame] = 0;
     return new Handle(targetSegmentFrame);
+}
+
+// See BackupStorage::free().
+void
+SingleFileStorage::free(BackupStorage::Handle* handle)
+{
+    uint32_t segmentFrame =
+        static_cast<const Handle*>(handle)->getSegmentFrame();
+
+    off_t offset = lseek(fd,
+                         offsetOfSegmentFrame(segmentFrame),
+                         SEEK_SET);
+    if (offset == -1)
+        throw BackupStorageException(errno);
+    const char* killMessage = "FREE";
+    ssize_t killMessageLen = strlen(killMessage);
+    ssize_t r = write(fd, killMessage, killMessageLen);
+    if (r != killMessageLen)
+        throw BackupStorageException(errno);
+
+    freeMap[segmentFrame] = 1;
+    delete handle;
 }
 
 // See BackupStorage::getSegment().
@@ -189,6 +215,18 @@ InMemoryStorage::allocate(uint64_t masterId,
     segmentFrames--;
     char* address = static_cast<char *>(pool.malloc());
     return new Handle(address);
+}
+
+// See BackupStorage::free().
+void
+InMemoryStorage::free(BackupStorage::Handle* handle)
+{
+    TEST_LOG("called");
+    char* address =
+        static_cast<const Handle*>(handle)->getAddress();
+    memcpy(address, "FREE", 4);
+    pool.free(address);
+    delete handle;
 }
 
 // See BackupStorage::getSegment().

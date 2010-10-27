@@ -32,7 +32,7 @@ struct SegmentEntry {
 struct SegmentHeader {
     uint64_t logId;
     uint64_t segmentId;
-    uint64_t segmentCapacity;
+    uint32_t segmentCapacity;
 } __attribute__((__packed__));
 
 struct SegmentFooter {
@@ -42,6 +42,16 @@ struct SegmentFooter {
 typedef void (*SegmentEntryCallback)(LogEntryType, const void *,
                                      uint64_t, void *);
 
+/**
+ * An exception that is thrown when the Segment class is provided invalid
+ * method arguments or mutating operations are attempted on a closed Segment.
+ */
+struct SegmentException : public Exception {
+    SegmentException() : Exception() {}
+    explicit SegmentException(std::string msg) : Exception(msg) {}
+    explicit SegmentException(int errNo) : Exception(errNo) {}
+};
+
 class Segment {
   public:
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
@@ -50,25 +60,9 @@ class Segment {
 
     const void      *append(LogEntryType type, const void *buffer,
                             uint64_t length);
-    void             free(uint64_t length);
+    void             free(const void *p);
     void             close();
     const void      *getBaseAddress() const;
-
-    /**
-     * Obtain the base address of a Segment's backing memory given a pointer
-     * anywhere into that space and the original Segment's capacity.
-     * \param[in] buffer
-     *      A pointer into the Segment's backing memory.
-     * \param[in] segmentCapacity
-     *      The total capacity of the Segment in bytes.
-     */
-    static uintptr_t
-    getBaseAddress(const void *buffer, uint64_t segmentCapacity)
-    {
-        uintptr_t base = (uintptr_t)buffer;
-        return base - (base % segmentCapacity);
-    }
-
     uint64_t         getId() const;
     uint64_t         getCapacity() const;
     uint64_t         appendableBytes() const;
@@ -91,7 +85,7 @@ class Segment {
     uint64_t         bytesFreed;     // bytes free()'d in this Segment
     rabinpoly        rabinPoly;      // Rabin Polynomial class used for checksum
     uint64_t         checksum;       // Latest Segment checksum
-    bool             immutable;      // when true the Segment cannot be altered
+    bool             closed;         // when true, no appends permitted
 
     DISALLOW_COPY_AND_ASSIGN(Segment);
 

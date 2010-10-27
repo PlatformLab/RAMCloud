@@ -46,9 +46,34 @@ class BackupStorage {
     class Handle
     {
       public:
-        virtual ~Handle() {}
+        virtual ~Handle()
+        {
+            allocatedHandlesCount--;
+        }
+
+        static int32_t getAllocatedHandlesCount()
+        {
+            return allocatedHandlesCount;
+        }
+
+        /**
+         * Return the current value of allocatedHandlesCount and zero it.
+         */
+        static int32_t resetAllocatedHandlesCount()
+        {
+            int32_t old = allocatedHandlesCount;
+            allocatedHandlesCount = 0;
+            return old;
+        }
+
       protected:
-        Handle() {}
+        Handle()
+        {
+            allocatedHandlesCount++;
+        }
+
+      private:
+        static int32_t allocatedHandlesCount;
 
       DISALLOW_COPY_AND_ASSIGN(Handle);
     };
@@ -63,6 +88,17 @@ class BackupStorage {
      *      The id of the segment to be stored.
      */
     virtual Handle* allocate(uint64_t masterId, uint64_t segmentId) = 0;
+
+    /**
+     * Release the storage for a segment.  The freed segment's data will
+     * not appear during recovery.
+     *
+     * \param handle
+     *      Handle for the segment storage to release for reuse.
+     *      IMPORTANT: handle is no longer valid after this call.  The caller
+     *      must take care not to reuse it.
+     */
+    virtual void free(Handle* handle) = 0;
 
     /**
      * Fetch an entire segment from its reserved storage (see allocate() and
@@ -128,6 +164,10 @@ class SingleFileStorage : public BackupStorage {
         {
         }
 
+        ~Handle()
+        {
+        }
+
         uint32_t getSegmentFrame() const
         {
             return segmentFrame;
@@ -146,6 +186,7 @@ class SingleFileStorage : public BackupStorage {
     virtual ~SingleFileStorage();
     virtual BackupStorage::Handle* allocate(uint64_t masterId,
                                             uint64_t segmentId);
+    virtual void free(BackupStorage::Handle* handle);
     virtual void getSegment(const BackupStorage::Handle* handle,
                             char* segment);
     virtual void putSegment(const BackupStorage::Handle* handle,
@@ -157,7 +198,7 @@ class SingleFileStorage : public BackupStorage {
 
     /// Type of the freeMap.  A bitmap.
     typedef boost::dynamic_bitset<> FreeMap;
-    /// Keeps a bit for each segmentFrame indicating if it is in use.
+    /// Keeps a bit set for each segmentFrame indicating if it is free.
     FreeMap freeMap;
 
     /// The file descriptor of the storage file.
@@ -209,6 +250,7 @@ class InMemoryStorage : public BackupStorage {
     virtual ~InMemoryStorage();
     virtual BackupStorage::Handle* allocate(uint64_t masterId,
                                             uint64_t segmentId);
+    virtual void free(BackupStorage::Handle* handle);
     virtual void getSegment(const BackupStorage::Handle* handle,
                             char* segment);
     virtual void putSegment(const BackupStorage::Handle* handle,

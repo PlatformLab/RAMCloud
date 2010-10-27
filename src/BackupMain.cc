@@ -35,6 +35,7 @@ main(int argc, char* argv[])
 {
     using namespace RAMCloud;
 
+    BackupServer::Config config;
     // CPU mask for binding the backup to a specific set of cores.
     int cpu;
 
@@ -46,9 +47,10 @@ main(int argc, char* argv[])
          "CPU mask to pin to");
 
     OptionParser optionParser(extraOptions, argc, argv);
-    const string& locator = optionParser.options.getLocalLocator();
+    config.coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    config.localLocator = optionParser.options.getLocalLocator();
 
-    LOG(NOTICE, "backup: Listening on %s", locator.c_str());
+    LOG(NOTICE, "backup: Listening on %s", config.localLocator.c_str());
 
     if (cpu != -1) {
         if (!pinToCpu(cpu))
@@ -57,10 +59,10 @@ main(int argc, char* argv[])
     }
 
     // Set the address for the backup to listen on.
-    transportManager.initialize(locator.c_str());
+    transportManager.initialize(config.localLocator.c_str());
 
     SingleFileStorage storage(SEGMENT_SIZE, 16, "backup.log", 0);
-    BackupServer server(storage);
+    BackupServer server(config, storage);
     server.run();
 
     return 0;

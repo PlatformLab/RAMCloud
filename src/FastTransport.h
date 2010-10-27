@@ -489,10 +489,11 @@ class FastTransport : public Transport {
      */
     struct SessionOpenResponse {
         /**
-         * The highest channelId that the client is allowed to use in future
-         * RPCs on this session.
+         * The number of channels that the client is allowed to use in
+         * future RPCs on this session (channel ids must be in the
+         * range [0..numChannels-1]).
          */
-        uint8_t maxChannelId;
+        uint8_t numChannels;
     } __attribute__((packed));
 
     /**
@@ -964,10 +965,13 @@ class FastTransport : public Transport {
 
             /// Current state of the channel.
             enum {
-                IDLE,               ///< Not handling an RPC.
+                IDLE,               ///< This channel has not received an RPC
+                                    ///< since the session was opened.
                 RECEIVING,          ///< InboundMessage is receiving.
                 PROCESSING,         ///< Request complete, response not ready.
-                SENDING_WAITING,    ///< OutboundMessage transmitting.
+                SENDING_WAITING,    ///< OutboundMessage transmitting (or
+                                    ///< response finished and waiting for next
+                                    ///< RPC.
             } state;
 
           private:
@@ -1161,7 +1165,8 @@ class FastTransport : public Transport {
          */
         uint64_t lastActivityTime;
 
-        /// Number of concurrent RPCs allowed in this session.
+        /// Number of concurrent RPCs allowed in this session.  Zero means
+        /// this session isn't connected to a server.
         uint32_t numChannels;
 
         Driver::AddressPtr serverAddress;     ///< Where to send requests.

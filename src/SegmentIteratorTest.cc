@@ -98,16 +98,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
         SegmentIterator si(&s);
 
-        SegmentEntry *se = (SegmentEntry *)(alignedBuf - 1);
-        bool threwException = false;
-        try {
-            si.isEntryValid(se);
-        } catch (...) {
-            threwException = true;
-        }
-        CPPUNIT_ASSERT(threwException);
-
-        se = (SegmentEntry *)alignedBuf;
+        SegmentEntry *se = (SegmentEntry *)alignedBuf;
         CPPUNIT_ASSERT_EQUAL(true, si.isEntryValid(se));
 
         se->length = sizeof(alignedBuf) - sizeof(SegmentEntry);

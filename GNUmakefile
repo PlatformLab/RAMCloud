@@ -41,8 +41,8 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 # -Wconversion
 # Failed deconstructor inlines are generating noise
 # -Winline
-LIBS := -lpcrecpp -lboost_program_options
-INCLUDES := -I$(TOP)/src
+LIBS := -lpcrecpp -lboost_program_options -lprotobuf
+INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR)
 
 ifeq ($(INFINIBAND),yes)
 COMFLAGS += -DINFINIBAND
@@ -73,14 +73,20 @@ NULL := # useful for terminating lists of files
 # The optional third parameter $(3) is any additional options compiler options.
 define run-cc
 @GCCWARN=$$( $(PRAGMAS) -q GCCWARN $(2) ); \
-if [ $$GCCWARN -eq 5 ]; then \
+case $$GCCWARN in \
+0) \
+	echo $(CC) $(CFLAGS_BASE) $(3) -c -o $(1) $(2); \
+	$(CC) $(CFLAGS_BASE) $(3) -c -o $(1) $(2); \
+	;; \
+5) \
 	echo $(CC) $(CFLAGS_NOWERROR) $(3) -c -o $(1) $(2); \
 	$(CC) $(CFLAGS_NOWERROR) $(3) -c -o $(1) $(2); \
-else \
+	;; \
+9) \
 	echo $(CC) $(CFLAGS) $(3) -c -o $(1) $(2); \
 	$(CC) $(CFLAGS) $(3) -c -o $(1) $(2); \
-fi
-
+	;; \
+esac
 endef
 
 # run-cxx:
@@ -91,13 +97,20 @@ endef
 # The optional third parameter $(3) is any additional options compiler options.
 define run-cxx
 @GCCWARN=$$( $(PRAGMAS) -q GCCWARN $(2) ); \
-if [ $$GCCWARN -eq 5 ]; then \
+case $$GCCWARN in \
+0) \
+	echo $(CXX) $(CXXFLAGS_BASE) $(3) -c -o $(1) $(2); \
+	$(CXX) $(CXXFLAGS_BASE) $(3) -c -o $(1) $(2); \
+	;; \
+5) \
 	echo $(CXX) $(CXXFLAGS_NOWERROR) $(3) -c -o $(1) $(2); \
 	$(CXX) $(CXXFLAGS_NOWERROR) $(3) -c -o $(1) $(2); \
-else \
+	;; \
+9) \
 	echo $(CXX) $(CXXFLAGS) $(3) -c -o $(1) $(2); \
 	$(CXX) $(CXXFLAGS) $(3) -c -o $(1) $(2); \
-fi
+	;; \
+esac
 endef
 
 define filter-pragma

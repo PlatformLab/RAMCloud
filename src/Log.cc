@@ -30,18 +30,35 @@ namespace RAMCloud {
  * \param[in] logId
  *      A unique numerical identifier for this Log. This should be globally
  *      unique in the RAMCloud system.
- * \param[in] segmentSize
- *      Size of the Segments that will be used in this Log in bytes.
+ * \param[in] logCapacity
+ *      Total size of the Log in bytes.
+ * \param[in] segmentCapacity
+ *      Size of each Segment that will be used in this Log in bytes.
  * \return
  *      The newly constructed Log object. The caller must first add backing
  *      Segment memory to the Log with #addSegmentMemory before any appends
  *      will succeed.
  */
-Log::Log(uint64_t logId, uint64_t segmentSize)
-    : logId(logId), segmentSize(segmentSize), segmentFreeList(),
-      nextSegmentId(0), maximumAppendableBytes(0), cleaner(NULL), head(NULL),
-      callbackMap(), activeIdMap(), activeBaseAddressMap()
+Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity)
+    : logId(logId),
+      logCapacity(logCapacity),
+      segmentCapacity(segmentCapacity),
+      segmentFreeList(),
+      nextSegmentId(0),
+      maximumAppendableBytes(0),
+      cleaner(NULL),
+      head(NULL),
+      callbackMap(),
+      activeIdMap(),
+      activeBaseAddressMap()
 {
+    cleaner = new LogCleaner(this);
+
+    uint64_t numSegments = logCapacity / segmentCapacity;
+    for (uint64_t i = 0; i < numSegments; i++) {
+        void *p = xmemalign(segmentCapacity, segmentCapacity);    
+        addSegmentMemory(p);
+    }
 }
 
 /**
@@ -49,43 +66,27 @@ Log::Log(uint64_t logId, uint64_t segmentSize)
  */
 Log::~Log()
 {
-    /// XXX:
-    //      free Segment *s
-    //      free LogTypeCallback *s
-}
+    // NB: don't confuse Log::free() with std::free()!
 
-/**
- * Associate a LogCleaner to with this Log.
- * \param[in] cleaner
- *      The LogCleaner object to be associated with this Log.
- * \throw 0
- *      An exception is thrown if a LogCleaner has already been associated.
- */
-void
-Log::setCleaner(LogCleaner *cleaner)
-{
-    if (this->cleaner != NULL)
-        throw 0;
-    this->cleaner = cleaner;
-}
-
-/**
- * Provide the Log with a single contiguous piece of backing Segment memory.
- * The memory provided must of at least as large as the #segmentSize parameter
- * provided to the Log constructor. This function must be called once for each
- * Segment.
- * \param[in] p
- *      Memory to be added to the Log for use as segments.
- */
-void
-Log::addSegmentMemory(void *p)
-{
-    addToFreeList(p);
-
-    if (maximumAppendableBytes == 0) {
-        Segment s(0, 0, p, segmentSize);
-        maximumAppendableBytes = s.appendableBytes();
+    for (ActiveIdMap::iterator it = activeIdMap.begin();
+      it != activeIdMap.end(); it++) {
+        if (it->second == head)
+            head->close();
+        std::free(const_cast<void *>(it->second->getBaseAddress()));
+        delete it->second;
     }
+
+    for (vector<void *>::iterator it = segmentFreeList.begin();
+      it != segmentFreeList.end(); it++) {
+        std::free(*it);
+    }
+
+    for (CallbackMap::iterator it = callbackMap.begin();
+      it != callbackMap.end(); it++) {
+        delete it->second;
+    }
+
+    delete cleaner;
 }
 
 /**
@@ -95,11 +96,12 @@ Log::addSegmentMemory(void *p)
  * Log is no longer present in the RAMCloud system and hence will not appear
  * again during either normal operation or recovery.
  * \param[in] segmentId
- *      The Segment identifier to check for validity.
+ *      The Segment identifier to check for liveness.
  */
 bool
 Log::isSegmentLive(uint64_t segmentId) const
 {
+    // can't use indexing and NULL check due to const method
     return (activeIdMap.find(segmentId) != activeIdMap.end());
 }
 
@@ -110,11 +112,16 @@ Log::isSegmentLive(uint64_t segmentId) const
  * \param[in] p
  *      A pointer to anywhere within a live Segment of the Log, as provided
  *      by #append.
+ * \throw LogException
+ *      An exception is thrown if the pointer provided does not pointer into
+ *      a live Log segment.
  */
 uint64_t
 Log::getSegmentId(const void *p)
 {
-    Segment *s = activeBaseAddressMap[Segment::getBaseAddress(p, segmentSize)];
+    Segment *s = activeBaseAddressMap[getSegmentBaseAddress(p)];
+    if (s == NULL)
+        throw LogException("getSegmentId given a bad pointer");
     return s->getId();
 }
 
@@ -132,6 +139,9 @@ Log::getSegmentId(const void *p)
  * \return
  *      On success, a const pointer into the Log's backing memory with
  *      the same contents as `buffer'. On failure, NULL.
+ * \throw LogException
+ *      An exception is thrown if the append exceeds the maximum permitted
+ *      append length, as returned by #getMaximumAppendableBytes.
  */
 const void *
 Log::append(LogEntryType type, const void *buffer, const uint64_t length)
@@ -139,13 +149,12 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
     const void *p = NULL;
 
     if (length > maximumAppendableBytes)
-        return NULL;
+        throw LogException("append exceeded maximum possible length");
 
     /* 
-     * try to append.
-     * if we fail, try to allocate a new head.
-     * if we run out of space entirely, creating the new head will throw an
-     * exception.
+     * Try to append.
+     *   If we fail, try to allocate a new head.
+     *   If we run out of space entirely, return NULL.
      */
     do {
         if (head != NULL)
@@ -161,11 +170,10 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
             if (s == NULL)
                 return NULL;
 
-            head = new Segment(logId, allocateSegmentId(), s, segmentSize);
+            head = new Segment(logId, allocateSegmentId(), s, segmentCapacity);
             addToActiveMaps(head);
 
-            if (cleaner != NULL)
-                cleaner->clean(1);
+            cleaner->clean(1);
         }
     } while (p == NULL);
 
@@ -176,17 +184,13 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
  * Mark bytes in Log as freed. This simply maintains a per-Segment tally that
  * can be used to compute utilisation of individual Log Segments.
  * \param[in] buffer
- *      A pointer to anywhere within a live Segment of the Log, as provided
- *      by #append.
- * \param[in] length
- *      The number of bytes to mark as freed.
+ *      A pointer into the Segment as returned by an #append call.
  */
 void
-Log::free(const void *buffer, const uint64_t length)
+Log::free(const void *p)
 {
-    Segment *s = activeBaseAddressMap[
-        Segment::getBaseAddress(buffer, segmentSize)];
-    s->free(length);
+    Segment *s = activeBaseAddressMap[getSegmentBaseAddress(p)];
+    s->free(p);
 }
 
 /**
@@ -207,13 +211,15 @@ Log::free(const void *buffer, const uint64_t length)
  *      The eviction callback to be registered with the provided type.
  * \param[in] evictionArg
  *      A void* argument to be passed to the eviction callback.
+ * \throw LogException
+ *      An exception is thrown if the type has already been registered.
  */
 void
 Log::registerType(LogEntryType type,
                   log_eviction_cb_t evictionCB, void *evictionArg)
 {
-    if (callbackMap.find(type) != callbackMap.end())
-        throw 0;
+    if (callbackMap[type] != NULL)
+        throw LogException("type already registered with the Log");
 
     callbackMap[type] = new LogTypeCallback(type, evictionCB, evictionArg);
 }
@@ -233,7 +239,7 @@ void
 Log::forEachSegment(LogSegmentCallback cb, uint64_t limit, void *cookie) const
 {
     uint64_t i = 0;
-    unordered_map<uint64_t, Segment *>::const_iterator it = activeIdMap.begin();
+    ActiveIdMap::const_iterator it = activeIdMap.begin();
 
     while (it != activeIdMap.end() && i < limit) {
         cb(it->second, cookie);
@@ -241,9 +247,38 @@ Log::forEachSegment(LogSegmentCallback cb, uint64_t limit, void *cookie) const
     }
 } 
 
+/**
+ * Obtain the maximum number of bytes that can ever be appended to the
+ * Log at once. Appends that exceed this maximum will throw an exception.
+ */
+uint64_t
+Log::getMaximumAppendableBytes() const
+{
+    return maximumAppendableBytes;
+}
+
 ////////////////////////////////////
 /// Private Methods
 ////////////////////////////////////
+
+/**
+ * Provide the Log with a single contiguous piece of backing Segment memory.
+ * The memory provided must of at least as large as the #segmentCapacity
+ * parameter provided to the Log constructor. This function must be called
+ * once for each Segment.
+ * \param[in] p
+ *      Memory to be added to the Log for use as segments.
+ */
+void
+Log::addSegmentMemory(void *p)
+{
+    addToFreeList(p);
+
+    if (maximumAppendableBytes == 0) {
+        Segment s(0, 0, p, segmentCapacity);
+        maximumAppendableBytes = s.appendableBytes();
+    }
+}
 
 /**
  * Add a Segment to various structures tracking live Segments in the Log.
@@ -254,7 +289,7 @@ void
 Log::addToActiveMaps(Segment *s)
 {
     activeIdMap[s->getId()] = s;
-    activeBaseAddressMap[(uintptr_t)s->getBaseAddress()] = s;
+    activeBaseAddressMap[s->getBaseAddress()] = s;
 }
 
 /**
@@ -266,14 +301,14 @@ void
 Log::eraseFromActiveMaps(Segment *s)
 {
     activeIdMap.erase(s->getId()); 
-    activeBaseAddressMap.erase((uintptr_t)s->getBaseAddress());
+    activeBaseAddressMap.erase(s->getBaseAddress());
 }
 
 /**
  * Add Segment backing memory to the free list.
  * \param[in] p
  *      Pointer to the memory to be added. The allocated memory must be
- *      at least #segmentSize bytes in length.
+ *      at least #segmentCapacity bytes in length.
  */
 void
 Log::addToFreeList(void *p)
@@ -284,9 +319,9 @@ Log::addToFreeList(void *p)
 /**
  * Obtain Segment backing memory from the free list.
  * \return
- *      On success, a pointer to Segment backing memory of #segmentSize bytes,
- *      as provided in the #addSegmentMemory method. If memory is exhausted,
- *      NULL is returned.
+ *      On success, a pointer to Segment backing memory of #segmentCapacity
+ *      bytes, as provided in the #addSegmentMemory method. If memory is
+ *      exhausted, NULL is returned.
  */
 void *
 Log::getFromFreeList()
@@ -310,6 +345,18 @@ uint64_t
 Log::allocateSegmentId()
 {
     return nextSegmentId++;
+}
+
+/**
+ * Given a pointer anywhere into a Segment's backing memeory that's part of
+ * this Log, obtain the base address of that memory. This function returns
+ * a pointer to an element that either is, or was on the segmentFreeList.
+ */
+const void *
+Log::getSegmentBaseAddress(const void *p)
+{
+    uintptr_t base = (uintptr_t)p;
+    return (const void *)(base - (base % segmentCapacity));
 }
 
 } // namespace

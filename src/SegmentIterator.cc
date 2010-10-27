@@ -79,19 +79,21 @@ void
 SegmentIterator::CommonConstructor()
 {
     if (segmentCapacity < (sizeof(SegmentEntry) + sizeof(SegmentHeader)))
-        throw 0;
+        throw SegmentIteratorException("impossibly small Segment provided");
 
     const SegmentEntry *entry = (const SegmentEntry *)baseAddress;
     if (entry->type   != LOG_ENTRY_TYPE_SEGHEADER ||
         entry->length != sizeof(SegmentHeader) ||
         !isEntryValid(entry)) {
-        throw 0;
+        throw SegmentIteratorException("no valid SegmentHeader entry found");
     }
 
     const SegmentHeader *header = (const SegmentHeader *)((char *)baseAddress +
         sizeof(SegmentEntry));
-    if (header->segmentCapacity != segmentCapacity)
-        throw 0;
+    if (header->segmentCapacity != segmentCapacity) {
+        throw SegmentIteratorException("SegmentHeader disagrees with claimed "
+            "Segment capacity");
+    }
 
     type    = entry->type;
     length  = entry->length;
@@ -116,8 +118,7 @@ SegmentIterator::isEntryValid(const SegmentEntry *entry) const
     uintptr_t entryLastByte = entryStart + entry->length + sizeof(*entry) - 1;
 
     // this is an internal error
-    if (entryStart < (uintptr_t)baseAddress)
-        throw 0;
+    assert(entryStart >= (uintptr_t)baseAddress);
 
     if (entryLastByte > lastByte)
         return false;
@@ -175,14 +176,14 @@ SegmentIterator::next()
  * Obtain the type of the SegmentEntry currently being iterated over.
  * \return
  *      The type of the current entry.
- * \throw 0
+ * \throw SegmentIteratorException
  *      An exception is thrown if the iterator has no more entries.
  */
 LogEntryType
 SegmentIterator::getType() const
 {
     if (currentEntry == NULL)
-        throw 0;
+        throw SegmentIteratorException("getType after iteration complete");
     return type;
 }
 
@@ -190,14 +191,14 @@ SegmentIterator::getType() const
  * Obtain the length of the SegmentEntry currently being iterated over.
  * \return
  *      The length of the current entry in bytes.
- * \throw 0
+ * \throw SegmentIteratorException
  *      An exception is thrown if the iterator has no more entries.
  */
 uint64_t
 SegmentIterator::getLength() const
 {
     if (currentEntry == NULL)
-        throw 0;
+        throw SegmentIteratorException("getLength after iteration complete");
     return length;
 }
 
@@ -205,14 +206,14 @@ SegmentIterator::getLength() const
  * Obtain a const void* to the data associated with the current SegmentEntry. 
  * \return
  *      A const void* to the current data.
- * \throw 0
+ * \throw SegmentIteratorException
  *      An exception is thrown if the iterator has no more entries.
  */
 const void *
 SegmentIterator::getPointer() const
 {
     if (currentEntry == NULL)
-        throw 0;
+        throw SegmentIteratorException("getPointer after iteration complete");
     return blobPtr;
 }
 
@@ -222,14 +223,14 @@ SegmentIterator::getPointer() const
  * structure, but the typed data immediately following it.
  * \return
  *      The byte offset of the current SegmentEntry's data.
- * \throw 0
+ * \throw SegmentIteratorException
  *      An exception is thrown if the iterator has no more entries.
  */
 uint64_t
 SegmentIterator::getOffset() const
 {
     if (currentEntry == NULL)
-        throw 0;
+        throw SegmentIteratorException("getOffset after iteration complete");
     return (uintptr_t)blobPtr - (uintptr_t)baseAddress;
 }
 
@@ -239,7 +240,7 @@ SegmentIterator::getOffset() const
  * exception is thrown.
  * \return
  *      true if the check is valid, else false.
- * \throw 0
+ * \throw SegmentIteratorException
  *      An exception is thrown if no checksum is present in the Segment.
  */
 bool
@@ -254,7 +255,7 @@ SegmentIterator::isChecksumValid() const
     }
 
     if (i.isDone())
-        throw 0;
+        throw SegmentIteratorException("no checksum exists in the Segment");
 
     const SegmentFooter *f = (SegmentFooter *)i.getPointer();
 

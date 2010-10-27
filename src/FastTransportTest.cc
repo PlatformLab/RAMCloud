@@ -1763,7 +1763,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(
             "{ sessionToken:767600007676 rpcId:0 clientSessionHint:12345678 "
             "serverSessionHint:98765432 0/0 frags channel:0 dir:1 reqACK:0 "
-            "drop:0 payloadType:2 } /x07",
+            "drop:0 payloadType:2 } /x08",
             driver->outputLog);
         CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
     }
@@ -1855,6 +1855,8 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_processReceivedData_getWorkFromQueue);
     CPPUNIT_TEST(test_processSessionOpenResponse);
     CPPUNIT_TEST(test_processSessionOpenResponse_tooManyChannelsOnServer);
+    CPPUNIT_TEST(test_timer_start);
+    CPPUNIT_TEST(test_timer_start_sessionTimedOut);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -2401,6 +2403,37 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         session->processSessionOpenResponse(&recvd);
 
         CPPUNIT_ASSERT_EQUAL(NUM_CHANNELS_PER_SESSION, session->numChannels);
+    }
+
+    void
+    test_timer_start()
+    {
+        uint64_t tsc = sessionTimeoutCycles() * 2;
+        MockTSC _(tsc);
+
+        ClientSession::Timer timer(session);
+        timer.start();
+        timer.onTimerFired(tsc + timer.when);
+
+        CPPUNIT_ASSERT_EQUAL(true, timer.sessionOpenRequestInFlight);
+        CPPUNIT_ASSERT_EQUAL(
+            "{ sessionToken:cccccccccccccccc rpcId:0 "
+            "clientSessionHint:98765432 serverSessionHint:cccccccc "
+            "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
+            driver->outputLog);
+    }
+
+    void
+    test_timer_start_sessionTimedOut()
+    {
+        uint64_t tsc = SESSION_TIMEOUT_NS * 20;
+        MockTSC _(tsc);
+
+        ClientSession::Timer timer(session);
+        timer.start();
+        timer.onTimerFired(tsc * 4);
+
+        CPPUNIT_ASSERT_EQUAL(false, timer.sessionOpenRequestInFlight);
     }
 
   private:

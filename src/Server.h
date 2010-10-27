@@ -33,14 +33,13 @@ class Server {
     Server() {}
     virtual ~Server() {}
     virtual void run();
+    VIRTUAL_FOR_TESTING void dispatch(RpcType type, Transport::ServerRpc& rpc);
 
     void ping(const PingRpc::Request& reqHdr,
               PingRpc::Response& respHdr,
               Transport::ServerRpc& rpc);
 
   protected:
-    void dispatch(RpcType type, Transport::ServerRpc& rpc);
-
     const char*
     getString(Buffer& buffer, uint32_t offset, uint32_t length) const;
 

@@ -37,112 +37,84 @@ class LogTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_free);
     CPPUNIT_TEST(test_registerType);
     CPPUNIT_TEST(test_forEachSegment);
+    CPPUNIT_TEST(test_getSegmentBaseAddress);
     CPPUNIT_TEST_SUITE_END();
 
   public:
     LogTest() {}
 
-    Log *
-    createTestLog(uint64_t logId, uint64_t segmentSize, int numSegments)
-    {
-        Log *l = new Log(logId, segmentSize);
-        for (int i = 0; i < numSegments; i++)
-            l->addSegmentMemory(xmemalign(segmentSize, segmentSize));
-        return l;
-    }
-
-    void
-    destroyTestLog(Log *l)
-    {
-        for (unsigned int i = 0; i < l->segmentFreeList.size(); i++)
-            free(l->segmentFreeList[i]);
-        delete l;
-    }
-
     void
     test_constructor()
     {
-        Log l(57, 8192);
+        Log l(57, 2 * 8192, 8192);
 
         CPPUNIT_ASSERT_EQUAL(57, l.logId);
-        CPPUNIT_ASSERT_EQUAL(8192, l.segmentSize);
-        CPPUNIT_ASSERT_EQUAL(0, l.segmentFreeList.size());
+        CPPUNIT_ASSERT_EQUAL(2 * 8192, l.logCapacity);
+        CPPUNIT_ASSERT_EQUAL(8192, l.segmentCapacity);
+        CPPUNIT_ASSERT_EQUAL(2, l.segmentFreeList.size());
         CPPUNIT_ASSERT_EQUAL(0, l.nextSegmentId);
-        CPPUNIT_ASSERT_EQUAL(0, l.maximumAppendableBytes);
+        CPPUNIT_ASSERT_EQUAL(8192 - 3 * sizeof(SegmentEntry) -
+            sizeof(SegmentHeader) - sizeof(SegmentFooter),
+            l.maximumAppendableBytes);
         CPPUNIT_ASSERT_EQUAL(NULL, l.head);
     }
 
     void
     test_addSegmentMemory()
     {
-        Log l(57, 8192);
+        Log l(57, 1 * 8192, 8192);
 
-        void *p = xmemalign(l.segmentSize, l.segmentSize);
+        void *p = xmemalign(l.segmentCapacity, l.segmentCapacity);
         l.addSegmentMemory(p);
         Segment s(0, 0, p, 8192);
 
-        CPPUNIT_ASSERT_EQUAL(1, l.segmentFreeList.size());
-        CPPUNIT_ASSERT_EQUAL(p, l.segmentFreeList[0]);
+        CPPUNIT_ASSERT_EQUAL(2, l.segmentFreeList.size());
+        CPPUNIT_ASSERT_EQUAL(p, l.segmentFreeList[1]);
         CPPUNIT_ASSERT_EQUAL(s.appendableBytes(), l.maximumAppendableBytes);
-
-        free(p);
     }
 
     void
     test_isSegmentLive()
     {
-        Log *l = createTestLog(57, 8192, 1);
+        Log l(57, 1 * 8192, 8192);
         char buf[64];
 
-        uint64_t segmentId = l->nextSegmentId;
-        CPPUNIT_ASSERT_EQUAL(false, l->isSegmentLive(segmentId));
-        l->append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
-        CPPUNIT_ASSERT_EQUAL(true, l->isSegmentLive(segmentId));
-
-        destroyTestLog(l);
+        uint64_t segmentId = l.nextSegmentId;
+        CPPUNIT_ASSERT_EQUAL(false, l.isSegmentLive(segmentId));
+        l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        CPPUNIT_ASSERT_EQUAL(true, l.isSegmentLive(segmentId));
     }
 
     void
     test_getSegmentId()
     {
-        Log l(57, 8192);
+        Log l(57, 1 * 8192, 8192);
         char buf[64];
 
-        void *p = xmemalign(l.segmentSize, l.segmentSize);
-        l.addSegmentMemory(p);
-
-        l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        const void *p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         CPPUNIT_ASSERT_EQUAL(0, l.getSegmentId(p));
-        CPPUNIT_ASSERT_EQUAL(0, l.getSegmentId((char *)p + 8191));
-
-        free(p); 
+        CPPUNIT_ASSERT_THROW(l.getSegmentId((char *)p + 8192),
+            LogException);
     }
 
     void
     test_append()
     {
-        Log *l = createTestLog(57, 8192, 1);
+        Log l(57, 1 * 8192, 8192);
 
         //XXXXXXX- need to actually implement this.
-
-        destroyTestLog(l);
     }
 
     void
     test_free()
     {
-        Log l(57, 8192);
+        Log l(57, 1 * 8192, 8192);
         char buf[64];
 
-        void *p = xmemalign(l.segmentSize, l.segmentSize);
-        l.addSegmentMemory(p);
-
-        const void *p2 = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
-        l.free(p2, sizeof(buf));
+        const void *p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        l.free(p);
         Segment *s = l.activeIdMap[0];
-        CPPUNIT_ASSERT_EQUAL(64 + sizeof(SegmentEntry), s->bytesFreed);
-
-        free(p);
+        CPPUNIT_ASSERT_EQUAL(sizeof(buf) + sizeof(SegmentEntry), s->bytesFreed);
     }
 
     static void
@@ -154,31 +126,39 @@ class LogTest : public CppUnit::TestFixture {
     void
     test_registerType()
     {
-        Log *l = createTestLog(57, 8192, 1);
+        Log l(57, 1 * 8192, 8192);
 
         bool threwException = false;
-        l->registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL);
+        l.registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL);
         try {
-            l->registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL);
+            l.registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL);
         } catch (...) {
             threwException = true;
         }
         CPPUNIT_ASSERT_EQUAL(true, threwException);
 
-        LogTypeCallback *cb = l->callbackMap[LOG_ENTRY_TYPE_OBJ];
+        LogTypeCallback *cb = l.callbackMap[LOG_ENTRY_TYPE_OBJ];
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, cb->type);
         CPPUNIT_ASSERT_EQUAL((void *)evictionCallback, (void *)cb->evictionCB);
         CPPUNIT_ASSERT_EQUAL(NULL, cb->evictionArg);
-
-        destroyTestLog(l);
     }
 
     void
     test_forEachSegment()
     {
-        Log *l = createTestLog(57, 8192, 1);
-        destroyTestLog(l);
+        Log l(57, 1 * 8192, 8192);
     }
+
+void
+test_getSegmentBaseAddress()
+{
+    Log l(57, 1 * 128, 128);
+    CPPUNIT_ASSERT_EQUAL(128, (uintptr_t)l.getSegmentBaseAddress((void *)128));
+    CPPUNIT_ASSERT_EQUAL(128, (uintptr_t)l.getSegmentBaseAddress((void *)129));
+    CPPUNIT_ASSERT_EQUAL(128, (uintptr_t)l.getSegmentBaseAddress((void *)255));
+    CPPUNIT_ASSERT_EQUAL(256, (uintptr_t)l.getSegmentBaseAddress((void *)256));
+}
+
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(LogTest);
 

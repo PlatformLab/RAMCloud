@@ -40,8 +40,8 @@ class ClientException {
     explicit ClientException(Status status);
     virtual ~ClientException();
     static void throwException(Status status) __attribute__((noreturn));
-    const char* toString();
-    const char* toSymbol();
+    const char* toString() const;
+    const char* toSymbol() const;
 
     /**
      * Describes a problem that prevented normal completion of a

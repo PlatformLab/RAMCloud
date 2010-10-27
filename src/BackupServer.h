@@ -29,6 +29,7 @@
 #include "Common.h"
 #include "BackupClient.h"
 #include "BackupStorage.h"
+#include "Coordinator.h"
 #include "Rpc.h"
 #include "Server.h"
 
@@ -39,22 +40,56 @@ namespace RAMCloud {
  * Segments and to facilitate the recovery of object data when Masters crash.
  */
 class BackupServer : public Server {
+    /**
+     * Metadata associated with each segment describing where in memory
+     * and storage it resides.
+     */
+    struct SegmentInfo {
+        SegmentInfo()
+            : segment(NULL)
+            , storageHandle(NULL)
+        {
+        }
+
+        SegmentInfo(char* segment, BackupStorage::Handle* storageHandle)
+            : segment(segment)
+            , storageHandle(storageHandle)
+        {
+        }
+
+        /// If NULL then this segment is not in memory.
+        char* segment;
+
+        /// Handle to provide to the storage layer to access this segment.
+        BackupStorage::Handle* storageHandle;
+    };
+
   public:
-    explicit BackupServer(BackupStorage& storage);
+    struct Config {
+        string coordinatorLocator;
+        string localLocator;
+        Config()
+            : coordinatorLocator()
+            , localLocator()
+        {
+        }
+    };
+
+    explicit BackupServer(const Config& config,
+                          BackupStorage& storage);
     virtual ~BackupServer();
+    void dispatch(RpcType type,
+                  Transport::ServerRpc& rpc);
     void run();
 
   private:
     void commitSegment(const BackupCommitRpc::Request& reqHdr,
                        BackupCommitRpc::Response& respHdr,
                        Transport::ServerRpc& rpc);
-    void dispatch(RpcType type,
-                  Transport::ServerRpc& rpc);
-    void flushSegment();
     void freeSegment(const BackupFreeRpc::Request& reqHdr,
                      BackupFreeRpc::Response& respHdr,
                      Transport::ServerRpc& rpc);
-    uint64_t frameForSegmentId(uint64_t segmentId);
+    SegmentInfo* findSegmentInfo(uint64_t masterId, uint64_t segmentId);
     void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                          BackupGetRecoveryDataRpc::Response& respHdr,
                          Transport::ServerRpc& rpc);
@@ -69,26 +104,14 @@ class BackupServer : public Server {
                       BackupWriteRpc::Response& resp,
                       Transport::ServerRpc& rpc);
 
-    /**
-     * Metadata associated with each segment describing where in memory
-     * and storage it resides.
-     */
-    struct SegmentInfo {
-        SegmentInfo()
-            : segment(NULL)
-            , storageHandle(NULL)
-        {
-        }
-        SegmentInfo(char* segment, BackupStorage::Handle* storageHandle)
-            : segment(segment)
-            , storageHandle(storageHandle)
-        {
-        }
-        /// If NULL then this segment is not in memory.
-        char* segment;
-        /// Handle to provide to the storage layer to access this segment.
-        BackupStorage::Handle* storageHandle;
-    };
+    /// Settings passed to the constructor
+    const Config& config;
+
+    /// Handle to cluster coordinator
+    Coordinator coordinator;
+
+    /// Coordinator-assigned ID for this backup server
+    uint64_t serverId;
 
     /**
      * A pool of aligned segments (supporting O_DIRECT) to avoid
@@ -112,7 +135,6 @@ class BackupServer : public Server {
     /// The storage backend where committed segments are to be placed.
     BackupStorage& storage;
 
-    friend class Server;
     friend class BackupServerTest;
     DISALLOW_COPY_AND_ASSIGN(BackupServer);
 };

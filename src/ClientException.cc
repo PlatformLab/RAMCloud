@@ -95,7 +95,7 @@ ClientException::throwException(Status status)
  *      See above.
  */
 const char*
-ClientException::toString()
+ClientException::toString() const
 {
     return statusToString(status);
 }
@@ -109,7 +109,7 @@ ClientException::toString()
  *      See above.
  */
 const char*
-ClientException::toSymbol()
+ClientException::toSymbol() const
 {
     return statusToSymbol(status);
 }

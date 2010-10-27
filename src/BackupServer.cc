@@ -19,6 +19,7 @@
 #include "Log.h"
 #include "Rpc.h"
 #include "Segment.h"
+#include "SegmentIterator.h"
 #include "Status.h"
 #include "TransportManager.h"
 
@@ -27,11 +28,18 @@ namespace RAMCloud {
 /**
  * Create a BackupServer which is ready to run().
  *
+ * \param config
+ *      Settings for this instance. The caller guarantees that config will
+ *      exist for the duration of this BackupServer's lifetime.
  * \param storage
  *      The storage backend used to persist segments.
  */
-BackupServer::BackupServer(BackupStorage& storage)
-    : pool(storage.getSegmentSize())
+BackupServer::BackupServer(const Config& config,
+                           BackupStorage& storage)
+    : config(config)
+    , coordinator(config.coordinatorLocator.c_str())
+    , serverId(0)
+    , pool(storage.getSegmentSize())
     , segments()
     , segmentSize(storage.getSegmentSize())
     , storage(storage)
@@ -52,6 +60,8 @@ BackupServer::~BackupServer()
 void __attribute__ ((noreturn))
 BackupServer::run()
 {
+    serverId = coordinator.enlistServer(BACKUP, config.localLocator);
+    LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
         handleRpc<BackupServer>();
 }
@@ -61,7 +71,7 @@ BackupServer::run()
 /**
  * Commit the specified segment to permanent storage.
  *
- * After this writeSegment() cannot be called for this segment number any
+ * After this writeSegment() cannot be called for this segment id any
  * more.  The segment will be restored on recovery unless the client later
  * calls freeSegment() on it.
  *
@@ -77,10 +87,14 @@ BackupServer::commitSegment(const BackupCommitRpc::Request& reqHdr,
                             BackupCommitRpc::Response& respHdr,
                             Transport::ServerRpc& rpc)
 {
-    LOG(ERROR, "Unimplemented: %s", __func__);
-    throw UnimplementedRequestError();
-    // The backup chooses an empty segment frame, marks it as in-use,
-    // an writes the current segment into the chosen segment frame.
+    LOG(DEBUG, "Handling: %s", __func__);
+    SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
+    if (!info)
+        throw ClientException(STATUS_BACKUP_BAD_SEGMENT_ID);
+
+    storage.putSegment(info->storageHandle, info->segment);
+    pool.free(info->segment);
+    info->segment = NULL;
 }
 
 /**
@@ -125,20 +139,15 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc)
 }
 
 /**
- * Flush an active segment to permanent storage.  Used internally.
- */
-void
-BackupServer::flushSegment()
-{
-    LOG(ERROR, "Unimplemented: %s", __func__);
-    throw UnimplementedRequestError();
-}
-
-/**
  * Removes the specified segment from permanent storage.
  *
  * After this call completes the segment number segmentId will no longer
  * be in permanent storage and will not be recovered during recovery.
+ *
+ * Failure with STATUS_BAD_SEGMENT_ID means the segment never existed
+ * on this backup or it has already been freed.  Failure with
+ * STATUS_BACKUP_SEGMENT_ALREADY_OPEN indicates that the segment is still
+ * open on this backup and must be committed before being freed.
  *
  * \param reqHdr
  *      Header of the Rpc request containing the segment number to free.
@@ -152,9 +161,37 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
                           BackupFreeRpc::Response& respHdr,
                           Transport::ServerRpc& rpc)
 {
-    LOG(ERROR, "Unimplemented: %s", __func__);
-    throw UnimplementedRequestError();
-    // TODO(stutsman) free handle as well
+    LOG(DEBUG, "Handle: %s", __func__);
+
+    SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
+    if (!info)
+        throw ClientException(STATUS_BACKUP_BAD_SEGMENT_ID);
+    if (info->segment)
+        throw ClientException(STATUS_BACKUP_SEGMENT_ALREADY_OPEN);
+
+    segments.erase(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
+    storage.free(info->storageHandle);
+}
+
+/**
+ * Find SegmentInfo for a segment or NULL if we don't know about it.
+ *
+ * \param masterId
+ *      The master id of the master of the segment whose info is being sought.
+ * \param segmentId
+ *      The segment id of the segment whose info is being sought.
+ * \return
+ *      A pointer to the SegmentInfo for the specified segment or NULL if
+ *      none exists.
+ */
+BackupServer::SegmentInfo*
+BackupServer::findSegmentInfo(uint64_t masterId, uint64_t segmentId)
+{
+    SegmentsMap::iterator it =
+        segments.find(MasterSegmentIdPair(masterId, segmentId));
+    if (it == segments.end())
+        return NULL;
+    return &it->second;
 }
 
 /**
@@ -176,8 +213,34 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                               BackupGetRecoveryDataRpc::Response& respHdr,
                               Transport::ServerRpc& rpc)
 {
-    LOG(ERROR, "Unimplemented: %s", __func__);
-    throw UnimplementedRequestError();
+    LOG(DEBUG, "Handling: %s", __func__);
+
+    // TODO(stutsman) RAII
+    char* segment = new char[segmentSize];
+    //uint32_t partitions = 2;
+
+    for (SegmentsMap::iterator it = segments.begin();
+         it != segments.end(); it++)
+    {
+        uint64_t masterId = it->first.first;
+        if (masterId != reqHdr.masterId)
+            continue;
+
+        //uint64_t segmentId = it->first.second;
+        SegmentInfo &info = it->second;
+
+        storage.getSegment(info.storageHandle, segment);
+
+        // Iterate and bucket
+        for (SegmentIterator it(segment, segmentSize); !it.isDone(); it.next()){
+            if (it.getType() == LOG_ENTRY_TYPE_SEGHEADER ||
+                it.getType() == LOG_ENTRY_TYPE_SEGFOOTER)
+                continue;
+            LOG(ERROR, "Found object or tombstone: %u %lu",
+                it.getType(), it.getLength());
+        }
+    }
+
 }
 
 /**
@@ -208,19 +271,21 @@ BackupServer::openSegment(const BackupOpenRpc::Request& reqHdr,
 {
     LOG(DEBUG, "Handling: %s", __func__);
 
-    SegmentsMap::iterator it =
-        segments.find(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
-    if (it != segments.end())
+    SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
+    if (info)
         throw ClientException(STATUS_BACKUP_SEGMENT_ALREADY_OPEN);
 
-    // TODO(stutsman) RAII?  Need a stealable reference
-    // TODO(stutsman) Catch the exception and rebox (or check for NULL)?
+    // Get memory for staging the segment writes
     char* segment = static_cast<char*>(pool.malloc());
-
-    // Reserve the space for this on disk
-    // TODO(stutsman) Catch the exception and rebox to a ClientException
-    BackupStorage::Handle* handle =
-        storage.allocate(reqHdr.masterId, reqHdr.segmentId);
+    BackupStorage::Handle* handle;
+    try {
+        // Reserve the space for this on disk
+        handle = storage.allocate(reqHdr.masterId, reqHdr.segmentId);
+    } catch (...) {
+        // Release the staging memory if storage.allocate throws
+        pool.free(segment);
+        throw;
+    }
 
     segments[MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId)] =
         SegmentInfo(segment, handle);
@@ -245,8 +310,21 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                                BackupStartReadingDataRpc::Response& respHdr,
                                Transport::ServerRpc& rpc)
 {
-    LOG(ERROR, "Unimplemented: %s", __func__);
-    throw UnimplementedRequestError();
+    LOG(DEBUG, "Handling: %s", __func__);
+
+    // TODO(stutsman) use aio to get data into RAM before getRecoveryData
+    uint32_t segmentIdCount = 0;
+    for (SegmentsMap::iterator it = segments.begin();
+         it != segments.end(); it++)
+    {
+        if (it->first.first == reqHdr.masterId) {
+            Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
+                                          &it->first.second,
+                                          sizeof(it->first.second));
+            segmentIdCount++;
+        }
+    }
+    respHdr.segmentIdCount = segmentIdCount;
 }
 
 /**
@@ -274,11 +352,9 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
     LOG(DEBUG, "%s: segment <%lu,%lu>",
         __func__, reqHdr.masterId, reqHdr.segmentId);
 
-    SegmentsMap::iterator it =
-        segments.find(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
-    if (it == segments.end())
+    SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
+    if (!info)
         throw ClientException(STATUS_BACKUP_BAD_SEGMENT_ID);
-    SegmentInfo &info = it->second;
 
     // Need to check all three conditions because overflow is possible
     // on the addition
@@ -288,7 +364,7 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
         throw ClientException(STATUS_BACKUP_SEGMENT_OVERFLOW);
 
     rpc.recvPayload.copy(sizeof(reqHdr), reqHdr.length,
-                         &info.segment[reqHdr.offset]);
+                         &info->segment[reqHdr.offset]);
 }
 
 } // namespace RAMCloud

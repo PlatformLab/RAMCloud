@@ -13,35 +13,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_COORDINATOR_H
-#define RAMCLOUD_COORDINATOR_H
-
-#include "ServerList.pb.h"
-
-#include "Common.h"
-#include "Client.h"
-#include "ClientException.h"
-#include "Rpc.h"
-#include "TransportManager.h"
+#include "BindTransport.h"
 
 namespace RAMCloud {
 
-/**
- * Proxies methods as RPCs to the cluster coordinator.
- */
-class Coordinator : public Client {
-  public:
-    explicit Coordinator(const char* coordinatorLocator)
-        : session(transportManager.getSession(coordinatorLocator)) {}
+void
+BindTransport::BindClientRpc::getReply()
+{
+    BindServerRpc serverRpc;
 
-    uint64_t enlistServer(ServerType serverType, string localServiceLocator);
-    void getServerList(ProtoBuf::ServerList& serverList);
+    uint32_t reqLength = request.getTotalLength();
+    request.copy(0, reqLength,
+                 new(&serverRpc.recvPayload, APPEND) char[reqLength]);
 
-  private:
-    Transport::SessionRef session;
-    DISALLOW_COPY_AND_ASSIGN(Coordinator);
-};
+    RpcType rpcType = request.getStart<RpcRequestCommon>()->type;
+    transport.server.dispatch(rpcType, serverRpc);
 
-} // end RAMCloud
+    uint32_t respLength = serverRpc.replyPayload.getTotalLength();
+    serverRpc.replyPayload.copy(0, respLength,
+                                new(&response, APPEND) char[respLength]);
 
-#endif  // RAMCLOUD_COORDINATOR_H
+    delete this;
+}
+
+} // namespace RAMCloud

@@ -14,6 +14,7 @@
  */
 
 #include "CoordinatorServer.h"
+#include "ProtoBuf.h"
 
 namespace RAMCloud {
 
@@ -31,6 +32,10 @@ CoordinatorServer::dispatch(RpcType type, Transport::ServerRpc& rpc)
         case EnlistServerRpc::type:
             callHandler<EnlistServerRpc, CoordinatorServer,
                         &CoordinatorServer::enlistServer>(rpc);
+            break;
+        case GetServerListRpc::type:
+            callHandler<GetServerListRpc, CoordinatorServer,
+                        &CoordinatorServer::getServerList>(rpc);
             break;
         case PingRpc::type:
             callHandler<PingRpc, Server, &Server::ping>(rpc);
@@ -50,12 +55,29 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                 Transport::ServerRpc& rpc)
 {
     uint64_t serverId = nextServerId++;
-    // TODO(ongaro): add entry to server list
+    ProtoBuf::ServerList_Entry& server(*serverList.add_server());
+    server.set_server_type(
+        static_cast<ProtoBuf::ServerType>(reqHdr.serverType));
+    server.set_server_id(serverId);
+    server.set_service_locator(getString(rpc.recvPayload, sizeof(reqHdr),
+                                         reqHdr.serviceLocatorLength));
     // TODO(ongaro): if first server, call youOwn and give it ownership of
     // table 0...errr...deadlock
     LOG(DEBUG, "Server enlisted with id %lu", serverId);
     respHdr.serverId = serverId;
 }
 
+/**
+ * Handle the GET_SERVER_LIST RPC.
+ * \copydetails Server::ping
+ */
+void
+CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
+                                 GetServerListRpc::Response& respHdr,
+                                 Transport::ServerRpc& rpc)
+{
+    respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
+                                                   serverList);
+}
 
 } // namespace RAMCloud

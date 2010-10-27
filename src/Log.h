@@ -31,32 +31,47 @@ namespace RAMCloud {
 class LogCleaner;
 
 typedef void (*LogSegmentCallback)(Segment *, void *);
+typedef unordered_map<LogEntryType, LogTypeCallback *> CallbackMap;
+typedef unordered_map<uint64_t, Segment *> ActiveIdMap;
+typedef unordered_map<const void *, Segment *> BaseAddressMap;
+
+/**
+ * An exception that is thrown when the Log class is provided invalid
+ * method arguments.
+ */
+struct LogException : public Exception {
+    LogException() : Exception() {}
+    explicit LogException(std::string msg) : Exception(msg) {}
+    explicit LogException(int errNo) : Exception(errNo) {}
+};
 
 class Log {
   public:
-    Log(uint64_t logId, uint64_t segmentSize);
+    Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity);
     ~Log();
-    void        addSegmentMemory(void *p);
     const void *append(LogEntryType type,
                        const void *buffer, uint64_t length);
-    void        free(const void *buffer, const uint64_t length);
-    void        setCleaner(LogCleaner *cleaner);
+    void        free(const void *p);
     void        registerType(LogEntryType type,
                              log_eviction_cb_t evictionCB, void *evictionArg);
     uint64_t    getSegmentId(const void *p);
     bool        isSegmentLive(uint64_t segmentId) const;
     void        forEachSegment(LogSegmentCallback cb, uint64_t limit,
                                void *cookie) const;
+    uint64_t    getMaximumAppendableBytes() const;
 
   private:
+    void        addSegmentMemory(void *p);
     void        addToActiveMaps(Segment *s);
     void        eraseFromActiveMaps(Segment *s);
     void        addToFreeList(void *p);
     void       *getFromFreeList();
     uint64_t    allocateSegmentId();
+    const void *getSegmentBaseAddress(const void *p);
 
     uint64_t       logId;
-    uint64_t       segmentSize;
+    uint64_t       logCapacity;
+    uint64_t       segmentCapacity;
     vector<void *> segmentFreeList;
     uint64_t       nextSegmentId;
     uint64_t       maximumAppendableBytes;
@@ -66,13 +81,13 @@ class Log {
     Segment *head;
 
     /// Per-LogEntryType callbacks (e.g. for eviction)
-    unordered_map<LogEntryType, LogTypeCallback *> callbackMap;
+    CallbackMap callbackMap;
 
     /// Segment Id -> Segment * lookup within the active list
-    unordered_map<uint64_t, Segment *> activeIdMap;
+    ActiveIdMap activeIdMap;
 
     /// Segment base address -> Segment * lookup within the active list
-    unordered_map<uintptr_t, Segment *> activeBaseAddressMap;
+    BaseAddressMap activeBaseAddressMap;
 
     DISALLOW_COPY_AND_ASSIGN(Log);
 

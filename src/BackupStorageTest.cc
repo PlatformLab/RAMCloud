@@ -38,6 +38,7 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_constructor_openFails);
     CPPUNIT_TEST(test_allocate);
     CPPUNIT_TEST(test_allocate_noFreeFrames);
+    CPPUNIT_TEST(test_free);
     CPPUNIT_TEST(test_getSegment);
     CPPUNIT_TEST(test_putSegment);
     CPPUNIT_TEST(test_putSegment_seekFailed);
@@ -66,6 +67,8 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
     {
         delete storage;
         unlink(path);
+        CPPUNIT_ASSERT_EQUAL(0,
+            BackupStorage::Handle::resetAllocatedHandlesCount());
     }
 
     void
@@ -116,6 +119,21 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             std::auto_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
             BackupStorageException);
+    }
+
+    void
+    test_free()
+    {
+        BackupStorage::Handle* handle = storage->allocate(99, 0);
+        storage->free(handle);
+
+        CPPUNIT_ASSERT_EQUAL(1, storage->freeMap[0]);
+
+        char buf[4];
+        lseek(storage->fd, storage->offsetOfSegmentFrame(0), SEEK_SET);
+        read(storage->fd, &buf[0], 4);
+        CPPUNIT_ASSERT_EQUAL('F', buf[0]);
+        CPPUNIT_ASSERT_EQUAL('E', buf[3]);
     }
 
     void
@@ -174,6 +192,7 @@ class InMemoryStorageTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(InMemoryStorageTest);
     CPPUNIT_TEST(test_allocate);
     CPPUNIT_TEST(test_allocate_noFreeFrames);
+    CPPUNIT_TEST(test_free);
     CPPUNIT_TEST(test_getSegment);
     CPPUNIT_TEST(test_putSegment);
     CPPUNIT_TEST_SUITE_END();
@@ -200,6 +219,8 @@ class InMemoryStorageTest : public CppUnit::TestFixture {
     tearDown()
     {
         delete storage;
+        CPPUNIT_ASSERT_EQUAL(0,
+            BackupStorage::Handle::resetAllocatedHandlesCount());
     }
 
     void
@@ -219,6 +240,13 @@ class InMemoryStorageTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             std::auto_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
             BackupStorageException);
+    }
+
+    void
+    test_free()
+    {
+        BackupStorage::Handle* handle = storage->allocate(99, 0);
+        storage->free(handle);
     }
 
     void

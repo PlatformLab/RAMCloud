@@ -19,6 +19,7 @@
 #include "Mark.h"
 #include "PerfCounterType.h"
 #include "Rpc.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -143,29 +144,19 @@ BackupHost::writeSegment(uint64_t masterId,
  * Create a BackupManager, initially with no backup hosts to communicate
  * with.  See addHost() to add remote backups.
  */
-BackupManager::BackupManager()
-    : host(0)
+BackupManager::BackupManager(uint32_t replicas)
+    : coordinator()
+    , hosts()
+    , openHosts()
+    , replicas(replicas)
 {
 }
 
 /// Free up all BackupHosts.
 BackupManager::~BackupManager()
 {
-    if (host)
+    foreach (BackupHost* host, openHosts)
         delete host;
-}
-
-/**
- * \param session
- *      The session over which to communicate with the backup.  See
- *      TransportManager.
- */
-void
-BackupManager::addHost(Transport::SessionRef session)
-{
-    if (host)
-        DIE("%s: Adding multiple hosts not implemented", __func__);
-    host = new BackupHost(session);
 }
 
 // See BackupClient::commitSegment.
@@ -173,8 +164,12 @@ void
 BackupManager::commitSegment(uint64_t masterId,
                              uint64_t segmentId)
 {
-    if (host)
+    foreach (BackupHost* host, openHosts) {
+        // TODO(stutsman) Exception during one of the commits?
         host->commitSegment(masterId, segmentId);
+        delete host;
+    }
+    openHosts.clear();
 }
 
 // See BackupClient::freeSegment.
@@ -182,7 +177,8 @@ void
 BackupManager::freeSegment(uint64_t masterId,
                            uint64_t segmentId)
 {
-    if (host)
+    // TODO(stutsman) Exception during one of the frees - ignore it?
+    foreach (BackupHost* host, openHosts)
         host->freeSegment(masterId, segmentId);
 }
 
@@ -191,9 +187,7 @@ vector<BackupClient::RecoveredObject>
 BackupManager::getRecoveryData(uint64_t masterId,
                                const TabletMap& tablets)
 {
-    if (host)
-        return host->getRecoveryData(masterId, tablets);
-    return vector<BackupClient::RecoveredObject>();
+    DIE("Unimplemented");
 }
 
 // See BackupClient::openSegment.
@@ -201,17 +195,27 @@ void
 BackupManager::openSegment(uint64_t masterId,
                            uint64_t segmentId)
 {
-    if (host)
+    selectOpenHosts();
+    foreach (BackupHost* host, openHosts)
         host->openSegment(masterId, segmentId);
+}
+
+void
+BackupManager::setCoordinator(Coordinator& coordinator)
+{
+    this->coordinator = &coordinator;
 }
 
 // See BackupClient::startReadingData.
 vector<uint64_t>
 BackupManager::startReadingData(uint64_t masterId)
 {
-    if (host)
-        return host->startReadingData(masterId);
-    return vector<uint64_t>();
+    vector<uint64_t> segmentIds;
+    foreach (BackupHost* host, openHosts) {
+        vector<uint64_t> ids = host->startReadingData(masterId);
+        segmentIds.insert(segmentIds.end(), ids.begin(), ids.end());
+    }
+    return segmentIds;
 }
 
 // See BackupClient::writeSegment.
@@ -222,8 +226,56 @@ BackupManager::writeSegment(uint64_t masterId,
                             const void *data,
                             uint32_t len)
 {
-    if (host)
+    // TODO(stutsman) Exception during one of the writes?
+    foreach (BackupHost* host, openHosts)
         host->writeSegment(masterId, segmentId, offset, data, len);
+}
+
+// - private -
+
+/**
+ * Open segments on replica number of backups.  Caller must ensure that
+ * no segments are currently open on any backups and that there are
+ * enough hosts to choose from.
+ */
+void
+BackupManager::selectOpenHosts()
+{
+    // TODO(ongaro): find better solution to unit tests segfaulting
+    if (coordinator == NULL)
+        return;
+
+    // TODO(ongaro): it's probably not ok to get a new server list this often
+    coordinator->getServerList(hosts);
+
+    const uint32_t numHosts(static_cast<uint32_t>(hosts.server_size()));
+
+    uint32_t numBackupHosts = 0;
+    foreach (const ProtoBuf::ServerList::Entry& entry, hosts.server()) {
+        if (entry.server_type() == ProtoBuf::BACKUP)
+            ++numBackupHosts;
+    }
+
+    if (numBackupHosts < replicas)
+        DIE("Not enough backups to meet replication requirement");
+
+    if (!openHosts.empty())
+        DIE("Cannot select new backups when some are already open");
+
+    uint64_t random = generateRandom();
+    uint32_t i = 0;
+    while (i < replicas) {
+        uint32_t index = random % numHosts;
+        const ProtoBuf::ServerList::Entry& host(hosts.server(index));
+        if (host.server_type() == ProtoBuf::BACKUP) {
+            LOG(DEBUG, "Backing up to %s", host.service_locator().c_str());
+            Transport::SessionRef session =
+                transportManager.getSession(host.service_locator().c_str());
+            openHosts.push_back(new BackupHost(session));
+            i++;
+        }
+        random++;
+    }
 }
 
 } // namespace RAMCloud

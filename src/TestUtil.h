@@ -26,6 +26,7 @@
 #include <regex.h>
 #include "Common.h"
 #include "Buffer.h"
+#include "ClientException.h"
 
 // The following redefinitions are based on CppUnit code, so they probably need
 // to be licensed under the LGPL. They've been redefined to add a catch clause
@@ -46,6 +47,11 @@ do {                                                                          \
                             CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
                                     "RAMCloud::Exception or derived"));       \
         cpputMsg_.addDetail(std::string("    ") + e.message);                 \
+    } catch (const RAMCloud::ClientException& e) {                            \
+        cpputMsg_.addDetail("Actual  : " +                                    \
+                            CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
+                                    "RAMCloud::ClientException or derived")); \
+        cpputMsg_.addDetail(std::string("    ") + e.toString());              \
     } catch (const std::exception& e) {                                       \
         cpputMsg_.addDetail("Actual  : " +                                    \
                              CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,               \
@@ -69,6 +75,11 @@ do {                                                                          \
                             CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
                                     "RAMCloud::Exception or derived"));       \
         cpputMsg_.addDetail(std::string("    ") + e.message);                 \
+    } catch (const RAMCloud::ClientException& e) {                            \
+        cpputMsg_.addDetail("Caught: " +                                      \
+                            CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
+                                    "RAMCloud::ClientException or derived")); \
+        cpputMsg_.addDetail(std::string("    ") + e.toString());              \
     } catch (const std::exception& e) {                                       \
         cpputMsg_.addDetail("Caught: " +                                      \
                             CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \

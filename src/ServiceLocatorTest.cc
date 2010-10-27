@@ -202,7 +202,7 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
                              ServiceLocator::NoSuchKeyException);
         CPPUNIT_ASSERT_EQUAL(8081, sl.getOption<uint16_t>("port"));
         CPPUNIT_ASSERT_THROW(sl.getOption<uint8_t>("port"),
-                             StringConverter::BadValueException);
+                             boost::bad_lexical_cast);
     }
 
     void test_getOptionCastDefault() {
@@ -210,7 +210,7 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(7, sl.getOption<uint8_t>("foo", 7));
         CPPUNIT_ASSERT_EQUAL(8081, sl.getOption<uint16_t>("port", 0));
         CPPUNIT_ASSERT_THROW(sl.getOption<uint8_t>("port", 4),
-                             StringConverter::BadValueException);
+                             boost::bad_lexical_cast);
     }
 
     void test_getOptionNoCastNoDefault() {
