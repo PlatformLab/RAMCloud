@@ -281,7 +281,7 @@ class SocketTest : public CppUnit::TestFixture {
                  flags == MSG_WAITALL) {
                 TcpTransport::Header* header;
                 header = static_cast<TcpTransport::Header*>(buf);
-                header->len = MAX_RPC_LEN + 1;
+                header->len = Transport::MAX_RPC_LEN + 1;
                 return len;
             }
             close(fd == 10) {

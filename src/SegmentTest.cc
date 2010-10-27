@@ -17,7 +17,6 @@
 #include "Common.h"
 #include "Segment.h"
 #include "BackupClient.h"
-#include "config.h"
 
 namespace RAMCloud {
 

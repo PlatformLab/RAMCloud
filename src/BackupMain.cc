@@ -18,16 +18,15 @@
  * Provides a way to launch a standalone backup server.
  */
 
-#include "config.h"
-
 #include "BackupServer.h"
 #include "BackupStorage.h"
 #include "OptionParser.h"
 #include "TransportManager.h"
+#include "Segment.h"
 
 /**
- * Instantiates a backup server using the configuration information in
- * config.h.  The backup server runs forever awaiting requests from
+ * Instantiates a backup server.
+ * The backup server runs forever awaiting requests from
  * master servers.
  */
 int

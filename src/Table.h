@@ -33,6 +33,9 @@ class Table {
      */
     static const int TABLE_NAME_MAX_LEN = 64;
 
+    /// The size of the Hashtable in cache lines.
+    static const int HASH_NLINES = 16384;
+
     explicit Table() : next_key(0), next_version(1), object_map(HASH_NLINES) {
         name[0] = '\0';
     }

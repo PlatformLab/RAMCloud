@@ -17,6 +17,7 @@
 
 namespace RAMCloud {
 
+#if PERF_COUNTERS
 /**
  * Construct a CycleCounter, starting the timer.
  */
@@ -67,6 +68,12 @@ CycleCounter::stop() {
     startTime = ~0UL;
     return elapsed;
 }
-
+#else // not PERF_COUNTERS
+CycleCounter::CycleCounter() {}
+CycleCounter::CycleCounter(uint64_t* total) {}
+CycleCounter::~CycleCounter() {}
+void CycleCounter::cancel() {}
+uint64_t CycleCounter::stop() { return 0; }
+#endif
 
 } // end RAMCloud

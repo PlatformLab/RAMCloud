@@ -17,7 +17,8 @@
 #include "Common.h"
 #include "Log.h"
 #include "LogTypes.h"
-#include "config.h"
+#include "Master.h"
+#include "Segment.h"
 
 namespace RAMCloud {
 
@@ -49,17 +50,17 @@ class LogTest : public CppUnit::TestFixture {
     void
     setUp()
     {
-        logBase = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
+        logBase = xmalloc(SEGMENT_SIZE * Master::SEGMENT_COUNT);
         backup = new BackupManager(0);
         log = new RAMCloud::Log(SEGMENT_SIZE, logBase,
-            SEGMENT_SIZE * SEGMENT_COUNT, backup);
+            SEGMENT_SIZE * Master::SEGMENT_COUNT, backup);
 
         CPPUNIT_ASSERT_EQUAL(0, log->numCallbacks);
         CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_INVALID_ID + 1,
             log->nextSegmentId);
         CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, log->segmentSize);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_COUNT, log->nsegments);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_COUNT, log->nFreeList);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)Master::SEGMENT_COUNT, log->nsegments);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)Master::SEGMENT_COUNT, log->nFreeList);
         CPPUNIT_ASSERT(log->maxAppend > 0);
         CPPUNIT_ASSERT(log->maxAppend < log->segmentSize);
         CPPUNIT_ASSERT(backup == log->backup);
@@ -79,7 +80,8 @@ class LogTest : public CppUnit::TestFixture {
     void
     TestInit()
     {
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_COUNT - 1, log->nFreeList);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)Master::SEGMENT_COUNT - 1,
+                             log->nFreeList);
     }
 
     void
@@ -89,7 +91,7 @@ class LogTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT_EQUAL(false, log->isSegmentLive(SEGMENT_INVALID_ID));
 
-        for (uint32_t i = 0; i < SEGMENT_COUNT; i++) {
+        for (uint32_t i = 0; i < Master::SEGMENT_COUNT; i++) {
             uint64_t id;
             uint32_t off;
 
@@ -222,7 +224,7 @@ class LogTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(log->getSegment(logBase, SEGMENT_SIZE) != NULL);
 
         uintptr_t b = (uintptr_t)logBase;
-        for (uint32_t i = 0; i < SEGMENT_COUNT; i++) {
+        for (uint32_t i = 0; i < Master::SEGMENT_COUNT; i++) {
             CPPUNIT_ASSERT(log->getSegment(reinterpret_cast<void*>(b +
                         (i * SEGMENT_SIZE)), SEGMENT_SIZE) != NULL);
         }

@@ -17,7 +17,6 @@
 #include <getopt.h>
 #include <errno.h>
 
-#include "config.h"
 #include "BackupClient.h"
 #include "OptionParser.h"
 #include "Master.h"

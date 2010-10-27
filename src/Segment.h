@@ -23,6 +23,7 @@
 namespace RAMCloud {
 
 #define SEGMENT_INVALID_ID  ((uint64_t)0)
+#define SEGMENT_SIZE (8 * 1024 * 1024)
 
 class Segment {
   public:
