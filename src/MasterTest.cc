@@ -82,12 +82,8 @@ class MasterTest : public CppUnit::TestFixture {
     void test_server_constructor_initializeTables() {
         Table** tables = server->tables;
         for (int i = 0; i < MasterServer::NUM_TABLES; i++) {
-            if (tables[i] != NULL) {
-                char message[100];
-                snprintf(message, sizeof(message),
-                        "table index %d wasn't null", i);
-                CPPUNIT_FAIL(message);
-            }
+            if (tables[i] != NULL)
+                CPPUNIT_FAIL(format("table index %d wasn't null", i));
         }
     }
 

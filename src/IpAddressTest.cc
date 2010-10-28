@@ -31,13 +31,11 @@ class IpAddressTest : public CppUnit::TestFixture {
     // exception object is too transient.
     char message[200];
 
-    const char* tryLocator(const char *locator) {
+    string tryLocator(const char *locator) {
         try {
-            IpAddress*  a = new IpAddress(ServiceLocator(locator));
-            delete a;
+            IpAddress(ServiceLocator(locator));
         } catch (IpAddress::BadIpAddressException& e) {
-            snprintf(message, sizeof(message), "%s", e.message.c_str());
-            return message;
+            return e.message;
         }
         return "ok";
     }

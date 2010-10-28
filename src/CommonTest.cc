@@ -20,11 +20,35 @@ namespace RAMCloud {
 
 class CommonTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(CommonTest);
+    CPPUNIT_TEST(test_vformat_long);
+    CPPUNIT_TEST(test_format_copy);
+    CPPUNIT_TEST(test_format_outArg);
     CPPUNIT_TEST(test_generateRandom);
     CPPUNIT_TEST_SUITE_END();
 
   public:
     CommonTest() {}
+
+    void test_vformat_long() {
+        char x[3000];
+        memset(x, 0xcc, sizeof(x));
+        x[sizeof(x) - 1] = '\0';
+        CPPUNIT_ASSERT_EQUAL(x, format("%s", x));
+    }
+
+    void test_format_copy() {
+        CPPUNIT_ASSERT_EQUAL("rofl3",
+                             format("rofl3"));
+        CPPUNIT_ASSERT_EQUAL("rofl3",
+                             format("r%sl%d", "of", 3));
+    }
+
+    void test_format_outArg() {
+        string s;
+        CPPUNIT_ASSERT_EQUAL("rofl3", format(s, "rofl3"));
+        CPPUNIT_ASSERT_EQUAL(&s, &format(s, "r%sl%d", "of", 3));
+        CPPUNIT_ASSERT_EQUAL("rofl3", s);
+    }
 
     // make sure generateRandom() uses all 64 bits
     void test_generateRandom() {

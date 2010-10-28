@@ -33,18 +33,22 @@ class UdpDriverTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    char exceptionMessage[200];
+    string exceptionMessage;
     ServiceLocator *serverLocator;
     IpAddress *serverAddress;
     UdpDriver *server;
     UdpDriver *client;
 
-    UdpDriverTest() : serverLocator(NULL), serverAddress(NULL),
-            server(NULL), client(NULL) {}
+    UdpDriverTest()
+        : exceptionMessage()
+        , serverLocator(NULL)
+        , serverAddress(NULL)
+        , server(NULL)
+        , client(NULL)
+    {}
 
     void setUp() {
-        snprintf(exceptionMessage, sizeof(exceptionMessage), "%s",
-                "no exception");
+        exceptionMessage = "no exception";
         serverLocator = new ServiceLocator("udp: host=localhost, port=8100");
         serverAddress = new IpAddress(*serverLocator);
         server = new UdpDriver(serverLocator);
@@ -97,8 +101,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
         try {
             UdpDriver server2(serverLocator);
         } catch (UnrecoverableDriverException& e) {
-            snprintf(exceptionMessage, sizeof(exceptionMessage), "%s",
-                    e.message.c_str());
+            exceptionMessage = e.message;
         }
         CPPUNIT_ASSERT_EQUAL("Address already in use", exceptionMessage);
     }
@@ -109,8 +112,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
         try {
             server = new UdpDriver(serverLocator);
         } catch (UnrecoverableDriverException& e) {
-            snprintf(exceptionMessage, sizeof(exceptionMessage), "%s",
-                    e.message.c_str());
+            exceptionMessage = e.message;
         }
         CPPUNIT_ASSERT_EQUAL("no exception", exceptionMessage);
     }

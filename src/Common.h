@@ -321,6 +321,12 @@ class MockRandom {
 
 namespace RAMCloud {
 
+string format(const char* format, ...)
+    __attribute__((format(printf, 1, 2)));
+
+string& format(string& s, const char* format, ...)
+    __attribute__((format(printf, 2, 3)));
+
 /**
  * The base class for all RAMCloud exceptions.
  */
