@@ -32,10 +32,12 @@ SHARED_SRCFILES := \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
 		   src/Log.cc \
+		   src/LogCleaner.cc \
 		   src/Logging.cc \
 		   src/Metrics.cc \
 		   src/OptionParser.cc \
 		   src/Segment.cc \
+		   src/SegmentIterator.cc \
 		   src/Server.cc \
 		   src/ServiceLocator.cc \
 		   src/Status.cc \

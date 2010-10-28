@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009, 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,138 +13,146 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// RAMCloud pragma [GCCWARN=5]
+// RAMCloud pragma [CPPLINT=0]
+
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "rabinpoly.h"
 #include "Segment.h"
+#include "SegmentIterator.h"
+#include "LogTypes.h"
 
 namespace RAMCloud {
 
-Segment::Segment(void *buf,
-                 const uint64_t len,
-                 BackupClient *backupClient)
-    : base(buf),
-      isMutable(false),
-      id(SEGMENT_INVALID_ID),
-      totalBytes(len),
-      freeBytes(totalBytes),
-      tailBytes(totalBytes),
-      backup(backupClient),
-      next(0),
-      prev(0)
+/**
+ * Constructor for Segment.
+ * \param[in] logId
+ *      The unique identifier for the Log to which this Segment belongs.
+ * \param[in] segmentId
+ *      The unique identifier for this Segment.
+ * \param[in] baseAddress
+ *      A pointer to memory that will back this Segment.
+ * \param[in] capacity
+ *      The size of the backing memory pointed to by baseAddress in bytes.
+ * \return
+ *      The newly constructed Segment object.
+ */
+Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
+    uint64_t capacity)
+    : baseAddress(baseAddress),
+      id(segmentId),
+      capacity(capacity),
+      tail(0),
+      bytesFreed(0),
+      rabinPoly(RABIN_POLYNOMIAL),
+      checksum(0),
+      closed(false)
 {
-    assert(buf != NULL);
-    assert(len > 0);
+    SegmentHeader header = { logId, id, capacity };
+    const void *p = append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
+    assert(p != NULL);
 }
 
+/**
+ * Clean up after the Segment. Since Segments currently do not allocate
+ * any memory, this is a no-op.
+ */
 Segment::~Segment()
 {
+    static_assert(sizeof(SegmentEntry) == 8);
+    static_assert(sizeof(SegmentHeader) == 20);
+    static_assert(sizeof(SegmentFooter) == 8);
 }
 
 /**
- * Ready an empty, inactive segment by repurposing it with a new segment
- * identifier and making it mutable. This must be called before a previously
- * reset or newly allocated Segment is used.
- *
- * \param newId
- *      The new segment identifier.
- */
-void
-Segment::ready(uint64_t newId)
-{
-    assert(!isMutable);
-    assert(id == SEGMENT_INVALID_ID);
-
-    isMutable = true;
-    id        = newId;
-    backup->openSegment(0, id);
-}
-
-/**
- * Reset the Segment by marking all storage as free and invalidating its
- * identifier. The Segment cannot be used until it is made ready again and
- * assigned a new identifier.
- */
-void
-Segment::reset()
-{
-    assert(!isMutable);
-
-    if (id != SEGMENT_INVALID_ID)
-        backup->freeSegment(0, id);
-
-    freeBytes  = totalBytes;
-    tailBytes  = totalBytes;
-    isMutable   = false;
-    id          = SEGMENT_INVALID_ID;
-    memset(base, 0xcc, totalBytes);
-}
-
-/**
- * Append data to the Segment. 
- *
- * \param  buf
- *      Pointer to the data. 
- * \param len
- *      Byte length of the data pointed to by buf.
+ * Append an entry to this Segment. Entries consist of a typed header, followed
+ * by the user-specified contents. Note that this operation makes no guarantees
+ * about data alignment.
+ * \param[in] type
+ *      The type of entry to append. All types except LOG_ENTRY_TYPE_SEGFOOTER
+ *      are permitted.
+ * \param[in] buffer
+ *      Data to be appended to this Segment.
+ * \param[in] length
+ *      Length of the data to be appended in bytes.
  * \return
- *      An immutable pointer to the location of the data in the Segment,
- *      or NULL if there is insufficient space in the Segment.
+ *      On success, a const pointer into the Segment's backing memory with
+ *      the same contents as `buffer'. On failure, NULL. 
  */
 const void *
-Segment::append(const void *buf, const uint64_t len)
+Segment::append(LogEntryType type, const void *buffer, uint64_t length)
 {
-    assert(isMutable);
-    assert(id != SEGMENT_INVALID_ID);
-
-    if (tailBytes < len)
+    if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
+      appendableBytes() < length)
         return NULL;
 
-    assert(freeBytes >= len);
-
-    uint64_t offset = totalBytes - tailBytes;
-    void *loc = static_cast<uint8_t*>(base) + offset;
-
-    memcpy(loc, buf, len);
-    backup->writeSegment(0, id, offset, buf, len);
-    freeBytes -= len;
-    tailBytes -= len;
-
-    return loc;
+    return forceAppendWithEntry(type, buffer, length);
 }
 
 /**
- * Mark space the Segment as free (no longer used). The Segment's contents are
- * left unmodified. This only affects metadata used for maintaining utilisation
- * information.
- *
- * \param len
- *      Number of bytes newly freed bytes.
+ * Mark bytes used by a single entry in this Segment as freed. This simply
+ * maintains a tally that can be used to compute utilisation of the Segment.
+ * \param[in] p
+ *      A pointer into the Segment as returned by an #append call.
  */
 void
-Segment::free(uint64_t len)
+Segment::free(const void *p)
 {
-    assert((len + freeBytes) <= totalBytes);
-    freeBytes += len;
+    assert((uintptr_t)p >= ((uintptr_t)baseAddress + sizeof(SegmentEntry)));
+    assert((uintptr_t)p <  ((uintptr_t)baseAddress + capacity)); 
+
+    const SegmentEntry *entry = (const SegmentEntry *)
+        ((const uintptr_t)p - sizeof(SegmentEntry));
+
+    // be sure to account for SegmentEntry structs before each append
+    uint64_t length = entry->length + sizeof(SegmentEntry);
+
+    assert((bytesFreed + length) <= tail);
+
+    bytesFreed += length;
 }
 
 /**
- * Obtain an immutable pointer to the first of this Segment's contiguous
- * data bytes.
- *
- * \return
- *      An immutable pointer to the Segment data's start address.
+ * Close the Segment. Once a Segment has been closed, it is considered
+ * closed, i.e. it cannot be appended to. Calling #free on a closed
+ * Segment to maintain utilisation counts is still permitted. 
+ * \throw SegmentException
+ *      An exception is thrown if the Segment has already been closed.
+ */
+void
+Segment::close()
+{
+    if (closed)
+        throw SegmentException("Segment has already been closed");
+
+    SegmentEntry entry = { LOG_ENTRY_TYPE_SEGFOOTER, sizeof(SegmentFooter) };
+    const void *p = forceAppendBlob(&entry, sizeof(entry));
+    assert(p != NULL);
+
+    SegmentFooter footer = { checksum };
+    p = forceAppendBlob(&footer, sizeof(footer), false);
+    assert(p != NULL);
+
+    // ensure that any future append() will fail
+    closed = true;
+}
+
+/**
+ * Obtain a const pointer to the first byte of backing memory for this Segment.
  */
 const void *
-Segment::getBase() const
+Segment::getBaseAddress() const
 {
-    return base;
+    return baseAddress;
 }
 
 /**
- * Obtain the Segment's segment identifier.
- *
- * \return
- *      The segment's identifier, or SEGMENT_INVALID_ID if the Segment
- *      has not been readied.
- *
+ * Obtain the Segment's Id, which was originally specified in the constructor.
  */
 uint64_t
 Segment::getId() const
@@ -153,115 +161,132 @@ Segment::getId() const
 }
 
 /**
- * Obtain the number of bytes left to be written at the end of this Segment.
- *
- * \return
- *      The number of free bytes at the tail.
+ * Obtain the number of bytes of backing memory that this Segment represents.
  */
 uint64_t
-Segment::getFreeTail() const
+Segment::getCapacity() const
 {
-    return tailBytes;
+    return capacity;
 }
 
 /**
- * Obtain the Segment's length in bytes.
- *
- * \return
- *      The number of bytes the Segment can store.
+ * Obtain the maximum number of bytes that can be appended to this Segment
+ * using the #append method. Buffers equal to this size or smaller are
+ * guaranteed to succeed, whereas buffers larger will fail to be appended.
  */
 uint64_t
-Segment::getLength() const
+Segment::appendableBytes() const
 {
-    return totalBytes;
+    if (closed)
+        return 0;
+
+    uint64_t freeBytes = capacity - tail;
+    uint64_t headRoom  = sizeof(SegmentEntry) + sizeof(SegmentFooter);
+
+    assert(freeBytes >= headRoom);
+
+    if ((freeBytes - headRoom) < sizeof(SegmentEntry))
+        return 0;
+
+    return freeBytes - headRoom - sizeof(SegmentEntry);
 }
 
 /**
- * Obtain the Segment's utilisation, i.e. the difference between the Segment's
- * size and the number of total free bytes in the Segment (not only free bytes
- * at the tail).
- *
- * \return
- *      The number of bytes the Segment is currently using.
- */
-uint64_t
-Segment::getUtilization() const
-{
-    return totalBytes - freeBytes;
-}
-
-/**
- * Determine whether the provided pointer points within the Segment and that
- * the specified number of bytes are also within the Segment, i.e. given an
- * address range, check to see if it all fits within the Segment.
- *
- * \param p
- *      A pointer to anywhere.
- * \param len
- *      The number of bytes from the pointer to check.
- * \return
- *      True if the range is valid, or false if the range is invalid.
- */
-bool
-Segment::checkRange(const void *p, uint64_t len) const
-{
-    uintptr_t up = (uintptr_t)p;
-    uintptr_t ub = (uintptr_t)base;
-
-    return (up >= ub && (up + len) <= (ub + totalBytes));
-}
-
-/**
- * Finalise a Segment when done with it. The Segment is marked as immutable
- * and committed to the backup.
+ * Iterate over all entries in this Segment and pass them to the callback
+ * provided. This is simply a convenience wrapper around #SegmentIterator.
+ * \param[in] cb
+ *      The callback to use on each entry.
+ * \param[in] cookie
+ *      A void* argument to be passed with the specified callback.
  */
 void
-Segment::finalize()
+Segment::forEachEntry(SegmentEntryCallback cb, void *cookie) const
 {
-    assert(id != SEGMENT_INVALID_ID);
-    isMutable = false;
-    backup->commitSegment(0, id);
+    for (SegmentIterator i(this); !i.isDone(); i.next())
+        cb(i.getType(), i.getPointer(), i.getLength(), cookie);
 }
 
 /**
- * Link the Segment into a doubly-linked list.
- *
- * \param n
- *      The Segment to insert before, or NULL to insert at the end.
- * \return
- *      A pointer to this Segment (useful for inlining insertions).
+ * Return the Segment's utilisation as an integer percentage. This is
+ * calculated by taking into account the number of live bytes written to
+ * the Segment minus the freed bytes in proportion to its capacity.
  */
-Segment *
-Segment::link(Segment *n)
+int
+Segment::getUtilisation() const
 {
-    assert(prev == NULL && next == NULL);
-    assert(n == NULL || n->prev == NULL);
+    return (100ULL * (tail - bytesFreed)) / capacity;
+}
 
-    if (n != NULL)
-        n->prev = this;
-    next = n;
+////////////////////////////////////////
+/// Private Methods
+////////////////////////////////////////
 
-    return this;
+/**
+ * Append exactly the provided raw bytes to the memory backing this Segment.
+ * Note that no SegmentEntry is written and the only sanity check is to ensure
+ * that the backing memory is not overrun.
+ * \param[in] buffer
+ *      Pointer to the data to be appended to the Segment's backing memory.
+ * \param[in] length
+ *      Length of the buffer to be appended in bytes.
+ * \param[in] updateChecksum
+ *      Optional boolean to disable updates to the Segment checksum. The
+ *      default is to update the running checksum while appending data, but
+ *      this can be stopped when appending the SegmentFooter, for instance.
+ * \return
+ *      A pointer into the Segment corresponding to the first byte that was
+ *      copied in to.
+ */
+const void *
+Segment::forceAppendBlob(const void *buffer, uint64_t length,
+    bool updateChecksum)
+{
+    assert((tail + length) <= capacity);
+    assert(!closed);
+
+    uint8_t *src = (uint8_t *)buffer;
+    uint8_t *dst = (uint8_t *)baseAddress + tail;
+
+    if (updateChecksum) {
+        for (uint64_t i = 0; i < length; i++) {
+            dst[i] = src[i];
+            checksum = rabinPoly.append8(checksum, src[i]);
+        }
+    } else {
+        memcpy(dst, src, length);
+    }
+
+    tail += length;
+    return (void *)dst;
 }
 
 /**
- * Remove the Segment from a doubly-linked list.
- *
+ * Append an entry of any type to the Segment. This function will always
+ * succeed so long as there is sufficient room left in the tail of the Segment.
+ * \param[in] type
+ *      The type of entry to append.
+ * \param[in] buffer
+ *      Data to be appended to this Segment.
+ * \param[in] length
+ *      Length of the data to be appended in bytes.
  * \return
- *      A pointer to the following Segment (useful for inlining removals),
- *      or NULL if there is none. 
+ *      A pointer into the Segment corresponding to the first data byte that
+ *      was copied in to (i.e. the contents are the same as #buffer).
  */
-Segment *
-Segment::unlink()
+const void *
+Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
+    uint64_t length)
 {
-    if (prev != NULL)
-        prev->next = next;
-    if (next != NULL)
-        next->prev = prev;
+    assert(!closed);
 
-    Segment *n = next;
-    prev = next = NULL;
-    return n;
+    uint64_t freeBytes = capacity - tail;
+    uint64_t needBytes = sizeof(SegmentEntry) + length;
+    if (freeBytes < needBytes)
+        return NULL;
+
+    SegmentEntry entry = { type, length };
+    forceAppendBlob(&entry, sizeof(entry));
+    return forceAppendBlob(buffer, length);
 }
 
 } // namespace

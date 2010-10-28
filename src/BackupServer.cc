@@ -19,6 +19,7 @@
 #include "Log.h"
 #include "Rpc.h"
 #include "Segment.h"
+#include "SegmentIterator.h"
 #include "Status.h"
 #include "TransportManager.h"
 
@@ -231,18 +232,12 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
         storage.getSegment(info.storageHandle, segment);
 
         // Iterate and bucket
-        // TODO(stutsman) shouldn't have to box this in a Segment
-        Segment s(segment, segmentSize, NULL);
-        LogEntryIterator it(&s);
-        const struct LogEntry *entry;
-        const void *p;
-
-        while (it.getNext(&entry, &p)) {
-            if (entry->type == LOG_ENTRY_TYPE_SEGMENT_HEADER ||
-                entry->type == LOG_ENTRY_TYPE_SEGMENT_CHECKSUM)
+        for (SegmentIterator it(segment, segmentSize); !it.isDone(); it.next()){
+            if (it.getType() == LOG_ENTRY_TYPE_SEGHEADER ||
+                it.getType() == LOG_ENTRY_TYPE_SEGFOOTER)
                 continue;
-            LOG(ERROR, "Found object or tombstone: %u %u",
-                entry->type, entry->length);
+            LOG(ERROR, "Found object or tombstone: %u %lu",
+                it.getType(), it.getLength());
         }
     }
 

@@ -8,265 +8,232 @@
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
  * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// RAMCloud pragma [GCCWARN=5]
+// RAMCloud pragma [CPPLINT=0]
+
 #include "TestUtil.h"
 
-#include "Common.h"
 #include "Segment.h"
-#include "BackupClient.h"
+#include "LogTypes.h"
 
 namespace RAMCloud {
 
+/**
+ * Unit tests for Segment.
+ */
 class SegmentTest : public CppUnit::TestFixture {
+
+    DISALLOW_COPY_AND_ASSIGN(SegmentTest); // NOLINT
+
     CPPUNIT_TEST_SUITE(SegmentTest);
-    CPPUNIT_TEST(TestInit);
-    CPPUNIT_TEST(TestReady);
-    CPPUNIT_TEST(TestReset);
-    CPPUNIT_TEST(TestAppend);
-    CPPUNIT_TEST(TestFullAppend);
-    CPPUNIT_TEST(TestAppendTooBig);
-    CPPUNIT_TEST(TestAppendUntilFull);
-    CPPUNIT_TEST(TestFree);
-    CPPUNIT_TEST(TestGetUtilization);
-    CPPUNIT_TEST(TestCheckRange);
-    CPPUNIT_TEST(TestFinalize);
-    CPPUNIT_TEST(TestRestore);
-    CPPUNIT_TEST(TestLink);
-    CPPUNIT_TEST(TestUnlink);
+    CPPUNIT_TEST(test_constructor);
+    CPPUNIT_TEST(test_append);
+    CPPUNIT_TEST(test_free);
+    CPPUNIT_TEST(test_close);
+    CPPUNIT_TEST(test_appendableBytes);
+    CPPUNIT_TEST(test_forEachEntry);
+    CPPUNIT_TEST(test_forceAppendBlob);
+    CPPUNIT_TEST(test_forceAppendWithEntry);
     CPPUNIT_TEST_SUITE_END();
 
-    RAMCloud::Segment *seg;
-    void *segBase;
-    BackupClient *backup;
-
   public:
-    SegmentTest() : seg(NULL), segBase(NULL), backup(NULL) { }
+    SegmentTest() {}
 
     void
-    setUp()
+    test_constructor()
     {
-        segBase = xmalloc(SEGMENT_SIZE);
-        backup = new BackupManager(0);
-        seg = new RAMCloud::Segment(segBase, SEGMENT_SIZE, backup);
-        TestInit();
+        char alignedBuf[8192] __attribute__((aligned(8192)));
+
+        Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
+        CPPUNIT_ASSERT_EQUAL(s.baseAddress, (void *)alignedBuf);
+        CPPUNIT_ASSERT_EQUAL(98765, s.id);
+        CPPUNIT_ASSERT_EQUAL(8192, s.capacity);
+        CPPUNIT_ASSERT_EQUAL(sizeof(SegmentEntry) + sizeof(SegmentHeader),
+            s.tail);
+        CPPUNIT_ASSERT_EQUAL(0UL, s.bytesFreed);
+
+        SegmentEntry *se = (SegmentEntry *)s.baseAddress;
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, se->type);
+        CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), se->length);
+
+        SegmentHeader *sh = (SegmentHeader *)((char *)se + sizeof(*se));
+        CPPUNIT_ASSERT_EQUAL(1020304050, sh->logId);
+        CPPUNIT_ASSERT_EQUAL(98765, sh->segmentId);
+        CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), sh->segmentCapacity);
     }
 
     void
-    tearDown()
+    test_append()
     {
-        free(segBase);
-        delete seg;
-    }
+        char alignedBuf[8192] __attribute__((aligned(8192)));
+        const void *p;
 
-    void
-    TestInit()
-    {
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, seg->totalBytes);
-        CPPUNIT_ASSERT_EQUAL(seg->totalBytes, seg->freeBytes);
-        CPPUNIT_ASSERT_EQUAL(seg->totalBytes, seg->tailBytes);
-        CPPUNIT_ASSERT_EQUAL(false, seg->isMutable);
-        CPPUNIT_ASSERT_EQUAL(SEGMENT_INVALID_ID, seg->id);
-        CPPUNIT_ASSERT_EQUAL(backup, seg->backup);
-        CPPUNIT_ASSERT(NULL == seg->prev);
-        CPPUNIT_ASSERT(NULL == seg->next);
-    }
+        Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+        p = s.append(LOG_ENTRY_TYPE_SEGFOOTER, NULL, 0);
+        CPPUNIT_ASSERT_EQUAL(NULL, p);
 
-    void
-    TestReady()
-    {
-        CPPUNIT_ASSERT_EQUAL(SEGMENT_INVALID_ID, seg->id);
-        CPPUNIT_ASSERT_EQUAL(false, seg->isMutable);
+        s.closed = true;
+        p = s.append(LOG_ENTRY_TYPE_OBJ, alignedBuf, 1);
+        CPPUNIT_ASSERT_EQUAL(NULL, p);
+        s.closed = false;
 
-        seg->ready(0xabcdef42);
+        p = s.append(LOG_ENTRY_TYPE_OBJ, NULL, s.appendableBytes() + 1);
+        CPPUNIT_ASSERT_EQUAL(NULL, p);
 
-        CPPUNIT_ASSERT_EQUAL((uint64_t)0xabcdef42, seg->id);
-        CPPUNIT_ASSERT_EQUAL(true, seg->isMutable);
-    }
+        int bytes = s.appendableBytes();
+        char buf[bytes];
+        for (int i = 0; i < bytes; i++)
+            buf[i] = i;
 
-    void
-    TestReset()
-    {
-        TestAppend();
-        seg->finalize();
-        seg->reset();
-        TestInit();
-    }
-
-    void
-    TestAppend()
-    {
-        TestReady();
-
-        const void *p = seg->append("hi!", 4);
-
+        p = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes);
         CPPUNIT_ASSERT(p != NULL);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, seg->totalBytes);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE - 4, seg->freeBytes);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE - 4, seg->tailBytes);
+
+        SegmentEntry *se = (SegmentEntry *)((char *)s.baseAddress +
+            sizeof(SegmentEntry) + sizeof(SegmentHeader));
+
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, se->type);
+        CPPUNIT_ASSERT_EQUAL(bytes, se->length);
+        CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, (char *)se + sizeof(*se), bytes)); 
     }
 
     void
-    TestFullAppend()
+    test_free()
     {
-        TestReady();
+        char alignedBuf[8192] __attribute__((aligned(8192)));
+        char buf[12];
 
-        void *buf = xmalloc(SEGMENT_SIZE);
-        const void *p = seg->append(buf, SEGMENT_SIZE);
-
-        CPPUNIT_ASSERT(p != NULL);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, seg->totalBytes);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->freeBytes);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->tailBytes);
-        CPPUNIT_ASSERT(memcmp(p, buf, SEGMENT_SIZE) == 0);
-
-        free(buf);
+        Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+        const void *p = s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        s.free(p);
+        CPPUNIT_ASSERT_EQUAL(sizeof(buf) + sizeof(SegmentEntry), s.bytesFreed);
     }
 
     void
-    TestAppendUntilFull()
+    test_close()
     {
-        TestReady();
+        char alignedBuf[8192] __attribute__((aligned(8192)));
 
-        uint64_t last = seg->tailBytes;
-        for (int i = 0; ; i++) {
-            char chr = i;
-            const void *p = seg->append(&chr, 1);
-            if (p == NULL)
-                break;
+        Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+        s.close();
 
-            // CPPUNIT_ASSERT is too slow. Using if statements instead saves 3s
-            // on my machine (using 3MB segments). -Diego
-            if (memcmp(p, &chr, 1) != 0)
-                CPPUNIT_ASSERT(false);
-            if (seg->tailBytes + 1 != last)
-                CPPUNIT_ASSERT(false);
+        SegmentEntry *se = (SegmentEntry *)((char *)s.baseAddress +
+            sizeof(SegmentEntry) + sizeof(SegmentHeader));
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, se->type);
+        CPPUNIT_ASSERT_EQUAL(sizeof(SegmentFooter), se->length);
 
-            last = seg->tailBytes;
+        SegmentFooter *sf = (SegmentFooter *)((char *)se + sizeof(*se));
+        CPPUNIT_ASSERT_EQUAL(0x7baf8437964589e0ull, sf->checksum);
+
+        CPPUNIT_ASSERT_EQUAL(0, s.appendableBytes());
+        CPPUNIT_ASSERT_EQUAL(true, s.closed);
+    }
+
+    // The following tests are not ordered with respect to the code,
+    // since the early abort line in Segment::appendableBytes() requires
+    // segment closure.
+    void
+    test_appendableBytes()
+    {
+        char alignedBuf[8192] __attribute__((aligned(8192)));
+
+        Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+        CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf) - 3 * sizeof(SegmentEntry) -
+            sizeof(SegmentHeader) - sizeof(SegmentFooter), s.appendableBytes());
+
+        char buf[57];
+        while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)) != NULL)
+            ;
+        CPPUNIT_ASSERT_EQUAL(15, s.appendableBytes());
+
+        s.close();
+        CPPUNIT_ASSERT_EQUAL(0, s.appendableBytes());
+    }
+
+    static void
+    callback_forEachEntry(LogEntryType type, const void *p, uint64_t length,
+        void *cookie) 
+    {
+        static int i = 0;
+        
+        CPPUNIT_ASSERT(i == 0 || i == 1);
+
+        if (i == 0) {
+            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, type);
+            CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), length);
+            CPPUNIT_ASSERT_EQUAL(NULL, cookie);
+
+            SegmentHeader *sh = (SegmentHeader *)p;
+            CPPUNIT_ASSERT_EQUAL(112233, sh->logId);
+            CPPUNIT_ASSERT_EQUAL(445566, sh->segmentId);
+        } else {
+            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, type);    
+            CPPUNIT_ASSERT_EQUAL(sizeof(SegmentFooter), length);
+            CPPUNIT_ASSERT_EQUAL(NULL, cookie);
         }
 
-        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->freeBytes);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->tailBytes);
+        i++;
     }
 
     void
-    TestAppendTooBig()
+    test_forEachEntry()
     {
-        TestReady();
-        const void *p = seg->append(&p, seg->getLength() + 1);
+        
+        char alignedBuf[8192] __attribute__((aligned(8192)));
+
+        Segment s(112233, 445566, alignedBuf, sizeof(alignedBuf));
+        s.close();
+        s.forEachEntry(callback_forEachEntry, NULL);
+    }
+
+    void
+    test_forceAppendBlob()
+    {
+        char alignedBuf[8192] __attribute__((aligned(8192)));
+
+        char buf[64];
+        for (unsigned int i = 0; i < sizeof(buf); i++)
+            buf[i] = i;
+
+        Segment s(112233, 445566, alignedBuf, sizeof(alignedBuf));
+        s.forceAppendBlob(buf, sizeof(buf));
+        CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, (char *)s.baseAddress +
+            sizeof(SegmentEntry) + sizeof(SegmentHeader), sizeof(buf)));
+        CPPUNIT_ASSERT_EQUAL(sizeof(buf) + sizeof(SegmentEntry) +
+            sizeof(SegmentHeader), s.tail);
+    }
+
+    void
+    test_forceAppendWithEntry()
+    {
+        char alignedBuf[8192] __attribute__((aligned(8192)));
+        const void *p;
+
+        char buf[64];
+        for (unsigned int i = 0; i < sizeof(buf); i++)
+            buf[i] = i;
+
+        Segment s(112233, 445566, alignedBuf, sizeof(alignedBuf));
+        p = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        CPPUNIT_ASSERT(p != NULL);
+
+        SegmentEntry *se = (SegmentEntry *)((char *)p - sizeof(SegmentEntry));
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, se->type);
+        CPPUNIT_ASSERT_EQUAL(sizeof(buf), se->length);
+        CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, p, sizeof(buf)));
+
+        s.tail = s.capacity - sizeof(SegmentEntry) - sizeof(buf) + 1;
+        p = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         CPPUNIT_ASSERT(p == NULL);
+
+        s.tail--;
+        p = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        CPPUNIT_ASSERT(p != NULL);
     }
-
-    void
-    TestFree()
-    {
-        TestReady();
-        seg->append("obj0_version0!", 15);
-        seg->append("obj0_version1!", 15);
-        CPPUNIT_ASSERT_EQUAL(seg->totalBytes - 30, seg->freeBytes);
-        CPPUNIT_ASSERT_EQUAL(seg->totalBytes - 30, seg->tailBytes);
-        seg->free(15);
-        CPPUNIT_ASSERT_EQUAL(seg->totalBytes - 15, seg->freeBytes);
-        CPPUNIT_ASSERT_EQUAL(seg->totalBytes - 30, seg->tailBytes);
-    }
-
-    void
-    TestGetUtilization()
-    {
-        TestReady();
-        CPPUNIT_ASSERT_EQUAL((uint64_t)0, seg->getUtilization());
-
-        char buf[10000];
-        seg->append(buf, sizeof(buf));
-        CPPUNIT_ASSERT_EQUAL(sizeof(buf), seg->getUtilization());
-
-        seg->free(1001);
-        CPPUNIT_ASSERT_EQUAL(sizeof(buf) - 1001, seg->getUtilization());
-    }
-
-    void
-    TestCheckRange()
-    {
-        uintptr_t base = (uintptr_t)segBase;
-
-        CPPUNIT_ASSERT_EQUAL(true, seg->checkRange((const void *)base, 0));
-        CPPUNIT_ASSERT_EQUAL(true,
-            seg->checkRange((const void *)(base), SEGMENT_SIZE));
-        CPPUNIT_ASSERT_EQUAL(true,
-            seg->checkRange((const void *)(base + 1), SEGMENT_SIZE - 1));
-        CPPUNIT_ASSERT_EQUAL(false,
-            seg->checkRange((const void *)(base + 1), SEGMENT_SIZE));
-        CPPUNIT_ASSERT_EQUAL(false,
-            seg->checkRange((const void *)(base), SEGMENT_SIZE + 1));
-        CPPUNIT_ASSERT_EQUAL(false,
-            seg->checkRange((const void *)(base - 1), SEGMENT_SIZE));
-        CPPUNIT_ASSERT_EQUAL(true,
-            seg->checkRange((const void *)(base + SEGMENT_SIZE - 1), 1));
-        CPPUNIT_ASSERT_EQUAL(false,
-            seg->checkRange((const void *)(base + SEGMENT_SIZE - 1), 2));
-    }
-
-    void
-    TestFinalize()
-    {
-        seg->ready(99);
-        seg->finalize();
-        CPPUNIT_ASSERT_EQUAL(false, seg->isMutable);
-    }
-
-    //XXX- future work
-    void
-    TestRestore()
-    {
-    }
-
-    void
-    TestLink()
-    {
-        char buf[100];
-        Segment *n = new Segment(buf, sizeof(buf), backup);
-        Segment *ret = seg->link(n);
-
-        CPPUNIT_ASSERT(seg == ret);
-        CPPUNIT_ASSERT(NULL == seg->prev);
-        CPPUNIT_ASSERT(n == seg->next);
-        CPPUNIT_ASSERT(seg == n->prev);
-        CPPUNIT_ASSERT(NULL == n->next);
-
-        delete n;
-    }
-
-    void
-    TestUnlink()
-    {
-        Segment *ret = seg->unlink();
-        CPPUNIT_ASSERT(NULL == ret);
-
-        char buf[100];
-        Segment *n = new Segment(buf, sizeof(buf), backup);
-
-        seg->link(n);
-        ret = seg->unlink();
-        CPPUNIT_ASSERT(ret == n);
-        CPPUNIT_ASSERT(NULL == seg->next);
-        CPPUNIT_ASSERT(NULL == seg->prev);
-        CPPUNIT_ASSERT(NULL == n->next);
-        CPPUNIT_ASSERT(NULL == n->prev);
-
-        seg->link(n);
-        ret = n->unlink();
-        CPPUNIT_ASSERT(NULL == ret);
-        CPPUNIT_ASSERT(NULL == seg->next);
-        CPPUNIT_ASSERT(NULL == seg->prev);
-        CPPUNIT_ASSERT(NULL == n->next);
-        CPPUNIT_ASSERT(NULL == n->prev);
-
-        delete n;
-    }
-
-    DISALLOW_COPY_AND_ASSIGN(SegmentTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(SegmentTest);
 

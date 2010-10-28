@@ -20,7 +20,8 @@ TESTS_SRCFILES := \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/IpAddressTest.cc \
-		  src/LogTest.cc \
+          src/LogTest.cc \
+          src/LogCleanerTest.cc \
 		  src/LoggingTest.cc \
 		  src/MasterTest.cc \
 		  src/MetricsTest.cc \
@@ -32,6 +33,7 @@ TESTS_SRCFILES := \
 		  src/RamCloudCClientTest.cc \
 		  src/RamCloudClientTest.cc \
 		  src/SegmentTest.cc \
+		  src/SegmentIteratorTest.cc \
 		  src/ServerTest.cc \
 		  src/ServiceLocatorTest.cc \
 		  src/StatusTest.cc \

@@ -61,7 +61,17 @@ struct Object {
 
 struct ObjectTombstone {
     uint64_t segmentId;
-    uint32_t segmentOffset;
+    uint64_t tableId;
+    uint64_t objectId;
+    uint64_t objectVersion;
+
+    ObjectTombstone(uint64_t segmentId, const Object *object)
+        : segmentId(segmentId),
+          tableId(object->table),
+          objectId(object->id),
+          objectVersion(object->version)
+    {
+    }
 };
 
 } // namespace RAMCloud

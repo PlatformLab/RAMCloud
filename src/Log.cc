@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009, 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,604 +13,350 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Log.h"
+// RAMCloud pragma [GCCWARN=5]
+// RAMCloud pragma [CPPLINT=0]
 
-static const uint64_t cleanerHiWater = 20;
-static const uint64_t cleanerLowWater = 10;
+#include <assert.h>
+#include <stdint.h>
+#include <exception>
+
+#include "Log.h"
+#include "LogCleaner.h"
 
 namespace RAMCloud {
 
 /**
- * Simple iterator for running through a Segment's (LogEntry, blob) pairs.
+ * Constructor for Log.
+ * \param[in] logId
+ *      A unique numerical identifier for this Log. This should be globally
+ *      unique in the RAMCloud system.
+ * \param[in] logCapacity
+ *      Total size of the Log in bytes.
+ * \param[in] segmentCapacity
+ *      Size of each Segment that will be used in this Log in bytes.
+ * \return
+ *      The newly constructed Log object. The caller must first add backing
+ *      Segment memory to the Log with #addSegmentMemory before any appends
+ *      will succeed.
  */
-LogEntryIterator::LogEntryIterator(const Segment *s)
-    : segment(s), next(0)
+Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity)
+    : logId(logId),
+      logCapacity(logCapacity),
+      segmentCapacity(segmentCapacity),
+      segmentFreeList(),
+      nextSegmentId(0),
+      maximumAppendableBytes(0),
+      cleaner(NULL),
+      head(NULL),
+      callbackMap(),
+      activeIdMap(),
+      activeBaseAddressMap()
 {
-    assert(s != NULL);
-    next = (const struct LogEntry *)s->getBase();
-    assert(next != NULL);
-    if (next->type != LOG_ENTRY_TYPE_SEGMENT_HEADER) {
-        printf("next type is not seg hdr, but %llx\n", next->type);
+    cleaner = new LogCleaner(this);
+
+    uint64_t numSegments = logCapacity / segmentCapacity;
+    for (uint64_t i = 0; i < numSegments; i++) {
+        void *p = xmemalign(segmentCapacity, segmentCapacity);    
+        addSegmentMemory(p);
     }
-    assert(next->type == LOG_ENTRY_TYPE_SEGMENT_HEADER);
-    assert(next->length == sizeof(struct SegmentHeader));
 }
 
 /**
- * Get the next (LogEntry, blob) pair from the Segment, returning immutable
- * pointers to the LogEntry structure and the object iself, as well as the
- * byte offset of the LogEntry structure in the Segment.
- *
- * \param[out]   le     Immutable LogEntry structure pointer
- * \param[out]   p      Immutable blob pointer
- * \param[out]   offset If non-NULL, store the offset of the LogEntry in the
- *                      Segment.
- * \return True or False
- * \retval True if there was another (LogEntry, blob) pair.
- * \retval False if the Segment has been iterated through.
+ * Clean up after the Log.
  */
-bool
-LogEntryIterator::getNextAndOffset(const struct LogEntry **le,
-                                   const void **p,
-                                   uint64_t *offset)
+Log::~Log()
 {
-    if (next == NULL)
-        return false;
+    // NB: don't confuse Log::free() with std::free()!
 
-    if (le != NULL)
-        *le = next;
-    if (p != NULL)
-        *p = reinterpret_cast<const uint8_t*>(next) + sizeof(*next);
-
-    const struct LogEntry *nle =
-            (struct LogEntry *)(reinterpret_cast<const uint8_t*>(next) +
-            sizeof(*next) + next->length);
-    if (next->length != 0 &&
-            next->type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM &&
-            segment->checkRange(nle, sizeof(*nle))) {
-        assert(segment->checkRange(nle, sizeof(*nle) + nle->length));
-        next = nle;
-    } else {
-        next = NULL;
-    }
-    if (next && offset)
-        *offset = reinterpret_cast<uintptr_t>(next) -
-                reinterpret_cast<uintptr_t>(segment->getBase());
-
-    return true;
-}
-
-/**
- * Get the next (LogEntry, blob) pair from the Segment, returning immutable
- * pointers to the LogEntry structure and the object iself.
- *
- * \param[out]   le     Immutable LogEntry structure pointer
- * \param[out]   p      Immutable blob pointer
- * \return True or False
- * \retval True if there was another (LogEntry, blob) pair.
- * \retval False if the Segment has been iterated through.
- */
-bool
-LogEntryIterator::getNext(const struct LogEntry **le, const void **p)
-{
-    return getNextAndOffset(le, p, 0);
-}
-
-/**************************/
-/**** Public Interface ****/
-/**************************/
-
-Log::Log(const uint64_t segsize,
-         void *buf,
-         const uint64_t len,
-         BackupClient *backup_client)
-    : numCallbacks(0),
-      nextSegmentId(SEGMENT_INVALID_ID + 1),
-      maxAppend(0),
-      segmentSize(segsize),
-      base(buf),
-      segments(0),
-      head(0),
-      freeList(0),
-      nsegments(len / segmentSize),
-      nFreeList(0),
-      bytesStored(0),
-      cleaning(false),
-      backup(backup_client)
-{
-    // at a minimum, we'll have a segment header, one object, and a segment
-    // checksum
-    uint64_t minMeta = (3 * sizeof(struct LogEntry)) +
-            sizeof(struct SegmentHeader) + sizeof(struct SegmentChecksum);
-    assert(minMeta <= len);
-    maxAppend = segmentSize - minMeta;
-
-    segments = static_cast<Segment**>(xmalloc(nsegments * sizeof(segments[0])));
-    for (uint64_t i = 0; i < nsegments; i++) {
-        void *base  = static_cast<uint8_t*>(buf) + (i * segmentSize);
-        segments[i] = new Segment(base, segmentSize, backup);
-        freeList   = segments[i]->link(freeList);
-        nFreeList++;
+    for (ActiveIdMap::iterator it = activeIdMap.begin();
+      it != activeIdMap.end(); it++) {
+        if (it->second == head)
+            head->close();
+        std::free(const_cast<void *>(it->second->getBaseAddress()));
+        delete it->second;
     }
 
-    assert(nsegments == nFreeList);
-    assert(nFreeList > 0);
+    for (vector<void *>::iterator it = segmentFreeList.begin();
+      it != segmentFreeList.end(); it++) {
+        std::free(*it);
+    }
+
+    for (CallbackMap::iterator it = callbackMap.begin();
+      it != callbackMap.end(); it++) {
+        delete it->second;
+    }
+
+    delete cleaner;
 }
 
 /**
- * Initialise the Log for use.
- *
- * XXX- Do we have a use for this, or should it move into the constructor?
- */
-void
-Log::init()
-{
-    head = freeList;
-    freeList = freeList->unlink();
-    nFreeList--;
-    head->ready(allocateSegmentId());
-
-    struct SegmentHeader sh;
-    sh.id = 0;
-
-    const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER,
-                                  &sh, sizeof(sh));
-    assert(r != NULL);
-}
-
-/**
- * Given a Segment identifier, return whether or not it is active (i.e. it
- * contains valid data used by %RAMCloud).
- *
- * \param[in]   segmentId   The Segment identifier to check.
- * \return True or False 
- * \retval True if the provided Segment identifier is valid.
- * \retval False if the identifier is invalid.
+ * Determine whether or not the provided Segment identifier is currently
+ * live. A live Segment is one that is still being used by the Log for
+ * storage. This method can be used to determine if data once written to the
+ * Log is no longer present in the RAMCloud system and hence will not appear
+ * again during either normal operation or recovery.
+ * \param[in] segmentId
+ *      The Segment identifier to check for liveness.
  */
 bool
 Log::isSegmentLive(uint64_t segmentId) const
 {
-    if (segmentId == SEGMENT_INVALID_ID)
-        return false;
-
-    // TODO(rumble) inefficient
-    for (uint64_t i = 0; i < nsegments; i++) {
-        if (segments[i]->getId() == segmentId)
-            return true;
-    }
-
-    return false;
+    // can't use indexing and NULL check due to const method
+    return (activeIdMap.find(segmentId) != activeIdMap.end());
 }
 
 /**
- * Given a pointer into the Log, return the Segment identifier of the Segment
- * it exists in, as well as the byte offset into that Segment. 
- *
- * \param[in]   p       Pointer into the Log.
- * \param[out]  id      Segment Identifier to return to caller.
- * \param[out]  offset  Segment offset to return to caller.
+ * Given a live pointer to data in the Log provided by #append, obtain the
+ * identifier of the Segment into which it points. The identifier can be later
+ * checked for liveness using the #isSegmentLive method.
+ * \param[in] p
+ *      A pointer to anywhere within a live Segment of the Log, as provided
+ *      by #append.
+ * \throw LogException
+ *      An exception is thrown if the pointer provided does not pointer into
+ *      a live Log segment.
  */
-void
-Log::getSegmentIdOffset(const void *p, uint64_t *id, uint32_t *offset) const
+uint64_t
+Log::getSegmentId(const void *p)
 {
-    Segment *s = getSegment(p, 1);
-    assert(s != NULL);
-    assert(id != NULL);
-    assert(offset != NULL);
-
-    *id = s->getId();
-    *offset = (uint32_t)((uintptr_t)p - (uintptr_t)s->getBase());
+    Segment *s = activeBaseAddressMap[getSegmentBaseAddress(p)];
+    if (s == NULL)
+        throw LogException("getSegmentId given a bad pointer");
+    return s->getId();
 }
 
 /**
- * Append data to the head of the log. The data is marked with the provided
- * type.
- *
- * \param[in]   type    Type of the data added to the log.
- * \param[in]   buf     Opaque data to be written to the log.
- * \param[in]   len     Byte length of the data to be written.
- * \return An immutable pointer to the data in the log, or NULL on failure.
- * \retval NULL if the specified type was invalid (i.e. an internally-used Log
- *         entry type) or insufficient space remains.
- * \retval A valid pointer into the Log if the append succeeded.
+ * Append typed data to the Log and obtain a pointer to its identical Log
+ * copy.
+ * \param[in] type
+ *      The type of entry to append. All types except LOG_ENTRY_TYPE_SEGFOOTER
+ *      are permitted.
+ * \param[in] buffer
+ *      Data to be appended to this Segment.
+ * \param[in] length
+ *      Length of the data to be appended in bytes. This must be sufficiently
+ *      small to fit within one Segment's worth of memory.
+ * \return
+ *      On success, a const pointer into the Log's backing memory with
+ *      the same contents as `buffer'. On failure, NULL.
+ * \throw LogException
+ *      An exception is thrown if the append exceeds the maximum permitted
+ *      append length, as returned by #getMaximumAppendableBytes.
  */
 const void *
-Log::append(LogEntryType type, const void *buf, const uint64_t len)
+Log::append(LogEntryType type, const void *buffer, const uint64_t length)
 {
-    if (type == LOG_ENTRY_TYPE_SEGMENT_HEADER ||
-        type == LOG_ENTRY_TYPE_SEGMENT_CHECKSUM)
-        return NULL;
+    const void *p = NULL;
 
-    return appendAnyType(type, buf, len);
+    if (length > maximumAppendableBytes)
+        throw LogException("append exceeded maximum possible length");
+
+    /* 
+     * Try to append.
+     *   If we fail, try to allocate a new head.
+     *   If we run out of space entirely, return NULL.
+     */
+    do {
+        if (head != NULL)
+            p = head->append(type, buffer, length);
+
+        if (p == NULL) {
+            if (head != NULL) {
+                head->close();
+                head = NULL;
+            }
+
+            void *s = getFromFreeList();
+            if (s == NULL)
+                return NULL;
+
+            head = new Segment(logId, allocateSegmentId(), s, segmentCapacity);
+            addToActiveMaps(head);
+
+            cleaner->clean(1);
+        }
+    } while (p == NULL);
+
+    return p;
 }
 
 /**
- * Free a previously-appended, typed blob in the Log.
- *
- * \param[in]   type    Type of the blob being freed.
- * \param[in]   buf     Log pointer to the blob being freed.
- * \param[in]   len     Length of the blob being freed.
+ * Mark bytes in Log as freed. This simply maintains a per-Segment tally that
+ * can be used to compute utilisation of individual Log Segments.
+ * \param[in] p
+ *      A pointer into the Segment as returned by an #append call.
  */
 void
-Log::free(LogEntryType type, const void *buf, const uint64_t len)
+Log::free(const void *p)
 {
-    struct LogEntry *le = (struct LogEntry *)((uintptr_t)buf -
-                                                    sizeof(*le));
-    Segment *s = getSegment(le, len + sizeof(*le));
-
-    assert(le->type == static_cast<uint32_t>(type));
-    assert(le->length == len);
-    assert(type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
-           type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM);
-    assert(len <= bytesStored);
-
-    // Note that we do not adjust the 'bytesStored' count here,
-    // but do so only during cleaning.
-
-    s->free(len + sizeof(*le));
-    if (s->getUtilization() == 0) {
-        // TODO(rumble) need to handle mutability,
-        // inc. segment #, etc
-        // TODO(rumble) good idea may be
-        // to do this only when segment pulled from free list
-        assert(!cleaning);
-
-        assert(s->unlink() == NULL);
-        freeList = s->link(freeList);
-        assert(freeList->getUtilization() == 0);
-        nFreeList++;
-        if (s == head) {
-            retireHead();
-            assert(head == NULL);
-        }
-        s->reset();
-    }
+    Segment *s = activeBaseAddressMap[getSegmentBaseAddress(p)];
+    s->free(p);
 }
 
 /**
- * Register a new blob type with the Log. This involves providing a callback
- * for use when Log entries are evicted.
+ * Register a type with the Log. Types are used to differentiate data written
+ * to the Log. When Segments are cleaned, all entries are scanned and the
+ * eviction callback for each is fired to notify the owner that the data
+ * previously appended will be removed from the system. Is it up to the
+ * callback to re-append it to the Log and invalidate pointers to the old
+ * location.
  *
- * \param[in]   type        Type of the new Log entry being registered.
- * \param[in]   evict_cb    The eviction callback to use for this type.
- * \param[in]   cookie      An opaque cookie to be provided to the callback.
+ * Types that are not registered with the Log are simply purged during
+ * cleaning. 
+ *
+ * \param[in] type
+ *      The type to be registered with the Log. Types may only be registered
+ *      once.
+ * \param[in] evictionCB
+ *      The eviction callback to be registered with the provided type.
+ * \param[in] evictionArg
+ *      A void* argument to be passed to the eviction callback.
+ * \throw LogException
+ *      An exception is thrown if the type has already been registered.
  */
 void
 Log::registerType(LogEntryType type,
-                  LogEvictionCallback evict_cb,
-                  void *cookie)
+                  log_eviction_cb_t evictionCB, void *evictionArg)
 {
-    assert(evict_cb != NULL);
-    assert(numCallbacks < static_cast<int>(sizeof(callbacks)/
-                sizeof(callbacks[0])));
+    if (callbackMap[type] != NULL)
+        throw LogException("type already registered with the Log");
 
-    callbacks[numCallbacks].cb = evict_cb;
-    callbacks[numCallbacks].type = type;
-    callbacks[numCallbacks].cookie = cookie;
-    numCallbacks++;
+    callbackMap[type] = new LogTypeCallback(type, evictionCB, evictionArg);
 }
 
 /**
- * Print various interesting log stats to stdout. This should be generalised
- * in the future. 
+ * Iterate over live Segments and pass them to the callback provided.
+ * The number of Segments iterated over may be artificially limited by the
+ * #limit parameter.
+ * \param[in] cb
+ *      The callback to issue each live Segment to.
+ * \param[in] limit
+ *      The maximum number of Segments to iterate over.
+ * \param[in] cookie
+ *      A void* argument to be passed to the specified callback.
  */
 void
-Log::printStats()
+Log::forEachSegment(LogSegmentCallback cb, uint64_t limit, void *cookie) const
 {
-    printf("::LOG STATS::\n");
-    printf("  segment len:           %" PRIu64 " (%.3fMB)\n",
-           segmentSize, static_cast<float>(segmentSize) / (1024*1024));
-    printf("  num segments:          %" PRIu64 "\n",
-           nsegments);
-    printf("  cumulative storage:    %" PRIu64 " (%.3fMB)\n",
-           (nsegments * segmentSize),
-           static_cast<float>(nsegments * segmentSize) / (1024*1024));
-    printf("  non-meta bytes stored: %" PRIu64 " (%.3fMB)\n",
-           bytesStored, static_cast<float>(bytesStored) / (1024*1024));
-    printf("  non-meta utilization:  %.3f%%\n",
-           static_cast<float>(bytesStored) / (nsegments * segmentSize) *
-           100.0);
-    printf("  non-meta efficiency:   %.3f%%\n",
-           static_cast<float>(bytesStored) / ((nsegments - nFreeList) *
-           segmentSize) * 100.0);
-}
+    uint64_t i = 0;
+    ActiveIdMap::const_iterator it = activeIdMap.begin();
+
+    while (it != activeIdMap.end() && i < limit) {
+        cb(it->second, cookie);
+        i++, it++;
+    }
+} 
 
 /**
- * Return the maximum number of bytes that can be appended to the Log in one
- * sequential operation.
- *
- * \return An integer number of bytes.
+ * Obtain the maximum number of bytes that can ever be appended to the
+ * Log at once. Appends that exceed this maximum will throw an exception.
  */
 uint64_t
-Log::getMaximumAppend()
+Log::getMaximumAppendableBytes() const
 {
-    return maxAppend;
+    return maximumAppendableBytes;
 }
 
-/*************************/
-/**** Private Methods ****/
-/*************************/
+////////////////////////////////////
+/// Private Methods
+////////////////////////////////////
 
 /**
- * Allocate a new Segment id that is unique in the history of this Log instance.
- *
- * \return An opaque Segment identifier.
+ * Provide the Log with a single contiguous piece of backing Segment memory.
+ * The memory provided must of at least as large as the #segmentCapacity
+ * parameter provided to the Log constructor. This function must be called
+ * once for each Segment.
+ * \param[in] p
+ *      Memory to be added to the Log for use as segments.
+ */
+void
+Log::addSegmentMemory(void *p)
+{
+    addToFreeList(p);
+
+    if (maximumAppendableBytes == 0) {
+        Segment s(0, 0, p, segmentCapacity);
+        maximumAppendableBytes = s.appendableBytes();
+    }
+}
+
+/**
+ * Add a Segment to various structures tracking live Segments in the Log.
+ * \param[in] s
+ *      The new Segment to be added.
+ */
+void
+Log::addToActiveMaps(Segment *s)
+{
+    activeIdMap[s->getId()] = s;
+    activeBaseAddressMap[s->getBaseAddress()] = s;
+}
+
+/**
+ * Remove a Segment from various structures tracing live Segments in the Log.
+ * \param[in] s
+ *      The Segment to be removed.
+ */
+void
+Log::eraseFromActiveMaps(Segment *s)
+{
+    activeIdMap.erase(s->getId()); 
+    activeBaseAddressMap.erase(s->getBaseAddress());
+}
+
+/**
+ * Add Segment backing memory to the free list.
+ * \param[in] p
+ *      Pointer to the memory to be added. The allocated memory must be
+ *      at least #segmentCapacity bytes in length.
+ */
+void
+Log::addToFreeList(void *p)
+{
+    segmentFreeList.push_back(p);
+}
+
+/**
+ * Obtain Segment backing memory from the free list.
+ * \return
+ *      On success, a pointer to Segment backing memory of #segmentCapacity
+ *      bytes, as provided in the #addSegmentMemory method. If memory is
+ *      exhausted, NULL is returned.
+ */
+void *
+Log::getFromFreeList()
+{
+    if (segmentFreeList.empty())
+        return NULL;
+
+    void *p = segmentFreeList[segmentFreeList.size() - 1];
+    segmentFreeList.pop_back();
+
+    return p;
+}
+
+/**
+ * Allocate a unique Segment identifier. This is used to generate identifiers
+ * for new Segments of the Log.
+ * \returns
+ *      The next valid Segment identifier.
  */
 uint64_t
 Log::allocateSegmentId()
 {
-    return (nextSegmentId++);
+    return nextSegmentId++;
 }
 
 /**
- * Obtain the eviction callback that was registered for the given type.
- *
- * \param[in]   type    The type whose callback should be searched for.
- * \param[out]  cookie  Opaque cookie that was registered with the type.
- * \return The associated eviction callback pointer or NULL.
- * \retval NULL if the given entry type was not registered.
- * \retval A valid callback function pointer if the type was registered.
- */
-LogEvictionCallback
-Log::getEvictionCallback(LogEntryType type, void **cookie)
-{
-    for (int i = 0; i < numCallbacks; i++) {
-        if (callbacks[i].type == type) {
-            if (cookie != NULL)
-                *cookie = callbacks[i].cookie;
-            return callbacks[i].cb;
-        }
-    }
-
-    return NULL;
-}
-
-/**
- * Given a pointer into the Log and a length bound on the entry it refers to,
- * return the Segment to which it was written. For %RAMCloud consistency, this
- * function presently may not fail.
- *
- * \param[in]   p   A pointer into the Log.
- * \param[in]   len The length of the entry 'p' corresponds to.
- * \return A pointer to the Segment corresponding to the provided parameters. 
- */
-Segment *
-Log::getSegment(const void *p, uint64_t len) const
-{
-    uintptr_t up  = (uintptr_t)p;
-    uintptr_t ub  = (uintptr_t)base;
-    uintptr_t max = (uintptr_t)base + (segmentSize * nsegments);
-
-    assert(up >= ub && (up + len) <= max);
-    uintptr_t segno = (up - ub) / segmentSize;
-    assert(segno < nsegments);
-
-    Segment *s = segments[segno];
-    uintptr_t sb = (uintptr_t)s->getBase();
-    assert(up >= sb && (up + len) <= (sb + segmentSize));
-
-    return (s);
-}
-
-/**
- * Clean the Log. We do this by finding good candidate Segments to clean and
- * walk the entries in each one, calling the eviction callback on each entry.
- *
- * The callback will either do nothing, or re-write to the head of the log.
- * It's very important that this re-writing be guaranteed to succeed and that
- * we do not recurse into cleaning!
- *
- * Segments are cleaned until the number of Segments on the free list reaches
- * 'cleanerHiWater'.
- */
-void
-Log::clean()
-{
-    assert(head == NULL);
-
-    // we may come back here due to a log append when our eviction callback
-    // results in an object being written out once again. This is ok, but when
-    // we're finished cleaning, we may toss an underutilized segment and
-    // reallocate a new head in our caller, newHead(). it's probably
-    // unimportant, but we may want to preserve enough state to detect and
-    // avoid that case.
-    if (cleaning)
-        return;
-    cleaning = true;
-
-    for (uint64_t i = 0; i < nsegments; i++) {
-        Segment *s = segments[i];
-
-        // The eviction callbacks may allocate and write to a new head.
-        // Ensure that we don't try to clean it.
-        if (s == head)
-            continue;
-
-        if (nFreeList >= cleanerHiWater)
-            break;
-
-        uint64_t util = s->getUtilization();
-        if (util != 0 && util < (3 * segmentSize / 4)) {
-            // Note that since our segments are immutable (when not writing to
-            // the head) we may certainly iterate over objects for which
-            // log_free() has already been called. That's fine - it's up to the
-            // callback to determine that its stale data and take no action.
-            //
-            // For this reason, we do _not_ want to do s->free() on that space,
-            // since for already freed space, we'll double-count.
-
-            LogEntryIterator lei(s);
-            const struct LogEntry *le;
-            const void *p;
-
-            while (lei.getNext(&le, &p)) {
-                void *cookie;
-                LogEvictionCallback cb =
-                    getEvictionCallback((LogEntryType)le->type, &cookie);
-
-                if (le->type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
-                    le->type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
-                    assert(le->length <= bytesStored);
-                    bytesStored -= le->length;
-                }
-
-                if (cb != NULL)
-                    cb((LogEntryType)le->type, p, le->length, cookie);
-            }
-
-            assert(s->unlink() == NULL);
-            s->reset();
-            freeList = s->link(freeList);
-            nFreeList++;
-        }
-    }
-
-    cleaning = false;
-}
-
-/**
- * Allocate a new head of the Log. If there is already a head, retire it first.
- * An empty Segment, if one if available, is chosen as the new head.
- *
- * \return True or False
- * \retval True if a new head was installed.
- * \retval False if the free list has run out and no new head could be found.
- */
-bool
-Log::newHead()
-{
-    if (head != NULL)
-        retireHead();
-
-    assert(head == NULL);
-
-    if (nFreeList < cleanerLowWater) {
-        clean();
-
-        // while cleaning, we may have had to re-write live
-        // objects to the log, which would have allocated
-        // another head.
-        //
-        // it'd be nice if we didn't waste a mostly-unutilized
-        // segment, but that's for another day
-
-        if (head != NULL)
-            retireHead();
-    }
-
-    assert(head == NULL);
-
-    if (freeList == NULL) {
-        assert(nFreeList == 0);
-        return false;
-    }
-
-    head = freeList;
-    freeList = head->unlink();
-    nFreeList--;
-    head->ready(allocateSegmentId());
-
-    assert(head->getUtilization() == 0);
-
-    struct SegmentHeader sh;
-    sh.id = head->getId();
-
-    const void *r = appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER,
-                                  &sh, sizeof(sh));
-    assert(r != NULL);
-
-    return true;
-}
-
-/**
- * Checksum the Log's head segment in the Log and append the value to the Log.
- */
-void
-Log::checksumHead()
-{
-    assert(head != NULL);
-    assert(head->getFreeTail() >=
-           (sizeof(struct LogEntry) + sizeof(struct SegmentChecksum)));
-
-    struct SegmentChecksum sc;
-    sc.checksum = 0xbeefcafebeefcafeULL;
-    appendAnyType(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM, &sc, sizeof(sc));
-}
-
-/**
- * Retire the present head Segment. This involves applying the checksum footer
- * and finalising the Segment.
- *
- * Upon return, the Log head will be NULL and a new one must be allocated.
- */
-void
-Log::retireHead()
-{
-    assert(head != NULL);
-    checksumHead();
-    head->finalize();
-    head = NULL;
-}
-
-/**
- * Append data to the head of the log. The data is marked with the provided
- * type. This internal interface makes no restriction on the type being
- * appended and is therefore safe to use with Log-internal types.
- *
- * \param[in]   type    Type of the data added to the log.
- * \param[in]   buf     Opaque data to be written to the log.
- * \param[in]   len     Byte length of the data to be written.
- * \return An immutable pointer to the data in the log, or NULL on failure.
- * \retval NULL if no more space is available. 
- * \retval A valid pointer into the Log if the append succeeded.
+ * Given a pointer anywhere into a Segment's backing memeory that's part of
+ * this Log, obtain the base address of that memory. This function returns
+ * a pointer to an element that either is, or was on the segmentFreeList.
  */
 const void *
-Log::appendAnyType(LogEntryType type, const void *buf, const uint64_t len)
+Log::getSegmentBaseAddress(const void *p)
 {
-    assert(len <= maxAppend);
-
-    if (head == NULL && !newHead())
-        return NULL;
-
-    assert(len < segmentSize);
-
-    // ensure enough room exists to write the log entry meta, the object, and
-    // reserve space for the checksum & meta at the end
-    struct LogEntry le;
-    uint64_t needed = len + (2 * sizeof(le)) + sizeof(struct SegmentChecksum);
-    if (head->getFreeTail() < needed) {
-        if (type == LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
-            assert(head->getFreeTail() >=
-                   (sizeof(le) + sizeof(struct SegmentChecksum)));
-        } else {
-            if (!newHead())
-                return NULL;
-            assert(head != NULL);
-            assert(head->getFreeTail() > needed);
-        }
-    }
-
-    assert(type != LOG_ENTRY_TYPE_SEGMENT_HEADER ||
-           head->getUtilization() == 0);
-
-    le.type   = type;
-    le.length = len;
-
-    // append the header
-    const void *r = head->append(&le, sizeof(le));
-    assert(r != NULL);
-
-    // append the actual data
-    r = head->append(buf, len);
-    assert(r != NULL);
-
-    if (type != LOG_ENTRY_TYPE_SEGMENT_HEADER &&
-        type != LOG_ENTRY_TYPE_SEGMENT_CHECKSUM) {
-        bytesStored += len;
-        assert(bytesStored <= (nsegments * segmentSize));
-    }
-
-    return r;
+    uintptr_t base = (uintptr_t)p;
+    return (const void *)(base - (base % segmentCapacity));
 }
 
 } // namespace
