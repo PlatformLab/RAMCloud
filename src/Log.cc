@@ -98,7 +98,6 @@ Log::~Log()
 bool
 Log::isSegmentLive(uint64_t segmentId) const
 {
-    // can't use indexing and NULL check due to const method
     return (activeIdMap.find(segmentId) != activeIdMap.end());
 }
 
@@ -116,9 +115,12 @@ Log::isSegmentLive(uint64_t segmentId) const
 uint64_t
 Log::getSegmentId(const void *p)
 {
-    Segment *s = activeBaseAddressMap[getSegmentBaseAddress(p)];
-    if (s == NULL)
-        throw LogException("getSegmentId given a bad pointer");
+    const void *base = getSegmentBaseAddress(p);
+
+    if (activeBaseAddressMap.find(base) == activeBaseAddressMap.end())
+        throw LogException("free on invalid pointer");
+
+    Segment *s = activeBaseAddressMap[base];
     return s->getId();
 }
 
@@ -182,11 +184,18 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
  * can be used to compute utilisation of individual Log Segments.
  * \param[in] p
  *      A pointer into the Segment as returned by an #append call.
+ * \throw LogException
+ *      An exception is thrown if the pointer provided is not valid.
  */
 void
 Log::free(const void *p)
 {
-    Segment *s = activeBaseAddressMap[getSegmentBaseAddress(p)];
+    const void *base = getSegmentBaseAddress(p);
+
+    if (activeBaseAddressMap.find(base) == activeBaseAddressMap.end())
+        throw LogException("free on invalid pointer");
+
+    Segment *s = activeBaseAddressMap[base];
     s->free(p);
 }
 
@@ -215,7 +224,7 @@ void
 Log::registerType(LogEntryType type,
                   log_eviction_cb_t evictionCB, void *evictionArg)
 {
-    if (callbackMap[type] != NULL)
+    if (callbackMap.find(type) != callbackMap.end())
         throw LogException("type already registered with the Log");
 
     callbackMap[type] = new LogTypeCallback(type, evictionCB, evictionArg);

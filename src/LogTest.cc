@@ -115,6 +115,8 @@ class LogTest : public CppUnit::TestFixture {
         l.free(p);
         Segment *s = l.activeIdMap[0];
         CPPUNIT_ASSERT_EQUAL(sizeof(buf) + sizeof(SegmentEntry), s->bytesFreed);
+
+        CPPUNIT_ASSERT_THROW(l.free(NULL), LogException);
     }
 
     static void

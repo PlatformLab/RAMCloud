@@ -231,7 +231,7 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
                    Transport::ServerRpc& rpc)
 {
     // We must throw an exception if the table does not exist.
-    // An alternative is to only check if the object is not found, 
+    // An alternative is to only check if the object is not found,
     // taking this off the fast path, but that'd require table
     // destruction to synchronously prune all objects...
     getTable(reqHdr.tableId);
