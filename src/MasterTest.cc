@@ -17,6 +17,8 @@
 #include "BindTransport.h"
 #include "Buffer.h"
 #include "ClientException.h"
+#include "CoordinatorClient.h"
+#include "CoordinatorServer.h"
 #include "MasterClient.h"
 #include "MasterServer.h"
 #include "TransportManager.h"
@@ -51,6 +53,8 @@ class MasterTest : public CppUnit::TestFixture {
     MasterServer* server;
     BindTransport* transport;
     MasterClient* client;
+    CoordinatorClient* coordinator;
+    CoordinatorServer* coordinatorServer;
 
     MasterTest()
         : config()
@@ -58,17 +62,23 @@ class MasterTest : public CppUnit::TestFixture {
         , server(NULL)
         , transport(NULL)
         , client(NULL)
+        , coordinator(NULL)
+        , coordinatorServer(NULL)
     {
-        config.coordinatorLocator = "mock:";
+        config.coordinatorLocator = "mock:host=coordinator";
     }
 
     void setUp() {
         transport = new BindTransport();
         transportManager.registerMock(transport);
+        coordinatorServer = new CoordinatorServer();
+        transport->addServer(*coordinatorServer, "mock:host=coordinator");
+        coordinator = new CoordinatorClient("mock:host=coordinator");
         backup = new BackupManager(0);
         server = new MasterServer(&config, backup);
-        transport->server = server;
-        client = new MasterClient(transportManager.getSession("mock:"));
+        transport->addServer(*server, "mock:host=master");
+        client =
+            new MasterClient(transportManager.getSession("mock:host=master"));
     }
 
     void tearDown() {
@@ -77,6 +87,8 @@ class MasterTest : public CppUnit::TestFixture {
         delete transport;
         delete server;
         delete backup;
+        delete coordinator;
+        delete coordinatorServer;
     }
 
     void test_server_constructor_initializeTables() {

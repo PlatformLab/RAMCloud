@@ -39,7 +39,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
         transport = new BindTransport();
         transportManager.registerMock(transport);
         server = new CoordinatorServer();
-        transport->server = server;
+        transport->addServer(*server, "mock:");
         client = new CoordinatorClient("mock:");
         TestLog::enable();
     }

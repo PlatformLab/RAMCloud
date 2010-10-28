@@ -26,12 +26,8 @@ BindTransport::BindClientRpc::getReply()
     request.copy(0, reqLength,
                  new(&serverRpc.recvPayload, APPEND) char[reqLength]);
 
-    if (transport.server == NULL) {
-        throw TransportException("Can't dispatch RPC without a "
-                                 "server instance!");
-    }
     transport.waitingRequest = &serverRpc;
-    transport.server->handleRpc<Server>();
+    server.handleRpc<Server>();
     assert(transport.waitingRequest == NULL);
 
     uint32_t respLength = serverRpc.replyPayload.getTotalLength();
