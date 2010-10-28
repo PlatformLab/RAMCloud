@@ -97,16 +97,10 @@ BackupServer::commitSegment(const BackupCommitRpc::Request& reqHdr,
     info->segment = NULL;
 }
 
-/**
- * Direct incoming RPCs to the correct handler method.  See Server.
- *
- * \param type
- *      The type of the RPC request.
- * \param rpc
- *      The ServerRpc being serviced.
- */
+// See Server::dispatch.
 void
-BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc)
+BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
+                       Responder& responder)
 {
     switch (type) {
         case BackupCommitRpc::type:

@@ -26,7 +26,9 @@ CoordinatorServer::run()
 }
 
 void
-CoordinatorServer::dispatch(RpcType type, Transport::ServerRpc& rpc)
+CoordinatorServer::dispatch(RpcType type,
+                            Transport::ServerRpc& rpc,
+                            Responder& responder)
 {
     switch (type) {
         case EnlistServerRpc::type:

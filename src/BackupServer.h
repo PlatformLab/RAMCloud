@@ -79,7 +79,8 @@ class BackupServer : public Server {
                           BackupStorage& storage);
     virtual ~BackupServer();
     void dispatch(RpcType type,
-                  Transport::ServerRpc& rpc);
+                  Transport::ServerRpc& rpc,
+                  Responder& responder);
     void run();
 
   private:

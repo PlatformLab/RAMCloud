@@ -59,7 +59,9 @@ class MasterServer : public Server {
                  BackupClient* backup);
     virtual ~MasterServer();
     void run();
-    void dispatch(RpcType type, Transport::ServerRpc& rpc);
+    void dispatch(RpcType type,
+                  Transport::ServerRpc& rpc,
+                  Responder& responder);
 
   private:
     void create(const CreateRpc::Request& reqHdr,

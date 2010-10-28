@@ -76,14 +76,16 @@ class ServerTest : public CppUnit::TestFixture {
     void test_dispatch_ping() {
         transport->setInput("0 0");
         Transport::ServerRpc& rpc(*transport->serverRecv());
-        server->dispatch(PingRpc::type, rpc);
+        Server::Responder responder(rpc);
+        server->dispatch(PingRpc::type, rpc, responder);
         assertMatchesPosixRegex("ping", TestLog::get());
     }
     void test_dispatch_unknown() {
         transport->setInput("0 0");
         Transport::ServerRpc& rpc(*transport->serverRecv());
+        Server::Responder responder(rpc);
         CPPUNIT_ASSERT_THROW(
-            server->dispatch(static_cast<RpcType>(12345), rpc),
+            server->dispatch(static_cast<RpcType>(12345), rpc, responder),
             UnimplementedRequestError);
     }
 

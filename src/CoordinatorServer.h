@@ -38,7 +38,9 @@ class CoordinatorServer : public Server {
     {}
     virtual ~CoordinatorServer() {}
     void run();
-    void dispatch(RpcType type, Transport::ServerRpc& rpc);
+    void dispatch(RpcType type,
+                  Transport::ServerRpc& rpc,
+                  Responder& responder);
 
   private:
     void enlistServer(const EnlistServerRpc::Request& reqHdr,

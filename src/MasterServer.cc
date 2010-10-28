@@ -71,7 +71,8 @@ MasterServer::~MasterServer()
 }
 
 void
-MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc)
+MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
+                       Responder& responder)
 {
     switch (type) {
         case CreateRpc::type:

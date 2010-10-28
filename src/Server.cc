@@ -92,7 +92,7 @@ Server::ping(const PingRpc::Request& reqHdr,
  * Dispatch an RPC to the right handler based on its type.
  */
 void
-Server::dispatch(RpcType type, Transport::ServerRpc& rpc)
+Server::dispatch(RpcType type, Transport::ServerRpc& rpc, Responder& responder)
 {
     switch (type) {
         case PingRpc::type:
