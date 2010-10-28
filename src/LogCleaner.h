@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 #ifndef RAMCLOUD_LOGCLEANER_H
 #define RAMCLOUD_LOGCLEANER_H
 
@@ -30,7 +28,7 @@ class Log;
 
 class LogCleaner {
   public:
-    LogCleaner(Log *log);
+    explicit LogCleaner(Log *log);
     uint64_t clean(uint64_t numSegments);
     ~LogCleaner() {}
 

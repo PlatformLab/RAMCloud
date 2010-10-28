@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 #ifndef RAMCLOUD_LOG_H
 #define RAMCLOUD_LOG_H
 
@@ -92,10 +90,10 @@ class Log {
     /// Segment base address -> Segment * lookup within the active list
     BaseAddressMap activeBaseAddressMap;
 
-    DISALLOW_COPY_AND_ASSIGN(Log);
-
     friend class LogTest;
     friend class LogCleaner;
+
+    DISALLOW_COPY_AND_ASSIGN(Log);
 };
 
 } // namespace

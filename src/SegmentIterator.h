@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 #ifndef RAMCLOUD_SEGMENTITERATOR_H
 #define RAMCLOUD_SEGMENTITERATOR_H
 
@@ -38,7 +36,7 @@ struct SegmentIteratorException : public Exception {
 
 class SegmentIterator {
   public:
-    SegmentIterator(const Segment *segment);
+    explicit SegmentIterator(const Segment *segment);
     SegmentIterator(const void *buffer, uint64_t length);
 
     bool         isDone() const;
@@ -74,14 +72,14 @@ class SegmentIterator {
         uint64_t checksum = 0;
         rabinpoly rabinPoly(Segment::RABIN_POLYNOMIAL);
 
-        for (SegmentIterator i(buffer,segmentCapacity); !i.isDone(); i.next()) {
+        for (SegmentIterator i(buffer, segmentCapacity); !i.isDone(); i.next()){
             LogEntryType type = i.getType();
             uint32_t length   = i.getLength();
             SegmentEntry e    = { type, length };
 
 #define u64 uint64_t
 
-            const uint8_t *p = (uint8_t *)&e;
+            const uint8_t *p = reinterpret_cast<uint8_t *>(&e);
             for (u64 j = 0; j < sizeof(e) && offset < stopOffset; j++, offset++)
                 checksum = rabinPoly.append8(checksum, p[j]);
 
@@ -89,7 +87,7 @@ class SegmentIterator {
             if (type == LOG_ENTRY_TYPE_SEGFOOTER)
                 break;
 
-            p = (uint8_t *)i.getPointer(); 
+            p = reinterpret_cast<uint8_t *>(i.getPointer());
             for (u64 j = 0; j < length && offset < stopOffset; j++, offset++)
                 checksum = rabinPoly.append8(checksum, p[j]);
 
@@ -112,16 +110,16 @@ class SegmentIterator {
 
     // current iteration state
     LogEntryType     type;
-    uint64_t         length; 
+    uint64_t         length;
     const void      *blobPtr;
     bool             sawFooter;
 
     const SegmentEntry    *firstEntry;
     const SegmentEntry    *currentEntry;
 
-    DISALLOW_COPY_AND_ASSIGN(SegmentIterator);
-
     friend class SegmentIteratorTest;
+
+    DISALLOW_COPY_AND_ASSIGN(SegmentIterator);
 };
 
 } // namespace

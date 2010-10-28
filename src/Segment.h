@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 #ifndef RAMCLOUD_SEGMENT_H
 #define RAMCLOUD_SEGMENT_H
 
@@ -57,7 +55,7 @@ class Segment {
   public:
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
             uint64_t capacity);
-   ~Segment();
+    ~Segment();
 
     const void      *append(LogEntryType type, const void *buffer,
                             uint64_t length);
@@ -89,11 +87,11 @@ class Segment {
     uint64_t         checksum;       // Latest Segment checksum
     bool             closed;         // when true, no appends permitted
 
-    DISALLOW_COPY_AND_ASSIGN(Segment);
-
     friend class SegmentTest;
     friend class SegmentIteratorTest;
     friend class LogTest;
+
+    DISALLOW_COPY_AND_ASSIGN(Segment);
 };
 
 } // namespace

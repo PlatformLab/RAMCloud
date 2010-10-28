@@ -13,21 +13,19 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 /**
  * \file
  * This file defines an implementation of Transport for Infiniband
  * using reliable connected queue-pairs (RC).
  */
 
+#include <infiniband/verbs.h>
 #include <string>
+#include <boost/unordered_map.hpp>
 
 #include "Common.h"
 #include "Segment.h"
 #include "Transport.h"
-#include <infiniband/verbs.h>
-#include <boost/unordered_map.hpp>
 
 #ifndef RAMCLOUD_INFRCTRANSPORT_H
 #define RAMCLOUD_INFRCTRANSPORT_H
@@ -124,13 +122,13 @@ class InfRCTransport : public Transport {
         uint32_t psn;            // initial packet sequence number
         uint16_t lid;            // infiniband address: "local id"
 
-        DISALLOW_COPY_AND_ASSIGN(QueuePairTuple);
+        DISALLOW_COPY_AND_ASSIGN(QueuePairTuple); //NOLINT
     } __attribute__((packed));
 
     // this class encapsulates the creation, use, and destruction of an RC
     // queue pair.
     //
-    // the constructor will create a qp and bring it to the INIT state. 
+    // the constructor will create a qp and bring it to the INIT state.
     // after obtaining the lid, qpn, and psn of a remote queue pair, one
     // must call plumb() to bring the queue pair to the RTS state.
     class QueuePair {
@@ -169,7 +167,7 @@ class InfRCTransport : public Transport {
         static PayloadChunk* prependToBuffer(Buffer* buffer,
                                              char* data,
                                              uint32_t dataLength,
-                                             InfRCTransport* transport, 
+                                             InfRCTransport* transport,
                                              BufferDescriptor* bd);
         static PayloadChunk* appendToBuffer(Buffer* buffer,
                                             char* data,
@@ -197,7 +195,8 @@ class InfRCTransport : public Transport {
     int ibGetLid();
     void ibPostSrqReceive(BufferDescriptor *bd);
     void ibPostSend(QueuePair* qp, BufferDescriptor* bd, uint32_t length);
-    void ibPostSendAndWait(QueuePair* qp, BufferDescriptor* bd,uint32_t length);
+    void ibPostSendAndWait(QueuePair* qp, BufferDescriptor* bd,
+                           uint32_t length);
     BufferDescriptor allocateBufferDescriptorAndRegister();
 
     // queue pair connection setup helpers
@@ -212,7 +211,7 @@ class InfRCTransport : public Transport {
 
     ibv_srq*     srq;               // shared receive work queue
     ibv_device*  dev;               // infiniband HCA device we're using
-    ibv_context* ctxt;              // HCA device context (handle) 
+    ibv_context* ctxt;              // HCA device context (handle)
     ibv_pd*      pd;                // protection domain for registered memory
     ibv_cq*      rxcq;              // common completion queue for all receives
     ibv_cq*      txcq;              // common completion queue for all transmits
