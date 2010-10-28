@@ -91,7 +91,6 @@ void
 TcpTransport::MessageSocket::recv(Buffer* payload)
 {
     assert(fd >= 0);
-    payload->reset();
 
     // receive header
     Header header;

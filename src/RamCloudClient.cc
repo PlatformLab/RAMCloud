@@ -195,6 +195,7 @@ void
 RamCloudClient::read(uint32_t tableId, uint64_t id, Buffer* value,
         const RejectRules* rejectRules, uint64_t* version)
 {
+    value->reset();
     Buffer req;
     uint32_t length;
     ReadRpc::Request& reqHdr(allocHeader<ReadRpc>(req));
