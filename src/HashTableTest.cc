@@ -253,6 +253,7 @@ class HashTableTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_constructor_truncate);
     CPPUNIT_TEST(test_destructor);
     CPPUNIT_TEST(test_simple);
+    CPPUNIT_TEST(test_multiTable);
     CPPUNIT_TEST(test_hash);
     CPPUNIT_TEST(test_findBucket);
     CPPUNIT_TEST(test_lookupEntry_notFound);
@@ -280,6 +281,8 @@ class HashTableTest : public CppUnit::TestFixture {
      * \param[in] values
      *      An array of values to add to the bucket (in order). These need not
      *      be initialized and will be set counting up from 0.
+     * \param[in] tableId
+     *      The table ID to use for each object inserted.
      * \param[in] numEnt
      *      The number of values in \a values.
      * \param[in] cacheLines
@@ -287,8 +290,9 @@ class HashTableTest : public CppUnit::TestFixture {
      * \param[in] numCacheLines
      *      The number of cache lines in \a cacheLines.
      */
-    void insertArray(HashTable *ht, Object *values, uint64_t numEnt,
-                     HashTable::CacheLine *cacheLines, uint64_t numCacheLines)
+    void insertArray(HashTable *ht, Object *values, uint64_t tableId,
+                     uint64_t numEnt, HashTable::CacheLine *cacheLines,
+                     uint64_t numCacheLines)
     {
         HashTable::CacheLine *cl;
 
@@ -309,10 +313,11 @@ class HashTableTest : public CppUnit::TestFixture {
 
         // fill in the "log" entries
         for (uint64_t i = 0; i < numEnt; i++) {
+            values[i].table = tableId;
             values[i].id = i;
 
             uint64_t littleHash;
-            (void) ht->findBucket(i, &littleHash);
+            (void) ht->findBucket(0, i, &littleHash);
 
             HashTable::Entry *entry;
             if (0 < i && i == numEnt - 1 && i % seven == 0)
@@ -348,10 +353,13 @@ class HashTableTest : public CppUnit::TestFixture {
      * \li \a values is an array of \a numEnt objects.
      * \li \a cacheLines is an array of \a numCacheLines cache lines referring
      * to the objects in \a values. These cache lines make up \a ht's bucket.
+     * \param _tableId
+     *      The table id to use for all objects placed in the hashtable.
      * \param _numEnt
      *      The number of entries to place in the hashtable.
      */
-#define SETUP(_numEnt)  \
+#define SETUP(_tableId, _numEnt)  \
+    uint64_t tableId = _tableId; \
     uint64_t numEnt = _numEnt; \
     uint64_t numCacheLines; \
     numCacheLines = ((numEnt + HashTable::ENTRIES_PER_CACHE_LINE - 2) / \
@@ -361,18 +369,21 @@ class HashTableTest : public CppUnit::TestFixture {
     HashTable ht(1); \
     Object values[numEnt]; \
     HashTable::CacheLine cacheLines[numCacheLines]; \
-    insertArray(&ht, values, numEnt, cacheLines, numCacheLines); \
+    insertArray(&ht, values, tableId, numEnt, cacheLines, numCacheLines); \
     AutoTearDown _atd(&ht)
 
     /**
      * Create an Object with no data on the stack.
      * \param n
      *      The variable name for the object.
+     * \param t
+     *      The table ID for the object.
      * \param k
      *      The object ID for the object.
      */
-#define DECL_OBJECT(n, k) \
+#define DECL_OBJECT(n, t, k) \
     Object n(sizeof(Object)); \
+    n.table = (t); \
     n.id = (k)
 
 #define NULL_OBJECT (static_cast<const Object*>(NULL))
@@ -412,19 +423,20 @@ class HashTableTest : public CppUnit::TestFixture {
     void assertEntryIs(HashTable *ht, uint64_t x, uint64_t y, const Object *ptr)
     {
         uint64_t littleHash;
-        (void) ht->findBucket(ptr->id, &littleHash);
+        (void) ht->findBucket(0, ptr->id, &littleHash);
         HashTable::Entry& entry = entryAt(ht, x, y);
         CPPUNIT_ASSERT(entry.hashMatches(littleHash));
         CPPUNIT_ASSERT_EQUAL(ptr, entry.getObject());
     }
 
     HashTable::Entry *findBucketAndLookupEntry(HashTable *ht,
+                                               uint64_t tableId,
                                                uint64_t objectId)
     {
         uint64_t secondaryHash;
         HashTable::CacheLine *bucket;
-        bucket = ht->findBucket(objectId, &secondaryHash);
-        return ht->lookupEntry(bucket, secondaryHash, objectId);
+        bucket = ht->findBucket(0, objectId, &secondaryHash);
+        return ht->lookupEntry(bucket, secondaryHash, tableId, objectId);
     }
 
   public:
@@ -471,16 +483,37 @@ class HashTableTest : public CppUnit::TestFixture {
     {
         HashTable ht(1024);
 
-        DECL_OBJECT(a, 0);
-        DECL_OBJECT(b, 10);
+        DECL_OBJECT(a, 0, 0);
+        DECL_OBJECT(b, 0, 10);
 
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0));
-        ht.replace(0, &a);
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&a), ht.lookup(0));
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(10));
-        ht.replace(10, &b);
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&b), ht.lookup(10));
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&a), ht.lookup(0));
+        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 0));
+        ht.replace(0, 0, &a);
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&a), ht.lookup(0, 0));
+        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 10));
+        ht.replace(0, 10, &b);
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&b), ht.lookup(0, 10));
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&a), ht.lookup(0, 0));
+    }
+
+    void test_multiTable()
+    {
+        HashTable ht(1024);
+
+        DECL_OBJECT(a, 0, 0);
+        DECL_OBJECT(b, 1, 0);
+        DECL_OBJECT(c, 0, 1);
+
+        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 0));
+        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(1, 0));
+        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 1));
+
+        ht.replace(0, 0, &a);
+        ht.replace(1, 0, &b);
+        ht.replace(0, 1, &c);
+
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&a), ht.lookup(0, 0));
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&b), ht.lookup(1, 0));
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&c), ht.lookup(0, 1));
     }
 
     /**
@@ -504,8 +537,8 @@ class HashTableTest : public CppUnit::TestFixture {
         HashTable::CacheLine *bucket;
         uint64_t hashValue;
         uint64_t secondaryHash;
-        bucket = ht.findBucket(4327, &secondaryHash);
-        hashValue = HashTable::hash(4327);
+        bucket = ht.findBucket(0, 4327, &secondaryHash);
+        hashValue = HashTable::hash(0) ^ HashTable::hash(4327);
         CPPUNIT_ASSERT_EQUAL(static_cast<uint64_t>(bucket - ht.buckets),
                              (hashValue & 0x0000ffffffffffffffffUL) % 1024);
         CPPUNIT_ASSERT_EQUAL(secondaryHash, hashValue >> 48);
@@ -518,17 +551,17 @@ class HashTableTest : public CppUnit::TestFixture {
     void test_lookupEntry_notFound()
     {
         {
-            SETUP(0);
+            SETUP(0, 0);
             CPPUNIT_ASSERT_EQUAL(static_cast<HashTable::Entry*>(NULL),
-                                 findBucketAndLookupEntry(&ht, numEnt + 1));
+                                 findBucketAndLookupEntry(&ht, 0, numEnt + 1));
             CPPUNIT_ASSERT_EQUAL(1UL, ht.getPerfCounters().lookupEntryCalls);
             CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryCycles > 0);
             CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryDist.max > 0);
         }
         {
-            SETUP(HashTable::ENTRIES_PER_CACHE_LINE * 5);
+            SETUP(0, HashTable::ENTRIES_PER_CACHE_LINE * 5);
             CPPUNIT_ASSERT_EQUAL(static_cast<HashTable::Entry*>(NULL),
-                                 findBucketAndLookupEntry(&ht, numEnt + 1));
+                                 findBucketAndLookupEntry(&ht, 0, numEnt + 1));
             CPPUNIT_ASSERT_EQUAL(5UL,
                         ht.getPerfCounters().lookupEntryChainsFollowed);
         }
@@ -540,9 +573,9 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_lookupEntry_cacheLine0Entry0()
     {
-        SETUP(1);
+        SETUP(0, 1);
         CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 0, 0),
-                             findBucketAndLookupEntry(&ht, 0));
+                             findBucketAndLookupEntry(&ht, 0, 0));
     }
 
     /**
@@ -551,9 +584,9 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_lookupEntry_cacheLine0Entry7()
     {
-        SETUP(HashTable::ENTRIES_PER_CACHE_LINE);
+        SETUP(0, HashTable::ENTRIES_PER_CACHE_LINE);
         CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 0, seven),
-                             findBucketAndLookupEntry(&ht, seven));
+                             findBucketAndLookupEntry(&ht, 0, seven));
     }
 
     /**
@@ -562,7 +595,7 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_lookupEntry_cacheLine2Entry0()
     {
-        SETUP(HashTable::ENTRIES_PER_CACHE_LINE * 5);
+        SETUP(0, HashTable::ENTRIES_PER_CACHE_LINE * 5);
 
         // with 8 entries per cache line:
         // cl0: [ k00, k01, k02, k03, k04, k05, k06, cl1 ]
@@ -571,7 +604,7 @@ class HashTableTest : public CppUnit::TestFixture {
         // ...
 
         CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 2, 0),
-                             findBucketAndLookupEntry(&ht, seven * 2));
+                             findBucketAndLookupEntry(&ht, 0, seven * 2));
     }
 
     /**
@@ -580,13 +613,13 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_lookupEntry_hashCollision()
     {
-        SETUP(1);
+        SETUP(0, 1);
         CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 0, 0),
-                             findBucketAndLookupEntry(&ht, 0));
+                             findBucketAndLookupEntry(&ht, 0, 0));
         CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryDist.max > 0);
         values[0].id = 0x43324890UL;
         CPPUNIT_ASSERT_EQUAL(static_cast<HashTable::Entry*>(NULL),
-                             findBucketAndLookupEntry(&ht, 0));
+                             findBucketAndLookupEntry(&ht, 0, 0));
         CPPUNIT_ASSERT_EQUAL(1UL,
                              ht.getPerfCounters().lookupEntryHashCollisions);
     }
@@ -594,36 +627,36 @@ class HashTableTest : public CppUnit::TestFixture {
     void test_lookup()
     {
         HashTable ht(1);
-        DECL_OBJECT(v, 83UL);
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(83UL));
-        ht.replace(83UL, &v);
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&v), ht.lookup(83UL));
+        DECL_OBJECT(v, 0, 83UL);
+        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 83UL));
+        ht.replace(0, 83UL, &v);
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&v), ht.lookup(0, 83UL));
     }
 
     void test_remove()
     {
         HashTable ht(1);
-        CPPUNIT_ASSERT(!ht.remove(83UL));
-        DECL_OBJECT(v, 83UL);
-        ht.replace(83UL, &v);
-        CPPUNIT_ASSERT(ht.remove(83UL));
-        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(83UL));
-        CPPUNIT_ASSERT(!ht.remove(83UL));
+        CPPUNIT_ASSERT(!ht.remove(0, 83UL));
+        DECL_OBJECT(v, 0, 83UL);
+        ht.replace(0, 83UL, &v);
+        CPPUNIT_ASSERT(ht.remove(0, 83UL));
+        CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 83UL));
+        CPPUNIT_ASSERT(!ht.remove(0, 83UL));
     }
 
     void test_replace_normal()
     {
         HashTable ht(1);
-        DECL_OBJECT(v, 83UL);
-        DECL_OBJECT(w, 83UL);
-        CPPUNIT_ASSERT(!ht.replace(83UL, &v));
+        DECL_OBJECT(v, 0, 83UL);
+        DECL_OBJECT(w, 0, 83UL);
+        CPPUNIT_ASSERT(!ht.replace(0, 83UL, &v));
         CPPUNIT_ASSERT_EQUAL(1UL, ht.getPerfCounters().replaceCalls);
         CPPUNIT_ASSERT(ht.getPerfCounters().replaceCycles > 0);
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&v), ht.lookup(83UL));
-        CPPUNIT_ASSERT(ht.replace(83UL, &v));
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&v), ht.lookup(83UL));
-        CPPUNIT_ASSERT(ht.replace(83UL, &w));
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&w), ht.lookup(83UL));
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&v), ht.lookup(0, 83UL));
+        CPPUNIT_ASSERT(ht.replace(0, 83UL, &v));
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&v), ht.lookup(0, 83UL));
+        CPPUNIT_ASSERT(ht.replace(0, 83UL, &w));
+        CPPUNIT_ASSERT_EQUAL(const_cast<const Object*>(&w), ht.lookup(0, 83UL));
     }
 
     /**
@@ -632,9 +665,9 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_replace_cacheLine0Entry0()
     {
-        SETUP(0);
-        DECL_OBJECT(v, 83UL);
-        ht.replace(83UL, &v);
+        SETUP(0, 0);
+        DECL_OBJECT(v, 0, 83UL);
+        ht.replace(0, 83UL, &v);
         assertEntryIs(&ht, 0, 0, &v);
     }
 
@@ -644,9 +677,9 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_replace_cacheLine0Entry7()
     {
-        SETUP(HashTable::ENTRIES_PER_CACHE_LINE - 1);
-        DECL_OBJECT(v, 83UL);
-        ht.replace(83UL, &v);
+        SETUP(0, HashTable::ENTRIES_PER_CACHE_LINE - 1);
+        DECL_OBJECT(v, 0, 83UL);
+        ht.replace(0, 83UL, &v);
         assertEntryIs(&ht, 0, seven, &v);
     }
 
@@ -657,11 +690,11 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_replace_cacheLine2Entry0()
     {
-        SETUP(HashTable::ENTRIES_PER_CACHE_LINE * 2);
+        SETUP(0, HashTable::ENTRIES_PER_CACHE_LINE * 2);
         cacheLines[2].entries[0].clear();
         cacheLines[2].entries[1].clear();
-        DECL_OBJECT(v, 83UL);
-        ht.replace(83UL, &v);
+        DECL_OBJECT(v, 0, 83UL);
+        ht.replace(0, 83UL, &v);
         assertEntryIs(&ht, 2, 0, &v);
         CPPUNIT_ASSERT_EQUAL(2UL, ht.getPerfCounters().insertChainsFollowed);
     }
@@ -673,9 +706,9 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_replace_cacheLineFull()
     {
-        SETUP(HashTable::ENTRIES_PER_CACHE_LINE);
-        DECL_OBJECT(v, 83UL);
-        ht.replace(83UL, &v);
+        SETUP(0, HashTable::ENTRIES_PER_CACHE_LINE);
+        DECL_OBJECT(v, 0, 83UL);
+        ht.replace(0, 83UL, &v);
         CPPUNIT_ASSERT(entryAt(&ht, 0, seven).getChainPointer() != NULL);
         CPPUNIT_ASSERT(entryAt(&ht, 0, seven).getChainPointer() !=
                        &cacheLines[1]);

@@ -23,14 +23,11 @@
 namespace RAMCloud {
 
 /**
- * A map from object IDs to Object addresses.
+ * A map from (table ID, object ID)s to Object addresses.
  *
  * This is used in resolving most object-level %RAMCloud requests. For example,
  * to read and write a %RAMCloud object, this lets you find the location of the
  * the object.
- *
- * Currently, the HashTable class assumes it is scoped to a specific %RAMCloud
- * table, so it does not concern itself with table IDs.
  *
  * This code is not thread-safe.
  *
@@ -181,9 +178,9 @@ class HashTable {
 
     explicit HashTable(uint64_t nlines);
     ~HashTable();
-    const Object *lookup(uint64_t objectId);
-    bool remove(uint64_t objectId);
-    bool replace(uint64_t objectId, const Object *ptr);
+    const Object *lookup(uint64_t tableId, uint64_t objectId);
+    bool remove(uint64_t tableId, uint64_t objectId);
+    bool replace(uint64_t tableId, uint64_t objectId, const Object *ptr);
 
     /**
      * Return a read-only view of the hash table's performance counters.
@@ -204,9 +201,10 @@ class HashTable {
     void *mallocAligned(uint64_t len) const;
     void freeAligned(void *p) const;
     static uint64_t hash(uint64_t key);
-    CacheLine *findBucket(uint64_t objectId, uint64_t *secondaryHash) const;
+    CacheLine *findBucket(uint64_t tableId, uint64_t objectId,
+                          uint64_t *secondaryHash) const;
     Entry *lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
-                       uint64_t objectId);
+                       uint64_t tableId, uint64_t objectId);
 
     /**
      * A hash table entry.

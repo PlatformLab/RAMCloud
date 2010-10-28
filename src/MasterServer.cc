@@ -49,6 +49,7 @@ MasterServer::MasterServer(const ServerConfig* config,
     , serverId(0)
     , backup(backupClient)
     , log(0)
+    , objectMap(HASH_NLINES)
 {
     log = new Log(0, Segment::SEGMENT_SIZE * SEGMENT_COUNT,
         Segment::SEGMENT_SIZE);
@@ -131,7 +132,7 @@ MasterServer::create(const CreateRpc::Request& reqHdr,
                      Transport::ServerRpc& rpc)
 {
     Table* t = getTable(reqHdr.tableId);
-    uint64_t id = t->AllocateKey();
+    uint64_t id = t->AllocateKey(&objectMap);
 
     RejectRules rejectRules;
     memset(&rejectRules, 0, sizeof(RejectRules));
@@ -168,7 +169,7 @@ MasterServer::createTable(const CreateTableRpc::Request& reqHdr,
     // new table.
     for (i = 0; i < NUM_TABLES; i++) {
         if (tables[i] == NULL) {
-            tables[i] = new Table();
+            tables[i] = new Table(i);
             tables[i]->SetName(name);
             return;
         }
@@ -213,7 +214,7 @@ MasterServer::openTable(const OpenTableRpc::Request& reqHdr,
                                  reqHdr.nameLength);
     for (i = 0; i < NUM_TABLES; i++) {
         if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
-            respHdr.tableId = i;
+            respHdr.tableId = tables[i]->getId();
             return;
         }
     }
@@ -229,8 +230,13 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
                    ReadRpc::Response& respHdr,
                    Transport::ServerRpc& rpc)
 {
-    Table* t = getTable(reqHdr.tableId);
-    const Object* o = t->Get(reqHdr.id);
+    // We must throw an exception if the table does not exist.
+    // An alternative is to only check if the object is not found, 
+    // taking this off the fast path, but that'd require table
+    // destruction to synchronously prune all objects...
+    getTable(reqHdr.tableId);
+
+    const Object* o = objectMap.lookup(reqHdr.tableId, reqHdr.id);
     if (!o) {
         // Automatic reject: can't read a non-existent object
         // Return null version
@@ -257,7 +263,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
                      Transport::ServerRpc& rpc)
 {
     Table* t = getTable(reqHdr.tableId);
-    const Object* o = t->Get(reqHdr.id);
+    const Object* o = objectMap.lookup(reqHdr.tableId, reqHdr.id);
     if (o == NULL) {
         rejectOperation(&reqHdr.rejectRules, VERSION_NONEXISTENT);
         return;
@@ -277,7 +283,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
     const void* ret = log->append(
         LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
     assert(ret);
-    t->Delete(reqHdr.id);
+    objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
 /**
@@ -357,7 +363,7 @@ MasterServer::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 
 struct obj_replay_cookie {
     MasterServer *server;
-    uint64_t used_bytes;
+    uint64_t usedBytes;
 };
 
 /**
@@ -392,20 +398,18 @@ objectEvictionCallback(LogEntryType type,
     Log *log = svr->log;
     assert(log != NULL);
 
-    const Object *evict_obj = static_cast<const Object *>(p);
-    assert(evict_obj != NULL);
+    const Object *evictObj = static_cast<const Object *>(p);
+    assert(evictObj != NULL);
 
-    Table *tbl = svr->tables[evict_obj->table];
-    assert(tbl != NULL);
-
-    const Object *tbl_obj = tbl->Get(evict_obj->id);
+    const Object *hashTblObj =
+        svr->objectMap.lookup(evictObj->table, evictObj->id);
 
     // simple pointer comparison suffices
-    if (tbl_obj == evict_obj) {
-        const Object *objp = (const Object *)log->append(
-            LOG_ENTRY_TYPE_OBJ, evict_obj, evict_obj->size());
-        assert(objp != NULL);
-        tbl->Put(evict_obj->id, objp);
+    if (hashTblObj == evictObj) {
+        const Object *newObj = (const Object *)log->append(
+            LOG_ENTRY_TYPE_OBJ, evictObj, evictObj->size());
+        assert(newObj != NULL);
+        svr->objectMap.replace(evictObj->table, evictObj->id, newObj);
     }
 }
 
@@ -421,18 +425,15 @@ objectReplayCallback(LogEntryType type,
     //printf("ObjectReplayCallback: type %llu\n", type);
 
     // Used to determine free_bytes after passing over the segment
-    cookie->used_bytes += len;
+    cookie->usedBytes += len;
 
     switch (type) {
     case LOG_ENTRY_TYPE_OBJ: {
         const Object *obj = static_cast<const Object *>(p);
         assert(obj);
 
-        Table *table = server->tables[obj->table];
-        assert(table != NULL);
-
-        table->Delete(obj->id);
-        table->Put(obj->id, obj);
+        server->objectMap.remove(obj->table, obj->id);
+        server->objectMap.replace(obj->table, obj->id, obj);
     }
         break;
     case LOG_ENTRY_TYPE_OBJTOMB:
@@ -495,7 +496,7 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
                         uint64_t* newVersion)
 {
     Table *t = getTable(tableId);
-    const Object *o = t->Get(id);
+    const Object *o = objectMap.lookup(tableId, id);
     uint64_t version = (o != NULL) ? o->version : VERSION_NONEXISTENT;
     try {
         rejectOperation(rejectRules, version);
@@ -534,12 +535,12 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
         assert(p != NULL);
     }
 
-    const Object *objp = (const Object *)log->append(
+    const Object *objPtr = (const Object *)log->append(
         LOG_ENTRY_TYPE_OBJ, newObject, newObject->size());
-    assert(objp != NULL);
-    t->Put(id, objp);
+    assert(objPtr != NULL);
+    objectMap.replace(tableId, id, objPtr);
 
-    *newVersion = objp->version;
+    *newVersion = objPtr->version;
 }
 
 } // namespace RAMCloud

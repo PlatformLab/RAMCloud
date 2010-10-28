@@ -38,12 +38,12 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     for (i = 0; i < nkeys; i++) {
         values[i].id = i;
-        ht.replace(i, &values[i]);
+        ht.replace(0, i, &values[i]);
     }
 
     CycleCounter lookupCycles;
     for (i = 0; i < nkeys; i++) {
-        const Object *p = ht.lookup(i);
+        const Object *p = ht.lookup(0, i);
         assert(static_cast<uint64_t>(p - values) == i);
     }
     printf("lookup avg: %llu\n", lookupCycles.stop() / nkeys);

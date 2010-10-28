@@ -33,10 +33,11 @@ class Table {
      */
     static const int TABLE_NAME_MAX_LEN = 64;
 
-    /// The size of the Hashtable in cache lines.
-    static const int HASH_NLINES = 16384;
-
-    explicit Table() : next_key(0), next_version(1), object_map(HASH_NLINES) {
+    explicit Table(uint64_t tableId)
+        : tableId(tableId),
+          nextKey(0),
+          nextVersion(1)
+    {
         name[0] = '\0';
     }
 
@@ -49,8 +50,8 @@ class Table {
 
     /**
      * \param new_name
-     *      A string with a length within #TABLE_NAME_MAX_LEN, including the null
-     *      terminator.
+     *      A string with a length within #TABLE_NAME_MAX_LEN, including the
+     *      null terminator.
      */
     void SetName(const char *new_name) {
         strncpy(&name[0], new_name, TABLE_NAME_MAX_LEN);
@@ -65,20 +66,20 @@ class Table {
      *      A client could have already placed an object here by fabricating the
      *      object ID.
      */
-    uint64_t AllocateKey() {
-        while (Get(next_key))
-            ++next_key;
-        return next_key;
+    uint64_t AllocateKey(HashTable *hashTable) {
+        while (hashTable->lookup(tableId, nextKey))
+            ++nextKey;
+        return nextKey;
     }
 
     /**
      * Increment and return the master vector clock.
      * \return
      *      The next version available from the master vector clock.
-     * \see #next_version
+     * \see #nextVersion
      */
     uint64_t AllocateVersion() {
-        return next_version++;
+        return nextVersion++;
     }
 
     /**
@@ -86,37 +87,21 @@ class Table {
      * \param minimum
      *      The minimum version the master vector clock can be set to after this
      *      operation.
-     * \see #next_version
+     * \see #nextVersion
      */
     void RaiseVersion(uint64_t minimum) {
-        if (minimum > next_version)
-            next_version = minimum;
+        if (minimum > nextVersion)
+            nextVersion = minimum;
     }
 
     /**
-     * \return
-     *      The #RAMCloud::Object at \a key, or \c NULL if no such object
-     *      exists.
+     * Object the Table's identifier.
      */
-    const Object *Get(uint64_t key) {
-        return object_map.lookup(key);
+    uint64_t getId() {
+        return tableId;
     }
 
-    /**
-     * \param key
-     *      The object ID at which to store \a o.
-     * \param o
-     *      The #RAMCloud::Object to store at \a key. May not be \c NULL.
-     */
-    void Put(uint64_t key, const Object *o) {
-        assert(o != NULL);
-        object_map.replace(key, o);
-    }
-
-    void Delete(uint64_t key) {
-        object_map.remove(key);
-    }
-
+    /// Number of Table object destructors called.
     static int numDeletes;
 
   private:
@@ -129,10 +114,15 @@ class Table {
     char name[64];
 
     /**
+     * The unique numerical identifier for this table.
+     */
+    uint64_t tableId;
+
+    /**
      * The next available object ID in the table.
      * \see #AllocateKey().
      */
-    uint64_t next_key;
+    uint64_t nextKey;
 
     /**
      * The master vector clock for the table.
@@ -151,7 +141,7 @@ class Table {
      *
      * These guarantees are implemented as follows:
      *
-     * \li #next_version, the master vector clock, contains the next available
+     * \li #nextVersion, the master vector clock, contains the next available
      * version number for the table on the master. It is initialized to a small
      * integer when the table is created and is recoverable after crashes.
      *
@@ -166,12 +156,7 @@ class Table {
      * of the master vector clock and the deleted blob's version number plus
      * one. See #RaiseVersion.
      */
-    uint64_t next_version;
-
-    /**
-     * The object ID to #RAMCloud::Object pointer map for the table.
-     */
-    HashTable object_map;
+    uint64_t nextVersion;
 
     DISALLOW_COPY_AND_ASSIGN(Table);
 };

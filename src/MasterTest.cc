@@ -103,9 +103,9 @@ class MasterTest : public CppUnit::TestFixture {
         MasterServer* s = new MasterServer(&config, NULL);
         Table::numDeletes = 0;
         Table** tables = s->tables;
-        tables[0] = new Table();
-        tables[2] = new Table();
-        tables[MasterServer::NUM_TABLES-1] = new Table();
+        tables[0] = new Table(0);
+        tables[2] = new Table(2);
+        tables[MasterServer::NUM_TABLES-1] = new Table(3);
         delete s;
         CPPUNIT_ASSERT_EQUAL(3, Table::numDeletes);
     }

@@ -52,6 +52,9 @@ class MasterServer : public Server {
     /// The number of segments a Master can contain.
     static const uint32_t SEGMENT_COUNT =  64;
 
+    /// The size of the Hashtable in cache lines.
+    static const int HASH_NLINES = NUM_TABLES * 16384;
+
     MasterServer(const ServerConfig* config,
                  BackupClient* backup);
     virtual ~MasterServer();
@@ -105,6 +108,11 @@ class MasterServer : public Server {
      * does not yet exist.
      */
     Table *tables[NUM_TABLES];
+
+    /**
+     * The (table ID, object ID) to #RAMCloud::Object pointer map for the table.
+     */
+    HashTable objectMap;
 
     friend void objectEvictionCallback(LogEntryType type,
             const void* p, uint64_t len, void* cookie);
