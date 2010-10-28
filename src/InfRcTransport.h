@@ -32,14 +32,14 @@
 
 namespace RAMCloud {
 
-class InfRCTransport : public Transport {
+class InfRcTransport : public Transport {
     // forward declarations
     struct BufferDescriptor;
     class  QueuePair;
 
   public:
-    explicit InfRCTransport(const ServiceLocator* sl = NULL);
-    ~InfRCTransport() { }
+    explicit InfRcTransport(const ServiceLocator* sl = NULL);
+    ~InfRcTransport() { }
     ServerRpc* serverRecv() __attribute__((warn_unused_result));
     SessionRef getSession(const ServiceLocator& sl) {
         return new InfRCSession(this, sl);
@@ -48,22 +48,22 @@ class InfRCTransport : public Transport {
 
     class ServerRpc : public Transport::ServerRpc {
         public:
-            explicit ServerRpc(InfRCTransport* transport, QueuePair* qp);
+            explicit ServerRpc(InfRcTransport* transport, QueuePair* qp);
             void sendReply();
         private:
-            InfRCTransport* transport;
+            InfRcTransport* transport;
             QueuePair*      qp;
             DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
 
     class ClientRpc : public Transport::ClientRpc {
         public:
-            explicit ClientRpc(InfRCTransport* transport,
+            explicit ClientRpc(InfRcTransport* transport,
                                QueuePair* qp,
                                Buffer* response);
             void getReply();
         private:
-            InfRCTransport*     transport;
+            InfRcTransport*     transport;
             QueuePair*          qp;
             Buffer*             response;
             DISALLOW_COPY_AND_ASSIGN(ClientRpc);
@@ -80,14 +80,14 @@ class InfRCTransport : public Transport {
 
     class InfRCSession : public Session {
       public:
-        explicit InfRCSession(InfRCTransport *transport,
+        explicit InfRCSession(InfRcTransport *transport,
             const ServiceLocator& sl);
         Transport::ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result));
         void release();
 
       private:
-        InfRCTransport *transport;
+        InfRcTransport *transport;
         QueuePair* qp;
         DISALLOW_COPY_AND_ASSIGN(InfRCSession);
     };
@@ -167,22 +167,22 @@ class InfRCTransport : public Transport {
         static PayloadChunk* prependToBuffer(Buffer* buffer,
                                              char* data,
                                              uint32_t dataLength,
-                                             InfRCTransport* transport,
+                                             InfRcTransport* transport,
                                              BufferDescriptor* bd);
         static PayloadChunk* appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
-                                            InfRCTransport* transport,
+                                            InfRcTransport* transport,
                                             BufferDescriptor* bd);
         ~PayloadChunk();
 
       private:
         PayloadChunk(void* data,
                      uint32_t dataLength,
-                     InfRCTransport* transport,
+                     InfRcTransport* transport,
                      BufferDescriptor* bd);
 
-        InfRCTransport* transport;
+        InfRcTransport* transport;
 
         /// Return the PayloadChunk memory here.
         BufferDescriptor* const bd;
@@ -223,7 +223,7 @@ class InfRCTransport : public Transport {
     // a completion event on the shared receive queue
     boost::unordered_map<uint32_t, QueuePair*> queuePairMap;
 
-    DISALLOW_COPY_AND_ASSIGN(InfRCTransport);
+    DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };
 
 }  // namespace RAMCloud

@@ -2,7 +2,7 @@ OBJDIRS += client_shared
 
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
-           src/InfRCTransport.cc \
+           src/InfRcTransport.cc \
            $(NULL)
 else
 INFINIBAND_SRCFILES :=

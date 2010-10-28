@@ -56,7 +56,7 @@
 
 #include "Common.h"
 #include "Transport.h"
-#include "InfRCTransport.h"
+#include "InfRcTransport.h"
 #include "ServiceLocator.h"
 
 #define check_error_null(x, s)                              \
@@ -107,18 +107,18 @@ wcStatusToString(int status)
 }
 
 //------------------------------
-// InfRCTransport class
+// InfRcTransport class
 //------------------------------
 
 /**
- * Construct a InfRCTransport.
+ * Construct a InfRcTransport.
  *
  * \param sl
  *      The ServiceLocator describing which HCA to use and the IP/UDP
  *      address and port numbers to use for handshaking. If NULL,
  *      the transport will be configured for client use only.
  */
-InfRCTransport::InfRCTransport(const ServiceLocator *sl)
+InfRcTransport::InfRcTransport(const ServiceLocator *sl)
     : currentRxBuffer(0),
       currentTxBuffer(0),
       srq(NULL),
@@ -132,7 +132,7 @@ InfRCTransport::InfRCTransport(const ServiceLocator *sl)
       setupSocket(-1),
       queuePairMap()
 {
-    static_assert(sizeof(InfRCTransport::QueuePairTuple) == 10);
+    static_assert(sizeof(InfRcTransport::QueuePairTuple) == 10);
 
     const char *ibDeviceName = NULL;
 
@@ -247,7 +247,7 @@ InfRCTransport::InfRCTransport(const ServiceLocator *sl)
  * server, as an out-of-band handshake is needed.
  */
 Transport::ServerRpc*
-InfRCTransport::serverRecv()
+InfRcTransport::serverRecv()
 {
     // query the infiniband adapter first. if there's nothing to process,
     // try to read a datagram from a connecting client.
@@ -285,7 +285,7 @@ InfRCTransport::serverRecv()
  * \param sl
  *      The ServiceLocator describing the server to communicate with.
  */
-InfRCTransport::InfRCSession::InfRCSession(InfRCTransport *transport,
+InfRcTransport::InfRCSession::InfRCSession(InfRcTransport *transport,
     const ServiceLocator& sl)
     : transport(transport),
       qp(NULL)
@@ -301,7 +301,7 @@ InfRCTransport::InfRCSession::InfRCSession(InfRCTransport *transport,
  * Destroy the Session.
  */
 void
-InfRCTransport::InfRCSession::release()
+InfRcTransport::InfRCSession::release()
 {
     delete this;
 }
@@ -319,9 +319,9 @@ InfRCTransport::InfRCSession::release()
  *          space in this Allocation.
  */
 Transport::ClientRpc*
-InfRCTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
+InfRcTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
 {
-    InfRCTransport *t = transport;
+    InfRcTransport *t = transport;
 
     if (request->getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException("client request exceeds maximum rpc size");
@@ -349,8 +349,8 @@ InfRCTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
  * server to begin the handshake. The server then replies with its
  * QueuePair tuple information. This is all done over IP/UDP.
  */
-InfRCTransport::QueuePair*
-InfRCTransport::clientTrySetupQueuePair(const char* ip, int port)
+InfRcTransport::QueuePair*
+InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
 {
     // XXX for slightly more security/robustness, we might want to have
     //     the client include a nonce with their request and have the
@@ -402,7 +402,7 @@ InfRCTransport::clientTrySetupQueuePair(const char* ip, int port)
  * their QueuePair.
  */
 void
-InfRCTransport::serverTrySetupQueuePair()
+InfRcTransport::serverTrySetupQueuePair()
 {
     sockaddr_in sin;
     socklen_t sinlen = sizeof(sin);
@@ -456,7 +456,7 @@ InfRCTransport::serverTrySetupQueuePair()
  *      return the first one returned by the Verbs library.
  */
 ibv_device*
-InfRCTransport::ibFindDevice(const char *name)
+InfRcTransport::ibFindDevice(const char *name)
 {
     ibv_device **devices;
 
@@ -480,7 +480,7 @@ InfRCTransport::ibFindDevice(const char *name)
  * port.
  */
 int
-InfRCTransport::ibGetLid()
+InfRcTransport::ibGetLid()
 {
     ibv_port_attr ipa;
     int ret = ibv_query_port(ctxt, ibPhysicalPort, &ipa);
@@ -498,7 +498,7 @@ InfRCTransport::ibGetLid()
  *      The BufferDescriptor to add to the queue.
  */
 void
-InfRCTransport::ibPostSrqReceive(BufferDescriptor *bd)
+InfRcTransport::ibPostSrqReceive(BufferDescriptor *bd)
 {
     ibv_sge isge = {
         (uint64_t)bd->buffer,
@@ -535,7 +535,7 @@ InfRCTransport::ibPostSrqReceive(BufferDescriptor *bd)
  *      The number of bytes used by the packet in the given BufferDescriptor.
  */
 void
-InfRCTransport::ibPostSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length)
+InfRcTransport::ibPostSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length)
 {
     ibv_sge isge = {
         (uint64_t)bd->buffer,
@@ -572,7 +572,7 @@ InfRCTransport::ibPostSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length)
  *      The number of bytes used by the packet in the given BufferDescriptor.
  */
 void
-InfRCTransport::ibPostSendAndWait(QueuePair* qp, BufferDescriptor *bd,
+InfRcTransport::ibPostSendAndWait(QueuePair* qp, BufferDescriptor *bd,
     uint32_t length)
 {
     ibPostSend(qp, bd, length);
@@ -590,8 +590,8 @@ InfRCTransport::ibPostSendAndWait(QueuePair* qp, BufferDescriptor *bd,
  * Allocate a BufferDescriptor and register the backing memory with
  * the HCA.
  */
-InfRCTransport::BufferDescriptor
-InfRCTransport::allocateBufferDescriptorAndRegister()
+InfRcTransport::BufferDescriptor
+InfRcTransport::allocateBufferDescriptorAndRegister()
 {
     static int id = 0;
 
@@ -611,13 +611,13 @@ InfRCTransport::allocateBufferDescriptorAndRegister()
  * space in RX buffers.
  */
 uint32_t
-InfRCTransport::getMaxRpcSize() const
+InfRcTransport::getMaxRpcSize() const
 {
     return MAX_RPC_SIZE;
 }
 
 //-------------------------------------
-// InfRCTransport::ServerRpc class
+// InfRcTransport::ServerRpc class
 //-------------------------------------
 
 /**
@@ -626,11 +626,11 @@ InfRCTransport::getMaxRpcSize() const
  * it contains data.
  *
  * \param transport
- *      The InfRCTransport object that this RPC is associated with.
+ *      The InfRcTransport object that this RPC is associated with.
  * \param qp
  *      The QueuePair associated with this RPC request.
  */
-InfRCTransport::ServerRpc::ServerRpc(InfRCTransport* transport, QueuePair* qp)
+InfRcTransport::ServerRpc::ServerRpc(InfRcTransport* transport, QueuePair* qp)
     : transport(transport),
       qp(qp)
 {
@@ -643,12 +643,12 @@ InfRCTransport::ServerRpc::ServerRpc(InfRCTransport* transport, QueuePair* qp)
  * The function blocks until the HCA returns success or failure.
  */
 void
-InfRCTransport::ServerRpc::sendReply()
+InfRcTransport::ServerRpc::sendReply()
 {
     // "delete this;" on our way out of the method
-    std::auto_ptr<InfRCTransport::ServerRpc> suicide(this);
+    std::auto_ptr<InfRcTransport::ServerRpc> suicide(this);
 
-    InfRCTransport *t = transport;
+    InfRcTransport *t = transport;
 
     if (replyPayload.getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException("server response exceeds maximum rpc size");
@@ -661,20 +661,20 @@ InfRCTransport::ServerRpc::sendReply()
 }
 
 //-------------------------------------
-// InfRCTransport::ClientRpc class
+// InfRcTransport::ClientRpc class
 //-------------------------------------
 
 /**
  * Construct a ClientRpc.
  *
  * \param transport
- *      The InfRCTransport object that this RPC is associated with.
+ *      The InfRcTransport object that this RPC is associated with.
  * \param qp
  *      The QueuePair that is being used for thi RPC.
  * \param[out] response
  *      Buffer in which the response message should be placed.
  */
-InfRCTransport::ClientRpc::ClientRpc(InfRCTransport* transport,
+InfRcTransport::ClientRpc::ClientRpc(InfRcTransport* transport,
                                      QueuePair* qp, Buffer* response)
     : transport(transport),
       qp(qp),
@@ -693,9 +693,9 @@ InfRCTransport::ClientRpc::ClientRpc(InfRCTransport* transport,
  *      If the RPC aborted.
  */
 void
-InfRCTransport::ClientRpc::getReply()
+InfRcTransport::ClientRpc::getReply()
 {
-    InfRCTransport *t = transport;
+    InfRcTransport *t = transport;
 
     ibv_wc wc;
     while (ibv_poll_cq(qp->rxcq, 1, &wc) < 1) {}
@@ -718,7 +718,7 @@ InfRCTransport::ClientRpc::getReply()
 }
 
 //-------------------------------------
-// InfRCTransport::QueuePair class
+// InfRcTransport::QueuePair class
 //-------------------------------------
 
 /**
@@ -750,7 +750,7 @@ InfRCTransport::ClientRpc::getReply()
  *      The Verbs completion queue to be used for receives on this
  *      QueuePair.
  */
-InfRCTransport::QueuePair::QueuePair(int ibPhysicalPort, ibv_pd *pd,
+InfRcTransport::QueuePair::QueuePair(int ibPhysicalPort, ibv_pd *pd,
     ibv_srq *srq, ibv_cq *txcq, ibv_cq *rxcq)
     : ibPhysicalPort(ibPhysicalPort),
       pd(pd),
@@ -802,7 +802,7 @@ InfRCTransport::QueuePair::QueuePair(int ibPhysicalPort, ibv_pd *pd,
 /**
  * Destroy the QueuePair by freeing the Verbs resources allocated.
  */
-InfRCTransport::QueuePair::~QueuePair()
+InfRcTransport::QueuePair::~QueuePair()
 {
     ibv_destroy_qp(qp);
 }
@@ -819,7 +819,7 @@ InfRCTransport::QueuePair::~QueuePair()
  *      numbers, and the HCA infiniband addresses.
  */
 void
-InfRCTransport::QueuePair::plumb(QueuePairTuple *qpt)
+InfRcTransport::QueuePair::plumb(QueuePairTuple *qpt)
 {
     ibv_qp_attr qpa;
     int r;
@@ -878,7 +878,7 @@ InfRCTransport::QueuePair::plumb(QueuePairTuple *qpt)
  * with the remote side's PSN, which is set in #plumb(). 
  */
 uint32_t
-InfRCTransport::QueuePair::getInitialPsn() const
+InfRcTransport::QueuePair::getInitialPsn() const
 {
     return initialPsn;
 }
@@ -888,7 +888,7 @@ InfRCTransport::QueuePair::getInitialPsn() const
  * QPNs are analogous to UDP/TCP port numbers.
  */
 uint32_t
-InfRCTransport::QueuePair::getLocalQpNumber() const
+InfRcTransport::QueuePair::getLocalQpNumber() const
 {
     return qp->qp_num;
 }
@@ -898,7 +898,7 @@ InfRCTransport::QueuePair::getLocalQpNumber() const
  * QPNs are analogous to UDP/TCP port numbers.
  */
 uint32_t
-InfRCTransport::QueuePair::getRemoteQpNumber() const
+InfRcTransport::QueuePair::getRemoteQpNumber() const
 {
     ibv_qp_attr qpa;
     ibv_qp_init_attr qpia;
@@ -918,7 +918,7 @@ InfRCTransport::QueuePair::getRemoteQpNumber() const
  * routable addresses.
  */
 uint16_t
-InfRCTransport::QueuePair::getRemoteLid() const
+InfRcTransport::QueuePair::getRemoteLid() const
 {
     ibv_qp_attr qpa;
     ibv_qp_init_attr qpia;
@@ -933,7 +933,7 @@ InfRCTransport::QueuePair::getRemoteLid() const
 }
 
 //-------------------------------------
-// InfRCTransport::PayloadChunk class
+// InfRcTransport::PayloadChunk class
 //-------------------------------------
 
 /**
@@ -952,11 +952,11 @@ InfRCTransport::QueuePair::getRemoteLid() const
  * \param bd 
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
-InfRCTransport::PayloadChunk*
-InfRCTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
+InfRcTransport::PayloadChunk*
+InfRcTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
                                              char* data,
                                              uint32_t dataLength,
-                                             InfRCTransport* transport,
+                                             InfRcTransport* transport,
                                              BufferDescriptor* bd)
 {
     PayloadChunk* chunk =
@@ -981,11 +981,11 @@ InfRCTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
  * \param bd
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
-InfRCTransport::PayloadChunk*
-InfRCTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
+InfRcTransport::PayloadChunk*
+InfRcTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
-                                            InfRCTransport* transport,
+                                            InfRcTransport* transport,
                                             BufferDescriptor* bd)
 {
     PayloadChunk* chunk =
@@ -995,7 +995,7 @@ InfRCTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
 }
 
 /// Returns memory to the HCA once the Chunk is discarded.
-InfRCTransport::PayloadChunk::~PayloadChunk()
+InfRcTransport::PayloadChunk::~PayloadChunk()
 {
     transport->ibPostSrqReceive(bd);
 }
@@ -1014,9 +1014,9 @@ InfRCTransport::PayloadChunk::~PayloadChunk()
  * \param bd 
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
-InfRCTransport::PayloadChunk::PayloadChunk(void* data,
+InfRcTransport::PayloadChunk::PayloadChunk(void* data,
                                           uint32_t dataLength,
-                                          InfRCTransport *transport,
+                                          InfRcTransport *transport,
                                           BufferDescriptor* bd)
     : Buffer::Chunk(data, dataLength),
       transport(transport),

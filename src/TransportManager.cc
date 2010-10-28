@@ -21,7 +21,7 @@
 #include "UdpDriver.h"
 
 #ifdef INFINIBAND
-#include "InfRCTransport.h"
+#include "InfRcTransport.h"
 #endif
 
 namespace RAMCloud {
@@ -43,11 +43,11 @@ static struct FastUdpTransportFactory : public TransportFactory {
 } fastUdpTransportFactory;
 
 #ifdef INFINIBAND
-static struct InfRCTransportFactory : public TransportFactory {
-    InfRCTransportFactory()
+static struct InfRcTransportFactory : public TransportFactory {
+    InfRcTransportFactory()
         : TransportFactory("infinibandrc", "infrc") {}
     Transport* createTransport(const ServiceLocator* localServiceLocator) {
-        return new InfRCTransport(localServiceLocator);
+        return new InfRcTransport(localServiceLocator);
     }
 } infRCTransportFactory;
 #endif

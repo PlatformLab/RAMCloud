@@ -13,7 +13,7 @@ $(OBJDIR)/%.pb.cc $(OBJDIR)/%.pb.h: $(TOP)/src/%.proto
 
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
-           src/InfRCTransport.cc \
+           src/InfRcTransport.cc \
            $(NULL)
 else
 INFINIBAND_SRCFILES :=
