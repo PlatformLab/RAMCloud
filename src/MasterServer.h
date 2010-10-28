@@ -13,13 +13,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_MASTER_H
-#define RAMCLOUD_MASTER_H
+#ifndef RAMCLOUD_MASTERSERVER_H
+#define RAMCLOUD_MASTERSERVER_H
 
 #include "Common.h"
-#include "Coordinator.h"
+#include "CoordinatorClient.h"
 #include "Object.h"
 #include "Log.h"
+#include "LogCleaner.h"
 #include "BackupClient.h"
 #include "HashTable.h"
 #include "Server.h"
@@ -43,7 +44,7 @@ struct ServerConfig {
  * respond to client RPC requests to manipulate objects stored on the
  * server.
  */
-class Master : public Server {
+class MasterServer : public Server {
   public:
     /// The max number of tables a Master will serve.
     static const int NUM_TABLES = 4;
@@ -51,9 +52,9 @@ class Master : public Server {
     /// The number of segments a Master can contain.
     static const uint32_t SEGMENT_COUNT =  64;
 
-    Master(const ServerConfig* config,
-           BackupClient* backup);
-    virtual ~Master();
+    MasterServer(const ServerConfig* config,
+                 BackupClient* backup);
+    virtual ~MasterServer();
     void run();
     void dispatch(RpcType type, Transport::ServerRpc& rpc);
 
@@ -85,7 +86,7 @@ class Master : public Server {
     const ServerConfig* config;
 
   public:
-    Coordinator coordinator;
+    CoordinatorClient coordinator;
 
   private:
     uint64_t serverId;
@@ -119,9 +120,9 @@ class Master : public Server {
                    uint32_t dataOffset, uint32_t dataLength,
                    uint64_t* newVersion);
     friend class MasterTest;
-    DISALLOW_COPY_AND_ASSIGN(Master);
+    DISALLOW_COPY_AND_ASSIGN(MasterServer);
 };
 
 } // namespace RAMCloud
 
-#endif // RAMCLOUD_MASTER_H
+#endif // RAMCLOUD_MASTERSERVER_H

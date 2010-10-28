@@ -1829,7 +1829,6 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_clientSend_notConnected);
     CPPUNIT_TEST(test_clientSend_noAvailableChannel);
     CPPUNIT_TEST(test_clientSend_availableChannel);
-    CPPUNIT_TEST(test_clientSend_nonEmptyBuffer);
     CPPUNIT_TEST(test_close);
     CPPUNIT_TEST(test_connect);
     CPPUNIT_TEST(test_connect_sessionOpenRequestRetransmit);
@@ -1935,15 +1934,6 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(rpc, channel->currentRpc);
         CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
         channel->currentRpc = NULL;
-    }
-
-    void
-    test_clientSend_nonEmptyBuffer()
-    {
-        response->fillFromString("junk");
-        IGNORE_RESULT(session->clientSend(request, response));
-        CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(response));
-        session->channelQueue.pop_front();
     }
 
     void

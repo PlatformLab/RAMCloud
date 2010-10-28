@@ -458,9 +458,7 @@ class FastTransport : public Transport {
         {
             assert(headerLen == sizeof(Header));
             const Header* self = static_cast<const Header*>(header);
-            string s;
-            char tmp[200];
-            snprintf(tmp, sizeof(tmp),
+            return format(
                      "{ sessionToken:%lx rpcId:%u "
                      "clientSessionHint:%x serverSessionHint:%x "
                      "%u/%u frags "
@@ -473,8 +471,6 @@ class FastTransport : public Transport {
                      self->channelId,
                      self->direction, self->requestAck, self->pleaseDrop,
                      self->payloadType);
-            s += tmp;
-            return s;
         }
 
         /// For unit testing; convert this header to a string.

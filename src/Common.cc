@@ -20,6 +20,7 @@
 
 #include <errno.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 #include "Common.h"
 #include "Buffer.h"
@@ -74,6 +75,57 @@ debug_dump64(Buffer& buffer)
 {
     uint32_t length = buffer.getTotalLength();
     debug_dump64(buffer.getRange(0, length), length);
+}
+
+namespace {
+void vformat(string& s, const char* format, va_list ap)
+    __attribute__((format(printf, 2, 0)));
+
+/**
+ * A safe version of vsprintf.
+ * Used by the two #format() variants.
+ */
+void
+vformat(string& s, const char* format, va_list ap)
+{
+    int bufSize = 1024;
+    while (true) {
+        char buf[bufSize];
+        // vsnprintf trashes the va_list, so copy it first
+        va_list aq;
+        __va_copy(aq, ap);
+        int r = vsnprintf(buf, bufSize, format, aq);
+        assert(r >= 0); // old glibc versions returned -1
+        if (r < bufSize) {
+            s = buf;
+            return;
+        }
+        bufSize = r + 1;
+    }
+}
+} // anonymous namespace
+
+/// A safe version of sprintf.
+string
+format(const char* format, ...)
+{
+    string s;
+    va_list ap;
+    va_start(ap, format);
+    vformat(s, format, ap);
+    va_end(ap);
+    return s;
+}
+
+/// A safe version of sprintf.
+string&
+format(string& s, const char* format, ...)
+{
+    va_list ap;
+    va_start(ap, format);
+    vformat(s, format, ap);
+    va_end(ap);
+    return s;
 }
 
 uint64_t

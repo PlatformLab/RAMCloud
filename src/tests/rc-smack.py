@@ -211,18 +211,18 @@ def main():
     parser = optparse.OptionParser()
     parser.add_option('-n', '--number', dest='smacks', default=10000, type=int)
     parser.add_option('-s', '--server',
-                      dest='localLocator',
+                      dest='coordinatorLocator',
                       default='fast+udp:ip=127.0.0.1,port=12242',
                       type=str)
     (options, args) = parser.parse_args()
 
     smacks = options.smacks
 
-    print 'Connecting to %s' % options.localLocator
+    print 'Connecting to %s' % options.coordinatorLocator
     print "Using %d iterations/test" % smacks
 
     c = ramcloud.RAMCloud()
-    c.connect(options.localLocator)
+    c.connect(options.coordinatorLocator)
     c.create_table("test")
 
     print "Running version smack"

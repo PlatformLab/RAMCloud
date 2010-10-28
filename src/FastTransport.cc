@@ -1480,11 +1480,6 @@ FastTransport::ClientSession::close()
 FastTransport::ClientRpc*
 FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
 {
-    // Clear the response buffer if needed
-    uint32_t length = response->getTotalLength();
-    if (length)
-        response->reset();
-
     ClientRpc* rpc = new(request, MISC) ClientRpc(transport,
                                                   request, response);
 

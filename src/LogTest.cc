@@ -8,313 +8,160 @@
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
  * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// RAMCloud pragma [GCCWARN=5]
+// RAMCloud pragma [CPPLINT=0]
+
 #include "TestUtil.h"
 
-#include "Common.h"
+#include "Segment.h"
 #include "Log.h"
 #include "LogTypes.h"
-#include "Master.h"
-#include "Segment.h"
 
 namespace RAMCloud {
 
+/**
+ * Unit tests for Log.
+ */
 class LogTest : public CppUnit::TestFixture {
+
+    DISALLOW_COPY_AND_ASSIGN(LogTest); // NOLINT
+
     CPPUNIT_TEST_SUITE(LogTest);
-    CPPUNIT_TEST(TestInit);
-    CPPUNIT_TEST(TestIsSegmentLive);
-    CPPUNIT_TEST(TestGetSegmentIdOffset);
-    CPPUNIT_TEST(TestAppend);
-    CPPUNIT_TEST(TestFree);
-    CPPUNIT_TEST(TestRegisterType);
-    CPPUNIT_TEST(TestGetMaximumAppend);
-    CPPUNIT_TEST(TestAllocateSegmentId);
-    CPPUNIT_TEST(TestGetEvictionCallback);
-    CPPUNIT_TEST(TestGetSegment);
-    CPPUNIT_TEST(TestClean);
-    CPPUNIT_TEST(TestNewHead);
-    CPPUNIT_TEST(TestChecksumHead);
-    CPPUNIT_TEST(TestRetireHead);
-    CPPUNIT_TEST(TestAppendAnyType);
+    CPPUNIT_TEST(test_constructor);
+    CPPUNIT_TEST(test_addSegmentMemory);
+    CPPUNIT_TEST(test_isSegmentLive);
+    CPPUNIT_TEST(test_getSegmentId);
+    CPPUNIT_TEST(test_append);
+    CPPUNIT_TEST(test_free);
+    CPPUNIT_TEST(test_registerType);
+    CPPUNIT_TEST(test_forEachSegment);
+    CPPUNIT_TEST(test_getSegmentBaseAddress);
     CPPUNIT_TEST_SUITE_END();
 
-    RAMCloud::Log *log;
-    void *logBase;
-    BackupManager* backup;
-
   public:
-    LogTest() : log(NULL), logBase(NULL), backup(NULL) { }
+    LogTest() {}
+
     void
-    setUp()
+    test_constructor()
     {
-        logBase = xmalloc(SEGMENT_SIZE * Master::SEGMENT_COUNT);
-        backup = new BackupManager(0);
-        log = new RAMCloud::Log(SEGMENT_SIZE, logBase,
-            SEGMENT_SIZE * Master::SEGMENT_COUNT, backup);
+        Log l(57, 2 * 8192, 8192);
 
-        CPPUNIT_ASSERT_EQUAL(0, log->numCallbacks);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_INVALID_ID + 1,
-            log->nextSegmentId);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)SEGMENT_SIZE, log->segmentSize);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)Master::SEGMENT_COUNT, log->nsegments);
-        CPPUNIT_ASSERT_EQUAL((uint64_t)Master::SEGMENT_COUNT, log->nFreeList);
-        CPPUNIT_ASSERT(log->maxAppend > 0);
-        CPPUNIT_ASSERT(log->maxAppend < log->segmentSize);
-        CPPUNIT_ASSERT(backup == log->backup);
-        CPPUNIT_ASSERT(NULL == log->head);
-        CPPUNIT_ASSERT(logBase == log->base);
-
-        log->init();
+        CPPUNIT_ASSERT_EQUAL(57, l.logId);
+        CPPUNIT_ASSERT_EQUAL(2 * 8192, l.logCapacity);
+        CPPUNIT_ASSERT_EQUAL(8192, l.segmentCapacity);
+        CPPUNIT_ASSERT_EQUAL(2, l.segmentFreeList.size());
+        CPPUNIT_ASSERT_EQUAL(0, l.nextSegmentId);
+        CPPUNIT_ASSERT_EQUAL(8192 - 3 * sizeof(SegmentEntry) -
+            sizeof(SegmentHeader) - sizeof(SegmentFooter),
+            l.maximumAppendableBytes);
+        CPPUNIT_ASSERT_EQUAL(NULL, l.head);
     }
 
     void
-    tearDown()
+    test_addSegmentMemory()
     {
-        free(logBase);
-        delete log;
+        Log l(57, 1 * 8192, 8192);
+
+        void *p = xmemalign(l.segmentCapacity, l.segmentCapacity);
+        l.addSegmentMemory(p);
+        Segment s(0, 0, p, 8192);
+
+        CPPUNIT_ASSERT_EQUAL(2, l.segmentFreeList.size());
+        CPPUNIT_ASSERT_EQUAL(p, l.segmentFreeList[1]);
+        CPPUNIT_ASSERT_EQUAL(s.appendableBytes(), l.maximumAppendableBytes);
     }
 
     void
-    TestInit()
+    test_isSegmentLive()
     {
-        CPPUNIT_ASSERT_EQUAL((uint64_t)Master::SEGMENT_COUNT - 1,
-                             log->nFreeList);
+        Log l(57, 1 * 8192, 8192);
+        char buf[64];
+
+        uint64_t segmentId = l.nextSegmentId;
+        CPPUNIT_ASSERT_EQUAL(false, l.isSegmentLive(segmentId));
+        l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        CPPUNIT_ASSERT_EQUAL(true, l.isSegmentLive(segmentId));
     }
 
     void
-    TestIsSegmentLive()
+    test_getSegmentId()
     {
-        uintptr_t b = (uintptr_t)logBase;
+        Log l(57, 1 * 8192, 8192);
+        char buf[64];
 
-        CPPUNIT_ASSERT_EQUAL(false, log->isSegmentLive(SEGMENT_INVALID_ID));
-
-        for (uint32_t i = 0; i < Master::SEGMENT_COUNT; i++) {
-            uint64_t id;
-            uint32_t off;
-
-            log->getSegmentIdOffset((const void *)b, &id, &off);
-            CPPUNIT_ASSERT_EQUAL((uint32_t)0, off);
-
-            // only head is live after init
-            bool ret = log->isSegmentLive(id);
-            if (id == log->head->getId())
-                CPPUNIT_ASSERT_EQUAL(true, ret);
-            else
-                CPPUNIT_ASSERT_EQUAL(false, ret);
-
-            b += SEGMENT_SIZE;
-        }
+        const void *p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        CPPUNIT_ASSERT_EQUAL(0, l.getSegmentId(p));
+        CPPUNIT_ASSERT_THROW(l.getSegmentId((char *)p + 8192),
+            LogException);
     }
 
     void
-    TestGetSegmentIdOffset()
+    test_append()
     {
-        // nothing to do; Log mandates that this succeeds for now
+        Log l(57, 1 * 8192, 8192);
+
+        //XXXXXXX- need to actually implement this.
     }
 
     void
-    TestAppend()
+    test_free()
     {
-        char buf[1];
+        Log l(57, 1 * 8192, 8192);
+        char buf[64];
 
-        // users of log not allowed to write HEADER and CHECKSUM types
-        CPPUNIT_ASSERT(log->append(LOG_ENTRY_TYPE_SEGMENT_HEADER,
-                buf, sizeof(buf)) == NULL);
-        CPPUNIT_ASSERT(log->append(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM,
-                buf, sizeof(buf)) == NULL);
-
-        // all other writes handled in TestAppendAnyType()
-    }
-
-    void
-    TestFree()
-    {
-        Segment *oldHead = log->head;
-
-        char buf[1];
-        while (log->head == oldHead) {
-            uint64_t oldUtil = log->head->getUtilization();
-            uint64_t oldTail = log->head->tailBytes;
-            uint64_t newUtil = oldUtil + sizeof(LogEntry) + sizeof(buf);
-            uint64_t newTail = oldTail - sizeof(LogEntry) - sizeof(buf);
-
-            const void *p = log->append(LOG_ENTRY_TYPE_OBJECT,
-                buf, sizeof(buf));
-
-            // CPPUNIT_ASSERT is too slow. Using if statements instead saves
-            // ~0.6s on my machine (using 3MB segments). -Diego
-
-            if (p == NULL)
-                CPPUNIT_ASSERT(false);
-
-            // Head may have changed due to the write.
-            if (log->head == oldHead) {
-                if (newUtil != log->head->getUtilization())
-                    CPPUNIT_ASSERT(false);
-                if (newTail != log->head->tailBytes)
-                    CPPUNIT_ASSERT(false);
-
-                log->free(LOG_ENTRY_TYPE_OBJECT, p, sizeof(buf));
-
-                if (oldUtil != log->head->getUtilization())
-                    CPPUNIT_ASSERT(false);
-                if (newTail != log->head->tailBytes)
-                    CPPUNIT_ASSERT(false);
-            }
-        }
-    }
-
-    void
-    TestRegisterType()
-    {
-        // Tested in TestGetEvictionCallback
-    }
-
-    void
-    TestGetMaximumAppend()
-    {
-        uint64_t ma = log->getMaximumAppend();
-        CPPUNIT_ASSERT(ma < SEGMENT_SIZE);
-        CPPUNIT_ASSERT(ma > (SEGMENT_SIZE - 100));  // test reasonable bound
-    }
-
-    void
-    TestAllocateSegmentId()
-    {
-        uint64_t id = log->allocateSegmentId();
-        for (uint64_t i = 1; i < 10; i++) {
-            CPPUNIT_ASSERT_EQUAL(id + i, log->allocateSegmentId());
-        }
+        const void *p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        l.free(p);
+        Segment *s = l.activeIdMap[0];
+        CPPUNIT_ASSERT_EQUAL(sizeof(buf) + sizeof(SegmentEntry), s->bytesFreed);
     }
 
     static void
-    EvictionCallback(LogEntryType type, const void *p,
-                     uint64_t len, void *cookie)
+    evictionCallback(LogEntryType type, const void *p, const uint64_t length,
+        void *cookie)
     {
     }
 
     void
-    TestGetEvictionCallback()
+    test_registerType()
     {
-        LogEvictionCallback cb;
-        int cookie = 1983;
-        void *cookiep;
+        Log l(57, 1 * 8192, 8192);
 
-        CPPUNIT_ASSERT(
-            log->getEvictionCallback(LOG_ENTRY_TYPE_OBJECT, NULL) == NULL);
-
-        log->registerType(LOG_ENTRY_TYPE_OBJECT, EvictionCallback, &cookie);
-        cb = log->getEvictionCallback(LOG_ENTRY_TYPE_OBJECT, &cookiep);
-        CPPUNIT_ASSERT(reinterpret_cast<void*>(cb) ==
-                reinterpret_cast<void*>(EvictionCallback));
-        CPPUNIT_ASSERT_EQUAL(cookie, *static_cast<int*>(cookiep));
-    }
-
-    void
-    TestGetSegment()
-    {
-        // NB: Present code asserts success, so only sanity-check what should
-        //     work.
-
-        CPPUNIT_ASSERT(log->getSegment(logBase, 0) != NULL);
-        CPPUNIT_ASSERT(log->getSegment(logBase, 1) != NULL);
-        CPPUNIT_ASSERT(log->getSegment(logBase, SEGMENT_SIZE) != NULL);
-
-        uintptr_t b = (uintptr_t)logBase;
-        for (uint32_t i = 0; i < Master::SEGMENT_COUNT; i++) {
-            CPPUNIT_ASSERT(log->getSegment(reinterpret_cast<void*>(b +
-                        (i * SEGMENT_SIZE)), SEGMENT_SIZE) != NULL);
+        bool threwException = false;
+        l.registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL);
+        try {
+            l.registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL);
+        } catch (...) {
+            threwException = true;
         }
+        CPPUNIT_ASSERT_EQUAL(true, threwException);
+
+        LogTypeCallback *cb = l.callbackMap[LOG_ENTRY_TYPE_OBJ];
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, cb->type);
+        CPPUNIT_ASSERT_EQUAL((void *)evictionCallback, (void *)cb->evictionCB);
+        CPPUNIT_ASSERT_EQUAL(NULL, cb->evictionArg);
     }
 
     void
-    TestClean()
+    test_forEachSegment()
     {
-        // ugh. the present cleaner is a total hack... is it really worth
-        // testing?
+        Log l(57, 1 * 8192, 8192);
     }
 
-    void
-    TestNewHead()
-    {
-        Segment *oldHead = log->head;
-        uint64_t old_nfree_list = log->nFreeList;
+void
+test_getSegmentBaseAddress()
+{
+    Log l(57, 1 * 128, 128);
+    CPPUNIT_ASSERT_EQUAL(128, (uintptr_t)l.getSegmentBaseAddress((void *)128));
+    CPPUNIT_ASSERT_EQUAL(128, (uintptr_t)l.getSegmentBaseAddress((void *)129));
+    CPPUNIT_ASSERT_EQUAL(128, (uintptr_t)l.getSegmentBaseAddress((void *)255));
+    CPPUNIT_ASSERT_EQUAL(256, (uintptr_t)l.getSegmentBaseAddress((void *)256));
+}
 
-        CPPUNIT_ASSERT(log->head != NULL);
-        log->newHead();
-        CPPUNIT_ASSERT(log->head != NULL && log->head != oldHead);
-        CPPUNIT_ASSERT_EQUAL(old_nfree_list - 1, log->nFreeList);
-
-        const LogEntry *le = static_cast<const LogEntry*>(
-                log->head->getBase());
-        CPPUNIT_ASSERT_EQUAL((uint32_t)LOG_ENTRY_TYPE_SEGMENT_HEADER, le->type);
-        CPPUNIT_ASSERT_EQUAL((uint32_t)sizeof(SegmentHeader), le->length);
-        CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader) + sizeof(*le),
-            log->head->getUtilization());
-    }
-
-    void
-    TestChecksumHead()
-    {
-        log->checksumHead();
-
-        void *segend = static_cast<char*>(log->head->base) +
-            log->head->getUtilization() - sizeof(SegmentChecksum) -
-            sizeof(SegmentHeader);
-        LogEntry *le = static_cast<LogEntry*>(segend);
-        CPPUNIT_ASSERT_EQUAL((uint32_t)LOG_ENTRY_TYPE_SEGMENT_CHECKSUM,
-            le->type);
-        CPPUNIT_ASSERT_EQUAL((uint32_t)sizeof(SegmentChecksum), le->length);
-
-    }
-
-    void
-    TestRetireHead()
-    {
-        Segment *oldHead = log->head;
-        CPPUNIT_ASSERT(oldHead != NULL);
-        CPPUNIT_ASSERT_EQUAL(true, log->head->isMutable);
-        log->retireHead();
-        CPPUNIT_ASSERT(NULL == log->head);
-        CPPUNIT_ASSERT_EQUAL(false, oldHead->isMutable);
-    }
-
-    void
-    TestAppendAnyType()
-    {
-        char buf[1];
-        char maxbuf[log->getMaximumAppend()];
-        uint64_t tmp;
-
-        // Can append up to the maximum
-        CPPUNIT_ASSERT(NULL != log->appendAnyType(LOG_ENTRY_TYPE_OBJECT,
-            maxbuf, sizeof(maxbuf)));
-
-        // Clear the Head segment so we can write another header
-        log->head->finalize();
-        log->head->reset();
-        log->head->ready(53);
-
-        // Internal Segment Headers don't affect our bytes stored count
-        tmp = log->bytesStored;
-        log->appendAnyType(LOG_ENTRY_TYPE_SEGMENT_HEADER, buf, sizeof(buf));
-        CPPUNIT_ASSERT_EQUAL(tmp, log->bytesStored);
-
-        // Internal Segment Checksums don't affect our bytes stored count
-        tmp = log->bytesStored;
-        log->appendAnyType(LOG_ENTRY_TYPE_SEGMENT_CHECKSUM, buf, sizeof(buf));
-        CPPUNIT_ASSERT_EQUAL(tmp, log->bytesStored);
-
-        // All other objects count toward stored bytes
-        tmp = log->bytesStored;
-        log->appendAnyType(LOG_ENTRY_TYPE_OBJECT, buf, sizeof(buf));
-        CPPUNIT_ASSERT_EQUAL(tmp + sizeof(buf), log->bytesStored);
-    }
-
-    DISALLOW_COPY_AND_ASSIGN(LogTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(LogTest);
 

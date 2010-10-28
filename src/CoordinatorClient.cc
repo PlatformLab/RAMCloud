@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Coordinator.h"
+#include "CoordinatorClient.h"
 #include "ProtoBuf.h"
 
 namespace RAMCloud {
@@ -24,7 +24,8 @@ namespace RAMCloud {
  *      A server ID guaranteed never to have been used before.
  */
 uint64_t
-Coordinator::enlistServer(ServerType serverType, string localServiceLocator)
+CoordinatorClient::enlistServer(ServerType serverType,
+                                string localServiceLocator)
 {
     while (true) {
         try {
@@ -55,7 +56,7 @@ Coordinator::enlistServer(ServerType serverType, string localServiceLocator)
  * Masters call and cache this periodically to find backups.
  */
 void
-Coordinator::getServerList(ProtoBuf::ServerList& serverList)
+CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
 {
     Buffer req;
     Buffer resp;
@@ -65,6 +66,19 @@ Coordinator::getServerList(ProtoBuf::ServerList& serverList)
     checkStatus();
     ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
                                 respHdr.serverListLength, serverList);
+}
+
+/**
+ * \copydoc MasterClient::ping
+ */
+void
+CoordinatorClient::ping()
+{
+    Buffer req;
+    Buffer resp;
+    allocHeader<PingRpc>(req);
+    sendRecv<PingRpc>(session, req, resp);
+    checkStatus();
 }
 
 } // namespace RAMCloud

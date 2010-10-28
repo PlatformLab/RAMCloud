@@ -18,8 +18,8 @@
  * This file provides a C wrapper around the RAMCloud client code.
  */
 
-#include "RamCloudClient.h"
-#include "RamCloudCClient.h"
+#include "RamCloud.h"
+#include "CRamCloud.h"
 #include "ClientException.h"
 
 using namespace RAMCloud;
@@ -28,7 +28,7 @@ using namespace RAMCloud;
  * Wrapper structure for C clients.
  */
 struct rc_client {
-    RamCloudClient* client;
+    RamCloud* client;
 };
 
 /**
@@ -48,7 +48,7 @@ Status rc_connect(const char* serverLocator, struct rc_client** newClient)
 {
     struct rc_client* client = new rc_client;
     try {
-        client->client = new RamCloudClient(serverLocator);
+        client->client = new RamCloud(serverLocator);
     } catch (CouldntConnectException& e) {
         delete client;
         return e.status;
@@ -73,7 +73,7 @@ Status rc_connect(const char* serverLocator, struct rc_client** newClient)
  *      STATUS_OK or STATUS_COULDNT_CONNECT.
  */
 Status rc_connectWithClient(
-        struct RamCloudClient* existingClient,
+        struct RamCloud* existingClient,
         struct rc_client** newClient)
 {
     struct rc_client* client = new rc_client;

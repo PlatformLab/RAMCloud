@@ -159,7 +159,7 @@ TransportManager::getSession(const char* serviceLocator)
             }
         }
     }
-    throw TransportException();
+    throw TransportException("No transport found for this service locator");
 }
 
 /**

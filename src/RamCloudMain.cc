@@ -18,7 +18,7 @@
 #include <getopt.h>
 #include <assert.h>
 
-#include "RamCloudClient.h"
+#include "RamCloud.h"
 #include "OptionParser.h"
 
 namespace RC = RAMCloud;
@@ -54,7 +54,7 @@ try
 
     printf("client: Connecting to %s\n", config.serverLocator.c_str());
 
-    RC::RamCloudClient client(config.serverLocator.c_str());
+    RC::RamCloud client(config.serverLocator.c_str());
     client.selectPerfCounter(RC::PERF_COUNTER_TSC,
                              RC::MARK_RPC_PROCESSING_BEGIN,
                              RC::MARK_RPC_PROCESSING_END);

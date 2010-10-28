@@ -85,6 +85,7 @@ class Client {
     typename Rpc::Request&
     allocHeader(Buffer& requestBuffer) const
     {
+        assert(requestBuffer.getTotalLength() == 0);
         typename Rpc::Request& requestHeader(
             *new(&requestBuffer, APPEND) typename Rpc::Request);
         memset(&requestHeader, 0, sizeof(requestHeader));
@@ -103,6 +104,7 @@ class Client {
     sendRecv(Transport::SessionRef& session,
              Buffer& requestBuffer, Buffer& responseBuffer)
     {
+        assert(responseBuffer.getTotalLength() == 0);
         session->clientSend(&requestBuffer, &responseBuffer)->getReply();
         const typename Rpc::Response* responseHeader =
             responseBuffer.getStart<typename Rpc::Response>();

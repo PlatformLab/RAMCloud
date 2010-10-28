@@ -61,13 +61,11 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
  */
 string
 IpAddress::toString() const {
-    char buffer[50];
     const sockaddr_in *addr = reinterpret_cast<const sockaddr_in*>(&address);
     uint32_t ip = ntohl(addr->sin_addr.s_addr);
     uint32_t port = ntohs(addr->sin_port);
-    snprintf(buffer, sizeof(buffer), "%d.%d.%d.%d:%d", (ip>>24)&0xff,
-            (ip>>16)&0xff, (ip>>8)&0xff, ip&0xff, port);
-    return string(buffer);
+    return format("%d.%d.%d.%d:%d", (ip>>24)&0xff,
+                  (ip>>16)&0xff, (ip>>8)&0xff, ip&0xff, port);
 }
 
 } // namespace RAMCloud

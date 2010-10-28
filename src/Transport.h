@@ -170,7 +170,7 @@ class Transport {
          *      add new chunks to \a request but will not modify its existing
          *      chunks.
          * \param[out] response
-         *      An initialized Buffer that will be filled in with the received
+         *      An empty Buffer that will be filled in with the received
          *      RPC response. The caller must not access \a response until the
          *      corresponding call to #Transport::ClientRpc::getReply()
          *      returns.

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009, 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,55 +13,89 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// RAMCloud pragma [CPPLINT=0]
+
 #ifndef RAMCLOUD_SEGMENT_H
 #define RAMCLOUD_SEGMENT_H
 
-#include "Common.h"
+#include <stdint.h>
 
-#include "BackupClient.h"
+#include "rabinpoly.h"
+#include "LogTypes.h"
 
 namespace RAMCloud {
 
-#define SEGMENT_INVALID_ID  ((uint64_t)0)
-#define SEGMENT_SIZE (8 * 1024 * 1024)
+struct SegmentEntry {
+    LogEntryType type;
+    uint32_t     length;
+} __attribute__((__packed__));
+
+struct SegmentHeader {
+    uint64_t logId;
+    uint64_t segmentId;
+    uint32_t segmentCapacity;
+} __attribute__((__packed__));
+
+struct SegmentFooter {
+    uint64_t checksum;
+} __attribute__((__packed__));
+
+typedef void (*SegmentEntryCallback)(LogEntryType, const void *,
+                                     uint64_t, void *);
+
+/**
+ * An exception that is thrown when the Segment class is provided invalid
+ * method arguments or mutating operations are attempted on a closed Segment.
+ */
+struct SegmentException : public Exception {
+    SegmentException() : Exception() {}
+    explicit SegmentException(std::string msg) : Exception(msg) {}
+    explicit SegmentException(int errNo) : Exception(errNo) {}
+};
 
 class Segment {
   public:
-    Segment(void *, const uint64_t, BackupClient *);
-    ~Segment();
-    void        ready(uint64_t);
-    void        reset();
-    const void *append(const void *, const uint64_t);
-    void        free(uint64_t);
-    const void *getBase() const;
-    uint64_t getId() const;
-    uint64_t getFreeTail() const;
-    uint64_t getLength() const;
-    uint64_t getUtilization() const;
-    bool checkRange(const void *, uint64_t) const;
-    void finalize();
-    Segment *link(Segment *n);
-    Segment *unlink();
-    void setUsedBytes(uint64_t ub) {
-        freeBytes = totalBytes - ub;
-    }
-  private:
-    void     *base;
-    bool      isMutable;
-    uint64_t  id;                  // segment id
-    const uint64_t  totalBytes;    // capacity of the segment
-    uint64_t  freeBytes;           // bytes free in segment (anywhere)
-    uint64_t  tailBytes;           // bytes free in tail of segment (i.e.
-                                   // never written to)
-    BackupClient *backup;
+    Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
+            uint64_t capacity);
+   ~Segment();
 
-    Segment  *next, *prev;
+    const void      *append(LogEntryType type, const void *buffer,
+                            uint64_t length);
+    void             free(const void *p);
+    void             close();
+    const void      *getBaseAddress() const;
+    uint64_t         getId() const;
+    uint64_t         getCapacity() const;
+    uint64_t         appendableBytes() const;
+    void             forEachEntry(SegmentEntryCallback cb, void *cookie) const;
+    int              getUtilisation() const;
+
+    static const uint32_t  SEGMENT_SIZE = 8 * 1024 * 1024;
+    static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
+    static const uint64_t  RABIN_POLYNOMIAL = 0x92d42091a28158a5ull;
+
+  private:
+    const void      *forceAppendBlob(const void *buffer, uint64_t length,
+                                     bool updateChecksum = true);
+    const void      *forceAppendWithEntry(LogEntryType type,
+                                          const void *buffer, uint64_t length);
+
+    void            *baseAddress;    // base address for the Segment
+    uint64_t         id;             // segment identification number
+    const uint64_t   capacity;       // total byte length of segment when empty
+    uint64_t         tail;           // offset to the next free byte in Segment
+    uint64_t         bytesFreed;     // bytes free()'d in this Segment
+    rabinpoly        rabinPoly;      // Rabin Polynomial class used for checksum
+    uint64_t         checksum;       // Latest Segment checksum
+    bool             closed;         // when true, no appends permitted
+
+    DISALLOW_COPY_AND_ASSIGN(Segment);
 
     friend class SegmentTest;
+    friend class SegmentIteratorTest;
     friend class LogTest;
-    DISALLOW_COPY_AND_ASSIGN(Segment);
 };
 
 } // namespace
 
-#endif // !_SEGMENT_H_
+#endif // !RAMCLOUD_SEGMENT_H

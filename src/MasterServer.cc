@@ -15,24 +15,25 @@
 
 #include "Buffer.h"
 #include "ClientException.h"
-#include "Master.h"
+#include "MasterServer.h"
 #include "Rpc.h"
+#include "Segment.h"
 #include "Transport.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
 
 void objectEvictionCallback(LogEntryType type,
-                         const void* p,
-                         uint64_t len,
-                         void* cookie);
+                            const void* p,
+                            uint64_t len,
+                            void* cookie);
 void tombstoneEvictionCallback(LogEntryType type,
-                         const void* p,
-                         uint64_t len,
-                         void* cookie);
+                               const void* p,
+                               uint64_t len,
+                               void* cookie);
 
 /**
- * Construct a Master.
+ * Construct a MasterServer.
  *
  * \param config
  *      Contains various parameters that configure the operation of
@@ -41,60 +42,68 @@ void tombstoneEvictionCallback(LogEntryType type,
  *      Provides a mechanism for replicating changes to other servers.
  *      If NULL then we create a default backup object.
  */
-Master::Master(const ServerConfig* config,
-               BackupClient* backupClient)
+MasterServer::MasterServer(const ServerConfig* config,
+                           BackupClient* backupClient)
     : config(config)
     , coordinator(config->coordinatorLocator.c_str())
     , serverId(0)
     , backup(backupClient)
     , log(0)
 {
-    void* p = xmalloc(SEGMENT_SIZE * SEGMENT_COUNT);
-
-    log = new Log(SEGMENT_SIZE, p, SEGMENT_SIZE * SEGMENT_COUNT, backup);
-    log->registerType(LOG_ENTRY_TYPE_OBJECT, objectEvictionCallback, this);
-    log->registerType(LOG_ENTRY_TYPE_OBJECT_TOMBSTONE,
-            tombstoneEvictionCallback, this);
+    log = new Log(0, Segment::SEGMENT_SIZE * SEGMENT_COUNT,
+        Segment::SEGMENT_SIZE);
+    log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
+    log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 
     for (int i = 0; i < NUM_TABLES; i++) {
         tables[i] = NULL;
     }
 }
 
-Master::~Master()
+MasterServer::~MasterServer()
 {
     for (int i = 0; i < NUM_TABLES; i++) {
         delete tables[i];
     }
+
+    delete log;
 }
 
 void
-Master::dispatch(RpcType type, Transport::ServerRpc& rpc)
+MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc)
 {
     switch (type) {
         case CreateRpc::type:
-            callHandler<CreateRpc, Master, &Master::create>(rpc);
+            callHandler<CreateRpc, MasterServer,
+                        &MasterServer::create>(rpc);
             break;
         case CreateTableRpc::type:
-            callHandler<CreateTableRpc, Master, &Master::createTable>(rpc);
+            callHandler<CreateTableRpc, MasterServer,
+                        &MasterServer::createTable>(rpc);
             break;
         case DropTableRpc::type:
-            callHandler<DropTableRpc, Master, &Master::dropTable>(rpc);
+            callHandler<DropTableRpc, MasterServer,
+                        &MasterServer::dropTable>(rpc);
             break;
         case OpenTableRpc::type:
-            callHandler<OpenTableRpc, Master, &Master::openTable>(rpc);
+            callHandler<OpenTableRpc, MasterServer,
+                        &MasterServer::openTable>(rpc);
             break;
         case PingRpc::type:
-            callHandler<PingRpc, Server, &Server::ping>(rpc);
+            callHandler<PingRpc, Server,
+                        &Server::ping>(rpc);
             break;
         case ReadRpc::type:
-            callHandler<ReadRpc, Master, &Master::read>(rpc);
+            callHandler<ReadRpc, MasterServer,
+                        &MasterServer::read>(rpc);
             break;
         case RemoveRpc::type:
-            callHandler<RemoveRpc, Master, &Master::remove>(rpc);
+            callHandler<RemoveRpc, MasterServer,
+                        &MasterServer::remove>(rpc);
             break;
         case WriteRpc::type:
-            callHandler<WriteRpc, Master, &Master::write>(rpc);
+            callHandler<WriteRpc, MasterServer,
+                        &MasterServer::write>(rpc);
             break;
         default:
             throw UnimplementedRequestError();
@@ -102,13 +111,12 @@ Master::dispatch(RpcType type, Transport::ServerRpc& rpc)
 }
 
 void __attribute__ ((noreturn))
-Master::run()
+MasterServer::run()
 {
-    log->init();
     serverId = coordinator.enlistServer(MASTER, config->localLocator);
     LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
-        handleRpc<Master>();
+        handleRpc<MasterServer>();
 }
 
 /**
@@ -118,9 +126,9 @@ Master::run()
  * \copydetails Server::ping
  */
 void
-Master::create(const CreateRpc::Request& reqHdr,
-               CreateRpc::Response& respHdr,
-               Transport::ServerRpc& rpc)
+MasterServer::create(const CreateRpc::Request& reqHdr,
+                     CreateRpc::Response& respHdr,
+                     Transport::ServerRpc& rpc)
 {
     Table* t = getTable(reqHdr.tableId);
     uint64_t id = t->AllocateKey();
@@ -140,9 +148,9 @@ Master::create(const CreateRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::createTable(const CreateTableRpc::Request& reqHdr,
-                    CreateTableRpc::Response& respHdr,
-                    Transport::ServerRpc& rpc)
+MasterServer::createTable(const CreateTableRpc::Request& reqHdr,
+                          CreateTableRpc::Response& respHdr,
+                          Transport::ServerRpc& rpc)
 {
     int i;
     const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
@@ -174,9 +182,9 @@ Master::createTable(const CreateTableRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::dropTable(const DropTableRpc::Request& reqHdr,
-                  DropTableRpc::Response& respHdr,
-                  Transport::ServerRpc& rpc)
+MasterServer::dropTable(const DropTableRpc::Request& reqHdr,
+                        DropTableRpc::Response& respHdr,
+                        Transport::ServerRpc& rpc)
 {
     int i;
     const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
@@ -196,9 +204,9 @@ Master::dropTable(const DropTableRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::openTable(const OpenTableRpc::Request& reqHdr,
-                  OpenTableRpc::Response& respHdr,
-                  Transport::ServerRpc& rpc)
+MasterServer::openTable(const OpenTableRpc::Request& reqHdr,
+                        OpenTableRpc::Response& respHdr,
+                        Transport::ServerRpc& rpc)
 {
     int i;
     const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
@@ -217,9 +225,9 @@ Master::openTable(const OpenTableRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::read(const ReadRpc::Request& reqHdr,
-             ReadRpc::Response& respHdr,
-             Transport::ServerRpc& rpc)
+MasterServer::read(const ReadRpc::Request& reqHdr,
+                   ReadRpc::Response& respHdr,
+                   Transport::ServerRpc& rpc)
 {
     Table* t = getTable(reqHdr.tableId);
     const Object* o = t->Get(reqHdr.id);
@@ -244,9 +252,9 @@ Master::read(const ReadRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::remove(const RemoveRpc::Request& reqHdr,
-               RemoveRpc::Response& respHdr,
-               Transport::ServerRpc& rpc)
+MasterServer::remove(const RemoveRpc::Request& reqHdr,
+                     RemoveRpc::Response& respHdr,
+                     Transport::ServerRpc& rpc)
 {
     Table* t = getTable(reqHdr.tableId);
     const Object* o = t->Get(reqHdr.id);
@@ -261,14 +269,13 @@ Master::remove(const RemoveRpc::Request& reqHdr,
 
     t->RaiseVersion(o->version + 1);
 
-    ObjectTombstone tomb;
-    log->getSegmentIdOffset(o, &tomb.segmentId, &tomb.segmentOffset);
+    ObjectTombstone tomb(tomb.segmentId, o);
 
     // Mark the deleted object as free first, since the append could
     // invalidate it
-    log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
+    log->free(o);
     const void* ret = log->append(
-        LOG_ENTRY_TYPE_OBJECT_TOMBSTONE, &tomb, sizeof(tomb));
+        LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
     assert(ret);
     t->Delete(reqHdr.id);
 }
@@ -278,9 +285,9 @@ Master::remove(const RemoveRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-Master::write(const WriteRpc::Request& reqHdr,
-              WriteRpc::Response& respHdr,
-              Transport::ServerRpc& rpc)
+MasterServer::write(const WriteRpc::Request& reqHdr,
+                    WriteRpc::Response& respHdr,
+                    Transport::ServerRpc& rpc)
 {
     storeData(reqHdr.tableId, reqHdr.id,
               &reqHdr.rejectRules, &rpc.recvPayload, sizeof(reqHdr),
@@ -300,7 +307,7 @@ Master::write(const WriteRpc::Request& reqHdr,
  *      Thrown if tableId does not correspond to a valid table.
  */
 Table*
-Master::getTable(uint32_t tableId) {
+MasterServer::getTable(uint32_t tableId) {
     if (tableId >= static_cast<uint32_t>(NUM_TABLES)) {
         throw TableDoesntExistException();
     }
@@ -327,7 +334,7 @@ Master::getTable(uint32_t tableId) {
  *      the return value indicates the reason for the rejection.
  */
 void
-Master::rejectOperation(const RejectRules* rejectRules, uint64_t version)
+MasterServer::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 {
     if (version == VERSION_NONEXISTENT) {
         if (rejectRules->doesntExist)
@@ -349,33 +356,37 @@ Master::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 //-----------------------------------------------------------------------
 
 struct obj_replay_cookie {
-    Master *server;
+    MasterServer *server;
     uint64_t used_bytes;
 };
 
 /**
- * Callback used by the log cleaner when it's cleaning a segment and evicts
- * an object (LOG_ENTRY_TYPE_OBJECT).
+ * Callback used by the LogCleaner when it's cleaning a Segment and evicts
+ * an Object (i.e. an entry of type LOG_ENTRY_TYPE_OBJ).
  *
  * Upon return, the object will be discarded. Objects must therefore be
  * perpetuated when the object being evicted is exactly the object referenced
  * by the hash table. Otherwise, it's an old object and a tombstone for it
  * exists.
  *
- * \param[in]  type     type of the evictee (LOG_ENTRY_TYPE_OBJECT)
- * \param[in]  p        opaque pointer to the immutable entry in the log 
- * \param[in]  len      size of the log entry being evicted
- * \param[in]  cookie   the opaque state pointer registered with the callback
+ * \param[in]  type
+ *      LogEntryType of the evictee (LOG_ENTRY_TYPE_OBJ).
+ * \param[in]  p
+ *      Opaque pointer to the immutable entry in the log. 
+ * \param[in]  len
+ *      Size of the log entry being evicted in bytes.
+ * \param[in]  cookie
+ *      The opaque state pointer registered with the callback.
  */
 void
 objectEvictionCallback(LogEntryType type,
-                    const void *p,
-                    uint64_t len,
-                    void *cookie)
+                       const void* p,
+                       uint64_t len,
+                       void* cookie)
 {
-    assert(type == LOG_ENTRY_TYPE_OBJECT);
+    assert(type == LOG_ENTRY_TYPE_OBJ);
 
-    Master *svr = static_cast<Master *>(cookie);
+    MasterServer *svr = static_cast<MasterServer *>(cookie);
     assert(svr != NULL);
 
     Log *log = svr->log;
@@ -392,7 +403,7 @@ objectEvictionCallback(LogEntryType type,
     // simple pointer comparison suffices
     if (tbl_obj == evict_obj) {
         const Object *objp = (const Object *)log->append(
-            LOG_ENTRY_TYPE_OBJECT, evict_obj, evict_obj->size());
+            LOG_ENTRY_TYPE_OBJ, evict_obj, evict_obj->size());
         assert(objp != NULL);
         tbl->Put(evict_obj->id, objp);
     }
@@ -405,7 +416,7 @@ objectReplayCallback(LogEntryType type,
                      void *cookiep)
 {
     obj_replay_cookie *cookie = static_cast<obj_replay_cookie *>(cookiep);
-    Master *server = cookie->server;
+    MasterServer *server = cookie->server;
 
     //printf("ObjectReplayCallback: type %llu\n", type);
 
@@ -413,7 +424,7 @@ objectReplayCallback(LogEntryType type,
     cookie->used_bytes += len;
 
     switch (type) {
-    case LOG_ENTRY_TYPE_OBJECT: {
+    case LOG_ENTRY_TYPE_OBJ: {
         const Object *obj = static_cast<const Object *>(p);
         assert(obj);
 
@@ -424,11 +435,11 @@ objectReplayCallback(LogEntryType type,
         table->Put(obj->id, obj);
     }
         break;
-    case LOG_ENTRY_TYPE_OBJECT_TOMBSTONE:
+    case LOG_ENTRY_TYPE_OBJTOMB:
         assert(false);  //XXX- fixme
         break;
-    case LOG_ENTRY_TYPE_SEGMENT_HEADER:
-    case LOG_ENTRY_TYPE_SEGMENT_CHECKSUM:
+    case LOG_ENTRY_TYPE_SEGHEADER:
+    case LOG_ENTRY_TYPE_SEGFOOTER:
         break;
     default:
         printf("!!! Unknown object type on log replay: 0x%llx", type);
@@ -436,30 +447,30 @@ objectReplayCallback(LogEntryType type,
 }
 
 /**
- * Callback used by the log cleaner when it's cleaning a segment and evicts
- * a tombstone.
+ * Callback used by the LogCleaner when it's cleaning a Segment and evicts
+ * an ObjectTombstone (i.e. an entry of type LOG_ENTRY_TYPE_OBJTOMB).
  *
- * Tombstones are perpetuated when the segment they reference is still
+ * Tombstones are perpetuated when the Segment they reference is still
  * valid in the system.
  *
- * We can be more aggressive in cleaning tombstones (e.g. a tombstone can
- * be cleared before its referant object if a newer object or tombstone
- * exists), but we don't worry about that now.
- *
- * \param[in]  type     type of the evictee (LOG_ENTRY_TYPE_OBJECT_TOMBSTONE)
- * \param[in]  p        opaque pointer to the immutable entry in the log 
- * \param[in]  len      size of the log entry being evicted
- * \param[in]  cookie   the opaque state pointer registered with the callback
+ * \param[in]  type
+ *      LogEntryType of the evictee (LOG_ENTRY_TYPE_OBJTOMB).
+ * \param[in]  p
+ *      Opaque pointer to the immutable entry in the log.
+ * \param[in]  len
+ *      Size of the log entry being evicted in bytes.
+ * \param[in]  cookie
+ *      The opaque state pointer registered with the callback.
  */
 void
 tombstoneEvictionCallback(LogEntryType type,
-                    const void *p,
-                    uint64_t len,
-                    void *cookie)
+                          const void* p,
+                          uint64_t len,
+                          void* cookie)
 {
-    assert(type == LOG_ENTRY_TYPE_OBJECT_TOMBSTONE);
+    assert(type == LOG_ENTRY_TYPE_OBJTOMB);
 
-    Master *svr = static_cast<Master *>(cookie);
+    MasterServer *svr = static_cast<MasterServer *>(cookie);
     assert(svr != NULL);
 
     Log *log = svr->log;
@@ -472,16 +483,16 @@ tombstoneEvictionCallback(LogEntryType type,
     // see if the referant is still there
     if (log->isSegmentLive(tomb->segmentId)) {
         const void *ret = log->append(
-            LOG_ENTRY_TYPE_OBJECT_TOMBSTONE, tomb, sizeof(*tomb));
+            LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb));
         assert(ret != NULL);
     }
 }
 
 void
-Master::storeData(uint64_t tableId, uint64_t id,
-                  const RejectRules *rejectRules, Buffer *data,
-                  uint32_t dataOffset, uint32_t dataLength,
-                  uint64_t *newVersion)
+MasterServer::storeData(uint64_t tableId, uint64_t id,
+                        const RejectRules* rejectRules, Buffer* data,
+                        uint32_t dataOffset, uint32_t dataLength,
+                        uint64_t* newVersion)
 {
     Table *t = getTable(tableId);
     const Object *o = t->Get(id);
@@ -507,15 +518,24 @@ Master::storeData(uint64_t tableId, uint64_t id,
     newObject->data_len = dataLength;
     data->copy(dataOffset, dataLength, newObject->data);
 
-    // mark the old object as freed _before_ writing the new object to the log.
-    // if we do it afterwards, the log cleaner could be triggered and `o'
-    // reclaimed // before log->append() returns. The subsequent free breaks,
-    // as that segment may have been reset.
-    if (o != NULL)
-        log->free(LOG_ENTRY_TYPE_OBJECT, o, o->size());
+    // If the Object is being overwritten, we need to mark the previous space
+    // used as free and add a tombstone that references it.
+    if (o != NULL) {
+        // Mark the old object as freed _before_ writing the new object to the
+        // log. If we do it afterwards, the LogCleaner could be triggered and
+        // `o' could be reclaimed before log->append() returns. The subsequent
+        // free then breaks, as that Segment may have been cleaned.
+        log->free(o);
+
+        uint64_t segmentId = log->getSegmentId(o);
+        ObjectTombstone tomb(segmentId, o);
+        const void *p = log->append(LOG_ENTRY_TYPE_OBJTOMB,
+            &tomb, sizeof(tomb));
+        assert(p != NULL);
+    }
 
     const Object *objp = (const Object *)log->append(
-        LOG_ENTRY_TYPE_OBJECT, newObject, newObject->size());
+        LOG_ENTRY_TYPE_OBJ, newObject, newObject->size());
     assert(objp != NULL);
     t->Put(id, objp);
 

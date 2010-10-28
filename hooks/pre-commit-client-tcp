@@ -15,7 +15,7 @@ $OBJDIR/coordinator -C $coordinatorLocator > /dev/null 2>&1 &
 $OBJDIR/server -L $masterLocator -C $coordinatorLocator > /dev/null 2>&1 &
 sleep .1
 
-$OBJDIR/client -s $masterLocator > /dev/null 2>&1
+$OBJDIR/client -s $coordinatorLocator > /dev/null 2>&1
 retval=$?
 
 portslay $port

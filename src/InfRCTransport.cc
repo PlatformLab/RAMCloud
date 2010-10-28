@@ -152,6 +152,14 @@ InfRCTransport::InfRCTransport(const ServiceLocator *sl)
         } catch (ServiceLocator::NoSuchKeyException& e) {}
     }
 
+    // Do nothing if we're not specifically configured and there are no
+    // Infiniband interfaces.
+    //
+    // XXX- TransportManager should probably take an exception and
+    //      be sure to ignore this Transport in the future.
+    if (sl == NULL && ibFindDevice(ibDeviceName) == NULL)
+        return;
+
     // Step 1:
     //  Set up the udp socket we use for out-of-band infiniband handshaking. 
 

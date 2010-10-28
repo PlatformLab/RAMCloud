@@ -60,7 +60,7 @@ main(int argc, char* argv[])
     // Set the address for the backup to listen on.
     transportManager.initialize(config.localLocator.c_str());
 
-    SingleFileStorage storage(SEGMENT_SIZE, 16, "backup.log", 0);
+    SingleFileStorage storage(Segment::SEGMENT_SIZE, 16, "backup.log", 0);
     BackupServer server(config, storage);
     server.run();
 

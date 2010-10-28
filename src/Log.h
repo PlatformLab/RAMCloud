@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009, 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,96 +13,91 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// RAMCloud pragma [CPPLINT=0]
+
 #ifndef RAMCLOUD_LOG_H
 #define RAMCLOUD_LOG_H
 
-#include "Common.h"
+#include <stdint.h>
+#include <boost/unordered_map.hpp>
+#include <vector>
 
-#include "Object.h"
 #include "LogTypes.h"
 #include "Segment.h"
-#include "BackupClient.h"
+
+using boost::unordered_map;
+using std::vector;
 
 namespace RAMCloud {
 
-struct LogEntry {
-    uint32_t  type;
-    uint32_t  length;
-};
+// forward decl around the circular Log/LogCleaner dependency
+class LogCleaner;
 
-struct SegmentHeader {
-    uint64_t id;
-};
+typedef void (*LogSegmentCallback)(Segment *, void *);
+typedef unordered_map<LogEntryType, LogTypeCallback *> CallbackMap;
+typedef unordered_map<uint64_t, Segment *> ActiveIdMap;
+typedef unordered_map<const void *, Segment *> BaseAddressMap;
 
-struct SegmentChecksum {
-    uint64_t checksum;
+/**
+ * An exception that is thrown when the Log class is provided invalid
+ * method arguments.
+ */
+struct LogException : public Exception {
+    LogException() : Exception() {}
+    explicit LogException(std::string msg) : Exception(msg) {}
+    explicit LogException(int errNo) : Exception(errNo) {}
 };
-
-class LogEntryIterator {
-  public:
-    explicit LogEntryIterator(const Segment *s);
-    bool getNextAndOffset(const struct LogEntry **le,
-                          const void **p,
-                          uint64_t *offset);
-    bool getNext(const struct LogEntry **le, const void **p);
-  private:
-    const Segment *segment;
-    const struct LogEntry *next;
-    DISALLOW_COPY_AND_ASSIGN(LogEntryIterator);
-};
-
-typedef void (*LogEvictionCallback)(LogEntryType, const void *,
-                                    const uint64_t, void *);
-typedef void (*LogEntryCallback)(LogEntryType,
-                                 const void *, const uint64_t, void *);
 
 class Log {
   public:
-    Log(const uint64_t, void *, const uint64_t, BackupClient *);
-    ~Log() {}
-    const void *append(LogEntryType, const void *, uint64_t);
-    void        free(LogEntryType, const void *, uint64_t);
-    void        registerType(LogEntryType, LogEvictionCallback, void *);
-    void        printStats();
-    uint64_t    getMaximumAppend();
-    void        init();
-    bool        isSegmentLive(uint64_t) const;
-    void        getSegmentIdOffset(const void *, uint64_t *, uint32_t *) const;
+    Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity);
+    ~Log();
+    const void *append(LogEntryType type,
+                       const void *buffer, uint64_t length);
+    void        free(const void *p);
+    void        registerType(LogEntryType type,
+                             log_eviction_cb_t evictionCB, void *evictionArg);
+    uint64_t    getSegmentId(const void *p);
+    bool        isSegmentLive(uint64_t segmentId) const;
+    void        forEachSegment(LogSegmentCallback cb, uint64_t limit,
+                               void *cookie) const;
+    uint64_t    getMaximumAppendableBytes() const;
 
   private:
-    void        clean(void);
-    bool        newHead();
-    void        checksumHead();
-    void        retireHead();
-    const void *appendAnyType(LogEntryType, const void *, uint64_t);
+    void        addSegmentMemory(void *p);
+    void        addToActiveMaps(Segment *s);
+    void        eraseFromActiveMaps(Segment *s);
+    void        addToFreeList(void *p);
+    void       *getFromFreeList();
     uint64_t    allocateSegmentId();
-    LogEvictionCallback getEvictionCallback(LogEntryType, void **);
-    Segment    *getSegment(const void *, uint64_t) const;
+    const void *getSegmentBaseAddress(const void *p);
 
-    struct {
-        LogEvictionCallback cb;
-        LogEntryType  type;
-        void *cookie;
-    } callbacks[10];
-    int      numCallbacks;
+    uint64_t       logId;
+    uint64_t       logCapacity;
+    uint64_t       segmentCapacity;
+    vector<void *> segmentFreeList;
+    uint64_t       nextSegmentId;
+    uint64_t       maximumAppendableBytes;
+    LogCleaner    *cleaner;
 
-    uint64_t nextSegmentId;  // next segment Id
-    uint64_t maxAppend;      // max bytes append() can ever take
-    uint64_t segmentSize;    // size of each segment in bytes
-    void    *base;           // base of all segments
-    Segment **segments;      // array of all segments
-    Segment *head;           // head of the log
-    Segment *freeList;       // free (utilization == 0) segments
-    uint64_t nsegments;      // total number of segments in the system
-    uint64_t nFreeList;      // number of segments in free list
-    uint64_t bytesStored;    // bytes stored in the log (non-metadata only)
-    bool     cleaning;       // presently cleaning the log
-    BackupClient *backup;
+    /// Current head of the log
+    Segment *head;
+
+    /// Per-LogEntryType callbacks (e.g. for eviction)
+    CallbackMap callbackMap;
+
+    /// Segment Id -> Segment * lookup within the active list
+    ActiveIdMap activeIdMap;
+
+    /// Segment base address -> Segment * lookup within the active list
+    BaseAddressMap activeBaseAddressMap;
+
+    DISALLOW_COPY_AND_ASSIGN(Log);
 
     friend class LogTest;
-    DISALLOW_COPY_AND_ASSIGN(Log);
+    friend class LogCleaner;
 };
 
 } // namespace
 
-#endif // !_LOG_H_
+#endif // !RAMCLOUD_LOG_H

@@ -22,6 +22,8 @@
 #include <string.h>
 #include "TestUtil.h"
 
+using namespace RAMCloud;
+
 // The following code extends CppUnit to enable CPPUNIT_ASSERT_EQUAL
 // to be used on some additional combinations of types that aren't
 // supported by default.
@@ -99,11 +101,9 @@ void
 assertEquals(uint64_t expected, const uint64_t actual,
         SourceLine sourceLine, const std::string &message) {
     if (expected != actual) {
-        char buf1[40], buf2[40];
-        snprintf(buf1, sizeof(buf1), "%ld (0x%lx)", expected, expected);
-        snprintf(buf2, sizeof(buf2), "%ld (0x%lx)", actual, actual);
-        Asserter::failNotEqual(std::string(buf1), std::string(buf2),
-                sourceLine, message);
+        string s1(format("%ld (0x%lx)", expected, expected));
+        string s2(format("%ld (0x%lx)", actual, actual));
+        Asserter::failNotEqual(s1, s2, sourceLine, message);
     }
 }
 
@@ -117,11 +117,9 @@ void
 assertEquals(void* expected, const void* actual,
         SourceLine sourceLine, const std::string &message) {
     if (expected != actual) {
-        char buf1[20], buf2[20];
-        snprintf(buf1, sizeof(buf1), "%p", expected);
-        snprintf(buf2, sizeof(buf2), "%p", actual);
-        Asserter::failNotEqual(std::string(buf1), std::string(buf2),
-                sourceLine, message);
+        string s1(format("%p", expected));
+        string s2(format("%p", actual));
+        Asserter::failNotEqual(s1, s2, sourceLine, message);
     }
 }
 
@@ -165,18 +163,14 @@ friendlyRegerror(int errorCode, const regex_t* storage)
  */
 void
 convertChar(char c, string *out) {
-    if ((c >= 0x20) && (c < 0x7f) && (c != '"') && (c != '\\')) {
+    if ((c >= 0x20) && (c < 0x7f) && (c != '"') && (c != '\\'))
         out->append(&c, 1);
-    } else if (c == '\0') {
+    else if (c == '\0')
         out->append("/0");
-    } else if (c == '\n') {
+    else if (c == '\n')
         out->append("/n");
-    } else {
-        char temp[20];
-        uint32_t value = c & 0xff;
-        snprintf(temp, sizeof(temp), "/x%02x", value);
-        out->append(temp);
-    }
+    else
+        out->append(format("/x%02x", c & 0xff));
 }
 
 /**
@@ -193,7 +187,6 @@ toString(const char *buf, uint32_t length)
 {
     string s;
     uint32_t i = 0;
-    char temp[20];
     const char* separator = "";
 
     // Each iteration through the following loop processes a piece
@@ -207,10 +200,9 @@ toString(const char *buf, uint32_t length)
             const char *p = &buf[i];
             if ((p[0] < ' ') || (p[1] < ' ')) {
                 int value = *reinterpret_cast<const int*>(p);
-                snprintf(temp, sizeof(temp),
-                        ((value > 10000) || (value < -1000)) ? "0x%x" : "%d",
-                        value);
-                s.append(temp);
+                s.append(format(
+                    ((value > 10000) || (value < -1000)) ? "0x%x" : "%d",
+                    value));
                 i += 4;
                 continue;
             }
@@ -272,7 +264,6 @@ bufferToDebugString(Buffer* buffer)
     // to display from each chunk.
     static const uint32_t CHUNK_LIMIT = 20;
     const char *separator = "";
-    char temp[20];
     uint32_t chunkLength;
     string s;
 
@@ -288,8 +279,7 @@ bufferToDebugString(Buffer* buffer)
             if (i >= CHUNK_LIMIT) {
                 // This chunk is too big to print in its entirety;
                 // just print a count of the remaining characters.
-                snprintf(temp, sizeof(temp), "(+%d chars)", chunkLength-i);
-                s.append(temp);
+                s.append(format("(+%d chars)", chunkLength-i));
                 break;
             }
             convertChar(chunk[i], &s);

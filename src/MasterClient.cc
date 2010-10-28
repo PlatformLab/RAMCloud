@@ -1,3 +1,4 @@
+
 /* Copyright (c) 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -13,28 +14,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "RamCloudClient.h"
+#include "MasterClient.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
 
 // Default RejectRules to use if none are provided by the caller.
 RejectRules defaultRejectRules;
-
-/**
- * Construct a RamCloudClient for a particular service: opens a connection with the
- * service.
- *
- * \param serviceLocator
- *      The service locator for the master (later this will be for the
- *      coordinator).
- *      See \ref ServiceLocatorStrings.
- * \exception CouldntConnectException
- *      Couldn't connect to the server.
- */
-RamCloudClient::RamCloudClient(const char* serviceLocator)
-        : session(transportManager.getSession(serviceLocator)),
-          objectFinder(session) { }
 
 /**
  * Create a new object in a table, with an id assigned by the server.
@@ -61,7 +47,7 @@ RamCloudClient::RamCloudClient(const char* serviceLocator)
  * \exception InternalError
  */
 uint64_t
-RamCloudClient::create(uint32_t tableId, const void* buf, uint32_t length,
+MasterClient::create(uint32_t tableId, const void* buf, uint32_t length,
         uint64_t* version)
 {
     Buffer req, resp;
@@ -69,8 +55,8 @@ RamCloudClient::create(uint32_t tableId, const void* buf, uint32_t length,
     reqHdr.tableId = tableId;
     reqHdr.length = length;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
-    Transport::SessionRef master(objectFinder.lookupHead(tableId));
-    const CreateRpc::Response& respHdr(sendRecv<CreateRpc>(master, req, resp));
+    const CreateRpc::Response& respHdr(
+        sendRecv<CreateRpc>(session, req, resp));
     if (version != NULL)
         *version = respHdr.version;
     checkStatus();
@@ -87,7 +73,7 @@ RamCloudClient::create(uint32_t tableId, const void* buf, uint32_t length,
  * \exception InternalError
  */
 void
-RamCloudClient::createTable(const char* name)
+MasterClient::createTable(const char* name)
 {
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
@@ -112,7 +98,7 @@ RamCloudClient::createTable(const char* name)
  * \exception InternalError
  */
 void
-RamCloudClient::dropTable(const char* name)
+MasterClient::dropTable(const char* name)
 {
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
@@ -139,7 +125,7 @@ RamCloudClient::dropTable(const char* name)
  * \exception InternalError
  */
 uint32_t
-RamCloudClient::openTable(const char* name)
+MasterClient::openTable(const char* name)
 {
     Buffer req, resp;
     uint32_t length = strlen(name) + 1;
@@ -162,7 +148,7 @@ RamCloudClient::openTable(const char* name)
  * \exception InternalError
  */
 void
-RamCloudClient::ping()
+MasterClient::ping()
 {
     Buffer req, resp;
     allocHeader<PingRpc>(req);
@@ -192,27 +178,23 @@ RamCloudClient::ping()
  * \exception InternalError
  */
 void
-RamCloudClient::read(uint32_t tableId, uint64_t id, Buffer* value,
+MasterClient::read(uint32_t tableId, uint64_t id, Buffer* value,
         const RejectRules* rejectRules, uint64_t* version)
 {
+    value->reset();
     Buffer req;
-    uint32_t length;
     ReadRpc::Request& reqHdr(allocHeader<ReadRpc>(req));
     reqHdr.id = id;
     reqHdr.tableId = tableId;
     reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Transport::SessionRef master(objectFinder.lookup(tableId, id));
-    const ReadRpc::Response& respHdr(sendRecv<ReadRpc>(master, req, *value));
+    const ReadRpc::Response& respHdr(sendRecv<ReadRpc>(session, req, *value));
     if (version != NULL)
         *version = respHdr.version;
-    length = respHdr.length;
 
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
     value->truncateFront(sizeof(respHdr));
-    uint32_t extra = value->getTotalLength() - length;
-    if (extra > 0)
-        value->truncateEnd(extra);
+    assert(respHdr.length == value->getTotalLength());
     checkStatus();
 }
 
@@ -239,7 +221,7 @@ RamCloudClient::read(uint32_t tableId, uint64_t id, Buffer* value,
  * \exception InternalError
  */
 void
-RamCloudClient::remove(uint32_t tableId, uint64_t id,
+MasterClient::remove(uint32_t tableId, uint64_t id,
         const RejectRules* rejectRules, uint64_t* version)
 {
     Buffer req, resp;
@@ -247,8 +229,7 @@ RamCloudClient::remove(uint32_t tableId, uint64_t id,
     reqHdr.id = id;
     reqHdr.tableId = tableId;
     reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Transport::SessionRef master(objectFinder.lookup(tableId, id));
-    const RemoveRpc::Response& respHdr(sendRecv<RemoveRpc>(master, req, resp));
+    const RemoveRpc::Response& respHdr(sendRecv<RemoveRpc>(session, req, resp));
     if (version != NULL)
         *version = respHdr.version;
     checkStatus();
@@ -286,7 +267,7 @@ RamCloudClient::remove(uint32_t tableId, uint64_t id,
  * \exception InternalError
  */
 void
-RamCloudClient::write(uint32_t tableId, uint64_t id,
+MasterClient::write(uint32_t tableId, uint64_t id,
                       const void* buf, uint32_t length,
                       const RejectRules* rejectRules, uint64_t* version)
 {
@@ -297,8 +278,7 @@ RamCloudClient::write(uint32_t tableId, uint64_t id,
     reqHdr.length = length;
     reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
-    Transport::SessionRef master(objectFinder.lookup(tableId, id));
-    const WriteRpc::Response& respHdr(sendRecv<WriteRpc>(master, req, resp));
+    const WriteRpc::Response& respHdr(sendRecv<WriteRpc>(session, req, resp));
     if (version != NULL)
         *version = respHdr.version;
     checkStatus();

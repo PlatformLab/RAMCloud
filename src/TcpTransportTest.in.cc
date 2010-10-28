@@ -80,7 +80,6 @@ class SocketTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_Socket_destructor);
     CPPUNIT_TEST(test_MessageSocket_recv0);
     CPPUNIT_TEST(test_MessageSocket_recv8);
-    CPPUNIT_TEST(test_MessageSocket_recv_clearPayload);
     CPPUNIT_TEST(test_MessageSocket_recv_hdrError);
     CPPUNIT_TEST(test_MessageSocket_recv_hdrPeerClosed);
     CPPUNIT_TEST(test_MessageSocket_recv_msgTooLong);
@@ -179,42 +178,6 @@ class SocketTest : public CppUnit::TestFixture {
         END_MOCK();
 
         Buffer payload;
-        {
-            TS ts;
-            TcpTransport::sys = &ts;
-
-            XMessageSocket s;
-            s.fd = 10;
-            s.recv(&payload);
-        }
-        CPPUNIT_ASSERT(payload.getTotalLength() == 8);
-        const uint64_t* data = payload.getStart<uint64_t>();
-        CPPUNIT_ASSERT(*data == 0x0123456789abcdef);
-    }
-
-    // 8-byte message, but payload starts off with garbage that must
-    // be cleared.
-    void test_MessageSocket_recv_clearPayload() {
-        BEGIN_MOCK(TS, SyscallsStub);
-            recv(sockfd == 10, buf, len == sizeof(TcpTransport::Header), \
-                 flags == MSG_WAITALL) {
-                TcpTransport::Header* header;
-                header = static_cast<TcpTransport::Header*>(buf);
-                header->len = 8;
-                return len;
-            }
-            recv(sockfd == 10, buf, len == 8, flags == MSG_WAITALL) {
-                *static_cast<uint64_t*>(buf) = 0x0123456789abcdef;
-                return 8;
-            }
-            close(fd == 10) {
-                return 0;
-            }
-        END_MOCK();
-
-        Buffer payload;
-        const char *junk = "initial garbage";
-        memcpy(new(&payload, APPEND) char[strlen(junk)], junk, strlen(junk));
         {
             TS ts;
             TcpTransport::sys = &ts;

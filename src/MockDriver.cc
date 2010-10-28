@@ -107,9 +107,7 @@ MockDriver::sendPacket(const Address *addr,
         outputLog += toString(buf, length);
     } else {
         outputLog += toString(buf, take);
-        char tmp[50];
-        snprintf(tmp, sizeof(tmp), " (+%u more)", length - take);
-        outputLog += tmp;
+        outputLog += format(" (+%u more)", length - take);
     }
 }
 
