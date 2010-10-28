@@ -130,14 +130,10 @@ class LogTest : public CppUnit::TestFixture {
     {
         Log l(57, 1 * 8192, 8192);
 
-        bool threwException = false;
         l.registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL);
-        try {
-            l.registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL);
-        } catch (...) {
-            threwException = true;
-        }
-        CPPUNIT_ASSERT_EQUAL(true, threwException);
+        CPPUNIT_ASSERT_THROW(
+            l.registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL),
+            LogException);
 
         LogTypeCallback *cb = l.callbackMap[LOG_ENTRY_TYPE_OBJ];
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, cb->type);

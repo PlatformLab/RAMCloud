@@ -656,13 +656,7 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
     test_getReply_aborted()
     {
         rpc->state = ClientRpc::ABORTED;
-        bool threw = false;
-        try {
-            rpc->getReply();
-        } catch (TransportException& e) {
-            threw = true;
-        }
-        CPPUNIT_ASSERT(threw);
+        CPPUNIT_ASSERT_THROW(rpc->getReply(), TransportException);
     }
 
   private:

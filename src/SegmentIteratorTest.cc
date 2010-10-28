@@ -45,6 +45,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
     test_constructor()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
+        memset(alignedBuf, 0, sizeof(alignedBuf));
 
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
 
@@ -72,28 +73,21 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(si2.baseAddress, (const void *)si2.currentEntry);
         CPPUNIT_ASSERT_EQUAL(false, si2.sawFooter);
 
-        bool threwException = false;
-        try {
-            SegmentIterator si3(alignedBuf, sizeof(alignedBuf) - 1);
-        } catch (...) {
-            threwException = true;
-        }
-        CPPUNIT_ASSERT(threwException);
+        CPPUNIT_ASSERT_THROW(
+            SegmentIterator si3(alignedBuf, sizeof(alignedBuf) - 1),
+            SegmentIteratorException);
 
-        threwException = false;
         memset(alignedBuf, 0, sizeof(SegmentEntry));
-        try {
-            SegmentIterator si3(alignedBuf, sizeof(alignedBuf));
-        } catch (...) {
-            threwException = true;
-        }
-        CPPUNIT_ASSERT(threwException);
+        CPPUNIT_ASSERT_THROW(
+            SegmentIterator si3(alignedBuf, sizeof(alignedBuf)),
+            SegmentIteratorException);
     }
 
     void
     test_isEntryValid()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
+        memset(alignedBuf, 0, sizeof(alignedBuf));
 
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
         SegmentIterator si(&s);
@@ -112,6 +106,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
     test_isDone()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
+        memset(alignedBuf, 0, sizeof(alignedBuf));
 
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
         SegmentIterator si(&s);
@@ -131,6 +126,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
     test_next()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
+        memset(alignedBuf, 0, sizeof(alignedBuf));
 
         {
             Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
@@ -181,6 +177,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
     test_getters()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
+        memset(alignedBuf, 0, sizeof(alignedBuf));
 
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
         SegmentIterator si(&s);
@@ -193,69 +190,35 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
             (uintptr_t)si.baseAddress, si.getOffset());
 
         si.currentEntry = NULL;
-        bool threwException = false;
-        try {
-            LogEntryType t = si.getType();
-            (void)t;
-        } catch (...) {
-            threwException = true;
-        }
-        CPPUNIT_ASSERT(threwException);
-
-        threwException = false;
-        try {
-            uint64_t l = si.getLength();
-            (void)l;
-        } catch (...) {
-            threwException = true;
-        }
-        CPPUNIT_ASSERT(threwException);
-
-        threwException = false;
-        try {
-            const void *p = si.getPointer();
-            (void)p;
-        } catch (...) {
-            threwException = true;
-        }
-        CPPUNIT_ASSERT(threwException);
-
-        threwException = false;
-        try {
-            uint64_t o = si.getOffset();
-            (void)o;
-        } catch (...) {
-            threwException = true;
-        }
-        CPPUNIT_ASSERT(threwException);
+        CPPUNIT_ASSERT_THROW(si.getType(), SegmentIteratorException);
+        CPPUNIT_ASSERT_THROW(si.getLength(), SegmentIteratorException);
+        CPPUNIT_ASSERT_THROW(si.getPointer(), SegmentIteratorException);
+        CPPUNIT_ASSERT_THROW(si.getType(), SegmentIteratorException);
     }
 
     void
     test_isChecksumValid()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
+        memset(alignedBuf, 0, sizeof(alignedBuf));
+        memset(alignedBuf, 0, sizeof(alignedBuf));
 
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
 
-        bool threwException = false;
-        try {
-            SegmentIterator i(&s);
-            CPPUNIT_ASSERT_EQUAL(true, i.isChecksumValid());
-        } catch (...) {
-            threwException = true;
-        }
-        CPPUNIT_ASSERT_EQUAL(true, threwException);
+        SegmentIterator i(&s);
+        CPPUNIT_ASSERT_THROW(i.isChecksumValid(), SegmentIteratorException);
 
         s.close();
 
-        SegmentIterator i(&s);
-        CPPUNIT_ASSERT_EQUAL(true, i.isChecksumValid());
+        SegmentIterator i2(&s);
+        CPPUNIT_ASSERT_EQUAL(true, i2.isChecksumValid());
     }
 
     void
     test_generateChecksum()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
+        memset(alignedBuf, 0, sizeof(alignedBuf));
 
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
         s.close();
