@@ -79,7 +79,7 @@ class SegmentIterator {
 
 #define u64 uint64_t
 
-            const uint8_t *p = reinterpret_cast<uint8_t *>(&e);
+            const uint8_t *p = reinterpret_cast<const uint8_t *>(&e);
             for (u64 j = 0; j < sizeof(e) && offset < stopOffset; j++, offset++)
                 checksum = rabinPoly.append8(checksum, p[j]);
 
@@ -87,7 +87,7 @@ class SegmentIterator {
             if (type == LOG_ENTRY_TYPE_SEGFOOTER)
                 break;
 
-            p = reinterpret_cast<uint8_t *>(i.getPointer());
+            p = reinterpret_cast<const uint8_t *>(i.getPointer());
             for (u64 j = 0; j < length && offset < stopOffset; j++, offset++)
                 checksum = rabinPoly.append8(checksum, p[j]);
 

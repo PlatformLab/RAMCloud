@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [GCCWARN=5]
-
 #include "TestUtil.h"
 
 #include "Segment.h"
