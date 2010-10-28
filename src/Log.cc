@@ -14,7 +14,6 @@
  */
 
 // RAMCloud pragma [GCCWARN=5]
-// RAMCloud pragma [CPPLINT=0]
 
 #include <assert.h>
 #include <stdint.h>
@@ -56,7 +55,7 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity)
 
     uint64_t numSegments = logCapacity / segmentCapacity;
     for (uint64_t i = 0; i < numSegments; i++) {
-        void *p = xmemalign(segmentCapacity, segmentCapacity);    
+        void *p = xmemalign(segmentCapacity, segmentCapacity);
         addSegmentMemory(p);
     }
 }
@@ -245,7 +244,7 @@ Log::forEachSegment(LogSegmentCallback cb, uint64_t limit, void *cookie) const
         cb(it->second, cookie);
         i++, it++;
     }
-} 
+}
 
 /**
  * Obtain the maximum number of bytes that can ever be appended to the
@@ -300,7 +299,7 @@ Log::addToActiveMaps(Segment *s)
 void
 Log::eraseFromActiveMaps(Segment *s)
 {
-    activeIdMap.erase(s->getId()); 
+    activeIdMap.erase(s->getId());
     activeBaseAddressMap.erase(s->getBaseAddress());
 }
 

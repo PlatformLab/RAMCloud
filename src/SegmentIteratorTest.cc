@@ -14,7 +14,6 @@
  */
 
 // RAMCloud pragma [GCCWARN=5]
-// RAMCloud pragma [CPPLINT=0]
 
 #include "TestUtil.h"
 
@@ -57,8 +56,8 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(98765, si.id);
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, si.type);
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), si.length);
-        CPPUNIT_ASSERT_EQUAL((char *)si.baseAddress + sizeof(SegmentEntry),
-            si.blobPtr);
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<const char *>(si.baseAddress) +
+            sizeof(SegmentEntry), reinterpret_cast<const char *>(si.blobPtr));
         CPPUNIT_ASSERT_EQUAL(si.baseAddress, (const void *)si.firstEntry);
         CPPUNIT_ASSERT_EQUAL(si.baseAddress, (const void *)si.currentEntry);
         CPPUNIT_ASSERT_EQUAL(false, si.sawFooter);
@@ -69,8 +68,8 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(-1, si2.id);
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, si2.type);
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), si2.length);
-        CPPUNIT_ASSERT_EQUAL((char *)si2.baseAddress + sizeof(SegmentEntry),
-            si2.blobPtr);
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<const char *>(si2.baseAddress) +
+            sizeof(SegmentEntry), reinterpret_cast<const char *>(si2.blobPtr));
         CPPUNIT_ASSERT_EQUAL(si2.baseAddress, (const void *)si2.firstEntry);
         CPPUNIT_ASSERT_EQUAL(si2.baseAddress, (const void *)si2.currentEntry);
         CPPUNIT_ASSERT_EQUAL(false, si2.sawFooter);
@@ -101,7 +100,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
         SegmentIterator si(&s);
 
-        SegmentEntry *se = (SegmentEntry *)alignedBuf;
+        SegmentEntry *se = reinterpret_cast<SegmentEntry *>(alignedBuf);
         CPPUNIT_ASSERT_EQUAL(true, si.isEntryValid(se));
 
         se->length = sizeof(alignedBuf) - sizeof(SegmentEntry);
@@ -125,7 +124,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(true, si.isDone());
 
         si.sawFooter = false;
-        SegmentEntry *se = (SegmentEntry *)alignedBuf;
+        SegmentEntry *se = reinterpret_cast<SegmentEntry *>(alignedBuf);
         se->length = sizeof(alignedBuf) + 1;
         CPPUNIT_ASSERT_EQUAL(true, si.isDone());
     }
@@ -139,7 +138,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
             Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
             SegmentIterator si(&s);
 
-            si.currentEntry = NULL; 
+            si.currentEntry = NULL;
             si.next();
             CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_INVALID, si.type);
             CPPUNIT_ASSERT_EQUAL(0, si.length);
@@ -151,7 +150,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
             SegmentIterator si(&s);
 
             SegmentEntry *se = const_cast<SegmentEntry *>(si.currentEntry);
-            se->type = LOG_ENTRY_TYPE_SEGFOOTER; 
+            se->type = LOG_ENTRY_TYPE_SEGFOOTER;
             si.next();
             CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_INVALID, si.type);
             CPPUNIT_ASSERT_EQUAL(0, si.length);
@@ -164,7 +163,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
             SegmentIterator si(&s);
 
             SegmentEntry *se = const_cast<SegmentEntry *>(si.currentEntry);
-            se->length = sizeof(alignedBuf) + 1; 
+            se->length = sizeof(alignedBuf) + 1;
             si.next();
             CPPUNIT_ASSERT_EQUAL(NULL, si.currentEntry);
         }

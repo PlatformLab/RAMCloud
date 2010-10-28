@@ -14,7 +14,6 @@
  */
 
 // RAMCloud pragma [GCCWARN=5]
-// RAMCloud pragma [CPPLINT=0]
 
 #include <assert.h>
 #include <stdint.h>
@@ -104,7 +103,7 @@ void
 Segment::free(const void *p)
 {
     assert((uintptr_t)p >= ((uintptr_t)baseAddress + sizeof(SegmentEntry)));
-    assert((uintptr_t)p <  ((uintptr_t)baseAddress + capacity)); 
+    assert((uintptr_t)p <  ((uintptr_t)baseAddress + capacity));
 
     const SegmentEntry *entry = (const SegmentEntry *)
         ((const uintptr_t)p - sizeof(SegmentEntry));
@@ -244,8 +243,8 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length,
     assert((tail + length) <= capacity);
     assert(!closed);
 
-    uint8_t *src = (uint8_t *)buffer;
-    uint8_t *dst = (uint8_t *)baseAddress + tail;
+    const uint8_t *src = reinterpret_cast<const uint8_t *>(buffer);
+    uint8_t       *dst = reinterpret_cast<uint8_t *>(baseAddress) + tail;
 
     if (updateChecksum) {
         for (uint64_t i = 0; i < length; i++) {
@@ -257,7 +256,7 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length,
     }
 
     tail += length;
-    return (void *)dst;
+    return reinterpret_cast<void *>(dst);
 }
 
 /**

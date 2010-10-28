@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// RAMCloud pragma [CPPLINT=0]
-
 /**
  * \file
  * Implementation of an Infiniband reliable transport layer using reliable
@@ -61,7 +59,7 @@
 #include "InfRCTransport.h"
 #include "ServiceLocator.h"
 
-#define check_error_null(x,s)                               \
+#define check_error_null(x, s)                              \
     do {                                                    \
         if ((x) == NULL) {                                  \
             LOG(ERROR, "%s: %s", __func__, s);              \
@@ -161,7 +159,7 @@ InfRCTransport::InfRCTransport(const ServiceLocator *sl)
         return;
 
     // Step 1:
-    //  Set up the udp socket we use for out-of-band infiniband handshaking. 
+    //  Set up the udp socket we use for out-of-band infiniband handshaking.
 
     setupSocket = socket(PF_INET, SOCK_DGRAM, 0);
     if (setupSocket == -1) {
@@ -169,7 +167,7 @@ InfRCTransport::InfRCTransport(const ServiceLocator *sl)
         throw TransportException("socket failed");
     }
 
-    // If this is a server socket, bind it. 
+    // If this is a server socket, bind it.
     // For clients, the kernel will automatically assign a dynamic port
     // upon the first transmission.
     if (sl != NULL) {
@@ -178,7 +176,7 @@ InfRCTransport::InfRCTransport(const ServiceLocator *sl)
         sin.sin_port   = htons(udpListenPort);
         sin.sin_addr.s_addr = INADDR_ANY;
 
-        if (bind(setupSocket, (sockaddr *)&sin, sizeof(sin))) {
+        if (bind(setupSocket, reinterpret_cast<sockaddr *>(&sin), sizeof(sin))){
             close(setupSocket);
             LOG(ERROR, "%s: failed to bind socket", __func__);
             throw TransportException("socket failed");
@@ -201,13 +199,13 @@ InfRCTransport::InfRCTransport(const ServiceLocator *sl)
     //  Set up the initial verbs necessities: open the device, allocate
     //  protection domain, create shared receive queue, register buffers.
 
-	dev = ibFindDevice(ibDeviceName);
+    dev = ibFindDevice(ibDeviceName);
     check_error_null(dev, "failed to find infiniband device");
 
-	ctxt = ibv_open_device(dev);
+    ctxt = ibv_open_device(dev);
     check_error_null(ctxt, "failed to open infiniband device");
 
-	pd = ibv_alloc_pd(ctxt);
+    pd = ibv_alloc_pd(ctxt);
     check_error_null(pd, "failed to allocate infiniband pd");
 
     // create a shared receive queue. all queue pairs use this and we
@@ -231,12 +229,12 @@ InfRCTransport::InfRCTransport(const ServiceLocator *sl)
     for (uint32_t i = 0; i < MAX_TX_QUEUE_DEPTH; i++)
         txBuffers[i] = allocateBufferDescriptorAndRegister();
 
-	// create completion queues for receive and transmit
-	rxcq = ibv_create_cq(ctxt, MAX_SHARED_RX_QUEUE_DEPTH,
+    // create completion queues for receive and transmit
+    rxcq = ibv_create_cq(ctxt, MAX_SHARED_RX_QUEUE_DEPTH,
         NULL, NULL, 0);
     check_error_null(rxcq, "failed to create receive completion queue");
 
-	txcq = ibv_create_cq(ctxt, MAX_TX_QUEUE_DEPTH, NULL, NULL, 0);
+    txcq = ibv_create_cq(ctxt, MAX_TX_QUEUE_DEPTH, NULL, NULL, 0);
     check_error_null(txcq, "failed to create receive completion queue");
 }
 
@@ -335,7 +333,7 @@ InfRCTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
     request->copy(0, request->getTotalLength(), bd->buffer);
     t->ibPostSendAndWait(qp, bd, request->getTotalLength());
 
-    // construct in the response Buffer 
+    // construct in the response Buffer
     //
     // we do this because we're loaning one of our registered receive buffers
     // to the caller of getReply() and need to issue it back to the HCA when
@@ -370,7 +368,7 @@ InfRCTransport::clientTrySetupQueuePair(const char* ip, int port)
         qp->getInitialPsn());
 
     ssize_t len = sendto(setupSocket, &outgoingQpt, sizeof(outgoingQpt), 0,
-        (sockaddr *)&sin, sizeof(sin));
+        reinterpret_cast<sockaddr *>(&sin), sizeof(sin));
     if (len != sizeof(outgoingQpt)) {
         LOG(ERROR, "%s: sendto was short: %Zd", __func__, len);
         delete qp;
@@ -380,7 +378,7 @@ InfRCTransport::clientTrySetupQueuePair(const char* ip, int port)
     QueuePairTuple incomingQpt;
     socklen_t sinlen = sizeof(sin);
     len = recvfrom(setupSocket, &incomingQpt, sizeof(incomingQpt), 0,
-        (sockaddr *)&sin, &sinlen);
+        reinterpret_cast<sockaddr *>(&sin), &sinlen);
     if (len != sizeof(incomingQpt)) {
         LOG(ERROR, "%s: recvfrom was short: %Zd", __func__, len);
         delete qp;
@@ -411,7 +409,7 @@ InfRCTransport::serverTrySetupQueuePair()
     QueuePairTuple incomingQpt;
 
     ssize_t len = recvfrom(setupSocket, &incomingQpt,
-        sizeof(incomingQpt), 0, (sockaddr *)&sin, &sinlen);
+        sizeof(incomingQpt), 0, reinterpret_cast<sockaddr *>(&sin), &sinlen);
     if (len <= -1) {
         if (errno == EAGAIN)
             return;
@@ -422,7 +420,7 @@ InfRCTransport::serverTrySetupQueuePair()
         LOG(WARNING, "%s: recvfrom got a strange incoming size: %Zd",
             __func__, len);
         return;
-    } 
+    }
 
     // create a new queue pair, set it up according to our client's parameters,
     // and feed back our lid, qpn, and psn information so they can complete
@@ -440,7 +438,7 @@ InfRCTransport::serverTrySetupQueuePair()
     QueuePairTuple outgoingQpt(ibGetLid(), qp->getLocalQpNumber(),
         qp->getInitialPsn());
     len = sendto(setupSocket, &outgoingQpt, sizeof(outgoingQpt), 0,
-        (sockaddr *)&sin, sinlen);
+        reinterpret_cast<sockaddr *>(&sin), sinlen);
     if (len != sizeof(outgoingQpt)) {
         LOG(WARNING, "%s: sendto failed, len = %Zd\n", __func__, len);
         delete qp;
@@ -460,21 +458,21 @@ InfRCTransport::serverTrySetupQueuePair()
 ibv_device*
 InfRCTransport::ibFindDevice(const char *name)
 {
-	ibv_device **devices;
+    ibv_device **devices;
 
-	devices = ibv_get_device_list(NULL);
-	if (devices == NULL)
-		return NULL;
+    devices = ibv_get_device_list(NULL);
+    if (devices == NULL)
+        return NULL;
 
-	if (name == NULL)
-		return devices[0];
+    if (name == NULL)
+        return devices[0];
 
-	for (int i = 0; devices[i] != NULL; i++) {
-		if (strcmp(devices[i]->name, name) == 0)
-			return devices[i];
-	}
+    for (int i = 0; devices[i] != NULL; i++) {
+        if (strcmp(devices[i]->name, name) == 0)
+            return devices[i];
+    }
 
-	return NULL;
+    return NULL;
 }
 
 /**
@@ -484,13 +482,13 @@ InfRCTransport::ibFindDevice(const char *name)
 int
 InfRCTransport::ibGetLid()
 {
-	ibv_port_attr ipa;
-	int ret = ibv_query_port(ctxt, ibPhysicalPort, &ipa);
+    ibv_port_attr ipa;
+    int ret = ibv_query_port(ctxt, ibPhysicalPort, &ipa);
     if (ret) {
         LOG(ERROR, "ibv_query_port failed on port %u\n", ibPhysicalPort);
         throw TransportException(ret);
-	}
-	return ipa.lid;
+    }
+    return ipa.lid;
 }
 
 /**
@@ -580,8 +578,7 @@ InfRCTransport::ibPostSendAndWait(QueuePair* qp, BufferDescriptor *bd,
     ibPostSend(qp, bd, length);
 
     ibv_wc wc;
-    while (ibv_poll_cq(txcq, 1, &wc) < 1)
-        ;
+    while (ibv_poll_cq(txcq, 1, &wc) < 1) {}
     if (wc.status != IBV_WC_SUCCESS) {
         LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
             wc.status, wcStatusToString(wc.status));
@@ -600,11 +597,11 @@ InfRCTransport::allocateBufferDescriptorAndRegister()
 
     void *p = xmemalign(4096, getMaxRpcSize());
 
-	ibv_mr *mr = ibv_reg_mr(pd, p, getMaxRpcSize(),
-	    IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
+    ibv_mr *mr = ibv_reg_mr(pd, p, getMaxRpcSize(),
+        IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
     check_error_null(mr, "failed to register ring buffer");
 
-    return BufferDescriptor((char *)p, mr, id++);
+    return BufferDescriptor(reinterpret_cast<char *>(p), mr, id++);
 }
 
 /**
@@ -701,14 +698,13 @@ InfRCTransport::ClientRpc::getReply()
     InfRCTransport *t = transport;
 
     ibv_wc wc;
-    while (ibv_poll_cq(qp->rxcq, 1, &wc) < 1)
-        ;
+    while (ibv_poll_cq(qp->rxcq, 1, &wc) < 1) {}
     if (wc.status != IBV_WC_SUCCESS) {
         LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
             wc.status, wcStatusToString(wc.status));
         transport->ibPostSrqReceive(&t->rxBuffers[t->currentRxBuffer]);
         t->currentRxBuffer = (t->currentRxBuffer + 1) %
-            MAX_SHARED_RX_QUEUE_DEPTH; 
+            MAX_SHARED_RX_QUEUE_DEPTH;
         throw TransportException(wc.status);
     }
 
@@ -718,7 +714,7 @@ InfRCTransport::ClientRpc::getReply()
 
     PayloadChunk::appendToBuffer(response, bd->buffer, wc.byte_len, t, bd);
 
-    t->currentRxBuffer = (t->currentRxBuffer + 1) % MAX_SHARED_RX_QUEUE_DEPTH; 
+    t->currentRxBuffer = (t->currentRxBuffer + 1) % MAX_SHARED_RX_QUEUE_DEPTH;
 }
 
 //-------------------------------------
@@ -800,7 +796,7 @@ InfRCTransport::QueuePair::QueuePair(int ibPhysicalPort, ibv_pd *pd,
         throw TransportException(ret);
     }
 
-    initialPsn = lrand48() & 0xffffff;
+    initialPsn = generateRandom() & 0xffffff;
 }
 
 /**
@@ -873,7 +869,7 @@ InfRCTransport::QueuePair::plumb(QueuePairTuple *qpt)
     }
 
     // the queue pair should be ready to use once the client has finished
-    // setting up their end. 
+    // setting up their end.
 }
 
 /**

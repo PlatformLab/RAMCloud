@@ -14,7 +14,6 @@
  */
 
 // RAMCloud pragma [GCCWARN=5]
-// RAMCloud pragma [CPPLINT=0]
 
 #include <assert.h>
 #include <stdint.h>
@@ -34,8 +33,8 @@ LogCleaner::LogCleaner(Log *log) : log(log)
 static int
 compare(const void *a, const void *b)
 {
-    const Segment *segA = (Segment *)a;
-    const Segment *segB = (Segment *)b;
+    const Segment *segA = reinterpret_cast<const Segment *>(a);
+    const Segment *segB = reinterpret_cast<const Segment *>(b);
 
     if (segA->getUtilisation() < segB->getUtilisation())
         return -1;

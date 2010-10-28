@@ -14,7 +14,6 @@
  */
 
 // RAMCloud pragma [GCCWARN=5]
-// RAMCloud pragma [CPPLINT=0]
 
 #include "TestUtil.h"
 
@@ -96,8 +95,8 @@ class LogTest : public CppUnit::TestFixture {
 
         const void *p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         CPPUNIT_ASSERT_EQUAL(0, l.getSegmentId(p));
-        CPPUNIT_ASSERT_THROW(l.getSegmentId((char *)p + 8192),
-            LogException);
+        CPPUNIT_ASSERT_THROW(l.getSegmentId(
+            reinterpret_cast<const char *>(p) + 8192), LogException);
     }
 
     void
@@ -142,7 +141,8 @@ class LogTest : public CppUnit::TestFixture {
 
         LogTypeCallback *cb = l.callbackMap[LOG_ENTRY_TYPE_OBJ];
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, cb->type);
-        CPPUNIT_ASSERT_EQUAL((void *)evictionCallback, (void *)cb->evictionCB);
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void *>(evictionCallback),
+                             reinterpret_cast<void *>(cb->evictionCB));
         CPPUNIT_ASSERT_EQUAL(NULL, cb->evictionArg);
     }
 
@@ -156,10 +156,18 @@ void
 test_getSegmentBaseAddress()
 {
     Log l(57, 1 * 128, 128);
-    CPPUNIT_ASSERT_EQUAL(128, (uintptr_t)l.getSegmentBaseAddress((void *)128));
-    CPPUNIT_ASSERT_EQUAL(128, (uintptr_t)l.getSegmentBaseAddress((void *)129));
-    CPPUNIT_ASSERT_EQUAL(128, (uintptr_t)l.getSegmentBaseAddress((void *)255));
-    CPPUNIT_ASSERT_EQUAL(256, (uintptr_t)l.getSegmentBaseAddress((void *)256));
+    CPPUNIT_ASSERT_EQUAL(128,
+        reinterpret_cast<uintptr_t>(l.getSegmentBaseAddress(
+        reinterpret_cast<void *>(128))));
+    CPPUNIT_ASSERT_EQUAL(128,
+        reinterpret_cast<uintptr_t>(l.getSegmentBaseAddress(
+        reinterpret_cast<void *>(129))));
+    CPPUNIT_ASSERT_EQUAL(128,
+        reinterpret_cast<uintptr_t>(l.getSegmentBaseAddress(
+        reinterpret_cast<void *>(255))));
+    CPPUNIT_ASSERT_EQUAL(256,
+        reinterpret_cast<uintptr_t>(l.getSegmentBaseAddress(
+        reinterpret_cast<void *>(256))));
 }
 
 };

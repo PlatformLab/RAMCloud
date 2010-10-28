@@ -14,7 +14,6 @@
  */
 
 // RAMCloud pragma [GCCWARN=5]
-// RAMCloud pragma [CPPLINT=0]
 
 #include <assert.h>
 #include <stdint.h>
@@ -88,8 +87,8 @@ SegmentIterator::CommonConstructor()
         throw SegmentIteratorException("no valid SegmentHeader entry found");
     }
 
-    const SegmentHeader *header = (const SegmentHeader *)((char *)baseAddress +
-        sizeof(SegmentEntry));
+    const SegmentHeader *header = reinterpret_cast<const SegmentHeader *>(
+        reinterpret_cast<const char *>(baseAddress) + sizeof(SegmentEntry));
     if (header->segmentCapacity != segmentCapacity) {
         throw SegmentIteratorException("SegmentHeader disagrees with claimed "
             "Segment capacity");
@@ -97,7 +96,7 @@ SegmentIterator::CommonConstructor()
 
     type    = entry->type;
     length  = entry->length;
-    blobPtr = (char *)baseAddress + sizeof(*entry);
+    blobPtr = reinterpret_cast<const char *>(baseAddress) + sizeof(*entry);
 
     currentEntry = firstEntry = entry;
 }
@@ -257,7 +256,8 @@ SegmentIterator::isChecksumValid() const
     if (i.isDone())
         throw SegmentIteratorException("no checksum exists in the Segment");
 
-    const SegmentFooter *f = (SegmentFooter *)i.getPointer();
+    const SegmentFooter *f =
+        reinterpret_cast<const SegmentFooter *>(i.getPointer());
 
     return (f->checksum == SegmentIterator::generateChecksum(baseAddress,
         segmentCapacity));

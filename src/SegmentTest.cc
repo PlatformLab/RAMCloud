@@ -14,7 +14,6 @@
  */
 
 // RAMCloud pragma [GCCWARN=5]
-// RAMCloud pragma [CPPLINT=0]
 
 #include "TestUtil.h"
 
@@ -50,18 +49,20 @@ class SegmentTest : public CppUnit::TestFixture {
         char alignedBuf[8192] __attribute__((aligned(8192)));
 
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
-        CPPUNIT_ASSERT_EQUAL(s.baseAddress, (void *)alignedBuf);
+        CPPUNIT_ASSERT_EQUAL(s.baseAddress,
+                             reinterpret_cast<void *>(alignedBuf));
         CPPUNIT_ASSERT_EQUAL(98765, s.id);
         CPPUNIT_ASSERT_EQUAL(8192, s.capacity);
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentEntry) + sizeof(SegmentHeader),
             s.tail);
         CPPUNIT_ASSERT_EQUAL(0UL, s.bytesFreed);
 
-        SegmentEntry *se = (SegmentEntry *)s.baseAddress;
+        SegmentEntry *se = reinterpret_cast<SegmentEntry *>(s.baseAddress);
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, se->type);
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), se->length);
 
-        SegmentHeader *sh = (SegmentHeader *)((char *)se + sizeof(*se));
+        SegmentHeader *sh = reinterpret_cast<SegmentHeader *>(
+                            reinterpret_cast<char *>(se) + sizeof(*se));
         CPPUNIT_ASSERT_EQUAL(1020304050, sh->logId);
         CPPUNIT_ASSERT_EQUAL(98765, sh->segmentId);
         CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), sh->segmentCapacity);
@@ -93,12 +94,14 @@ class SegmentTest : public CppUnit::TestFixture {
         p = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes);
         CPPUNIT_ASSERT(p != NULL);
 
-        SegmentEntry *se = (SegmentEntry *)((char *)s.baseAddress +
-            sizeof(SegmentEntry) + sizeof(SegmentHeader));
+        SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
+                           reinterpret_cast<char *>(s.baseAddress) +
+                           sizeof(SegmentEntry) + sizeof(SegmentHeader));
 
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, se->type);
         CPPUNIT_ASSERT_EQUAL(bytes, se->length);
-        CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, (char *)se + sizeof(*se), bytes)); 
+        CPPUNIT_ASSERT_EQUAL(0,
+            memcmp(buf, reinterpret_cast<char *>(se) + sizeof(*se), bytes));
     }
 
     void
@@ -121,12 +124,14 @@ class SegmentTest : public CppUnit::TestFixture {
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
         s.close();
 
-        SegmentEntry *se = (SegmentEntry *)((char *)s.baseAddress +
-            sizeof(SegmentEntry) + sizeof(SegmentHeader));
+        SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
+                           reinterpret_cast<char *>(s.baseAddress) +
+                           sizeof(SegmentEntry) + sizeof(SegmentHeader));
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, se->type);
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentFooter), se->length);
 
-        SegmentFooter *sf = (SegmentFooter *)((char *)se + sizeof(*se));
+        SegmentFooter *sf = reinterpret_cast<SegmentFooter *>(
+                            reinterpret_cast<char *>(se) + sizeof(*se));
         CPPUNIT_ASSERT_EQUAL(0x7baf8437964589e0ull, sf->checksum);
 
         CPPUNIT_ASSERT_EQUAL(0, s.appendableBytes());
@@ -146,8 +151,7 @@ class SegmentTest : public CppUnit::TestFixture {
             sizeof(SegmentHeader) - sizeof(SegmentFooter), s.appendableBytes());
 
         char buf[57];
-        while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)) != NULL)
-            ;
+        while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)) != NULL) {}
         CPPUNIT_ASSERT_EQUAL(15, s.appendableBytes());
 
         s.close();
@@ -156,10 +160,10 @@ class SegmentTest : public CppUnit::TestFixture {
 
     static void
     callback_forEachEntry(LogEntryType type, const void *p, uint64_t length,
-        void *cookie) 
+        void *cookie)
     {
         static int i = 0;
-        
+
         CPPUNIT_ASSERT(i == 0 || i == 1);
 
         if (i == 0) {
@@ -167,11 +171,12 @@ class SegmentTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), length);
             CPPUNIT_ASSERT_EQUAL(NULL, cookie);
 
-            SegmentHeader *sh = (SegmentHeader *)p;
+            const SegmentHeader *sh =
+                reinterpret_cast<const SegmentHeader *>(p);
             CPPUNIT_ASSERT_EQUAL(112233, sh->logId);
             CPPUNIT_ASSERT_EQUAL(445566, sh->segmentId);
         } else {
-            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, type);    
+            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, type);
             CPPUNIT_ASSERT_EQUAL(sizeof(SegmentFooter), length);
             CPPUNIT_ASSERT_EQUAL(NULL, cookie);
         }
@@ -182,7 +187,6 @@ class SegmentTest : public CppUnit::TestFixture {
     void
     test_forEachEntry()
     {
-        
         char alignedBuf[8192] __attribute__((aligned(8192)));
 
         Segment s(112233, 445566, alignedBuf, sizeof(alignedBuf));
@@ -201,8 +205,9 @@ class SegmentTest : public CppUnit::TestFixture {
 
         Segment s(112233, 445566, alignedBuf, sizeof(alignedBuf));
         s.forceAppendBlob(buf, sizeof(buf));
-        CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, (char *)s.baseAddress +
-            sizeof(SegmentEntry) + sizeof(SegmentHeader), sizeof(buf)));
+        CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, reinterpret_cast<char *>(
+            s.baseAddress) + sizeof(SegmentEntry) + sizeof(SegmentHeader),
+            sizeof(buf)));
         CPPUNIT_ASSERT_EQUAL(sizeof(buf) + sizeof(SegmentEntry) +
             sizeof(SegmentHeader), s.tail);
     }
@@ -221,7 +226,9 @@ class SegmentTest : public CppUnit::TestFixture {
         p = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         CPPUNIT_ASSERT(p != NULL);
 
-        SegmentEntry *se = (SegmentEntry *)((char *)p - sizeof(SegmentEntry));
+        const SegmentEntry *se = reinterpret_cast<const SegmentEntry *>(
+                                 reinterpret_cast<const char *>(p) -
+                                 sizeof(SegmentEntry));
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, se->type);
         CPPUNIT_ASSERT_EQUAL(sizeof(buf), se->length);
         CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, p, sizeof(buf)));
