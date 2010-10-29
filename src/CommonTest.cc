@@ -24,6 +24,7 @@ class CommonTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_format_copy);
     CPPUNIT_TEST(test_format_outArg);
     CPPUNIT_TEST(test_generateRandom);
+    CPPUNIT_TEST(test_getTotalSystemMemory);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -56,6 +57,17 @@ class CommonTest : public CppUnit::TestFixture {
         for (uint32_t i = 0; i < 50; i++)
             r |= generateRandom();
         CPPUNIT_ASSERT_EQUAL(~0UL, r);
+    }
+
+    void test_getTotalSystemMemory() {
+        // for portability, only test if /proc/meminfo exists
+        FILE *fp = fopen("/proc/meminfo", "r");
+        if (fp == NULL)
+            return;
+        fclose(fp);
+
+        // seems reasonable?
+        CPPUNIT_ASSERT(getTotalSystemMemory() > 1024 * 1024);
     }
 
     DISALLOW_COPY_AND_ASSIGN(CommonTest);

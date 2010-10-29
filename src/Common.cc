@@ -171,4 +171,47 @@ pinToCpu(uint32_t cpu)
     return true;
 }
 
+/**
+ * Obtain the total amount of system memory in bytes as reported by
+ * /proc/meminfo on Linux.
+ * \return
+ *      The number of bytes of memory, else 0 on error.
+ */
+uint64_t
+getTotalSystemMemory()
+{
+    char buf[256];
+    FILE *fp;
+    uint64_t totalBytes = 0;
+
+    fp = fopen("/proc/meminfo", "r");
+    if (fp == NULL)
+        return 0;
+
+    while (fgets(buf, sizeof(buf), fp) != NULL) {
+        if (strncmp(buf, "MemTotal:", strlen("MemTotal:")) == 0) {
+            char *countStr, *units, *savePtr;
+
+            strtok_r(buf, " \t", &savePtr);
+            countStr = strtok_r(NULL, " \t", &savePtr);
+            totalBytes = strtoull(countStr, NULL, 10);
+
+            // Linux appears to return all memory info in kilobytes, but
+            // check to be sure.
+            units = strtok_r(NULL, " \t\n", &savePtr);
+            if (strcmp(units, "kB") != 0) {
+                totalBytes = 0;
+                continue;
+            }
+
+            totalBytes *= 1024;
+            break;
+        }
+    }
+
+    fclose(fp);
+
+    return totalBytes;
+}
+
 } // namespace RAMCloud
