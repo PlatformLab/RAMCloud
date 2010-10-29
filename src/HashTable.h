@@ -183,6 +183,25 @@ class HashTable {
     bool replace(uint64_t tableId, uint64_t objectId, const Object *ptr);
 
     /**
+     * Return the number of bytes per cache line.
+     */
+    static uint32_t
+    bytesPerCacheLine()
+    {
+        return BYTES_PER_CACHE_LINE;
+    }
+
+    /**
+     * Return the number of entries, i.e. (tableId, objectId) -> Object*,
+     * each cacheline holds.
+     */
+    static uint32_t
+    entriesPerCacheLine()
+    {
+        return ENTRIES_PER_CACHE_LINE;
+    }
+
+    /**
      * Return a read-only view of the hash table's performance counters.
      * \return
      *      See above.
