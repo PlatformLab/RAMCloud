@@ -52,11 +52,10 @@ MasterServer::MasterServer(const ServerConfig& config,
     , serverId(0)
     , backup(backup)
     , log(0)
-    , objectMap(HASH_NLINES)
+    , objectMap(config.hashTableBytes / HashTable::bytesPerCacheLine())
     , tablets()
 {
-    log = new Log(0, Segment::SEGMENT_SIZE * SEGMENT_COUNT,
-        Segment::SEGMENT_SIZE, &backup);
+    log = new Log(0, config.logBytes, Segment::SEGMENT_SIZE, &backup);
     log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 }

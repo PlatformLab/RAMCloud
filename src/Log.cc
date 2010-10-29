@@ -38,6 +38,9 @@ namespace RAMCloud {
  *      The newly constructed Log object. The caller must first add backing
  *      Segment memory to the Log with #addSegmentMemory before any appends
  *      will succeed.
+ * \throw LogException
+ *      An exception is thrown if #logCapacity is not sufficient for
+ *      a single segment's worth of log.
  */
 Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
         BackupManager *backup)
@@ -57,6 +60,9 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
     cleaner = new LogCleaner(this);
 
     uint64_t numSegments = logCapacity / segmentCapacity;
+    if (numSegments < 1)
+        throw LogException("insufficient Log memory for even one segment!");
+
     for (uint64_t i = 0; i < numSegments; i++) {
         void *p = xmemalign(segmentCapacity, segmentCapacity);
         addSegmentMemory(p);

@@ -221,6 +221,8 @@ HashTable::Entry::hashMatches(uint64_t hash) const
  * \param[in] numBuckets
  *      The number of buckets in the new hash table. This should be a power of
  *      two.
+ * \throw Exception
+ *      An exception is thrown is numBuckets is 0.
  */
 HashTable::HashTable(uint64_t numBuckets)
     : buckets(NULL), numBuckets(nearestPowerOfTwo(numBuckets)),
@@ -234,6 +236,9 @@ HashTable::HashTable(uint64_t numBuckets)
         LOG(DEBUG, "HashTable truncated to %lu buckets "
                     "(nearest power of two)", this->numBuckets);
     }
+
+    if (numBuckets == 0)
+        throw Exception("HashTable numBuckets == 0?!");
 
     size_t bucketsSize = this->numBuckets * sizeof(CacheLine);
     buckets = static_cast<CacheLine *>(mallocAligned(bucketsSize));

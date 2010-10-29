@@ -32,9 +32,17 @@ struct ServerConfig {
     string coordinatorLocator;
     string localLocator;
 
+    /// Total number bytes to use for the Log.
+    uint64_t logBytes;
+
+    /// Total number of bytes to use for the HashTable.
+    uint64_t hashTableBytes;
+
     ServerConfig()
         : coordinatorLocator()
         , localLocator()
+        , logBytes(0)
+        , hashTableBytes(0)
     {
     }
 };
@@ -49,12 +57,6 @@ class MasterServer : public Server {
     /// The max number of tables a Master will serve.
     static const int NUM_TABLES = 4;
 
-    /// The number of segments a Master can contain.
-    static const uint32_t SEGMENT_COUNT =  64;
-
-    /// The size of the Hashtable in cache lines.
-    static const int HASH_NLINES = NUM_TABLES * 16384;
-
     MasterServer(const ServerConfig& config,
                  CoordinatorClient& coordinator,
                  BackupManager& backup);
@@ -63,6 +65,105 @@ class MasterServer : public Server {
     void dispatch(RpcType type,
                   Transport::ServerRpc& rpc,
                   Responder& responder);
+
+    /**
+     * Figure out the Master Server's memory requirements. This means computing
+     * the number of bytes to use for the log and the hash table.
+     *
+     * The user may dictate these parameters by specifying the total memory
+     * given to the server, as well as the amount of that to spend on the hash
+     * table. The rest is given to the log.
+     *
+     * Both parameters are string options. If a "%" character is present, they
+     * are interpreted as percentages, otherwise they are interpreted as
+     * megabytes.
+     *
+     * \param[in] masterTotalMemory
+     *      A string representing the total amount of memory allocated to the
+     *      Server. E.g.: "10%" means 10 percent of total system memory, whereas
+     *      "256" means 256 megabytes. Only integer quantities are acceptable.
+     * \param[in] hashTableMemory
+     *      The amount of masterTotalMemory to be used for the hash table. This
+     *      may also be a percentage, as above. Only integer quantities are
+     *      acceptable.
+     * \param[out] config
+     *      The ServerConfig object to update with the number of bytes the Log
+     *      and hash tables should allocate, as determined by the input
+     *      parameters.
+     * \throw Exception
+     *      An exception is thrown if the parameters given are invalid, or
+     *      if the total system memory cannot be determined.
+     */
+    static void
+    sizeLogAndHashTable(string masterTotalMemory, string hashTableMemory,
+                        ServerConfig *config)
+    {
+        using namespace RAMCloud;
+
+        uint64_t masterBytes, hashTableBytes;
+
+        if (masterTotalMemory.find("%") != string::npos) {
+            string str = masterTotalMemory.substr(
+                0, masterTotalMemory.find("%"));
+            int pct = strtoull(str.c_str(), NULL, 10);
+            if (pct <= 0 || pct > 90)
+                throw Exception("invalid `MasterTotalMemory' option specified: "
+                    "not within range 1-90%");
+            masterBytes = getTotalSystemMemory();
+            if (masterBytes == 0) {
+                throw Exception("Cannot determine total system memory - "
+                    "`MasterTotalMemory' option must not be used");
+            }
+            masterBytes = (masterBytes * pct) / 100;
+        } else {
+            masterBytes = strtoull(masterTotalMemory.c_str(), NULL, 10);
+            masterBytes *= (1024 * 1024);
+        }
+
+        if (hashTableMemory.find("%") != string::npos) {
+            string str = hashTableMemory.substr(0, hashTableMemory.find("%"));
+            int pct = strtoull(str.c_str(), NULL, 10);
+            if (pct <= 0 || pct > 50) {
+                throw Exception("invalid HashTableMemory option specified: "
+                    "not within range 1-50%");
+            }
+            hashTableBytes = (masterBytes * pct) / 100;
+        } else {
+            hashTableBytes = strtoull(hashTableMemory.c_str(), NULL, 10);
+            hashTableBytes *= (1024 * 1024);
+        }
+
+        if (hashTableBytes > masterBytes) {
+            throw Exception("invalid `MasterTotalMemory' and/or "
+                            "`HashTableMemory' options - HashTableMemory "
+                            "cannot exceed MasterTotalMemory!");
+        }
+
+        uint64_t logBytes = masterBytes - hashTableBytes;
+        uint64_t numSegments = logBytes / Segment::SEGMENT_SIZE;
+        if (numSegments < 1) {
+            throw Exception("invalid `MasterTotalMemory' and/or "
+                            "`HashTableMemory' options - insufficent memory "
+                            "left for the log!");
+        }
+
+        uint64_t numHashTableLines =
+            hashTableBytes / HashTable::bytesPerCacheLine();
+        if (numHashTableLines < 1) {
+            throw Exception("invalid `MasterTotalMemory' and/or "
+                            "`HashTableMemory' options - insufficent memory "
+                            "left for the hash table!");
+        }
+
+        LOG(NOTICE, "Master to allocate %lu bytes total, %lu of which for the "
+            "hash table", masterBytes, hashTableBytes);
+        LOG(NOTICE, "Master will have %lu segments and %lu lines in the hash "
+            "table", numSegments, numHashTableLines);
+
+        config->logBytes = logBytes;
+        config->hashTableBytes = hashTableBytes;
+    }
+
 
   private:
     void create(const CreateRpc::Request& reqHdr,

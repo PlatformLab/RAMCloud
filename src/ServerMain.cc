@@ -33,6 +33,7 @@ try
 
     ServerConfig config;
     vector<string> backupLocators;
+    string masterTotalMemory, hashTableMemory;
 
     OptionsDescription serverOptions("Master");
     serverOptions.add_options()
@@ -40,6 +41,14 @@ try
          ProgramOptions::value<int>(&cpu)->
             default_value(-1),
          "CPU mask to pin to")
+        ("HashTableMemory,h",
+         ProgramOptions::value<string>(&hashTableMemory)->
+            default_value("10%"),
+         "Percentage or megabytes of master memory allocated to the hash table")
+        ("MasterTotalMemory,m",
+         ProgramOptions::value<string>(&masterTotalMemory)->
+            default_value("10%"),
+         "Percentage or megabytes of system memory for master log & hash table")
         ("replicas,r",
          ProgramOptions::value<uint32_t>(&replicas)->
             default_value(0),
@@ -59,6 +68,9 @@ try
             DIE("server: Couldn't pin to core %d", cpu);
         LOG(DEBUG, "server: Pinned to core %d", cpu);
     }
+
+    MasterServer::sizeLogAndHashTable(masterTotalMemory,
+                                      hashTableMemory, &config);
 
     transportManager.initialize(config.localLocator.c_str());
 

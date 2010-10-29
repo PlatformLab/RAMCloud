@@ -49,6 +49,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     {
         masterConfig.coordinatorLocator = "mock:host=coordinator";
         masterConfig.localLocator = "mock:host=master";
+        MasterServer::sizeLogAndHashTable("64", "8", &masterConfig);
     }
 
     void setUp() {
