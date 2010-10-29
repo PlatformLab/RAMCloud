@@ -25,7 +25,8 @@ cport=$(( $port + 1 ))
 masterLocator=fast+udp:host=127.0.0.1,port=$port
 coordinatorLocator=fast+udp:host=127.0.0.1,port=$cport
 
-# Check to see if a server is running, if so kill it
+# Check to see if master and coordinator servers are running. If so, kill 'em!
+portslay $cport
 portslay $port
 
 # Start a server and run tests
