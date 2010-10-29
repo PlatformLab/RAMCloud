@@ -102,7 +102,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
             coordinator->enlistServer(BACKUP, "mock:host=backup2");
         }
 
-        mgr = new BackupManager(*coordinator);
+        mgr = new BackupManager(coordinator);
     }
 
     void
@@ -132,11 +132,8 @@ class BackupManagerTest : public CppUnit::TestFixture {
     void
     test_closeSegment()
     {
-        char segMem[segmentSize];
-        Segment seg(99, 88, segMem, segmentSize, mgr);
-        CPPUNIT_ASSERT_EQUAL(2, mgr->openHosts.size());
-
-        seg.close();
+        mgr->openSegment(99, 88);
+        mgr->closeSegment(99, 88);
 
         CPPUNIT_ASSERT(mgr->openHosts.empty());
         CPPUNIT_ASSERT_EQUAL(2,
@@ -188,8 +185,6 @@ class BackupManagerTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT_EQUAL(88, header->segmentId);
             CPPUNIT_ASSERT_EQUAL(segmentSize, header->segmentCapacity);
         }
-        CPPUNIT_ASSERT_EQUAL(2,
-            BackupStorage::Handle::resetAllocatedHandlesCount());
     }
 
     void

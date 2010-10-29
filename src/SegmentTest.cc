@@ -30,6 +30,7 @@ class SegmentTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(SegmentTest);
     CPPUNIT_TEST(test_constructor);
+    CPPUNIT_TEST(test_destructor);
     CPPUNIT_TEST(test_append);
     CPPUNIT_TEST(test_free);
     CPPUNIT_TEST(test_close);
@@ -42,12 +43,45 @@ class SegmentTest : public CppUnit::TestFixture {
   public:
     SegmentTest() {}
 
+    static bool
+    openSegmentFilter(string s)
+    {
+        return s == "void RAMCloud::BackupManager::openSegment(uint64_t, "
+                    "uint64_t)";
+    }
+
+    static bool
+    writeSegmentFilter(string s)
+    {
+        return s == "void RAMCloud::BackupManager::writeSegment(uint64_t, "
+                    "uint64_t, uint32_t, const void*, uint32_t)";
+    }
+
+    static bool
+    closeSegmentFilter(string s)
+    {
+        return s == "void RAMCloud::BackupManager::closeSegment(uint64_t, "
+                    "uint64_t)";
+    }
+
+    static bool
+    freeSegmentFilter(string s)
+    {
+        return s == "void RAMCloud::BackupManager::freeSegment(uint64_t, "
+                    "uint64_t)";
+    }
+
     void
     test_constructor()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
 
-        Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
+        BackupManager backup(NULL, 0);
+        TestLog::Enable _(&openSegmentFilter);
+        Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf), &backup);
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::BackupManager::openSegment(uint64_t, "
+            "uint64_t): 1020304050, 98765", TestLog::get());
         CPPUNIT_ASSERT_EQUAL(s.baseAddress,
                              reinterpret_cast<void *>(alignedBuf));
         CPPUNIT_ASSERT_EQUAL(98765, s.id);
@@ -68,12 +102,29 @@ class SegmentTest : public CppUnit::TestFixture {
     }
 
     void
+    test_destructor()
+    {
+        TestLog::Enable _(&freeSegmentFilter);
+        {
+            char alignedBuf[8192] __attribute__((aligned(8192)));
+            BackupManager backup(NULL, 0);
+            Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
+        }
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::BackupManager::freeSegment(uint64_t, uint64_t): "
+            "1, 2",
+            TestLog::get());
+    }
+
+    void
     test_append()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
         const void *p;
 
-        Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+        BackupManager backup(NULL, 0);
+        TestLog::Enable _(&writeSegmentFilter);
+        Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
         p = s.append(LOG_ENTRY_TYPE_SEGFOOTER, NULL, 0);
         CPPUNIT_ASSERT_EQUAL(NULL, p);
 
@@ -84,6 +135,13 @@ class SegmentTest : public CppUnit::TestFixture {
 
         p = s.append(LOG_ENTRY_TYPE_OBJ, NULL, s.appendableBytes() + 1);
         CPPUNIT_ASSERT_EQUAL(NULL, p);
+
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::BackupManager::writeSegment(uint64_t, uint64_t, "
+            "uint32_t, const void*, uint32_t): 1, 2, 0, ..., 8 | "
+            "void RAMCloud::BackupManager::writeSegment(uint64_t, uint64_t, "
+            "uint32_t, const void*, uint32_t): 1, 2, 8, ..., 20",
+            TestLog::get());
 
         int bytes = s.appendableBytes();
         char buf[bytes];
@@ -120,8 +178,15 @@ class SegmentTest : public CppUnit::TestFixture {
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
 
-        Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+        BackupManager backup(NULL, 0);
+        TestLog::Enable _(&closeSegmentFilter);
+        Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
         s.close();
+
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::BackupManager::closeSegment(uint64_t, uint64_t): "
+            "1, 2",
+            TestLog::get());
 
         SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
                            reinterpret_cast<char *>(s.baseAddress) +

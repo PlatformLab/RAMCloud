@@ -58,7 +58,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
         server->nextServerId = 2;
         transport->addServer(*server, "mock:host=coordinator");
         client = new CoordinatorClient("mock:host=coordinator");
-        backup = new BackupManager(*client, 0);
+        backup = new BackupManager(client, 0);
         master = new MasterServer(masterConfig, *client, *backup);
         transport->addServer(*master, "mock:host=master");
         TestLog::enable();
