@@ -21,10 +21,10 @@
 
 namespace RAMCloud {
 
-class BackupHostTest : public CppUnit::TestFixture {
+class BackupClientTest : public CppUnit::TestFixture {
 
-    CPPUNIT_TEST_SUITE(BackupHostTest);
-    CPPUNIT_TEST(test_commitSegment);
+    CPPUNIT_TEST_SUITE(BackupClientTest);
+    CPPUNIT_TEST(test_closeSegment);
     CPPUNIT_TEST(test_freeSegment);
     CPPUNIT_TEST(test_getRecoveryData);
     CPPUNIT_TEST(test_openSegment);
@@ -32,11 +32,11 @@ class BackupHostTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_writeSegment);
     CPPUNIT_TEST_SUITE_END();
 
-    BackupHost* backup;
+    BackupClient* backup;
     MockTransport* transport;
 
   public:
-    BackupHostTest()
+    BackupClientTest()
         : backup(NULL)
         , transport(NULL)
     {
@@ -47,7 +47,7 @@ class BackupHostTest : public CppUnit::TestFixture {
     {
         transport = new MockTransport();
         transportManager.registerMock(transport);
-        backup = new BackupHost(transportManager.getSession("mock:"));
+        backup = new BackupClient(transportManager.getSession("mock:"));
     }
 
     void
@@ -59,10 +59,10 @@ class BackupHostTest : public CppUnit::TestFixture {
     }
 
     void
-    test_commitSegment()
+    test_closeSegment()
     {
         transport->setInput("0 0");
-        backup->commitSegment(99, 88);
+        backup->closeSegment(99, 88);
         CPPUNIT_ASSERT_EQUAL("clientSend: 128 0 99 0 88 0",
                              transport->outputLog);
     }
@@ -80,8 +80,9 @@ class BackupHostTest : public CppUnit::TestFixture {
     test_getRecoveryData()
     {
         transport->setInput("0 0 0");
-        backup->getRecoveryData(99, TabletMap());
-        CPPUNIT_ASSERT_EQUAL("clientSend: 130 0 99 0",
+        Buffer resp;
+        backup->getRecoveryData(99, 88, TabletMap(), resp);
+        CPPUNIT_ASSERT_EQUAL("clientSend: 130 0 99 0 88 0",
                              transport->outputLog);
     }
 
@@ -116,8 +117,8 @@ class BackupHostTest : public CppUnit::TestFixture {
                              transport->outputLog);
     }
 
-    DISALLOW_COPY_AND_ASSIGN(BackupHostTest);
+    DISALLOW_COPY_AND_ASSIGN(BackupClientTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(BackupHostTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(BackupClientTest);
 
 } // namespace RAMCloud

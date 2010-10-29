@@ -20,6 +20,7 @@
 
 #include "rabinpoly.h"
 #include "LogTypes.h"
+#include "BackupManager.h"
 
 namespace RAMCloud {
 
@@ -54,7 +55,7 @@ struct SegmentException : public Exception {
 class Segment {
   public:
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
-            uint64_t capacity);
+            uint64_t capacity, BackupManager* backup = NULL);
     ~Segment();
 
     const void      *append(LogEntryType type, const void *buffer,
@@ -78,7 +79,9 @@ class Segment {
     const void      *forceAppendWithEntry(LogEntryType type,
                                           const void *buffer, uint64_t length);
 
+    BackupManager   *backup;         // makes operations on this segment durable
     void            *baseAddress;    // base address for the Segment
+    uint64_t         logId;          // log this belongs to, passed to backups
     uint64_t         id;             // segment identification number
     const uint64_t   capacity;       // total byte length of segment when empty
     uint64_t         tail;           // offset to the next free byte in Segment

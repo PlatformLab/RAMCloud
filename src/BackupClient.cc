@@ -24,38 +24,67 @@
 namespace RAMCloud {
 
 /**
- * Create a BackupHost.
+ * Create a BackupClient.
+ *
  * \param session
  *      The Session by which to communicate with the backup server.
  */
-BackupHost::BackupHost(Transport::SessionRef session)
+BackupClient::BackupClient(Transport::SessionRef session)
         : counterValue(0)
         , session(session)
         , status(STATUS_OK)
 {
 }
 
-BackupHost::~BackupHost()
+BackupClient::~BackupClient()
 {
 }
 
-// See BackupClient::commitSegment().
+/**
+ * Close an open segment on this backup.
+ *
+ * On success the backup server promises, to the best of its ability, to
+ * ensure this segment reflects its closed status during recovery of masterId
+ * until such time the segment is freed via freeSegment().  Futhermore, the
+ * backup promises to diallow all modifications to the segment, henceforth
+ * (aside from freeing it).
+ *
+ * \param masterId
+ *      The id of the master of the segment to be opened.
+ * \param segmentId
+ *      The id of the segment to be opened.
+ * \throw BackupBadSegmentIdException
+ *      If the segment is not open or is unknown to the backup server.
+ */
 void
-BackupHost::commitSegment(uint64_t masterId,
-                          uint64_t segmentId)
+BackupClient::closeSegment(uint64_t masterId,
+                           uint64_t segmentId)
 {
     Buffer req, resp;
-    BackupCommitRpc::Request& reqHdr(allocHeader<BackupCommitRpc>(req));
+    BackupCloseRpc::Request& reqHdr(allocHeader<BackupCloseRpc>(req));
     reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
-    sendRecv<BackupCommitRpc>(session, req, resp);
+    sendRecv<BackupCloseRpc>(session, req, resp);
     checkStatus();
 }
 
-// See BackupClient::freeSegment().
+/**
+ * Frees a closed segment from storage on this backup.
+ *
+ * On success the backup server promises, to the best of its ability, to
+ * ensure the data contained in this segment is not provided during recovery
+ * of masterId.  This allows the backup server to reuse its storage.
+ *
+ * \param masterId
+ *      The id of the master of the segment to be freed.
+ * \param segmentId
+ *      The id of the segment to be freed.
+ * \throw BackupBadSegmentIdException
+ *      If the segment is not open or is unknown to the backup server.
+ */
 void
-BackupHost::freeSegment(uint64_t masterId,
-                        uint64_t segmentId)
+BackupClient::freeSegment(uint64_t masterId,
+                          uint64_t segmentId)
 {
     Buffer req, resp;
     BackupFreeRpc::Request& reqHdr(allocHeader<BackupFreeRpc>(req));
@@ -65,32 +94,55 @@ BackupHost::freeSegment(uint64_t masterId,
     checkStatus();
 }
 
-// See BackupClient::getRecoveryData().
-vector<BackupClient::RecoveredObject>
-BackupHost::getRecoveryData(uint64_t masterId, const TabletMap& tablets)
+/**
+ * Get the objects stored for the given tablets of the given server.
+ *
+ * \param masterId
+ *      The id of the crashed master which is being recovered.
+ * \param segmentId
+ *      The id of the segment to recover which the crashed master had stored
+ *      on this backup.
+ * \param tablets
+ *      A set of table is and object id ranges which is used to select
+ *      which objects are send back as part of the recovery segment.
+ * \param[out] resp
+ *      An empty Buffer which will contain the filtered recovery segment
+ *      upon return.
+ * \throw BackupBadSegmentIdException
+ *      If the segment unknown to the backup server or is not is recovery.
+ */
+void
+BackupClient::getRecoveryData(uint64_t masterId,
+                              uint64_t segmentId,
+                              const TabletMap& tablets,
+                              Buffer& resp)
 {
-    Buffer req, resp;
+    Buffer req;
     BackupGetRecoveryDataRpc::Request&
         reqHdr(allocHeader<BackupGetRecoveryDataRpc>(req));
     reqHdr.masterId = masterId;
+    reqHdr.segmentId = segmentId;
     // TODO(stutsman) pass tablets argument!
-    // TODO(stutsman) complete unit test
     const BackupGetRecoveryDataRpc::Response&
         respHdr(sendRecv<BackupGetRecoveryDataRpc>(session, req, resp));
     checkStatus();
-
-    uint64_t recoveredObjectCount = respHdr.recoveredObjectCount;
     resp.truncateFront(sizeof(respHdr));
-    BackupClient::RecoveredObject const * recoveredObjectsRaw =
-        resp.getStart<RecoveredObject>();
-    return vector<BackupClient::RecoveredObject>(recoveredObjectsRaw,
-                                                 recoveredObjectsRaw +
-                                                    recoveredObjectCount);
 }
 
-// See BackupClient::openSegment().
+/**
+ * Allocate space to receive backup writes for a segment.
+ *
+ * On success the backup server promises, to the best of its ability, to
+ * provide this empty segment during recovery of masterId
+ * until such time the segment is freed via freeSegment().
+ *
+ * \param masterId
+ *      Id of this server.
+ * \param segmentId
+ *      Id of the segment to be backed up.
+ */
 void
-BackupHost::openSegment(uint64_t masterId,
+BackupClient::openSegment(uint64_t masterId,
                         uint64_t segmentId)
 {
     Buffer req, resp;
@@ -101,9 +153,16 @@ BackupHost::openSegment(uint64_t masterId,
     checkStatus();
 }
 
-// See BackupClient::startReadingData().
+/**
+ * Begin reading the objects stored for the given server from disk.
+ *
+ * \param masterId
+ *      The id of the master whose data is to be recovered.
+ * \return
+ *      A set of segment IDs for that server which will be read from disk.
+ */
 vector<uint64_t>
-BackupHost::startReadingData(uint64_t masterId)
+BackupClient::startReadingData(uint64_t masterId)
 {
     Buffer req, resp;
     BackupStartReadingDataRpc::Request&
@@ -119,9 +178,26 @@ BackupHost::startReadingData(uint64_t masterId)
     return vector<uint64_t>(segmentIdsRaw, segmentIdsRaw + segmentIdCount);
 }
 
-// See BackupClient::writeSegment().
+/**
+ * Write the byte range specified in an open segment on the backup.
+ *
+ * On success the backup server promises, to the best of its ability, to
+ * provide the data contained in this segment during recovery of masterId
+ * until such time the segment is freed via freeSegment().
+ *
+ * \param masterId
+ *      The id of the master to which the data belongs.
+ * \param segmentId
+ *      The id of the segment on which the data is to be stored.
+ * \param offset
+ *      The position in the segment where this data will be placed.
+ * \param buf
+ *      The start of the data to be written into this segment.
+ * \param length
+ *      The length in bytes of the data to write.
+ */
 void
-BackupHost::writeSegment(uint64_t masterId,
+BackupClient::writeSegment(uint64_t masterId,
                          uint64_t segmentId,
                          uint32_t offset,
                          const void *buf,
@@ -136,146 +212,6 @@ BackupHost::writeSegment(uint64_t masterId,
     Buffer::Chunk::appendToBuffer(&req, buf, length);
     sendRecv<BackupWriteRpc>(session, req, resp);
     checkStatus();
-}
-
-// --- BackupManager ---
-
-/**
- * Create a BackupManager, initially with no backup hosts to communicate
- * with.  See addHost() to add remote backups.
- */
-BackupManager::BackupManager(uint32_t replicas)
-    : coordinator()
-    , hosts()
-    , openHosts()
-    , replicas(replicas)
-{
-}
-
-/// Free up all BackupHosts.
-BackupManager::~BackupManager()
-{
-    foreach (BackupHost* host, openHosts)
-        delete host;
-}
-
-// See BackupClient::commitSegment.
-void
-BackupManager::commitSegment(uint64_t masterId,
-                             uint64_t segmentId)
-{
-    foreach (BackupHost* host, openHosts) {
-        // TODO(stutsman) Exception during one of the commits?
-        host->commitSegment(masterId, segmentId);
-        delete host;
-    }
-    openHosts.clear();
-}
-
-// See BackupClient::freeSegment.
-void
-BackupManager::freeSegment(uint64_t masterId,
-                           uint64_t segmentId)
-{
-    // TODO(stutsman) Exception during one of the frees - ignore it?
-    foreach (BackupHost* host, openHosts)
-        host->freeSegment(masterId, segmentId);
-}
-
-// See BackupClient::getRecoveryData.
-vector<BackupClient::RecoveredObject>
-BackupManager::getRecoveryData(uint64_t masterId,
-                               const TabletMap& tablets)
-{
-    DIE("Unimplemented");
-}
-
-// See BackupClient::openSegment.
-void
-BackupManager::openSegment(uint64_t masterId,
-                           uint64_t segmentId)
-{
-    selectOpenHosts();
-    foreach (BackupHost* host, openHosts)
-        host->openSegment(masterId, segmentId);
-}
-
-void
-BackupManager::setCoordinator(CoordinatorClient& coordinator)
-{
-    this->coordinator = &coordinator;
-}
-
-// See BackupClient::startReadingData.
-vector<uint64_t>
-BackupManager::startReadingData(uint64_t masterId)
-{
-    vector<uint64_t> segmentIds;
-    foreach (BackupHost* host, openHosts) {
-        vector<uint64_t> ids = host->startReadingData(masterId);
-        segmentIds.insert(segmentIds.end(), ids.begin(), ids.end());
-    }
-    return segmentIds;
-}
-
-// See BackupClient::writeSegment.
-void
-BackupManager::writeSegment(uint64_t masterId,
-                            uint64_t segmentId,
-                            uint32_t offset,
-                            const void *data,
-                            uint32_t len)
-{
-    // TODO(stutsman) Exception during one of the writes?
-    foreach (BackupHost* host, openHosts)
-        host->writeSegment(masterId, segmentId, offset, data, len);
-}
-
-// - private -
-
-/**
- * Open segments on replica number of backups.  Caller must ensure that
- * no segments are currently open on any backups and that there are
- * enough hosts to choose from.
- */
-void
-BackupManager::selectOpenHosts()
-{
-    // TODO(ongaro): find better solution to unit tests segfaulting
-    if (coordinator == NULL)
-        return;
-
-    // TODO(ongaro): it's probably not ok to get a new server list this often
-    coordinator->getServerList(hosts);
-
-    const uint32_t numHosts(static_cast<uint32_t>(hosts.server_size()));
-
-    uint32_t numBackupHosts = 0;
-    foreach (const ProtoBuf::ServerList::Entry& entry, hosts.server()) {
-        if (entry.server_type() == ProtoBuf::BACKUP)
-            ++numBackupHosts;
-    }
-
-    if (numBackupHosts < replicas)
-        DIE("Not enough backups to meet replication requirement");
-
-    if (!openHosts.empty())
-        DIE("Cannot select new backups when some are already open");
-
-    uint64_t random = generateRandom();
-    uint32_t i = 0;
-    while (i < replicas) {
-        uint32_t index = random % numHosts;
-        const ProtoBuf::ServerList::Entry& host(hosts.server(index));
-        if (host.server_type() == ProtoBuf::BACKUP) {
-            LOG(DEBUG, "Backing up to %s", host.service_locator().c_str());
-            Transport::SessionRef session =
-                transportManager.getSession(host.service_locator().c_str());
-            openHosts.push_back(new BackupHost(session));
-            i++;
-        }
-        random++;
-    }
 }
 
 } // namespace RAMCloud

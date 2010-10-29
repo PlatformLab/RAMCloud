@@ -53,6 +53,7 @@ struct Object {
     Object() : id(-1), table(-1), version(-1), checksum(0), data_len(0) { }
 
     // to use default constructor in arrays
+    friend class BackupServerTest;
     friend class HashTableTest;
     friend void hashTableBenchmark(uint64_t, uint64_t);
 

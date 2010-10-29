@@ -13,16 +13,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <string>
 #include <cstring>
 
 #include "TestUtil.h"
 #include "BackupServer.h"
+#include "BindTransport.h"
+#include "CoordinatorServer.h"
 #include "Log.h"
 #include "Logging.h"
 #include "MasterServer.h"
 #include "MockTransport.h"
 #include "Rpc.h"
+#include "SegmentIterator.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -33,8 +35,8 @@ namespace RAMCloud {
 class BackupServerTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(BackupServerTest);
-    CPPUNIT_TEST(test_commitSegment);
-    CPPUNIT_TEST(test_commitSegment_segmentNotOpen);
+    CPPUNIT_TEST(test_closeSegment);
+    CPPUNIT_TEST(test_closeSegment_segmentNotOpen);
     CPPUNIT_TEST(test_findSegmentInfo);
     CPPUNIT_TEST(test_findSegmentInfo_notIn);
     CPPUNIT_TEST(test_freeSegment);
@@ -54,15 +56,19 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
     BackupServer* backup;
+    BackupClient* client;
+    CoordinatorServer* coordinatorServer;
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     BackupStorage* storage;
     BackupServer::Config* config;
-    MockTransport* transport;
+    BindTransport* transport;
 
   public:
     BackupServerTest()
         : backup(NULL)
+        , client(NULL)
+        , coordinatorServer(NULL)
         , segmentSize(1 << 16)
         , segmentFrames(2)
         , storage(NULL)
@@ -75,29 +81,32 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     setUp()
     {
-        transport = new MockTransport();
-        transportManager.registerMock(transport);
         config = new BackupServer::Config();
-        config->coordinatorLocator = "mock:";
+        config->coordinatorLocator = "mock:host=coordinator";
         storage = new InMemoryStorage(segmentSize, segmentFrames);
+
+        transport = new BindTransport();
+        transportManager.registerMock(transport);
+        coordinatorServer = new CoordinatorServer();
+        transport->addServer(*coordinatorServer, "mock:host=coordinator");
         backup = new BackupServer(*config, *storage);
+        transport->addServer(*backup, "mock:host=backup");
+        client =
+            new BackupClient(transportManager.getSession("mock:host=backup"));
     }
 
     void
     tearDown()
     {
+        delete client;
         delete backup;
+        delete coordinatorServer;
+        transportManager.unregisterMock();
+        delete transport;
         delete storage;
         delete config;
         CPPUNIT_ASSERT_EQUAL(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
-    }
-
-    void
-    rpc(const char* input)
-    {
-        transport->setInput(input);
-        backup->handleRpc<BackupServer>();
     }
 
     void
@@ -108,6 +117,30 @@ class BackupServerTest : public CppUnit::TestFixture {
                                                                segmentId)];
         if (info.storageHandle)
             backup->storage.free(info.storageHandle);
+    }
+
+    void
+    test_closeSegment()
+    {
+        client->openSegment(99, 88);
+        client->writeSegment(99, 88, 10, "test", 4);
+        client->closeSegment(99, 88);
+        BackupServer::SegmentInfo &info =
+            backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
+        char* storageAddress =
+            static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
+                getAddress();
+        CPPUNIT_ASSERT(NULL != storageAddress);
+        CPPUNIT_ASSERT_EQUAL("test", &storageAddress[10]);
+        CPPUNIT_ASSERT_EQUAL(NULL, static_cast<void*>(info.segment));
+        freeStorageHandle(99, 88);
+    }
+
+    void
+    test_closeSegment_segmentNotOpen()
+    {
+        CPPUNIT_ASSERT_THROW(client->closeSegment(99, 88),
+                             BackupBadSegmentIdException);
     }
 
     void
@@ -136,95 +169,103 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_freeSegment()
     {
-        rpc("131 0 99 0 88 0");             // open 99,88
-        rpc("133 0 99 0 88 0 10 4 test");   // write 99,88 at 10 for 4 bytes
-        rpc("128 0 99 0 88 0");             // commit 99,88
+        client->openSegment(99, 88);
+        client->writeSegment(99, 88, 10, "test", 4);
+        client->closeSegment(99, 88);
         {
             TestLog::Enable _(&inMemoryStorageFreePred);
-            rpc("129 0 99 0 88 0");             // free 99,88
+            client->freeSegment(99, 88);
             CPPUNIT_ASSERT_EQUAL("virtual void "
                 "RAMCloud::InMemoryStorage::free("
                 "RAMCloud::BackupStorage::Handle*): called", TestLog::get());
         }
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 0 0 | "
-                             "serverReply: 0 0 | serverReply: 0 0",
-                             transport->outputLog);
         CPPUNIT_ASSERT_EQUAL(NULL, backup->findSegmentInfo(99, 88));
     }
 
     void
     test_freeSegment_stillOpen()
     {
-        rpc("131 0 99 0 88 0");             // open 99,88
-        rpc("129 0 99 0 88 0");             // free 99,88
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 12 0",
-                             transport->outputLog);
+        client->openSegment(99, 88);
+        CPPUNIT_ASSERT_THROW(client->freeSegment(99, 88),
+                             BackupSegmentAlreadyOpenException);
         freeStorageHandle(99, 88);
     }
 
     void
     test_freeSegment_noSuchSegment()
     {
-        rpc("129 0 99 0 88 0");             // free 99,88
-        CPPUNIT_ASSERT_EQUAL("serverReply: 11 0",
-                             transport->outputLog);
+        CPPUNIT_ASSERT_THROW(client->freeSegment(99, 88),
+                             BackupBadSegmentIdException);
     }
 
     void
     test_getRecoveryData()
     {
-        // XXX- this test doesn't create a properly-formatted Segment
-        return;
+        struct MockSegment {
+            MockSegment()
+                : hdre()
+                , hdr()
+                , oe()
+                , o()
+                , cksume()
+                , cksum()
+            {}
+            SegmentEntry hdre;
+            SegmentHeader hdr;
+            SegmentEntry oe;
+            Object o;
+            char data[16];
+            // TODO(stutsman) test tombstones
+            SegmentEntry cksume;
+            SegmentFooter cksum;
+        } seg;
 
-        rpc("131 0 99 0 88 0");             // open 99,88
-        rpc("133 0 99 0 88 0 0 16 0x72646873 24 88 0"); // write 99,88 header
-        // write 99,88 object
-        rpc("133 0 99 0 88 0 16 52 0x216a626f 44 1 0 0 0 2 0 99 99 4 test");
-        rpc("133 0 99 0 88 0 68 16 0x6b686373 8 99 99"); // write 99,88 footer
-        rpc("128 0 99 0 88 0");             // commit 99,88
-        rpc("132 0 99 0");                  // startReadingData 99
-        rpc("130 0 99 0");                  // getRecoveryData 99
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 0 0 | "
-                             "serverReply: 0 0 | serverReply: 0 0 | "
-                             "serverReply: 0 0 | serverReply: 0 0 1 88 0 | "
-                             "serverReply: 0 0 0",
-                             transport->outputLog);
+        seg.hdre.type = LOG_ENTRY_TYPE_SEGHEADER;
+        seg.hdre.length = sizeof(seg.hdr);
+        seg.hdr.logId = 99;
+        seg.hdr.segmentId = 88;
+        seg.hdr.segmentCapacity = segmentSize;
+        seg.oe.type = LOG_ENTRY_TYPE_OBJ;
+        seg.oe.length = sizeof(seg.o) + sizeof(seg.data);
+        seg.o.id = 777;
+        seg.o.table = 99;
+        seg.o.version = 42;
+        seg.o.checksum = 0xff00ff00ff00;
+        seg.o.data_len = sizeof(seg.data);
+        const char* data = "0123456789ABCDEF";
+        memcpy(seg.data, data, sizeof(seg.data));
+        seg.cksume.type = LOG_ENTRY_TYPE_SEGFOOTER;
+        seg.cksume.length = sizeof(SegmentFooter);
+        seg.cksum.checksum = 0xDEADBEEFCAFEBABE;
+
+        client->openSegment(99, 88);
+        client->writeSegment(99, 88, 0, &seg, sizeof(seg));
+        client->closeSegment(99, 88);
+        client->startReadingData(99);
+        Buffer response;
+        client->getRecoveryData(99, 88, TabletMap(), response);
+
+        SegmentIterator it(response.getRange(0, response.getTotalLength()),
+                           segmentSize);
+
+        CPPUNIT_ASSERT(!it.isDone());
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, it.getType());
+        it.next();
+        CPPUNIT_ASSERT(!it.isDone());
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
+        it.next();
+        CPPUNIT_ASSERT(!it.isDone());
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
+        it.next();
+        CPPUNIT_ASSERT(it.isDone());
+
         freeStorageHandle(99, 88);
-    }
-
-    void
-    test_commitSegment()
-    {
-        rpc("131 0 99 0 88 0");             // open 99,88
-        rpc("133 0 99 0 88 0 10 4 test");   // write 99,88 at 10 for 4 bytes
-        rpc("128 0 99 0 88 0");             // commit 99,88
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 0 0 | "
-                             "serverReply: 0 0",
-                             transport->outputLog);
-        BackupServer::SegmentInfo &info =
-            backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
-        char* storageAddress =
-            static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
-                getAddress();
-        CPPUNIT_ASSERT(NULL != storageAddress);
-        CPPUNIT_ASSERT_EQUAL("test", &storageAddress[10]);
-        CPPUNIT_ASSERT_EQUAL(NULL, static_cast<void*>(info.segment));
-        freeStorageHandle(99, 88);
-    }
-
-    void
-    test_commitSegment_segmentNotOpen()
-    {
-        rpc("128 0 99 0 88 0");             // commit 99,88
-        CPPUNIT_ASSERT_EQUAL("serverReply: 11 0",
-                             transport->outputLog);
     }
 
     void
     test_openSegment()
     {
-        rpc("131 0 99 0 88 0");             // open 99,88
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0", transport->outputLog);
+        client->openSegment(99, 88);
         BackupServer::SegmentInfo &info =
             backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
         CPPUNIT_ASSERT(NULL != info.segment);
@@ -238,20 +279,20 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_openSegment_alreadyOpen()
     {
-        rpc("131 0 99 0 88 0");             // open 99,88
-        rpc("131 0 99 0 88 0");             // open 99,88
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 12 0",
-                             transport->outputLog);
+        client->openSegment(99, 88);
+        CPPUNIT_ASSERT_THROW(
+            client->openSegment(99, 88),
+            BackupSegmentAlreadyOpenException);
         freeStorageHandle(99, 88);
     }
 
     void
     test_openSegment_outOfStorage()
     {
-        rpc("131 0 99 0 86 0");             // open 99,86
-        rpc("131 0 99 0 87 0");             // open 99,87
+        client->openSegment(99, 86);
+        client->openSegment(99, 87);
         CPPUNIT_ASSERT_THROW(
-            rpc("131 0 99 0 88 0"),         // open 99,88
+            client->openSegment(99, 88),
             BackupStorageException);
         freeStorageHandle(99, 87);
         freeStorageHandle(99, 86);
@@ -260,28 +301,25 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_startReadingData()
     {
-        rpc("131 0 99 0 88 0"),         // open 99,88
-        rpc("132 0 99 0 88 0"),         // startReadingData 99,88
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 0 0 1 88 0",
-                             transport->outputLog);
+        client->openSegment(99, 88);
+        vector<uint64_t> result = client->startReadingData(99);
+        CPPUNIT_ASSERT_EQUAL(1, result.size());
+        CPPUNIT_ASSERT_EQUAL(88, result[0]);
         freeStorageHandle(99, 88);
     }
 
     void
     test_startReadingData_empty()
     {
-        rpc("132 0 99 0 88 0"),         // startReadingData 99,88
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 0",
-                             transport->outputLog);
+        vector<uint64_t> result = client->startReadingData(99);
+        CPPUNIT_ASSERT_EQUAL(0, result.size());
     }
 
     void
     test_writeSegment()
     {
-        rpc("131 0 99 0 88 0");             // open 99,88
-        rpc("133 0 99 0 88 0 10 4 test");   // write 99,88 at 10 for 4 bytes
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 0 0",
-                             transport->outputLog);
+        client->openSegment(99, 88);
+        client->writeSegment(99, 88, 10, "test", 4);
         BackupServer::SegmentInfo &info =
             backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
         CPPUNIT_ASSERT(NULL != info.segment);
@@ -292,38 +330,40 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_writeSegment_segmentNotOpen()
     {
-        rpc("133 0 99 0 88 0 0 0");             // write 99,88
-        CPPUNIT_ASSERT_EQUAL("serverReply: 11 0",
-                             transport->outputLog);
+        CPPUNIT_ASSERT_THROW(
+            client->writeSegment(99, 88, 0, "test", 4),
+            BackupBadSegmentIdException);
     }
 
     void
     test_writeSegment_badOffset()
     {
-        rpc("131 0 99 0 88 0");                 // open 99,88
-        rpc("133 0 99 0 88 0 9999999 4 test");  // write 99,88 out of bounds
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 13 0",
-                             transport->outputLog);
+        client->openSegment(99, 88);
+        CPPUNIT_ASSERT_THROW(
+            client->writeSegment(99, 88, 500000, "test", 0),
+            BackupSegmentOverflowException);
         freeStorageHandle(99, 88);
     }
 
     void
     test_writeSegment_badLength()
     {
-        rpc("131 0 99 0 88 0");                 // open 99,88
-        rpc("133 0 99 0 88 0 0 9999999 test");  // write 99,88 too long
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 13 0",
-                             transport->outputLog);
+        client->openSegment(99, 88);
+        char junk[70000];
+        CPPUNIT_ASSERT_THROW(
+            client->writeSegment(99, 88, 0, junk, sizeof(junk)),
+            BackupSegmentOverflowException);
         freeStorageHandle(99, 88);
     }
 
     void
     test_writeSegment_badOffsetPlusLength()
     {
-        rpc("131 0 99 0 88 0");                   // open 99,88
-        rpc("133 0 99 0 88 0 50000 50000 test");  // write 99,88 too far/long
-        CPPUNIT_ASSERT_EQUAL("serverReply: 0 0 | serverReply: 13 0",
-                             transport->outputLog);
+        client->openSegment(99, 88);
+        char junk[50000];
+        CPPUNIT_ASSERT_THROW(
+            client->writeSegment(99, 88, 50000, junk, 50000),
+            BackupSegmentOverflowException);
         freeStorageHandle(99, 88);
     }
 

@@ -17,6 +17,7 @@
 
 #include "Segment.h"
 #include "LogTypes.h"
+#include "BackupManager.h"
 
 namespace RAMCloud {
 

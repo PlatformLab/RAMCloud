@@ -14,6 +14,7 @@
  */
 
 #include "TestUtil.h"
+#include "BackupManager.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorServer.h"
 #include "MasterServer.h"
@@ -31,6 +32,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
+    BackupManager* backup;
     CoordinatorClient* client;
     CoordinatorServer* server;
     ServerConfig masterConfig;
@@ -39,6 +41,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
   public:
     CoordinatorTest()
         : transport(NULL)
+        , backup()
         , client(NULL)
         , server(NULL)
         , masterConfig()
@@ -55,7 +58,8 @@ class CoordinatorTest : public CppUnit::TestFixture {
         server->nextServerId = 2;
         transport->addServer(*server, "mock:host=coordinator");
         client = new CoordinatorClient("mock:host=coordinator");
-        master = new MasterServer(&masterConfig, NULL);
+        backup = new BackupManager(*client, 0);
+        master = new MasterServer(masterConfig, *client, *backup);
         transport->addServer(*master, "mock:host=master");
         TestLog::enable();
     }
@@ -63,6 +67,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     void tearDown() {
         TestLog::disable();
         delete master;
+        delete backup;
         delete client;
         delete server;
         transportManager.unregisterMock();

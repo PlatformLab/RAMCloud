@@ -84,8 +84,8 @@ class BackupServer : public Server {
     void run();
 
   private:
-    void commitSegment(const BackupCommitRpc::Request& reqHdr,
-                       BackupCommitRpc::Response& respHdr,
+    void closeSegment(const BackupCloseRpc::Request& reqHdr,
+                       BackupCloseRpc::Response& respHdr,
                        Transport::ServerRpc& rpc);
     void freeSegment(const BackupFreeRpc::Request& reqHdr,
                      BackupFreeRpc::Response& respHdr,
@@ -121,7 +121,25 @@ class BackupServer : public Server {
     boost::pool<> pool;
 
     /// Type of the key for the segments map.
-    typedef pair<uint64_t, uint64_t> MasterSegmentIdPair;
+    struct MasterSegmentIdPair {
+        MasterSegmentIdPair(uint64_t masterId, uint64_t segmentId)
+            : masterId(masterId)
+            , segmentId(segmentId)
+        {
+        }
+
+        /// Comparison is need to be a key in a map.
+        bool
+        operator<(const MasterSegmentIdPair& right) const
+        {
+            if (masterId < right.masterId)
+                return true;
+            return segmentId < right.segmentId;
+        }
+
+        uint64_t masterId;
+        uint64_t segmentId;
+    };
     /// Type of the segments map.
     typedef std::map<MasterSegmentIdPair, SegmentInfo> SegmentsMap;
     /**
@@ -133,7 +151,7 @@ class BackupServer : public Server {
     /// The uniform size of each segment this backup deals with.
     const uint32_t segmentSize;
 
-    /// The storage backend where committed segments are to be placed.
+    /// The storage backend where closed segments are to be placed.
     BackupStorage& storage;
 
     friend class BackupServerTest;

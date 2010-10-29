@@ -69,28 +69,28 @@ BackupServer::run()
 // - private -
 
 /**
- * Commit the specified segment to permanent storage.
+ * Close the specified segment to permanent storage.
  *
  * After this writeSegment() cannot be called for this segment id any
  * more.  The segment will be restored on recovery unless the client later
  * calls freeSegment() on it.
  *
  * \param reqHdr
- *      Header of the Rpc request containing the segment number to commit.
+ *      Header of the Rpc request containing the segment number to close.
  * \param respHdr
  *      Header for the Rpc response.
  * \param rpc
  *      The Rpc being serviced.
  */
 void
-BackupServer::commitSegment(const BackupCommitRpc::Request& reqHdr,
-                            BackupCommitRpc::Response& respHdr,
-                            Transport::ServerRpc& rpc)
+BackupServer::closeSegment(const BackupCloseRpc::Request& reqHdr,
+                           BackupCloseRpc::Response& respHdr,
+                           Transport::ServerRpc& rpc)
 {
     LOG(DEBUG, "Handling: %s", __func__);
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info)
-        throw ClientException(STATUS_BACKUP_BAD_SEGMENT_ID);
+        throw BackupBadSegmentIdException();
 
     storage.putSegment(info->storageHandle, info->segment);
     pool.free(info->segment);
@@ -103,9 +103,9 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
                        Responder& responder)
 {
     switch (type) {
-        case BackupCommitRpc::type:
-            callHandler<BackupCommitRpc, BackupServer,
-                        &BackupServer::commitSegment>(rpc);
+        case BackupCloseRpc::type:
+            callHandler<BackupCloseRpc, BackupServer,
+                        &BackupServer::closeSegment>(rpc);
             break;
         case BackupFreeRpc::type:
             callHandler<BackupFreeRpc, BackupServer,
@@ -141,7 +141,7 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
  * Failure with STATUS_BAD_SEGMENT_ID means the segment never existed
  * on this backup or it has already been freed.  Failure with
  * STATUS_BACKUP_SEGMENT_ALREADY_OPEN indicates that the segment is still
- * open on this backup and must be committed before being freed.
+ * open on this backup and must be closed before being freed.
  *
  * \param reqHdr
  *      Header of the Rpc request containing the segment number to free.
@@ -159,9 +159,9 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info)
-        throw ClientException(STATUS_BACKUP_BAD_SEGMENT_ID);
+        throw BackupBadSegmentIdException();
     if (info->segment)
-        throw ClientException(STATUS_BACKUP_SEGMENT_ALREADY_OPEN);
+        throw BackupSegmentAlreadyOpenException();
 
     segments.erase(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
     storage.free(info->storageHandle);
@@ -209,32 +209,31 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 {
     LOG(DEBUG, "Handling: %s", __func__);
 
-    // TODO(stutsman) RAII
-    char* segment = new char[segmentSize];
-    //uint32_t partitions = 2;
+    SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
+    if (!info)
+        throw BackupBadSegmentIdException();
 
-    for (SegmentsMap::iterator it = segments.begin();
-         it != segments.end(); it++)
-    {
-        uint64_t masterId = it->first.first;
-        if (masterId != reqHdr.masterId)
+    char* segment = new char[segmentSize];
+    storage.getSegment(info->storageHandle, segment);
+
+    for (SegmentIterator it(segment, segmentSize); !it.isDone(); it.next()) {
+        if (it.getType() == LOG_ENTRY_TYPE_SEGFOOTER)
             continue;
 
-        //uint64_t segmentId = it->first.second;
-        SegmentInfo &info = it->second;
-
-        storage.getSegment(info.storageHandle, segment);
-
-        // Iterate and bucket
-        for (SegmentIterator it(segment, segmentSize); !it.isDone(); it.next()){
-            if (it.getType() == LOG_ENTRY_TYPE_SEGHEADER ||
-                it.getType() == LOG_ENTRY_TYPE_SEGFOOTER)
-                continue;
-            LOG(ERROR, "Found object or tombstone: %u %lu",
-                it.getType(), it.getLength());
-        }
+        uint32_t totalEntryLength = it.getLength() + sizeof(SegmentEntry);
+        char* packedEntry =
+            new(&rpc.replyPayload, APPEND) char[totalEntryLength];
+        memcpy(packedEntry,
+               static_cast<const char*>(it.getPointer()) - sizeof(SegmentEntry),
+               totalEntryLength);
     }
 
+    SegmentEntry* footerEntry = new(&rpc.replyPayload, APPEND) SegmentEntry;
+    footerEntry->type = LOG_ENTRY_TYPE_SEGFOOTER;
+    footerEntry->length = sizeof(SegmentFooter);
+    SegmentFooter* footer = new(&rpc.replyPayload, APPEND) SegmentFooter;
+    // TODO(stutsman) compute new checksum for packed data and tack it on
+    footer->checksum = 0x1234568;
 }
 
 /**
@@ -267,7 +266,7 @@ BackupServer::openSegment(const BackupOpenRpc::Request& reqHdr,
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (info)
-        throw ClientException(STATUS_BACKUP_SEGMENT_ALREADY_OPEN);
+        throw BackupSegmentAlreadyOpenException();
 
     // Get memory for staging the segment writes
     char* segment = static_cast<char*>(pool.malloc());
@@ -311,10 +310,10 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     for (SegmentsMap::iterator it = segments.begin();
          it != segments.end(); it++)
     {
-        if (it->first.first == reqHdr.masterId) {
+        if (it->first.masterId == reqHdr.masterId) {
             Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
-                                          &it->first.second,
-                                          sizeof(it->first.second));
+                                          &it->first.segmentId,
+                                          sizeof(it->first.segmentId));
             segmentIdCount++;
         }
     }
@@ -348,14 +347,14 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info)
-        throw ClientException(STATUS_BACKUP_BAD_SEGMENT_ID);
+        throw BackupBadSegmentIdException();
 
     // Need to check all three conditions because overflow is possible
     // on the addition
     if (reqHdr.length > segmentSize ||
         reqHdr.offset > segmentSize ||
         reqHdr.length + reqHdr.offset > segmentSize)
-        throw ClientException(STATUS_BACKUP_SEGMENT_OVERFLOW);
+        throw BackupSegmentOverflowException();
 
     rpc.recvPayload.copy(sizeof(reqHdr), reqHdr.length,
                          &info->segment[reqHdr.offset]);

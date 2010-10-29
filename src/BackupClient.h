@@ -32,75 +32,27 @@ class TabletMap {
 };
 
 /**
- * The interface for an object that can act as a backup server no
- * matter the transport or location.
+ * A backup consisting of a single remote host.  BackupClient's primary
+ * role is to proxy calls via RPCs to a particular backup server.
  */
 class BackupClient : public Client {
   public:
-    struct RecoveredObject {
-        uint64_t segmentId;
-        //Object object;
-    };
+    explicit BackupClient(Transport::SessionRef session);
+    ~BackupClient();
 
-    virtual ~BackupClient() {}
-    virtual void commitSegment(uint64_t masterId, uint64_t segmentId) = 0;
-    virtual void freeSegment(uint64_t masterId, uint64_t segmentId) = 0;
-
-    /** 
-     * Get the objects stored for the given tablets of the given server.
-     */
-    virtual vector<RecoveredObject> getRecoveryData(uint64_t masterId,
-                                                    const TabletMap& tablets)=0;
-
-    /**
-     * Allocate space to receive backup writes for a segment.
-     *
-     * \param masterId
-     *      Id of this server.
-     * \param segmentId
-     *      Id of the segment to be backed up.
-     */
-    virtual void openSegment(uint64_t masterId, uint64_t segmentId) = 0;
-
-    /** 
-     * Begin reading the objects stored for the given server from disk.
-     * \return
-     *      A set of segment IDs for that server which will be read from disk.
-     */
-    virtual vector<uint64_t> startReadingData(uint64_t masterId) = 0;
-
-    /**
-     * Write the byte range specified in an open segment on the backup.
-     */
-    virtual void writeSegment(uint64_t masterId,
-                              uint64_t segmentId,
-                              uint32_t offset,
-                              const void *buf,
-                              uint32_t length) = 0;
-};
-
-/**
- * A backup consisting of a single remote host.  BackupHost's primary
- * role is to proxy calls via RPCs to a particular backup server.
- *
- * \implements BackupClient
- */
-class BackupHost : public BackupClient {
-  public:
-    explicit BackupHost(Transport::SessionRef session);
-    virtual ~BackupHost();
-
-    virtual void commitSegment(uint64_t masterId, uint64_t segmentId);
-    virtual void freeSegment(uint64_t masterId, uint64_t segmentId);
-    virtual vector<RecoveredObject> getRecoveryData(uint64_t masterId,
-                                                    const TabletMap& tablets);
-    virtual void openSegment(uint64_t masterId, uint64_t segmentId);
-    virtual vector<uint64_t> startReadingData(uint64_t masterId);
-    virtual void writeSegment(uint64_t masterId,
-                              uint64_t segmentId,
-                              uint32_t offset,
-                              const void *bug,
-                              uint32_t length);
+    void closeSegment(uint64_t masterId, uint64_t segmentId);
+    void freeSegment(uint64_t masterId, uint64_t segmentId);
+    void getRecoveryData(uint64_t masterId,
+                         uint64_t segmentId,
+                         const TabletMap& tablets,
+                         Buffer& resp);
+    void openSegment(uint64_t masterId, uint64_t segmentId);
+    vector<uint64_t> startReadingData(uint64_t masterId);
+    void writeSegment(uint64_t masterId,
+                      uint64_t segmentId,
+                      uint32_t offset,
+                      const void *buf,
+                      uint32_t length);
 
   private:
     /**
@@ -120,58 +72,7 @@ class BackupHost : public BackupClient {
      */
     Status status;
 
-    DISALLOW_COPY_AND_ASSIGN(BackupHost);
-};
-
-/**
- * A backup consisting of a multiple remote hosts.
- *
- * The precise set of backup hosts is selected by creating BackupHost
- * instances and adding them to the BackupManager instance via
- * addHost().
- *
- * Eventually this will be a more sophisticated not implementing
- * BackupClient, but rather, scheduling and orchestrating the backup
- * servers' for backup and recovery.
- *
- * \implements BackupClient
- */
-class BackupManager : public BackupClient {
-  public:
-    explicit BackupManager(uint32_t replicas = 2);
-    virtual ~BackupManager();
-
-    virtual void commitSegment(uint64_t masterId, uint64_t segmentId);
-    virtual void freeSegment(uint64_t masterId, uint64_t segmentId);
-    virtual vector<RecoveredObject> getRecoveryData(uint64_t masterId,
-                                                    const TabletMap& tablets);
-    virtual void openSegment(uint64_t masterId, uint64_t segmentId);
-
-    void setCoordinator(CoordinatorClient& coordinator);
-
-    virtual vector<uint64_t> startReadingData(uint64_t masterId);
-    virtual void writeSegment(uint64_t masterId,
-                              uint64_t segmentId,
-                              uint32_t offset,
-                              const void *buf,
-                              uint32_t length);
-
-  private:
-    void selectOpenHosts();
-
-    CoordinatorClient* coordinator;
-
-    /// The host pool to schedule backups from.
-    ProtoBuf::ServerList hosts;
-
-    typedef std::list<BackupHost*> OpenHostList;
-    /// List of hosts currently containing an open segment for this master.
-    OpenHostList openHosts;
-
-    /// The number of backups to replicate each segment on.
-    uint32_t replicas;
-
-    DISALLOW_COPY_AND_ASSIGN(BackupManager);
+    DISALLOW_COPY_AND_ASSIGN(BackupClient);
 };
 
 } // namespace RAMCloud
