@@ -129,6 +129,12 @@ BackupClient::getRecoveryData(uint64_t masterId,
     resp.truncateFront(sizeof(respHdr));
 }
 
+Transport::SessionRef
+BackupClient::getSession()
+{
+    return session;
+}
+
 /**
  * Allocate space to receive backup writes for a segment.
  *

@@ -28,6 +28,7 @@ BackupManager::BackupManager(CoordinatorClient& coordinator, uint32_t replicas)
     , hosts()
     , openHosts()
     , replicas(replicas)
+    , segments()
 {
 }
 
@@ -56,7 +57,18 @@ void
 BackupManager::freeSegment(uint64_t masterId,
                            uint64_t segmentId)
 {
-    // TODO(stutsman) need kind of map and a ref-counted BackupClient cache.
+    uint32_t count = 0;
+    for (SegmentMap::iterator it = segments.find(segmentId);
+         it != segments.end();
+         it++)
+    {
+        BackupClient host(it->second);
+        host.freeSegment(masterId, segmentId);
+        segments.erase(it);
+        count++;
+    }
+    if (count != replicas)
+        LOG(WARNING, "Only freed %u segments rather than %u", count, replicas);
 }
 
 // See BackupClient::openSegment.
@@ -65,8 +77,10 @@ BackupManager::openSegment(uint64_t masterId,
                            uint64_t segmentId)
 {
     selectOpenHosts();
-    foreach (BackupClient* host, openHosts)
+    foreach (BackupClient* host, openHosts) {
         host->openSegment(masterId, segmentId);
+        segments.insert(SegmentMap::value_type(segmentId, host->getSession()));
+    }
 }
 
 void

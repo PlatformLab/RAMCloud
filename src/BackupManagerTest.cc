@@ -34,6 +34,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(BackupManagerTest);
     CPPUNIT_TEST(test_closeSegment);
+    CPPUNIT_TEST(test_freeSegment);
     CPPUNIT_TEST(test_openSegment);
     CPPUNIT_TEST(test_writeSegment);
     CPPUNIT_TEST(test_selectOpenHosts);
@@ -143,11 +144,26 @@ class BackupManagerTest : public CppUnit::TestFixture {
     }
 
     void
+    test_freeSegment()
+    {
+        mgr->openSegment(99, 88);
+        mgr->closeSegment(99, 88);
+        mgr->freeSegment(99, 88);
+        BackupManager::SegmentMap::iterator it = mgr->segments.find(88);
+        CPPUNIT_ASSERT(mgr->segments.end() == it);
+    }
+
+    void
     test_openSegment()
     {
-        char segMem[segmentSize];
-        Segment seg(99, 88, segMem, segmentSize, mgr);
+        mgr->openSegment(99, 88);
         CPPUNIT_ASSERT_EQUAL(2, mgr->openHosts.size());
+        BackupManager::SegmentMap::iterator it = mgr->segments.find(88);
+        CPPUNIT_ASSERT(mgr->segments.end() != it);
+        it++;
+        CPPUNIT_ASSERT(mgr->segments.end() != it);
+        it++;
+        CPPUNIT_ASSERT(mgr->segments.end() == it);
         CPPUNIT_ASSERT_EQUAL(2,
             BackupStorage::Handle::resetAllocatedHandlesCount());
     }

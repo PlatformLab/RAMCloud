@@ -46,6 +46,7 @@ class BackupClient : public Client {
                          uint64_t segmentId,
                          const TabletMap& tablets,
                          Buffer& resp);
+    Transport::SessionRef getSession();
     void openSegment(uint64_t masterId, uint64_t segmentId);
     vector<uint64_t> startReadingData(uint64_t masterId);
     void writeSegment(uint64_t masterId,

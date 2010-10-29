@@ -17,6 +17,8 @@
 #ifndef RAMCLOUD_BACKUPMANAGER_H
 #define RAMCLOUD_BACKUPMANAGER_H
 
+#include <map>
+
 #include "BackupClient.h"
 #include "Common.h"
 
@@ -65,7 +67,11 @@ class BackupManager {
     OpenHostList openHosts;
 
     /// The number of backups to replicate each segment on.
-    uint32_t replicas;
+    const uint32_t replicas;
+
+    typedef std::multimap<uint64_t, Transport::SessionRef> SegmentMap;
+    /// Tells which backup each segment is stored on.
+    SegmentMap segments;
 
     friend class BackupManagerTest;
     DISALLOW_COPY_AND_ASSIGN(BackupManager);
