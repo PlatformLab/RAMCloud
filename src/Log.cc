@@ -31,12 +31,16 @@ namespace RAMCloud {
  *      Total size of the Log in bytes.
  * \param[in] segmentCapacity
  *      Size of each Segment that will be used in this Log in bytes.
+ * \param[in] backup
+ *      The BackupManager that will be used to make each of this Log's
+ *      Segments durable.
  * \return
  *      The newly constructed Log object. The caller must first add backing
  *      Segment memory to the Log with #addSegmentMemory before any appends
  *      will succeed.
  */
-Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity)
+Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
+        BackupManager *backup)
     : logId(logId),
       logCapacity(logCapacity),
       segmentCapacity(segmentCapacity),
@@ -47,7 +51,8 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity)
       head(NULL),
       callbackMap(),
       activeIdMap(),
-      activeBaseAddressMap()
+      activeBaseAddressMap(),
+      backup(backup)
 {
     cleaner = new LogCleaner(this);
 
@@ -169,7 +174,8 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
             if (s == NULL)
                 return NULL;
 
-            head = new Segment(logId, allocateSegmentId(), s, segmentCapacity);
+            head = new Segment(logId, allocateSegmentId(), s, segmentCapacity,
+                    backup);
             addToActiveMaps(head);
 
             cleaner->clean(1);

@@ -73,8 +73,8 @@ class MasterTest : public CppUnit::TestFixture {
         coordinatorServer = new CoordinatorServer();
         transport->addServer(*coordinatorServer, "mock:host=coordinator");
         coordinator = new CoordinatorClient("mock:host=coordinator");
-        backup = new BackupManager(0);
-        server = new MasterServer(&config, backup);
+        backup = new BackupManager(*coordinator, 0);
+        server = new MasterServer(config, *coordinator, *backup);
         transport->addServer(*server, "mock:host=master");
         client =
             new MasterClient(transportManager.getSession("mock:host=master"));

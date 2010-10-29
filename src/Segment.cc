@@ -36,12 +36,16 @@ namespace RAMCloud {
  *      A pointer to memory that will back this Segment.
  * \param[in] capacity
  *      The size of the backing memory pointed to by baseAddress in bytes.
+ * \param[in] backup
+ *      The BackupManager responsible for this Segment's durability.
  * \return
  *      The newly constructed Segment object.
  */
 Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
-    uint64_t capacity)
-    : baseAddress(baseAddress),
+    uint64_t capacity, BackupManager *backup)
+    : backup(backup),
+      baseAddress(baseAddress),
+      logId(logId),
       id(segmentId),
       capacity(capacity),
       tail(0),
@@ -50,6 +54,8 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
       checksum(0),
       closed(false)
 {
+    if (backup)
+        backup->openSegment(logId, id);
     SegmentHeader header = { logId, id, capacity };
     const void *p = append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
     assert(p != NULL);
@@ -137,6 +143,9 @@ Segment::close()
 
     // ensure that any future append() will fail
     closed = true;
+
+    if (backup)
+        backup->closeSegment(logId, id);
 }
 
 /**
@@ -243,6 +252,9 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length,
 
     const uint8_t *src = reinterpret_cast<const uint8_t *>(buffer);
     uint8_t       *dst = reinterpret_cast<uint8_t *>(baseAddress) + tail;
+
+    if (backup)
+        backup->writeSegment(logId, id, tail, src, length);
 
     if (updateChecksum) {
         for (uint64_t i = 0; i < length; i++) {

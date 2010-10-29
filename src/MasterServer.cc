@@ -39,22 +39,24 @@ void tombstoneEvictionCallback(LogEntryType type,
  * \param config
  *      Contains various parameters that configure the operation of
  *      this server.
- * \param backupClient
+ * \param coordinator
+ *      A client to the coordinator for the RAMCloud this Master is in.
+ * \param backup
  *      Provides a mechanism for replicating changes to other servers.
- *      If NULL then we create a default backup object.
  */
-MasterServer::MasterServer(const ServerConfig* config,
-                           BackupClient* backupClient)
+MasterServer::MasterServer(const ServerConfig& config,
+                           CoordinatorClient& coordinator,
+                           BackupManager& backup)
     : config(config)
-    , coordinator(config->coordinatorLocator.c_str())
+    , coordinator(coordinator)
     , serverId(0)
-    , backup(backupClient)
+    , backup(backup)
     , log(0)
     , objectMap(HASH_NLINES)
     , tablets()
 {
     log = new Log(0, Segment::SEGMENT_SIZE * SEGMENT_COUNT,
-        Segment::SEGMENT_SIZE);
+        Segment::SEGMENT_SIZE, &backup);
     log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 }
@@ -106,7 +108,7 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
 void __attribute__ ((noreturn))
 MasterServer::run()
 {
-    serverId = coordinator.enlistServer(MASTER, config->localLocator);
+    serverId = coordinator.enlistServer(MASTER, config.localLocator);
     LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
         handleRpc<MasterServer>();

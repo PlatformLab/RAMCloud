@@ -21,7 +21,7 @@
 #include "Object.h"
 #include "Log.h"
 #include "LogCleaner.h"
-#include "BackupClient.h"
+#include "BackupManager.h"
 #include "HashTable.h"
 #include "Server.h"
 #include "Table.h"
@@ -55,8 +55,9 @@ class MasterServer : public Server {
     /// The size of the Hashtable in cache lines.
     static const int HASH_NLINES = NUM_TABLES * 16384;
 
-    MasterServer(const ServerConfig* config,
-                 BackupClient* backup);
+    MasterServer(const ServerConfig& config,
+                 CoordinatorClient& coordinator,
+                 BackupManager& backup);
     virtual ~MasterServer();
     void run();
     void dispatch(RpcType type,
@@ -82,15 +83,15 @@ class MasterServer : public Server {
 
     // The following variables are copies of constructor arguments;
     // see constructor documentation for details.
-    const ServerConfig* config;
+    const ServerConfig& config;
 
   public:
-    CoordinatorClient coordinator;
+    CoordinatorClient& coordinator;
 
   private:
     uint64_t serverId;
 
-    BackupClient* backup;
+    BackupManager& backup;
 
     /**
      * The main in-memory data structure holding all of the data stored

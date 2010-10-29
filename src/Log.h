@@ -22,6 +22,7 @@
 
 #include "LogTypes.h"
 #include "Segment.h"
+#include "BackupManager.h"
 
 using boost::unordered_map;
 using std::vector;
@@ -48,7 +49,8 @@ struct LogException : public Exception {
 
 class Log {
   public:
-    Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity);
+    Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
+            BackupManager *backup = NULL);
     ~Log();
     const void *append(LogEntryType type,
                        const void *buffer, uint64_t length);
@@ -89,6 +91,9 @@ class Log {
 
     /// Segment base address -> Segment * lookup within the active list
     BaseAddressMap activeBaseAddressMap;
+
+    /// Given to Segments to make them durable
+    BackupManager *backup;
 
     friend class LogTest;
     friend class LogCleaner;

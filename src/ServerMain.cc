@@ -62,9 +62,10 @@ try
 
     transportManager.initialize(config.localLocator.c_str());
 
-    BackupManager backup(replicas);
-    MasterServer server(&config, &backup);
-    backup.setCoordinator(server.coordinator);
+    CoordinatorClient coordinator(
+        optionParser.options.getCoordinatorLocator().c_str());
+    BackupManager backup(coordinator, replicas);
+    MasterServer server(config, coordinator, backup);
     server.run();
 
     return 0;

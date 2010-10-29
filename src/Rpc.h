@@ -44,7 +44,7 @@ enum RpcType {
     GET_SERVER_LIST         = 16,
     GET_TABLET_MAP          = 17,
     SET_TABLETS             = 18,
-    BACKUP_COMMIT           = 128,
+    BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
     BACKUP_OPEN             = 131,
@@ -290,8 +290,8 @@ struct GetTabletMapRpc {
 
 // -- Backup RPCs ---
 
-struct BackupCommitRpc {
-    static const RpcType type = BACKUP_COMMIT;
+struct BackupCloseRpc {
+    static const RpcType type = BACKUP_CLOSE;
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;      ///< Server Id from whom the request is coming.
@@ -319,11 +319,11 @@ struct BackupGetRecoveryDataRpc {
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;      ///< Server Id from whom the request is coming.
+        uint64_t segmentId;     ///< Target segment to get data from.
         // TODO(stutsman) serialized TabletMap
     };
     struct Response {
         RpcResponseCommon common;
-        uint32_t recoveredObjectCount;///< Number of objects in reply payload.
     };
 };
 
