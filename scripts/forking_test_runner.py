@@ -23,7 +23,7 @@ import signal
 import subprocess
 import time
 
-FAIL_AFTER_SECONDS = 5.0
+FAIL_AFTER_SECONDS = 2.0
 
 ignore = \
 """terminate called after throwing an instance of 'std::invalid_argument'
@@ -81,6 +81,8 @@ for (suite, test) in tests:
         if rc is not None:
             break
         if time.time() - start > FAIL_AFTER_SECONDS:
+            print "Killing %s::%s" % (suite, test)
+            process.kill()
             break
     if rc != 0:
         output = process.stdout.read().strip()
