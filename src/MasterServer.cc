@@ -16,6 +16,7 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "MasterServer.h"
+#include "ProtoBuf.h"
 #include "Rpc.h"
 #include "Segment.h"
 #include "Transport.h"
@@ -50,23 +51,21 @@ MasterServer::MasterServer(const ServerConfig* config,
     , backup(backupClient)
     , log(0)
     , objectMap(HASH_NLINES)
+    , tablets()
 {
     log = new Log(0, Segment::SEGMENT_SIZE * SEGMENT_COUNT,
         Segment::SEGMENT_SIZE);
     log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
-
-    for (int i = 0; i < NUM_TABLES; i++) {
-        tables[i] = NULL;
-    }
 }
 
 MasterServer::~MasterServer()
 {
-    for (int i = 0; i < NUM_TABLES; i++) {
-        delete tables[i];
-    }
-
+    std::set<Table*> tables;
+    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet())
+        tables.insert(reinterpret_cast<Table*>(tablet.user_data()));
+    foreach (Table* table, tables)
+        delete table;
     delete log;
 }
 
@@ -79,18 +78,6 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             callHandler<CreateRpc, MasterServer,
                         &MasterServer::create>(rpc);
             break;
-        case CreateTableRpc::type:
-            callHandler<CreateTableRpc, MasterServer,
-                        &MasterServer::createTable>(rpc);
-            break;
-        case DropTableRpc::type:
-            callHandler<DropTableRpc, MasterServer,
-                        &MasterServer::dropTable>(rpc);
-            break;
-        case OpenTableRpc::type:
-            callHandler<OpenTableRpc, MasterServer,
-                        &MasterServer::openTable>(rpc);
-            break;
         case PingRpc::type:
             callHandler<PingRpc, Server,
                         &Server::ping>(rpc);
@@ -102,6 +89,10 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
         case RemoveRpc::type:
             callHandler<RemoveRpc, MasterServer,
                         &MasterServer::remove>(rpc);
+            break;
+        case SetTabletsRpc::type:
+            callHandler<SetTabletsRpc, MasterServer,
+                        &MasterServer::setTablets>(rpc);
             break;
         case WriteRpc::type:
             callHandler<WriteRpc, MasterServer,
@@ -132,8 +123,8 @@ MasterServer::create(const CreateRpc::Request& reqHdr,
                      CreateRpc::Response& respHdr,
                      Transport::ServerRpc& rpc)
 {
-    Table* t = getTable(reqHdr.tableId);
-    uint64_t id = t->AllocateKey(&objectMap);
+    Table& t(getTable(reqHdr.tableId, ~0UL));
+    uint64_t id = t.AllocateKey(&objectMap);
 
     RejectRules rejectRules;
     memset(&rejectRules, 0, sizeof(RejectRules));
@@ -146,83 +137,6 @@ MasterServer::create(const CreateRpc::Request& reqHdr,
 }
 
 /**
- * Top-level server method to handle the CREATE_TABLE request.
- * \copydetails create
- */
-void
-MasterServer::createTable(const CreateTableRpc::Request& reqHdr,
-                          CreateTableRpc::Response& respHdr,
-                          Transport::ServerRpc& rpc)
-{
-    int i;
-    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
-                                 reqHdr.nameLength);
-
-    // See if we already have a table with the given name.
-    for (i = 0; i < NUM_TABLES; i++) {
-        if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
-            // Table already exists; do nothing.
-            return;
-        }
-    }
-
-    // Find an empty slot in the table of tables and use it for the
-    // new table.
-    for (i = 0; i < NUM_TABLES; i++) {
-        if (tables[i] == NULL) {
-            tables[i] = new Table(i);
-            tables[i]->SetName(name);
-            return;
-        }
-    }
-    throw NoTableSpaceException();
-}
-
-
-/**
- * Top-level server method to handle the DROP_TABLE request.
- * \copydetails create
- */
-void
-MasterServer::dropTable(const DropTableRpc::Request& reqHdr,
-                        DropTableRpc::Response& respHdr,
-                        Transport::ServerRpc& rpc)
-{
-    int i;
-    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
-                                 reqHdr.nameLength);
-    for (i = 0; i < NUM_TABLES; i++) {
-        if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
-            delete tables[i];
-            tables[i] = NULL;
-            break;
-        }
-    }
-    // Note: it's not an error if the table doesn't exist.
-}
-
-/**
- * Top-level server method to handle the OPEN_TABLE request.
- * \copydetails create
- */
-void
-MasterServer::openTable(const OpenTableRpc::Request& reqHdr,
-                        OpenTableRpc::Response& respHdr,
-                        Transport::ServerRpc& rpc)
-{
-    int i;
-    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
-                                 reqHdr.nameLength);
-    for (i = 0; i < NUM_TABLES; i++) {
-        if ((tables[i] != NULL) && (strcmp(tables[i]->GetName(), name) == 0)) {
-            respHdr.tableId = tables[i]->getId();
-            return;
-        }
-    }
-    throw TableDoesntExistException();
-}
-
-/**
  * Top-level server method to handle the READ request.
  * \copydetails create
  */
@@ -231,18 +145,14 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
                    ReadRpc::Response& respHdr,
                    Transport::ServerRpc& rpc)
 {
-    // We must throw an exception if the table does not exist.
-    // An alternative is to only check if the object is not found,
-    // taking this off the fast path, but that'd require table
-    // destruction to synchronously prune all objects...
-    getTable(reqHdr.tableId);
+    // We must throw an exception if the table does not exist. Also, we might
+    // have an entry in the hash table that's invalid because its tablet no
+    // longer lives here.
+    getTable(reqHdr.tableId, reqHdr.id);
 
     const Object* o = objectMap.lookup(reqHdr.tableId, reqHdr.id);
     if (!o) {
-        // Automatic reject: can't read a non-existent object
-        // Return null version
         throw ObjectDoesntExistException();
-        return;
     }
 
     respHdr.version = o->version;
@@ -263,7 +173,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
                      RemoveRpc::Response& respHdr,
                      Transport::ServerRpc& rpc)
 {
-    Table* t = getTable(reqHdr.tableId);
+    Table& t(getTable(reqHdr.tableId, reqHdr.id));
     const Object* o = objectMap.lookup(reqHdr.tableId, reqHdr.id);
     if (o == NULL) {
         rejectOperation(&reqHdr.rejectRules, VERSION_NONEXISTENT);
@@ -274,7 +184,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
     // Abort if we're trying to delete the wrong version.
     rejectOperation(&reqHdr.rejectRules, respHdr.version);
 
-    t->RaiseVersion(o->version + 1);
+    t.RaiseVersion(o->version + 1);
 
     ObjectTombstone tomb(tomb.segmentId, o);
 
@@ -285,6 +195,52 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
         LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
     assert(ret);
     objectMap.remove(reqHdr.tableId, reqHdr.id);
+}
+
+/**
+ * Top-level server method to handle the SET_TABLETS request.
+ * \copydetails create
+ */
+void
+MasterServer::setTablets(const SetTabletsRpc::Request& reqHdr,
+                         SetTabletsRpc::Response& respHdr,
+                         Transport::ServerRpc& rpc)
+{
+    typedef std::map<uint32_t, Table*> Tables;
+    Tables tables;
+
+    // create map from table ID to Table of pre-existing tables
+    foreach (const ProtoBuf::Tablets::Tablet& oldTablet, tablets.tablet()) {
+        tables[oldTablet.table_id()] =
+            reinterpret_cast<Table*>(oldTablet.user_data());
+    }
+
+    // overwrite tablets with new tablets
+    ProtoBuf::parseFromRequest(rpc.recvPayload, sizeof(reqHdr),
+                               reqHdr.tabletsLength, tablets);
+
+    // delete pre-existing tables that no longer live here
+    foreach (Tables::value_type oldTable, tables) {
+        foreach (const ProtoBuf::Tablets::Tablet& newTablet,
+                 tablets.tablet()) {
+            if (oldTable.first == newTablet.table_id())
+                goto next;
+        }
+        delete oldTable.second;
+        oldTable.second = NULL;
+      next:
+        { /* pass */ }
+    }
+
+    // create new Tables and assign all new tablets tables
+    foreach (ProtoBuf::Tablets::Tablet& newTablet, *tablets.mutable_tablet()) {
+        Table* table = tables[newTablet.table_id()];
+        if (table == NULL) {
+            table = new Table(newTablet.table_id());
+            tables[newTablet.table_id()] = table;
+        }
+        newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
+    }
 }
 
 /**
@@ -302,27 +258,33 @@ MasterServer::write(const WriteRpc::Request& reqHdr,
 }
 
 /**
- * Validates a table identifier and returns the corresponding Table.
+ * Ensures that this master owns the tablet for the given object
+ * and returns the corresponding Table.
  *
  * \param tableId
  *      Identifier for a desired table.
+ * \param objectId
+ *      Identifier for a desired object.
  *
  * \return
- *      The table corresponding to tableId.
+ *      The Table of which the tablet containing this object is a part.
  *
  * \exception TableDoesntExist
- *      Thrown if tableId does not correspond to a valid table.
+ *      Thrown if that tablet isn't owned by this server.
  */
-Table*
-MasterServer::getTable(uint32_t tableId) {
-    if (tableId >= static_cast<uint32_t>(NUM_TABLES)) {
-        throw TableDoesntExistException();
+// TODO(ongaro): Masters don't know whether tables exist.
+// This be something like ObjectNotHereException.
+Table&
+MasterServer::getTable(uint32_t tableId, uint64_t objectId) {
+
+    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
+        if (tablet.table_id() == tableId &&
+            tablet.start_object_id() <= objectId &&
+            objectId <= tablet.end_object_id()) {
+            return *reinterpret_cast<Table*>(tablet.user_data());
+        }
     }
-    Table* t = tables[tableId];
-    if (t == NULL) {
-        throw TableDoesntExistException();
-    }
-    return t;
+    throw TableDoesntExistException();
 }
 
 /**
@@ -401,6 +363,15 @@ objectEvictionCallback(LogEntryType type,
 
     const Object *evictObj = static_cast<const Object *>(p);
     assert(evictObj != NULL);
+
+    try {
+        svr->getTable(evictObj->table, evictObj->id);
+    } catch (TableDoesntExistException& e) {
+        // That tablet doesn't exist on this server anymore.
+        // Just remove the hash table entry, if it exists.
+        svr->objectMap.remove(evictObj->table, evictObj->id);
+        return;
+    }
 
     const Object *hashTblObj =
         svr->objectMap.lookup(evictObj->table, evictObj->id);
@@ -496,7 +467,7 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
                         uint32_t dataOffset, uint32_t dataLength,
                         uint64_t* newVersion)
 {
-    Table *t = getTable(tableId);
+    Table& t(getTable(tableId, id));
     const Object *o = objectMap.lookup(tableId, id);
     uint64_t version = (o != NULL) ? o->version : VERSION_NONEXISTENT;
     try {
@@ -513,7 +484,7 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
     if (o != NULL)
         newObject->version = o->version + 1;
     else
-        newObject->version = t->AllocateVersion();
+        newObject->version = t.AllocateVersion();
     assert(o == NULL || newObject->version > o->version);
     // TODO(stutsman): dm's super-fast checksum here
     newObject->checksum = 0x0BE70BE70BE70BE7ULL;

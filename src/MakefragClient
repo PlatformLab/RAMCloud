@@ -30,6 +30,7 @@ CLIENT_SRCFILES := \
 		   src/UdpDriver.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/ServerList.pb.cc \
+		   $(OBJDIR)/Tablets.pb.cc \
 		   $(NULL)
 
 CLIENT_OBJFILES := $(CLIENT_SRCFILES)

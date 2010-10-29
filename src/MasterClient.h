@@ -32,9 +32,6 @@ class MasterClient : public Client {
     explicit MasterClient(Transport::SessionRef session) : session(session) {}
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL);
-    void createTable(const char* name);
-    void dropTable(const char* name);
-    uint32_t openTable(const char* name);
     void ping();
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,
@@ -42,6 +39,7 @@ class MasterClient : public Client {
     void remove(uint32_t tableId, uint64_t id,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);
+    void setTablets(const ProtoBuf::Tablets& tablets);
     void write(uint32_t tableId, uint64_t id, const void* buf,
                uint32_t length, const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL);

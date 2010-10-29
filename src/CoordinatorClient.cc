@@ -19,6 +19,81 @@
 namespace RAMCloud {
 
 /**
+ * Create a new table.
+ *
+ * \param name
+ *      Name for the new table (NULL-terminated string).
+ *
+ * \exception NoTableSpaceException
+ * \exception InternalError
+ */
+void
+CoordinatorClient::createTable(const char* name)
+{
+    Buffer req, resp;
+    uint32_t length = strlen(name) + 1;
+    CreateTableRpc::Request& reqHdr(allocHeader<CreateTableRpc>(req));
+    reqHdr.nameLength = length;
+    memcpy(new(&req, APPEND) char[length], name, length);
+    sendRecv<CreateTableRpc>(session, req, resp);
+    checkStatus();
+}
+
+/**
+ * Delete a table.
+ *
+ * All objects in the table are implicitly deleted, along with any
+ * other information associated with the table (such as, someday,
+ * indexes).  If the table does not currently exist than the operation
+ * returns successfully without actually doing anything.
+ *
+ * \param name
+ *      Name of the table to delete (NULL-terminated string).
+ *  
+ * \exception InternalError
+ */
+void
+CoordinatorClient::dropTable(const char* name)
+{
+    Buffer req, resp;
+    uint32_t length = strlen(name) + 1;
+    DropTableRpc::Request& reqHdr(allocHeader<DropTableRpc>(req));
+    reqHdr.nameLength = length;
+    memcpy(new(&req, APPEND) char[length], name, length);
+    sendRecv<DropTableRpc>(session, req, resp);
+    checkStatus();
+}
+
+/**
+ * Look up a table by name and return a small integer handle that
+ * can be used to access the table.
+ *
+ * \param name
+ *      Name of the desired table (NULL-terminated string).
+ *      
+ * \return
+ *      The return value is an identifier for the table; this is used
+ *      instead of the table's name for most RAMCloud operations
+ *      involving the table.
+ *
+ * \exception TableDoesntExistException
+ * \exception InternalError
+ */
+uint32_t
+CoordinatorClient::openTable(const char* name)
+{
+    Buffer req, resp;
+    uint32_t length = strlen(name) + 1;
+    OpenTableRpc::Request& reqHdr(allocHeader<OpenTableRpc>(req));
+    reqHdr.nameLength = length;
+    memcpy(new(&req, APPEND) char[length], name, length);
+    const OpenTableRpc::Response& respHdr(
+        sendRecv<OpenTableRpc>(session, req, resp));
+    checkStatus();
+    return respHdr.tableId;
+}
+
+/**
  * Servers call this when they come online to beg for work.
  * \return
  *      A server ID guaranteed never to have been used before.
@@ -66,6 +141,28 @@ CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
     checkStatus();
     ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
                                 respHdr.serverListLength, serverList);
+}
+
+/**
+ * Return the entire tablet map.
+ * Clients use this to find objects.
+ * If the returned data becomes too big, we should add parameters to
+ * specify a subrange.
+ * \param[out] tabletMap
+ *      Each tablet has a service locator string describing where to find
+ *      its master.
+ */
+void
+CoordinatorClient::getTabletMap(ProtoBuf::Tablets& tabletMap)
+{
+    Buffer req;
+    Buffer resp;
+    allocHeader<GetTabletMapRpc>(req);
+    const GetTabletMapRpc::Response& respHdr(
+        sendRecv<GetTabletMapRpc>(session, req, resp));
+    checkStatus();
+    ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
+                                respHdr.tabletMapLength, tabletMap);
 }
 
 /**

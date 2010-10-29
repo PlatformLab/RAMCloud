@@ -16,6 +16,7 @@
 
 #include "MasterClient.h"
 #include "TransportManager.h"
+#include "ProtoBuf.h"
 
 namespace RAMCloud {
 
@@ -61,81 +62,6 @@ MasterClient::create(uint32_t tableId, const void* buf, uint32_t length,
         *version = respHdr.version;
     checkStatus();
     return respHdr.id;
-}
-
-/**
- * Create a new table.
- *
- * \param name
- *      Name for the new table (NULL-terminated string).
- *
- * \exception NoTableSpaceException
- * \exception InternalError
- */
-void
-MasterClient::createTable(const char* name)
-{
-    Buffer req, resp;
-    uint32_t length = strlen(name) + 1;
-    CreateTableRpc::Request& reqHdr(allocHeader<CreateTableRpc>(req));
-    reqHdr.nameLength = length;
-    memcpy(new(&req, APPEND) char[length], name, length);
-    sendRecv<CreateTableRpc>(session, req, resp);
-    checkStatus();
-}
-
-/**
- * Delete a table.
- *
- * All objects in the table are implicitly deleted, along with any
- * other information associated with the table (such as, someday,
- * indexes).  If the table does not currently exist than the operation
- * returns successfully without actually doing anything.
- *
- * \param name
- *      Name of the table to delete (NULL-terminated string).
- *  
- * \exception InternalError
- */
-void
-MasterClient::dropTable(const char* name)
-{
-    Buffer req, resp;
-    uint32_t length = strlen(name) + 1;
-    DropTableRpc::Request& reqHdr(allocHeader<DropTableRpc>(req));
-    reqHdr.nameLength = length;
-    memcpy(new(&req, APPEND) char[length], name, length);
-    sendRecv<DropTableRpc>(session, req, resp);
-    checkStatus();
-}
-
-/**
- * Look up a table by name and return a small integer handle that
- * can be used to access the table.
- *
- * \param name
- *      Name of the desired table (NULL-terminated string).
- *      
- * \return
- *      The return value is an identifier for the table; this is used
- *      instead of the table's name for most RAMCloud operations
- *      involving the table.
- *
- * \exception TableDoesntExistException
- * \exception InternalError
- */
-uint32_t
-MasterClient::openTable(const char* name)
-{
-    Buffer req, resp;
-    uint32_t length = strlen(name) + 1;
-    OpenTableRpc::Request& reqHdr(allocHeader<OpenTableRpc>(req));
-    reqHdr.nameLength = length;
-    memcpy(new(&req, APPEND) char[length], name, length);
-    const OpenTableRpc::Response& respHdr(
-        sendRecv<OpenTableRpc>(session, req, resp));
-    checkStatus();
-    return respHdr.tableId;
 }
 
 /**
@@ -232,6 +158,24 @@ MasterClient::remove(uint32_t tableId, uint64_t id,
     const RemoveRpc::Response& respHdr(sendRecv<RemoveRpc>(session, req, resp));
     if (version != NULL)
         *version = respHdr.version;
+    checkStatus();
+}
+
+/**
+ * Set the set of tablets the master owns.
+ * Any new tablets appearing in this set will have no objects. Any tablets that
+ * no longer appear in this set will be deleted from the master.
+ * \warning
+ *      Adding a tablet, removing it, and then adding it back is not currently
+ *      supported.
+ */
+void
+MasterClient::setTablets(const ProtoBuf::Tablets& tablets)
+{
+    Buffer req, resp;
+    SetTabletsRpc::Request& reqHdr(allocHeader<SetTabletsRpc>(req));
+    reqHdr.tabletsLength = ProtoBuf::serializeToResponse(req, tablets);
+    sendRecv<SetTabletsRpc>(session, req, resp);
     checkStatus();
 }
 

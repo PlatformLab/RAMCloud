@@ -32,11 +32,11 @@ namespace RAMCloud {
 class RamCloud {
   public:
     explicit RamCloud(const char* serviceLocator);
-    uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
-                    uint64_t* version = NULL);
     void createTable(const char* name);
     void dropTable(const char* name);
     uint32_t openTable(const char* name);
+    uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
+                    uint64_t* version = NULL);
     void ping();
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,

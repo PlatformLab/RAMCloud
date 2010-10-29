@@ -34,14 +34,16 @@ class ObjectFinder {
     explicit ObjectFinder(CoordinatorClient& coordinator)
         : coordinator(coordinator)
         , master() {
-        ProtoBuf::ServerList serverList;
-        coordinator.getServerList(serverList);
+        ProtoBuf::Tablets tabletMap;
         while (true) {
-            foreach (const ProtoBuf::ServerList::Entry& entry,
-                     serverList.server()) {
-                if (entry.server_type() == ProtoBuf::MASTER) {
+            coordinator.getTabletMap(tabletMap);
+            foreach (const ProtoBuf::Tablets::Tablet& tablet,
+                     tabletMap.tablet()) {
+                if (tablet.table_id() == 0) {
+                    LOG(NOTICE, "Using master %s",
+                        tablet.service_locator().c_str());
                     master = transportManager.getSession(
-                                         entry.service_locator().c_str());
+                                         tablet.service_locator().c_str());
                     return;
                 }
             }

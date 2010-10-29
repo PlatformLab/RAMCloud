@@ -16,6 +16,7 @@
 #include "TestUtil.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorServer.h"
+#include "MasterServer.h"
 #include "MockTransport.h"
 #include "TransportManager.h"
 #include "BindTransport.h"
@@ -26,53 +27,86 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(CoordinatorTest);
     CPPUNIT_TEST(test_enlistServer);
     CPPUNIT_TEST(test_getServerList);
+    CPPUNIT_TEST(test_getTabletMap);
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
     CoordinatorClient* client;
     CoordinatorServer* server;
+    ServerConfig masterConfig;
+    MasterServer* master;
 
   public:
-    CoordinatorTest() : transport(NULL), client(NULL), server(NULL) {}
+    CoordinatorTest()
+        : transport(NULL)
+        , client(NULL)
+        , server(NULL)
+        , masterConfig()
+        , master(NULL)
+    {
+        masterConfig.coordinatorLocator = "mock:host=coordinator";
+        masterConfig.localLocator = "mock:host=master";
+    }
 
     void setUp() {
         transport = new BindTransport();
         transportManager.registerMock(transport);
         server = new CoordinatorServer();
-        transport->addServer(*server, "mock:");
-        client = new CoordinatorClient("mock:");
+        server->nextServerId = 2;
+        transport->addServer(*server, "mock:host=coordinator");
+        client = new CoordinatorClient("mock:host=coordinator");
+        master = new MasterServer(&masterConfig, NULL);
+        transport->addServer(*master, "mock:host=master");
         TestLog::enable();
     }
 
     void tearDown() {
         TestLog::disable();
+        delete master;
         delete client;
         delete server;
         transportManager.unregisterMock();
         delete transport;
     }
 
+    // TODO(ongaro): test create, drop, open table
+
     void test_enlistServer() {
-        server->nextServerId = 2;
         uint64_t serverId =
-            client->enlistServer(MASTER, "tcp:host=foo,port=123");
+            client->enlistServer(MASTER, "mock:host=master");
         CPPUNIT_ASSERT_EQUAL(2, serverId);
         CPPUNIT_ASSERT_EQUAL("server { server_type: MASTER server_id: 2 "
-                             "service_locator: \"tcp:host=foo,port=123\" }",
+                             "service_locator: \"mock:host=master\" }",
                              server->serverList.ShortDebugString());
+        CPPUNIT_ASSERT_EQUAL("tablet { table_id: 0 start_object_id: 0 "
+                             "end_object_id: 18446744073709551615 "
+                             "state: NORMAL server_id: 2 "
+                             "service_locator: \"mock:host=master\" }",
+                             server->tabletMap.ShortDebugString());
+        CPPUNIT_ASSERT_EQUAL(1, master->tablets.tablet().size());
     }
 
     void test_getServerList() {
-        server->nextServerId = 2;
-        client->enlistServer(MASTER, "tcp:host=foo,port=123");
-        client->enlistServer(BACKUP, "tcp:host=bar,port=123");
+        client->enlistServer(MASTER, "mock:host=master");
+        client->enlistServer(BACKUP, "mock:host=backup");
         ProtoBuf::ServerList serverList;
         client->getServerList(serverList);
         CPPUNIT_ASSERT_EQUAL("server { server_type: MASTER server_id: 2 "
-                             "service_locator: \"tcp:host=foo,port=123\" } "
+                             "service_locator: \"mock:host=master\" } "
                              "server { server_type: BACKUP server_id: 3 "
-                             "service_locator: \"tcp:host=bar,port=123\" }",
+                             "service_locator: \"mock:host=backup\" }",
                              serverList.ShortDebugString());
+    }
+
+    void test_getTabletMap() {
+        client->enlistServer(MASTER, "mock:host=master");
+        ProtoBuf::Tablets tabletMap;
+        client->getTabletMap(tabletMap);
+        CPPUNIT_ASSERT_EQUAL("tablet { table_id: 0 start_object_id: 0 "
+                             "end_object_id: 18446744073709551615 "
+                             "state: NORMAL server_id: 2 "
+                             "service_locator: \"mock:host=master\" }",
+                             tabletMap.ShortDebugString());
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorTest);

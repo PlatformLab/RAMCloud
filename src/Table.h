@@ -22,40 +22,21 @@
 namespace RAMCloud {
 
 /**
- * Each object of this class represents one table (a collection of objects
- * named with 64-bit integer identifiers).
+ * This class keeps information for the subset of a table stored on a
+ * particular master. Multiple tablets of the same table that happen to be
+ * co-located on a single master will all refer to a single Table object.
+ *
+ * This class is pretty thin right now. Eventually, it's likely that some
+ * access control stuff will go in here.
  */
 class Table {
   public:
-
-    /**
-     * The maximum length of a table name, including the null terminator.
-     */
-    static const int TABLE_NAME_MAX_LEN = 64;
 
     explicit Table(uint64_t tableId)
         : tableId(tableId),
           nextKey(0),
           nextVersion(1)
     {
-        name[0] = '\0';
-    }
-
-    ~Table()
-    {
-        numDeletes++;
-    }
-
-    const char *GetName() { return &name[0]; }
-
-    /**
-     * \param new_name
-     *      A string with a length within #TABLE_NAME_MAX_LEN, including the
-     *      null terminator.
-     */
-    void SetName(const char *new_name) {
-        strncpy(&name[0], new_name, TABLE_NAME_MAX_LEN);
-        name[TABLE_NAME_MAX_LEN - 1] = '\0';
     }
 
     /**
@@ -95,23 +76,13 @@ class Table {
     }
 
     /**
-     * Object the Table's identifier.
+     * Get the Table's identifier.
      */
     uint64_t getId() {
         return tableId;
     }
 
-    /// Number of Table object destructors called.
-    static int numDeletes;
-
   private:
-
-    /**
-     * The name of the table. If this is an empty string it means the table
-     * isn't currently in use.
-     * \see #SetName().
-     */
-    char name[64];
 
     /**
      * The unique numerical identifier for this table.

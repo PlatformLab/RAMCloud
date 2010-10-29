@@ -17,6 +17,7 @@
 #define RAMCLOUD_COORDINATORCLIENT_H
 
 #include "ServerList.pb.h"
+#include "Tablets.pb.h"
 
 #include "Common.h"
 #include "Client.h"
@@ -34,8 +35,13 @@ class CoordinatorClient : public Client {
     explicit CoordinatorClient(const char* coordinatorLocator)
         : session(transportManager.getSession(coordinatorLocator)) {}
 
+    void createTable(const char* name);
+    void dropTable(const char* name);
+    uint32_t openTable(const char* name);
+
     uint64_t enlistServer(ServerType serverType, string localServiceLocator);
     void getServerList(ProtoBuf::ServerList& serverList);
+    void getTabletMap(ProtoBuf::Tablets& tabletMap);
     void ping();
 
   private:

@@ -42,6 +42,8 @@ enum RpcType {
     REMOVE                  = 14,
     ENLIST_SERVER           = 15,
     GET_SERVER_LIST         = 16,
+    GET_TABLET_MAP          = 17,
+    SET_TABLETS             = 18,
     BACKUP_COMMIT           = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -115,49 +117,6 @@ struct CreateRpc {
     };
 };
 
-struct CreateTableRpc {
-    static const RpcType type = CREATE_TABLE;
-    struct Request {
-        RpcRequestCommon common;
-        uint32_t nameLength;          // Number of bytes in the name,
-                                      // including terminating NULL
-                                      // character. The bytes of the name
-                                      // follow immediately after this header.
-    };
-    struct Response {
-        RpcResponseCommon common;
-    };
-};
-
-struct DropTableRpc {
-    static const RpcType type = DROP_TABLE;
-    struct Request {
-        RpcRequestCommon common;
-        uint32_t nameLength;          // Number of bytes in the name,
-                                      // including terminating NULL
-                                      // character. The bytes of the name
-                                      // follow immediately after this header.
-    };
-    struct Response {
-        RpcResponseCommon common;
-    };
-};
-
-struct OpenTableRpc {
-    static const RpcType type = OPEN_TABLE;
-    struct Request {
-        RpcRequestCommon common;
-        uint32_t nameLength;          // Number of bytes in the name,
-                                      // including terminating NULL
-                                      // character. The bytes of the name
-                                      // follow immediately after this header.
-    };
-    struct Response {
-        RpcResponseCommon common;
-        uint32_t tableId;
-    };
-};
-
 struct PingRpc {
     static const RpcType type = PING;
     struct Request {
@@ -202,6 +161,21 @@ struct RemoveRpc {
     };
 };
 
+struct SetTabletsRpc {
+    static const RpcType type = SET_TABLETS;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t tabletsLength;    // Number of bytes in the tablet map.
+                                   // The bytes of the tablet map follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::Tablets.
+    };
+    struct Response {
+        RpcResponseCommon common;
+
+    };
+};
+
 struct WriteRpc {
     static const RpcType type = WRITE;
     struct Request {
@@ -220,6 +194,50 @@ struct WriteRpc {
 };
 
 // Coordinator RPCs follow, see Coordinator.cc
+
+struct CreateTableRpc {
+    static const RpcType type = CREATE_TABLE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t nameLength;          // Number of bytes in the name,
+                                      // including terminating NULL
+                                      // character. The bytes of the name
+                                      // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct DropTableRpc {
+    static const RpcType type = DROP_TABLE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t nameLength;          // Number of bytes in the name,
+                                      // including terminating NULL
+                                      // character. The bytes of the name
+                                      // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct OpenTableRpc {
+    static const RpcType type = OPEN_TABLE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t nameLength;          // Number of bytes in the name,
+                                      // including terminating NULL
+                                      // character. The bytes of the name
+                                      // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint32_t tableId;
+    };
+};
+
 enum ServerType {
     MASTER = 0,
     BACKUP = 1,
@@ -249,10 +267,24 @@ struct GetServerListRpc {
     };
     struct Response {
         RpcResponseCommon common;
-        uint32_t serverListLength; // Number of bytes in the serviceLocator,
-                                   // including terminating NULL character.
-                                   // The bytes of the service locator
-                                   // follow immediately after this header.
+        uint32_t serverListLength; // Number of bytes in the server list.
+                                   // The bytes of the server list follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::ServerList.
+    };
+};
+
+struct GetTabletMapRpc {
+    static const RpcType type = GET_TABLET_MAP;
+    struct Request {
+        RpcRequestCommon common;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint32_t tabletMapLength;  // Number of bytes in the tablet map.
+                                   // The bytes of the tablet map follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::Tablets.
     };
 };
 

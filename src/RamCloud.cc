@@ -38,6 +38,34 @@ RamCloud::RamCloud(const char* serviceLocator)
     , coordinator(serviceLocator)
     , objectFinder(coordinator) { }
 
+/// \copydoc CoordinatorClient::createTable
+void
+RamCloud::createTable(const char* name)
+{
+    coordinator.selectPerfCounter(counterType, beginMark, endMark);
+    coordinator.createTable(name);
+    counterValue = coordinator.counterValue;
+}
+
+/// \copydoc CoordinatorClient::dropTable
+void
+RamCloud::dropTable(const char* name)
+{
+    coordinator.selectPerfCounter(counterType, beginMark, endMark);
+    coordinator.dropTable(name);
+    counterValue = coordinator.counterValue;
+}
+
+/// \copydoc CoordinatorClient::openTable
+uint32_t
+RamCloud::openTable(const char* name)
+{
+    coordinator.selectPerfCounter(counterType, beginMark, endMark);
+    uint32_t retVal = coordinator.openTable(name);
+    counterValue = coordinator.counterValue;
+    return retVal;
+}
+
 /// \copydoc MasterClient::create
 uint64_t
 RamCloud::create(uint32_t tableId, const void* buf, uint32_t length,
@@ -46,37 +74,6 @@ RamCloud::create(uint32_t tableId, const void* buf, uint32_t length,
     MasterClient master(objectFinder.lookupHead(tableId));
     master.selectPerfCounter(counterType, beginMark, endMark);
     uint64_t retVal = master.create(tableId, buf, length, version);
-    counterValue = master.counterValue;
-    return retVal;
-}
-
-/// \copydoc MasterClient::createTable
-void
-RamCloud::createTable(const char* name)
-{
-    MasterClient master(objectFinder.lookupHead(0));
-    master.selectPerfCounter(counterType, beginMark, endMark);
-    master.createTable(name);
-    counterValue = master.counterValue;
-}
-
-/// \copydoc MasterClient::dropTable
-void
-RamCloud::dropTable(const char* name)
-{
-    MasterClient master(objectFinder.lookupHead(0));
-    master.selectPerfCounter(counterType, beginMark, endMark);
-    master.dropTable(name);
-    counterValue = master.counterValue;
-}
-
-/// \copydoc MasterClient::openTable
-uint32_t
-RamCloud::openTable(const char* name)
-{
-    MasterClient master(objectFinder.lookupHead(0));
-    master.selectPerfCounter(counterType, beginMark, endMark);
-    uint32_t retVal = master.openTable(name);
     counterValue = master.counterValue;
     return retVal;
 }

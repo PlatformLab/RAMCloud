@@ -27,8 +27,6 @@ namespace RAMCloud {
 
 class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(MasterTest);
-    CPPUNIT_TEST(test_server_constructor_initializeTables);
-    CPPUNIT_TEST(test_server_destructor_deleteTables);
     CPPUNIT_TEST(test_create_basics);
     CPPUNIT_TEST(test_create_badTable);
     CPPUNIT_TEST(test_ping);
@@ -41,6 +39,7 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_remove_rejectRules);
     CPPUNIT_TEST(test_remove_objectAlreadyDeletedRejectRules);
     CPPUNIT_TEST(test_remove_objectAlreadyDeleted);
+    CPPUNIT_TEST(test_setTablets);
     CPPUNIT_TEST(test_write);
     CPPUNIT_TEST(test_write_rejectRules);
     CPPUNIT_TEST(test_getTable);
@@ -79,6 +78,11 @@ class MasterTest : public CppUnit::TestFixture {
         transport->addServer(*server, "mock:host=master");
         client =
             new MasterClient(transportManager.getSession("mock:host=master"));
+        ProtoBuf::Tablets_Tablet& tablet(*server->tablets.add_tablet());
+        tablet.set_table_id(0);
+        tablet.set_start_object_id(0);
+        tablet.set_end_object_id(~0UL);
+        tablet.set_user_data(reinterpret_cast<uint64_t>(new Table(0)));
     }
 
     void tearDown() {
@@ -91,28 +95,7 @@ class MasterTest : public CppUnit::TestFixture {
         delete coordinatorServer;
     }
 
-    void test_server_constructor_initializeTables() {
-        Table** tables = server->tables;
-        for (int i = 0; i < MasterServer::NUM_TABLES; i++) {
-            if (tables[i] != NULL)
-                CPPUNIT_FAIL(format("table index %d wasn't null", i));
-        }
-    }
-
-    void test_server_destructor_deleteTables() {
-        MasterServer* s = new MasterServer(&config, NULL);
-        Table::numDeletes = 0;
-        Table** tables = s->tables;
-        tables[0] = new Table(0);
-        tables[2] = new Table(2);
-        tables[MasterServer::NUM_TABLES-1] = new Table(3);
-        delete s;
-        CPPUNIT_ASSERT_EQUAL(3, Table::numDeletes);
-    }
-
     void test_create_basics() {
-        client->createTable("t1");
-
         uint64_t version;
         CPPUNIT_ASSERT_EQUAL(0, client->create(0, "item0", 5, &version));
         CPPUNIT_ASSERT_EQUAL(1, version);
@@ -133,14 +116,11 @@ class MasterTest : public CppUnit::TestFixture {
                              TableDoesntExistException);
     }
 
-    // create, drop, open table going away soon so not unit tested
-
     void test_ping() {
         client->ping();
     }
 
     void test_read_basics() {
-        client->createTable("t1");
         client->create(0, "abcdef", 6);
 
         Buffer value;
@@ -156,12 +136,10 @@ class MasterTest : public CppUnit::TestFixture {
     }
     void test_read_noSuchObject() {
         Buffer value;
-        client->createTable("t1");
         CPPUNIT_ASSERT_THROW(client->read(0, 5, &value),
                              ObjectDoesntExistException);
     }
     void test_read_rejectRules() {
-        client->createTable("t1");
         client->create(0, "abcdef", 6);
 
         Buffer value;
@@ -176,7 +154,6 @@ class MasterTest : public CppUnit::TestFixture {
     }
 
     void test_remove_basics() {
-        client->createTable("t1");
         client->create(0, "item0", 5);
 
         uint64_t version;
@@ -192,7 +169,6 @@ class MasterTest : public CppUnit::TestFixture {
                              TableDoesntExistException);
     }
     void test_remove_rejectRules() {
-        client->createTable("t1");
         client->create(0, "item0", 5);
 
         RejectRules rules;
@@ -205,7 +181,6 @@ class MasterTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, version);
     }
     void test_remove_objectAlreadyDeletedRejectRules() {
-        client->createTable("t1");
         RejectRules rules;
         memset(&rules, 0, sizeof(rules));
         rules.doesntExist = true;
@@ -216,7 +191,6 @@ class MasterTest : public CppUnit::TestFixture {
     }
     void test_remove_objectAlreadyDeleted() {
         uint64_t version;
-        client->createTable("t1");
         client->remove(0, 1, NULL, &version);
         CPPUNIT_ASSERT_EQUAL(VERSION_NONEXISTENT, version);
         client->create(0, "abcdef", 6);
@@ -225,11 +199,82 @@ class MasterTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(VERSION_NONEXISTENT, version);
     }
 
+    void test_setTablets() {
+
+        std::auto_ptr<Table> table1(new Table(1));
+        uint64_t addrTable1 = reinterpret_cast<uint64_t>(table1.get());
+        std::auto_ptr<Table> table2(new Table(2));
+        uint64_t addrTable2 = reinterpret_cast<uint64_t>(table2.get());
+
+        { // clear out the tablets through client
+            ProtoBuf::Tablets newTablets;
+            client->setTablets(newTablets);
+            CPPUNIT_ASSERT_EQUAL("", server->tablets.ShortDebugString());
+        }
+
+        { // set t1 and t2 directly
+            ProtoBuf::Tablets_Tablet& t1(*server->tablets.add_tablet());
+            t1.set_table_id(1);
+            t1.set_start_object_id(0);
+            t1.set_end_object_id(1);
+            t1.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+            t1.set_user_data(reinterpret_cast<uint64_t>(table1.release()));
+
+            ProtoBuf::Tablets_Tablet& t2(*server->tablets.add_tablet());
+            t2.set_table_id(2);
+            t2.set_start_object_id(0);
+            t2.set_end_object_id(1);
+            t2.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+            t2.set_user_data(reinterpret_cast<uint64_t>(table2.release()));
+
+            CPPUNIT_ASSERT_EQUAL(format(
+                "tablet { table_id: 1 start_object_id: 0 end_object_id: 1 "
+                    "state: NORMAL user_data: %lu } "
+                "tablet { table_id: 2 start_object_id: 0 end_object_id: 1 "
+                    "state: NORMAL user_data: %lu }",
+                addrTable1, addrTable2),
+                                 server->tablets.ShortDebugString());
+        }
+
+        { // set t2, t2b, and t3 through client
+            ProtoBuf::Tablets newTablets;
+
+            ProtoBuf::Tablets_Tablet& t2(*newTablets.add_tablet());
+            t2.set_table_id(2);
+            t2.set_start_object_id(0);
+            t2.set_end_object_id(1);
+            t2.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+
+            ProtoBuf::Tablets_Tablet& t2b(*newTablets.add_tablet());
+            t2b.set_table_id(2);
+            t2b.set_start_object_id(2);
+            t2b.set_end_object_id(3);
+            t2b.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+
+            ProtoBuf::Tablets_Tablet& t3(*newTablets.add_tablet());
+            t3.set_table_id(3);
+            t3.set_start_object_id(0);
+            t3.set_end_object_id(1);
+            t3.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+
+            client->setTablets(newTablets);
+
+            CPPUNIT_ASSERT_EQUAL(format(
+                "tablet { table_id: 2 start_object_id: 0 end_object_id: 1 "
+                    "state: NORMAL user_data: %lu } "
+                "tablet { table_id: 2 start_object_id: 2 end_object_id: 3 "
+                    "state: NORMAL user_data: %lu } "
+                "tablet { table_id: 3 start_object_id: 0 end_object_id: 1 "
+                    "state: NORMAL user_data: %lu }",
+                addrTable2, addrTable2,
+                server->tablets.tablet(2).user_data()),
+                                 server->tablets.ShortDebugString());
+        }
+    }
+
     void test_write() {
         Buffer value;
         uint64_t version;
-        client->createTable("t1");
-
         client->write(0, 3, "item0", 5, NULL, &version);
         CPPUNIT_ASSERT_EQUAL(1, version);
         client->read(0, 3, &value, NULL, &version);
@@ -248,7 +293,6 @@ class MasterTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(3, version);
     }
     void test_write_rejectRules() {
-        client->createTable("t1");
         RejectRules rules;
         memset(&rules, 0, sizeof(rules));
         rules.doesntExist = true;
@@ -259,28 +303,17 @@ class MasterTest : public CppUnit::TestFixture {
     }
 
     void test_getTable() {
-        client->createTable("table1");
+        // Table exists.
+        CPPUNIT_ASSERT_NO_THROW(server->getTable(0, 0));
 
-        // Table index out of range.
+        // Table doesn't exist.
         Status status = Status(-1);
         try {
-            server->getTable(1000);
+            server->getTable(1000, 0);
         } catch (TableDoesntExistException& e) {
             status = e.status;
         }
         CPPUNIT_ASSERT_EQUAL(1, status);
-
-        // Table index in range, but table doesn't exist.
-        status = Status(-1);
-        try {
-            server->getTable(6);
-        } catch (TableDoesntExistException& e) {
-            status = e.status;
-        }
-        CPPUNIT_ASSERT_EQUAL(1, status);
-
-        // Table exists.
-        CPPUNIT_ASSERT_EQUAL("table1", server->getTable(0)->GetName());
     }
 
     void test_rejectOperation() {

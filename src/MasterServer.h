@@ -67,21 +67,15 @@ class MasterServer : public Server {
     void create(const CreateRpc::Request& reqHdr,
                 CreateRpc::Response& respHdr,
                 Transport::ServerRpc& rpc);
-    void createTable(const CreateTableRpc::Request& reqHdr,
-                     CreateTableRpc::Response& respHdr,
-                     Transport::ServerRpc& rpc);
-    void dropTable(const DropTableRpc::Request& reqHdr,
-                   DropTableRpc::Response& respHdr,
-                   Transport::ServerRpc& rpc);
-    void openTable(const OpenTableRpc::Request& reqHdr,
-                   OpenTableRpc::Response& respHdr,
-                   Transport::ServerRpc& rpc);
     void read(const ReadRpc::Request& reqHdr,
               ReadRpc::Response& respHdr,
               Transport::ServerRpc& rpc);
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
                 Transport::ServerRpc& rpc);
+    void setTablets(const SetTabletsRpc::Request& reqHdr,
+                    SetTabletsRpc::Response& respHdr,
+                    Transport::ServerRpc& rpc);
     void write(const WriteRpc::Request& reqHdr,
                WriteRpc::Response& respHdr,
                Transport::ServerRpc& rpc);
@@ -105,16 +99,18 @@ class MasterServer : public Server {
     Log* log;
 
     /**
-     * Information about all of the tables in the system. Tables are
-     * allocated lazily: a NULL entry means the corresponding table
-     * does not yet exist.
-     */
-    Table *tables[NUM_TABLES];
-
-    /**
      * The (table ID, object ID) to #RAMCloud::Object pointer map for the table.
+     * Before accessing objects via the hash table, you usually need to check
+     * that the tablet still lives on this server; objects from deleted tablets
+     * are not immediately purged from the hash table.
      */
     HashTable objectMap;
+
+    /**
+     * Tablets this master owns.
+     * The user_data field in each tablet points to a Table object.
+     */
+    ProtoBuf::Tablets tablets;
 
     friend void objectEvictionCallback(LogEntryType type,
             const void* p, uint64_t len, void* cookie);
@@ -123,13 +119,14 @@ class MasterServer : public Server {
     friend void segmentReplayCallback(Segment* seg, void* cookie);
     friend void objectReplayCallback(LogEntryType type,
             const void* p, uint64_t len, void* cookie);
-    Table* getTable(uint32_t tableId);
+    Table& getTable(uint32_t tableId, uint64_t objectId);
     void rejectOperation(const RejectRules* rejectRules, uint64_t version);
     void storeData(uint64_t table, uint64_t id,
                    const RejectRules* rejectRules, Buffer* data,
                    uint32_t dataOffset, uint32_t dataLength,
                    uint64_t* newVersion);
     friend class MasterTest;
+    friend class CoordinatorTest;
     DISALLOW_COPY_AND_ASSIGN(MasterServer);
 };
 
