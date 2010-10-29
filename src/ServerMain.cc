@@ -64,7 +64,7 @@ try
 
     CoordinatorClient coordinator(
         optionParser.options.getCoordinatorLocator().c_str());
-    BackupManager backup(coordinator, replicas);
+    BackupManager backup(&coordinator, replicas);
     MasterServer server(config, coordinator, backup);
     server.run();
 

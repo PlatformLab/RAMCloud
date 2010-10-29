@@ -70,6 +70,9 @@ Segment::~Segment()
     static_assert(sizeof(SegmentEntry) == 8);
     static_assert(sizeof(SegmentHeader) == 20);
     static_assert(sizeof(SegmentFooter) == 8);
+
+    if (backup)
+        backup->freeSegment(logId, id);
 }
 
 /**

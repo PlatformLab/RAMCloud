@@ -37,14 +37,13 @@ namespace RAMCloud {
  */
 class BackupManager {
   public:
-    explicit BackupManager(CoordinatorClient& coordinator,
+    explicit BackupManager(CoordinatorClient* coordinator,
                            uint32_t replicas = 2);
     virtual ~BackupManager();
 
     void closeSegment(uint64_t masterId, uint64_t segmentId);
     void freeSegment(uint64_t masterId, uint64_t segmentId);
     void openSegment(uint64_t masterId, uint64_t segmentId);
-    void setCoordinator(CoordinatorClient& coordinator);
     void recover(uint64_t masterId,
                  const TabletMap& tablets);
     void writeSegment(uint64_t masterId,
@@ -57,7 +56,7 @@ class BackupManager {
     void selectOpenHosts();
     void startReadingData(uint64_t masterId);
 
-    CoordinatorClient& coordinator;
+    CoordinatorClient* coordinator;
 
     /// The host pool to schedule backups from.
     ProtoBuf::ServerList hosts;

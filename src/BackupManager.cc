@@ -23,7 +23,7 @@ namespace RAMCloud {
  * Create a BackupManager, initially with no backup hosts to communicate
  * with.  See addHost() to add remote backups.
  */
-BackupManager::BackupManager(CoordinatorClient& coordinator, uint32_t replicas)
+BackupManager::BackupManager(CoordinatorClient* coordinator, uint32_t replicas)
     : coordinator(coordinator)
     , hosts()
     , openHosts()
@@ -44,6 +44,7 @@ void
 BackupManager::closeSegment(uint64_t masterId,
                             uint64_t segmentId)
 {
+    TEST_LOG("%lu, %lu", masterId, segmentId);
     foreach (BackupClient* host, openHosts) {
         // TODO(stutsman) Exception during one of the closes?
         host->closeSegment(masterId, segmentId);
@@ -57,10 +58,11 @@ void
 BackupManager::freeSegment(uint64_t masterId,
                            uint64_t segmentId)
 {
+    TEST_LOG("%lu, %lu", masterId, segmentId);
     uint32_t count = 0;
     for (SegmentMap::iterator it = segments.find(segmentId);
          it != segments.end();
-         it++)
+         ++it)
     {
         BackupClient host(it->second);
         host.freeSegment(masterId, segmentId);
@@ -76,6 +78,7 @@ void
 BackupManager::openSegment(uint64_t masterId,
                            uint64_t segmentId)
 {
+    TEST_LOG("%lu, %lu", masterId, segmentId);
     selectOpenHosts();
     foreach (BackupClient* host, openHosts) {
         host->openSegment(masterId, segmentId);
@@ -98,6 +101,7 @@ BackupManager::writeSegment(uint64_t masterId,
                             const void *data,
                             uint32_t len)
 {
+    TEST_LOG("%lu, %lu, %u, ..., %u", masterId, segmentId, offset, len);
     // TODO(stutsman) Exception during one of the writes?
     foreach (BackupClient* host, openHosts)
         host->writeSegment(masterId, segmentId, offset, data, len);
@@ -113,8 +117,15 @@ BackupManager::writeSegment(uint64_t masterId,
 void
 BackupManager::selectOpenHosts()
 {
+    if (!coordinator) {
+        if (replicas)
+            DIE("No coordinator given, replication requirements can't be met.");
+        else
+            return;
+    }
+
     // TODO(ongaro): it's probably not ok to get a new server list this often
-    coordinator.getServerList(hosts);
+    coordinator->getServerList(hosts);
 
     const uint32_t numHosts(static_cast<uint32_t>(hosts.server_size()));
 
