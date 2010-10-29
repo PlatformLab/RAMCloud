@@ -45,6 +45,10 @@ uint64_t
 LogCleaner::clean(uint64_t numSegments)
 {
     uint64_t i;
+
+//    if (!needsCleaning())
+//        return;
+
     uint64_t maxCleanableSegs = log->activeIdMap.size() - 1;  // ignore head
     Segment *segments[maxCleanableSegs];
 
@@ -67,6 +71,15 @@ LogCleaner::clean(uint64_t numSegments)
 ////////////////////////////////////////
 /// Private Methods
 ////////////////////////////////////////
+
+bool
+LogCleaner::needsCleaning()
+{
+    uint64_t freeSegs  = log->segmentFreeList.size();
+    uint64_t totalSegs = freeSegs + log->activeIdMap.size();
+    uint64_t pctFree   = (100 * freeSegs) / totalSegs;
+    return (pctFree <= FREELIST_LOW_WATERMARK_PCT);
+}
 
 void
 LogCleaner::cleanSegment(Segment *segment)

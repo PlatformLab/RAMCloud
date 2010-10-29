@@ -33,9 +33,13 @@ class LogCleaner {
     ~LogCleaner() {}
 
   private:
+    bool needsCleaning();
     void cleanSegment(Segment *segment);
 
-    Log * const log;
+    /// Only clean when <= this percentage of segments are free.
+    static const uint64_t FREELIST_LOW_WATERMARK_PCT = 20;
+
+    Log *log;
 
     DISALLOW_COPY_AND_ASSIGN(LogCleaner);
 };
