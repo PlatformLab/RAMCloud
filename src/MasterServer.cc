@@ -87,6 +87,10 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             callHandler<ReadRpc, MasterServer,
                         &MasterServer::read>(rpc);
             break;
+        case RecoverRpc::type:
+            callHandler<RecoverRpc, MasterServer,
+                        &MasterServer::recover>(rpc);
+            break;
         case RemoveRpc::type:
             callHandler<RemoveRpc, MasterServer,
                         &MasterServer::remove>(rpc);
@@ -163,6 +167,44 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
     // from scribbling over o->data.
     respHdr.length = o->data_len;
+}
+
+/**
+ * Top-level server method to handle the RECOVER request.
+ * \copydetails create
+ */
+void
+MasterServer::recover(const RecoverRpc::Request& reqHdr,
+                      RecoverRpc::Response& respHdr,
+                      Transport::ServerRpc& rpc)
+{
+    LOG(DEBUG, "Starting recovery of %lu", reqHdr.masterId);
+    ProtoBuf::Tablets tablets;
+    ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
+                                reqHdr.tabletsLength, tablets);
+    ProtoBuf::ServerList backups;
+    ProtoBuf::parseFromResponse(rpc.recvPayload,
+                                sizeof(reqHdr) + reqHdr.tabletsLength,
+                                reqHdr.serverListLength, backups);
+    backup.recover(*this, reqHdr.masterId, tablets, backups);
+}
+
+/**
+ * Replay a filtered segment from a crashed Master that this Master is taking
+ * over for.
+ *
+ * \param segmentId
+ *      The segmentId of the segment as it was in the log of the crashed Master.
+ * \param segment
+ *      A Buffer containing a valid segment which has been pre-filtered of all
+ *      objects except those that pertain to the tablet ranges this Master
+ *      will be responsible for after the recovery completes.
+ */
+void
+MasterServer::recoverSegment(uint64_t segmentId, const Buffer& segment)
+{
+    TEST_LOG("%lu, ...", segmentId);
+    // TODO(stutsman) Master should replay segment here
 }
 
 /**

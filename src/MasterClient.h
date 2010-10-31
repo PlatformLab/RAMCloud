@@ -36,6 +36,8 @@ class MasterClient : public Client {
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
+    void recover(uint64_t masterId, const ProtoBuf::Tablets& tablets,
+                 const ProtoBuf::ServerList& backups);
     void remove(uint32_t tableId, uint64_t id,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);

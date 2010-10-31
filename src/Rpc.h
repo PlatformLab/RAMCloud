@@ -44,6 +44,7 @@ enum RpcType {
     GET_SERVER_LIST         = 16,
     GET_TABLET_MAP          = 17,
     SET_TABLETS             = 18,
+    RECOVER                 = 19,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -143,6 +144,25 @@ struct ReadRpc {
                                       // The actual bytes of the object follow
                                       // immediately after this header.
         uint32_t pad1;
+    };
+};
+
+struct RecoverRpc {
+    static const RpcType type = RECOVER;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;
+        uint32_t tabletsLength;    // Number of bytes in the tablet map.
+                                   // The bytes of the tablet map follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::Tablets.
+        uint32_t serverListLength; // Number of bytes in the server list.
+                                   // The bytes of the server list follow
+                                   // after the bytes for the Tablets. See
+                                   // ProtoBuf::ServerList.
+    };
+    struct Response {
+        RpcResponseCommon common;
     };
 };
 
@@ -320,7 +340,10 @@ struct BackupGetRecoveryDataRpc {
         RpcRequestCommon common;
         uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t segmentId;     ///< Target segment to get data from.
-        // TODO(stutsman) serialized TabletMap
+        uint32_t tabletsLength;    // Number of bytes in the tablet map.
+                                   // The bytes of the tablet map follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::Tablets.
     };
     struct Response {
         RpcResponseCommon common;

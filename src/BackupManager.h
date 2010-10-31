@@ -24,6 +24,8 @@
 
 namespace RAMCloud {
 
+class MasterServer;
+
 /**
  * A backup consisting of a multiple remote hosts.
  *
@@ -44,8 +46,10 @@ class BackupManager {
     void closeSegment(uint64_t masterId, uint64_t segmentId);
     void freeSegment(uint64_t masterId, uint64_t segmentId);
     void openSegment(uint64_t masterId, uint64_t segmentId);
-    void recover(uint64_t masterId,
-                 const TabletMap& tablets);
+    void recover(MasterServer& recoveryMaster,
+                 uint64_t masterId,
+                 const ProtoBuf::Tablets& tablets,
+                 const ProtoBuf::ServerList& backups);
     void writeSegment(uint64_t masterId,
                       uint64_t segmentId,
                       uint32_t offset,

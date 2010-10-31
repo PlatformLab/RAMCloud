@@ -81,8 +81,8 @@ class BackupClientTest : public CppUnit::TestFixture {
     {
         transport->setInput("0 0 0");
         Buffer resp;
-        backup->getRecoveryData(99, 88, TabletMap(), resp);
-        CPPUNIT_ASSERT_EQUAL("clientSend: 130 0 99 0 88 0",
+        backup->getRecoveryData(99, 88, ProtoBuf::Tablets(), resp);
+        CPPUNIT_ASSERT_EQUAL("clientSend: 130 0 99 0 88 0 0 0",
                              transport->outputLog);
     }
 

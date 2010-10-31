@@ -19,6 +19,7 @@
 #include "ClientException.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorServer.h"
+#include "Logging.h"
 #include "MasterClient.h"
 #include "MasterServer.h"
 #include "TransportManager.h"
@@ -34,6 +35,7 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_read_badTable);
     CPPUNIT_TEST(test_read_noSuchObject);
     CPPUNIT_TEST(test_read_rejectRules);
+    CPPUNIT_TEST(test_recover_basics);
     CPPUNIT_TEST(test_remove_basics);
     CPPUNIT_TEST(test_remove_badTable);
     CPPUNIT_TEST(test_remove_rejectRules);
@@ -64,6 +66,7 @@ class MasterTest : public CppUnit::TestFixture {
         , coordinator(NULL)
         , coordinatorServer(NULL)
     {
+        logger.setLogLevels(SILENT_LOG_LEVEL);
         config.coordinatorLocator = "mock:host=coordinator";
         MasterServer::sizeLogAndHashTable("64", "8", &config);
     }
@@ -152,6 +155,47 @@ class MasterTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(client->read(0, 0, &value, &rules, &version),
                              WrongVersionException);
         CPPUNIT_ASSERT_EQUAL(1, version);
+    }
+
+    static bool
+    recoverSegmentFilter(string s)
+    {
+        return (s == "void RAMCloud::MasterServer::recoverSegment(uint64_t, "
+                     "const RAMCloud::Buffer&)") ||
+               (s == "void RAMCloud::BackupManager::recover("
+                "RAMCloud::MasterServer&, uint64_t, "
+                "const RAMCloud::ProtoBuf::Tablets&, "
+                "const RAMCloud::ProtoBuf::ServerList&)");
+    }
+
+    void test_recover_basics() {
+        // TODO(stutsman) for now just ensure that the arguments make it to
+        // BackupManager::recover, we'll do the full check of the
+        // returns later once the recovery procedures are complete
+
+        ProtoBuf::Tablets tablets;
+        ProtoBuf::ServerList backups; {
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(87);
+            server.set_service_locator("mock:host=backup1");
+        }
+
+        TestLog::Enable _(&recoverSegmentFilter);
+        client->recover(88, tablets, backups);
+        CPPUNIT_ASSERT_EQUAL(
+            "void RAMCloud::BackupManager::recover(RAMCloud::MasterServer&, "
+            "uint64_t, const RAMCloud::ProtoBuf::Tablets&, "
+            "const RAMCloud::ProtoBuf::ServerList&): Couldn't contact "
+            "mock:host=backup1, trying next backup; failure was: No transport "
+            "found for this service locator | "
+            "void RAMCloud::BackupManager::recover(RAMCloud::MasterServer&, "
+            "uint64_t, const RAMCloud::ProtoBuf::Tablets&, "
+            "const RAMCloud::ProtoBuf::ServerList&): *** Failed to recover "
+            "segment id 87, the recovered master state is corrupted, "
+            "pretending everything is ok",
+            TestLog::get());
     }
 
     void test_remove_basics() {
