@@ -66,12 +66,12 @@ class MasterTest : public CppUnit::TestFixture {
         , coordinator(NULL)
         , coordinatorServer(NULL)
     {
-        logger.setLogLevels(SILENT_LOG_LEVEL);
         config.coordinatorLocator = "mock:host=coordinator";
         MasterServer::sizeLogAndHashTable("64", "8", &config);
     }
 
     void setUp() {
+        logger.setLogLevels(SILENT_LOG_LEVEL);
         transport = new BindTransport();
         transportManager.registerMock(transport);
         coordinatorServer = new CoordinatorServer();
