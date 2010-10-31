@@ -187,12 +187,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
     static bool
     recoverSegmentFilter(string s)
     {
-        return (s == "void RAMCloud::MasterServer::recoverSegment(uint64_t, "
-                     "const RAMCloud::Buffer&)") ||
-               (s == "void RAMCloud::BackupManager::recover("
-                "RAMCloud::MasterServer&, uint64_t, "
-                "const RAMCloud::ProtoBuf::Tablets&, "
-                "const RAMCloud::ProtoBuf::ServerList&)");
+        return (s == "recoverSegment" || s == "recover");
     }
 
     MasterServer*
@@ -244,14 +239,9 @@ class BackupManagerTest : public CppUnit::TestFixture {
         TestLog::Enable _(&recoverSegmentFilter);
         mgr->recover(*master, 99, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
-            "void RAMCloud::MasterServer::recoverSegment(uint64_t, "
-            "const RAMCloud::Buffer&): 87, ... | "
-            "void RAMCloud::MasterServer::recoverSegment(uint64_t, "
-            "const RAMCloud::Buffer&): 88, ... | "
-            "void RAMCloud::BackupManager::recover(RAMCloud::MasterServer&, "
-            "uint64_t, const RAMCloud::ProtoBuf::Tablets&, "
-            "const RAMCloud::ProtoBuf::ServerList&): "
-            "skipping mock:host=backup2, already recovered 88",
+            "recoverSegment: 87, ... | "
+            "recoverSegment: 88, ... | "
+            "recover: skipping mock:host=backup2, already recovered 88",
             TestLog::get());
     }
 
@@ -279,24 +269,16 @@ class BackupManagerTest : public CppUnit::TestFixture {
         TestLog::Enable _(&recoverSegmentFilter);
         mgr->recover(*master, 99, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
-            "void RAMCloud::BackupManager::recover(RAMCloud::MasterServer&, "
-            "uint64_t, const RAMCloud::ProtoBuf::Tablets&, "
-            "const RAMCloud::ProtoBuf::ServerList&): getRecoveryData failed "
+            "recover: getRecoveryData failed "
             "on mock:host=backup1, trying next backup; failure was: "
             "bad segment id | "
-            "void RAMCloud::BackupManager::recover(RAMCloud::MasterServer&, "
-            "uint64_t, const RAMCloud::ProtoBuf::Tablets&, "
-            "const RAMCloud::ProtoBuf::ServerList&): *** Failed to recover "
+            "recover: *** Failed to recover "
             "segment id 87, the recovered master state is corrupted, "
             "pretending everything is ok | "
-            "void RAMCloud::BackupManager::recover(RAMCloud::MasterServer&, "
-            "uint64_t, const RAMCloud::ProtoBuf::Tablets&, "
-            "const RAMCloud::ProtoBuf::ServerList&): getRecoveryData failed "
+            "recover: getRecoveryData failed "
             "on mock:host=backup1, trying next backup; failure was: "
             "bad segment id | "
-            "void RAMCloud::BackupManager::recover(RAMCloud::MasterServer&, "
-            "uint64_t, const RAMCloud::ProtoBuf::Tablets&, "
-            "const RAMCloud::ProtoBuf::ServerList&): *** Failed to recover "
+            "recover: *** Failed to recover "
             "segment id 88, the recovered master state is corrupted, "
             "pretending everything is ok",
             TestLog::get());
@@ -320,14 +302,10 @@ class BackupManagerTest : public CppUnit::TestFixture {
         TestLog::Enable _(&recoverSegmentFilter);
         mgr->recover(*master, 99, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
-            "void RAMCloud::BackupManager::recover(RAMCloud::MasterServer&, "
-            "uint64_t, const RAMCloud::ProtoBuf::Tablets&, "
-            "const RAMCloud::ProtoBuf::ServerList&): getRecoveryData failed "
+            "recover: getRecoveryData failed "
             "on mock:host=backup1, trying next backup; failure was: "
             "bad segment id | "
-            "void RAMCloud::BackupManager::recover(RAMCloud::MasterServer&, "
-            "uint64_t, const RAMCloud::ProtoBuf::Tablets&, "
-            "const RAMCloud::ProtoBuf::ServerList&): *** Failed to recover "
+            "recover: *** Failed to recover "
             "segment id 87, the recovered master state is corrupted, "
             "pretending everything is ok",
             TestLog::get());

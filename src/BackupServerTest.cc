@@ -163,8 +163,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     static bool
     inMemoryStorageFreePred(string s)
     {
-        return s == "virtual void RAMCloud::InMemoryStorage::free("
-                       "RAMCloud::BackupStorage::Handle*)";
+        return s == "free";
     }
 
     void
@@ -176,9 +175,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         {
             TestLog::Enable _(&inMemoryStorageFreePred);
             client->freeSegment(99, 88);
-            CPPUNIT_ASSERT_EQUAL("virtual void "
-                "RAMCloud::InMemoryStorage::free("
-                "RAMCloud::BackupStorage::Handle*): called", TestLog::get());
+            CPPUNIT_ASSERT_EQUAL("free: called", TestLog::get());
         }
         CPPUNIT_ASSERT_EQUAL(NULL, backup->findSegmentInfo(99, 88));
     }

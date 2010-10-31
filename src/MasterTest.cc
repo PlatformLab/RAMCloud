@@ -160,12 +160,7 @@ class MasterTest : public CppUnit::TestFixture {
     static bool
     recoverSegmentFilter(string s)
     {
-        return (s == "void RAMCloud::MasterServer::recoverSegment(uint64_t, "
-                     "const RAMCloud::Buffer&)") ||
-               (s == "void RAMCloud::BackupManager::recover("
-                "RAMCloud::MasterServer&, uint64_t, "
-                "const RAMCloud::ProtoBuf::Tablets&, "
-                "const RAMCloud::ProtoBuf::ServerList&)");
+        return (s == "recoverSegment" || s == "recover");
     }
 
     void test_recover_basics() {
@@ -185,14 +180,11 @@ class MasterTest : public CppUnit::TestFixture {
         TestLog::Enable _(&recoverSegmentFilter);
         client->recover(88, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
-            "void RAMCloud::BackupManager::recover(RAMCloud::MasterServer&, "
-            "uint64_t, const RAMCloud::ProtoBuf::Tablets&, "
-            "const RAMCloud::ProtoBuf::ServerList&): Couldn't contact "
+            "recover: Starting recovery of 88 | "
+            "recover: Couldn't contact "
             "mock:host=backup1, trying next backup; failure was: No transport "
             "found for this service locator | "
-            "void RAMCloud::BackupManager::recover(RAMCloud::MasterServer&, "
-            "uint64_t, const RAMCloud::ProtoBuf::Tablets&, "
-            "const RAMCloud::ProtoBuf::ServerList&): *** Failed to recover "
+            "recover: *** Failed to recover "
             "segment id 87, the recovered master state is corrupted, "
             "pretending everything is ok",
             TestLog::get());

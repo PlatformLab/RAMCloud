@@ -114,7 +114,7 @@ namespace TestLog {
  *      The arguments to the format string.
  */
 #define TEST_LOG(format, ...) \
-    RAMCloud::TestLog::log(__PRETTY_FUNCTION__, format, ##__VA_ARGS__)
+    RAMCloud::TestLog::log(__func__, format, ##__VA_ARGS__)
 #else
 #define TEST_LOG(format, ...)
 #endif
