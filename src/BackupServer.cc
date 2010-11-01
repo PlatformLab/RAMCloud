@@ -218,7 +218,7 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 
     for (SegmentIterator it(segment, segmentSize); !it.isDone(); it.next()) {
         if (it.getType() == LOG_ENTRY_TYPE_SEGFOOTER)
-            continue;
+            break;
 
         uint32_t totalEntryLength = it.getLength() + sizeof(SegmentEntry);
         char* packedEntry =

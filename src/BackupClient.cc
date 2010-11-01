@@ -114,7 +114,7 @@ BackupClient::freeSegment(uint64_t masterId,
 void
 BackupClient::getRecoveryData(uint64_t masterId,
                               uint64_t segmentId,
-                              const TabletMap& tablets,
+                              const ProtoBuf::Tablets& tablets,
                               Buffer& resp)
 {
     Buffer req;
@@ -122,7 +122,7 @@ BackupClient::getRecoveryData(uint64_t masterId,
         reqHdr(allocHeader<BackupGetRecoveryDataRpc>(req));
     reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
-    // TODO(stutsman) pass tablets argument!
+    reqHdr.tabletsLength = ProtoBuf::serializeToResponse(req, tablets);
     const BackupGetRecoveryDataRpc::Response&
         respHdr(sendRecv<BackupGetRecoveryDataRpc>(session, req, resp));
     checkStatus();

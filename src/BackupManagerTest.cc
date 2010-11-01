@@ -23,6 +23,7 @@
 #include "BackupStorage.h"
 #include "BindTransport.h"
 #include "Logging.h"
+#include "MasterServer.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -35,7 +36,11 @@ class BackupManagerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(BackupManagerTest);
     CPPUNIT_TEST(test_closeSegment);
     CPPUNIT_TEST(test_freeSegment);
+    CPPUNIT_TEST(test_freeSegment_overlapping);
     CPPUNIT_TEST(test_openSegment);
+    CPPUNIT_TEST(test_recover);
+    CPPUNIT_TEST(test_recover_failedToRecoverAll);
+    CPPUNIT_TEST(test_recover_exceptionGettingData);
     CPPUNIT_TEST(test_writeSegment);
     CPPUNIT_TEST(test_selectOpenHosts);
     CPPUNIT_TEST(test_selectOpenHosts_notEnoughBackups);
@@ -151,6 +156,20 @@ class BackupManagerTest : public CppUnit::TestFixture {
     }
 
     void
+    test_freeSegment_overlapping()
+    {
+        // The end condition on the iterators is important, so this
+        // checks to make sure the frees work without freeing segmentIds
+        // that follow in the map.
+        mgr->openSegment(99, 87);
+        mgr->closeSegment(99, 87);
+        mgr->openSegment(99, 88);
+        mgr->closeSegment(99, 88);
+        mgr->freeSegment(99, 87);
+        mgr->freeSegment(99, 88);
+    }
+
+    void
     test_openSegment()
     {
         mgr->openSegment(99, 88);
@@ -165,6 +184,133 @@ class BackupManagerTest : public CppUnit::TestFixture {
             BackupStorage::Handle::resetAllocatedHandlesCount());
     }
 
+    static bool
+    recoverSegmentFilter(string s)
+    {
+        return (s == "recoverSegment" || s == "recover");
+    }
+
+    MasterServer*
+    createMasterServer()
+    {
+        ServerConfig config;
+        config.coordinatorLocator = "mock:coordinator";
+        config.logBytes = 8 * 1024 * 1024;
+        config.hashTableBytes = 2 * 1024 * 1024;
+        return new MasterServer(config, *coordinator, *mgr);
+    }
+
+    void
+    test_recover()
+    {
+        std::auto_ptr<MasterServer> master(createMasterServer());
+
+        // Give them a name so that freeSegment doesn't get called on
+        // destructor until after the test.
+        char segMem1[segmentSize];
+        Segment s1(99, 87, &segMem1, sizeof(segMem1), mgr);
+        s1.close();
+        char segMem2[segmentSize];
+        Segment s2(99, 88, &segMem2, sizeof(segMem2), mgr);
+        s2.close();
+
+        ProtoBuf::Tablets tablets;
+        ProtoBuf::ServerList backups; {
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(87);
+            server.set_service_locator("mock:host=backup1");
+        }{
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(88);
+            server.set_service_locator("mock:host=backup1");
+
+        }{
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(88);
+            server.set_service_locator("mock:host=backup2");
+        }
+
+        TestLog::Enable _(&recoverSegmentFilter);
+        mgr->recover(*master, 99, tablets, backups);
+        CPPUNIT_ASSERT_EQUAL(
+            "recoverSegment: 87, ... | "
+            "recoverSegment: 88, ... | "
+            "recover: skipping mock:host=backup2, already recovered 88",
+            TestLog::get());
+    }
+
+    void
+    test_recover_failedToRecoverAll()
+    {
+        std::auto_ptr<MasterServer> master(createMasterServer());
+
+        // tests !wasRecovered case both in-loop and end-of-loop
+        ProtoBuf::Tablets tablets;
+        ProtoBuf::ServerList backups; {
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(87);
+            server.set_service_locator("mock:host=backup1");
+        }{
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(88);
+            server.set_service_locator("mock:host=backup1");
+        }
+
+        TestLog::Enable _(&recoverSegmentFilter);
+        mgr->recover(*master, 99, tablets, backups);
+        CPPUNIT_ASSERT_EQUAL(
+            "recover: getRecoveryData failed "
+            "on mock:host=backup1, trying next backup; failure was: "
+            "bad segment id | "
+            "recover: *** Failed to recover "
+            "segment id 87, the recovered master state is corrupted, "
+            "pretending everything is ok | "
+            "recover: getRecoveryData failed "
+            "on mock:host=backup1, trying next backup; failure was: "
+            "bad segment id | "
+            "recover: *** Failed to recover "
+            "segment id 88, the recovered master state is corrupted, "
+            "pretending everything is ok",
+            TestLog::get());
+    }
+
+    void
+    test_recover_exceptionGettingData()
+    {
+        // test in loop
+        std::auto_ptr<MasterServer> master(createMasterServer());
+
+        ProtoBuf::Tablets tablets;
+        ProtoBuf::ServerList backups; {
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(87);
+            server.set_service_locator("mock:host=backup1");
+        }
+
+        TestLog::Enable _(&recoverSegmentFilter);
+        mgr->recover(*master, 99, tablets, backups);
+        CPPUNIT_ASSERT_EQUAL(
+            "recover: getRecoveryData failed "
+            "on mock:host=backup1, trying next backup; failure was: "
+            "bad segment id | "
+            "recover: *** Failed to recover "
+            "segment id 87, the recovered master state is corrupted, "
+            "pretending everything is ok",
+            TestLog::get());
+    }
+
     void
     test_writeSegment()
     {
@@ -175,7 +321,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
         seg.close();
         foreach (BackupClient* host, mgr->openHosts) {
             Buffer resp;
-            host->getRecoveryData(99, 88, TabletMap(), resp);
+            host->getRecoveryData(99, 88, ProtoBuf::Tablets(), resp);
             const SegmentEntry* entry = resp.getStart<SegmentEntry>();
             CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, entry->type);
             CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), entry->length);

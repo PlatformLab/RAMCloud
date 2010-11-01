@@ -52,8 +52,11 @@ class BindTransport : public Transport {
     getSession(const ServiceLocator& serviceLocator) {
         const string& locator = serviceLocator.getOriginalString();
         ServerMap::iterator it = servers.find(locator);
-        if (it == servers.end())
-            DIE("Unknown mock host: %s", locator.c_str());
+        if (it == servers.end()) {
+            TransportException e("Unknown mock host: ");
+            e.message += locator.c_str();
+            throw e;
+        }
         return new BindSession(*this, *it->second);
     }
 

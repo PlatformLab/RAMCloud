@@ -22,14 +22,11 @@
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "Object.h"
+#include "ProtoBuf.h"
 #include "ServerList.pb.h"
 #include "Transport.h"
 
 namespace RAMCloud {
-
-// TODO(stutsman) delete this soon!
-class TabletMap {
-};
 
 /**
  * A backup consisting of a single remote host.  BackupClient's primary
@@ -44,7 +41,7 @@ class BackupClient : public Client {
     void freeSegment(uint64_t masterId, uint64_t segmentId);
     void getRecoveryData(uint64_t masterId,
                          uint64_t segmentId,
-                         const TabletMap& tablets,
+                         const ProtoBuf::Tablets& tablets,
                          Buffer& resp);
     Transport::SessionRef getSession();
     void openSegment(uint64_t masterId, uint64_t segmentId);

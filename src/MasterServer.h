@@ -172,6 +172,16 @@ class MasterServer : public Server {
     void read(const ReadRpc::Request& reqHdr,
               ReadRpc::Response& respHdr,
               Transport::ServerRpc& rpc);
+    void recover(const RecoverRpc::Request& reqHdr,
+                 RecoverRpc::Response& respHdr,
+                 Transport::ServerRpc& rpc);
+
+    void recoverSegment(uint64_t segmentId, const Buffer& segment);
+    friend void BackupManager::recover(MasterServer& recoveryMaster,
+                                       uint64_t masterId,
+                                       const ProtoBuf::Tablets& tablets,
+                                       const ProtoBuf::ServerList& backups);
+
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
                 Transport::ServerRpc& rpc);

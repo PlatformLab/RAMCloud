@@ -25,6 +25,7 @@ message ServerList {
     required ServerType server_type = 1;
     required fixed64 server_id = 2;
     required string service_locator = 3;
+    optional fixed64 segment_id = 4;
   }
   repeated Entry server = 1;
 }

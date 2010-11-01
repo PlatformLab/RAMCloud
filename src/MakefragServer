@@ -1,7 +1,4 @@
 SERVER_SRCFILES := \
-		   src/CycleCounter.cc \
-		   src/HashTable.cc \
-		   src/MasterServer.cc \
 		   $(NULL)
 
 SERVER_OBJFILES := $(SERVER_SRCFILES)

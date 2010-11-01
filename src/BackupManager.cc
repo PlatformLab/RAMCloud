@@ -16,6 +16,7 @@
 #include "BackupClient.h"
 #include "BackupManager.h"
 #include "Buffer.h"
+#include "MasterServer.h"
 
 namespace RAMCloud {
 
@@ -60,17 +61,19 @@ BackupManager::freeSegment(uint64_t masterId,
 {
     TEST_LOG("%lu, %lu", masterId, segmentId);
     uint32_t count = 0;
-    for (SegmentMap::iterator it = segments.find(segmentId);
-         it != segments.end();
-         ++it)
-    {
+    pair<SegmentMap::iterator, SegmentMap::iterator> iters(
+        segments.equal_range(segmentId));
+    SegmentMap::iterator it = iters.first;
+    while (it != iters.second) {
         BackupClient host(it->second);
         host.freeSegment(masterId, segmentId);
-        segments.erase(it);
+        SegmentMap::iterator current = it;
+        it++;
+        segments.erase(current);
         count++;
     }
     if (count != replicas)
-        LOG(WARNING, "Only freed %u segments rather than %u", count, replicas);
+        LOG(WARNING, "Freed %u segments rather than %u", count, replicas);
 }
 
 // See BackupClient::openSegment.
@@ -86,11 +89,85 @@ BackupManager::openSegment(uint64_t masterId,
     }
 }
 
+/**
+ * Collect all the filtered log segments from backups for a set of tablets
+ * formerly belonging to a crashed master which is being recovered and pass
+ * them to the recovery master to have them replayed.
+ *
+ * \param recoveryMaster
+ *      A reference to the Master which owns this BackupManager and which will
+ *      be responsible for the tablets.  This is used to provide a callback
+ *      for the Master to replay individual segments.
+ * \param masterId
+ *      The id of the crashed master for which recoveryMaster will be taking
+ *      over ownership of tablets.
+ * \param tablets
+ *      A set of tables with key ranges describing which poritions of which
+ *      tables recoveryMaster should have replayed to it.
+ * \param backups
+ *      A list of backup locators along with a segmentId specifying for each
+ *      segmentId a backup who can provide a filtered recovery data segment.
+ *      A particular segment may be listed more than once if it has multiple
+ *      viable backups, hence a particular backup locator can also be listed
+ *      many times.
+ */
 void
-BackupManager::recover(uint64_t masterId,
-                       const TabletMap& tablets)
+BackupManager::recover(MasterServer& recoveryMaster,
+                       uint64_t masterId,
+                       const ProtoBuf::Tablets& tablets,
+                       const ProtoBuf::ServerList& backups)
 {
-    DIE("Unimplemented");
+    // for each backup that names an unrec seg getRecData, pass to Server
+    uint64_t segmentIdToRecover = ~(0ul);
+    bool wasRecovered = true;
+    for (int i = 0; i < backups.server_size(); i++) {
+        const ProtoBuf::ServerList::Entry& server(backups.server(i));
+        const string& locator = server.service_locator();
+        if (!server.has_segment_id()) {
+            LOG(WARNING,
+                "ServerList of backups for recovery must contain segmentIds");
+            continue;
+        }
+        // if we already recovered a segment with this id, skip this server
+        if (wasRecovered && segmentIdToRecover == server.segment_id()) {
+            TEST_LOG("skipping %s, already recovered %lu",
+                locator.c_str(), segmentIdToRecover);
+            continue;
+        }
+        if (server.server_type() != ProtoBuf::BACKUP) {
+            LOG(WARNING,
+                "ServerList of backups for recovery shouldn't contain MASTERs");
+            continue;
+        }
+        if (!wasRecovered) {
+            LOG(ERROR, "*** Failed to recover segment id %lu, the recovered "
+                "master state is corrupted, pretending everything is ok",
+                segmentIdToRecover);
+        }
+        segmentIdToRecover = server.segment_id();
+        wasRecovered = false;
+
+        Buffer resp;
+        try {
+            BackupClient backup(transportManager.getSession(locator.c_str()));
+            backup.getRecoveryData(masterId, segmentIdToRecover, tablets, resp);
+        } catch (const TransportException& e) {
+            LOG(WARNING, "Couldn't contact %s, trying next backup; "
+                "failure was: %s", locator.c_str(), e.message.c_str());
+            continue;
+        } catch (const ClientException& e) {
+            LOG(WARNING, "getRecoveryData failed on %s, trying next backup; "
+                "failure was: %s", locator.c_str(), e.toString());
+            continue;
+        }
+        recoveryMaster.recoverSegment(segmentIdToRecover, resp);
+        wasRecovered = true;
+    }
+    if (!wasRecovered) {
+        LOG(ERROR, "*** Failed to recover segment id %lu, the recovered "
+            "master state is corrupted, pretending everything is ok",
+            segmentIdToRecover);
+    }
 }
 
 // See BackupClient::writeSegment.

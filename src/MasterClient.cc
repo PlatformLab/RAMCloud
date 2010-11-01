@@ -83,6 +83,34 @@ MasterClient::ping()
 }
 
 /**
+ * Recover a set of tablets on behalf of a crashed master.
+ *
+ * \param masterId
+ *      The id of the crashed master whose data is to be recovered.
+ * \param tablets
+ *      A set of tables with key ranges describing which poritions of which
+ *      tables the recovery Master should take over for.
+ * \param backups
+ *      A list of backup locators along with a segmentId specifying for each
+ *      segmentId a backup who can provide a filtered recovery data segment.
+ *      A particular segment may be listed more than once if it has multiple
+ *      viable backups, hence a particular backup locator can also be listed
+ *      many times.
+ */
+void
+MasterClient::recover(uint64_t masterId, const ProtoBuf::Tablets& tablets,
+                      const ProtoBuf::ServerList& backups)
+{
+    Buffer req, resp;
+    RecoverRpc::Request& reqHdr(allocHeader<RecoverRpc>(req));
+    reqHdr.masterId = masterId;
+    reqHdr.tabletsLength = ProtoBuf::serializeToResponse(req, tablets);
+    reqHdr.serverListLength = serializeToResponse(req, backups);
+    sendRecv<RecoverRpc>(session, req, resp);
+    checkStatus();
+}
+
+/**
  * Read the current contents of an object.
  *
  * \param tableId

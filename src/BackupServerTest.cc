@@ -43,6 +43,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_freeSegment_stillOpen);
     CPPUNIT_TEST(test_freeSegment_noSuchSegment);
     CPPUNIT_TEST(test_getRecoveryData);
+    CPPUNIT_TEST(test_getRecoveryData_moreThanOneSegmentStored);
     CPPUNIT_TEST(test_openSegment);
     CPPUNIT_TEST(test_openSegment_alreadyOpen);
     CPPUNIT_TEST(test_openSegment_outOfStorage);
@@ -162,8 +163,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     static bool
     inMemoryStorageFreePred(string s)
     {
-        return s == "virtual void RAMCloud::InMemoryStorage::free("
-                       "RAMCloud::BackupStorage::Handle*)";
+        return s == "free";
     }
 
     void
@@ -175,9 +175,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         {
             TestLog::Enable _(&inMemoryStorageFreePred);
             client->freeSegment(99, 88);
-            CPPUNIT_ASSERT_EQUAL("virtual void "
-                "RAMCloud::InMemoryStorage::free("
-                "RAMCloud::BackupStorage::Handle*): called", TestLog::get());
+            CPPUNIT_ASSERT_EQUAL("free: called", TestLog::get());
         }
         CPPUNIT_ASSERT_EQUAL(NULL, backup->findSegmentInfo(99, 88));
     }
@@ -243,7 +241,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->closeSegment(99, 88);
         client->startReadingData(99);
         Buffer response;
-        client->getRecoveryData(99, 88, TabletMap(), response);
+        client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response);
 
         SegmentIterator it(response.getRange(0, response.getTotalLength()),
                            segmentSize);
@@ -260,6 +258,118 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(it.isDone());
 
         freeStorageHandle(99, 88);
+    }
+
+    uint32_t
+    writeEntry(uint64_t masterId, uint64_t segmentId, LogEntryType type,
+               uint32_t offset, const void *data, uint32_t bytes)
+    {
+        SegmentEntry entry;
+        entry.type = type;
+        entry.length = bytes;
+        client->writeSegment(masterId, segmentId,
+                             offset, &entry, sizeof(entry));
+        client->writeSegment(masterId, segmentId, offset + sizeof(entry),
+                             data, bytes);
+        return sizeof(entry) + bytes;
+    }
+
+    uint32_t
+    writeObject(uint64_t masterId, uint64_t segmentId,
+                uint32_t offset, const char *data, uint32_t bytes,
+                uint64_t objectId)
+    {
+        char objectMem[sizeof(Object) + bytes];
+        Object* obj = reinterpret_cast<Object*>(objectMem);
+        obj->id = objectId;
+        obj->table = 0;
+        obj->version = 0;
+        obj->checksum = 0xff00ff00ff00;
+        obj->data_len = bytes;
+        memcpy(objectMem + sizeof(*obj), data, bytes);
+        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_OBJ, offset,
+                          objectMem, sizeof(Object) + bytes);
+    }
+
+    uint32_t
+    writeHeader(uint64_t masterId, uint64_t segmentId)
+    {
+        SegmentHeader header;
+        header.logId = masterId;
+        header.segmentId = segmentId;
+        header.segmentCapacity = segmentSize;
+        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGHEADER, 0,
+                          &header, sizeof(header));
+    }
+
+    uint32_t
+    writeFooter(uint64_t masterId, uint64_t segmentId, uint32_t offset)
+    {
+        SegmentFooter footer;
+        footer.checksum = 0xff00ff00ff00;
+        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGFOOTER, offset,
+                          &footer, sizeof(footer));
+    }
+
+    void
+    test_getRecoveryData_moreThanOneSegmentStored()
+    {
+        uint32_t offset;
+        client->openSegment(99, 87);
+        offset = writeHeader(99, 87);
+        offset += writeObject(99, 87, offset, "test1", 6, 999);
+        offset += writeFooter(99, 87, offset);
+        client->closeSegment(99, 87);
+
+        client->openSegment(99, 88);
+        offset = writeHeader(99, 88);
+        offset += writeObject(99, 88, offset, "test2", 6, 999);
+        offset += writeFooter(99, 88, offset);
+        client->closeSegment(99, 88);
+
+
+        {
+            Buffer response;
+            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response);
+
+            SegmentIterator it(response.getRange(0, response.getTotalLength()),
+                               segmentSize);
+            CPPUNIT_ASSERT(!it.isDone());
+            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, it.getType());
+            it.next();
+            CPPUNIT_ASSERT(!it.isDone());
+            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
+            CPPUNIT_ASSERT_EQUAL("test2",
+                                 static_cast<const Object*>(it.getPointer())->
+                                    data);
+            it.next();
+            CPPUNIT_ASSERT(!it.isDone());
+            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
+            it.next();
+            CPPUNIT_ASSERT(it.isDone());
+        }{
+            Buffer response;
+            client->getRecoveryData(99, 87, ProtoBuf::Tablets(), response);
+
+            SegmentIterator it(response.getRange(0, response.getTotalLength()),
+                               segmentSize);
+            CPPUNIT_ASSERT(!it.isDone());
+            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, it.getType());
+            it.next();
+            CPPUNIT_ASSERT(!it.isDone());
+            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
+            CPPUNIT_ASSERT_EQUAL("test1",
+                                 static_cast<const Object*>(it.getPointer())->
+                                    data);
+            it.next();
+            CPPUNIT_ASSERT(!it.isDone());
+            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
+            it.next();
+            CPPUNIT_ASSERT(it.isDone());
+        }
+
+        client->freeSegment(99, 87);
+        client->freeSegment(99, 88);
     }
 
     void

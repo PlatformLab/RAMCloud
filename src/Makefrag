@@ -24,6 +24,7 @@ SHARED_SRCFILES := \
 		   src/Client.cc \
 		   src/ClientException.cc \
 		   src/CoordinatorClient.cc \
+		   src/CycleCounter.cc \
 		   src/BackupClient.cc \
 		   src/BackupManager.cc \
 		   src/BenchUtil.cc \
@@ -32,11 +33,13 @@ SHARED_SRCFILES := \
 		   src/Common.cc \
 		   src/Driver.cc \
 		   src/FastTransport.cc \
+		   src/HashTable.cc \
 		   src/IpAddress.cc \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
 		   src/Logging.cc \
 		   src/MasterClient.cc \
+		   src/MasterServer.cc \
 		   src/Metrics.cc \
 		   src/OptionParser.cc \
 		   src/Segment.cc \
