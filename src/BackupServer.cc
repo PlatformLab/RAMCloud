@@ -16,6 +16,7 @@
 #include "BackupServer.h"
 #include "BackupStorage.h"
 #include "Buffer.h"
+#include "ClientException.h"
 #include "Log.h"
 #include "Rpc.h"
 #include "Segment.h"
@@ -52,6 +53,13 @@ BackupServer::BackupServer(const Config& config,
 BackupServer::~BackupServer()
 {
     pool.purge_memory();
+}
+
+/// Returns the serverId granted to this backup by the coordinator.
+uint64_t
+BackupServer::getServerId() const
+{
+    return serverId;
 }
 
 /**
@@ -206,8 +214,9 @@ void
 BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                               BackupGetRecoveryDataRpc::Response& respHdr,
                               Transport::ServerRpc& rpc)
+try
 {
-    LOG(DEBUG, "Handling: %s", __func__);
+    TEST_LOG("%lu, %lu", reqHdr.masterId, reqHdr.segmentId);
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info)
@@ -234,6 +243,10 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
     SegmentFooter* footer = new(&rpc.replyPayload, APPEND) SegmentFooter;
     // TODO(stutsman) compute new checksum for packed data and tack it on
     footer->checksum = 0x1234568;
+} catch (const SegmentIteratorException& e) {
+    LOG(WARNING, "getRecoveryData failed due to malformed segment data: "
+        "masterId %lu, segmentId %lu", reqHdr.masterId, reqHdr.segmentId);
+    throw BackupMalformedSegmentException();
 }
 
 /**

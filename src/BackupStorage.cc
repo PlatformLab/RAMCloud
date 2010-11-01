@@ -173,7 +173,7 @@ SingleFileStorage::reserveSpace()
     uint64_t logSpace = segmentSize;
     logSpace *= segmentFrames;
 
-    LOG(DEBUG, "Reserving %lu bytes of log space\n", logSpace);
+    LOG(DEBUG, "Reserving %lu bytes of log space", logSpace);
     int r = ftruncate(fd, logSpace);
     if (r == -1)
         throw BackupStorageException(errno);

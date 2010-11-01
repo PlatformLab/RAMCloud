@@ -50,6 +50,7 @@ class BackupManager {
                  uint64_t masterId,
                  const ProtoBuf::Tablets& tablets,
                  const ProtoBuf::ServerList& backups);
+    void setHostList(const ProtoBuf::ServerList& hosts);
     void writeSegment(uint64_t masterId,
                       uint64_t segmentId,
                       uint32_t offset,
@@ -58,7 +59,7 @@ class BackupManager {
 
   private:
     void selectOpenHosts();
-    void startReadingData(uint64_t masterId);
+    void updateHostListFromCoordinator();
 
     CoordinatorClient* coordinator;
 

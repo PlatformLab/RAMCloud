@@ -81,6 +81,7 @@ class BackupServer : public Server {
     void dispatch(RpcType type,
                   Transport::ServerRpc& rpc,
                   Responder& responder);
+    uint64_t getServerId() const;
     void run();
 
   private:

@@ -44,6 +44,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_freeSegment_noSuchSegment);
     CPPUNIT_TEST(test_getRecoveryData);
     CPPUNIT_TEST(test_getRecoveryData_moreThanOneSegmentStored);
+    CPPUNIT_TEST(test_getRecoveryData_malformedSegment);
     CPPUNIT_TEST(test_openSegment);
     CPPUNIT_TEST(test_openSegment_alreadyOpen);
     CPPUNIT_TEST(test_openSegment_outOfStorage);
@@ -370,6 +371,21 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         client->freeSegment(99, 87);
         client->freeSegment(99, 88);
+    }
+
+    void
+    test_getRecoveryData_malformedSegment()
+    {
+        client->openSegment(99, 88);
+        client->closeSegment(99, 88);
+        client->startReadingData(99);
+        Buffer response;
+
+        CPPUNIT_ASSERT_THROW(
+            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response),
+            BackupMalformedSegmentException);
+
+        freeStorageHandle(99, 88);
     }
 
     void

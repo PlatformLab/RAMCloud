@@ -63,7 +63,7 @@ BackupManager::freeSegment(uint64_t masterId,
     uint32_t count = 0;
     pair<SegmentMap::iterator, SegmentMap::iterator> iters(
         segments.equal_range(segmentId));
-    SegmentMap::iterator it = iters.first;
+    SegmentMap::iterator& it = iters.first;
     while (it != iters.second) {
         BackupClient host(it->second);
         host.freeSegment(masterId, segmentId);
@@ -170,6 +170,21 @@ BackupManager::recover(MasterServer& recoveryMaster,
     }
 }
 
+/**
+ * For testing; manually provides a list of backups to choose from so
+ * this BackupManager won't try to talk to its coordinator (which is
+ * presumably NULL).
+ *
+ * \param hosts
+ *      A list of hosts to choose from when selecting places to
+ *      put backups.
+ */
+void
+BackupManager::setHostList(const ProtoBuf::ServerList& hosts)
+{
+    this->hosts = hosts;
+}
+
 // See BackupClient::writeSegment.
 void
 BackupManager::writeSegment(uint64_t masterId,
@@ -194,15 +209,11 @@ BackupManager::writeSegment(uint64_t masterId,
 void
 BackupManager::selectOpenHosts()
 {
-    if (!coordinator) {
-        if (replicas)
-            DIE("No coordinator given, replication requirements can't be met.");
-        else
-            return;
-    }
+    if (!replicas)
+        return;
 
-    // TODO(ongaro): it's probably not ok to get a new server list this often
-    coordinator->getServerList(hosts);
+    if (!hosts.server_size())
+        updateHostListFromCoordinator();
 
     const uint32_t numHosts(static_cast<uint32_t>(hosts.server_size()));
 
@@ -234,11 +245,15 @@ BackupManager::selectOpenHosts()
     }
 }
 
-// See BackupClient::startReadingData.
+/**
+ * Populate the host list by fetching a list of hosts from the coordinator.
+ */
 void
-BackupManager::startReadingData(uint64_t masterId)
+BackupManager::updateHostListFromCoordinator()
 {
-    DIE("Unimplemented");
+    if (!coordinator)
+        DIE("No coordinator given, replication requirements can't be met.");
+    coordinator->getServerList(hosts);
 }
 
 } // namespace RAMCloud

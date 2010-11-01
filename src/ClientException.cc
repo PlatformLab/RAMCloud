@@ -83,6 +83,8 @@ ClientException::throwException(Status status)
             throw BackupSegmentAlreadyOpenException();
         case STATUS_BACKUP_SEGMENT_OVERFLOW:
             throw BackupSegmentOverflowException();
+        case STATUS_BACKUP_MALFORMED_SEGMENT:
+            throw BackupMalformedSegmentException();
         default:
             throw InternalError(status);
     }

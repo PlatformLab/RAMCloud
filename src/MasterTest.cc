@@ -180,7 +180,7 @@ class MasterTest : public CppUnit::TestFixture {
         TestLog::Enable _(&recoverSegmentFilter);
         client->recover(88, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
-            "recover: Starting recovery of 88 | "
+            "recover: recover 88 | "
             "recover: Couldn't contact "
             "mock:host=backup1, trying next backup; failure was: No transport "
             "found for this service locator | "

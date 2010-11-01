@@ -29,6 +29,8 @@ TESTS_SRCFILES := \
 		  src/MockTransport.cc \
 		  src/OptionParserTest.cc \
 		  src/ProtoBufTest.cc \
+		  src/Recovery.cc \
+		  src/RecoveryTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
 		  src/ServerTest.cc \
