@@ -1,5 +1,15 @@
-misc: $(OBJDIR)/misc/modulus
+misc: $(OBJDIR)/misc/memcpy \
+      $(OBJDIR)/misc/modulus \
+      $(OBJDIR)/misc/rabinpoly
+
+$(OBJDIR)/misc/memcpy: $(SHARED_OBJFILES) $(OBJDIR)/misc/memcpy.o
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -o $@ $^
 
 $(OBJDIR)/misc/modulus: $(SHARED_OBJFILES) $(OBJDIR)/misc/modulus.o
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(OBJDIR)/misc/rabinpoly: $(SHARED_OBJFILES) $(OBJDIR)/misc/rabinpoly.o
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -o $@ $^
