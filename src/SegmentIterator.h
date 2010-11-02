@@ -43,6 +43,25 @@ class SegmentIterator {
     void         next();
     LogEntryType getType() const;
     uint64_t     getLength() const;
+
+    /**
+     * Obtain a const T* to the data associated with the current SegmentEntry.
+     * \tparam T
+     *      The type to cast the pointer as for the return.
+     * \return
+     *      A const T* to the current data.
+     * \throw SegmentIteratorException
+     *      An exception is thrown if the iterator has no more entries.
+     */
+    template <typename T>
+    const T*
+    get() const
+    {
+        if (currentEntry == NULL)
+            throw SegmentIteratorException("getPointer while isDone");
+        return reinterpret_cast<const T*>(blobPtr);
+    }
+
     const void  *getPointer() const;
     uint64_t     getOffset() const;
     bool         isChecksumValid() const;
