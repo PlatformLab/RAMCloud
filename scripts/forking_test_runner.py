@@ -16,11 +16,14 @@
 """Runs each unit test in a separate process.
 
 This is useful for finding which tests cause crashes or enter infinite loops.
+
+Pass any arguments to output timing statistics.
 """
 import os
 import re
 import signal
 import subprocess
+import sys
 import time
 
 FAIL_AFTER_SECONDS = 2.0
@@ -68,19 +71,21 @@ print 'Running %d tests...' % len(tests)
 
 ok = 0
 failed = 0
+suite_times = {}
+test_times = {}
 for (suite, test) in tests:
+    start = time.time()
     process = subprocess.Popen(['./%s/test' % obj_dir,
                                 '-t', 'RAMCloud::%s::%s' % (suite, test)],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT)
-    start = time.time()
-    now = start
     rc = None
     while True:
         rc = process.poll()
+        now = time.time()
         if rc is not None:
             break
-        if time.time() - start > FAIL_AFTER_SECONDS:
+        if now - start > FAIL_AFTER_SECONDS:
             print "Killing %s::%s" % (suite, test)
             process.kill()
             break
@@ -104,6 +109,35 @@ for (suite, test) in tests:
                                      ':\n%s' % output if output else '')
         failed += 1
     else:
+        if suite in suite_times:
+            suite_times[suite] += now - start
+        else:
+            suite_times[suite] = now - start
+        suite_test = '%s::%s' % (suite, test)
+        if suite_test in test_times:
+            test_times[suite_test] += now - start
+        else:
+            test_times[suite_test] = now - start
         ok += 1
 
 print '%d tests passed, %d failed' % (ok, failed)
+
+def print_timing(title, times, num=None):
+    print title
+    print '=' * len(title)
+    l = times.items()
+    l.sort(key=lambda x: x[1], reverse=True)
+    if num is not None:
+        l = l[:num]
+    max_name_length = max([len(name) for name, t in l])
+    for name, t in l:
+        print '%s%s' % (name.ljust(max_name_length),
+                        ('%0.02fms' % (t * 1000)).rjust(8))
+
+if len(sys.argv) > 1:
+    print
+    print 'Total time: %0.02fms' % (sum(suite_times.values()) * 1000)
+    print
+    print_timing('Suite Timing', suite_times)
+    print
+    print_timing('Test Timing (top 20)', test_times, num=20)
