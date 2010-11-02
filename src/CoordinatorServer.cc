@@ -55,6 +55,7 @@ CoordinatorServer::dispatch(RpcType type,
         case GetTabletMapRpc::type:
             callHandler<GetTabletMapRpc, CoordinatorServer,
                         &CoordinatorServer::getTabletMap>(rpc);
+            break;
         case PingRpc::type:
             callHandler<PingRpc, Server, &Server::ping>(rpc);
             break;
