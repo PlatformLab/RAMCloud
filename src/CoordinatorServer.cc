@@ -48,9 +48,9 @@ CoordinatorServer::dispatch(RpcType type,
             callHandler<EnlistServerRpc, CoordinatorServer,
                         &CoordinatorServer::enlistServer>(rpc, responder);
             break;
-        case GetServerListRpc::type:
-            callHandler<GetServerListRpc, CoordinatorServer,
-                        &CoordinatorServer::getServerList>(rpc);
+        case GetBackupListRpc::type:
+            callHandler<GetBackupListRpc, CoordinatorServer,
+                        &CoordinatorServer::getBackupList>(rpc);
             break;
         case GetTabletMapRpc::type:
             callHandler<GetTabletMapRpc, CoordinatorServer,
@@ -159,9 +159,13 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                 Responder& responder)
 {
     uint64_t serverId = nextServerId++;
+    ProtoBuf::ServerType serverType =
+        static_cast<ProtoBuf::ServerType>(reqHdr.serverType);
+    ProtoBuf::ServerList& serverList(serverType == ProtoBuf::MASTER
+                                     ? masterList
+                                     : backupList);
     ProtoBuf::ServerList_Entry& server(*serverList.add_server());
-    server.set_server_type(
-        static_cast<ProtoBuf::ServerType>(reqHdr.serverType));
+    server.set_server_type(serverType);
     server.set_server_id(serverId);
     server.set_service_locator(getString(rpc.recvPayload, sizeof(reqHdr),
                                          reqHdr.serviceLocatorLength));
@@ -190,16 +194,16 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
 }
 
 /**
- * Handle the GET_SERVER_LIST RPC.
+ * Handle the GET_BACKUP_LIST RPC.
  * \copydetails Server::ping
  */
 void
-CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
-                                 GetServerListRpc::Response& respHdr,
+CoordinatorServer::getBackupList(const GetBackupListRpc::Request& reqHdr,
+                                 GetBackupListRpc::Response& respHdr,
                                  Transport::ServerRpc& rpc)
 {
     respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
-                                                   serverList);
+                                                   backupList);
 }
 
 /**

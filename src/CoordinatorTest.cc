@@ -27,7 +27,7 @@ namespace RAMCloud {
 class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(CoordinatorTest);
     CPPUNIT_TEST(test_enlistServer);
-    CPPUNIT_TEST(test_getServerList);
+    CPPUNIT_TEST(test_getBackupList);
     CPPUNIT_TEST(test_getTabletMap);
     CPPUNIT_TEST_SUITE_END();
 
@@ -78,12 +78,16 @@ class CoordinatorTest : public CppUnit::TestFixture {
     // TODO(ongaro): test create, drop, open table
 
     void test_enlistServer() {
-        uint64_t serverId =
-            client->enlistServer(MASTER, "mock:host=master");
-        CPPUNIT_ASSERT_EQUAL(2, serverId);
+        CPPUNIT_ASSERT_EQUAL(2,
+                             client->enlistServer(MASTER, "mock:host=master"));
+        CPPUNIT_ASSERT_EQUAL(3,
+                             client->enlistServer(BACKUP, "mock:host=backup"));
         CPPUNIT_ASSERT_EQUAL("server { server_type: MASTER server_id: 2 "
                              "service_locator: \"mock:host=master\" }",
-                             server->serverList.ShortDebugString());
+                             server->masterList.ShortDebugString());
+        CPPUNIT_ASSERT_EQUAL("server { server_type: BACKUP server_id: 3 "
+                             "service_locator: \"mock:host=backup\" }",
+                             server->backupList.ShortDebugString());
         CPPUNIT_ASSERT_EQUAL("tablet { table_id: 0 start_object_id: 0 "
                              "end_object_id: 18446744073709551615 "
                              "state: NORMAL server_id: 2 "
@@ -92,15 +96,16 @@ class CoordinatorTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, master->tablets.tablet().size());
     }
 
-    void test_getServerList() {
+    void test_getBackupList() {
         client->enlistServer(MASTER, "mock:host=master");
-        client->enlistServer(BACKUP, "mock:host=backup");
+        client->enlistServer(BACKUP, "mock:host=backup1");
+        client->enlistServer(BACKUP, "mock:host=backup2");
         ProtoBuf::ServerList serverList;
-        client->getServerList(serverList);
-        CPPUNIT_ASSERT_EQUAL("server { server_type: MASTER server_id: 2 "
-                             "service_locator: \"mock:host=master\" } "
-                             "server { server_type: BACKUP server_id: 3 "
-                             "service_locator: \"mock:host=backup\" }",
+        client->getBackupList(serverList);
+        CPPUNIT_ASSERT_EQUAL("server { server_type: BACKUP server_id: 3 "
+                             "service_locator: \"mock:host=backup1\" } "
+                             "server { server_type: BACKUP server_id: 4 "
+                             "service_locator: \"mock:host=backup2\" }",
                              serverList.ShortDebugString());
     }
 

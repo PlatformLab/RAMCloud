@@ -212,19 +212,13 @@ BackupManager::selectOpenHosts()
     if (!replicas)
         return;
 
-    if (!hosts.server_size())
+    uint32_t numHosts(static_cast<uint32_t>(hosts.server_size()));
+    if (numHosts < replicas) {
         updateHostListFromCoordinator();
-
-    const uint32_t numHosts(static_cast<uint32_t>(hosts.server_size()));
-
-    uint32_t numBackupClients = 0;
-    foreach (const ProtoBuf::ServerList::Entry& entry, hosts.server()) {
-        if (entry.server_type() == ProtoBuf::BACKUP)
-            ++numBackupClients;
+        numHosts = hosts.server_size();
+        if (numHosts < replicas)
+            DIE("Not enough backups to meet replication requirement");
     }
-
-    if (numBackupClients < replicas)
-        DIE("Not enough backups to meet replication requirement");
 
     if (!openHosts.empty())
         DIE("Cannot select new backups when some are already open");
@@ -234,13 +228,11 @@ BackupManager::selectOpenHosts()
     while (i < replicas) {
         uint32_t index = random % numHosts;
         const ProtoBuf::ServerList::Entry& host(hosts.server(index));
-        if (host.server_type() == ProtoBuf::BACKUP) {
-            LOG(DEBUG, "Backing up to %s", host.service_locator().c_str());
-            Transport::SessionRef session =
-                transportManager.getSession(host.service_locator().c_str());
-            openHosts.push_back(new BackupClient(session));
-            i++;
-        }
+        LOG(DEBUG, "Backing up to %s", host.service_locator().c_str());
+        Transport::SessionRef session =
+            transportManager.getSession(host.service_locator().c_str());
+        openHosts.push_back(new BackupClient(session));
+        i++;
         random++;
     }
 }
@@ -253,7 +245,7 @@ BackupManager::updateHostListFromCoordinator()
 {
     if (!coordinator)
         DIE("No coordinator given, replication requirements can't be met.");
-    coordinator->getServerList(hosts);
+    coordinator->getBackupList(hosts);
 }
 
 } // namespace RAMCloud

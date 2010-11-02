@@ -35,7 +35,8 @@ class CoordinatorServer : public Server {
   public:
     CoordinatorServer()
         : nextServerId(generateRandom())
-        , serverList()
+        , backupList()
+        , masterList()
         , firstMaster(NULL)
         , tabletMap()
         , tables()
@@ -62,8 +63,8 @@ class CoordinatorServer : public Server {
                       Transport::ServerRpc& rpc,
                       Responder& responder);
 
-    void getServerList(const GetServerListRpc::Request& reqHdr,
-                      GetServerListRpc::Response& respHdr,
+    void getBackupList(const GetBackupListRpc::Request& reqHdr,
+                      GetBackupListRpc::Response& respHdr,
                       Transport::ServerRpc& rpc);
 
     void getTabletMap(const GetTabletMapRpc::Request& reqHdr,
@@ -77,9 +78,14 @@ class CoordinatorServer : public Server {
     uint64_t nextServerId;
 
     /**
-     * All known servers.
+     * All known backups.
      */
-    ProtoBuf::ServerList serverList;
+    ProtoBuf::ServerList backupList;
+
+    /**
+     * All known masters.
+     */
+    ProtoBuf::ServerList masterList;
 
     /**
      * A pointer to the first master to have registered, or NULL if no masters
