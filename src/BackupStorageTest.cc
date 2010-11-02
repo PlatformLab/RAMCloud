@@ -37,6 +37,7 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_constructor_disableBufferCache);
     CPPUNIT_TEST(test_constructor_openFails);
     CPPUNIT_TEST(test_allocate);
+    CPPUNIT_TEST(test_allocate_ensureFifoUse);
     CPPUNIT_TEST(test_allocate_noFreeFrames);
     CPPUNIT_TEST(test_free);
     CPPUNIT_TEST(test_getSegment);
@@ -109,6 +110,48 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0,
             static_cast<SingleFileStorage::Handle*>(handle.get())->
                 getSegmentFrame());
+    }
+
+    void
+    test_allocate_ensureFifoUse()
+    {
+        BackupStorage::Handle* handle = storage->allocate(99, 0);
+        try {
+            CPPUNIT_ASSERT_EQUAL(0, storage->freeMap[0]);
+            CPPUNIT_ASSERT_EQUAL(0,
+                static_cast<SingleFileStorage::Handle*>(handle)->
+                    getSegmentFrame());
+            storage->free(handle);
+        } catch (...) {
+            delete handle;
+            throw;
+        }
+
+        handle = storage->allocate(99, 1);
+        try {
+            CPPUNIT_ASSERT_EQUAL(1, storage->freeMap[0]);
+            CPPUNIT_ASSERT_EQUAL(0, storage->freeMap[1]);
+            CPPUNIT_ASSERT_EQUAL(1,
+                static_cast<SingleFileStorage::Handle*>(handle)->
+                    getSegmentFrame());
+            storage->free(handle);
+        } catch (...) {
+            delete handle;
+            throw;
+        }
+
+        handle = storage->allocate(99, 2);
+        try {
+            CPPUNIT_ASSERT_EQUAL(0, storage->freeMap[0]);
+            CPPUNIT_ASSERT_EQUAL(1, storage->freeMap[1]);
+            CPPUNIT_ASSERT_EQUAL(0,
+                static_cast<SingleFileStorage::Handle*>(handle)->
+                    getSegmentFrame());
+            storage->free(handle);
+        } catch (...) {
+            delete handle;
+            throw;
+        }
     }
 
     void

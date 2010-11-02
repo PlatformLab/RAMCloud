@@ -51,6 +51,7 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
     : BackupStorage(segmentSize)
     , freeMap(segmentFrames)
     , fd(-1)
+    , lastAllocatedFrame(FreeMap::npos)
     , segmentFrames(segmentFrames)
 {
     freeMap.set();
@@ -78,9 +79,13 @@ BackupStorage::Handle*
 SingleFileStorage::allocate(uint64_t masterId,
                             uint64_t segmentId)
 {
-    size_t next = freeMap.find_first();
-    if (next == FreeMap::npos)
-        throw BackupStorageException("Out of free segment frames.");
+    FreeMap::size_type next = freeMap.find_next(lastAllocatedFrame);
+    if (next == FreeMap::npos) {
+        next = freeMap.find_first();
+        if (next == FreeMap::npos)
+            throw BackupStorageException("Out of free segment frames.");
+    }
+    lastAllocatedFrame = next;
     uint32_t targetSegmentFrame = static_cast<uint32_t>(next);
     LOG(DEBUG, "Writing <%lu,%lu> to frame %u", masterId, segmentId,
                                                 targetSegmentFrame);

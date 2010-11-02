@@ -204,6 +204,13 @@ class SingleFileStorage : public BackupStorage {
     /// The file descriptor of the storage file.
     int fd;
 
+    /**
+     * Track the last used segment frame so they can be used in FIFO.
+     * This gives recovery dump tools a much better chance at recovering
+     * data since old data is destroyed from disk first rather than new.
+     */
+    FreeMap::size_type lastAllocatedFrame;
+
     /// The number of segments this storage can store simultaneously.
     const uint32_t segmentFrames;
 
