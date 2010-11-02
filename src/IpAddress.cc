@@ -37,16 +37,32 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
     : address()
 {
     try {
-        sockaddr_in *addr = reinterpret_cast<sockaddr_in*>(&address);
+        hostent host;
+        hostent* result;
+        char buffer[4096];
+        int error;
+        sockaddr_in* addr = reinterpret_cast<sockaddr_in*>(&address);
         addr->sin_family = AF_INET;
 
         std::string hostName = serviceLocator.getOption("host");
-        hostent* host = gethostbyname(hostName.c_str());
-        if (host == NULL) {
+
+        // Warning! The return value from getthostbyname_r is advertised
+        // as being the same as what is returned at error, but it is not;
+        // don't use it.
+        gethostbyname_r(hostName.c_str(), &host, buffer, sizeof(buffer),
+                &result, &error);
+        if (result == 0) {
+            // If buffer is too small, an error value of ERANGE is supposed
+            // to be returned, but in fact it appears that error is -1 in
+            // the situation; check for both.
+            if ((error == ERANGE) || (error == -1)) {
+                throw FatalError("IpAddress::IpAddress called gethostbyname_r"
+                        " with too small a buffer");
+            }
             throw BadIpAddressException(std::string("couldn't find host '") +
                                         hostName + "'", serviceLocator);
         }
-        memcpy(&addr->sin_addr, host->h_addr, sizeof(addr->sin_addr));
+        memcpy(&addr->sin_addr, host.h_addr, sizeof(addr->sin_addr));
         addr->sin_port = htons(serviceLocator.getOption<uint16_t>("port"));
     } catch (ServiceLocator::NoSuchKeyException& e) {
         throw BadIpAddressException(e.message, serviceLocator);
