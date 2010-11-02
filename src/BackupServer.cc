@@ -77,11 +77,12 @@ BackupServer::run()
 // - private -
 
 /**
- * Close the specified segment to permanent storage.
+ * Close the specified segment to permanent storage and free up in memory
+ * resources.
  *
  * After this writeSegment() cannot be called for this segment id any
  * more.  The segment will be restored on recovery unless the client later
- * calls freeSegment() on it.
+ * calls freeSegment() on it and will appear to be closed to the recoverer.
  *
  * \param reqHdr
  *      Header of the Rpc request containing the segment number to close.
@@ -89,6 +90,10 @@ BackupServer::run()
  *      Header for the Rpc response.
  * \param rpc
  *      The Rpc being serviced.
+ *
+ * \throw BackupBadSegmentIdException
+ *      If this segmentId is unknown for this master or this segment
+ *      is not open.
  */
 void
 BackupServer::closeSegment(const BackupCloseRpc::Request& reqHdr,
@@ -96,13 +101,37 @@ BackupServer::closeSegment(const BackupCloseRpc::Request& reqHdr,
                            Transport::ServerRpc& rpc)
 {
     LOG(DEBUG, "Handling: %s", __func__);
-    SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
-    if (!info)
+    closeSegment(reqHdr.masterId, reqHdr.segmentId);
+}
+
+/**
+ * Close the specified segment to permanent storage and free up in memory
+ * resources.
+ *
+ * After this writeSegment() cannot be called for this segment id any
+ * more.  The segment will be restored on recovery unless the client later
+ * calls freeSegment() on it and will appear to be closed to the recoverer.
+ *
+ * \param masterId
+ *      The serverId of the master whose segment is being closed.
+ * \param segmentId
+ *      The segmentId of the segment which is being closed.
+ *
+ * \throw BackupBadSegmentIdException
+ *      If this segmentId is unknown for this master or this segment
+ *      is not open.
+ */
+void
+BackupServer::closeSegment(uint64_t masterId, uint64_t segmentId)
+{
+    SegmentInfo* info = findSegmentInfo(masterId, segmentId);
+    if (!info || info->state != SegmentInfo::OPEN)
         throw BackupBadSegmentIdException();
 
     storage.putSegment(info->storageHandle, info->segment);
     pool.free(info->segment);
     info->segment = NULL;
+    info->state = SegmentInfo::CLOSED;
 }
 
 // See Server::dispatch.
@@ -141,15 +170,11 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
 }
 
 /**
- * Removes the specified segment from permanent storage.
+ * Removes the specified segment from permanent storage and releases
+ * any in memory copy if it exists.
  *
  * After this call completes the segment number segmentId will no longer
  * be in permanent storage and will not be recovered during recovery.
- *
- * Failure with STATUS_BAD_SEGMENT_ID means the segment never existed
- * on this backup or it has already been freed.  Failure with
- * STATUS_BACKUP_SEGMENT_ALREADY_OPEN indicates that the segment is still
- * open on this backup and must be closed before being freed.
  *
  * \param reqHdr
  *      Header of the Rpc request containing the segment number to free.
@@ -157,6 +182,9 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
  *      Header for the Rpc response.
  * \param rpc
  *      The Rpc being serviced.
+ *
+ * \throw BackupBackupSegmentIdException
+ *      If the segment does exist on this backup (never opened or was freed).
  */
 void
 BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
@@ -168,8 +196,10 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info)
         throw BackupBadSegmentIdException();
+
     if (info->segment)
-        throw BackupSegmentAlreadyOpenException();
+        pool.free(info->segment);
+    info->segment = NULL;
 
     segments.erase(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
     storage.free(info->storageHandle);
@@ -209,6 +239,10 @@ BackupServer::findSegmentInfo(uint64_t masterId, uint64_t segmentId)
  *      The Rpc being serviced.  A back-to-back list of RecoveredObjects
  *      follows the respHdr in this buffer of length
  *      respHdr->recoveredObjectCount.
+ *
+ * \throw BackupBadSegmentIdException
+ *      If the segment is not in RECOVERING state (startReadingData() must have
+ *      been called for its corresponding master id).
  */
 void
 BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
@@ -219,13 +253,24 @@ try
     TEST_LOG("%lu, %lu", reqHdr.masterId, reqHdr.segmentId);
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
-    if (!info)
+    if (!info || info->state != SegmentInfo::RECOVERING)
         throw BackupBadSegmentIdException();
 
-    char* segment = new char[segmentSize];
-    storage.getSegment(info->storageHandle, segment);
+    // If not already in memory then reload it.
+    if (!info->segment) {
+        char* segment = static_cast<char*>(pool.malloc());
+        try {
+            storage.getSegment(info->storageHandle, segment);
+        } catch (...) {
+            pool.free(segment);
+            throw;
+        }
+        info->segment = segment;
+    }
 
-    for (SegmentIterator it(segment, segmentSize); !it.isDone(); it.next()) {
+    for (SegmentIterator it(info->segment, segmentSize);
+         !it.isDone(); it.next())
+    {
         if (it.getType() == LOG_ENTRY_TYPE_SEGFOOTER)
             break;
 
@@ -241,8 +286,8 @@ try
     footerEntry->type = LOG_ENTRY_TYPE_SEGFOOTER;
     footerEntry->length = sizeof(SegmentFooter);
     SegmentFooter* footer = new(&rpc.replyPayload, APPEND) SegmentFooter;
-    // TODO(stutsman) compute new checksum for packed data and tack it on
-    footer->checksum = 0x1234568;
+    footer->checksum =
+        SegmentIterator::generateChecksum(info->segment, segmentSize);
 } catch (const SegmentIteratorException& e) {
     LOG(WARNING, "getRecoveryData failed due to malformed segment data: "
         "masterId %lu, segmentId %lu", reqHdr.masterId, reqHdr.segmentId);
@@ -252,15 +297,15 @@ try
 /**
  * Allocate space to receive backup writes for a segment.  If this call
  * succeeds the Backup must not reject subsequest writes to this segment for
- * lack of space.
+ * lack of space.  This segment is guaranteed to be returned to a master
+ * recovering the the master this segment belongs to and will appear to be
+ * open.
  *
  * The caller must ensure that this masterId,segmentId pair is unique and
- * hasn't been used before on this backup or any other.  Returns a status
- * of STATUS_BACKUP_SEGMENT_ALREADY_OPEN if this segment is already open on
- * this backup.
+ * hasn't been used before on this backup or any other.
  *
  * The storage space remains in use until the master calls freeSegment() or
- * until the backup * crashes.
+ * until the backup crashes.
  *
  * \param reqHdr
  *      Header of the Rpc request containing the masterId and segmentId for
@@ -269,6 +314,9 @@ try
  *      Header for the Rpc response.
  * \param rpc
  *      The Rpc being serviced.
+ *
+ * \throw BackupSegmentAlreadyOpenException
+ *      If this segment is already open on this backup.
  */
 void
 BackupServer::openSegment(const BackupOpenRpc::Request& reqHdr,
@@ -283,6 +331,7 @@ BackupServer::openSegment(const BackupOpenRpc::Request& reqHdr,
 
     // Get memory for staging the segment writes
     char* segment = static_cast<char*>(pool.malloc());
+    memset(segment, 0, segmentSize);
     BackupStorage::Handle* handle;
     try {
         // Reserve the space for this on disk
@@ -323,10 +372,11 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     for (SegmentsMap::iterator it = segments.begin();
          it != segments.end(); it++)
     {
-        if (it->first.masterId == reqHdr.masterId) {
-            Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
-                                          &it->first.segmentId,
-                                          sizeof(it->first.segmentId));
+        uint64_t masterId = it->first.masterId;
+        if (masterId == reqHdr.masterId) {
+            uint64_t* segmentId = new(&rpc.replyPayload, APPEND) uint64_t;
+            *segmentId = it->first.segmentId;
+            it->second.state = SegmentInfo::RECOVERING;
             segmentIdCount++;
         }
     }
@@ -335,11 +385,10 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
 
 /**
  * Store an opaque string of bytes in a currently open segment on
- * this backup server.
- *
- * Status is STATUS_BACKUP_SEGMENT_OVERFLOW if the write request is beyond
- * the end of the segment.  Status is STATUS_BACKUP_BAD_SEGMENT_ID if the
- * segment is not open (see openSegment()).
+ * this backup server.  This data is guaranteed to be considered on recovery
+ * of the master to which this segment belongs to the best of the ability of
+ * this BackupServer and will appear open unless a closeSegment() is called
+ * on it beforehand.
  *
  * \param reqHdr
  *      Header of the Rpc request which contains the Rpc arguments except
@@ -349,6 +398,11 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
  * \param rpc
  *      The Rpc being serviced, used for access to the opaque bytes to
  *      be written which follow reqHdr.
+ *
+ * \throw BackupSegmentOverflowException
+ *      If the write request is beyond the end of the segment.
+ * \throw BackupBadSegmentIdException
+ *      If the segment is not open (see openSegment()).
  */
 void
 BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
@@ -359,7 +413,7 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
         __func__, reqHdr.masterId, reqHdr.segmentId);
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
-    if (!info)
+    if (!info || info->state != SegmentInfo::OPEN)
         throw BackupBadSegmentIdException();
 
     // Need to check all three conditions because overflow is possible

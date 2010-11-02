@@ -214,6 +214,11 @@ class BackupManagerTest : public CppUnit::TestFixture {
         Segment s2(99, 88, &segMem2, sizeof(segMem2), mgr);
         s2.close();
 
+        BackupClient(transportManager.getSession("mock:host=backup1"))
+            .startReadingData(99);
+        BackupClient(transportManager.getSession("mock:host=backup2"))
+            .startReadingData(99);
+
         ProtoBuf::Tablets tablets;
         ProtoBuf::ServerList backups; {
             ProtoBuf::ServerList_Entry& server(*backups.add_server());

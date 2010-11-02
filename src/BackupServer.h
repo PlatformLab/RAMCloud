@@ -45,20 +45,34 @@ class BackupServer : public Server {
      * and storage it resides.
      */
     struct SegmentInfo {
+        enum State {
+            OPEN,       ///< Storage is reserved but segment is mutable.
+            CLOSED,     ///< Immutable and has moved to stable store.
+            RECOVERING, ///< Immutable but ready for recovery data requests.
+        };
+
         SegmentInfo()
             : segment(NULL)
+            , state(OPEN)
             , storageHandle(NULL)
         {
         }
 
         SegmentInfo(char* segment, BackupStorage::Handle* storageHandle)
             : segment(segment)
+            , state(OPEN)
             , storageHandle(storageHandle)
         {
         }
 
-        /// If NULL then this segment is not in memory.
+        /**
+         * The staging location for this segment in memory.  Only valid when
+         * #state is OPEN.
+         */
         char* segment;
+
+        /// The state of this segment.  See State.
+        State state;
 
         /// Handle to provide to the storage layer to access this segment.
         BackupStorage::Handle* storageHandle;
@@ -88,6 +102,7 @@ class BackupServer : public Server {
     void closeSegment(const BackupCloseRpc::Request& reqHdr,
                        BackupCloseRpc::Response& respHdr,
                        Transport::ServerRpc& rpc);
+    void closeSegment(uint64_t masterId, uint64_t segmentId);
     void freeSegment(const BackupFreeRpc::Request& reqHdr,
                      BackupFreeRpc::Response& respHdr,
                      Transport::ServerRpc& rpc);

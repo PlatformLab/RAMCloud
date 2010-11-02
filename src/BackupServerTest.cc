@@ -37,6 +37,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(BackupServerTest);
     CPPUNIT_TEST(test_closeSegment);
     CPPUNIT_TEST(test_closeSegment_segmentNotOpen);
+    CPPUNIT_TEST(test_closeSegment_segmentClosed);
     CPPUNIT_TEST(test_findSegmentInfo);
     CPPUNIT_TEST(test_findSegmentInfo_notIn);
     CPPUNIT_TEST(test_freeSegment);
@@ -45,6 +46,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_getRecoveryData);
     CPPUNIT_TEST(test_getRecoveryData_moreThanOneSegmentStored);
     CPPUNIT_TEST(test_getRecoveryData_malformedSegment);
+    CPPUNIT_TEST(test_getRecoveryData_notInRecovery);
     CPPUNIT_TEST(test_openSegment);
     CPPUNIT_TEST(test_openSegment_alreadyOpen);
     CPPUNIT_TEST(test_openSegment_outOfStorage);
@@ -52,6 +54,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_startReadingData_empty);
     CPPUNIT_TEST(test_writeSegment);
     CPPUNIT_TEST(test_writeSegment_segmentNotOpen);
+    CPPUNIT_TEST(test_writeSegment_segmentClosed);
     CPPUNIT_TEST(test_writeSegment_badOffset);
     CPPUNIT_TEST(test_writeSegment_badLength);
     CPPUNIT_TEST(test_writeSegment_badOffsetPlusLength);
@@ -71,7 +74,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         : backup(NULL)
         , client(NULL)
         , coordinatorServer(NULL)
-        , segmentSize(1 << 16)
+        , segmentSize(1 << 8)
         , segmentFrames(2)
         , storage(NULL)
         , config(NULL)
@@ -146,6 +149,16 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     void
+    test_closeSegment_segmentClosed()
+    {
+        client->openSegment(99, 88);
+        client->closeSegment(99, 88);
+        CPPUNIT_ASSERT_THROW(client->closeSegment(99, 88),
+                             BackupBadSegmentIdException);
+        freeStorageHandle(99, 88);
+    }
+
+    void
     test_findSegmentInfo()
     {
         BackupServer::SegmentInfo& info =
@@ -185,9 +198,8 @@ class BackupServerTest : public CppUnit::TestFixture {
     test_freeSegment_stillOpen()
     {
         client->openSegment(99, 88);
-        CPPUNIT_ASSERT_THROW(client->freeSegment(99, 88),
-                             BackupSegmentAlreadyOpenException);
-        freeStorageHandle(99, 88);
+        client->freeSegment(99, 88);
+        CPPUNIT_ASSERT_EQUAL(NULL, backup->findSegmentInfo(99, 88));
     }
 
     void
@@ -328,6 +340,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         offset += writeFooter(99, 88, offset);
         client->closeSegment(99, 88);
 
+        client->startReadingData(99);
 
         {
             Buffer response;
@@ -389,12 +402,27 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     void
+    test_getRecoveryData_notInRecovery()
+    {
+        client->openSegment(99, 88);
+        client->closeSegment(99, 88);
+        Buffer response;
+
+        CPPUNIT_ASSERT_THROW(
+            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response),
+            BackupBadSegmentIdException);
+
+        freeStorageHandle(99, 88);
+    }
+
+    void
     test_openSegment()
     {
         client->openSegment(99, 88);
         BackupServer::SegmentInfo &info =
             backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
         CPPUNIT_ASSERT(NULL != info.segment);
+        CPPUNIT_ASSERT_EQUAL(0, *info.segment);
         char* address =
             static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
                 getAddress();
@@ -459,6 +487,17 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             client->writeSegment(99, 88, 0, "test", 4),
             BackupBadSegmentIdException);
+    }
+
+    void
+    test_writeSegment_segmentClosed()
+    {
+        client->openSegment(99, 88);
+        client->closeSegment(99, 88);
+        CPPUNIT_ASSERT_THROW(
+            client->writeSegment(99, 88, 0, "test", 4),
+            BackupBadSegmentIdException);
+        freeStorageHandle(99, 88);
     }
 
     void
