@@ -33,16 +33,8 @@ namespace RAMCloud {
  */
 class CoordinatorServer : public Server {
   public:
-    CoordinatorServer()
-        : nextServerId(generateRandom())
-        , backupList()
-        , masterList()
-        , firstMaster(NULL)
-        , tabletMap()
-        , tables()
-        , nextTableId(0)
-    {}
-    virtual ~CoordinatorServer() {}
+    CoordinatorServer();
+    ~CoordinatorServer();
     void run();
     void dispatch(RpcType type,
                   Transport::ServerRpc& rpc,
@@ -52,6 +44,7 @@ class CoordinatorServer : public Server {
     void createTable(const CreateTableRpc::Request& reqHdr,
                      CreateTableRpc::Response& respHdr,
                      Transport::ServerRpc& rpc);
+    void createTable(uint32_t tableId, ProtoBuf::ServerList_Entry& master);
     void dropTable(const DropTableRpc::Request& reqHdr,
                    DropTableRpc::Response& respHdr,
                    Transport::ServerRpc& rpc);
@@ -84,6 +77,9 @@ class CoordinatorServer : public Server {
 
     /**
      * All known masters.
+     * The user_data field points to a heap-allocated ProtoBuf::Tablets object
+     * representing the will. In the will, the user_data field is the partition
+     * ID that is to recover that tablet, starting from 0.
      */
     ProtoBuf::ServerList masterList;
 

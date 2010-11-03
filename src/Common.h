@@ -369,6 +369,34 @@ void debug_dump64(Buffer& buffer);
 bool pinToCpu(uint32_t cpu);
 uint64_t getTotalSystemMemory();
 
+// conveniences for dealing with maps
+
+/// Return whether a map contains a given key.
+template<typename Map>
+bool
+contains(const Map& map, const typename Map::key_type& key)
+{
+    return (map.find(key) != map.end());
+}
+
+/// See #get below.
+struct NoSuchKeyException : public Exception {
+};
+
+/**
+ * Return the value for a given key in a map.
+ * \throw NoSuchKeyException
+ *      The map does not contain the given key.
+ */
+template<typename Map>
+typename Map::mapped_type
+get(const Map& map, const typename Map::key_type& key)
+{
+    typename Map::const_iterator it(map.find(key));
+    if (it == map.end())
+        throw NoSuchKeyException();
+    return it->second;
+}
 
 } // end RAMCloud
 

@@ -32,6 +32,8 @@ message ServerList {
     required string service_locator = 3;
     /// A field used in mysterious ways during recovery.
     optional fixed64 segment_id = 4;
+   /// An opaque field which happens to be large enough for a pointer.
+    optional fixed64 user_data = 5;
   }
   /// The services.
   repeated Entry server = 1;
