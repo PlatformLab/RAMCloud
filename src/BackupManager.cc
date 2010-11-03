@@ -63,7 +63,7 @@ BackupManager::freeSegment(uint64_t masterId,
     uint32_t count = 0;
     pair<SegmentMap::iterator, SegmentMap::iterator> iters(
         segments.equal_range(segmentId));
-    SegmentMap::iterator it = iters.first;
+    SegmentMap::iterator& it = iters.first;
     while (it != iters.second) {
         BackupClient host(it->second);
         host.freeSegment(masterId, segmentId);
@@ -170,6 +170,21 @@ BackupManager::recover(MasterServer& recoveryMaster,
     }
 }
 
+/**
+ * For testing; manually provides a list of backups to choose from so
+ * this BackupManager won't try to talk to its coordinator (which is
+ * presumably NULL).
+ *
+ * \param hosts
+ *      A list of hosts to choose from when selecting places to
+ *      put backups.
+ */
+void
+BackupManager::setHostList(const ProtoBuf::ServerList& hosts)
+{
+    this->hosts = hosts;
+}
+
 // See BackupClient::writeSegment.
 void
 BackupManager::writeSegment(uint64_t masterId,
@@ -194,26 +209,16 @@ BackupManager::writeSegment(uint64_t masterId,
 void
 BackupManager::selectOpenHosts()
 {
-    if (!coordinator) {
-        if (replicas)
-            DIE("No coordinator given, replication requirements can't be met.");
-        else
-            return;
+    if (!replicas)
+        return;
+
+    uint32_t numHosts(static_cast<uint32_t>(hosts.server_size()));
+    if (numHosts < replicas) {
+        updateHostListFromCoordinator();
+        numHosts = hosts.server_size();
+        if (numHosts < replicas)
+            DIE("Not enough backups to meet replication requirement");
     }
-
-    // TODO(ongaro): it's probably not ok to get a new server list this often
-    coordinator->getServerList(hosts);
-
-    const uint32_t numHosts(static_cast<uint32_t>(hosts.server_size()));
-
-    uint32_t numBackupClients = 0;
-    foreach (const ProtoBuf::ServerList::Entry& entry, hosts.server()) {
-        if (entry.server_type() == ProtoBuf::BACKUP)
-            ++numBackupClients;
-    }
-
-    if (numBackupClients < replicas)
-        DIE("Not enough backups to meet replication requirement");
 
     if (!openHosts.empty())
         DIE("Cannot select new backups when some are already open");
@@ -223,22 +228,24 @@ BackupManager::selectOpenHosts()
     while (i < replicas) {
         uint32_t index = random % numHosts;
         const ProtoBuf::ServerList::Entry& host(hosts.server(index));
-        if (host.server_type() == ProtoBuf::BACKUP) {
-            LOG(DEBUG, "Backing up to %s", host.service_locator().c_str());
-            Transport::SessionRef session =
-                transportManager.getSession(host.service_locator().c_str());
-            openHosts.push_back(new BackupClient(session));
-            i++;
-        }
+        LOG(DEBUG, "Backing up to %s", host.service_locator().c_str());
+        Transport::SessionRef session =
+            transportManager.getSession(host.service_locator().c_str());
+        openHosts.push_back(new BackupClient(session));
+        i++;
         random++;
     }
 }
 
-// See BackupClient::startReadingData.
+/**
+ * Populate the host list by fetching a list of hosts from the coordinator.
+ */
 void
-BackupManager::startReadingData(uint64_t masterId)
+BackupManager::updateHostListFromCoordinator()
 {
-    DIE("Unimplemented");
+    if (!coordinator)
+        DIE("No coordinator given, replication requirements can't be met.");
+    coordinator->getBackupList(hosts);
 }
 
 } // namespace RAMCloud

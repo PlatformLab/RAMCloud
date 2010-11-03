@@ -15,6 +15,8 @@ coordinatorLocator=fast+udp:host=127.0.0.1,port=$cport
 portslay $cport
 portslay $port
 
+atexit "portslay $port"
+
 VER=$(git log -1 | grep '^commit' | awk '{print $2;}')
 DATE=$(git log -1 --date=short | grep '^Date:' | awk '{print $2;}')
 

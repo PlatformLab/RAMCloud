@@ -4,7 +4,8 @@
 #       Recursive Make Considered Harmful
 #       http://aegis.sourceforge.net/auug97.pdf
 
-DEBUG := yes
+DEBUG ?= yes
+YIELD ?= no
 INFINIBAND := $(shell [ -e /usr/lib/libibverbs.so ] && echo -n "yes")
 
 ## Create a separate build directory for each git branch and for each arch
@@ -47,6 +48,10 @@ INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR)
 ifeq ($(INFINIBAND),yes)
 COMFLAGS += -DINFINIBAND
 LIBS += -libverbs
+endif
+
+ifeq ($(YIELD),yes)
+COMFLAGS += -DYIELD=1
 endif
 
 CFLAGS_BASE := $(COMFLAGS) -std=gnu99 $(LIBS) $(INCLUDES)

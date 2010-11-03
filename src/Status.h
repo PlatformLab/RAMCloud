@@ -46,7 +46,8 @@ enum Status {
     STATUS_BACKUP_BAD_SEGMENT_ID        = 11,
     STATUS_BACKUP_SEGMENT_ALREADY_OPEN  = 12,
     STATUS_BACKUP_SEGMENT_OVERFLOW      = 13,
-    STATUS_MAX_VALUE                    = 13
+    STATUS_BACKUP_MALFORMED_SEGMENT     = 14,
+    STATUS_MAX_VALUE                    = 14
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest

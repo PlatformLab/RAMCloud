@@ -30,6 +30,7 @@
 #include "BackupClient.h"
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
+#include "LogTypes.h"
 #include "Rpc.h"
 #include "Server.h"
 
@@ -45,20 +46,34 @@ class BackupServer : public Server {
      * and storage it resides.
      */
     struct SegmentInfo {
+        enum State {
+            OPEN,       ///< Storage is reserved but segment is mutable.
+            CLOSED,     ///< Immutable and has moved to stable store.
+            RECOVERING, ///< Immutable but ready for recovery data requests.
+        };
+
         SegmentInfo()
             : segment(NULL)
+            , state(OPEN)
             , storageHandle(NULL)
         {
         }
 
         SegmentInfo(char* segment, BackupStorage::Handle* storageHandle)
             : segment(segment)
+            , state(OPEN)
             , storageHandle(storageHandle)
         {
         }
 
-        /// If NULL then this segment is not in memory.
+        /**
+         * The staging location for this segment in memory.  Only valid when
+         * #state is OPEN.
+         */
         char* segment;
+
+        /// The state of this segment.  See State.
+        State state;
 
         /// Handle to provide to the storage layer to access this segment.
         BackupStorage::Handle* storageHandle;
@@ -81,12 +96,14 @@ class BackupServer : public Server {
     void dispatch(RpcType type,
                   Transport::ServerRpc& rpc,
                   Responder& responder);
+    uint64_t getServerId() const;
     void run();
 
   private:
     void closeSegment(const BackupCloseRpc::Request& reqHdr,
                        BackupCloseRpc::Response& respHdr,
                        Transport::ServerRpc& rpc);
+    void closeSegment(uint64_t masterId, uint64_t segmentId);
     void freeSegment(const BackupFreeRpc::Request& reqHdr,
                      BackupFreeRpc::Response& respHdr,
                      Transport::ServerRpc& rpc);
@@ -94,6 +111,9 @@ class BackupServer : public Server {
     void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                          BackupGetRecoveryDataRpc::Response& respHdr,
                          Transport::ServerRpc& rpc);
+    bool keepEntry(const LogEntryType type,
+                   const void* data,
+                   const ProtoBuf::Tablets& tablets) const;
     void openSegment(const BackupOpenRpc::Request& reqHdr,
                      BackupOpenRpc::Response& respHdr,
                      Transport::ServerRpc& rpc);

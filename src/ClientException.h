@@ -122,6 +122,9 @@ DEFINE_EXCEPTION(BackupSegmentAlreadyOpenException,
 DEFINE_EXCEPTION(BackupSegmentOverflowException,
                  STATUS_BACKUP_SEGMENT_OVERFLOW,
                  ClientException)
+DEFINE_EXCEPTION(BackupMalformedSegmentException,
+                 STATUS_BACKUP_MALFORMED_SEGMENT,
+                 ClientException)
 
 } // namespace RAMCloud
 

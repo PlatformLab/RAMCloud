@@ -40,7 +40,7 @@ class CoordinatorClient : public Client {
     uint32_t openTable(const char* name);
 
     uint64_t enlistServer(ServerType serverType, string localServiceLocator);
-    void getServerList(ProtoBuf::ServerList& serverList);
+    void getBackupList(ProtoBuf::ServerList& serverList);
     void getTabletMap(ProtoBuf::Tablets& tabletMap);
     void ping();
 

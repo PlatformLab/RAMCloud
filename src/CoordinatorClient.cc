@@ -127,17 +127,17 @@ CoordinatorClient::enlistServer(ServerType serverType,
 }
 
 /**
- * List all live servers.
+ * List all live backup servers.
  * Masters call and cache this periodically to find backups.
  */
 void
-CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
+CoordinatorClient::getBackupList(ProtoBuf::ServerList& serverList)
 {
     Buffer req;
     Buffer resp;
-    allocHeader<GetServerListRpc>(req);
-    const GetServerListRpc::Response& respHdr(
-        sendRecv<GetServerListRpc>(session, req, resp));
+    allocHeader<GetBackupListRpc>(req);
+    const GetBackupListRpc::Response& respHdr(
+        sendRecv<GetBackupListRpc>(session, req, resp));
     checkStatus();
     ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
                                 respHdr.serverListLength, serverList);

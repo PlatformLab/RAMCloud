@@ -194,7 +194,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
     createMasterServer()
     {
         ServerConfig config;
-        config.coordinatorLocator = "mock:coordinator";
+        config.coordinatorLocator = "mock:host=coordinator";
         config.logBytes = 8 * 1024 * 1024;
         config.hashTableBytes = 2 * 1024 * 1024;
         return new MasterServer(config, *coordinator, *mgr);
@@ -213,6 +213,11 @@ class BackupManagerTest : public CppUnit::TestFixture {
         char segMem2[segmentSize];
         Segment s2(99, 88, &segMem2, sizeof(segMem2), mgr);
         s2.close();
+
+        BackupClient(transportManager.getSession("mock:host=backup1"))
+            .startReadingData(99);
+        BackupClient(transportManager.getSession("mock:host=backup2"))
+            .startReadingData(99);
 
         ProtoBuf::Tablets tablets;
         ProtoBuf::ServerList backups; {

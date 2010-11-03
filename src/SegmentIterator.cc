@@ -209,9 +209,7 @@ SegmentIterator::getLength() const
 const void *
 SegmentIterator::getPointer() const
 {
-    if (currentEntry == NULL)
-        throw SegmentIteratorException("getPointer after iteration complete");
-    return blobPtr;
+    return get<void>();
 }
 
 /**

@@ -15,17 +15,26 @@
 
 package RAMCloud.ProtoBuf;
 
+/// Master, backup, etc.
 enum ServerType {
   MASTER = 0;
   BACKUP = 1;
 }
 
+/// A list of services.
 message ServerList {
   message Entry {
+    /// The type of service.
     required ServerType server_type = 1;
+    /// A unique id for the service.
     required fixed64 server_id = 2;
+    /// A locator for the service.
     required string service_locator = 3;
+    /// A field used in mysterious ways during recovery.
     optional fixed64 segment_id = 4;
+   /// An opaque field which happens to be large enough for a pointer.
+    optional fixed64 user_data = 5;
   }
+  /// The services.
   repeated Entry server = 1;
 }

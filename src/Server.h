@@ -112,6 +112,7 @@ class Server {
                                  Transport::ServerRpc&)>
     void
     callHandler(Transport::ServerRpc& rpc) {
+        assert(rpc.replyPayload.getTotalLength() == 0);
         const typename Rpc::Request* reqHdr =
             rpc.recvPayload.getStart<typename Rpc::Request>();
         if (reqHdr == NULL)
@@ -142,6 +143,7 @@ class Server {
                                  Responder&)>
     void
     callHandler(Transport::ServerRpc& rpc, Responder& responder) {
+        assert(rpc.replyPayload.getTotalLength() == 0);
         const typename Rpc::Request* reqHdr =
             rpc.recvPayload.getStart<typename Rpc::Request>();
         if (reqHdr == NULL)

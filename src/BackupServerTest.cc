@@ -37,6 +37,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(BackupServerTest);
     CPPUNIT_TEST(test_closeSegment);
     CPPUNIT_TEST(test_closeSegment_segmentNotOpen);
+    CPPUNIT_TEST(test_closeSegment_segmentClosed);
     CPPUNIT_TEST(test_findSegmentInfo);
     CPPUNIT_TEST(test_findSegmentInfo_notIn);
     CPPUNIT_TEST(test_freeSegment);
@@ -44,6 +45,8 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_freeSegment_noSuchSegment);
     CPPUNIT_TEST(test_getRecoveryData);
     CPPUNIT_TEST(test_getRecoveryData_moreThanOneSegmentStored);
+    CPPUNIT_TEST(test_getRecoveryData_malformedSegment);
+    CPPUNIT_TEST(test_getRecoveryData_notInRecovery);
     CPPUNIT_TEST(test_openSegment);
     CPPUNIT_TEST(test_openSegment_alreadyOpen);
     CPPUNIT_TEST(test_openSegment_outOfStorage);
@@ -51,6 +54,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_startReadingData_empty);
     CPPUNIT_TEST(test_writeSegment);
     CPPUNIT_TEST(test_writeSegment_segmentNotOpen);
+    CPPUNIT_TEST(test_writeSegment_segmentClosed);
     CPPUNIT_TEST(test_writeSegment_badOffset);
     CPPUNIT_TEST(test_writeSegment_badLength);
     CPPUNIT_TEST(test_writeSegment_badOffsetPlusLength);
@@ -70,7 +74,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         : backup(NULL)
         , client(NULL)
         , coordinatorServer(NULL)
-        , segmentSize(1 << 16)
+        , segmentSize(1 << 10)
         , segmentFrames(2)
         , storage(NULL)
         , config(NULL)
@@ -120,6 +124,66 @@ class BackupServerTest : public CppUnit::TestFixture {
             backup->storage.free(info.storageHandle);
     }
 
+    uint32_t
+    writeEntry(uint64_t masterId, uint64_t segmentId, LogEntryType type,
+               uint32_t offset, const void *data, uint32_t bytes)
+    {
+        SegmentEntry entry;
+        entry.type = type;
+        entry.length = bytes;
+        client->writeSegment(masterId, segmentId,
+                             offset, &entry, sizeof(entry));
+        client->writeSegment(masterId, segmentId, offset + sizeof(entry),
+                             data, bytes);
+        return sizeof(entry) + bytes;
+    }
+
+    uint32_t
+    writeObject(uint64_t masterId, uint64_t segmentId,
+                uint32_t offset, const char *data, uint32_t bytes,
+                uint64_t tableId, uint64_t objectId)
+    {
+        char objectMem[sizeof(Object) + bytes];
+        Object* obj = reinterpret_cast<Object*>(objectMem);
+        obj->id = objectId;
+        obj->table = tableId;
+        obj->version = 0;
+        obj->checksum = 0xff00ff00ff00;
+        obj->data_len = bytes;
+        memcpy(objectMem + sizeof(*obj), data, bytes);
+        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_OBJ, offset,
+                          objectMem, sizeof(Object) + bytes);
+    }
+
+    uint32_t
+    writeTombstone(uint64_t masterId, uint64_t segmentId,
+                   uint32_t offset, uint64_t tableId, uint64_t objectId)
+    {
+        ObjectTombstone tombstone(segmentId, tableId, objectId, 0);
+        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_OBJTOMB, offset,
+                          &tombstone, sizeof(tombstone));
+    }
+
+    uint32_t
+    writeHeader(uint64_t masterId, uint64_t segmentId)
+    {
+        SegmentHeader header;
+        header.logId = masterId;
+        header.segmentId = segmentId;
+        header.segmentCapacity = segmentSize;
+        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGHEADER, 0,
+                          &header, sizeof(header));
+    }
+
+    uint32_t
+    writeFooter(uint64_t masterId, uint64_t segmentId, uint32_t offset)
+    {
+        SegmentFooter footer;
+        footer.checksum = 0xff00ff00ff00;
+        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGFOOTER, offset,
+                          &footer, sizeof(footer));
+    }
+
     void
     test_closeSegment()
     {
@@ -142,6 +206,16 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         CPPUNIT_ASSERT_THROW(client->closeSegment(99, 88),
                              BackupBadSegmentIdException);
+    }
+
+    void
+    test_closeSegment_segmentClosed()
+    {
+        client->openSegment(99, 88);
+        client->closeSegment(99, 88);
+        CPPUNIT_ASSERT_THROW(client->closeSegment(99, 88),
+                             BackupBadSegmentIdException);
+        freeStorageHandle(99, 88);
     }
 
     void
@@ -184,9 +258,8 @@ class BackupServerTest : public CppUnit::TestFixture {
     test_freeSegment_stillOpen()
     {
         client->openSegment(99, 88);
-        CPPUNIT_ASSERT_THROW(client->freeSegment(99, 88),
-                             BackupSegmentAlreadyOpenException);
-        freeStorageHandle(99, 88);
+        client->freeSegment(99, 88);
+        CPPUNIT_ASSERT_EQUAL(NULL, backup->findSegmentInfo(99, 88));
     }
 
     void
@@ -197,51 +270,61 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     void
+    appendTablet(ProtoBuf::Tablets& tablets,
+                 uint64_t partitionId,
+                 uint32_t tableId,
+                 uint64_t start, uint64_t end)
+    {
+        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(tableId);
+        tablet.set_start_object_id(start);
+        tablet.set_end_object_id(end);
+        tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+        tablet.set_user_data(partitionId);
+    }
+
+    void
+    createTabletList(ProtoBuf::Tablets& tablets)
+    {
+        appendTablet(tablets, 0, 123, 0, 9);
+        appendTablet(tablets, 0, 123, 10, 19);
+        appendTablet(tablets, 0, 123, 20, 29);
+        appendTablet(tablets, 0, 124, 20, 100);
+    }
+
+    void
     test_getRecoveryData()
     {
-        struct MockSegment {
-            MockSegment()
-                : hdre()
-                , hdr()
-                , oe()
-                , o()
-                , cksume()
-                , cksum()
-            {}
-            SegmentEntry hdre;
-            SegmentHeader hdr;
-            SegmentEntry oe;
-            Object o;
-            char data[16];
-            // TODO(stutsman) test tombstones
-            SegmentEntry cksume;
-            SegmentFooter cksum;
-        } seg;
+        ProtoBuf::Tablets tablets;
+        createTabletList(tablets);
 
-        seg.hdre.type = LOG_ENTRY_TYPE_SEGHEADER;
-        seg.hdre.length = sizeof(seg.hdr);
-        seg.hdr.logId = 99;
-        seg.hdr.segmentId = 88;
-        seg.hdr.segmentCapacity = segmentSize;
-        seg.oe.type = LOG_ENTRY_TYPE_OBJ;
-        seg.oe.length = sizeof(seg.o) + sizeof(seg.data);
-        seg.o.id = 777;
-        seg.o.table = 99;
-        seg.o.version = 42;
-        seg.o.checksum = 0xff00ff00ff00;
-        seg.o.data_len = sizeof(seg.data);
-        const char* data = "0123456789ABCDEF";
-        memcpy(seg.data, data, sizeof(seg.data));
-        seg.cksume.type = LOG_ENTRY_TYPE_SEGFOOTER;
-        seg.cksume.length = sizeof(SegmentFooter);
-        seg.cksum.checksum = 0xDEADBEEFCAFEBABE;
-
+        uint32_t offset = 0;
         client->openSegment(99, 88);
-        client->writeSegment(99, 88, 0, &seg, sizeof(seg));
+        offset = writeHeader(99, 88);
+        // Objects
+        // Barely in tablet
+        offset += writeObject(99, 88, offset, "test1", 6, 123, 29);
+        // Barely out of tablets
+        offset += writeObject(99, 88, offset, "test2", 6, 123, 30);
+        // In on other table
+        offset += writeObject(99, 88, offset, "test3", 6, 124, 20);
+        // Not in any table
+        offset += writeObject(99, 88, offset, "test4", 6, 125, 20);
+        // Tombstones
+        // Barely in tablet
+        offset += writeTombstone(99, 88, offset, 123, 29);
+        // Barely out of tablets
+        offset += writeTombstone(99, 88, offset, 123, 30);
+        // In on other table
+        offset += writeTombstone(99, 88, offset, 124, 20);
+        // Not in any table
+        offset += writeTombstone(99, 88, offset, 125, 20);
+        offset += writeFooter(99, 88, offset);
         client->closeSegment(99, 88);
         client->startReadingData(99);
+
         Buffer response;
-        client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response);
+        client->getRecoveryData(99, 88, tablets, response);
 
         SegmentIterator it(response.getRange(0, response.getTotalLength()),
                            segmentSize);
@@ -249,88 +332,69 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(!it.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, it.getType());
         it.next();
+
         CPPUNIT_ASSERT(!it.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
+        CPPUNIT_ASSERT_EQUAL(123, it.get<Object>()->table);
+        CPPUNIT_ASSERT_EQUAL(29, it.get<Object>()->id);
         it.next();
+
+        CPPUNIT_ASSERT(!it.isDone());
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
+        CPPUNIT_ASSERT_EQUAL(124, it.get<Object>()->table);
+        CPPUNIT_ASSERT_EQUAL(20, it.get<Object>()->id);
+        it.next();
+
+        CPPUNIT_ASSERT(!it.isDone());
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
+        CPPUNIT_ASSERT_EQUAL(123, it.get<ObjectTombstone>()->tableId);
+        CPPUNIT_ASSERT_EQUAL(29, it.get<ObjectTombstone>()->objectId);
+        it.next();
+
+        CPPUNIT_ASSERT(!it.isDone());
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
+        CPPUNIT_ASSERT_EQUAL(124, it.get<ObjectTombstone>()->tableId);
+        CPPUNIT_ASSERT_EQUAL(20, it.get<ObjectTombstone>()->objectId);
+        it.next();
+
         CPPUNIT_ASSERT(!it.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
+        /*
+        CPPUNIT_ASSERT_EQUAL(
+            SegmentIterator::generateChecksum(
+                response.getRange(0, response.getTotalLength()), segmentSize),
+            it.get<SegmentFooter>()->checksum);
+        */
         it.next();
+
         CPPUNIT_ASSERT(it.isDone());
 
         freeStorageHandle(99, 88);
     }
 
-    uint32_t
-    writeEntry(uint64_t masterId, uint64_t segmentId, LogEntryType type,
-               uint32_t offset, const void *data, uint32_t bytes)
-    {
-        SegmentEntry entry;
-        entry.type = type;
-        entry.length = bytes;
-        client->writeSegment(masterId, segmentId,
-                             offset, &entry, sizeof(entry));
-        client->writeSegment(masterId, segmentId, offset + sizeof(entry),
-                             data, bytes);
-        return sizeof(entry) + bytes;
-    }
-
-    uint32_t
-    writeObject(uint64_t masterId, uint64_t segmentId,
-                uint32_t offset, const char *data, uint32_t bytes,
-                uint64_t objectId)
-    {
-        char objectMem[sizeof(Object) + bytes];
-        Object* obj = reinterpret_cast<Object*>(objectMem);
-        obj->id = objectId;
-        obj->table = 0;
-        obj->version = 0;
-        obj->checksum = 0xff00ff00ff00;
-        obj->data_len = bytes;
-        memcpy(objectMem + sizeof(*obj), data, bytes);
-        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_OBJ, offset,
-                          objectMem, sizeof(Object) + bytes);
-    }
-
-    uint32_t
-    writeHeader(uint64_t masterId, uint64_t segmentId)
-    {
-        SegmentHeader header;
-        header.logId = masterId;
-        header.segmentId = segmentId;
-        header.segmentCapacity = segmentSize;
-        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGHEADER, 0,
-                          &header, sizeof(header));
-    }
-
-    uint32_t
-    writeFooter(uint64_t masterId, uint64_t segmentId, uint32_t offset)
-    {
-        SegmentFooter footer;
-        footer.checksum = 0xff00ff00ff00;
-        return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGFOOTER, offset,
-                          &footer, sizeof(footer));
-    }
-
     void
     test_getRecoveryData_moreThanOneSegmentStored()
     {
-        uint32_t offset;
+        uint32_t offset = 0;
         client->openSegment(99, 87);
         offset = writeHeader(99, 87);
-        offset += writeObject(99, 87, offset, "test1", 6, 999);
+        offset += writeObject(99, 87, offset, "test1", 6, 123, 9);
         offset += writeFooter(99, 87, offset);
         client->closeSegment(99, 87);
 
         client->openSegment(99, 88);
         offset = writeHeader(99, 88);
-        offset += writeObject(99, 88, offset, "test2", 6, 999);
+        offset += writeObject(99, 88, offset, "test2", 6, 123, 10);
         offset += writeFooter(99, 88, offset);
         client->closeSegment(99, 88);
 
+        client->startReadingData(99);
 
+        ProtoBuf::Tablets tablets;
+        createTabletList(tablets);
         {
             Buffer response;
-            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response);
+            client->getRecoveryData(99, 88, tablets, response);
 
             SegmentIterator it(response.getRange(0, response.getTotalLength()),
                                segmentSize);
@@ -349,7 +413,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT(it.isDone());
         }{
             Buffer response;
-            client->getRecoveryData(99, 87, ProtoBuf::Tablets(), response);
+            client->getRecoveryData(99, 87, tablets, response);
 
             SegmentIterator it(response.getRange(0, response.getTotalLength()),
                                segmentSize);
@@ -373,12 +437,42 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     void
+    test_getRecoveryData_malformedSegment()
+    {
+        client->openSegment(99, 88);
+        client->closeSegment(99, 88);
+        client->startReadingData(99);
+        Buffer response;
+
+        CPPUNIT_ASSERT_THROW(
+            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response),
+            BackupMalformedSegmentException);
+
+        freeStorageHandle(99, 88);
+    }
+
+    void
+    test_getRecoveryData_notInRecovery()
+    {
+        client->openSegment(99, 88);
+        client->closeSegment(99, 88);
+        Buffer response;
+
+        CPPUNIT_ASSERT_THROW(
+            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response),
+            BackupBadSegmentIdException);
+
+        freeStorageHandle(99, 88);
+    }
+
+    void
     test_openSegment()
     {
         client->openSegment(99, 88);
         BackupServer::SegmentInfo &info =
             backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
         CPPUNIT_ASSERT(NULL != info.segment);
+        CPPUNIT_ASSERT_EQUAL(0, *info.segment);
         char* address =
             static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
                 getAddress();
@@ -443,6 +537,17 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             client->writeSegment(99, 88, 0, "test", 4),
             BackupBadSegmentIdException);
+    }
+
+    void
+    test_writeSegment_segmentClosed()
+    {
+        client->openSegment(99, 88);
+        client->closeSegment(99, 88);
+        CPPUNIT_ASSERT_THROW(
+            client->writeSegment(99, 88, 0, "test", 4),
+            BackupBadSegmentIdException);
+        freeStorageHandle(99, 88);
     }
 
     void
