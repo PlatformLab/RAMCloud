@@ -9,13 +9,13 @@ source scripts/common.bash
 
 portslay $port
 
+atexit "portslay $port"
+
 # Start a server and run tests
 $OBJDIR/server -L fast+udp:host=127.0.0.1,port=$port > /dev/null 2>&1 &
 sleep .1
 
 $OBJDIR/Bench -s fast+udp:host=127.0.0.1,port=$port $*
 RETVAL=$?
-
-portslay $port
 
 exit $RETVAL

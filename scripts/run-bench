@@ -9,6 +9,8 @@ source scripts/common.bash
 
 portslay $port
 
+atexit "portslay $port"
+
 VER=$(git log -1 | grep '^commit' | awk '{print $2;}')
 DATE=$(git log -1 --date=short | grep '^Date:' | awk '{print $2;}')
 
@@ -19,8 +21,6 @@ sleep .1
 VAL=$($OBJDIR/Bench -s fast+udp:host=127.0.0.1,port=$port -R -S 1000 -n 10000 | \
         grep '^readMany avgns' | awk '{print $3;}')
 RETVAL=$?
-
-portslay $port
 
 echo "$DATE $VER $VAL"
 exit $RETVAL

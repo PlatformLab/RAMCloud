@@ -27,6 +27,10 @@ coordinatorLocator=fast+udp:host=127.0.0.1,port=$cport
 
 # Check to see if a server is running, if so kill it
 portslay $port
+portslay $cport
+
+atexit "portslay $port"
+atexit "portslay $cport"
 
 # Start a server and run tests
 $OBJDIR/coordinator -C $coordinatorLocator > /dev/null 2>&1 &
@@ -35,9 +39,5 @@ sleep .1
 
 python src/tests/rc-smack.py -n $count -s $coordinatorLocator > $outfile
 retval=$?
-
-# Kill the server
-portslay $port
-portslay $cport
 
 exit $retval
