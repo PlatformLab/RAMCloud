@@ -21,6 +21,7 @@
 #include "MockTransport.h"
 #include "TransportManager.h"
 #include "BindTransport.h"
+#include "Recovery.h"
 
 namespace RAMCloud {
 
@@ -30,6 +31,8 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_enlistServer);
     CPPUNIT_TEST(test_getBackupList);
     CPPUNIT_TEST(test_getTabletMap);
+    CPPUNIT_TEST(test_hintServerDown_master);
+    CPPUNIT_TEST(test_hintServerDown_backup);
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
@@ -154,6 +157,51 @@ class CoordinatorTest : public CppUnit::TestFixture {
                              "state: NORMAL server_id: 2 "
                              "service_locator: \"mock:host=master\" }",
                              tabletMap.ShortDebugString());
+    }
+
+    void test_hintServerDown_master() {
+        struct MyMockRecovery : MockRecovery {
+            MyMockRecovery() : called(false) {}
+            void
+            operator()(uint64_t masterId,
+                       const ProtoBuf::Tablets& will,
+                       const ProtoBuf::ServerList& masterHosts,
+                       const ProtoBuf::ServerList& backupHosts) {
+                CPPUNIT_ASSERT_EQUAL(3, masterId);
+                CPPUNIT_ASSERT_EQUAL("tablet { table_id: 0 start_object_id: 0 "
+                                     "end_object_id: 18446744073709551615 "
+                                     "state: NORMAL user_data: 0 }",
+                                     will.ShortDebugString());
+                assertMatchesPosixRegex("server { server_type: MASTER "
+                                        "server_id: 2 "
+                                        "service_locator: \"mock:host=master\" "
+                                        "user_data: [0-9]\\+ }",
+                                        masterHosts.ShortDebugString());
+                CPPUNIT_ASSERT_EQUAL("server { server_type: BACKUP "
+                                     "server_id: 4 "
+                                     "service_locator: \"mock:host=backup\" }",
+                                     backupHosts.ShortDebugString());
+                called = true;
+            }
+            bool called;
+        } mockRecovery;
+        server->mockRecovery = &mockRecovery;
+        client->enlistServer(MASTER, "mock:host=master");
+        client->enlistServer(MASTER, "mock:host=master2");
+        client->enlistServer(BACKUP, "mock:host=backup");
+        // flip wills so that the master i'm killing has a non-empty will
+        uint64_t nonEmptyWill = server->masterList.server(0).user_data();
+        uint64_t emptyWill = server->masterList.server(1).user_data();
+        server->masterList.mutable_server(0)->set_user_data(emptyWill);
+        server->masterList.mutable_server(1)->set_user_data(nonEmptyWill);
+        client->hintServerDown("mock:host=master2");
+        CPPUNIT_ASSERT(mockRecovery.called);
+    }
+
+    void test_hintServerDown_backup() {
+        client->enlistServer(BACKUP, "mock:host=backup");
+        client->hintServerDown("mock:host=backup");
+        CPPUNIT_ASSERT_EQUAL("", server->backupList.ShortDebugString());
     }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorTest);

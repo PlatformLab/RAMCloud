@@ -22,6 +22,7 @@
 #include "Common.h"
 #include "ClientException.h"
 #include "Metrics.h"
+#include "Recovery.h"
 #include "Rpc.h"
 #include "Server.h"
 #include "TransportManager.h"
@@ -63,6 +64,11 @@ class CoordinatorServer : public Server {
     void getTabletMap(const GetTabletMapRpc::Request& reqHdr,
                       GetTabletMapRpc::Response& respHdr,
                       Transport::ServerRpc& rpc);
+
+    void hintServerDown(const HintServerDownRpc::Request& reqHdr,
+                        HintServerDownRpc::Response& respHdr,
+                        Transport::ServerRpc& rpc,
+                        Responder& responder);
 
     /**
      * The server id for the next server to register.
@@ -106,6 +112,9 @@ class CoordinatorServer : public Server {
      * These start at 0 and are never reused.
      */
     uint32_t nextTableId;
+
+    /// Used in unit testing.
+    MockRecovery* mockRecovery;
 
     friend class CoordinatorTest;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServer);

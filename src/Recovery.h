@@ -36,7 +36,8 @@ class Recovery {
   public:
     Recovery(uint64_t masterId,
              const ProtoBuf::Tablets& will,
-             const ProtoBuf::ServerList& hosts);
+             const ProtoBuf::ServerList& masterHosts,
+             const ProtoBuf::ServerList& backupHosts);
     ~Recovery();
 
     void buildSegmentIdToBackups();
@@ -50,8 +51,11 @@ class Recovery {
      */
     ProtoBuf::ServerList backups;
 
-    /// The list of all backups and masters.
-    const ProtoBuf::ServerList& hosts;
+    /// The list of all masters.
+    const ProtoBuf::ServerList& masterHosts;
+
+    /// The list of all backups.
+    const ProtoBuf::ServerList& backupHosts;
 
     /// The id of the crashed master whose is being recovered.
     uint64_t masterId;
@@ -64,6 +68,17 @@ class Recovery {
 
     friend class RecoveryTest;
     DISALLOW_COPY_AND_ASSIGN(Recovery);
+};
+
+/// Used for unit testing.
+struct MockRecovery {
+    MockRecovery() {}
+    virtual ~MockRecovery() {}
+    virtual void operator()(uint64_t masterId,
+                            const ProtoBuf::Tablets& will,
+                            const ProtoBuf::ServerList& masterHosts,
+                            const ProtoBuf::ServerList& backupHosts) = 0;
+    DISALLOW_COPY_AND_ASSIGN(MockRecovery);
 };
 
 } // namespace RAMCloud

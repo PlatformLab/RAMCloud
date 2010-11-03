@@ -19,6 +19,7 @@
 #include <sstream>
 
 #include "Common.h"
+#include "Buffer.h"
 #include "ClientException.h"
 
 namespace RAMCloud {

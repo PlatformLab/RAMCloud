@@ -16,6 +16,7 @@
 #include "CoordinatorServer.h"
 #include "MasterClient.h"
 #include "ProtoBuf.h"
+#include "Recovery.h"
 
 namespace RAMCloud {
 
@@ -27,6 +28,7 @@ CoordinatorServer::CoordinatorServer()
     , tabletMap()
     , tables()
     , nextTableId(0)
+    , mockRecovery(NULL)
 {
 }
 
@@ -73,6 +75,10 @@ CoordinatorServer::dispatch(RpcType type,
         case GetTabletMapRpc::type:
             callHandler<GetTabletMapRpc, CoordinatorServer,
                         &CoordinatorServer::getTabletMap>(rpc);
+            break;
+        case HintServerDownRpc::type:
+            callHandler<HintServerDownRpc, CoordinatorServer,
+                        &CoordinatorServer::hintServerDown>(rpc, responder);
             break;
         case PingRpc::type:
             callHandler<PingRpc, Server, &Server::ping>(rpc);
@@ -258,6 +264,65 @@ CoordinatorServer::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
 {
     respHdr.tabletMapLength = serializeToResponse(rpc.replyPayload,
                                                   tabletMap);
+}
+
+/**
+ * Handle the ENLIST_SERVER RPC.
+ * \copydetails Server::ping
+ * \param responder
+ *      Functor to respond to the RPC before returning from this method. Used
+ *      to avoid deadlock between first master and coordinator.
+ */
+void
+CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
+                                  HintServerDownRpc::Response& respHdr,
+                                  Transport::ServerRpc& rpc,
+                                  Responder& responder)
+{
+    string serviceLocator(getString(rpc.recvPayload, sizeof(reqHdr),
+                                    reqHdr.serviceLocatorLength));
+    responder();
+
+    // reqHdr, respHdr, and rpc are off-limits now
+
+    LOG(DEBUG, "Hint server down: %s", serviceLocator.c_str());
+
+    // is it a master?
+    for (int32_t i = 0; i < masterList.server_size(); i++) {
+        const ProtoBuf::ServerList::Entry& master(masterList.server(i));
+        if (master.service_locator() == serviceLocator) {
+            uint64_t serverId = master.server_id();
+            std::auto_ptr<ProtoBuf::Tablets> will(
+                reinterpret_cast<ProtoBuf::Tablets*>(master.user_data()));
+
+            masterList.mutable_server()->SwapElements(
+                                            masterList.server_size() - 1, i);
+            masterList.mutable_server()->RemoveLast();
+
+            // master is off-limits now
+
+            if (mockRecovery != NULL)
+                (*mockRecovery)(serverId, *will, masterList, backupList);
+            else
+                Recovery(serverId, *will, masterList, backupList).start();
+            return;
+        }
+    }
+
+    // is it a backup?
+    for (int32_t i = 0; i < backupList.server_size(); i++) {
+        const ProtoBuf::ServerList::Entry& backup(backupList.server(i));
+        if (backup.service_locator() == serviceLocator) {
+            backupList.mutable_server()->SwapElements(
+                                            backupList.server_size() - 1, i);
+            backupList.mutable_server()->RemoveLast();
+
+            // backup is off-limits now
+
+            // TODO(ongaro): inform masters they need to replicate more
+            return;
+        }
+    }
 }
 
 } // namespace RAMCloud

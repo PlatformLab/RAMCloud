@@ -166,6 +166,24 @@ CoordinatorClient::getTabletMap(ProtoBuf::Tablets& tabletMap)
 }
 
 /**
+ * Report a slow or dead server.
+ */
+void
+CoordinatorClient::hintServerDown(string serviceLocator)
+{
+    Buffer req;
+    Buffer resp;
+    HintServerDownRpc::Request& reqHdr(
+        allocHeader<HintServerDownRpc>(req));
+    reqHdr.serviceLocatorLength = serviceLocator.length() + 1;
+    strncpy(new(&req, APPEND) char[reqHdr.serviceLocatorLength],
+            serviceLocator.c_str(),
+            reqHdr.serviceLocatorLength);
+    sendRecv<HintServerDownRpc>(session, req, resp);
+    checkStatus();
+}
+
+/**
  * \copydoc MasterClient::ping
  */
 void
