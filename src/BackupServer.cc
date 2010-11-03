@@ -52,7 +52,6 @@ BackupServer::BackupServer(const Config& config,
  */
 BackupServer::~BackupServer()
 {
-    pool.purge_memory();
 }
 
 /// Returns the serverId granted to this backup by the coordinator.
@@ -201,8 +200,8 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
         pool.free(info->segment);
     info->segment = NULL;
 
-    segments.erase(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
     storage.free(info->storageHandle);
+    segments.erase(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
 }
 
 /**
