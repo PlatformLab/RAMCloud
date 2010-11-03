@@ -226,6 +226,7 @@ BackupServer::findSegmentInfo(uint64_t masterId, uint64_t segmentId)
     return &it->second;
 }
 
+
 /**
  * Return the data for a particular tablet that was recovered by a call
  * to startReadingData().
@@ -252,6 +253,10 @@ try
 {
     TEST_LOG("%lu, %lu", reqHdr.masterId, reqHdr.segmentId);
 
+    ProtoBuf::Tablets tablets;
+    ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
+                                reqHdr.tabletsLength, tablets);
+
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info || info->state != SegmentInfo::RECOVERING)
         throw BackupBadSegmentIdException();
@@ -271,8 +276,8 @@ try
     for (SegmentIterator it(info->segment, segmentSize);
          !it.isDone(); it.next())
     {
-        if (it.getType() == LOG_ENTRY_TYPE_SEGFOOTER)
-            break;
+        if (!keepEntry(it.getType(), it.getPointer(), tablets))
+            continue;
 
         uint32_t totalEntryLength = it.getLength() + sizeof(SegmentEntry);
         char* packedEntry =
@@ -292,6 +297,61 @@ try
     LOG(WARNING, "getRecoveryData failed due to malformed segment data: "
         "masterId %lu, segmentId %lu", reqHdr.masterId, reqHdr.segmentId);
     throw BackupMalformedSegmentException();
+}
+
+/**
+ * Predicate to test if an entry should be sent back to a recovering master
+ * on a getRecoveryData() request.
+ *
+ * \param type
+ *      The LogEntryType of the SegmentEntry being considered.
+ * \param data
+ *      A pointer to the data follow the SegmentEntry.  Used to extract
+ *      table and object ids from interesting entries for comparison
+ *      to the tablet ranges.
+ * \param tablets
+ *      A set of table id, object start id, object end id tuples that
+ *      are applied to this log entry as a select filter.
+ */
+bool
+BackupServer::keepEntry(const LogEntryType type,
+                        const void* data,
+                        const ProtoBuf::Tablets& tablets) const
+{
+    uint64_t tableId = 0;
+    uint64_t objectId = 0;
+
+    const Object* object =
+        reinterpret_cast<const Object*>(data);
+    const ObjectTombstone* tombstone =
+        reinterpret_cast<const ObjectTombstone*>(data);
+    switch (type) {
+      case LOG_ENTRY_TYPE_SEGFOOTER:
+        return false;
+      case LOG_ENTRY_TYPE_OBJ:
+        tableId = object->table;
+        objectId = object->id;
+        break;
+      case LOG_ENTRY_TYPE_OBJTOMB:
+        tableId = tombstone->tableId;
+        objectId = tombstone->objectId;
+        break;
+      case LOG_ENTRY_TYPE_SEGHEADER:
+      case LOG_ENTRY_TYPE_LOGDIGEST:
+      case LOG_ENTRY_TYPE_INVALID:
+        return true;
+    }
+
+    for (int i = 0; i < tablets.tablet_size(); i++) {
+        const ProtoBuf::Tablets::Tablet& tablet(tablets.tablet(i));
+        if (tablet.table_id() == tableId &&
+            (tablet.start_object_id() <= objectId &&
+             tablet.end_object_id() >= objectId)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /**

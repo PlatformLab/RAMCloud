@@ -73,6 +73,17 @@ struct ObjectTombstone {
           objectVersion(object->version)
     {
     }
+
+  private:
+    ObjectTombstone(uint64_t segmentId, uint64_t tableId,
+                    uint64_t objectId, uint64_t objectVersion)
+        : segmentId(segmentId)
+        , tableId(tableId)
+        , objectId(objectId)
+        , objectVersion(objectVersion)
+    {
+    }
+    friend class BackupServerTest;
 };
 
 } // namespace RAMCloud

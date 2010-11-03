@@ -30,6 +30,7 @@
 #include "BackupClient.h"
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
+#include "LogTypes.h"
 #include "Rpc.h"
 #include "Server.h"
 
@@ -110,6 +111,9 @@ class BackupServer : public Server {
     void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                          BackupGetRecoveryDataRpc::Response& respHdr,
                          Transport::ServerRpc& rpc);
+    bool keepEntry(const LogEntryType type,
+                   const void* data,
+                   const ProtoBuf::Tablets& tablets) const;
     void openSegment(const BackupOpenRpc::Request& reqHdr,
                      BackupOpenRpc::Response& respHdr,
                      Transport::ServerRpc& rpc);
