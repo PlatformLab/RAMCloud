@@ -90,7 +90,7 @@ class TransportFactory {
      * constructor.
      */
     bool supports(const char* protocol) const {
-        BOOST_FOREACH(const char* supportedProtocol, protocols) {
+        foreach (const char* supportedProtocol, protocols) {
             if (strcmp(supportedProtocol, protocol) == 0)
                 return true;
         }

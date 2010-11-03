@@ -74,10 +74,10 @@ TransportManager::TransportManager()
 TransportManager::~TransportManager()
 {
     std::set<Transport*> toFree;
-    BOOST_FOREACH(Transports::value_type protocolTransport, transports) {
+    foreach (Transports::value_type protocolTransport, transports) {
         toFree.insert(protocolTransport.second);
     }
-    BOOST_FOREACH(Transport* transport, toFree) {
+    foreach (Transport* transport, toFree) {
         delete transport;
     }
 
@@ -101,9 +101,9 @@ TransportManager::initialize(const char* localServiceLocator)
     std::vector<ServiceLocator> locators;
     ServiceLocator::parseServiceLocators(localServiceLocator, &locators);
 
-    BOOST_FOREACH(TransportFactory* factory, transportFactories) {
+    foreach (TransportFactory* factory, transportFactories) {
         Transport* transport;
-        BOOST_FOREACH(ServiceLocator& locator, locators) {
+        foreach (ServiceLocator& locator, locators) {
             if (factory->supports(locator.getProtocol().c_str())) {
                 // The transport supports a protocol that we can receive
                 // packets on.
@@ -116,7 +116,7 @@ TransportManager::initialize(const char* localServiceLocator)
         // packets on.
         transport = factory->createTransport(NULL);
  insert_protocol_mappings:
-        BOOST_FOREACH(const char* protocol, factory->getProtocols()) {
+        foreach (const char* protocol, factory->getProtocols()) {
             transports.insert(Transports::value_type(protocol, transport));
         }
     }
@@ -146,8 +146,8 @@ TransportManager::getSession(const char* serviceLocator)
 
     std::vector<ServiceLocator> locators;
     ServiceLocator::parseServiceLocators(serviceLocator, &locators);
-    BOOST_FOREACH(ServiceLocator& locator, locators) {
-        BOOST_FOREACH(Transports::value_type protocolTransport,
+    foreach (ServiceLocator& locator, locators) {
+        foreach (Transports::value_type protocolTransport,
                       transports.equal_range(locator.getProtocol())) {
             Transport* transport = protocolTransport.second;
             try {
