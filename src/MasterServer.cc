@@ -178,7 +178,6 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
                       RecoverRpc::Response& respHdr,
                       Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "recover %lu", reqHdr.masterId);
     ProtoBuf::Tablets tablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, tablets);

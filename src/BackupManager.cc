@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <boost/lexical_cast.hpp>
+
 #include "BackupClient.h"
 #include "BackupManager.h"
 #include "Buffer.h"
@@ -117,6 +119,7 @@ BackupManager::recover(MasterServer& recoveryMaster,
                        const ProtoBuf::Tablets& tablets,
                        const ProtoBuf::ServerList& backups)
 {
+    TEST_LOG("master %lu, %u tablets", masterId, tablets.tablet_size());
     // for each backup that names an unrec seg getRecData, pass to Server
     uint64_t segmentIdToRecover = ~(0ul);
     bool wasRecovered = true;

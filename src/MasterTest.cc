@@ -163,12 +163,37 @@ class MasterTest : public CppUnit::TestFixture {
         return (s == "recoverSegment" || s == "recover");
     }
 
+    void
+    appendTablet(ProtoBuf::Tablets& tablets,
+                 uint64_t partitionId,
+                 uint32_t tableId,
+                 uint64_t start, uint64_t end)
+    {
+        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(tableId);
+        tablet.set_start_object_id(start);
+        tablet.set_end_object_id(end);
+        tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+        tablet.set_user_data(partitionId);
+    }
+
+    void
+    createTabletList(ProtoBuf::Tablets& tablets)
+    {
+        appendTablet(tablets, 0, 123, 0, 9);
+        appendTablet(tablets, 0, 123, 10, 19);
+        appendTablet(tablets, 0, 123, 20, 29);
+        appendTablet(tablets, 0, 124, 20, 100);
+    }
+
     void test_recover_basics() {
         // TODO(stutsman) for now just ensure that the arguments make it to
         // BackupManager::recover, we'll do the full check of the
         // returns later once the recovery procedures are complete
 
         ProtoBuf::Tablets tablets;
+        createTabletList(tablets);
+
         ProtoBuf::ServerList backups; {
             ProtoBuf::ServerList_Entry& server(*backups.add_server());
             server.set_server_type(ProtoBuf::BACKUP);
@@ -178,9 +203,9 @@ class MasterTest : public CppUnit::TestFixture {
         }
 
         TestLog::Enable _(&recoverSegmentFilter);
-        client->recover(88, tablets, backups);
+        client->recover(99, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
-            "recover: recover 88 | "
+            "recover: master 99, 4 tablets | "
             "recover: Couldn't contact "
             "mock:host=backup1, trying next backup; failure was: No transport "
             "found for this service locator | "
