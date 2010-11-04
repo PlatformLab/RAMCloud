@@ -104,7 +104,7 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
                         &MasterServer::write>(rpc);
             break;
         default:
-            throw UnimplementedRequestError();
+            throw UnimplementedRequestError(HERE);
     }
 }
 
@@ -157,7 +157,7 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
 
     const Object* o = objectMap.lookup(reqHdr.tableId, reqHdr.id);
     if (!o) {
-        throw ObjectDoesntExistException();
+        throw ObjectDoesntExistException(HERE);
     }
 
     respHdr.version = o->version;
@@ -326,7 +326,7 @@ MasterServer::getTable(uint32_t tableId, uint64_t objectId) {
             return *reinterpret_cast<Table*>(tablet.user_data());
         }
     }
-    throw TableDoesntExistException();
+    throw TableDoesntExistException(HERE);
 }
 
 /**
@@ -349,15 +349,15 @@ MasterServer::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 {
     if (version == VERSION_NONEXISTENT) {
         if (rejectRules->doesntExist)
-            throw ObjectDoesntExistException();
+            throw ObjectDoesntExistException(HERE);
         return;
     }
     if (rejectRules->exists)
-        throw ObjectExistsException();
+        throw ObjectExistsException(HERE);
     if (rejectRules->versionLeGiven && version <= rejectRules->givenVersion)
-        throw WrongVersionException();
+        throw WrongVersionException(HERE);
     if (rejectRules->versionNeGiven && version != rejectRules->givenVersion)
-        throw WrongVersionException();
+        throw WrongVersionException(HERE);
 }
 
 //-----------------------------------------------------------------------

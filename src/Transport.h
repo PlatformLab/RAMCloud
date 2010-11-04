@@ -30,9 +30,14 @@ namespace RAMCloud {
  * error.
  */
 struct TransportException : public Exception {
-    TransportException() : Exception() {}
-    explicit TransportException(std::string msg) : Exception(msg) {}
-    explicit TransportException(int errNo) : Exception(errNo) {}
+    explicit TransportException(const CodeLocation& where)
+        : Exception(where) {}
+    TransportException(const CodeLocation& where, std::string msg)
+        : Exception(where, msg) {}
+    TransportException(const CodeLocation& where, int errNo)
+        : Exception(where, errNo) {}
+    TransportException(const CodeLocation& where, string msg, int errNo)
+        : Exception(where, msg, errNo) {}
 };
 
 /**
@@ -44,10 +49,15 @@ struct TransportException : public Exception {
  * and exiting.
  */
 struct UnrecoverableTransportException : public Exception {
-    UnrecoverableTransportException() : Exception() {}
-    explicit UnrecoverableTransportException(std::string msg)
-        : Exception(msg) {}
-    explicit UnrecoverableTransportException(int errNo) : Exception(errNo) {}
+    explicit UnrecoverableTransportException(const CodeLocation& where)
+        : Exception(where) {}
+    UnrecoverableTransportException(const CodeLocation& where, std::string msg)
+        : Exception(where, msg) {}
+    UnrecoverableTransportException(const CodeLocation& where, int errNo)
+        : Exception(where, errNo) {}
+    UnrecoverableTransportException(const CodeLocation& where,
+                                    string msg, int errNo)
+        : Exception(where, msg, errNo) {}
 };
 
 /**

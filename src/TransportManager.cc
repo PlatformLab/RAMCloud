@@ -181,7 +181,8 @@ TransportManager::getSession(const char* serviceLocator)
             }
         }
     }
-    throw TransportException("No transport found for this service locator");
+    throw TransportException(HERE,
+                             "No transport found for this service locator");
 }
 
 /**
@@ -193,8 +194,10 @@ TransportManager::getSession(const char* serviceLocator)
 Transport::ServerRpc*
 TransportManager::serverRecv()
 {
-    if (!initialized || listening.empty())
-        throw UnrecoverableTransportException("no transports to listen on");
+    if (!initialized || listening.empty()) {
+        throw UnrecoverableTransportException(HERE,
+                                              "no transports to listen on");
+    }
     uint8_t i = 0;
     while (true) {
         if (nextToListen >= listening.size())

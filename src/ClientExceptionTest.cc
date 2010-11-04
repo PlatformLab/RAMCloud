@@ -33,7 +33,7 @@ class ClientExceptionTest : public CppUnit::TestFixture {
     ClientExceptionTest() { }
 
     void test_constructor() {
-        ClientException e(STATUS_WRONG_VERSION);
+        ClientException e(HERE, STATUS_WRONG_VERSION);
         CPPUNIT_ASSERT_EQUAL(STATUS_WRONG_VERSION, e.status);
     }
 
@@ -50,7 +50,7 @@ class ClientExceptionTest : public CppUnit::TestFixture {
             expected += statusToSymbol(Status(i));
             string got;
             try {
-                ClientException::throwException(Status(i));
+                ClientException::throwException(HERE, Status(i));
             } catch (RejectRulesException& e) {
                 if (reject.length() != 0) {
                     reject += " ";
@@ -82,7 +82,7 @@ class ClientExceptionTest : public CppUnit::TestFixture {
         // particular status value.
         string msg = "no exception occurred";
         try {
-            ClientException::throwException(STATUS_WRONG_VERSION);
+            ClientException::throwException(HERE, STATUS_WRONG_VERSION);
         } catch (WrongVersionException& e) {
             msg = "WrongVersionException thrown";
         } catch (ClientException& e) {
@@ -94,7 +94,7 @@ class ClientExceptionTest : public CppUnit::TestFixture {
         string msg = "no exception occurred";
         Status status;
         try {
-            ClientException::throwException(Status(STATUS_MAX_VALUE+1));
+            ClientException::throwException(HERE, Status(STATUS_MAX_VALUE+1));
         } catch (InternalError& e) {
             msg = "InternalError thrown";
             status = e.status;
@@ -107,12 +107,12 @@ class ClientExceptionTest : public CppUnit::TestFixture {
     }
 
     void test_toString() {
-        ClientException e(STATUS_WRONG_VERSION);
+        ClientException e(HERE, STATUS_WRONG_VERSION);
         CPPUNIT_ASSERT_EQUAL("object has wrong version", e.toString());
     }
 
     void test_toSymbol() {
-        ClientException e(STATUS_WRONG_VERSION);
+        ClientException e(HERE, STATUS_WRONG_VERSION);
         CPPUNIT_ASSERT_EQUAL("STATUS_WRONG_VERSION", e.toSymbol());
     }
 

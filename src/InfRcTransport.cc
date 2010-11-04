@@ -63,7 +63,7 @@
     do {                                                    \
         if ((x) == NULL) {                                  \
             LOG(ERROR, "%s: %s", __func__, s);              \
-            throw TransportException(errno);                \
+            throw TransportException(HERE, errno);          \
         }                                                   \
     } while (0)
 
@@ -164,7 +164,7 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
     setupSocket = socket(PF_INET, SOCK_DGRAM, 0);
     if (setupSocket == -1) {
         LOG(ERROR, "%s: failed to create socket", __func__);
-        throw TransportException("socket failed");
+        throw TransportException(HERE, "socket failed");
     }
 
     // If this is a server socket, bind it.
@@ -179,19 +179,19 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
         if (bind(setupSocket, reinterpret_cast<sockaddr *>(&sin), sizeof(sin))){
             close(setupSocket);
             LOG(ERROR, "%s: failed to bind socket", __func__);
-            throw TransportException("socket failed");
+            throw TransportException(HERE, "socket failed");
         }
 
         int flags = fcntl(setupSocket, F_GETFL);
         if (flags == -1) {
             close(setupSocket);
             LOG(ERROR, "%s: fcntl F_GETFL failed", __func__);
-            throw TransportException("fnctl failed");
+            throw TransportException(HERE, "fnctl failed");
         }
         if (fcntl(setupSocket, F_SETFL, flags | O_NONBLOCK)) {
             close(setupSocket);
             LOG(ERROR, "%s: fcntl F_GETFL failed", __func__);
-            throw TransportException("fnctl failed");
+            throw TransportException(HERE, "fnctl failed");
         }
     }
 
@@ -324,7 +324,8 @@ InfRcTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
     InfRcTransport *t = transport;
 
     if (request->getTotalLength() > t->getMaxRpcSize()) {
-        throw TransportException("client request exceeds maximum rpc size");
+        throw TransportException(HERE,
+                                 "client request exceeds maximum rpc size");
     }
 
     // send out the request
@@ -372,7 +373,7 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
     if (len != sizeof(outgoingQpt)) {
         LOG(ERROR, "%s: sendto was short: %Zd", __func__, len);
         delete qp;
-        throw TransportException(len);
+        throw TransportException(HERE, len);
     }
 
     QueuePairTuple incomingQpt;
@@ -382,7 +383,7 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
     if (len != sizeof(incomingQpt)) {
         LOG(ERROR, "%s: recvfrom was short: %Zd", __func__, len);
         delete qp;
-        throw TransportException(len);
+        throw TransportException(HERE, len);
     }
 
     // XXX- probably good to have that nonce...
@@ -415,7 +416,7 @@ InfRcTransport::serverTrySetupQueuePair()
             return;
 
         LOG(ERROR, "%s: recvfrom failed", __func__);
-        throw TransportException("recvfrom failed");
+        throw TransportException(HERE, "recvfrom failed");
     } else if (len != sizeof(incomingQpt)) {
         LOG(WARNING, "%s: recvfrom got a strange incoming size: %Zd",
             __func__, len);
@@ -486,7 +487,7 @@ InfRcTransport::ibGetLid()
     int ret = ibv_query_port(ctxt, ibPhysicalPort, &ipa);
     if (ret) {
         LOG(ERROR, "ibv_query_port failed on port %u\n", ibPhysicalPort);
-        throw TransportException(ret);
+        throw TransportException(HERE, ret);
     }
     return ipa.lid;
 }
@@ -519,7 +520,7 @@ InfRcTransport::ibPostSrqReceive(BufferDescriptor *bd)
     int ret = ibv_post_srq_recv(srq, &rxWorkRequest, &badWorkRequest);
     if (ret) {
         bd->inUse = false;
-        throw TransportException(ret);
+        throw TransportException(HERE, ret);
     }
 }
 
@@ -582,7 +583,7 @@ InfRcTransport::ibPostSendAndWait(QueuePair* qp, BufferDescriptor *bd,
     if (wc.status != IBV_WC_SUCCESS) {
         LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
             wc.status, wcStatusToString(wc.status));
-        throw TransportException("ibPostSend failed");
+        throw TransportException(HERE, "ibPostSend failed");
     }
 }
 
@@ -651,7 +652,8 @@ InfRcTransport::ServerRpc::sendReply()
     InfRcTransport *t = transport;
 
     if (replyPayload.getTotalLength() > t->getMaxRpcSize()) {
-        throw TransportException("server response exceeds maximum rpc size");
+        throw TransportException(HERE,
+                                 "server response exceeds maximum rpc size");
     }
 
     BufferDescriptor* bd = &t->txBuffers[t->currentTxBuffer];
@@ -705,7 +707,7 @@ InfRcTransport::ClientRpc::getReply()
         transport->ibPostSrqReceive(&t->rxBuffers[t->currentRxBuffer]);
         t->currentRxBuffer = (t->currentRxBuffer + 1) %
             MAX_SHARED_RX_QUEUE_DEPTH;
-        throw TransportException(wc.status);
+        throw TransportException(HERE, wc.status);
     }
 
     BufferDescriptor* bd = &t->rxBuffers[t->currentRxBuffer];
@@ -793,7 +795,7 @@ InfRcTransport::QueuePair::QueuePair(int ibPhysicalPort, ibv_pd *pd,
     if (ret) {
         ibv_destroy_qp(qp);
         LOG(ERROR, "%s: failed to transition to INIT state", __func__);
-        throw TransportException(ret);
+        throw TransportException(HERE, ret);
     }
 
     initialPsn = generateRandom() & 0xffffff;
@@ -846,7 +848,7 @@ InfRcTransport::QueuePair::plumb(QueuePairTuple *qpt)
                                 IBV_QP_MAX_DEST_RD_ATOMIC);
     if (r) {
         LOG(ERROR, "%s: failed to transition to RTR state", __func__);
-        throw TransportException(r);
+        throw TransportException(HERE, r);
     }
 
     // now move to RTS
@@ -865,7 +867,7 @@ InfRcTransport::QueuePair::plumb(QueuePairTuple *qpt)
                                 IBV_QP_MAX_QP_RD_ATOMIC);
     if (r) {
         LOG(ERROR, "%s: failed to transition to RTS state", __func__);
-        throw TransportException(r);
+        throw TransportException(HERE, r);
     }
 
     // the queue pair should be ready to use once the client has finished
@@ -906,7 +908,7 @@ InfRcTransport::QueuePair::getRemoteQpNumber() const
     int r = ibv_query_qp(qp, &qpa, IBV_QP_DEST_QPN, &qpia);
     if (r) {
         // XXX log?!?
-        throw TransportException(r);
+        throw TransportException(HERE, r);
     }
 
     return qpa.dest_qp_num;
@@ -926,7 +928,7 @@ InfRcTransport::QueuePair::getRemoteLid() const
     int r = ibv_query_qp(qp, &qpa, IBV_QP_AV, &qpia);
     if (r) {
         // XXX log?!?
-        throw TransportException(r);
+        throw TransportException(HERE, r);
     }
 
     return qpa.ah_attr.dlid;

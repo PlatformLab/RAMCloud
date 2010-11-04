@@ -20,11 +20,14 @@ namespace RAMCloud {
 /**
  * Construct an exception that reflects a particular completion status.
  *
+ * \param where
+ *      Pass #HERE here.
  * \param status
  *      Identifies a problem that occurred in a RAMCloud request.
  */
-ClientException::ClientException(Status status)
+ClientException::ClientException(const CodeLocation& where, Status status)
         : status(status)
+        , where(where)
 {
     // Constructor is empty.
 }
@@ -41,6 +44,8 @@ ClientException::~ClientException()
  * Given a Status value, generate a ClientException appropriate for that
  * status and throw it. This method never returns.
  *
+ * \param where
+ *      Pass #HERE here.
  * \param status
  *      Identifies a problem that occurred in a RAMCloud request.
  *
@@ -49,44 +54,44 @@ ClientException::~ClientException()
  *      ClientException, depending on the value of status.
  */
 void
-ClientException::throwException(Status status)
+ClientException::throwException(const CodeLocation& where, Status status)
 {
     switch (status) {
         case STATUS_OK:
             // Not clear that this case really makes sense (throw
             // an exception to indicate success?) but it is here
             // for completeness.
-            throw Success();
+            throw Success(where);
         case STATUS_TABLE_DOESNT_EXIST:
-            throw TableDoesntExistException();
+            throw TableDoesntExistException(where);
         case STATUS_OBJECT_DOESNT_EXIST:
-            throw ObjectDoesntExistException();
+            throw ObjectDoesntExistException(where);
         case STATUS_OBJECT_EXISTS:
-            throw ObjectExistsException();
+            throw ObjectExistsException(where);
         case STATUS_WRONG_VERSION:
-            throw WrongVersionException();
+            throw WrongVersionException(where);
         case STATUS_NO_TABLE_SPACE:
-            throw NoTableSpaceException();
+            throw NoTableSpaceException(where);
         case STATUS_MESSAGE_TOO_SHORT:
-            throw MessageTooShortError();
+            throw MessageTooShortError(where);
         case STATUS_UNIMPLEMENTED_REQUEST:
-            throw UnimplementedRequestError();
+            throw UnimplementedRequestError(where);
         case STATUS_REQUEST_FORMAT_ERROR:
-            throw RequestFormatError();
+            throw RequestFormatError(where);
         case STATUS_RESPONSE_FORMAT_ERROR:
-            throw ResponseFormatError();
+            throw ResponseFormatError(where);
         case STATUS_COULDNT_CONNECT:
-            throw CouldntConnectException();
+            throw CouldntConnectException(where);
         case STATUS_BACKUP_BAD_SEGMENT_ID:
-            throw BackupBadSegmentIdException();
+            throw BackupBadSegmentIdException(where);
         case STATUS_BACKUP_SEGMENT_ALREADY_OPEN:
-            throw BackupSegmentAlreadyOpenException();
+            throw BackupSegmentAlreadyOpenException(where);
         case STATUS_BACKUP_SEGMENT_OVERFLOW:
-            throw BackupSegmentOverflowException();
+            throw BackupSegmentOverflowException(where);
         case STATUS_BACKUP_MALFORMED_SEGMENT:
-            throw BackupMalformedSegmentException();
+            throw BackupMalformedSegmentException(where);
         default:
-            throw InternalError(status);
+            throw InternalError(where, status);
     }
 }
 
@@ -114,6 +119,12 @@ const char*
 ClientException::toSymbol() const
 {
     return statusToSymbol(status);
+}
+
+string
+ClientException::str() const
+{
+    return format("%s thrown at %s", toString(), where.str().c_str());
 }
 
 }  // namespace RAMCloud

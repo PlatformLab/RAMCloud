@@ -84,7 +84,7 @@ CoordinatorServer::dispatch(RpcType type,
             callHandler<PingRpc, Server, &Server::ping>(rpc);
             break;
         default:
-            throw UnimplementedRequestError();
+            throw UnimplementedRequestError(HERE);
     }
 }
 
@@ -192,7 +192,7 @@ CoordinatorServer::openTable(const OpenTableRpc::Request& reqHdr,
                                  reqHdr.nameLength);
     Tables::iterator it(tables.find(name));
     if (it == tables.end())
-        throw TableDoesntExistException();
+        throw TableDoesntExistException(HERE);
     respHdr.tableId = it->second;
 }
 

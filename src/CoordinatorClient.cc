@@ -120,7 +120,7 @@ CoordinatorClient::enlistServer(ServerType serverType,
         } catch (TransportException& e) {
             LOG(NOTICE,
                 "TransportException trying to talk to coordinator: %s",
-                e.message.c_str());
+                e.str().c_str());
             LOG(NOTICE, "retrying");
         }
     }

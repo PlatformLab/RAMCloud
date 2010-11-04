@@ -155,10 +155,14 @@ BackupManager::recover(MasterServer& recoveryMaster,
             BackupClient backup(transportManager.getSession(locator.c_str()));
             backup.getRecoveryData(masterId, segmentIdToRecover, tablets, resp);
         } catch (const TransportException& e) {
+            // TODO(ongaro): change these to e.str().c_str once the unit tests
+            // stop testing the exact string
             LOG(WARNING, "Couldn't contact %s, trying next backup; "
                 "failure was: %s", locator.c_str(), e.message.c_str());
             continue;
         } catch (const ClientException& e) {
+            // TODO(ongaro): change these to e.str().c_str once the unit tests
+            // stop testing the exact string
             LOG(WARNING, "getRecoveryData failed on %s, trying next backup; "
                 "failure was: %s", locator.c_str(), e.toString());
             continue;

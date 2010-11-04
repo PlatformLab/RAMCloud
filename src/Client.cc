@@ -51,6 +51,6 @@ Client::throwShortResponseError(Buffer& response)
         // The packet wasn't even long enough to hold a standard header.
         status = STATUS_RESPONSE_FORMAT_ERROR;
     }
-    ClientException::throwException(status);
+    ClientException::throwException(HERE, status);
 }
 } // namespace RAMCloud

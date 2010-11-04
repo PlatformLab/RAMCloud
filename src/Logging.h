@@ -228,11 +228,11 @@ extern Logger logger;
  */
 #define DIE(format, ...) do { \
     LOG(RAMCloud::ERROR, format, ##__VA_ARGS__); \
-    throw RAMCloud::FatalError(RAMCloud::logger.getMessage( \
-                                CURRENT_LOG_MODULE, \
-                                RAMCloud::ERROR, \
-                                __FILE__, __LINE__, \
-                                format, ##__VA_ARGS__)); \
+    throw RAMCloud::FatalError(HERE, \
+            RAMCloud::logger.getMessage(CURRENT_LOG_MODULE, \
+                                        RAMCloud::ERROR, \
+                                        __FILE__, __LINE__, \
+                                        format, ##__VA_ARGS__)); \
 } while (0)
 
 #endif  // RAMCLOUD_LOGGING_H

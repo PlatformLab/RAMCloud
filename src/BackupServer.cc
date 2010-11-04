@@ -125,7 +125,7 @@ BackupServer::closeSegment(uint64_t masterId, uint64_t segmentId)
 {
     SegmentInfo* info = findSegmentInfo(masterId, segmentId);
     if (!info || info->state != SegmentInfo::OPEN)
-        throw BackupBadSegmentIdException();
+        throw BackupBadSegmentIdException(HERE);
 
     storage.putSegment(info->storageHandle, info->segment);
     pool.free(info->segment);
@@ -164,7 +164,7 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
                         &BackupServer::writeSegment>(rpc);
             break;
         default:
-            throw UnimplementedRequestError();
+            throw UnimplementedRequestError(HERE);
     }
 }
 
@@ -194,7 +194,7 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info)
-        throw BackupBadSegmentIdException();
+        throw BackupBadSegmentIdException(HERE);
 
     if (info->segment)
         pool.free(info->segment);
@@ -258,7 +258,7 @@ try
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info || info->state != SegmentInfo::RECOVERING)
-        throw BackupBadSegmentIdException();
+        throw BackupBadSegmentIdException(HERE);
 
     // If not already in memory then reload it.
     if (!info->segment) {
@@ -295,7 +295,7 @@ try
 } catch (const SegmentIteratorException& e) {
     LOG(WARNING, "getRecoveryData failed due to malformed segment data: "
         "masterId %lu, segmentId %lu", reqHdr.masterId, reqHdr.segmentId);
-    throw BackupMalformedSegmentException();
+    throw BackupMalformedSegmentException(HERE);
 }
 
 /**
@@ -386,7 +386,7 @@ BackupServer::openSegment(const BackupOpenRpc::Request& reqHdr,
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (info)
-        throw BackupSegmentAlreadyOpenException();
+        throw BackupSegmentAlreadyOpenException(HERE);
 
     // Get memory for staging the segment writes
     char* segment = static_cast<char*>(pool.malloc());
@@ -473,14 +473,14 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info || info->state != SegmentInfo::OPEN)
-        throw BackupBadSegmentIdException();
+        throw BackupBadSegmentIdException(HERE);
 
     // Need to check all three conditions because overflow is possible
     // on the addition
     if (reqHdr.length > segmentSize ||
         reqHdr.offset > segmentSize ||
         reqHdr.length + reqHdr.offset > segmentSize)
-        throw BackupSegmentOverflowException();
+        throw BackupSegmentOverflowException(HERE);
 
     rpc.recvPayload.copy(sizeof(reqHdr), reqHdr.length,
                          &info->segment[reqHdr.offset]);

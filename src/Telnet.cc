@@ -125,5 +125,6 @@ try
     return 0;
 } catch (RAMCloud::Exception& e) {
     using namespace RAMCloud;
-    LOG(ERROR, "%s", e.message.c_str());
+    LOG(ERROR, "%s", e.str().c_str());
+    return 1;
 }

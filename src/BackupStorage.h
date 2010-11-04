@@ -22,9 +22,14 @@
 namespace RAMCloud {
 
 struct BackupStorageException : public Exception {
-    BackupStorageException() : Exception() {}
-    explicit BackupStorageException(string msg): Exception(msg) {}
-    explicit BackupStorageException(int errNo) : Exception(errNo) {}
+    explicit BackupStorageException(const CodeLocation& where)
+        : Exception(where) {}
+    BackupStorageException(const CodeLocation& where, std::string msg)
+        : Exception(where, msg) {}
+    BackupStorageException(const CodeLocation& where, int errNo)
+        : Exception(where, errNo) {}
+    BackupStorageException(const CodeLocation& where, string msg, int errNo)
+        : Exception(where, msg, errNo) {}
 };
 
 /**

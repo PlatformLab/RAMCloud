@@ -47,9 +47,14 @@ typedef void (*SegmentEntryCallback)(LogEntryType, const void *,
  * method arguments or mutating operations are attempted on a closed Segment.
  */
 struct SegmentException : public Exception {
-    SegmentException() : Exception() {}
-    explicit SegmentException(std::string msg) : Exception(msg) {}
-    explicit SegmentException(int errNo) : Exception(errNo) {}
+    explicit SegmentException(const CodeLocation& where)
+        : Exception(where) {}
+    SegmentException(const CodeLocation& where, std::string msg)
+        : Exception(where, msg) {}
+    SegmentException(const CodeLocation& where, int errNo)
+        : Exception(where, errNo) {}
+    SegmentException(const CodeLocation& where, string msg, int errNo)
+        : Exception(where, msg, errNo) {}
 };
 
 class Segment {

@@ -75,21 +75,25 @@ SegmentIterator::SegmentIterator(const void *buffer, uint64_t capacity)
 void
 SegmentIterator::CommonConstructor()
 {
-    if (segmentCapacity < (sizeof(SegmentEntry) + sizeof(SegmentHeader)))
-        throw SegmentIteratorException("impossibly small Segment provided");
+    if (segmentCapacity < (sizeof(SegmentEntry) + sizeof(SegmentHeader))) {
+        throw SegmentIteratorException(HERE,
+                                       "impossibly small Segment provided");
+    }
 
     const SegmentEntry *entry = (const SegmentEntry *)baseAddress;
     if (entry->type   != LOG_ENTRY_TYPE_SEGHEADER ||
         entry->length != sizeof(SegmentHeader) ||
         !isEntryValid(entry)) {
-        throw SegmentIteratorException("no valid SegmentHeader entry found");
+        throw SegmentIteratorException(HERE,
+                                       "no valid SegmentHeader entry found");
     }
 
     const SegmentHeader *header = reinterpret_cast<const SegmentHeader *>(
         reinterpret_cast<const char *>(baseAddress) + sizeof(SegmentEntry));
     if (header->segmentCapacity != segmentCapacity) {
-        throw SegmentIteratorException("SegmentHeader disagrees with claimed "
-            "Segment capacity");
+        throw SegmentIteratorException(HERE,
+                                       "SegmentHeader disagrees with claimed "
+                                       "Segment capacity");
     }
 
     type    = entry->type;
@@ -180,7 +184,8 @@ LogEntryType
 SegmentIterator::getType() const
 {
     if (currentEntry == NULL)
-        throw SegmentIteratorException("getType after iteration complete");
+        throw SegmentIteratorException(HERE,
+                                       "getType after iteration complete");
     return type;
 }
 
@@ -195,7 +200,8 @@ uint64_t
 SegmentIterator::getLength() const
 {
     if (currentEntry == NULL)
-        throw SegmentIteratorException("getLength after iteration complete");
+        throw SegmentIteratorException(HERE,
+                                       "getLength after iteration complete");
     return length;
 }
 
@@ -225,7 +231,8 @@ uint64_t
 SegmentIterator::getOffset() const
 {
     if (currentEntry == NULL)
-        throw SegmentIteratorException("getOffset after iteration complete");
+        throw SegmentIteratorException(HERE,
+                                       "getOffset after iteration complete");
     return (uintptr_t)blobPtr - (uintptr_t)baseAddress;
 }
 
@@ -249,8 +256,10 @@ SegmentIterator::isChecksumValid() const
         i.next();
     }
 
-    if (i.isDone())
-        throw SegmentIteratorException("no checksum exists in the Segment");
+    if (i.isDone()) {
+        throw SegmentIteratorException(HERE,
+                                       "no checksum exists in the Segment");
+    }
 
     const SegmentFooter *f =
         reinterpret_cast<const SegmentFooter *>(i.getPointer());

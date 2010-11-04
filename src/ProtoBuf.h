@@ -42,7 +42,7 @@ serializeToBuffer(Buffer& buffer, M& message)
     if (!message.IsInitialized() ||
         !message.SerializePartialToOstream(&ostream)) {
         LOG(DEBUG, "Couldn't serialize protocol buffer");
-        throw E();
+        throw E(HERE);
     }
     string str(ostream.str());
     uint32_t length = str.length();
@@ -86,7 +86,7 @@ parseFromBuffer(Buffer& buffer, uint32_t offset, uint32_t length, M& message)
         message.Clear();
         LOG(DEBUG, "Couldn't parse protocol buffer output of length %d",
             length);
-        throw E();
+        throw E(HERE);
     }
 }
 

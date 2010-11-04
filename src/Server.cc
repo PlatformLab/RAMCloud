@@ -50,15 +50,15 @@ const char*
 Server::getString(Buffer& buffer, uint32_t offset, uint32_t length) const {
     const char* result;
     if (length == 0) {
-        throw RequestFormatError();
+        throw RequestFormatError(HERE);
     }
     // TODO(ongaro): update to check result against NULL instead
     if (buffer.getTotalLength() < (offset + length)) {
-        throw MessageTooShortError();
+        throw MessageTooShortError(HERE);
     }
     result = static_cast<const char*>(buffer.getRange(offset, length));
     if (result[length - 1] != '\0') {
-        throw RequestFormatError();
+        throw RequestFormatError(HERE);
     }
     return result;
 }
@@ -99,7 +99,7 @@ Server::dispatch(RpcType type, Transport::ServerRpc& rpc, Responder& responder)
             callHandler<PingRpc, Server, &Server::ping>(rpc);
             break;
         default:
-            throw UnimplementedRequestError();
+            throw UnimplementedRequestError(HERE);
     }
 }
 

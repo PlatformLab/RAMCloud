@@ -60,7 +60,7 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
               O_CREAT | O_RDWR | openFlags,
               0666);
     if (fd == -1)
-        throw BackupStorageException(errno);
+        throw BackupStorageException(HERE, errno);
 
     if (!(openFlags & O_DIRECT))
         reserveSpace();
@@ -83,7 +83,7 @@ SingleFileStorage::allocate(uint64_t masterId,
     if (next == FreeMap::npos) {
         next = freeMap.find_first();
         if (next == FreeMap::npos)
-            throw BackupStorageException("Out of free segment frames.");
+            throw BackupStorageException(HERE, "Out of free segment frames.");
     }
     lastAllocatedFrame = next;
     uint32_t targetSegmentFrame = static_cast<uint32_t>(next);
@@ -104,12 +104,12 @@ SingleFileStorage::free(BackupStorage::Handle* handle)
                          offsetOfSegmentFrame(segmentFrame),
                          SEEK_SET);
     if (offset == -1)
-        throw BackupStorageException(errno);
+        throw BackupStorageException(HERE, errno);
     const char* killMessage = "FREE";
     ssize_t killMessageLen = strlen(killMessage);
     ssize_t r = write(fd, killMessage, killMessageLen);
     if (r != killMessageLen)
-        throw BackupStorageException(errno);
+        throw BackupStorageException(HERE, errno);
 
     freeMap[segmentFrame] = 1;
     delete handle;
@@ -126,10 +126,10 @@ SingleFileStorage::getSegment(const BackupStorage::Handle* handle,
                          offsetOfSegmentFrame(sourceSegmentFrame),
                          SEEK_SET);
     if (offset == -1)
-        throw BackupStorageException(errno);
+        throw BackupStorageException(HERE, errno);
     ssize_t r = read(fd, segment, segmentSize);
     if (r != static_cast<ssize_t>(segmentSize))
-        throw BackupStorageException(errno);
+        throw BackupStorageException(HERE, errno);
 }
 
 // See BackupStorage::putSegment().
@@ -143,10 +143,10 @@ SingleFileStorage::putSegment(const BackupStorage::Handle* handle,
                          offsetOfSegmentFrame(targetSegmentFrame),
                          SEEK_SET);
     if (offset == -1)
-        throw BackupStorageException(errno);
+        throw BackupStorageException(HERE, errno);
     ssize_t r = write(fd, segment, segmentSize);
     if (r != static_cast<ssize_t>(segmentSize))
-        throw BackupStorageException(errno);
+        throw BackupStorageException(HERE, errno);
 }
 
 // - private -
@@ -181,7 +181,7 @@ SingleFileStorage::reserveSpace()
     LOG(DEBUG, "Reserving %lu bytes of log space", logSpace);
     int r = ftruncate(fd, logSpace);
     if (r == -1)
-        throw BackupStorageException(errno);
+        throw BackupStorageException(HERE, errno);
 }
 
 // --- InMemoryStorage ---
@@ -216,7 +216,7 @@ InMemoryStorage::allocate(uint64_t masterId,
                           uint64_t segmentId)
 {
     if (!segmentFrames)
-        throw BackupStorageException("Out of free segment frames.");
+        throw BackupStorageException(HERE, "Out of free segment frames.");
     segmentFrames--;
     char* address = static_cast<char *>(pool.malloc());
     return new Handle(address);

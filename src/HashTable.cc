@@ -238,7 +238,7 @@ HashTable::HashTable(uint64_t numBuckets)
     }
 
     if (numBuckets == 0)
-        throw Exception("HashTable numBuckets == 0?!");
+        throw Exception(HERE, "HashTable numBuckets == 0?!");
 
     size_t bucketsSize = this->numBuckets * sizeof(CacheLine);
     buckets = static_cast<CacheLine *>(mallocAligned(bucketsSize));

@@ -46,12 +46,12 @@ do {                                                                          \
         cpputMsg_.addDetail("Actual  : " +                                    \
                             CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
                                     "RAMCloud::Exception or derived"));       \
-        cpputMsg_.addDetail(std::string("    ") + e.message);                 \
+        cpputMsg_.addDetail(std::string("    ") + e.str());                   \
     } catch (const RAMCloud::ClientException& e) {                            \
         cpputMsg_.addDetail("Actual  : " +                                    \
                             CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
                                     "RAMCloud::ClientException or derived")); \
-        cpputMsg_.addDetail(std::string("    ") + e.toString());              \
+        cpputMsg_.addDetail(std::string("    ") + e.str());                   \
     } catch (const std::exception& e) {                                       \
         cpputMsg_.addDetail("Actual  : " +                                    \
                              CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,               \
@@ -74,12 +74,12 @@ do {                                                                          \
         cpputMsg_.addDetail("Caught: " +                                      \
                             CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
                                     "RAMCloud::Exception or derived"));       \
-        cpputMsg_.addDetail(std::string("    ") + e.message);                 \
+        cpputMsg_.addDetail(std::string("    ") + e.str());                   \
     } catch (const RAMCloud::ClientException& e) {                            \
         cpputMsg_.addDetail("Caught: " +                                      \
                             CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
                                     "RAMCloud::ClientException or derived")); \
-        cpputMsg_.addDetail(std::string("    ") + e.toString());              \
+        cpputMsg_.addDetail(std::string("    ") + e.str());                   \
     } catch (const std::exception& e) {                                       \
         cpputMsg_.addDetail("Caught: " +                                      \
                             CPPUNIT_EXTRACT_EXCEPTION_TYPE_(e,                \
