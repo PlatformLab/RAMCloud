@@ -40,13 +40,17 @@ main(int argc, char *argv[])
 try
 {
     ClientConfig config;
+    bool hintServerDown;
 
     RC::OptionsDescription clientOptions("Client");
     clientOptions.add_options()
         ("server,s",
          RC::ProgramOptions::value<string>(&config.serverLocator)->
-            default_value("fast+udp:host=127.0.0.1,port=12242"),
-         "RAMCloud server to connect to");
+            default_value("fast+udp:host=127.0.0.1,port=12246"),
+         "RAMCloud server to connect to")
+        ("down,d",
+         RC::ProgramOptions::bool_switch(&hintServerDown),
+         "Report the master we're talking to as down just before exit.");
 
     RC::OptionParser optionParser(clientOptions, argc, argv);
 
@@ -142,7 +146,13 @@ try
     printf("%d avg insert took %lu ticks on the server\n", count,
            sum / count);
 
-    client.dropTable("test");
+    if (hintServerDown) {
+        printf("--- hinting that the server is down ---\n");
+        client.coordinator.hintServerDown("tcp:host=127.0.0.1,port=12242");
+    } else {
+        client.dropTable("test");
+    }
+
     return 0;
 } catch (RAMCloud::ClientException& e) {
     fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());

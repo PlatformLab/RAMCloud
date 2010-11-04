@@ -250,7 +250,8 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                               Transport::ServerRpc& rpc)
 try
 {
-    TEST_LOG("%lu, %lu", reqHdr.masterId, reqHdr.segmentId);
+    LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu",
+        reqHdr.masterId, reqHdr.segmentId);
 
     ProtoBuf::Tablets tablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
@@ -435,11 +436,14 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
         if (masterId == reqHdr.masterId) {
             uint64_t* segmentId = new(&rpc.replyPayload, APPEND) uint64_t;
             *segmentId = it->first.segmentId;
+            LOG(DEBUG, "Crashed master %lu had segment %lu",
+                masterId, *segmentId);
             it->second.state = SegmentInfo::RECOVERING;
             segmentIdCount++;
         }
     }
     respHdr.segmentIdCount = segmentIdCount;
+    LOG(DEBUG, "Sending %u segment ids for this master", segmentIdCount);
 }
 
 /**
@@ -468,9 +472,6 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
                            BackupWriteRpc::Response& respHdr,
                            Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "%s: segment <%lu,%lu>",
-        __func__, reqHdr.masterId, reqHdr.segmentId);
-
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info || info->state != SegmentInfo::OPEN)
         throw BackupBadSegmentIdException(HERE);

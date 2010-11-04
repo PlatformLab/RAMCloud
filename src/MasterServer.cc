@@ -55,7 +55,9 @@ MasterServer::MasterServer(const ServerConfig& config,
     , objectMap(config.hashTableBytes / HashTable::bytesPerCacheLine())
     , tablets()
 {
-    log = new Log(0, config.logBytes, Segment::SEGMENT_SIZE, &backup);
+    serverId = coordinator.enlistServer(MASTER, config.localLocator);
+    LOG(NOTICE, "My server ID is %lu", serverId);
+    log = new Log(serverId, config.logBytes, Segment::SEGMENT_SIZE, &backup);
     log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 }
@@ -111,8 +113,6 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
 void __attribute__ ((noreturn))
 MasterServer::run()
 {
-    serverId = coordinator.enlistServer(MASTER, config.localLocator);
-    LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
         handleRpc<MasterServer>();
 }
@@ -202,7 +202,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
 void
 MasterServer::recoverSegment(uint64_t segmentId, const Buffer& segment)
 {
-    TEST_LOG("%lu, ...", segmentId);
+    LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
     // TODO(stutsman) Master should replay segment here
 }
 

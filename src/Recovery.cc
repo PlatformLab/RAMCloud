@@ -76,14 +76,19 @@ Recovery::~Recovery()
 void
 Recovery::buildSegmentIdToBackups()
 {
+    LOG(DEBUG, "Getting segment lists from backups and preparing "
+               "them for recovery");
     // Find all the segments for the crashed master from each of
     // the backups in the entire RAMCloud.
     for (int i = 0; i < backupHosts.server_size(); i++) {
         const ProtoBuf::ServerList::Entry& host(backupHosts.server(i));
+        LOG(DEBUG, "Getting segment info from %s",
+            host.service_locator().c_str());
         BackupClient backup(
             transportManager.getSession(host.service_locator().c_str()));
         vector<uint64_t> ids(backup.startReadingData(masterId));
         foreach (uint64_t id, ids) {
+            LOG(DEBUG, "%s has %lu", host.service_locator().c_str(), id);
             // A copy of the entry is made, we augment it with a segment id.
             segmentIdToBackups.insert(BackupMap::value_type(id, host));
         }
@@ -105,8 +110,6 @@ Recovery::createBackupList(ProtoBuf::ServerList& backups) const
         ProtoBuf::ServerList_Entry& server(*backups.add_server());
         server = value.second;
         server.set_segment_id(value.first);
-        LOG(DEBUG, "%s has segment %lu",
-            server.service_locator().c_str(), server.segment_id());
     }
 }
 
@@ -149,7 +152,9 @@ Recovery::start()
             // Make sure not to recover to a backup or to the crashed master
             if (host.server_id() != masterId) {
                 const string& locator = host.service_locator();
-                LOG(DEBUG, "Trying partition recovery on %s", locator.c_str());
+                LOG(DEBUG, "Trying partition recovery on %s with "
+                    "%u tablets and %u hosts", locator.c_str(),
+                    tablets.tablet_size(), backups.server_size());
                 try {
                     MasterClient master(
                             transportManager.getSession(locator.c_str()));

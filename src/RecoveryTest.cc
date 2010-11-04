@@ -343,10 +343,14 @@ class RecoveryTest : public CppUnit::TestFixture {
         TestLog::Enable _(&getRecoveryDataFilter);
         recovery.start();
         CPPUNIT_ASSERT_EQUAL(
-            "start: Trying partition recovery on mock:host=master1 | "
-            "getRecoveryData: 99, 88 | getRecoveryData: 99, 89 | "
-            "start: Trying partition recovery on mock:host=master2 | "
-            "getRecoveryData: 99, 88 | getRecoveryData: 99, 89",
+            "start: Trying partition recovery on mock:host=master1 with "
+            "1 tablets and 3 hosts | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89 | "
+            "start: Trying partition recovery on mock:host=master2 with "
+            "1 tablets and 3 hosts | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89",
             TestLog::get());
     }
 
@@ -390,10 +394,14 @@ class RecoveryTest : public CppUnit::TestFixture {
         TestLog::Enable _(&getRecoveryDataFilter);
         recovery.start();
         CPPUNIT_ASSERT_EQUAL(
-            "start: Trying partition recovery on mock:host=master1 | "
-            "getRecoveryData: 99, 88 | getRecoveryData: 99, 89 | "
-            "start: Trying partition recovery on mock:host=master2 | "
-            "getRecoveryData: 99, 88 | getRecoveryData: 99, 89 | "
+            "start: Trying partition recovery on mock:host=master1 with "
+            "1 tablets and 3 hosts | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89 | "
+            "start: Trying partition recovery on mock:host=master2 with "
+            "1 tablets and 3 hosts | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89 | "
             "start: Failed to recover all partitions for a crashed master, "
             "your RAMCloud is now busted.",
             TestLog::get());

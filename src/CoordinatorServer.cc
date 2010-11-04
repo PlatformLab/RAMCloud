@@ -21,7 +21,7 @@
 namespace RAMCloud {
 
 CoordinatorServer::CoordinatorServer()
-    : nextServerId(generateRandom())
+    : nextServerId(1)
     , backupList()
     , masterList()
     , firstMaster(NULL)
@@ -301,10 +301,15 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
             // master is off-limits now
 
-            if (mockRecovery != NULL)
+            if (mockRecovery != NULL) {
                 (*mockRecovery)(serverId, *will, masterList, backupList);
-            else
+            } else {
+                LOG(DEBUG, "Trying partition recovery on %lu with %u masters "
+                    "and %u backups", serverId, masterList.server_size(),
+                    backupList.server_size());
                 Recovery(serverId, *will, masterList, backupList).start();
+                LOG(DEBUG, "OK! Recovered!");
+            }
             return;
         }
     }

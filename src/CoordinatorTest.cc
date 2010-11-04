@@ -64,14 +64,19 @@ class CoordinatorTest : public CppUnit::TestFixture {
         transport->addServer(*server, "mock:host=coordinator");
         client = new CoordinatorClient("mock:host=coordinator");
         backup = new BackupManager(client, 0);
-        master = new MasterServer(masterConfig, *client, *backup);
+        // need to add the master as a transport destinaton before it is
+        // created because under BindTransport it must service an rpc
+        // just after its constructor is completes
+        master = static_cast<MasterServer*>(malloc(sizeof(MasterServer)));
         transport->addServer(*master, "mock:host=master");
+        master = new(master) MasterServer(masterConfig, *client, *backup);
         TestLog::enable();
     }
 
     void tearDown() {
         TestLog::disable();
-        delete master;
+        master->~MasterServer();
+        free(master);
         delete backup;
         delete client;
         delete server;
@@ -109,8 +114,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     // TODO(ongaro): test drop, open table
 
     void test_enlistServer() {
-        CPPUNIT_ASSERT_EQUAL(2,
-                             client->enlistServer(MASTER, "mock:host=master"));
+        CPPUNIT_ASSERT_EQUAL(2, master->serverId);
         CPPUNIT_ASSERT_EQUAL(3,
                              client->enlistServer(BACKUP, "mock:host=backup"));
         assertMatchesPosixRegex("server { server_type: MASTER server_id: 2 "
@@ -136,7 +140,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     }
 
     void test_getBackupList() {
-        client->enlistServer(MASTER, "mock:host=master");
+        // master is already enlisted
         client->enlistServer(BACKUP, "mock:host=backup1");
         client->enlistServer(BACKUP, "mock:host=backup2");
         ProtoBuf::ServerList serverList;
@@ -186,7 +190,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
             bool called;
         } mockRecovery;
         server->mockRecovery = &mockRecovery;
-        client->enlistServer(MASTER, "mock:host=master");
+        // master is already enlisted
         client->enlistServer(MASTER, "mock:host=master2");
         client->enlistServer(BACKUP, "mock:host=backup");
         // flip wills so that the master i'm killing has a non-empty will

@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# Runs a coordinator, 2 masters, and 2 backups
+# Client runs and reports its master down at the end of its run
+# If everything works right the second master should recovery this first
+
+source ./scripts/common.bash
+
+start() {
+    xterm -e bash -c "sleep .1; $1; read" &
+    atexit "kill $!"
+}
+
+#proto=fast+udp
+proto=tcp
+host=127.0.0.1
+C=$proto:host=$host,port=12246
+
+start "$OBJDIR/coordinator -l 9 -C $C"
+
+
+start "sleep .25; $OBJDIR/backup -l 9 -L $proto:host=$host,port=12243 -C $C"
+start "sleep .25; $OBJDIR/backup -l 9 -L $proto:host=$host,port=12244 -C $C"
+
+start "$OBJDIR/server -l 9 -r 2 -L $proto:host=$host,port=12242 -C $C"
+start "sleep .5; $OBJDIR/server -l 9 -r 2 -L $proto:host=$host,port=12247 -C $C"
+
+start "sleep 1; $OBJDIR/client -l 9 -d -s $proto:host=$host,port=12246 -C $C"
+
+read

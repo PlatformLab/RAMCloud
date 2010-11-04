@@ -203,15 +203,18 @@ class MasterTest : public CppUnit::TestFixture {
         }
 
         TestLog::Enable _(&recoverSegmentFilter);
-        client->recover(99, tablets, backups);
+        CPPUNIT_ASSERT_THROW(
+            client->recover(99, tablets, backups),
+            SegmentRecoveryFailedException);
         CPPUNIT_ASSERT_EQUAL(
-            "recover: master 99, 4 tablets | "
-            "recover: Couldn't contact "
-            "mock:host=backup1, trying next backup; failure was: No transport "
-            "found for this service locator | "
-            "recover: *** Failed to recover "
-            "segment id 87, the recovered master state is corrupted, "
-            "pretending everything is ok",
+            "recover: Recovering master 99, 4 tablets, 1 hosts | "
+            "recover: Getting recovery data for segment 87 from "
+            "mock:host=backup1 | "
+            "recover: Couldn't contact mock:host=backup1, trying next backup; "
+            "failure was: No transport found for this service locator: "
+            "mock:host=backup1 | "
+            "recover: *** Failed to recover segment id 87, the recovered "
+            "master state is corrupted, aborting recovery",
             TestLog::get());
     }
 

@@ -104,7 +104,7 @@ MasterClient::recover(uint64_t masterId, const ProtoBuf::Tablets& tablets,
     Buffer req, resp;
     RecoverRpc::Request& reqHdr(allocHeader<RecoverRpc>(req));
     reqHdr.masterId = masterId;
-    reqHdr.tabletsLength = ProtoBuf::serializeToResponse(req, tablets);
+    reqHdr.tabletsLength = serializeToResponse(req, tablets);
     reqHdr.serverListLength = serializeToResponse(req, backups);
     sendRecv<RecoverRpc>(session, req, resp);
     checkStatus();

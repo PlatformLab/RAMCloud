@@ -74,7 +74,7 @@ class Transport {
 
   public:
       /// Transports should cut off longer RPCs to prevent runaways.
-      static const uint32_t MAX_RPC_LEN = 2048;
+      static const uint32_t MAX_RPC_LEN = (1 << 24);
 
     /**
      * A RPC call that has been sent and is pending a response from a server.

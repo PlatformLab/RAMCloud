@@ -119,7 +119,8 @@ BackupManager::recover(MasterServer& recoveryMaster,
                        const ProtoBuf::Tablets& tablets,
                        const ProtoBuf::ServerList& backups)
 {
-    TEST_LOG("master %lu, %u tablets", masterId, tablets.tablet_size());
+    LOG(NOTICE, "Recovering master %lu, %u tablets, %u hosts",
+        masterId, tablets.tablet_size(), backups.server_size());
     // for each backup that names an unrec seg getRecData, pass to Server
     uint64_t segmentIdToRecover = ~(0ul);
     bool wasRecovered = true;
@@ -133,7 +134,7 @@ BackupManager::recover(MasterServer& recoveryMaster,
         }
         // if we already recovered a segment with this id, skip this server
         if (wasRecovered && segmentIdToRecover == server.segment_id()) {
-            TEST_LOG("skipping %s, already recovered %lu",
+            LOG(DEBUG, "skipping %s, already recovered %lu",
                 locator.c_str(), segmentIdToRecover);
             continue;
         }
@@ -142,18 +143,18 @@ BackupManager::recover(MasterServer& recoveryMaster,
                 "ServerList of backups for recovery shouldn't contain MASTERs");
             continue;
         }
-        if (!wasRecovered) {
-            LOG(ERROR, "*** Failed to recover segment id %lu, the recovered "
-                "master state is corrupted, pretending everything is ok",
-                segmentIdToRecover);
-        }
+        if (!wasRecovered)
+            break;
         segmentIdToRecover = server.segment_id();
         wasRecovered = false;
 
         Buffer resp;
         try {
+            LOG(DEBUG, "Getting recovery data for segment %lu from %s",
+                segmentIdToRecover, locator.c_str());
             BackupClient backup(transportManager.getSession(locator.c_str()));
             backup.getRecoveryData(masterId, segmentIdToRecover, tablets, resp);
+            LOG(DEBUG, "Got it");
         } catch (const TransportException& e) {
             // TODO(ongaro): change these to e.str().c_str once the unit tests
             // stop testing the exact string
@@ -172,8 +173,10 @@ BackupManager::recover(MasterServer& recoveryMaster,
     }
     if (!wasRecovered) {
         LOG(ERROR, "*** Failed to recover segment id %lu, the recovered "
-            "master state is corrupted, pretending everything is ok",
+            "master state is corrupted, aborting recovery",
             segmentIdToRecover);
+        // TODO(stutsman) at least need to clean up the hashtable
+        throw SegmentRecoveryFailedException(HERE);
     }
 }
 
