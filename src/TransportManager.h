@@ -68,6 +68,9 @@ class TransportManager {
     void unregisterMock() {
         listening.pop_back();
         transports.erase("mock");
+        // Invalidate cache because mock transports are ephemeral and
+        // come and go.
+        sessionCache.clear();
     }
 #endif
 
@@ -104,6 +107,13 @@ class TransportManager {
      * are deleted in the destructor.
      */
     Transports transports;
+
+    /**
+     * A map from service locator to SessionRef instances for #getSession().
+     * This is used as a cache so that the same SessionRef is used if
+     * #getSession() is called on an existing service locator string.
+     */
+    std::map<string, Transport::SessionRef> sessionCache;
 
     friend class TransportManagerTest;
     DISALLOW_COPY_AND_ASSIGN(TransportManager);

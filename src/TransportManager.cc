@@ -63,6 +63,7 @@ TransportManager::TransportManager()
     , listening()
     , nextToListen(0)
     , transports()
+    , sessionCache()
 {
     transportFactories.insert(&tcpTransportFactory);
     transportFactories.insert(&fastUdpTransportFactory);
@@ -73,6 +74,10 @@ TransportManager::TransportManager()
 
 TransportManager::~TransportManager()
 {
+    // Must clear the cache and destroy sessionRefs before the
+    // transports are destroyed.
+    sessionCache.clear();
+
     std::set<Transport*> toFree;
     foreach (Transports::value_type protocolTransport, transports) {
         toFree.insert(protocolTransport.second);
@@ -144,14 +149,31 @@ TransportManager::getSession(const char* serviceLocator)
     if (!initialized)
         initialize("");
 
+    std::map<string, Transport::SessionRef>::iterator it;
+    if ((it = sessionCache.find(string(serviceLocator))) !=
+        sessionCache.end()) {
+        return (*it).second;
+    }
+
+    // Session was not found in the cache, a new one will be created
     std::vector<ServiceLocator> locators;
     ServiceLocator::parseServiceLocators(serviceLocator, &locators);
+    // The first protocol specified in the locator that works is chosen
     foreach (ServiceLocator& locator, locators) {
         foreach (Transports::value_type protocolTransport,
                       transports.equal_range(locator.getProtocol())) {
             Transport* transport = protocolTransport.second;
             try {
-                return transport->getSession(locator);
+                Transport::SessionRef session =
+                    transport->getSession(locator);
+
+                // Only first protocol is used, but the cache is based
+                // on the complete initial service locator string.
+                // No caching should occur if an exception is thrown.
+                sessionCache.insert(pair<string,
+                                    Transport::SessionRef>(serviceLocator,
+                                                           session));
+                return session;
             } catch (TransportException& e) {
                 // TODO(ongaro): Transport::getName() would be nice here.
                 LOG(DEBUG, "Transport %p refused to open session for %s",
