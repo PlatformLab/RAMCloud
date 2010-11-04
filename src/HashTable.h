@@ -17,7 +17,6 @@
 #define RAMCLOUD_HASHTABLE_H
 
 #include "Common.h"
-#include "Object.h"
 #include "CycleCounter.h"
 
 namespace RAMCloud {
@@ -45,6 +44,7 @@ namespace RAMCloud {
  * non-terminal cache lines has a pointer to the next cache line instead of a
  * pointer to an Object.
  */
+template<typename T>
 class HashTable {
 
   public:
@@ -178,9 +178,9 @@ class HashTable {
 
     explicit HashTable(uint64_t nlines);
     ~HashTable();
-    const Object *lookup(uint64_t tableId, uint64_t objectId);
+    const T* lookup(uint64_t tableId, uint64_t objectId);
     bool remove(uint64_t tableId, uint64_t objectId);
-    bool replace(uint64_t tableId, uint64_t objectId, const Object *ptr);
+    bool replace(uint64_t tableId, uint64_t objectId, const T* ptr);
 
     /**
      * Return the number of bytes per cache line.
@@ -247,10 +247,10 @@ class HashTable {
 
       public:
         void clear();
-        void setObject(uint64_t hash, const Object *object);
+        void setReferant(uint64_t hash, const T* ptr);
         void setChainPointer(CacheLine *ptr);
         bool isAvailable() const;
-        const Object *getObject() const;
+        const T* getReferant() const;
         CacheLine *getChainPointer() const;
         bool hashMatches(uint64_t hash) const;
 

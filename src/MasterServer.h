@@ -148,7 +148,7 @@ class MasterServer : public Server {
         }
 
         uint64_t numHashTableLines =
-            hashTableBytes / HashTable::bytesPerCacheLine();
+            hashTableBytes / HashTable<Object>::bytesPerCacheLine();
         if (numHashTableLines < 1) {
             throw Exception("invalid `MasterTotalMemory' and/or "
                             "`HashTableMemory' options - insufficent memory "
@@ -216,7 +216,7 @@ class MasterServer : public Server {
      * that the tablet still lives on this server; objects from deleted tablets
      * are not immediately purged from the hash table.
      */
-    HashTable objectMap;
+    HashTable<Object> objectMap;
 
     /**
      * Tablets this master owns.

@@ -32,14 +32,16 @@ namespace RAMCloud {
 /**
  * Constructor for HashTable::PerfDistribution.
  */
-HashTable::PerfDistribution::PerfDistribution()
+template <typename T>
+HashTable<T>::PerfDistribution::PerfDistribution()
     : bins(NULL), binOverflows(0), min(~0UL), max(0UL)
 {
     bins = new uint64_t[NBINS];
     memset(bins, 0, sizeof(uint64_t) * NBINS);
 }
 
-HashTable::PerfDistribution::~PerfDistribution()
+template <typename T>
+HashTable<T>::PerfDistribution::~PerfDistribution()
 {
     delete[] bins;
     bins = NULL;
@@ -50,8 +52,9 @@ HashTable::PerfDistribution::~PerfDistribution()
  * \param[in] value
  *      The value sampled.
  */
+template <typename T>
 void
-HashTable::PerfDistribution::storeSample(uint64_t value)
+HashTable<T>::PerfDistribution::storeSample(uint64_t value)
 {
     if (value / BIN_WIDTH < NBINS)
         bins[value / BIN_WIDTH]++;
@@ -71,7 +74,8 @@ HashTable::PerfDistribution::storeSample(uint64_t value)
 /**
  * Constructor for HashTable::PerfCounters.
  */
-HashTable::PerfCounters::PerfCounters()
+template <typename T>
+HashTable<T>::PerfCounters::PerfCounters()
     : replaceCalls(0), lookupEntryCalls(0), replaceCycles(0),
     lookupEntryCycles(0), insertChainsFollowed(0),
     lookupEntryChainsFollowed(0), lookupEntryHashCollisions(0),
@@ -94,8 +98,9 @@ HashTable::PerfCounters::PerfCounters()
  *      The chain pointer to the next cache line or the Object pointer
  *      (determined by \a chain).
  */
+template <typename T>
 void
-HashTable::Entry::pack(uint64_t hash, bool chain, uint64_t ptr)
+HashTable<T>::Entry::pack(uint64_t hash, bool chain, uint64_t ptr)
 {
     if (ptr == 0)
         assert(hash == 0 && !chain);
@@ -111,7 +116,9 @@ HashTable::Entry::pack(uint64_t hash, bool chain, uint64_t ptr)
  * \return
  *      The extracted values. See UnpackedEntry.
  */
-HashTable::Entry::UnpackedEntry HashTable::Entry::unpack() const
+template <typename T>
+typename HashTable<T>::Entry::UnpackedEntry
+HashTable<T>::Entry::unpack() const
 {
     UnpackedEntry ue;
     ue.hash  = (this->value >> 48) & 0x000000000000ffffUL;
@@ -123,8 +130,9 @@ HashTable::Entry::UnpackedEntry HashTable::Entry::unpack() const
 /**
  * Reinitialize a hash table entry as unused.
  */
+template <typename T>
 void
-HashTable::Entry::clear()
+HashTable<T>::Entry::clear()
 {
     pack(0, false, 0);
 }
@@ -136,11 +144,12 @@ HashTable::Entry::clear()
  * \param[in] object
  *      The address of the Object. Must not be \c NULL.
  */
+template <typename T>
 void
-HashTable::Entry::setObject(uint64_t hash, const Object *object)
+HashTable<T>::Entry::setReferant(uint64_t hash, const T* ptr)
 {
-    assert(object != NULL);
-    pack(hash, false, reinterpret_cast<uint64_t>(object));
+    assert(ptr != NULL);
+    pack(hash, false, reinterpret_cast<uint64_t>(ptr));
 }
 
 /**
@@ -148,8 +157,9 @@ HashTable::Entry::setObject(uint64_t hash, const Object *object)
  * \param[in] ptr
  *      The pointer to the next cache line. Must not be \c NULL.
  */
+template <typename T>
 void
-HashTable::Entry::setChainPointer(CacheLine *ptr)
+HashTable<T>::Entry::setChainPointer(CacheLine *ptr)
 {
     assert(ptr != NULL);
     pack(0, true, reinterpret_cast<uint64_t>(ptr));
@@ -160,8 +170,9 @@ HashTable::Entry::setChainPointer(CacheLine *ptr)
  * \return
  *      See above.
  */
+template <typename T>
 bool
-HashTable::Entry::isAvailable() const
+HashTable<T>::Entry::isAvailable() const
 {
     UnpackedEntry ue = unpack();
     return (ue.ptr == 0);
@@ -174,12 +185,13 @@ HashTable::Entry::isAvailable() const
  * \return
  *      The address of the Object stored.
  */
-const Object *
-HashTable::Entry::getObject() const
+template <typename T>
+const T*
+HashTable<T>::Entry::getReferant() const
 {
     UnpackedEntry ue = unpack();
     assert(!ue.chain && ue.ptr != 0);
-    return reinterpret_cast<const Object*>(ue.ptr);
+    return reinterpret_cast<const T*>(ue.ptr);
 }
 
 /**
@@ -188,8 +200,9 @@ HashTable::Entry::getObject() const
  *      The chain pointer to another cache line. If this entry does not store a
  *      chain pointer, returns \c NULL instead.
  */
-HashTable::CacheLine *
-HashTable::Entry::getChainPointer() const
+template <typename T>
+typename HashTable<T>::CacheLine *
+HashTable<T>::Entry::getChainPointer() const
 {
     UnpackedEntry ue = unpack();
     if (!ue.chain)
@@ -205,8 +218,9 @@ HashTable::Entry::getChainPointer() const
  *      Whether the hash table entry holds the address to an Object and the
  *      secondary hash bits for that Object point to \a hash.
  */
+template <typename T>
 bool
-HashTable::Entry::hashMatches(uint64_t hash) const
+HashTable<T>::Entry::hashMatches(uint64_t hash) const
 {
     UnpackedEntry ue = unpack();
     return (!ue.chain && ue.ptr != 0 && ue.hash == hash);
@@ -224,7 +238,8 @@ HashTable::Entry::hashMatches(uint64_t hash) const
  * \throw Exception
  *      An exception is thrown is numBuckets is 0.
  */
-HashTable::HashTable(uint64_t numBuckets)
+template <typename T>
+HashTable<T>::HashTable(uint64_t numBuckets)
     : buckets(NULL), numBuckets(nearestPowerOfTwo(numBuckets)),
       useHugeTlb(false), perfCounters()
 {
@@ -252,7 +267,8 @@ HashTable::HashTable(uint64_t numBuckets)
 /**
  * Destructor for HashTable.
  */
-HashTable::~HashTable()
+template <typename T>
+HashTable<T>::~HashTable()
 {
     // TODO(ongaro): free chained CacheLines that were allocated in insert()
 
@@ -269,8 +285,9 @@ HashTable::~HashTable()
  * \return
  *      A power of two that is less than or equal to \a n.
  */
+template <typename T>
 uint64_t
-HashTable::nearestPowerOfTwo(uint64_t n)
+HashTable<T>::nearestPowerOfTwo(uint64_t n)
 {
     if ((n & (n - 1)) == 0)
         return n;
@@ -291,8 +308,9 @@ HashTable::nearestPowerOfTwo(uint64_t n)
  *      A pointer to the newly allocated memory chunk. This is guaranteed to
  *      not be \c NULL.
  */
+template <typename T>
 void *
-HashTable::mallocAligned(uint64_t len) const
+HashTable<T>::mallocAligned(uint64_t len) const
 {
     if (useHugeTlb)
         return xmalloc_aligned_hugetlb(len);
@@ -306,8 +324,9 @@ HashTable::mallocAligned(uint64_t len) const
  *      A pointer to the memory chunk allocated by #mallocAligned().
  *      Must not be \c NULL.
  */
+template <typename T>
 void
-HashTable::freeAligned(void *p) const
+HashTable<T>::freeAligned(void *p) const
 {
     if (useHugeTlb) {
         // TODO(ongaro): can't free memory from xmalloc_aligned_hugetlb
@@ -320,8 +339,9 @@ HashTable::freeAligned(void *p) const
  * A 64-bit to 64-bit hash function.
  * This is a helper to #findBucket().
  */
+template <typename T>
 uint64_t
-HashTable::hash(uint64_t key)
+HashTable<T>::hash(uint64_t key)
 {
     // This appears to be hash64shift by Thomas Wang from
     // http://www.concentric.net/~Ttwang/tech/inthash.htm
@@ -348,8 +368,9 @@ HashTable::hash(uint64_t key)
  * \return
  *      The bucket corresponding to the given object ID.
  */
-HashTable::CacheLine *
-HashTable::findBucket(uint64_t tableId, uint64_t objectId,
+template <typename T>
+typename HashTable<T>::CacheLine *
+HashTable<T>::findBucket(uint64_t tableId, uint64_t objectId,
                       uint64_t *secondaryHash) const
 {
     uint64_t hashValue = hash(tableId) ^ hash(objectId);
@@ -379,8 +400,9 @@ HashTable::findBucket(uint64_t tableId, uint64_t objectId,
  *      The pointer to the hash table entry, or \a NULL if there is no such
  *      hash table entry.
  */
-HashTable::Entry *
-HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
+template <typename T>
+typename HashTable<T>::Entry *
+HashTable<T>::lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
                        uint64_t tableId, uint64_t objectId)
 {
     CycleCounter cycles(STAT_REF(perfCounters.lookupEntryCycles));
@@ -400,8 +422,8 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
                 // The hash within the hash table entry matches, so with high
                 // probability this is the pointer we're looking for. To check,
                 // we must go to the object.
-                const Object *o = candidate->getObject();
-                if (o->table == tableId && o->id == objectId) {
+                const T* c = candidate->getReferant();
+                if (c->table == tableId && c->id == objectId) {
                     PERF_DIST_STORE_SAMPLE(perfCounters.lookupEntryDist,
                                            cycles.stop());
                     return candidate;
@@ -432,8 +454,9 @@ HashTable::lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
  * \return
  *      The address of the Object, or \a NULL if the object doesn't exist.
  */
-const Object *
-HashTable::lookup(uint64_t tableId, uint64_t objectId)
+template <typename T>
+const T*
+HashTable<T>::lookup(uint64_t tableId, uint64_t objectId)
 {
     uint64_t secondaryHash;
     Entry *entry;
@@ -441,7 +464,7 @@ HashTable::lookup(uint64_t tableId, uint64_t objectId)
     entry = lookupEntry(bucket, secondaryHash, tableId, objectId);
     if (entry == NULL)
         return NULL;
-    return entry->getObject();
+    return entry->getReferant();
 }
 
 /**
@@ -453,8 +476,9 @@ HashTable::lookup(uint64_t tableId, uint64_t objectId)
  * \return
  *      Whether the hash table contained the object ID.
  */
+template <typename T>
 bool
-HashTable::remove(uint64_t tableId, uint64_t objectId)
+HashTable<T>::remove(uint64_t tableId, uint64_t objectId)
 {
     uint64_t secondaryHash;
     Entry *entry;
@@ -482,8 +506,9 @@ HashTable::remove(uint64_t tableId, uint64_t objectId)
  *      The hash table did not previously contain \a objectId. An entry has
  *      been created to reflect the location of the object.
  */
+template <typename T>
 bool
-HashTable::replace(uint64_t tableId, uint64_t objectId, const Object *object)
+HashTable<T>::replace(uint64_t tableId, uint64_t objectId, const T* ptr)
 {
     CycleCounter cycles(STAT_REF(perfCounters.replaceCycles));
     uint64_t secondaryHash;
@@ -496,7 +521,7 @@ HashTable::replace(uint64_t tableId, uint64_t objectId, const Object *object)
     bucket = findBucket(tableId, objectId, &secondaryHash);
     entry = lookupEntry(bucket, secondaryHash, tableId, objectId);
     if (entry != NULL) {
-        entry->setObject(secondaryHash, object);
+        entry->setReferant(secondaryHash, ptr);
         return true;
     }
 
@@ -505,7 +530,7 @@ HashTable::replace(uint64_t tableId, uint64_t objectId, const Object *object)
         entry = cacheLine->entries;
         for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
             if (entry->isAvailable()) {
-                entry->setObject(secondaryHash, object);
+                entry->setReferant(secondaryHash, ptr);
                 return false;
             }
             entry++;
@@ -527,3 +552,8 @@ HashTable::replace(uint64_t tableId, uint64_t objectId, const Object *object)
 }
 
 } // namespace RAMCloud
+
+// Workaround to keep template code separate from the header file.
+// See C++ FAQ 35.15.
+#include "Object.h"
+template class RAMCloud::HashTable<RAMCloud::Object>;

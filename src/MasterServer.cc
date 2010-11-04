@@ -52,7 +52,7 @@ MasterServer::MasterServer(const ServerConfig& config,
     , serverId(0)
     , backup(backup)
     , log(0)
-    , objectMap(config.hashTableBytes / HashTable::bytesPerCacheLine())
+    , objectMap(config.hashTableBytes / HashTable<Object>::bytesPerCacheLine())
     , tablets()
 {
     log = new Log(0, config.logBytes, Segment::SEGMENT_SIZE, &backup);
@@ -204,7 +204,47 @@ void
 MasterServer::recoverSegment(uint64_t segmentId, const Buffer& segment)
 {
     TEST_LOG("%lu, ...", segmentId);
-    // TODO(stutsman) Master should replay segment here
+
+#if 0
+--- XXXX: NB: this is started in backup.recover() above. We can alloc and
+              dealloc the tmp tombstone HT there.
+
+    SegmentIterator i(segment.getRange(0, segment.getTotalBytes()),
+                      segment.getTotalBytes());
+    while (!i.isDone()) {
+        LogEntryType type = i.getType();
+
+        if (type == LOG_ENTRY_TYPE_OBJECT) {
+            Object *recoverObj = reinterpret_cast<Object *>(i.getPointer());
+            Object *localObj = objectMap.lookup(recoverObj.table,
+                                                recoverObj.id);
+            ObjectTombstone *tomb = ...
+
+            uint64_t minSuccessor = 0;
+            if (localObj != NULL)
+                minSuccessor = localObj->version + 1;
+            if (tomb != NULL)
+                minSuccessor = std::max(minSuccessor, tomb->objectVersion + 1);
+
+            if (recoverObj->version >= minSuccessor) {
+                // write to log & update hash table
+
+                if (tomb != NULL)
+                    // remove tombstone
+                if (localObj != NULL)
+                    // free previous version
+            }
+        } else if (type == LOG_ENTRY_TYPE_TOMBSTONE) {
+            Object *recoverTomb =
+                reinterpret_cast<ObjectTombstone *>(i.getPointer());
+            Object *localObj = objectMap.lookup(recoverTomb.tableId,
+                                                recoverTomb.objectId);
+            ObjectTombstone *tomb = ...
+        }
+
+        i.next();
+    }
+#endif
 }
 
 /**

@@ -17,6 +17,7 @@
 #define RAMCLOUD_TABLE_H
 
 #include "Common.h"
+#include "Object.h"
 #include "HashTable.h"
 
 namespace RAMCloud {
@@ -47,7 +48,7 @@ class Table {
      *      A client could have already placed an object here by fabricating the
      *      object ID.
      */
-    uint64_t AllocateKey(HashTable *hashTable) {
+    uint64_t AllocateKey(HashTable<Object> *hashTable) {
         while (hashTable->lookup(tableId, nextKey))
             ++nextKey;
         return nextKey;
