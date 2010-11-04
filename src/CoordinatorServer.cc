@@ -301,6 +301,12 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
             // master is off-limits now
 
+            foreach (ProtoBuf::Tablets::Tablet& tablet,
+                     *tabletMap.mutable_tablet()) {
+                if (tablet.server_id() == serverId)
+                    tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
+            }
+
             if (mockRecovery != NULL) {
                 (*mockRecovery)(serverId, *will, masterList, backupList);
             } else {
