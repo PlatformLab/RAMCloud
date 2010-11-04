@@ -23,6 +23,7 @@
 #include "Common.h"
 #include "BenchUtil.h"
 #include "HashTable.h"
+#include "Object.h"
 #include "OptionParser.h"
 
 namespace RAMCloud {
@@ -31,14 +32,14 @@ void
 hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 {
     uint64_t i;
-    HashTable ht(nlines);
+    ObjectMap ht(nlines);
     Object **values = static_cast<Object**>(xmalloc(nkeys * sizeof(values[0])));
 
     printf("hash table keys: %lu\n", nkeys);
     printf("hash table lines: %lu\n", nlines);
-    printf("cache line size: %d\n", sizeof(HashTable::CacheLine));
+    printf("cache line size: %d\n", ht.bytesPerCacheLine());
     printf("load factor: %.03f\n", static_cast<double>(nkeys) /
-           (static_cast<double>(nlines) * HashTable::ENTRIES_PER_CACHE_LINE));
+           (static_cast<double>(nlines) * ht.entriesPerCacheLine()));
 
     printf("populating table...");
     fflush(stdout);
@@ -48,41 +49,75 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         values[i]->id = i;
         ht.replace(0, i, values[i]);
 
-        // Just here in case.
+        // Here just in case.
         //   NB: This alters our PerfDistribution bin counts,
-        //       so be sure to adjust for it later on!
+        //       so be sure to reset them below!
         assert(ht.lookup(0, i) == values[i]);
     }
+    printf("done!\n");
+
+    // replace/lookup affects the PerfDistribution, so reset for replace
+    // benchmarks
+    ht.resetPerfCounters();
+
+    printf("running replace measurements...");
+    fflush(stdout);
+
+    CycleCounter replaceCycles;
+    for (i = 0; i < nkeys; i++)
+        ht.replace(0, i, values[i]);
+    i = replaceCycles.stop();
     printf("done!\n");
 
     free(values);
     values = NULL;
 
+    const ObjectMap::PerfCounters & pc = ht.getPerfCounters();
+
+    printf("== replace() ==\n");
+
+    printf("    external avg: %llu ticks, %llu nsec\n",
+           i / nkeys, cyclesToNanoseconds(i / nkeys));
+
+    printf("    internal avg: %llu ticks, %llu nsec\n",
+           pc.replaceCycles / nkeys,
+           cyclesToNanoseconds(pc.replaceCycles / nkeys));
+
+    printf("    multi-cacheline accesses: %llu / %lu\n",
+           pc.insertChainsFollowed, nkeys);
+
+    // replace affects the PerfDistribution, so reset for lookup benchmarks
+    ht.resetPerfCounters();
+
+    printf("running lookup measurements...");
+    fflush(stdout);
     CycleCounter lookupCycles;
     for (i = 0; i < nkeys; i++) {
         const Object *p = ht.lookup(0, i);
         assert(p != NULL);
     }
     i = lookupCycles.stop();
-    printf("lookup avg: %llu ticks, %llu nsec\n", i / nkeys,
+    printf("done!\n");
+
+    printf("== lookup() ==\n");
+
+    printf("    external avg: %llu ticks, %llu nsec\n", i / nkeys,
         cyclesToNanoseconds(i / nkeys));
 
-    const HashTable::PerfCounters & pc = ht.getPerfCounters();
-
-    printf("replace: %llu avg ticks, %llu nsec, %llu / %lu multi-cacheline "
-           "accesses\n",
-           pc.replaceCycles / nkeys,
-           cyclesToNanoseconds(pc.replaceCycles / nkeys),
-           pc.insertChainsFollowed, nkeys);
-    printf("lookup: %llu avg ticks, %llu nsec, %llu / %lu multi-cacheline "
-           "accesses, %llu minikey false positives\n",
+    printf("    internal avg: %llu ticks, %llu nsec\n",
            pc.lookupEntryCycles / nkeys,
-           cyclesToNanoseconds(pc.lookupEntryCycles / nkeys),
+           cyclesToNanoseconds(pc.lookupEntryCycles / nkeys));
+
+    printf("    multi-cacheline accesses: %llu / %lu\n",
            pc.lookupEntryChainsFollowed, nkeys, pc.lookupEntryHashCollisions);
-    printf("lookup: %llu min ticks, %llu nsec\n",
+
+    printf("    minikey false positives: %llu\n", pc.lookupEntryHashCollisions);
+
+    printf("    min ticks: %llu, %llu nsec\n",
            pc.lookupEntryDist.min,
            cyclesToNanoseconds(pc.lookupEntryDist.min));
-    printf("lookup: %llu max ticks, %llu nsec\n",
+
+    printf("    max ticks: %llu, %llu nsec\n",
            pc.lookupEntryDist.max,
            cyclesToNanoseconds(pc.lookupEntryDist.max));
 
@@ -91,15 +126,15 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     memset(histogram, 0, sizeof(nlines * sizeof(histogram[0])));
 
     for (i = 0; i < nlines; i++) {
-        HashTable::CacheLine *cl;
-        HashTable::Entry *entry;
+        ObjectMap::CacheLine *cl;
+        ObjectMap::Entry *entry;
 
         int depth = 1;
         cl = &ht.buckets[i];
-        entry = &cl->entries[HashTable::ENTRIES_PER_CACHE_LINE - 1];
+        entry = &cl->entries[ht.entriesPerCacheLine() - 1];
         while ((cl = entry->getChainPointer()) != NULL) {
             depth++;
-            entry = &cl->entries[HashTable::ENTRIES_PER_CACHE_LINE - 1];
+            entry = &cl->entries[ht.entriesPerCacheLine() - 1];
         }
         histogram[depth]++;
     }
@@ -118,14 +153,14 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     free(histogram);
     histogram = NULL;
 
-    const HashTable::PerfDistribution & lcd = pc.lookupEntryDist;
+    const ObjectMap::PerfDistribution & lcd = pc.lookupEntryDist;
 
     printf("lookup cycle histogram:\n");
     for (i = 0; i < lcd.NBINS; i++) {
         if (lcd.bins[i] == 0)
            continue;
         double percent = static_cast<double>(lcd.bins[i]) * 100.0 /
-                         static_cast<double>(nkeys * 2);
+                         static_cast<double>(nkeys);
         if (percent < 0.5)
             continue;
         printf("%5d to %5d ticks / %5d to %5d nsec: (%6.2f%%) ",
@@ -145,7 +180,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         if (lcd.bins[i] == 0)
             continue;
         double percent = static_cast<double>(lcd.bins[i]) * 100.0 /
-                         static_cast<double>(nkeys * 2);
+                         static_cast<double>(nkeys);
         total += percent;
         printf(" <= %5d ticks (%d nsec): %6.2f%%\n",
                (i + 1) * lcd.BIN_WIDTH - 1,
@@ -160,37 +195,39 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 int
 main(int argc, char **argv)
 {
+    using namespace RAMCloud;
+
     uint64_t hashTableMegs, numberOfKeys;
     double loadFactor;
 
-    RAMCloud::OptionsDescription benchmarkOptions("HashTableBenchmark");
+    OptionsDescription benchmarkOptions("HashTableBenchmark");
     benchmarkOptions.add_options()
         ("HashTableMegs,h",
-         RAMCloud::ProgramOptions::value<uint64_t>(&hashTableMegs)->
+         ProgramOptions::value<uint64_t>(&hashTableMegs)->
             default_value(1),
          "Megabytes of memory allocated to the HashTable")
         ("LoadFactor,f",
-         RAMCloud::ProgramOptions::value<double>(&loadFactor)->
+         ProgramOptions::value<double>(&loadFactor)->
             default_value(0.50),
          "Load factor desired (automatically calculate the number of keys)")
         ("NumberOfKeys,n",
-         RAMCloud::ProgramOptions::value<uint64_t>(&numberOfKeys)->
+         ProgramOptions::value<uint64_t>(&numberOfKeys)->
             default_value(0),
          "Number of keys to insert into the HashTable (overrides LoadFactor)");
 
-    RAMCloud::OptionParser optionParser(benchmarkOptions, argc, argv);
+    OptionParser optionParser(benchmarkOptions, argc, argv);
 
     uint64_t numberOfCachelines = (hashTableMegs * 1024 * 1024) /
-        RAMCloud::HashTable::bytesPerCacheLine();
+        ObjectMap::bytesPerCacheLine();
 
     // If the user specified a load factor, auto-calculate the number of
     // keys based on the number of cachelines.
     if (numberOfKeys == 0) {
         uint64_t totalEntries = numberOfCachelines *
-            RAMCloud::HashTable::entriesPerCacheLine();
+            ObjectMap::entriesPerCacheLine();
         numberOfKeys = loadFactor * totalEntries;
     }
 
-    RAMCloud::hashTableBenchmark(numberOfKeys, numberOfCachelines);
+    hashTableBenchmark(numberOfKeys, numberOfCachelines);
     return 0;
 }

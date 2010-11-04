@@ -18,22 +18,25 @@
 
 #include "Common.h"
 #include "CycleCounter.h"
+#include "ugly_memory_stuff.h"
 
 namespace RAMCloud {
 
 /**
- * A map from (table ID, object ID)s to Object addresses.
+ * A map from (uint64_t, uint64_t) tuples to type T addresses. Effectively
+ * this provides a 128-bit integer to pointer map. We will refer to these
+ * 128-bit tuples as ``keys'' and the things, T, they point to as ``referants''.
  *
- * This is used in resolving most object-level %RAMCloud requests. For example,
- * to read and write a %RAMCloud object, this lets you find the location of the
- * the object.
+ * This is used, for instance, in resolving most object-level %RAMCloud
+ * requests. I.e., to read and write a %RAMCloud object, this lets you find the
+ * location of the the object: (key2, tableID) -> Object*.
  *
  * This code is not thread-safe.
  *
  * \section impl Implementation Details
  *
- * The HashTable is an array of #buckets, indexed by the hash of the object ID.
- * Each bucket consists of one or more chained \link CacheLine
+ * The HashTable is an array of #buckets, indexed by the hash of the two
+ * uint64_t keys. Each bucket consists of one or more chained \link CacheLine
  * CacheLines\endlink, the first of which lives inline in the array of buckets.
  * Each cache line consists of several hash table \link Entry Entries\endlink
  * in no particular order.
@@ -42,9 +45,9 @@ namespace RAMCloud {
  * line, additional overflow cache lines are allocated (outside of the array of
  * buckets). In this case, the last hash table entry in each of the
  * non-terminal cache lines has a pointer to the next cache line instead of a
- * pointer to an Object.
+ * pointer to a referant.
  */
-template<typename T>
+template<typename T, uint64_t T::*keyField1, uint64_t T::*keyField2>
 class HashTable {
 
   public:
@@ -105,10 +108,50 @@ class HashTable {
          */
         uint64_t max;
 
-        PerfDistribution();
-        ~PerfDistribution();
+        /**
+         * Constructor for HashTable::PerfDistribution.
+         */
+        PerfDistribution()
+            : bins(NULL), binOverflows(0), min(~0UL), max(0UL)
+        {
+            bins = new uint64_t[NBINS];
+            memset(bins, 0, sizeof(uint64_t) * NBINS);
+        }
 
-        void storeSample(uint64_t value);
+        ~PerfDistribution()
+        {
+            delete[] bins;
+            bins = NULL;
+        }
+
+        /**
+         * Record a sampled value by updating the distribution statistics.
+         * \param[in] value
+         *      The value sampled.
+         */
+        void
+        storeSample(uint64_t value)
+        {
+            if (value / BIN_WIDTH < NBINS)
+                bins[value / BIN_WIDTH]++;
+            else
+                binOverflows++;
+
+            if (value < min)
+                min = value;
+            if (value > max)
+                max = value;
+        }
+
+        void
+        reset()
+        {
+            memset(bins, 0, sizeof(uint64_t) * NBINS);
+            binOverflows = 0;
+            min = ~0UL;
+            max = 0;
+        }
+
 #define PERF_DIST_STORE_SAMPLE(d, v) (d).storeSample(v)
 #else
 #define PERF_DIST_STORE_SAMPLE(d, v) (void) 0
@@ -161,9 +204,9 @@ class HashTable {
         /**
          * The total number of times there was an Entry collision across
          * all #lookupEntry() operations. This is when the buckets collide for
-         * an object ID, and the extra disambiguation bits inside the Entry
-         * collide, but the Object itself reveals that the entry does not
-         * correspond to the given object ID.
+         * a key, and the extra disambiguation bits inside the Entry collide,
+         * but the referant itself reveals that the entry does not correspond to
+         * the given key.
          */
         uint64_t lookupEntryHashCollisions;
 
@@ -172,15 +215,183 @@ class HashTable {
          */
         PerfDistribution lookupEntryDist;
 
-        PerfCounters();
+        /**
+         * Constructor for HashTable::PerfCounters.
+         */
+        PerfCounters()
+            : replaceCalls(0), lookupEntryCalls(0), replaceCycles(0),
+            lookupEntryCycles(0), insertChainsFollowed(0),
+            lookupEntryChainsFollowed(0), lookupEntryHashCollisions(0),
+            lookupEntryDist()
+        {
+        }
+
+        /**
+         * Reset all of the HashTable::PerfCounters statistics.
+         */
+        void
+        reset()
+        {
+            replaceCalls = 0;
+            lookupEntryCalls = 0;
+            replaceCycles = 0;
+            lookupEntryCycles = 0;
+            insertChainsFollowed = 0;
+            lookupEntryChainsFollowed = 0;
+            lookupEntryHashCollisions = 0;
+            lookupEntryDist.reset();
+        }
 #endif
     };
 
-    explicit HashTable(uint64_t nlines);
-    ~HashTable();
-    const T* lookup(uint64_t tableId, uint64_t objectId);
-    bool remove(uint64_t tableId, uint64_t objectId);
-    bool replace(uint64_t tableId, uint64_t objectId, const T* ptr);
+    /**
+     * Constructor for HashTable.
+     * \param[in] numBuckets
+     *      The number of buckets in the new hash table. This should be a power
+     *      of two.
+     * \throw Exception
+     *      An exception is thrown is numBuckets is 0.
+     */
+    explicit HashTable(uint64_t numBuckets)
+        : buckets(NULL), numBuckets(nearestPowerOfTwo(numBuckets)),
+          useHugeTlb(false), perfCounters()
+    {
+        // Allocate space for a new hash table and set its entries to unused.
+
+        uint64_t i, j;
+
+        if (numBuckets != this->numBuckets) {
+            LOG(DEBUG, "HashTable truncated to %lu buckets "
+                        "(nearest power of two)", this->numBuckets);
+        }
+
+        if (numBuckets == 0)
+            throw Exception("HashTable numBuckets == 0?!");
+
+        size_t bucketsSize = this->numBuckets * sizeof(CacheLine);
+        buckets = static_cast<CacheLine *>(mallocAligned(bucketsSize));
+
+        for (i = 0; i < this->numBuckets; i++) {
+            for (j = 0; j < ENTRIES_PER_CACHE_LINE; j++)
+                buckets[i].entries[j].clear();
+        }
+    }
+
+    /**
+     * Destructor for HashTable.
+     */
+    ~HashTable()
+    {
+        // TODO(ongaro): free chained CacheLines that were allocated in insert()
+
+        if (buckets != NULL) {
+            freeAligned(buckets);
+            buckets = NULL;
+        }
+    }
+
+    /**
+     * Find the address of a referant given the key.
+     * \param[in] key1
+     *      The first 64 bits of the key.
+     * \param[in] key2
+     *      The second 64 bits of the key.
+     * \return
+     *      The address of the referant, or \a NULL if one doesn't exist.
+     */
+    const T*
+    lookup(uint64_t key1, uint64_t key2)
+    {
+        uint64_t secondaryHash;
+        Entry *entry;
+        CacheLine *bucket = findBucket(key1, key2, &secondaryHash);
+        entry = lookupEntry(bucket, secondaryHash, key1, key2);
+        if (entry == NULL)
+            return NULL;
+        return entry->getReferant();
+    }
+
+    /**
+     * Remove a referant from the hash table.
+     * \param[in] key1
+     *      The first 64 bits of the key.
+     * \param[in] key2
+     *      The second 64 bits of the key.
+     * \return
+     *      Whether the hash table contained the key specified.
+     */
+    bool
+    remove(uint64_t key1, uint64_t key2)
+    {
+        uint64_t secondaryHash;
+        Entry *entry;
+        CacheLine *bucket = findBucket(key1, key2, &secondaryHash);
+        entry = lookupEntry(bucket, secondaryHash, key1, key2);
+        if (entry == NULL)
+            return false;
+        entry->clear();
+        return true;
+    }
+
+    /**
+     * Update the referant correspoding to a key in the hash table.
+     * This is equivalent to, but faster than, #remove() followed by #replace().
+     * \param[in] key1
+     *      The first 64 bits of the key.
+     * \param[in] key2
+     *      The second 64 bits of the key. 
+     * \param[in] ptr
+     *      The address of the new referant.
+     * \retval true
+     *      The hash table previously contained (key1, key2) and its entry has
+     *      been updated to reflect the new location of the referant.
+     * \retval false
+     *      The hash table did not previously contain (key1, key2). An entry has
+     *      been created to reflect the location of the referant.
+     */
+    bool
+    replace(uint64_t key1, uint64_t key2, const T* ptr)
+    {
+        CycleCounter cycles(STAT_REF(perfCounters.replaceCycles));
+        uint64_t secondaryHash;
+        CacheLine *bucket;
+        Entry *entry;
+        unsigned int i;
+
+        STAT_INC(perfCounters.replaceCalls);
+
+        bucket = findBucket(key1, key2, &secondaryHash);
+        entry = lookupEntry(bucket, secondaryHash, key1, key2);
+        if (entry != NULL) {
+            entry->setReferant(secondaryHash, ptr);
+            return true;
+        }
+
+        CacheLine *cl = bucket;
+        while (1) {
+            entry = cl->entries;
+            for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
+                if (entry->isAvailable()) {
+                    entry->setReferant(secondaryHash, ptr);
+                    return false;
+                }
+                entry++;
+            }
+
+            Entry &last = cl->entries[ENTRIES_PER_CACHE_LINE - 1];
+            cl = last.getChainPointer();
+            if (cl == NULL) {
+                // no empty space found, allocate a new cache line
+                void *buf = mallocAligned(sizeof(CacheLine));
+                cl = static_cast<CacheLine *>(buf);
+                cl->entries[0] = last;
+                for (i = 1; i < ENTRIES_PER_CACHE_LINE; i++)
+                    cl->entries[i].clear();
+                last.setChainPointer(cl);
+            }
+            STAT_INC(perfCounters.insertChainsFollowed);
+        }
+    }
 
     /**
      * Return the number of bytes per cache line.
@@ -192,8 +403,8 @@ class HashTable {
     }
 
     /**
-     * Return the number of entries, i.e. (tableId, objectId) -> Object*,
-     * each cacheline holds.
+     * Return the number of entries, i.e. (key1, key2) -> T*, each cacheline
+     * holds.
      */
     static uint32_t
     entriesPerCacheLine()
@@ -206,8 +417,21 @@ class HashTable {
      * \return
      *      See above.
      */
-    const PerfCounters& getPerfCounters() const {
-        return this->perfCounters;
+    const PerfCounters&
+    getPerfCounters() const
+    {
+        return perfCounters;
+    }
+
+    /**
+     * Reset the hash table's performance counters.
+     */
+    void
+    resetPerfCounters()
+    {
+#if PERF_COUNTERS
+        perfCounters.reset();
+#endif
     }
 
   private:
@@ -216,24 +440,175 @@ class HashTable {
     class Entry;
     struct CacheLine;
 
-    static uint64_t nearestPowerOfTwo(uint64_t n);
-    void *mallocAligned(uint64_t len) const;
-    void freeAligned(void *p) const;
-    static uint64_t hash(uint64_t key);
-    CacheLine *findBucket(uint64_t tableId, uint64_t objectId,
-                          uint64_t *secondaryHash) const;
-    Entry *lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
-                       uint64_t tableId, uint64_t objectId);
+    /**
+     * Find the nearest power of 2 that is less than or equal to \a n.
+     * \param n
+     *      A maximum for the return value.
+     * \return
+     *      A power of two that is less than or equal to \a n.
+     */
+    uint64_t
+    nearestPowerOfTwo(uint64_t n)
+    {
+        if ((n & (n - 1)) == 0)
+            return n;
+
+        for (int i = 63; i >= 0; i--) {
+            if ((1UL << i) <= n)
+                return (1 << i);
+        }
+        return 0;
+    }
+
+    /**
+     * Allocate an aligned chunk of memory.
+     * \param[in] len
+     *      The size of the memory chunk to allocate in bytes.
+     * \return
+     *      A pointer to the newly allocated memory chunk. This is guaranteed to
+     *      not be \c NULL.
+     */
+    void *
+    mallocAligned(uint64_t len) const
+    {
+        if (useHugeTlb)
+            return xmalloc_aligned_hugetlb(len);
+        else
+            return xmemalign(sizeof(CacheLine), len);
+    }
+
+    /**
+     * Free the chuck of memory returned by #mallocAligned().
+     * \param[in] p
+     *      A pointer to the memory chunk allocated by #mallocAligned().
+     *      Must not be \c NULL.
+     */
+    void
+    freeAligned(void *p) const
+    {
+        if (useHugeTlb) {
+            // TODO(ongaro): can't free memory from xmalloc_aligned_hugetlb
+        } else {
+            free(p);
+        }
+    }
+
+    /**
+     * A 64-bit to 64-bit hash function.
+     * This is a helper to #findBucket().
+     */
+    static uint64_t
+    hash(uint64_t key)
+    {
+        // This appears to be hash64shift by Thomas Wang from
+        // http://www.concentric.net/~Ttwang/tech/inthash.htm
+        key = (~key) + (key << 21); // key = (key << 21) - key - 1;
+        key = key ^ (key >> 24);
+        key = (key + (key << 3)) + (key << 8); // key * 265
+        key = key ^ (key >> 14);
+        key = (key + (key << 2)) + (key << 4); // key * 21
+        key = key ^ (key >> 28);
+        key = key + (key << 31);
+        return key;
+    }
+
+    /**
+     * Find the bucket corresponding to a particular key.
+     * This also calculates the secondary hash bits used to disambiguate entries
+     * in the same bucket.
+     * \param[in] key1
+     *      The first 64 bits of the key.
+     * \param[in] key2
+     *      The second 64 bits of the key.
+     * \param[out] secondaryHash
+     *      The secondary hash bits (16 bits).
+     * \return
+     *      The bucket corresponding to the given referant ID.
+     */
+    CacheLine *
+    findBucket(uint64_t key1, uint64_t key2,
+               uint64_t *secondaryHash) //const
+    {
+        uint64_t hashValue = hash(key1) ^ hash(key2);
+        uint64_t bucketHash = hashValue & 0x0000ffffffffffffUL;
+        *secondaryHash = hashValue >> 48;
+        return &buckets[bucketHash & (numBuckets - 1)];
+        // This is equivalent to:
+        //     &buckets[bucketHash % numBuckets]
+        // since numBuckets is a power of two, and this saves about 14 cycles on
+        // an Intel Core 2 (see src/misc/modulus.cc).
+    }
+
+    /**
+     * Find a hash table entry for a given key.
+     * This is used in #lookup(), #remove(), and #replace() to find the hash
+     * table entry to operate on.
+     * \param[in] bucket
+     *      The bucket corresponding to (key1, key2).
+     * \param[in] secondaryHash
+     *      Secondary hash bits for (key1, key2) as returned from #findBucket()
+     *      (16 bits).
+     * \param[in] key1
+     *      The first 64 bits of the key.
+     * \param[in] key2
+     *      The second 64 bits of the key.
+     * \return
+     *      The pointer to the hash table entry, or \a NULL if there is no such
+     *      hash table entry.
+     */
+    Entry *
+    lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
+                uint64_t key1, uint64_t key2)
+    {
+        CycleCounter cycles(STAT_REF(perfCounters.lookupEntryCycles));
+        unsigned int i;
+
+        STAT_INC(perfCounters.lookupEntryCalls);
+
+        CacheLine *cl = bucket;
+
+        while (1) {
+
+            // Try this cache line.
+            Entry *candidate = cl->entries;
+            for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, candidate++) {
+
+                if (candidate->hashMatches(secondaryHash)) {
+                    // The hash within the hash table entry matches, so with
+                    // high probability this is the pointer we're looking for.
+                    // To check, we must go to the object.
+                    const T* c = candidate->getReferant();
+                    if (c->*keyField1 == key1 && c->*keyField2 == key2) {
+                        PERF_DIST_STORE_SAMPLE(perfCounters.lookupEntryDist,
+                                               cycles.stop());
+                        return candidate;
+                    } else {
+                        STAT_INC(perfCounters.lookupEntryHashCollisions);
+                    }
+                }
+            }
+
+            // Not found in this cache line, see if there's a chain to another
+            // cache line.
+            cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
+            if (cl == NULL) {
+                PERF_DIST_STORE_SAMPLE(perfCounters.lookupEntryDist,
+                                       cycles.stop());
+                return NULL;
+            }
+            STAT_INC(perfCounters.lookupEntryChainsFollowed);
+        }
+    }
 
     /**
      * A hash table entry.
      *
      * Hash table entries live on \link CacheLine CacheLines\endlink.
      *
-     * A normal hash table entry (see #setObject(), #getObject(), and
+     * A normal hash table entry (see #setReferant(), #getReferant(), and
      * #hashMatches()) consists of secondary bits from the #hash() function on
-     * the object ID to disambiguate most bucket collisions and the address of
-     * the Object. In this case, its chain bit will not be set and its pointer
+     * the key to disambiguate most bucket collisions and the address of the
+     * referant. In this case, its chain bit will not be set and its pointer
      * will not be \c NULL.
      *
      * A chaining hash table entry (see #setChainPointer(), #getChainPointer())
@@ -246,13 +621,98 @@ class HashTable {
     class Entry {
 
       public:
-        void clear();
-        void setReferant(uint64_t hash, const T* ptr);
-        void setChainPointer(CacheLine *ptr);
-        bool isAvailable() const;
-        const T* getReferant() const;
-        CacheLine *getChainPointer() const;
-        bool hashMatches(uint64_t hash) const;
+
+        /**
+         * Reinitialize a hash table entry as unused.
+         */
+        void
+        clear()
+        {
+            pack(0, false, 0);
+        }
+
+        /**
+         * Reinitialize a regular hash table entry.
+         * \param[in] hash
+         *      The secondary hash bits computed from the key (16 bits).
+         * \param[in] ptr
+         *      The address of the referant. Must not be \c NULL.
+         */
+        void
+        setReferant(uint64_t hash, const T* ptr)
+        {
+            assert(ptr != NULL);
+            pack(hash, false, reinterpret_cast<uint64_t>(ptr));
+        }
+
+        /**
+         * Reinitialize a hash table entry as a chain link.
+         * \param[in] ptr
+         *      The pointer to the next cache line. Must not be \c NULL.
+         */
+        void
+        setChainPointer(CacheLine *ptr)
+        {
+            assert(ptr != NULL);
+            pack(0, true, reinterpret_cast<uint64_t>(ptr));
+        }
+
+        /**
+         * Return whether a hash table entry is unused.
+         * \return
+         *      See above.
+         */
+        bool
+        isAvailable() const
+        {
+            UnpackedEntry ue = unpack();
+            return (ue.ptr == 0);
+        }
+
+        /**
+         * Extract the referant's address from a hash table entry.
+         * The caller must first verify that the hash table entry indeed stores
+         * a referant address with #hashMatches().
+         * \return
+         *      The address of the referant stored.
+         */
+        const T*
+        getReferant() const
+        {
+            UnpackedEntry ue = unpack();
+            assert(!ue.chain && ue.ptr != 0);
+            return reinterpret_cast<const T*>(ue.ptr);
+        }
+
+        /**
+         * Extract the chain pointer to another cache line.
+         * \return
+         *      The chain pointer to another cache line. If this entry does not 
+         *      store a chain pointer, returns \c NULL instead.
+         */
+        CacheLine *
+        getChainPointer() const
+        {
+            UnpackedEntry ue = unpack();
+            if (!ue.chain)
+                return NULL;
+            return reinterpret_cast<CacheLine*>(ue.ptr);
+        }
+
+        /**
+         * Check whether the secondary hash bits stored match those given.
+         * \param[in] hash
+         *      The secondary hash bits computed from the key to test (16 bits).
+         * \return
+         *      Whether the hash table entry holds the address to a referant and
+         *      the secondary hash bits for that referant point to \a hash.
+         */
+        bool
+        hashMatches(uint64_t hash) const
+        {
+            UnpackedEntry ue = unpack();
+            return (!ue.chain && ue.ptr != 0 && ue.hash == hash);
+        }
 
       private:
         /**
@@ -271,7 +731,29 @@ class HashTable {
          */
         uint64_t value;
 
-        void pack(uint64_t hash, bool chain, uint64_t ptr);
+        /**
+         * Replace this hash table entry.
+         * \param[in] hash
+         *      The secondary hash bits (16 bits) computed from the key.
+         *      Irrelevant if \a chain is true.
+         * \param[in] chain
+         *      Whether \a ptr is a chain pointer as opposed to a referant
+         *      pointer.
+         * \param[in] ptr
+         *      The chain pointer to the next cache line or the referant pointer
+         *      (determined by \a chain).
+         */
+        void
+        pack(uint64_t hash, bool chain, uint64_t ptr)
+        {
+            if (ptr == 0)
+                assert(hash == 0 && !chain);
+
+            uint64_t c = chain ? 1 : 0;
+            assert((hash & ~(0x000000000000ffffUL)) == 0);
+            assert((ptr  & ~(0x00007fffffffffffUL)) == 0);
+            this->value = ((hash << 48)  | (c << 47) | ptr);
+        }
 
         /**
          * This is the return type of #unpack().
@@ -283,7 +765,20 @@ class HashTable {
             uint64_t ptr;
         };
 
-        UnpackedEntry unpack() const;
+        /**
+         * Read the contents of this hash table entry.
+         * \return
+         *      The extracted values. See UnpackedEntry.
+         */
+        UnpackedEntry
+        unpack() const
+        {
+            UnpackedEntry ue;
+            ue.hash  = (this->value >> 48) & 0x000000000000ffffUL;
+            ue.chain = (this->value >> 47) & 0x0000000000000001UL;
+            ue.ptr   = this->value         & 0x00007fffffffffffUL;
+            return ue;
+        }
 
         friend class HashTableEntryTest;
     };
@@ -295,7 +790,8 @@ class HashTable {
     static const uint32_t BYTES_PER_CACHE_LINE = 64;
 
     /**
-     * The number of hash table \link Entry Entries\endlink in a CacheLine.
+     * The number of hash table Entry objects in a CacheLine. This directly
+     * corresponds to the number of referants each cacheline may contain.
      */
     static const uint32_t ENTRIES_PER_CACHE_LINE = (BYTES_PER_CACHE_LINE /
                                                     sizeof(Entry));

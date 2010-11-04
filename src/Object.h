@@ -17,6 +17,7 @@
 #define RAMCLOUD_OBJECT_H
 
 #include "Common.h"
+#include "HashTable.h"
 
 namespace RAMCloud {
 
@@ -85,6 +86,10 @@ struct ObjectTombstone {
     }
     friend class BackupServerTest;
 };
+
+typedef HashTable<Object, &Object::table, &Object::id> ObjectMap;
+typedef HashTable<ObjectTombstone, &ObjectTombstone::tableId,
+                  &ObjectTombstone::objectId> ObjectTombstoneMap;
 
 } // namespace RAMCloud
 

@@ -52,7 +52,7 @@ MasterServer::MasterServer(const ServerConfig& config,
     , serverId(0)
     , backup(backup)
     , log(0)
-    , objectMap(config.hashTableBytes / HashTable<Object>::bytesPerCacheLine())
+    , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine())
     , tablets()
 {
     log = new Log(0, config.logBytes, Segment::SEGMENT_SIZE, &backup);

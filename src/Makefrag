@@ -33,7 +33,6 @@ SHARED_SRCFILES := \
 		   src/Common.cc \
 		   src/Driver.cc \
 		   src/FastTransport.cc \
-		   src/HashTable.cc \
 		   src/IpAddress.cc \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
