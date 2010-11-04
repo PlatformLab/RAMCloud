@@ -194,8 +194,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
     {
         ServerConfig config;
         config.coordinatorLocator = "mock:host=coordinator";
-        config.logBytes = 8 * 1024 * 1024;
-        config.hashTableBytes = 2 * 1024 * 1024;
+        MasterServer::sizeLogAndHashTable("8", "2", &config);
         return new MasterServer(config, *coordinator, *mgr);
     }
 
