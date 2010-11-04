@@ -291,10 +291,15 @@ Logger::logMessage(LogModule module, LogLevel level,
     va_list ap;
     struct timeval now;
 
+    // Remove the prefix only if it matches that of __FILE__. This check is
+    // needed in case someone compiles different files using different paths.
+    if (strncmp(file, __FILE__, fileCharsToSkip) == 0)
+        file += fileCharsToSkip;
+
     gettimeofday(&now, NULL);
     fprintf(stream, "%010u.%06u %s:%d %s %s: ",
             now.tv_sec, now.tv_usec,
-            file + fileCharsToSkip, line,
+            file, line,
             logModuleNames[module],
             logLevelNames[level]);
 
@@ -332,8 +337,13 @@ Logger::getMessage(LogModule module, LogLevel level,
     char buf[1024];
     va_list ap;
 
+    // Remove the prefix only if it matches that of __FILE__. This check is
+    // needed in case someone compiles different files using different paths.
+    if (strncmp(file, __FILE__, fileCharsToSkip) == 0)
+        file += fileCharsToSkip;
+
     snprintf(buf, sizeof(buf), "%s:%d %s %s: ",
-             file + fileCharsToSkip, line,
+             file, line,
              logModuleNames[module],
              logLevelNames[level]);
     message.append(buf);
