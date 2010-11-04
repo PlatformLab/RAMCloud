@@ -263,36 +263,30 @@ try
 
     // If not already in memory then reload it.
     if (!info->segment) {
-        char* segment = static_cast<char*>(pool.malloc());
+        char* segmentMem = static_cast<char*>(pool.malloc());
         try {
-            storage.getSegment(info->storageHandle, segment);
+            storage.getSegment(info->storageHandle, segmentMem);
         } catch (...) {
-            pool.free(segment);
+            pool.free(segmentMem);
             throw;
         }
-        info->segment = segment;
+        info->segment = segmentMem;
     }
+
+    char* packedSegment =
+        new(&rpc.replyPayload, APPEND) char[segmentSize];
+    Segment segment(reqHdr.masterId, reqHdr.segmentId,
+                    packedSegment, segmentSize, NULL);
 
     for (SegmentIterator it(info->segment, segmentSize);
          !it.isDone(); it.next())
     {
         if (!keepEntry(it.getType(), it.getPointer(), tablets))
             continue;
-
-        uint32_t totalEntryLength = it.getLength() + sizeof(SegmentEntry);
-        char* packedEntry =
-            new(&rpc.replyPayload, APPEND) char[totalEntryLength];
-        memcpy(packedEntry,
-               static_cast<const char*>(it.getPointer()) - sizeof(SegmentEntry),
-               totalEntryLength);
+        segment.append(it.getType(), it.getPointer(), it.getLength());
     }
 
-    SegmentEntry* footerEntry = new(&rpc.replyPayload, APPEND) SegmentEntry;
-    footerEntry->type = LOG_ENTRY_TYPE_SEGFOOTER;
-    footerEntry->length = sizeof(SegmentFooter);
-    SegmentFooter* footer = new(&rpc.replyPayload, APPEND) SegmentFooter;
-    footer->checksum =
-        SegmentIterator::generateChecksum(info->segment, segmentSize);
+    segment.close();
 } catch (const SegmentIteratorException& e) {
     LOG(WARNING, "getRecoveryData failed due to malformed segment data: "
         "masterId %lu, segmentId %lu", reqHdr.masterId, reqHdr.segmentId);
@@ -326,6 +320,7 @@ BackupServer::keepEntry(const LogEntryType type,
     const ObjectTombstone* tombstone =
         reinterpret_cast<const ObjectTombstone*>(data);
     switch (type) {
+      case LOG_ENTRY_TYPE_SEGHEADER:
       case LOG_ENTRY_TYPE_SEGFOOTER:
         return false;
       case LOG_ENTRY_TYPE_OBJ:
@@ -336,7 +331,6 @@ BackupServer::keepEntry(const LogEntryType type,
         tableId = tombstone->tableId;
         objectId = tombstone->objectId;
         break;
-      case LOG_ENTRY_TYPE_SEGHEADER:
       case LOG_ENTRY_TYPE_LOGDIGEST:
       case LOG_ENTRY_TYPE_INVALID:
         return true;

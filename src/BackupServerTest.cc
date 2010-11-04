@@ -359,12 +359,10 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT(!it.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
-        /*
         CPPUNIT_ASSERT_EQUAL(
             SegmentIterator::generateChecksum(
                 response.getRange(0, response.getTotalLength()), segmentSize),
             it.get<SegmentFooter>()->checksum);
-        */
         it.next();
 
         CPPUNIT_ASSERT(it.isDone());
