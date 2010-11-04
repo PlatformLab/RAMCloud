@@ -19,6 +19,7 @@
 #include "ProtoBuf.h"
 #include "Rpc.h"
 #include "Segment.h"
+#include "SegmentIterator.h"
 #include "Transport.h"
 #include "TransportManager.h"
 
@@ -53,6 +54,7 @@ MasterServer::MasterServer(const ServerConfig& config,
     , backup(backup)
     , log(0)
     , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine())
+    , tombstoneMap(64 * 1024 * 1024 / ObjectMap::bytesPerCacheLine())
     , tablets()
 {
     log = new Log(0, config.logBytes, Segment::SEGMENT_SIZE, &backup);
@@ -186,7 +188,12 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
     ProtoBuf::parseFromResponse(rpc.recvPayload,
                                 sizeof(reqHdr) + reqHdr.tabletsLength,
                                 reqHdr.serverListLength, backups);
+
+    // Recover Segments. This will result in MasterServer::recoverSegment calls.
     backup.recover(*this, reqHdr.masterId, tablets, backups);
+
+    // Clean up our recovery tombstoneMap.
+    //-- XXX --
 }
 
 /**
@@ -201,50 +208,99 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
  *      will be responsible for after the recovery completes.
  */
 void
-MasterServer::recoverSegment(uint64_t segmentId, const Buffer& segment)
+MasterServer::recoverSegment(uint64_t segmentId, Buffer& segment)
 {
     TEST_LOG("%lu, ...", segmentId);
 
-#if 0
---- XXXX: NB: this is started in backup.recover() above. We can alloc and
-              dealloc the tmp tombstone HT there.
-
-    SegmentIterator i(segment.getRange(0, segment.getTotalBytes()),
-                      segment.getTotalBytes());
+    SegmentIterator i(segment.getRange(0, segment.getTotalLength()),
+                      segment.getTotalLength(), true);
     while (!i.isDone()) {
         LogEntryType type = i.getType();
 
-        if (type == LOG_ENTRY_TYPE_OBJECT) {
-            Object *recoverObj = reinterpret_cast<Object *>(i.getPointer());
-            Object *localObj = objectMap.lookup(recoverObj.table,
-                                                recoverObj.id);
-            ObjectTombstone *tomb = ...
+        if (type == LOG_ENTRY_TYPE_OBJ) {
+            const Object *recoverObj = reinterpret_cast<const Object *>(
+                i.getPointer());
+            uint64_t objId = recoverObj->id;
+            uint64_t tblId = recoverObj->table;
+
+            const Object *localObj = objectMap.lookup(tblId, objId);
+            const ObjectTombstone *tomb = tombstoneMap.lookup(tblId, objId);
+
+            // we should never have both a tombstone and an object in the
+            // hash tables
+            assert(!(tomb != NULL && localObj != NULL));
 
             uint64_t minSuccessor = 0;
             if (localObj != NULL)
                 minSuccessor = localObj->version + 1;
-            if (tomb != NULL)
-                minSuccessor = std::max(minSuccessor, tomb->objectVersion + 1);
+            else if (tomb != NULL)
+                minSuccessor = tomb->objectVersion + 1;
 
             if (recoverObj->version >= minSuccessor) {
                 // write to log & update hash table
+                const Object *newObj = reinterpret_cast<const Object*>(
+                    log->append(LOG_ENTRY_TYPE_OBJ, recoverObj,
+                                recoverObj->size()));
+                assert(newObj != NULL);
+                objectMap.replace(tblId, objId, newObj);
 
-                if (tomb != NULL)
-                    // remove tombstone
-                if (localObj != NULL)
-                    // free previous version
+                // nuke the tombstone, if it existed
+                if (tomb != NULL) {
+                    tombstoneMap.remove(tblId, objId);
+                    log->free(tomb);
+                }
+
+                // nuke the old object, if it existed
+                if (localObj != NULL) {
+                    log->free(localObj); 
+                }
             }
-        } else if (type == LOG_ENTRY_TYPE_TOMBSTONE) {
-            Object *recoverTomb =
-                reinterpret_cast<ObjectTombstone *>(i.getPointer());
-            Object *localObj = objectMap.lookup(recoverTomb.tableId,
-                                                recoverTomb.objectId);
-            ObjectTombstone *tomb = ...
+        } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
+            const ObjectTombstone *recoverTomb =
+                reinterpret_cast<const ObjectTombstone *>(i.getPointer());
+            uint64_t objId = recoverTomb->objectId;
+            uint64_t tblId = recoverTomb->tableId;
+
+            const Object *localObj = objectMap.lookup(tblId, objId);
+            const ObjectTombstone *tomb = tombstoneMap.lookup(tblId, objId);
+
+            // we should never have both a tombstone and an object in the
+            // hash tables
+            assert(!(tomb != NULL && localObj != NULL));
+
+            uint64_t minSuccessor = 0;
+            if (localObj != NULL)
+                minSuccessor = localObj->version + 1;
+            else if (tomb != NULL)
+                minSuccessor = tomb->objectVersion + 1; 
+
+            if (tomb->objectVersion >= minSuccessor) {
+                // write to log & update hash table
+                // we technically don't have to write this out, but the log
+                // is a natural place to allocate memory from, especially
+                // since we don't know how many tombstones we might be getting.
+                const ObjectTombstone *newTomb = reinterpret_cast<
+                    const ObjectTombstone*>(log->append(LOG_ENTRY_TYPE_OBJTOMB,
+                    recoverTomb, sizeof(*recoverTomb)));
+                assert(newTomb != NULL);
+                tombstoneMap.replace(tblId, objId, newTomb);
+
+                // nuke the old tombstone, if it existed
+                if (tomb != NULL) {
+                    tombstoneMap.remove(objId, tblId);
+                    log->free(recoverTomb);
+                }
+
+                // nuke the old object, if it existed
+                if (localObj != NULL) {
+                    objectMap.remove(tblId, objId);
+                    log->free(localObj);
+                }
+            }
         }
 
         i.next();
     }
-#endif
 }
 
 /**

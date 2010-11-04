@@ -43,7 +43,7 @@ SegmentIterator::SegmentIterator(const Segment *segment)
       firstEntry(NULL),
       currentEntry(NULL)
 {
-    CommonConstructor();
+    CommonConstructor(false);
 }
 
 /**
@@ -53,8 +53,17 @@ SegmentIterator::SegmentIterator(const Segment *segment)
  *      A pointer to the first byte of the Segment backing memory.
  * \param[in] capacity 
  *      The total capacity of the Segment in bytes.
+ * \param[in] ignoreCapacityMismatch
+ *      If true, do not throw an exception if the capacity passed in to the
+ *      constructor does not match what the SegmentHeader claims. This is
+ *      useful, for instance, with filtered recovery segments, where the
+ *      header indicates the full capacity of the unfiltered segment, but the
+ *      actual buffer received by the new master is shorter. SegmentIterator
+ *      will still ensure that bounds are not exceeded, but the warning is
+ *      suppressed.
  */
-SegmentIterator::SegmentIterator(const void *buffer, uint64_t capacity)
+SegmentIterator::SegmentIterator(const void *buffer, uint64_t capacity,
+    bool ignoreCapacityMismatch)
     : baseAddress(buffer),
       segmentCapacity(capacity),
       id(-1),
@@ -65,15 +74,17 @@ SegmentIterator::SegmentIterator(const void *buffer, uint64_t capacity)
       firstEntry(NULL),
       currentEntry(NULL)
 {
-    CommonConstructor();
+    CommonConstructor(ignoreCapacityMismatch);
 }
 
 /**
  * Perform initialisation operations common to all constructors. This
  * includes sanity checking and setting up the first iteration's state.
+ * \param[in] ignoreCapacityMismatch
+ *      See the #SegmentIterator constructor.
  */
 void
-SegmentIterator::CommonConstructor()
+SegmentIterator::CommonConstructor(bool ignoreCapacityMismatch)
 {
     if (segmentCapacity < (sizeof(SegmentEntry) + sizeof(SegmentHeader)))
         throw SegmentIteratorException("impossibly small Segment provided");
@@ -87,7 +98,7 @@ SegmentIterator::CommonConstructor()
 
     const SegmentHeader *header = reinterpret_cast<const SegmentHeader *>(
         reinterpret_cast<const char *>(baseAddress) + sizeof(SegmentEntry));
-    if (header->segmentCapacity != segmentCapacity) {
+    if (header->segmentCapacity != segmentCapacity && !ignoreCapacityMismatch) {
         throw SegmentIteratorException("SegmentHeader disagrees with claimed "
             "Segment capacity");
     }

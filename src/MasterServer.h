@@ -176,7 +176,7 @@ class MasterServer : public Server {
                  RecoverRpc::Response& respHdr,
                  Transport::ServerRpc& rpc);
 
-    void recoverSegment(uint64_t segmentId, const Buffer& segment);
+    void recoverSegment(uint64_t segmentId, Buffer& segment);
     friend void BackupManager::recover(MasterServer& recoveryMaster,
                                        uint64_t masterId,
                                        const ProtoBuf::Tablets& tablets,
@@ -211,12 +211,19 @@ class MasterServer : public Server {
     Log* log;
 
     /**
-     * The (table ID, object ID) to #RAMCloud::Object pointer map for the table.
-     * Before accessing objects via the hash table, you usually need to check
-     * that the tablet still lives on this server; objects from deleted tablets
-     * are not immediately purged from the hash table.
+     * The (table ID, object ID) to #RAMCloud::Object pointer map for all
+     * objects stored on this server. Before accessing objects via the hash
+     * table, you usually need to check that the tablet still lives on this
+     * server; objects from deleted tablets are not immediately purged from the
+     * hash table.
      */
     ObjectMap objectMap;
+
+    /**
+     * The (table ID, object ID) to #RAMCloud::ObjectTombstone pointer map
+     * used during recovery.
+     */
+    ObjectTombstoneMap tombstoneMap;
 
     /**
      * Tablets this master owns.

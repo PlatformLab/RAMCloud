@@ -37,7 +37,8 @@ struct SegmentIteratorException : public Exception {
 class SegmentIterator {
   public:
     explicit SegmentIterator(const Segment *segment);
-    SegmentIterator(const void *buffer, uint64_t length);
+    SegmentIterator(const void *buffer, uint64_t capacity,
+                    bool ignoreCapacityMismatch = false);
 
     bool         isDone() const;
     void         next();
@@ -120,7 +121,7 @@ class SegmentIterator {
     }
 
   private:
-    void            CommonConstructor(void);
+    void            CommonConstructor(bool ignoreCapacityMismatch);
     bool            isEntryValid(const SegmentEntry *entry) const;
 
     const void     *baseAddress;     // base address for the Segment
