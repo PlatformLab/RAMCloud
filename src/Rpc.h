@@ -46,6 +46,7 @@ enum RpcType {
     SET_TABLETS             = 18,
     RECOVER                 = 19,
     HINT_SERVER_DOWN        = 20,
+    TABLETS_RECOVERED       = 21,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -317,6 +318,20 @@ struct HintServerDownRpc {
                                        // including terminating NULL character.
                                        // The bytes of the service locator
                                        // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct TabletsRecoveredRpc {
+    static const RpcType type = TABLETS_RECOVERED;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t tabletsLength;    // Number of bytes in the tablet map.
+                                   // The bytes of the tablet map follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::Tablets.
     };
     struct Response {
         RpcResponseCommon common;

@@ -33,6 +33,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_getTabletMap);
     CPPUNIT_TEST(test_hintServerDown_master);
     CPPUNIT_TEST(test_hintServerDown_backup);
+    CPPUNIT_TEST(test_tabletsRecovered_basics);
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
@@ -210,6 +211,26 @@ class CoordinatorTest : public CppUnit::TestFixture {
         client->hintServerDown("mock:host=backup");
         CPPUNIT_ASSERT_EQUAL("", server->backupList.ShortDebugString());
     }
+
+    static bool
+    tabletsRecoveredFilter(string s) {
+        return s == "tabletsRecovered";
+    }
+
+    void test_tabletsRecovered_basics() {
+        ProtoBuf::Tablets tablets;
+        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(99);
+        tablet.set_start_object_id(10);
+        tablet.set_end_object_id(20);
+        tablet.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
+        tablet.set_user_data(0);
+        TestLog::Enable _(&tabletsRecoveredFilter);
+        client->tabletsRecovered(tablets);
+        CPPUNIT_ASSERT_EQUAL("tabletsRecovered: called with 1 tablets",
+                             TestLog::get());
+    }
+
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorTest);
 };

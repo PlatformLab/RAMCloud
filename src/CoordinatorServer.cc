@@ -80,6 +80,10 @@ CoordinatorServer::dispatch(RpcType type,
             callHandler<HintServerDownRpc, CoordinatorServer,
                         &CoordinatorServer::hintServerDown>(rpc, responder);
             break;
+        case TabletsRecoveredRpc::type:
+            callHandler<TabletsRecoveredRpc, CoordinatorServer,
+                        &CoordinatorServer::tabletsRecovered>(rpc);
+            break;
         case PingRpc::type:
             callHandler<PingRpc, Server, &Server::ping>(rpc);
             break;
@@ -334,6 +338,21 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
             return;
         }
     }
+}
+
+/**
+ * Handle the TABLETS_RECOVERED RPC.
+ * \copydetails Server::ping
+ */
+void
+CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
+                                    TabletsRecoveredRpc::Response& respHdr,
+                                    Transport::ServerRpc& rpc)
+{
+    ProtoBuf::Tablets tablets;
+    ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
+                                reqHdr.tabletsLength, tablets);
+    TEST_LOG("called with %u tablets", tablets.tablet_size());
 }
 
 } // namespace RAMCloud
