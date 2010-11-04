@@ -29,9 +29,14 @@ namespace RAMCloud {
  * invalid method arguments.
  */
 struct SegmentIteratorException : public Exception {
-    SegmentIteratorException() : Exception() {}
-    explicit SegmentIteratorException(std::string msg) : Exception(msg) {}
-    explicit SegmentIteratorException(int errNo) : Exception(errNo) {}
+    explicit SegmentIteratorException(const CodeLocation& where)
+        : Exception(where) {}
+    SegmentIteratorException(const CodeLocation& where, std::string msg)
+        : Exception(where, msg) {}
+    SegmentIteratorException(const CodeLocation& where, int errNo)
+        : Exception(where, errNo) {}
+    SegmentIteratorException(const CodeLocation& where, string msg, int errNo)
+        : Exception(where, msg, errNo) {}
 };
 
 class SegmentIterator {
@@ -59,7 +64,7 @@ class SegmentIterator {
     get() const
     {
         if (currentEntry == NULL)
-            throw SegmentIteratorException("getPointer while isDone");
+            throw SegmentIteratorException(HERE, "getPointer while isDone");
         return reinterpret_cast<const T*>(blobPtr);
     }
 

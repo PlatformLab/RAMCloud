@@ -56,18 +56,20 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
             // to be returned, but in fact it appears that error is -1 in
             // the situation; check for both.
             if ((error == ERANGE) || (error == -1)) {
-                throw FatalError("IpAddress::IpAddress called gethostbyname_r"
-                        " with too small a buffer");
+                throw FatalError(HERE,
+                                 "IpAddress::IpAddress called gethostbyname_r"
+                                 " with too small a buffer");
             }
-            throw BadIpAddressException(std::string("couldn't find host '") +
+            throw BadIpAddressException(HERE,
+                                        std::string("couldn't find host '") +
                                         hostName + "'", serviceLocator);
         }
         memcpy(&addr->sin_addr, host.h_addr, sizeof(addr->sin_addr));
         addr->sin_port = htons(serviceLocator.getOption<uint16_t>("port"));
     } catch (ServiceLocator::NoSuchKeyException& e) {
-        throw BadIpAddressException(e.message, serviceLocator);
+        throw BadIpAddressException(HERE, e.message, serviceLocator);
     } catch (boost::bad_lexical_cast& e) {
-        throw BadIpAddressException(e.what(), serviceLocator);
+        throw BadIpAddressException(HERE, e.what(), serviceLocator);
     }
 }
 

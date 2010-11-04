@@ -20,6 +20,8 @@
 
 namespace RAMCloud {
 
+class CodeLocation;
+
 /**
  * A module for capturing "test log entries" to facilitate unit testing.
  *
@@ -61,7 +63,7 @@ namespace TestLog {
     void disable();
     void enable();
     string get();
-    void log(const char* func, const char* format, ...)
+    void log(const CodeLocation& where, const char* format, ...)
         __attribute__((format(gnu_printf, 2, 3)));
     void setPredicate(bool (*pred)(string));
 
@@ -114,7 +116,7 @@ namespace TestLog {
  *      The arguments to the format string.
  */
 #define TEST_LOG(format, ...) \
-    RAMCloud::TestLog::log(__func__, format, ##__VA_ARGS__)
+    RAMCloud::TestLog::log(HERE, format, ##__VA_ARGS__)
 #else
 #define TEST_LOG(format, ...)
 #endif
@@ -153,13 +155,13 @@ class Logger {
     void changeLogLevels(int delta);
 
     void logMessage(LogModule module, LogLevel level,
-                    const char* file, uint32_t line,
+                    const CodeLocation& where,
                     const char* format, ...)
-        __attribute__((format(printf, 6, 7)));
+        __attribute__((format(printf, 5, 6)));
     std::string getMessage(LogModule module, LogLevel level,
-                           const char* file, uint32_t line,
+                           const CodeLocation& where,
                            const char* format, ...)
-        __attribute__((format(printf, 6, 7)));
+        __attribute__((format(printf, 5, 6)));
 
     /**
      * Return whether the current logging configuration includes messages of
@@ -209,8 +211,7 @@ extern Logger logger;
  */
 #define LOG(level, format, ...) do { \
     if (RAMCloud::logger.isLogging(CURRENT_LOG_MODULE, level)) \
-        RAMCloud::logger.logMessage(CURRENT_LOG_MODULE, level, \
-                                    __FILE__, __LINE__, \
+        RAMCloud::logger.logMessage(CURRENT_LOG_MODULE, level, HERE, \
                                     format "\n", ##__VA_ARGS__); \
     TEST_LOG(format, ##__VA_ARGS__); \
 } while (0)
@@ -228,11 +229,10 @@ extern Logger logger;
  */
 #define DIE(format, ...) do { \
     LOG(RAMCloud::ERROR, format, ##__VA_ARGS__); \
-    throw RAMCloud::FatalError(RAMCloud::logger.getMessage( \
-                                CURRENT_LOG_MODULE, \
-                                RAMCloud::ERROR, \
-                                __FILE__, __LINE__, \
-                                format, ##__VA_ARGS__)); \
+    throw RAMCloud::FatalError(HERE, \
+            RAMCloud::logger.getMessage(CURRENT_LOG_MODULE, \
+                                        RAMCloud::ERROR, HERE, \
+                                        format, ##__VA_ARGS__)); \
 } while (0)
 
 #endif  // RAMCLOUD_LOGGING_H

@@ -820,7 +820,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
             init(listenSocket == init_expect) {
             }
             recv(payload) {
-                throw TransportException();
+                throw TransportException(HERE);
             }
         END_MOCK();
 

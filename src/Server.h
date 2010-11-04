@@ -116,7 +116,7 @@ class Server {
         const typename Rpc::Request* reqHdr =
             rpc.recvPayload.getStart<typename Rpc::Request>();
         if (reqHdr == NULL)
-            throw MessageTooShortError();
+            throw MessageTooShortError(HERE);
         typename Rpc::Response* respHdr =
             new(&rpc.replyPayload, APPEND) typename Rpc::Response;
         /* Clear the response header, so that unused fields are zero;
@@ -147,7 +147,7 @@ class Server {
         const typename Rpc::Request* reqHdr =
             rpc.recvPayload.getStart<typename Rpc::Request>();
         if (reqHdr == NULL)
-            throw MessageTooShortError();
+            throw MessageTooShortError(HERE);
         typename Rpc::Response* respHdr =
             new(&rpc.replyPayload, APPEND) typename Rpc::Response;
         memset(respHdr, 0, sizeof(*respHdr));

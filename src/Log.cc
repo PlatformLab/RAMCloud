@@ -60,8 +60,10 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
     cleaner = new LogCleaner(this);
 
     uint64_t numSegments = logCapacity / segmentCapacity;
-    if (numSegments < 1)
-        throw LogException("insufficient Log memory for even one segment!");
+    if (numSegments < 1) {
+        throw LogException(HERE,
+                           "insufficient Log memory for even one segment!");
+    }
 
     for (uint64_t i = 0; i < numSegments; i++) {
         void *p = xmemalign(segmentCapacity, segmentCapacity);
@@ -129,7 +131,7 @@ Log::getSegmentId(const void *p)
     const void *base = getSegmentBaseAddress(p);
 
     if (activeBaseAddressMap.find(base) == activeBaseAddressMap.end())
-        throw LogException("free on invalid pointer");
+        throw LogException(HERE, "free on invalid pointer");
 
     Segment *s = activeBaseAddressMap[base];
     return s->getId();
@@ -159,7 +161,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
     const void *p = NULL;
 
     if (length > maximumAppendableBytes)
-        throw LogException("append exceeded maximum possible length");
+        throw LogException(HERE, "append exceeded maximum possible length");
 
     /* 
      * Try to append.
@@ -205,7 +207,7 @@ Log::free(const void *p)
     const void *base = getSegmentBaseAddress(p);
 
     if (activeBaseAddressMap.find(base) == activeBaseAddressMap.end())
-        throw LogException("free on invalid pointer");
+        throw LogException(HERE, "free on invalid pointer");
 
     Segment *s = activeBaseAddressMap[base];
     s->free(p);
@@ -237,7 +239,7 @@ Log::registerType(LogEntryType type,
                   log_eviction_cb_t evictionCB, void *evictionArg)
 {
     if (callbackMap.find(type) != callbackMap.end())
-        throw LogException("type already registered with the Log");
+        throw LogException(HERE, "type already registered with the Log");
 
     callbackMap[type] = new LogTypeCallback(type, evictionCB, evictionArg);
 }

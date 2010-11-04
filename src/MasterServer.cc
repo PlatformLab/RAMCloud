@@ -57,7 +57,9 @@ MasterServer::MasterServer(const ServerConfig& config,
     , tombstoneMap(64 * 1024 * 1024 / ObjectMap::bytesPerCacheLine())
     , tablets()
 {
-    log = new Log(0, config.logBytes, Segment::SEGMENT_SIZE, &backup);
+    serverId = coordinator.enlistServer(MASTER, config.localLocator);
+    LOG(NOTICE, "My server ID is %lu", serverId);
+    log = new Log(serverId, config.logBytes, Segment::SEGMENT_SIZE, &backup);
     log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 }
@@ -106,15 +108,13 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
                         &MasterServer::write>(rpc);
             break;
         default:
-            throw UnimplementedRequestError();
+            throw UnimplementedRequestError(HERE);
     }
 }
 
 void __attribute__ ((noreturn))
 MasterServer::run()
 {
-    serverId = coordinator.enlistServer(MASTER, config.localLocator);
-    LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
         handleRpc<MasterServer>();
 }
@@ -159,7 +159,7 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
 
     const Object* o = objectMap.lookup(reqHdr.tableId, reqHdr.id);
     if (!o) {
-        throw ObjectDoesntExistException();
+        throw ObjectDoesntExistException(HERE);
     }
 
     respHdr.version = o->version;
@@ -180,7 +180,6 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
                       RecoverRpc::Response& respHdr,
                       Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "recover %lu", reqHdr.masterId);
     ProtoBuf::Tablets tablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, tablets);
@@ -210,7 +209,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
 void
 MasterServer::recoverSegment(uint64_t segmentId, Buffer& segment)
 {
-    TEST_LOG("%lu, ...", segmentId);
+    LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
 
     SegmentIterator i(segment.getRange(0, segment.getTotalLength()),
                       segment.getTotalLength(), true);
@@ -423,7 +422,7 @@ MasterServer::getTable(uint32_t tableId, uint64_t objectId) {
             return *reinterpret_cast<Table*>(tablet.user_data());
         }
     }
-    throw TableDoesntExistException();
+    throw TableDoesntExistException(HERE);
 }
 
 /**
@@ -446,15 +445,15 @@ MasterServer::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 {
     if (version == VERSION_NONEXISTENT) {
         if (rejectRules->doesntExist)
-            throw ObjectDoesntExistException();
+            throw ObjectDoesntExistException(HERE);
         return;
     }
     if (rejectRules->exists)
-        throw ObjectExistsException();
+        throw ObjectExistsException(HERE);
     if (rejectRules->versionLeGiven && version <= rejectRules->givenVersion)
-        throw WrongVersionException();
+        throw WrongVersionException(HERE);
     if (rejectRules->versionNeGiven && version != rejectRules->givenVersion)
-        throw WrongVersionException();
+        throw WrongVersionException(HERE);
 }
 
 //-----------------------------------------------------------------------

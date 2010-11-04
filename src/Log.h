@@ -42,9 +42,14 @@ typedef unordered_map<const void *, Segment *> BaseAddressMap;
  * method arguments.
  */
 struct LogException : public Exception {
-    LogException() : Exception() {}
-    explicit LogException(std::string msg) : Exception(msg) {}
-    explicit LogException(int errNo) : Exception(errNo) {}
+    explicit LogException(const CodeLocation& where)
+        : Exception(where) {}
+    LogException(const CodeLocation& where, std::string msg)
+        : Exception(where, msg) {}
+    LogException(const CodeLocation& where, int errNo)
+        : Exception(where, errNo) {}
+    LogException(const CodeLocation& where, string msg, int errNo)
+        : Exception(where, msg, errNo) {}
 };
 
 class Log {

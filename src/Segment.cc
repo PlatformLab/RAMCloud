@@ -134,7 +134,7 @@ void
 Segment::close()
 {
     if (closed)
-        throw SegmentException("Segment has already been closed");
+        throw SegmentException(HERE, "Segment has already been closed");
 
     SegmentEntry entry = { LOG_ENTRY_TYPE_SEGFOOTER, sizeof(SegmentFooter) };
     const void *p = forceAppendBlob(&entry, sizeof(entry));

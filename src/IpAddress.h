@@ -38,6 +38,8 @@ class IpAddress : public Driver::Address {
       public:
         /**
          * Construct a BadIpAddressException.
+         * \param where
+         *      Pass #HERE here.
          * \param msg
          *      String describing the problem; should start with a
          *      lower-case letter.
@@ -46,8 +48,9 @@ class IpAddress : public Driver::Address {
          *      generate a prefix message containing the original locator
          *      string.
          */
-        explicit BadIpAddressException(std::string msg,
-                const ServiceLocator& serviceLocator) : Exception(
+        explicit BadIpAddressException(const CodeLocation& where,
+                                       std::string msg,
+                const ServiceLocator& serviceLocator) : Exception(where,
                 "Service locator '" + serviceLocator.getOriginalString() +
                 "' couldn't be converted to IP address: " + msg) {}
     };

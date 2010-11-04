@@ -94,9 +94,16 @@ class ServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("serverReply: 6 0", transport->outputLog);
     }
     void test_handleRpc_collectPerformanceInfo() {
+        // 0x2001 means RpcPerfCounter { 1, 2, 0 }
+        // or { MARK_RPC_PROCESSING_BEGIN, MARK_RPC_PROCESSING_END,
+        // PERF_COUNTER_TSC }
+        // Note that this value might end up getting interpreted as an
+        // ascii string by the toString() function.
         rpc("7 0x2001");
         int status = -1, counter = -1;
-        sscanf(transport->outputLog.c_str(), "serverReply: %d %d", // NOLINT
+        // Must use %i for the counter - because TestUtil.h's
+        // toString() may return a hex or decimal value
+        sscanf(transport->outputLog.c_str(), "serverReply: %d %i", // NOLINT
                 &status, &counter);
         CPPUNIT_ASSERT_EQUAL(0, status);
         CPPUNIT_ASSERT(counter != 0);

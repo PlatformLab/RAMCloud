@@ -82,27 +82,27 @@ namespace TestLog {
      *
      * Log a message to the test log for unit testing.
      *
-     * \param[in] func
-     *      The result of __PRETTY_FUNCTION__.
+     * \param[in] where
+     *      The result of #HERE.
      * \param[in] format
      *      See #LOG except the string should end with a newline character.
      * \param[in] ...
      *      See #LOG.
      */
     void
-    log(const char* func,
+    log(const CodeLocation& where,
         const char* format, ...)
     {
         va_list ap;
         char line[512];
 
-        if (!enabled || (predicate && !predicate(func)))
+        if (!enabled || (predicate && !predicate(where.function)))
             return;
 
         if (message.length())
             message += " | ";
 
-        snprintf(line, sizeof(line), "%s: ", func);
+        snprintf(line, sizeof(line), "%s: ", where.function);
         message += line;
 
         va_start(ap, format);
@@ -272,10 +272,8 @@ length__FILE__Prefix()
  *      The module to which the message pertains.
  * \param[in] level
  *      See #LOG.
- * \param[in] file
- *      The result of __FILE__.
- * \param[in] line
- *      The result of __LINE__.
+ * \param[in] where
+ *      The result of #HERE.
  * \param[in] format
  *      See #LOG except the string should end with a newline character.
  * \param[in] ...
@@ -283,18 +281,24 @@ length__FILE__Prefix()
  */
 void
 Logger::logMessage(LogModule module, LogLevel level,
-                   const char* file, uint32_t line,
+                   const CodeLocation& where,
                    const char* format, ...)
 {
     static int fileCharsToSkip = length__FILE__Prefix();
 
     va_list ap;
     struct timeval now;
+    const char* file = where.file;
+
+    // Remove the prefix only if it matches that of __FILE__. This check is
+    // needed in case someone compiles different files using different paths.
+    if (strncmp(file, __FILE__, fileCharsToSkip) == 0)
+        file += fileCharsToSkip;
 
     gettimeofday(&now, NULL);
     fprintf(stream, "%010u.%06u %s:%d %s %s: ",
             now.tv_sec, now.tv_usec,
-            file + fileCharsToSkip, line,
+            file, where.line,
             logModuleNames[module],
             logLevelNames[level]);
 
@@ -311,9 +315,7 @@ Logger::logMessage(LogModule module, LogLevel level,
  *      See #logMessage().
  * \param[in] level
  *      See #logMessage().
- * \param[in] file
- *      See #logMessage().
- * \param[in] line
+ * \param[in] where
  *      See #logMessage().
  * \param[in] format
  *      See #logMessage().
@@ -324,16 +326,22 @@ Logger::logMessage(LogModule module, LogLevel level,
  */
 std::string
 Logger::getMessage(LogModule module, LogLevel level,
-                   const char* file, uint32_t line,
+                   const CodeLocation& where,
                    const char* format, ...)
 {
     static int fileCharsToSkip = length__FILE__Prefix();
     std::string message;
     char buf[1024];
     va_list ap;
+    const char* file = where.file;
+
+    // Remove the prefix only if it matches that of __FILE__. This check is
+    // needed in case someone compiles different files using different paths.
+    if (strncmp(file, __FILE__, fileCharsToSkip) == 0)
+        file += fileCharsToSkip;
 
     snprintf(buf, sizeof(buf), "%s:%d %s %s: ",
-             file + fileCharsToSkip, line,
+             file, where.line,
              logModuleNames[module],
              logLevelNames[level]);
     message.append(buf);

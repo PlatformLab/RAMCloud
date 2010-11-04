@@ -24,6 +24,7 @@
 #ifndef RAMCLOUD_CLIENTEXCEPTION_H
 #define RAMCLOUD_CLIENTEXCEPTION_H
 
+#include "Common.h"
 #include "Status.h"
 
 namespace RAMCloud {
@@ -37,17 +38,21 @@ namespace RAMCloud {
  */
 class ClientException {
   public:
-    explicit ClientException(Status status);
+    ClientException(const CodeLocation& where, Status status);
     virtual ~ClientException();
-    static void throwException(Status status) __attribute__((noreturn));
+    static void throwException(const CodeLocation& where, Status status)
+        __attribute__((noreturn));
     const char* toString() const;
     const char* toSymbol() const;
+    string str() const;
 
     /**
      * Describes a problem that prevented normal completion of a
      * RAMCloud operation.
      */
     Status status;
+
+    CodeLocation where;
 };
 
 /**
@@ -56,7 +61,8 @@ class ClientException {
  */
 class RejectRulesException : public ClientException {
   public:
-    explicit RejectRulesException(Status status) : ClientException(status) { }
+    RejectRulesException(const CodeLocation& where, Status status)
+        : ClientException(where, status) {}
 };
 
 /**
@@ -65,7 +71,8 @@ class RejectRulesException : public ClientException {
  */
 class InternalError : public ClientException {
   public:
-    explicit InternalError(Status status) : ClientException(status) { }
+    InternalError(const CodeLocation& where, Status status)
+        : ClientException(where, status) {}
 };
 
 // The following macro is used for convenience in defining a large
@@ -75,7 +82,8 @@ class InternalError : public ClientException {
 #define DEFINE_EXCEPTION(name, status, superClass)          \
 class name : public superClass {                            \
   public:                                                   \
-    explicit name() : superClass(status) { }                \
+    explicit name(const CodeLocation& where)                \
+        : superClass(where, status) { }                     \
 };
 
 // Not clear that there should be an exception for successful
@@ -124,6 +132,9 @@ DEFINE_EXCEPTION(BackupSegmentOverflowException,
                  ClientException)
 DEFINE_EXCEPTION(BackupMalformedSegmentException,
                  STATUS_BACKUP_MALFORMED_SEGMENT,
+                 ClientException)
+DEFINE_EXCEPTION(SegmentRecoveryFailedException,
+                 STATUS_SEGMENT_RECOVERY_FAILED,
                  ClientException)
 
 } // namespace RAMCloud

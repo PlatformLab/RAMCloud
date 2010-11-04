@@ -93,12 +93,12 @@ main(int argc, char *argv[])
             } catch (const RAMCloud::Exception& e) {
                 std::string className(
                     CppUnit::TypeInfoHelper::getClassName(typeid(e)));
-                CppUnit::Message message(className + ":\n    " + e.message);
+                CppUnit::Message message(className + ":\n    " + e.str());
                 reportError(context, message);
             } catch (const RAMCloud::ClientException& e) {
                 std::string className(
                     CppUnit::TypeInfoHelper::getClassName(typeid(e)));
-                CppUnit::Message message(className + ":\n    " + e.toString());
+                CppUnit::Message message(className + ":\n    " + e.str());
                 reportError(context, message);
             }
             return false;

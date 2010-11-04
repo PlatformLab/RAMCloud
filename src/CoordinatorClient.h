@@ -42,6 +42,7 @@ class CoordinatorClient : public Client {
     uint64_t enlistServer(ServerType serverType, string localServiceLocator);
     void getBackupList(ProtoBuf::ServerList& serverList);
     void getTabletMap(ProtoBuf::Tablets& tabletMap);
+    void hintServerDown(string serviceLocator);
     void ping();
 
   private:

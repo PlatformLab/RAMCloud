@@ -32,7 +32,7 @@ main(int argc, char *argv[])
         CoordinatorServer().run();
         return 0;
     } catch (RAMCloud::Exception& e) {
-        LOG(ERROR, "coordinator: %s", e.message.c_str());
+        LOG(ERROR, "coordinator: %s", e.str().c_str());
         return 1;
     }
 }

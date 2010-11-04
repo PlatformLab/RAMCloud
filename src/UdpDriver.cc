@@ -43,7 +43,7 @@ UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
 {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
-        throw UnrecoverableDriverException(errno);
+        throw UnrecoverableDriverException(HERE, errno);
     }
 
     if (localServiceLocator != NULL) {
@@ -52,7 +52,7 @@ UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
         if (r == -1) {
             int e = errno;
             close(fd);
-            throw UnrecoverableDriverException(e);
+            throw UnrecoverableDriverException(HERE, e);
         }
     }
 
@@ -132,7 +132,7 @@ UdpDriver::sendPacket(const Address *addr,
         int e = errno;
         close(socketFd);
         socketFd = -1;
-        throw UnrecoverableDriverException(e);
+        throw UnrecoverableDriverException(HERE, e);
     }
     assert(static_cast<size_t>(r) == totalLength);
 }
@@ -158,7 +158,7 @@ UdpDriver::tryRecvPacket(Received *received)
         if (errno == EAGAIN || errno == EWOULDBLOCK)
             return false;
         // TODO(stutsman) We could probably recover from a lot of errors here.
-        throw UnrecoverableDriverException(errno);
+        throw UnrecoverableDriverException(HERE, errno);
     }
     received->len = r;
 

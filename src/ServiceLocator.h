@@ -46,9 +46,10 @@ class ServiceLocator {
      * be parsed.
      */
     struct BadServiceLocatorException : public Exception {
-        BadServiceLocatorException(const string& original,
+        BadServiceLocatorException(const CodeLocation& where,
+                                   const string& original,
                                    const string& remaining)
-            : original(original), remaining(remaining) {
+            : Exception(where), original(original), remaining(remaining) {
             message = "The ServiceLocator string '" + original +
                 "' could not be parsed, starting at '" + remaining + "'";
         }
@@ -70,8 +71,9 @@ class ServiceLocator {
      * An exception thrown when no option with the requested key was found.
      */
     struct NoSuchKeyException : public Exception {
-        explicit NoSuchKeyException(const string& key)
-            : key(key) {
+        explicit NoSuchKeyException(const CodeLocation& where,
+                                    const string& key)
+            : Exception(where), key(key) {
             message = "The option with key '" + key +
                 "' was not found in the ServiceLocator.";
         }
@@ -176,7 +178,7 @@ template<typename T> T
 ServiceLocator::getOption(const string& key) const {
     std::map<string, string>::const_iterator i = options.find(key);
     if (i == options.end())
-        throw NoSuchKeyException(key);
+        throw NoSuchKeyException(HERE, key);
     return boost::lexical_cast<T>(i->second);
 }
 

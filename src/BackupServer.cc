@@ -52,7 +52,6 @@ BackupServer::BackupServer(const Config& config,
  */
 BackupServer::~BackupServer()
 {
-    pool.purge_memory();
 }
 
 /// Returns the serverId granted to this backup by the coordinator.
@@ -126,7 +125,7 @@ BackupServer::closeSegment(uint64_t masterId, uint64_t segmentId)
 {
     SegmentInfo* info = findSegmentInfo(masterId, segmentId);
     if (!info || info->state != SegmentInfo::OPEN)
-        throw BackupBadSegmentIdException();
+        throw BackupBadSegmentIdException(HERE);
 
     storage.putSegment(info->storageHandle, info->segment);
     pool.free(info->segment);
@@ -165,7 +164,7 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
                         &BackupServer::writeSegment>(rpc);
             break;
         default:
-            throw UnimplementedRequestError();
+            throw UnimplementedRequestError(HERE);
     }
 }
 
@@ -195,14 +194,14 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info)
-        throw BackupBadSegmentIdException();
+        throw BackupBadSegmentIdException(HERE);
 
     if (info->segment)
         pool.free(info->segment);
     info->segment = NULL;
 
-    segments.erase(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
     storage.free(info->storageHandle);
+    segments.erase(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
 }
 
 /**
@@ -251,7 +250,8 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                               Transport::ServerRpc& rpc)
 try
 {
-    TEST_LOG("%lu, %lu", reqHdr.masterId, reqHdr.segmentId);
+    LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu",
+        reqHdr.masterId, reqHdr.segmentId);
 
     ProtoBuf::Tablets tablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
@@ -259,44 +259,38 @@ try
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info || info->state != SegmentInfo::RECOVERING)
-        throw BackupBadSegmentIdException();
+        throw BackupBadSegmentIdException(HERE);
 
     // If not already in memory then reload it.
     if (!info->segment) {
-        char* segment = static_cast<char*>(pool.malloc());
+        char* segmentMem = static_cast<char*>(pool.malloc());
         try {
-            storage.getSegment(info->storageHandle, segment);
+            storage.getSegment(info->storageHandle, segmentMem);
         } catch (...) {
-            pool.free(segment);
+            pool.free(segmentMem);
             throw;
         }
-        info->segment = segment;
+        info->segment = segmentMem;
     }
+
+    char* packedSegment =
+        new(&rpc.replyPayload, APPEND) char[segmentSize];
+    Segment segment(reqHdr.masterId, reqHdr.segmentId,
+                    packedSegment, segmentSize, NULL);
 
     for (SegmentIterator it(info->segment, segmentSize);
          !it.isDone(); it.next())
     {
         if (!keepEntry(it.getType(), it.getPointer(), tablets))
             continue;
-
-        uint32_t totalEntryLength = it.getLength() + sizeof(SegmentEntry);
-        char* packedEntry =
-            new(&rpc.replyPayload, APPEND) char[totalEntryLength];
-        memcpy(packedEntry,
-               static_cast<const char*>(it.getPointer()) - sizeof(SegmentEntry),
-               totalEntryLength);
+        segment.append(it.getType(), it.getPointer(), it.getLength());
     }
 
-    SegmentEntry* footerEntry = new(&rpc.replyPayload, APPEND) SegmentEntry;
-    footerEntry->type = LOG_ENTRY_TYPE_SEGFOOTER;
-    footerEntry->length = sizeof(SegmentFooter);
-    SegmentFooter* footer = new(&rpc.replyPayload, APPEND) SegmentFooter;
-    footer->checksum =
-        SegmentIterator::generateChecksum(info->segment, segmentSize);
+    segment.close();
 } catch (const SegmentIteratorException& e) {
     LOG(WARNING, "getRecoveryData failed due to malformed segment data: "
         "masterId %lu, segmentId %lu", reqHdr.masterId, reqHdr.segmentId);
-    throw BackupMalformedSegmentException();
+    throw BackupMalformedSegmentException(HERE);
 }
 
 /**
@@ -326,6 +320,7 @@ BackupServer::keepEntry(const LogEntryType type,
     const ObjectTombstone* tombstone =
         reinterpret_cast<const ObjectTombstone*>(data);
     switch (type) {
+      case LOG_ENTRY_TYPE_SEGHEADER:
       case LOG_ENTRY_TYPE_SEGFOOTER:
         return false;
       case LOG_ENTRY_TYPE_OBJ:
@@ -336,7 +331,6 @@ BackupServer::keepEntry(const LogEntryType type,
         tableId = tombstone->tableId;
         objectId = tombstone->objectId;
         break;
-      case LOG_ENTRY_TYPE_SEGHEADER:
       case LOG_ENTRY_TYPE_LOGDIGEST:
       case LOG_ENTRY_TYPE_INVALID:
         return true;
@@ -387,7 +381,7 @@ BackupServer::openSegment(const BackupOpenRpc::Request& reqHdr,
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (info)
-        throw BackupSegmentAlreadyOpenException();
+        throw BackupSegmentAlreadyOpenException(HERE);
 
     // Get memory for staging the segment writes
     char* segment = static_cast<char*>(pool.malloc());
@@ -436,11 +430,14 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
         if (masterId == reqHdr.masterId) {
             uint64_t* segmentId = new(&rpc.replyPayload, APPEND) uint64_t;
             *segmentId = it->first.segmentId;
+            LOG(DEBUG, "Crashed master %lu had segment %lu",
+                masterId, *segmentId);
             it->second.state = SegmentInfo::RECOVERING;
             segmentIdCount++;
         }
     }
     respHdr.segmentIdCount = segmentIdCount;
+    LOG(DEBUG, "Sending %u segment ids for this master", segmentIdCount);
 }
 
 /**
@@ -469,19 +466,16 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
                            BackupWriteRpc::Response& respHdr,
                            Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "%s: segment <%lu,%lu>",
-        __func__, reqHdr.masterId, reqHdr.segmentId);
-
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info || info->state != SegmentInfo::OPEN)
-        throw BackupBadSegmentIdException();
+        throw BackupBadSegmentIdException(HERE);
 
     // Need to check all three conditions because overflow is possible
     // on the addition
     if (reqHdr.length > segmentSize ||
         reqHdr.offset > segmentSize ||
         reqHdr.length + reqHdr.offset > segmentSize)
-        throw BackupSegmentOverflowException();
+        throw BackupSegmentOverflowException(HERE);
 
     rpc.recvPayload.copy(sizeof(reqHdr), reqHdr.length,
                          &info->segment[reqHdr.offset]);

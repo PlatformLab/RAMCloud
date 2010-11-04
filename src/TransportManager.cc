@@ -63,6 +63,7 @@ TransportManager::TransportManager()
     , listening()
     , nextToListen(0)
     , transports()
+    , sessionCache()
 {
     transportFactories.insert(&tcpTransportFactory);
     transportFactories.insert(&fastUdpTransportFactory);
@@ -73,11 +74,15 @@ TransportManager::TransportManager()
 
 TransportManager::~TransportManager()
 {
+    // Must clear the cache and destroy sessionRefs before the
+    // transports are destroyed.
+    sessionCache.clear();
+
     std::set<Transport*> toFree;
-    BOOST_FOREACH(Transports::value_type protocolTransport, transports) {
+    foreach (Transports::value_type protocolTransport, transports) {
         toFree.insert(protocolTransport.second);
     }
-    BOOST_FOREACH(Transport* transport, toFree) {
+    foreach (Transport* transport, toFree) {
         delete transport;
     }
 
@@ -101,9 +106,9 @@ TransportManager::initialize(const char* localServiceLocator)
     std::vector<ServiceLocator> locators;
     ServiceLocator::parseServiceLocators(localServiceLocator, &locators);
 
-    BOOST_FOREACH(TransportFactory* factory, transportFactories) {
+    foreach (TransportFactory* factory, transportFactories) {
         Transport* transport;
-        BOOST_FOREACH(ServiceLocator& locator, locators) {
+        foreach (ServiceLocator& locator, locators) {
             if (factory->supports(locator.getProtocol().c_str())) {
                 // The transport supports a protocol that we can receive
                 // packets on.
@@ -116,7 +121,7 @@ TransportManager::initialize(const char* localServiceLocator)
         // packets on.
         transport = factory->createTransport(NULL);
  insert_protocol_mappings:
-        BOOST_FOREACH(const char* protocol, factory->getProtocols()) {
+        foreach (const char* protocol, factory->getProtocols()) {
             transports.insert(Transports::value_type(protocol, transport));
         }
     }
@@ -144,14 +149,31 @@ TransportManager::getSession(const char* serviceLocator)
     if (!initialized)
         initialize("");
 
+    std::map<string, Transport::SessionRef>::iterator it;
+    if ((it = sessionCache.find(string(serviceLocator))) !=
+        sessionCache.end()) {
+        return (*it).second;
+    }
+
+    // Session was not found in the cache, a new one will be created
     std::vector<ServiceLocator> locators;
     ServiceLocator::parseServiceLocators(serviceLocator, &locators);
-    BOOST_FOREACH(ServiceLocator& locator, locators) {
-        BOOST_FOREACH(Transports::value_type protocolTransport,
+    // The first protocol specified in the locator that works is chosen
+    foreach (ServiceLocator& locator, locators) {
+        foreach (Transports::value_type protocolTransport,
                       transports.equal_range(locator.getProtocol())) {
             Transport* transport = protocolTransport.second;
             try {
-                return transport->getSession(locator);
+                Transport::SessionRef session =
+                    transport->getSession(locator);
+
+                // Only first protocol is used, but the cache is based
+                // on the complete initial service locator string.
+                // No caching should occur if an exception is thrown.
+                sessionCache.insert(pair<string,
+                                    Transport::SessionRef>(serviceLocator,
+                                                           session));
+                return session;
             } catch (TransportException& e) {
                 // TODO(ongaro): Transport::getName() would be nice here.
                 LOG(DEBUG, "Transport %p refused to open session for %s",
@@ -159,7 +181,9 @@ TransportManager::getSession(const char* serviceLocator)
             }
         }
     }
-    throw TransportException("No transport found for this service locator");
+    throw TransportException(HERE,
+        format("No transport found for this service locator: %s",
+               serviceLocator));
 }
 
 /**
@@ -171,8 +195,10 @@ TransportManager::getSession(const char* serviceLocator)
 Transport::ServerRpc*
 TransportManager::serverRecv()
 {
-    if (!initialized || listening.empty())
-        throw UnrecoverableTransportException("no transports to listen on");
+    if (!initialized || listening.empty()) {
+        throw UnrecoverableTransportException(HERE,
+                                              "no transports to listen on");
+    }
     uint8_t i = 0;
     while (true) {
         if (nextToListen >= listening.size())

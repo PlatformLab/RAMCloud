@@ -191,10 +191,15 @@ Driver::Received::getOffset(uint32_t offset)
  * a serious problem causing it to panic.
  */
 struct UnrecoverableDriverException: public Exception {
-    UnrecoverableDriverException() : Exception() {}
-    explicit UnrecoverableDriverException(std::string msg)
-        : Exception(msg) {}
-    explicit UnrecoverableDriverException(int errNo) : Exception(errNo) {}
+    explicit UnrecoverableDriverException(const CodeLocation& where)
+        : Exception(where) {}
+    UnrecoverableDriverException(const CodeLocation& where, std::string msg)
+        : Exception(where, msg) {}
+    UnrecoverableDriverException(const CodeLocation& where, int errNo)
+        : Exception(where, errNo) {}
+    UnrecoverableDriverException(const CodeLocation& where,
+                                 string msg, int errNo)
+        : Exception(where, msg, errNo) {}
 };
 
 

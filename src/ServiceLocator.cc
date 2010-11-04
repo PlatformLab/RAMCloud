@@ -64,7 +64,7 @@ ServiceLocator::ServiceLocator(const string& serviceLocator)
     pcrecpp::StringPiece serviceLocatorPiece(serviceLocator);
     init(&serviceLocatorPiece);
     if (!serviceLocatorPiece.empty()) {
-        throw BadServiceLocatorException(serviceLocator,
+        throw BadServiceLocatorException(HERE, serviceLocator,
                                          serviceLocatorPiece.as_string());
     }
 }
@@ -153,7 +153,7 @@ ServiceLocator::init(pcrecpp::StringPiece* remainingServiceLocator)
     // Parse out the protocol.
     bool r = protocolRe.Consume(remainingServiceLocator, &protocol, &sentinel);
     if (!r) {
-        throw BadServiceLocatorException(originalRemaining.as_string(),
+        throw BadServiceLocatorException(HERE, originalRemaining.as_string(),
                                          remainingServiceLocator->as_string());
     }
 
@@ -164,7 +164,8 @@ ServiceLocator::init(pcrecpp::StringPiece* remainingServiceLocator)
         bool r = keyValueRe.Consume(remainingServiceLocator, &key, &value,
                                     &sentinel);
         if (!r) {
-            throw BadServiceLocatorException(originalRemaining.as_string(),
+            throw BadServiceLocatorException(HERE,
+                                             originalRemaining.as_string(),
                                          remainingServiceLocator->as_string());
         }
         if (!value.empty()) {

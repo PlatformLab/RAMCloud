@@ -100,11 +100,11 @@ TcpTransport::MessageSocket::recv(Buffer* payload)
             int e = errno;
             sys->close(fd);
             fd = -1;
-            throw TransportException(e);
+            throw TransportException(HERE, e);
         } else if (len == 0) {
             sys->close(fd);
             fd = -1;
-            throw TransportException("peer performed orderly shutdown");
+            throw TransportException(HERE, "peer performed orderly shutdown");
         }
         assert(len == sizeof(header));
     }
@@ -112,7 +112,7 @@ TcpTransport::MessageSocket::recv(Buffer* payload)
     if (header.len > MAX_RPC_LEN) {
         sys->close(fd);
         fd = -1;
-        throw TransportException("peer trying to send too much data");
+        throw TransportException(HERE, "peer trying to send too much data");
     }
 
     if (header.len == 0)
@@ -126,11 +126,11 @@ TcpTransport::MessageSocket::recv(Buffer* payload)
             int e = errno;
             sys->close(fd);
             fd = -1;
-            throw TransportException(e);
+            throw TransportException(HERE, e);
         } else if (len == 0) {
             sys->close(fd);
             fd = -1;
-            throw TransportException("peer performed orderly shutdown");
+            throw TransportException(HERE, "peer performed orderly shutdown");
         }
         assert(len == header.len);
     }
@@ -180,7 +180,7 @@ TcpTransport::MessageSocket::send(const Buffer* payload)
         int e = errno;
         sys->close(fd);
         fd = -1;
-        throw TransportException(e);
+        throw TransportException(HERE, e);
     }
     assert(static_cast<size_t>(r) == sizeof(header) + header.len);
 }
@@ -199,7 +199,7 @@ TcpTransport::ServerSocket::init(ListenSocket* listenSocket)
     assert(fd < 0);
     fd = listenSocket->accept();
     if (fd < 0)
-        throw TransportException();
+        throw TransportException(HERE);
 }
 
 /**
@@ -223,11 +223,11 @@ TcpTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
 
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1)
-        throw UnrecoverableTransportException(errno);
+        throw UnrecoverableTransportException(HERE, errno);
 
     int r = sys->fcntl(fd, F_SETFL, O_NONBLOCK);
     if (r != 0)
-        throw UnrecoverableTransportException(errno);
+        throw UnrecoverableTransportException(HERE, errno);
 
     int optval = 1;
     (void) sys->setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval,
@@ -235,12 +235,12 @@ TcpTransport::ListenSocket::ListenSocket(const ServiceLocator* serviceLocator)
 
     if (sys->bind(fd, &address.address, sizeof(address.address)) == -1) {
         // destructor will close fd
-        throw UnrecoverableTransportException(errno);
+        throw UnrecoverableTransportException(HERE, errno);
     }
 
     if (sys->listen(fd, INT_MAX) == -1) {
         // destructor will close fd
-        throw UnrecoverableTransportException(errno);
+        throw UnrecoverableTransportException(HERE, errno);
     }
 }
 
@@ -280,7 +280,7 @@ TcpTransport::ListenSocket::accept()
             return -1;
 
         default:
-            throw UnrecoverableTransportException(errno);
+            throw UnrecoverableTransportException(HERE, errno);
     }
 }
 
@@ -306,7 +306,7 @@ TcpTransport::ClientSocket::init(const IpAddress& address)
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
-        throw UnrecoverableTransportException(errno);
+        throw UnrecoverableTransportException(HERE, errno);
     }
 
     int r = sys->connect(fd, &address.address, sizeof(address.address));
@@ -317,9 +317,9 @@ TcpTransport::ClientSocket::init(const IpAddress& address)
         switch (e) {
             case ECONNREFUSED:
             case ETIMEDOUT:
-                throw TransportException(e);
+                throw TransportException(HERE, e);
             default:
-                throw UnrecoverableTransportException(e);
+                throw UnrecoverableTransportException(HERE, e);
         }
     }
 }

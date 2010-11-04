@@ -346,7 +346,7 @@ FastTransport::ClientRpc::getReply()
         case COMPLETED:
             return;
         case ABORTED:
-            throw TransportException("RPC aborted");
+            throw TransportException(HERE, "RPC aborted");
         }
         if (++i == 0) // On machines with a small number of cores,
             yield();  // give other tasks a chance to run.

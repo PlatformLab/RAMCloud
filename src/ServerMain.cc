@@ -32,7 +32,6 @@ try
     using namespace RAMCloud;
 
     ServerConfig config;
-    vector<string> backupLocators;
     string masterTotalMemory, hashTableMemory;
 
     OptionsDescription serverOptions("Master");
@@ -56,7 +55,7 @@ try
 
     OptionParser optionParser(serverOptions, argc, argv);
 
-    LOG(NOTICE, "Using %lu backups", backupLocators.size());
+    LOG(NOTICE, "Using %u backups", replicas);
 
     config.coordinatorLocator = optionParser.options.getCoordinatorLocator();
     config.localLocator = optionParser.options.getLocalLocator();
@@ -83,6 +82,6 @@ try
     return 0;
 } catch (RAMCloud::Exception& e) {
     using namespace RAMCloud;
-    LOG(ERROR, "server: %s", e.message.c_str());
+    LOG(ERROR, "server: %s", e.str().c_str());
     return 1;
 }

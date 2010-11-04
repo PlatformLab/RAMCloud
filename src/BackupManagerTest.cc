@@ -40,7 +40,6 @@ class BackupManagerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_openSegment);
     CPPUNIT_TEST(test_recover);
     CPPUNIT_TEST(test_recover_failedToRecoverAll);
-    CPPUNIT_TEST(test_recover_exceptionGettingData);
     CPPUNIT_TEST(test_writeSegment);
     CPPUNIT_TEST(test_selectOpenHosts);
     CPPUNIT_TEST(test_selectOpenHosts_notEnoughBackups);
@@ -201,6 +200,29 @@ class BackupManagerTest : public CppUnit::TestFixture {
     }
 
     void
+    appendTablet(ProtoBuf::Tablets& tablets,
+                 uint64_t partitionId,
+                 uint32_t tableId,
+                 uint64_t start, uint64_t end)
+    {
+        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(tableId);
+        tablet.set_start_object_id(start);
+        tablet.set_end_object_id(end);
+        tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+        tablet.set_user_data(partitionId);
+    }
+
+    void
+    createTabletList(ProtoBuf::Tablets& tablets)
+    {
+        appendTablet(tablets, 0, 123, 0, 9);
+        appendTablet(tablets, 0, 123, 10, 19);
+        appendTablet(tablets, 0, 123, 20, 29);
+        appendTablet(tablets, 0, 124, 20, 100);
+    }
+
+    void
     test_recover()
     {
         std::auto_ptr<MasterServer> master(createMasterServer());
@@ -220,6 +242,8 @@ class BackupManagerTest : public CppUnit::TestFixture {
             .startReadingData(99);
 
         ProtoBuf::Tablets tablets;
+        createTabletList(tablets);
+
         ProtoBuf::ServerList backups; {
             ProtoBuf::ServerList_Entry& server(*backups.add_server());
             server.set_server_type(ProtoBuf::BACKUP);
@@ -244,8 +268,14 @@ class BackupManagerTest : public CppUnit::TestFixture {
         TestLog::Enable _(&recoverSegmentFilter);
         mgr->recover(*master, 99, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
-            "recoverSegment: 87, ... | "
-            "recoverSegment: 88, ... | "
+            "recover: Recovering master 99, 4 tablets, 3 hosts | "
+            "recover: Getting recovery data for segment 87 from "
+            "mock:host=backup1 | "
+            "recover: Got it | "
+            "recoverSegment: recoverSegment 87, ... | "
+            "recover: Getting recovery data for segment 88 from "
+            "mock:host=backup1 | recover: Got it | "
+            "recoverSegment: recoverSegment 88, ... | "
             "recover: skipping mock:host=backup2, already recovered 88",
             TestLog::get());
     }
@@ -272,47 +302,17 @@ class BackupManagerTest : public CppUnit::TestFixture {
         }
 
         TestLog::Enable _(&recoverSegmentFilter);
-        mgr->recover(*master, 99, tablets, backups);
+        CPPUNIT_ASSERT_THROW(
+            mgr->recover(*master, 99, tablets, backups),
+            SegmentRecoveryFailedException);
         CPPUNIT_ASSERT_EQUAL(
-            "recover: getRecoveryData failed "
-            "on mock:host=backup1, trying next backup; failure was: "
-            "bad segment id | "
-            "recover: *** Failed to recover "
-            "segment id 87, the recovered master state is corrupted, "
-            "pretending everything is ok | "
-            "recover: getRecoveryData failed "
-            "on mock:host=backup1, trying next backup; failure was: "
-            "bad segment id | "
-            "recover: *** Failed to recover "
-            "segment id 88, the recovered master state is corrupted, "
-            "pretending everything is ok",
-            TestLog::get());
-    }
-
-    void
-    test_recover_exceptionGettingData()
-    {
-        // test in loop
-        std::auto_ptr<MasterServer> master(createMasterServer());
-
-        ProtoBuf::Tablets tablets;
-        ProtoBuf::ServerList backups; {
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(87);
-            server.set_service_locator("mock:host=backup1");
-        }
-
-        TestLog::Enable _(&recoverSegmentFilter);
-        mgr->recover(*master, 99, tablets, backups);
-        CPPUNIT_ASSERT_EQUAL(
-            "recover: getRecoveryData failed "
-            "on mock:host=backup1, trying next backup; failure was: "
-            "bad segment id | "
-            "recover: *** Failed to recover "
-            "segment id 87, the recovered master state is corrupted, "
-            "pretending everything is ok",
+            "recover: Recovering master 99, 0 tablets, 2 hosts | "
+            "recover: Getting recovery data for segment 87 from "
+            "mock:host=backup1 | "
+            "recover: getRecoveryData failed on mock:host=backup1, "
+            "trying next backup; failure was: bad segment id | "
+            "recover: *** Failed to recover segment id 87, "
+            "the recovered master state is corrupted, aborting recovery",
             TestLog::get());
     }
 

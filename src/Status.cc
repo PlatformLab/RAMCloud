@@ -37,6 +37,7 @@ static const char* messages[] = {
     "segment already open",                      // BACKUP_SEGMENT_ALREADY_OPEN
     "segment overflow",                          // BACKUP_SEGMENT_OVERFLOW
     "malformed segment",                         // BACKUP_MALFORMED_SEGMENT
+    "segment recovery failed",                   // SEGMENT_RECOVERY_FAILED
 };
 
 // The following table maps from a Status value to the internal name
@@ -57,6 +58,7 @@ static const char* symbols[] = {
     "STATUS_BACKUP_SEGMENT_ALREADY_OPEN",
     "STATUS_BACKUP_SEGMENT_OVERFLOW",
     "STATUS_BACKUP_MALFORMED_SEGMENT",
+    "STATUS_SEGMENT_RECOVERY_FAILED",
 };
 
 /**

@@ -66,12 +66,13 @@ class RamCloud {
     /// \copydoc Client::counterValue
     uint32_t counterValue;
 
-  protected:
+  private:
     PerfCounterType counterType;
     Mark beginMark;
     Mark endMark;
-
+  public: // public for now to make administrative calls from clients
     CoordinatorClient coordinator;
+  private:
     ObjectFinder objectFinder;
 
     DISALLOW_COPY_AND_ASSIGN(RamCloud);

@@ -107,11 +107,13 @@ class MasterServer : public Server {
                 0, masterTotalMemory.find("%"));
             int pct = strtoull(str.c_str(), NULL, 10);
             if (pct <= 0 || pct > 90)
-                throw Exception("invalid `MasterTotalMemory' option specified: "
+                throw Exception(HERE,
+                    "invalid `MasterTotalMemory' option specified: "
                     "not within range 1-90%");
             masterBytes = getTotalSystemMemory();
             if (masterBytes == 0) {
-                throw Exception("Cannot determine total system memory - "
+                throw Exception(HERE,
+                    "Cannot determine total system memory - "
                     "`MasterTotalMemory' option must not be used");
             }
             masterBytes = (masterBytes * pct) / 100;
@@ -124,7 +126,8 @@ class MasterServer : public Server {
             string str = hashTableMemory.substr(0, hashTableMemory.find("%"));
             int pct = strtoull(str.c_str(), NULL, 10);
             if (pct <= 0 || pct > 50) {
-                throw Exception("invalid HashTableMemory option specified: "
+                throw Exception(HERE,
+                    "invalid HashTableMemory option specified: "
                     "not within range 1-50%");
             }
             hashTableBytes = (masterBytes * pct) / 100;
@@ -134,7 +137,8 @@ class MasterServer : public Server {
         }
 
         if (hashTableBytes > masterBytes) {
-            throw Exception("invalid `MasterTotalMemory' and/or "
+            throw Exception(HERE,
+                            "invalid `MasterTotalMemory' and/or "
                             "`HashTableMemory' options - HashTableMemory "
                             "cannot exceed MasterTotalMemory!");
         }
@@ -142,7 +146,8 @@ class MasterServer : public Server {
         uint64_t logBytes = masterBytes - hashTableBytes;
         uint64_t numSegments = logBytes / Segment::SEGMENT_SIZE;
         if (numSegments < 1) {
-            throw Exception("invalid `MasterTotalMemory' and/or "
+            throw Exception(HERE,
+                            "invalid `MasterTotalMemory' and/or "
                             "`HashTableMemory' options - insufficent memory "
                             "left for the log!");
         }
@@ -150,7 +155,8 @@ class MasterServer : public Server {
         uint64_t numHashTableLines =
             hashTableBytes / ObjectMap::bytesPerCacheLine();
         if (numHashTableLines < 1) {
-            throw Exception("invalid `MasterTotalMemory' and/or "
+            throw Exception(HERE,
+                            "invalid `MasterTotalMemory' and/or "
                             "`HashTableMemory' options - insufficent memory "
                             "left for the hash table!");
         }

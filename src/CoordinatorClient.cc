@@ -120,7 +120,7 @@ CoordinatorClient::enlistServer(ServerType serverType,
         } catch (TransportException& e) {
             LOG(NOTICE,
                 "TransportException trying to talk to coordinator: %s",
-                e.message.c_str());
+                e.str().c_str());
             LOG(NOTICE, "retrying");
         }
     }
@@ -163,6 +163,24 @@ CoordinatorClient::getTabletMap(ProtoBuf::Tablets& tabletMap)
     checkStatus();
     ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
                                 respHdr.tabletMapLength, tabletMap);
+}
+
+/**
+ * Report a slow or dead server.
+ */
+void
+CoordinatorClient::hintServerDown(string serviceLocator)
+{
+    Buffer req;
+    Buffer resp;
+    HintServerDownRpc::Request& reqHdr(
+        allocHeader<HintServerDownRpc>(req));
+    reqHdr.serviceLocatorLength = serviceLocator.length() + 1;
+    strncpy(new(&req, APPEND) char[reqHdr.serviceLocatorLength],
+            serviceLocator.c_str(),
+            reqHdr.serviceLocatorLength);
+    sendRecv<HintServerDownRpc>(session, req, resp);
+    checkStatus();
 }
 
 /**

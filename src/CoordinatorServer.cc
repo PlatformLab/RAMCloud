@@ -16,17 +16,19 @@
 #include "CoordinatorServer.h"
 #include "MasterClient.h"
 #include "ProtoBuf.h"
+#include "Recovery.h"
 
 namespace RAMCloud {
 
 CoordinatorServer::CoordinatorServer()
-    : nextServerId(generateRandom())
+    : nextServerId(1)
     , backupList()
     , masterList()
     , firstMaster(NULL)
     , tabletMap()
     , tables()
     , nextTableId(0)
+    , mockRecovery(NULL)
 {
 }
 
@@ -74,11 +76,15 @@ CoordinatorServer::dispatch(RpcType type,
             callHandler<GetTabletMapRpc, CoordinatorServer,
                         &CoordinatorServer::getTabletMap>(rpc);
             break;
+        case HintServerDownRpc::type:
+            callHandler<HintServerDownRpc, CoordinatorServer,
+                        &CoordinatorServer::hintServerDown>(rpc, responder);
+            break;
         case PingRpc::type:
             callHandler<PingRpc, Server, &Server::ping>(rpc);
             break;
         default:
-            throw UnimplementedRequestError();
+            throw UnimplementedRequestError(HERE);
     }
 }
 
@@ -186,7 +192,7 @@ CoordinatorServer::openTable(const OpenTableRpc::Request& reqHdr,
                                  reqHdr.nameLength);
     Tables::iterator it(tables.find(name));
     if (it == tables.end())
-        throw TableDoesntExistException();
+        throw TableDoesntExistException(HERE);
     respHdr.tableId = it->second;
 }
 
@@ -258,6 +264,70 @@ CoordinatorServer::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
 {
     respHdr.tabletMapLength = serializeToResponse(rpc.replyPayload,
                                                   tabletMap);
+}
+
+/**
+ * Handle the ENLIST_SERVER RPC.
+ * \copydetails Server::ping
+ * \param responder
+ *      Functor to respond to the RPC before returning from this method. Used
+ *      to avoid deadlock between first master and coordinator.
+ */
+void
+CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
+                                  HintServerDownRpc::Response& respHdr,
+                                  Transport::ServerRpc& rpc,
+                                  Responder& responder)
+{
+    string serviceLocator(getString(rpc.recvPayload, sizeof(reqHdr),
+                                    reqHdr.serviceLocatorLength));
+    responder();
+
+    // reqHdr, respHdr, and rpc are off-limits now
+
+    LOG(DEBUG, "Hint server down: %s", serviceLocator.c_str());
+
+    // is it a master?
+    for (int32_t i = 0; i < masterList.server_size(); i++) {
+        const ProtoBuf::ServerList::Entry& master(masterList.server(i));
+        if (master.service_locator() == serviceLocator) {
+            uint64_t serverId = master.server_id();
+            std::auto_ptr<ProtoBuf::Tablets> will(
+                reinterpret_cast<ProtoBuf::Tablets*>(master.user_data()));
+
+            masterList.mutable_server()->SwapElements(
+                                            masterList.server_size() - 1, i);
+            masterList.mutable_server()->RemoveLast();
+
+            // master is off-limits now
+
+            if (mockRecovery != NULL) {
+                (*mockRecovery)(serverId, *will, masterList, backupList);
+            } else {
+                LOG(DEBUG, "Trying partition recovery on %lu with %u masters "
+                    "and %u backups", serverId, masterList.server_size(),
+                    backupList.server_size());
+                Recovery(serverId, *will, masterList, backupList).start();
+                LOG(DEBUG, "OK! Recovered!");
+            }
+            return;
+        }
+    }
+
+    // is it a backup?
+    for (int32_t i = 0; i < backupList.server_size(); i++) {
+        const ProtoBuf::ServerList::Entry& backup(backupList.server(i));
+        if (backup.service_locator() == serviceLocator) {
+            backupList.mutable_server()->SwapElements(
+                                            backupList.server_size() - 1, i);
+            backupList.mutable_server()->RemoveLast();
+
+            // backup is off-limits now
+
+            // TODO(ongaro): inform masters they need to replicate more
+            return;
+        }
+    }
 }
 
 } // namespace RAMCloud

@@ -36,16 +36,20 @@ namespace RAMCloud {
  *      any other partition that has more than 0 entries.  This
  *      is because the recovery recovers partitions up but excluding the
  *      first with no entries.
- * \param hosts
- *      A list of all hosts in the RAMCloud.  This is used to find all
- *      the backup data for the crashed master and to select recovery
- *      masters.
+ * \param masterHosts
+ *      A list of all master hosts in the RAMCloud.  This is used to select
+ *      recovery masters. The user_data field is ignored.
+ * \param backupHosts
+ *      A list of all backup hosts in the RAMCloud.  This is used to find all
+ *      the backup data for the crashed master. The user_data field is ignored.
  */
 Recovery::Recovery(uint64_t masterId,
                    const ProtoBuf::Tablets& will,
-                   const ProtoBuf::ServerList& hosts)
+                   const ProtoBuf::ServerList& masterHosts,
+                   const ProtoBuf::ServerList& backupHosts)
     : backups()
-    , hosts(hosts)
+    , masterHosts(masterHosts)
+    , backupHosts(backupHosts)
     , masterId(masterId)
     , segmentIdToBackups()
     , will(will)
@@ -72,18 +76,21 @@ Recovery::~Recovery()
 void
 Recovery::buildSegmentIdToBackups()
 {
+    LOG(DEBUG, "Getting segment lists from backups and preparing "
+               "them for recovery");
     // Find all the segments for the crashed master from each of
     // the backups in the entire RAMCloud.
-    for (int i = 0; i < hosts.server_size(); i++) {
-        const ProtoBuf::ServerList::Entry& host(hosts.server(i));
-        if (host.server_type() == ProtoBuf::BACKUP) {
-            BackupClient backup(
-                transportManager.getSession(host.service_locator().c_str()));
-            vector<uint64_t> ids(backup.startReadingData(masterId));
-            foreach (uint64_t id, ids) {
-                // A copy of the entry is made, we augment it with a segment id.
-                segmentIdToBackups.insert(BackupMap::value_type(id, host));
-            }
+    for (int i = 0; i < backupHosts.server_size(); i++) {
+        const ProtoBuf::ServerList::Entry& host(backupHosts.server(i));
+        LOG(DEBUG, "Getting segment info from %s",
+            host.service_locator().c_str());
+        BackupClient backup(
+            transportManager.getSession(host.service_locator().c_str()));
+        vector<uint64_t> ids(backup.startReadingData(masterId));
+        foreach (uint64_t id, ids) {
+            LOG(DEBUG, "%s has %lu", host.service_locator().c_str(), id);
+            // A copy of the entry is made, we augment it with a segment id.
+            segmentIdToBackups.insert(BackupMap::value_type(id, host));
         }
     }
 }
@@ -103,8 +110,6 @@ Recovery::createBackupList(ProtoBuf::ServerList& backups) const
         ProtoBuf::ServerList_Entry& server(*backups.add_server());
         server = value.second;
         server.set_segment_id(value.first);
-        LOG(DEBUG, "%s has segment %lu",
-            server.service_locator().c_str(), server.segment_id());
     }
 }
 
@@ -139,16 +144,17 @@ Recovery::start()
         if (!partitionExists)
             break;
         // We now have a partitioned piece of the will, choose a master.
-        for (; hostIndexToRecoverOnNext < hosts.server_size();
+        for (; hostIndexToRecoverOnNext < masterHosts.server_size();
              hostIndexToRecoverOnNext++)
         {
             const ProtoBuf::ServerList::Entry&
-                host(hosts.server(hostIndexToRecoverOnNext));
+                host(masterHosts.server(hostIndexToRecoverOnNext));
             // Make sure not to recover to a backup or to the crashed master
-            if (host.server_type() == ProtoBuf::MASTER &&
-                host.server_id() != masterId) {
+            if (host.server_id() != masterId) {
                 const string& locator = host.service_locator();
-                LOG(DEBUG, "Trying partition recovery on %s", locator.c_str());
+                LOG(DEBUG, "Trying partition recovery on %s with "
+                    "%u tablets and %u hosts", locator.c_str(),
+                    tablets.tablet_size(), backups.server_size());
                 try {
                     MasterClient master(
                             transportManager.getSession(locator.c_str()));

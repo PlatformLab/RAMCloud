@@ -123,7 +123,7 @@ class Client {
     {
         TEST_LOG("status: %d", STATUS_OK);
         if (status != STATUS_OK)
-            ClientException::throwException(status);
+            ClientException::throwException(HERE, status);
     }
 
     // end RPC proxy method helpers

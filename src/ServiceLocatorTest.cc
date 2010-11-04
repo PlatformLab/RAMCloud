@@ -67,7 +67,7 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
     }
 
     void test_BadServiceLocatorException_constructor() {
-        ServiceLocator::BadServiceLocatorException e("o", "r");
+        ServiceLocator::BadServiceLocatorException e(HERE, "o", "r");
         CPPUNIT_ASSERT_EQUAL("The ServiceLocator string 'o' could not be "
                              "parsed, starting at 'r'", e.message);
         CPPUNIT_ASSERT_EQUAL("o", e.original);
@@ -75,7 +75,7 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
     }
 
     void test_NoSuchKeyException_constructor() {
-        ServiceLocator::NoSuchKeyException e("k");
+        ServiceLocator::NoSuchKeyException e(HERE, "k");
         CPPUNIT_ASSERT_EQUAL("The option with key 'k' was not found in the "
                              "ServiceLocator.", e.message);
         CPPUNIT_ASSERT_EQUAL("k", e.key);

@@ -53,6 +53,8 @@ class TransportManagerTest : public CppUnit::TestFixture {
                              TransportException);
         Transport::SessionRef session(manager.getSession("foo:;mock:"));
         CPPUNIT_ASSERT(session.get() != NULL);
+        Transport::SessionRef session2(manager.getSession("foo:;mock:"));
+        CPPUNIT_ASSERT(session.get() == session2.get());
     }
 
     void test_serverRecv() {
