@@ -180,7 +180,8 @@ class MasterServer : public Server {
               Transport::ServerRpc& rpc);
     void recover(const RecoverRpc::Request& reqHdr,
                  RecoverRpc::Response& respHdr,
-                 Transport::ServerRpc& rpc);
+                 Transport::ServerRpc& rpc,
+                 Responder& responder);
 
     void recoverSegment(uint64_t segmentId, const Buffer& segment);
     friend void BackupManager::recover(MasterServer& recoveryMaster,

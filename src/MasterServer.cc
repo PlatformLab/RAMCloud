@@ -91,7 +91,7 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             break;
         case RecoverRpc::type:
             callHandler<RecoverRpc, MasterServer,
-                        &MasterServer::recover>(rpc);
+                        &MasterServer::recover>(rpc, responder);
             break;
         case RemoveRpc::type:
             callHandler<RemoveRpc, MasterServer,
@@ -171,12 +171,13 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
 
 /**
  * Top-level server method to handle the RECOVER request.
- * \copydetails create
+ * \copydetails CoordinatorServer::enlistServer
  */
 void
 MasterServer::recover(const RecoverRpc::Request& reqHdr,
                       RecoverRpc::Response& respHdr,
-                      Transport::ServerRpc& rpc)
+                      Transport::ServerRpc& rpc,
+                      Responder& responder)
 {
     ProtoBuf::Tablets tablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
@@ -185,6 +186,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
     ProtoBuf::parseFromResponse(rpc.recvPayload,
                                 sizeof(reqHdr) + reqHdr.tabletsLength,
                                 reqHdr.serverListLength, backups);
+    responder();
     backup.recover(*this, reqHdr.masterId, tablets, backups);
 }
 
