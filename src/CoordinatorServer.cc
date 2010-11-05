@@ -107,8 +107,10 @@ CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
         return;
     uint32_t tableId = nextTableId++;
     tables[name] = tableId;
-    if (tableId != 0) // check is temporary, see RAM-139
+    if (tableId != 0) // check is temporary, see RAM-137
         createTable(tableId, *firstMaster); // race, see RAM-138
+    LOG(NOTICE, "Created table '%s' with id %u", name, tableId);
+    LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
 }
 
 /**
@@ -181,6 +183,9 @@ CoordinatorServer::dropTable(const DropTableRpc::Request& reqHdr,
     MasterClient master(
         transportManager.getSession(firstMaster->service_locator().c_str()));
     master.setTablets(tabletMap);
+
+    LOG(NOTICE, "Dropped table '%s' with id %u", name, tableId);
+    LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
 }
 
 /**
@@ -228,8 +233,10 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
         // create empty will
         server.set_user_data(
             reinterpret_cast<uint64_t>(new ProtoBuf::Tablets));
+        LOG(DEBUG, "Master enlisted with id %lu", serverId);
+    } else {
+        LOG(DEBUG, "Backup enlisted with id %lu", serverId);
     }
-    LOG(DEBUG, "Server enlisted with id %lu", serverId);
     respHdr.serverId = serverId;
     responder();
 
@@ -237,10 +244,16 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
 
     if (firstMaster == NULL && server.server_type() == ProtoBuf::MASTER) {
         firstMaster = &server;
-        // first master gets table 0
+        // first master gets table 0, see RAM-137
         // for backwards compatibility, the first table to be explicitly
         // created should get id 0 as well
-        createTable(nextTableId, server);
+        // Note that if createTable is called before this master registers,
+        // nextTableId might already be 1. (It can't be greater or we would
+        // have segfaulted; see RAM-138.)
+        createTable(0, server);
+        LOG(NOTICE, "Assigned table id 0");
+        LOG(DEBUG, "There are now %d tablets in the map",
+            tabletMap.tablet_size());
     }
 }
 

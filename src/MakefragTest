@@ -27,6 +27,7 @@ TESTS_SRCFILES := \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
+		  src/ObjectFinderTest.cc \
 		  src/OptionParserTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \
