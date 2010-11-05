@@ -265,7 +265,7 @@ class MasterTest : public CppUnit::TestFixture {
         char seg[8192];
         Buffer value;
         bool ret;
-        const void *p = NULL;
+        void *p = NULL;
         const ObjectTombstone *tomb1 = NULL;
         const ObjectTombstone *tomb2 = NULL;
 
@@ -301,8 +301,8 @@ class MasterTest : public CppUnit::TestFixture {
 
         // Case 2a: Equal/newer tombstone already there; ignore object.
         ObjectTombstone t1(0, 0, 2002, 1);
-        p = server->log->append(LOG_ENTRY_TYPE_OBJTOMB, &t1, sizeof(t1));
-        assert(p != NULL);
+        p = xmalloc(sizeof(t1));
+        memcpy(p, &t1, sizeof(t1));
         ret = server->tombstoneMap.replace(0, 2002,
             reinterpret_cast<const ObjectTombstone *>(p));
         CPPUNIT_ASSERT_EQUAL(false, ret);
@@ -315,7 +315,8 @@ class MasterTest : public CppUnit::TestFixture {
 
         // Case 2b: Lesser tombstone already there; add object, remove tomb.
         ObjectTombstone t2(0, 0, 2003, 10);
-        p = server->log->append(LOG_ENTRY_TYPE_OBJTOMB, &t2, sizeof(t2));
+        p = xmalloc(sizeof(t2));
+        memcpy(p, &t2, sizeof(t2)); 
         assert(p != NULL);
         ret = server->tombstoneMap.replace(0, 2003,
             reinterpret_cast<const ObjectTombstone *>(p));

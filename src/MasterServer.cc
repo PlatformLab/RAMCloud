@@ -231,9 +231,8 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
             const Object *localObj = objectMap.lookup(tblId, objId);
             const ObjectTombstone *tomb = tombstoneMap.lookup(tblId, objId);
 
-            // we should never have both a tombstone and an object in the
-            // hash tables
-            assert(!(tomb != NULL && localObj != NULL));
+            // can't have both a tombstone and an object in the hash tables
+            assert(tomb == NULL || localObj == NULL);
 
             uint64_t minSuccessor = 0;
             if (localObj != NULL)
@@ -252,7 +251,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 // nuke the tombstone, if it existed
                 if (tomb != NULL) {
                     tombstoneMap.remove(tblId, objId);
-                    log->free(tomb);
+                    free(const_cast<ObjectTombstone *>(tomb));
                 }
 
                 // nuke the old object, if it existed
@@ -269,9 +268,8 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
             const Object *localObj = objectMap.lookup(tblId, objId);
             const ObjectTombstone *tomb = tombstoneMap.lookup(tblId, objId);
 
-            // we should never have both a tombstone and an object in the
-            // hash tables
-            assert(!(tomb != NULL && localObj != NULL));
+            // can't have both a tombstone and an object in the hash tables
+            assert(tomb == NULL || localObj == NULL);
 
             uint64_t minSuccessor = 0;
             if (localObj != NULL)
@@ -280,22 +278,19 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 minSuccessor = tomb->objectVersion + 1;
 
             if (recoverTomb->objectVersion >= minSuccessor) {
-                // write to log & update hash table
-                // we technically don't have to write this out, but the log
-                // is a natural place to allocate memory from, especially
-                // since we don't know how many tombstones we might be getting.
-                const ObjectTombstone *newTomb = reinterpret_cast<
-                    const ObjectTombstone*>(log->append(LOG_ENTRY_TYPE_OBJTOMB,
-                    recoverTomb, sizeof(*recoverTomb)));
-                assert(newTomb != NULL);
+                // allocate memory for the tombstone & update hash table
+                ObjectTombstone *newTomb = reinterpret_cast<ObjectTombstone *>(
+                    xmalloc(sizeof(*newTomb)));
+                memcpy(newTomb, const_cast<ObjectTombstone *>(recoverTomb),
+                    sizeof(*newTomb));
                 tombstoneMap.replace(tblId, objId, newTomb);
 
                 // nuke the old tombstone, if it existed
                 if (tomb != NULL) {
-                    log->free(tomb);
+                    free(const_cast<ObjectTombstone *>(tomb));
                 }
 
-                // nuke the old object, if it existed
+                // nuke the object, if it existed
                 if (localObj != NULL) {
                     objectMap.remove(tblId, objId);
                     log->free(localObj);
