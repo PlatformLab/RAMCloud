@@ -18,13 +18,19 @@ C=$proto:host=$host,port=12246
 
 start "$OBJDIR/coordinator -l 9 -C $C"
 
+sleep .5
 
-start "sleep .25; $OBJDIR/backup -l 9 -L $proto:host=$host,port=12243 -C $C"
-start "sleep .25; $OBJDIR/backup -l 9 -L $proto:host=$host,port=12244 -C $C"
+start "$OBJDIR/backup -l 9 -L $proto:host=$host,port=12243 -C $C"
+start "$OBJDIR/backup -l 9 -L $proto:host=$host,port=12244 -C $C"
+
+sleep .5
 
 start "$OBJDIR/server -l 9 -r 2 -L $proto:host=$host,port=12242 -C $C"
-start "sleep .5; $OBJDIR/server -l 9 -r 2 -L $proto:host=$host,port=12247 -C $C"
+sleep .5
+start "$OBJDIR/server -l 9 -r 2 -L $proto:host=$host,port=12247 -C $C"
 
-start "sleep 1; $OBJDIR/client -l 9 -d -C $C"
+sleep .5
+
+start "$OBJDIR/client -l 9 -d -C $C"
 
 read

@@ -328,6 +328,8 @@ struct TabletsRecoveredRpc {
     static const RpcType type = TABLETS_RECOVERED;
     struct Request {
         RpcRequestCommon common;
+        Status status;             // Indicates whether the recovery
+                                   // succeeded; if not, it explains why.
         uint32_t tabletsLength;    // Number of bytes in the tablet map.
                                    // The bytes of the tablet map follow
                                    // immediately after this header. See

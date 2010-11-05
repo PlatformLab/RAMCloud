@@ -83,9 +83,10 @@ void
 BackupManager::openSegment(uint64_t masterId,
                            uint64_t segmentId)
 {
-    TEST_LOG("%lu, %lu", masterId, segmentId);
+    LOG(DEBUG, "openSegment %lu, %lu", masterId, segmentId);
     selectOpenHosts();
     foreach (BackupClient* host, openHosts) {
+        LOG(DEBUG, "Opening %lu, %lu on an open backup", masterId, segmentId);
         host->openSegment(masterId, segmentId);
         segments.insert(SegmentMap::value_type(segmentId, host->getSession()));
     }
@@ -226,6 +227,7 @@ BackupManager::selectOpenHosts()
 
     uint32_t numHosts(static_cast<uint32_t>(hosts.server_size()));
     if (numHosts < replicas) {
+        LOG(NOTICE, "Need backups, fetching server list from coordinator");
         updateHostListFromCoordinator();
         numHosts = hosts.server_size();
         if (numHosts < replicas)

@@ -72,7 +72,6 @@ class RamCloud {
     Mark endMark;
   public: // public for now to make administrative calls from clients
     CoordinatorClient coordinator;
-  private:
     ObjectFinder objectFinder;
 
     DISALLOW_COPY_AND_ASSIGN(RamCloud);

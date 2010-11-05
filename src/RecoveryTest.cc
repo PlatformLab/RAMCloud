@@ -293,14 +293,34 @@ class RecoveryTest : public CppUnit::TestFixture {
         }
     }
 
-    MasterServer*
-    createMasterServer(BackupManager &mgr)
-    {
+    /// Create a master along with its config and clean them up on destruction.
+    struct AutoMaster {
+        AutoMaster(BindTransport& transport,
+                   CoordinatorClient &coordinator,
+                   const string& locator)
+            : backup(&coordinator, 0)
+            , config()
+            , master()
+        {
+            config.coordinatorLocator = "mock:host=coordinator";
+            config.localLocator = locator;
+            MasterServer::sizeLogAndHashTable("64", "8", &config);
+            master = new MasterServer(config, coordinator, backup);
+            transport.addServer(*master, locator);
+            coordinator.enlistServer(MASTER, locator);
+        }
+
+        ~AutoMaster()
+        {
+            delete master;
+        }
+
+        BackupManager backup;
         ServerConfig config;
-        config.coordinatorLocator = "mock:host=coordinator";
-        MasterServer::sizeLogAndHashTable("64", "8", &config);
-        return new MasterServer(config, *coordinator, mgr);
-    }
+        MasterServer* master;
+
+        DISALLOW_COPY_AND_ASSIGN(AutoMaster);
+    };
 
     static bool
     getRecoveryDataFilter(string s)
@@ -312,15 +332,8 @@ class RecoveryTest : public CppUnit::TestFixture {
     void
     test_start()
     {
-        BackupManager mgr1(coordinator, 0);
-        std::auto_ptr<MasterServer> master1(createMasterServer(mgr1));
-        transport->addServer(*master1, "mock:host=master1");
-        coordinator->enlistServer(MASTER, "mock:host=master1");
-
-        BackupManager mgr2(coordinator, 0);
-        std::auto_ptr<MasterServer> master2(createMasterServer(mgr2));
-        transport->addServer(*master2, "mock:host=master2");
-        coordinator->enlistServer(MASTER, "mock:host=master2");
+        AutoMaster am1(*transport, *coordinator, "mock:host=master1");
+        AutoMaster am2(*transport, *coordinator, "mock:host=master2");
 
         ProtoBuf::Tablets tablets; {
             ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
@@ -345,26 +358,27 @@ class RecoveryTest : public CppUnit::TestFixture {
             "start: Trying partition recovery on mock:host=master1 with "
             "1 tablets and 3 hosts | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 88 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 "
+            "complete | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 89 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89 "
+            "complete | "
             "start: Trying partition recovery on mock:host=master2 with "
             "1 tablets and 3 hosts | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 88 | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 89",
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 "
+            "complete | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89 "
+            "complete",
             TestLog::get());
     }
 
     void
     test_start_notEnoughMasters()
     {
-        BackupManager mgr1(coordinator, 0);
-        std::auto_ptr<MasterServer> master1(createMasterServer(mgr1));
-        transport->addServer(*master1, "mock:host=master1");
-        coordinator->enlistServer(MASTER, "mock:host=master1");
-
-        BackupManager mgr2(coordinator, 0);
-        std::auto_ptr<MasterServer> master2(createMasterServer(mgr2));
-        transport->addServer(*master2, "mock:host=master2");
-        coordinator->enlistServer(MASTER, "mock:host=master2");
+        AutoMaster am1(*transport, *coordinator, "mock:host=master1");
+        AutoMaster am2(*transport, *coordinator, "mock:host=master2");
 
         ProtoBuf::Tablets tablets; {
             ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
@@ -396,11 +410,19 @@ class RecoveryTest : public CppUnit::TestFixture {
             "start: Trying partition recovery on mock:host=master1 with "
             "1 tablets and 3 hosts | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 88 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 "
+            "complete | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 89 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89 "
+            "complete | "
             "start: Trying partition recovery on mock:host=master2 with "
             "1 tablets and 3 hosts | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 88 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 "
+            "complete | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 89 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89 "
+            "complete | "
             "start: Failed to recover all partitions for a crashed master, "
             "your RAMCloud is now busted.",
             TestLog::get());

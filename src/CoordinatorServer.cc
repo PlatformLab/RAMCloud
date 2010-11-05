@@ -299,15 +299,28 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
                     tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
             }
 
+            LOG(DEBUG, "Trying partition recovery on %lu with %u masters "
+                "and %u backups", serverId, masterList.server_size(),
+                backupList.server_size());
+
+            BaseRecovery* recovery = NULL;
             if (mockRecovery != NULL) {
                 (*mockRecovery)(serverId, *will, masterList, backupList);
+                recovery = mockRecovery;
             } else {
-                LOG(DEBUG, "Trying partition recovery on %lu with %u masters "
-                    "and %u backups", serverId, masterList.server_size(),
-                    backupList.server_size());
-                Recovery(serverId, *will, masterList, backupList).start();
-                LOG(DEBUG, "OK! Recovered!");
+                recovery = new Recovery(serverId, *will,
+                                        masterList, backupList);
             }
+
+            // Keep track of recovery for each of the tablets its working on
+            foreach (ProtoBuf::Tablets::Tablet& tablet,
+                     *tabletMap.mutable_tablet()) {
+                if (tablet.server_id() == serverId)
+                    tablet.set_user_data(reinterpret_cast<uint64_t>(recovery));
+            }
+
+            recovery->start();
+
             return;
         }
     }
@@ -337,10 +350,50 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                                     TabletsRecoveredRpc::Response& respHdr,
                                     Transport::ServerRpc& rpc)
 {
-    ProtoBuf::Tablets tablets;
+    if (reqHdr.status != STATUS_OK) {
+        // we'll need to restart a recovery of that partition elsewhere
+        // right now this just leaks the recovery object in the tabletMap
+        LOG(ERROR, "A recovery master failed to recover its partition");
+    }
+
+    ProtoBuf::Tablets recoveredTablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
-                                reqHdr.tabletsLength, tablets);
-    TEST_LOG("called with %u tablets", tablets.tablet_size());
+                                reqHdr.tabletsLength, recoveredTablets);
+    TEST_LOG("called with %u tablets", recoveredTablets.tablet_size());
+
+    // update tablet map to point to new owner and mark as available
+    foreach (const ProtoBuf::Tablets::Tablet& recoveredTablet,
+             recoveredTablets.tablet())
+    {
+        foreach (ProtoBuf::Tablets::Tablet& tablet,
+                 *tabletMap.mutable_tablet())
+        {
+            if (recoveredTablet.table_id() == tablet.table_id() &&
+                recoveredTablet.start_object_id() == tablet.start_object_id() &&
+                recoveredTablet.end_object_id() == tablet.end_object_id())
+            {
+                LOG(NOTICE, "Recovery complete on tablet %lu,%lu,%lu",
+                    tablet.table_id(), tablet.start_object_id(),
+                    tablet.end_object_id());
+                BaseRecovery* recovery =
+                    reinterpret_cast<Recovery*>(tablet.user_data());
+                tablet.set_state(ProtoBuf::Tablets_Tablet::NORMAL);
+                tablet.set_user_data(0);
+                // The caller has filled in recoveredTablets with new service
+                // locator and server id of the recovery master,
+                // so just copy it over.
+                tablet.set_service_locator(recoveredTablet.service_locator());
+                tablet.set_server_id(recoveredTablet.server_id());
+                bool recoveryComplete =
+                    recovery->tabletsRecovered(recoveredTablets);
+                if (recoveryComplete) {
+                    LOG(NOTICE, "Recovery completed");
+                    delete recovery;
+                    return;
+                }
+            }
+        }
+    }
 }
 
 } // namespace RAMCloud

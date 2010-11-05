@@ -272,9 +272,11 @@ class BackupManagerTest : public CppUnit::TestFixture {
             "mock:host=backup1 | "
             "recover: Got it | "
             "recoverSegment: recoverSegment 87, ... | "
+            "recoverSegment: Segment 87 replay complete | "
             "recover: Getting recovery data for segment 88 from "
             "mock:host=backup1 | recover: Got it | "
             "recoverSegment: recoverSegment 88, ... | "
+            "recoverSegment: Segment 88 replay complete | "
             "recover: skipping mock:host=backup2, already recovered 88",
             TestLog::get());
     }

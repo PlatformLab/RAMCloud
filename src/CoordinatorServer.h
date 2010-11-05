@@ -109,7 +109,7 @@ class CoordinatorServer : public Server {
     uint32_t nextTableId;
 
     /// Used in unit testing.
-    MockRecovery* mockRecovery;
+    BaseRecovery* mockRecovery;
 
     friend class CoordinatorTest;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServer);

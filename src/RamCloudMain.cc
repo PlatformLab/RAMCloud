@@ -117,7 +117,7 @@ try
         length);
 
     b = rdtsc();
-    int count = 16384;
+    int count = 100;
     id = 0xfffffff;
     const char *val = "0123456789ABCDEF";
     uint64_t sum = 0;
@@ -134,6 +134,16 @@ try
     if (hintServerDown) {
         LOG(DEBUG, "--- hinting that the server is down ---");
         client.coordinator.hintServerDown("tcp:host=127.0.0.1,port=12242");
+        printf("- flushing map\n");
+        client.objectFinder.flush();
+
+        printf("- attempting read from recovery master\n");
+        client.read(table, 43, &buffer);
+        printf("read took %lu ticks\n", rdtsc() - b);
+        printf("read took %u ticks on the server\n",
+               client.counterValue);
+        printf("read value: %s\n", buffer.getRange(0, buffer.getTotalLength()));
+        printf("- recovery worked!\n");
     } else {
         client.dropTable("test");
     }

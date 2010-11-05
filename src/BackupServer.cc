@@ -99,7 +99,8 @@ BackupServer::closeSegment(const BackupCloseRpc::Request& reqHdr,
                            BackupCloseRpc::Response& respHdr,
                            Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "Handling: %s", __func__);
+    LOG(DEBUG, "Handling: %s %lu %lu",
+        __func__, reqHdr.masterId, reqHdr.segmentId);
     closeSegment(reqHdr.masterId, reqHdr.segmentId);
 }
 
@@ -190,7 +191,8 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
                           BackupFreeRpc::Response& respHdr,
                           Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "Handle: %s", __func__);
+    LOG(DEBUG, "Handling: %s %lu %lu",
+        __func__, reqHdr.masterId, reqHdr.segmentId);
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info)
@@ -281,12 +283,16 @@ try
     for (SegmentIterator it(info->segment, segmentSize);
          !it.isDone(); it.next())
     {
+        if (it.getType() == 0)
+            break;
         if (!keepEntry(it.getType(), it.getPointer(), tablets))
             continue;
         segment.append(it.getType(), it.getPointer(), it.getLength());
     }
 
     segment.close();
+    LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu complete",
+        reqHdr.masterId, reqHdr.segmentId);
 } catch (const SegmentIteratorException& e) {
     LOG(WARNING, "getRecoveryData failed due to malformed segment data: "
         "masterId %lu, segmentId %lu", reqHdr.masterId, reqHdr.segmentId);
@@ -377,7 +383,8 @@ BackupServer::openSegment(const BackupOpenRpc::Request& reqHdr,
                           BackupOpenRpc::Response& respHdr,
                           Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "Handling: %s", __func__);
+    LOG(DEBUG, "Handling: %s %lu %lu",
+        __func__, reqHdr.masterId, reqHdr.segmentId);
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (info)
@@ -419,7 +426,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                                BackupStartReadingDataRpc::Response& respHdr,
                                Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "Handling: %s", __func__);
+    LOG(DEBUG, "Handling: %s %lu", __func__, reqHdr.masterId);
 
     // TODO(stutsman) use aio to get data into RAM before getRecoveryData
     uint32_t segmentIdCount = 0;
