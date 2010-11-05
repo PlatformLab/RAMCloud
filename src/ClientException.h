@@ -136,6 +136,9 @@ DEFINE_EXCEPTION(BackupMalformedSegmentException,
 DEFINE_EXCEPTION(SegmentRecoveryFailedException,
                  STATUS_SEGMENT_RECOVERY_FAILED,
                  ClientException)
+DEFINE_EXCEPTION(RetryException,
+                 STATUS_RETRY,
+                 ClientException)
 
 } // namespace RAMCloud
 

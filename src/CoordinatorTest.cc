@@ -86,7 +86,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     }
 
     void test_createTable() {
-        client->enlistServer(MASTER, "mock:host=master");
+        // master is already enlisted
         client->createTable("foo");
         client->createTable("foo"); // should be no-op
         client->createTable("bar");
@@ -112,6 +112,8 @@ class CoordinatorTest : public CppUnit::TestFixture {
                              will.ShortDebugString());
     }
 
+    // TODO(ongaro): Find a way to test createTable with no masters online.
+
     // TODO(ongaro): test drop, open table
 
     void test_enlistServer() {
@@ -124,20 +126,10 @@ class CoordinatorTest : public CppUnit::TestFixture {
                                 server->masterList.ShortDebugString());
         ProtoBuf::Tablets& will(*reinterpret_cast<ProtoBuf::Tablets*>(
                                     server->masterList.server(0).user_data()));
-        CPPUNIT_ASSERT_EQUAL("tablet { table_id: 0 start_object_id: 0 "
-                             "end_object_id: 18446744073709551615 "
-                             "state: NORMAL user_data: 0 }",
-                             will.ShortDebugString());
-        CPPUNIT_ASSERT_EQUAL(1, master->tablets.tablet_size());
+        CPPUNIT_ASSERT_EQUAL(0, will.tablet_size());
         CPPUNIT_ASSERT_EQUAL("server { server_type: BACKUP server_id: 3 "
                              "service_locator: \"mock:host=backup\" }",
                              server->backupList.ShortDebugString());
-        CPPUNIT_ASSERT_EQUAL("tablet { table_id: 0 start_object_id: 0 "
-                             "end_object_id: 18446744073709551615 "
-                             "state: NORMAL server_id: 2 "
-                             "service_locator: \"mock:host=master\" }",
-                             server->tabletMap.ShortDebugString());
-        CPPUNIT_ASSERT_EQUAL(1, master->tablets.tablet().size());
     }
 
     void test_getBackupList() {
@@ -154,7 +146,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     }
 
     void test_getTabletMap() {
-        client->enlistServer(MASTER, "mock:host=master");
+        client->createTable("foo");
         ProtoBuf::Tablets tabletMap;
         client->getTabletMap(tabletMap);
         CPPUNIT_ASSERT_EQUAL("tablet { table_id: 0 start_object_id: 0 "
@@ -202,6 +194,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
         // master is already enlisted
         client->enlistServer(MASTER, "mock:host=master2");
         client->enlistServer(BACKUP, "mock:host=backup");
+        client->createTable("foo");
         client->hintServerDown("mock:host=master");
         CPPUNIT_ASSERT(mockRecovery.called);
     }

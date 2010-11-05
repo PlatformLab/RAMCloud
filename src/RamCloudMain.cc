@@ -56,7 +56,7 @@ try
 
     config.coordinatorLocator = optionParser.options.getCoordinatorLocator();
 
-    printf("client: Connecting to %s\n", config.serverLocator.c_str());
+    LOG(RC::NOTICE, "client: Connecting to %s", config.serverLocator.c_str());
 
     RC::RamCloud client(config.serverLocator.c_str());
     client.selectPerfCounter(RC::PERF_COUNTER_TSC,

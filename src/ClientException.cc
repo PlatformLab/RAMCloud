@@ -92,6 +92,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw BackupMalformedSegmentException(where);
         case STATUS_SEGMENT_RECOVERY_FAILED:
             throw SegmentRecoveryFailedException(where);
+        case STATUS_RETRY:
+            throw RetryException(where);
         default:
             throw InternalError(where, status);
     }

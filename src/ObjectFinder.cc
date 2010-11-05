@@ -68,12 +68,6 @@ ObjectFinder::lookup(uint32_t table, uint64_t objectId) {
         }
         // tablet not found in local tablet map cache
         if (haveRefreshed) {
-            if (table == 0 && tabletMap.tablet_size() == 0) {
-                // TODO(ongaro): remove this with RAM-137
-                // waiting for first master to come online
-                usleep(10000);
-                goto refresh_and_retry;
-            }
             LOG(ERROR, "table doesnt exist: %u %lu %d %s",
                 table, objectId, haveRefreshed,
                 tabletMap.DebugString().c_str());

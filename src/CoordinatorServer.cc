@@ -24,7 +24,6 @@ CoordinatorServer::CoordinatorServer()
     : nextServerId(1)
     , backupList()
     , masterList()
-    , firstMaster(NULL)
     , tabletMap()
     , tables()
     , nextTableId(0)
@@ -66,7 +65,7 @@ CoordinatorServer::dispatch(RpcType type,
             break;
         case EnlistServerRpc::type:
             callHandler<EnlistServerRpc, CoordinatorServer,
-                        &CoordinatorServer::enlistServer>(rpc, responder);
+                        &CoordinatorServer::enlistServer>(rpc);
             break;
         case GetBackupListRpc::type:
             callHandler<GetBackupListRpc, CoordinatorServer,
@@ -101,24 +100,18 @@ CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
                                CreateTableRpc::Response& respHdr,
                                Transport::ServerRpc& rpc)
 {
+    if (masterList.server_size() == 0)
+        throw RetryException(HERE);
+
     const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
     if (tables.find(name) != tables.end())
         return;
     uint32_t tableId = nextTableId++;
     tables[name] = tableId;
-    if (tableId != 0) // check is temporary, see RAM-137
-        createTable(tableId, *firstMaster); // race, see RAM-138
-    LOG(NOTICE, "Created table '%s' with id %u", name, tableId);
-    LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
-}
 
-/**
- * Common code used by #createTable() above and temporarily by #enlistServer().
- */
-void
-CoordinatorServer::createTable(uint32_t tableId,
-                               ProtoBuf::ServerList_Entry& master) {
+    ProtoBuf::ServerList_Entry& master(*masterList.mutable_server(0));
+
     // Create tablet map entry.
     ProtoBuf::Tablets_Tablet& tablet(*tabletMap.add_tablet());
     tablet.set_table_id(tableId);
@@ -150,6 +143,9 @@ CoordinatorServer::createTable(uint32_t tableId,
     // TODO(ongaro): filter tabletMap for those tablets belonging to master
     // before sending
     masterClient.setTablets(tabletMap);
+
+    LOG(NOTICE, "Created table '%s' with id %u", name, tableId);
+    LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
 }
 
 /**
@@ -180,8 +176,8 @@ CoordinatorServer::dropTable(const DropTableRpc::Request& reqHdr,
     }
     // TODO(ongaro): update only affected masters, filter tabletMap for those
     // tablets belonging to each master
-    MasterClient master(
-        transportManager.getSession(firstMaster->service_locator().c_str()));
+    const string& locator(masterList.server(0).service_locator());
+    MasterClient master(transportManager.getSession(locator.c_str()));
     master.setTablets(tabletMap);
 
     LOG(NOTICE, "Dropped table '%s' with id %u", name, tableId);
@@ -208,15 +204,11 @@ CoordinatorServer::openTable(const OpenTableRpc::Request& reqHdr,
 /**
  * Handle the ENLIST_SERVER RPC.
  * \copydetails Server::ping
- * \param responder
- *      Functor to respond to the RPC before returning from this method. Used
- *      to avoid deadlock between first master and coordinator.
  */
 void
 CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                 EnlistServerRpc::Response& respHdr,
-                                Transport::ServerRpc& rpc,
-                                Responder& responder)
+                                Transport::ServerRpc& rpc)
 {
     uint64_t serverId = nextServerId++;
     ProtoBuf::ServerType serverType =
@@ -238,23 +230,6 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
         LOG(DEBUG, "Backup enlisted with id %lu", serverId);
     }
     respHdr.serverId = serverId;
-    responder();
-
-    // reqHdr, respHdr, and rpc are off-limits now
-
-    if (firstMaster == NULL && server.server_type() == ProtoBuf::MASTER) {
-        firstMaster = &server;
-        // first master gets table 0, see RAM-137
-        // for backwards compatibility, the first table to be explicitly
-        // created should get id 0 as well
-        // Note that if createTable is called before this master registers,
-        // nextTableId might already be 1. (It can't be greater or we would
-        // have segfaulted; see RAM-138.)
-        createTable(0, server);
-        LOG(NOTICE, "Assigned table id 0");
-        LOG(DEBUG, "There are now %d tablets in the map",
-            tabletMap.tablet_size());
-    }
 }
 
 /**

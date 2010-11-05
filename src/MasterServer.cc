@@ -183,7 +183,9 @@ recoveryCleanup(const ObjectTombstone *tomb, void *cookie)
 
 /**
  * Top-level server method to handle the RECOVER request.
- * \copydetails CoordinatorServer::enlistServer
+ * \copydetails Server::ping
+ * \param responder
+ *      Functor to respond to the RPC before returning from this method.
  */
 void
 MasterServer::recover(const RecoverRpc::Request& reqHdr,
