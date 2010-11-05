@@ -179,6 +179,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
                       Transport::ServerRpc& rpc,
                       Responder& responder)
 {
+    uint64_t masterId = reqHdr.masterId;
     ProtoBuf::Tablets tablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, tablets);
@@ -187,7 +188,9 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
                                 sizeof(reqHdr) + reqHdr.tabletsLength,
                                 reqHdr.serverListLength, backups);
     responder();
-    backup.recover(*this, reqHdr.masterId, tablets, backups);
+    // reqHdr, respHdr, and rpc are off-limits now
+
+    backup.recover(*this, masterId, tablets, backups);
 }
 
 /**
