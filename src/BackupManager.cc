@@ -168,7 +168,9 @@ BackupManager::recover(MasterServer& recoveryMaster,
                 "failure was: %s", locator.c_str(), e.toString());
             continue;
         }
-        recoveryMaster.recoverSegment(segmentIdToRecover, resp);
+        recoveryMaster.recoverSegment(segmentIdToRecover,
+                                      resp.getRange(0, resp.getTotalLength()),
+                                      resp.getTotalLength());
         wasRecovered = true;
     }
     if (!wasRecovered) {

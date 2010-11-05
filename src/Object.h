@@ -84,7 +84,9 @@ struct ObjectTombstone {
         , objectVersion(objectVersion)
     {
     }
+
     friend class BackupServerTest;
+    friend class MasterTest;
 };
 
 typedef HashTable<Object, &Object::table, &Object::id> ObjectMap;

@@ -36,6 +36,7 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_read_noSuchObject);
     CPPUNIT_TEST(test_read_rejectRules);
     CPPUNIT_TEST(test_recover_basics);
+    CPPUNIT_TEST(test_recoverSegment);
     CPPUNIT_TEST(test_remove_basics);
     CPPUNIT_TEST(test_remove_badTable);
     CPPUNIT_TEST(test_remove_rejectRules);
@@ -216,6 +217,196 @@ class MasterTest : public CppUnit::TestFixture {
             "recover: *** Failed to recover segment id 87, the recovered "
             "master state is corrupted, aborting recovery",
             TestLog::get());
+    }
+
+    void
+    buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
+                         uint64_t tblId, uint64_t objId, uint64_t version,
+                         string objContents)
+    {
+        Segment s(0, 0, segmentBuf, segmentCapacity, NULL);
+
+        DECLARE_OBJECT(newObject, objContents.length() + 1);
+        newObject->id = objId;
+        newObject->table = tblId;
+        newObject->version = version;
+        newObject->data_len = objContents.length() + 1;
+        strcpy(newObject->data, objContents.c_str()); // NOLINT fuck off
+
+        const void *p = s.append(LOG_ENTRY_TYPE_OBJ, newObject,
+                                 newObject->size());
+        assert(p != NULL);
+        s.close();
+    }
+
+    void
+    buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
+                         ObjectTombstone *tomb)
+    {
+        Segment s(0, 0, segmentBuf, segmentCapacity, NULL);
+        const void *p = s.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb));
+        assert(p != NULL);
+        s.close();
+    }
+
+    void
+    verifyRecoveryObject(uint64_t tblId, uint64_t objId, string contents)
+    {
+        Buffer value;
+        client->read(tblId, objId, &value);
+        const char *s = reinterpret_cast<const char *>(
+            value.getRange(0, value.getTotalLength()));
+        CPPUNIT_ASSERT(strcmp(s, contents.c_str()) == 0);
+    }
+
+    void
+    test_recoverSegment()
+    {
+        char seg[8192];
+        Buffer value;
+        bool ret;
+        const void *p = NULL;
+        const ObjectTombstone *tomb1 = NULL;
+        const ObjectTombstone *tomb2 = NULL;
+
+        ////////////////////////////////////////////////////////////////////
+        // For Object recovery there are 3 major cases:
+        //  1) Object is in the HashTable, but no corresponding Tombstone.
+        //     The recovered obj is only added if the version is newer than
+        //     the existing obj.
+        //
+        //  2) Opposite of 1 above.
+        //     The recovered obj is only added if the version is newer than
+        //     the tombstone. If so, the tombstone is also discarded.
+        //
+        //  3) Neither an Object nor Tombstone is present.
+        //     The recovered obj is always added.
+        ////////////////////////////////////////////////////////////////////
+
+        // Case 1a: Newer object already there; ignore object.
+        buildRecoverySegment(seg, sizeof(seg), 0, 2000, 1, "newer guy");
+        server->recoverSegment(0, seg, sizeof(seg));
+        verifyRecoveryObject(0, 2000, "newer guy");
+        buildRecoverySegment(seg, sizeof(seg), 0, 2000, 0, "older guy");
+        server->recoverSegment(0, seg, sizeof(seg));
+        verifyRecoveryObject(0, 2000, "newer guy");
+
+        // Case 1b: Older object already there; replace object.
+        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 0, "older guy");
+        server->recoverSegment(0, seg, sizeof(seg));
+        verifyRecoveryObject(0, 2001, "older guy");
+        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "newer guy");
+        server->recoverSegment(0, seg, sizeof(seg));
+        verifyRecoveryObject(0, 2001, "newer guy");
+
+        // Case 2a: Equal/newer tombstone already there; ignore object.
+        ObjectTombstone t1(0, 0, 2002, 1);
+        p = server->log->append(LOG_ENTRY_TYPE_OBJTOMB, &t1, sizeof(t1));
+        assert(p != NULL);
+        ret = server->tombstoneMap.replace(0, 2002,
+            reinterpret_cast<const ObjectTombstone *>(p));
+        CPPUNIT_ASSERT_EQUAL(false, ret);
+        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "equal guy");
+        server->recoverSegment(0, seg, sizeof(seg));
+        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 0, "older guy");
+        server->recoverSegment(0, seg, sizeof(seg));
+        CPPUNIT_ASSERT_THROW(client->read(0, 2002, &value),
+                             ObjectDoesntExistException);
+
+        // Case 2b: Lesser tombstone already there; add object, remove tomb.
+        ObjectTombstone t2(0, 0, 2003, 10);
+        p = server->log->append(LOG_ENTRY_TYPE_OBJTOMB, &t2, sizeof(t2));
+        assert(p != NULL);
+        ret = server->tombstoneMap.replace(0, 2003,
+            reinterpret_cast<const ObjectTombstone *>(p));
+        CPPUNIT_ASSERT_EQUAL(false, ret);
+        buildRecoverySegment(seg, sizeof(seg), 0, 2003, 11, "newer guy");
+        server->recoverSegment(0, seg, sizeof(seg));
+        verifyRecoveryObject(0, 2003, "newer guy");
+        CPPUNIT_ASSERT_EQUAL(NULL, server->tombstoneMap.lookup(0, 2003));
+
+        // Case 3: No tombstone, no object. Recovered object always added.
+        CPPUNIT_ASSERT_EQUAL(NULL, server->tombstoneMap.lookup(0, 2004));
+        CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2004));
+        buildRecoverySegment(seg, sizeof(seg), 0, 2004, 0, "only guy");
+        server->recoverSegment(0, seg, sizeof(seg));
+        verifyRecoveryObject(0, 2004, "only guy");
+        CPPUNIT_ASSERT_EQUAL(NULL, server->tombstoneMap.lookup(0, 2004));
+
+        ////////////////////////////////////////////////////////////////////
+        // For ObjectTombstone recovery there are the same 3 major cases:
+        //  1) Object is in  the HashTable, but no corresponding Tombstone.
+        //     The recovered tomb is only added if the version is equal to
+        //     or greater than the object. If so, the object is purged.
+        //
+        //  2) Opposite of 1 above.
+        //     The recovered tomb is only added if the version is newer than
+        //     the current tombstone. If so, the old tombstone is discarded.
+        //
+        //  3) Neither an Object nor Tombstone is present.
+        //     The recovered tombstone is always added.
+        ////////////////////////////////////////////////////////////////////
+
+        // Case 1a: Newer object already there; ignore tombstone.
+        buildRecoverySegment(seg, sizeof(seg), 0, 2005, 1, "newer guy");
+        server->recoverSegment(0, seg, sizeof(seg));
+        ObjectTombstone t3(0, 0, 2005, 0);
+        buildRecoverySegment(seg, sizeof(seg), &t3);
+        server->recoverSegment(0, seg, sizeof(seg));
+        verifyRecoveryObject(0, 2005, "newer guy");
+
+        // Case 1b: Equal/older object already there; discard and add tombstone.
+        buildRecoverySegment(seg, sizeof(seg), 0, 2006, 0, "equal guy");
+        server->recoverSegment(0, seg, sizeof(seg));
+        verifyRecoveryObject(0, 2006, "equal guy");
+        ObjectTombstone t4(0, 0, 2006, 0);
+        buildRecoverySegment(seg, sizeof(seg), &t4);
+        server->recoverSegment(0, seg, sizeof(seg));
+        CPPUNIT_ASSERT_THROW(client->read(0, 2006, &value),
+                             ObjectDoesntExistException);
+        buildRecoverySegment(seg, sizeof(seg), 0, 2007, 0, "older guy");
+        server->recoverSegment(0, seg, sizeof(seg));
+        verifyRecoveryObject(0, 2007, "older guy");
+        ObjectTombstone t5(0, 0, 2007, 1);
+        buildRecoverySegment(seg, sizeof(seg), &t5);
+        server->recoverSegment(0, seg, sizeof(seg));
+        CPPUNIT_ASSERT_THROW(client->read(0, 2007, &value),
+                             ObjectDoesntExistException);
+
+        // Case 2a: Newer tombstone already there; ignore.
+        ObjectTombstone t6(0, 0, 2008, 1);
+        buildRecoverySegment(seg, sizeof(seg), &t6);
+        server->recoverSegment(0, seg, sizeof(seg));
+        tomb1 = server->tombstoneMap.lookup(0, 2008);
+        CPPUNIT_ASSERT(tomb1 != NULL);
+        CPPUNIT_ASSERT_EQUAL(1, tomb1->objectVersion);
+        ObjectTombstone t7(0, 0, 2008, 0);
+        buildRecoverySegment(seg, sizeof(seg), &t7);
+        server->recoverSegment(0, seg, sizeof(seg));
+        tomb2 = server->tombstoneMap.lookup(0, 2008);
+        CPPUNIT_ASSERT_EQUAL(tomb1, tomb2);
+
+        // Case 2b: Older tombstone already there; replace.
+        ObjectTombstone t8(0, 0, 2009, 0);
+        buildRecoverySegment(seg, sizeof(seg), &t8);
+        server->recoverSegment(0, seg, sizeof(seg));
+        tomb1 = server->tombstoneMap.lookup(0, 2009);
+        CPPUNIT_ASSERT(tomb1 != NULL);
+        CPPUNIT_ASSERT_EQUAL(0, tomb1->objectVersion);
+        ObjectTombstone t9(0, 0, 2009, 1);
+        buildRecoverySegment(seg, sizeof(seg), &t9);
+        server->recoverSegment(0, seg, sizeof(seg));
+        tomb2 = server->tombstoneMap.lookup(0, 2009);
+        CPPUNIT_ASSERT(tomb2 != NULL);
+        CPPUNIT_ASSERT_EQUAL(1, tomb2->objectVersion);
+
+        // Case 3: No tombstone, no object. Recovered tombstone always added.
+        CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2010));
+        ObjectTombstone t10(0, 0, 2010, 0);
+        buildRecoverySegment(seg, sizeof(seg), &t10);
+        server->recoverSegment(0, seg, sizeof(seg));
+        CPPUNIT_ASSERT(server->tombstoneMap.lookup(0, 2010) != NULL);
+        CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2010));
     }
 
     void test_remove_basics() {

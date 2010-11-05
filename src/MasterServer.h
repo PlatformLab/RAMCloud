@@ -148,7 +148,7 @@ class MasterServer : public Server {
         if (numSegments < 1) {
             throw Exception(HERE,
                             "invalid `MasterTotalMemory' and/or "
-                            "`HashTableMemory' options - insufficent memory "
+                            "`HashTableMemory' options - insufficient memory "
                             "left for the log!");
         }
 
@@ -157,7 +157,7 @@ class MasterServer : public Server {
         if (numHashTableLines < 1) {
             throw Exception(HERE,
                             "invalid `MasterTotalMemory' and/or "
-                            "`HashTableMemory' options - insufficent memory "
+                            "`HashTableMemory' options - insufficient memory "
                             "left for the hash table!");
         }
 
@@ -182,7 +182,8 @@ class MasterServer : public Server {
                  RecoverRpc::Response& respHdr,
                  Transport::ServerRpc& rpc);
 
-    void recoverSegment(uint64_t segmentId, Buffer& segment);
+    void recoverSegment(uint64_t segmentId, const void *buffer,
+                        uint64_t bufferLength);
     friend void BackupManager::recover(MasterServer& recoveryMaster,
                                        uint64_t masterId,
                                        const ProtoBuf::Tablets& tablets,

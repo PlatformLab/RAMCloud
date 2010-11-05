@@ -201,18 +201,20 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
  *
  * \param segmentId
  *      The segmentId of the segment as it was in the log of the crashed Master.
- * \param segment
- *      A Buffer containing a valid segment which has been pre-filtered of all
+ * \param buffer 
+ *      A pointer to a valid segment which has been pre-filtered of all
  *      objects except those that pertain to the tablet ranges this Master
  *      will be responsible for after the recovery completes.
+ * \param bufferLength
+ *      Length of the buffer in bytes.
  */
 void
-MasterServer::recoverSegment(uint64_t segmentId, Buffer& segment)
+MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
+    uint64_t bufferLength)
 {
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
 
-    SegmentIterator i(segment.getRange(0, segment.getTotalLength()),
-                      segment.getTotalLength(), true);
+    SegmentIterator i(buffer, bufferLength, true);
     while (!i.isDone()) {
         LogEntryType type = i.getType();
 
@@ -251,7 +253,7 @@ MasterServer::recoverSegment(uint64_t segmentId, Buffer& segment)
 
                 // nuke the old object, if it existed
                 if (localObj != NULL) {
-                    log->free(localObj); 
+                    log->free(localObj);
                 }
             }
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
@@ -269,11 +271,11 @@ MasterServer::recoverSegment(uint64_t segmentId, Buffer& segment)
 
             uint64_t minSuccessor = 0;
             if (localObj != NULL)
-                minSuccessor = localObj->version + 1;
+                minSuccessor = localObj->version;
             else if (tomb != NULL)
-                minSuccessor = tomb->objectVersion + 1; 
+                minSuccessor = tomb->objectVersion + 1;
 
-            if (tomb->objectVersion >= minSuccessor) {
+            if (recoverTomb->objectVersion >= minSuccessor) {
                 // write to log & update hash table
                 // we technically don't have to write this out, but the log
                 // is a natural place to allocate memory from, especially
@@ -286,8 +288,7 @@ MasterServer::recoverSegment(uint64_t segmentId, Buffer& segment)
 
                 // nuke the old tombstone, if it existed
                 if (tomb != NULL) {
-                    tombstoneMap.remove(objId, tblId);
-                    log->free(recoverTomb);
+                    log->free(tomb);
                 }
 
                 // nuke the old object, if it existed
