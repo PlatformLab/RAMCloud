@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_OBJECTFINDER_H
 #define RAMCLOUD_OBJECTFINDER_H
 
+#include <boost/function.hpp>
+
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "Transport.h"
@@ -24,40 +26,35 @@ namespace RAMCloud {
 
 /**
  * The client uses this class to get session handles to masters.
- * \warning
- *      This implementation is a placeholder. For now, the only session
- *      returned is one referring to the first master to have registered with
- *      the coordinator.
  */
 class ObjectFinder {
   public:
-    explicit ObjectFinder(CoordinatorClient& coordinator)
-        : coordinator(coordinator)
-        , master() {
-        ProtoBuf::Tablets tabletMap;
-        while (true) {
-            coordinator.getTabletMap(tabletMap);
-            foreach (const ProtoBuf::Tablets::Tablet& tablet,
-                     tabletMap.tablet()) {
-                if (tablet.table_id() == 0) {
-                    LOG(NOTICE, "Using master %s",
-                        tablet.service_locator().c_str());
-                    master = transportManager.getSession(
-                                         tablet.service_locator().c_str());
-                    return;
-                }
-            }
-        }
-    }
-    Transport::SessionRef lookup(uint32_t table, uint64_t objectId) {
-        return master;
-    }
+    explicit ObjectFinder(CoordinatorClient& coordinator);
+
+    Transport::SessionRef lookup(uint32_t table, uint64_t objectId);
+
+    /**
+     * Lookup the master that is in charge of assigning object IDs for create
+     * requests for the given table.
+     */
     Transport::SessionRef lookupHead(uint32_t table) {
-        return master;
+        return lookup(table, ~0UL);
     }
+
   private:
-    CoordinatorClient& coordinator;
-    Transport::SessionRef master;
+    /**
+     * A cache of the coordinator's tablet map.
+     */
+    ProtoBuf::Tablets tabletMap;
+
+    /**
+     * Update the local tablet map cache. Usually, calling refresher(tabletMap)
+     * is the same as calling coordinator.getTabletMap(tabletMap). During unit
+     * tests, however, refresher is swapped out with a mock function.
+     */
+    boost::function<void(ProtoBuf::Tablets&)> refresher;
+
+    friend class ObjectFinderTest;
     DISALLOW_COPY_AND_ASSIGN(ObjectFinder);
 };
 

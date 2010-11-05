@@ -21,6 +21,7 @@ CLIENT_SRCFILES := \
 		   src/IpAddress.cc \
 		   src/Logging.cc \
 		   src/MasterClient.cc \
+		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
 		   src/RamCloud.cc \
 		   src/ServiceLocator.cc \
