@@ -269,6 +269,12 @@ class MasterTest : public CppUnit::TestFixture {
         const ObjectTombstone *tomb1 = NULL;
         const ObjectTombstone *tomb2 = NULL;
 
+        // the map is only allocated as needed, so insure the pointer isn't
+        // null
+        CPPUNIT_ASSERT_EQUAL(NULL, server->tombstoneMap);
+        server->tombstoneMap = new ObjectTombstoneMap(64 * 1024 * 1024 /
+            ObjectTombstoneMap::bytesPerCacheLine());
+
         ////////////////////////////////////////////////////////////////////
         // For Object recovery there are 3 major cases:
         //  1) Object is in the HashTable, but no corresponding Tombstone.
@@ -303,7 +309,7 @@ class MasterTest : public CppUnit::TestFixture {
         ObjectTombstone t1(0, 0, 2002, 1);
         p = xmalloc(sizeof(t1));
         memcpy(p, &t1, sizeof(t1));
-        ret = server->tombstoneMap.replace(0, 2002,
+        ret = server->tombstoneMap->replace(0, 2002,
             reinterpret_cast<const ObjectTombstone *>(p));
         CPPUNIT_ASSERT_EQUAL(false, ret);
         buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "equal guy");
@@ -316,23 +322,23 @@ class MasterTest : public CppUnit::TestFixture {
         // Case 2b: Lesser tombstone already there; add object, remove tomb.
         ObjectTombstone t2(0, 0, 2003, 10);
         p = xmalloc(sizeof(t2));
-        memcpy(p, &t2, sizeof(t2)); 
+        memcpy(p, &t2, sizeof(t2));
         assert(p != NULL);
-        ret = server->tombstoneMap.replace(0, 2003,
+        ret = server->tombstoneMap->replace(0, 2003,
             reinterpret_cast<const ObjectTombstone *>(p));
         CPPUNIT_ASSERT_EQUAL(false, ret);
         buildRecoverySegment(seg, sizeof(seg), 0, 2003, 11, "newer guy");
         server->recoverSegment(0, seg, sizeof(seg));
         verifyRecoveryObject(0, 2003, "newer guy");
-        CPPUNIT_ASSERT_EQUAL(NULL, server->tombstoneMap.lookup(0, 2003));
+        CPPUNIT_ASSERT_EQUAL(NULL, server->tombstoneMap->lookup(0, 2003));
 
         // Case 3: No tombstone, no object. Recovered object always added.
-        CPPUNIT_ASSERT_EQUAL(NULL, server->tombstoneMap.lookup(0, 2004));
+        CPPUNIT_ASSERT_EQUAL(NULL, server->tombstoneMap->lookup(0, 2004));
         CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2004));
         buildRecoverySegment(seg, sizeof(seg), 0, 2004, 0, "only guy");
         server->recoverSegment(0, seg, sizeof(seg));
         verifyRecoveryObject(0, 2004, "only guy");
-        CPPUNIT_ASSERT_EQUAL(NULL, server->tombstoneMap.lookup(0, 2004));
+        CPPUNIT_ASSERT_EQUAL(NULL, server->tombstoneMap->lookup(0, 2004));
 
         ////////////////////////////////////////////////////////////////////
         // For ObjectTombstone recovery there are the same 3 major cases:
@@ -378,26 +384,26 @@ class MasterTest : public CppUnit::TestFixture {
         ObjectTombstone t6(0, 0, 2008, 1);
         buildRecoverySegment(seg, sizeof(seg), &t6);
         server->recoverSegment(0, seg, sizeof(seg));
-        tomb1 = server->tombstoneMap.lookup(0, 2008);
+        tomb1 = server->tombstoneMap->lookup(0, 2008);
         CPPUNIT_ASSERT(tomb1 != NULL);
         CPPUNIT_ASSERT_EQUAL(1, tomb1->objectVersion);
         ObjectTombstone t7(0, 0, 2008, 0);
         buildRecoverySegment(seg, sizeof(seg), &t7);
         server->recoverSegment(0, seg, sizeof(seg));
-        tomb2 = server->tombstoneMap.lookup(0, 2008);
+        tomb2 = server->tombstoneMap->lookup(0, 2008);
         CPPUNIT_ASSERT_EQUAL(tomb1, tomb2);
 
         // Case 2b: Older tombstone already there; replace.
         ObjectTombstone t8(0, 0, 2009, 0);
         buildRecoverySegment(seg, sizeof(seg), &t8);
         server->recoverSegment(0, seg, sizeof(seg));
-        tomb1 = server->tombstoneMap.lookup(0, 2009);
+        tomb1 = server->tombstoneMap->lookup(0, 2009);
         CPPUNIT_ASSERT(tomb1 != NULL);
         CPPUNIT_ASSERT_EQUAL(0, tomb1->objectVersion);
         ObjectTombstone t9(0, 0, 2009, 1);
         buildRecoverySegment(seg, sizeof(seg), &t9);
         server->recoverSegment(0, seg, sizeof(seg));
-        tomb2 = server->tombstoneMap.lookup(0, 2009);
+        tomb2 = server->tombstoneMap->lookup(0, 2009);
         CPPUNIT_ASSERT(tomb2 != NULL);
         CPPUNIT_ASSERT_EQUAL(1, tomb2->objectVersion);
 
@@ -406,8 +412,11 @@ class MasterTest : public CppUnit::TestFixture {
         ObjectTombstone t10(0, 0, 2010, 0);
         buildRecoverySegment(seg, sizeof(seg), &t10);
         server->recoverSegment(0, seg, sizeof(seg));
-        CPPUNIT_ASSERT(server->tombstoneMap.lookup(0, 2010) != NULL);
+        CPPUNIT_ASSERT(server->tombstoneMap->lookup(0, 2010) != NULL);
         CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2010));
+
+        delete server->tombstoneMap;
+        server->tombstoneMap = NULL;
     }
 
     void test_remove_basics() {

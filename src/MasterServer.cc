@@ -54,7 +54,7 @@ MasterServer::MasterServer(const ServerConfig& config,
     , backup(backup)
     , log(0)
     , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine())
-    , tombstoneMap(64 * 1024 * 1024 / ObjectMap::bytesPerCacheLine())
+    , tombstoneMap(NULL)
     , tablets()
 {
     serverId = coordinator.enlistServer(MASTER, config.localLocator);
@@ -172,6 +172,16 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
 }
 
 /**
+ * Callback used to purge the recovery tombstone hash table. Invoked by
+ * HashTable::forEach.
+ */
+static void
+recoveryCleanup(const ObjectTombstone *tomb, void *cookie)
+{
+    free(const_cast<ObjectTombstone *>(tomb));
+}
+
+/**
  * Top-level server method to handle the RECOVER request.
  * \copydetails CoordinatorServer::enlistServer
  */
@@ -192,11 +202,17 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
     responder();
     // reqHdr, respHdr, and rpc are off-limits now
 
-    // Recover Segments. This will result in MasterServer::recoverSegment calls.
+    // Allocate a recovery hash table for the tombstones.
+    tombstoneMap = new ObjectTombstoneMap(64 * 1024 * 1024 /
+        ObjectTombstoneMap::bytesPerCacheLine());
+
+    // Recover Segments, firing MasterServer::recoverSegment for each one.
     backup.recover(*this, masterId, tablets, backups);
 
-    // Clean up our recovery tombstoneMap.
-    //-- XXX --
+    // Free recovery tombstones left in the hash table and deallocate it.
+    tombstoneMap->forEach(recoveryCleanup, NULL);
+    delete tombstoneMap;
+    tombstoneMap = NULL;
 }
 
 /**
@@ -229,7 +245,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
             uint64_t tblId = recoverObj->table;
 
             const Object *localObj = objectMap.lookup(tblId, objId);
-            const ObjectTombstone *tomb = tombstoneMap.lookup(tblId, objId);
+            const ObjectTombstone *tomb = tombstoneMap->lookup(tblId, objId);
 
             // can't have both a tombstone and an object in the hash tables
             assert(tomb == NULL || localObj == NULL);
@@ -250,7 +266,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
                 // nuke the tombstone, if it existed
                 if (tomb != NULL) {
-                    tombstoneMap.remove(tblId, objId);
+                    tombstoneMap->remove(tblId, objId);
                     free(const_cast<ObjectTombstone *>(tomb));
                 }
 
@@ -266,7 +282,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
             uint64_t tblId = recoverTomb->tableId;
 
             const Object *localObj = objectMap.lookup(tblId, objId);
-            const ObjectTombstone *tomb = tombstoneMap.lookup(tblId, objId);
+            const ObjectTombstone *tomb = tombstoneMap->lookup(tblId, objId);
 
             // can't have both a tombstone and an object in the hash tables
             assert(tomb == NULL || localObj == NULL);
@@ -283,7 +299,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                     xmalloc(sizeof(*newTomb)));
                 memcpy(newTomb, const_cast<ObjectTombstone *>(recoverTomb),
                     sizeof(*newTomb));
-                tombstoneMap.replace(tblId, objId, newTomb);
+                tombstoneMap->replace(tblId, objId, newTomb);
 
                 // nuke the old tombstone, if it existed
                 if (tomb != NULL) {

@@ -394,6 +394,42 @@ class HashTable {
     }
 
     /**
+     * Apply the given callback function to each referant of type T stored
+     * in the HashTable.
+     * \param[in] callback
+     *      The callback to fire on each referant stored in the HashTable.
+     * \param[in] cookie
+     *      An opaque parameter to pass to the callback function.
+     * \return
+     *      The total number of callbacks fired (i.e. the number of referants
+     *      in the HashTable).
+     */
+    uint64_t
+    forEach(void (*callback)(const T* ptr, void *), void *cookie)
+    {
+        uint64_t numCalls = 0;
+
+        for (uint64_t i = 0; i < numBuckets; i++) {
+            CacheLine *cl = &buckets[i];
+            while (1) {
+                for (uint32_t j = 0; j < ENTRIES_PER_CACHE_LINE; j++) {
+                    Entry *e = &cl->entries[j];
+                    if (!e->isAvailable() && e->getChainPointer() == NULL) {
+                        callback(e->getReferant(), cookie);
+                        numCalls++;
+                    }
+                }
+
+                cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
+                if (cl == NULL)
+                    break;
+            }
+        }
+
+        return numCalls;
+    }
+
+    /**
      * Return the number of bytes per cache line.
      */
     static uint32_t

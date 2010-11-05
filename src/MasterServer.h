@@ -229,9 +229,9 @@ class MasterServer : public Server {
 
     /**
      * The (table ID, object ID) to #RAMCloud::ObjectTombstone pointer map
-     * used during recovery.
+     * used only during recovery.
      */
-    ObjectTombstoneMap tombstoneMap;
+    ObjectTombstoneMap *tombstoneMap;
 
     /**
      * Tablets this master owns.
