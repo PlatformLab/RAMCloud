@@ -277,6 +277,7 @@ class HashTableTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_replace_cacheLine0Entry7);
     CPPUNIT_TEST(test_replace_cacheLine2Entry0);
     CPPUNIT_TEST(test_replace_cacheLineFull);
+    CPPUNIT_TEST(test_forEach);
     CPPUNIT_TEST_SUITE_END();
     DISALLOW_COPY_AND_ASSIGN(HashTableTest); //NOLINT
 
@@ -727,7 +728,44 @@ class HashTableTest : public CppUnit::TestFixture {
         assertEntryIs(&ht, 1, 1, &v);
     }
 
+    struct ForEachTestStruct {
+        uint64_t key1, key2, count;
+    };
 
+    /**
+     * Callback used by test_forEach().
+     */ 
+    static void
+    test_forEach_callback(const ForEachTestStruct *p, void *cookie)
+    {
+        CPPUNIT_ASSERT_EQUAL(cookie, reinterpret_cast<void *>(57));
+        const_cast<ForEachTestStruct *>(p)->count++;
+    }
+
+    /**
+     * Simple test for #RAMCloud::HashTable::forEach(), ensuring that it
+     * properly traverses multiple buckets and chained cachelines.
+     */
+    void test_forEach()
+    {
+        HashTable<ForEachTestStruct, &ForEachTestStruct::key1,
+            &ForEachTestStruct::key2> ht(2);
+        ForEachTestStruct checkoff[256];
+        memset(checkoff, 0, sizeof(checkoff));
+
+        for (uint32_t i = 0; i < sizeof(checkoff) / sizeof(checkoff[0]); i++) {
+            checkoff[i].key1 = 0;
+            checkoff[i].key2 = i;
+            ht.replace(0, i, &checkoff[i]);
+        }
+
+        uint64_t t = ht.forEach(test_forEach_callback,
+            reinterpret_cast<void *>(57));
+        CPPUNIT_ASSERT_EQUAL(sizeof(checkoff) / sizeof(checkoff[0]), t);
+
+        for (uint32_t i = 0; i < sizeof(checkoff) / sizeof(checkoff[0]); i++)
+            CPPUNIT_ASSERT_EQUAL(1, checkoff[i].count);
+    }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(HashTableTest);
 
