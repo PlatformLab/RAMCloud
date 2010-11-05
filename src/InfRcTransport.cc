@@ -290,7 +290,7 @@ InfRcTransport::InfRCSession::InfRCSession(InfRcTransport *transport,
     : transport(transport),
       qp(NULL)
 {
-    const char *ip = sl.getOption<const char*>("ip");
+    const char *ip = sl.getOption<const char*>("host");
     int port = sl.getOption<uint16_t>("port");
 
     // create and set up a new queue pair for this client
