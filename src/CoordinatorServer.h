@@ -70,6 +70,10 @@ class CoordinatorServer : public Server {
                         Transport::ServerRpc& rpc,
                         Responder& responder);
 
+    void tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
+                          TabletsRecoveredRpc::Response& respHdr,
+                          Transport::ServerRpc& rpc);
+
     /**
      * The server id for the next server to register.
      * These are guaranteed to be unique.

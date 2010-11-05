@@ -196,4 +196,22 @@ CoordinatorClient::ping()
     checkStatus();
 }
 
+/**
+ * Tell the coordinator that recovery of a particular tablets have
+ * been recovered on the master who is calling.
+ *
+ * \param tablets
+ *      The tablets which form a partition of a will which are
+ *      now done recovering.
+ */
+void
+CoordinatorClient::tabletsRecovered(const ProtoBuf::Tablets& tablets)
+{
+    Buffer req, resp;
+    TabletsRecoveredRpc::Request& reqHdr(allocHeader<TabletsRecoveredRpc>(req));
+    reqHdr.tabletsLength = serializeToResponse(req, tablets);
+    sendRecv<TabletsRecoveredRpc>(session, req, resp);
+    checkStatus();
+}
+
 } // namespace RAMCloud

@@ -93,7 +93,7 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             break;
         case RecoverRpc::type:
             callHandler<RecoverRpc, MasterServer,
-                        &MasterServer::recover>(rpc);
+                        &MasterServer::recover>(rpc, responder);
             break;
         case RemoveRpc::type:
             callHandler<RemoveRpc, MasterServer,
@@ -173,13 +173,15 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
 
 /**
  * Top-level server method to handle the RECOVER request.
- * \copydetails create
+ * \copydetails CoordinatorServer::enlistServer
  */
 void
 MasterServer::recover(const RecoverRpc::Request& reqHdr,
                       RecoverRpc::Response& respHdr,
-                      Transport::ServerRpc& rpc)
+                      Transport::ServerRpc& rpc,
+                      Responder& responder)
 {
+    uint64_t masterId = reqHdr.masterId;
     ProtoBuf::Tablets tablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, tablets);
@@ -187,9 +189,11 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
     ProtoBuf::parseFromResponse(rpc.recvPayload,
                                 sizeof(reqHdr) + reqHdr.tabletsLength,
                                 reqHdr.serverListLength, backups);
+    responder();
+    // reqHdr, respHdr, and rpc are off-limits now
 
     // Recover Segments. This will result in MasterServer::recoverSegment calls.
-    backup.recover(*this, reqHdr.masterId, tablets, backups);
+    backup.recover(*this, masterId, tablets, backups);
 
     // Clean up our recovery tombstoneMap.
     //-- XXX --

@@ -33,6 +33,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_getTabletMap);
     CPPUNIT_TEST(test_hintServerDown_master);
     CPPUNIT_TEST(test_hintServerDown_backup);
+    CPPUNIT_TEST(test_tabletsRecovered_basics);
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
@@ -165,20 +166,27 @@ class CoordinatorTest : public CppUnit::TestFixture {
 
     void test_hintServerDown_master() {
         struct MyMockRecovery : MockRecovery {
-            MyMockRecovery() : called(false) {}
+            explicit MyMockRecovery(CoordinatorTest& test)
+                : test(test), called(false) {}
             void
             operator()(uint64_t masterId,
                        const ProtoBuf::Tablets& will,
                        const ProtoBuf::ServerList& masterHosts,
                        const ProtoBuf::ServerList& backupHosts) {
-                CPPUNIT_ASSERT_EQUAL(3, masterId);
+
+                CPPUNIT_ASSERT_EQUAL("tablet { table_id: 0 start_object_id: 0 "
+                                     "end_object_id: 18446744073709551615 "
+                                     "state: RECOVERING server_id: 2 "
+                                     "service_locator: \"mock:host=master\" }",
+                                     test.server->tabletMap.ShortDebugString());
+                CPPUNIT_ASSERT_EQUAL(2, masterId);
                 CPPUNIT_ASSERT_EQUAL("tablet { table_id: 0 start_object_id: 0 "
                                      "end_object_id: 18446744073709551615 "
                                      "state: NORMAL user_data: 0 }",
                                      will.ShortDebugString());
                 assertMatchesPosixRegex("server { server_type: MASTER "
-                                        "server_id: 2 "
-                                        "service_locator: \"mock:host=master\" "
+                                        "server_id: 3 service_locator: "
+                                        "\"mock:host=master2\" "
                                         "user_data: [0-9]\\+ }",
                                         masterHosts.ShortDebugString());
                 CPPUNIT_ASSERT_EQUAL("server { server_type: BACKUP "
@@ -187,18 +195,14 @@ class CoordinatorTest : public CppUnit::TestFixture {
                                      backupHosts.ShortDebugString());
                 called = true;
             }
+            CoordinatorTest& test;
             bool called;
-        } mockRecovery;
+        } mockRecovery(*this);
         server->mockRecovery = &mockRecovery;
         // master is already enlisted
         client->enlistServer(MASTER, "mock:host=master2");
         client->enlistServer(BACKUP, "mock:host=backup");
-        // flip wills so that the master i'm killing has a non-empty will
-        uint64_t nonEmptyWill = server->masterList.server(0).user_data();
-        uint64_t emptyWill = server->masterList.server(1).user_data();
-        server->masterList.mutable_server(0)->set_user_data(emptyWill);
-        server->masterList.mutable_server(1)->set_user_data(nonEmptyWill);
-        client->hintServerDown("mock:host=master2");
+        client->hintServerDown("mock:host=master");
         CPPUNIT_ASSERT(mockRecovery.called);
     }
 
@@ -207,6 +211,26 @@ class CoordinatorTest : public CppUnit::TestFixture {
         client->hintServerDown("mock:host=backup");
         CPPUNIT_ASSERT_EQUAL("", server->backupList.ShortDebugString());
     }
+
+    static bool
+    tabletsRecoveredFilter(string s) {
+        return s == "tabletsRecovered";
+    }
+
+    void test_tabletsRecovered_basics() {
+        ProtoBuf::Tablets tablets;
+        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(99);
+        tablet.set_start_object_id(10);
+        tablet.set_end_object_id(20);
+        tablet.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
+        tablet.set_user_data(0);
+        TestLog::Enable _(&tabletsRecoveredFilter);
+        client->tabletsRecovered(tablets);
+        CPPUNIT_ASSERT_EQUAL("tabletsRecovered: called with 1 tablets",
+                             TestLog::get());
+    }
+
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorTest);
 };
