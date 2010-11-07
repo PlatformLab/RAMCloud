@@ -34,8 +34,8 @@ class StatusTest : public CppUnit::TestFixture {
                 statusToString(Status(0)));
         CPPUNIT_ASSERT_EQUAL("object has wrong version",
                 statusToString(STATUS_WRONG_VERSION));
-        CPPUNIT_ASSERT_EQUAL("segment recovery failed",
-                statusToString(STATUS_MAX_VALUE));
+        CPPUNIT_ASSERT(statusToString(Status(STATUS_MAX_VALUE)) !=
+                       statusToString(Status(STATUS_MAX_VALUE + 1)));
         CPPUNIT_ASSERT_EQUAL("unrecognized RAMCloud error",
                 statusToString(Status(STATUS_MAX_VALUE+1)));
     }
@@ -46,8 +46,8 @@ class StatusTest : public CppUnit::TestFixture {
                 statusToSymbol(Status(0)));
         CPPUNIT_ASSERT_EQUAL("STATUS_WRONG_VERSION",
                 statusToSymbol(STATUS_WRONG_VERSION));
-        CPPUNIT_ASSERT_EQUAL("STATUS_SEGMENT_RECOVERY_FAILED",
-                statusToSymbol(STATUS_MAX_VALUE));
+        CPPUNIT_ASSERT(statusToSymbol(Status(STATUS_MAX_VALUE)) !=
+                       statusToSymbol(Status(STATUS_MAX_VALUE + 1)));
         CPPUNIT_ASSERT_EQUAL("STATUS_UNKNOWN",
                 statusToSymbol(Status(STATUS_MAX_VALUE+1)));
     }

@@ -45,7 +45,6 @@ class CoordinatorServer : public Server {
     void createTable(const CreateTableRpc::Request& reqHdr,
                      CreateTableRpc::Response& respHdr,
                      Transport::ServerRpc& rpc);
-    void createTable(uint32_t tableId, ProtoBuf::ServerList_Entry& master);
     void dropTable(const DropTableRpc::Request& reqHdr,
                    DropTableRpc::Response& respHdr,
                    Transport::ServerRpc& rpc);
@@ -54,8 +53,7 @@ class CoordinatorServer : public Server {
                    Transport::ServerRpc& rpc);
     void enlistServer(const EnlistServerRpc::Request& reqHdr,
                       EnlistServerRpc::Response& respHdr,
-                      Transport::ServerRpc& rpc,
-                      Responder& responder);
+                      Transport::ServerRpc& rpc);
 
     void getBackupList(const GetBackupListRpc::Request& reqHdr,
                       GetBackupListRpc::Response& respHdr,
@@ -92,13 +90,6 @@ class CoordinatorServer : public Server {
      * ID that is to recover that tablet, starting from 0.
      */
     ProtoBuf::ServerList masterList;
-
-    /**
-     * A pointer to the first master to have registered, or NULL if no masters
-     * have registers. This is a temporary hack since all new tables and the
-     * implicitly created table 0 all go to the same master.
-     */
-    ProtoBuf::ServerList_Entry* firstMaster;
 
     /**
      * What are the tablets, and who is the master for each.
