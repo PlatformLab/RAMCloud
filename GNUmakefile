@@ -144,7 +144,7 @@ clean: tests-clean docs-clean tags-clean
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
 
 check:
-	$(LINT) $$(./pragmas.py -f CPPLINT:5 $$(find /home/ongardie/ramcloud/src -name '*.cc' -or -name '*.h' -or -name '*.c'))
+	$(LINT) $$(./pragmas.py -f CPPLINT:5 $$(find /home/nandu/dev/ramcloud/src -name '*.cc' -or -name '*.h' -or -name '*.c'))
 
 install: client-lib-install
 

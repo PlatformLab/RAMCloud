@@ -22,14 +22,23 @@
 #include <sys/socket.h>
 
 #include <cxxabi.h>
-#include <typeinfo>
-
+#include <cstdlib>
 
 #include "Common.h"
 
-static const char* demangle(const char* name) {
+/**
+ * Helper function to call __cxa_demangle. Has internal linkage.
+ * Handles the C-style memory management required.
+ * Returns a std::string with the long human-readable name of the
+ * type.
+ * \param name
+ *      The "name" of the type that needs to be demangled.
+ * \throw FatalError
+ *      The short internal type name could not be converted.
+ */
+static string demangle(const char* name) {
     size_t size = 1024;
-    char buf[size];
+    char * buf = reinterpret_cast<char *>(malloc(size));
     int status;
     char* res = abi::__cxa_demangle(name,
                                     buf,
@@ -40,7 +49,10 @@ static const char* demangle(const char* name) {
             FatalError(HERE,
                        "cxxabi.h's demangle() could not demangle type");
     }
-    return res;
+    // contruct a string with a copy of the buffer
+    string ret(res);
+    free(buf);
+    return ret;
 }
 
 namespace RAMCloud {
@@ -92,11 +104,11 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
     } catch (boost::bad_lexical_cast& e) {
         string cast_failure_message = string(e.what()) +
             "\nCould not convert from source type " +
-            string(demangle(e.source_type().name())) +
+            demangle(e.source_type().name()) +
             " to target type " +
-            string(demangle(e.target_type().name())) + "\n";
+            demangle(e.target_type().name()) + "\n";
         throw BadIpAddressException(HERE,
-                                    cast_failure_message.c_str(),
+                                    cast_failure_message,
                                     serviceLocator);
     }
 }
