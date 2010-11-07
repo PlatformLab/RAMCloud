@@ -92,9 +92,12 @@ def read_pragmas(stream, definitions, magic_pattern):
     return pragmas
 
 if __name__ == '__main__':
-    usage = '%prog [OPTIONS] FILENAME\n       %prog -l'
+    usage = '%prog [OPTIONS] FILENAMES\n       %prog -l'
     parser = OptionParser(usage=usage)
     parser.set_description(__doc__.split('\n\n', 1)[0])
+    parser.add_option('-f', '--filter', type='str', dest='filt',
+                      default=None, metavar='PRAGMA:VALUE',
+                      help='filter filenames for PRAGMA with VALUE')
     parser.add_option('-q', '--query', type='str', dest='query', default=None,
                       metavar='PRAGMA',
                       help='print the setting for PRAGMA only')
@@ -104,12 +107,7 @@ if __name__ == '__main__':
     parser.add_option('-d', '--def', type='str', dest='defs_file',
                       default='pragmas.conf.py', metavar='FILE',
                       help='use pragma definitions from FILE')
-    (options, args) = parser.parse_args()
-    if not options.list_settings:
-        try:
-            filename = args[0]
-        except IndexError:
-            parser.error('You must the file from which to read pragmas')
+    (options, filenames) = parser.parse_args()
 
     definitions = PragmaDefinitions()
     globals_ = {'PragmaDefinition': PragmaDefinition,
@@ -126,17 +124,27 @@ if __name__ == '__main__':
         if options.query not in definitions:
             raise Exception('Unknown pragma %s to query' % (options.query))
 
-    pragmas = read_pragmas(open(filename), definitions, magic_pattern)
+    for filename in filenames:
+        pragmas = read_pragmas(open(filename), definitions, magic_pattern)
 
-    if options.query is not None:
-        try:
-            print pragmas[options.query]
-        except KeyError:
-            print definitions[options.query].default
-    else:
-        for k, definition in definitions.items():
+        if options.filt:
+            p, v = options.filt.split(':')
             try:
-                v = pragmas[k]
+                if pragmas[p] == int(v):
+                    print filename
             except KeyError:
-                v = definition.default
-            print '%s=%d' % (k, v)
+                if definitions[p].default == int(v):
+                    print filename
+        else:
+            if options.query is not None:
+                try:
+                    print pragmas[options.query]
+                except KeyError:
+                    print definitions[options.query].default
+            else:
+                for k, definition in definitions.items():
+                    try:
+                        v = pragmas[k]
+                    except KeyError:
+                        v = definition.default
+                    print '%s=%d' % (k, v)
