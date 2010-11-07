@@ -183,8 +183,8 @@ docs-clean: python-docs-clean
 	rm -rf docs/doxygen/
 
 tags: 
-	find . -type f | grep -v "\.git" | xargs etags
-	find . -type f | grep -v "\.git" | xargs ctags
+	find . -type f | grep -v "\.git" | grep -v docs | xargs etags
+	find . -type f | grep -v "\.git" | grep -v docs | xargs ctags
 
 tags-clean:
 	rm -f TAGS tags

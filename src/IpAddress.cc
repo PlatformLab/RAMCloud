@@ -13,14 +13,35 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "IpAddress.h"
+
 #include <errno.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#include <cxxabi.h>
+#include <typeinfo>
+
+
 #include "Common.h"
-#include "IpAddress.h"
+
+static const char* demangle(const char* name) {
+    size_t size = 1024;
+    char buf[size];
+    int status;
+    char* res = abi::__cxa_demangle(name,
+                                    buf,
+                                    &size,
+                                    &status);
+    if (status != 0) {
+        throw RAMCloud::
+            FatalError(HERE,
+                       "cxxabi.h's demangle() could not demangle type");
+    }
+    return res;
+}
 
 namespace RAMCloud {
 
@@ -69,7 +90,14 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
     } catch (ServiceLocator::NoSuchKeyException& e) {
         throw BadIpAddressException(HERE, e.message, serviceLocator);
     } catch (boost::bad_lexical_cast& e) {
-        throw BadIpAddressException(HERE, e.what(), serviceLocator);
+        string cast_failure_message = string(e.what()) +
+            "\nCould not convert from source type " +
+            string(demangle(e.source_type().name())) +
+            " to target type " +
+            string(demangle(e.target_type().name())) + "\n";
+        throw BadIpAddressException(HERE,
+                                    cast_failure_message.c_str(),
+                                    serviceLocator);
     }
 }
 
