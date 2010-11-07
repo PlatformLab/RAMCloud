@@ -61,7 +61,9 @@ class IpAddressTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("Service locator 'fast+udp: "
                 "host=localhost, port=badInteger' couldn't be "
                 "converted to IP address: bad lexical cast: source "
-                "type value could not be interpreted as target",
+                "type value could not be interpreted as target"
+                "\nCould not convert from source type std::string"
+                " to target type unsigned short\n",
                 tryLocator("fast+udp: host=localhost, port=badInteger"));
     }
 
