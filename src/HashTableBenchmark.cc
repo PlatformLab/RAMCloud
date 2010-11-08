@@ -63,10 +63,11 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     printf("running replace measurements...");
     fflush(stdout);
 
-    CycleCounter replaceCycles;
+    // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
+    uint64_t replaceCycles = rdtsc();
     for (i = 0; i < nkeys; i++)
         ht.replace(0, i, values[i]);
-    i = replaceCycles.stop();
+    i = rdtsc() - replaceCycles;
     printf("done!\n");
 
     free(values);
@@ -91,12 +92,14 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     printf("running lookup measurements...");
     fflush(stdout);
-    CycleCounter lookupCycles;
+
+    // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
+    uint64_t lookupCycles = rdtsc();
     for (i = 0; i < nkeys; i++) {
         const Object *p = ht.lookup(0, i);
         assert(p != NULL);
     }
-    i = lookupCycles.stop();
+    i = rdtsc() - lookupCycles;
     printf("done!\n");
 
     printf("== lookup() ==\n");
