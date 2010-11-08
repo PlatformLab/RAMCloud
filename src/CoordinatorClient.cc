@@ -24,19 +24,27 @@ namespace RAMCloud {
  * \param name
  *      Name for the new table (NULL-terminated string).
  *
- * \exception NoTableSpaceException
  * \exception InternalError
  */
 void
 CoordinatorClient::createTable(const char* name)
 {
-    Buffer req, resp;
+    Buffer req;
     uint32_t length = strlen(name) + 1;
     CreateTableRpc::Request& reqHdr(allocHeader<CreateTableRpc>(req));
     reqHdr.nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
-    sendRecv<CreateTableRpc>(session, req, resp);
-    checkStatus();
+    while (true) {
+        Buffer resp;
+        sendRecv<CreateTableRpc>(session, req, resp);
+        try {
+            checkStatus();
+            return;
+        } catch (const RetryException& e) {
+            LOG(DEBUG, "RETRY trying to create table");
+            yield();
+        }
+    }
 }
 
 /**
@@ -122,6 +130,7 @@ CoordinatorClient::enlistServer(ServerType serverType,
                 "TransportException trying to talk to coordinator: %s",
                 e.str().c_str());
             LOG(NOTICE, "retrying");
+            yield();
         }
     }
 }

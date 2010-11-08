@@ -13,14 +13,47 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "IpAddress.h"
+
 #include <errno.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#include <cxxabi.h>
+#include <cstdlib>
+
 #include "Common.h"
-#include "IpAddress.h"
+
+/**
+ * Helper function to call __cxa_demangle. Has internal linkage.
+ * Handles the C-style memory management required.
+ * Returns a std::string with the long human-readable name of the
+ * type.
+ * \param name
+ *      The "name" of the type that needs to be demangled.
+ * \throw FatalError
+ *      The short internal type name could not be converted.
+ */
+static string demangle(const char* name) {
+    size_t size = 1024;
+    char * buf = reinterpret_cast<char *>(malloc(size));
+    int status;
+    char* res = abi::__cxa_demangle(name,
+                                    buf,
+                                    &size,
+                                    &status);
+    if (status != 0) {
+        throw RAMCloud::
+            FatalError(HERE,
+                       "cxxabi.h's demangle() could not demangle type");
+    }
+    // contruct a string with a copy of the buffer
+    string ret(res);
+    free(buf);
+    return ret;
+}
 
 namespace RAMCloud {
 
@@ -69,7 +102,14 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
     } catch (ServiceLocator::NoSuchKeyException& e) {
         throw BadIpAddressException(HERE, e.message, serviceLocator);
     } catch (boost::bad_lexical_cast& e) {
-        throw BadIpAddressException(HERE, e.what(), serviceLocator);
+        string cast_failure_message = string(e.what()) +
+            "\nCould not convert from source type " +
+            demangle(e.source_type().name()) +
+            " to target type " +
+            demangle(e.target_type().name()) + "\n";
+        throw BadIpAddressException(HERE,
+                                    cast_failure_message,
+                                    serviceLocator);
     }
 }
 

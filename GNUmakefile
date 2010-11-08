@@ -118,14 +118,6 @@ case $$GCCWARN in \
 esac
 endef
 
-define filter-pragma
-for f in $(3); do \
-	if [ $$( $(PRAGMAS) -q $(1) $$f ) -eq $(2) ]; then \
-		echo $$f; \
-	fi \
-done
-endef
-
 all:
 
 tests: test
@@ -151,11 +143,8 @@ include $(wildcard private/MakefragPrivate)
 clean: tests-clean docs-clean tags-clean
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
 
-# Lazy rule so this doesn't happen unless make check is invoked
-CHKFILES = $(shell find $(TOP)/src -name '*.cc' -or -name '*.h' -or -name '*.c')
-CHKFILES := $(shell $(call filter-pragma,CPPLINT,5,$(CHKFILES)))
 check:
-	$(LINT) $(CHKFILES)
+	$(LINT) $$(./pragmas.py -f CPPLINT:5 $$(find /home/nandu/dev/ramcloud/src -name '*.cc' -or -name '*.h' -or -name '*.c'))
 
 install: client-lib-install
 
@@ -183,8 +172,8 @@ docs-clean: python-docs-clean
 	rm -rf docs/doxygen/
 
 tags: 
-	find . -type f | grep -v "\.git" | xargs etags
-	find . -type f | grep -v "\.git" | xargs ctags
+	find . -type f | grep -v "\.git" | grep -v docs | xargs etags
+	find . -type f | grep -v "\.git" | grep -v docs | xargs ctags
 
 tags-clean:
 	rm -f TAGS tags
