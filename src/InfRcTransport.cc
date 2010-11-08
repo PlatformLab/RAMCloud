@@ -388,7 +388,7 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
 
     // Create a per-client-QP receive completion queue. This lets us avoid
     // having to manually demultiplex between the server QP and the various
-    // client QPs. 
+    // client QPs.
     ibv_cq *cq = ibv_create_cq(ctxt, MAX_SHARED_RX_QUEUE_DEPTH,
         NULL, NULL, 0);
     check_error_null(cq, "failed to create receive completion queue");
