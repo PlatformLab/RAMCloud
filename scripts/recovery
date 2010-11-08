@@ -25,6 +25,6 @@ start "sleep .25; $OBJDIR/backup -l 9 -L $proto:host=$host,port=12244 -C $C"
 start "$OBJDIR/server -l 9 -r 2 -L $proto:host=$host,port=12242 -C $C"
 start "sleep .5; $OBJDIR/server -l 9 -r 2 -L $proto:host=$host,port=12247 -C $C"
 
-start "sleep 1; $OBJDIR/client -l 9 -d -s $proto:host=$host,port=12246 -C $C"
+start "sleep 1; $OBJDIR/client -l 9 -d -C $C"
 
 read

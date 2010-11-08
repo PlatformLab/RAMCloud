@@ -12,10 +12,11 @@ masterLocator=fast+udp:host=127.0.0.1,port=$port
 coordinatorLocator=fast+udp:host=127.0.0.1,port=$cport
 
 # Check to see if master and coordinator servers are running. If so, kill 'em!
-portslay $cport
 portslay $port
+portslay $cport
 
 atexit "portslay $port"
+atexit "portslay $cport"
 
 VER=$(git log -1 | grep '^commit' | awk '{print $2;}')
 DATE=$(git log -1 --date=short | grep '^Date:' | awk '{print $2;}')
@@ -25,12 +26,9 @@ $OBJDIR/coordinator -C $coordinatorLocator > /dev/null 2>&1 &
 $OBJDIR/server -L $masterLocator -C $coordinatorLocator > /dev/null 2>&1 &
 sleep .1
 
-VAL=$($OBJDIR/Bench -s $coordinatorLocator -R -S 1000 -n 10000 | \
+VAL=$($OBJDIR/Bench -C $coordinatorLocator -R -S 1000 -n 10000 | \
         grep '^readMany avgns' | awk '{print $3;}')
 RETVAL=$?
-
-portslay $port
-portslay $cport
 
 echo "$DATE $VER $VAL"
 exit $RETVAL
