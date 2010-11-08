@@ -10,6 +10,8 @@ source scripts/common.bash
 
 masterLocator=fast+udp:host=127.0.0.1,port=$port
 coordinatorLocator=fast+udp:host=127.0.0.1,port=$cport
+#masterLocator=infrc:host=127.0.0.1,port=$port
+#coordinatorLocator=infrc:host=127.0.0.1,port=$cport
 
 # Check to see if master and coordinator servers are running. If so, kill 'em!
 portslay $port
@@ -22,13 +24,17 @@ VER=$(git log -1 | grep '^commit' | awk '{print $2;}')
 DATE=$(git log -1 --date=short | grep '^Date:' | awk '{print $2;}')
 
 # Start a server and run tests
-$OBJDIR/coordinator -C $coordinatorLocator > /dev/null 2>&1 &
-$OBJDIR/server -L $masterLocator -C $coordinatorLocator > /dev/null 2>&1 &
+$OBJDIR/coordinator -C $coordinatorLocator &
+$OBJDIR/server -L $masterLocator -C $coordinatorLocator &
 sleep .1
 
 VAL=$($OBJDIR/Bench -C $coordinatorLocator -R -S 1000 -n 10000 | \
         grep '^readMany avgns' | awk '{print $3;}')
 RETVAL=$?
 
-echo "$DATE $VER $VAL"
+echo "$DATE $VER $VAL ns"
+
+portslay $port
+portslay $cport
+
 exit $RETVAL
