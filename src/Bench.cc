@@ -28,7 +28,7 @@
 
 namespace RC = RAMCloud;
 
-std::string serverLocator;
+std::string coordinatorLocator;
 bool multirow;
 bool randomReads;
 bool pmcInsteadOfTSC;
@@ -56,7 +56,7 @@ setup()
         LOG(RC::DEBUG, "bench: Pinned to core %d", cpu);
     }
 
-    client = new RC::RamCloud(serverLocator.c_str());
+    client = new RC::RamCloud(coordinatorLocator.c_str());
 
     assert(!atexit(cleanup));
 
@@ -164,10 +164,6 @@ try
         ("performance,P",
          RC::ProgramOptions::bool_switch(&pmcInsteadOfTSC),
          "Measure using rdpmc instead of rdtsc")
-        ("server,s",
-         RC::ProgramOptions::value<string>(&serverLocator)->
-           default_value("fast+udp:host=127.0.0.1,port=12242"),
-         "RAMCloud server to connect to")
         ("size,S",
          RC::ProgramOptions::value<uint64_t>(&size)->
            default_value(100),
@@ -175,7 +171,8 @@ try
 
     RC::OptionParser optionParser(benchOptions, argc, argv);
 
-    printf("client: Connecting to %s\n", serverLocator.c_str());
+    coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    printf("client: Connecting to %s\n", coordinatorLocator.c_str());
 
     printf("Reads: %lu, Size: %lu, Multirow: %lu, RandomReads: %lu\n",
            count, size, multirow, randomReads);

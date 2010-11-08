@@ -23,42 +23,24 @@
 
 using namespace RAMCloud;
 
-struct ClientConfig {
-    string coordinatorLocator;
-    string serverLocator;
-
-    ClientConfig()
-        : coordinatorLocator()
-        , serverLocator()
-    {
-    }
-};
-
-
 int
 main(int argc, char *argv[])
 try
 {
-    ClientConfig config;
     bool hintServerDown;
 
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
-        ("server,s",
-         ProgramOptions::value<string>(&config.serverLocator)->
-            default_value("fast+udp:host=127.0.0.1,port=12246"),
-         "RAMCloud server to connect to")
         ("down,d",
          ProgramOptions::bool_switch(&hintServerDown),
          "Report the master we're talking to as down just before exit.");
 
     OptionParser optionParser(clientOptions, argc, argv);
 
-    config.coordinatorLocator = optionParser.options.getCoordinatorLocator();
+    LOG(NOTICE, "client: Connecting to %s",
+        optionParser.options.getCoordinatorLocator().c_str());
 
-    LOG(NOTICE, "client: Connecting to %s", config.serverLocator.c_str());
-
-    RamCloud client(config.serverLocator.c_str());
+    RamCloud client(optionParser.options.getCoordinatorLocator().c_str());
     client.selectPerfCounter(PERF_COUNTER_TSC,
                              MARK_RPC_PROCESSING_BEGIN,
                              MARK_RPC_PROCESSING_END);
