@@ -1,2 +1,2 @@
 #!/bin/bash
-exec make --silent > /dev/null
+exec make -j4 --silent > /dev/null

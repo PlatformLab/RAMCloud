@@ -1,2 +1,2 @@
 #!/bin/bash
-exec make --silent test >/dev/null 2>&1
+exec make -j4 --silent test >/dev/null 2>&1
