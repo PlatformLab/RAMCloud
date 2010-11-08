@@ -96,14 +96,12 @@ class InfRcTransport : public Transport {
     struct BufferDescriptor {
         char*           buffer;         // buf of getMaxPayloadSize() bytes
         ibv_mr*         mr;             // memory region of the buffer
-        int             id;             // unique descriptor id
-        bool            inUse;          // non-0 => Infiniband HCA owns `buffer'
 
-        BufferDescriptor(char *buffer, ibv_mr *mr, uint32_t id) :
-            buffer(buffer), mr(mr), id(id), inUse(false)
+        BufferDescriptor(char *buffer, ibv_mr *mr) :
+            buffer(buffer), mr(mr)
         {
         }
-        BufferDescriptor() : buffer(NULL), mr(NULL), id(0), inUse(false) {}
+        BufferDescriptor() : buffer(NULL), mr(NULL) {}
     };
 
     // this class exists simply for passing queue pair handshake information
@@ -212,8 +210,8 @@ class InfRcTransport : public Transport {
     ibv_device*  dev;               // infiniband HCA device we're using
     ibv_context* ctxt;              // HCA device context (handle)
     ibv_pd*      pd;                // protection domain for registered memory
-    ibv_cq*      rxcq;              // common completion queue for all receives
-    ibv_cq*      txcq;              // common completion queue for all transmits
+    ibv_cq*      serverRxCq;        // completion queue for serverRecv
+    ibv_cq*      commonTxCq;        // common completion queue for all transmits
     int          ibPhysicalPort;    // physical port number on the HCA
     int          udpListenPort;     // UDP port number for server's setupSocket
     int          serverSetupSocket; // UDP socket for incoming setup requests

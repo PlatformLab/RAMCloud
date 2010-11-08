@@ -22,21 +22,38 @@
  *
  * The transport uses a common pool of receive and transmit buffers that
  * are pre-registered with the HCA for direct access. All receive buffers
- * are placed on a shared receive queue, which lets us poll a single location
- * for RPC receive events. Each buffer is sized large enough for the maximum
+ * are placed on a shared receive queue, which avoids having to allocate
+ * buffers to individual receive queues for each client queue pair (this would
+ * be costly for many queue pairs, and wasteful if they're idle). The shared
+ * receive queue can be associated with many queue pairs, each of which has
+ * their own completion queue. This allows us to demultiplex receive events
+ * for each client queue pair (ClientRpc::getReply()), as well as the server's
+ * incoming RPC queue pair (serverRecv()). It also lets us block easily on a
+ * synchronous getReply() without having to worry about dealing with incoming
+ * server RPC requests that occur before the response comes back.
+ *
+ * In short, the receive path looks like the following:
+ *  - As a server, we have just one completion queue for all client queue pairs.
+ *  - As a client, we have N completion queues for N client queue pairs.
+ *
+ * For the transmit path, we have one completion queue for all cases, since
+ * we currently do synchronous sends.
+ *
+ * Each receive and transmit buffer is sized large enough for the maximum
  * possible RPC size for simplicity. (XXX It's unclear to me what happens if
  * we send a buffer too large for the receiver.)
  *
- * To demultiplex from the shared receive queue, we stash pointers in the
- * 64-bit `wr_id' field of the work request.
+ * To reference the buffer associated with each work queue element on the shared
+ * receive queue, we stash pointers in the 64-bit `wr_id' field of the work
+ * request.
  *
  * Connected queue pairs require some bootstrapping, which we do as follows:
  *  - The server maintains a UDP listen port.
  *  - Clients establish QPs by sending their tuples to the server as a request.
  *    Tuples are basically (address, queue pair number, sequence number),
- *    similar to TCP.
+ *    similar to TCP. Think of this as TCP's SYN packet.
  *  - Servers receive client tuples, create an associated queue pair, and
- *    reply via UDP with their QP's tuple.
+ *    reply via UDP with their QP's tuple. Think of this as TCP's SYN/ACK.
  *  - Clients receive the server's tuple reply and complete their queue pair
  *    setup. Communication over infiniband is ready to go. 
  *
@@ -124,8 +141,8 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
       dev(NULL),
       ctxt(NULL),
       pd(NULL),
-      rxcq(NULL),
-      txcq(NULL),
+      serverRxCq(NULL),
+      commonTxCq(NULL),
       ibPhysicalPort(1),
       udpListenPort(0),
       serverSetupSocket(-1),
@@ -236,13 +253,13 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
     for (uint32_t i = 0; i < MAX_TX_QUEUE_DEPTH; i++)
         txBuffers[i] = allocateBufferDescriptorAndRegister();
 
-    // create completion queues for receive and transmit
-    rxcq = ibv_create_cq(ctxt, MAX_SHARED_RX_QUEUE_DEPTH,
+    // create completion queues for server receive and server/client transmit
+    serverRxCq = ibv_create_cq(ctxt, MAX_SHARED_RX_QUEUE_DEPTH,
         NULL, NULL, 0);
-    check_error_null(rxcq, "failed to create receive completion queue");
+    check_error_null(serverRxCq, "failed to create receive completion queue");
 
-    txcq = ibv_create_cq(ctxt, MAX_TX_QUEUE_DEPTH, NULL, NULL, 0);
-    check_error_null(txcq, "failed to create receive completion queue");
+    commonTxCq = ibv_create_cq(ctxt, MAX_TX_QUEUE_DEPTH, NULL, NULL, 0);
+    check_error_null(commonTxCq, "failed to create receive completion queue");
 }
 
 /**
@@ -262,7 +279,12 @@ InfRcTransport::serverRecv()
     while (1) {
         ibv_wc wc;
 
-        if (ibv_poll_cq(rxcq, 1, &wc) >= 1) {
+        if (ibv_poll_cq(serverRxCq, 1, &wc) >= 1) {
+            if (queuePairMap.find(wc.qp_num) == queuePairMap.end()) {
+                LOG(ERROR, "%s: failed to find qp_num in map", __func__);
+                continue;
+            }
+
             QueuePair *qp = queuePairMap[wc.qp_num];
 
             BufferDescriptor* bd =
@@ -368,9 +390,16 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
     sin.sin_addr.s_addr = inet_addr(ip);
     sin.sin_port = htons(port);
 
-    // create a new QueuePair and send its parameters to the server so it
+    // Create a per-client-QP receive completion queue. This lets us avoid
+    // having to manually demultiplex between the server QP and the various
+    // client QPs. 
+    ibv_cq *cq = ibv_create_cq(ctxt, MAX_SHARED_RX_QUEUE_DEPTH,
+        NULL, NULL, 0);
+    check_error_null(cq, "failed to create receive completion queue");
+
+    // Create a new QueuePair and send its parameters to the server so it
     // can create its qp and reply with its parameters.
-    QueuePair *qp = new QueuePair(ibPhysicalPort, pd, srq, txcq, rxcq);
+    QueuePair *qp = new QueuePair(ibPhysicalPort, pd, srq, commonTxCq, cq);
     QueuePairTuple outgoingQpt(ibGetLid(), qp->getLocalQpNumber(),
         qp->getInitialPsn());
 
@@ -438,7 +467,8 @@ InfRcTransport::serverTrySetupQueuePair()
     //      be sure, esp. if we use an unreliable means of handshaking, in
     //      which case the response to the client request could have been lost.
 
-    QueuePair *qp = new QueuePair(ibPhysicalPort, pd, srq, txcq, rxcq);
+    QueuePair *qp = new QueuePair(ibPhysicalPort, pd, srq,
+        commonTxCq, serverRxCq);
     qp->plumb(&incomingQpt);
 
     // now send the client back our queue pair information so they can
@@ -509,24 +539,21 @@ void
 InfRcTransport::ibPostSrqReceive(BufferDescriptor *bd)
 {
     ibv_sge isge = {
-        (uint64_t)bd->buffer,
+        reinterpret_cast<uint64_t>(bd->buffer),
         getMaxRpcSize(),
         bd->mr->lkey
     };
     ibv_recv_wr rxWorkRequest;
 
     memset(&rxWorkRequest, 0, sizeof(rxWorkRequest));
-    rxWorkRequest.wr_id   = (uint64_t)bd;           // stash descriptor ptr
-    rxWorkRequest.next    = NULL;
+    rxWorkRequest.wr_id = reinterpret_cast<uint64_t>(bd);// stash descriptor ptr
+    rxWorkRequest.next = NULL;
     rxWorkRequest.sg_list = &isge;
     rxWorkRequest.num_sge = 1;
-
-    bd->inUse = true;
 
     ibv_recv_wr *badWorkRequest;
     int ret = ibv_post_srq_recv(srq, &rxWorkRequest, &badWorkRequest);
     if (ret) {
-        bd->inUse = false;
         throw TransportException(HERE, ret);
     }
 }
@@ -546,14 +573,14 @@ void
 InfRcTransport::ibPostSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length)
 {
     ibv_sge isge = {
-        (uint64_t)bd->buffer,
+        reinterpret_cast<uint64_t>(bd->buffer),
         length,
         bd->mr->lkey
     };
     ibv_send_wr txWorkRequest;
 
     memset(&txWorkRequest, 0, sizeof(txWorkRequest));
-    txWorkRequest.wr_id = (uint64_t)bd;         // stash descriptor ptr
+    txWorkRequest.wr_id = reinterpret_cast<uint64_t>(bd);// stash descriptor ptr
     txWorkRequest.next = NULL;
     txWorkRequest.sg_list = &isge;
     txWorkRequest.num_sge = 1;
@@ -586,7 +613,7 @@ InfRcTransport::ibPostSendAndWait(QueuePair* qp, BufferDescriptor *bd,
     ibPostSend(qp, bd, length);
 
     ibv_wc wc;
-    while (ibv_poll_cq(txcq, 1, &wc) < 1) {}
+    while (ibv_poll_cq(commonTxCq, 1, &wc) < 1) {}
     if (wc.status != IBV_WC_SUCCESS) {
         LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
             wc.status, wcStatusToString(wc.status));
@@ -601,15 +628,13 @@ InfRcTransport::ibPostSendAndWait(QueuePair* qp, BufferDescriptor *bd,
 InfRcTransport::BufferDescriptor
 InfRcTransport::allocateBufferDescriptorAndRegister()
 {
-    static int id = 0;
-
     void *p = xmemalign(4096, getMaxRpcSize());
 
     ibv_mr *mr = ibv_reg_mr(pd, p, getMaxRpcSize(),
         IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
     check_error_null(mr, "failed to register ring buffer");
 
-    return BufferDescriptor(reinterpret_cast<char *>(p), mr, id++);
+    return BufferDescriptor(reinterpret_cast<char *>(p), mr);
 }
 
 /**
