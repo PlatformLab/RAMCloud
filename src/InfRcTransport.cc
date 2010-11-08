@@ -119,8 +119,7 @@ wcStatusToString(int status)
  *      the transport will be configured for client use only.
  */
 InfRcTransport::InfRcTransport(const ServiceLocator *sl)
-    : currentRxBuffer(0),
-      currentTxBuffer(0),
+    : currentTxBuffer(0),
       srq(NULL),
       dev(NULL),
       ctxt(NULL),
@@ -129,7 +128,8 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
       txcq(NULL),
       ibPhysicalPort(1),
       udpListenPort(0),
-      setupSocket(-1),
+      serverSetupSocket(-1),
+      clientSetupSocket(-1),
       queuePairMap()
 {
     static_assert(sizeof(InfRcTransport::QueuePairTuple) == 10);
@@ -159,37 +159,44 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
         return;
 
     // Step 1:
-    //  Set up the udp socket we use for out-of-band infiniband handshaking.
+    //  Set up the udp sockets we use for out-of-band infiniband handshaking.
 
-    setupSocket = socket(PF_INET, SOCK_DGRAM, 0);
-    if (setupSocket == -1) {
-        LOG(ERROR, "%s: failed to create socket", __func__);
-        throw TransportException(HERE, "socket failed");
+    // For clients, the kernel will automatically assign a dynamic port on
+    // first use.
+    clientSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
+    if (clientSetupSocket == -1) {
+        LOG(ERROR, "%s: failed to create client socket", __func__);
+        throw TransportException(HERE, "client socket failed");
     }
 
-    // If this is a server socket, bind it.
-    // For clients, the kernel will automatically assign a dynamic port
-    // upon the first transmission.
+    // If this is a server, create a server setup socket and bind it.
     if (sl != NULL) {
         struct sockaddr_in sin;
         sin.sin_family = PF_INET;
         sin.sin_port   = htons(udpListenPort);
         sin.sin_addr.s_addr = INADDR_ANY;
 
-        if (bind(setupSocket, reinterpret_cast<sockaddr *>(&sin), sizeof(sin))){
-            close(setupSocket);
+        serverSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
+        if (serverSetupSocket == -1) {
+            LOG(ERROR, "%s: failed ot create server socket", __func__);
+            throw TransportException(HERE, "server socket failed");
+        }
+
+        if (bind(serverSetupSocket, reinterpret_cast<sockaddr *>(&sin),
+          sizeof(sin))) {
+            close(serverSetupSocket);
             LOG(ERROR, "%s: failed to bind socket", __func__);
             throw TransportException(HERE, "socket failed");
         }
 
-        int flags = fcntl(setupSocket, F_GETFL);
+        int flags = fcntl(serverSetupSocket, F_GETFL);
         if (flags == -1) {
-            close(setupSocket);
+            close(serverSetupSocket);
             LOG(ERROR, "%s: fcntl F_GETFL failed", __func__);
             throw TransportException(HERE, "fnctl failed");
         }
-        if (fcntl(setupSocket, F_SETFL, flags | O_NONBLOCK)) {
-            close(setupSocket);
+        if (fcntl(serverSetupSocket, F_SETFL, flags | O_NONBLOCK)) {
+            close(serverSetupSocket);
             LOG(ERROR, "%s: fcntl F_GETFL failed", __func__);
             throw TransportException(HERE, "fnctl failed");
         }
@@ -258,19 +265,18 @@ InfRcTransport::serverRecv()
         if (ibv_poll_cq(rxcq, 1, &wc) >= 1) {
             QueuePair *qp = queuePairMap[wc.qp_num];
 
-            if (wc.status == IBV_WC_SUCCESS) {
-                BufferDescriptor* bd =
-                    reinterpret_cast<BufferDescriptor*>(wc.wr_id);
+            BufferDescriptor* bd =
+                reinterpret_cast<BufferDescriptor*>(wc.wr_id);
 
+            if (wc.status == IBV_WC_SUCCESS) {
                 ServerRpc *r = new ServerRpc(this, qp);
                 PayloadChunk::appendToBuffer(&r->recvPayload, bd->buffer,
                     wc.byte_len, this, bd);
-
                 return r;
             }
 
-            LOG(ERROR, "%s: error!", __func__);
-            // XXX handle errors
+            LOG(ERROR, "%s: failed to receive rpc!", __func__);
+            ibPostSrqReceive(bd);
         } else {
             serverTrySetupQueuePair();
         }
@@ -334,9 +340,9 @@ InfRcTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
     request->copy(0, request->getTotalLength(), bd->buffer);
     t->ibPostSendAndWait(qp, bd, request->getTotalLength());
 
-    // construct in the response Buffer
+    // Construct our ClientRpc in the response Buffer.
     //
-    // we do this because we're loaning one of our registered receive buffers
+    // We do this because we're loaning one of our registered receive buffers
     // to the caller of getReply() and need to issue it back to the HCA when
     // they're done with it.
     ClientRpc *rpc = new(response, MISC) ClientRpc(transport, qp, response);
@@ -368,8 +374,8 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
     QueuePairTuple outgoingQpt(ibGetLid(), qp->getLocalQpNumber(),
         qp->getInitialPsn());
 
-    ssize_t len = sendto(setupSocket, &outgoingQpt, sizeof(outgoingQpt), 0,
-        reinterpret_cast<sockaddr *>(&sin), sizeof(sin));
+    ssize_t len = sendto(clientSetupSocket, &outgoingQpt, sizeof(outgoingQpt),
+        0, reinterpret_cast<sockaddr *>(&sin), sizeof(sin));
     if (len != sizeof(outgoingQpt)) {
         LOG(ERROR, "%s: sendto was short: %Zd", __func__, len);
         delete qp;
@@ -378,10 +384,11 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
 
     QueuePairTuple incomingQpt;
     socklen_t sinlen = sizeof(sin);
-    len = recvfrom(setupSocket, &incomingQpt, sizeof(incomingQpt), 0,
+    len = recvfrom(clientSetupSocket, &incomingQpt, sizeof(incomingQpt), 0,
         reinterpret_cast<sockaddr *>(&sin), &sinlen);
     if (len != sizeof(incomingQpt)) {
-        LOG(ERROR, "%s: recvfrom was short: %Zd", __func__, len);
+        LOG(ERROR, "%s: recvfrom was short: %Zd (errno %d: %s)", __func__, len,
+            errno, strerror(errno));
         delete qp;
         throw TransportException(HERE, len);
     }
@@ -409,7 +416,7 @@ InfRcTransport::serverTrySetupQueuePair()
     socklen_t sinlen = sizeof(sin);
     QueuePairTuple incomingQpt;
 
-    ssize_t len = recvfrom(setupSocket, &incomingQpt,
+    ssize_t len = recvfrom(serverSetupSocket, &incomingQpt,
         sizeof(incomingQpt), 0, reinterpret_cast<sockaddr *>(&sin), &sinlen);
     if (len <= -1) {
         if (errno == EAGAIN)
@@ -438,7 +445,7 @@ InfRcTransport::serverTrySetupQueuePair()
     // complete the initialisation.
     QueuePairTuple outgoingQpt(ibGetLid(), qp->getLocalQpNumber(),
         qp->getInitialPsn());
-    len = sendto(setupSocket, &outgoingQpt, sizeof(outgoingQpt), 0,
+    len = sendto(serverSetupSocket, &outgoingQpt, sizeof(outgoingQpt), 0,
         reinterpret_cast<sockaddr *>(&sin), sinlen);
     if (len != sizeof(outgoingQpt)) {
         LOG(WARNING, "%s: sendto failed, len = %Zd\n", __func__, len);
@@ -701,22 +708,16 @@ InfRcTransport::ClientRpc::getReply()
 
     ibv_wc wc;
     while (ibv_poll_cq(qp->rxcq, 1, &wc) < 1) {}
+
+    BufferDescriptor *bd = reinterpret_cast<BufferDescriptor *>(wc.wr_id);
     if (wc.status != IBV_WC_SUCCESS) {
         LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
             wc.status, wcStatusToString(wc.status));
-        transport->ibPostSrqReceive(&t->rxBuffers[t->currentRxBuffer]);
-        t->currentRxBuffer = (t->currentRxBuffer + 1) %
-            MAX_SHARED_RX_QUEUE_DEPTH;
+        transport->ibPostSrqReceive(bd);
         throw TransportException(HERE, wc.status);
     }
 
-    BufferDescriptor* bd = &t->rxBuffers[t->currentRxBuffer];
-    assert(wc.wr_id == (uint64_t)bd);
-    assert(bd->inUse);
-
     PayloadChunk::appendToBuffer(response, bd->buffer, wc.byte_len, t, bd);
-
-    t->currentRxBuffer = (t->currentRxBuffer + 1) % MAX_SHARED_RX_QUEUE_DEPTH;
 }
 
 //-------------------------------------

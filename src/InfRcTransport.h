@@ -204,7 +204,6 @@ class InfRcTransport : public Transport {
     void       serverTrySetupQueuePair();
 
     BufferDescriptor    rxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
-    int                 currentRxBuffer;
 
     BufferDescriptor    txBuffers[MAX_TX_QUEUE_DEPTH];
     int                 currentTxBuffer;
@@ -217,7 +216,8 @@ class InfRcTransport : public Transport {
     ibv_cq*      txcq;              // common completion queue for all transmits
     int          ibPhysicalPort;    // physical port number on the HCA
     int          udpListenPort;     // UDP port number for server's setupSocket
-    int          setupSocket;       // UDP socket for connection setup
+    int          serverSetupSocket; // UDP socket for incoming setup requests
+    int          clientSetupSocket; // UDP socket for outgoing setup requests
 
     // ibv_wc.qp_num to QueuePair* lookup used to look up the QueuePair given
     // a completion event on the shared receive queue
