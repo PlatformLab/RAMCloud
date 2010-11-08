@@ -108,17 +108,20 @@ class InfRcTransport : public Transport {
     // back and forth.
     class QueuePairTuple {
       public:
-        QueuePairTuple() : qpn(0), psn(0), lid(0) {}
-        QueuePairTuple(uint16_t lid, uint32_t qpn, uint32_t psn) :
-            qpn(qpn), psn(psn), lid(lid) {}
+        QueuePairTuple() : qpn(0), psn(0), lid(0), nonce(0) {}
+        QueuePairTuple(uint16_t lid, uint32_t qpn, uint32_t psn,
+            uint64_t nonce) : qpn(qpn), psn(psn), lid(lid), nonce(nonce) {}
         uint16_t getLid() const { return lid; }
         uint32_t getQpn() const { return qpn; }
         uint32_t getPsn() const { return psn; }
+        uint64_t getNonce() const { return nonce; }
 
       private:
         uint32_t qpn;            // queue pair number
         uint32_t psn;            // initial packet sequence number
         uint16_t lid;            // infiniband address: "local id"
+        uint64_t nonce;          // random nonce used to confirm replies are
+                                 // for received requests
 
         DISALLOW_COPY_AND_ASSIGN(QueuePairTuple); //NOLINT
     } __attribute__((packed));

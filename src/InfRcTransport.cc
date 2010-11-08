@@ -149,7 +149,7 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
       clientSetupSocket(-1),
       queuePairMap()
 {
-    static_assert(sizeof(InfRcTransport::QueuePairTuple) == 10);
+    static_assert(sizeof(InfRcTransport::QueuePairTuple) == 18);
 
     const char *ibDeviceName = NULL;
 
@@ -381,10 +381,6 @@ InfRcTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
 InfRcTransport::QueuePair*
 InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
 {
-    // XXX for slightly more security/robustness, we might want to have
-    //     the client include a nonce with their request and have the
-    //     server include it in the reply
-
     sockaddr_in sin;
     sin.sin_family = PF_INET;
     sin.sin_addr.s_addr = inet_addr(ip);
@@ -401,12 +397,13 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
     // can create its qp and reply with its parameters.
     QueuePair *qp = new QueuePair(ibPhysicalPort, pd, srq, commonTxCq, cq);
     QueuePairTuple outgoingQpt(ibGetLid(), qp->getLocalQpNumber(),
-        qp->getInitialPsn());
+        qp->getInitialPsn(), generateRandom());
 
     ssize_t len = sendto(clientSetupSocket, &outgoingQpt, sizeof(outgoingQpt),
         0, reinterpret_cast<sockaddr *>(&sin), sizeof(sin));
     if (len != sizeof(outgoingQpt)) {
         LOG(ERROR, "%s: sendto was short: %Zd", __func__, len);
+        ibv_destroy_cq(cq);
         delete qp;
         throw TransportException(HERE, len);
     }
@@ -418,12 +415,20 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
     if (len != sizeof(incomingQpt)) {
         LOG(ERROR, "%s: recvfrom was short: %Zd (errno %d: %s)", __func__, len,
             errno, strerror(errno));
+        ibv_destroy_cq(cq);
         delete qp;
         throw TransportException(HERE, len);
     }
 
-    // XXX- probably good to have that nonce...
-    // XXX- also, need to add timeout/retry here.
+    // XXX- need to add timeout/retry here.
+
+    if (outgoingQpt.getNonce() != incomingQpt.getNonce()) {
+        LOG(ERROR, "%s: received nonce doesn't match (0x%16lx != 0x%16lx)",
+            __func__, outgoingQpt.getNonce(), incomingQpt.getNonce());
+        ibv_destroy_cq(cq);
+        delete qp;
+        throw TransportException(HERE, len);
+    }
 
     // plumb up our queue pair with the server's parameters.
     qp->plumb(&incomingQpt);
@@ -474,7 +479,7 @@ InfRcTransport::serverTrySetupQueuePair()
     // now send the client back our queue pair information so they can
     // complete the initialisation.
     QueuePairTuple outgoingQpt(ibGetLid(), qp->getLocalQpNumber(),
-        qp->getInitialPsn());
+        qp->getInitialPsn(), incomingQpt.getNonce());
     len = sendto(serverSetupSocket, &outgoingQpt, sizeof(outgoingQpt), 0,
         reinterpret_cast<sockaddr *>(&sin), sinlen);
     if (len != sizeof(outgoingQpt)) {
