@@ -37,21 +37,21 @@
  *      The short internal type name could not be converted.
  */
 static string demangle(const char* name) {
-    size_t size = 1024;
-    char * buf = reinterpret_cast<char *>(malloc(size));
     int status;
     char* res = abi::__cxa_demangle(name,
-                                    buf,
-                                    &size,
+                                    NULL,
+                                    NULL,
                                     &status);
     if (status != 0) {
         throw RAMCloud::
             FatalError(HERE,
                        "cxxabi.h's demangle() could not demangle type");
     }
-    // contruct a string with a copy of the buffer
+    // contruct a string with a copy of the C-style string returned.
     string ret(res);
-    free(buf);
+    // __cxa_demangle would have used realloc() to allocate memory
+    // which should be freed now.
+    free(res);
     return ret;
 }
 
