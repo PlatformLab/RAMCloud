@@ -35,6 +35,8 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_getOptionCastDefault);
     CPPUNIT_TEST(test_getOptionNoCastNoDefault);
     CPPUNIT_TEST(test_getOptionNoCastDefault);
+    CPPUNIT_TEST(test_getOptionCStrNoDefault);
+    CPPUNIT_TEST(test_getOptionCStrDefault);
     CPPUNIT_TEST(test_hasOption);
     CPPUNIT_TEST_SUITE_END();
 
@@ -224,6 +226,19 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
         ServiceLocator sl("fast: host=example.org, port=8081");
         CPPUNIT_ASSERT_EQUAL("7", sl.getOption("foo", "7"));
         CPPUNIT_ASSERT_EQUAL("8081", sl.getOption("port", "0"));
+    }
+
+    void test_getOptionCStrNoDefault() {
+        ServiceLocator sl("fast: host=example.org, port=8081");
+        CPPUNIT_ASSERT_THROW(sl.getOption<const char*>("foo"),
+                             ServiceLocator::NoSuchKeyException);
+        CPPUNIT_ASSERT_EQUAL("8081", sl.getOption<const char*>("port"));
+    }
+
+    void test_getOptionCStrDefault() {
+        ServiceLocator sl("fast: host=example.org, port=8081");
+        CPPUNIT_ASSERT_EQUAL("7", sl.getOption<const char*>("foo", "7"));
+        CPPUNIT_ASSERT_EQUAL("8081", sl.getOption<const char*>("port", "0"));
     }
 
     void test_hasOption() {

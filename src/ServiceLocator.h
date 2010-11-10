@@ -88,12 +88,12 @@ class ServiceLocator {
 
     template<typename T> T getOption(const string& key) const;
 
-    string getOption(const string& key) const;
+    const string& getOption(const string& key) const;
 
     template<typename T> T getOption(const string& key, T defaultValue) const;
 
-    string getOption(const string& key,
-                     const string& defaultValue) const;
+    const string& getOption(const string& key,
+                            const string& defaultValue) const;
 
     /**
      * Return whether the given key names an option that was specified.
@@ -176,10 +176,7 @@ class ServiceLocator {
  */
 template<typename T> T
 ServiceLocator::getOption(const string& key) const {
-    std::map<string, string>::const_iterator i = options.find(key);
-    if (i == options.end())
-        throw NoSuchKeyException(HERE, key);
-    return boost::lexical_cast<T>(i->second);
+    return boost::lexical_cast<T>(getOption(key));
 }
 
 /**

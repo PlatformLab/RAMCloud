@@ -197,34 +197,42 @@ ServiceLocator::init(pcrecpp::StringPiece* remainingServiceLocator)
 // T getOption<T=const string&>(const string& key)
 // (This isn't a doxygen comment because doxygen concatenates this
 // documentation with that of getOption<> for getOption<>).
-string
+const string&
 ServiceLocator::getOption(const string& key) const
 {
-  return getOption<string>(key);
+    std::map<string, string>::const_iterator i = options.find(key);
+    if (i == options.end())
+        throw NoSuchKeyException(HERE, key);
+    return i->second;
 }
 
 // Simpler form without a type template parameter, identical to:
 // T getOption<T=const string&>(const string& key, T defaultValue)
-string
+const string&
 ServiceLocator::getOption(const string& key,
                           const string& defaultValue) const
 {
-    return getOption<string>(key, defaultValue);
+    std::map<string, string>::const_iterator i = options.find(key);
+    if (i == options.end())
+        return defaultValue;
+    return i->second;
 }
 
-// Specializations for char* so that a string version of lexical_cast
-// is used.
+// Specializations for const char* because lexical_cast doesn't handle it well.
 template<> const char*
 ServiceLocator::getOption(const string& key) const
 {
-    return getOption<string>(key).c_str();
+    return getOption(key).c_str();
 }
 
 template<> const char*
 ServiceLocator::getOption(const string& key, const char* defaultValue)
 const
 {
-    return getOption<string>(key, defaultValue).c_str();
+    std::map<string, string>::const_iterator i = options.find(key);
+    if (i == options.end())
+        return defaultValue;
+    return i->second.c_str();
 }
 
 
