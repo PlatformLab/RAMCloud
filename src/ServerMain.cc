@@ -36,7 +36,7 @@ try
 
     OptionsDescription serverOptions("Master");
     serverOptions.add_options()
-        ("cpu,c",
+        ("cpu,p",
          ProgramOptions::value<int>(&cpu)->
             default_value(-1),
          "CPU mask to pin to")

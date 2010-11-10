@@ -147,7 +147,7 @@ try
 {
     RC::OptionsDescription benchOptions("Bench");
     benchOptions.add_options()
-        ("cpu,c",
+        ("cpu,p",
          RC::ProgramOptions::value<int>(&cpu)->
            default_value(-1),
          "CPU mask to pin to")

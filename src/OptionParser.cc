@@ -15,6 +15,7 @@
 
 #include <boost/program_options.hpp>
 #include <iostream>
+#include <fstream>
 
 #include "Common.h"
 #include "Transport.h"
@@ -103,11 +104,16 @@ OptionParser::setup(int argc, char* argv[])
     namespace po = ProgramOptions;
 
     int defaultLogLevel;
+    string configFile(".ramcloud");
 
     // Basic options supported on the command line of all apps
     OptionsDescription commonOptions("Common");
     commonOptions.add_options()
-        ("help", "produce help message");
+        ("help", "Produce help message")
+        ("c,config",
+         po::value<string>(&configFile)->
+            default_value(".ramcloud"),
+         "Specify a path to a config file");
 
     // Options allowed on command line and in config file for all apps
     OptionsDescription configOptions("RAMCloud");
@@ -125,10 +131,26 @@ OptionParser::setup(int argc, char* argv[])
            default_value("fast+udp:host=0.0.0.0,port=12246"),
          "Service locator where the coordinator can be contacted");
 
+    // Do one pass with just help/config file options so we can get
+    // the alternate config file location, if specified.  Then
+    // do a second pass with all the options for real.
+    po::variables_map throwAway;
+    // Need to skip unknown parameters since we'll repeat the parsing
+    // once we know which config file to read in.
+    po::store(po::command_line_parser(argc, argv).options(commonOptions)
+                                                 .allow_unregistered()
+                                                 .run(),
+              throwAway);
+    po::notify(throwAway);
+
     allOptions.add(commonOptions).add(configOptions).add(appOptions);
 
     po::variables_map vm;
+    std::ifstream configInput(configFile.c_str());
     po::store(po::parse_command_line(argc, argv, allOptions), vm);
+    // true here lets config files contain unknown key/value pairs
+    // this lets a config file be used for multiple programs
+    po::store(po::parse_config_file(configInput, allOptions, true), vm);
     po::notify(vm);
 
     if (vm.count("help"))

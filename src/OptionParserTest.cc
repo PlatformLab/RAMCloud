@@ -13,6 +13,9 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <stdlib.h>
+#include <stdio.h>
+
 #include "TestUtil.h"
 #include "OptionParser.h"
 
@@ -27,6 +30,7 @@ class OptionParserTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(OptionParserTest);
     CPPUNIT_TEST(test_constructor_noAppSpecific);
     CPPUNIT_TEST(test_constructor_appSpecific);
+    CPPUNIT_TEST(test_constructor_configFile);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -76,6 +80,43 @@ class OptionParserTest : public CppUnit::TestFixture {
         OptionParser parser(appOptions, argc, const_cast<char**>(argv));
 
         CPPUNIT_ASSERT_EQUAL(true, value);
+    }
+
+    struct TempFile {
+        TempFile()
+            : fd(-1)
+            , file(0)
+        {
+            snprintf(filename, sizeof(filename), "%s", "ramcloud-test-XXXXXX");
+            fd = mkstemp(filename);
+            file = fdopen(fd, "w+");
+        }
+        ~TempFile()
+        {
+            fclose(file);
+            unlink(filename);
+        }
+        char filename[50];
+        int fd;
+        FILE* file;
+
+        DISALLOW_COPY_AND_ASSIGN(TempFile);
+    };
+
+    void
+    test_constructor_configFile()
+    {
+        TempFile temp;
+        fprintf(temp.file, "coordinator=swisscheese\n");
+        rewind(temp.file);
+        int argc = 3;
+        const char* argv[] = {"progname", "-c", temp.filename};
+
+        OptionsDescription appOptions;
+        OptionParser parser(appOptions, argc, const_cast<char**>(argv));
+
+        CPPUNIT_ASSERT_EQUAL("swisscheese",
+                             parser.options.getCoordinatorLocator());
     }
 
   private:
