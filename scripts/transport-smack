@@ -1,0 +1,249 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2010 Stanford University
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+"""Runs an test suite against a transport module."""
+
+from functools import partial
+from optparse import OptionParser
+import os
+import signal
+import subprocess
+import sys
+import time
+
+from common import *
+
+# the local path to the TransportSmack binary
+BIN = '%s/TransportSmack' % obj_dir
+# the path on remote machines to the TransportSmack binary
+# (this is assuming a common filesystem)
+RBIN = ('/'.join(os.path.abspath(__file__).split('/')[:-2] +
+        [obj_dir, 'TransportSmack']))
+
+TCP_PORT = 32242
+FAST_UDP_PORT = 32242
+INFRC_PORT = 32242
+
+# a dictionary from hostname-ish labels to service locators for different
+# transports
+KNOWN_HOSTS = {}
+for i in range(1, 7):
+    ip = '171.66.3.%d' % (46 + i * 2)
+    KNOWN_HOSTS['rc%02d' % i] = {
+        'ssh': ip,
+        'tcp': 'tcp:host=%s,port=%d' % (ip, TCP_PORT),
+        'fast+udp': 'fast+udp:host=%s,port=%d' % (ip, FAST_UDP_PORT),
+        'infrc': 'infrc:host=%s,port=%d' % (ip, INFRC_PORT),
+    }
+    KNOWN_HOSTS['rc%02dalt' % i] = {
+        'ssh': ip,
+        'tcp': 'tcp:host=%s,port=%d' % (ip, TCP_PORT + 1),
+        'fast+udp': 'fast+udp:host=%s,port=%d' % (ip, FAST_UDP_PORT + 1),
+        'infrc': 'infrc:host=%s,port=%d' % (ip, INFRC_PORT + 1),
+    }
+KNOWN_HOSTS['localhost'] = {
+    'ssh': 'localhost',
+    'tcp': 'tcp:host=127.0.0.1,port=%d' % TCP_PORT,
+    'fast+udp': 'fast+udp:host=127.0.0.1,port=%d' % FAST_UDP_PORT,
+    'infrc': 'infrc:host=127.0.0.1,port=%d' % INFRC_PORT,
+}
+
+def addbs(s, chars):
+    """Add backslashes to the given characters and backslash in a string."""
+    s = s.replace('\\', '\\\\')
+    for char in chars:
+        s = s.replace(char, '\\' + char)
+    return s
+
+def escapeq(sl):
+    """Return a double-quoted, escaped service locator value."""
+    return '"%s"' % addbs(sl, '"')
+def escape(sl):
+    """Return an unquoted, escaped service locator value."""
+    return addbs(sl, '",;')
+
+def TESTS(servers):
+    """Returns tests to execute.
+
+    Returns a list of tuples, where each tuple is made up of (1) a
+    human-readable description of the test, (2) a timeout value in seconds for
+    the test's execution, and (3) a test command in the format described at the
+    top of TransportSmack.cc.
+    """
+
+    # The following provides a more convenient way to specify test descriptions
+    # in Python:
+    def td(name, **kwargs):
+        """Generate a service locator string from keyword args."""
+        try:
+            kwargs['server'] = escapeq(kwargs['server'])
+        except KeyError:
+            kwargs['server'] = escapeq(servers[0])
+        options = ','.join(['%s=%s' % item for item in kwargs.items()])
+        return '%s:%s' % (name, options)
+    echo = partial(td, 'echo')
+    echoRange = partial(td, 'echoRange')
+    remote = partial(td, 'remote')
+    wait = partial(td, 'wait')
+    do = partial(td, 'do')
+
+    tests = map((lambda (l, t, d):
+                (l, t, ';'.join(d) if type(d) is list else d)), [
+        ('Echo requests of size [0, 8K]', 20,
+         echoRange(start=0, end=(8 * 1024))),
+        ('Echo 1MB requests', 10,
+         echo(size=(1024 * 1024), repeat=2)),
+        ('Echo large requests (8MB)', 10,
+         echo(size=(8 * 1024 * 1024), repeat=2)),
+        # 200,000 is interesting because it is bigger than the total number of
+        # TCP or UDP ports
+        ('Echo 200,000 small requests', 120,
+         echo(size=16, repeat=200000)),
+        ('Server spins for 1us-10ms', 10,
+         [echo(spin=1000),       # 1 us
+          echo(spin=1000000),    # 1 ms
+          echo(spin=10000000)]), # 10 ms
+        ('Server spins for 100ms-10s', 20,
+         [echo(spin=100000000),     # 100ms
+          echo(spin=1000000000),    # 1 s
+          echo(spin=10000000000)]), # 10 s
+        ('Sending a few concurrent small RPCs', 10,
+         echo(repeat=20, async=1)),
+        ('Sending a few concurrent 1M RPCs', 10,
+         echo(repeat=20, size=(1024 * 1024), async=1)),
+        ('Sending a few concurrent 8M RPCs', 30,
+         echo(repeat=4, size=(8 * 1024 * 1024), async=1)),
+        ('Sending 300 concurrent small RPCs', 10,
+         echo(repeat=300, async=1)),
+        ('Sending 25 concurrent 8M RPCs', 60,
+         echo(repeat=25, size=(8 * 1024 * 1024), async=1)),
+        ('Indirect Ping', 10,
+         remote(repeat=10,
+                command=escapeq(echo(size=16, server=servers[1])))),
+        ('Two clients sending a few 8M RPCs', 30,
+         [remote(async=1,
+                 command=escapeq(echo(repeat=5, size=(8 * 1024 * 1024),
+                                      server=servers[1]))),
+          echo(repeat=5, size=(8 * 1024 * 1024), server=servers[1])]),
+        ('Two clients sending many 8M RPCs', 120,
+         [remote(async=1,
+                 command=escapeq(echo(repeat=25, size=(8 * 1024 * 1024),
+                                      server=servers[1]))),
+          echo(repeat=25, size=(8 * 1024 * 1024), server=servers[1])]),
+        ('Two clients sending several concurrent 8M RPCs each', 120,
+         [remote(async=1,
+                 command=escapeq(echo(repeat=25, async=1,
+                                      size=(8 * 1024 * 1024),
+                                      server=servers[1]))),
+          echo(repeat=25, async=1, size=(8 * 1024 * 1024),
+               server=servers[1])]),
+        ('One client sending many small RPCs to two servers', 30,
+         [do(repeat=10000, command=escapeq(';'.join([
+           echo(async=1, repeat=5),
+           echo(async=1, repeat=5, server=servers[1]),
+           wait(repeat=10)])))]),
+        ('One client sending a few large RPCs to two servers', 60,
+         [do(repeat=3, command=escapeq(';'.join([
+           echo(async=1, repeat=5, size=(8 * 1024 * 1024)),
+           echo(async=1, repeat=5, size=(8 * 1024 * 1024), server=servers[1]),
+           wait(repeat=10)])))]),
+        ])
+    return tests
+
+if __name__ == '__main__':
+    parser = OptionParser(
+            usage='%prog [options] SERVER1 SERVER2 ...')
+    parser.add_option('-c', '--client',
+                      dest='client_host', type='str', default='localhost',
+                      help='where to run the client',
+                      metavar='HOST')
+    parser.add_option('-l', '--log-level',
+                      dest='log_level', type='int', default=3,
+                      help='RAMCloud log level', metavar='LEVEL')
+    parser.add_option('-t', '--transport',
+                      dest='transport', type='str', default='tcp',
+                      help='RAMCloud transport protocol', metavar='TRANSPORT')
+    parser.add_option('-s', '--timeout-scale',
+                      dest='timeout_scale', type='int', default=100,
+                      help='Percentage by which to scale timeout values',
+                      metavar='PERCENTAGE')
+    options, hosts = parser.parse_args()
+    client_host = KNOWN_HOSTS[options.client_host]
+    server_hosts = [KNOWN_HOSTS[host] for host in hosts]
+
+    sh('make -j4 %s' % BIN)
+
+    tests = TESTS([host[options.transport] for host in server_hosts])
+
+    # for each test, sorted by timeout (shorter tests first)
+    for label, timeout, desc in sorted(tests,
+                                       key=lambda t: (t[1], t[0], t[2])):
+        timeout = timeout * float(options.timeout_scale) / 100
+        print label
+        servers = []
+        try:
+            for host in server_hosts:
+                servers.append(rsh(host['ssh'],
+                                   ('%s -l %d -L %s' %
+                                    (RBIN, options.log_level,
+                                     host[options.transport])),
+                                   bg=True))
+            time.sleep(1)
+            command = ('%s --client -l %d --test "%s"' %
+                       (RBIN, options.log_level, addbs(desc, '"')))
+            client = rsh(client_host['ssh'], command, bg=True)
+            success = False
+            while True:
+                rc = client.poll()
+                if rc is None:
+                    if timeout < 0:
+                        print "Timeout exceeded"
+                        try:
+                            client.kill()
+                        except OSError as e:
+                            print e
+                            pass
+                        time.sleep(1)
+                        try:
+                            client.terminate()
+                        except OSError as e:
+                            print e
+                            pass
+                        break
+                    time.sleep(0.1)
+                    timeout -= 0.1
+                else:
+                    success = (rc == 0)
+                    break
+        finally:
+            for server in servers:
+                try:
+                    server.kill()
+                except OSError as e:
+                    print e
+                    pass
+            time.sleep(1)
+            for server in servers:
+                try:
+                    server.terminate()
+                except OSError as e:
+                    print e
+                    pass
+        if success:
+            print "Ok"
+        else:
+            print "Failed!"
+        time.sleep(1)

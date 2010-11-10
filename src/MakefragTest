@@ -70,7 +70,7 @@ $(OBJDIR)/test: $(TESTS_OBJFILES)
 
 # TODO(ongaro) The unit tests don't actually call HashTableBenchmark, Echo,
 # Telnet, or RecoverSegmentBenchmark. I just wanted to make sure it continues to build over time.
-test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet $(OBJDIR)/Bench $(OBJDIR)/RecoverSegmentBenchmark
+test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet $(OBJDIR)/Bench $(OBJDIR)/RecoverSegmentBenchmark $(OBJDIR)/TransportSmack
 	$(OBJDIR)/test
 
 ftest: $(OBJDIR)/test
@@ -93,6 +93,10 @@ $(OBJDIR)/RecoverSegmentBenchmark: $(OBJDIR)/RecoverSegmentBenchmark.o $(SHARED_
 	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(LIBS) -o $@ $^
+
+$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Server.o $(OBJDIR)/Metrics.o $(OBJDIR)/rabinpoly.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
