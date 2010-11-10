@@ -173,6 +173,7 @@ TransportManager::getSession(const char* serviceLocator)
                 sessionCache.insert(pair<string,
                                     Transport::SessionRef>(serviceLocator,
                                                            session));
+                session->setServiceLocator(serviceLocator);
                 return session;
             } catch (TransportException& e) {
                 // TODO(ongaro): Transport::getName() would be nice here.
