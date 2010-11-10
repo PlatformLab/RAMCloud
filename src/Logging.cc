@@ -136,16 +136,14 @@ Logger logger(NOTICE);
 static const char* logLevelNames[] = {"(none)", "ERROR", "WARNING",
                                       "NOTICE", "DEBUG"};
 
-static_assert(sizeof(logLevelNames) / sizeof(logLevelNames[0]) ==
-              NUM_LOG_LEVELS);
+static_assert(unsafeArrayLength(logLevelNames) == NUM_LOG_LEVELS);
 /**
  * Friendly names for each #LogModule value.
  * Keep this in sync with the LogModule enum.
  */
 static const char* logModuleNames[] = {"default", "transport"};
 
-static_assert(sizeof(logModuleNames) / sizeof(logModuleNames[0]) ==
-              NUM_LOG_MODULES);
+static_assert(unsafeArrayLength(logModuleNames) == NUM_LOG_MODULES);
 
 /**
  * Create a new debug logger.

@@ -186,7 +186,25 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
  */
 #define IGNORE_RESULT(x) if (x) {}
 
+/**
+ * Return the number of elements in a statically allocated array.
+ * Although #arrayLength() should be used where possible, this macro can appear
+ * in constant expressions and that function can not.
+ * \warning
+ *      This will return bogus results for anything that's not an array.
+ *      Prefer #arrayLength().
+ */
+#define unsafeArrayLength(array) (sizeof(array) / sizeof(array[0]))
+
 #ifdef __cplusplus
+
+/// Return the number of elements in a statically allocated array.
+template<typename T, size_t length>
+uint32_t
+arrayLength(const T (&array)[length])
+{
+    return length;
+}
 
 __inline __attribute__((always_inline, no_instrument_function))
 uint64_t _rdtsc();

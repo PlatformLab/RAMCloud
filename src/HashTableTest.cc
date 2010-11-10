@@ -753,7 +753,7 @@ class HashTableTest : public CppUnit::TestFixture {
         ForEachTestStruct checkoff[256];
         memset(checkoff, 0, sizeof(checkoff));
 
-        for (uint32_t i = 0; i < sizeof(checkoff) / sizeof(checkoff[0]); i++) {
+        for (uint32_t i = 0; i < arrayLength(checkoff); i++) {
             checkoff[i].key1 = 0;
             checkoff[i].key2 = i;
             ht.replace(0, i, &checkoff[i]);
@@ -761,9 +761,9 @@ class HashTableTest : public CppUnit::TestFixture {
 
         uint64_t t = ht.forEach(test_forEach_callback,
             reinterpret_cast<void *>(57));
-        CPPUNIT_ASSERT_EQUAL(sizeof(checkoff) / sizeof(checkoff[0]), t);
+        CPPUNIT_ASSERT_EQUAL(arrayLength(checkoff), t);
 
-        for (uint32_t i = 0; i < sizeof(checkoff) / sizeof(checkoff[0]); i++)
+        for (uint32_t i = 0; i < arrayLength(checkoff); i++)
             CPPUNIT_ASSERT_EQUAL(1, checkoff[i].count);
     }
 };
