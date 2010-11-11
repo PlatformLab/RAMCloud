@@ -156,6 +156,10 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             callHandler<BackupOpenRpc, BackupServer,
                         &BackupServer::openSegment>(rpc);
             break;
+        case PingRpc::type:
+            callHandler<PingRpc, Server,
+                        &Server::ping>(rpc);
+            break;
         case BackupStartReadingDataRpc::type:
             callHandler<BackupStartReadingDataRpc, BackupServer,
                         &BackupServer::startReadingData>(rpc);

@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "BackupClient.h"
 #include "CoordinatorServer.h"
 #include "MasterClient.h"
 #include "ProtoBuf.h"
@@ -84,7 +85,8 @@ CoordinatorServer::dispatch(RpcType type,
                         &CoordinatorServer::tabletsRecovered>(rpc);
             break;
         case PingRpc::type:
-            callHandler<PingRpc, Server, &Server::ping>(rpc);
+            callHandler<PingRpc, CoordinatorServer,
+                        &CoordinatorServer::ping>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);
@@ -343,7 +345,7 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
 /**
  * Handle the TABLETS_RECOVERED RPC.
- * \copydetails Server::ping
+ * \copydetails CoordinatorServer::hintServerDown
  */
 void
 CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
@@ -394,6 +396,33 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
             }
         }
     }
+}
+
+/**
+ * Top-level server method to handle the PING request.
+ *
+ * For debugging it print out statistics on the RPCs that it has
+ * handled and instructs all the machines in the RAMCloud to do
+ * so also (by pinging them all).
+ *
+ * \copydetails Server::ping
+ */
+void
+CoordinatorServer::ping(const PingRpc::Request& reqHdr,
+                        PingRpc::Response& respHdr,
+                        Transport::ServerRpc& rpc)
+{
+    // dump out all the RPC stats for all the hosts so far
+    foreach (const ProtoBuf::ServerList::Entry& server,
+             backupList.server())
+        BackupClient(transportManager.getSession(
+            server.service_locator().c_str())).ping();
+    foreach (const ProtoBuf::ServerList::Entry& server,
+             masterList.server())
+        MasterClient(transportManager.getSession(
+            server.service_locator().c_str())).ping();
+
+    Server::ping(reqHdr, respHdr, rpc);
 }
 
 } // namespace RAMCloud

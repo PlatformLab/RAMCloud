@@ -53,6 +53,7 @@ enum RpcType {
     BACKUP_OPEN             = 131,
     BACKUP_STARTREADINGDATA = 132,
     BACKUP_WRITE            = 133,
+    ILLEGAL_RPC_TYPE        = 134,  // 1 + the highest legitimate RpcType
 };
 
 /**

@@ -72,6 +72,10 @@ class CoordinatorServer : public Server {
                           TabletsRecoveredRpc::Response& respHdr,
                           Transport::ServerRpc& rpc);
 
+    void ping(const PingRpc::Request& reqHdr,
+              PingRpc::Response& respHdr,
+              Transport::ServerRpc& rpc);
+
     /**
      * The server id for the next server to register.
      * These are guaranteed to be unique.

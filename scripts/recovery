@@ -6,31 +6,49 @@
 
 source ./scripts/common.bash
 
+#proto=fast+udp
+#proto=tcp
+proto=infrc
+
+#host1=171.66.3.56
+host1=127.0.0.1
+host2=$host1
+#host2=171.66.3.58
+
+C=$proto:host=$host1,port=12246
+commonopts="-l 9 -C $C"
+
 start() {
-    xterm -e bash -c "sleep .1; $1; read" &
+    xterm -e ssh -t -t $1 "export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts; read" &
     atexit "kill $!"
 }
 
-#proto=fast+udp
-proto=tcp
-host=127.0.0.1
-C=$proto:host=$host,port=12246
+# The local version could use some fixups, probably best use
+# the remote with 127.0.0.1.
+#start() {
+#    xterm -e bash -c "export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts; read" &
+#    atexit "kill $!"
+#}
 
-start "$OBJDIR/coordinator -l 9 -C $C"
-
-sleep .5
-
-start "$OBJDIR/backup -l 9 -L $proto:host=$host,port=12243 -C $C"
-start "$OBJDIR/backup -l 9 -L $proto:host=$host,port=12244 -C $C"
+start $host1 coordinator
 
 sleep .5
 
-start "$OBJDIR/server -l 9 -r 2 -L $proto:host=$host,port=12242 -C $C"
-sleep .5
-start "$OBJDIR/server -l 9 -r 2 -L $proto:host=$host,port=12247 -C $C"
+start $host1 "backup -L $proto:host=$host1,port=12243"
+start $host2 "backup -L $proto:host=$host2,port=12244"
 
 sleep .5
 
-start "$OBJDIR/client -l 9 -d -C $C"
+start $host1 "server -r 2 -L $proto:host=$host1,port=12242"
+sleep .5
+start $host2 "server -r 2 -L $proto:host=$host2,port=12247"
+
+sleep .5
+
+start $host1 "client -d $*"
+
+# sloppy version of cleaup in case ssh -t -t doesn't do the trick
+#atexit "ssh $host1 \"pkill backup; pkill server; pkill coordinator; pkill client\""
+#atexit "ssh $host2 \"pkill backup; pkill server; pkill coordinator; pkill client\""
 
 read

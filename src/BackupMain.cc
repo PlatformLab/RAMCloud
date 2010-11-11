@@ -31,6 +31,7 @@
  */
 int
 main(int argc, char* argv[])
+try
 {
     using namespace RAMCloud;
 
@@ -60,9 +61,13 @@ main(int argc, char* argv[])
     // Set the address for the backup to listen on.
     transportManager.initialize(config.localLocator.c_str());
 
-    SingleFileStorage storage(Segment::SEGMENT_SIZE, 16, "backup.log", 0);
+    SingleFileStorage storage(Segment::SEGMENT_SIZE, 128, "backup.log", 0);
     BackupServer server(config, storage);
     server.run();
 
     return 0;
+} catch (RAMCloud::Exception& e) {
+    using namespace RAMCloud;
+    LOG(ERROR, "backup: %s", e.str().c_str());
+    return 1;
 }

@@ -28,12 +28,22 @@ main(int argc, char *argv[])
 try
 {
     bool hintServerDown;
+    int count;
+    uint32_t objectDataSize;
 
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
         ("down,d",
          ProgramOptions::bool_switch(&hintServerDown),
-         "Report the master we're talking to as down just before exit.");
+         "Report the master we're talking to as down just before exit.")
+        ("number,n",
+         ProgramOptions::value<int>(&count)->
+            default_value(1024),
+         "The number of values to insert.")
+        ("size,s",
+         ProgramOptions::value<uint32_t>(&objectDataSize)->
+            default_value(1024),
+         "Number of bytes to insert per object during insert phase.");
 
     OptionParser optionParser(clientOptions, argc, argv);
 
@@ -116,11 +126,12 @@ try
         static_cast<const char*>(buffer.getRange(0, length)),
         length);
 
-    b = rdtsc();
-    int count = 100;
+    char val[objectDataSize];
+    memset(val, 0xcc, objectDataSize);
     id = 0xfffffff;
-    const char *val = "0123456789ABCDEF";
+
     uint64_t sum = 0;
+    b = rdtsc();
     for (int j = 0; j < count; j++) {
         id = client.create(table, val, strlen(val) + 1);
         sum += client.counterValue;
@@ -132,18 +143,35 @@ try
            sum / count);
 
     if (hintServerDown) {
-        LOG(DEBUG, "--- hinting that the server is down ---");
-        client.coordinator.hintServerDown("tcp:host=127.0.0.1,port=12242");
-        printf("- flushing map\n");
+        // dump out coordinator rpc info
+        client.ping();
+
+        Transport::SessionRef session = client.objectFinder.lookup(table, 0);
+        LOG(NOTICE, "--- hinting that the server is down: %s ---",
+            session->getServiceLocator().c_str());
+
+        b = rdtsc();
+        client.coordinator.hintServerDown(
+            session->getServiceLocator().c_str());
+
+        LOG(NOTICE, "- flushing map\n");
         client.objectFinder.flush();
 
-        printf("- attempting read from recovery master\n");
-        client.read(table, 43, &buffer);
-        printf("read took %lu ticks\n", rdtsc() - b);
-        printf("read took %u ticks on the server\n",
+        Buffer nb;
+        session = client.objectFinder.lookup(table, 0);
+        LOG(NOTICE, "- attempting read from recovery master: %s",
+            session->getServiceLocator().c_str());
+        client.read(table, 43, &nb);
+
+        LOG(NOTICE, "read took %lu ticks", rdtsc() - b);
+        LOG(NOTICE, "read took %u ticks on the server",
                client.counterValue);
-        printf("read value: %s\n", buffer.getRange(0, buffer.getTotalLength()));
-        printf("- recovery worked!\n");
+        LOG(NOTICE, "read value: %s",
+                static_cast<const char*>(nb.getRange(0, nb.getTotalLength())));
+        LOG(NOTICE, "- recovery worked!");
+
+        // dump out coordinator rpc info
+        client.ping();
     } else {
         client.dropTable("test");
     }

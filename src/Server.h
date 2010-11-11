@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_SERVER_H
 #define RAMCLOUD_SERVER_H
 
+#include <algorithm>
+
 #include "Common.h"
 #include "ClientException.h"
 #include "Metrics.h"
@@ -38,7 +40,11 @@ class Server {
      */
     class Responder {
       public:
-        explicit Responder(Transport::ServerRpc& rpc) : rpc(&rpc) {}
+        Responder(Server& server,
+                  Transport::ServerRpc& rpc)
+            : rpc(&rpc)
+            , server(server)
+        {}
 
         bool hasResponded() {
             return (rpc == NULL);
@@ -55,6 +61,7 @@ class Server {
             }
             Metrics::mark(MARK_RPC_PROCESSING_END);
             responseCommon->counterValue = Metrics::read();
+            server.rpcsTime[server.rpcIndex] += rdtsc() - server.start;
             rpc->sendReply();
             rpc = NULL;
         }
@@ -70,16 +77,25 @@ class Server {
             responseCommon->status = status;
             Metrics::mark(MARK_RPC_PROCESSING_END);
             responseCommon->counterValue = Metrics::read();
+            server.rpcsTime[server.rpcIndex] += rdtsc() - server.start;
             rpc->sendReply();
             rpc = NULL;
         }
 
       private:
         Transport::ServerRpc* rpc;
+        Server& server;
         DISALLOW_COPY_AND_ASSIGN(Responder);
     };
 
-    Server() {}
+    Server()
+        : rpcIndex()
+        , start()
+    {
+        std::fill(rpcsHandled, rpcsHandled + ILLEGAL_RPC_TYPE, 0);
+        std::fill(rpcsTime, rpcsTime + ILLEGAL_RPC_TYPE, 0);
+    }
+
     virtual ~Server() {}
     virtual void run();
     VIRTUAL_FOR_TESTING void dispatch(RpcType type,
@@ -161,13 +177,17 @@ class Server {
     void
     handleRpc() {
         Transport::ServerRpc& rpc(*transportManager.serverRecv());
-        Responder responder(rpc);
+        Responder responder(*this, rpc);
         const RpcRequestCommon* header;
         header = rpc.recvPayload.getStart<RpcRequestCommon>();
         if (header == NULL) {
             responder(STATUS_MESSAGE_TOO_SHORT);
             return;
         }
+        rpcIndex = header->type < ILLEGAL_RPC_TYPE ?
+                       header->type : ILLEGAL_RPC_TYPE;
+        rpcsHandled[rpcIndex]++;
+        start = rdtsc();
         Metrics::setup(header->perfCounter);
         Metrics::mark(MARK_RPC_PROCESSING_BEGIN);
         try {
@@ -182,7 +202,21 @@ class Server {
             responder();
     }
 
+  protected:
+    /// The number of RPCs handled by this server.
+    uint64_t rpcsHandled[ILLEGAL_RPC_TYPE];
+
+    /// Total number of cycles spent servicing this type of RPC on this server.
+    uint64_t rpcsTime[ILLEGAL_RPC_TYPE];
+
+    /// Index into the rpcTime array for the type of RPC that's being handled.
+    uint64_t rpcIndex;
+
+    /// The time when this service last began servicing an RPC.
+    uint64_t start;
+
   private:
+    friend class Responder;
     friend class ServerTest;
     friend class BindTransport;
     DISALLOW_COPY_AND_ASSIGN(Server);

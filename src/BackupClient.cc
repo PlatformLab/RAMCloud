@@ -30,8 +30,7 @@ namespace RAMCloud {
  *      The Session by which to communicate with the backup server.
  */
 BackupClient::BackupClient(Transport::SessionRef session)
-        : counterValue(0)
-        , session(session)
+        : session(session)
         , status(STATUS_OK)
 {
 }
@@ -156,6 +155,24 @@ BackupClient::openSegment(uint64_t masterId,
     reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
     sendRecv<BackupOpenRpc>(session, req, resp);
+    checkStatus();
+}
+
+/**
+ * Test that a server exists and is responsive.
+ *
+ * This operation issues a no-op RPC request, which causes
+ * communication with the given server but doesn't actually do
+ * anything on the server.
+ *
+ * \exception InternalError
+ */
+void
+BackupClient::ping()
+{
+    Buffer req, resp;
+    allocHeader<PingRpc>(req);
+    sendRecv<PingRpc>(session, req, resp);
     checkStatus();
 }
 
