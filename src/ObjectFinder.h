@@ -41,6 +41,14 @@ class ObjectFinder {
         return lookup(table, ~0UL);
     }
 
+    /**
+     * Jettison all tablet map entries forcing a fetch of fresh mappings
+     * on subsequent lookups.
+     */
+    void flush() {
+        tabletMap.Clear();
+    }
+
   private:
     /**
      * A cache of the coordinator's tablet map.

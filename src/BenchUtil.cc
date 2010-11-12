@@ -90,7 +90,9 @@ getCyclesPerSecond()
 uint64_t
 cyclesToNanoseconds(uint64_t cycles)
 {
-    return (cycles * 1000 * 1000 * 1000 / getCyclesPerSecond());
+    if (cycles > 1000UL * 1000 * 1000)
+        return (cycles * 1000UL / getCyclesPerSecond()) * 1000UL * 1000;
+    return (cycles * 1000UL * 1000 * 1000 / getCyclesPerSecond());
 }
 
 /**
@@ -119,7 +121,11 @@ cyclesToSeconds(uint64_t cycles)
 uint64_t
 nanosecondsToCycles(uint64_t ns)
 {
-    return (ns * getCyclesPerSecond()) / (1000 * 1000 * 1000);
+    if (ns > 1000UL * 1000 * 1000 * 1000)
+        return (ns / (1000UL * 1000 * 1000)) * getCyclesPerSecond();
+    if (ns > 1000UL * 1000 * 1000)
+        return (ns / (1000UL * 1000)) * getCyclesPerSecond() / 1000UL;
+    return (ns * getCyclesPerSecond()) / (1000UL * 1000 * 1000);
 }
 
 } // end RAMCloud

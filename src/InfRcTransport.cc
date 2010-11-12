@@ -402,7 +402,9 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
     ssize_t len = sendto(clientSetupSocket, &outgoingQpt, sizeof(outgoingQpt),
         0, reinterpret_cast<sockaddr *>(&sin), sizeof(sin));
     if (len != sizeof(outgoingQpt)) {
-        LOG(ERROR, "%s: sendto was short: %Zd", __func__, len);
+        LOG(ERROR, "%s: sendto was short: %Zd: %s: "
+                   "sending to ip: [%s] port: [%d]",
+            __func__, len, strerror(errno), ip, port);
         ibv_destroy_cq(cq);
         delete qp;
         throw TransportException(HERE, len);

@@ -20,6 +20,8 @@ namespace RAMCloud {
 
 class CommonTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(CommonTest);
+    CPPUNIT_TEST(test_unsafeArrayLength);
+    CPPUNIT_TEST(test_arrayLength);
     CPPUNIT_TEST(test_vformat_long);
     CPPUNIT_TEST(test_format_copy);
     CPPUNIT_TEST(test_format_outArg);
@@ -29,6 +31,28 @@ class CommonTest : public CppUnit::TestFixture {
 
   public:
     CommonTest() {}
+
+    void test_unsafeArrayLength() {
+        int x[10];
+        int y[] = {1, 2, 3};
+        CPPUNIT_ASSERT_EQUAL(10, unsafeArrayLength(x));
+        CPPUNIT_ASSERT_EQUAL(3, unsafeArrayLength(y));
+
+        // The following will give bogus results:
+        // int *z;
+        // CPPUNIT_ASSERT_EQUAL(0, arrayLength(z));
+    }
+
+    void test_arrayLength() {
+        int x[10];
+        int y[] = {1, 2, 3};
+        CPPUNIT_ASSERT_EQUAL(10, arrayLength(x));
+        CPPUNIT_ASSERT_EQUAL(3, arrayLength(y));
+
+        // The following should not compile:
+        // int *z;
+        // CPPUNIT_ASSERT_EQUAL(0, arrayLength(z));
+    }
 
     void test_vformat_long() {
         char x[3000];

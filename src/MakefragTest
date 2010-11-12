@@ -9,6 +9,7 @@ TESTS_SRCFILES := \
 		  src/BackupManagerTest.cc \
 		  src/BackupServerTest.cc \
 		  src/BackupStorageTest.cc \
+		  src/BenchUtilTest.cc \
 		  src/BindTransport.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \

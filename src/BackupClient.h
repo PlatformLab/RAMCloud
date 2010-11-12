@@ -45,6 +45,7 @@ class BackupClient : public Client {
                          Buffer& resp);
     Transport::SessionRef getSession();
     void openSegment(uint64_t masterId, uint64_t segmentId);
+    void ping();
     vector<uint64_t> startReadingData(uint64_t masterId);
     void writeSegment(uint64_t masterId,
                       uint64_t segmentId,
@@ -53,13 +54,6 @@ class BackupClient : public Client {
                       uint32_t length);
 
   private:
-    /**
-     * Performance metric from the response in the most recent RPC (as
-     * requested by selectPerfCounter). If no metric was requested and done
-     * most recent RPC, then this value is 0.
-     */
-    uint32_t counterValue;
-
     /**
      * A session with a backup server.
      */

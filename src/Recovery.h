@@ -26,10 +26,32 @@
 
 namespace RAMCloud {
 
+/// Used to allow custom mocks of recovery in unit testing.
+class BaseRecovery {
+  public:
+    BaseRecovery() {}
+    virtual ~BaseRecovery() {}
+    virtual void start()
+    {}
+    /**
+     * Used to check constructor args for mock recoveries.  A normal
+     * constructor cannot be used because the mocks are instantiated
+     * early.
+     */
+    virtual void operator()(uint64_t masterId,
+                            const ProtoBuf::Tablets& will,
+                            const ProtoBuf::ServerList& masterHosts,
+                            const ProtoBuf::ServerList& backupHosts)
+    {}
+    virtual bool tabletsRecovered(const ProtoBuf::Tablets& tablets)
+    { return true; }
+    DISALLOW_COPY_AND_ASSIGN(BaseRecovery);
+};
+
 /**
  * A Recovery from the perspective of the CoordinatorServer.
  */
-class Recovery {
+class Recovery : public BaseRecovery {
   private:
     typedef std::multimap<uint64_t, ProtoBuf::ServerList::Entry> BackupMap;
 
@@ -43,6 +65,7 @@ class Recovery {
     void buildSegmentIdToBackups();
     void createBackupList(ProtoBuf::ServerList& backups) const;
     void start();
+    bool tabletsRecovered(const ProtoBuf::Tablets& tablets);
 
   private:
     /**
@@ -63,22 +86,14 @@ class Recovery {
     /// Tells which backup each segment is stored on.
     BackupMap segmentIdToBackups;
 
+    /// Number of tablets left to recover before done.
+    uint32_t tabletsUnderRecovery;
+
     /// A partitioning of tablets for the crashed master.
     const ProtoBuf::Tablets& will;
 
     friend class RecoveryTest;
     DISALLOW_COPY_AND_ASSIGN(Recovery);
-};
-
-/// Used for unit testing.
-struct MockRecovery {
-    MockRecovery() {}
-    virtual ~MockRecovery() {}
-    virtual void operator()(uint64_t masterId,
-                            const ProtoBuf::Tablets& will,
-                            const ProtoBuf::ServerList& masterHosts,
-                            const ProtoBuf::ServerList& backupHosts) = 0;
-    DISALLOW_COPY_AND_ASSIGN(MockRecovery);
 };
 
 } // namespace RAMCloud

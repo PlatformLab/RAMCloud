@@ -53,6 +53,7 @@ enum RpcType {
     BACKUP_OPEN             = 131,
     BACKUP_STARTREADINGDATA = 132,
     BACKUP_WRITE            = 133,
+    ILLEGAL_RPC_TYPE        = 134,  // 1 + the highest legitimate RpcType
 };
 
 /**
@@ -328,6 +329,8 @@ struct TabletsRecoveredRpc {
     static const RpcType type = TABLETS_RECOVERED;
     struct Request {
         RpcRequestCommon common;
+        Status status;             // Indicates whether the recovery
+                                   // succeeded; if not, it explains why.
         uint32_t tabletsLength;    // Number of bytes in the tablet map.
                                    // The bytes of the tablet map follow
                                    // immediately after this header. See

@@ -34,7 +34,4 @@ RETVAL=$?
 
 echo "$DATE $VER $VAL ns"
 
-portslay $port
-portslay $cport
-
 exit $RETVAL

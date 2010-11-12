@@ -52,6 +52,7 @@ Recovery::Recovery(uint64_t masterId,
     , backupHosts(backupHosts)
     , masterId(masterId)
     , segmentIdToBackups()
+    , tabletsUnderRecovery()
     , will(will)
 {
     buildSegmentIdToBackups();
@@ -168,6 +169,7 @@ Recovery::start()
                         "failure was: %s", locator.c_str(), e.toString());
                     continue;
                 }
+                tabletsUnderRecovery++;
                 // Success, next try next partiton with next host.
                 hostIndexToRecoverOnNext++;
                 partitionId++;
@@ -179,6 +181,13 @@ Recovery::start()
             "your RAMCloud is now busted.");
         return;
     }
+}
+
+bool
+Recovery::tabletsRecovered(const ProtoBuf::Tablets& tablets)
+{
+    tabletsUnderRecovery--;
+    return tabletsUnderRecovery == 0;
 }
 
 } // namespace RAMCloud

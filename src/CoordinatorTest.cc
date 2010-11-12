@@ -157,7 +157,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     }
 
     void test_hintServerDown_master() {
-        struct MyMockRecovery : MockRecovery {
+        struct MyMockRecovery : public BaseRecovery {
             explicit MyMockRecovery(CoordinatorTest& test)
                 : test(test), called(false) {}
             void
@@ -187,6 +187,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
                                      backupHosts.ShortDebugString());
                 called = true;
             }
+            void start() {}
             CoordinatorTest& test;
             bool called;
         } mockRecovery(*this);
@@ -197,6 +198,15 @@ class CoordinatorTest : public CppUnit::TestFixture {
         client->createTable("foo");
         client->hintServerDown("mock:host=master");
         CPPUNIT_ASSERT(mockRecovery.called);
+
+        foreach (const ProtoBuf::Tablets::Tablet& tablet,
+                 server->tabletMap.tablet())
+        {
+            if (tablet.server_id() == master->serverId) {
+                CPPUNIT_ASSERT_EQUAL(&mockRecovery,
+                    reinterpret_cast<Recovery*>(tablet.user_data()));
+            }
+        }
     }
 
     void test_hintServerDown_backup() {
@@ -211,17 +221,48 @@ class CoordinatorTest : public CppUnit::TestFixture {
     }
 
     void test_tabletsRecovered_basics() {
-        ProtoBuf::Tablets tablets;
-        ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
-        tablet.set_table_id(99);
-        tablet.set_start_object_id(10);
-        tablet.set_end_object_id(20);
+        typedef ProtoBuf::Tablets::Tablet Tablet;
+        typedef ProtoBuf::Tablets Tablets;
+
+        uint64_t master2Id = client->enlistServer(MASTER, "mock:host=master2");
+        client->enlistServer(BACKUP, "mock:host=backup");
+
+        Tablets tablets;
+        Tablet& tablet(*tablets.add_tablet());
+        tablet.set_table_id(0);
+        tablet.set_start_object_id(0);
+        tablet.set_end_object_id(~(0ul));
         tablet.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
+        tablet.set_service_locator("mock:host=master2");
+        tablet.set_server_id(master2Id);
         tablet.set_user_data(0);
-        TestLog::Enable _(&tabletsRecoveredFilter);
-        client->tabletsRecovered(tablets);
-        CPPUNIT_ASSERT_EQUAL("tabletsRecovered: called with 1 tablets",
-                             TestLog::get());
+
+        Tablet& stablet(*server->tabletMap.add_tablet());
+        stablet.set_table_id(0);
+        stablet.set_start_object_id(0);
+        stablet.set_end_object_id(~(0ul));
+        stablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+        stablet.set_user_data(
+            reinterpret_cast<uint64_t>(new BaseRecovery()));
+
+        {
+            TestLog::Enable _(&tabletsRecoveredFilter);
+            client->tabletsRecovered(tablets);
+            CPPUNIT_ASSERT_EQUAL(
+                "tabletsRecovered: called with 1 tablets | "
+                "tabletsRecovered: Recovery complete on tablet "
+                "0,0,18446744073709551615 | "
+                "tabletsRecovered: Recovery completed",
+                                 TestLog::get());
+        }
+
+        CPPUNIT_ASSERT_EQUAL(1, server->tabletMap.tablet_size());
+        CPPUNIT_ASSERT_EQUAL(ProtoBuf::Tablets::Tablet::NORMAL,
+                             server->tabletMap.tablet(0).state());
+        CPPUNIT_ASSERT_EQUAL("mock:host=master2",
+                             server->tabletMap.tablet(0).service_locator());
+        CPPUNIT_ASSERT_EQUAL(master2Id,
+                             server->tabletMap.tablet(0).server_id());
     }
 
 

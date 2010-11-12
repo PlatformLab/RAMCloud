@@ -75,7 +75,8 @@ class SegmentTest : public CppUnit::TestFixture {
         BackupManager backup(NULL, 0);
         TestLog::Enable _(&openSegmentFilter);
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf), &backup);
-        CPPUNIT_ASSERT_EQUAL("openSegment: 1020304050, 98765", TestLog::get());
+        CPPUNIT_ASSERT_EQUAL("openSegment: openSegment 1020304050, 98765",
+                             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(s.baseAddress,
                              reinterpret_cast<void *>(alignedBuf));
         CPPUNIT_ASSERT_EQUAL(98765, s.id);

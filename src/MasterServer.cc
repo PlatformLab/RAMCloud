@@ -194,14 +194,15 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
                       Responder& responder)
 {
     uint64_t masterId = reqHdr.masterId;
-    ProtoBuf::Tablets tablets;
+    ProtoBuf::Tablets recoveryTablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
-                                reqHdr.tabletsLength, tablets);
+                                reqHdr.tabletsLength, recoveryTablets);
     ProtoBuf::ServerList backups;
     ProtoBuf::parseFromResponse(rpc.recvPayload,
                                 sizeof(reqHdr) + reqHdr.tabletsLength,
                                 reqHdr.serverListLength, backups);
     responder();
+
     // reqHdr, respHdr, and rpc are off-limits now
 
     // Allocate a recovery hash table for the tombstones.
@@ -209,12 +210,37 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
         ObjectTombstoneMap::bytesPerCacheLine());
 
     // Recover Segments, firing MasterServer::recoverSegment for each one.
-    backup.recover(*this, masterId, tablets, backups);
+    backup.recover(*this, masterId, recoveryTablets, backups);
 
     // Free recovery tombstones left in the hash table and deallocate it.
     tombstoneMap->forEach(recoveryCleanup, NULL);
     delete tombstoneMap;
     tombstoneMap = NULL;
+
+    // Once the coordinator and the recovery master agree that the
+    // master has taken over for the tablets it can update its tables
+    // and begin serving requests.
+
+    // Update the recoveryTablets to reflect the fact that this master is
+    // going to try to become the owner.
+    foreach (ProtoBuf::Tablets::Tablet& tablet,
+             *recoveryTablets.mutable_tablet()) {
+        TEST_LOG("set tablet %lu %lu %lu to locator %s, id %lu",
+                 tablet.table_id(), tablet.start_object_id(),
+                 tablet.end_object_id(), config.localLocator.c_str(), serverId);
+        tablet.set_service_locator(config.localLocator);
+        tablet.set_server_id(serverId);
+    }
+
+    coordinator.tabletsRecovered(recoveryTablets);
+    // Ok - we're free to start serving now.
+
+    // Union the new tablets into an updated tablet map
+    ProtoBuf::Tablets newTablets(tablets);
+    newTablets.mutable_tablet()->MergeFrom(recoveryTablets.tablet());
+    // and set ourself as open for business.
+    setTablets(newTablets);
+    // TODO(stutsman) update local copy of the will
 }
 
 /**
@@ -318,6 +344,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
         i.next();
     }
+    LOG(NOTICE, "Segment %lu replay complete", segmentId);
 }
 
 /**
@@ -354,13 +381,18 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 }
 
 /**
- * Top-level server method to handle the SET_TABLETS request.
- * \copydetails create
+ * Set the list of tablets that this master serves.
+ *
+ * Notice that this method does nothing about the objects and data
+ * for a particular tablet.  That is, the log and hashtable must already
+ * contain a consistent view of the tablet before being set as an active
+ * tablet with this method.
+ *
+ * \param newTablets
+ *      The new set of tablets this master is serving.
  */
 void
-MasterServer::setTablets(const SetTabletsRpc::Request& reqHdr,
-                         SetTabletsRpc::Response& respHdr,
-                         Transport::ServerRpc& rpc)
+MasterServer::setTablets(const ProtoBuf::Tablets& newTablets)
 {
     typedef std::map<uint32_t, Table*> Tables;
     Tables tables;
@@ -372,8 +404,7 @@ MasterServer::setTablets(const SetTabletsRpc::Request& reqHdr,
     }
 
     // overwrite tablets with new tablets
-    ProtoBuf::parseFromRequest(rpc.recvPayload, sizeof(reqHdr),
-                               reqHdr.tabletsLength, tablets);
+    tablets = newTablets;
 
     // delete pre-existing tables that no longer live here
     foreach (Tables::value_type oldTable, tables) {
@@ -389,7 +420,11 @@ MasterServer::setTablets(const SetTabletsRpc::Request& reqHdr,
     }
 
     // create new Tables and assign all new tablets tables
+    LOG(NOTICE, "Now serving tablets:");
     foreach (ProtoBuf::Tablets::Tablet& newTablet, *tablets.mutable_tablet()) {
+        LOG(NOTICE, "table: %20lu, start: %20lu, end  : %20lu",
+            newTablet.table_id(), newTablet.start_object_id(),
+            newTablet.end_object_id());
         Table* table = tables[newTablet.table_id()];
         if (table == NULL) {
             table = new Table(newTablet.table_id());
@@ -397,6 +432,21 @@ MasterServer::setTablets(const SetTabletsRpc::Request& reqHdr,
         }
         newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
     }
+}
+
+/**
+ * Top-level server method to handle the SET_TABLETS request.
+ * \copydetails create
+ */
+void
+MasterServer::setTablets(const SetTabletsRpc::Request& reqHdr,
+                         SetTabletsRpc::Response& respHdr,
+                         Transport::ServerRpc& rpc)
+{
+    ProtoBuf::Tablets newTablets;
+    ProtoBuf::parseFromRequest(rpc.recvPayload, sizeof(reqHdr),
+                               reqHdr.tabletsLength, newTablets);
+    setTablets(newTablets);
 }
 
 /**

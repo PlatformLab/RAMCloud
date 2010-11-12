@@ -161,7 +161,8 @@ class Transport {
      */
     class Session {
       public:
-        Session() : refCount(0) {}
+        Session()
+            : refCount(0) , serviceLocator() {}
         virtual ~Session() {
             assert(refCount == 0);
         }
@@ -194,6 +195,22 @@ class Transport {
         virtual ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result)) = 0;
 
+        /**
+         * \return
+         *      Return a reference to the service locator this Session is to.
+         */
+        const string& getServiceLocator() {
+            return serviceLocator;
+        }
+
+        /**
+         * \param locator
+         *      The service locator this Session is connected to.
+         */
+        void setServiceLocator(const string& locator) {
+            serviceLocator = locator;
+        }
+
         /// Used by boost::intrusive_ptr. Do not call explicitly.
         friend void intrusive_ptr_add_ref(Session* session) {
             ++session->refCount;
@@ -208,6 +225,8 @@ class Transport {
       protected:
         uint32_t refCount;
       private:
+        string serviceLocator;
+
         DISALLOW_COPY_AND_ASSIGN(Session);
     };
 

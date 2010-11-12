@@ -1,18 +1,50 @@
+/**
+  @mainpage RAMCloud
+
 ====================================
 1. Building
 ====================================
 
+1.1 Pre-requisites (Ubuntu)
+
+A 64-bit linux !
+
+g++ (at least 4.4)
+
+git
+
+python
+
+perl
+
+sudo apt-get install libcppunit-dev libcppunit-doc
+
+sudo apt-get install doxygen
+
+sudo apt-get install libboost1.40-all-dev
+
+sudo apt-get install libprcre3-dev
+
+sudo apt-get install protobuf-compiler libprotobuf-dev	     	     
+
+
+1.2 Builds
+
 Using GNU make, type:
+
 $ make
+
 # make install
 
 This will build the client, server, and backups.  The install step
 simply installs the RAMCloud client library and headers in /usr/local.
 
+
 ====================================
 2. Running
 ====================================
- To run you must have 3 things.  A running backup, a running server,
+
+To run you must have 3 things.  A running backup, a running server,
 and some kind of client. Note that the backup must be started first.
 
 2.1 Starting a backup
@@ -33,11 +65,17 @@ $ gcc -lramcloud -I/usr/local/include/ramcloud -o test-client test-client.c
 2.4 Using the Python bindings:
 
 $ PYTHONPATH=bindings/python python
+
 >>> import ramcloud
+
 >>> c = ramcloud.RAMCloud()
+
 >>> c.connect()
+
 >>> c.write(0, 0, 'Hello from Python!')
+
 >>> c.read(0, 0)
+
 
 ====================================
 3. Testing
@@ -50,3 +88,25 @@ $ make check
 3.2 Unit Testing
 
 $ make test
+
+3.3 Integration Tests (Used as a pre-commit hook)
+
+$ hooks/pre-commit
+
+
+====================================
+4. Source code layout
+====================================
+
+bindings/          Bindings in languages other than C/C++ for RAMCloud clients.
+docs/              Doxygen generated source documentation.
+ft/                Fast Transport Prototype - with helper scripts.
+GNUmakefile        Primary Makefile to build everything.
+hooks/             Scripts executed as hooks when certain git operations are called.
+obj.master/        Build directory for the git branch "master". A separate one is created for each branch.
+scripts/           Tools.
+src/               Main source directory.
+
+
+
+*/

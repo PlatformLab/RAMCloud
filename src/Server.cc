@@ -86,6 +86,19 @@ Server::ping(const PingRpc::Request& reqHdr,
 {
     // Nothing to do here.
     TEST_LOG("ping");
+    LOG(DEBUG, "RPCs serviced");
+    uint64_t totalCount = 0;
+    uint64_t totalTime = 0;
+    for (uint32_t i = 0; i < ILLEGAL_RPC_TYPE; i++) {
+        uint64_t h = rpcsHandled[i];
+        uint64_t t = rpcsTime[i];
+        if (!h)
+            continue;
+        totalCount += h;
+        totalTime += t;
+        LOG(DEBUG, "%5u: %10lu %10lu", i, h, t);
+    }
+    LOG(DEBUG, "Total: %10lu %10lu", totalCount, totalTime);
 }
 
 /**

@@ -14,6 +14,9 @@
  */
 
 #include "TestUtil.h"
+#include "BackupManager.h"
+#include "BackupServer.h"
+#include "BackupStorage.h"
 #include "BindTransport.h"
 #include "Buffer.h"
 #include "ClientException.h"
@@ -51,7 +54,12 @@ class MasterTest : public CppUnit::TestFixture {
 
   public:
     ServerConfig config;
+    BackupServer::Config backupConfig;
     BackupManager* backup;
+    BackupServer* backupServer;
+    BackupStorage* storage;
+    const uint32_t segmentFrames;
+    const uint32_t segmentSize;
     MasterServer* server;
     BindTransport* transport;
     MasterClient* client;
@@ -60,14 +68,21 @@ class MasterTest : public CppUnit::TestFixture {
 
     MasterTest()
         : config()
+        , backupConfig()
         , backup(NULL)
+        , backupServer()
+        , storage(NULL)
+        , segmentFrames(2)
+        , segmentSize(1 << 16)
         , server(NULL)
         , transport(NULL)
         , client(NULL)
         , coordinator(NULL)
         , coordinatorServer(NULL)
     {
+        config.localLocator = "mock:host=master";
         config.coordinatorLocator = "mock:host=coordinator";
+        backupConfig.coordinatorLocator = "mock:host=coordinator";
         MasterServer::sizeLogAndHashTable("64", "8", &config);
     }
 
@@ -78,7 +93,13 @@ class MasterTest : public CppUnit::TestFixture {
         coordinatorServer = new CoordinatorServer();
         transport->addServer(*coordinatorServer, "mock:host=coordinator");
         coordinator = new CoordinatorClient("mock:host=coordinator");
-        backup = new BackupManager(coordinator, 0);
+
+        storage = new InMemoryStorage(segmentSize, segmentFrames);
+        backupServer = new BackupServer(backupConfig, *storage);
+        transport->addServer(*backupServer, "mock:host=backup1");
+        coordinator->enlistServer(BACKUP, "mock:host=backup1");
+        backup = new BackupManager(coordinator, 1);
+
         server = new MasterServer(config, *coordinator, *backup);
         transport->addServer(*server, "mock:host=master");
         client =
@@ -92,12 +113,14 @@ class MasterTest : public CppUnit::TestFixture {
 
     void tearDown() {
         delete client;
-        transportManager.unregisterMock();
-        delete transport;
         delete server;
         delete backup;
+        delete backupServer;
+        delete storage;
         delete coordinator;
         delete coordinatorServer;
+        transportManager.unregisterMock();
+        delete transport;
     }
 
     void test_create_basics() {
@@ -161,7 +184,8 @@ class MasterTest : public CppUnit::TestFixture {
     static bool
     recoverSegmentFilter(string s)
     {
-        return (s == "recoverSegment" || s == "recover");
+        return (s == "recoverSegment" || s == "recover" ||
+                s == "tabletsRecovered" || s == "setTablets");
     }
 
     void
@@ -188,34 +212,55 @@ class MasterTest : public CppUnit::TestFixture {
     }
 
     void test_recover_basics() {
+        char segMem[segmentSize];
+        Segment _(123, 87, segMem, segmentSize, backup);
         // TODO(stutsman) for now just ensure that the arguments make it to
         // BackupManager::recover, we'll do the full check of the
         // returns later once the recovery procedures are complete
 
         ProtoBuf::Tablets tablets;
         createTabletList(tablets);
+        BackupClient(transportManager.getSession("mock:host=backup1")).
+            startReadingData(123);
 
         ProtoBuf::ServerList backups; {
             ProtoBuf::ServerList_Entry& server(*backups.add_server());
             server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
+            server.set_server_id(123);
             server.set_segment_id(87);
             server.set_service_locator("mock:host=backup1");
         }
 
-        TestLog::Enable _(&recoverSegmentFilter);
-        CPPUNIT_ASSERT_THROW(
-            client->recover(99, tablets, backups),
-            SegmentRecoveryFailedException);
+        TestLog::Enable __(&recoverSegmentFilter);
+        client->recover(123, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
-            "recover: Recovering master 99, 4 tablets, 1 hosts | "
+            "recover: Recovering master 123, 4 tablets, 1 hosts | "
             "recover: Getting recovery data for segment 87 from "
             "mock:host=backup1 | "
-            "recover: Couldn't contact mock:host=backup1, trying next backup; "
-            "failure was: No transport found for this service locator: "
-            "mock:host=backup1 | "
-            "recover: *** Failed to recover segment id 87, the recovered "
-            "master state is corrupted, aborting recovery",
+            "recover: Got it | "
+            "recoverSegment: recoverSegment 87, ... | "
+            "recoverSegment: Segment 87 replay complete | "
+            "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "
+            "recover: set tablet 123 10 19 to locator mock:host=master, id 2 | "
+            "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
+            "recover: set tablet 124 20 100 to locator mock:host=master, id 2 |"
+            " tabletsRecovered: called with 4 tablets | "
+            "setTablets: Now serving tablets: | "
+            "setTablets: table:                    0, "
+                        "start:                    0, "
+                        "end  : 18446744073709551615 | "
+            "setTablets: table:                  123, "
+                        "start:                    0, "
+                        "end  :                    9 | "
+            "setTablets: table:                  123, "
+                        "start:                   10, "
+                        "end  :                   19 | "
+            "setTablets: table:                  123, "
+                        "start:                   20, "
+                        "end  :                   29 | "
+            "setTablets: table:                  124, "
+                        "start:                   20, "
+                        "end  :                  100",
             TestLog::get());
     }
 

@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "BackupClient.h"
 #include "CoordinatorServer.h"
 #include "MasterClient.h"
 #include "ProtoBuf.h"
@@ -84,7 +85,8 @@ CoordinatorServer::dispatch(RpcType type,
                         &CoordinatorServer::tabletsRecovered>(rpc);
             break;
         case PingRpc::type:
-            callHandler<PingRpc, Server, &Server::ping>(rpc);
+            callHandler<PingRpc, CoordinatorServer,
+                        &CoordinatorServer::ping>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);
@@ -299,15 +301,28 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
                     tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
             }
 
+            LOG(DEBUG, "Trying partition recovery on %lu with %u masters "
+                "and %u backups", serverId, masterList.server_size(),
+                backupList.server_size());
+
+            BaseRecovery* recovery = NULL;
             if (mockRecovery != NULL) {
                 (*mockRecovery)(serverId, *will, masterList, backupList);
+                recovery = mockRecovery;
             } else {
-                LOG(DEBUG, "Trying partition recovery on %lu with %u masters "
-                    "and %u backups", serverId, masterList.server_size(),
-                    backupList.server_size());
-                Recovery(serverId, *will, masterList, backupList).start();
-                LOG(DEBUG, "OK! Recovered!");
+                recovery = new Recovery(serverId, *will,
+                                        masterList, backupList);
             }
+
+            // Keep track of recovery for each of the tablets its working on
+            foreach (ProtoBuf::Tablets::Tablet& tablet,
+                     *tabletMap.mutable_tablet()) {
+                if (tablet.server_id() == serverId)
+                    tablet.set_user_data(reinterpret_cast<uint64_t>(recovery));
+            }
+
+            recovery->start();
+
             return;
         }
     }
@@ -330,17 +345,84 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
 /**
  * Handle the TABLETS_RECOVERED RPC.
- * \copydetails Server::ping
+ * \copydetails CoordinatorServer::getTabletMap
  */
 void
 CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                                     TabletsRecoveredRpc::Response& respHdr,
                                     Transport::ServerRpc& rpc)
 {
-    ProtoBuf::Tablets tablets;
+    if (reqHdr.status != STATUS_OK) {
+        // we'll need to restart a recovery of that partition elsewhere
+        // right now this just leaks the recovery object in the tabletMap
+        LOG(ERROR, "A recovery master failed to recover its partition");
+    }
+
+    ProtoBuf::Tablets recoveredTablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
-                                reqHdr.tabletsLength, tablets);
-    TEST_LOG("called with %u tablets", tablets.tablet_size());
+                                reqHdr.tabletsLength, recoveredTablets);
+    TEST_LOG("called with %u tablets", recoveredTablets.tablet_size());
+
+    // update tablet map to point to new owner and mark as available
+    foreach (const ProtoBuf::Tablets::Tablet& recoveredTablet,
+             recoveredTablets.tablet())
+    {
+        foreach (ProtoBuf::Tablets::Tablet& tablet,
+                 *tabletMap.mutable_tablet())
+        {
+            if (recoveredTablet.table_id() == tablet.table_id() &&
+                recoveredTablet.start_object_id() == tablet.start_object_id() &&
+                recoveredTablet.end_object_id() == tablet.end_object_id())
+            {
+                LOG(NOTICE, "Recovery complete on tablet %lu,%lu,%lu",
+                    tablet.table_id(), tablet.start_object_id(),
+                    tablet.end_object_id());
+                BaseRecovery* recovery =
+                    reinterpret_cast<Recovery*>(tablet.user_data());
+                tablet.set_state(ProtoBuf::Tablets_Tablet::NORMAL);
+                tablet.set_user_data(0);
+                // The caller has filled in recoveredTablets with new service
+                // locator and server id of the recovery master,
+                // so just copy it over.
+                tablet.set_service_locator(recoveredTablet.service_locator());
+                tablet.set_server_id(recoveredTablet.server_id());
+                bool recoveryComplete =
+                    recovery->tabletsRecovered(recoveredTablets);
+                if (recoveryComplete) {
+                    LOG(NOTICE, "Recovery completed");
+                    delete recovery;
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Top-level server method to handle the PING request.
+ *
+ * For debugging it print out statistics on the RPCs that it has
+ * handled and instructs all the machines in the RAMCloud to do
+ * so also (by pinging them all).
+ *
+ * \copydetails Server::ping
+ */
+void
+CoordinatorServer::ping(const PingRpc::Request& reqHdr,
+                        PingRpc::Response& respHdr,
+                        Transport::ServerRpc& rpc)
+{
+    // dump out all the RPC stats for all the hosts so far
+    foreach (const ProtoBuf::ServerList::Entry& server,
+             backupList.server())
+        BackupClient(transportManager.getSession(
+            server.service_locator().c_str())).ping();
+    foreach (const ProtoBuf::ServerList::Entry& server,
+             masterList.server())
+        MasterClient(transportManager.getSession(
+            server.service_locator().c_str())).ping();
+
+    Server::ping(reqHdr, respHdr, rpc);
 }
 
 } // namespace RAMCloud
