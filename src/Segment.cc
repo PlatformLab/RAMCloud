@@ -136,13 +136,19 @@ Segment::close()
     if (closed)
         throw SegmentException(HERE, "Segment has already been closed");
 
+    uint32_t writeOffset = tail;
+
     SegmentEntry entry = { LOG_ENTRY_TYPE_SEGFOOTER, sizeof(SegmentFooter) };
-    const void *p = forceAppendBlob(&entry, sizeof(entry));
-    assert(p != NULL);
+    const void *entryp = forceAppendBlob(&entry, sizeof(entry));
+    assert(entryp != NULL);
 
     SegmentFooter footer = { checksum };
-    p = forceAppendBlob(&footer, sizeof(footer), false);
-    assert(p != NULL);
+    const void *datap = forceAppendBlob(&footer, sizeof(footer), false);
+    assert(datap != NULL);
+
+    if (backup)
+        backup->writeSegment(logId, id, writeOffset,
+                             entryp, sizeof(entry) + sizeof(footer));
 
     // ensure that any future append() will fail
     closed = true;
@@ -256,9 +262,6 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length,
     const uint8_t *src = reinterpret_cast<const uint8_t *>(buffer);
     uint8_t       *dst = reinterpret_cast<uint8_t *>(baseAddress) + tail;
 
-    if (backup)
-        backup->writeSegment(logId, id, tail, src, length);
-
     if (updateChecksum) {
         for (uint64_t i = 0; i < length; i++) {
             dst[i] = src[i];
@@ -296,9 +299,17 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     if (freeBytes < needBytes)
         return NULL;
 
+    uint32_t writeOffset = tail;
+
     SegmentEntry entry = { type, length };
-    forceAppendBlob(&entry, sizeof(entry));
-    return forceAppendBlob(buffer, length);
+    const void *entryp = forceAppendBlob(&entry, sizeof(entry));
+    const void *datap = forceAppendBlob(buffer, length);
+
+    if (backup)
+        backup->writeSegment(logId, id, writeOffset,
+                             entryp, sizeof(entry) + length);
+
+    return datap;
 }
 
 } // namespace

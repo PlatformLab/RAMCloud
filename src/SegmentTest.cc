@@ -129,8 +129,7 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(NULL, p);
 
         CPPUNIT_ASSERT_EQUAL(
-            "writeSegment: 1, 2, 0, ..., 8 | "
-            "writeSegment: 1, 2, 8, ..., 20",
+            "writeSegment: 1, 2, 0, ..., 28",
             TestLog::get());
 
         int bytes = s.appendableBytes();
