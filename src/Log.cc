@@ -55,7 +55,8 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
       callbackMap(),
       activeIdMap(),
       activeBaseAddressMap(),
-      backup(backup)
+      backup(backup),
+      bytesAppended(0)
 {
     cleaner = new LogCleaner(this);
 
@@ -169,13 +170,16 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
      *   If we run out of space entirely, return NULL.
      */
     do {
-        if (head != NULL)
+        if (head != NULL) {
             p = head->append(type, buffer, length);
+            bytesAppended += length + sizeof(SegmentEntry);
+        }
 
         if (p == NULL) {
             if (head != NULL) {
                 head->close();
                 head = NULL;
+                bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentFooter);
             }
 
             void *s = getFromFreeList();
@@ -184,6 +188,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
 
             head = new Segment(logId, allocateSegmentId(), s, segmentCapacity,
                     backup);
+            bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentHeader);
             addToActiveMaps(head);
 
             cleaner->clean(1);
@@ -275,6 +280,13 @@ uint64_t
 Log::getMaximumAppendableBytes() const
 {
     return maximumAppendableBytes;
+}
+
+/// Return total bytes concatenated to the log so far including overhead.
+uint64_t
+Log::getBytesAppended() const
+{
+    return bytesAppended;
 }
 
 ////////////////////////////////////

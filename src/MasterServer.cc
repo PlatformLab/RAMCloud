@@ -52,6 +52,7 @@ MasterServer::MasterServer(const ServerConfig& config,
     , coordinator(coordinator)
     , serverId(0)
     , backup(backup)
+    , bytesWritten(0)
     , log(0)
     , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine())
     , tombstoneMap(NULL)
@@ -84,8 +85,8 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
                         &MasterServer::create>(rpc);
             break;
         case PingRpc::type:
-            callHandler<PingRpc, Server,
-                        &Server::ping>(rpc);
+            callHandler<PingRpc, MasterServer,
+                        &MasterServer::ping>(rpc);
             break;
         case ReadRpc::type:
             callHandler<ReadRpc, MasterServer,
@@ -141,6 +142,26 @@ MasterServer::create(const CreateRpc::Request& reqHdr,
               &rpc.recvPayload, sizeof(reqHdr), reqHdr.length,
               &respHdr.version);
     respHdr.id = id;
+}
+
+/**
+ * Top-level server method to handle the PING request.
+ *
+ * For debugging it print out statistics on the RPCs that it has
+ * handled along with some stats on amount of data written to the
+ * master.
+ *
+ * \copydetails Server::ping
+ */
+void
+MasterServer::ping(const PingRpc::Request& reqHdr,
+                   PingRpc::Response& respHdr,
+                   Transport::ServerRpc& rpc)
+{
+    LOG(DEBUG, "Bytes written: %lu", bytesWritten);
+    LOG(DEBUG, "Bytes logged : %lu", log->getBytesAppended());
+
+    Server::ping(reqHdr, respHdr, rpc);
 }
 
 /**
@@ -719,6 +740,7 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
     objectMap.replace(tableId, id, objPtr);
 
     *newVersion = objPtr->version;
+    bytesWritten += dataLength;
 }
 
 } // namespace RAMCloud
