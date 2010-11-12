@@ -148,13 +148,12 @@ class BackupServer : public Server {
         {
         }
 
-        /// Comparison is need to be a key in a map.
+        /// Comparison is needed for the type to be a key in a map.
         bool
         operator<(const MasterSegmentIdPair& right) const
         {
-            if (masterId < right.masterId)
-                return true;
-            return segmentId < right.segmentId;
+            return std::make_pair(masterId, segmentId) <
+                   std::make_pair(right.masterId, right.segmentId);
         }
 
         uint64_t masterId;
