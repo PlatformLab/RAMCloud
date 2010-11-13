@@ -58,7 +58,7 @@ class Log {
             BackupManager *backup = NULL);
     ~Log();
     const void *append(LogEntryType type,
-                       const void *buffer, uint64_t length);
+                       const void *buffer, uint64_t length, bool sync = true);
     void        free(const void *p);
     void        registerType(LogEntryType type,
                              log_eviction_cb_t evictionCB, void *evictionArg);

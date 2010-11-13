@@ -345,7 +345,7 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
 /**
  * Handle the TABLETS_RECOVERED RPC.
- * \copydetails CoordinatorServer::getTabletMap
+ * \copydetails Server::ping
  */
 void
 CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,

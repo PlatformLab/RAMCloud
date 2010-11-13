@@ -44,6 +44,7 @@ namespace RAMCloud {
 Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
     uint64_t capacity, BackupManager *backup)
     : backup(backup),
+      syncOffset(0),
       baseAddress(baseAddress),
       logId(logId),
       id(segmentId),
@@ -86,18 +87,24 @@ Segment::~Segment()
  *      Data to be appended to this Segment.
  * \param[in] length
  *      Length of the data to be appended in bytes.
+ * \param[in] sync
+ *      If true then this write to replicated to backups before return,
+ *      otherwise the replication will happen on a subsequent append()
+ *      where sync is true or when the segment is closed.  This defaults
+ *      to true.
  * \return
  *      On success, a const pointer into the Segment's backing memory with
  *      the same contents as `buffer'. On failure, NULL. 
  */
 const void *
-Segment::append(LogEntryType type, const void *buffer, uint64_t length)
+Segment::append(LogEntryType type, const void *buffer, uint64_t length,
+    bool sync)
 {
     if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
       appendableBytes() < length)
         return NULL;
 
-    return forceAppendWithEntry(type, buffer, length);
+    return forceAppendWithEntry(type, buffer, length, sync);
 }
 
 /**
@@ -136,23 +143,18 @@ Segment::close()
     if (closed)
         throw SegmentException(HERE, "Segment has already been closed");
 
-    uint32_t writeOffset = tail;
-
     SegmentEntry entry = { LOG_ENTRY_TYPE_SEGFOOTER, sizeof(SegmentFooter) };
-    const void *entryp = forceAppendBlob(&entry, sizeof(entry));
-    assert(entryp != NULL);
+    const void *p = forceAppendBlob(&entry, sizeof(entry));
+    assert(p != NULL);
 
     SegmentFooter footer = { checksum };
-    const void *datap = forceAppendBlob(&footer, sizeof(footer), false);
-    assert(datap != NULL);
-
-    if (backup)
-        backup->writeSegment(logId, id, writeOffset,
-                             entryp, sizeof(entry) + sizeof(footer));
+    p = forceAppendBlob(&footer, sizeof(footer), false);
+    assert(p != NULL);
 
     // ensure that any future append() will fail
     closed = true;
 
+    syncToBackup();
     if (backup)
         backup->closeSegment(logId, id);
 }
@@ -284,13 +286,18 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length,
  *      Data to be appended to this Segment.
  * \param[in] length
  *      Length of the data to be appended in bytes.
+ * \param[in] sync
+ *      If true then this write to replicated to backups before return,
+ *      otherwise the replication will happen on a subsequent append()
+ *      where sync is true or when the segment is closed.  This defaults
+ *      to true.
  * \return
  *      A pointer into the Segment corresponding to the first data byte that
  *      was copied in to (i.e. the contents are the same as #buffer).
  */
 const void *
 Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
-    uint64_t length)
+    uint64_t length, bool sync)
 {
     assert(!closed);
 
@@ -299,17 +306,30 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     if (freeBytes < needBytes)
         return NULL;
 
-    uint32_t writeOffset = tail;
-
     SegmentEntry entry = { type, length };
-    const void *entryp = forceAppendBlob(&entry, sizeof(entry));
+    forceAppendBlob(&entry, sizeof(entry));
     const void *datap = forceAppendBlob(buffer, length);
 
-    if (backup)
-        backup->writeSegment(logId, id, writeOffset,
-                             entryp, sizeof(entry) + length);
+    if (sync)
+        syncToBackup();
 
     return datap;
+}
+
+/**
+ * Ensure all segment data is replicated to backups.
+ */
+void
+Segment::syncToBackup()
+{
+    if (syncOffset == tail || !backup)
+        return;
+
+    uint32_t syncLength = tail - syncOffset;
+    backup->writeSegment(
+        logId, id, syncOffset,
+        reinterpret_cast<const uint8_t*>(baseAddress) + syncOffset, syncLength);
+    syncOffset = tail;
 }
 
 } // namespace

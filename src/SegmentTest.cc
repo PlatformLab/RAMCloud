@@ -38,6 +38,7 @@ class SegmentTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_forEachEntry);
     CPPUNIT_TEST(test_forceAppendBlob);
     CPPUNIT_TEST(test_forceAppendWithEntry);
+    CPPUNIT_TEST(test_syncToBackup);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -289,6 +290,21 @@ class SegmentTest : public CppUnit::TestFixture {
         s.tail--;
         p = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         CPPUNIT_ASSERT(p != NULL);
+    }
+
+    void
+    test_syncToBackup()
+    {
+        char alignedBuf[8192] __attribute__((aligned(8192)));
+        BackupManager backup(NULL, 0);
+        Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
+        SegmentHeader header;
+        TestLog::Enable _;
+        s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), false);
+        CPPUNIT_ASSERT_EQUAL("", TestLog::get());
+        s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), true);
+        CPPUNIT_ASSERT_EQUAL("writeSegment: 1, 2, 28, ..., 56",
+                             TestLog::get());
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(SegmentTest);

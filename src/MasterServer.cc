@@ -306,10 +306,10 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 minSuccessor = tomb->objectVersion + 1;
 
             if (recoverObj->version >= minSuccessor) {
-                // write to log & update hash table
+                // write to log (with lazy backup flush) & update hash table
                 const Object *newObj = reinterpret_cast<const Object*>(
                     log->append(LOG_ENTRY_TYPE_OBJ, recoverObj,
-                                recoverObj->size()));
+                                recoverObj->size(), false));
                 assert(newObj != NULL);
                 objectMap.replace(tblId, objId, newObj);
 

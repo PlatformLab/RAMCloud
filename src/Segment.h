@@ -64,7 +64,7 @@ class Segment {
     ~Segment();
 
     const void      *append(LogEntryType type, const void *buffer,
-                            uint64_t length);
+                            uint64_t length, bool sync = true);
     void             free(const void *p);
     void             close();
     const void      *getBaseAddress() const;
@@ -82,9 +82,12 @@ class Segment {
     const void      *forceAppendBlob(const void *buffer, uint64_t length,
                                      bool updateChecksum = true);
     const void      *forceAppendWithEntry(LogEntryType type,
-                                          const void *buffer, uint64_t length);
+                                          const void *buffer, uint64_t length,
+                                          bool sync = true);
+    void             syncToBackup();
 
     BackupManager   *backup;         // makes operations on this segment durable
+    uint32_t        syncOffset;      // index of first byte not yet replicated
     void            *baseAddress;    // base address for the Segment
     uint64_t         logId;          // log this belongs to, passed to backups
     uint64_t         id;             // segment identification number

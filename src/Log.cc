@@ -149,6 +149,11 @@ Log::getSegmentId(const void *p)
  * \param[in] length
  *      Length of the data to be appended in bytes. This must be sufficiently
  *      small to fit within one Segment's worth of memory.
+ * \param[in] sync
+ *      If true then this write to replicated to backups before return,
+ *      otherwise the replication will happen on a subsequent append()
+ *      where sync is true or when the segment is closed.  This defaults
+ *      to true.
  * \return
  *      On success, a const pointer into the Log's backing memory with
  *      the same contents as `buffer'. On failure, NULL.
@@ -157,7 +162,8 @@ Log::getSegmentId(const void *p)
  *      append length, as returned by #getMaximumAppendableBytes.
  */
 const void *
-Log::append(LogEntryType type, const void *buffer, const uint64_t length)
+Log::append(LogEntryType type, const void *buffer, const uint64_t length,
+    bool sync)
 {
     const void *p = NULL;
 
@@ -171,7 +177,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
      */
     do {
         if (head != NULL) {
-            p = head->append(type, buffer, length);
+            p = head->append(type, buffer, length, sync);
             bytesAppended += length + sizeof(SegmentEntry);
         }
 
