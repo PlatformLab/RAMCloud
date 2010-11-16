@@ -42,7 +42,7 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 # -Wconversion
 # Failed deconstructor inlines are generating noise
 # -Winline
-LIBS := -lpcrecpp -lboost_program_options -lprotobuf
+LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lcryptopp
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR)
 
 ifeq ($(INFINIBAND),yes)
