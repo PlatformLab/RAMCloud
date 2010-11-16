@@ -1,5 +1,5 @@
 python-docs: $(OBJDIR)/libramcloud.so
-	LD_LIBRARY_PATH=$(OBJDIR) epydoc --html -n RAMCloud -o docs/epydoc/ --simple-term -v bindings/python/*.py
+	LD_LIBRARY_PATH=$(OBJDIR):$$LD_LIBRARY_PATH epydoc --html -n RAMCloud -o docs/epydoc/ --simple-term -v bindings/python/*.py
 
 python-docs-clean:
 	rm -rf docs/epydoc/
@@ -9,7 +9,8 @@ python-test: $(OBJDIR)/libramcloud.so
 	for test in bindings/python/test*.py; do \
 		if [ -x $$test ]; then \
 			echo "Running $$test:"; \
-			LD_LIBRARY_PATH=$(OBJDIR) python $$test -q || failed=1; \
+			LD_LIBRARY_PATH=$(OBJDIR):$$LD_LIBRARY_PATH \
+				python $$test -q || failed=1; \
 			echo; \
 		fi \
 	done; \
