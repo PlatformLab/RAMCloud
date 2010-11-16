@@ -48,12 +48,14 @@ measure(int bytes)
         checksum = rp.append8(checksum, array[i]);
     uint64_t after = rdtsc();
 
+    uint64_t nsec = RAMCloud::cyclesToNanoseconds(after - before);
     printf("%10d bytes: %10llu ticks    %10llu nsec    %3llu nsec/byte   "
-        "cksum 0x%16lx\n",
+        "%7llu MB/sec    cksum 0x%16lx\n",
         bytes,
         after - before,
-        RAMCloud::cyclesToNanoseconds(after - before),
-        RAMCloud::cyclesToNanoseconds(after - before) / bytes,
+        nsec,
+        nsec / bytes,
+        (uint64_t)(1.0e9 / ((float)nsec / bytes) / (1024*1024)),
         checksum);
 
     free(array);
