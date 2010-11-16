@@ -94,6 +94,43 @@ class Client {
         return requestHeader;
     }
 
+    /// An opaque handle returned by #send() and passed into #recv().
+    struct AsyncState {
+        AsyncState() : rpc(NULL), responseBuffer(NULL) {}
+      private:
+        Transport::ClientRpc* rpc;
+        Buffer* responseBuffer;
+        friend class Client;
+    };
+
+    /// First half of sendRecv. Call #recv() after this.
+    template <typename Rpc>
+    AsyncState
+    send(Transport::SessionRef& session,
+         Buffer& requestBuffer, Buffer& responseBuffer)
+    {
+        assert(responseBuffer.getTotalLength() == 0);
+        AsyncState state;
+        state.responseBuffer = &responseBuffer;
+        state.rpc = session->clientSend(&requestBuffer, &responseBuffer);
+        return state;
+    }
+
+    /// Second half of sendRecv. Call #send() before this.
+    template <typename Rpc>
+    const typename Rpc::Response&
+    recv(AsyncState& state)
+    {
+        state.rpc->getReply();
+        const typename Rpc::Response* responseHeader =
+            state.responseBuffer->getStart<typename Rpc::Response>();
+        if (responseHeader == NULL)
+            throwShortResponseError(*state.responseBuffer);
+        status = responseHeader->common.status;
+        counterValue = responseHeader->common.counterValue;
+        return *responseHeader;
+    }
+
     /**
      * Helper for RPC proxy methods that sends a request and receive a
      * response. You should call #allocHeader() before this and #checkStatus()
@@ -104,15 +141,8 @@ class Client {
     sendRecv(Transport::SessionRef& session,
              Buffer& requestBuffer, Buffer& responseBuffer)
     {
-        assert(responseBuffer.getTotalLength() == 0);
-        session->clientSend(&requestBuffer, &responseBuffer)->getReply();
-        const typename Rpc::Response* responseHeader =
-            responseBuffer.getStart<typename Rpc::Response>();
-        if (responseHeader == NULL)
-            throwShortResponseError(responseBuffer);
-        status = responseHeader->common.status;
-        counterValue = responseHeader->common.counterValue;
-        return *responseHeader;
+        AsyncState state(send<Rpc>(session, requestBuffer, responseBuffer));
+        return recv<Rpc>(state);
     }
 
     /**
