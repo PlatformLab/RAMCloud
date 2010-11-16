@@ -839,6 +839,49 @@ Buffer::Iterator::getNumberChunks() const
     return numberChunks;
 }
 
+/**
+ * Two Buffers are equal if they contain the same logical array of bytes,
+ * regardless of their internal representation.
+ */
+bool
+operator==(const Buffer& left, const Buffer& right)
+{
+    if (left.getTotalLength() != right.getTotalLength())
+        return false;
+    if (left.getTotalLength() == 0)
+        return true;
+
+    Buffer::Iterator leftIter(left);
+    Buffer::Iterator rightIter(right);
+
+    const char* leftData = static_cast<const char*>(leftIter.getData());
+    uint32_t leftLength = leftIter.getLength();
+    const char* rightData = static_cast<const char*>(rightIter.getData());
+    uint32_t rightLength = rightIter.getLength();
+
+    while (true) {
+        if (leftLength <= rightLength) {
+            if (memcmp(leftData, rightData, leftLength) != 0)
+                return false;
+            rightData += leftLength;
+            rightLength -= leftLength;
+            leftIter.next();
+            if (leftIter.isDone())
+                return true;
+            leftData = static_cast<const char*>(leftIter.getData());
+            leftLength = leftIter.getLength();
+        } else {
+            if (memcmp(leftData, rightData, rightLength) != 0)
+                return false;
+            leftData += rightLength;
+            leftLength -= rightLength;
+            rightIter.next();
+            rightData = static_cast<const char*>(rightIter.getData());
+            rightLength = rightIter.getLength();
+        }
+    }
+}
+
 }  // namespace RAMCloud
 
 /**

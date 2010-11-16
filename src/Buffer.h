@@ -562,6 +562,13 @@ class Buffer {
     DISALLOW_COPY_AND_ASSIGN(Buffer);
 };
 
+bool operator==(const Buffer& left, const Buffer& right);
+
+/// See equals.
+inline bool operator!=(const Buffer& left, const Buffer& right) {
+    return !(left == right);
+}
+
 }  // namespace RAMCloud
 
 #endif  // RAMCLOUD_BUFFER_H
