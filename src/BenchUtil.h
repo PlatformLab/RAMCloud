@@ -30,6 +30,9 @@ uint64_t cyclesToNanoseconds(uint64_t cycles);
 double cyclesToSeconds(uint64_t cycles);
 uint64_t nanosecondsToCycles(uint64_t ns);
 
+void fillRandom(void* buf, uint32_t size);
+void fillPrintableRandom(void* buf, uint32_t size);
+
 } // end RAMCloud
 
 #endif

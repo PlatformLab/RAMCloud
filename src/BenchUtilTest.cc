@@ -26,6 +26,7 @@ class BenchUtilTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_cyclesToSeconds_sanity);
     CPPUNIT_TEST(test_nanosecondsToCycles_sanity);
     CPPUNIT_TEST(test_nanosecondsToCycles_overflow);
+    CPPUNIT_TEST(test_fillRandom);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -88,7 +89,7 @@ class BenchUtilTest : public CppUnit::TestFixture {
     void test_nanosecondsToCycles_sanity() {
         CPPUNIT_ASSERT_EQUAL(getCyclesPerSecond(),
                              nanosecondsToCycles(1000UL * 1000 * 1000));
-    }
+     }
 
     void test_nanosecondsToCycles_overflow() {
         const uint64_t nanoseconds[] = {
@@ -118,6 +119,21 @@ class BenchUtilTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT_MESSAGE(
                 format("%lu / 10 isn't roughly %lu", cycles10, cycles1),
                 cycles10 * 0.08 < cycles1 && cycles10 * 0.12 > cycles1);
+        }
+    }
+
+    void test_fillRandom() {
+        uint8_t ored[128];
+        uint8_t buf[128];
+        memset(ored, 0, sizeof(ored));
+        for (uint32_t i = 0; i < 50; i++) {
+            fillRandom(buf, sizeof(buf));
+            for (uint32_t j = 0; j < arrayLength(buf); j++)
+                ored[j] |= buf[j];
+        }
+        for (uint32_t j = 0; j < arrayLength(ored); j++) {
+            ++ored[j]; // should overflow
+            CPPUNIT_ASSERT_EQUAL(0, ored[j]);
         }
     }
 

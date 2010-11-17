@@ -18,9 +18,12 @@
  * Implementation for utilities useful in benchmarking.
  */
 
-#include "BenchUtil.h"
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/time.h>
+
+#include "BenchUtil.h"
 
 namespace RAMCloud {
 
@@ -126,6 +129,58 @@ nanosecondsToCycles(uint64_t ns)
     if (ns > 1000UL * 1000 * 1000)
         return (ns / (1000UL * 1000)) * getCyclesPerSecond() / 1000UL;
     return (ns * getCyclesPerSecond()) / (1000UL * 1000 * 1000);
+}
+
+/**
+ * Fill a region of memory with random data.
+ */
+void
+fillRandom(void* buf, uint32_t size)
+{
+    static int fd = open("/dev/urandom", O_RDONLY);
+    assert(fd >= 0);
+    ssize_t bytesRead = read(fd, buf, size);
+    assert(bytesRead == size);
+}
+
+/**
+ * Fill a region of memory with random alphanumeric characters.
+ */
+void
+fillPrintableRandom(void* buf, uint32_t size)
+{
+    static const uint8_t tab[256] = {
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
+        'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
+        'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd',
+        'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n',
+        'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x',
+        'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7',
+        '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
+        'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R',
+        'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b',
+        'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',
+        'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+        'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5',
+        '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
+        'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+        'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
+        'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+        'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3',
+        '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D',
+        'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N',
+        'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
+        'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
+        'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r',
+        's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1',
+        '2', '3', '4', '5', '6', '7'
+    };
+    fillRandom(buf, size);
+    uint8_t* b = static_cast<uint8_t*>(buf);
+    for (uint32_t i = 0; i < size; i++)
+        b[i] = tab[b[i]];
 }
 
 } // end RAMCloud
