@@ -26,7 +26,8 @@ class RecoverSegmentBenchmark {
     ServerConfig config;
     MasterServer* server;
 
-    RecoverSegmentBenchmark(string logSize, string hashTableSize, int numSegments)
+    RecoverSegmentBenchmark(string logSize, string hashTableSize,
+        int numSegments)
         : config()
         , server(NULL)
     {
@@ -34,7 +35,7 @@ class RecoverSegmentBenchmark {
         config.localLocator = "bogus";
         config.coordinatorLocator = "bogus";
         MasterServer::sizeLogAndHashTable(logSize, hashTableSize, &config);
-        server = new MasterServer(&config, NULL, NULL);
+        server = new MasterServer(config, NULL, NULL);
     }
 
     ~RecoverSegmentBenchmark()
@@ -62,7 +63,8 @@ class RecoverSegmentBenchmark {
                 o->version = 0;
                 o->checksum = 0;
                 o->data_len = objectBytes;
-                const void *so = segments[i]->append(LOG_ENTRY_TYPE_OBJ, o, o->size());
+                const void *so = segments[i]->append(LOG_ENTRY_TYPE_OBJ,
+                    o, o->size());
                 if (so == NULL)
                     break;
                 numObjects++;
@@ -84,14 +86,16 @@ class RecoverSegmentBenchmark {
         uint64_t before = rdtsc();
         for (int i = 0; i < numSegments; i++) {
             Segment *s = segments[i];
-            server->recoverSegment(s->getId(), s->getBaseAddress(), s->getCapacity());
+            server->recoverSegment(s->getId(), s->getBaseAddress(),
+                s->getCapacity());
         }
         uint64_t ticks = rdtsc() - before;
-        
-        printf("Recovery of %d Segments with %d byte Objects took %lu milliseconds\n",
-            numSegments, objectBytes, RAMCloud::cyclesToNanoseconds(ticks) / 1000 / 1000);
-        printf("Actual total object count: %lu (%lu bytes not including overhead)\n",
-            numObjects, numObjects * objectBytes);
+
+        printf("Recovery of %d %dMB Segments with %d byte Objects took %lu "
+            "milliseconds\n", numSegments, Segment::SEGMENT_SIZE, objectBytes,
+            RAMCloud::cyclesToNanoseconds(ticks) / 1000 / 1000);
+        printf("Actual total object count: %lu (%lu bytes not including "
+            "overhead)\n", numObjects, numObjects * objectBytes);
     }
 
     DISALLOW_COPY_AND_ASSIGN(RecoverSegmentBenchmark);
@@ -103,10 +107,13 @@ int
 main()
 {
     int numSegments = 80;
-    int objectBytes = 64;
+    int objectBytes[] = { 64, 128, 256, 512, 1024, 2048, 8192, 0 };
 
-    RAMCloud::RecoverSegmentBenchmark rsb("2048", "10%", numSegments);
-    rsb.run(numSegments, objectBytes, 64 * 1024 * 1024);
+    for (int i = 0; objectBytes[i] != 0; i++) {
+        printf("==========================\n");
+        RAMCloud::RecoverSegmentBenchmark rsb("2048", "10%", numSegments);
+        rsb.run(numSegments, objectBytes[i], 64 * 1024 * 1024);
+    }
 
     return 0;
 }

@@ -58,7 +58,7 @@ class MasterServer : public Server {
     /// The max number of tables a Master will serve.
     static const int NUM_TABLES = 4;
 
-    MasterServer(const ServerConfig* config,
+    MasterServer(const ServerConfig config,
                  CoordinatorClient* coordinator,
                  BackupManager* backup);
     virtual ~MasterServer();
@@ -205,7 +205,7 @@ class MasterServer : public Server {
 
     // The following variables are copies of constructor arguments;
     // see constructor documentation for details.
-    const ServerConfig* config;
+    const ServerConfig config;
 
   public:
     CoordinatorClient* coordinator;

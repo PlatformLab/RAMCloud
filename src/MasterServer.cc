@@ -45,7 +45,7 @@ void tombstoneEvictionCallback(LogEntryType type,
  * \param backup
  *      Provides a mechanism for replicating changes to other servers.
  */
-MasterServer::MasterServer(const ServerConfig* config,
+MasterServer::MasterServer(const ServerConfig config,
                            CoordinatorClient* coordinator,
                            BackupManager* backup)
     : config(config)
@@ -53,18 +53,18 @@ MasterServer::MasterServer(const ServerConfig* config,
     , serverId(0)
     , backup(backup)
     , log(0)
-    , objectMap(config->hashTableBytes / ObjectMap::bytesPerCacheLine())
+    , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine())
     , tombstoneMap(NULL)
     , tablets()
 {
     // Permit a NULL coordinator for testing/benchmark purposes.
     if (coordinator)
-        serverId = coordinator->enlistServer(MASTER, config->localLocator);
+        serverId = coordinator->enlistServer(MASTER, config.localLocator);
     else
         serverId = 0;
 
     LOG(NOTICE, "My server ID is %lu", serverId);
-    log = new Log(serverId, config->logBytes, Segment::SEGMENT_SIZE, backup);
+    log = new Log(serverId, config.logBytes, Segment::SEGMENT_SIZE, backup);
     log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 }
@@ -232,8 +232,8 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
              *recoveryTablets.mutable_tablet()) {
         TEST_LOG("set tablet %lu %lu %lu to locator %s, id %lu",
                  tablet.table_id(), tablet.start_object_id(),
-                 tablet.end_object_id(), config->localLocator.c_str(), serverId);
-        tablet.set_service_locator(config->localLocator);
+                 tablet.end_object_id(), config.localLocator.c_str(), serverId);
+        tablet.set_service_locator(config.localLocator);
         tablet.set_server_id(serverId);
     }
 

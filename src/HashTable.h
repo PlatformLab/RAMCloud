@@ -431,7 +431,7 @@ class HashTable {
     void
     prefetch(uint64_t key1, uint64_t key2)
     {
-        uint64_t dummy; 
+        uint64_t dummy;
         _mm_prefetch(findBucket(key1, key2, &dummy), _MM_HINT_T0);
     }
 
