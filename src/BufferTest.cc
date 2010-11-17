@@ -587,6 +587,7 @@ class BufferIteratorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_getNumberChunks);
     CPPUNIT_TEST(test_getNumberChunks_offsetIntoBuffer);
     CPPUNIT_TEST(test_getNumberChunks_sanityBeyondTheEnd);
+    // operator== tested by BufferTest::test_eq
     CPPUNIT_TEST_SUITE_END();
 
     Buffer* oneChunk;

@@ -370,7 +370,7 @@ class Buffer {
       public:
         explicit Iterator(const Buffer& buffer);
         Iterator(const Buffer& buffer, uint32_t offset, uint32_t length);
-        explicit Iterator(const Iterator& other);
+        Iterator(const Iterator& other);
         ~Iterator();
         Iterator& operator=(const Iterator& other);
         bool isDone() const;
@@ -573,7 +573,20 @@ class Buffer {
     DISALLOW_COPY_AND_ASSIGN(Buffer);
 };
 
-bool operator==(const Buffer& left, const Buffer& right);
+bool operator==(Buffer::Iterator left, Buffer::Iterator right);
+
+/// See equals.
+inline bool operator!=(Buffer::Iterator left, Buffer::Iterator right) {
+    return !(left == right);
+}
+
+/**
+ * Two Buffers are equal if they contain the same logical array of bytes,
+ * regardless of their internal representation.
+ */
+inline bool operator==(const Buffer& left, const Buffer& right) {
+    return Buffer::Iterator(left) == Buffer::Iterator(right);
+}
 
 /// See equals.
 inline bool operator!=(const Buffer& left, const Buffer& right) {

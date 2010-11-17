@@ -840,19 +840,25 @@ Buffer::Iterator::getNumberChunks() const
 }
 
 /**
- * Two Buffers are equal if they contain the same logical array of bytes,
- * regardless of their internal representation.
+ * Two Buffer::Iterators are equal if the logical array of bytes they would
+ * iterate through is the same, regardless of their chunk layouts.
+ * \param leftIter
+ *      A Buffer::Iterator that has never had #Buffer::Iterator::next() called
+ *      on it.
+ * \param rightIter
+ *      A Buffer::Iterator that has never had #Buffer::Iterator::next() called
+ *      on it.
+ * \todo(ongaro): These semantics are a bit weird, but they're useful for
+ * comparing subranges of Buffers. What we probably want is a Buffer::Range
+ * struct with equality defined in terms of an iterator.
  */
 bool
-operator==(const Buffer& left, const Buffer& right)
+operator==(Buffer::Iterator leftIter, Buffer::Iterator rightIter)
 {
-    if (left.getTotalLength() != right.getTotalLength())
+    if (leftIter.getTotalLength() != rightIter.getTotalLength())
         return false;
-    if (left.getTotalLength() == 0)
+    if (leftIter.getTotalLength() == 0)
         return true;
-
-    Buffer::Iterator leftIter(left);
-    Buffer::Iterator rightIter(right);
 
     const char* leftData = static_cast<const char*>(leftIter.getData());
     uint32_t leftLength = leftIter.getLength();
