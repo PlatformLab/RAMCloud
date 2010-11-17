@@ -58,7 +58,7 @@ class Log {
             BackupManager *backup = NULL);
     ~Log();
     const void *append(LogEntryType type,
-                       const void *buffer, uint64_t length);
+                       const void *buffer, uint64_t length, bool sync = true);
     void        free(const void *p);
     void        registerType(LogEntryType type,
                              log_eviction_cb_t evictionCB, void *evictionArg);
@@ -67,6 +67,7 @@ class Log {
     void        forEachSegment(LogSegmentCallback cb, uint64_t limit,
                                void *cookie) const;
     uint64_t    getMaximumAppendableBytes() const;
+    uint64_t    getBytesAppended() const;
 
   private:
     void        addSegmentMemory(void *p);
@@ -99,6 +100,9 @@ class Log {
 
     /// Given to Segments to make them durable
     BackupManager *backup;
+
+    /// The total number of bytes appended to this log during its lifetime.
+    uint64_t bytesAppended;
 
     friend class LogTest;
     friend class LogCleaner;

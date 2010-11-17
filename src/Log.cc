@@ -55,7 +55,8 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
       callbackMap(),
       activeIdMap(),
       activeBaseAddressMap(),
-      backup(backup)
+      backup(backup),
+      bytesAppended(0)
 {
     cleaner = new LogCleaner(this);
 
@@ -148,6 +149,11 @@ Log::getSegmentId(const void *p)
  * \param[in] length
  *      Length of the data to be appended in bytes. This must be sufficiently
  *      small to fit within one Segment's worth of memory.
+ * \param[in] sync
+ *      If true then this write to replicated to backups before return,
+ *      otherwise the replication will happen on a subsequent append()
+ *      where sync is true or when the segment is closed.  This defaults
+ *      to true.
  * \return
  *      On success, a const pointer into the Log's backing memory with
  *      the same contents as `buffer'. On failure, NULL.
@@ -156,7 +162,8 @@ Log::getSegmentId(const void *p)
  *      append length, as returned by #getMaximumAppendableBytes.
  */
 const void *
-Log::append(LogEntryType type, const void *buffer, const uint64_t length)
+Log::append(LogEntryType type, const void *buffer, const uint64_t length,
+    bool sync)
 {
     const void *p = NULL;
 
@@ -169,13 +176,16 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
      *   If we run out of space entirely, return NULL.
      */
     do {
-        if (head != NULL)
-            p = head->append(type, buffer, length);
+        if (head != NULL) {
+            p = head->append(type, buffer, length, sync);
+            bytesAppended += length + sizeof(SegmentEntry);
+        }
 
         if (p == NULL) {
             if (head != NULL) {
                 head->close();
                 head = NULL;
+                bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentFooter);
             }
 
             void *s = getFromFreeList();
@@ -184,6 +194,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length)
 
             head = new Segment(logId, allocateSegmentId(), s, segmentCapacity,
                     backup);
+            bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentHeader);
             addToActiveMaps(head);
 
             cleaner->clean(1);
@@ -275,6 +286,13 @@ uint64_t
 Log::getMaximumAppendableBytes() const
 {
     return maximumAppendableBytes;
+}
+
+/// Return total bytes concatenated to the log so far including overhead.
+uint64_t
+Log::getBytesAppended() const
+{
+    return bytesAppended;
 }
 
 ////////////////////////////////////

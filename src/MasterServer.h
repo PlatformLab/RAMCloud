@@ -176,6 +176,9 @@ class MasterServer : public Server {
     void create(const CreateRpc::Request& reqHdr,
                 CreateRpc::Response& respHdr,
                 Transport::ServerRpc& rpc);
+    void ping(const PingRpc::Request& reqHdr,
+              PingRpc::Response& respHdr,
+              Transport::ServerRpc& rpc);
     void read(const ReadRpc::Request& reqHdr,
               ReadRpc::Response& respHdr,
               Transport::ServerRpc& rpc);
@@ -214,6 +217,9 @@ class MasterServer : public Server {
     uint64_t serverId;
 
     BackupManager* backup;
+
+    /// Track total bytes of object data written (not including log overhead).
+    uint64_t bytesWritten;
 
     /**
      * The main in-memory data structure holding all of the data stored

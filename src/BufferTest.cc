@@ -203,6 +203,8 @@ class BufferTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_truncateFront);
     CPPUNIT_TEST(test_truncateEnd);
 
+    CPPUNIT_TEST(test_eq);
+
     CPPUNIT_TEST_SUITE_END();
 
     // I've inserted padding in between these arrays so that we don't get lucky
@@ -531,6 +533,36 @@ class BufferTest : public CppUnit::TestFixture {
         b.truncateEnd(5);
         CPPUNIT_ASSERT_EQUAL("", bufferToDebugString(&b));
         CPPUNIT_ASSERT_EQUAL(0, b.getTotalLength());
+    }
+
+    void test_eq() {
+        Buffer a;
+        Buffer b;
+        Buffer c;
+        Buffer d;
+        CPPUNIT_ASSERT(a == b);
+        CPPUNIT_ASSERT(b == a);
+        Buffer::Chunk::appendToBuffer(&a, "abc", 3);
+        Buffer::Chunk::appendToBuffer(&a, "def", 3);
+        CPPUNIT_ASSERT(a != b);
+        CPPUNIT_ASSERT(b != a);
+        Buffer::Chunk::appendToBuffer(&b, "a", 1);
+        Buffer::Chunk::appendToBuffer(&b, "bcd", 3);
+        Buffer::Chunk::appendToBuffer(&b, "", 0);
+        Buffer::Chunk::appendToBuffer(&b, "ef", 2);
+        Buffer::Chunk::appendToBuffer(&c, "x", 1);
+        Buffer::Chunk::appendToBuffer(&c, "", 0);
+        Buffer::Chunk::appendToBuffer(&c, "bcdef", 5);
+        Buffer::Chunk::appendToBuffer(&d, "yz", 2);
+        Buffer::Chunk::appendToBuffer(&d, "bcde", 4);
+        CPPUNIT_ASSERT(a == a);
+        CPPUNIT_ASSERT(b == b);
+        CPPUNIT_ASSERT(a == b);
+        CPPUNIT_ASSERT(b == a);
+        CPPUNIT_ASSERT(b != c);
+        CPPUNIT_ASSERT(c != b);
+        CPPUNIT_ASSERT(c != d);
+        CPPUNIT_ASSERT(d != c);
     }
 
     DISALLOW_COPY_AND_ASSIGN(BufferTest);

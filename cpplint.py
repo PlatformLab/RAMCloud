@@ -79,6 +79,7 @@ We do a small hack, which is to ignore //'s with "'s after them on the
 same line, but it is far from perfect (in either direction).
 """
 
+import multiprocessing
 import codecs
 import getopt
 import math  # for log
@@ -3082,6 +3083,12 @@ def ParseArguments(args):
 
   return filenames
 
+def process(filename):
+    try:
+        ProcessFile(filename, _cpplint_state.verbose_level)
+    except KeyboardInterrupt:
+        sys.exit(1)
+    return _cpplint_state
 
 def main():
   filenames = ParseArguments(sys.argv[1:])
@@ -3094,8 +3101,24 @@ def main():
                                          'replace')
 
   _cpplint_state.ResetErrorCounts()
-  for filename in filenames:
-    ProcessFile(filename, _cpplint_state.verbose_level)
+
+  # Have pool of workers run ProcessFile():
+  # Using map_async rather than map to work around a bug in handling
+  # KeyboardInterrupt in multiprocessing. For details and pointers to the
+  # Python bug tracker, see
+  # http://stackoverflow.com/questions/1408356/keyboard-interrupts-with-pythons-multiprocessing-pool
+  pool = multiprocessing.Pool()
+  states = pool.map_async(process, filenames).get(9999999)
+
+  # Merge error counts as produced by workers:
+  for state in states:
+    _cpplint_state.error_count += state.error_count
+    for cat, num in state.errors_by_category.items():
+      if cat in _cpplint_state.errors_by_category:
+        _cpplint_state.errors_by_category[cat] += num
+      else:
+        _cpplint_state.errors_by_category[cat] = num
+
   _cpplint_state.PrintErrorCounts()
 
   sys.exit(_cpplint_state.error_count > 0)
