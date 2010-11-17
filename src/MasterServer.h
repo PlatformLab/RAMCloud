@@ -24,6 +24,7 @@
 #include "BackupManager.h"
 #include "HashTable.h"
 #include "Server.h"
+#include "SegmentIterator.h"
 #include "Table.h"
 
 namespace RAMCloud {
@@ -57,9 +58,9 @@ class MasterServer : public Server {
     /// The max number of tables a Master will serve.
     static const int NUM_TABLES = 4;
 
-    MasterServer(const ServerConfig& config,
-                 CoordinatorClient& coordinator,
-                 BackupManager& backup);
+    MasterServer(const ServerConfig* config,
+                 CoordinatorClient* coordinator,
+                 BackupManager* backup);
     virtual ~MasterServer();
     void run();
     void dispatch(RpcType type,
@@ -183,6 +184,7 @@ class MasterServer : public Server {
                  Transport::ServerRpc& rpc,
                  Responder& responder);
 
+    void recoverSegmentPrefetcher(SegmentIterator *i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
                         uint64_t bufferLength);
     friend void BackupManager::recover(MasterServer& recoveryMaster,
@@ -203,15 +205,15 @@ class MasterServer : public Server {
 
     // The following variables are copies of constructor arguments;
     // see constructor documentation for details.
-    const ServerConfig& config;
+    const ServerConfig* config;
 
   public:
-    CoordinatorClient& coordinator;
+    CoordinatorClient* coordinator;
 
   private:
     uint64_t serverId;
 
-    BackupManager& backup;
+    BackupManager* backup;
 
     /**
      * The main in-memory data structure holding all of the data stored
@@ -255,6 +257,7 @@ class MasterServer : public Server {
                    uint64_t* newVersion);
     friend class MasterTest;
     friend class CoordinatorTest;
+    friend class RecoverSegmentBenchmark;
     DISALLOW_COPY_AND_ASSIGN(MasterServer);
 };
 

@@ -258,7 +258,7 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length,
 
     if (backup)
         backup->writeSegment(logId, id, tail, src, length);
-
+updateChecksum = false;
     if (updateChecksum) {
         for (uint64_t i = 0; i < length; i++) {
             dst[i] = src[i];

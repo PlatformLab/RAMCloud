@@ -42,13 +42,14 @@ class RecoverSegmentBenchmark {
         delete server;
     }
 
-    uint64_t
+    void
     run(int numSegments, int objectBytes, int tombstoneMapBytes)
     {
         /*
          * Allocate numSegments Segments and fill them up objects of
          * objectBytes bytes. These will be the Segment we recover.
          */
+        uint64_t numObjects = 0;
         uint64_t nextObjId = 0;
         Segment *segments[numSegments];
         for (int i = 0; i < numSegments; i++) {
@@ -64,6 +65,7 @@ class RecoverSegmentBenchmark {
                 const void *so = segments[i]->append(LOG_ENTRY_TYPE_OBJ, o, o->size());
                 if (so == NULL)
                     break;
+                numObjects++;
             }
             segments[i]->close();
         }
@@ -84,8 +86,12 @@ class RecoverSegmentBenchmark {
             Segment *s = segments[i];
             server->recoverSegment(s->getId(), s->getBaseAddress(), s->getCapacity());
         }
+        uint64_t ticks = rdtsc() - before;
         
-        return rdtsc() - before;
+        printf("Recovery of %d Segments with %d byte Objects took %lu milliseconds\n",
+            numSegments, objectBytes, RAMCloud::cyclesToNanoseconds(ticks) / 1000 / 1000);
+        printf("Actual total object count: %lu (%lu bytes not including overhead)\n",
+            numObjects, numObjects * objectBytes);
     }
 
     DISALLOW_COPY_AND_ASSIGN(RecoverSegmentBenchmark);
@@ -97,12 +103,10 @@ int
 main()
 {
     int numSegments = 80;
-    int objectBytes = 128;
+    int objectBytes = 64;
 
     RAMCloud::RecoverSegmentBenchmark rsb("2048", "10%", numSegments);
-    uint64_t ticks = rsb.run(numSegments, objectBytes, 64 * 1024 * 1024);
-    printf("Recovery of %d Segments with %d byte Objects took %lu milliseconds\n",
-        numSegments, objectBytes, RAMCloud::cyclesToNanoseconds(ticks) / 1000 / 1000);
+    rsb.run(numSegments, objectBytes, 64 * 1024 * 1024);
 
     return 0;
 }

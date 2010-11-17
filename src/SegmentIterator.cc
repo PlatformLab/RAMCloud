@@ -26,6 +26,12 @@
 namespace RAMCloud {
 
 /**
+ * Statically turn prefetching on or off. Prefetching attempts to prime
+ * the cache for the next log entry each time next() is called.
+ */
+const bool prefetching = true;
+
+/**
  * Construct a new SegmentIterator for the given Segment object.
  * \param[in] segment
  *      The Segment object to be iterated over.
@@ -182,6 +188,15 @@ SegmentIterator::next()
     length  = entry->length;
     blobPtr = (const void *)((uintptr_t)entry + sizeof(*entry));
     currentEntry = entry;
+
+    if (prefetching) {
+        nextEntry = (uintptr_t)currentEntry + sizeof(*currentEntry) +
+            currentEntry->length;
+        entry = (const SegmentEntry *)nextEntry;
+        _mm_prefetch(entry, _MM_HINT_T0);
+        _mm_prefetch((char *)entry + 64, _MM_HINT_T0);
+        _mm_prefetch((char *)entry + 128, _MM_HINT_T0);
+    }
 }
 
 /**

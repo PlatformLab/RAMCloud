@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_HASHTABLE_H
 #define RAMCLOUD_HASHTABLE_H
 
+#include <xmmintrin.h>
+
 #include "Common.h"
 #include "CycleCounter.h"
 #include "ugly_memory_stuff.h"
@@ -421,6 +423,16 @@ class HashTable {
         }
 
         return numCalls;
+    }
+
+    /**
+     * Prefetch the cacheline associated with the given key.
+     */
+    void
+    prefetch(uint64_t key1, uint64_t key2)
+    {
+        uint64_t dummy; 
+        _mm_prefetch(findBucket(key1, key2, &dummy), _MM_HINT_T0);
     }
 
     /**

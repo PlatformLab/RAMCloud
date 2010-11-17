@@ -45,21 +45,26 @@ void tombstoneEvictionCallback(LogEntryType type,
  * \param backup
  *      Provides a mechanism for replicating changes to other servers.
  */
-MasterServer::MasterServer(const ServerConfig& config,
-                           CoordinatorClient& coordinator,
-                           BackupManager& backup)
+MasterServer::MasterServer(const ServerConfig* config,
+                           CoordinatorClient* coordinator,
+                           BackupManager* backup)
     : config(config)
     , coordinator(coordinator)
     , serverId(0)
     , backup(backup)
     , log(0)
-    , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine())
+    , objectMap(config->hashTableBytes / ObjectMap::bytesPerCacheLine())
     , tombstoneMap(NULL)
     , tablets()
 {
-    serverId = coordinator.enlistServer(MASTER, config.localLocator);
+    // Permit a NULL coordinator for testing/benchmark purposes.
+    if (coordinator)
+        serverId = coordinator->enlistServer(MASTER, config->localLocator);
+    else
+        serverId = 0;
+
     LOG(NOTICE, "My server ID is %lu", serverId);
-    log = new Log(serverId, config.logBytes, Segment::SEGMENT_SIZE, &backup);
+    log = new Log(serverId, config->logBytes, Segment::SEGMENT_SIZE, backup);
     log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 }
@@ -210,7 +215,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
         ObjectTombstoneMap::bytesPerCacheLine());
 
     // Recover Segments, firing MasterServer::recoverSegment for each one.
-    backup.recover(*this, masterId, recoveryTablets, backups);
+    backup->recover(*this, masterId, recoveryTablets, backups);
 
     // Free recovery tombstones left in the hash table and deallocate it.
     tombstoneMap->forEach(recoveryCleanup, NULL);
@@ -227,12 +232,12 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
              *recoveryTablets.mutable_tablet()) {
         TEST_LOG("set tablet %lu %lu %lu to locator %s, id %lu",
                  tablet.table_id(), tablet.start_object_id(),
-                 tablet.end_object_id(), config.localLocator.c_str(), serverId);
-        tablet.set_service_locator(config.localLocator);
+                 tablet.end_object_id(), config->localLocator.c_str(), serverId);
+        tablet.set_service_locator(config->localLocator);
         tablet.set_server_id(serverId);
     }
 
-    coordinator.tabletsRecovered(recoveryTablets);
+    coordinator->tabletsRecovered(recoveryTablets);
     // Ok - we're free to start serving now.
 
     // Union the new tablets into an updated tablet map
@@ -241,6 +246,45 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
     // and set ourself as open for business.
     setTablets(newTablets);
     // TODO(stutsman) update local copy of the will
+}
+
+/**
+ * Given a SegmentIterator for the Segment we're currently recovering,
+ * advance it and issue prefetches on the hash tables. This is used
+ * exclusively by recoverSegment().
+ *
+ * \param[in] i
+ *      A SegmentIterator to use for prefetching. Note that this
+ *      method modifies the iterator, so the caller should not use
+ *      it for its own iteration.
+ */
+void
+MasterServer::recoverSegmentPrefetcher(SegmentIterator *i)
+{
+    i->next();
+
+    if (i->isDone())
+        return;
+
+    LogEntryType type = i->getType();
+    uint64_t objId = ~0UL, tblId = ~0UL;
+
+    if (type == LOG_ENTRY_TYPE_OBJ) {
+        const Object *recoverObj = reinterpret_cast<const Object *>(
+                     i->getPointer());
+        objId = recoverObj->id;
+        tblId = recoverObj->table;
+    } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
+        const ObjectTombstone *recoverTomb =
+            reinterpret_cast<const ObjectTombstone *>(i->getPointer());
+        objId = recoverTomb->objectId;
+        tblId = recoverTomb->tableId;
+    } else {
+        return;
+    }
+
+    objectMap.prefetch(tblId, objId);
+    tombstoneMap->prefetch(tblId, objId);
 }
 
 /**
@@ -263,8 +307,12 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
 
     SegmentIterator i(buffer, bufferLength, true);
+    SegmentIterator prefetch(buffer, bufferLength, true);
+
     while (!i.isDone()) {
         LogEntryType type = i.getType();
+
+        recoverSegmentPrefetcher(&prefetch);
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
             const Object *recoverObj = reinterpret_cast<const Object *>(
