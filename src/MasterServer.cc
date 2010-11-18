@@ -327,15 +327,10 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 {
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
 
-#ifdef PERF_DEBUG_RECOVERY_REC_SEG_JUST_MEMCPY
-    char* seg = new char[Segment::SEGMENT_SIZE];
-    memcpy(seg, buffer, bufferLength);
-    delete seg;
-    return;
-#endif
-
     SegmentIterator i(buffer, bufferLength, true);
+#ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH
     SegmentIterator prefetch(buffer, bufferLength, true);
+#endif
 
 #ifdef PERF_DEBUG_RECOVERY_REC_SEG_JUST_ITER
     for (; !i.isDone(); i.next());
@@ -344,7 +339,9 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
     while (!i.isDone()) {
         LogEntryType type = i.getType();
 
+#ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH
         recoverSegmentPrefetcher(&prefetch);
+#endif
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
             const Object *recoverObj = reinterpret_cast<const Object *>(

@@ -189,6 +189,9 @@ Crc32C(uint32_t crc, const void* buffer, uint64_t bytes)
 {
     extern bool haveSse42();
     static bool hardware = haveSse42();
+#ifdef PERF_DEBUG_RECOVERY_SOFTWARE_CRC32
+    hardware = false;
+#endif
     return hardware ? intelCrc32C(crc, buffer, bytes)
                     : softwareCrc32C(crc, buffer, bytes);
 }

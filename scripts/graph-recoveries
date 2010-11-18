@@ -23,30 +23,33 @@ counts[8192]=81442
 IFS=
 
 # The different configurations to test
-flags[0]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_NO_CKSUM"
-flags[1]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_NO_CKSUM -DPERF_DEBUG_RECOVERY_REC_SEG_JUST_MEMCPY"
-flags[2]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_NO_CKSUM -DPERF_DEBUG_RECOVERY_REC_SEG_JUST_ITER"
-flags[3]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_NO_CKSUM -DPERF_DEBUG_RECOVERY_REC_SEG_NO_HT"
-flags[4]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_NO_CKSUM -DPERF_DEBUG_RECOVERY_REC_SEG_NO_LOG"
-flags[5]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_NO_CKSUM -DPERF_DEBUG_RECOVERY_REC_SEG_NO_HT -DPERF_DEBUG_RECOVERY_REC_SEG_NO_LOG"
+flags[0]=EXTRACXXFLAGS="-DFOO"
+flags[1]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_REC_SEG_JUST_ITER"
+flags[2]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_REC_SEG_NO_HT"
+flags[3]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_REC_SEG_NO_LOG"
+flags[4]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH"
+flags[5]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_NO_CKSUM"
+flags[6]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_SOFTWARE_CRC32"
 
 # Names for the configurations, they appear in the graph legend for each series
 name[0]='Normal'
-name[1]='recoverSegment memcpy only'
-name[2]='recoverSegment just SegmentIterator'
-name[3]='recoverSegment no Hashtable'
-name[4]='recoverSegment no Logging'
-name[5]='recoverSegment no Hashtable, no logging'
+name[1]='recoverSegment just SegmentIterator'
+name[2]='recoverSegment no Hashtable'
+name[3]='recoverSegment no Logging'
+name[4]='recoverSegment no prefetching'
+name[5]='No checksum'
+name[6]='Software crc32'
 
 # clean up old results and start a new gnuplot file
 rm /tmp/recovery-results-*
 echo -n 'set terminal png
 set output "/tmp/recovery.png"
 set title "Recovery Time for 640 MB of log data with 1 In-Memory Backup"
-set xlabel "Inserts"
+set xlabel "Inserts (Millions)"
 set ylabel "Recovery Time (ms)"
-set xrange [0:4000000]
+set xrange [0:4]
 set yrange [0:5000]
+set grid ytics
 
 plot ' > /tmp/recovery-gnuplot
 
@@ -64,7 +67,7 @@ while [ "${flags[i]}" != "" ]; do
         /read after recovery took/ { ticks=$9; }
         /Bytes written/ { if ($7 != 0) { written=$7; } }
         /Bytes logged/ { if ($8 != 0) { logged=$8; } }
-        END { print count " " size " " written " " logged " " (ticks/2.4/1000/1000); }
+        END { print (count/1000000) " " size " " written " " logged " " (ticks/2.4/1000/1000); }
         ' /tmp/rclog >> /tmp/recovery-results-$i
     done
     if [ "$i" != "0" ]; then
