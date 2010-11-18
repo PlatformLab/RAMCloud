@@ -16,6 +16,8 @@
 
 # iterative make
 
+set -o pipefail
+
 repeat=1
 paging=1
 color=1
