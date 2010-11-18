@@ -96,6 +96,8 @@ Server::ping(const PingRpc::Request& reqHdr,
             continue;
         totalCount += h;
         totalTime += t;
+        rpcsHandled[i] = 0;
+        rpcsTime[i] = 0;
         LOG(DEBUG, "%5u: %10lu %10lu", i, h, t);
     }
     LOG(DEBUG, "Total: %10lu %10lu", totalCount, totalTime);

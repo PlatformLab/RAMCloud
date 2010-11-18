@@ -38,13 +38,27 @@ try
     BackupServer::Config config;
     // CPU mask for binding the backup to a specific set of cores.
     int cpu;
+    bool inMemory;
+    uint32_t segmentCount;
+    string backupFile;
 
     OptionsDescription extraOptions("Backup");
     extraOptions.add_options()
         ("cpu,p",
          ProgramOptions::value<int>(&cpu)->
             default_value(-1),
-         "CPU mask to pin to");
+         "CPU mask to pin to")
+        ("memory,m",
+         ProgramOptions::bool_switch(&inMemory),
+         "Back segments up to memory only.")
+        ("segments,s",
+         ProgramOptions::value<uint32_t>(&segmentCount)->
+            default_value(512),
+         "Number of segment frames in backup storage.")
+        ("file,f",
+         ProgramOptions::value<string>(&backupFile)->
+            default_value("backup.log"),
+         "The file path to the backup storage.");
 
     OptionParser optionParser(extraOptions, argc, argv);
     config.coordinatorLocator = optionParser.options.getCoordinatorLocator();
@@ -61,9 +75,19 @@ try
     // Set the address for the backup to listen on.
     transportManager.initialize(config.localLocator.c_str());
 
-    SingleFileStorage storage(Segment::SEGMENT_SIZE, 128, "backup.log", 0);
-    BackupServer server(config, storage);
-    server.run();
+    BackupStorage* storage;
+    if (inMemory)
+        storage = new InMemoryStorage(Segment::SEGMENT_SIZE, segmentCount);
+    else
+        storage = new SingleFileStorage(Segment::SEGMENT_SIZE, segmentCount,
+                                        backupFile.c_str(), 0);
+
+    {
+        BackupServer server(config, *storage);
+        server.run();
+    }
+
+    delete storage;
 
     return 0;
 } catch (RAMCloud::Exception& e) {

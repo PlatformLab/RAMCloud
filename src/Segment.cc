@@ -264,6 +264,9 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length,
     const uint8_t *src = reinterpret_cast<const uint8_t *>(buffer);
     uint8_t       *dst = reinterpret_cast<uint8_t *>(baseAddress) + tail;
 
+#ifdef PERF_DEBUG_RECOVERY_NO_CKSUM
+    updateChecksum = false;
+#endif // PERF_DEBUG_RECOVERY_NO_CKSUM
     if (updateChecksum)
         checksum = Crc32C(checksum, src, length);
     memcpy(dst, src, length);

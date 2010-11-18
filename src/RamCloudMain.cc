@@ -130,6 +130,8 @@ try
     memset(val, 0xcc, objectDataSize);
     id = 0xfffffff;
 
+    LOG(DEBUG, "Performing %u inserts of %u byte objects",
+        count, objectDataSize);
     uint64_t sum = 0;
     b = rdtsc();
     for (int j = 0; j < count; j++) {
@@ -161,10 +163,14 @@ try
         session = client.objectFinder.lookup(table, 0);
         LOG(NOTICE, "- attempting read from recovery master: %s",
             session->getServiceLocator().c_str());
-        client.read(table, 43, &nb);
 
-        LOG(NOTICE, "read took %lu ticks", rdtsc() - b);
-        LOG(NOTICE, "read took %u ticks on the server",
+        try {
+            client.read(table, 43, &nb);
+        } catch (...) {
+        }
+
+        LOG(NOTICE, "read after recovery took %lu ticks", rdtsc() - b);
+        LOG(NOTICE, "read after recovery on server took %u ticks",
                client.counterValue);
         LOG(NOTICE, "read value: %s",
                 static_cast<const char*>(nb.getRange(0, nb.getTotalLength())));

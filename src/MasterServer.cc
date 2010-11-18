@@ -327,9 +327,20 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 {
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
 
+#ifdef PERF_DEBUG_RECOVERY_REC_SEG_JUST_MEMCPY
+    char* seg = new char[Segment::SEGMENT_SIZE];
+    memcpy(seg, buffer, bufferLength);
+    delete seg;
+    return;
+#endif
+
     SegmentIterator i(buffer, bufferLength, true);
     SegmentIterator prefetch(buffer, bufferLength, true);
 
+#ifdef PERF_DEBUG_RECOVERY_REC_SEG_JUST_ITER
+    for (; !i.isDone(); i.next());
+    return;
+#endif
     while (!i.isDone()) {
         LogEntryType type = i.getType();
 
@@ -341,8 +352,13 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
             uint64_t objId = recoverObj->id;
             uint64_t tblId = recoverObj->table;
 
+#ifdef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
+            const Object *localObj = 0;
+            const ObjectTombstone *tomb = 0;
+#else
             const Object *localObj = objectMap.lookup(tblId, objId);
             const ObjectTombstone *tomb = tombstoneMap->lookup(tblId, objId);
+#endif
 
             // can't have both a tombstone and an object in the hash tables
             assert(tomb == NULL || localObj == NULL);
@@ -354,12 +370,19 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 minSuccessor = tomb->objectVersion + 1;
 
             if (recoverObj->version >= minSuccessor) {
+#ifdef PERF_DEBUG_RECOVERY_REC_SEG_NO_LOG
+                const Object* newObj = localObj;
+#else
                 // write to log (with lazy backup flush) & update hash table
                 const Object *newObj = reinterpret_cast<const Object*>(
                     log->append(LOG_ENTRY_TYPE_OBJ, recoverObj,
                                 recoverObj->size(), false));
+#endif
                 assert(newObj != NULL);
+
+#ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
                 objectMap.replace(tblId, objId, newObj);
+#endif
 
                 // nuke the tombstone, if it existed
                 if (tomb != NULL) {

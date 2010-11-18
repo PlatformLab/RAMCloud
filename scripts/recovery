@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Runs a coordinator, 2 masters, and 2 backups
+# Runs a coordinator, 2 masters, and a 1 backup
 # Client runs and reports its master down at the end of its run
-# If everything works right the second master should recovery this first
+# If everything works right the second master should recover the first
 
 source ./scripts/common.bash
 
@@ -10,45 +10,67 @@ source ./scripts/common.bash
 #proto=tcp
 proto=infrc
 
-#host1=171.66.3.56
-host1=127.0.0.1
-host2=$host1
-#host2=171.66.3.58
+host1=171.66.3.56
+#host1=127.0.0.1
+#host2=$host1
+host2=171.66.3.58
 
 C=$proto:host=$host1,port=12246
 commonopts="-l 9 -C $C"
 
-start() {
-    xterm -e ssh -t -t $1 "export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts; read" &
+xstart() {
+    xterm -e ssh -t -t $1 "export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee /tmp/$3" &
     atexit "kill $!"
 }
 
-# The local version could use some fixups, probably best use
-# the remote with 127.0.0.1.
-#start() {
-#    xterm -e bash -c "export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts; read" &
-#    atexit "kill $!"
-#}
+start() {
+    ssh $1 "export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts > /tmp/$3 2>&1"  &
+    atexit "kill $!"
+}
 
-start $host1 coordinator
+startfg() {
+    ssh $1 "export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee /tmp/$3"
+    atexit "kill $!"
+}
 
-sleep .5
+# clean up any old logs
+ssh $host1 'rm /tmp/*.rclog'
 
-start $host1 "backup -L $proto:host=$host1,port=12243"
-start $host2 "backup -L $proto:host=$host2,port=12244"
-
-sleep .5
-
-start $host1 "server -r 2 -L $proto:host=$host1,port=12242"
-sleep .5
-start $host2 "server -r 2 -L $proto:host=$host2,port=12247"
+start $host1 coordinator coordinator.rclog
 
 sleep .5
 
-start $host1 "client -d $*"
+start $host1 "backup -m -L $proto:host=$host1,port=12243" backup1.rclog
+#start $host2 "backup -m -L $proto:host=$host2,port=12244" backup2.rclog
+
+sleep .5
+
+start $host1 "server -m 2048 -r 1 -L $proto:host=$host1,port=12242" master1.rclog
+sleep .5
+start $host2 "server -m 2048 -r 1 -L $proto:host=$host2,port=12247" master2.rclog
+
+sleep .5
+
+startfg $host1 "client -d $*" client.rclog
+
+#read
 
 # sloppy version of cleaup in case ssh -t -t doesn't do the trick
-#atexit "ssh $host1 \"pkill backup; pkill server; pkill coordinator; pkill client\""
-#atexit "ssh $host2 \"pkill backup; pkill server; pkill coordinator; pkill client\""
+atexit "ssh $host1 \"pkill backup; pkill server; pkill coordinator; pkill client\""
+atexit "ssh $host2 \"pkill backup; pkill server; pkill coordinator; pkill client\""
 
-read
+# aggregate logs
+scp $host1:/tmp/*.rclog /tmp > /dev/null
+scp $host2:/tmp/*.rclog /tmp > /dev/null
+
+sort /tmp/*.rclog > /tmp/rclog
+
+# Extract values and dump to stdout, useful when all processes are run in separate
+# xterms, otherwise it's best to extract values directly from the leftover /tmp/rclog
+awk '
+/Performing/ { count=$6; size=$9; }
+/read after recovery took/ { ticks=$9; }
+/Bytes written/ { if ($7 != 0) { written=$7; } }
+/Bytes logged/ { if ($8 != 0) { logged=$8; } }
+END { print count " " size " " written " " logged " " ticks; }
+' /tmp/rclog
