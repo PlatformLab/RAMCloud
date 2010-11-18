@@ -283,6 +283,7 @@ Logger::logMessage(LogModule module, LogLevel level,
                    const char* format, ...)
 {
     static int fileCharsToSkip = length__FILE__Prefix();
+    static int pid = getpid();
 
     va_list ap;
     struct timeval now;
@@ -294,11 +295,12 @@ Logger::logMessage(LogModule module, LogLevel level,
         file += fileCharsToSkip;
 
     gettimeofday(&now, NULL);
-    fprintf(stream, "%010u.%06u %s:%d %s %s: ",
+    fprintf(stream, "%010u.%06u %s:%d %s %s[%d]: ",
             now.tv_sec, now.tv_usec,
             file, where.line,
             logModuleNames[module],
-            logLevelNames[level]);
+            logLevelNames[level],
+            pid);
 
     va_start(ap, format);
     vfprintf(stream, format, ap);
@@ -328,6 +330,7 @@ Logger::getMessage(LogModule module, LogLevel level,
                    const char* format, ...)
 {
     static int fileCharsToSkip = length__FILE__Prefix();
+    static int pid = getpid();
     std::string message;
     char buf[1024];
     va_list ap;
@@ -338,10 +341,11 @@ Logger::getMessage(LogModule module, LogLevel level,
     if (strncmp(file, __FILE__, fileCharsToSkip) == 0)
         file += fileCharsToSkip;
 
-    snprintf(buf, sizeof(buf), "%s:%d %s %s: ",
+    snprintf(buf, sizeof(buf), "%s:%d %s %s[%d]: ",
              file, where.line,
              logModuleNames[module],
-             logLevelNames[level]);
+             logLevelNames[level],
+             pid);
     message.append(buf);
 
     va_start(ap, format);
