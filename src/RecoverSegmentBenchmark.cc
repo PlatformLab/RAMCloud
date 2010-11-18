@@ -91,11 +91,14 @@ class RecoverSegmentBenchmark {
         }
         uint64_t ticks = rdtsc() - before;
 
-        printf("Recovery of %d %dMB Segments with %d byte Objects took %lu "
-            "milliseconds\n", numSegments, Segment::SEGMENT_SIZE, objectBytes,
-            RAMCloud::cyclesToNanoseconds(ticks) / 1000 / 1000);
-        printf("Actual total object count: %lu (%lu bytes not including "
-            "overhead)\n", numObjects, numObjects * objectBytes);
+        uint64_t totalObjectBytes = numObjects * objectBytes;
+        uint64_t totalSegmentBytes = numSegments * Segment::SEGMENT_SIZE;
+        printf("Recovery of %d %dKB Segments with %d byte Objects took %lu "
+            "milliseconds\n", numSegments, Segment::SEGMENT_SIZE / 1024,
+            objectBytes, RAMCloud::cyclesToNanoseconds(ticks) / 1000 / 1000);
+        printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
+            "overhead)\n", numObjects, totalObjectBytes,
+            100.0 * (totalSegmentBytes - totalObjectBytes) / totalSegmentBytes);
     }
 
     DISALLOW_COPY_AND_ASSIGN(RecoverSegmentBenchmark);

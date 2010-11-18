@@ -34,22 +34,31 @@ measure(int bytes, bool cached)
     // it before timing
     memcpy(dst, src, bytes);
 
-    // wreck the cache
-    if (!cached) {
-        for (int i = 0; i < 64 * 1024 * 1024; i++)
-            scrub[i]++;
-    }
+    // do more runs for smaller inputs
+    int runs = 1;
+    if (bytes < 4096)
+        runs = 100;
 
-    // now time it
-    uint64_t before = rdtsc();
-    memcpy(dst, src, bytes);
-    uint64_t after = rdtsc();
+    uint64_t total = 0;
+    for (int i = 0; i < runs; i++ ) {
+        // wreck the cache
+        if (!cached) {
+            for (int i = 0; i < 64 * 1024 * 1024; i++)
+                scrub[i]++;
+        }
+
+        // now time it
+        uint64_t before = rdtsc();
+        memcpy(dst, src, bytes);
+        total += (rdtsc() - before);
+    }
+    total /= runs;
 
     printf("%10d bytes: %10llu ticks    %10llu nsec    %.2f nsec/byte\n",
         bytes,
-        after - before,
-        RAMCloud::cyclesToNanoseconds(after - before),
-        (double)RAMCloud::cyclesToNanoseconds(after - before) / bytes);
+        total,
+        RAMCloud::cyclesToNanoseconds(total),
+        (double)RAMCloud::cyclesToNanoseconds(total) / bytes);
 
     free(src);
     free(dst);
@@ -60,11 +69,15 @@ int
 main()
 {
     printf("=== Cached Memcpy ===\n");
-    for (int i = 16; i <= (16 * 1024 * 1024); i *= 2)
+    for (int i = 1; i < 128; i++)
+        measure(i, true);
+    for (int i = 128; i <= (16 * 1024 * 1024); i *= 2)
         measure(i, true);
 
     printf("\n=== Uncached Memcpy ===\n");
-    for (int i = 16; i <= (16 * 1024 * 1024); i *= 2)
+    for (int i = 1; i < 128; i++)
+        measure(i, false);
+    for (int i = 128; i <= (16 * 1024 * 1024); i *= 2)
         measure(i, false);
 
     return 0;

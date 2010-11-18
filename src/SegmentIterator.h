@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <vector>
+#include "Crc32C.h"
 #include "Segment.h"
 
 using std::vector;
@@ -91,38 +92,22 @@ class SegmentIterator {
      */
     static uint64_t
     generateChecksum(const void *buffer, uint64_t segmentCapacity,
-                     const uint64_t stopOffset = ~(0ull))
+                     uint64_t stopOffset = ~(0ull))
     {
-        uint64_t offset = 0;
-        uint64_t checksum = 0;
-        rabinpoly rabinPoly(Segment::RABIN_POLYNOMIAL);
-
-        for (SegmentIterator i(buffer, segmentCapacity); !i.isDone(); i.next()){
-            LogEntryType type = i.getType();
-            uint32_t length   = i.getLength();
-            SegmentEntry e    = { type, length };
-
-#define u64 uint64_t
-
-            const uint8_t *p = reinterpret_cast<const uint8_t *>(&e);
-            for (u64 j = 0; j < sizeof(e) && offset < stopOffset; j++, offset++)
-                checksum = rabinPoly.append8(checksum, p[j]);
-
-            // checksum cannot include itself!
-            if (type == LOG_ENTRY_TYPE_SEGFOOTER)
+        // Find the footer to see if it's before stopOffset.
+        SegmentIterator i(buffer, segmentCapacity);
+        while (!i.isDone()) {
+            if (i.getType() == LOG_ENTRY_TYPE_SEGFOOTER)
                 break;
-
-            p = reinterpret_cast<const uint8_t *>(i.getPointer());
-            for (u64 j = 0; j < length && offset < stopOffset; j++, offset++)
-                checksum = rabinPoly.append8(checksum, p[j]);
-
-#undef u64
-
-            if (offset == stopOffset)
-                break;
+            i.next();
         }
 
-        return checksum;
+        if (!i.isDone() && i.getOffset() < stopOffset) {
+            assert(i.getType() == LOG_ENTRY_TYPE_SEGFOOTER);
+            stopOffset = i.getOffset();
+        }
+
+        return Crc32C(0, buffer, stopOffset);
     }
 
   private:
