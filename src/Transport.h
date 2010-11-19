@@ -168,7 +168,12 @@ class Transport {
         }
 
         /**
-         * Called when the reference count to this session drops to 0.
+         * This method is invoked via the boost intrusive_ptr mechanism when
+         * all copies of the SessionRef for this session have been deleted; it
+         * should reclaim the storage for the session.  This method is invoked
+         * (rather than just deleting the object) to enable transport-specific
+         * memory allocation for sessions.  In most cases the method should just
+         * "delete this".
          */
         virtual void release() = 0;
 
@@ -232,8 +237,9 @@ class Transport {
 
     /**
      * A reference to a #Session object on which to send client RPC requests.
-     * When no more references to a session exist, the transport may reclaim
-     * its memory.
+     * Usage is automatically tracked by boost::intrusive_ptr, so this can
+     * be copied freely.  When the last copy is deleted the transport will
+     * reclaim the session storage.
      */
     typedef boost::intrusive_ptr<Session> SessionRef;
 
