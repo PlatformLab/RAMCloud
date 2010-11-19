@@ -522,10 +522,6 @@ class FastTransport : public Transport {
         uint32_t stagingVector;
     } __attribute__((packed));
 
-    // Make sure our AckResponse can actually hold enough.
-    static_assert(sizeof(AckResponse::stagingVector) * 8 >=
-                  MAX_STAGING_FRAGMENTS);
-
     /**
      * InboundMessage accumulates and assembles fragments into a complete
      * incoming message.

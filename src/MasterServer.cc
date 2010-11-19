@@ -689,7 +689,7 @@ objectReplayCallback(LogEntryType type,
     obj_replay_cookie *cookie = static_cast<obj_replay_cookie *>(cookiep);
     MasterServer *server = cookie->server;
 
-    //printf("ObjectReplayCallback: type %llu\n", type);
+    //printf("ObjectReplayCallback: type %u\n", type);
 
     // Used to determine free_bytes after passing over the segment
     cookie->usedBytes += len;
@@ -710,7 +710,7 @@ objectReplayCallback(LogEntryType type,
     case LOG_ENTRY_TYPE_SEGFOOTER:
         break;
     default:
-        printf("!!! Unknown object type on log replay: 0x%llx", type);
+        printf("!!! Unknown object type on log replay: 0x%x", type);
     }
 }
 

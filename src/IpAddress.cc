@@ -98,7 +98,8 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
                                         hostName + "'", serviceLocator);
         }
         memcpy(&addr->sin_addr, host.h_addr, sizeof(addr->sin_addr));
-        addr->sin_port = htons(serviceLocator.getOption<uint16_t>("port"));
+        uint16_t port = serviceLocator.getOption<uint16_t>("port");
+        addr->sin_port = htons(port);
     } catch (ServiceLocator::NoSuchKeyException& e) {
         throw BadIpAddressException(HERE, e.message, serviceLocator);
     } catch (boost::bad_lexical_cast& e) {

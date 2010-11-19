@@ -40,6 +40,10 @@ FastTransport::FastTransport(Driver* driver)
 
 FastTransport::~FastTransport()
 {
+    // Make sure our AckResponse can actually hold enough.
+    AckResponse test(0);
+    static_assert(sizeof(test.stagingVector) * 8 >= MAX_STAGING_FRAGMENTS);
+
     // Sessions must be destroyed before the driver
     // since they might hold driver memory.
     serverSessions.clear();
