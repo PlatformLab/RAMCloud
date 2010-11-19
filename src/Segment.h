@@ -18,7 +18,6 @@
 
 #include <stdint.h>
 
-#include "rabinpoly.h"
 #include "LogTypes.h"
 #include "BackupManager.h"
 
@@ -94,8 +93,7 @@ class Segment {
     const uint64_t   capacity;       // total byte length of segment when empty
     uint64_t         tail;           // offset to the next free byte in Segment
     uint64_t         bytesFreed;     // bytes free()'d in this Segment
-    rabinpoly        rabinPoly;      // Rabin Polynomial class used for checksum
-    uint64_t         checksum;       // Latest Segment checksum
+    uint32_t         checksum;       // Latest Segment checksum (crc32c)
     bool             closed;         // when true, no appends permitted
 
     friend class SegmentTest;

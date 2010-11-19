@@ -182,7 +182,7 @@ class SegmentTest : public CppUnit::TestFixture {
 
         SegmentFooter *sf = reinterpret_cast<SegmentFooter *>(
                             reinterpret_cast<char *>(se) + sizeof(*se));
-        CPPUNIT_ASSERT_EQUAL(0x7baf8437964589e0ull, sf->checksum);
+        CPPUNIT_ASSERT_EQUAL(0x2d495973, sf->checksum);
 
         CPPUNIT_ASSERT_EQUAL(0, s.appendableBytes());
         CPPUNIT_ASSERT_EQUAL(true, s.closed);

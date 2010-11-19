@@ -15,70 +15,63 @@
 
 /**
  * \file
- * Benchmark for memcpy.
+ * Benchmark for Crc32C, a Nehalem instruction implementation of CRC32
+ * with the Castagnoli polynomial.
  */
 
 // RAMCloud pragma [CPPLINT=0]
 
 #include <Common.h>
 #include <BenchUtil.h>
+#include <Crc32C.h>
 
 static void
-measure(int bytes, bool cached)
+measure(int bytes, bool print = true)
 {
-    uint8_t *src = reinterpret_cast<uint8_t *>(xmalloc(bytes)); 
-    uint8_t *dst = reinterpret_cast<uint8_t *>(xmalloc(bytes));
-    uint8_t *scrub = reinterpret_cast<uint8_t *>(xmalloc(64 * 1024 * 1024));
+    uint8_t *array = reinterpret_cast<uint8_t *>(xmalloc(bytes)); 
+    uint32_t crc = 0;
 
-    // the very first memcpy seems to have a big overhead, so burn though
-    // it before timing
-    memcpy(dst, src, bytes);
+    // randomize input
+    for (int i = 0; i < bytes; i++)
+        array[i] = generateRandom();
 
     // do more runs for smaller inputs
     int runs = 1;
     if (bytes < 4096)
         runs = 100;
 
+    // run the test. be sure method call isn't removed by the compiler.
     uint64_t total = 0;
-    for (int i = 0; i < runs; i++ ) {
-        // wreck the cache
-        if (!cached) {
-            for (int i = 0; i < 64 * 1024 * 1024; i++)
-                scrub[i]++;
-        }
-
-        // now time it
+    for (int i = 0; i < runs; i++) {
         uint64_t before = rdtsc();
-        memcpy(dst, src, bytes);
+        crc = RAMCloud::Crc32C(crc, array, bytes);
         total += (rdtsc() - before);
     }
     total /= runs;
 
-    printf("%10d bytes: %10llu ticks    %10llu nsec    %.2f nsec/byte\n",
-        bytes,
-        total,
-        RAMCloud::cyclesToNanoseconds(total),
-        (double)RAMCloud::cyclesToNanoseconds(total) / bytes);
+    if (print) {
+        uint64_t nsec = RAMCloud::cyclesToNanoseconds(total);
+        printf("%10d bytes: %10llu ticks    %10llu nsec    %3llu nsec/byte   "
+            "%7llu MB/sec    crc32c 0x%08x\n",
+            bytes,
+            total,
+            nsec,
+            nsec / bytes,
+            (uint64_t)(1.0e9 / ((float)nsec / bytes) / (1024*1024)),
+            crc);
+    }
 
-    free(src);
-    free(dst);
-    free(scrub);
+    free(array);
 }
 
 int
 main()
 {
-    printf("=== Cached Memcpy ===\n");
+    measure(4096, false);   // warm up
     for (int i = 1; i < 128; i++)
-        measure(i, true);
+        measure(i);
     for (int i = 128; i <= (16 * 1024 * 1024); i *= 2)
-        measure(i, true);
-
-    printf("\n=== Uncached Memcpy ===\n");
-    for (int i = 1; i < 128; i++)
-        measure(i, false);
-    for (int i = 128; i <= (16 * 1024 * 1024); i *= 2)
-        measure(i, false);
+        measure(i);
 
     return 0;
 }

@@ -42,18 +42,29 @@ measure(int bytes)
     for (int i = 0; i < bytes; i++)
         checksum = rp.append8(checksum, array[i]);
 
-    // run the test. be sure method call isn't removed by the compiler.
-    uint64_t before = rdtsc();
-    for (int i = 0; i < bytes; i++)
-        checksum = rp.append8(checksum, array[i]);
-    uint64_t after = rdtsc();
+    // do more runs for smaller inputs
+    int runs = 1;
+    if (bytes < 4096)
+        runs = 100;
 
+    // run the test. be sure method call isn't removed by the compiler.
+    uint64_t total = 0;
+    for (int i = 0; i < runs; i++) { 
+        uint64_t before = rdtsc();
+        for (int i = 0; i < bytes; i++)
+            checksum = rp.append8(checksum, array[i]);
+        total += (rdtsc() - before);
+    }
+    total /= runs;
+
+    uint64_t nsec = RAMCloud::cyclesToNanoseconds(total);
     printf("%10d bytes: %10llu ticks    %10llu nsec    %3llu nsec/byte   "
-        "cksum 0x%16lx\n",
+        "%7llu MB/sec    cksum 0x%16lx\n",
         bytes,
-        after - before,
-        RAMCloud::cyclesToNanoseconds(after - before),
-        RAMCloud::cyclesToNanoseconds(after - before) / bytes,
+        total,
+        nsec,
+        nsec / bytes,
+        (uint64_t)(1.0e9 / ((float)nsec / bytes) / (1024*1024)),
         checksum);
 
     free(array);
@@ -62,7 +73,9 @@ measure(int bytes)
 int
 main()
 {
-    for (int i = 16; i <= (16 * 1024 * 1024); i *= 2)
+    for (int i = 1; i < 128; i++)
+        measure(i);
+    for (int i = 128; i <= (16 * 1024 * 1024); i *= 2)
         measure(i);
 
     return 0;

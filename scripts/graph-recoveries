@@ -1,0 +1,79 @@
+#!/bin/bash
+
+source ./scripts/common.bash
+
+# these keep constant written data (640MB)
+#counts[128]=5242880
+#counts[256]=2621440
+#counts[512]=1310720
+#counts[1024]=655360
+#counts[2048]=327680
+#counts[4096]=163840
+#counts[8192]=81920
+
+# these keep constant logged data (640MB)
+counts[128]=3812983
+counts[256]=2207516
+counts[512]=1198366
+counts[1024]=626012
+counts[2048]=320174
+counts[4096]=161941
+counts[8192]=81442
+
+IFS=
+
+# The different configurations to test
+flags[0]=EXTRACXXFLAGS="-DFOO"
+flags[1]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_REC_SEG_JUST_ITER"
+flags[2]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_REC_SEG_NO_HT"
+flags[3]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_REC_SEG_NO_LOG"
+flags[4]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH"
+flags[5]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_NO_CKSUM"
+flags[6]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_SOFTWARE_CRC32"
+
+# Names for the configurations, they appear in the graph legend for each series
+name[0]='Normal'
+name[1]='recoverSegment just SegmentIterator'
+name[2]='recoverSegment no Hashtable'
+name[3]='recoverSegment no Logging'
+name[4]='recoverSegment no prefetching'
+name[5]='No checksum'
+name[6]='Software crc32'
+
+# clean up old results and start a new gnuplot file
+rm /tmp/recovery-results-*
+echo -n 'set terminal png
+set output "/tmp/recovery.png"
+set title "Recovery Time for 640 MB of log data with 1 In-Memory Backup"
+set xlabel "Inserts (Millions)"
+set ylabel "Recovery Time (ms)"
+set xrange [0:4]
+set yrange [0:5000]
+set grid ytics
+
+plot ' > /tmp/recovery-gnuplot
+
+i=0
+while [ "${flags[i]}" != "" ]; do
+    echo ${flags[i]} >> /tmp/recovery-results-$i
+    make clean 2>&1 || continue;
+    make CXX=g++44 DEBUG=no ${flags[i]} -j 8 || continue;
+    for size in 8192 4096 2048 1024 512 256 128; do
+        count=${counts[$size]}
+        ./scripts/recovery -s $size -n $count
+        ## extract the results from the run log and concat them
+        awk '
+        /Performing/ { count=$6; size=$9; }
+        /read after recovery took/ { ticks=$9; }
+        /Bytes written/ { if ($7 != 0) { written=$7; } }
+        /Bytes logged/ { if ($8 != 0) { logged=$8; } }
+        END { print (count/1000000) " " size " " written " " logged " " (ticks/2.4/1000/1000); }
+        ' /tmp/rclog >> /tmp/recovery-results-$i
+    done
+    if [ "$i" != "0" ]; then
+        echo ", \\" >> /tmp/recovery-gnuplot
+    fi
+    echo -n "\"/tmp/recovery-results-${i}\" using 1:5 with linespoints title \"${name[i]}\"" >> /tmp/recovery-gnuplot
+    i=$((i+1))
+done
+gnuplot /tmp/recovery-gnuplot

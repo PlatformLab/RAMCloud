@@ -70,7 +70,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
         // just after its constructor is completes
         master = static_cast<MasterServer*>(malloc(sizeof(MasterServer)));
         transport->addServer(*master, "mock:host=master");
-        master = new(master) MasterServer(masterConfig, *client, *backup);
+        master = new(master) MasterServer(masterConfig, client, backup);
         TestLog::enable();
     }
 

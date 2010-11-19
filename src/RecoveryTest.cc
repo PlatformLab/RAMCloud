@@ -305,7 +305,7 @@ class RecoveryTest : public CppUnit::TestFixture {
             config.coordinatorLocator = "mock:host=coordinator";
             config.localLocator = locator;
             MasterServer::sizeLogAndHashTable("64", "8", &config);
-            master = new MasterServer(config, coordinator, backup);
+            master = new MasterServer(config, &coordinator, &backup);
             transport.addServer(*master, locator);
             coordinator.enlistServer(MASTER, locator);
         }

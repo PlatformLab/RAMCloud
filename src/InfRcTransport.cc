@@ -64,6 +64,13 @@
  * out and retry, although at what level retries should occur isn't clear.
  */
 
+/*
+ * Random Notes:
+ *  1) ibv_reg_mr() takes about 30usec to register one 4k page on the E5620.
+ *     8MB takes about 1.25msec.  This implies that we can't afford to register
+ *     on the fly.
+ */
+
 #include <errno.h>
 #include <fcntl.h>
 

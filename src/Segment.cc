@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "Crc32C.h"
 #include "rabinpoly.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
@@ -51,7 +52,6 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
       capacity(capacity),
       tail(0),
       bytesFreed(0),
-      rabinPoly(RABIN_POLYNOMIAL),
       checksum(0),
       closed(false)
 {
@@ -264,14 +264,12 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length,
     const uint8_t *src = reinterpret_cast<const uint8_t *>(buffer);
     uint8_t       *dst = reinterpret_cast<uint8_t *>(baseAddress) + tail;
 
-    if (updateChecksum) {
-        for (uint64_t i = 0; i < length; i++) {
-            dst[i] = src[i];
-            checksum = rabinPoly.append8(checksum, src[i]);
-        }
-    } else {
-        memcpy(dst, src, length);
-    }
+#ifdef PERF_DEBUG_RECOVERY_NO_CKSUM
+    updateChecksum = false;
+#endif // PERF_DEBUG_RECOVERY_NO_CKSUM
+    if (updateChecksum)
+        checksum = Crc32C(checksum, src, length);
+    memcpy(dst, src, length);
 
     tail += length;
     return reinterpret_cast<void *>(dst);

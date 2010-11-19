@@ -15,6 +15,7 @@ CLIENT_SRCFILES := \
 		   src/Client.cc \
 		   src/ClientException.cc \
 		   src/CoordinatorClient.cc \
+		   src/Crc32C.cc \
 		   src/Common.cc \
 		   src/Driver.cc \
 		   src/FastTransport.cc \

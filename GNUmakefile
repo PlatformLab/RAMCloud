@@ -27,7 +27,7 @@ DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
 endif
 
 COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
-	        -fno-builtin -MD
+	        -fno-builtin -MD -msse2 -march=core2
 COMWARNS := -Wall -Wformat=2 -Wextra \
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute \
             $(DEBUGFLAGS)
@@ -42,7 +42,7 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 # -Wconversion
 # Failed deconstructor inlines are generating noise
 # -Winline
-LIBS := -lpcrecpp -lboost_program_options -lprotobuf
+LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lcryptopp
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR)
 
 ifeq ($(INFINIBAND),yes)
@@ -60,7 +60,7 @@ CFLAGS := $(CFLAGS_BASE) -Werror $(CWARNS)
 
 CXXFLAGS_BASE := $(COMFLAGS) -std=c++98 $(LIBS) $(INCLUDES)
 CXXFLAGS_NOWERROR := $(CXXFLAGS_BASE) $(CXXWARNS)
-CXXFLAGS := $(CXXFLAGS_BASE) -Werror $(CXXWARNS)
+CXXFLAGS := $(CXXFLAGS_BASE) -Werror $(CXXWARNS) $(EXTRACXXFLAGS)
 
 CC := gcc
 CXX := g++

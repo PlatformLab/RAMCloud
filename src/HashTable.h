@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_HASHTABLE_H
 #define RAMCLOUD_HASHTABLE_H
 
+#include <xmmintrin.h>
+
 #include "Common.h"
 #include "CycleCounter.h"
 #include "ugly_memory_stuff.h"
@@ -63,8 +65,6 @@ class HashTable {
      * TODO(ongaro): Generalize and move to a utils file.
      */
     struct PerfDistribution {
-#if PERF_COUNTERS
-
         /**
          * The number of bins in which to categorize samples.
          * See #bins
@@ -132,6 +132,7 @@ class HashTable {
         void
         storeSample(uint64_t value)
         {
+#if PERF_COUNTERS
             if (value / BIN_WIDTH < NBINS)
                 bins[value / BIN_WIDTH]++;
             else
@@ -141,21 +142,19 @@ class HashTable {
                 min = value;
             if (value > max)
                 max = value;
+#endif
         }
 
         void
         reset()
         {
+#if PERF_COUNTERS
             memset(bins, 0, sizeof(uint64_t) * NBINS);
             binOverflows = 0;
             min = ~0UL;
             max = 0;
-        }
-
-#define PERF_DIST_STORE_SAMPLE(d, v) (d).storeSample(v)
-#else
-#define PERF_DIST_STORE_SAMPLE(d, v) (void) 0
 #endif
+        }
 
       private:
         DISALLOW_COPY_AND_ASSIGN(PerfDistribution);
@@ -165,8 +164,6 @@ class HashTable {
      * Performance counters for the HashTable.
      */
     struct PerfCounters {
-#if PERF_COUNTERS
-
         /**
          * The number of #replace() operations.
          */
@@ -241,7 +238,6 @@ class HashTable {
             lookupEntryHashCollisions = 0;
             lookupEntryDist.reset();
         }
-#endif
     };
 
     /**
@@ -430,6 +426,16 @@ class HashTable {
     }
 
     /**
+     * Prefetch the cacheline associated with the given key.
+     */
+    void
+    prefetch(uint64_t key1, uint64_t key2)
+    {
+        uint64_t dummy;
+        _mm_prefetch(findBucket(key1, key2, &dummy), _MM_HINT_T0);
+    }
+
+    /**
      * Return the number of bytes per cache line.
      */
     static uint32_t
@@ -615,8 +621,7 @@ class HashTable {
                     // To check, we must go to the object.
                     const T* c = candidate->getReferant();
                     if (c->*keyField1 == key1 && c->*keyField2 == key2) {
-                        PERF_DIST_STORE_SAMPLE(perfCounters.lookupEntryDist,
-                                               cycles.stop());
+                        perfCounters.lookupEntryDist.storeSample(cycles.stop());
                         return candidate;
                     } else {
                         STAT_INC(perfCounters.lookupEntryHashCollisions);
@@ -628,8 +633,7 @@ class HashTable {
             // cache line.
             cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
             if (cl == NULL) {
-                PERF_DIST_STORE_SAMPLE(perfCounters.lookupEntryDist,
-                                       cycles.stop());
+                perfCounters.lookupEntryDist.storeSample(cycles.stop());
                 return NULL;
             }
             STAT_INC(perfCounters.lookupEntryChainsFollowed);
