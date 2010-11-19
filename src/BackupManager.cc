@@ -154,7 +154,8 @@ BackupManager::recover(MasterServer& recoveryMaster,
             LOG(DEBUG, "Getting recovery data for segment %lu from %s",
                 segmentIdToRecover, locator.c_str());
             BackupClient backup(transportManager.getSession(locator.c_str()));
-            backup.getRecoveryData(masterId, segmentIdToRecover, tablets, resp);
+            backup.getRecoveryData(masterId, segmentIdToRecover,
+                                   tablets, resp)();
             LOG(DEBUG, "Got it");
         } catch (const TransportException& e) {
             // TODO(ongaro): change these to e.str().c_str once the unit tests

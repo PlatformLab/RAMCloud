@@ -34,15 +34,38 @@ namespace RAMCloud {
  */
 class BackupClient : public Client {
   public:
+
+    /**
+     * A continuation returned from getRecoveryData.  Invoke it to block until
+     * the RPC has completed.
+     */
+    class GetRecoveryData {
+      public:
+        GetRecoveryData(BackupClient& client,
+                        uint64_t masterId,
+                        uint64_t segmentId,
+                        const ProtoBuf::Tablets& tablets,
+                        Buffer& responseBuffer);
+        void operator()();
+
+        BackupClient& client;
+        Buffer requestBuffer;
+        Buffer& responseBuffer;
+        AsyncState state;
+
+        friend class BackupClient;
+        DISALLOW_COPY_AND_ASSIGN(GetRecoveryData);
+    };
+
     explicit BackupClient(Transport::SessionRef session);
     ~BackupClient();
 
     void closeSegment(uint64_t masterId, uint64_t segmentId);
     void freeSegment(uint64_t masterId, uint64_t segmentId);
-    void getRecoveryData(uint64_t masterId,
-                         uint64_t segmentId,
-                         const ProtoBuf::Tablets& tablets,
-                         Buffer& resp);
+    GetRecoveryData getRecoveryData(uint64_t masterId,
+                                    uint64_t segmentId,
+                                    const ProtoBuf::Tablets& tablets,
+                                    Buffer& resp);
     Transport::SessionRef getSession();
     void openSegment(uint64_t masterId, uint64_t segmentId);
     void ping();

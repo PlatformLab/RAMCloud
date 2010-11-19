@@ -94,6 +94,62 @@ BackupClient::freeSegment(uint64_t masterId,
 }
 
 /**
+ * Send an RPC request for getRecoveryData.  Only used internally by
+ * the #getRecoveryData() call.
+ *
+ * \param client
+ *      The BackupClient whose Session should be used for the call.
+ * \param masterId
+ *      The id of the crashed master which is being recovered.
+ * \param segmentId
+ *      The id of the segment to recover which the crashed master had
+ *      stored on this backup.
+ * \param tablets
+ *      A set of table is and object id ranges which is used to select
+ *      which objects are send back as part of the recovery segment.
+ * \param[out] responseBuffer
+ *      An empty Buffer which will contain the filtered recovery
+ *      segment upon return.
+ */
+BackupClient::GetRecoveryData::GetRecoveryData(BackupClient& client,
+                                               uint64_t masterId,
+                                               uint64_t segmentId,
+                                               const ProtoBuf::Tablets& tablets,
+                                               Buffer& responseBuffer)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer(responseBuffer)
+    , state()
+{
+    BackupGetRecoveryDataRpc::Request&
+        reqHdr(client.allocHeader<BackupGetRecoveryDataRpc>(requestBuffer));
+    reqHdr.masterId = masterId;
+    reqHdr.segmentId = segmentId;
+    reqHdr.tabletsLength = ProtoBuf::serializeToResponse(requestBuffer,
+                                                         tablets);
+    Transport::SessionRef session(client.getSession());
+    state = client.send<BackupGetRecoveryDataRpc>(session,
+                                                  requestBuffer,
+                                                  responseBuffer);
+}
+
+/**
+ * Block until the getRecoveryData call has completed and the response
+ * Buffer passed to it has been populated with a filtered Segment.
+ *
+ * \throw BackupBadSegmentIdException
+ *      If the segment unknown to the backup server or is not is
+ *      recovery.
+ */
+void
+BackupClient::GetRecoveryData::operator()()
+{
+    client.recv<BackupGetRecoveryDataRpc>(state);
+    client.checkStatus();
+    responseBuffer.truncateFront(sizeof(BackupGetRecoveryDataRpc::Response));
+}
+
+/**
  * Get the objects stored for the given tablets of the given server.
  *
  * \param masterId
@@ -104,28 +160,21 @@ BackupClient::freeSegment(uint64_t masterId,
  * \param tablets
  *      A set of table is and object id ranges which is used to select
  *      which objects are send back as part of the recovery segment.
- * \param[out] resp
+ * \param[out] responseBuffer
  *      An empty Buffer which will contain the filtered recovery segment
  *      upon return.
- * \throw BackupBadSegmentIdException
- *      If the segment unknown to the backup server or is not is recovery.
+ * \return
+ *      A GetRecoveryData which is a continuation that blocks until the
+ *      RPC is complete.  It must be invoked before #responseBuffer contains
+ *      a valid result.
  */
-void
+BackupClient::GetRecoveryData
 BackupClient::getRecoveryData(uint64_t masterId,
                               uint64_t segmentId,
                               const ProtoBuf::Tablets& tablets,
-                              Buffer& resp)
+                              Buffer& responseBuffer)
 {
-    Buffer req;
-    BackupGetRecoveryDataRpc::Request&
-        reqHdr(allocHeader<BackupGetRecoveryDataRpc>(req));
-    reqHdr.masterId = masterId;
-    reqHdr.segmentId = segmentId;
-    reqHdr.tabletsLength = ProtoBuf::serializeToResponse(req, tablets);
-    const BackupGetRecoveryDataRpc::Response&
-        respHdr(sendRecv<BackupGetRecoveryDataRpc>(session, req, resp));
-    checkStatus();
-    resp.truncateFront(sizeof(respHdr));
+    return GetRecoveryData(*this, masterId, segmentId, tablets, responseBuffer);
 }
 
 Transport::SessionRef

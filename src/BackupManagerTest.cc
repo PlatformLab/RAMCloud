@@ -329,7 +329,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
         seg.close();
         foreach (BackupClient* host, mgr->openHosts) {
             Buffer resp;
-            host->getRecoveryData(99, 88, ProtoBuf::Tablets(), resp);
+            host->getRecoveryData(99, 88, ProtoBuf::Tablets(), resp)();
             const SegmentEntry* entry = resp.getStart<SegmentEntry>();
             CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, entry->type);
             CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), entry->length);

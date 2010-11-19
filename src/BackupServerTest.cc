@@ -324,7 +324,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->startReadingData(99);
 
         Buffer response;
-        client->getRecoveryData(99, 88, tablets, response);
+        client->getRecoveryData(99, 88, tablets, response)();
 
         SegmentIterator it(response.getRange(0, response.getTotalLength()),
                            segmentSize);
@@ -392,7 +392,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         createTabletList(tablets);
         {
             Buffer response;
-            client->getRecoveryData(99, 88, tablets, response);
+            client->getRecoveryData(99, 88, tablets, response)();
 
             SegmentIterator it(response.getRange(0, response.getTotalLength()),
                                segmentSize);
@@ -411,7 +411,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT(it.isDone());
         }{
             Buffer response;
-            client->getRecoveryData(99, 87, tablets, response);
+            client->getRecoveryData(99, 87, tablets, response)();
 
             SegmentIterator it(response.getRange(0, response.getTotalLength()),
                                segmentSize);
@@ -443,7 +443,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         Buffer response;
 
         CPPUNIT_ASSERT_THROW(
-            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response),
+            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response)(),
             BackupMalformedSegmentException);
 
         freeStorageHandle(99, 88);
@@ -457,7 +457,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         Buffer response;
 
         CPPUNIT_ASSERT_THROW(
-            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response),
+            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response)(),
             BackupBadSegmentIdException);
 
         freeStorageHandle(99, 88);
