@@ -112,6 +112,14 @@ class CoordinatorServer : public Server {
      */
     uint32_t nextTableId;
 
+    /**
+     * Used in #createTable() to assign new tables to masters.
+     * If you take this modulo the number of entries in #masterList, you get
+     * the index into #masterList of the master that should be assigned the
+     * next table.
+     */
+    uint32_t nextTableMasterIdx;
+
     /// Used in unit testing.
     BaseRecovery* mockRecovery;
 

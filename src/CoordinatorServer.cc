@@ -28,6 +28,7 @@ CoordinatorServer::CoordinatorServer()
     , tabletMap()
     , tables()
     , nextTableId(0)
+    , nextTableMasterIdx(0)
     , mockRecovery(NULL)
 {
 }
@@ -112,7 +113,8 @@ CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
     uint32_t tableId = nextTableId++;
     tables[name] = tableId;
 
-    ProtoBuf::ServerList_Entry& master(*masterList.mutable_server(0));
+    uint32_t masterIdx = nextTableMasterIdx++ % masterList.server_size();
+    ProtoBuf::ServerList_Entry& master(*masterList.mutable_server(masterIdx));
 
     // Create tablet map entry.
     ProtoBuf::Tablets_Tablet& tablet(*tabletMap.add_tablet());
@@ -142,11 +144,15 @@ CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
     // Inform the master.
     MasterClient masterClient(
         transportManager.getSession(master.service_locator().c_str()));
-    // TODO(ongaro): filter tabletMap for those tablets belonging to master
-    // before sending
-    masterClient.setTablets(tabletMap);
+    ProtoBuf::Tablets masterTabletMap;
+    foreach (const ProtoBuf::Tablets::Tablet& tablet, tabletMap.tablet()) {
+        if (tablet.server_id() == master.server_id())
+            *masterTabletMap.add_tablet() = tablet;
+    }
+    masterClient.setTablets(masterTabletMap);
 
-    LOG(NOTICE, "Created table '%s' with id %u", name, tableId);
+    LOG(NOTICE, "Created table '%s' with id %u on master %lu",
+                name, tableId, master.server_id());
     LOG(DEBUG, "There are now %d tablets in the map", tabletMap.tablet_size());
 }
 

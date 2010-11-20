@@ -86,10 +86,14 @@ class CoordinatorTest : public CppUnit::TestFixture {
     }
 
     void test_createTable() {
+        MasterServer master2(masterConfig, NULL, backup);
+        transport->addServer(master2, "mock:host=master2");
+        client->enlistServer(MASTER, "mock:host=master2");
         // master is already enlisted
         client->createTable("foo");
         client->createTable("foo"); // should be no-op
-        client->createTable("bar");
+        client->createTable("bar"); // should go to master2
+        client->createTable("baz"); // and back to master1
         CPPUNIT_ASSERT_EQUAL(0, get(server->tables, "foo"));
         CPPUNIT_ASSERT_EQUAL(1, get(server->tables, "bar"));
         CPPUNIT_ASSERT_EQUAL("tablet { table_id: 0 start_object_id: 0 "
@@ -98,18 +102,30 @@ class CoordinatorTest : public CppUnit::TestFixture {
                              "service_locator: \"mock:host=master\" } "
                              "tablet { table_id: 1 start_object_id: 0 "
                              "end_object_id: 18446744073709551615 "
+                             "state: NORMAL server_id: 3 "
+                             "service_locator: \"mock:host=master2\" } "
+                             "tablet { table_id: 2 start_object_id: 0 "
+                             "end_object_id: 18446744073709551615 "
                              "state: NORMAL server_id: 2 "
                              "service_locator: \"mock:host=master\" }",
                              server->tabletMap.ShortDebugString());
-        ProtoBuf::Tablets& will(*reinterpret_cast<ProtoBuf::Tablets*>(
+        ProtoBuf::Tablets& will1(*reinterpret_cast<ProtoBuf::Tablets*>(
                                     server->masterList.server(0).user_data()));
         CPPUNIT_ASSERT_EQUAL("tablet { table_id: 0 start_object_id: 0 "
                              "end_object_id: 18446744073709551615 "
                              "state: NORMAL user_data: 0 } "
-                             "tablet { table_id: 1 start_object_id: 0 "
+                             "tablet { table_id: 2 start_object_id: 0 "
                              "end_object_id: 18446744073709551615 "
                              "state: NORMAL user_data: 0 }",
-                             will.ShortDebugString());
+                             will1.ShortDebugString());
+        ProtoBuf::Tablets& will2(*reinterpret_cast<ProtoBuf::Tablets*>(
+                                    server->masterList.server(1).user_data()));
+        CPPUNIT_ASSERT_EQUAL("tablet { table_id: 1 start_object_id: 0 "
+                             "end_object_id: 18446744073709551615 "
+                             "state: NORMAL user_data: 0 }",
+                             will2.ShortDebugString());
+        CPPUNIT_ASSERT_EQUAL(2, master->tablets.tablet_size());
+        CPPUNIT_ASSERT_EQUAL(1, master2.tablets.tablet_size());
     }
 
     // TODO(ongaro): Find a way to test createTable with no masters online.
