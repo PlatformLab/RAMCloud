@@ -131,6 +131,17 @@ nanosecondsToCycles(uint64_t ns)
     return (ns * getCyclesPerSecond()) / (1000UL * 1000 * 1000);
 }
 
+/// Spin for the given number of nanoseconds.
+void spin(uint64_t nanoseconds) {
+    if (nanoseconds > 0) {
+        uint64_t spinCycles = nanosecondsToCycles(nanoseconds);
+        uint64_t start = rdtsc();
+        while (rdtsc() - start < spinCycles) {
+            /* spin */
+        }
+    }
+}
+
 /**
  * Fill a region of memory with random data.
  */
