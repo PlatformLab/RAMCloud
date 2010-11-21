@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <boost/scoped_ptr.hpp>
+
 #include "TestUtil.h"
 #include "Common.h"
 #include "CoordinatorClient.h"
@@ -224,7 +226,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
     void
     test_recover()
     {
-        std::auto_ptr<MasterServer> master(createMasterServer());
+        boost::scoped_ptr<MasterServer> master(createMasterServer());
 
         // Give them a name so that freeSegment doesn't get called on
         // destructor until after the test.
@@ -284,7 +286,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
     void
     test_recover_failedToRecoverAll()
     {
-        std::auto_ptr<MasterServer> master(createMasterServer());
+        boost::scoped_ptr<MasterServer> master(createMasterServer());
 
         // tests !wasRecovered case both in-loop and end-of-loop
         ProtoBuf::Tablets tablets;

@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
+#include <boost/scoped_ptr.hpp>
 
 #include "TestUtil.h"
 
@@ -105,7 +106,8 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
     void
     test_allocate()
     {
-        std::auto_ptr<BackupStorage::Handle> handle(storage->allocate(99, 0));
+        boost::scoped_ptr<BackupStorage::Handle>
+            handle(storage->allocate(99, 0));
         CPPUNIT_ASSERT_EQUAL(0, storage->freeMap[0]);
         CPPUNIT_ASSERT_EQUAL(0,
             static_cast<SingleFileStorage::Handle*>(handle.get())->
@@ -160,7 +162,7 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
         delete storage->allocate(99, 0);
         delete storage->allocate(99, 1);
         CPPUNIT_ASSERT_THROW(
-            std::auto_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
+            boost::scoped_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
             BackupStorageException);
     }
 
@@ -183,7 +185,8 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
     test_getSegment()
     {
         delete storage->allocate(99, 0);  // skip the first segment frame
-        std::auto_ptr<BackupStorage::Handle> handle(storage->allocate(99, 1));
+        boost::scoped_ptr<BackupStorage::Handle>
+            handle(storage->allocate(99, 1));
 
         const char* src = "1234567";
         char dst[segmentSize];
@@ -198,7 +201,8 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
     test_putSegment()
     {
         delete storage->allocate(99, 0);  // skip the first segment frame
-        std::auto_ptr<BackupStorage::Handle> handle(storage->allocate(99, 1));
+        boost::scoped_ptr<BackupStorage::Handle>
+            handle(storage->allocate(99, 1));
 
         const char* src = "1234567";
         CPPUNIT_ASSERT_EQUAL(8, segmentSize);
@@ -214,7 +218,8 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
     void
     test_putSegment_seekFailed()
     {
-        std::auto_ptr<BackupStorage::Handle> handle(storage->allocate(99, 1));
+        boost::scoped_ptr<BackupStorage::Handle>
+            handle(storage->allocate(99, 1));
         close(storage->fd);
         CPPUNIT_ASSERT_THROW(
             storage->putSegment(handle.get(), NULL),
@@ -269,7 +274,8 @@ class InMemoryStorageTest : public CppUnit::TestFixture {
     void
     test_allocate()
     {
-        std::auto_ptr<BackupStorage::Handle> handle(storage->allocate(99, 0));
+        boost::scoped_ptr<BackupStorage::Handle>
+            handle(storage->allocate(99, 0));
         CPPUNIT_ASSERT(0 !=
             static_cast<InMemoryStorage::Handle*>(handle.get())->
                 getAddress());
@@ -281,7 +287,7 @@ class InMemoryStorageTest : public CppUnit::TestFixture {
         delete storage->allocate(99, 0);
         delete storage->allocate(99, 1);
         CPPUNIT_ASSERT_THROW(
-            std::auto_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
+            boost::scoped_ptr<BackupStorage::Handle>(storage->allocate(99, 2)),
             BackupStorageException);
     }
 
@@ -296,7 +302,8 @@ class InMemoryStorageTest : public CppUnit::TestFixture {
     test_getSegment()
     {
         delete storage->allocate(99, 0);  // skip the first segment frame
-        std::auto_ptr<BackupStorage::Handle> handle(storage->allocate(99, 1));
+        boost::scoped_ptr<BackupStorage::Handle>
+            handle(storage->allocate(99, 1));
 
         const char* src = "1234567";
         char dst[segmentSize];
@@ -311,7 +318,8 @@ class InMemoryStorageTest : public CppUnit::TestFixture {
     test_putSegment()
     {
         delete storage->allocate(99, 0);  // skip the first segment frame
-        std::auto_ptr<BackupStorage::Handle> handle(storage->allocate(99, 1));
+        boost::scoped_ptr<BackupStorage::Handle>
+            handle(storage->allocate(99, 1));
 
         const char* src = "1234567";
         storage->putSegment(handle.get(), src);

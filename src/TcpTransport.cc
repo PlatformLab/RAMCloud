@@ -21,6 +21,7 @@
 #include <arpa/inet.h>
 #include <poll.h>
 #include <memory>
+#include <boost/scoped_ptr.hpp>
 
 #include "Common.h"
 #include "TcpTransport.h"
@@ -328,7 +329,7 @@ void
 TcpTransport::TcpServerRpc::sendReply()
 {
     // "delete this;" on our way out of the method
-    std::auto_ptr<TcpServerRpc> suicide(this);
+    boost::scoped_ptr<TcpServerRpc> suicide(this);
 
     serverSocket->send(&replyPayload);
 }
@@ -337,7 +338,7 @@ void
 TcpTransport::TcpClientRpc::getReply()
 {
     // "delete this;" on our way out of the method
-    std::auto_ptr<TcpClientRpc> suicide(this);
+    boost::scoped_ptr<TcpClientRpc> suicide(this);
 
     clientSocket->recv(reply);
 }

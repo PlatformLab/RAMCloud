@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <boost/scoped_ptr.hpp>
+
 #include "BackupClient.h"
 #include "CoordinatorServer.h"
 #include "MasterClient.h"
@@ -292,7 +294,7 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
         const ProtoBuf::ServerList::Entry& master(masterList.server(i));
         if (master.service_locator() == serviceLocator) {
             uint64_t serverId = master.server_id();
-            std::auto_ptr<ProtoBuf::Tablets> will(
+            boost::scoped_ptr<ProtoBuf::Tablets> will(
                 reinterpret_cast<ProtoBuf::Tablets*>(master.user_data()));
 
             masterList.mutable_server()->SwapElements(

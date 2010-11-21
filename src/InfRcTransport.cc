@@ -77,6 +77,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <boost/scoped_ptr.hpp>
 
 #include "Common.h"
 #include "Transport.h"
@@ -693,7 +694,7 @@ void
 InfRcTransport::ServerRpc::sendReply()
 {
     // "delete this;" on our way out of the method
-    std::auto_ptr<InfRcTransport::ServerRpc> suicide(this);
+    boost::scoped_ptr<InfRcTransport::ServerRpc> suicide(this);
 
     InfRcTransport *t = transport;
 
