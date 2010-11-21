@@ -18,8 +18,9 @@
  * Some definitions for stuff declared in Common.h.
  */
 
-#include <errno.h>
 #include <ctype.h>
+#include <cxxabi.h>
+#include <errno.h>
 #include <stdarg.h>
 
 #include "Common.h"
@@ -212,6 +213,35 @@ getTotalSystemMemory()
     fclose(fp);
 
     return totalBytes;
+}
+
+/**
+ * Helper function to call __cxa_demangle. Has internal linkage.
+ * Handles the C-style memory management required.
+ * Returns a std::string with the long human-readable name of the
+ * type.
+ * \param name
+ *      The "name" of the type that needs to be demangled.
+ * \throw FatalError
+ *      The short internal type name could not be converted.
+ */
+string demangle(const char* name) {
+    int status;
+    char* res = abi::__cxa_demangle(name,
+                                    NULL,
+                                    NULL,
+                                    &status);
+    if (status != 0) {
+        throw RAMCloud::
+            FatalError(HERE,
+                       "cxxabi.h's demangle() could not demangle type");
+    }
+    // contruct a string with a copy of the C-style string returned.
+    string ret(res);
+    // __cxa_demangle would have used realloc() to allocate memory
+    // which should be freed now.
+    free(res);
+    return ret;
 }
 
 } // namespace RAMCloud

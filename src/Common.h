@@ -43,6 +43,7 @@
 #include <memory>
 #include <cassert>
 #include <string>
+#include <typeinfo>
 #include <vector>
 #include <boost/foreach.hpp>
 using std::string;
@@ -380,6 +381,8 @@ struct CodeLocation {
 #define HERE \
     RAMCloud::CodeLocation(__FILE__, __LINE__, __func__, __PRETTY_FUNCTION__)
 
+string demangle(const char* name);
+
 /**
  * The base class for all RAMCloud exceptions.
  */
@@ -395,7 +398,8 @@ struct Exception {
     Exception(const CodeLocation& where, string msg, int errNo)
         : message(msg), errNo(errNo), where(where) {}
     string str() const {
-        return message + " thrown at " + where.str();
+        return (demangle(typeid(*this).name()) + ": " + message +
+                " thrown at " + where.str());
     }
     virtual ~Exception() {}
     string message;
