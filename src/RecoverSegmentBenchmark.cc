@@ -99,12 +99,12 @@ class RecoverSegmentBenchmark {
         printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
             "overhead)\n", numObjects, totalObjectBytes,
             100.0 * (totalSegmentBytes - totalObjectBytes) / totalSegmentBytes);
-    }
 
-    // clean up
-    for (int i = 0; i < numSegments; i++) {
-        free(const_cast<void *>(segments[i]->getBaseAddress()));
-        delete segments[i];
+        // clean up
+        for (int i = 0; i < numSegments; i++) {
+            free(const_cast<void *>(segments[i]->getBaseAddress()));
+            delete segments[i];
+        }
     }
 
     DISALLOW_COPY_AND_ASSIGN(RecoverSegmentBenchmark);
@@ -115,7 +115,7 @@ class RecoverSegmentBenchmark {
 int
 main()
 {
-    int numSegments = 80;
+    int numSegments = 20;
     int objectBytes[] = { 64, 128, 256, 512, 1024, 2048, 8192, 0 };
 
     for (int i = 0; objectBytes[i] != 0; i++) {
