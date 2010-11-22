@@ -115,7 +115,7 @@ class RecoverSegmentBenchmark {
 int
 main()
 {
-    int numSegments = 20;
+    int numSegments = 80;
     int objectBytes[] = { 64, 128, 256, 512, 1024, 2048, 8192, 0 };
 
     for (int i = 0; objectBytes[i] != 0; i++) {
