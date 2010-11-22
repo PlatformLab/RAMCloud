@@ -149,11 +149,11 @@ class Client {
      * Helper for RPC proxy methods that throws a ClientException if the status
      * is not OK. You should call this after every use of #sendRecv().
      */
-    void checkStatus() const
+    void checkStatus(const CodeLocation& where) const
     {
         TEST_LOG("status: %d", STATUS_OK);
         if (status != STATUS_OK)
-            ClientException::throwException(HERE, status);
+            ClientException::throwException(where, status);
     }
 
     // end RPC proxy method helpers

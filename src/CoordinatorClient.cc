@@ -38,7 +38,7 @@ CoordinatorClient::createTable(const char* name)
         Buffer resp;
         sendRecv<CreateTableRpc>(session, req, resp);
         try {
-            checkStatus();
+            checkStatus(HERE);
             return;
         } catch (const RetryException& e) {
             LOG(DEBUG, "RETRY trying to create table");
@@ -69,7 +69,7 @@ CoordinatorClient::dropTable(const char* name)
     reqHdr.nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
     sendRecv<DropTableRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -97,7 +97,7 @@ CoordinatorClient::openTable(const char* name)
     memcpy(new(&req, APPEND) char[length], name, length);
     const OpenTableRpc::Response& respHdr(
         sendRecv<OpenTableRpc>(session, req, resp));
-    checkStatus();
+    checkStatus(HERE);
     return respHdr.tableId;
 }
 
@@ -123,7 +123,7 @@ CoordinatorClient::enlistServer(ServerType serverType,
                     reqHdr.serviceLocatorLength);
             const EnlistServerRpc::Response& respHdr(
                 sendRecv<EnlistServerRpc>(session, req, resp));
-            checkStatus();
+            checkStatus(HERE);
             return respHdr.serverId;
         } catch (TransportException& e) {
             LOG(NOTICE,
@@ -147,7 +147,7 @@ CoordinatorClient::getBackupList(ProtoBuf::ServerList& serverList)
     allocHeader<GetBackupListRpc>(req);
     const GetBackupListRpc::Response& respHdr(
         sendRecv<GetBackupListRpc>(session, req, resp));
-    checkStatus();
+    checkStatus(HERE);
     ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
                                 respHdr.serverListLength, serverList);
 }
@@ -169,7 +169,7 @@ CoordinatorClient::getTabletMap(ProtoBuf::Tablets& tabletMap)
     allocHeader<GetTabletMapRpc>(req);
     const GetTabletMapRpc::Response& respHdr(
         sendRecv<GetTabletMapRpc>(session, req, resp));
-    checkStatus();
+    checkStatus(HERE);
     ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
                                 respHdr.tabletMapLength, tabletMap);
 }
@@ -189,7 +189,7 @@ CoordinatorClient::hintServerDown(string serviceLocator)
             serviceLocator.c_str(),
             reqHdr.serviceLocatorLength);
     sendRecv<HintServerDownRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -202,7 +202,7 @@ CoordinatorClient::ping()
     Buffer resp;
     allocHeader<PingRpc>(req);
     sendRecv<PingRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -220,7 +220,7 @@ CoordinatorClient::tabletsRecovered(const ProtoBuf::Tablets& tablets)
     TabletsRecoveredRpc::Request& reqHdr(allocHeader<TabletsRecoveredRpc>(req));
     reqHdr.tabletsLength = serializeToResponse(req, tablets);
     sendRecv<TabletsRecoveredRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 } // namespace RAMCloud

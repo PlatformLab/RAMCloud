@@ -64,7 +64,7 @@ BackupClient::closeSegment(uint64_t masterId,
     reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
     sendRecv<BackupCloseRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -90,7 +90,7 @@ BackupClient::freeSegment(uint64_t masterId,
     reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
     sendRecv<BackupFreeRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -146,7 +146,7 @@ void
 BackupClient::GetRecoveryData::operator()()
 {
     client.recv<BackupGetRecoveryDataRpc>(state);
-    client.checkStatus();
+    client.checkStatus(HERE);
     responseBuffer.truncateFront(sizeof(BackupGetRecoveryDataRpc::Response));
 }
 
@@ -177,7 +177,7 @@ BackupClient::openSegment(uint64_t masterId,
     reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
     sendRecv<BackupOpenRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -195,7 +195,7 @@ BackupClient::ping()
     Buffer req, resp;
     allocHeader<PingRpc>(req);
     sendRecv<PingRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -215,7 +215,7 @@ BackupClient::startReadingData(uint64_t masterId)
     reqHdr.masterId = masterId;
     const BackupStartReadingDataRpc::Response&
         respHdr(sendRecv<BackupStartReadingDataRpc>(session, req, resp));
-    checkStatus();
+    checkStatus(HERE);
 
     uint64_t segmentIdCount = respHdr.segmentIdCount;
     resp.truncateFront(sizeof(respHdr));
@@ -256,7 +256,7 @@ BackupClient::writeSegment(uint64_t masterId,
     reqHdr.length = length;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
     sendRecv<BackupWriteRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 } // namespace RAMCloud

@@ -94,7 +94,7 @@ class ClientTest : public CppUnit::TestFixture {
 
     void test_checkStatus() {
         client.status = STATUS_MESSAGE_TOO_SHORT;
-        CPPUNIT_ASSERT_THROW(client.checkStatus(), MessageTooShortError);
+        CPPUNIT_ASSERT_THROW(client.checkStatus(HERE), MessageTooShortError);
     }
 
     void test_throwShortResponseError() {

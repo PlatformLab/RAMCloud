@@ -195,7 +195,7 @@ struct Echo : public CTest {
     }
     void wait() {
         const EchoRpc::Response& respHdr(recv<EchoRpc>(asyncState));
-        checkStatus();
+        checkStatus(HERE);
         if (size != resp.getTotalLength() - sizeof(respHdr)) {
             throw FatalError(HERE,
                              format("Server echo returned %lu bytes, "
@@ -269,7 +269,7 @@ struct Remote : public CTest {
     }
     void wait() {
         const RemoteRpc::Response& respHdr(recv<RemoteRpc>(asyncState));
-        checkStatus();
+        checkStatus(HERE);
         if (respHdr.rc != 0) {
             throw FatalError(HERE,
                              format("Remote response was %d to command %s",

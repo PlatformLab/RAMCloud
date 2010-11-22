@@ -60,7 +60,7 @@ MasterClient::create(uint32_t tableId, const void* buf, uint32_t length,
         sendRecv<CreateRpc>(session, req, resp));
     if (version != NULL)
         *version = respHdr.version;
-    checkStatus();
+    checkStatus(HERE);
     return respHdr.id;
 }
 
@@ -79,7 +79,7 @@ MasterClient::ping()
     Buffer req, resp;
     allocHeader<PingRpc>(req);
     sendRecv<PingRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -107,7 +107,7 @@ MasterClient::recover(uint64_t masterId, const ProtoBuf::Tablets& tablets,
     reqHdr.tabletsLength = serializeToResponse(req, tablets);
     reqHdr.serverListLength = serializeToResponse(req, backups);
     sendRecv<RecoverRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -149,7 +149,7 @@ MasterClient::read(uint32_t tableId, uint64_t id, Buffer* value,
     // but the object data.
     value->truncateFront(sizeof(respHdr));
     assert(respHdr.length == value->getTotalLength());
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -186,7 +186,7 @@ MasterClient::remove(uint32_t tableId, uint64_t id,
     const RemoveRpc::Response& respHdr(sendRecv<RemoveRpc>(session, req, resp));
     if (version != NULL)
         *version = respHdr.version;
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -204,7 +204,7 @@ MasterClient::setTablets(const ProtoBuf::Tablets& tablets)
     SetTabletsRpc::Request& reqHdr(allocHeader<SetTabletsRpc>(req));
     reqHdr.tabletsLength = ProtoBuf::serializeToResponse(req, tablets);
     sendRecv<SetTabletsRpc>(session, req, resp);
-    checkStatus();
+    checkStatus(HERE);
 }
 
 /**
@@ -253,7 +253,7 @@ MasterClient::write(uint32_t tableId, uint64_t id,
     const WriteRpc::Response& respHdr(sendRecv<WriteRpc>(session, req, resp));
     if (version != NULL)
         *version = respHdr.version;
-    checkStatus();
+    checkStatus(HERE);
 }
 
 }  // namespace RAMCloud
