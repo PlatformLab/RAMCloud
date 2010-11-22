@@ -73,6 +73,7 @@ class InfRcTransport : public Transport {
     // maximum RPC size we'll permit. we'll use the segment size plus a
     // little extra for header overhead, etc.
     static const uint32_t MAX_RPC_SIZE = Segment::SEGMENT_SIZE + 4096;
+    static const uint32_t MAX_INLINE_DATA = 400;
     static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 4;
     static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 64;

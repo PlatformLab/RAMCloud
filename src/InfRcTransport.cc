@@ -602,6 +602,12 @@ InfRcTransport::ibPostSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length)
     txWorkRequest.opcode = IBV_WR_SEND;
     txWorkRequest.send_flags = IBV_SEND_SIGNALED;
 
+    // We can get a substantial latency improvement (nearly 2usec less per RTT)
+    // by inlining data with the WQE for small messages. The Verbs library
+    // automatically takes care of copying from the SGEs to the WQE.
+    if (length <= MAX_INLINE_DATA)
+        txWorkRequest.send_flags |= IBV_SEND_INLINE;
+
     ibv_send_wr *bad_txWorkRequest;
     if (ibv_post_send(qp->qp, &txWorkRequest, &bad_txWorkRequest)) {
         fprintf(stderr, "ibv_post_send failed!\n");
@@ -815,7 +821,8 @@ InfRcTransport::QueuePair::QueuePair(int ibPhysicalPort, ibv_pd *pd,
     qpia.cap.max_recv_wr  = maxRcv; // max outstanding recv requests
     qpia.cap.max_send_sge = 1;      // max send scatter-gather elements
     qpia.cap.max_recv_sge = 1;      // max recv scatter-gather elements
-    qpia.cap.max_inline_data = 0;   // max bytes of immediate data on send q
+    qpia.cap.max_inline_data =      // max bytes of immediate data on send q
+        MAX_INLINE_DATA;
     qpia.qp_type = IBV_QPT_RC;      // RC, UC, UD, or XRC
     qpia.sq_sig_all = 0;            // only generate CQEs on requested WQEs
 
