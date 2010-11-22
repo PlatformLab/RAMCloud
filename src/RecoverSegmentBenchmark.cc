@@ -101,6 +101,12 @@ class RecoverSegmentBenchmark {
             100.0 * (totalSegmentBytes - totalObjectBytes) / totalSegmentBytes);
     }
 
+    // clean up
+    for (int i = 0; i < numSegments; i++) {
+        free(const_cast<void *>(segments[i]->getBaseAddress()));
+        delete segments[i];
+    }
+
     DISALLOW_COPY_AND_ASSIGN(RecoverSegmentBenchmark);
 };
 
