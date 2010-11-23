@@ -54,6 +54,13 @@ class BoostIntrusiveTest : public CppUnit::TestFixture {
         }
         CPPUNIT_ASSERT_EQUAL(count, personList.size());
 
+        count = 0;
+        foreach (Person& person, personList) {
+            if (person.name.empty()) {}
+            ++count;
+        }
+        CPPUNIT_ASSERT_EQUAL(count, personList.size());
+
         // boost has an assertion by default in the destructor for
         // IntrusiveListHook that makes sure it's not currently a part of a
         // list. Without taking x, y, and z off the list before the end of
