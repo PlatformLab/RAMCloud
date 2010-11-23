@@ -6,17 +6,18 @@
 
 source ./scripts/common.bash
 
-#proto=fast+udp
+proto=fast+udp
 #proto=tcp
-proto=infrc
+#proto=infrc
 
-host1=171.66.3.56
+host1=10.0.0.3
+#host1=171.66.3.52
 #host1=127.0.0.1
 #host2=$host1
-host2=171.66.3.58
+host2=10.0.0.4
 
 C=$proto:host=$host1,port=12246
-commonopts="-l 9 -C $C"
+commonopts="-l 3 -C $C"
 
 xstart() {
     xterm -e ssh -t -t $1 "export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee /tmp/$3" &
@@ -34,7 +35,8 @@ startfg() {
 }
 
 # clean up any old logs
-ssh $host1 'rm /tmp/*.rclog'
+ssh $host1 'rm /tmp/*rclog'
+ssh $host2 'rm /tmp/*rclog'
 
 start $host1 coordinator coordinator.rclog
 

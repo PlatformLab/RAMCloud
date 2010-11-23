@@ -36,8 +36,9 @@ class BackupClient : public Client {
   public:
 
     /**
-     * A continuation returned from getRecoveryData.  Invoke it to block until
-     * the RPC has completed.
+     * Get the objects stored for the given tablets of the given server.  This
+     * object is a continuation that blocks until #responseBuffer is populated
+     * when invoked.
      */
     class GetRecoveryData {
       public:
@@ -62,10 +63,6 @@ class BackupClient : public Client {
 
     void closeSegment(uint64_t masterId, uint64_t segmentId);
     void freeSegment(uint64_t masterId, uint64_t segmentId);
-    GetRecoveryData getRecoveryData(uint64_t masterId,
-                                    uint64_t segmentId,
-                                    const ProtoBuf::Tablets& tablets,
-                                    Buffer& resp);
     Transport::SessionRef getSession();
     void openSegment(uint64_t masterId, uint64_t segmentId);
     void ping();

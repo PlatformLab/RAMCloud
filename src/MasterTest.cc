@@ -235,9 +235,10 @@ class MasterTest : public CppUnit::TestFixture {
         client->recover(123, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
             "recover: Recovering master 123, 4 tablets, 1 hosts | "
-            "recover: Getting recovery data for segment 87 from "
+            "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | "
-            "recover: Got it | "
+            "recover: Got it: 65536 bytes | "
+            "recover: Recovering with segment size 65536 | "
             "recoverSegment: recoverSegment 87, ... | "
             "recoverSegment: Segment 87 replay complete | "
             "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "

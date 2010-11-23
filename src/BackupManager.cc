@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <boost/lexical_cast.hpp>
+#include <boost/scoped_ptr.hpp>
 
 #include "BackupClient.h"
 #include "BackupManager.h"
@@ -92,6 +92,49 @@ BackupManager::openSegment(uint64_t masterId,
     }
 }
 
+// return the index of the next seg to recover
+int
+selectBackup(const ProtoBuf::ServerList& backups,
+             int startIndex, bool wasRecovered, bool& done)
+{
+    uint64_t segmentIdToRecover;
+    if (startIndex == -1)
+        segmentIdToRecover = ~(0ul);
+    else
+        segmentIdToRecover = backups.server(startIndex).segment_id();
+
+    for (int i = startIndex + 1; i < backups.server_size(); i++) {
+        const ProtoBuf::ServerList::Entry& server(backups.server(i));
+        const string& locator = server.service_locator();
+        if (!server.has_segment_id()) {
+            LOG(WARNING,
+                "ServerList of backups for recovery must contain segmentIds");
+            continue;
+        }
+        // if we already recovered a segment with this id, skip this server
+        if (wasRecovered && segmentIdToRecover == server.segment_id()) {
+            LOG(DEBUG, "skipping %s, already recovered %lu",
+                locator.c_str(), segmentIdToRecover);
+            continue;
+        }
+        if (server.server_type() != ProtoBuf::BACKUP) {
+            LOG(WARNING,
+                "ServerList of backups for recovery shouldn't contain MASTERs");
+            continue;
+        }
+        return i;
+    }
+    if (!wasRecovered) {
+        LOG(ERROR, "*** Failed to recover segment id %lu, the recovered "
+            "master state is corrupted, aborting recovery",
+            segmentIdToRecover);
+        done = false;
+        throw SegmentRecoveryFailedException(HERE);
+    }
+    done = true;
+    return -1;
+}
+
 /**
  * Collect all the filtered log segments from backups for a set of tablets
  * formerly belonging to a crashed master which is being recovered and pass
@@ -122,6 +165,8 @@ BackupManager::recover(MasterServer& recoveryMaster,
 {
     LOG(NOTICE, "Recovering master %lu, %u tablets, %u hosts",
         masterId, tablets.tablet_size(), backups.server_size());
+
+#ifdef PERF_DEBUG_RECOVERY_SERIAL
     // for each backup that names an unrec seg getRecData, pass to Server
     uint64_t segmentIdToRecover = ~(0ul);
     bool wasRecovered = true;
@@ -154,8 +199,8 @@ BackupManager::recover(MasterServer& recoveryMaster,
             LOG(DEBUG, "Getting recovery data for segment %lu from %s",
                 segmentIdToRecover, locator.c_str());
             BackupClient backup(transportManager.getSession(locator.c_str()));
-            backup.getRecoveryData(masterId, segmentIdToRecover,
-                                   tablets, resp)();
+            BackupClient::GetRecoveryData(backup, masterId, segmentIdToRecover,
+                                          tablets, resp)();
             LOG(DEBUG, "Got it");
         } catch (const TransportException& e) {
             // TODO(ongaro): change these to e.str().c_str once the unit tests
@@ -182,6 +227,83 @@ BackupManager::recover(MasterServer& recoveryMaster,
         // TODO(stutsman) at least need to clean up the hashtable
         throw SegmentRecoveryFailedException(HERE);
     }
+#else
+    Buffer buffer1;
+    Buffer buffer2;
+
+    // The buffer which is about to be replayed.
+    Buffer* foreBuffer = &buffer1;
+    int foreIndex;
+    uint64_t foreSegmentId;
+
+    // The buffer which is prefetching.
+    Buffer* backBuffer = &buffer2;
+    int backIndex;
+    uint64_t backSegmentId;
+
+    bool done = false;
+    backIndex = selectBackup(backups, -1, true, done);
+    if (done)
+        return;
+    const ProtoBuf::ServerList::Entry* server = &backups.server(backIndex);
+    backSegmentId = server->segment_id();
+    BackupClient backup(
+        transportManager.getSession(server->service_locator().c_str()));
+    boost::scoped_ptr<BackupClient::GetRecoveryData> cont(
+        new BackupClient::GetRecoveryData(backup,
+            masterId, backSegmentId, tablets, *backBuffer));
+
+    while (!done) {
+        // Get the results from a previous fetch.
+        const string& locator = server->service_locator();
+        try {
+            if (cont) {
+                LOG(DEBUG, "Waiting on recovery data for segment %lu from %s",
+                    backSegmentId, locator.c_str());
+                (*cont)();
+                LOG(DEBUG, "Got it: %u bytes", backBuffer->getTotalLength());
+                cont.reset();
+            }
+        } catch (const TransportException& e) {
+            LOG(DEBUG, "Couldn't contact %s, trying next backup; "
+                "failure was: %s", locator.c_str(), e.str().c_str());
+            throw SegmentRecoveryFailedException(HERE);
+            // TODO(stutsman) create cont for next backup with and continue
+            continue;
+        } catch (const ClientException& e) {
+            LOG(DEBUG, "getRecoveryData failed on %s, trying next backup; "
+                "failure was: %s", locator.c_str(), e.str().c_str());
+            throw SegmentRecoveryFailedException(HERE);
+            // TODO(stutsman) create cont for next backup with and continue
+            continue;
+        }
+
+        foreIndex = backIndex;
+        foreSegmentId = backSegmentId;
+        std::swap(foreBuffer, backBuffer);
+
+        // Kick off a new fetch and store the continuation.
+        backIndex = selectBackup(backups, backIndex, true, done);
+        if (!done) {
+            server = &backups.server(backIndex);
+            backSegmentId = server->segment_id();
+            BackupClient backup(
+                transportManager.getSession(server->service_locator().c_str()));
+            cont.reset(new BackupClient::GetRecoveryData(backup,
+                masterId, backSegmentId, tablets, *backBuffer));
+        }
+
+        // Processes the results from the buffer that has completed fetching.
+        // TODO(stutsman) if an exception is thrown here, retry
+        LOG(DEBUG, "Recovering with segment size %u",
+            foreBuffer->getTotalLength());
+        recoveryMaster.recoverSegment(
+            foreSegmentId,
+            foreBuffer->getRange(0, foreBuffer->getTotalLength()),
+            foreBuffer->getTotalLength());
+        foreBuffer->reset();
+    }
+#endif
 }
 
 /**

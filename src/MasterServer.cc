@@ -163,8 +163,8 @@ MasterServer::ping(const PingRpc::Request& reqHdr,
                    PingRpc::Response& respHdr,
                    Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "Bytes written: %lu", bytesWritten);
-    LOG(DEBUG, "Bytes logged : %lu", log->getBytesAppended());
+    LOG(NOTICE, "Bytes written: %lu", bytesWritten);
+    LOG(NOTICE, "Bytes logged : %lu", log->getBytesAppended());
 
     Server::ping(reqHdr, respHdr, rpc);
 }

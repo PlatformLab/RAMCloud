@@ -264,8 +264,11 @@ try
                                 reqHdr.tabletsLength, tablets);
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
-    if (!info || info->state != SegmentInfo::RECOVERING)
+    if (!info || info->state != SegmentInfo::RECOVERING) {
+        LOG(WARNING, "Asked for bad segment <%lu,%lu>",
+            reqHdr.masterId, reqHdr.segmentId);
         throw BackupBadSegmentIdException(HERE);
+    }
 
     // If not already in memory then reload it.
     if (!info->segment) {

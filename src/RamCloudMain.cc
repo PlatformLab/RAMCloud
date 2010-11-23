@@ -130,7 +130,7 @@ try
     memset(val, 0xcc, objectDataSize);
     id = 0xfffffff;
 
-    LOG(DEBUG, "Performing %u inserts of %u byte objects",
+    LOG(NOTICE, "Performing %u inserts of %u byte objects",
         count, objectDataSize);
     uint64_t sum = 0;
     b = rdtsc();

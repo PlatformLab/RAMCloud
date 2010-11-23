@@ -324,7 +324,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->startReadingData(99);
 
         Buffer response;
-        client->getRecoveryData(99, 88, tablets, response)();
+        BackupClient::GetRecoveryData(*client, 99, 88, tablets, response)();
 
         SegmentIterator it(response.getRange(0, response.getTotalLength()),
                            segmentSize);
@@ -392,7 +392,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         createTabletList(tablets);
         {
             Buffer response;
-            client->getRecoveryData(99, 88, tablets, response)();
+            BackupClient::GetRecoveryData(*client, 99, 88, tablets, response)();
 
             SegmentIterator it(response.getRange(0, response.getTotalLength()),
                                segmentSize);
@@ -411,7 +411,7 @@ class BackupServerTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT(it.isDone());
         }{
             Buffer response;
-            client->getRecoveryData(99, 87, tablets, response)();
+            BackupClient::GetRecoveryData(*client, 99, 87, tablets, response)();
 
             SegmentIterator it(response.getRange(0, response.getTotalLength()),
                                segmentSize);
@@ -442,9 +442,9 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->startReadingData(99);
         Buffer response;
 
-        CPPUNIT_ASSERT_THROW(
-            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response)(),
-            BackupMalformedSegmentException);
+        BackupClient::GetRecoveryData cont(*client, 99, 88,
+                                           ProtoBuf::Tablets(), response);
+        CPPUNIT_ASSERT_THROW(cont(), BackupMalformedSegmentException);
 
         freeStorageHandle(99, 88);
     }
@@ -456,9 +456,9 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->closeSegment(99, 88);
         Buffer response;
 
-        CPPUNIT_ASSERT_THROW(
-            client->getRecoveryData(99, 88, ProtoBuf::Tablets(), response)(),
-            BackupBadSegmentIdException);
+        BackupClient::GetRecoveryData cont(*client, 99, 88,
+                                           ProtoBuf::Tablets(), response);
+        CPPUNIT_ASSERT_THROW(cont(), BackupBadSegmentIdException);
 
         freeStorageHandle(99, 88);
     }

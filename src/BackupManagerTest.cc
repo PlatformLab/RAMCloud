@@ -40,6 +40,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_freeSegment);
     CPPUNIT_TEST(test_freeSegment_overlapping);
     CPPUNIT_TEST(test_openSegment);
+    CPPUNIT_TEST(test_selectBackup);
     CPPUNIT_TEST(test_recover);
     CPPUNIT_TEST(test_recover_failedToRecoverAll);
     CPPUNIT_TEST(test_writeSegment);
@@ -74,7 +75,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
         , storage2()
         , transport()
     {
-        logger.setLogLevels(SILENT_LOG_LEVEL);
+        logger.setLogLevels(DEBUG);
     }
 
     void
@@ -224,6 +225,46 @@ class BackupManagerTest : public CppUnit::TestFixture {
     }
 
     void
+    test_selectBackup()
+    {
+        ProtoBuf::ServerList backups; {
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(87);
+            server.set_service_locator("mock:host=backup1");
+        }{
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(88);
+            server.set_service_locator("mock:host=backup1");
+        }{
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(88);
+            server.set_service_locator("mock:host=backup2");
+        }
+
+        int selectBackup(const ProtoBuf::ServerList& backups,
+             int startIndex, bool wasRecovered, bool& done);
+        bool done = false;
+        CPPUNIT_ASSERT_EQUAL(0, selectBackup(backups, -1, true, done));
+        CPPUNIT_ASSERT_EQUAL(false, done);
+        CPPUNIT_ASSERT_EQUAL(1, selectBackup(backups, 0, true, done));
+        CPPUNIT_ASSERT_EQUAL(false, done);
+        CPPUNIT_ASSERT_EQUAL(-1, selectBackup(backups, 1, true, done));
+        CPPUNIT_ASSERT_EQUAL(true, done);
+        done = false;
+        CPPUNIT_ASSERT_EQUAL(2, selectBackup(backups, 1, false, done));
+        CPPUNIT_ASSERT_EQUAL(false, done);
+        CPPUNIT_ASSERT_THROW(selectBackup(backups, 2, false, done),
+                             SegmentRecoveryFailedException);
+        CPPUNIT_ASSERT_EQUAL(false, done);
+    }
+
+    void
     test_recover()
     {
         boost::scoped_ptr<MasterServer> master(createMasterServer());
@@ -270,16 +311,18 @@ class BackupManagerTest : public CppUnit::TestFixture {
         mgr->recover(*master, 99, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
             "recover: Recovering master 99, 4 tablets, 3 hosts | "
-            "recover: Getting recovery data for segment 87 from "
+            "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | "
-            "recover: Got it | "
+            "recover: Got it: 65536 bytes | "
+            "recover: Recovering with segment size 65536 | "
             "recoverSegment: recoverSegment 87, ... | "
             "recoverSegment: Segment 87 replay complete | "
-            "recover: Getting recovery data for segment 88 from "
-            "mock:host=backup1 | recover: Got it | "
+            "recover: Waiting on recovery data for segment 88 from "
+            "mock:host=backup1 | "
+            "recover: Got it: 65536 bytes | "
+            "recover: Recovering with segment size 65536 | "
             "recoverSegment: recoverSegment 88, ... | "
-            "recoverSegment: Segment 88 replay complete | "
-            "recover: skipping mock:host=backup2, already recovered 88",
+            "recoverSegment: Segment 88 replay complete",
             TestLog::get());
     }
 
@@ -310,12 +353,12 @@ class BackupManagerTest : public CppUnit::TestFixture {
             SegmentRecoveryFailedException);
         CPPUNIT_ASSERT_EQUAL(
             "recover: Recovering master 99, 0 tablets, 2 hosts | "
-            "recover: Getting recovery data for segment 87 from "
+            "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | "
             "recover: getRecoveryData failed on mock:host=backup1, "
-            "trying next backup; failure was: bad segment id | "
-            "recover: *** Failed to recover segment id 87, "
-            "the recovered master state is corrupted, aborting recovery",
+            "trying next backup; failure was: bad segment id thrown at "
+            "void RAMCloud::Client::checkStatus() const at "
+            "/home/stutsman/src/ramcloud/src/Client.h:156",
             TestLog::get());
     }
 
@@ -329,7 +372,8 @@ class BackupManagerTest : public CppUnit::TestFixture {
         seg.close();
         foreach (BackupClient* host, mgr->openHosts) {
             Buffer resp;
-            host->getRecoveryData(99, 88, ProtoBuf::Tablets(), resp)();
+            BackupClient::GetRecoveryData(*host, 99, 88,
+                                          ProtoBuf::Tablets(), resp)();
             const SegmentEntry* entry = resp.getStart<SegmentEntry>();
             CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, entry->type);
             CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), entry->length);
