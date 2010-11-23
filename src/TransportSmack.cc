@@ -429,6 +429,9 @@ main(int argc, char *argv[])
         }
 
         return 0;
+    } catch (RAMCloud::ClientException& e) {
+        LOG(ERROR, "TransportSmack: %s", e.str().c_str());
+        return 1;
     } catch (RAMCloud::Exception& e) {
         LOG(ERROR, "TransportSmack: %s", e.str().c_str());
         return 1;
