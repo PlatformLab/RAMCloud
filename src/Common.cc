@@ -69,6 +69,7 @@ debug_dump64(const void *buf, uint64_t bytes)
             hex[5], hex[6], hex[7], hex[8], hex[9], hex[10], hex[11],
             hex[12], hex[13], hex[14], hex[15], ascii);
     }
+    fflush(stdout);
 }
 
 void
