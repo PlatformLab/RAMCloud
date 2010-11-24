@@ -345,6 +345,13 @@ class RecoveryTest : public CppUnit::TestFixture {
         }{
             ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
             tablet.set_table_id(123);
+            tablet.set_start_object_id(20);
+            tablet.set_end_object_id(29);
+            tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+            tablet.set_user_data(0); // partition 0
+        }{
+            ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
+            tablet.set_table_id(123);
             tablet.set_start_object_id(10);
             tablet.set_end_object_id(19);
             tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
@@ -354,9 +361,10 @@ class RecoveryTest : public CppUnit::TestFixture {
         Recovery recovery(99, tablets, *masterHosts, *backupHosts);
         TestLog::Enable _(&getRecoveryDataFilter);
         recovery.start();
+        CPPUNIT_ASSERT_EQUAL(3, recovery.tabletsUnderRecovery);
         CPPUNIT_ASSERT_EQUAL(
             "start: Trying partition recovery on mock:host=master1 with "
-            "1 tablets and 3 hosts | "
+            "2 tablets and 3 hosts | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 88 | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 88 "
             "complete | "

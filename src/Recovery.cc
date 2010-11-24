@@ -169,7 +169,7 @@ Recovery::start()
                         "failure was: %s", locator.c_str(), e.toString());
                     continue;
                 }
-                tabletsUnderRecovery++;
+                tabletsUnderRecovery += tablets.tablet_size();
                 // Success, next try next partiton with next host.
                 hostIndexToRecoverOnNext++;
                 partitionId++;
