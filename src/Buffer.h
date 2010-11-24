@@ -255,12 +255,14 @@ class Buffer {
         /**
          * Add a new, unmanaged memory chunk to front of a Buffer.
          * The Chunk itself will be deallocated automatically in the Buffer's
-         * destructor.
+         * destructor, but the memory chunk is not deallocated.
          *
          * \param[in] buffer
          *      The buffer to which to prepend the new chunk.
          * \param[in] data
          *      The start of the memory region to which the new chunk refers.
+         *      This memory must have a lifetime at least as great as
+         *      \a buffer.
          * \param[in] length
          *      The number of bytes \a data points to.
          * \return
