@@ -351,15 +351,14 @@ class BackupManagerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             mgr->recover(*master, 99, tablets, backups),
             SegmentRecoveryFailedException);
+        string log = TestLog::get();
         CPPUNIT_ASSERT_EQUAL(
             "recover: Recovering master 99, 0 tablets, 2 hosts | "
             "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | "
             "recover: getRecoveryData failed on mock:host=backup1, "
-            "trying next backup; failure was: bad segment id thrown at "
-            "void RAMCloud::Client::checkStatus() const at "
-            "/home/stutsman/src/ramcloud/src/Client.h:156",
-            TestLog::get());
+            "trying next backup; failure was: bad segment id",
+            log.substr(0, log.find(" thrown at")));
     }
 
     void
