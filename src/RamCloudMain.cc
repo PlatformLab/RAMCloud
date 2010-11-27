@@ -23,6 +23,100 @@
 
 using namespace RAMCloud;
 
+void
+runRecovery(RamCloud& client,
+            int count, uint32_t objectDataSize,
+            int tableCount,
+            int tableSkip)
+{
+    uint64_t b;
+
+    b = rdtsc();
+    char tableName[10];
+    int tables[tableCount];
+
+    for (int t = 0; t < tableCount; t++) {
+        snprintf(tableName, sizeof(tableName), "%d", t);
+        client.createTable(tableName);
+        tables[t] = client.openTable(tableName);
+        int table = tables[t];
+
+        char val[objectDataSize];
+        memset(val, 0xcc, objectDataSize);
+        uint64_t id = 0xfffffff;
+
+        LOG(NOTICE, "Performing %u inserts of %u byte objects",
+            count, objectDataSize);
+        uint64_t sum = 0;
+        b = rdtsc();
+        for (int j = 0; j < count; j++) {
+            id = client.create(table, val, objectDataSize);
+            sum += client.counterValue;
+        }
+        LOG(DEBUG, "%d inserts took %lu ticks", count, rdtsc() - b);
+        LOG(DEBUG, "avg insert took %lu ticks", (rdtsc() - b) / count);
+        LOG(DEBUG, "%d inserts took %lu ticks on the server", count, sum);
+        LOG(DEBUG, "%d avg insert took %lu ticks on the server", count,
+               sum / count);
+
+        // Create tables on the other masters so we skip back around to the
+        // first in round-robin order to create multiple tables in the same
+        // will
+        for (int tt = 0; tt < tableSkip; tt++) {
+            snprintf(tableName, sizeof(tableName), "junk%d%d", t, tt);
+            client.createTable(tableName);
+        }
+    }
+
+    // dump the tablet map
+    for (int t = 0; t < tableCount; t++) {
+        Transport::SessionRef session =
+            client.objectFinder.lookup(tables[t], 0);
+        LOG(NOTICE, "%s has table %u",
+            session->getServiceLocator().c_str(), tables[t]);
+    }
+
+    // dump out coordinator rpc info
+    client.ping();
+
+    Transport::SessionRef session = client.objectFinder.lookup(tables[0], 0);
+    LOG(NOTICE, "--- hinting that the server is down: %s ---",
+        session->getServiceLocator().c_str());
+
+    b = rdtsc();
+    client.coordinator.hintServerDown(
+        session->getServiceLocator().c_str());
+
+    LOG(NOTICE, "- flushing map\n");
+    client.objectFinder.flush();
+
+    Buffer nb;
+    session = client.objectFinder.lookup(tables[0], 0);
+    LOG(NOTICE, "- attempting read from recovery master: %s",
+        session->getServiceLocator().c_str());
+
+    // Check a value in each table to make sure we're good
+    for (int t = 0; t < tableCount; t++) {
+        LOG(NOTICE, "reading recovered data  on %s",
+            session->getServiceLocator().c_str());
+        int table = tables[t];
+        try {
+            client.read(table, 0, &nb);
+        } catch (...) {
+        }
+
+        session = client.objectFinder.lookup(tables[t], 0);
+        LOG(NOTICE, "read after recovery took %u ticks",
+            client.counterValue);
+        LOG(NOTICE, "read value has length %u", nb.getTotalLength());
+    }
+    LOG(NOTICE, "All tables recovered in %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "- recovery worked!");
+
+    // dump out coordinator rpc info
+    client.ping();
+}
+
 int
 main(int argc, char *argv[])
 try
@@ -30,12 +124,23 @@ try
     bool hintServerDown;
     int count;
     uint32_t objectDataSize;
+    uint32_t tableCount;
+    uint32_t skipCount;
 
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
         ("down,d",
          ProgramOptions::bool_switch(&hintServerDown),
          "Report the master we're talking to as down just before exit.")
+        ("tables,t",
+         ProgramOptions::value<uint32_t>(&tableCount)->
+            default_value(1),
+         "The number of tables to create with number objects on the master.")
+        ("skip,k",
+         ProgramOptions::value<uint32_t>(&skipCount)->
+            default_value(1),
+         "The number of empty tables to create per real table."
+         "An enormous hack to create partitions on the crashed master.")
         ("number,n",
          ProgramOptions::value<int>(&count)->
             default_value(1024),
@@ -54,6 +159,11 @@ try
     client.selectPerfCounter(PERF_COUNTER_TSC,
                              MARK_RPC_PROCESSING_BEGIN,
                              MARK_RPC_PROCESSING_END);
+
+    if (hintServerDown) {
+        runRecovery(client, count, objectDataSize, tableCount, skipCount);
+        return 0;
+    }
 
     uint64_t b;
 
@@ -144,43 +254,7 @@ try
     LOG(DEBUG, "%d avg insert took %lu ticks on the server", count,
            sum / count);
 
-    if (hintServerDown) {
-        // dump out coordinator rpc info
-        client.ping();
-
-        Transport::SessionRef session = client.objectFinder.lookup(table, 0);
-        LOG(NOTICE, "--- hinting that the server is down: %s ---",
-            session->getServiceLocator().c_str());
-
-        b = rdtsc();
-        client.coordinator.hintServerDown(
-            session->getServiceLocator().c_str());
-
-        LOG(NOTICE, "- flushing map\n");
-        client.objectFinder.flush();
-
-        Buffer nb;
-        session = client.objectFinder.lookup(table, 0);
-        LOG(NOTICE, "- attempting read from recovery master: %s",
-            session->getServiceLocator().c_str());
-
-        try {
-            client.read(table, 43, &nb);
-        } catch (...) {
-        }
-
-        LOG(NOTICE, "read after recovery took %lu ticks", rdtsc() - b);
-        LOG(NOTICE, "read after recovery on server took %u ticks",
-               client.counterValue);
-        LOG(NOTICE, "read value: %s",
-                static_cast<const char*>(nb.getRange(0, nb.getTotalLength())));
-        LOG(NOTICE, "- recovery worked!");
-
-        // dump out coordinator rpc info
-        client.ping();
-    } else {
-        client.dropTable("test");
-    }
+    client.dropTable("test");
 
     return 0;
 } catch (RAMCloud::ClientException& e) {

@@ -116,7 +116,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
                              "state: NORMAL user_data: 0 } "
                              "tablet { table_id: 2 start_object_id: 0 "
                              "end_object_id: 18446744073709551615 "
-                             "state: NORMAL user_data: 0 }",
+                             "state: NORMAL user_data: 1 }",
                              will1.ShortDebugString());
         ProtoBuf::Tablets& will2(*reinterpret_cast<ProtoBuf::Tablets*>(
                                     server->masterList.server(1).user_data()));
@@ -268,7 +268,10 @@ class CoordinatorTest : public CppUnit::TestFixture {
                 "tabletsRecovered: called with 1 tablets | "
                 "tabletsRecovered: Recovery complete on tablet "
                 "0,0,18446744073709551615 | "
-                "tabletsRecovered: Recovery completed",
+                "tabletsRecovered: Recovery completed | "
+                "tabletsRecovered: Coordinator tabletMap: | "
+                "tabletsRecovered: table: 0 [0:18446744073709551615] "
+                "state: 0 owner: 3",
                                  TestLog::get());
         }
 

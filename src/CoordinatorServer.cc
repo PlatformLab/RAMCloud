@@ -140,8 +140,8 @@ CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
     if (will.tablet_size() > 1)
         maxPartitionId = will.tablet(will.tablet_size() - 2).user_data();
     else
-        maxPartitionId = 0;
-    willEntry.set_user_data(maxPartitionId);
+        maxPartitionId = -1;
+    willEntry.set_user_data(maxPartitionId + 1);
 
     // Inform the master.
     MasterClient masterClient(
@@ -369,7 +369,7 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
     ProtoBuf::Tablets recoveredTablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, recoveredTablets);
-    TEST_LOG("called with %u tablets", recoveredTablets.tablet_size());
+    LOG(NOTICE, "called with %u tablets", recoveredTablets.tablet_size());
 
     // update tablet map to point to new owner and mark as available
     foreach (const ProtoBuf::Tablets::Tablet& recoveredTablet,
@@ -399,6 +399,15 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                 if (recoveryComplete) {
                     LOG(NOTICE, "Recovery completed");
                     delete recovery;
+                    // dump the tabletMap out for easy debugging
+                    LOG(NOTICE, "Coordinator tabletMap:");
+                    foreach (const ProtoBuf::Tablets::Tablet& tablet,
+                             tabletMap.tablet()) {
+                        LOG(NOTICE, "table: %lu [%lu:%lu] state: %u owner: %lu",
+                            tablet.table_id(), tablet.start_object_id(),
+                            tablet.end_object_id(), tablet.state(),
+                            tablet.server_id());
+                    }
                     return;
                 }
             }

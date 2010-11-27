@@ -234,6 +234,7 @@ class MasterTest : public CppUnit::TestFixture {
         TestLog::Enable __(&recoverSegmentFilter);
         client->recover(123, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
+            "recover: Starting recovery of 4 tablets on masterId 2 | "
             "recover: Recovering master 123, 4 tablets, 1 hosts | "
             "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | "

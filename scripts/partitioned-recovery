@@ -16,9 +16,11 @@ proto=fast+udp
 
 host[0]=10.0.0.3
 host[1]=10.0.0.4
+host[2]=10.0.0.5
+host[3]=10.0.0.6
 
 C=$proto:host=${host[0]},port=12246
-commonopts="-l 3 -C $C"
+commonopts="-l 5 -C $C"
 
 xstart() {
     xterm -e ssh -t -t $1 "umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee /tmp/$3" &
@@ -47,13 +49,17 @@ start ${host[0]} coordinator coordinator$suffix
 sleep .5
 
 start ${host[0]} "backup -m -L $proto:host=${host[0]},port=12243" backup1$suffix
-#start ${host[1]} "backup -m -L $proto:host=${host[1]},port=12244" backup2$suffix
+start ${host[1]} "backup -m -L $proto:host=${host[1]},port=12244" backup2$suffix
+start ${host[2]} "backup -m -L $proto:host=${host[2]},port=12241" backup3$suffix
+start ${host[3]} "backup -m -L $proto:host=${host[3]},port=12240" backup4$suffix
 
 sleep .5
 
 start ${host[0]} "server -m 2048 -r 1 -L $proto:host=${host[0]},port=12242" master1$suffix
 sleep .5
 start ${host[1]} "server -m 2048 -r 1 -L $proto:host=${host[1]},port=12247" master2$suffix
+sleep .5
+start ${host[2]} "server -m 2048 -r 1 -L $proto:host=${host[2]},port=12248" master3$suffix
 
 sleep .5
 
@@ -63,7 +69,7 @@ startfg ${host[0]} "client -d $*" client$suffix
 
 # sloppy version of cleaup in case ssh -t -t doesn't do the trick
 for h in ${host[@]}; do
-    ssh $h "pkill backup; pkill server; pkill coordinator; pkill client"
+    atexit "ssh $h \"pkill backup; pkill server; pkill coordinator; pkill client\""
 done
 
 # aggregate logs

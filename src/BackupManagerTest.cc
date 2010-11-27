@@ -266,8 +266,8 @@ class BackupManagerTest : public CppUnit::TestFixture {
             server.set_service_locator("mock:host=backup2");
         }
 
+        MockRandom __(1); // triggers deterministic rand().
         TestLog::Enable _(&recoverSegmentFilter);
-        srand(0);
         mgr->recover(*master, 99, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
             "recover: Recovering master 99, 4 tablets, 3 hosts | "
@@ -307,8 +307,8 @@ class BackupManagerTest : public CppUnit::TestFixture {
             server.set_service_locator("mock:host=backup1");
         }
 
+        MockRandom __(1); // triggers deterministic rand().
         TestLog::Enable _(&recoverSegmentFilter);
-        srand(0);
         CPPUNIT_ASSERT_THROW(
             mgr->recover(*master, 99, tablets, backups),
             SegmentRecoveryFailedException);

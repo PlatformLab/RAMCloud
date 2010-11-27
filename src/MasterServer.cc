@@ -227,6 +227,8 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
     ProtoBuf::parseFromResponse(rpc.recvPayload,
                                 sizeof(reqHdr) + reqHdr.tabletsLength,
                                 reqHdr.serverListLength, backups);
+    LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
+        recoveryTablets.tablet_size(), serverId);
     responder();
 
     // reqHdr, respHdr, and rpc are off-limits now
@@ -251,7 +253,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
     // going to try to become the owner.
     foreach (ProtoBuf::Tablets::Tablet& tablet,
              *recoveryTablets.mutable_tablet()) {
-        TEST_LOG("set tablet %lu %lu %lu to locator %s, id %lu",
+        LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
                  tablet.table_id(), tablet.start_object_id(),
                  tablet.end_object_id(), config.localLocator.c_str(), serverId);
         tablet.set_service_locator(config.localLocator);
