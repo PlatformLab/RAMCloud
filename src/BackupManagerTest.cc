@@ -40,7 +40,6 @@ class BackupManagerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_freeSegment);
     CPPUNIT_TEST(test_freeSegment_overlapping);
     CPPUNIT_TEST(test_openSegment);
-    CPPUNIT_TEST(test_selectBackup);
     CPPUNIT_TEST(test_recover);
     CPPUNIT_TEST(test_recover_failedToRecoverAll);
     CPPUNIT_TEST(test_writeSegment);
@@ -225,46 +224,6 @@ class BackupManagerTest : public CppUnit::TestFixture {
     }
 
     void
-    test_selectBackup()
-    {
-        ProtoBuf::ServerList backups; {
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(87);
-            server.set_service_locator("mock:host=backup1");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup1");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup2");
-        }
-
-        int selectBackup(const ProtoBuf::ServerList& backups,
-             int startIndex, bool wasRecovered, bool& done);
-        bool done = false;
-        CPPUNIT_ASSERT_EQUAL(0, selectBackup(backups, -1, true, done));
-        CPPUNIT_ASSERT_EQUAL(false, done);
-        CPPUNIT_ASSERT_EQUAL(1, selectBackup(backups, 0, true, done));
-        CPPUNIT_ASSERT_EQUAL(false, done);
-        CPPUNIT_ASSERT_EQUAL(-1, selectBackup(backups, 1, true, done));
-        CPPUNIT_ASSERT_EQUAL(true, done);
-        done = false;
-        CPPUNIT_ASSERT_EQUAL(2, selectBackup(backups, 1, false, done));
-        CPPUNIT_ASSERT_EQUAL(false, done);
-        CPPUNIT_ASSERT_THROW(selectBackup(backups, 2, false, done),
-                             SegmentRecoveryFailedException);
-        CPPUNIT_ASSERT_EQUAL(false, done);
-    }
-
-    void
     test_recover()
     {
         boost::scoped_ptr<MasterServer> master(createMasterServer());
@@ -308,6 +267,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
         }
 
         TestLog::Enable _(&recoverSegmentFilter);
+        srand(0);
         mgr->recover(*master, 99, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
             "recover: Recovering master 99, 4 tablets, 3 hosts | "
@@ -318,7 +278,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
             "recoverSegment: recoverSegment 87, ... | "
             "recoverSegment: Segment 87 replay complete | "
             "recover: Waiting on recovery data for segment 88 from "
-            "mock:host=backup1 | "
+            "mock:host=backup2 | "
             "recover: Got it: 65536 bytes | "
             "recover: Recovering with segment size 65536 | "
             "recoverSegment: recoverSegment 88, ... | "
@@ -348,6 +308,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
         }
 
         TestLog::Enable _(&recoverSegmentFilter);
+        srand(0);
         CPPUNIT_ASSERT_THROW(
             mgr->recover(*master, 99, tablets, backups),
             SegmentRecoveryFailedException);
@@ -417,5 +378,131 @@ class BackupManagerTest : public CppUnit::TestFixture {
     DISALLOW_COPY_AND_ASSIGN(BackupManagerTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BackupManagerTest);
+
+class SegmentLocatorChooserTest : public CppUnit::TestFixture {
+
+    CPPUNIT_TEST_SUITE(SegmentLocatorChooserTest);
+    CPPUNIT_TEST(test_constructor);
+    CPPUNIT_TEST(test_markAsDown);
+    CPPUNIT_TEST_SUITE_END();
+
+  public:
+
+    SegmentLocatorChooserTest()
+    {
+    }
+
+    void
+    test_constructor()
+    {
+        ProtoBuf::ServerList backups; {
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(87);
+            server.set_service_locator("mock:host=backup1");
+        }{
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(88);
+            server.set_service_locator("mock:host=backup2");
+        }{
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(88);
+            server.set_service_locator("mock:host=backup3");
+        }{
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::MASTER); // MASTER!
+            server.set_server_id(99);
+            server.set_segment_id(90);
+            server.set_service_locator("mock:host=master1");
+        }{
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            // no segment id!
+            server.set_service_locator("mock:host=backup4");
+        }
+
+        SegmentLocatorChooser chooser(backups);
+        CPPUNIT_ASSERT_EQUAL(3, chooser.map.size());
+        MockRandom _(1);
+        CPPUNIT_ASSERT_EQUAL("mock:host=backup1", chooser.get(87));
+
+        CPPUNIT_ASSERT_EQUAL("mock:host=backup3", chooser.get(88));
+        mockRandomValue = 2;
+        CPPUNIT_ASSERT_EQUAL("mock:host=backup2", chooser.get(88));
+
+        CPPUNIT_ASSERT_THROW(chooser.get(90),
+                             SegmentRecoveryFailedException);
+
+        // ensure the segmentIdList gets constructed properly
+        bool contains87 = false;
+        bool contains88 = false;
+        uint32_t count = 0;
+        foreach (uint64_t id, chooser.getSegmentIdList()) {
+            switch (id) {
+            case 87:
+                contains87 = true;
+                break;
+            case 88:
+                contains88 = true;
+                break;
+            default:
+                CPPUNIT_ASSERT(false);
+                break;
+            }
+            count++;
+        }
+        CPPUNIT_ASSERT_EQUAL(2, count);
+        CPPUNIT_ASSERT(contains87);
+        CPPUNIT_ASSERT(contains88);
+    }
+
+    void
+    test_markAsDown()
+    {
+        ProtoBuf::ServerList backups; {
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(87);
+            server.set_service_locator("mock:host=backup1");
+        }{
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(88);
+            server.set_service_locator("mock:host=backup2");
+        }{
+            ProtoBuf::ServerList_Entry& server(*backups.add_server());
+            server.set_server_type(ProtoBuf::BACKUP);
+            server.set_server_id(99);
+            server.set_segment_id(88);
+            server.set_service_locator("mock:host=backup3");
+        }
+
+        SegmentLocatorChooser chooser(backups);
+        const string& locator = chooser.get(87);
+        chooser.markAsDown(87, locator);
+        CPPUNIT_ASSERT_THROW(chooser.get(87),
+                             SegmentRecoveryFailedException);
+
+        const string& locator1 = chooser.get(88);
+        chooser.markAsDown(88, locator1);
+        const string& locator2 = chooser.get(88);
+        chooser.markAsDown(88, locator2);
+        CPPUNIT_ASSERT_THROW(chooser.get(87),
+                             SegmentRecoveryFailedException);
+    }
+
+
+  private:
+    DISALLOW_COPY_AND_ASSIGN(SegmentLocatorChooserTest);
+};
+CPPUNIT_TEST_SUITE_REGISTRATION(SegmentLocatorChooserTest);
 
 } // namespace RAMCloud

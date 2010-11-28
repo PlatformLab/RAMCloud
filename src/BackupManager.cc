@@ -22,6 +22,107 @@
 
 namespace RAMCloud {
 
+// --- SegmentLocatorChooser ---
+
+/**
+ * \param list
+ *      A list of servers along with the segment id they have backed up.
+ *      See Recovery for details on this format.
+ */
+SegmentLocatorChooser::SegmentLocatorChooser(const ProtoBuf::ServerList& list)
+    : map()
+    , ids()
+{
+    foreach (const ProtoBuf::ServerList::Entry& server, list.server()) {
+        if (!server.has_segment_id()) {
+            LOG(WARNING,
+                "List of backups for recovery must contain segmentIds");
+            continue;
+        }
+        if (server.server_type() != ProtoBuf::BACKUP) {
+            LOG(WARNING,
+                "List of backups for recovery shouldn't contain MASTERs");
+            continue;
+        }
+        map.insert(make_pair(server.segment_id(), server.service_locator()));
+    }
+    std::transform(map.begin(), map.end(), back_inserter(ids),
+                   &first<uint64_t, string>);
+    // not the most efficient approach in the world...
+    SegmentIdList::iterator newEnd = std::unique(ids.begin(), ids.end());
+    ids.erase(newEnd, ids.end());
+    std::random_shuffle(ids.begin(), ids.end());
+}
+
+/**
+ * Provide locators for potential backup server to contact to find
+ * segment data during recovery.
+ *
+ * \param segmentId
+ *      A segment id for a segment that needs to be recovered.
+ * \return
+ *      A service locator string indicating a location where this segment
+ *      can be recovered from.
+ * \throw SegmentRecoveryFailedException
+ *      If the requested segment id has no remaining potential backup
+ *      locations.
+ */
+const string&
+SegmentLocatorChooser::get(uint64_t segmentId)
+{
+    LocatorMap::size_type count = map.count(segmentId);
+
+    ConstLocatorRange range = map.equal_range(segmentId);
+    if (range.first == range.second)
+        throw SegmentRecoveryFailedException(HERE);
+
+    LocatorMap::size_type random = generateRandom() % count;
+    LocatorMap::const_iterator it = range.first;
+    for (LocatorMap::size_type i = 0; i < random; ++i)
+        ++it;
+    return it->second;
+}
+
+/**
+ * Returns a randomly ordered list of segment ids which acts as a
+ * schedule for recovery.
+ */
+const SegmentLocatorChooser::SegmentIdList&
+SegmentLocatorChooser::getSegmentIdList()
+{
+    return ids;
+}
+
+/**
+ * Remove the locator as a potential backup location for a particular
+ * segment.
+ *
+ * \param segmentId
+ *      The id of a segment which could not be located at the specified
+ *      backup locator.
+ * \param locator
+ *      The locator string that should not be returned from future calls
+ *      to get for this particular #segmentId.
+ */
+void
+SegmentLocatorChooser::markAsDown(uint64_t segmentId, const string& locator)
+{
+    LocatorRange range = map.equal_range(segmentId);
+    if (range.first == map.end())
+        return;
+
+    for (LocatorMap::iterator it = range.first;
+         it != range.second; ++it)
+    {
+        if (it->second == locator) {
+            map.erase(it);
+            return;
+        }
+    }
+}
+
+// --- BackupManager ---
+
 /**
  * Create a BackupManager, initially with no backup hosts to communicate
  * with.  See addHost() to add remote backups.
@@ -92,49 +193,6 @@ BackupManager::openSegment(uint64_t masterId,
     }
 }
 
-// return the index of the next seg to recover
-int
-selectBackup(const ProtoBuf::ServerList& backups,
-             int startIndex, bool wasRecovered, bool& done)
-{
-    uint64_t segmentIdToRecover;
-    if (startIndex == -1)
-        segmentIdToRecover = ~(0ul);
-    else
-        segmentIdToRecover = backups.server(startIndex).segment_id();
-
-    for (int i = startIndex + 1; i < backups.server_size(); i++) {
-        const ProtoBuf::ServerList::Entry& server(backups.server(i));
-        const string& locator = server.service_locator();
-        if (!server.has_segment_id()) {
-            LOG(WARNING,
-                "ServerList of backups for recovery must contain segmentIds");
-            continue;
-        }
-        // if we already recovered a segment with this id, skip this server
-        if (wasRecovered && segmentIdToRecover == server.segment_id()) {
-            LOG(DEBUG, "skipping %s, already recovered %lu",
-                locator.c_str(), segmentIdToRecover);
-            continue;
-        }
-        if (server.server_type() != ProtoBuf::BACKUP) {
-            LOG(WARNING,
-                "ServerList of backups for recovery shouldn't contain MASTERs");
-            continue;
-        }
-        return i;
-    }
-    if (!wasRecovered) {
-        LOG(ERROR, "*** Failed to recover segment id %lu, the recovered "
-            "master state is corrupted, aborting recovery",
-            segmentIdToRecover);
-        done = false;
-        throw SegmentRecoveryFailedException(HERE);
-    }
-    done = true;
-    return -1;
-}
-
 /**
  * Collect all the filtered log segments from backups for a set of tablets
  * formerly belonging to a crashed master which is being recovered and pass
@@ -168,31 +226,14 @@ BackupManager::recover(MasterServer& recoveryMaster,
 
 #ifdef PERF_DEBUG_RECOVERY_SERIAL
     // for each backup that names an unrec seg getRecData, pass to Server
-    uint64_t segmentIdToRecover = ~(0ul);
-    bool wasRecovered = true;
-    for (int i = 0; i < backups.server_size(); i++) {
-        const ProtoBuf::ServerList::Entry& server(backups.server(i));
-        const string& locator = server.service_locator();
-        if (!server.has_segment_id()) {
-            LOG(WARNING,
-                "ServerList of backups for recovery must contain segmentIds");
-            continue;
-        }
-        // if we already recovered a segment with this id, skip this server
-        if (wasRecovered && segmentIdToRecover == server.segment_id()) {
-            LOG(DEBUG, "skipping %s, already recovered %lu",
-                locator.c_str(), segmentIdToRecover);
-            continue;
-        }
-        if (server.server_type() != ProtoBuf::BACKUP) {
-            LOG(WARNING,
-                "ServerList of backups for recovery shouldn't contain MASTERs");
-            continue;
-        }
-        if (!wasRecovered)
-            break;
-        segmentIdToRecover = server.segment_id();
-        wasRecovered = false;
+    SegmentLocatorChooser chooser(backups);
+    for (SegmentLocatorChooser::SegmentIdList::const_iterator it =
+            chooser.getSegmentIdList().begin();
+         it != chooser.getSegmentIdList().end();
+         ++it)
+    {
+        uint64_t segmentIdToRecover = *it;
+        const string& locator = chooser.get(segmentIdToRecover);
 
         Buffer resp;
         try {
@@ -218,14 +259,6 @@ BackupManager::recover(MasterServer& recoveryMaster,
         recoveryMaster.recoverSegment(segmentIdToRecover,
                                       resp.getRange(0, resp.getTotalLength()),
                                       resp.getTotalLength());
-        wasRecovered = true;
-    }
-    if (!wasRecovered) {
-        LOG(ERROR, "*** Failed to recover segment id %lu, the recovered "
-            "master state is corrupted, aborting recovery",
-            segmentIdToRecover);
-        // TODO(stutsman) at least need to clean up the hashtable
-        throw SegmentRecoveryFailedException(HERE);
     }
 #else
     Buffer buffer1;
@@ -233,62 +266,65 @@ BackupManager::recover(MasterServer& recoveryMaster,
 
     // The buffer which is about to be replayed.
     Buffer* foreBuffer = &buffer1;
-    int foreIndex;
     uint64_t foreSegmentId;
 
     // The buffer which is prefetching.
     Buffer* backBuffer = &buffer2;
-    int backIndex;
     uint64_t backSegmentId;
+    const string* backSegmentLocator;
 
-    bool done = false;
-    backIndex = selectBackup(backups, -1, true, done);
-    if (done)
+    SegmentLocatorChooser chooser(backups);
+    SegmentLocatorChooser::SegmentIdList::const_iterator segIdsIt =
+        chooser.getSegmentIdList().begin();
+    SegmentLocatorChooser::SegmentIdList::const_iterator segIdsEnd =
+        chooser.getSegmentIdList().end();
+
+    if (segIdsIt == segIdsEnd)
         return;
-    const ProtoBuf::ServerList::Entry* server = &backups.server(backIndex);
-    backSegmentId = server->segment_id();
+
+    backSegmentId = *segIdsIt;
+    backSegmentLocator = &chooser.get(backSegmentId);
     BackupClient backup(
-        transportManager.getSession(server->service_locator().c_str()));
+        transportManager.getSession(backSegmentLocator->c_str()));
     boost::scoped_ptr<BackupClient::GetRecoveryData> cont(
         new BackupClient::GetRecoveryData(backup,
             masterId, backSegmentId, tablets, *backBuffer));
 
-    while (!done) {
+    while (segIdsIt != segIdsEnd) {
         // Get the results from a previous fetch.
-        const string& locator = server->service_locator();
         try {
             if (cont) {
                 LOG(DEBUG, "Waiting on recovery data for segment %lu from %s",
-                    backSegmentId, locator.c_str());
+                    backSegmentId, backSegmentLocator->c_str());
                 (*cont)();
                 LOG(DEBUG, "Got it: %u bytes", backBuffer->getTotalLength());
                 cont.reset();
             }
         } catch (const TransportException& e) {
-            LOG(DEBUG, "Couldn't contact %s, trying next backup; "
-                "failure was: %s", locator.c_str(), e.str().c_str());
+            LOG(DEBUG, "Couldn't contact %s, trying next backup; failure was: "
+                "%s", backSegmentLocator->c_str(), e.str().c_str());
             throw SegmentRecoveryFailedException(HERE);
             // TODO(stutsman) create cont for next backup with and continue
             continue;
         } catch (const ClientException& e) {
             LOG(DEBUG, "getRecoveryData failed on %s, trying next backup; "
-                "failure was: %s", locator.c_str(), e.str().c_str());
+                "failure was: %s",
+                 backSegmentLocator->c_str(), e.str().c_str());
             throw SegmentRecoveryFailedException(HERE);
             // TODO(stutsman) create cont for next backup with and continue
             continue;
         }
 
-        foreIndex = backIndex;
         foreSegmentId = backSegmentId;
         std::swap(foreBuffer, backBuffer);
 
         // Kick off a new fetch and store the continuation.
-        backIndex = selectBackup(backups, backIndex, true, done);
-        if (!done) {
-            server = &backups.server(backIndex);
-            backSegmentId = server->segment_id();
+        segIdsIt++;
+        if (segIdsIt != segIdsEnd) {
+            backSegmentId = *segIdsIt;
+            backSegmentLocator = &chooser.get(backSegmentId);
             BackupClient backup(
-                transportManager.getSession(server->service_locator().c_str()));
+                transportManager.getSession(backSegmentLocator->c_str()));
             cont.reset(new BackupClient::GetRecoveryData(backup,
                 masterId, backSegmentId, tablets, *backBuffer));
         }

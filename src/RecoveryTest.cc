@@ -360,6 +360,7 @@ class RecoveryTest : public CppUnit::TestFixture {
 
         Recovery recovery(99, tablets, *masterHosts, *backupHosts);
         TestLog::Enable _(&getRecoveryDataFilter);
+        srand(0);
         recovery.start();
         CPPUNIT_ASSERT_EQUAL(3, recovery.tabletsUnderRecovery);
         CPPUNIT_ASSERT_EQUAL(
@@ -373,11 +374,11 @@ class RecoveryTest : public CppUnit::TestFixture {
             "complete | "
             "start: Trying partition recovery on mock:host=master2 with "
             "1 tablets and 3 hosts | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 "
-            "complete | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 89 | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 89 "
+            "complete | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 | "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88 "
             "complete",
             TestLog::get());
     }

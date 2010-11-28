@@ -464,6 +464,30 @@ get(const Map& map, const typename Map::key_type& key)
     return it->second;
 }
 
+/**
+ * Return the first element of a pair.
+ *
+ * Useful for projection of pair elements using functions which take a type
+ * that models UnaryFunction.
+ */
+template <typename T, typename _>
+T first(pair<T, _> p)
+{
+    return p.first;
+}
+
+/**
+ * Return the second element of a pair.
+ *
+ * Useful for projection of pair elements using functions which take a type
+ * that models UnaryFunction.
+ */
+template <typename T, typename _>
+T second(pair<_, T> p)
+{
+    return p.second;
+}
+
 } // end RAMCloud
 
 #endif
