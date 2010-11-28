@@ -21,7 +21,9 @@
 #include <ctype.h>
 #include <cxxabi.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
+#include <sys/stat.h>
 
 #include "Common.h"
 #include "Buffer.h"
@@ -133,6 +135,18 @@ format(string& s, const char* format, ...)
 uint64_t
 _generateRandom()
 {
+    static bool seeded = false;
+    if (!seeded) {
+        int fd = open("/dev/urandom", O_RDONLY);
+        if (fd < 0)
+            throw FatalError(HERE, "Couldn't open /dev/urandom", errno);
+        unsigned int seed;
+        ssize_t bytesRead = read(fd, &seed, sizeof(seed));
+        close(fd);
+        assert(bytesRead == sizeof(seed));
+        srandom(seed);
+        seeded = true;
+    }
     // Each call to random returns 31 bits of randomness,
     // so we need three to get 64 bits of randomness.
     union {
