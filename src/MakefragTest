@@ -59,12 +59,25 @@ TESTS_OBJFILES := $(sort \
                $(CLIENT_OBJFILES) \
                $(BACKUP_OBJFILES))
 
+# begin google test rules
+GTEST_HEADERS = $(GTEST_DIR)/include/gtest/*.h \
+                $(GTEST_DIR)/include/gtest/internal/*.h
+
+GTEST_SRCS = $(GTEST_DIR)/src/*.cc $(GTEST_DIR)/src/*.h $(GTEST_HEADERS)
+
+$(OBJDIR)/gtest-all.o: $(GTEST_DIR)/src/gtest-all.cc $(GTEST_SRCS)
+	$(CXX) -I$(GTEST_DIR) $(CXXFLAGS_BASE) -c -o $@ $<
+
+$(OBJDIR)/gtest.a: $(OBJDIR)/gtest-all.o
+	$(AR) rcs $@ $^
+# end google test rules
+
 TESTS_LIB := -lcppunit -ldl $(LIBS)
 
 $(OBJDIR)/%Test.cc: $(TOP)/src/%Test.in.cc $(TOP)/mock.py
 	$(TOP)/mock.py $< $@
 
-$(OBJDIR)/test: $(TESTS_OBJFILES)
+$(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 

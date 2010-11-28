@@ -23,6 +23,7 @@
 #define RAMCLOUD_TESTUTIL_H
 
 #include <cppunit/extensions/HelperMacros.h>
+#include <gtest/gtest.h>
 #include <regex.h>
 #include "Common.h"
 #include "Buffer.h"

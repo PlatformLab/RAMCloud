@@ -24,6 +24,7 @@
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/TypeInfoHelper.h>
 #include <cppunit/ui/text/TestRunner.h>
+#include <gtest/gtest.h>
 
 #include <typeinfo>
 
@@ -75,6 +76,10 @@ cmdline(int argc, char *argv[])
 int
 main(int argc, char *argv[])
 {
+    int googleArgc = 0;
+    char* googleArgv[] = {NULL};
+    ::testing::InitGoogleTest(&googleArgc, googleArgv);
+
     const char *defaultTest = "";
     strncpy(testName, defaultTest, sizeof(testName));
     cmdline(argc, argv);
@@ -109,5 +114,5 @@ main(int argc, char *argv[])
     runner.eventManager().pushProtector(new RAMCloudProtector());
 
     runner.addTest(registry.makeTest());
-    return !runner.run(testName, false, true, progress);
+    return !runner.run(testName, false, true, progress) + RUN_ALL_TESTS();
 }

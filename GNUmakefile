@@ -15,6 +15,7 @@ OBJSUFFIX := $(shell git symbolic-ref -q HEAD | \
 OBJDIR	:= obj$(OBJSUFFIX)
 
 TOP	:= $(shell echo $${PWD-`pwd`})
+GTEST_DIR ?= $(TOP)/gtest
 
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
@@ -43,7 +44,7 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 # Failed deconstructor inlines are generating noise
 # -Winline
 LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lcryptopp
-INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR)
+INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
 ifeq ($(INFINIBAND),yes)
 COMFLAGS += -DINFINIBAND
