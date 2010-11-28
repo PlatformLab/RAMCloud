@@ -168,33 +168,61 @@ softwareCrc32C(uint32_t crc, const void* data, uint64_t length)
  * Compute a CRC32C (i.e. CRC32 with the Castagnoli polynomial, which
  * is used in iSCSI, among other protocols).
  *
+ * This also presets the value to -1 and inverts it after calculation to better
+ * detect leading and trailing bits (see, e.g., Wikipedia).
+ *
  * This function uses the "crc32" instruction found in Intel Nehalem and later
  * processors. On processors without that instruction, it calculates the same
  * function much more slowly in software (just under 400 MB/sec in software vs
  * just under 2000 MB/sec in hardware on Westmere boxes).
- *
- * \param[in] crc
- *      CRC to accumulate. The return value of this function can be
- *      passed to future calls as this parameter to update a CRC
- *      with multiple invocations.
- * \param[in] buffer
- *      A pointer to the memory to be checksummed.
- * \param[in] bytes
- *      The number of bytes of memory to checksum.
- * \return
- *      The CRC32C associated with the input parameters.
  */
-static inline uint32_t
-Crc32C(uint32_t crc, const void* buffer, uint64_t bytes)
-{
-    extern bool haveSse42();
-    static bool hardware = haveSse42();
+class Crc32C {
+  public:
+    /**
+     * Type returned by #getResult(). Use this rather than using the integer
+     * type directly to make it easier to swap out checksum classes.
+     */
+    typedef uint32_t ResultType;
+
+    Crc32C(bool forceSoftware=false)
 #ifdef PERF_DEBUG_RECOVERY_SOFTWARE_CRC32
-    hardware = false;
+        : useHardware(false)
+#else
+        : useHardware(!forceSoftware && haveHardware)
 #endif
-    return hardware ? intelCrc32C(crc, buffer, bytes)
-                    : softwareCrc32C(crc, buffer, bytes);
-}
+        , result(-1)
+    {}
+
+    /**
+     * Update the accumulated checksum.
+     * \param[in] buffer
+     *      A pointer to the memory to be checksummed.
+     * \param[in] bytes
+     *      The number of bytes of memory to checksum.
+     * \return
+     *      A reference to this instance for chaining calls.
+     */
+    Crc32C& update(const void* buffer, uint32_t bytes) {
+        result = useHardware ? intelCrc32C(result, buffer, bytes)
+                             : softwareCrc32C(result, buffer, bytes);
+        return *this;
+    }
+
+    /**
+     * Return the accumulated checksum.
+     */
+    ResultType getResult() {
+        return ~result;
+    }
+
+  private:
+    /// Whether this machine has Intel's CRC32C instruction.
+    static bool haveHardware;
+    /// Whether this checksum instance should use Intel's CRC32C instruction.
+    bool useHardware;
+    /// The accumulated checksum before inversion.
+    uint32_t result;
+};
 
 } // namespace RAMCloud
 

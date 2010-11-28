@@ -52,7 +52,7 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
       capacity(capacity),
       tail(0),
       bytesFreed(0),
-      checksum(0),
+      checksum(),
       closed(false)
 {
     if (backup)
@@ -68,10 +68,6 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
  */
 Segment::~Segment()
 {
-    static_assert(sizeof(SegmentEntry) == 8);
-    static_assert(sizeof(SegmentHeader) == 20);
-    static_assert(sizeof(SegmentFooter) == 8);
-
     if (backup)
         backup->freeSegment(logId, id);
 }
@@ -147,7 +143,7 @@ Segment::close()
     const void *p = forceAppendBlob(&entry, sizeof(entry));
     assert(p != NULL);
 
-    SegmentFooter footer = { checksum };
+    SegmentFooter footer = { checksum.getResult() };
     p = forceAppendBlob(&footer, sizeof(footer), false);
     assert(p != NULL);
 
@@ -268,7 +264,7 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length,
     updateChecksum = false;
 #endif // PERF_DEBUG_RECOVERY_NO_CKSUM
     if (updateChecksum)
-        checksum = Crc32C(checksum, src, length);
+        checksum.update(src, length);
     memcpy(dst, src, length);
 
     tail += length;

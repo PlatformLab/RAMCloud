@@ -90,7 +90,7 @@ class SegmentIterator {
      * \return
      *      The Segment checksum corresponding to the provided parameters.
      */
-    static uint64_t
+    static Segment::Checksum::ResultType
     generateChecksum(const void *buffer, uint64_t segmentCapacity,
                      uint64_t stopOffset = ~(0ull))
     {
@@ -107,7 +107,7 @@ class SegmentIterator {
             stopOffset = i.getOffset();
         }
 
-        return Crc32C(0, buffer, stopOffset);
+        return Segment::Checksum().update(buffer, stopOffset).getResult();
     }
 
   private:

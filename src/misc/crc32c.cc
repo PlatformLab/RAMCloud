@@ -23,13 +23,41 @@
 
 #include <Common.h>
 #include <BenchUtil.h>
-#include <Crc32C.h>
+#include "Crc32C.h"
+#include <boost/crc.hpp>
+
+using namespace RAMCloud;
+
+/**
+ * Adapter for boost's CRC library.
+ * This thing is ~80MB/sec awful.
+ */
+class BoostCrc32C {
+  public:
+    typedef uint32_t ResultType;
+    BoostCrc32C() : crc() {}
+    BoostCrc32C& update(const void* buffer, uint32_t bytes) {
+        crc.process_bytes(buffer, bytes);
+        return *this;
+    }
+    ResultType getResult() {
+        return crc();
+    }
+  private:
+    boost::crc_optimal<32, 0x1EDC6F41, 0xFFFFFFFF, 0xFFFFFFFF, true, true> crc;
+};
+
+#if BOOST_CRC32C
+typedef BoostCrc32C Checksum;
+#else
+typedef Crc32C Checksum;
+#endif
 
 static void
 measure(int bytes, bool print = true)
 {
     uint8_t *array = reinterpret_cast<uint8_t *>(xmalloc(bytes)); 
-    uint32_t crc = 0;
+    Checksum crc;
 
     // randomize input
     for (int i = 0; i < bytes; i++)
@@ -44,7 +72,7 @@ measure(int bytes, bool print = true)
     uint64_t total = 0;
     for (int i = 0; i < runs; i++) {
         uint64_t before = rdtsc();
-        crc = RAMCloud::Crc32C(crc, array, bytes);
+        crc.update(array, bytes);
         total += (rdtsc() - before);
     }
     total /= runs;
@@ -58,7 +86,7 @@ measure(int bytes, bool print = true)
             nsec,
             nsec / bytes,
             (uint64_t)(1.0e9 / ((float)nsec / bytes) / (1024*1024)),
-            crc);
+            crc.getResult());
     }
 
     free(array);

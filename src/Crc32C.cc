@@ -22,6 +22,7 @@ namespace RAMCloud {
 #define CPUID(level, a, b, c, d) \
   __asm__ ("cpuid" : "=a" (a), "=b" (b), "=c" (c), "=d" (d) : "0" (level))
 
+namespace {
 bool
 haveSse42() {
     uint32_t a, b, c, d;
@@ -33,6 +34,9 @@ haveSse42() {
         LOG(DEBUG, "Processor does not have SSE 4.2");
     return ret;
 }
+} // anonymous namespace
+
+bool Crc32C::haveHardware = haveSse42();
 
 } // namespace RAMCloud
 

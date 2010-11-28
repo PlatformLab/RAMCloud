@@ -223,9 +223,9 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
         s.close();
 
-        CPPUNIT_ASSERT_EQUAL(s.checksum,
+        CPPUNIT_ASSERT_EQUAL(s.checksum.getResult(),
             SegmentIterator::generateChecksum(s.baseAddress, s.capacity));
-        CPPUNIT_ASSERT_EQUAL(s.checksum,
+        CPPUNIT_ASSERT_EQUAL(s.checksum.getResult(),
             SegmentIterator::generateChecksum(s.baseAddress, s.capacity,
                 sizeof(SegmentEntry) * 2 + sizeof(SegmentHeader)));
     }

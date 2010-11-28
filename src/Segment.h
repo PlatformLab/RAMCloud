@@ -16,27 +16,33 @@
 #ifndef RAMCLOUD_SEGMENT_H
 #define RAMCLOUD_SEGMENT_H
 
-#include <stdint.h>
-
-#include "LogTypes.h"
 #include "BackupManager.h"
+#include "Common.h"
+#include "Crc32C.h"
+#include "LogTypes.h"
 
 namespace RAMCloud {
+
+/// The class used to calculate segment checksums.
+typedef Crc32C SegmentChecksum;
 
 struct SegmentEntry {
     LogEntryType type;
     uint32_t     length;
 } __attribute__((__packed__));
+static_assert(sizeof(SegmentEntry) == 8);
 
 struct SegmentHeader {
     uint64_t logId;
     uint64_t segmentId;
     uint32_t segmentCapacity;
 } __attribute__((__packed__));
+static_assert(sizeof(SegmentHeader) == 20);
 
 struct SegmentFooter {
-    uint64_t checksum;
+    SegmentChecksum::ResultType checksum;
 } __attribute__((__packed__));
+static_assert(sizeof(SegmentFooter) == sizeof(SegmentChecksum::ResultType));
 
 typedef void (*SegmentEntryCallback)(LogEntryType, const void *,
                                      uint64_t, void *);
@@ -58,6 +64,9 @@ struct SegmentException : public Exception {
 
 class Segment {
   public:
+    /// The class used to calculate segment checksums.
+    typedef SegmentChecksum Checksum;
+
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
             uint64_t capacity, BackupManager* backup = NULL);
     ~Segment();
@@ -93,7 +102,7 @@ class Segment {
     const uint64_t   capacity;       // total byte length of segment when empty
     uint64_t         tail;           // offset to the next free byte in Segment
     uint64_t         bytesFreed;     // bytes free()'d in this Segment
-    uint32_t         checksum;       // Latest Segment checksum (crc32c)
+    Checksum         checksum;       // Latest Segment checksum (crc32c)
     bool             closed;         // when true, no appends permitted
 
     friend class SegmentTest;

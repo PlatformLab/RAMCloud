@@ -179,7 +179,8 @@ class BackupServerTest : public CppUnit::TestFixture {
     writeFooter(uint64_t masterId, uint64_t segmentId, uint32_t offset)
     {
         SegmentFooter footer;
-        footer.checksum = 0xff00ff00ff00;
+        footer.checksum =
+            static_cast<Segment::Checksum::ResultType>(0xff00ff00ff00);
         return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_SEGFOOTER, offset,
                           &footer, sizeof(footer));
     }

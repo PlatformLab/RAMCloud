@@ -41,85 +41,71 @@ static const uint8_t input[81] = {
  * checksum from input[0] to input[4], inclusive.
  */ 
 static const uint32_t crcByLength[sizeof(input) + 1] = {
-    0x00000000, 0xb50cf789, 0x1fdd2d6f, 0x26be3ac5, 0x94922b1b, 0x2a0da7af,
-    0x510fd774, 0x9ccaf941, 0x1dff338c, 0x97a75e89, 0x86762dfd, 0x95370f7a,
-    0x212d55a7, 0x64f5e39a, 0x93c9e582, 0x933ed984, 0x222568ea, 0xb42b3e97,
-    0x6460e5f1, 0x97dec15f, 0x76160f8c, 0x46148ef3, 0x899178da, 0x8f42941a,
-    0x46edda68, 0xbc609592, 0x49e81e9e, 0xb25c9ad7, 0x753db94c, 0x2ffe5590,
-    0x5e3cc271, 0x389216c4, 0xfd65f7e2, 0x4591c990, 0x43355498, 0xa71add5f,
-    0x694eea08, 0x4838dc97, 0x9dd6223c, 0xcc261611, 0xd83e9091, 0x7557db46,
-    0x89a23b8f, 0xe99db17b, 0x2c6cc103, 0xc8801d29, 0xc345a6d9, 0x56ff1a35,
-    0x110dd403, 0x2883e0bd, 0x5e3bbfc4, 0x78ece073, 0x879c8a35, 0x0eb4960b,
-    0xec08fa7b, 0x7e42ba00, 0xe24b06d6, 0x59e8f262, 0xe36940e8, 0xdf085a87,
-    0xe5f3c976, 0x850a4df1, 0x8e4be359, 0xb7896487, 0x00b78964, 0xd7c4e7f9,
-    0x10890388, 0x94a41c22, 0x91326c90, 0x212950c4, 0x156db392, 0xcdab41f6,
-    0x600ed455, 0xf82f368d, 0xcf4ddb9e, 0xe3ffe5c1, 0x7767c2de, 0xf70eb96c,
-    0xb2e27c70, 0x89658e28, 0x1ee4a860, 0xbd3d7096
+    0x00000000, 0xe771a4d8, 0xeebc5abd, 0x46da99bf, 0xdcf560dc, 0x6f7fd19a,
+    0x0625abfe, 0x27f4932c, 0x91d78106, 0x2c42362a, 0x65abdd96, 0x3fe6b982,
+    0x0a4de0fa, 0xd8ae467e, 0xe5a2d273, 0xc0300d94, 0x6055f200, 0x6ec69d7e,
+    0xad4528d5, 0x224dae02, 0xcad359b2, 0x884eee62, 0xbbe10eff, 0xc8412dff,
+    0xc2163686, 0xa1d12a12, 0x997ec708, 0x54f844a0, 0x82f47e25, 0x640087a8,
+    0xb6307e8c, 0x26416a8f, 0x77f4c148, 0xdecf9669, 0x9a0fed2f, 0x9361a295,
+    0x9368ccda, 0x285738bc, 0x76ff3b6c, 0xcf95b68a, 0x8161274c, 0x4b887ad8,
+    0xe531f44f, 0x78015721, 0x4447fc5f, 0x86f37046, 0xaea329a3, 0x1e95d3de,
+    0x3981eeba, 0xb07196d3, 0xc16032a6, 0xaaf30b3a, 0xecfa00ff, 0xf4cdad2c,
+    0x4af83a24, 0x23afff66, 0xf70ccc48, 0x3550a5c9, 0x8abab573, 0x863d8d0f,
+    0xbff8cc47, 0x15a5df17, 0x19375068, 0x27eb81d7, 0x037f6203, 0x30b68bca,
+    0x61a098f0, 0x3de96a2a, 0x493f2a78, 0x1a65fe06, 0x659dfa5e, 0x11680bfa,
+    0x7fec8b9e, 0xf0490a7c, 0x9c3d0285, 0x3806aa1d, 0xbb5146bb, 0xf1885bc7,
+    0xdb5bb75e, 0x57b4554b, 0x3ed14a7c, 0xb27d1e9a
 };
 
 /**
- * Unit tests for Crc32C.
+ * Test fixture for testing Crc32C, parameterized on whether or not to force
+ * the software implementation.
  */
-class Crc32CTest : public CppUnit::TestFixture {
-
-    DISALLOW_COPY_AND_ASSIGN(Crc32CTest); // NOLINT
-
-    CPPUNIT_TEST_SUITE(Crc32CTest);
-    CPPUNIT_TEST(test_single_Crc32C);
-    CPPUNIT_TEST(test_accumulated_Crc32C);
-    CPPUNIT_TEST(test_accumulatedVaried_Crc32C);
-    CPPUNIT_TEST_SUITE_END();
-
-  public:
-    Crc32CTest() {}
-
-    void
-    test_single_Crc32C()
-    {
-        for (unsigned int i = 0; i < sizeof(input); i++) {
-            CPPUNIT_ASSERT_EQUAL(crcByLength[i], Crc32C(0, input, i));
-        }
-    }
-
-    void
-    test_accumulated_Crc32C()
-    {
-        uint32_t crc = 0;
-        for (unsigned int i = 0; i < sizeof(input); i++) {
-            crc = Crc32C(crc, &input[i], 1);
-            CPPUNIT_ASSERT_EQUAL(crcByLength[i + 1], crc);
-        }
-    }
-
-    void
-    test_accumulatedVaried_Crc32C()
-    {
-        /*
-         * All of these add up to 81 (sizeof(input)). The goal is to exercise
-         * different block's worth for each invocation.
-         */
-        int spans[8][5] = {
-            { 1, 7, 8, 64, 1 },
-            { 1, 64, 8, 1, 7 },
-            { 7, 1, 8, 64, 1 },
-            { 7, 1, 1, 8, 64 },
-            { 8, 1, 64, 1, 7 },
-            { 8, 7, 1, 64, 1 },
-            { 64, 7, 8, 1, 1 },
-            { 64, 7, 1, 1, 8 }
-        };
-
-        for (int i = 0; i < 8; i++) {
-            uint32_t crc = 0;
-            int offset = 0;
-            for (int j = 0; j < 5; j++) {
-                crc = Crc32C(crc, &input[offset], spans[i][j]);
-                offset += spans[i][j];
-                CPPUNIT_ASSERT_EQUAL(crcByLength[offset], crc);
-            }
-        }
-    }
+struct Crc32CTest : public ::testing::TestWithParam<bool> {
+  Crc32CTest() : forceSoftware(GetParam()) {}
+  bool forceSoftware;
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(Crc32CTest);
+INSTANTIATE_TEST_CASE_P(ForceSoftware, Crc32CTest, ::testing::Bool());
+
+TEST_P(Crc32CTest, single) {
+  for (unsigned int i = 0; i < sizeof(input); i++) {
+      EXPECT_EQ(crcByLength[i],
+                Crc32C(forceSoftware).update(input, i).getResult());
+  }
+}
+
+TEST_P(Crc32CTest, accumulated) {
+    Crc32C crc(forceSoftware);
+    EXPECT_EQ(crcByLength[0], crc.getResult());
+    for (unsigned int i = 0; i < sizeof(input); i++)
+        EXPECT_EQ(crcByLength[i + 1], crc.update(&input[i], 1).getResult());
+}
+
+TEST_P(Crc32CTest, accumulatedVaried) {
+    /*
+     * All of these add up to 81 (sizeof(input)). The goal is to exercise
+     * different block's worth for each invocation.
+     */
+    static const int spans[8][5] = {
+        { 1, 7, 8, 64, 1 },
+        { 1, 64, 8, 1, 7 },
+        { 7, 1, 8, 64, 1 },
+        { 7, 1, 1, 8, 64 },
+        { 8, 1, 64, 1, 7 },
+        { 8, 7, 1, 64, 1 },
+        { 64, 7, 8, 1, 1 },
+        { 64, 7, 1, 1, 8 }
+    };
+
+    for (int i = 0; i < 8; i++) {
+        Crc32C crc(forceSoftware);
+        int offset = 0;
+        for (int j = 0; j < 5; j++) {
+            crc.update(&input[offset], spans[i][j]);
+            offset += spans[i][j];
+            EXPECT_EQ(crcByLength[offset], crc.getResult());
+        }
+    }
+}
 
 } // namespace RAMCloud

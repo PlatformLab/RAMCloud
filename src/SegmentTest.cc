@@ -182,7 +182,7 @@ class SegmentTest : public CppUnit::TestFixture {
 
         SegmentFooter *sf = reinterpret_cast<SegmentFooter *>(
                             reinterpret_cast<char *>(se) + sizeof(*se));
-        CPPUNIT_ASSERT_EQUAL(0x2d495973, sf->checksum);
+        CPPUNIT_ASSERT_EQUAL(s.checksum.getResult(), sf->checksum);
 
         CPPUNIT_ASSERT_EQUAL(0, s.appendableBytes());
         CPPUNIT_ASSERT_EQUAL(true, s.closed);
@@ -202,7 +202,8 @@ class SegmentTest : public CppUnit::TestFixture {
 
         char buf[57];
         while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)) != NULL) {}
-        CPPUNIT_ASSERT_EQUAL(15, s.appendableBytes());
+        CPPUNIT_ASSERT_EQUAL(23 - sizeof(Segment::Checksum::ResultType),
+                             s.appendableBytes());
 
         s.close();
         CPPUNIT_ASSERT_EQUAL(0, s.appendableBytes());
