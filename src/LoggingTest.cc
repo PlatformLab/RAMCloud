@@ -140,6 +140,7 @@ class LoggingTest : public CppUnit::TestFixture {
         LOG(ERROR, "rofl: %d", 3);
         const char* pattern = "^[[:digit:]]\\{10\\}\\.[[:digit:]]\\{6\\} "
                               "src/LoggingTest.cc:[[:digit:]]\\{1,4\\} "
+                              "in LoggingTest::test_LOG "
                               "default ERROR\\[[[:digit:]]\\{1,5\\}\\]: "
                               "rofl: 3\n$";
         assertMatchesPosixRegex(pattern, buf);

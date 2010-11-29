@@ -273,9 +273,10 @@ Logger::logMessage(LogModule module, LogLevel level,
     struct timeval now;
 
     gettimeofday(&now, NULL);
-    fprintf(stream, "%010u.%06u %s:%d %s %s[%d]: ",
+    fprintf(stream, "%010u.%06u %s:%d in %s %s %s[%d]: ",
             now.tv_sec, now.tv_usec,
             where.relativeFile().c_str(), where.line,
+            where.qualifiedFunction().c_str(),
             logModuleNames[module],
             logLevelNames[level],
             pid);

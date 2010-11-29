@@ -109,4 +109,38 @@ TEST(CodeLocation, relativeFile) {
     EXPECT_EQ(where.file, where.relativeFile());
 }
 
+TEST(CodeLocation, qualifiedFunction) {
+    CodeLocation where("", 0, "", "");
+
+    where.function = "func";
+    where.prettyFunction = "std::string RAMCloud::CommonTest::func()";
+    EXPECT_EQ("CommonTest::func", where.qualifiedFunction());
+
+    where.function = "func";
+    where.prettyFunction = "std::string RAMCloud::CommonTest::func("
+                            "const RAMCloud::CodeLocation&) const";
+    EXPECT_EQ("CommonTest::func", where.qualifiedFunction());
+
+    where.function = "func";
+    where.prettyFunction = "static std::string RAMCloud::CommonTest::func("
+                            "const RAMCloud::CodeLocation&)";
+    EXPECT_EQ("CommonTest::func", where.qualifiedFunction());
+
+    where.function = "func";
+    where.prettyFunction = "void RAMCloud::func(void (*)(int))";
+    EXPECT_EQ("func", where.qualifiedFunction());
+
+    where.prettyFunction = "void (* RAMCloud::func())(int)";
+    EXPECT_EQ("func", where.qualifiedFunction());
+
+    where.prettyFunction = "void (* RAMCloud::func(void (*)(int)))(int)";
+    EXPECT_EQ("func", where.qualifiedFunction());
+
+    where.prettyFunction = "void (* (* RAMCloud::func(void (* (*)(void (*)"
+                           "(int), void (*)(int)))(int), void (* (*)(void (*)"
+                           "(int), void (*)(int)))(int)))(void (*)(int), void "
+                           "(*)(int)))(int)";
+    EXPECT_EQ("func", where.qualifiedFunction());
+}
+
 }  // namespace RAMCloud

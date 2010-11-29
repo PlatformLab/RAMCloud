@@ -22,6 +22,7 @@
 #include <cxxabi.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pcrecpp.h>
 #include <stdarg.h>
 #include <sys/stat.h>
 
@@ -262,6 +263,23 @@ CodeLocation::relativeFile() const
         return string(file + lengthFilePrefix);
     else
         return string(file);
+}
+
+/**
+ * Return the name of the function, qualified by its surrounding classes and
+ * namespaces. Note that this strips off the RAMCloud namespace to produce
+ * shorter strings.
+ */
+string
+CodeLocation::qualifiedFunction() const
+{
+    string ret;
+    const string pattern(
+        format("\\s(?:RAMCloud::)?(\\S*\\b%s)\\(", function));
+    if (pcrecpp::RE(pattern).PartialMatch(prettyFunction, &ret))
+        return ret;
+    else // shouldn't happen
+        return function;
 }
 
 /**
