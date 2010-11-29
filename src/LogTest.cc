@@ -36,7 +36,6 @@ class LogTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_append);
     CPPUNIT_TEST(test_free);
     CPPUNIT_TEST(test_registerType);
-    CPPUNIT_TEST(test_forEachSegment);
     CPPUNIT_TEST(test_getSegmentBaseAddress);
     CPPUNIT_TEST_SUITE_END();
 
@@ -140,12 +139,6 @@ class LogTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void *>(evictionCallback),
                              reinterpret_cast<void *>(cb->evictionCB));
         CPPUNIT_ASSERT_EQUAL(NULL, cb->evictionArg);
-    }
-
-    void
-    test_forEachSegment()
-    {
-        Log l(57, 1 * 8192, 8192);
     }
 
 void

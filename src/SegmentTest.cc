@@ -35,7 +35,6 @@ class SegmentTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_free);
     CPPUNIT_TEST(test_close);
     CPPUNIT_TEST(test_appendableBytes);
-    CPPUNIT_TEST(test_forEachEntry);
     CPPUNIT_TEST(test_forceAppendBlob);
     CPPUNIT_TEST(test_forceAppendWithEntry);
     CPPUNIT_TEST(test_syncToBackup);
@@ -207,42 +206,6 @@ class SegmentTest : public CppUnit::TestFixture {
 
         s.close();
         CPPUNIT_ASSERT_EQUAL(0, s.appendableBytes());
-    }
-
-    static void
-    callback_forEachEntry(LogEntryType type, const void *p, uint64_t length,
-        void *cookie)
-    {
-        static int i = 0;
-
-        CPPUNIT_ASSERT(i == 0 || i == 1);
-
-        if (i == 0) {
-            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, type);
-            CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), length);
-            CPPUNIT_ASSERT_EQUAL(NULL, cookie);
-
-            const SegmentHeader *sh =
-                reinterpret_cast<const SegmentHeader *>(p);
-            CPPUNIT_ASSERT_EQUAL(112233, sh->logId);
-            CPPUNIT_ASSERT_EQUAL(445566, sh->segmentId);
-        } else {
-            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, type);
-            CPPUNIT_ASSERT_EQUAL(sizeof(SegmentFooter), length);
-            CPPUNIT_ASSERT_EQUAL(NULL, cookie);
-        }
-
-        i++;
-    }
-
-    void
-    test_forEachEntry()
-    {
-        char alignedBuf[8192] __attribute__((aligned(8192)));
-
-        Segment s(112233, 445566, alignedBuf, sizeof(alignedBuf));
-        s.close();
-        s.forEachEntry(callback_forEachEntry, NULL);
     }
 
     void

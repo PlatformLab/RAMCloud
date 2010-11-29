@@ -205,21 +205,6 @@ Segment::appendableBytes() const
 }
 
 /**
- * Iterate over all entries in this Segment and pass them to the callback
- * provided. This is simply a convenience wrapper around #SegmentIterator.
- * \param[in] cb
- *      The callback to use on each entry.
- * \param[in] cookie
- *      A void* argument to be passed with the specified callback.
- */
-void
-Segment::forEachEntry(SegmentEntryCallback cb, void *cookie) const
-{
-    for (SegmentIterator i(this); !i.isDone(); i.next())
-        cb(i.getType(), i.getPointer(), i.getLength(), cookie);
-}
-
-/**
  * Return the Segment's utilisation as an integer percentage. This is
  * calculated by taking into account the number of live bytes written to
  * the Segment minus the freed bytes in proportion to its capacity.

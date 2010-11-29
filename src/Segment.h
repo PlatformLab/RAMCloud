@@ -79,7 +79,6 @@ class Segment {
     uint64_t         getId() const;
     uint64_t         getCapacity() const;
     uint64_t         appendableBytes() const;
-    void             forEachEntry(SegmentEntryCallback cb, void *cookie) const;
     int              getUtilisation() const;
 
     static const uint32_t  SEGMENT_SIZE = 8 * 1024 * 1024;

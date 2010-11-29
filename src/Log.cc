@@ -256,29 +256,6 @@ Log::registerType(LogEntryType type,
 }
 
 /**
- * Iterate over live Segments and pass them to the callback provided.
- * The number of Segments iterated over may be artificially limited by the
- * #limit parameter.
- * \param[in] cb
- *      The callback to issue each live Segment to.
- * \param[in] limit
- *      The maximum number of Segments to iterate over.
- * \param[in] cookie
- *      A void* argument to be passed to the specified callback.
- */
-void
-Log::forEachSegment(LogSegmentCallback cb, uint64_t limit, void *cookie) const
-{
-    uint64_t i = 0;
-    ActiveIdMap::const_iterator it = activeIdMap.begin();
-
-    while (it != activeIdMap.end() && i < limit) {
-        cb(it->second, cookie);
-        i++, it++;
-    }
-}
-
-/**
  * Obtain the maximum number of bytes that can ever be appended to the
  * Log at once. Appends that exceed this maximum will throw an exception.
  */

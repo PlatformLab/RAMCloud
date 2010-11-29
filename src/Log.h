@@ -64,8 +64,6 @@ class Log {
                              log_eviction_cb_t evictionCB, void *evictionArg);
     uint64_t    getSegmentId(const void *p);
     bool        isSegmentLive(uint64_t segmentId) const;
-    void        forEachSegment(LogSegmentCallback cb, uint64_t limit,
-                               void *cookie) const;
     uint64_t    getMaximumAppendableBytes() const;
     uint64_t    getBytesAppended() const;
 
