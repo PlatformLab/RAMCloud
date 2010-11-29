@@ -121,7 +121,11 @@ format(const char* format, ...)
     return s;
 }
 
-/// A safe version of sprintf.
+/**
+ * A safe version of sprintf.
+ * The contents of the first parameter are replaced with the result, and the
+ * first parameter is also returned for convenience.
+ */
 string&
 format(string& s, const char* format, ...)
 {
