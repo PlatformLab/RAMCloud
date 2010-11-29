@@ -34,35 +34,15 @@ namespace Crc32CSlicingBy8 {
 
 namespace RAMCloud {
 
-/*
- * Note that we use hex opcodes to avoid issues with older versions
- * of the GNU assembler that do not recognise the instruction.
- */
-
-// crc32q %rdx, %rcx
-#define CRC32Q(_crc, _p64, _off) \
-    __asm__ __volatile__(".byte 0xf2, 0x48, 0x0f, 0x38, 0xf1, 0xca" : \
-        "=c"(_crc) : "c"(_crc), "d"(*(_p64 + _off)))
-
-// crc32l %edx, %ecx
-#define CRC32L(_crc, _p32, _off) \
-    __asm__ __volatile__(".byte 0xf2, 0x0f, 0x38, 0xf1, 0xca" : \
-        "=c"(_crc) : "c"(_crc), "d"(*(_p32 + _off)))
-
-// crc32w %dx, %ecx
-#define CRC32W(_crc, _p16, _off) \
-    __asm__ __volatile__(".byte 0x66, 0xf2, 0x0f, 0x38, 0xf1, 0xca" : \
-        "=c"(_crc) : "c"(_crc), "d"(*(_p16 + _off)))
-
-// crc32b %dl, %ecx
-#define CRC32B(_crc, _p8, _off) \
-    __asm__ __volatile__(".byte 0xf2, 0x0f, 0x38, 0xf0, 0xca" : \
-        "=c"(_crc) : "c"(_crc), "d"(*(_p8 + _off)))
-
 /// See #Crc32C().
 static inline uint32_t
 intelCrc32C(uint32_t crc, const void* buffer, uint64_t bytes)
 {
+#if __SSE4_2__
+#define CRC32Q __builtin_ia32_crc32di /* 8 bytes */
+#define CRC32L __builtin_ia32_crc32si /* 4 bytes */
+#define CRC32W __builtin_ia32_crc32hi /* 2 bytes */
+#define CRC32B __builtin_ia32_crc32qi /* 1 byte */
     const uint64_t* p64 = static_cast<const uint64_t*>(buffer);
     uint64_t remainder = bytes;
     uint64_t chunk32 = 0;
@@ -72,10 +52,10 @@ intelCrc32C(uint32_t crc, const void* buffer, uint64_t bytes)
     chunk32 = remainder >> 5;
     remainder &= 31;
     while (chunk32-- > 0) {
-        CRC32Q(crc, p64, 0);
-        CRC32Q(crc, p64, 1);
-        CRC32Q(crc, p64, 2);
-        CRC32Q(crc, p64, 3);
+        crc = CRC32Q(crc, p64[0]);
+        crc = CRC32Q(crc, p64[1]);
+        crc = CRC32Q(crc, p64[2]);
+        crc = CRC32Q(crc, p64[3]);
         p64 += 4;
     }
 
@@ -83,7 +63,7 @@ intelCrc32C(uint32_t crc, const void* buffer, uint64_t bytes)
     chunk8 = remainder >> 3;
     remainder &= 7;
     while (chunk8-- > 0) {
-        CRC32Q(crc, p64, 0);
+        crc = CRC32Q(crc, p64[0]);
         p64++;
     }
 
@@ -92,15 +72,22 @@ intelCrc32C(uint32_t crc, const void* buffer, uint64_t bytes)
     uint64_t chunk2 = remainder >> 1;
     remainder &= 1;
     while (chunk2-- > 0) {
-        CRC32W(crc, p16, 0);
+        crc = CRC32W(crc, p16[0]);
         p16++;
     }
 
     // Finally, do any remaining byte.
     if (remainder) {
         const uint8_t* p8 = reinterpret_cast<const uint8_t*>(p16);
-        CRC32B(crc, p8, 0);
+        crc = CRC32B(crc, p8[0]);
     }
+#undef CRC32B
+#undef CRC32W
+#undef CRC32L
+#undef CRC32Q
+#else
+    throw FatalError(HERE, "SSE 4.2 was not enabled at compile-time");
+#endif /* __SSE4_2__ */
     return crc;
 }
 
@@ -185,11 +172,7 @@ class Crc32C {
     typedef uint32_t ResultType;
 
     Crc32C(bool forceSoftware=false)
-#ifdef PERF_DEBUG_RECOVERY_SOFTWARE_CRC32
-        : useHardware(false)
-#else
         : useHardware(!forceSoftware && haveHardware)
-#endif
         , result(-1)
     {}
 

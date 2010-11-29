@@ -6,6 +6,8 @@
 
 DEBUG ?= yes
 YIELD ?= no
+SSE ?= sse4.2
+
 INFINIBAND := $(shell [ -e /usr/lib/libibverbs.so ] && echo -n "yes")
 
 ## Create a separate build directory for each git branch and for each arch
@@ -28,10 +30,10 @@ DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
 endif
 
 COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
-	        -fno-builtin -MD -msse2 -march=core2
+	        -fno-builtin -MD -m$(SSE) -march=core2 \
+	        $(DEBUGFLAGS)
 COMWARNS := -Wall -Wformat=2 -Wextra \
-            -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute \
-            $(DEBUGFLAGS)
+            -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute
 CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
 		-Wbad-function-cast
 CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \

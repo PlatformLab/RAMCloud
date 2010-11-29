@@ -36,7 +36,11 @@ haveSse42() {
 }
 } // anonymous namespace
 
+#if __SSE_4_2__ && !PERF_DEBUG_RECOVERY_SOFTWARE_CRC32
 bool Crc32C::haveHardware = haveSse42();
+#else
+bool Crc32C::haveHardware = false;
+#endif
 
 } // namespace RAMCloud
 
