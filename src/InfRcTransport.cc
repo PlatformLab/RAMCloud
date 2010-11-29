@@ -30,15 +30,21 @@
  * completion queue.
  *
  * In short, the receive path looks like the following:
- *  - As a server, we have just one completion queue for all client queue pairs.
- *  - As a client, we have just one completion queues for all client queue pairs.
+ *  - As a server, we have just one completion queue for all incoming client
+ *    queue pairs.
+ *  - As a client, we have just one completion queue for all outgoing client
+ *    queue pairs.
  *
  * For the transmit path, we have one completion queue for all cases, since
  * we currently do synchronous sends.
  *
  * Each receive and transmit buffer is sized large enough for the maximum
- * possible RPC size for simplicity. (XXX It's unclear to me what happens if
- * we send a buffer too large for the receiver.)
+ * possible RPC size for simplicity. Note that if a node sends to another node
+ * that does not have a sufficiently large receive buffer at the head of its
+ * receive queue, _both_ ends will get an error (IBV_WC_REM_INV_REQ_ERR on the
+ * sender, and IBV_WC_LOC_LEN_ERR on the receiver)! The HCA will _not_ search
+ * the receive queue to find a larger posted buffer, nor will it scatter the
+ * incoming data over multiple posted buffers. You have been warned.
  *
  * To reference the buffer associated with each work queue element on the shared
  * receive queue, we stash pointers in the 64-bit `wr_id' field of the work
