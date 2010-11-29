@@ -268,6 +268,9 @@ class Transport {
      */
     virtual SessionRef getSession(const ServiceLocator& serviceLocator) = 0;
 
+    /// Dump out performance and debugging statistics.
+    virtual void dumpStats() {}
+
   private:
     DISALLOW_COPY_AND_ASSIGN(Transport);
 };

@@ -215,4 +215,15 @@ TransportManager::serverRecv()
     }
 }
 
+/**
+ * dumpStats() on all registered transports.
+ */
+void
+TransportManager::dumpStats()
+{
+    foreach (Transports::value_type protocolTransport, transports) {
+        protocolTransport.second->dumpStats();
+    }
+}
+
 } // namespace RAMCloud

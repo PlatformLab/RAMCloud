@@ -135,6 +135,11 @@ wcStatusToString(int status)
 // InfRcTransport class
 //------------------------------
 
+uint64_t InfRcTransport::totalClientSendCopyTime;
+uint64_t InfRcTransport::totalClientSendCopyBytes;
+uint64_t InfRcTransport::totalSendReplyCopyTime;
+uint64_t InfRcTransport::totalSendReplyCopyBytes;
+
 /**
  * Construct a InfRcTransport.
  *
@@ -367,7 +372,10 @@ InfRcTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
     // send out the request
     BufferDescriptor* bd = &t->txBuffers[t->currentTxBuffer];
     t->currentTxBuffer = (t->currentTxBuffer + 1) % MAX_TX_QUEUE_DEPTH;
+    uint64_t start = rdtsc();
     request->copy(0, request->getTotalLength(), bd->buffer);
+    totalClientSendCopyTime += rdtsc() - start;
+    totalClientSendCopyBytes += request->getTotalLength();
     t->ibPostSendAndWait(qp, bd, request->getTotalLength());
 
     // Construct our ClientRpc in the response Buffer.
@@ -711,7 +719,10 @@ InfRcTransport::ServerRpc::sendReply()
 
     BufferDescriptor* bd = &t->txBuffers[t->currentTxBuffer];
     t->currentTxBuffer = (t->currentTxBuffer + 1) % MAX_TX_QUEUE_DEPTH;
+    uint64_t start = rdtsc();
     replyPayload.copy(0, replyPayload.getTotalLength(), bd->buffer);
+    totalSendReplyCopyTime += rdtsc() - start;
+    totalSendReplyCopyBytes += replyPayload.getTotalLength();
     t->ibPostSendAndWait(qp, bd, replyPayload.getTotalLength());
 }
 
