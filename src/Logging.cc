@@ -14,7 +14,7 @@
  */
 
 #include <stdarg.h>
-#include <sys/time.h>
+#include <time.h>
 #include "Logging.h"
 
 namespace RAMCloud {
@@ -251,20 +251,6 @@ Logger::changeLogLevels(int delta)
 }
 
 /**
- * Return the number of characters of __FILE__ that make up the path prefix.
- * That is, __FILE__ plus this value will be the relative path from the top
- * directory of the RAMCloud repo.
- */
-static int
-length__FILE__Prefix()
-{
-    const char* start = __FILE__;
-    const char* match = strstr(__FILE__, "src/Logging.cc");
-    assert(match != NULL);
-    return (match - start);
-}
-
-/**
  * Log a message for the system administrator.
  * \param[in] module
  *      The module to which the message pertains.
@@ -282,22 +268,15 @@ Logger::logMessage(LogModule module, LogLevel level,
                    const CodeLocation& where,
                    const char* format, ...)
 {
-    static int fileCharsToSkip = length__FILE__Prefix();
     static int pid = getpid();
-
     va_list ap;
-    struct timeval now;
-    const char* file = where.file;
+    struct timespec now;
 
-    // Remove the prefix only if it matches that of __FILE__. This check is
-    // needed in case someone compiles different files using different paths.
-    if (strncmp(file, __FILE__, fileCharsToSkip) == 0)
-        file += fileCharsToSkip;
-
-    gettimeofday(&now, NULL);
-    fprintf(stream, "%010u.%06u %s:%d %s %s[%d]: ",
-            now.tv_sec, now.tv_usec,
-            file, where.line,
+    clock_gettime(CLOCK_REALTIME, &now);
+    fprintf(stream, "%010u.%09u %s:%d in %s %s %s[%d]: ",
+            now.tv_sec, now.tv_nsec,
+            where.relativeFile().c_str(), where.line,
+            where.qualifiedFunction().c_str(),
             logModuleNames[module],
             logLevelNames[level],
             pid);
@@ -307,53 +286,6 @@ Logger::logMessage(LogModule module, LogLevel level,
     va_end(ap);
 
     fflush(stream);
-}
-
-/**
- * Format a message for use in #DIE().
- * \param[in] module
- *      See #logMessage().
- * \param[in] level
- *      See #logMessage().
- * \param[in] where
- *      See #logMessage().
- * \param[in] format
- *      See #logMessage().
- * \param[in] ...
- *      See #logMessage().
- * \return
- *      A string containing the formatted message.
- */
-std::string
-Logger::getMessage(LogModule module, LogLevel level,
-                   const CodeLocation& where,
-                   const char* format, ...)
-{
-    static int fileCharsToSkip = length__FILE__Prefix();
-    static int pid = getpid();
-    std::string message;
-    char buf[1024];
-    va_list ap;
-    const char* file = where.file;
-
-    // Remove the prefix only if it matches that of __FILE__. This check is
-    // needed in case someone compiles different files using different paths.
-    if (strncmp(file, __FILE__, fileCharsToSkip) == 0)
-        file += fileCharsToSkip;
-
-    snprintf(buf, sizeof(buf), "%s:%d %s %s[%d]: ",
-             file, where.line,
-             logModuleNames[module],
-             logLevelNames[level],
-             pid);
-    message.append(buf);
-
-    va_start(ap, format);
-    vsnprintf(buf, sizeof(buf), format, ap);
-    va_end(ap);
-    message.append(buf);
-
-    return message;
 }
 
 } // end RAMCloud

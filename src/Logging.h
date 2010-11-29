@@ -174,10 +174,6 @@ class Logger {
                     const CodeLocation& where,
                     const char* format, ...)
         __attribute__((format(printf, 5, 6)));
-    std::string getMessage(LogModule module, LogLevel level,
-                           const CodeLocation& where,
-                           const char* format, ...)
-        __attribute__((format(printf, 5, 6)));
 
     /**
      * Return whether the current logging configuration includes messages of
@@ -236,19 +232,17 @@ extern Logger logger;
  * Log an ERROR message and throw a #RAMCloud::FatalError.
  * The #CURRENT_LOG_MODULE macro should be set to the LogModule to which the
  * message pertains.
- * \param[in] format
+ * \param[in] format_
  *      See #LOG().
  * \param[in] ...
  *      See #LOG().
  * \throw FatalError
  *      Always thrown.
  */
-#define DIE(format, ...) do { \
-    LOG(RAMCloud::ERROR, format, ##__VA_ARGS__); \
+#define DIE(format_, ...) do { \
+    LOG(RAMCloud::ERROR, format_, ##__VA_ARGS__); \
     throw RAMCloud::FatalError(HERE, \
-            RAMCloud::logger.getMessage(CURRENT_LOG_MODULE, \
-                                        RAMCloud::ERROR, HERE, \
-                                        format, ##__VA_ARGS__)); \
+                               RAMCloud::format(format_, ##__VA_ARGS__)); \
 } while (0)
 
 #endif  // RAMCLOUD_LOGGING_H

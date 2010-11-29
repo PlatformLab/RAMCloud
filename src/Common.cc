@@ -22,6 +22,7 @@
 #include <cxxabi.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pcrecpp.h>
 #include <stdarg.h>
 #include <sys/stat.h>
 
@@ -232,6 +233,53 @@ getTotalSystemMemory()
     fclose(fp);
 
     return totalBytes;
+}
+
+namespace {
+
+/**
+ * Return the number of characters of __FILE__ that make up the path prefix.
+ * That is, __FILE__ plus this value will be the relative path from the top
+ * directory of the RAMCloud repo.
+ */
+int
+length__FILE__Prefix()
+{
+    const char* start = __FILE__;
+    const char* match = strstr(__FILE__, "src/Common.cc");
+    assert(match != NULL);
+    return (match - start);
+}
+
+} // anonymous namespace
+
+string
+CodeLocation::relativeFile() const
+{
+    static int lengthFilePrefix = length__FILE__Prefix();
+    // Remove the prefix only if it matches that of __FILE__. This check is
+    // needed in case someone compiles different files using different paths.
+    if (strncmp(file, __FILE__, lengthFilePrefix) == 0)
+        return string(file + lengthFilePrefix);
+    else
+        return string(file);
+}
+
+/**
+ * Return the name of the function, qualified by its surrounding classes and
+ * namespaces. Note that this strips off the RAMCloud namespace to produce
+ * shorter strings.
+ */
+string
+CodeLocation::qualifiedFunction() const
+{
+    string ret;
+    const string pattern(
+        format("\\s(?:RAMCloud::)?(\\S*\\b%s)\\(", function));
+    if (pcrecpp::RE(pattern).PartialMatch(prettyFunction, &ret))
+        return ret;
+    else // shouldn't happen
+        return function;
 }
 
 /**
