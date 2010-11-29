@@ -129,9 +129,25 @@ namespace RAMCloud {
 enum LogLevel {
     // Keep this in sync with logLevelNames defined inside _LOG.
     SILENT_LOG_LEVEL = 0,
+    /**
+     * Bad stuff that shouldn't happen. The system broke its contract to users
+     * in some way or some major assumption was violated.
+     */
     ERROR,
+    /**
+     * Messages at the WARNING level indicate that, although something went
+     * wrong or something unexpected happened, it was transient and
+     * recoverable.
+     */
     WARNING,
+    /**
+     * Somewhere in between WARNING and DEBUG...
+     */
     NOTICE,
+    /**
+     * Messages at the DEBUG level don't necessarily indicate that anything
+     * went wrong, but they could be useful in diagnosing problems.
+     */
     DEBUG,
     NUM_LOG_LEVELS // must be the last element in the enum
 };
