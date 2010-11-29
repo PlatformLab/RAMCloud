@@ -234,6 +234,36 @@ getTotalSystemMemory()
     return totalBytes;
 }
 
+namespace {
+
+/**
+ * Return the number of characters of __FILE__ that make up the path prefix.
+ * That is, __FILE__ plus this value will be the relative path from the top
+ * directory of the RAMCloud repo.
+ */
+int
+length__FILE__Prefix()
+{
+    const char* start = __FILE__;
+    const char* match = strstr(__FILE__, "src/Common.cc");
+    assert(match != NULL);
+    return (match - start);
+}
+
+} // anonymous namespace
+
+string
+CodeLocation::relativeFile() const
+{
+    static int lengthFilePrefix = length__FILE__Prefix();
+    // Remove the prefix only if it matches that of __FILE__. This check is
+    // needed in case someone compiles different files using different paths.
+    if (strncmp(file, __FILE__, lengthFilePrefix) == 0)
+        return string(file + lengthFilePrefix);
+    else
+        return string(file);
+}
+
 /**
  * Helper function to call __cxa_demangle. Has internal linkage.
  * Handles the C-style memory management required.

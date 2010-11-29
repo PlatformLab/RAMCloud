@@ -98,4 +98,15 @@ class CommonTest : public CppUnit::TestFixture {
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(CommonTest);
 
+TEST(CodeLocation, relativeFile) {
+    CodeLocation where = HERE;
+    EXPECT_EQ("src/CommonTest.cc", where.relativeFile());
+
+    where.file = "CommonTest.cc";
+    EXPECT_EQ(where.file, where.relativeFile());
+
+    where.file = "/strange/path/to/ramcloud/src/CommonTest.cc";
+    EXPECT_EQ(where.file, where.relativeFile());
+}
+
 }  // namespace RAMCloud

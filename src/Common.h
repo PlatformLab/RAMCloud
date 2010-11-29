@@ -362,8 +362,12 @@ struct CodeLocation {
         , prettyFunction(prettyFunction)
     {}
     string str() const {
-        return format("%s at %s:%d", prettyFunction, file, line);
+        return format("%s at %s:%d",
+                      prettyFunction,
+                      relativeFile().c_str(),
+                      line);
     }
+    string relativeFile() const;
 
     /// __FILE__
     const char* file;

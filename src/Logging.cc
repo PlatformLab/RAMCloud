@@ -251,20 +251,6 @@ Logger::changeLogLevels(int delta)
 }
 
 /**
- * Return the number of characters of __FILE__ that make up the path prefix.
- * That is, __FILE__ plus this value will be the relative path from the top
- * directory of the RAMCloud repo.
- */
-static int
-length__FILE__Prefix()
-{
-    const char* start = __FILE__;
-    const char* match = strstr(__FILE__, "src/Logging.cc");
-    assert(match != NULL);
-    return (match - start);
-}
-
-/**
  * Log a message for the system administrator.
  * \param[in] module
  *      The module to which the message pertains.
@@ -282,22 +268,14 @@ Logger::logMessage(LogModule module, LogLevel level,
                    const CodeLocation& where,
                    const char* format, ...)
 {
-    static int fileCharsToSkip = length__FILE__Prefix();
     static int pid = getpid();
-
     va_list ap;
     struct timeval now;
-    const char* file = where.file;
-
-    // Remove the prefix only if it matches that of __FILE__. This check is
-    // needed in case someone compiles different files using different paths.
-    if (strncmp(file, __FILE__, fileCharsToSkip) == 0)
-        file += fileCharsToSkip;
 
     gettimeofday(&now, NULL);
     fprintf(stream, "%010u.%06u %s:%d %s %s[%d]: ",
             now.tv_sec, now.tv_usec,
-            file, where.line,
+            where.relativeFile().c_str(), where.line,
             logModuleNames[module],
             logLevelNames[level],
             pid);
