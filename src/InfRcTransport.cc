@@ -20,21 +20,18 @@
  * is based on that, i.e. addresses look like normal IP/UDP addresses
  * because the infiniband queue pair set up is bootstrapped over UDP.
  *
- * The transport uses a common pool of receive and transmit buffers that
+ * The transport uses common pools of receive and transmit buffers that
  * are pre-registered with the HCA for direct access. All receive buffers
- * are placed on a shared receive queue, which avoids having to allocate
- * buffers to individual receive queues for each client queue pair (this would
- * be costly for many queue pairs, and wasteful if they're idle). The shared
- * receive queue can be associated with many queue pairs, each of which has
- * their own completion queue. This allows us to demultiplex receive events
- * for each client queue pair (ClientRpc::getReply()), as well as the server's
- * incoming RPC queue pair (serverRecv()). It also lets us block easily on a
- * synchronous getReply() without having to worry about dealing with incoming
- * server RPC requests that occur before the response comes back.
+ * are placed on two shared receive queues (one for issuing RPCs and one for
+ * servicing RPCs), which avoids having to allocate buffers to individual
+ * receive queues for each client queue pair (this would be costly for many
+ * queue pairs, and wasteful if they're idle). The shared receive queues can be
+ * associated with many queue pairs, and each shared receive queue has its own
+ * completion queue.
  *
  * In short, the receive path looks like the following:
  *  - As a server, we have just one completion queue for all client queue pairs.
- *  - As a client, we have N completion queues for N client queue pairs.
+ *  - As a client, we have just one completion queues for all client queue pairs.
  *
  * For the transmit path, we have one completion queue for all cases, since
  * we currently do synchronous sends.
@@ -150,17 +147,22 @@ uint64_t InfRcTransport::totalSendReplyCopyBytes;
  */
 InfRcTransport::InfRcTransport(const ServiceLocator *sl)
     : currentTxBuffer(0),
-      srq(NULL),
+      serverSrq(NULL),
+      clientSrq(NULL),
       dev(NULL),
       ctxt(NULL),
       pd(NULL),
       serverRxCq(NULL),
+      clientRxCq(NULL),
       commonTxCq(NULL),
       ibPhysicalPort(1),
       udpListenPort(0),
       serverSetupSocket(-1),
       clientSetupSocket(-1),
-      queuePairMap()
+      queuePairMap(),
+      clientSendQueue(),
+      numUsedClientSrqBuffers(MAX_SHARED_RX_QUEUE_DEPTH),
+      outstandingRpcs()
 {
     static_assert(sizeof(InfRcTransport::QueuePairTuple) == 18);
 
@@ -245,34 +247,52 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
     pd = ibv_alloc_pd(ctxt);
     check_error_null(pd, "failed to allocate infiniband pd");
 
-    // create a shared receive queue. all queue pairs use this and we
-    // post receive buffer work requests to this queue only. the motiviation
-    // is to avoid having to post at least one buffer to every single queue
-    // pair (we may have thousands of them with megabyte buffers).
+    // create two shared receive queues. all client queue pairs use one and all
+    // server queue pairs use the other. we post receive buffer work requests
+    // to these queues only. the motiviation is to avoid having to post at
+    // least one buffer to every single queue pair (we may have thousands of
+    // them with megabyte buffers).
     ibv_srq_init_attr sia;
     memset(&sia, 0, sizeof(sia));
     sia.srq_context = ctxt;
     sia.attr.max_wr = MAX_SHARED_RX_QUEUE_DEPTH;
     sia.attr.max_sge = MAX_SHARED_RX_SGE_COUNT;
 
-    srq = ibv_create_srq(pd, &sia);
-    check_error_null(srq, "failed to create shared receive queue");
+    serverSrq = ibv_create_srq(pd, &sia);
+    check_error_null(serverSrq,
+                     "failed to create server shared receive queue");
+    clientSrq = ibv_create_srq(pd, &sia);
+    check_error_null(clientSrq,
+                     "failed to create client shared receive queue");
 
     // XXX- for now we allocate TX and RX buffers and use them as a ring.
     for (uint32_t i = 0; i < MAX_SHARED_RX_QUEUE_DEPTH; i++) {
-        rxBuffers[i] = allocateBufferDescriptorAndRegister();
-        ibPostSrqReceive(&rxBuffers[i]);
+        serverRxBuffers[i] = allocateBufferDescriptorAndRegister();
+        ibPostSrqReceive(serverSrq, &serverRxBuffers[i]);
+    }
+    for (uint32_t i = 0; i < MAX_SHARED_RX_QUEUE_DEPTH; i++) {
+        clientRxBuffers[i] = allocateBufferDescriptorAndRegister();
+        ibPostSrqReceive(clientSrq, &clientRxBuffers[i]);
     }
     for (uint32_t i = 0; i < MAX_TX_QUEUE_DEPTH; i++)
         txBuffers[i] = allocateBufferDescriptorAndRegister();
+    assert(numUsedClientSrqBuffers == 0);
 
-    // create completion queues for server receive and server/client transmit
+    // create completion queues for server receive, client receive, and
+    // server/client transmit
     serverRxCq = ibv_create_cq(ctxt, MAX_SHARED_RX_QUEUE_DEPTH,
         NULL, NULL, 0);
-    check_error_null(serverRxCq, "failed to create receive completion queue");
+    check_error_null(serverRxCq,
+                     "failed to create server receive completion queue");
+
+    clientRxCq = ibv_create_cq(ctxt, MAX_SHARED_RX_QUEUE_DEPTH,
+        NULL, NULL, 0);
+    check_error_null(clientRxCq,
+                     "failed to create client receive completion queue");
 
     commonTxCq = ibv_create_cq(ctxt, MAX_TX_QUEUE_DEPTH, NULL, NULL, 0);
-    check_error_null(commonTxCq, "failed to create receive completion queue");
+    check_error_null(commonTxCq,
+                     "failed to create transmit completion queue");
 }
 
 /**
@@ -304,14 +324,17 @@ InfRcTransport::serverRecv()
                 reinterpret_cast<BufferDescriptor*>(wc.wr_id);
 
             if (wc.status == IBV_WC_SUCCESS) {
-                ServerRpc *r = new ServerRpc(this, qp);
-                PayloadChunk::appendToBuffer(&r->recvPayload, bd->buffer,
-                    wc.byte_len, this, bd);
+                Header& header(*reinterpret_cast<Header*>(bd->buffer));
+                ServerRpc *r = new ServerRpc(this, qp, header.nonce);
+                PayloadChunk::appendToBuffer(&r->recvPayload,
+                    bd->buffer + sizeof(header),
+                    wc.byte_len - sizeof(header), this, serverSrq, bd);
+                LOG(DEBUG, "Received request with nonce %016lx", header.nonce);
                 return r;
             }
 
             LOG(ERROR, "%s: failed to receive rpc!", __func__);
-            ibPostSrqReceive(bd);
+            ibPostSrqReceive(serverSrq, bd);
         } else {
             serverTrySetupQueuePair();
         }
@@ -369,22 +392,15 @@ InfRcTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
                                  "client request exceeds maximum rpc size");
     }
 
-    // send out the request
-    BufferDescriptor* bd = &t->txBuffers[t->currentTxBuffer];
-    t->currentTxBuffer = (t->currentTxBuffer + 1) % MAX_TX_QUEUE_DEPTH;
-    uint64_t start = rdtsc();
-    request->copy(0, request->getTotalLength(), bd->buffer);
-    totalClientSendCopyTime += rdtsc() - start;
-    totalClientSendCopyBytes += request->getTotalLength();
-    t->ibPostSendAndWait(qp, bd, request->getTotalLength());
-
     // Construct our ClientRpc in the response Buffer.
     //
     // We do this because we're loaning one of our registered receive buffers
     // to the caller of getReply() and need to issue it back to the HCA when
     // they're done with it.
-    ClientRpc *rpc = new(response, MISC) ClientRpc(transport, qp, response);
-
+    ClientRpc *rpc = new(response, MISC) ClientRpc(transport, this,
+                                                   request, response,
+                                                   generateRandom());
+    rpc->sendOrQueue();
     return rpc;
 }
 
@@ -402,16 +418,10 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
     sin.sin_addr.s_addr = inet_addr(ip);
     sin.sin_port = htons(port);
 
-    // Create a per-client-QP receive completion queue. This lets us avoid
-    // having to manually demultiplex between the server QP and the various
-    // client QPs.
-    ibv_cq *cq = ibv_create_cq(ctxt, MAX_SHARED_RX_QUEUE_DEPTH,
-        NULL, NULL, 0);
-    check_error_null(cq, "failed to create receive completion queue");
-
     // Create a new QueuePair and send its parameters to the server so it
     // can create its qp and reply with its parameters.
-    QueuePair *qp = new QueuePair(ibPhysicalPort, pd, srq, commonTxCq, cq);
+    QueuePair *qp = new QueuePair(ibPhysicalPort, pd, clientSrq,
+                                  commonTxCq, clientRxCq);
     QueuePairTuple outgoingQpt(ibGetLid(), qp->getLocalQpNumber(),
         qp->getInitialPsn(), generateRandom());
 
@@ -421,7 +431,6 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
         LOG(ERROR, "%s: sendto was short: %Zd: %s: "
                    "sending to ip: [%s] port: [%d]",
             __func__, len, strerror(errno), ip, port);
-        ibv_destroy_cq(cq);
         delete qp;
         throw TransportException(HERE, len);
     }
@@ -433,7 +442,6 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
     if (len != sizeof(incomingQpt)) {
         LOG(ERROR, "%s: recvfrom was short: %Zd (errno %d: %s)", __func__, len,
             errno, strerror(errno));
-        ibv_destroy_cq(cq);
         delete qp;
         throw TransportException(HERE, len);
     }
@@ -443,7 +451,6 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
     if (outgoingQpt.getNonce() != incomingQpt.getNonce()) {
         LOG(ERROR, "%s: received nonce doesn't match (0x%16lx != 0x%16lx)",
             __func__, outgoingQpt.getNonce(), incomingQpt.getNonce());
-        ibv_destroy_cq(cq);
         delete qp;
         throw TransportException(HERE, len);
     }
@@ -490,8 +497,8 @@ InfRcTransport::serverTrySetupQueuePair()
     //      be sure, esp. if we use an unreliable means of handshaking, in
     //      which case the response to the client request could have been lost.
 
-    QueuePair *qp = new QueuePair(ibPhysicalPort, pd, srq,
-        commonTxCq, serverRxCq);
+    QueuePair *qp = new QueuePair(ibPhysicalPort, pd, serverSrq,
+                                  commonTxCq, serverRxCq);
     qp->plumb(&incomingQpt);
 
     // now send the client back our queue pair information so they can
@@ -553,13 +560,10 @@ InfRcTransport::ibGetLid()
 }
 
 /**
- * Add the given BufferDescriptor to the shared receive queue.
- * 
- * \param bd
- *      The BufferDescriptor to add to the queue.
+ * Add the given BufferDescriptor to the given shared receive queue.
  */
 void
-InfRcTransport::ibPostSrqReceive(BufferDescriptor *bd)
+InfRcTransport::ibPostSrqReceive(ibv_srq* srq, BufferDescriptor *bd)
 {
     ibv_sge isge = {
         reinterpret_cast<uint64_t>(bd->buffer),
@@ -578,6 +582,18 @@ InfRcTransport::ibPostSrqReceive(BufferDescriptor *bd)
     int ret = ibv_post_srq_recv(srq, &rxWorkRequest, &badWorkRequest);
     if (ret) {
         throw TransportException(HERE, ret);
+    }
+
+    // TODO(ongaro): This condition is hacky. One idea is to wrap ibv_srq in an
+    // object and make this a virtual method instead.
+    if (srq == clientSrq) {
+        --numUsedClientSrqBuffers;
+        if (!clientSendQueue.empty()) {
+            ClientRpc& rpc = clientSendQueue.front();
+            clientSendQueue.pop_front();
+            LOG(DEBUG, "Dequeued request with nonce %016lx", rpc.nonce);
+            rpc.sendOrQueue();
+        }
     }
 }
 
@@ -691,10 +707,14 @@ InfRcTransport::getMaxRpcSize() const
  *      The InfRcTransport object that this RPC is associated with.
  * \param qp
  *      The QueuePair associated with this RPC request.
+ * \param nonce
+ *      Uniquely identifies this RPC.
  */
-InfRcTransport::ServerRpc::ServerRpc(InfRcTransport* transport, QueuePair* qp)
+InfRcTransport::ServerRpc::ServerRpc(InfRcTransport* transport, QueuePair* qp,
+                                     uint64_t nonce)
     : transport(transport),
-      qp(qp)
+      qp(qp),
+      nonce(nonce)
 {
 }
 
@@ -707,6 +727,7 @@ InfRcTransport::ServerRpc::ServerRpc(InfRcTransport* transport, QueuePair* qp)
 void
 InfRcTransport::ServerRpc::sendReply()
 {
+    LOG(DEBUG, "Sending response with nonce %016lx", nonce);
     // "delete this;" on our way out of the method
     boost::scoped_ptr<InfRcTransport::ServerRpc> suicide(this);
 
@@ -719,11 +740,14 @@ InfRcTransport::ServerRpc::sendReply()
 
     BufferDescriptor* bd = &t->txBuffers[t->currentTxBuffer];
     t->currentTxBuffer = (t->currentTxBuffer + 1) % MAX_TX_QUEUE_DEPTH;
+    new(&replyPayload, PREPEND) Header(nonce);
     uint64_t start = rdtsc();
     replyPayload.copy(0, replyPayload.getTotalLength(), bd->buffer);
     totalSendReplyCopyTime += rdtsc() - start;
     totalSendReplyCopyBytes += replyPayload.getTotalLength();
     t->ibPostSendAndWait(qp, bd, replyPayload.getTotalLength());
+    replyPayload.truncateFront(sizeof(Header)); // for politeness
+    LOG(DEBUG, "Sent response with nonce %016lx", nonce);
 }
 
 //-------------------------------------
@@ -735,18 +759,110 @@ InfRcTransport::ServerRpc::sendReply()
  *
  * \param transport
  *      The InfRcTransport object that this RPC is associated with.
- * \param qp
- *      The QueuePair that is being used for thi RPC.
+ * \param session
+ *      The session this RPC is associated with.
+ * \param request
+ *      Request payload.
  * \param[out] response
  *      Buffer in which the response message should be placed.
+ * \param nonce
+ *      Uniquely identifies this RPC.
  */
 InfRcTransport::ClientRpc::ClientRpc(InfRcTransport* transport,
-                                     QueuePair* qp, Buffer* response)
+                                     InfRCSession* session,
+                                     Buffer* request,
+                                     Buffer* response,
+                                     uint64_t nonce)
     : transport(transport),
-      qp(qp),
-      response(response)
+      session(session),
+      request(request),
+      response(response),
+      nonce(nonce),
+      state(PENDING),
+      queueEntries()
 {
 
+}
+
+/**
+ * Send the RPC request out onto the network if there is a receive buffer
+ * available for its response, or queue it for transmission otherwise.
+ */
+void
+InfRcTransport::ClientRpc::sendOrQueue()
+{
+    assert(state == PENDING);
+    InfRcTransport* const t = transport;
+    if (t->numUsedClientSrqBuffers < MAX_SHARED_RX_QUEUE_DEPTH) {
+        // send out the request
+        new(request, PREPEND) Header(nonce);
+        BufferDescriptor* bd = &t->txBuffers[t->currentTxBuffer];
+        t->currentTxBuffer = (t->currentTxBuffer + 1) % MAX_TX_QUEUE_DEPTH;
+        uint64_t start = rdtsc();
+        request->copy(0, request->getTotalLength(), bd->buffer);
+        totalClientSendCopyTime += rdtsc() - start;
+        totalClientSendCopyBytes += request->getTotalLength();
+        LOG(DEBUG, "Sending request with nonce %016lx", nonce);
+        t->ibPostSendAndWait(session->qp, bd, request->getTotalLength());
+        request->truncateFront(sizeof(Header)); // for politeness
+
+        t->outstandingRpcs.push_back(*this);
+        ++t->numUsedClientSrqBuffers;
+        state = REQUEST_SENT;
+        LOG(DEBUG, "Sent request with nonce %016lx", nonce);
+    } else {
+        // no available receive buffers
+        t->clientSendQueue.push_back(*this);
+        LOG(DEBUG, "Queued send request with nonce %016lx", nonce);
+    }
+}
+
+/**
+ * Pull RPC responses off the client shared receive queue without blocking.
+ */
+void
+InfRcTransport::poll()
+{
+    InfRcTransport *t = this;
+    ibv_wc wc;
+    while (ibv_poll_cq(clientRxCq, 1, &wc) > 0) {
+        BufferDescriptor *bd = reinterpret_cast<BufferDescriptor *>(wc.wr_id);
+        if (wc.status != IBV_WC_SUCCESS) {
+            LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
+                wc.status, wcStatusToString(wc.status));
+            t->ibPostSrqReceive(t->clientSrq, bd);
+            throw TransportException(HERE, wc.status);
+        }
+
+        Header& header(*reinterpret_cast<Header*>(bd->buffer));
+        LOG(DEBUG, "Received response with nonce %016lx", header.nonce);
+        foreach (ClientRpc& rpc, t->outstandingRpcs) {
+            if (rpc.nonce != header.nonce)
+                continue;
+            t->outstandingRpcs.erase(t->outstandingRpcs.iterator_to(rpc));
+            uint32_t len = wc.byte_len - sizeof(header);
+            if (t->numUsedClientSrqBuffers >= MAX_SHARED_RX_QUEUE_DEPTH / 2) {
+                // clientSrq is low on buffers, better return this one
+                LOG(DEBUG, "Copy and immediately return clientSrq buffer");
+                memcpy(new(rpc.response, APPEND) char[len],
+                       bd->buffer + sizeof(header),
+                       len);
+                t->ibPostSrqReceive(t->clientSrq, bd);
+            } else {
+                // rpc will hold one of clientSrq's buffers until
+                // rpc.response is destroyed
+                LOG(DEBUG, "Hang onto clientSrq buffer");
+                PayloadChunk::appendToBuffer(rpc.response,
+                                             bd->buffer + sizeof(header),
+                                             len, t, t->clientSrq, bd);
+            }
+            rpc.state = ClientRpc::RESPONSE_RECEIVED;
+            goto next;
+        }
+        LOG(WARNING, "dropped packet because no nonce matched %016lx",
+                     header.nonce);
+  next: { /* pass */ }
+    }
 }
 
 /**
@@ -761,20 +877,8 @@ InfRcTransport::ClientRpc::ClientRpc(InfRcTransport* transport,
 void
 InfRcTransport::ClientRpc::getReply()
 {
-    InfRcTransport *t = transport;
-
-    ibv_wc wc;
-    while (ibv_poll_cq(qp->rxcq, 1, &wc) < 1) {}
-
-    BufferDescriptor *bd = reinterpret_cast<BufferDescriptor *>(wc.wr_id);
-    if (wc.status != IBV_WC_SUCCESS) {
-        LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
-            wc.status, wcStatusToString(wc.status));
-        transport->ibPostSrqReceive(bd);
-        throw TransportException(HERE, wc.status);
-    }
-
-    PayloadChunk::appendToBuffer(response, bd->buffer, wc.byte_len, t, bd);
+    while (state != RESPONSE_RECEIVED)
+        transport->poll();
 }
 
 //-------------------------------------
@@ -1010,6 +1114,8 @@ InfRcTransport::QueuePair::getRemoteLid() const
  *      subregion of the payload.
  * \param transport
  *      The transport that owns the provided BufferDescriptor 'bd'.
+ * \param srq
+ *      The shared receive queue which bd will be returned to.
  * \param bd 
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
@@ -1018,10 +1124,11 @@ InfRcTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
                                              char* data,
                                              uint32_t dataLength,
                                              InfRcTransport* transport,
+                                             ibv_srq* srq,
                                              BufferDescriptor* bd)
 {
     PayloadChunk* chunk =
-        new(buffer, CHUNK) PayloadChunk(data, dataLength, transport, bd);
+        new(buffer, CHUNK) PayloadChunk(data, dataLength, transport, srq, bd);
     Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
     return chunk;
 }
@@ -1039,6 +1146,8 @@ InfRcTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
  *      subregion of the payload.
  * \param transport
  *      The transport that owns the provided BufferDescriptor 'bd'.
+ * \param srq
+ *      The shared receive queue which bd will be returned to.
  * \param bd
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
@@ -1047,10 +1156,11 @@ InfRcTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
                                             InfRcTransport* transport,
+                                            ibv_srq* srq,
                                             BufferDescriptor* bd)
 {
     PayloadChunk* chunk =
-        new(buffer, CHUNK) PayloadChunk(data, dataLength, transport, bd);
+        new(buffer, CHUNK) PayloadChunk(data, dataLength, transport, srq, bd);
     Buffer::Chunk::appendChunkToBuffer(buffer, chunk);
     return chunk;
 }
@@ -1058,7 +1168,7 @@ InfRcTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
 /// Returns memory to the HCA once the Chunk is discarded.
 InfRcTransport::PayloadChunk::~PayloadChunk()
 {
-    transport->ibPostSrqReceive(bd);
+    transport->ibPostSrqReceive(srq, bd);
 }
 
 /**
@@ -1072,15 +1182,19 @@ InfRcTransport::PayloadChunk::~PayloadChunk()
  *      subregion of the payload.
  * \param transport
  *      The transport that owns the provided BufferDescriptor 'bd'.
+ * \param srq
+ *      The shared receive queue which bd will be returned to.
  * \param bd 
  *      The BufferDescriptor to return to the HCA on Buffer destruction.
  */
 InfRcTransport::PayloadChunk::PayloadChunk(void* data,
                                           uint32_t dataLength,
                                           InfRcTransport *transport,
+                                          ibv_srq* srq,
                                           BufferDescriptor* bd)
     : Buffer::Chunk(data, dataLength),
       transport(transport),
+      srq(srq),
       bd(bd)
 {
 }

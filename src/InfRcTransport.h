@@ -23,6 +23,7 @@
 #include <string>
 #include <boost/unordered_map.hpp>
 
+#include "BoostIntrusive.h"
 #include "Common.h"
 #include "Segment.h"
 #include "Transport.h"
@@ -36,6 +37,7 @@ class InfRcTransport : public Transport {
     // forward declarations
     struct BufferDescriptor;
     class  QueuePair;
+    class InfRCSession;
 
   public:
     explicit InfRcTransport(const ServiceLocator* sl = NULL);
@@ -60,38 +62,67 @@ class InfRcTransport : public Transport {
     }
     uint32_t getMaxRpcSize() const;
 
+  private:
     class ServerRpc : public Transport::ServerRpc {
         public:
-            explicit ServerRpc(InfRcTransport* transport, QueuePair* qp);
+            explicit ServerRpc(InfRcTransport* transport, QueuePair* qp,
+                               uint64_t nonce);
             void sendReply();
         private:
             InfRcTransport* transport;
             QueuePair*      qp;
+            /// Uniquely identifies the RPC.
+            uint64_t        nonce;
             DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
 
     class ClientRpc : public Transport::ClientRpc {
         public:
             explicit ClientRpc(InfRcTransport* transport,
-                               QueuePair* qp,
-                               Buffer* response);
+                               InfRCSession* session,
+                               Buffer* request,
+                               Buffer* response,
+                               uint64_t nonce);
             void getReply();
+            void sendOrQueue();
         private:
             InfRcTransport*     transport;
-            QueuePair*          qp;
+            InfRCSession*       session;
+            Buffer*             request;
             Buffer*             response;
+            /// Uniquely identifies the RPC.
+            uint64_t            nonce;
+            enum {
+                PENDING,
+                REQUEST_SENT,
+                RESPONSE_RECEIVED,
+            } state;
+        public:
+            IntrusiveListHook   queueEntries;
+            friend class InfRCSession;
+            friend class InfRcTransport;
             DISALLOW_COPY_AND_ASSIGN(ClientRpc);
     };
 
-  private:
+    /**
+     * A header that goes at the start of every RPC request and response.
+     */
+    struct Header {
+        explicit Header(uint64_t nonce) : nonce(nonce) {}
+        /// Uniquely identifies the RPC.
+        uint64_t nonce;
+    };
+
     // maximum RPC size we'll permit. we'll use the segment size plus a
     // little extra for header overhead, etc.
     static const uint32_t MAX_RPC_SIZE = Segment::SEGMENT_SIZE + 4096;
     static const uint32_t MAX_INLINE_DATA = 400;
-    static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 4;
+    static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 8;
     static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 64;
     static const uint32_t MAX_TX_SGE_COUNT = 8;
+
+    INTRUSIVE_LIST_TYPEDEF(ClientRpc, queueEntries) ClientRpcList;
 
     class InfRCSession : public Session {
       public:
@@ -104,6 +135,7 @@ class InfRcTransport : public Transport {
       private:
         InfRcTransport *transport;
         QueuePair* qp;
+        friend class ClientRpc;
         DISALLOW_COPY_AND_ASSIGN(InfRCSession);
     };
 
@@ -184,11 +216,13 @@ class InfRcTransport : public Transport {
                                              char* data,
                                              uint32_t dataLength,
                                              InfRcTransport* transport,
+                                             ibv_srq* srq,
                                              BufferDescriptor* bd);
         static PayloadChunk* appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
                                             InfRcTransport* transport,
+                                            ibv_srq* srq,
                                             BufferDescriptor* bd);
         ~PayloadChunk();
 
@@ -196,20 +230,24 @@ class InfRcTransport : public Transport {
         PayloadChunk(void* data,
                      uint32_t dataLength,
                      InfRcTransport* transport,
+                     ibv_srq* srq,
                      BufferDescriptor* bd);
 
         InfRcTransport* transport;
 
         /// Return the PayloadChunk memory here.
+        ibv_srq* srq;
         BufferDescriptor* const bd;
 
         DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
 
+    void poll();
+
     // infiniband helper functions
     ibv_device* ibFindDevice(const char *name);
     int ibGetLid();
-    void ibPostSrqReceive(BufferDescriptor *bd);
+    void ibPostSrqReceive(ibv_srq* srq, BufferDescriptor *bd);
     void ibPostSend(QueuePair* qp, BufferDescriptor* bd, uint32_t length);
     void ibPostSendAndWait(QueuePair* qp, BufferDescriptor* bd,
                            uint32_t length);
@@ -219,16 +257,19 @@ class InfRcTransport : public Transport {
     QueuePair* clientTrySetupQueuePair(const char* ip, int port);
     void       serverTrySetupQueuePair();
 
-    BufferDescriptor    rxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
+    BufferDescriptor    serverRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
+    BufferDescriptor    clientRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
 
     BufferDescriptor    txBuffers[MAX_TX_QUEUE_DEPTH];
     int                 currentTxBuffer;
 
-    ibv_srq*     srq;               // shared receive work queue
+    ibv_srq*     serverSrq;         // shared receive work queue for server
+    ibv_srq*     clientSrq;         // shared receive work queue for client
     ibv_device*  dev;               // infiniband HCA device we're using
     ibv_context* ctxt;              // HCA device context (handle)
     ibv_pd*      pd;                // protection domain for registered memory
     ibv_cq*      serverRxCq;        // completion queue for serverRecv
+    ibv_cq*      clientRxCq;        // completion queue for client getReply
     ibv_cq*      commonTxCq;        // common completion queue for all transmits
     int          ibPhysicalPort;    // physical port number on the HCA
     int          udpListenPort;     // UDP port number for server's setupSocket
@@ -247,6 +288,23 @@ class InfRcTransport : public Transport {
     static uint64_t totalSendReplyCopyTime;
     /// For tracking stats on how much data is memcpyed on reply TX.
     static uint64_t totalSendReplyCopyBytes;
+
+    /**
+     * RPCs which are waiting for a receive buffer to become available before
+     * their request can be sent. See #ClientRpc::sendOrQueue().
+     */
+    ClientRpcList clientSendQueue;
+
+    /**
+     * The number of client receive buffers that are in use, either from
+     * outstandingRpcs or from RPC responses that have borrowed these buffers
+     * and will return them with the PayloadChunk mechanism.
+     * Invariant: numUsedClientSrqBuffers <= MAX_SHARED_RX_QUEUE_DEPTH.
+     */
+    uint32_t numUsedClientSrqBuffers;
+
+    /// RPCs which are awaiting their responses from the network.
+    ClientRpcList outstandingRpcs;
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };
