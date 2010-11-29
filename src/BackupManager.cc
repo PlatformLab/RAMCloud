@@ -224,10 +224,15 @@ BackupManager::recover(MasterServer& recoveryMaster,
     LOG(NOTICE, "Recovering master %lu, %u tablets, %u hosts",
         masterId, tablets.tablet_size(), backups.server_size());
 
+#if TESTING
     if (!mockRandomValue)
         srand(rdtsc());
     else
         srand(0);
+#else
+    srand(rdtsc());
+#endif
+
 #ifdef PERF_DEBUG_RECOVERY_SERIAL
     // for each backup that names an unrec seg getRecData, pass to Server
     SegmentLocatorChooser chooser(backups);
