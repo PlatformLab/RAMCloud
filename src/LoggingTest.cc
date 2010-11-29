@@ -157,10 +157,7 @@ class LoggingTest : public CppUnit::TestFixture {
             int64_t streamPos = ftell(logger.stream);
             fclose(logger.stream);
             CPPUNIT_ASSERT(streamPos > 0);
-            const char* pattern = "^src/LoggingTest.cc:[[:digit:]]\\{1,4\\} "
-                                  "default ERROR\\[[[:digit:]]\\{1,5\\}\\]: "
-                                  "rofl: 3$";
-            assertMatchesPosixRegex(pattern, e.message.c_str());
+            CPPUNIT_ASSERT_EQUAL("rofl: 3", e.message);
             return;
         }
         fclose(logger.stream);
