@@ -103,6 +103,10 @@ CoordinatorClient::openTable(const char* name)
 
 /**
  * Servers call this when they come online to beg for work.
+ * \param serverType
+ *      Master, etc.
+ * \param localServiceLocator
+ *      The service locator describing how other hosts can contact the server.
  * \return
  *      A server ID guaranteed never to have been used before.
  */
@@ -138,6 +142,8 @@ CoordinatorClient::enlistServer(ServerType serverType,
 /**
  * List all live backup servers.
  * Masters call and cache this periodically to find backups.
+ * \param[out] serverList
+ *      An empty ServerList that will be filled with current backup servers.
  */
 void
 CoordinatorClient::getBackupList(ProtoBuf::ServerList& serverList)
@@ -158,6 +164,7 @@ CoordinatorClient::getBackupList(ProtoBuf::ServerList& serverList)
  * If the returned data becomes too big, we should add parameters to
  * specify a subrange.
  * \param[out] tabletMap
+ *      An empty Tablets that will be filled with current tablets.
  *      Each tablet has a service locator string describing where to find
  *      its master.
  */
