@@ -138,7 +138,7 @@ class LoggingTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, size);
 
         LOG(ERROR, "rofl: %d", 3);
-        const char* pattern = "^[[:digit:]]\\{10\\}\\.[[:digit:]]\\{6\\} "
+        const char* pattern = "^[[:digit:]]\\{10\\}\\.[[:digit:]]\\{9\\} "
                               "src/LoggingTest.cc:[[:digit:]]\\{1,4\\} "
                               "in LoggingTest::test_LOG "
                               "default ERROR\\[[[:digit:]]\\{1,5\\}\\]: "

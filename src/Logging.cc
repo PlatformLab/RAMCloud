@@ -14,7 +14,7 @@
  */
 
 #include <stdarg.h>
-#include <sys/time.h>
+#include <time.h>
 #include "Logging.h"
 
 namespace RAMCloud {
@@ -270,11 +270,11 @@ Logger::logMessage(LogModule module, LogLevel level,
 {
     static int pid = getpid();
     va_list ap;
-    struct timeval now;
+    struct timespec now;
 
-    gettimeofday(&now, NULL);
-    fprintf(stream, "%010u.%06u %s:%d in %s %s %s[%d]: ",
-            now.tv_sec, now.tv_usec,
+    clock_gettime(CLOCK_REALTIME, &now);
+    fprintf(stream, "%010u.%09u %s:%d in %s %s %s[%d]: ",
+            now.tv_sec, now.tv_nsec,
             where.relativeFile().c_str(), where.line,
             where.qualifiedFunction().c_str(),
             logModuleNames[module],
