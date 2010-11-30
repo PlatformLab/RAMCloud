@@ -82,9 +82,9 @@ sort /tmp/*.rclog > /tmp/rclog
 # Extract values and dump to stdout, useful when all processes are run in separate
 # xterms, otherwise it's best to extract values directly from the leftover /tmp/rclog
 awk '
-/Performing/ { count=$6; size=$9; }
-/read after recovery took/ { ticks=$9; }
-/Bytes written/ { if ($7 != 0) { written=$7; } }
-/Bytes logged/ { if ($8 != 0) { logged=$8; } }
+/Performing/ { count=$8; size=$11; }
+/All tables recovered in/ { ticks=$11; }
+/Bytes written/ { if ($9 != 0) { written=$9; } }
+/Bytes logged/ { if ($10 != 0) { logged=$10; } }
 END { print count " " size " " written " " logged " " ticks; }
 ' /tmp/rclog

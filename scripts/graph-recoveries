@@ -1,5 +1,7 @@
 #!/bin/bash
 
+umask 0000
+
 source ./scripts/common.bash
 
 # these keep constant written data (640MB)
@@ -64,10 +66,10 @@ while [ "${flags[i]}" != "" ]; do
         ./scripts/recovery -s $size -n $count
         ## extract the results from the run log and concat them
         awk '
-        /Performing/ { count=$6; size=$9; }
-        /read after recovery took/ { ticks=$9; }
-        /Bytes written/ { if ($7 != 0) { written=$7; } }
-        /Bytes logged/ { if ($8 != 0) { logged=$8; } }
+        /Performing/ { count=$8; size=$11; }
+        /All tables recovered in/ { ticks=$11; }
+        /Bytes written/ { if ($9 != 0) { written=$9; } }
+        /Bytes logged/ { if ($10 != 0) { logged=$10; } }
         END { print (count/1000000) " " size " " written " " logged " " (ticks/2.4/1000/1000); }
         ' /tmp/rclog >> /tmp/recovery-results-$i
     done
