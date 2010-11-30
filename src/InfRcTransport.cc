@@ -207,6 +207,12 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
         LOG(ERROR, "%s: failed to create client socket", __func__);
         throw TransportException(HERE, "client socket failed");
     }
+    try {
+        setNonBlocking(clientSetupSocket);
+    } catch (...) {
+        close(clientSetupSocket);
+        throw;
+    }
 
     // If this is a server, create a server setup socket and bind it.
     if (sl != NULL) {
@@ -228,16 +234,11 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
             throw TransportException(HERE, "socket failed");
         }
 
-        int flags = fcntl(serverSetupSocket, F_GETFL);
-        if (flags == -1) {
+        try {
+            setNonBlocking(serverSetupSocket);
+        } catch (...) {
             close(serverSetupSocket);
-            LOG(ERROR, "%s: fcntl F_GETFL failed", __func__);
-            throw TransportException(HERE, "fnctl failed");
-        }
-        if (fcntl(serverSetupSocket, F_SETFL, flags | O_NONBLOCK)) {
-            close(serverSetupSocket);
-            LOG(ERROR, "%s: fcntl F_GETFL failed", __func__);
-            throw TransportException(HERE, "fnctl failed");
+            throw;
         }
     }
 
@@ -300,6 +301,20 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
     commonTxCq = ibv_create_cq(ctxt, MAX_TX_QUEUE_DEPTH, NULL, NULL, 0);
     check_error_null(commonTxCq,
                      "failed to create transmit completion queue");
+}
+
+void
+InfRcTransport::setNonBlocking(int fd)
+{
+    int flags = fcntl(fd, F_GETFL);
+    if (flags == -1) {
+        LOG(ERROR, "%s: fcntl F_GETFL failed", __func__);
+        throw TransportException(HERE, "fnctl failed");
+    }
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK)) {
+        LOG(ERROR, "%s: fcntl F_SETFL failed", __func__);
+        throw TransportException(HERE, "fnctl failed");
+    }
 }
 
 /**
@@ -439,55 +454,56 @@ InfRcTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
 bool
 InfRcTransport::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
     QueuePairTuple *outgoingQpt, QueuePairTuple *incomingQpt,
-    suseconds_t usTimeout)
+    uint32_t usTimeout)
 {
-    assert(usTimeout < 1000000);
-
-    ssize_t len = sendto(clientSetupSocket, outgoingQpt, sizeof(*outgoingQpt),
-        0, reinterpret_cast<sockaddr *>(sin), sizeof(*sin));
-    if (len != sizeof(*outgoingQpt)) {
-        LOG(ERROR, "%s: sendto was short: %Zd: %s: "
-                   "sending to ip: [%s] port: [%d]",
-            __func__, len, strerror(errno), inet_ntoa(sin->sin_addr),
-            htons(sin->sin_port));
-        throw TransportException(HERE, len);
-    }
+    bool haveSent = false;
 
     while (1) {
         TimeCounter startTime;
 
-        fd_set fds;
-        FD_ZERO(&fds);
-        FD_SET(clientSetupSocket, &fds);
-
-        struct timeval timeout;
-        timeout.tv_sec = 0;
-        timeout.tv_usec = usTimeout;
-
-        int ret = select(clientSetupSocket + 1, &fds, NULL, NULL, &timeout);
-        if (ret == 0)
-            return false;
-        if (ret == -1 && errno != EINTR) {
-            LOG(ERROR, "%s: select failed with errno %d: %s", __func__, errno,
-                strerror(errno));
-            throw TransportException(HERE, errno);
+        if (!haveSent) {
+            ssize_t len = sendto(clientSetupSocket, outgoingQpt,
+                sizeof(*outgoingQpt), 0, reinterpret_cast<sockaddr *>(sin),
+                sizeof(*sin));
+            if (len == -1) {
+                if (errno != EINTR && errno != EAGAIN) {
+                    LOG(ERROR, "%s: sendto returned error %d: %s",
+                        __func__, errno, strerror(errno));
+                    throw TransportException(HERE, len);
+                }
+            } else if (len != sizeof(*outgoingQpt)) {
+                LOG(ERROR, "%s: sendto returned bad length (%Zd) while "
+                    "sending to ip: [%s] port: [%d]", __func__, len,
+                    inet_ntoa(sin->sin_addr), htons(sin->sin_port));
+                throw TransportException(HERE, len);
+            } else {
+                haveSent = true;
+            }
         }
 
         socklen_t sinlen = sizeof(sin);
-        len = recvfrom(clientSetupSocket, incomingQpt, sizeof(*incomingQpt), 0,
+        ssize_t len = recvfrom(clientSetupSocket, incomingQpt,
+            sizeof(*incomingQpt), 0,
             reinterpret_cast<sockaddr *>(&sin), &sinlen);
-        if (len != sizeof(*incomingQpt)) {
-            LOG(ERROR, "%s: recvfrom was short: %Zd (errno %d: %s)", __func__,
-                len, errno, strerror(errno));
+        if (len == -1) {
+            if (errno != EINTR && errno != EAGAIN) {
+                LOG(ERROR, "%s: recvfrom returned error %d: %s",
+                    __func__, errno, strerror(errno));
+                throw TransportException(HERE, len);
+            }
+        } else if (len != sizeof(*incomingQpt)) {
+            LOG(ERROR, "%s: recvfrom returned bad length (%Zd) while "
+                "receiving from ip: [%s] port: [%d]", __func__, len,
+                inet_ntoa(sin->sin_addr), htons(sin->sin_port));
             throw TransportException(HERE, len);
+        } else {
+            if (outgoingQpt->getNonce() == incomingQpt->getNonce())
+                return true;
+
+            LOG(WARNING,
+                "%s: received nonce doesn't match (0x%16lx != 0x%16lx)",
+                __func__, outgoingQpt->getNonce(), incomingQpt->getNonce());
         }
-
-        if (outgoingQpt->getNonce() == incomingQpt->getNonce())
-            return true;
-
-        LOG(WARNING,
-            "%s: received nonce doesn't match (0x%16lx != 0x%16lx)",
-            __func__, outgoingQpt->getNonce(), incomingQpt->getNonce());
 
         uint64_t elapsedUs = startTime.stop() / 1000;
         if (elapsedUs >= (uint64_t)usTimeout)

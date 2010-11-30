@@ -247,6 +247,9 @@ class InfRcTransport : public Transport {
 
     void poll();
 
+    // misc helper functions
+    void setNonBlocking(int fd);
+
     // infiniband helper functions
     ibv_device* ibFindDevice(const char *name);
     int ibGetLid();
@@ -261,7 +264,7 @@ class InfRcTransport : public Transport {
     bool       clientTryExchangeQueuePairs(struct sockaddr_in *sin,
                                            QueuePairTuple *outgoingQpt,
                                            QueuePairTuple *incomingQpt,
-                                           suseconds_t usTimeout);
+                                           uint32_t usTimeout);
     void       serverTrySetupQueuePair();
 
     BufferDescriptor    serverRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
