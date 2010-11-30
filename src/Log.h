@@ -24,18 +24,10 @@
 #include "Segment.h"
 #include "BackupManager.h"
 
-using boost::unordered_map;
-using std::vector;
-
 namespace RAMCloud {
 
 // forward decl around the circular Log/LogCleaner dependency
 class LogCleaner;
-
-typedef void (*LogSegmentCallback)(Segment *, void *);
-typedef unordered_map<LogEntryType, LogTypeCallback *> CallbackMap;
-typedef unordered_map<uint64_t, Segment *> ActiveIdMap;
-typedef unordered_map<const void *, Segment *> BaseAddressMap;
 
 /**
  * An exception that is thrown when the Log class is provided invalid
@@ -87,12 +79,15 @@ class Log {
     /// Current head of the log
     Segment *head;
 
+    typedef boost::unordered_map<LogEntryType, LogTypeCallback *> CallbackMap;
     /// Per-LogEntryType callbacks (e.g. for eviction)
     CallbackMap callbackMap;
 
+    typedef boost::unordered_map<uint64_t, Segment *> ActiveIdMap;
     /// Segment Id -> Segment * lookup within the active list
     ActiveIdMap activeIdMap;
 
+    typedef boost::unordered_map<const void *, Segment *> BaseAddressMap;
     /// Segment base address -> Segment * lookup within the active list
     BaseAddressMap activeBaseAddressMap;
 
