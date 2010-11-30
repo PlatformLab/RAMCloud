@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_MASTERSERVER_H
 #define RAMCLOUD_MASTERSERVER_H
 
+#include <boost/unordered_map.hpp>
+
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "Object.h"
@@ -46,7 +48,7 @@ class SegmentLocatorChooser {
 
   private:
     /// Type of the internal data structure that does the heavy lifting.
-    typedef std::multimap<uint64_t, string> LocatorMap;
+    typedef boost::unordered_multimap<uint64_t, string> LocatorMap;
 
     /// A pair of iterators used when finding elements for a key.
     typedef pair<LocatorMap::const_iterator, LocatorMap::const_iterator>

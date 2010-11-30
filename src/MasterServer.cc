@@ -82,7 +82,8 @@ SegmentLocatorChooser::get(uint64_t segmentId)
     if (range.first == range.second)
         throw SegmentRecoveryFailedException(HERE);
 
-    LocatorMap::size_type random = generateRandom() % count;
+    // Using rdtsc() as a fast random number generator. Perhaps a bad idea.
+    LocatorMap::size_type random = rdtsc() % count;
     LocatorMap::const_iterator it = range.first;
     for (LocatorMap::size_type i = 0; i < random; ++i)
         ++it;

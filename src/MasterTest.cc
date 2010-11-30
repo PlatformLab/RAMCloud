@@ -862,22 +862,23 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         }
 
         MockRandom __(1); // triggers deterministic rand().
+        MockTSC ___(2); // triggers deterministic selection of backup locator
         TestLog::Enable _(&recoverSegmentFilter);
         master->recover(99, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
             "recover: Recovering master 99, 4 tablets, 3 hosts | "
+            "recover: Waiting on recovery data for segment 88 from "
+            "mock:host=backup1 | "
+            "recover: Got it: 65536 bytes | "
+            "recover: Recovering with segment size 65536 | "
+            "recoverSegment: recoverSegment 88, ... | "
+            "recoverSegment: Segment 88 replay complete | "
             "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | "
             "recover: Got it: 65536 bytes | "
             "recover: Recovering with segment size 65536 | "
             "recoverSegment: recoverSegment 87, ... | "
-            "recoverSegment: Segment 87 replay complete | "
-            "recover: Waiting on recovery data for segment 88 from "
-            "mock:host=backup2 | "
-            "recover: Got it: 65536 bytes | "
-            "recover: Recovering with segment size 65536 | "
-            "recoverSegment: recoverSegment 88, ... | "
-            "recoverSegment: Segment 88 replay complete",
+            "recoverSegment: Segment 87 replay complete",
             TestLog::get());
     }
 
@@ -910,7 +911,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         string log = TestLog::get();
         CPPUNIT_ASSERT_EQUAL(
             "recover: Recovering master 99, 0 tablets, 2 hosts | "
-            "recover: Waiting on recovery data for segment 87 from "
+            "recover: Waiting on recovery data for segment 88 from "
             "mock:host=backup1 | "
             "recover: getRecoveryData failed on mock:host=backup1, "
             "trying next backup; failure was: bad segment id",
@@ -970,11 +971,11 @@ class SegmentLocatorChooserTest : public CppUnit::TestFixture {
 
         SegmentLocatorChooser chooser(backups);
         CPPUNIT_ASSERT_EQUAL(3, chooser.map.size());
-        MockRandom _(1);
+        MockTSC _(1);
         CPPUNIT_ASSERT_EQUAL("mock:host=backup1", chooser.get(87));
 
         CPPUNIT_ASSERT_EQUAL("mock:host=backup3", chooser.get(88));
-        mockRandomValue = 2;
+        MockTSC __(2);
         CPPUNIT_ASSERT_EQUAL("mock:host=backup2", chooser.get(88));
 
         CPPUNIT_ASSERT_THROW(chooser.get(90),
