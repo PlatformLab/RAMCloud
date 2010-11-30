@@ -29,6 +29,41 @@
 
 namespace RAMCloud {
 
+/**
+ * Provides two major functions to recovery masters; a segment recovery
+ * schedule and a mapping to available segment locations.
+ */
+class SegmentLocatorChooser {
+  public:
+
+    /// Schedule of segments to recover. Guaranteed to be a model of Container.
+    typedef vector<uint64_t> SegmentIdList;
+
+    explicit SegmentLocatorChooser(const ProtoBuf::ServerList& list);
+    const string& get(uint64_t segmentId);
+    const SegmentIdList& getSegmentIdList();
+    void markAsDown(uint64_t segmentId, const string& locator);
+
+  private:
+    /// Type of the internal data structure that does the heavy lifting.
+    typedef std::multimap<uint64_t, string> LocatorMap;
+
+    /// A pair of iterators used when finding elements for a key.
+    typedef pair<LocatorMap::const_iterator, LocatorMap::const_iterator>
+        ConstLocatorRange;
+    /// A pair of iterators used when finding elements for a key.  Mutable.
+    typedef pair<LocatorMap::iterator, LocatorMap::iterator> LocatorRange;
+
+    /// Tracks segment ids to locator strings where they can be fetched from.
+    LocatorMap map;
+
+    /// A random ordering of segment ids each of which must be recovered.
+    SegmentIdList ids;
+
+    friend class SegmentLocatorChooserTest;
+    DISALLOW_COPY_AND_ASSIGN(SegmentLocatorChooser);
+};
+
 struct ServerConfig {
     string coordinatorLocator;
     string localLocator;
@@ -190,10 +225,10 @@ class MasterServer : public Server {
     void recoverSegmentPrefetcher(SegmentIterator *i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
                         uint64_t bufferLength);
-    friend void BackupManager::recover(MasterServer& recoveryMaster,
-                                       uint64_t masterId,
-                                       const ProtoBuf::Tablets& tablets,
-                                       const ProtoBuf::ServerList& backups);
+
+    void recover(uint64_t masterId,
+                 const ProtoBuf::Tablets& tablets,
+                 const ProtoBuf::ServerList& backups);
 
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
@@ -262,6 +297,7 @@ class MasterServer : public Server {
                    uint32_t dataOffset, uint32_t dataLength,
                    uint64_t* newVersion);
     friend class MasterTest;
+    friend class MasterRecoverTest;
     friend class CoordinatorTest;
     friend class RecoverSegmentBenchmark;
     DISALLOW_COPY_AND_ASSIGN(MasterServer);
