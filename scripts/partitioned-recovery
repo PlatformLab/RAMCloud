@@ -10,9 +10,9 @@ umask 0000
 
 source ./scripts/common.bash
 
-proto=fast+udp
+#proto=fast+udp
 #proto=tcp
-#proto=infrc
+proto=infrc
 
 host[0]=10.0.0.3
 host[1]=10.0.0.4
