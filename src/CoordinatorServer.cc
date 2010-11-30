@@ -401,6 +401,7 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                     delete recovery;
                     // dump the tabletMap out for easy debugging
                     LOG(NOTICE, "Coordinator tabletMap:");
+#ifndef __INTEL_COMPILER
                     foreach (const ProtoBuf::Tablets::Tablet& tablet,
                              tabletMap.tablet()) {
                         LOG(NOTICE, "table: %lu [%lu:%lu] state: %u owner: %lu",
@@ -408,6 +409,7 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                             tablet.end_object_id(), tablet.state(),
                             tablet.server_id());
                     }
+#endif
                     return;
                 }
             }
