@@ -34,10 +34,6 @@ namespace RAMCloud {
  * \param[in] backup
  *      The BackupManager that will be used to make each of this Log's
  *      Segments durable.
- * \return
- *      The newly constructed Log object. The caller must first add backing
- *      Segment memory to the Log with #addSegmentMemory before any appends
- *      will succeed.
  * \throw LogException
  *      An exception is thrown if #logCapacity is not sufficient for
  *      a single segment's worth of log.
@@ -77,25 +73,21 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
  */
 Log::~Log()
 {
-    // NB: don't confuse Log::free() with std::free()!
+    // NB: don't confuse Log::free() with ::free()!
 
-    for (ActiveIdMap::iterator it = activeIdMap.begin();
-      it != activeIdMap.end(); it++) {
-        if (it->second == head)
-            head->close();
-        std::free(const_cast<void *>(it->second->getBaseAddress()));
-        delete it->second;
+    foreach (ActiveIdMap::value_type& idSegmentPair, activeIdMap) {
+        Segment* segment = idSegmentPair.second;
+        if (segment == head)
+            segment->close();
+        ::free(const_cast<void *>(segment->getBaseAddress()));
+        delete segment;
     }
 
-    for (vector<void *>::iterator it = segmentFreeList.begin();
-      it != segmentFreeList.end(); it++) {
-        std::free(*it);
-    }
+    foreach (void* segment, segmentFreeList)
+        ::free(segment);
 
-    for (CallbackMap::iterator it = callbackMap.begin();
-      it != callbackMap.end(); it++) {
-        delete it->second;
-    }
+    foreach (CallbackMap::value_type& typeCallbackPair, callbackMap)
+        delete typeCallbackPair.second;
 
     delete cleaner;
 }
@@ -131,10 +123,10 @@ Log::getSegmentId(const void *p)
 {
     const void *base = getSegmentBaseAddress(p);
 
-    if (activeBaseAddressMap.find(base) == activeBaseAddressMap.end())
-        throw LogException(HERE, "free on invalid pointer");
-
-    Segment *s = activeBaseAddressMap[base];
+    BaseAddressMap::const_iterator it = activeBaseAddressMap.find(base);
+    if (it == activeBaseAddressMap.end())
+        throw LogException(HERE, "getSegmentId on invalid pointer");
+    Segment *s = it->second;
     return s->getId();
 }
 
@@ -217,10 +209,10 @@ Log::free(const void *p)
 {
     const void *base = getSegmentBaseAddress(p);
 
-    if (activeBaseAddressMap.find(base) == activeBaseAddressMap.end())
+    BaseAddressMap::const_iterator it = activeBaseAddressMap.find(base);
+    if (it == activeBaseAddressMap.end())
         throw LogException(HERE, "free on invalid pointer");
-
-    Segment *s = activeBaseAddressMap[base];
+    Segment *s = it->second;
     s->free(p);
 }
 
@@ -249,7 +241,7 @@ void
 Log::registerType(LogEntryType type,
                   log_eviction_cb_t evictionCB, void *evictionArg)
 {
-    if (callbackMap.find(type) != callbackMap.end())
+    if (contains(callbackMap, type))
         throw LogException(HERE, "type already registered with the Log");
 
     callbackMap[type] = new LogTypeCallback(type, evictionCB, evictionArg);
@@ -344,7 +336,7 @@ Log::getFromFreeList()
     if (segmentFreeList.empty())
         return NULL;
 
-    void *p = segmentFreeList[segmentFreeList.size() - 1];
+    void *p = segmentFreeList.back();
     segmentFreeList.pop_back();
 
     return p;

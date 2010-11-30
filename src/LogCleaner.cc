@@ -52,7 +52,7 @@ LogCleaner::clean(uint64_t numSegments)
     uint64_t maxCleanableSegs = log->activeIdMap.size() - 1;  // ignore head
     Segment *segments[maxCleanableSegs];
 
-    ActiveIdMap::iterator it = log->activeIdMap.begin();
+    Log::ActiveIdMap::iterator it = log->activeIdMap.begin();
     for (i = 0; it != log->activeIdMap.end(); it++) {
         if (it->second != log->head) {
             segments[i] = it->second;

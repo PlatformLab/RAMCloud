@@ -755,9 +755,16 @@ MasterServer::setTablets(const ProtoBuf::Tablets& newTablets)
     tablets = newTablets;
 
     // delete pre-existing tables that no longer live here
+#ifdef __INTEL_COMPILER
+    for (Tables::iterator it(tables.begin()); it != tables.end(); ++it) {
+        Tables::value_type oldTable = *it;
+        for (uint32_t i = 0; i < tablets.tablet_size(); ++i) {
+            const ProtoBuf::Tablets::Tablet& newTablet(tablets.tablet(i));
+#else
     foreach (Tables::value_type oldTable, tables) {
         foreach (const ProtoBuf::Tablets::Tablet& newTablet,
                  tablets.tablet()) {
+#endif
             if (oldTable.first == newTablet.table_id())
                 goto next;
         }
@@ -769,7 +776,12 @@ MasterServer::setTablets(const ProtoBuf::Tablets& newTablets)
 
     // create new Tables and assign all new tablets tables
     LOG(NOTICE, "Now serving tablets:");
+#ifdef __INTEL_COMPILER
+    for (uint32_t i = 0; i < tablets.tablet_size(); ++i) {
+        ProtoBuf::Tablets::Tablet& newTablet(*tablets.mutable_tablet(i));
+#else
     foreach (ProtoBuf::Tablets::Tablet& newTablet, *tablets.mutable_tablet()) {
+#endif
         LOG(NOTICE, "table: %20lu, start: %20lu, end  : %20lu",
             newTablet.table_id(), newTablet.start_object_id(),
             newTablet.end_object_id());

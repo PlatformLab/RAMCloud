@@ -64,7 +64,11 @@ namespace TestLog {
     void enable();
     string get();
     void log(const CodeLocation& where, const char* format, ...)
+#ifdef __INTEL_COMPILER
+        __attribute__((format(printf, 2, 3)));
+#else
         __attribute__((format(gnu_printf, 2, 3)));
+#endif
     void setPredicate(bool (*pred)(string));
 
     /**

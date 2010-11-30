@@ -7,6 +7,7 @@
 DEBUG ?= yes
 YIELD ?= no
 SSE ?= sse4.2
+COMPILER ?= gnu
 
 INFINIBAND := $(shell [ -e /usr/lib/libibverbs.so ] && echo -n "yes")
 
@@ -30,15 +31,21 @@ DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
 endif
 
 COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
-	        -fno-builtin -MD -m$(SSE) -march=core2 \
+	        -fno-builtin -MD -m$(SSE) \
 	        $(DEBUGFLAGS)
+ifeq ($(COMPILER),gnu)
+COMFLAGS += -march=core2
+endif
 COMWARNS := -Wall -Wformat=2 -Wextra \
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute
 CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
 		-Wbad-function-cast
 CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 		-Wcast-qual \
-		-Weffc++ -Wcast-align
+		-Wcast-align
+ifeq ($(COMPILER),gnu)
+CXXWARNS += -Weffc++
+endif
 # Too many false positives list:
 # -Wunreachable-code
 # Broken due to implicit promotion to int in g++ 4.4.4
@@ -64,6 +71,9 @@ CFLAGS := $(CFLAGS_BASE) -Werror $(CWARNS)
 CXXFLAGS_BASE := $(COMFLAGS) -std=c++98 $(LIBS) $(INCLUDES)
 CXXFLAGS_NOWERROR := $(CXXFLAGS_BASE) $(CXXWARNS)
 CXXFLAGS := $(CXXFLAGS_BASE) -Werror $(CXXWARNS) $(EXTRACXXFLAGS)
+ifeq ($(COMPILER),intel)
+CXXFLAGS = $(CXXFLAGS_BASE) $(CXXWARNS) $(EXTRACXXFLAGS)
+endif
 
 CC := gcc
 CXX := g++
