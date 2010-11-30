@@ -240,13 +240,17 @@ BackupClient::startReadingData(uint64_t masterId)
  *      The start of the data to be written into this segment.
  * \param length
  *      The length in bytes of the data to write.
+ * \param flags
+ *      Whether the write should open or close the segment or both or
+ *      neither.  Defaults to neither.
  */
 void
 BackupClient::writeSegment(uint64_t masterId,
-                         uint64_t segmentId,
-                         uint32_t offset,
-                         const void *buf,
-                         uint32_t length)
+                           uint64_t segmentId,
+                           uint32_t offset,
+                           const void *buf,
+                           uint32_t length,
+                           BackupWriteRpc::Flags flags)
 {
     Buffer req, resp;
     BackupWriteRpc::Request& reqHdr(allocHeader<BackupWriteRpc>(req));
@@ -254,6 +258,7 @@ BackupClient::writeSegment(uint64_t masterId,
     reqHdr.segmentId = segmentId;
     reqHdr.offset = offset;
     reqHdr.length = length;
+    reqHdr.flags = flags;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
     sendRecv<BackupWriteRpc>(session, req, resp);
     checkStatus(HERE);

@@ -410,12 +410,19 @@ struct BackupStartReadingDataRpc {
 
 struct BackupWriteRpc {
     static const RpcType type = BACKUP_WRITE;
+    enum Flags {
+        NONE = 0,
+        OPEN = 1,
+        CLOSE = 2,
+        OPENCLOSE = 3,
+    };
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;          ///< Server from whom the request is coming.
         uint64_t segmentId;         ///< Target segment to update.
         uint32_t offset;            ///< Offset into this segment to write at.
         uint32_t length;            ///< Number of bytes to write.
+        uint8_t flags;              ///< If open or close request.
         // Opaque byte string follows with data to write.
     };
     struct Response {

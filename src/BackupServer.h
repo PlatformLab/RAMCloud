@@ -117,6 +117,7 @@ class BackupServer : public Server {
     void openSegment(const BackupOpenRpc::Request& reqHdr,
                      BackupOpenRpc::Response& respHdr,
                      Transport::ServerRpc& rpc);
+    void openSegment(uint64_t masterId, uint64_t segmentId);
     void reserveSpace();
     void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                           BackupStartReadingDataRpc::Response& respHdr,

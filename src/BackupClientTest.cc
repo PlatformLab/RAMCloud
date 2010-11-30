@@ -114,7 +114,7 @@ class BackupClientTest : public CppUnit::TestFixture {
     {
         transport->setInput("0 0");
         backup->writeSegment(99, 88, 77, "test", 4);
-        CPPUNIT_ASSERT_EQUAL("clientSend: 133 0 99 0 88 0 77 4 test",
+        CPPUNIT_ASSERT_EQUAL("clientSend: 133 0 99 0 88 0 77 4 0 0 test",
                              transport->outputLog);
     }
 

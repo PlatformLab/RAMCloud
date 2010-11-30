@@ -390,10 +390,36 @@ BackupServer::openSegment(const BackupOpenRpc::Request& reqHdr,
                           BackupOpenRpc::Response& respHdr,
                           Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "Handling: %s %lu %lu",
-        __func__, reqHdr.masterId, reqHdr.segmentId);
+    openSegment(reqHdr.masterId, reqHdr.segmentId);
+}
 
-    SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
+/**
+ * Allocate space to receive backup writes for a segment.  If this call
+ * succeeds the Backup must not reject subsequest writes to this segment for
+ * lack of space.  This segment is guaranteed to be returned to a master
+ * recovering the the master this segment belongs to and will appear to be
+ * open.
+ *
+ * The caller must ensure that this masterId,segmentId pair is unique and
+ * hasn't been used before on this backup or any other.
+ *
+ * The storage space remains in use until the master calls freeSegment() or
+ * until the backup crashes.
+ *
+ * \param masterId
+ *      The server id of the master from which the segment data will come.
+ * \param segmentId
+ *      The segment id of the segment data to be written to this backup.
+ * \throw BackupSegmentAlreadyOpenException
+ *      If this segment is already open on this backup.
+ */
+void
+BackupServer::openSegment(uint64_t masterId, uint64_t segmentId)
+{
+    LOG(DEBUG, "Handling: %s %lu %lu",
+        __func__, masterId, segmentId);
+
+    SegmentInfo* info = findSegmentInfo(masterId, segmentId);
     if (info)
         throw BackupSegmentAlreadyOpenException(HERE);
 
@@ -403,14 +429,14 @@ BackupServer::openSegment(const BackupOpenRpc::Request& reqHdr,
     BackupStorage::Handle* handle;
     try {
         // Reserve the space for this on disk
-        handle = storage.allocate(reqHdr.masterId, reqHdr.segmentId);
+        handle = storage.allocate(masterId, segmentId);
     } catch (...) {
         // Release the staging memory if storage.allocate throws
         pool.free(segment);
         throw;
     }
 
-    segments[MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId)] =
+    segments[MasterSegmentIdPair(masterId, segmentId)] =
         SegmentInfo(segment, handle);
 }
 
@@ -480,6 +506,10 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
                            BackupWriteRpc::Response& respHdr,
                            Transport::ServerRpc& rpc)
 {
+    if (reqHdr.flags == BackupWriteRpc::OPEN ||
+        reqHdr.flags == BackupWriteRpc::OPENCLOSE)
+        openSegment(reqHdr.masterId, reqHdr.segmentId);
+
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info || info->state != SegmentInfo::OPEN)
         throw BackupBadSegmentIdException(HERE);
@@ -493,6 +523,10 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
 
     rpc.recvPayload.copy(sizeof(reqHdr), reqHdr.length,
                          &info->segment[reqHdr.offset]);
+
+    if (reqHdr.flags == BackupWriteRpc::CLOSE ||
+        reqHdr.flags == BackupWriteRpc::OPENCLOSE)
+        closeSegment(reqHdr.masterId, reqHdr.segmentId);
 }
 
 } // namespace RAMCloud

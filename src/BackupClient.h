@@ -71,7 +71,8 @@ class BackupClient : public Client {
                       uint64_t segmentId,
                       uint32_t offset,
                       const void *buf,
-                      uint32_t length);
+                      uint32_t length,
+                      BackupWriteRpc::Flags flags = BackupWriteRpc::NONE);
 
   private:
     /**
