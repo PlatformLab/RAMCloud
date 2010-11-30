@@ -19,6 +19,7 @@
  * using reliable connected queue-pairs (RC).
  */
 
+#include <time.h>
 #include <infiniband/verbs.h>
 #include <string>
 #include <boost/unordered_map.hpp>
@@ -121,6 +122,8 @@ class InfRcTransport : public Transport {
     static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 64;
     static const uint32_t MAX_TX_SGE_COUNT = 8;
+    static const uint32_t QP_EXCHANGE_USEC_TIMEOUT = 500;
+    static const uint32_t QP_EXCHANGE_MAX_TIMEOUTS = 10;
 
     INTRUSIVE_LIST_TYPEDEF(ClientRpc, queueEntries) ClientRpcList;
 
@@ -255,6 +258,10 @@ class InfRcTransport : public Transport {
 
     // queue pair connection setup helpers
     QueuePair* clientTrySetupQueuePair(const char* ip, int port);
+    bool       clientTryExchangeQueuePairs(struct sockaddr_in *sin,
+                                           QueuePairTuple *outgoingQpt,
+                                           QueuePairTuple *incomingQpt,
+                                           suseconds_t usTimeout);
     void       serverTrySetupQueuePair();
 
     BufferDescriptor    serverRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];

@@ -83,6 +83,7 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "Common.h"
+#include "TimeCounter.h"
 #include "Transport.h"
 #include "InfRcTransport.h"
 #include "ServiceLocator.h"
@@ -411,6 +412,91 @@ InfRcTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
 }
 
 /**
+ * Attempt to exchange QueuePair set up information by sending to the server
+ * and waiting for an appropriate response. Only one request is sent for each
+ * invocation, but the method may receive multiple reponses (e.g. delayed
+ * responses to a previous invocation). It only returns on a matched response,
+ * or if time runs out.
+ *
+ * \param sin
+ *      The server to send to.
+ * \param outgoingQpt
+ *      Pointer to the QueuePairTuple to send to the server.
+ * \param incomingQpt
+ *      Pointer to space in which to store the QueuePairTuple returned by
+ *      the server.
+ * \param usTimeout
+ *      Timeout to wait for a server response in microseconds.
+ * \return
+ *      true if a valid response was received within the specified amount of
+ *      time, else false if either nothing comes back in time, or the responses
+ *      received did not match the request (this can happen if responses are
+ *      delayed, rather than lost).
+ * \throw TransportException
+ *      An exception is thrown if any of the socket system calls fail for
+ *      some strange reason.
+ */
+bool
+InfRcTransport::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
+    QueuePairTuple *outgoingQpt, QueuePairTuple *incomingQpt,
+    suseconds_t usTimeout)
+{
+    assert(usTimeout < 1000000);
+
+    ssize_t len = sendto(clientSetupSocket, outgoingQpt, sizeof(*outgoingQpt),
+        0, reinterpret_cast<sockaddr *>(sin), sizeof(*sin));
+    if (len != sizeof(*outgoingQpt)) {
+        LOG(ERROR, "%s: sendto was short: %Zd: %s: "
+                   "sending to ip: [%s] port: [%d]",
+            __func__, len, strerror(errno), inet_ntoa(sin->sin_addr),
+            htons(sin->sin_port));
+        throw TransportException(HERE, len);
+    }
+
+    while (1) {
+        TimeCounter startTime;
+
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(clientSetupSocket, &fds);
+
+        struct timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = usTimeout;
+
+        int ret = select(clientSetupSocket + 1, &fds, NULL, NULL, &timeout);
+        if (ret == 0)
+            return false;
+        if (ret == -1 && errno != EINTR) {
+            LOG(ERROR, "%s: select failed with errno %d: %s", __func__, errno,
+                strerror(errno));
+            throw TransportException(HERE, errno);
+        }
+
+        socklen_t sinlen = sizeof(sin);
+        len = recvfrom(clientSetupSocket, incomingQpt, sizeof(*incomingQpt), 0,
+            reinterpret_cast<sockaddr *>(&sin), &sinlen);
+        if (len != sizeof(*incomingQpt)) {
+            LOG(ERROR, "%s: recvfrom was short: %Zd (errno %d: %s)", __func__,
+                len, errno, strerror(errno));
+            throw TransportException(HERE, len);
+        }
+
+        if (outgoingQpt->getNonce() == incomingQpt->getNonce())
+            return true;
+
+        LOG(WARNING,
+            "%s: received nonce doesn't match (0x%16lx != 0x%16lx)",
+            __func__, outgoingQpt->getNonce(), incomingQpt->getNonce());
+
+        uint64_t elapsedUs = startTime.stop() / 1000;
+        if (elapsedUs >= (uint64_t)usTimeout)
+            return false;
+        usTimeout -= elapsedUs;
+    }
+}
+
+/**
  * Attempt to set up a QueuePair with the given server. The client
  * allocates a QueuePair and sends the necessary tuple to the
  * server to begin the handshake. The server then replies with its
@@ -428,43 +514,39 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
     // can create its qp and reply with its parameters.
     QueuePair *qp = new QueuePair(ibPhysicalPort, pd, clientSrq,
                                   commonTxCq, clientRxCq);
-    QueuePairTuple outgoingQpt(ibGetLid(), qp->getLocalQpNumber(),
-        qp->getInitialPsn(), generateRandom());
 
-    ssize_t len = sendto(clientSetupSocket, &outgoingQpt, sizeof(outgoingQpt),
-        0, reinterpret_cast<sockaddr *>(&sin), sizeof(sin));
-    if (len != sizeof(outgoingQpt)) {
-        LOG(ERROR, "%s: sendto was short: %Zd: %s: "
-                   "sending to ip: [%s] port: [%d]",
-            __func__, len, strerror(errno), ip, port);
-        delete qp;
-        throw TransportException(HERE, len);
+    for (uint32_t i = 0; i < QP_EXCHANGE_MAX_TIMEOUTS; i++) {
+        QueuePairTuple outgoingQpt(ibGetLid(), qp->getLocalQpNumber(),
+            qp->getInitialPsn(), generateRandom());
+        QueuePairTuple incomingQpt;
+        bool gotResponse;
+
+        try {
+            gotResponse = clientTryExchangeQueuePairs(&sin, &outgoingQpt,
+                                                      &incomingQpt,
+                                                      QP_EXCHANGE_USEC_TIMEOUT);
+        } catch (...) {
+            delete qp;
+            throw;
+        }
+
+        if (!gotResponse) {
+            LOG(WARNING, "%s: timed out waiting for response; retrying",
+                __func__);
+            continue;
+        }
+
+        // plumb up our queue pair with the server's parameters.
+        qp->plumb(&incomingQpt);
+        return qp;
     }
 
-    QueuePairTuple incomingQpt;
-    socklen_t sinlen = sizeof(sin);
-    len = recvfrom(clientSetupSocket, &incomingQpt, sizeof(incomingQpt), 0,
-        reinterpret_cast<sockaddr *>(&sin), &sinlen);
-    if (len != sizeof(incomingQpt)) {
-        LOG(ERROR, "%s: recvfrom was short: %Zd (errno %d: %s)", __func__, len,
-            errno, strerror(errno));
-        delete qp;
-        throw TransportException(HERE, len);
-    }
-
-    // XXX- need to add timeout/retry here.
-
-    if (outgoingQpt.getNonce() != incomingQpt.getNonce()) {
-        LOG(ERROR, "%s: received nonce doesn't match (0x%16lx != 0x%16lx)",
-            __func__, outgoingQpt.getNonce(), incomingQpt.getNonce());
-        delete qp;
-        throw TransportException(HERE, len);
-    }
-
-    // plumb up our queue pair with the server's parameters.
-    qp->plumb(&incomingQpt);
-
-    return qp;
+    LOG(WARNING, "%s: failed to exchange with server (%s:%d) within allotted "
+        "%u microseconds (sent request %u times)\n", __func__, ip, port,
+        QP_EXCHANGE_USEC_TIMEOUT * QP_EXCHANGE_MAX_TIMEOUTS,
+        QP_EXCHANGE_MAX_TIMEOUTS);
+    delete qp;
+    throw TransportException(HERE, "failed to connect to host");
 }
 
 /**
