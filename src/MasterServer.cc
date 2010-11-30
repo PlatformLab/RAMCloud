@@ -374,9 +374,9 @@ MasterServer::recover(uint64_t masterId,
                 "failure was: %s", locator.c_str(), e.toString());
             continue;
         }
-        recoveryMaster.recoverSegment(segmentIdToRecover,
-                                      resp.getRange(0, resp.getTotalLength()),
-                                      resp.getTotalLength());
+        recoverSegment(segmentIdToRecover,
+                       resp.getRange(0, resp.getTotalLength()),
+                       resp.getTotalLength());
     }
 #else
     Buffer buffer1;
