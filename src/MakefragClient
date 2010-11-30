@@ -28,6 +28,7 @@ CLIENT_SRCFILES := \
 		   src/ServiceLocator.cc \
 		   src/Status.cc \
 		   src/TcpTransport.cc \
+           src/TimeCounter.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
 		   $(INFINIBAND_SRCFILES) \
