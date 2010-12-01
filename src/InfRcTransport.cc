@@ -501,7 +501,7 @@ InfRcTransport::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
                 return true;
 
             LOG(WARNING,
-                "%s: received nonce doesn't match (0x%16lx != 0x%16lx)",
+                "%s: received nonce doesn't match (0x%016lx != 0x%016lx)",
                 __func__, outgoingQpt->getNonce(), incomingQpt->getNonce());
         }
 
