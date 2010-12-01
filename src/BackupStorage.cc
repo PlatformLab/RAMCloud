@@ -15,6 +15,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 
@@ -62,7 +63,13 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
     if (fd == -1)
         throw BackupStorageException(HERE, errno);
 
-    if (!(openFlags & O_DIRECT))
+    // If its a regular file reserve space, otherwise
+    // assume its a device and we don't need to bother.
+    struct stat st;
+    int r = stat(filePath, &st);
+    if (r == -1)
+        return;
+    if (st.st_mode & S_IFREG)
         reserveSpace();
 }
 
