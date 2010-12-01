@@ -19,6 +19,8 @@
 #include <boost/pool/pool.hpp>
 #include <boost/dynamic_bitset.hpp>
 
+#include "Segment.h"
+
 namespace RAMCloud {
 
 struct BackupStorageException : public Exception {
@@ -30,6 +32,28 @@ struct BackupStorageException : public Exception {
         : Exception(where, errNo) {}
     BackupStorageException(const CodeLocation& where, string msg, int errNo)
         : Exception(where, msg, errNo) {}
+};
+
+struct SegmentAllocator
+{
+    typedef std::size_t size_type;
+    typedef std::ptrdiff_t difference_type;
+
+    static char*
+    malloc(const size_type bytes)
+    {
+        void* p;
+        int r = posix_memalign(&p, Segment::SEGMENT_SIZE, bytes);
+        if (r != 0)
+            throw std::bad_alloc();
+        return reinterpret_cast<char *>(p);
+    }
+
+    static void
+    free(char* const block)
+    {
+        std::free(block);
+    }
 };
 
 /**
@@ -270,7 +294,7 @@ class InMemoryStorage : public BackupStorage {
 
   private:
     /// A pool of segmentSize chunks used to store segments.
-    boost::pool<> pool;
+    boost::pool<SegmentAllocator> pool;
 
     /**
      * The number of free segmentFrames to accept storage to until

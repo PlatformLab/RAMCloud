@@ -139,7 +139,7 @@ class BackupServer : public Server {
      * A pool of aligned segments (supporting O_DIRECT) to avoid
      * the memory allocator.
      */
-    boost::pool<> pool;
+    boost::pool<SegmentAllocator> pool;
 
     /// Type of the key for the segments map.
     struct MasterSegmentIdPair {
