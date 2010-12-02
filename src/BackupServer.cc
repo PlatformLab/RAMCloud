@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <boost/scoped_ptr.hpp>
+
 #include "BackupServer.h"
 #include "BackupStorage.h"
 #include "Buffer.h"
@@ -274,7 +276,9 @@ try
     if (!info->segment) {
         char* segmentMem = static_cast<char*>(pool.malloc());
         try {
-            storage.getSegment(info->storageHandle, segmentMem);
+            boost::scoped_ptr<BackupStorage::Syncable> syncSegment(
+                storage.getSegment(info->storageHandle, segmentMem));
+            (*syncSegment)();
         } catch (...) {
             pool.free(segmentMem);
             throw;

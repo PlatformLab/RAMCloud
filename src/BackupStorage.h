@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_BACKUPSTORAGE_H
 #define RAMCLOUD_BACKUPSTORAGE_H
 
+#include <aio.h>
+
 #include <boost/pool/pool.hpp>
 #include <boost/dynamic_bitset.hpp>
 
@@ -108,6 +110,17 @@ class BackupStorage {
     };
 
     /**
+     * Represents an asynchronous action.  Invoking the action blocks until
+     * the result is ready.
+     */
+    class Syncable {
+      public:
+        virtual ~Syncable() {}
+        /// Block until this operation has completed.
+        virtual void operator()() {}
+    };
+
+    /**
      * Set aside storage for a specific segment and give a handle back
      * for working with that storage.
      *
@@ -130,16 +143,26 @@ class BackupStorage {
     virtual void free(Handle* handle) = 0;
 
     /**
-     * Fetch an entire segment from its reserved storage (see allocate() and
-     * putSegment()).
+     * Initiate the fetch of a segment from its reserved storage
+     * (see allocate() and putSegment()).
+     *
+     * Constructing a GetSegment initiates an asynchronous IO
+     * request to begin fetching the segment at the given handle.  Invoking
+     * it blocks until the fetch has completed.
      *
      * \param handle
      *      A Handle that was returned from this->allocate().
      * \param segment
-     *      The start of a contiguous region of memory where the segment
-     *      should be placed after being read from storage.
+     *      The start of a contiguous region of memory containing the
+     *      segment to be fetched.
+     * \return
+     *      A pointer to a Syncable which, when invoked, will block until
+     *      the segment has been fully fetched into #segment.  The caller
+     *      takes ownership and is responsible for freeing it only after
+     *      it had been invoked.
      */
-    virtual void getSegment(const Handle* handle, char* segment) = 0;
+    virtual BackupStorage::Syncable*
+    getSegment(const BackupStorage::Handle* handle, char* segment) = 0;
 
     /// Return the segmentSize this storage backend operates on.
     uint32_t getSegmentSize() const { return segmentSize; }
@@ -208,6 +231,20 @@ class SingleFileStorage : public BackupStorage {
       DISALLOW_COPY_AND_ASSIGN(Handle);
     };
 
+    /// See BackupStorage::getSegment().
+    class GetSegment : public BackupStorage::Syncable {
+      public:
+        GetSegment(SingleFileStorage& storage,
+                   const BackupStorage::Handle* handle,
+                   char* segment);
+        virtual void operator()();
+
+      private:
+        /// Linux AIO struct to manage the asynchronous read of the segment.
+        aiocb cb;
+        DISALLOW_COPY_AND_ASSIGN(GetSegment);
+    };
+
     SingleFileStorage(uint32_t segmentSize,
                       uint32_t segmentFrames,
                       const char* filePath,
@@ -216,8 +253,9 @@ class SingleFileStorage : public BackupStorage {
     virtual BackupStorage::Handle* allocate(uint64_t masterId,
                                             uint64_t segmentId);
     virtual void free(BackupStorage::Handle* handle);
-    virtual void getSegment(const BackupStorage::Handle* handle,
-                            char* segment);
+    virtual BackupStorage::Syncable*
+    getSegment(const BackupStorage::Handle* handle,
+               char* segment);
     virtual void putSegment(const BackupStorage::Handle* handle,
                             const char* segment);
 
@@ -243,6 +281,7 @@ class SingleFileStorage : public BackupStorage {
     /// The number of segments this storage can store simultaneously.
     const uint32_t segmentFrames;
 
+    friend class GetSegment;
     friend class SingleFileStorageTest;
     DISALLOW_COPY_AND_ASSIGN(SingleFileStorage);
 };
@@ -287,8 +326,9 @@ class InMemoryStorage : public BackupStorage {
     virtual BackupStorage::Handle* allocate(uint64_t masterId,
                                             uint64_t segmentId);
     virtual void free(BackupStorage::Handle* handle);
-    virtual void getSegment(const BackupStorage::Handle* handle,
-                            char* segment);
+    virtual BackupStorage::Syncable*
+    getSegment(const BackupStorage::Handle* handle,
+               char* segment);
     virtual void putSegment(const BackupStorage::Handle* handle,
                             const char* segment);
 
