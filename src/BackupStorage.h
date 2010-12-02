@@ -300,10 +300,18 @@ class InMemoryStorage : public BackupStorage {
      * is backed up at in RAM.
      */
     class Handle : public BackupStorage::Handle {
+      private:
+        /// A pool of segmentSize chunks used to store segments.
+        typedef boost::pool<SegmentAllocator> Pool;
+
       public:
         /// Create a Handle to segment storage at address.
         explicit Handle(char* address)
             : address(address)
+        {
+        }
+
+        ~Handle()
         {
         }
 
@@ -333,8 +341,9 @@ class InMemoryStorage : public BackupStorage {
                             const char* segment);
 
   private:
+    typedef boost::pool<SegmentAllocator> Pool;
     /// A pool of segmentSize chunks used to store segments.
-    boost::pool<SegmentAllocator> pool;
+    Pool pool;
 
     /**
      * The number of free segmentFrames to accept storage to until

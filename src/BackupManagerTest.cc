@@ -140,7 +140,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT(mgr->openHosts.empty());
         CPPUNIT_ASSERT_EQUAL(2,
-            BackupStorage::Handle::resetAllocatedHandlesCount());
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -179,7 +179,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
         it++;
         CPPUNIT_ASSERT(mgr->segments.end() == it);
         CPPUNIT_ASSERT_EQUAL(2,
-            BackupStorage::Handle::resetAllocatedHandlesCount());
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -211,7 +211,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
         mgr->openSegment(99, 88);
         CPPUNIT_ASSERT_EQUAL(2, mgr->openHosts.size());
         CPPUNIT_ASSERT_EQUAL(2,
-            BackupStorage::Handle::resetAllocatedHandlesCount());
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -221,7 +221,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(mgr->openSegment(99, 88),
                              FatalError);
         CPPUNIT_ASSERT_EQUAL(0,
-            BackupStorage::Handle::resetAllocatedHandlesCount());
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -231,7 +231,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(mgr->openSegment(99, 88),
                              FatalError);
         CPPUNIT_ASSERT_EQUAL(2,
-            BackupStorage::Handle::resetAllocatedHandlesCount());
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
   private:

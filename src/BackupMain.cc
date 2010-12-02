@@ -83,7 +83,7 @@ try
         storage.reset(new SingleFileStorage(Segment::SEGMENT_SIZE,
                                             segmentCount,
                                             backupFile.c_str(),
-                                            O_DIRECT | O_SYNC | O_NOATIME);
+                                            O_DIRECT | O_SYNC | O_NOATIME));
 
     BackupServer server(config, *storage);
     server.run();

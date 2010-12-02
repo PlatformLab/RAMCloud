@@ -250,7 +250,6 @@ InMemoryStorage::InMemoryStorage(uint32_t segmentSize,
 /// Free up all storage.
 InMemoryStorage::~InMemoryStorage()
 {
-    pool.purge_memory();
 }
 
 // See BackupStorage::allocate().
