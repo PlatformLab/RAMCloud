@@ -30,19 +30,22 @@ struct SegmentEntry {
     LogEntryType type;
     uint32_t     length;
 } __attribute__((__packed__));
-static_assert(sizeof(SegmentEntry) == 8);
+static_assert(sizeof(SegmentEntry) == 8,
+              "SegmentEntry has unexpected padding");
 
 struct SegmentHeader {
     uint64_t logId;
     uint64_t segmentId;
     uint32_t segmentCapacity;
 } __attribute__((__packed__));
-static_assert(sizeof(SegmentHeader) == 20);
+static_assert(sizeof(SegmentHeader) == 20,
+              "SegmentHeader has unexpected padding");
 
 struct SegmentFooter {
     SegmentChecksum::ResultType checksum;
 } __attribute__((__packed__));
-static_assert(sizeof(SegmentFooter) == sizeof(SegmentChecksum::ResultType));
+static_assert(sizeof(SegmentFooter) == sizeof(SegmentChecksum::ResultType),
+              "SegmentFooter has unexpected padding");
 
 typedef void (*SegmentEntryCallback)(LogEntryType, const void *,
                                      uint64_t, void *);
@@ -68,11 +71,11 @@ class Segment {
     typedef SegmentChecksum Checksum;
 
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
-            uint64_t capacity, BackupManager* backup = NULL);
+            uint32_t capacity, BackupManager* backup = NULL);
     ~Segment();
 
     const void      *append(LogEntryType type, const void *buffer,
-                            uint64_t length, bool sync = true);
+                            uint32_t length, bool sync = true);
     void             free(const void *p);
     void             close();
     const void      *getBaseAddress() const;
@@ -86,10 +89,10 @@ class Segment {
     static const uint64_t  RABIN_POLYNOMIAL = 0x92d42091a28158a5ull;
 
   private:
-    const void      *forceAppendBlob(const void *buffer, uint64_t length,
+    const void      *forceAppendBlob(const void *buffer, uint32_t length,
                                      bool updateChecksum = true);
     const void      *forceAppendWithEntry(LogEntryType type,
-                                          const void *buffer, uint64_t length,
+                                          const void *buffer, uint32_t length,
                                           bool sync = true);
     void             syncToBackup();
 

@@ -43,7 +43,7 @@ namespace RAMCloud {
  *      The newly constructed Segment object.
  */
 Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
-    uint64_t capacity, BackupManager *backup)
+    uint32_t capacity, BackupManager *backup)
     : backup(backup),
       syncOffset(0),
       baseAddress(baseAddress),
@@ -93,7 +93,7 @@ Segment::~Segment()
  *      the same contents as `buffer'. On failure, NULL. 
  */
 const void *
-Segment::append(LogEntryType type, const void *buffer, uint64_t length,
+Segment::append(LogEntryType type, const void *buffer, uint32_t length,
     bool sync)
 {
     if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
@@ -119,7 +119,7 @@ Segment::free(const void *p)
         ((const uintptr_t)p - sizeof(SegmentEntry));
 
     // be sure to account for SegmentEntry structs before each append
-    uint64_t length = entry->length + sizeof(SegmentEntry);
+    uint32_t length = entry->length + sizeof(SegmentEntry);
 
     assert((bytesFreed + length) <= tail);
 
@@ -236,7 +236,7 @@ Segment::getUtilisation() const
  *      copied in to.
  */
 const void *
-Segment::forceAppendBlob(const void *buffer, uint64_t length,
+Segment::forceAppendBlob(const void *buffer, uint32_t length,
     bool updateChecksum)
 {
     assert((tail + length) <= capacity);
@@ -276,7 +276,7 @@ Segment::forceAppendBlob(const void *buffer, uint64_t length,
  */
 const void *
 Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
-    uint64_t length, bool sync)
+    uint32_t length, bool sync)
 {
     assert(!closed);
 

@@ -823,7 +823,7 @@ class HashTable {
 
         friend class HashTableEntryTest;
     };
-    static_assert(sizeof(Entry) == 8);
+    static_assert(sizeof(Entry) == 8, "HashTable::Entry is not 8 bytes");
 
     /**
      * The number of bytes per cache line in this machine.
@@ -836,7 +836,8 @@ class HashTable {
      */
     static const uint32_t ENTRIES_PER_CACHE_LINE = (BYTES_PER_CACHE_LINE /
                                                     sizeof(Entry));
-    static_assert(BYTES_PER_CACHE_LINE % sizeof(Entry) == 0);
+    static_assert(BYTES_PER_CACHE_LINE % sizeof(Entry) == 0,
+                  "BYTES_PER_CACHE_LINE not a multiple of sizeof(Entry)");
 
 
     /**
@@ -856,7 +857,8 @@ class HashTable {
          */
         Entry entries[ENTRIES_PER_CACHE_LINE];
     };
-    static_assert(sizeof(CacheLine) == sizeof(Entry) * ENTRIES_PER_CACHE_LINE);
+    static_assert(sizeof(CacheLine) == sizeof(Entry) * ENTRIES_PER_CACHE_LINE,
+                  "HashTable entries don't fit evenly into a cacheline");
 
     /**
      * The array of buckets.

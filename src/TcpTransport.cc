@@ -346,7 +346,7 @@ TcpTransport::TcpClientRpc::getReply()
 Transport::ServerRpc*
 TcpTransport::serverRecv()
 {
-    std::auto_ptr<TcpServerRpc> rpc(new TcpServerRpc());
+    std::unique_ptr<TcpServerRpc> rpc(new TcpServerRpc());
 
     try {
         rpc->serverSocket->init(&listenSocket);
@@ -360,7 +360,7 @@ TcpTransport::serverRecv()
 Transport::ClientRpc*
 TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* response)
 {
-    std::auto_ptr<TcpClientRpc> rpc(new TcpClientRpc());
+    std::unique_ptr<TcpClientRpc> rpc(new TcpClientRpc());
 
     rpc->clientSocket->init(address);
     rpc->clientSocket->send(request);

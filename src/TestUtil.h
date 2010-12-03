@@ -92,6 +92,26 @@ do {                                                                          \
     CppUnit::Asserter::fail(cpputMsg_, CPPUNIT_SOURCELINE());                 \
 } while (0)
 
+// Updated to support c++0x
+#undef CPPUNIT_TEST_SUITE_END
+#define CPPUNIT_TEST_SUITE_END()                                               \
+        }                                                                      \
+                                                                               \
+    static CPPUNIT_NS::TestSuite *suite()                                      \
+    {                                                                          \
+              const CPPUNIT_NS::TestNamer &namer = getTestNamer__();           \
+              std::unique_ptr<CPPUNIT_NS::TestSuite> suite(                    \
+                  new CPPUNIT_NS::TestSuite(namer.getFixtureName()));          \
+              CPPUNIT_NS::ConcretTestFixtureFactory<TestFixtureType> factory;  \
+              CPPUNIT_NS::TestSuiteBuilderContextBase context(*suite.get(),    \
+                                                              namer,           \
+                                                              factory);        \
+              TestFixtureType::addTestsToSuite(context);                       \
+              return suite.release();                                          \
+            }                                                                  \
+  private: /* dummy typedef so that the macro can still end with ';'*/         \
+    typedef int CppUnitDummyTypedefForSemiColonEnding__
+
 namespace CppUnit {
 
 extern void assertEquals(const char *expected, const char *actual,

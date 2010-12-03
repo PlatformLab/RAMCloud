@@ -63,10 +63,9 @@
  * \todo(ongaro): Embed an interpreter rather than having this awful language.
  */
 
-#include <boost/assign/list_of.hpp>
+#include <unordered_map>
 #include <boost/iterator/transform_iterator.hpp>
 #include <boost/shared_ptr.hpp>
-#include <boost/unordered_map.hpp>
 
 #include "BenchUtil.h"
 #include "Client.h"
@@ -161,7 +160,7 @@ typedef TestRef (*TestFactory)(const TestDescription&,
                                Transport::SessionRef server);
 
 /// Maps test names such as "echo" to test factories such as makeTest<Echo>.
-boost::unordered_map<string, TestFactory> testFactories;
+std::unordered_map<string, TestFactory> testFactories;
 
 /// Implements echo test command.
 struct Echo : public CTest {
@@ -392,11 +391,11 @@ class TSServer : public Server {
 int
 main(int argc, char *argv[])
 {
-    testFactories = boost::assign::map_list_of
-            ("remote", &makeTest<Remote>)
-            ("echo", &makeTest<Echo>)
-            ("echoRange", &makeTest<EchoRange>)
-            ("do", &makeTest<Do>);
+    testFactories.insert({ { "remote", &makeTest<Remote> }
+                         , { "echo", &makeTest<Echo> }
+                         , { "echoRange", &makeTest<EchoRange> }
+                         , { "do", &makeTest<Do> }
+                         });
     try {
         bool isClient = false;
         string testStr("echo:");

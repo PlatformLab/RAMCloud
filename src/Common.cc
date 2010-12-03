@@ -162,7 +162,7 @@ _generateRandom()
         };
         uint64_t all;
     } r;
-    static_assert(RAND_MAX >= (1 << 31));
+    static_assert(RAND_MAX >= (1 << 31), "RAND_MAX too small");
     r.all = 0;
     r.one = random(); // NOLINT
     r.two = random(); // NOLINT

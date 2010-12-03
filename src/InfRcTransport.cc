@@ -171,7 +171,8 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
       numUsedClientSrqBuffers(MAX_SHARED_RX_QUEUE_DEPTH),
       outstandingRpcs()
 {
-    static_assert(sizeof(InfRcTransport::QueuePairTuple) == 18);
+    static_assert(sizeof(InfRcTransport::QueuePairTuple) == 18,
+                  "QueuePairTuple has unexpected size");
 
     const char *ibDeviceName = NULL;
 

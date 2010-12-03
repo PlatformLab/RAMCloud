@@ -22,8 +22,26 @@
 #ifndef RAMCLOUD_COMMON_H
 #define RAMCLOUD_COMMON_H
 
+// Define nullptr for c++0x compatibility.
+// This will go away if we move to g++ 4.6.
+/// \cond
+const                        // this is a const object...
+class {
+  public:
+    template<class T>        // convertible to any type
+    operator T*() const      // of null non-member
+    { return 0; }            // pointer...
+
+    template<class C, class T> // or any type of null
+    operator T C::*() const    // member pointer...
+    { return 0; }
+  private:
+    void operator&() const;  // whose address can't be taken NOLINT
+} nullptr = {};              // and whose name is nullptr
+/// \endcond
+
 #define __STDC_LIMIT_MACROS
-#include <stdint.h> // requires 0x for cstdint
+#include <cstdint>
 
 // #include <cinttypes> // this requires c++0x support because it's c99
 // so we'll go ahead and use the C header
@@ -157,18 +175,6 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
 
     return p;
 }
-
-#define STATIC_ASSERT_CAT2(a, b) a##b
-#define STATIC_ASSERT_CAT(a, b) STATIC_ASSERT_CAT2(a, b)
-/**
- * Generate a compile-time error if \a x is false.
- * You can "call" this anywhere declaring an enum is allowed -- it doesn't
- * necessarily have to be inside a function.
- * \param x
- *      A condition that can be evaluated at compile-time.
- */
-#define static_assert(x) enum { \
-    STATIC_ASSERT_CAT(STATIC_ASSERT_FAILED_, __COUNTER__) = 1/(x) }
 
 #ifdef __cplusplus
 /**

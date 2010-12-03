@@ -515,9 +515,9 @@ class MasterTest : public CppUnit::TestFixture {
 
     void test_setTablets() {
 
-        std::auto_ptr<Table> table1(new Table(1));
+        std::unique_ptr<Table> table1(new Table(1));
         uint64_t addrTable1 = reinterpret_cast<uint64_t>(table1.get());
-        std::auto_ptr<Table> table2(new Table(2));
+        std::unique_ptr<Table> table2(new Table(2));
         uint64_t addrTable2 = reinterpret_cast<uint64_t>(table2.get());
 
         { // clear out the tablets through client

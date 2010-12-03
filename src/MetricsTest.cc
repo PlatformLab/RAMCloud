@@ -87,7 +87,8 @@ class MetricsTest : public CppUnit::TestFixture {
     void
     test_setup_fromRPC()
     {
-        static_assert(sizeof(RpcPerfCounter) == sizeof(uint32_t));
+        static_assert(sizeof(RpcPerfCounter) == sizeof(uint32_t),
+                      "RpcPerfCounter is expected to be 32-bit");
         RpcPerfCounter perfCounter;
         perfCounter.beginMark = MARK_RPC_PROCESSING_BEGIN;
         perfCounter.endMark = MARK_RPC_PROCESSING_END;

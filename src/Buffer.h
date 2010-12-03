@@ -520,8 +520,10 @@ class Buffer {
         INITIAL_ALLOCATION_SIZE = 2048,
     };
     static_assert((INITIAL_ALLOCATION_SIZE &
-                   (INITIAL_ALLOCATION_SIZE - 1)) == 0);
-    static_assert((INITIAL_ALLOCATION_SIZE >> 3) != 0);
+                   (INITIAL_ALLOCATION_SIZE - 1)) == 0,
+                  "INITIAL_ALLOCATION_SIZE must be a power of two");
+    static_assert((INITIAL_ALLOCATION_SIZE >> 3) != 0,
+                  "INITIAL_ALLOCATION_SIZE must be greater than 8");
 
     /**
      * A container for an Allocation that is allocated along with the Buffer.
@@ -549,7 +551,8 @@ class Buffer {
         char allocationManagedSpace[INITIAL_ALLOCATION_SIZE];
     } initialAllocationContainer;
     static_assert(sizeof(InitialAllocationContainer) ==
-                  sizeof(Allocation) + INITIAL_ALLOCATION_SIZE);
+                  sizeof(Allocation) + INITIAL_ALLOCATION_SIZE,
+                  "InitialAllocationContainer size mistmatch");
 
     /**
      * A singly-linked list of Allocation objects used by #allocateChunk(),

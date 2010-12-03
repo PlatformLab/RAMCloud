@@ -737,7 +737,6 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
     {
         setUp(2, false);
     }
-
     void
     setUp(uint32_t totalFrags, bool useTimer = false)
     {
@@ -765,7 +764,8 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
 
         // Initialize dataStagingWindow to check invariants after calls
         for (uint32_t i = 1; i <= msg->dataStagingWindow.getLength(); i++)
-            msg->dataStagingWindow[i] = std::pair<char*, uint32_t>(0, i);
+            msg->dataStagingWindow[i] =
+                std::pair<char*, uint32_t>(static_cast<char*>(0), i);
 
     }
 
