@@ -195,6 +195,7 @@ class Server {
         } catch (ClientException& e) {
             if (responder.hasResponded())
                 throw;
+            LOG(DEBUG, "Serializing ClientException: %s", e.str().c_str());
             responder(e.status);
             return;
         }
