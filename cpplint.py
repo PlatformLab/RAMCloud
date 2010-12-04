@@ -1312,7 +1312,9 @@ def CheckForNonStandardConstructs(filename, clean_lines, linenum,
   if Search(r'\b(const|volatile|void|char|short|int|long'
             r'|float|double|signed|unsigned'
             r'|schar|u?int8|u?int16|u?int32|u?int64)'
-            r'\s+(auto|register|static|extern|typedef)\b',
+            # auto is not a storage class in C++0x
+            #r'\s+(auto|register|static|extern|typedef)\b',
+            r'\s+(register|static|extern|typedef)\b',
             line):
     error(filename, linenum, 'build/storage_class', 5,
           'Storage class (static, extern, typedef, etc) should be first.')
@@ -1920,11 +1922,15 @@ def CheckBraces(filename, clean_lines, linenum, error):
       line = prevline + line
     else:
       break
+
+  # Sometimes you do need the semicolon in C++0x
+  """
   if (Search(r'{.*}\s*;', line) and
       line.count('{') == line.count('}') and
       not Search(r'struct|class|enum|\s*=\s*{', line)):
     error(filename, linenum, 'readability/braces', 4,
           "You don't need a ; after a }")
+  """
 
 
 def ReplaceableCheck(operator, macro, line):
