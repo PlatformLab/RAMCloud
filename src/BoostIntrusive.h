@@ -53,6 +53,18 @@ typedef boost::intrusive::list_member_hook<> IntrusiveListHook;
                     IntrusiveListHook, \
                     &entryType::hookName> >
 
+template<typename List, typename Node>
+void
+insertBefore(List& list, Node& newNode, const Node& nextNode) {
+    list.insert(list.iterator_to(nextNode), newNode);
+}
+
+template<typename List, typename Node>
+void
+erase(List& list, Node& node) {
+    list.erase(list.iterator_to(node));
+}
+
 } // end RAMCloud
 
 #endif  // RAMCLOUD_BOOSTINTRUSIVE_H
