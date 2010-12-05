@@ -32,8 +32,9 @@ BIN = '%s/TransportSmack' % obj_dir
 # (this is assuming a common filesystem)
 RBIN = ('/'.join(os.path.abspath(__file__).split('/')[:-2] +
         [obj_dir, 'TransportSmack']))
-
+        
 TCP_PORT = 32242
+TCP2_PORT = 32242
 FAST_UDP_PORT = 32242
 INFRC_PORT = 32242
 
@@ -45,18 +46,21 @@ for i in range(1, 7):
     KNOWN_HOSTS['rc%02d' % i] = {
         'ssh': ip,
         'tcp': 'tcp:host=%s,port=%d' % (ip, TCP_PORT),
+        'tcp2': 'tcp2:host=%s,port=%d' % (ip, TCP2_PORT),
         'fast+udp': 'fast+udp:host=%s,port=%d' % (ip, FAST_UDP_PORT),
         'infrc': 'infrc:host=%s,port=%d' % (ip, INFRC_PORT),
     }
     KNOWN_HOSTS['rc%02dalt' % i] = {
         'ssh': ip,
         'tcp': 'tcp:host=%s,port=%d' % (ip, TCP_PORT + 1),
+        'tcp2': 'tcp2:host=%s,port=%d' % (ip, TCP2_PORT + 1),
         'fast+udp': 'fast+udp:host=%s,port=%d' % (ip, FAST_UDP_PORT + 1),
         'infrc': 'infrc:host=%s,port=%d' % (ip, INFRC_PORT + 1),
     }
 KNOWN_HOSTS['localhost'] = {
     'ssh': 'localhost',
     'tcp': 'tcp:host=127.0.0.1,port=%d' % TCP_PORT,
+    'tcp2': 'tcp2:host=127.0.0.1,port=%d' % TCP2_PORT,
     'fast+udp': 'fast+udp:host=127.0.0.1,port=%d' % FAST_UDP_PORT,
     'infrc': 'infrc:host=127.0.0.1,port=%d' % INFRC_PORT,
 }

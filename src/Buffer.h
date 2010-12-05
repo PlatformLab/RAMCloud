@@ -255,7 +255,7 @@ class Buffer {
         /**
          * Add a new, unmanaged memory chunk to front of a Buffer.
          * The Chunk itself will be deallocated automatically in the Buffer's
-         * destructor, but the memory chunk is not deallocated.
+         * destructor, but the memory region is not deallocated.
          *
          * \param[in] buffer
          *      The buffer to which to prepend the new chunk.

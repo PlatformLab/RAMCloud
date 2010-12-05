@@ -407,7 +407,7 @@ struct Exception {
         message = strerror(errNo);
     }
     Exception(const CodeLocation& where, string msg, int errNo)
-        : message(msg), errNo(errNo), where(where) {}
+        : message(msg + ": " + strerror(errNo)), errNo(errNo), where(where) {}
     string str() const {
         return (demangle(typeid(*this).name()) + ": " + message +
                 " thrown at " + where.str());

@@ -52,7 +52,7 @@ endif
 # -Wconversion
 # Failed deconstructor inlines are generating noise
 # -Winline
-LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lcryptopp -lrt
+LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lcryptopp -lrt -levent
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
 ifeq ($(INFINIBAND),yes)
@@ -134,7 +134,7 @@ endef
 all:
 
 tests: test
-test: all python-test mockpy-test
+test: python-test mockpy-test
 
 .SUFFIXES:
 

@@ -238,8 +238,8 @@ class Transport {
     /**
      * A reference to a #Session object on which to send client RPC requests.
      * Usage is automatically tracked by boost::intrusive_ptr, so this can
-     * be copied freely.  When the last copy is deleted the transport will
-     * reclaim the session storage.
+     * be copied freely.  When the last copy is deleted the transport is
+     * invoked to reclaim the session storage.
      */
     typedef boost::intrusive_ptr<Session> SessionRef;
 

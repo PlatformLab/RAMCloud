@@ -39,6 +39,7 @@ TESTS_SRCFILES := \
 		  src/ServerTest.cc \
 		  src/ServiceLocatorTest.cc \
 		  src/StatusTest.cc \
+		  src/TcpTransport2Test.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
