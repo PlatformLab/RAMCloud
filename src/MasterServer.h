@@ -260,7 +260,7 @@ class MasterServer : public Server {
      * The main in-memory data structure holding all of the data stored
      * on this server.
      */
-    Log* log;
+    Log log;
 
     /**
      * The (table ID, object ID) to #RAMCloud::Object pointer map for all

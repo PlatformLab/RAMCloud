@@ -75,19 +75,17 @@ try
     // Set the address for the backup to listen on.
     transportManager.initialize(config.localLocator.c_str());
 
-    BackupStorage* storage;
+    std::unique_ptr<BackupStorage> storage;
     if (inMemory)
-        storage = new InMemoryStorage(Segment::SEGMENT_SIZE, segmentCount);
+        storage.reset(new InMemoryStorage(Segment::SEGMENT_SIZE,
+                                          segmentCount));
     else
-        storage = new SingleFileStorage(Segment::SEGMENT_SIZE, segmentCount,
-                                        backupFile.c_str(), 0);
+        storage.reset(new SingleFileStorage(Segment::SEGMENT_SIZE,
+                                            segmentCount,
+                                            backupFile.c_str(), 0));
 
-    {
-        BackupServer server(config, *storage);
-        server.run();
-    }
-
-    delete storage;
+    BackupServer server(config, *storage);
+    server.run();
 
     return 0;
 } catch (RAMCloud::Exception& e) {

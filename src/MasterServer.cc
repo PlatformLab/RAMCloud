@@ -18,6 +18,7 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "MasterServer.h"
+#include "ObjectTub.h"
 #include "ProtoBuf.h"
 #include "Rpc.h"
 #include "Segment.h"
@@ -153,24 +154,20 @@ MasterServer::MasterServer(const ServerConfig config,
                            BackupManager* backup)
     : config(config)
     , coordinator(coordinator)
-    , serverId(0)
+    // Permit a NULL coordinator for testing/benchmark purposes.
+    , serverId(coordinator ? coordinator->enlistServer(MASTER,
+                                                       config.localLocator)
+                           : 0)
     , backup(backup)
     , bytesWritten(0)
-    , log(0)
+    , log(serverId, config.logBytes, Segment::SEGMENT_SIZE, backup)
     , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine())
     , tombstoneMap(NULL)
     , tablets()
 {
-    // Permit a NULL coordinator for testing/benchmark purposes.
-    if (coordinator)
-        serverId = coordinator->enlistServer(MASTER, config.localLocator);
-    else
-        serverId = 0;
-
     LOG(NOTICE, "My server ID is %lu", serverId);
-    log = new Log(serverId, config.logBytes, Segment::SEGMENT_SIZE, backup);
-    log->registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
-    log->registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
+    log.registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
+    log.registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 }
 
 MasterServer::~MasterServer()
@@ -180,7 +177,6 @@ MasterServer::~MasterServer()
         tables.insert(reinterpret_cast<Table*>(tablet.user_data()));
     foreach (Table* table, tables)
         delete table;
-    delete log;
 }
 
 void
@@ -267,7 +263,7 @@ MasterServer::ping(const PingRpc::Request& reqHdr,
                    Transport::ServerRpc& rpc)
 {
     LOG(NOTICE, "Bytes written: %lu", bytesWritten);
-    LOG(NOTICE, "Bytes logged : %lu", log->getBytesAppended());
+    LOG(NOTICE, "Bytes logged : %lu", log.getBytesAppended());
 
     Server::ping(reqHdr, respHdr, rpc);
 }
@@ -408,9 +404,8 @@ MasterServer::recover(uint64_t masterId,
     backSegmentLocator = &chooser.get(backSegmentId);
     BackupClient backup(
         transportManager.getSession(backSegmentLocator->c_str()));
-    boost::scoped_ptr<BackupClient::GetRecoveryData> cont(
-        new BackupClient::GetRecoveryData(backup,
-            masterId, backSegmentId, tablets, *backBuffer));
+    ObjectTub<BackupClient::GetRecoveryData> cont;
+    cont.construct(backup, masterId, backSegmentId, tablets, *backBuffer);
 
     while (segIdsIt != segIdsEnd) {
         // Get the results from a previous fetch.
@@ -420,7 +415,7 @@ MasterServer::recover(uint64_t masterId,
                     backSegmentId, backSegmentLocator->c_str());
                 (*cont)();
                 LOG(DEBUG, "Got it: %u bytes", backBuffer->getTotalLength());
-                cont.reset();
+                cont.destroy();
             }
         } catch (const TransportException& e) {
             LOG(DEBUG, "Couldn't contact %s, trying next backup; failure was: "
@@ -447,8 +442,7 @@ MasterServer::recover(uint64_t masterId,
             backSegmentLocator = &chooser.get(backSegmentId);
             BackupClient backup(
                 transportManager.getSession(backSegmentLocator->c_str()));
-            cont.reset(new BackupClient::GetRecoveryData(backup,
-                masterId, backSegmentId, tablets, *backBuffer));
+            cont.reset(backup, masterId, backSegmentId, tablets, *backBuffer);
         }
 
         // Processes the results from the buffer that has completed fetching.
@@ -490,17 +484,19 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
 
     // reqHdr, respHdr, and rpc are off-limits now
 
-    // Allocate a recovery hash table for the tombstones.
-    tombstoneMap = new ObjectTombstoneMap(64 * 1024 * 1024 /
-        ObjectTombstoneMap::bytesPerCacheLine());
+    {
+        // Allocate a recovery hash table for the tombstones.
+        static_assert(sizeof(ObjectTombstoneMap) < 1024,
+                      "ObjectTombstoneMap is big");
+        ObjectTombstoneMap tombstoneMap(64 * 1024 * 1024 /
+            ObjectTombstoneMap::bytesPerCacheLine());
 
-    // Recover Segments, firing MasterServer::recoverSegment for each one.
-    recover(masterId, recoveryTablets, backups);
+        // Recover Segments, firing MasterServer::recoverSegment for each one.
+        recover(masterId, recoveryTablets, backups);
 
-    // Free recovery tombstones left in the hash table and deallocate it.
-    tombstoneMap->forEach(recoveryCleanup, NULL);
-    delete tombstoneMap;
-    tombstoneMap = NULL;
+        // Free recovery tombstones left in the hash table and deallocate it.
+        tombstoneMap.forEach(recoveryCleanup, NULL);
+    }
 
     // Once the coordinator and the recovery master agree that the
     // master has taken over for the tablets it can update its tables
@@ -631,7 +627,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 #else
                 // write to log (with lazy backup flush) & update hash table
                 const Object *newObj = reinterpret_cast<const Object*>(
-                    log->append(LOG_ENTRY_TYPE_OBJ, recoverObj,
+                    log.append(LOG_ENTRY_TYPE_OBJ, recoverObj,
                                 recoverObj->size(), false));
 #endif
                 assert(newObj != NULL);
@@ -648,7 +644,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
                 // nuke the old object, if it existed
                 if (localObj != NULL) {
-                    log->free(localObj);
+                    log.free(localObj);
                 }
             }
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
@@ -671,6 +667,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
             if (recoverTomb->objectVersion >= minSuccessor) {
                 // allocate memory for the tombstone & update hash table
+                // TODO(ongaro): Change to new with copy constructor?
                 ObjectTombstone *newTomb = reinterpret_cast<ObjectTombstone *>(
                     xmalloc(sizeof(*newTomb)));
                 memcpy(newTomb, const_cast<ObjectTombstone *>(recoverTomb),
@@ -685,7 +682,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 // nuke the object, if it existed
                 if (localObj != NULL) {
                     objectMap.remove(tblId, objId);
-                    log->free(localObj);
+                    log.free(localObj);
                 }
             }
         }
@@ -721,8 +718,8 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 
     // Mark the deleted object as free first, since the append could
     // invalidate it
-    log->free(o);
-    const void* ret = log->append(
+    log.free(o);
+    const void* ret = log.append(
         LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
     assert(ret);
     objectMap.remove(reqHdr.tableId, reqHdr.id);
@@ -924,8 +921,7 @@ objectEvictionCallback(LogEntryType type,
     MasterServer *svr = static_cast<MasterServer *>(cookie);
     assert(svr != NULL);
 
-    Log *log = svr->log;
-    assert(log != NULL);
+    Log& log = svr->log;
 
     const Object *evictObj = static_cast<const Object *>(p);
     assert(evictObj != NULL);
@@ -944,7 +940,7 @@ objectEvictionCallback(LogEntryType type,
 
     // simple pointer comparison suffices
     if (hashTblObj == evictObj) {
-        const Object *newObj = (const Object *)log->append(
+        const Object *newObj = (const Object *)log.append(
             LOG_ENTRY_TYPE_OBJ, evictObj, evictObj->size());
         assert(newObj != NULL);
         svr->objectMap.replace(evictObj->table, evictObj->id, newObj);
@@ -1012,16 +1008,15 @@ tombstoneEvictionCallback(LogEntryType type,
     MasterServer *svr = static_cast<MasterServer *>(cookie);
     assert(svr != NULL);
 
-    Log *log = svr->log;
-    assert(log != NULL);
+    Log& log = svr->log;
 
     const ObjectTombstone *tomb =
         static_cast<const ObjectTombstone *>(p);
     assert(tomb != NULL);
 
     // see if the referant is still there
-    if (log->isSegmentLive(tomb->segmentId)) {
-        const void *ret = log->append(
+    if (log.isSegmentLive(tomb->segmentId)) {
+        const void *ret = log.append(
             LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb));
         assert(ret != NULL);
     }
@@ -1064,16 +1059,16 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
         // log. If we do it afterwards, the LogCleaner could be triggered and
         // `o' could be reclaimed before log->append() returns. The subsequent
         // free then breaks, as that Segment may have been cleaned.
-        log->free(o);
+        log.free(o);
 
-        uint64_t segmentId = log->getSegmentId(o);
+        uint64_t segmentId = log.getSegmentId(o);
         ObjectTombstone tomb(segmentId, o);
-        const void *p = log->append(LOG_ENTRY_TYPE_OBJTOMB,
+        const void *p = log.append(LOG_ENTRY_TYPE_OBJTOMB,
             &tomb, sizeof(tomb));
         assert(p != NULL);
     }
 
-    const Object *objPtr = (const Object *)log->append(
+    const Object *objPtr = (const Object *)log.append(
         LOG_ENTRY_TYPE_OBJ, newObject, newObject->size());
     assert(objPtr != NULL);
     objectMap.replace(tableId, id, objPtr);
