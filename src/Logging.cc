@@ -15,6 +15,9 @@
 
 #include <stdarg.h>
 #include <time.h>
+
+#include <boost/lexical_cast.hpp>
+
 #include "Logging.h"
 
 namespace RAMCloud {
@@ -191,6 +194,47 @@ Logger::setLogLevel(LogModule module, int level)
 }
 
 /**
+ * Set the log level for a particular module.
+ * \param[in] module
+ *      The module whose level to set.  Given as a string from #logModuleNames.
+ * \param[in] level
+ *      Messages for \a module at least as important as \a level will be
+ *      logged. This will be clamped to a valid LogLevel if it is out of range.
+ *      Given as a string from #logLevelNames or as a decimal number indicating
+ *      that level's index in the array.
+ */
+void
+Logger::setLogLevel(string module, string level)
+{
+    int moduleIndex = 0;
+    for (; moduleIndex < NUM_LOG_MODULES; ++moduleIndex) {
+        if (module == logModuleNames[moduleIndex])
+            break;
+    }
+    if (moduleIndex == NUM_LOG_MODULES) {
+        LOG(WARNING, "Ignoring bad log module name: %s", module.c_str());
+        return;
+    }
+    int moduleLevel;
+    try {
+        moduleLevel = boost::lexical_cast<int>(level);
+    } catch (boost::bad_lexical_cast& e) {
+        for (moduleLevel = static_cast<int>(ERROR);
+             moduleLevel < NUM_LOG_LEVELS;
+             ++moduleLevel)
+        {
+            if (level == logLevelNames[moduleLevel])
+                break;
+        }
+        if (moduleLevel == NUM_LOG_LEVELS) {
+            LOG(WARNING, "Ignoring bad log module level: %s", level.c_str());
+            return;
+        }
+    }
+    setLogLevel(static_cast<LogModule>(moduleIndex), moduleLevel);
+}
+
+/**
  * Change the log level by a relative amount for a particular module.
  * \param[in] module
  *      The module whose level to change.
@@ -234,6 +278,33 @@ Logger::setLogLevels(int level)
     else if (level >= NUM_LOG_LEVELS)
         level = NUM_LOG_LEVELS - 1;
     setLogLevels(static_cast<LogLevel>(level));
+}
+/**
+ * Set the log level for all modules.
+ * \param[in] level
+ *      Messages for all modules at least as important as \a level will be
+ *      logged. This will be clamped to a valid LogLevel if it is out of range.
+ */
+void
+Logger::setLogLevels(string level)
+{
+    int moduleLevel;
+    try {
+        moduleLevel = boost::lexical_cast<int>(level);
+    } catch (boost::bad_lexical_cast& e) {
+        for (moduleLevel = static_cast<int>(ERROR);
+             moduleLevel < NUM_LOG_LEVELS;
+             ++moduleLevel)
+        {
+            if (level == logLevelNames[moduleLevel])
+                break;
+        }
+        if (moduleLevel == NUM_LOG_LEVELS) {
+            LOG(WARNING, "Ignoring bad log module level: %s", level.c_str());
+            return;
+        }
+    }
+    setLogLevels(moduleLevel);
 }
 
 /**

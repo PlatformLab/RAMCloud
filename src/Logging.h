@@ -168,10 +168,12 @@ class Logger {
 
     void setLogLevel(LogModule, LogLevel level);
     void setLogLevel(LogModule, int level);
+    void setLogLevel(string module, string level);
     void changeLogLevel(LogModule, int delta);
 
     void setLogLevels(LogLevel level);
     void setLogLevels(int level);
+    void setLogLevels(string level);
     void changeLogLevels(int delta);
 
     void logMessage(LogModule module, LogLevel level,
