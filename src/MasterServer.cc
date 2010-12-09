@@ -163,7 +163,6 @@ MasterServer::MasterServer(const ServerConfig config,
     , bytesWritten(0)
     , log(serverId, config.logBytes, Segment::SEGMENT_SIZE, backup)
     , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine())
-    , tombstoneMap(NULL)
     , tablets()
 {
     LOG(NOTICE, "My server ID is %lu", serverId);
@@ -325,11 +324,14 @@ recoveryCleanup(const ObjectTombstone *tomb, void *cookie)
  *      A particular segment may be listed more than once if it has multiple
  *      viable backups, hence a particular backup locator can also be listed
  *      many times.
+ * \param tombstoneMap
+ *      (table id, object id) to ObjectTombstone map used during recovery.
  */
 void
 MasterServer::recover(uint64_t masterId,
-                       const ProtoBuf::Tablets& tablets,
-                       const ProtoBuf::ServerList& backups)
+                      const ProtoBuf::Tablets& tablets,
+                      const ProtoBuf::ServerList& backups,
+                      ObjectTombstoneMap& tombstoneMap)
 {
     LOG(NOTICE, "Recovering master %lu, %u tablets, %u hosts",
         masterId, tablets.tablet_size(), backups.server_size());
@@ -453,7 +455,8 @@ MasterServer::recover(uint64_t masterId,
         recoverSegment(
             foreSegmentId,
             foreBuffer->getRange(0, foreBuffer->getTotalLength()),
-            foreBuffer->getTotalLength());
+            foreBuffer->getTotalLength(),
+            tombstoneMap);
         foreBuffer->reset();
     }
 #endif
@@ -493,7 +496,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
             ObjectTombstoneMap::bytesPerCacheLine());
 
         // Recover Segments, firing MasterServer::recoverSegment for each one.
-        recover(masterId, recoveryTablets, backups);
+        recover(masterId, recoveryTablets, backups, tombstoneMap);
 
         // Free recovery tombstones left in the hash table and deallocate it.
         tombstoneMap.forEach(recoveryCleanup, NULL);
@@ -534,26 +537,29 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
  *      A SegmentIterator to use for prefetching. Note that this
  *      method modifies the iterator, so the caller should not use
  *      it for its own iteration.
+ * \param tombstoneMap
+ *      (table id, object id) to ObjectTombstone map used during recovery.
  */
 void
-MasterServer::recoverSegmentPrefetcher(SegmentIterator *i)
+MasterServer::recoverSegmentPrefetcher(SegmentIterator& i,
+                                       ObjectTombstoneMap& tombstoneMap)
 {
-    i->next();
+    i.next();
 
-    if (i->isDone())
+    if (i.isDone())
         return;
 
-    LogEntryType type = i->getType();
+    LogEntryType type = i.getType();
     uint64_t objId = ~0UL, tblId = ~0UL;
 
     if (type == LOG_ENTRY_TYPE_OBJ) {
         const Object *recoverObj = reinterpret_cast<const Object *>(
-                     i->getPointer());
+                     i.getPointer());
         objId = recoverObj->id;
         tblId = recoverObj->table;
     } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         const ObjectTombstone *recoverTomb =
-            reinterpret_cast<const ObjectTombstone *>(i->getPointer());
+            reinterpret_cast<const ObjectTombstone *>(i.getPointer());
         objId = recoverTomb->objectId;
         tblId = recoverTomb->tableId;
     } else {
@@ -561,7 +567,7 @@ MasterServer::recoverSegmentPrefetcher(SegmentIterator *i)
     }
 
     objectMap.prefetch(tblId, objId);
-    tombstoneMap->prefetch(tblId, objId);
+    tombstoneMap.prefetch(tblId, objId);
 }
 
 /**
@@ -576,10 +582,12 @@ MasterServer::recoverSegmentPrefetcher(SegmentIterator *i)
  *      will be responsible for after the recovery completes.
  * \param bufferLength
  *      Length of the buffer in bytes.
+ * \param tombstoneMap
+ *      (table id, object id) to ObjectTombstone map used during recovery.
  */
 void
 MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
-    uint64_t bufferLength)
+    uint64_t bufferLength, ObjectTombstoneMap& tombstoneMap)
 {
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
 
@@ -596,7 +604,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
         LogEntryType type = i.getType();
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH
-        recoverSegmentPrefetcher(&prefetch);
+        recoverSegmentPrefetcher(prefetch, tombstoneMap);
 #endif
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
@@ -610,7 +618,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
             const ObjectTombstone *tomb = 0;
 #else
             const Object *localObj = objectMap.lookup(tblId, objId);
-            const ObjectTombstone *tomb = tombstoneMap->lookup(tblId, objId);
+            const ObjectTombstone *tomb = tombstoneMap.lookup(tblId, objId);
 #endif
 
             // can't have both a tombstone and an object in the hash tables
@@ -639,7 +647,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
                 // nuke the tombstone, if it existed
                 if (tomb != NULL) {
-                    tombstoneMap->remove(tblId, objId);
+                    tombstoneMap.remove(tblId, objId);
                     free(const_cast<ObjectTombstone *>(tomb));
                 }
 
@@ -655,7 +663,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
             uint64_t tblId = recoverTomb->tableId;
 
             const Object *localObj = objectMap.lookup(tblId, objId);
-            const ObjectTombstone *tomb = tombstoneMap->lookup(tblId, objId);
+            const ObjectTombstone *tomb = tombstoneMap.lookup(tblId, objId);
 
             // can't have both a tombstone and an object in the hash tables
             assert(tomb == NULL || localObj == NULL);
@@ -673,7 +681,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                     xmalloc(sizeof(*newTomb)));
                 memcpy(newTomb, const_cast<ObjectTombstone *>(recoverTomb),
                     sizeof(*newTomb));
-                tombstoneMap->replace(tblId, objId, newTomb);
+                tombstoneMap.replace(tblId, objId, newTomb);
 
                 // nuke the old tombstone, if it existed
                 if (tomb != NULL) {

@@ -224,13 +224,16 @@ class MasterServer : public Server {
                  Transport::ServerRpc& rpc,
                  Responder& responder);
 
-    void recoverSegmentPrefetcher(SegmentIterator *i);
+    void recoverSegmentPrefetcher(SegmentIterator& i,
+                                  ObjectTombstoneMap& tombstoneMap);
     void recoverSegment(uint64_t segmentId, const void *buffer,
-                        uint64_t bufferLength);
+                        uint64_t bufferLength,
+                        ObjectTombstoneMap& tombstoneMap);
 
     void recover(uint64_t masterId,
                  const ProtoBuf::Tablets& tablets,
-                 const ProtoBuf::ServerList& backups);
+                 const ProtoBuf::ServerList& backups,
+                 ObjectTombstoneMap& tombstoneMap);
 
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
@@ -272,12 +275,6 @@ class MasterServer : public Server {
      * hash table.
      */
     ObjectMap objectMap;
-
-    /**
-     * The (table ID, object ID) to #RAMCloud::ObjectTombstone pointer map
-     * used only during recovery.
-     */
-    ObjectTombstoneMap *tombstoneMap;
 
     /**
      * Tablets this master owns.
