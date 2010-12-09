@@ -29,6 +29,7 @@
 namespace RC = RAMCloud;
 
 std::string coordinatorLocator;
+std::string tableName("test");
 bool multirow;
 bool randomReads;
 bool pmcInsteadOfTSC;
@@ -42,7 +43,7 @@ uint32_t table;
 void
 cleanup()
 {
-    client->dropTable("test");
+    client->dropTable(tableName.c_str());
     delete client;
     client = NULL;
 }
@@ -66,8 +67,8 @@ setup()
                               RC::MARK_RPC_PROCESSING_BEGIN,
                               RC::MARK_RPC_PROCESSING_END);
 
-    client->createTable("test");
-    table = client->openTable("test");
+    client->createTable(tableName.c_str());
+    table = client->openTable(tableName.c_str());
 }
 
 void
@@ -164,6 +165,9 @@ try
         ("performance,P",
          RC::ProgramOptions::bool_switch(&pmcInsteadOfTSC),
          "Measure using rdpmc instead of rdtsc")
+        ("tablename,t",
+         RC::ProgramOptions::value<std::string>(&tableName),
+         "Name of test table used. Default 'test'.")
         ("size,S",
          RC::ProgramOptions::value<uint64_t>(&size)->
            default_value(100),
