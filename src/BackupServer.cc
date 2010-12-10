@@ -20,6 +20,7 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Log.h"
+#include "RecoverySegment.h"
 #include "Rpc.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
@@ -446,28 +447,37 @@ try
         throw BackupBadSegmentIdException(HERE);
     }
 
-    char* packedSegment =
-        new(&rpc.replyPayload, APPEND) char[segmentSize];
-    Segment segment(reqHdr.masterId, reqHdr.segmentId,
-                    packedSegment, segmentSize, NULL);
+    // TODO(stutsman) Store partition count during startReadingData use here!
+    // TODO(stutsman) Ensure each partition has a stable with partition id
+    // TODO(stutsman) Need to have all filters stored during startReadingData
+    uint32_t partitions = 2;
+    RecoverySegment segment(segmentSize * 2 / partitions);
 
     // getSegment() will block if the segment isn't already in memory.
     for (SegmentIterator it(info->getSegment(), segmentSize);
          !it.isDone(); it.next())
     {
-        if (it.getType() == 0)
+        // If we come across an entry left zero we know RAMCloud generate
+        // the entry, likely because something crashed before it got written
+        // so we'll assume this is the end of the segment.
+        if (it.getType() == LOG_ENTRY_TYPE_UNINIT)
             break;
         if (!keepEntry(it.getType(), it.getPointer(), tablets))
             continue;
         segment.append(it.getType(), it.getPointer(), it.getLength());
     }
 
-    segment.close();
+    // TODO(stutsman) avoid copy here once the recovered segment lives longer
+    char* packedSegment =
+        new(&rpc.replyPayload, APPEND) char[segment.size()];
+    segment.copy(packedSegment);
+
     LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu complete",
         reqHdr.masterId, reqHdr.segmentId);
 } catch (const SegmentIteratorException& e) {
     LOG(WARNING, "getRecoveryData failed due to malformed segment data: "
-        "masterId %lu, segmentId %lu", reqHdr.masterId, reqHdr.segmentId);
+                 "masterId %lu, segmentId %lu: %s",
+                 reqHdr.masterId, reqHdr.segmentId, e.str().c_str());
     throw BackupMalformedSegmentException(HERE);
 }
 
@@ -511,6 +521,7 @@ BackupServer::keepEntry(const LogEntryType type,
         break;
       case LOG_ENTRY_TYPE_LOGDIGEST:
       case LOG_ENTRY_TYPE_INVALID:
+      case LOG_ENTRY_TYPE_UNINIT: // causes break, see getRecoveryData().
         return true;
     }
 

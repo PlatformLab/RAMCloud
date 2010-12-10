@@ -25,6 +25,7 @@
 #include "LogCleaner.h"
 #include "BackupManager.h"
 #include "HashTable.h"
+#include "RecoverySegment.h"
 #include "Server.h"
 #include "SegmentIterator.h"
 #include "Table.h"
@@ -224,7 +225,7 @@ class MasterServer : public Server {
                  Transport::ServerRpc& rpc,
                  Responder& responder);
 
-    void recoverSegmentPrefetcher(SegmentIterator& i,
+    void recoverSegmentPrefetcher(RecoverySegment::Iterator& i,
                                   ObjectTombstoneMap& tombstoneMap);
     void recoverSegment(uint64_t segmentId, const void *buffer,
                         uint64_t bufferLength,

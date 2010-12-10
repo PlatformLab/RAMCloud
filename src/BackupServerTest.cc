@@ -23,6 +23,7 @@
 #include "Logging.h"
 #include "MasterServer.h"
 #include "MockTransport.h"
+#include "RecoverySegment.h"
 #include "Rpc.h"
 #include "SegmentIterator.h"
 #include "TransportManager.h"
@@ -312,12 +313,9 @@ class BackupServerTest : public CppUnit::TestFixture {
         Buffer response;
         BackupClient::GetRecoveryData(*client, 99, 88, tablets, response)();
 
-        SegmentIterator it(response.getRange(0, response.getTotalLength()),
-                           segmentSize);
-
-        CPPUNIT_ASSERT(!it.isDone());
-        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, it.getType());
-        it.next();
+        RecoverySegment::Iterator it(
+            response.getRange(0, response.getTotalLength()),
+            response.getTotalLength());
 
         CPPUNIT_ASSERT(!it.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
@@ -343,16 +341,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(20, it.get<ObjectTombstone>()->objectId);
         it.next();
 
-        CPPUNIT_ASSERT(!it.isDone());
-        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
-        CPPUNIT_ASSERT_EQUAL(
-            SegmentIterator::generateChecksum(
-                response.getRange(0, response.getTotalLength()), segmentSize),
-            it.get<SegmentFooter>()->checksum);
-        it.next();
-
         CPPUNIT_ASSERT(it.isDone());
-
     }
 
     void
@@ -379,38 +368,29 @@ class BackupServerTest : public CppUnit::TestFixture {
             Buffer response;
             BackupClient::GetRecoveryData(*client, 99, 88, tablets, response)();
 
-            SegmentIterator it(response.getRange(0, response.getTotalLength()),
-                               segmentSize);
-            CPPUNIT_ASSERT(!it.isDone());
-            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, it.getType());
-            it.next();
+            RecoverySegment::Iterator it(
+                response.getRange(0, response.getTotalLength()),
+                response.getTotalLength());
             CPPUNIT_ASSERT(!it.isDone());
             CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
             CPPUNIT_ASSERT_EQUAL("test2",
                                  static_cast<const Object*>(it.getPointer())->
                                     data);
             it.next();
-            CPPUNIT_ASSERT(!it.isDone());
-            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
-            it.next();
             CPPUNIT_ASSERT(it.isDone());
-        }{
+        }
+        {
             Buffer response;
             BackupClient::GetRecoveryData(*client, 99, 87, tablets, response)();
 
-            SegmentIterator it(response.getRange(0, response.getTotalLength()),
-                               segmentSize);
-            CPPUNIT_ASSERT(!it.isDone());
-            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, it.getType());
-            it.next();
+            RecoverySegment::Iterator it(
+                response.getRange(0, response.getTotalLength()),
+                response.getTotalLength());
             CPPUNIT_ASSERT(!it.isDone());
             CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
             CPPUNIT_ASSERT_EQUAL("test1",
                                  static_cast<const Object*>(it.getPointer())->
                                     data);
-            it.next();
-            CPPUNIT_ASSERT(!it.isDone());
-            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGFOOTER, it.getType());
             it.next();
             CPPUNIT_ASSERT(it.isDone());
         }
@@ -439,19 +419,24 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_getRecoveryData_notPreloaded()
     {
+        uint32_t offset = 0;
         client->openSegment(99, 88);
-        writeHeader(99, 88);
-        client->closeSegment(99, 88);
+        offset += writeHeader(99, 88);
+        offset += writeObject(99, 88, offset, "test2", 6, 123, 10);
+        offset += writeFooter(99, 88, offset);
         Buffer response;
 
+        ProtoBuf::Tablets tablets;
+        createTabletList(tablets);
         BackupClient::GetRecoveryData cont(*client, 99, 88,
-                                           ProtoBuf::Tablets(), response);
+                                           tablets, response);
         cont();
-        SegmentIterator it(response.getRange(0, response.getTotalLength()),
-                           segmentSize);
+        RecoverySegment::Iterator it(
+            response.getRange(0, response.getTotalLength()),
+            response.getTotalLength());
 
         CPPUNIT_ASSERT(!it.isDone());
-        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, it.getType());
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
         it.next();
 
         CPPUNIT_ASSERT_EQUAL(1,

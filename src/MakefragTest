@@ -33,6 +33,7 @@ TESTS_SRCFILES := \
           src/OustercountTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \
+		  src/RecoverySegmentTest.cc \
 		  src/RecoveryTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \

@@ -20,6 +20,7 @@
 #include "MasterServer.h"
 #include "ObjectTub.h"
 #include "ProtoBuf.h"
+#include "RecoverySegment.h"
 #include "Rpc.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
@@ -531,19 +532,19 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
 }
 
 /**
- * Given a SegmentIterator for the Segment we're currently recovering,
- * advance it and issue prefetches on the hash tables. This is used
- * exclusively by recoverSegment().
+ * Given a RecoverySegment::Iterator for the Segment we're currently
+ * recovering, advance it and issue prefetches on the hash tables.
+ * This is used exclusively by recoverSegment().
  *
  * \param[in] i
- *      A SegmentIterator to use for prefetching. Note that this
+ *      A RecoverySegment::Iterator to use for prefetching. Note that this
  *      method modifies the iterator, so the caller should not use
  *      it for its own iteration.
  * \param tombstoneMap
  *      (table id, object id) to ObjectTombstone map used during recovery.
  */
 void
-MasterServer::recoverSegmentPrefetcher(SegmentIterator& i,
+MasterServer::recoverSegmentPrefetcher(RecoverySegment::Iterator& i,
                                        ObjectTombstoneMap& tombstoneMap)
 {
     i.next();
@@ -593,9 +594,9 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 {
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
 
-    SegmentIterator i(buffer, bufferLength, true);
+    RecoverySegment::Iterator i(buffer, bufferLength);
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH
-    SegmentIterator prefetch(buffer, bufferLength, true);
+    RecoverySegment::Iterator prefetch(buffer, bufferLength);
 #endif
 
 #ifdef PERF_DEBUG_RECOVERY_REC_SEG_JUST_ITER

@@ -44,6 +44,7 @@ SHARED_SRCFILES := \
 		   src/OptionParser.cc \
            src/Oustercount.cc \
 		   src/Recovery.cc \
+		   src/RecoverySegment.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
 		   src/Server.cc \
