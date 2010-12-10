@@ -39,8 +39,10 @@ class SegmentIteratorBenchmark {
             segments[i] = new Segment(0, 0, p, Segment::SEGMENT_SIZE, NULL);
             while (1) {
                 uint64_t size = minObjectBytes;
-                if (minObjectBytes != maxObjectBytes)
-                    size += random() % (maxObjectBytes - minObjectBytes);
+                if (minObjectBytes != maxObjectBytes) {
+                    uint64_t rnd = generateRandom();
+                    size += rnd % (maxObjectBytes - minObjectBytes);
+                }
                 DECLARE_OBJECT(o, size);
                 o->id = nextObjId++;
                 o->table = 0;

@@ -317,6 +317,31 @@ class MockRandom {
 #define generateRandom() RAMCloud::_generateRandom()
 #endif
 
+/**
+ * A fast integer power computation.
+ * \param[in] base
+ *      The base of use.
+ * \param[in] exp
+ *      The exponent, i.e. the power to take the base to.
+ * \return
+ *      base^exp
+ */
+static inline uint64_t
+fastPower(int base, int exp)
+{
+    uint64_t result = 1;
+
+    while (exp > 0) {
+        if ((exp % 2) == 1)
+            result *= base;
+        base *= base;
+        exp /= 2;
+    }
+
+    return result;
+}
+
+
 #if TESTING
 #undef PRODUCTION
 #else
