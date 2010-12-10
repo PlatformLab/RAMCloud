@@ -327,7 +327,7 @@ class MockRandom {
  *      base^exp
  */
 static inline uint64_t
-fastPower(int base, int exp)
+fastPower(uint64_t base, uint8_t exp)
 {
     uint64_t result = 1;
 
@@ -340,7 +340,6 @@ fastPower(int base, int exp)
 
     return result;
 }
-
 
 #if TESTING
 #undef PRODUCTION
