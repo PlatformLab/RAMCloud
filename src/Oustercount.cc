@@ -148,7 +148,7 @@ Oustercount::~Oustercount()
  *      The key of the object to track.
  * \param[in] bytes
  *      The number of bytes consumed by the object.
- * \param[in] LogTime
+ * \param[in] time
  *      The LogTime at which the object was appended to the Log.
  */
 void
@@ -166,7 +166,7 @@ Oustercount::addObject(uint64_t key, uint32_t bytes, LogTime time)
  *      The key of the object to track.
  * \param[in] bytes
  *      The number of bytes consumed by the object.
- * \param[in] LogTime
+ * \param[in] time
  *      The LogTime at which the object was appended to the Log.
  */
 void
@@ -463,7 +463,7 @@ Oustercount::Subrange::BucketHandle::getLastKey()
  *      The first key of the key space this Subrange is tracking.
  * \param[in] lastKey 
  *      The last key of the key space this Subrange is tracking.
- * \param[in] LogTime
+ * \param[in] time
  *      The LogTime at the time of this Subrange's creation. All future calls
  *      to Oustercount::addObject() should be for objects with a LogTime
  *      greater than or equal to this value. 
