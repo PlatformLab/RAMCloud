@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_MASTERSERVER_H
 #define RAMCLOUD_MASTERSERVER_H
 
+#include <boost/unordered_map.hpp>
+
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "Object.h"
@@ -46,7 +48,7 @@ class SegmentLocatorChooser {
 
   private:
     /// Type of the internal data structure that does the heavy lifting.
-    typedef std::multimap<uint64_t, string> LocatorMap;
+    typedef boost::unordered_multimap<uint64_t, string> LocatorMap;
 
     /// A pair of iterators used when finding elements for a key.
     typedef pair<LocatorMap::const_iterator, LocatorMap::const_iterator>
@@ -222,13 +224,16 @@ class MasterServer : public Server {
                  Transport::ServerRpc& rpc,
                  Responder& responder);
 
-    void recoverSegmentPrefetcher(SegmentIterator *i);
+    void recoverSegmentPrefetcher(SegmentIterator& i,
+                                  ObjectTombstoneMap& tombstoneMap);
     void recoverSegment(uint64_t segmentId, const void *buffer,
-                        uint64_t bufferLength);
+                        uint64_t bufferLength,
+                        ObjectTombstoneMap& tombstoneMap);
 
     void recover(uint64_t masterId,
                  const ProtoBuf::Tablets& tablets,
-                 const ProtoBuf::ServerList& backups);
+                 const ProtoBuf::ServerList& backups,
+                 ObjectTombstoneMap& tombstoneMap);
 
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
@@ -260,7 +265,7 @@ class MasterServer : public Server {
      * The main in-memory data structure holding all of the data stored
      * on this server.
      */
-    Log* log;
+    Log log;
 
     /**
      * The (table ID, object ID) to #RAMCloud::Object pointer map for all
@@ -270,12 +275,6 @@ class MasterServer : public Server {
      * hash table.
      */
     ObjectMap objectMap;
-
-    /**
-     * The (table ID, object ID) to #RAMCloud::ObjectTombstone pointer map
-     * used only during recovery.
-     */
-    ObjectTombstoneMap *tombstoneMap;
 
     /**
      * Tablets this master owns.

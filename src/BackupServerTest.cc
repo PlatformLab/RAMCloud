@@ -42,11 +42,10 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_findSegmentInfo_notIn);
     CPPUNIT_TEST(test_freeSegment);
     CPPUNIT_TEST(test_freeSegment_stillOpen);
-    CPPUNIT_TEST(test_freeSegment_noSuchSegment);
     CPPUNIT_TEST(test_getRecoveryData);
     CPPUNIT_TEST(test_getRecoveryData_moreThanOneSegmentStored);
     CPPUNIT_TEST(test_getRecoveryData_malformedSegment);
-    CPPUNIT_TEST(test_getRecoveryData_notInRecovery);
+    CPPUNIT_TEST(test_getRecoveryData_notPreloaded);
     CPPUNIT_TEST(test_openSegment);
     CPPUNIT_TEST(test_openSegment_alreadyOpen);
     CPPUNIT_TEST(test_openSegment_outOfStorage);
@@ -112,16 +111,6 @@ class BackupServerTest : public CppUnit::TestFixture {
         delete config;
         CPPUNIT_ASSERT_EQUAL(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
-    }
-
-    void
-    freeStorageHandle(uint64_t masterId, uint64_t segmentId)
-    {
-        BackupServer::SegmentInfo &info =
-            backup->segments[BackupServer::MasterSegmentIdPair(masterId,
-                                                               segmentId)];
-        if (info.storageHandle)
-            backup->storage.free(info.storageHandle);
     }
 
     uint32_t
@@ -191,15 +180,15 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->openSegment(99, 88);
         client->writeSegment(99, 88, 10, "test", 4);
         client->closeSegment(99, 88);
-        BackupServer::SegmentInfo &info =
-            backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
+        BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
         char* storageAddress =
             static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
                 getAddress();
         CPPUNIT_ASSERT(NULL != storageAddress);
         CPPUNIT_ASSERT_EQUAL("test", &storageAddress[10]);
         CPPUNIT_ASSERT_EQUAL(NULL, static_cast<void*>(info.segment));
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -216,17 +205,20 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->closeSegment(99, 88);
         CPPUNIT_ASSERT_THROW(client->closeSegment(99, 88),
                              BackupBadSegmentIdException);
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
     test_findSegmentInfo()
     {
-        BackupServer::SegmentInfo& info =
-            backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
+        CPPUNIT_ASSERT_EQUAL(NULL, backup->findSegmentInfo(99, 88));
+        client->openSegment(99, 88);
+        client->closeSegment(99, 88);
         BackupServer::SegmentInfo* infop = backup->findSegmentInfo(99, 88);
         CPPUNIT_ASSERT(infop != NULL);
-        CPPUNIT_ASSERT_EQUAL(&info, infop);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -261,13 +253,6 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->openSegment(99, 88);
         client->freeSegment(99, 88);
         CPPUNIT_ASSERT_EQUAL(NULL, backup->findSegmentInfo(99, 88));
-    }
-
-    void
-    test_freeSegment_noSuchSegment()
-    {
-        CPPUNIT_ASSERT_THROW(client->freeSegment(99, 88),
-                             BackupBadSegmentIdException);
     }
 
     void
@@ -368,7 +353,6 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT(it.isDone());
 
-        freeStorageHandle(99, 88);
     }
 
     void
@@ -447,36 +431,45 @@ class BackupServerTest : public CppUnit::TestFixture {
                                            ProtoBuf::Tablets(), response);
         CPPUNIT_ASSERT_THROW(cont(), BackupMalformedSegmentException);
 
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
-    test_getRecoveryData_notInRecovery()
+    test_getRecoveryData_notPreloaded()
     {
         client->openSegment(99, 88);
+        writeHeader(99, 88);
         client->closeSegment(99, 88);
         Buffer response;
 
         BackupClient::GetRecoveryData cont(*client, 99, 88,
                                            ProtoBuf::Tablets(), response);
-        CPPUNIT_ASSERT_THROW(cont(), BackupBadSegmentIdException);
+        cont();
+        SegmentIterator it(response.getRange(0, response.getTotalLength()),
+                           segmentSize);
 
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT(!it.isDone());
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, it.getType());
+        it.next();
+
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
     test_openSegment()
     {
         client->openSegment(99, 88);
-        BackupServer::SegmentInfo &info =
-            backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
+        BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
         CPPUNIT_ASSERT(NULL != info.segment);
         CPPUNIT_ASSERT_EQUAL(0, *info.segment);
         char* address =
             static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
                 getAddress();
         CPPUNIT_ASSERT(NULL != address);
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -486,7 +479,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             client->openSegment(99, 88),
             BackupSegmentAlreadyOpenException);
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -497,8 +491,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             client->openSegment(99, 88),
             BackupStorageException);
-        freeStorageHandle(99, 87);
-        freeStorageHandle(99, 86);
+        CPPUNIT_ASSERT_EQUAL(2,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -508,7 +502,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         vector<uint64_t> result = client->startReadingData(99);
         CPPUNIT_ASSERT_EQUAL(1, result.size());
         CPPUNIT_ASSERT_EQUAL(88, result[0]);
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -523,11 +518,11 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         client->openSegment(99, 88);
         client->writeSegment(99, 88, 10, "test", 4);
-        BackupServer::SegmentInfo &info =
-            backup->segments[BackupServer::MasterSegmentIdPair(99, 88)];
+        BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
         CPPUNIT_ASSERT(NULL != info.segment);
         CPPUNIT_ASSERT_EQUAL("test", &info.segment[10]);
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -546,7 +541,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             client->writeSegment(99, 88, 0, "test", 4),
             BackupBadSegmentIdException);
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -556,7 +552,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             client->writeSegment(99, 88, 500000, "test", 0),
             BackupSegmentOverflowException);
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -567,7 +564,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             client->writeSegment(99, 88, 0, junk, sizeof(junk)),
             BackupSegmentOverflowException);
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
     void
@@ -578,12 +576,130 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             client->writeSegment(99, 88, 50000, junk, 50000),
             BackupSegmentOverflowException);
-        freeStorageHandle(99, 88);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
   private:
     DISALLOW_COPY_AND_ASSIGN(BackupServerTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(BackupServerTest);
+
+class SegmentInfoTest : public ::testing::Test {
+  public:
+    typedef BackupServer::SegmentInfo SegmentInfo;
+    typedef BackupStorage::Handle Handle;
+    SegmentInfoTest()
+        : segmentSize(64 * 1024)
+        , pool{segmentSize}
+        , storage{segmentSize, 2}
+        , info{storage, pool, 99, 88}
+    {}
+
+    uint32_t segmentSize;
+    BackupServer::Pool pool;
+    InMemoryStorage storage;
+    SegmentInfo info;
+
+    SegmentInfo::State infoState() { return info.state; }
+    char* infoSegment() { return info.segment; }
+    Handle* infoStorageHandle() { return info.storageHandle; }
+    bool infoIsLoading() { return info.isLoading(); }
+};
+
+TEST_F(SegmentInfoTest, destructor) {
+    TestLog::Enable _;
+    {
+        SegmentInfo info{storage, pool, 99, 88};
+        info.open();
+        EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+    }
+    EXPECT_EQ("~SegmentInfo: Backup shutting down with open segment <99,88>, "
+              "closing out to storage", TestLog::get());
+    EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
+    ASSERT_EQ(static_cast<char*>(NULL), infoSegment());
+}
+
+TEST_F(SegmentInfoTest, destructorLoading) {
+    {
+        SegmentInfo info{storage, pool, 99, 88};
+        info.open();
+        EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+        info.close();
+        info.startLoading();
+    }
+    EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
+}
+
+TEST_F(SegmentInfoTest, close) {
+    info.open();
+    EXPECT_EQ(SegmentInfo::OPEN, infoState());
+    ASSERT_TRUE(pool.is_from(infoSegment()));
+    const char* magic = "kitties!";
+    snprintf(infoSegment(), segmentSize, "%s", magic);
+
+    info.close();
+    EXPECT_EQ(SegmentInfo::CLOSED, infoState());
+    EXPECT_FALSE(pool.is_from(infoSegment()));
+
+    char seg[segmentSize];
+    storage.getSegment(infoStorageHandle(), seg);
+    EXPECT_STREQ(magic, seg);
+
+    EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+}
+
+TEST_F(SegmentInfoTest, closeWhileNotOpen) {
+    EXPECT_THROW(info.close(), BackupBadSegmentIdException);
+}
+
+TEST_F(SegmentInfoTest, free) {
+    info.open();
+    info.close();
+    info.startLoading();
+    EXPECT_TRUE(pool.is_from(infoSegment()));
+    EXPECT_TRUE(infoIsLoading());
+    EXPECT_FALSE(info.inMemory());
+    EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+    info.free();
+    EXPECT_FALSE(pool.is_from(infoSegment()));
+    EXPECT_FALSE(infoIsLoading());
+    EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
+    EXPECT_EQ(SegmentInfo::FREED, infoState());
+}
+
+TEST_F(SegmentInfoTest, getSegment) {
+    info.open();
+    EXPECT_TRUE(pool.is_from(infoSegment()));
+    const char* magic = "kitties!";
+    snprintf(infoSegment(), segmentSize, "%s", magic);
+    info.close();
+}
+
+TEST_F(SegmentInfoTest, open) {
+    info.open();
+    ASSERT_NE(static_cast<char*>(NULL), infoSegment());
+    EXPECT_EQ('\0', infoSegment()[0]);
+    EXPECT_NE(static_cast<Handle*>(NULL), infoStorageHandle());
+    EXPECT_EQ(SegmentInfo::OPEN, infoState());
+}
+
+TEST_F(SegmentInfoTest, openStorageAllocationFailure) {
+    InMemoryStorage storage{segmentSize, 0};
+    SegmentInfo info{storage, pool, 99, 88};
+    EXPECT_THROW(info.open(), BackupStorageException);
+    ASSERT_EQ(static_cast<char*>(NULL), infoSegment());
+    EXPECT_EQ(static_cast<Handle*>(NULL), infoStorageHandle());
+    EXPECT_EQ(SegmentInfo::UNINIT, infoState());
+}
+
+TEST_F(SegmentInfoTest, startLoading) {
+    info.open();
+    info.close();
+    info.startLoading();
+    ASSERT_NE(static_cast<char*>(NULL), infoSegment());
+    EXPECT_TRUE(infoIsLoading());
+    EXPECT_EQ(SegmentInfo::CLOSED, infoState());
+}
 
 } // namespace RAMCloud

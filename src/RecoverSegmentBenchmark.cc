@@ -77,7 +77,7 @@ class RecoverSegmentBenchmark {
          * MasterServer::Recover(), which sets up the tombstone map, so do
          * it manually.
          */
-        server->tombstoneMap = new ObjectTombstoneMap(tombstoneMapBytes /
+        ObjectTombstoneMap tombstoneMap(64 * 1024 * 1024 /
             ObjectTombstoneMap::bytesPerCacheLine());
 
         /*
@@ -87,7 +87,7 @@ class RecoverSegmentBenchmark {
         for (int i = 0; i < numSegments; i++) {
             Segment *s = segments[i];
             server->recoverSegment(s->getId(), s->getBaseAddress(),
-                s->getCapacity());
+                s->getCapacity(), tombstoneMap);
         }
         uint64_t ticks = rdtsc() - before;
 

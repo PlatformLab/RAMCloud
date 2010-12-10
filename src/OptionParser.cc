@@ -14,10 +14,12 @@
  */
 
 #include <boost/program_options.hpp>
+#include <boost/lexical_cast.hpp>
 #include <iostream>
 #include <fstream>
 
 #include "Common.h"
+#include "Logging.h"
 #include "Transport.h"
 #include "OptionParser.h"
 
@@ -103,7 +105,8 @@ OptionParser::setup(int argc, char* argv[])
 {
     namespace po = ProgramOptions;
 
-    int defaultLogLevel;
+    string defaultLogLevel;
+    vector<string> logLevels;
     string configFile(".ramcloud");
 
     // Basic options supported on the command line of all apps
@@ -119,9 +122,11 @@ OptionParser::setup(int argc, char* argv[])
     OptionsDescription configOptions("RAMCloud");
     configOptions.add_options()
         ("logLevel,l",
-         po::value<int>(&defaultLogLevel)->
-            default_value(NOTICE),
+         po::value<string>(&defaultLogLevel)->
+            default_value("NOTICE"),
          "Default log level for all modules, see LogLevel")
+        ("logModule",
+         po::value<vector<string> >(&logLevels))
         ("local,L",
          po::value<string>(&options.localLocator)->
            default_value("fast+udp:host=0.0.0.0,port=12242"),
@@ -157,6 +162,17 @@ OptionParser::setup(int argc, char* argv[])
         usageAndExit();
 
     logger.setLogLevels(defaultLogLevel);
+    foreach (auto moduleLevel, logLevels) {
+        auto pos = moduleLevel.find("=");
+        if (pos == string::npos) {
+            LOG(WARNING, "Bad log module level format: %s, "
+                "example moduleName=3", moduleLevel.c_str());
+            continue;
+        }
+        auto name = moduleLevel.substr(0, pos);
+        auto level = moduleLevel.substr(pos + 1);
+        logger.setLogLevel(name, level);
+    }
 }
 
 } // end RAMCloud

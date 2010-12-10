@@ -20,14 +20,12 @@
 #include <boost/unordered_map.hpp>
 #include <vector>
 
+#include "LogCleaner.h"
 #include "LogTypes.h"
 #include "Segment.h"
 #include "BackupManager.h"
 
 namespace RAMCloud {
-
-// forward decl around the circular Log/LogCleaner dependency
-class LogCleaner;
 
 /**
  * An exception that is thrown when the Log class is provided invalid
@@ -74,7 +72,7 @@ class Log {
     vector<void *> segmentFreeList;
     uint64_t       nextSegmentId;
     uint64_t       maximumAppendableBytes;
-    LogCleaner    *cleaner;
+    LogCleaner     cleaner;
 
     /// Current head of the log
     Segment *head;

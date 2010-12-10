@@ -22,9 +22,11 @@ class LoggingTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_setLogLevel);
     CPPUNIT_TEST(test_setLogLevel_int);
+    CPPUNIT_TEST(test_setLogLevel_string);
     CPPUNIT_TEST(test_changeLogLevel);
     CPPUNIT_TEST(test_setLogLevels);
     CPPUNIT_TEST(test_setLogLevels_int);
+    CPPUNIT_TEST(test_setLogLevels_string);
     CPPUNIT_TEST(test_changeLogLevels);
     CPPUNIT_TEST(test_isLogging);
     CPPUNIT_TEST(test_LOG);
@@ -73,6 +75,32 @@ class LoggingTest : public CppUnit::TestFixture {
                              l.logLevels[DEFAULT_LOG_MODULE]);
     }
 
+    void test_setLogLevel_string() {
+        logger.setLogLevels(SILENT_LOG_LEVEL);
+        Logger l(WARNING);
+
+        l.setLogLevel("default", "-1");
+        CPPUNIT_ASSERT_EQUAL(0, l.logLevels[DEFAULT_LOG_MODULE]);
+
+        l.setLogLevel("default", "1");
+        CPPUNIT_ASSERT_EQUAL(1, l.logLevels[DEFAULT_LOG_MODULE]);
+
+        l.setLogLevel("default", "NOTICE");
+        CPPUNIT_ASSERT_EQUAL(NOTICE, l.logLevels[DEFAULT_LOG_MODULE]);
+
+        l.setLogLevel("transport", "1");
+        CPPUNIT_ASSERT_EQUAL(1, l.logLevels[TRANSPORT_MODULE]);
+
+        TestLog::Enable _;
+        l.setLogLevel("stabYourself", "1");
+        l.setLogLevel("default", "");
+        l.setLogLevel("default", "junk");
+        CPPUNIT_ASSERT_EQUAL(
+            "setLogLevel: Ignoring bad log module name: stabYourself | "
+            "setLogLevel: Ignoring bad log module level:  | "
+            "setLogLevel: Ignoring bad log module level: junk", TestLog::get());
+    }
+
     void test_changeLogLevel() {
         Logger l(WARNING);
         l.changeLogLevel(DEFAULT_LOG_MODULE, -1);
@@ -106,6 +134,29 @@ class LoggingTest : public CppUnit::TestFixture {
         l.setLogLevels(numLogLevels - 1);
         for (int i = 0; i < NUM_LOG_MODULES; i++)
             CPPUNIT_ASSERT_EQUAL(numLogLevels - 1, l.logLevels[i]);
+    }
+
+    void test_setLogLevels_string() {
+        logger.setLogLevels(SILENT_LOG_LEVEL);
+        Logger l(WARNING);
+
+        l.setLogLevels("-1");
+        for (int i = 0; i < NUM_LOG_MODULES; i++)
+            CPPUNIT_ASSERT_EQUAL(0, l.logLevels[i]);
+
+        l.setLogLevels("2");
+        for (int i = 0; i < NUM_LOG_MODULES; i++)
+            CPPUNIT_ASSERT_EQUAL(2, l.logLevels[i]);
+
+        l.setLogLevels("NOTICE");
+        for (int i = 0; i < NUM_LOG_MODULES; i++)
+            CPPUNIT_ASSERT_EQUAL(NOTICE, l.logLevels[i]);
+
+        TestLog::Enable _;
+        l.setLogLevels("oral trauma");
+        CPPUNIT_ASSERT_EQUAL(
+            "setLogLevels: Ignoring bad log module level: oral trauma",
+            TestLog::get());
     }
 
     void test_changeLogLevels() {

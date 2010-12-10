@@ -381,6 +381,7 @@ InfRcTransport::InfRCSession::InfRCSession(InfRcTransport *transport,
     int port = sl.getOption<uint16_t>("port");
 
     // create and set up a new queue pair for this client
+    // TODO(ongaro): This probably doesn't need to allocate memory
     qp = transport->clientTrySetupQueuePair(ip, port);
 }
 

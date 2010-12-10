@@ -35,7 +35,6 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(SingleFileStorageTest);
     CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_constructor_disableBufferCache);
     CPPUNIT_TEST(test_constructor_openFails);
     CPPUNIT_TEST(test_allocate);
     CPPUNIT_TEST(test_allocate_ensureFifoUse);
@@ -82,25 +81,13 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
     }
 
     void
-    test_constructor_disableBufferCache()
-    {
-        const char* path =
-            "/tmp/ramcloud-backup-storage-test-delete-this-odirect";
-        SingleFileStorage(segmentSize, segmentFrames, path, O_DIRECT);
-        struct stat s;
-        stat(path, &s);
-        CPPUNIT_ASSERT_EQUAL(0, s.st_size);
-        unlink(path);
-    }
-
-    void
     test_constructor_openFails()
     {
         CPPUNIT_ASSERT_THROW(SingleFileStorage(segmentSize,
                                                segmentFrames,
-                                               "/dev/null", 0),
+                                               "/dev/null/cantcreate", 0),
                              BackupStorageException);
-        CPPUNIT_ASSERT_EQUAL("Invalid argument", strerror(errno));
+        CPPUNIT_ASSERT_EQUAL("Not a directory", strerror(errno));
     }
 
     void
@@ -192,7 +179,7 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
         char dst[segmentSize];
 
         storage->putSegment(handle.get(), src);
-        storage->getSegment(handle.get(), dst);
+        (*storage->getSegment(handle.get(), dst))();
 
         CPPUNIT_ASSERT_EQUAL("1234567", dst);
     }

@@ -57,7 +57,7 @@ try
          "Number of segment frames in backup storage.")
         ("file,f",
          ProgramOptions::value<string>(&backupFile)->
-            default_value("backup.log"),
+            default_value("/var/tmp/backup.log"),
          "The file path to the backup storage.");
 
     OptionParser optionParser(extraOptions, argc, argv);
@@ -75,19 +75,18 @@ try
     // Set the address for the backup to listen on.
     transportManager.initialize(config.localLocator.c_str());
 
-    BackupStorage* storage;
+    std::unique_ptr<BackupStorage> storage;
     if (inMemory)
-        storage = new InMemoryStorage(Segment::SEGMENT_SIZE, segmentCount);
+        storage.reset(new InMemoryStorage(Segment::SEGMENT_SIZE,
+                                          segmentCount));
     else
-        storage = new SingleFileStorage(Segment::SEGMENT_SIZE, segmentCount,
-                                        backupFile.c_str(), 0);
+        storage.reset(new SingleFileStorage(Segment::SEGMENT_SIZE,
+                                            segmentCount,
+                                            backupFile.c_str(),
+                                            O_DIRECT | O_SYNC | O_NOATIME));
 
-    {
-        BackupServer server(config, *storage);
-        server.run();
-    }
-
-    delete storage;
+    BackupServer server(config, *storage);
+    server.run();
 
     return 0;
 } catch (RAMCloud::Exception& e) {

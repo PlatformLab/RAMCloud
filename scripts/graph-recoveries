@@ -33,7 +33,7 @@ name[1]='recoverSegment just SegmentIterator'
 flags[2]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_REC_SEG_NO_HT"
 name[2]='recoverSegment no Hashtable'
 flags[3]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_REC_SEG_NO_LOG"
-ame[3]='recoverSegment no Logging'
+name[3]='recoverSegment no Logging'
 flags[4]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH"
 name[4]='recoverSegment no prefetching'
 flags[5]=EXTRACXXFLAGS="-DPERF_DEBUG_RECOVERY_NO_CKSUM"

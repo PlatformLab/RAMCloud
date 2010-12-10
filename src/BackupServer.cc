@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <boost/scoped_ptr.hpp>
+
 #include "BackupServer.h"
 #include "BackupStorage.h"
 #include "Buffer.h"
@@ -25,6 +27,209 @@
 #include "TransportManager.h"
 
 namespace RAMCloud {
+
+// --- BackupServer::SegmentInfo ---
+
+/**
+ * Construct a a SegmentInfo to manage a segment.
+ *
+ * \param storage
+ *      The storage which this segment will be backed by when closed.
+ * \param pool
+ *      The pool from which this segment should draw and return memory
+ *      when it is moved in and out of memory.
+ * \param masterId
+ *      The master id of the segment being managed.
+ * \param segmentId
+ *      The segment id of the segment being managed.
+ */
+BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage, Pool& pool,
+                                       uint64_t masterId, uint64_t segmentId)
+    : masterId(masterId)
+    , segmentId(segmentId)
+    , segment()
+    , segmentSync()
+    , state(UNINIT)
+    , storageHandle()
+    , pool(pool)
+    , storage(storage)
+{
+}
+
+/**
+ * Store any open segments to storage and then release all resources
+ * associate with them except permanent storage.
+ */
+BackupServer::SegmentInfo::~SegmentInfo()
+{
+    if (isOpen()) {
+        LOG(WARNING, "Backup shutting down with open segment <%lu,%lu>, "
+            "closing out to storage", masterId, segmentId);
+        close();
+    }
+    if (isLoading())
+        getSegment();
+    if (inStorage()) {
+        delete storageHandle;
+        storageHandle = NULL;
+    }
+    if (inMemory()) {
+        pool.free(segment);
+        segment = NULL;
+    }
+}
+
+/**
+ * Make this segment immutable and flush this segment to disk.
+ */
+void
+BackupServer::SegmentInfo::close()
+{
+    if (!isOpen())
+        throw BackupBadSegmentIdException(HERE);
+    storage.putSegment(storageHandle, segment);
+    pool.free(segment);
+    segment = NULL;
+    state = CLOSED;
+}
+
+/**
+ * Release all resources related to this segment including storage.
+ */
+void
+BackupServer::SegmentInfo::free()
+{
+    if (isLoading())
+        getSegment();
+    if (inMemory())
+        pool.free(segment);
+    segment = NULL;
+    storage.free(storageHandle);
+    storageHandle = NULL;
+    state = FREED;
+}
+
+/**
+ * Return a pointer to the valid segment data in memory.  If the segment is
+ * being loaded from storage as part of recovery this call will block until
+ * the data is ready.
+ *
+ * The segment must be in memory or being loaded from storage (i.e. should
+ * only be called while the segment is OPEN.
+ */
+char*
+BackupServer::SegmentInfo::getSegment()
+{
+    assert(state == OPEN || state == CLOSED);
+    if (inMemory())
+        return segment;
+    if (!isLoading())
+        startLoading();
+    try {
+        (*segmentSync)();
+    } catch (...) {
+        segmentSync.reset();
+        if (segment) {
+            pool.free(segment);
+            segment = NULL;
+        }
+        state = CLOSED;
+        throw;
+    }
+    segmentSync.reset();
+    assert(inMemory());
+    return segment;
+}
+
+/// Return true if this segment is fully in memory.
+bool
+BackupServer::SegmentInfo::inMemory()
+{
+    return segment && !isLoading();
+}
+
+/// Return true if this segment has storage allocated.
+bool
+BackupServer::SegmentInfo::inStorage()
+{
+    return storageHandle;
+}
+
+/// Return true if this segment is OPEN.
+bool
+BackupServer::SegmentInfo::isOpen()
+{
+    return state == OPEN;
+}
+
+/**
+ * Open the segment.  After this the segment is in memory and mutable
+ * with reserved storage.  Any controlled shutdown of the server will
+ * ensure the segment reaches stable storage unless the segment if
+ * freed in the meantime.
+ *
+ * The backing memory is zeroed out, though the storage may still have
+ * its old contents.
+ */
+void
+BackupServer::SegmentInfo::open()
+{
+    assert(state == UNINIT);
+    // Get memory for staging the segment writes
+    char* segment = static_cast<char*>(pool.malloc());
+    memset(segment, 0, pool.get_requested_size());
+    BackupStorage::Handle* handle;
+    try {
+        // Reserve the space for this on disk
+        handle = storage.allocate(masterId, segmentId);
+    } catch (...) {
+        // Release the staging memory if storage.allocate throws
+        pool.free(segment);
+        throw;
+    }
+
+    this->segment = segment;
+    this->storageHandle = handle;
+    state = OPEN;
+}
+
+/**
+ * Begin reading of segment from disk to memory. Marks the segment
+ * CLOSED (immutable) as well.
+ * Call load() or getSegment() to block until the load completes.
+ */
+void
+BackupServer::SegmentInfo::startLoading()
+{
+    assert(state == OPEN || state == CLOSED);
+    state = CLOSED;
+    if (inMemory() || isLoading())
+        return;
+    char* segment = static_cast<char*>(pool.malloc());
+    try {
+        segmentSync.reset(
+            storage.getSegment(storageHandle, segment));
+    } catch (...) {
+        pool.free(segment);
+        segment = NULL;
+        throw;
+    }
+    this->segment = segment;
+}
+
+// - private -
+
+/**
+ * Return whether there is an asynchronous IO op pending to retrieve the
+ * segment from disk.
+ */
+bool
+BackupServer::SegmentInfo::isLoading()
+{
+    return segmentSync;
+}
+
+// --- BackupServer ---
 
 /**
  * Create a BackupServer which is ready to run().
@@ -52,6 +257,15 @@ BackupServer::BackupServer(const Config& config,
  */
 BackupServer::~BackupServer()
 {
+    // Clean up any extra SegmentInfos laying around
+    // but don't free them; perhaps we want to load them up
+    // on a cold start.  The infos destructor will ensure the
+    // segment is properly stored before termination.
+    foreach (const SegmentsMap::value_type& value, segments) {
+        SegmentInfo* info = value.second;
+        delete info;
+    }
+    segments.clear();
 }
 
 /// Returns the serverId granted to this backup by the coordinator.
@@ -125,13 +339,10 @@ void
 BackupServer::closeSegment(uint64_t masterId, uint64_t segmentId)
 {
     SegmentInfo* info = findSegmentInfo(masterId, segmentId);
-    if (!info || info->state != SegmentInfo::OPEN)
+    if (!info)
         throw BackupBadSegmentIdException(HERE);
 
-    storage.putSegment(info->storageHandle, info->segment);
-    pool.free(info->segment);
-    info->segment = NULL;
-    info->state = SegmentInfo::CLOSED;
+    info->close();
 }
 
 // See Server::dispatch.
@@ -180,15 +391,14 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
  * After this call completes the segment number segmentId will no longer
  * be in permanent storage and will not be recovered during recovery.
  *
+ * This is a no-op if the backup is unaware of this segment.
+ *
  * \param reqHdr
  *      Header of the Rpc request containing the segment number to free.
  * \param respHdr
  *      Header for the Rpc response.
  * \param rpc
  *      The Rpc being serviced.
- *
- * \throw BackupBackupSegmentIdException
- *      If the segment does exist on this backup (never opened or was freed).
  */
 void
 BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
@@ -198,16 +408,18 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
     LOG(DEBUG, "Handling: %s %lu %lu",
         __func__, reqHdr.masterId, reqHdr.segmentId);
 
-    SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
-    if (!info)
-        throw BackupBadSegmentIdException(HERE);
+    SegmentsMap::iterator it =
+        segments.find(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
+    if (it == segments.end()) {
+        LOG(WARNING, "Master tried to free non-existent segment: <%lu,%lu>",
+            reqHdr.masterId, reqHdr.segmentId);
+        return;
+    }
 
-    if (info->segment)
-        pool.free(info->segment);
-    info->segment = NULL;
-
-    storage.free(info->storageHandle);
-    segments.erase(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
+    SegmentInfo *info = it->second;
+    info->free();
+    segments.erase(it);
+    delete info;
 }
 
 /**
@@ -228,7 +440,7 @@ BackupServer::findSegmentInfo(uint64_t masterId, uint64_t segmentId)
         segments.find(MasterSegmentIdPair(masterId, segmentId));
     if (it == segments.end())
         return NULL;
-    return &it->second;
+    return it->second;
 }
 
 
@@ -264,22 +476,10 @@ try
                                 reqHdr.tabletsLength, tablets);
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
-    if (!info || info->state != SegmentInfo::RECOVERING) {
+    if (!info) {
         LOG(WARNING, "Asked for bad segment <%lu,%lu>",
             reqHdr.masterId, reqHdr.segmentId);
         throw BackupBadSegmentIdException(HERE);
-    }
-
-    // If not already in memory then reload it.
-    if (!info->segment) {
-        char* segmentMem = static_cast<char*>(pool.malloc());
-        try {
-            storage.getSegment(info->storageHandle, segmentMem);
-        } catch (...) {
-            pool.free(segmentMem);
-            throw;
-        }
-        info->segment = segmentMem;
     }
 
     char* packedSegment =
@@ -287,7 +487,8 @@ try
     Segment segment(reqHdr.masterId, reqHdr.segmentId,
                     packedSegment, segmentSize, NULL);
 
-    for (SegmentIterator it(info->segment, segmentSize);
+    // getSegment() will block if the segment isn't already in memory.
+    for (SegmentIterator it(info->getSegment(), segmentSize);
          !it.isDone(); it.next())
     {
         if (it.getType() == 0)
@@ -423,21 +624,16 @@ BackupServer::openSegment(uint64_t masterId, uint64_t segmentId)
     if (info)
         throw BackupSegmentAlreadyOpenException(HERE);
 
-    // Get memory for staging the segment writes
-    char* segment = static_cast<char*>(pool.malloc());
-    memset(segment, 0, segmentSize);
-    BackupStorage::Handle* handle;
     try {
-        // Reserve the space for this on disk
-        handle = storage.allocate(masterId, segmentId);
+        std::unique_ptr<SegmentInfo> info(
+            new SegmentInfo(storage, pool, masterId, segmentId));
+        segments[MasterSegmentIdPair(masterId, segmentId)] = info.get();
+        info->open();
+        info.release();
     } catch (...) {
-        // Release the staging memory if storage.allocate throws
-        pool.free(segment);
+        segments.erase(MasterSegmentIdPair(masterId, segmentId));
         throw;
     }
-
-    segments[MasterSegmentIdPair(masterId, segmentId)] =
-        SegmentInfo(segment, handle);
 }
 
 /**
@@ -461,7 +657,6 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
 {
     LOG(DEBUG, "Handling: %s %lu", __func__, reqHdr.masterId);
 
-    // TODO(stutsman) use aio to get data into RAM before getRecoveryData
     uint32_t segmentIdCount = 0;
     for (SegmentsMap::iterator it = segments.begin();
          it != segments.end(); it++)
@@ -472,7 +667,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
             *segmentId = it->first.segmentId;
             LOG(DEBUG, "Crashed master %lu had segment %lu",
                 masterId, *segmentId);
-            it->second.state = SegmentInfo::RECOVERING;
+            it->second->startLoading();
             segmentIdCount++;
         }
     }
@@ -506,12 +701,13 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
                            BackupWriteRpc::Response& respHdr,
                            Transport::ServerRpc& rpc)
 {
+    LOG(DEBUG, "writeSegment <%lu,%lu>", reqHdr.masterId, reqHdr.segmentId);
     if (reqHdr.flags == BackupWriteRpc::OPEN ||
         reqHdr.flags == BackupWriteRpc::OPENCLOSE)
         openSegment(reqHdr.masterId, reqHdr.segmentId);
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
-    if (!info || info->state != SegmentInfo::OPEN)
+    if (!info || !info->isOpen())
         throw BackupBadSegmentIdException(HERE);
 
     // Need to check all three conditions because overflow is possible
@@ -522,7 +718,7 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
         throw BackupSegmentOverflowException(HERE);
 
     rpc.recvPayload.copy(sizeof(reqHdr), reqHdr.length,
-                         &info->segment[reqHdr.offset]);
+                         &info->getSegment()[reqHdr.offset]);
 
     if (reqHdr.flags == BackupWriteRpc::CLOSE ||
         reqHdr.flags == BackupWriteRpc::OPENCLOSE)

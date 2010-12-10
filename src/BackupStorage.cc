@@ -15,6 +15,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 
@@ -26,6 +27,53 @@ namespace RAMCloud {
 // --- BackupStorage::Handle ---
 
 int32_t BackupStorage::Handle::allocatedHandlesCount = 0;
+
+// --- SingleFileStorage::GetSegment ---
+
+/**
+ * See BackupStorage::getSegment.
+ *
+ * \param storage
+ *      The SingleFileStorage the desired segment is stored in.
+ * \param handle
+ *      A Handle that was returned from this->allocate().
+ * \param segment
+ *      The start of a contiguous region of memory where the segment
+ *      should be placed after being read from storage.
+ */
+SingleFileStorage::GetSegment::GetSegment(SingleFileStorage& storage,
+                                          const BackupStorage::Handle* handle,
+                                          char* segment)
+    : cb()
+{
+    uint32_t sourceSegmentFrame =
+        static_cast<const Handle*>(handle)->getSegmentFrame();
+    off_t offset = storage.offsetOfSegmentFrame(sourceSegmentFrame);
+
+    memset(&cb, 0, sizeof(cb));
+    cb.aio_fildes = storage.fd;
+    // Not needed for aio_read, but makes this work if we decide
+    // to add it to a vector for lio_listio.
+    cb.aio_lio_opcode = LIO_READ;
+    cb.aio_buf = segment;
+    cb.aio_nbytes = storage.segmentSize;
+    cb.aio_offset = offset;
+    cb.aio_sigevent.sigev_notify = SIGEV_NONE;
+    int r = aio_read(&cb);
+    if (r)
+        throw BackupStorageException(HERE,
+                "Failure scheduling AIO op for backup storage", errno);
+}
+
+/// Block until the associated segment has been loaded into the given buffer.
+void SingleFileStorage::GetSegment::operator()()
+{
+    int r;
+    while ((r = aio_error(&cb) == EINPROGRESS));
+    if (r != 0)
+        throw BackupStorageException(HERE,
+                "AIO op failed while retrieving segment from storage", errno);
+}
 
 // --- SingleFileStorage ---
 
@@ -60,9 +108,16 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
               O_CREAT | O_RDWR | openFlags,
               0666);
     if (fd == -1)
-        throw BackupStorageException(HERE, errno);
+        throw BackupStorageException(HERE,
+              format("Failed to open backup storage file %s", filePath), errno);
 
-    if (!(openFlags & O_DIRECT))
+    // If its a regular file reserve space, otherwise
+    // assume its a device and we don't need to bother.
+    struct stat st;
+    int r = stat(filePath, &st);
+    if (r == -1)
+        return;
+    if (st.st_mode & S_IFREG)
         reserveSpace();
 }
 
@@ -104,32 +159,25 @@ SingleFileStorage::free(BackupStorage::Handle* handle)
                          offsetOfSegmentFrame(segmentFrame),
                          SEEK_SET);
     if (offset == -1)
-        throw BackupStorageException(HERE, errno);
+        throw BackupStorageException(HERE,
+                "Failed to seek to segment frame to free storage", errno);
     const char* killMessage = "FREE";
     ssize_t killMessageLen = strlen(killMessage);
     ssize_t r = write(fd, killMessage, killMessageLen);
     if (r != killMessageLen)
-        throw BackupStorageException(HERE, errno);
+        throw BackupStorageException(HERE,
+                "Couldn't overwrite stored segment header to free", errno);
 
     freeMap[segmentFrame] = 1;
     delete handle;
 }
 
 // See BackupStorage::getSegment().
-void
+BackupStorage::Syncable*
 SingleFileStorage::getSegment(const BackupStorage::Handle* handle,
                               char* segment)
 {
-    uint32_t sourceSegmentFrame =
-        static_cast<const Handle*>(handle)->getSegmentFrame();
-    off_t offset = lseek(fd,
-                         offsetOfSegmentFrame(sourceSegmentFrame),
-                         SEEK_SET);
-    if (offset == -1)
-        throw BackupStorageException(HERE, errno);
-    ssize_t r = read(fd, segment, segmentSize);
-    if (r != static_cast<ssize_t>(segmentSize))
-        throw BackupStorageException(HERE, errno);
+    return new GetSegment(*this, handle, segment);
 }
 
 // See BackupStorage::putSegment().
@@ -143,7 +191,8 @@ SingleFileStorage::putSegment(const BackupStorage::Handle* handle,
                          offsetOfSegmentFrame(targetSegmentFrame),
                          SEEK_SET);
     if (offset == -1)
-        throw BackupStorageException(HERE, errno);
+        throw BackupStorageException(HERE,
+                "Failed to seek to segment frame to write storage", errno);
     ssize_t r = write(fd, segment, segmentSize);
     if (r != static_cast<ssize_t>(segmentSize))
         throw BackupStorageException(HERE, errno);
@@ -181,7 +230,8 @@ SingleFileStorage::reserveSpace()
     LOG(DEBUG, "Reserving %lu bytes of log space", logSpace);
     int r = ftruncate(fd, logSpace);
     if (r == -1)
-        throw BackupStorageException(HERE, errno);
+        throw BackupStorageException(HERE,
+                "Couldn't reserve storage space for backup", errno);
 }
 
 // --- InMemoryStorage ---
@@ -207,7 +257,6 @@ InMemoryStorage::InMemoryStorage(uint32_t segmentSize,
 /// Free up all storage.
 InMemoryStorage::~InMemoryStorage()
 {
-    pool.purge_memory();
 }
 
 // See BackupStorage::allocate().
@@ -235,12 +284,13 @@ InMemoryStorage::free(BackupStorage::Handle* handle)
 }
 
 // See BackupStorage::getSegment().
-void
+BackupStorage::Syncable*
 InMemoryStorage::getSegment(const BackupStorage::Handle* handle,
                             char* segment)
 {
     char* address = static_cast<const Handle*>(handle)->getAddress();
     std::copy(address, address + segmentSize, segment);
+    return new Syncable();
 }
 
 // See BackupStorage::putSegment().

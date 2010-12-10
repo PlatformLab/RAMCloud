@@ -46,7 +46,7 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
       segmentFreeList(),
       nextSegmentId(0),
       maximumAppendableBytes(0),
-      cleaner(NULL),
+      cleaner(this),
       head(NULL),
       callbackMap(),
       activeIdMap(),
@@ -54,8 +54,6 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
       backup(backup),
       bytesAppended(0)
 {
-    cleaner = new LogCleaner(this);
-
     uint64_t numSegments = logCapacity / segmentCapacity;
     if (numSegments < 1) {
         throw LogException(HERE,
@@ -88,8 +86,6 @@ Log::~Log()
 
     foreach (CallbackMap::value_type& typeCallbackPair, callbackMap)
         delete typeCallbackPair.second;
-
-    delete cleaner;
 }
 
 /**
@@ -189,7 +185,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
             bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentHeader);
             addToActiveMaps(head);
 
-            cleaner->clean(1);
+            cleaner.clean(1);
         }
     } while (p == NULL);
 
