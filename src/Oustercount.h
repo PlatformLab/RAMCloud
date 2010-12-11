@@ -71,6 +71,8 @@ class Oustercount {
         uint64_t globalTotalObjects;
         bool     isDone;
 
+        friend class OustercountTest;
+
         DISALLOW_COPY_AND_ASSIGN(PartitionCollector);
     };
 
@@ -96,6 +98,8 @@ class Oustercount {
           private:
             Subrange* subrange;
             int       bucketIndex;
+
+            friend class OustercountTest;
         };
 
         Subrange(BucketHandle parent, uint64_t firstKey, uint64_t lastKey,
@@ -128,6 +132,8 @@ class Oustercount {
         uint32_t     totalChildren;
         LogTime      createTime;
 
+        friend class OustercountTest;
+
         DISALLOW_COPY_AND_ASSIGN(Subrange);
     };
 
@@ -137,6 +143,8 @@ class Oustercount {
     // Oustercount private variables
     Subrange*              root;
     Subrange::BucketHandle findHint;
+
+    friend class OustercountTest;
 
     DISALLOW_COPY_AND_ASSIGN(Oustercount);
 };

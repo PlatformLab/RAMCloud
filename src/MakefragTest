@@ -32,6 +32,7 @@ TESTS_SRCFILES := \
 		  src/ObjectFinderTest.cc \
 		  src/ObjectTubTest.cc \
 		  src/OptionParserTest.cc \
+          src/OustercountTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \
 		  src/RecoveryTest.cc \
