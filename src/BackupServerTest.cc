@@ -429,6 +429,7 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         BackupClient::GetRecoveryData cont(*client, 99, 88,
                                            ProtoBuf::Tablets(), response);
+        logger.setLogLevels(SILENT_LOG_LEVEL);
         CPPUNIT_ASSERT_THROW(cont(), BackupMalformedSegmentException);
 
         CPPUNIT_ASSERT_EQUAL(1,

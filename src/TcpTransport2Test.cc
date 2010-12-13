@@ -16,6 +16,7 @@
 #include "TestUtil.h"
 #include "TcpTransport2.h"
 #include "MockSyscall.h"
+#include "ObjectTub.h"
 
 namespace RAMCloud {
 
@@ -59,21 +60,22 @@ class TcpTransport2Test : public CppUnit::TestFixture {
 
     ServiceLocator* locator;
     MockSyscall* sys;
+    ObjectTub<TestLog::Enable> logEnabler;
 
-    TcpTransport2Test() : locator(NULL), sys(NULL)
+    TcpTransport2Test() : locator(NULL), sys(NULL), logEnabler()
     {}
 
     void setUp() {
         locator = new ServiceLocator("tcp+ip: host=localhost, port=11000");
         sys = new MockSyscall();
         TcpTransport2::sys = sys;
-        TestLog::enable();
+        logEnabler.construct();
     }
 
     void tearDown() {
         delete locator;
         delete sys;
-        TestLog::disable();
+        logEnabler.destroy();
     }
 
     string catchConstruct(ServiceLocator* locator) {

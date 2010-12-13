@@ -73,6 +73,12 @@ cmdline(int argc, char *argv[])
     }
 }
 
+// CppUnit doesn't put this in a public header
+struct CppUnit::ProtectorContext {
+    void* _[2];
+    std::string description;
+};
+
 int
 main(int argc, char *argv[])
 {
@@ -93,6 +99,8 @@ main(int argc, char *argv[])
     class RAMCloudProtector : public CppUnit::Protector {
         bool protect(const CppUnit::Functor& functor,
                      const CppUnit::ProtectorContext& context) {
+            if (context.description == "setUp() failed")
+                RAMCloud::logger.setLogLevels(RAMCloud::WARNING);
             try {
                 return functor();
             } catch (const RAMCloud::Exception& e) {
@@ -114,5 +122,12 @@ main(int argc, char *argv[])
     runner.eventManager().pushProtector(new RAMCloudProtector());
 
     runner.addTest(registry.makeTest());
+
+    // set log levels for gtest unit tests
+    struct LoggerEnvironment : public ::testing::Environment {
+        void SetUp() { RAMCloud::logger.setLogLevels(RAMCloud::WARNING); }
+    };
+    ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
+
     return !runner.run(testName, false, true, progress) + RUN_ALL_TESTS();
 }

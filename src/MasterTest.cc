@@ -967,6 +967,8 @@ class SegmentLocatorChooserTest : public CppUnit::TestFixture {
             server.set_service_locator("mock:host=backup4");
         }
 
+        logger.setLogLevels(ERROR);
+
         SegmentLocatorChooser chooser(backups);
         CPPUNIT_ASSERT_EQUAL(3, chooser.map.size());
         MockTSC _(1);

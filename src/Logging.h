@@ -23,111 +23,6 @@ namespace RAMCloud {
 class CodeLocation;
 
 /**
- * A module for capturing "test log entries" to facilitate unit testing.
- *
- * TEST_LOG calls can be removed by disabling TESTING.  Further, test logging
- * can be run time toggled using enable() and disable() to prevent unit tests
- * which aren't interested in the test log from accumulating the log in RAM.
- *
- * The easiest interface is to simply instantiate Enable at the beginning of a
- * test method.
- *
- * Example:
- * \code
- * void
- * FooClass::methodToTest()
- * {
- *     TEST_LOG("log message");
- * }
- *
- * void
- * test()
- * {
- *     TestLog::Enable _;
- *
- *     foo->methodName();
- *
- *     CPPUNIT_ASSERT_EQUAL(
- *         "void RAMCloud::FooClass:methodToTest(): log message",
- *         TestLog::get());
- * }
- * \endcode
- *
- * TEST_LOG calls in deeper calls may be irrelevant to a specific unit test
- * so a predicate can be specified using setPredicate or as an argument to
- * the constructor of Enable to select only interesting test log entries.
- * See setPredicate() for more detail.
- */
-namespace TestLog {
-    void reset();
-    void disable();
-    void enable();
-    string get();
-    void log(const CodeLocation& where, const char* format, ...)
-#ifdef __INTEL_COMPILER
-        __attribute__((format(printf, 2, 3)));
-#else
-        __attribute__((format(gnu_printf, 2, 3)));
-#endif
-    void setPredicate(bool (*pred)(string));
-
-    /**
-     * Reset and enable the test log on construction, reset and disable it
-     * on destruction.
-     *
-     * Allows one to instrument a function in an exception safe way with
-     * test logging just by sticking one of these on the stack.
-     */
-    struct Enable {
-        /// Reset and enable/disable the test log on construction/destruction.
-        Enable()
-        {
-            enable();
-        }
-
-        /**
-         * Reset and enable/disable the test log on construction/destruction
-         * using a particular predicate to filter test log entries.
-         *
-         * \param[in] pred
-         *      See setPredicate().
-         */
-        Enable(bool (*pred)(string))
-        {
-            setPredicate(pred);
-            enable();
-        }
-
-        /// Reset and disable test logging automatically.
-        ~Enable()
-        {
-            disable();
-        }
-    };
-} // namespace RAMCloud::TestLog
-
-} // namespace RAMCloud
-#if TESTING
-/**
- * Log an entry in the test log for use in unit tests.
- *
- * See RAMCloud::TestLog for examples on how to use this for testing.
- *
- * \param[in] format
- *      A printf-style format string for the message. It should not have a line
- *      break at the end.
- * \param[in] ...
- *      The arguments to the format string.
- */
-#define TEST_LOG(format, ...) \
-    RAMCloud::TestLog::log(HERE, format, ##__VA_ARGS__)
-#else
-#define TEST_LOG(format, ...)
-#endif
-
-namespace RAMCloud {
-
-/**
  * The levels of verbosity for messages logged with #LOG.
  */
 enum LogLevel {
@@ -258,5 +153,116 @@ extern Logger logger;
     throw RAMCloud::FatalError(HERE, \
                                RAMCloud::format(format_, ##__VA_ARGS__)); \
 } while (0)
+
+namespace RAMCloud {
+
+/**
+ * A module for capturing "test log entries" to facilitate unit testing.
+ *
+ * TEST_LOG calls can be removed by disabling TESTING.  Further, test logging
+ * can be run time toggled using enable() and disable() to prevent unit tests
+ * which aren't interested in the test log from accumulating the log in RAM.
+ *
+ * The easiest interface is to simply instantiate Enable at the beginning of a
+ * test method.
+ *
+ * Example:
+ * \code
+ * void
+ * FooClass::methodToTest()
+ * {
+ *     TEST_LOG("log message");
+ * }
+ *
+ * void
+ * test()
+ * {
+ *     TestLog::Enable _;
+ *
+ *     foo->methodName();
+ *
+ *     CPPUNIT_ASSERT_EQUAL(
+ *         "void RAMCloud::FooClass:methodToTest(): log message",
+ *         TestLog::get());
+ * }
+ * \endcode
+ *
+ * TEST_LOG calls in deeper calls may be irrelevant to a specific unit test
+ * so a predicate can be specified using setPredicate or as an argument to
+ * the constructor of Enable to select only interesting test log entries.
+ * See setPredicate() for more detail.
+ */
+namespace TestLog {
+    void reset();
+    void disable();
+    void enable();
+    string get();
+    void log(const CodeLocation& where, const char* format, ...)
+#ifdef __INTEL_COMPILER
+        __attribute__((format(printf, 2, 3)));
+#else
+        __attribute__((format(gnu_printf, 2, 3)));
+#endif
+    void setPredicate(bool (*pred)(string));
+
+    /**
+     * Reset and enable the test log on construction, reset and disable it
+     * on destruction.
+     *
+     * Allows one to instrument a function in an exception safe way with
+     * test logging just by sticking one of these on the stack.
+     */
+    struct Enable {
+        /// Reset and enable/disable the test log on construction/destruction.
+        Enable()
+        {
+            logger.saveLogLevels(savedLogLevels);
+            logger.setLogLevels(SILENT_LOG_LEVEL);
+            enable();
+        }
+
+        /**
+         * Reset and enable/disable the test log on construction/destruction
+         * using a particular predicate to filter test log entries.
+         *
+         * \param[in] pred
+         *      See setPredicate().
+         */
+        Enable(bool (*pred)(string))
+        {
+            logger.saveLogLevels(savedLogLevels);
+            logger.setLogLevels(SILENT_LOG_LEVEL);
+            setPredicate(pred);
+            enable();
+        }
+
+        /// Reset and disable test logging automatically.
+        ~Enable()
+        {
+            disable();
+            logger.restoreLogLevels(savedLogLevels);
+        }
+        LogLevel savedLogLevels[NUM_LOG_MODULES];
+    };
+} // namespace RAMCloud::TestLog
+
+} // namespace RAMCloud
+#if TESTING
+/**
+ * Log an entry in the test log for use in unit tests.
+ *
+ * See RAMCloud::TestLog for examples on how to use this for testing.
+ *
+ * \param[in] format
+ *      A printf-style format string for the message. It should not have a line
+ *      break at the end.
+ * \param[in] ...
+ *      The arguments to the format string.
+ */
+#define TEST_LOG(format, ...) \
+    RAMCloud::TestLog::log(HERE, format, ##__VA_ARGS__)
+#else
+#define TEST_LOG(format, ...)
+#endif
 
 #endif  // RAMCLOUD_LOGGING_H

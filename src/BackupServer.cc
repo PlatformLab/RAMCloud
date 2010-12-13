@@ -63,7 +63,7 @@ BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage, Pool& pool,
 BackupServer::SegmentInfo::~SegmentInfo()
 {
     if (isOpen()) {
-        LOG(WARNING, "Backup shutting down with open segment <%lu,%lu>, "
+        LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
             "closing out to storage", masterId, segmentId);
         close();
     }

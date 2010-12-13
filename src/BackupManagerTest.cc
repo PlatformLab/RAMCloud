@@ -218,6 +218,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
     test_selectOpenHosts_notEnoughBackups()
     {
         setUp(false);
+        logger.setLogLevels(SILENT_LOG_LEVEL);
         CPPUNIT_ASSERT_THROW(mgr->openSegment(99, 88),
                              FatalError);
         CPPUNIT_ASSERT_EQUAL(0,
@@ -228,6 +229,7 @@ class BackupManagerTest : public CppUnit::TestFixture {
     test_selectOpenHosts_alreadyOpen()
     {
         mgr->openSegment(99, 88);
+        logger.setLogLevels(SILENT_LOG_LEVEL);
         CPPUNIT_ASSERT_THROW(mgr->openSegment(99, 88),
                              FatalError);
         CPPUNIT_ASSERT_EQUAL(2,
