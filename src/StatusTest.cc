@@ -13,8 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Status.h"
 #include "TestUtil.h"
+#include "Status.h"
 
 namespace RAMCloud {
 

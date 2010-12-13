@@ -13,8 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ClientException.h"
 #include "TestUtil.h"
+#include "ClientException.h"
 
 namespace RAMCloud {
 

@@ -13,9 +13,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "MockDriver.h"
-
 #include "TestUtil.h"
+
+#include "MockDriver.h"
 
 namespace RAMCloud {
 

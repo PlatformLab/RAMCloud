@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "MockTransport.h"
 #include "TestUtil.h"
+#include "MockTransport.h"
 
 namespace RAMCloud {
 

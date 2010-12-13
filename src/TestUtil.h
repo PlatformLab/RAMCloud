@@ -25,6 +25,16 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <gtest/gtest.h>
 #include <regex.h>
+
+// These need to be defined before Common.h is included.
+// Uppercase versions are all defined to 'public' for white-box tests.
+#ifdef RAMCLOUD_COMMON_H
+#error "TestUtil.h must be included before Common.h"
+#endif
+#define PRIVATE public
+#define PROTECTED public
+#define PUBLIC public
+
 #include "Common.h"
 #include "Buffer.h"
 #include "ClientException.h"

@@ -22,6 +22,17 @@
 #ifndef RAMCLOUD_COMMON_H
 #define RAMCLOUD_COMMON_H
 
+// Uppercase versions are all defined to 'public' for white-box tests.
+#ifndef PRIVATE
+#define PRIVATE private
+#endif
+#ifndef PROTECTED
+#define PROTECTED protected
+#endif
+#ifndef PUBLIC
+#define PUBLIC public
+#endif
+
 // Define nullptr for c++0x compatibility.
 // This will go away if we move to g++ 4.6.
 /// \cond
