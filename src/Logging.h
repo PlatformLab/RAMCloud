@@ -176,6 +176,14 @@ class Logger {
     void setLogLevels(string level);
     void changeLogLevels(int delta);
 
+    void saveLogLevels(LogLevel (&currentLogLevels)[NUM_LOG_MODULES]) {
+        std::copy(logLevels, logLevels + NUM_LOG_MODULES, currentLogLevels);
+    }
+
+    void restoreLogLevels(const LogLevel (&newLogLevels)[NUM_LOG_MODULES]) {
+        std::copy(newLogLevels, newLogLevels + NUM_LOG_MODULES, logLevels);
+    }
+
     void logMessage(LogModule module, LogLevel level,
                     const CodeLocation& where,
                     const char* format, ...)
