@@ -73,6 +73,17 @@ class TransportManager {
         // come and go.
         sessionCache.clear();
     }
+
+    struct MockRegistrar {
+        explicit MockRegistrar(Transport& transport) {
+            extern TransportManager transportManager;
+            transportManager.registerMock(&transport);
+        }
+        ~MockRegistrar() {
+            extern TransportManager transportManager;
+            transportManager.unregisterMock();
+        }
+    };
 #endif
 
   private:
