@@ -306,6 +306,24 @@ recoveryCleanup(const ObjectTombstone *tomb, void *cookie)
     free(const_cast<ObjectTombstone *>(tomb));
 }
 
+// used in recover()
+struct Task {
+    Task(uint64_t masterId, uint64_t segmentId,
+         const char* backupLocator, const ProtoBuf::Tablets& tablets)
+        : segmentId(segmentId)
+        , backupLocator(backupLocator)
+        , response()
+        , client(transportManager.getSession(backupLocator))
+        , rpc(client, masterId, segmentId, tablets, response)
+    {}
+    uint64_t segmentId;
+    const char* backupLocator;
+    Buffer response;
+    BackupClient client;
+    BackupClient::GetRecoveryData rpc;
+    DISALLOW_COPY_AND_ASSIGN(Task);
+};
+
 /**
  * Helper for public recover() method.
  * Collect all the filtered log segments from backups for a set of tablets
@@ -346,121 +364,67 @@ MasterServer::recover(uint64_t masterId,
 #endif
 
 #ifdef PERF_DEBUG_RECOVERY_SERIAL
-    // for each backup that names an unrec seg getRecData, pass to Server
-    SegmentLocatorChooser chooser(backups);
-    for (SegmentLocatorChooser::SegmentIdList::const_iterator it =
-            chooser.getSegmentIdList().begin();
-         it != chooser.getSegmentIdList().end();
-         ++it)
-    {
-        uint64_t segmentIdToRecover = *it;
-        const string& locator = chooser.get(segmentIdToRecover);
-
-        Buffer resp;
-        try {
-            LOG(DEBUG, "Getting recovery data for segment %lu from %s",
-                segmentIdToRecover, locator.c_str());
-            BackupClient backup(transportManager.getSession(locator.c_str()));
-            BackupClient::GetRecoveryData(backup, masterId, segmentIdToRecover,
-                                          tablets, resp)();
-            LOG(DEBUG, "Got it");
-        } catch (const TransportException& e) {
-            // TODO(ongaro): change these to e.str().c_str once the unit tests
-            // stop testing the exact string
-            LOG(WARNING, "Couldn't contact %s, trying next backup; "
-                "failure was: %s", locator.c_str(), e.message.c_str());
-            continue;
-        } catch (const ClientException& e) {
-            // TODO(ongaro): change these to e.str().c_str once the unit tests
-            // stop testing the exact string
-            LOG(WARNING, "getRecoveryData failed on %s, trying next backup; "
-                "failure was: %s", locator.c_str(), e.toString());
-            continue;
-        }
-        recoverSegment(segmentIdToRecover,
-                       resp.getRange(0, resp.getTotalLength()),
-                       resp.getTotalLength(),
-                       tombstoneMap);
-    }
+    ObjectTub<Task> tasks[1];
 #else
-    Buffer buffer1;
-    Buffer buffer2;
-
-    // The buffer which is about to be replayed.
-    Buffer* foreBuffer = &buffer1;
-    uint64_t foreSegmentId;
-
-    // The buffer which is prefetching.
-    Buffer* backBuffer = &buffer2;
-    uint64_t backSegmentId;
-    const string* backSegmentLocator;
+    ObjectTub<Task> tasks[4];
+#endif
 
     SegmentLocatorChooser chooser(backups);
-    SegmentLocatorChooser::SegmentIdList::const_iterator segIdsIt =
-        chooser.getSegmentIdList().begin();
-    SegmentLocatorChooser::SegmentIdList::const_iterator segIdsEnd =
-        chooser.getSegmentIdList().end();
+    auto segIdsIt = chooser.getSegmentIdList().begin();
+    auto segIdsEnd = chooser.getSegmentIdList().end();
+    uint32_t activeSegments = 0;
 
-    if (segIdsIt == segIdsEnd)
-        return;
-
-    backSegmentId = *segIdsIt;
-    backSegmentLocator = &chooser.get(backSegmentId);
-    BackupClient backup(
-        transportManager.getSession(backSegmentLocator->c_str()));
-    ObjectTub<BackupClient::GetRecoveryData> cont;
-    cont.construct(backup, masterId, backSegmentId, tablets, *backBuffer);
-
-    while (segIdsIt != segIdsEnd) {
-        // Get the results from a previous fetch.
-        try {
-            if (cont) {
-                LOG(DEBUG, "Waiting on recovery data for segment %lu from %s",
-                    backSegmentId, backSegmentLocator->c_str());
-                (*cont)();
-                LOG(DEBUG, "Got it: %u bytes", backBuffer->getTotalLength());
-                cont.destroy();
-            }
-        } catch (const TransportException& e) {
-            LOG(DEBUG, "Couldn't contact %s, trying next backup; failure was: "
-                "%s", backSegmentLocator->c_str(), e.str().c_str());
-            throw SegmentRecoveryFailedException(HERE);
-            // TODO(stutsman) create cont for next backup with and continue
-            continue;
-        } catch (const ClientException& e) {
-            LOG(DEBUG, "getRecoveryData failed on %s, trying next backup; "
-                "failure was: %s",
-                 backSegmentLocator->c_str(), e.str().c_str());
-            throw SegmentRecoveryFailedException(HERE);
-            // TODO(stutsman) create cont for next backup with and continue
-            continue;
-        }
-
-        foreSegmentId = backSegmentId;
-        std::swap(foreBuffer, backBuffer);
-
-        // Kick off a new fetch and store the continuation.
-        segIdsIt++;
-        if (segIdsIt != segIdsEnd) {
-            backSegmentId = *segIdsIt;
-            backSegmentLocator = &chooser.get(backSegmentId);
-            BackupClient backup(
-                transportManager.getSession(backSegmentLocator->c_str()));
-            cont.reset(backup, masterId, backSegmentId, tablets, *backBuffer);
-        }
-
-        // Processes the results from the buffer that has completed fetching.
-        // TODO(stutsman) if an exception is thrown here, retry
-        LOG(DEBUG, "Recovering with segment size %u",
-            foreBuffer->getTotalLength());
-        recoverSegment(
-            foreSegmentId,
-            foreBuffer->getRange(0, foreBuffer->getTotalLength()),
-            foreBuffer->getTotalLength(),
-            tombstoneMap);
-        foreBuffer->reset();
+    // Start RPCs
+    foreach (auto& task, tasks) {
+        if (segIdsIt == segIdsEnd)
+            break;
+        uint64_t segmentId = *segIdsIt++;
+        task.construct(masterId, segmentId,
+                       chooser.get(segmentId).c_str(),
+                       tablets);
+        ++activeSegments;
     }
-#endif
+
+    // As RPCs complete, process them and start more
+    while (activeSegments > 0) {
+        foreach (auto& task, tasks) {
+            if (!task || !task->rpc.isReady())
+                continue;
+            LOG(DEBUG, "Waiting on recovery data for segment %lu from %s",
+                task->segmentId, task->backupLocator);
+            try {
+                (task->rpc)();
+            } catch (const TransportException& e) {
+                LOG(DEBUG, "Couldn't contact %s, trying next backup; "
+                    "failure was: %s", task->backupLocator, e.str().c_str());
+                // TODO(ongaro): try to get this segment from other backups
+                throw SegmentRecoveryFailedException(HERE);
+            } catch (const ClientException& e) {
+                LOG(DEBUG, "getRecoveryData failed on %s, trying next backup; "
+                    "failure was: %s", task->backupLocator, e.str().c_str());
+                // TODO(ongaro): try to get this segment from other backups
+                throw SegmentRecoveryFailedException(HERE);
+            }
+
+            uint32_t responseLen = task->response.getTotalLength();
+            LOG(DEBUG, "Recovering segment %lu with size %u",
+                task->segmentId, responseLen);
+            recoverSegment(task->segmentId,
+                           task->response.getRange(0, responseLen),
+                           responseLen,
+                           tombstoneMap);
+            task.destroy();
+            if (segIdsIt == segIdsEnd) {
+                --activeSegments;
+                continue;
+            }
+            uint64_t segmentId = *segIdsIt++;
+            task.construct(masterId, segmentId,
+                           chooser.get(segmentId).c_str(),
+                           tablets);
+        }
+    }
+
     log.sync();
 }
 
