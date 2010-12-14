@@ -75,7 +75,9 @@ struct BindTransport : public Transport {
                                Server& server)
             : transport(transport), request(request), response(response),
               server(server) {}
-        void getReply();
+        bool isReady() { return false; }
+        void wait();
+
         BindTransport& transport;
         Buffer& request;
         Buffer& response;
@@ -88,8 +90,8 @@ struct BindTransport : public Transport {
                              const string& locator)
             : transport(transport), server(server), locator(locator) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
-            return new BindClientRpc(transport, *request, *response,
-                                     server);
+            return new(response, MISC) BindClientRpc(transport, *request,
+                                                     *response, server);
         }
         void release() {
             delete this;

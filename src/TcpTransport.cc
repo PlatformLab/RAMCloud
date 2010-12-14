@@ -335,7 +335,7 @@ TcpTransport::TcpServerRpc::sendReply()
 }
 
 void
-TcpTransport::TcpClientRpc::getReply()
+TcpTransport::TcpClientRpc::wait()
 {
     // "delete this;" on our way out of the method
     boost::scoped_ptr<TcpClientRpc> suicide(this);

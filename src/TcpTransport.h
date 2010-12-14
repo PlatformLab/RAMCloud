@@ -296,7 +296,11 @@ class TcpTransport : public Transport {
 #endif
         }
 
-        void getReply();
+        void wait();
+        bool isReady() {
+            // Dummy implementation; this entire class will go away soon.
+            return true;
+        }
 
         Buffer* reply;
 

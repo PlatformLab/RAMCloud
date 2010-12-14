@@ -549,9 +549,10 @@ CPPUNIT_TEST_SUITE_REGISTRATION(FastTransportTest);
 class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST_SUITE(ClientRpcTest);
     CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_getReply_inProgress);
-    CPPUNIT_TEST(test_getReply_completed);
-    CPPUNIT_TEST(test_getReply_aborted);
+    CPPUNIT_TEST(test_isReady);
+    CPPUNIT_TEST(test_wait_inProgress);
+    CPPUNIT_TEST(test_wait_completed);
+    CPPUNIT_TEST(test_wait_aborted);
     CPPUNIT_TEST_SUITE_END();
 
     struct ClientRpcMockFastTransport : public FastTransport {
@@ -631,7 +632,16 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
     }
 
     void
-    test_getReply_inProgress()
+    test_isReady()
+    {
+        rpc->state = ClientRpc::IN_PROGRESS;
+        CPPUNIT_ASSERT_EQUAL(false, rpc->isReady());
+        rpc->state = ClientRpc::COMPLETED;
+        CPPUNIT_ASSERT_EQUAL(true, rpc->isReady());
+    }
+
+    void
+    test_wait_inProgress()
     {
         // get a version of the transport with a mocked poll
         setUp(true);
@@ -640,23 +650,23 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
 
         rpc->state = ClientRpc::IN_PROGRESS;
         // Make sure this calls poll
-        rpc->getReply();
+        rpc->wait();
         CPPUNIT_ASSERT_EQUAL(1, mockTransport->pollCalled);
     }
 
     void
-    test_getReply_completed()
+    test_wait_completed()
     {
         rpc->state = ClientRpc::COMPLETED;
         // Making sure this returns
-        rpc->getReply();
+        rpc->wait();
     }
 
     void
-    test_getReply_aborted()
+    test_wait_aborted()
     {
         rpc->state = ClientRpc::ABORTED;
-        CPPUNIT_ASSERT_THROW(rpc->getReply(), TransportException);
+        CPPUNIT_ASSERT_THROW(rpc->wait(), TransportException);
     }
 
   private:

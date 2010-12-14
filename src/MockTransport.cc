@@ -76,7 +76,7 @@ MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response) {
     }
     transport->outputLog.append("clientSend: ");
     transport->outputLog.append(toString(payload));
-    return new MockClientRpc(transport, response);
+    return new(response, MISC) MockClientRpc(transport, response);
 }
 
 /**
@@ -150,12 +150,15 @@ MockTransport::MockClientRpc::MockClientRpc(MockTransport* transport,
  * by the current test (or an empty buffer, if nothing was supplied).
  */
 void
-MockTransport::MockClientRpc::getReply() {
+MockTransport::MockClientRpc::wait() {
+    // The call to fillFromString below will overwrite everything in the
+    // response buffer, including this MockClientRpc object; pull out of
+    // the object anything we will need.
+    MockTransport* transport = this->transport;
     if (transport->inputMessage != NULL) {
         response->fillFromString(transport->inputMessage);
         transport->inputMessage = NULL;
     }
-    delete this;
 }
 
 }  // namespace RAMCloud

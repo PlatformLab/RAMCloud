@@ -61,7 +61,7 @@ namespace RAMCloud {
  *  - OutboundMessage::send
  *
  * - Client Inbound
- *  - ClientRpc::getReply
+ *  - ClientRpc::wait
  *  - FastTransport::poll
  *  - FastTransport::tryProcessPacket
  *  - ClientSession::processReceivedData
@@ -84,12 +84,15 @@ class FastTransport : public Transport {
     /**
      * Manages an entire request/response cycle from the client perspective.
      *
-     * Once the RPC is created start() will initiate the RPC and getReply()
+     * Once the RPC is created start() will initiate the RPC and wait()
      * will block until the response is complete and valid.
      */
     class ClientRpc : public Transport::ClientRpc {
       public:
-        void getReply();
+        void wait();
+        bool isReady() {
+            return (state != IN_PROGRESS);
+        }
 
       private:
         ClientRpc(FastTransport* transport,

@@ -98,7 +98,7 @@ try
 
             for (int i = 0; i < serverCount; i++) {
                 LOG(DEBUG, "Getting reply %d", i);
-                rpcs[i]->getReply();
+                rpcs[i]->wait();
                 uint32_t respLen = response[i].getTotalLength();
                 if (respLen >= sizeof(recvbuf[i])) {
                     LOG(WARNING, "Failed to get reply %d", i);
@@ -119,7 +119,7 @@ try
             for (uint32_t i = 0; i < totalFrags; i++)
                 Buffer::Chunk::appendToBuffer(&request, buf, sizeof(buf));
             CycleCounter c;
-            session[0]->clientSend(&request, &response)->getReply();
+            session[0]->clientSend(&request, &response)->wait();
         }
     }
     return 0;

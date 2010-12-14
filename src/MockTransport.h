@@ -54,7 +54,10 @@ class MockTransport : public Transport {
     class MockClientRpc : public ClientRpc {
         public:
             explicit MockClientRpc(MockTransport* transport, Buffer* response);
-            void getReply();
+            void wait();
+            bool isReady() {
+                return true;
+            }
         private:
             MockTransport* transport;
             Buffer* response;
@@ -86,7 +89,7 @@ class MockTransport : public Transport {
 
     /**
      * Used as the next input message required by either serverRecv
-     * or getReply.
+     * or wait.
      */
     const char* inputMessage;
 

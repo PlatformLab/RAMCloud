@@ -325,22 +325,10 @@ FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
 {
 }
 
-/**
- * Blocks until the response buffer associated with this RPC is valid and
- * populated.
- *
- * This method must be called for each RPC before its result can be used.
- *
- * \throws TransportException
- *      If the RPC aborted.
- */
+// See Transport::ClientRpc::wait for documentation.
 void
-FastTransport::ClientRpc::getReply()
+FastTransport::ClientRpc::wait()
 {
-    // No need to "delete this;" on our way out of the method
-    // it is handled by the response buffer destructor since this
-    // ClientRpc is in it's MISC memory.
-
     uint8_t i = 0;
     while (true) {
         switch (state) {
@@ -1485,8 +1473,8 @@ FastTransport::ClientSession::close()
 FastTransport::ClientRpc*
 FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
 {
-    ClientRpc* rpc = new(request, MISC) ClientRpc(transport,
-                                                  request, response);
+    ClientRpc* rpc = new(response, MISC) ClientRpc(transport,
+                                                   request, response);
 
     // rpc will be performed immediately on the first available channel or
     // queued until a channel is idle if none are currently available.

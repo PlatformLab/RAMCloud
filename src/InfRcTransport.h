@@ -84,8 +84,12 @@ class InfRcTransport : public Transport {
                                Buffer* request,
                                Buffer* response,
                                uint64_t nonce);
-            void getReply();
+            bool isReady() {
+                return (state == RESPONSE_RECEIVED);
+            }
             void sendOrQueue();
+            void wait();
+
         private:
             InfRcTransport*     transport;
             InfRCSession*       session;
@@ -279,7 +283,7 @@ class InfRcTransport : public Transport {
     ibv_context* ctxt;              // HCA device context (handle)
     ibv_pd*      pd;                // protection domain for registered memory
     ibv_cq*      serverRxCq;        // completion queue for serverRecv
-    ibv_cq*      clientRxCq;        // completion queue for client getReply
+    ibv_cq*      clientRxCq;        // completion queue for client wait
     ibv_cq*      commonTxCq;        // common completion queue for all transmits
     int          ibPhysicalPort;    // physical port number on the HCA
     int          udpListenPort;     // UDP port number for server's setupSocket

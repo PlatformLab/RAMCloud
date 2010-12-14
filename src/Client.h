@@ -136,7 +136,7 @@ class Client {
     const typename Rpc::Response&
     recv(AsyncState& state)
     {
-        state.rpc->getReply();
+        state.rpc->wait();
         const typename Rpc::Response* responseHeader =
             state.responseBuffer->getStart<typename Rpc::Response>();
         if (responseHeader == NULL)

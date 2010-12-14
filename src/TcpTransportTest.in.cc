@@ -708,7 +708,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(TcpTransportTest);
     CPPUNIT_TEST(test_TcpServerRpc_sendReply);
-    CPPUNIT_TEST(test_TcpClientRpc_getReply);
+    CPPUNIT_TEST(test_TcpClientRpc_wait);
     CPPUNIT_TEST(test_TcpTransport_constructor);
     CPPUNIT_TEST(test_TcpTransport_serverRecv_normal);
     CPPUNIT_TEST(test_TcpTransport_serverRecv_error);
@@ -755,7 +755,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         rpc->sendReply();
     }
 
-    void test_TcpClientRpc_getReply() {
+    void test_TcpClientRpc_wait() {
         static Buffer* recv_expect;
 
         BEGIN_MOCK(TS, ClientSocketStub);
@@ -781,7 +781,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport::TcpClientRpc* rpc = new TcpTransport::TcpClientRpc();
         rpc->reply = &payload;
         rpc->realClientSocket.fd = 10;
-        rpc->getReply();
+        rpc->wait();
     }
 
     void test_TcpTransport_constructor() {

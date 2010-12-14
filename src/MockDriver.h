@@ -75,7 +75,7 @@ class MockDriver : public Driver {
 
     /**
      * Used as the next input message required by either serverRecv
-     * or getReply.
+     * or wait.
      */
     Driver::Received* inputReceived;
 

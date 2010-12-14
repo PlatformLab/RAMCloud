@@ -18,7 +18,7 @@
 namespace RAMCloud {
 
 void
-BindTransport::BindClientRpc::getReply()
+BindTransport::BindClientRpc::wait()
 {
     BindServerRpc serverRpc;
 
@@ -33,8 +33,6 @@ BindTransport::BindClientRpc::getReply()
     uint32_t respLength = serverRpc.replyPayload.getTotalLength();
     serverRpc.replyPayload.copy(0, respLength,
                                 new(&response, APPEND) char[respLength]);
-
-    delete this;
 }
 
 } // namespace RAMCloud

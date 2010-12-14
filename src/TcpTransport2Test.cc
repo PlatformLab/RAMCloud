@@ -53,7 +53,7 @@ class TcpTransport2Test : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_tryReadReply_eofOutsideRPC);
     CPPUNIT_TEST(test_tryReadReply_unexpectedDataFromServer);
     CPPUNIT_TEST(test_tryReadReply_ioError);
-    CPPUNIT_TEST(test_getReply_throwError);
+    CPPUNIT_TEST(test_wait_throwError);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -126,9 +126,11 @@ class TcpTransport2Test : public CppUnit::TestFixture {
                 &reply);
         Transport::ServerRpc* serverRpc = waitRequest(&server);
         CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
+        CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
         serverRpc->replyPayload.fillFromString("klmn");
         serverRpc->sendReply();
-        clientRpc->getReply();
+        event_loop(EVLOOP_ONCE);
+        CPPUNIT_ASSERT_EQUAL(true, clientRpc->isReady());
         CPPUNIT_ASSERT_EQUAL("klmn/0", toString(&reply));
 
         request.fillFromString("request2");
@@ -138,7 +140,7 @@ class TcpTransport2Test : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("request2/0", toString(&serverRpc->recvPayload));
         serverRpc->replyPayload.fillFromString("reply2");
         serverRpc->sendReply();
-        clientRpc->getReply();
+        clientRpc->wait();
         CPPUNIT_ASSERT_EQUAL("reply2/0", toString(&reply));
     }
 
@@ -204,8 +206,8 @@ class TcpTransport2Test : public CppUnit::TestFixture {
         serverRpc1->sendReply();
         serverRpc2->replyPayload.fillFromString("reply2");
         serverRpc2->sendReply();
-        clientRpc1->getReply();
-        clientRpc2->getReply();
+        clientRpc1->wait();
+        clientRpc2->wait();
         CPPUNIT_ASSERT_EQUAL("reply1/0", toString(&reply1));
         CPPUNIT_ASSERT_EQUAL("reply2/0", toString(&reply2));
 
@@ -571,6 +573,9 @@ class TcpTransport2Test : public CppUnit::TestFixture {
         Buffer::Chunk::appendToBuffer(&request, "xxx", 3);
         Transport::ClientRpc* clientRpc = session->clientSend(&request,
                 &reply);
+        // The following line serves only to avoid an "unused result"
+        // warning for the line above.
+        clientRpc->isReady();
         TcpTransport2::TcpSession* rawSession =
                 reinterpret_cast<TcpTransport2::TcpSession*>(session.get());
         sys->recvEof = true;
@@ -578,7 +583,6 @@ class TcpTransport2Test : public CppUnit::TestFixture {
                 rawSession);
         CPPUNIT_ASSERT_EQUAL(-1, rawSession->fd);
         CPPUNIT_ASSERT_EQUAL("socket closed by server", rawSession->errorInfo);
-        delete clientRpc;
     }
 
     void test_tryReadReply_eofOutsideRPC() {
@@ -621,6 +625,9 @@ class TcpTransport2Test : public CppUnit::TestFixture {
         Buffer::Chunk::appendToBuffer(&request, "xxx", 3);
         Transport::ClientRpc* clientRpc = session->clientSend(&request,
                 &reply);
+        // The following line serves only to avoid an "unused result"
+        // warning for the line above.
+        clientRpc->isReady();
         TcpTransport2::TcpSession* rawSession =
                 reinterpret_cast<TcpTransport2::TcpSession*>(session.get());
         sys->recvErrno = EPERM;
@@ -632,10 +639,9 @@ class TcpTransport2Test : public CppUnit::TestFixture {
                 "permitted", TestLog::get());
         CPPUNIT_ASSERT_EQUAL("I/O read error in TcpTransport: Operation "
                 "not permitted", rawSession->errorInfo);
-        delete clientRpc;
     }
 
-    void test_getReply_throwError() {
+    void test_wait_throwError() {
         TcpTransport2 server(locator);
         TcpTransport2 client;
         Transport::SessionRef session = client.getSession(*locator);
@@ -648,7 +654,7 @@ class TcpTransport2Test : public CppUnit::TestFixture {
         rawSession->errorInfo = "error message";
         string message("no exception");
         try {
-            clientRpc->getReply();
+            clientRpc->wait();
         } catch (TransportException& e) {
             message = e.message;
         }

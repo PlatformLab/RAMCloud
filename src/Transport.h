@@ -26,8 +26,7 @@
 namespace RAMCloud {
 
 /**
- * An exception that is thrown when the Transport class encounters a transient
- * error.
+ * An exception that is thrown when the Transport class encounters a problem.
  */
 struct TransportException : public Exception {
     explicit TransportException(const CodeLocation& where)
@@ -41,6 +40,10 @@ struct TransportException : public Exception {
 };
 
 /**
+ * This class is now deprecated: there isn't a clean division between this and
+ * TransportException, so just use TransportException everywhere (see JO for
+ * details).
+ *
  * An exception that is thrown when the Transport class encounters a fatal
  * error. This is not recoverable unless you have another Transport to fall
  * back to, but it's also not a failed assertion because it depends on the
@@ -79,7 +82,7 @@ class Transport {
     /**
      * A RPC call that has been sent and is pending a response from a server.
      * #clientSend() will return one of these, and the caller of that method
-     * must later call #getReply() on it.
+     * must later call #wait() on it.
      */
     class ClientRpc {
       protected:
@@ -96,18 +99,28 @@ class Transport {
         virtual ~ClientRpc() {}
 
         /**
-         * Wait for the RPC response to arrive.
-         *
-         * The response will be available in the #Buffer passed to
-         * #clientSend() when this call returns.
-         *
-         * You should discard all pointers to this #ClientRpc object after this
-         * call.
+         * Wait for the RPC response to arrive (if it hasn't already) and
+         * throw an exception if there were any problems. Once this method
+         * has returned the caller can access the response message using
+         * the #Buffer that was passed to #clientSend().
          *
          * \throw TransportException
-         *      If the service has crashed.
+         *      Something went wrong at the transport level (e.g. the
+         *      server crashed).
          */
-        virtual void getReply() = 0;
+        virtual void wait() = 0;
+
+        /**
+         * Indicate whether a response or error has been received for
+         * the RPC.  Used for asynchronous processing of RPCs.
+         *
+         * \return
+         *      True means that #wait will not block when it is invoked.
+         *      Note: even if this method returns true, #wait must still
+         *      be invoked so it can throw exceptions (this method will
+         *      not throw any exceptions).
+         */
+        virtual bool isReady() = 0;
 
       private:
         DISALLOW_COPY_AND_ASSIGN(ClientRpc);
@@ -182,20 +195,23 @@ class Transport {
          * \param[in] request
          *      The RPC request payload to send. The caller must not modify or
          *      even access \a request until the corresponding call to
-         *      #Transport::ClientRpc::getReply() returns. The Transport may
+         *      #Transport::ClientRpc::wait() returns. The Transport may
          *      add new chunks to \a request but will not modify its existing
          *      chunks.
          * \param[out] response
          *      An empty Buffer that will be filled in with the received
          *      RPC response. The caller must not access \a response until the
-         *      corresponding call to #Transport::ClientRpc::getReply()
+         *      corresponding call to #Transport::ClientRpc::wait()
          *      returns.
          * \return
          *      The RPC object through which to receive the reply. The caller
-         *      must use #Transport::ClientRpc::getReply() to release the
-         *      resources associated with this object.
+         *      must eventually call #Transport::ClientRpc::wait() on this
+         *      object to complete the RPC and deliver any exceptions that
+         *      might have occurred. This object is allocated in \a response
+         *      and will automatically be deallocated when \a response is
+         *      deleted or reset.
          * \throw TransportException
-         *      If the service is unavailable.
+         *      If any errors occur while initiating the request.
          */
         virtual ClientRpc* clientSend(Buffer* request, Buffer* response)
             __attribute__((warn_unused_result)) = 0;

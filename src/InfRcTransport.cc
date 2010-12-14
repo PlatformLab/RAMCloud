@@ -419,7 +419,7 @@ InfRcTransport::InfRCSession::clientSend(Buffer* request, Buffer* response)
     // Construct our ClientRpc in the response Buffer.
     //
     // We do this because we're loaning one of our registered receive buffers
-    // to the caller of getReply() and need to issue it back to the HCA when
+    // to the caller of wait() and need to issue it back to the HCA when
     // they're done with it.
     ClientRpc *rpc = new(response, MISC) ClientRpc(transport, this,
                                                    request, response,
@@ -971,17 +971,9 @@ InfRcTransport::poll()
     }
 }
 
-/**
- * Blocks until the response buffer associated with this RPC is valid and
- * populated.
- *
- * This method must be called for each RPC before its result can be used.
- *
- * \throws TransportException
- *      If the RPC aborted.
- */
+// See Transport::ClientRpc::wait for documentation.
 void
-InfRcTransport::ClientRpc::getReply()
+InfRcTransport::ClientRpc::wait()
 {
     while (state != RESPONSE_RECEIVED)
         transport->poll();

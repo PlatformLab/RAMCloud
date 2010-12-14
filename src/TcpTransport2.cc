@@ -507,7 +507,7 @@ TcpTransport2::TcpSession::clientSend(Buffer* request, Buffer* reply)
     if (fd == -1) {
         throw TransportException(HERE, errorInfo);
     }
-    current = new TcpClientRpc(this, reply);
+    current = new(reply, MISC) TcpClientRpc(this, reply);
     message.reset(reply);
     TcpTransport2::sendMessage(fd, *request);
     return current;
@@ -565,13 +565,10 @@ TcpTransport2::TcpSession::tryReadReply(int fd, int16_t event, void *arg)
     }
 }
 
-// See Transport::ClientRpc::getReply for documentation.
+// See Transport::ClientRpc::wait for documentation.
 void
-TcpTransport2::TcpClientRpc::getReply()
+TcpTransport2::TcpClientRpc::wait()
 {
-    // "delete this;" on our way out of the method
-    std::auto_ptr<TcpClientRpc> suicide(this);
-
     while (!finished) {
         if (session->fd == -1) {
             throw TransportException(HERE, session->errorInfo);
