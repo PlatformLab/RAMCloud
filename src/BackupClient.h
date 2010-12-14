@@ -47,8 +47,8 @@ class BackupClient : public Client {
                         uint64_t segmentId,
                         const ProtoBuf::Tablets& tablets,
                         Buffer& responseBuffer);
+        bool isReady() { return client.isReady(state); }
         void operator()();
-
         BackupClient& client;
         Buffer requestBuffer;
         Buffer& responseBuffer;
@@ -68,6 +68,7 @@ class BackupClient : public Client {
                      const void *buf,
                      uint32_t length,
                      BackupWriteRpc::Flags flags = BackupWriteRpc::NONE);
+        bool isReady() { return client.isReady(state); }
         void operator()();
       private:
         BackupClient& client;

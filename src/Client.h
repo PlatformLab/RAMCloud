@@ -131,6 +131,12 @@ class Client {
         return state;
     }
 
+    bool
+    isReady(AsyncState& state) const
+    {
+        return state.rpc->isReady();
+    }
+
     /// Second half of sendRecv. Call #send() before this.
     template <typename Rpc>
     const typename Rpc::Response&
