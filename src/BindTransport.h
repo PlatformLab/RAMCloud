@@ -75,7 +75,7 @@ struct BindTransport : public Transport {
                                Server& server)
             : transport(transport), request(request), response(response),
               server(server) {}
-        bool isReady() { return false; }
+        bool isReady() { return true; }
         void wait();
 
         BindTransport& transport;

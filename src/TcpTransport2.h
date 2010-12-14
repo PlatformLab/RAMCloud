@@ -117,7 +117,7 @@ class TcpTransport2 : public Transport {
       public:
         explicit TcpClientRpc(TcpSession* session, Buffer* reply)
             : reply(reply), session(session), finished(false) { }
-        bool isReady() { return finished; }
+        bool isReady();
         void wait();
         Buffer* reply;
       private:

@@ -971,6 +971,15 @@ InfRcTransport::poll()
     }
 }
 
+// See Transport::ClientRpc::isReady for documentation.
+bool
+InfRcTransport::ClientRpc::isReady() {
+    if (state == RESPONSE_RECEIVED)
+        return true;
+    transport->poll();
+    return (state == RESPONSE_RECEIVED);
+}
+
 // See Transport::ClientRpc::wait for documentation.
 void
 InfRcTransport::ClientRpc::wait()

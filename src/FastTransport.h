@@ -90,9 +90,7 @@ class FastTransport : public Transport {
     class ClientRpc : public Transport::ClientRpc {
       public:
         void wait();
-        bool isReady() {
-            return (state != IN_PROGRESS);
-        }
+        bool isReady();
 
       private:
         ClientRpc(FastTransport* transport,

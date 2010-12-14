@@ -325,6 +325,16 @@ FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
 {
 }
 
+// See Transport::ClientRpc::isReady for documentation.
+bool
+FastTransport::ClientRpc::isReady()
+{
+    if (state != IN_PROGRESS)
+        return true;
+    transport->poll();
+    return (state != IN_PROGRESS);
+}
+
 // See Transport::ClientRpc::wait for documentation.
 void
 FastTransport::ClientRpc::wait()

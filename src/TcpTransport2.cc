@@ -565,6 +565,16 @@ TcpTransport2::TcpSession::tryReadReply(int fd, int16_t event, void *arg)
     }
 }
 
+// See Transport::ClientRpc::isReady for documentation.
+bool
+TcpTransport2::TcpClientRpc::isReady()
+{
+    if (finished || session->fd == -1)
+        return true;
+    event_loop(EVLOOP_NONBLOCK);
+    return (finished || session->fd == -1);
+}
+
 // See Transport::ClientRpc::wait for documentation.
 void
 TcpTransport2::TcpClientRpc::wait()
