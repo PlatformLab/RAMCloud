@@ -12,7 +12,6 @@ TESTS_SRCFILES := \
 		  src/BindTransport.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
-		  src/ChecksumTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClientTest.cc \
 		  src/CommonTest.cc \
@@ -111,7 +110,7 @@ $(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
-$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Server.o $(OBJDIR)/Metrics.o $(OBJDIR)/rabinpoly.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Server.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 

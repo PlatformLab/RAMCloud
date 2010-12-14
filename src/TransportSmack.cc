@@ -75,7 +75,6 @@
 #include "Server.h"
 #include "ServiceLocator.h"
 #include "TransportManager.h"
-#include "rabinpoly.h"
 
 using namespace RAMCloud;
 

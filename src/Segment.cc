@@ -20,7 +20,6 @@
 #include <string.h>
 
 #include "Crc32C.h"
-#include "rabinpoly.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
 #include "LogTypes.h"

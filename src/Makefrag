@@ -54,7 +54,6 @@ SHARED_SRCFILES := \
            src/TimeCounter.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
-		   src/rabinpoly.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \

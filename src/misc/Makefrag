@@ -1,7 +1,6 @@
 misc: $(OBJDIR)/misc/crc32c \
       $(OBJDIR)/misc/memcpy \
       $(OBJDIR)/misc/modulus \
-      $(OBJDIR)/misc/rabinpoly \
       $(OBJDIR)/misc/vmac
 
 $(OBJDIR)/misc/crc32c: $(SHARED_OBJFILES) $(OBJDIR)/misc/crc32c.o
@@ -13,10 +12,6 @@ $(OBJDIR)/misc/memcpy: $(SHARED_OBJFILES) $(OBJDIR)/misc/memcpy.o
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 $(OBJDIR)/misc/modulus: $(SHARED_OBJFILES) $(OBJDIR)/misc/modulus.o
-	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -o $@ $^
-
-$(OBJDIR)/misc/rabinpoly: $(SHARED_OBJFILES) $(OBJDIR)/misc/rabinpoly.o
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
