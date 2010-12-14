@@ -28,6 +28,15 @@ namespace RAMCloud {
 ClientException::ClientException(const CodeLocation& where, Status status)
         : status(status)
         , where(where)
+        , whatCache()
+{
+    // Constructor is empty.
+}
+
+ClientException::ClientException(const ClientException& other)
+        : status(other.status)
+        , where(other.where)
+        , whatCache()
 {
     // Constructor is empty.
 }
@@ -35,7 +44,7 @@ ClientException::ClientException(const CodeLocation& where, Status status)
 /**
  * Destructor for ClientExceptions.
  */
-ClientException::~ClientException()
+ClientException::~ClientException() throw()
 {
     // Destructor is empty.
 }
@@ -129,6 +138,18 @@ string
 ClientException::str() const
 {
     return format("%s thrown at %s", toString(), where.str().c_str());
+}
+
+const char*
+ClientException::what() const throw()
+{
+    if (whatCache)
+        return whatCache.get();
+    string s(str());
+    char* cStr = new char[s.length() + 1];
+    whatCache.reset(const_cast<const char*>(cStr));
+    memcpy(cStr, s.c_str(), s.length() + 1);
+    return cStr;
 }
 
 }  // namespace RAMCloud

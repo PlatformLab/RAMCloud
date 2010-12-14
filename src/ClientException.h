@@ -36,15 +36,17 @@ namespace RAMCloud {
  * at any time, which will abort the request and reflect the exception
  * back to the client.
  */
-class ClientException {
+class ClientException : public std::exception {
   public:
     ClientException(const CodeLocation& where, Status status);
-    virtual ~ClientException();
+    ClientException(const ClientException& other);
+    virtual ~ClientException() throw();
     static void throwException(const CodeLocation& where, Status status)
         __attribute__((noreturn));
     const char* toString() const;
     const char* toSymbol() const;
     string str() const;
+    const char* what() const throw();
 
     /**
      * Describes a problem that prevented normal completion of a
@@ -53,6 +55,8 @@ class ClientException {
     Status status;
 
     CodeLocation where;
+  private:
+    mutable std::unique_ptr<const char[]> whatCache;
 };
 
 /**

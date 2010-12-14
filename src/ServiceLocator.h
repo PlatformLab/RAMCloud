@@ -53,6 +53,7 @@ class ServiceLocator {
             message = "The ServiceLocator string '" + original +
                 "' could not be parsed, starting at '" + remaining + "'";
         }
+        ~BadServiceLocatorException() throw() {}
         /**
          * The string that was given to the constructor.
          */
@@ -77,6 +78,7 @@ class ServiceLocator {
             message = "The option with key '" + key +
                 "' was not found in the ServiceLocator.";
         }
+        ~NoSuchKeyException() throw() {}
         string key;
     };
 

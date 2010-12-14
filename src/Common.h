@@ -433,25 +433,40 @@ string demangle(const char* name);
 /**
  * The base class for all RAMCloud exceptions.
  */
-struct Exception {
+struct Exception : public std::exception {
     explicit Exception(const CodeLocation& where)
-        : message(""), errNo(0), where(where) {}
+        : message(""), errNo(0), where(where), whatCache() {}
     Exception(const CodeLocation& where, std::string msg)
-        : message(msg), errNo(0), where(where) {}
+        : message(msg), errNo(0), where(where), whatCache() {}
     Exception(const CodeLocation& where, int errNo)
-        : message(""), errNo(errNo), where(where) {
+        : message(""), errNo(errNo), where(where), whatCache() {
         message = strerror(errNo);
     }
     Exception(const CodeLocation& where, string msg, int errNo)
-        : message(msg + ": " + strerror(errNo)), errNo(errNo), where(where) {}
+        : message(msg + ": " + strerror(errNo)), errNo(errNo), where(where),
+          whatCache() {}
+    Exception(const Exception& other)
+        : message(other.message), errNo(other.errNo), where(other.where),
+          whatCache() {}
+    virtual ~Exception() throw() {}
     string str() const {
         return (demangle(typeid(*this).name()) + ": " + message +
                 " thrown at " + where.str());
     }
-    virtual ~Exception() {}
+    const char* what() const throw() {
+        if (whatCache)
+            return whatCache.get();
+        string s(str());
+        char* cStr = new char[s.length() + 1];
+        whatCache.reset(const_cast<const char*>(cStr));
+        memcpy(cStr, s.c_str(), s.length() + 1);
+        return cStr;
+    }
     string message;
     int errNo;
     CodeLocation where;
+  private:
+    mutable std::unique_ptr<const char[]> whatCache;
 };
 
 /**
