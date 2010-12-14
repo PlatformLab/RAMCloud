@@ -379,7 +379,8 @@ MasterServer::recover(uint64_t masterId,
         }
         recoverSegment(segmentIdToRecover,
                        resp.getRange(0, resp.getTotalLength()),
-                       resp.getTotalLength());
+                       resp.getTotalLength(),
+                       tombstoneMap);
     }
 #else
     Buffer buffer1;
