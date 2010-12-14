@@ -57,33 +57,53 @@ class BackupClient : public Client {
         friend class BackupClient;
         DISALLOW_COPY_AND_ASSIGN(GetRecoveryData);
     };
+    DEF_SYNC_RPC_METHOD(getRecoveryData, GetRecoveryData);
+
+    class WriteSegment {
+      public:
+        WriteSegment(BackupClient& client,
+                     uint64_t masterId,
+                     uint64_t segmentId,
+                     uint32_t offset,
+                     const void *buf,
+                     uint32_t length,
+                     BackupWriteRpc::Flags flags = BackupWriteRpc::NONE);
+        void operator()();
+      private:
+        BackupClient& client;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(WriteSegment);
+    };
+    DEF_SYNC_RPC_METHOD(writeSegment, WriteSegment);
 
     explicit BackupClient(Transport::SessionRef session);
     ~BackupClient();
 
-    void closeSegment(uint64_t masterId, uint64_t segmentId);
+    void closeSegment(uint64_t masterId, uint64_t segmentId) {
+        writeSegment(masterId, segmentId,
+                     0, static_cast<const void*>(NULL), 0,
+                     BackupWriteRpc::CLOSE);
+    }
+
     void freeSegment(uint64_t masterId, uint64_t segmentId);
     Transport::SessionRef getSession();
-    void openSegment(uint64_t masterId, uint64_t segmentId);
+
+    void openSegment(uint64_t masterId, uint64_t segmentId) {
+        writeSegment(masterId, segmentId,
+                     0, static_cast<const void*>(NULL), 0,
+                     BackupWriteRpc::OPEN);
+    }
+
     void ping();
     vector<uint64_t> startReadingData(uint64_t masterId);
-    void writeSegment(uint64_t masterId,
-                      uint64_t segmentId,
-                      uint32_t offset,
-                      const void *buf,
-                      uint32_t length,
-                      BackupWriteRpc::Flags flags = BackupWriteRpc::NONE);
 
   private:
     /**
      * A session with a backup server.
      */
     Transport::SessionRef session;
-
-    /**
-     * Completion status from the most recent RPC completed for this client.
-     */
-    Status status;
 
     DISALLOW_COPY_AND_ASSIGN(BackupClient);
 };

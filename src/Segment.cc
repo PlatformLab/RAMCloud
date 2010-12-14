@@ -45,7 +45,6 @@ namespace RAMCloud {
 Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
     uint32_t capacity, BackupManager *backup)
     : backup(backup),
-      syncOffset(0),
       baseAddress(baseAddress),
       logId(logId),
       id(segmentId),
@@ -53,23 +52,34 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
       tail(0),
       bytesFreed(0),
       checksum(),
-      closed(false)
+      closed(false),
+      backupSegment(NULL)
 {
+    assert(capacity >= sizeof(SegmentEntry) + sizeof(SegmentHeader) +
+                       sizeof(SegmentEntry) + sizeof(SegmentFooter));
+
+    new(static_cast<uint8_t*>(baseAddress) + tail)
+        SegmentEntry { LOG_ENTRY_TYPE_SEGHEADER, sizeof(SegmentHeader) };
+    tail += sizeof(SegmentEntry);
+
+    new(static_cast<uint8_t*>(baseAddress) + tail)
+        SegmentHeader { logId, id, capacity };
+    tail += sizeof(SegmentHeader);
+
+#ifndef PERF_DEBUG_RECOVERY_NO_CKSUM
+    checksum.update(baseAddress, tail);
+#endif
+
     if (backup)
-        backup->openSegment(logId, id);
-    SegmentHeader header = { logId, id, capacity };
-    const void *p = append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
-    assert(p != NULL);
+        backupSegment = backup->openSegment(id, baseAddress, tail);
 }
 
-/**
- * Clean up after the Segment. Since Segments currently do not allocate
- * any memory, this is a no-op.
- */
 Segment::~Segment()
 {
+    // TODO(ongaro): I'm not convinced this makes any sense. sync is probably
+    // better.
     if (backup)
-        backup->freeSegment(logId, id);
+        backup->freeSegment(id);
 }
 
 /**
@@ -130,11 +140,14 @@ Segment::free(const void *p)
  * Close the Segment. Once a Segment has been closed, it is considered
  * closed, i.e. it cannot be appended to. Calling #free on a closed
  * Segment to maintain utilisation counts is still permitted. 
+ * \param sync
+ *      Whether to wait for the replicas to acknowledge that the segment is
+ *      closed.
  * \throw SegmentException
  *      An exception is thrown if the Segment has already been closed.
  */
 void
-Segment::close()
+Segment::close(bool sync)
 {
     if (closed)
         throw SegmentException(HERE, "Segment has already been closed");
@@ -150,9 +163,28 @@ Segment::close()
     // ensure that any future append() will fail
     closed = true;
 
-    syncToBackup();
-    if (backup)
-        backup->closeSegment(logId, id);
+    if (backup) {
+        backupSegment->write(tail, true); // start replicating immediately
+        backupSegment = NULL;
+        if (sync) // sync determines whether to wait for the acks
+            backup->sync();
+    }
+}
+
+/**
+ * Wait for the segment to be fully replicated.
+ */
+void
+Segment::sync()
+{
+    if (backup) {
+        if (backupSegment) {
+            backupSegment->write(tail, closed);
+            if (closed)
+                backupSegment = NULL;
+        }
+        backup->sync();
+    }
 }
 
 /**
@@ -290,25 +322,9 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     const void *datap = forceAppendBlob(buffer, length);
 
     if (sync)
-        syncToBackup();
+        this->sync();
 
     return datap;
-}
-
-/**
- * Ensure all segment data is replicated to backups.
- */
-void
-Segment::syncToBackup()
-{
-    if (syncOffset == tail || !backup)
-        return;
-
-    uint32_t syncLength = tail - syncOffset;
-    backup->writeSegment(
-        logId, id, syncOffset,
-        reinterpret_cast<const uint8_t*>(baseAddress) + syncOffset, syncLength);
-    syncOffset = tail;
 }
 
 } // namespace

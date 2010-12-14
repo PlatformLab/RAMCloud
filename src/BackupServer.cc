@@ -249,6 +249,7 @@ BackupServer::BackupServer(const Config& config,
     , segments()
     , segmentSize(storage.getSegmentSize())
     , storage(storage)
+    , bytesWritten(0)
 {
 }
 
@@ -297,35 +298,6 @@ BackupServer::run()
  * more.  The segment will be restored on recovery unless the client later
  * calls freeSegment() on it and will appear to be closed to the recoverer.
  *
- * \param reqHdr
- *      Header of the Rpc request containing the segment number to close.
- * \param respHdr
- *      Header for the Rpc response.
- * \param rpc
- *      The Rpc being serviced.
- *
- * \throw BackupBadSegmentIdException
- *      If this segmentId is unknown for this master or this segment
- *      is not open.
- */
-void
-BackupServer::closeSegment(const BackupCloseRpc::Request& reqHdr,
-                           BackupCloseRpc::Response& respHdr,
-                           Transport::ServerRpc& rpc)
-{
-    LOG(DEBUG, "Handling: %s %lu %lu",
-        __func__, reqHdr.masterId, reqHdr.segmentId);
-    closeSegment(reqHdr.masterId, reqHdr.segmentId);
-}
-
-/**
- * Close the specified segment to permanent storage and free up in memory
- * resources.
- *
- * After this writeSegment() cannot be called for this segment id any
- * more.  The segment will be restored on recovery unless the client later
- * calls freeSegment() on it and will appear to be closed to the recoverer.
- *
  * \param masterId
  *      The serverId of the master whose segment is being closed.
  * \param segmentId
@@ -351,10 +323,6 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
                        Responder& responder)
 {
     switch (type) {
-        case BackupCloseRpc::type:
-            callHandler<BackupCloseRpc, BackupServer,
-                        &BackupServer::closeSegment>(rpc);
-            break;
         case BackupFreeRpc::type:
             callHandler<BackupFreeRpc, BackupServer,
                         &BackupServer::freeSegment>(rpc);
@@ -362,10 +330,6 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
         case BackupGetRecoveryDataRpc::type:
             callHandler<BackupGetRecoveryDataRpc, BackupServer,
                         &BackupServer::getRecoveryData>(rpc);
-            break;
-        case BackupOpenRpc::type:
-            callHandler<BackupOpenRpc, BackupServer,
-                        &BackupServer::openSegment>(rpc);
             break;
         case PingRpc::type:
             callHandler<PingRpc, Server,
@@ -575,38 +539,6 @@ BackupServer::keepEntry(const LogEntryType type,
  * The storage space remains in use until the master calls freeSegment() or
  * until the backup crashes.
  *
- * \param reqHdr
- *      Header of the Rpc request containing the masterId and segmentId for
- *      the segment to open.
- * \param respHdr
- *      Header for the Rpc response.
- * \param rpc
- *      The Rpc being serviced.
- *
- * \throw BackupSegmentAlreadyOpenException
- *      If this segment is already open on this backup.
- */
-void
-BackupServer::openSegment(const BackupOpenRpc::Request& reqHdr,
-                          BackupOpenRpc::Response& respHdr,
-                          Transport::ServerRpc& rpc)
-{
-    openSegment(reqHdr.masterId, reqHdr.segmentId);
-}
-
-/**
- * Allocate space to receive backup writes for a segment.  If this call
- * succeeds the Backup must not reject subsequest writes to this segment for
- * lack of space.  This segment is guaranteed to be returned to a master
- * recovering the the master this segment belongs to and will appear to be
- * open.
- *
- * The caller must ensure that this masterId,segmentId pair is unique and
- * hasn't been used before on this backup or any other.
- *
- * The storage space remains in use until the master calls freeSegment() or
- * until the backup crashes.
- *
  * \param masterId
  *      The server id of the master from which the segment data will come.
  * \param segmentId
@@ -719,6 +651,7 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
 
     rpc.recvPayload.copy(sizeof(reqHdr), reqHdr.length,
                          &info->getSegment()[reqHdr.offset]);
+    bytesWritten += reqHdr.length;
 
     if (reqHdr.flags == BackupWriteRpc::CLOSE ||
         reqHdr.flags == BackupWriteRpc::OPENCLOSE)

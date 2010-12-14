@@ -343,18 +343,6 @@ struct TabletsRecoveredRpc {
 
 // -- Backup RPCs ---
 
-struct BackupCloseRpc {
-    static const RpcType type = BACKUP_CLOSE;
-    struct Request {
-        RpcRequestCommon common;
-        uint64_t masterId;      ///< Server Id from whom the request is coming.
-        uint64_t segmentId;     ///< Target segment to flush to disk.
-    };
-    struct Response {
-        RpcResponseCommon common;
-    };
-};
-
 struct BackupFreeRpc {
     static const RpcType type = BACKUP_FREE;
     struct Request {
@@ -377,18 +365,6 @@ struct BackupGetRecoveryDataRpc {
                                    // The bytes of the tablet map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.
-    };
-    struct Response {
-        RpcResponseCommon common;
-    };
-};
-
-struct BackupOpenRpc {
-    static const RpcType type = BACKUP_OPEN;
-    struct Request {
-        RpcRequestCommon common;
-        uint64_t masterId;      ///< Server Id from whom the request is coming.
-        uint64_t segmentId;     ///< Target segment to open on the backup.
     };
     struct Response {
         RpcResponseCommon common;

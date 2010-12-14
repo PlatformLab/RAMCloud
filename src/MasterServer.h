@@ -97,7 +97,7 @@ class MasterServer : public Server {
 
     MasterServer(const ServerConfig config,
                  CoordinatorClient* coordinator,
-                 BackupManager* backup);
+                 uint32_t replicas);
     virtual ~MasterServer();
     void run();
     void dispatch(RpcType type,
@@ -253,10 +253,10 @@ class MasterServer : public Server {
   public:
     CoordinatorClient* coordinator;
 
-  private:
     uint64_t serverId;
 
-    BackupManager* backup;
+  private:
+    BackupManager backup;
 
     /// Track total bytes of object data written (not including log overhead).
     uint64_t bytesWritten;

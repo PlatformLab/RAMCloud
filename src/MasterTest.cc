@@ -56,7 +56,6 @@ class MasterTest : public CppUnit::TestFixture {
   public:
     ServerConfig config;
     BackupServer::Config backupConfig;
-    BackupManager* backup;
     BackupServer* backupServer;
     BackupStorage* storage;
     const uint32_t segmentFrames;
@@ -70,7 +69,6 @@ class MasterTest : public CppUnit::TestFixture {
     MasterTest()
         : config()
         , backupConfig()
-        , backup(NULL)
         , backupServer()
         , storage(NULL)
         , segmentFrames(2)
@@ -99,9 +97,8 @@ class MasterTest : public CppUnit::TestFixture {
         backupServer = new BackupServer(backupConfig, *storage);
         transport->addServer(*backupServer, "mock:host=backup1");
         coordinator->enlistServer(BACKUP, "mock:host=backup1");
-        backup = new BackupManager(coordinator, 1);
 
-        server = new MasterServer(config, coordinator, backup);
+        server = new MasterServer(config, coordinator, 1);
         transport->addServer(*server, "mock:host=master");
         client =
             new MasterClient(transportManager.getSession("mock:host=master"));
@@ -115,7 +112,6 @@ class MasterTest : public CppUnit::TestFixture {
     void tearDown() {
         delete client;
         delete server;
-        delete backup;
         delete backupServer;
         delete storage;
         delete coordinator;
@@ -214,7 +210,8 @@ class MasterTest : public CppUnit::TestFixture {
 
     void test_recover_basics() {
         char segMem[segmentSize];
-        Segment _(123, 87, segMem, segmentSize, backup);
+        BackupManager mgr(coordinator, 123, 1);
+        Segment _(123, 87, segMem, segmentSize, &mgr);
         // TODO(stutsman) for now just ensure that the arguments make it to
         // BackupManager::recover, we'll do the full check of the
         // returns later once the recovery procedures are complete
@@ -694,7 +691,6 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     CoordinatorClient* coordinator;
     CoordinatorServer* coordinatorServer;
     BackupServer::Config* config;
-    BackupManager* mgr;
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     BackupStorage* storage1;
@@ -708,7 +704,6 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         , coordinator()
         , coordinatorServer()
         , config()
-        , mgr()
         , segmentSize(1 << 16)
         , segmentFrames(2)
         , storage1()
@@ -747,8 +742,6 @@ class MasterRecoverTest : public CppUnit::TestFixture {
             coordinator->enlistServer(BACKUP, "mock:host=backup1");
             coordinator->enlistServer(BACKUP, "mock:host=backup2");
         }
-
-        mgr = new BackupManager(coordinator);
     }
 
     void
@@ -761,7 +754,6 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     void
     tearDown()
     {
-        delete mgr;
         delete backupServer2;
         delete backupServer1;
         delete storage2;
@@ -786,7 +778,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         ServerConfig config;
         config.coordinatorLocator = "mock:host=coordinator";
         MasterServer::sizeLogAndHashTable("64", "8", &config);
-        return new MasterServer(config, coordinator, mgr);
+        return new MasterServer(config, coordinator, 2);
     }
 
     void
@@ -820,10 +812,11 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         // Give them a name so that freeSegment doesn't get called on
         // destructor until after the test.
         char segMem1[segmentSize];
-        Segment s1(99, 87, &segMem1, sizeof(segMem1), mgr);
+        BackupManager mgr(coordinator, 99, 2);
+        Segment s1(99, 87, &segMem1, sizeof(segMem1), &mgr);
         s1.close();
         char segMem2[segmentSize];
-        Segment s2(99, 88, &segMem2, sizeof(segMem2), mgr);
+        Segment s2(99, 88, &segMem2, sizeof(segMem2), &mgr);
         s2.close();
 
         BackupClient(transportManager.getSession("mock:host=backup1"))

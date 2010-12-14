@@ -31,40 +31,11 @@ namespace RAMCloud {
  */
 BackupClient::BackupClient(Transport::SessionRef session)
         : session(session)
-        , status(STATUS_OK)
 {
 }
 
 BackupClient::~BackupClient()
 {
-}
-
-/**
- * Close an open segment on this backup.
- *
- * On success the backup server promises, to the best of its ability, to
- * ensure this segment reflects its closed status during recovery of masterId
- * until such time the segment is freed via freeSegment().  Futhermore, the
- * backup promises to diallow all modifications to the segment, henceforth
- * (aside from freeing it).
- *
- * \param masterId
- *      The id of the master of the segment to be opened.
- * \param segmentId
- *      The id of the segment to be opened.
- * \throw BackupBadSegmentIdException
- *      If the segment is not open or is unknown to the backup server.
- */
-void
-BackupClient::closeSegment(uint64_t masterId,
-                           uint64_t segmentId)
-{
-    Buffer req, resp;
-    BackupCloseRpc::Request& reqHdr(allocHeader<BackupCloseRpc>(req));
-    reqHdr.masterId = masterId;
-    reqHdr.segmentId = segmentId;
-    sendRecv<BackupCloseRpc>(session, req, resp);
-    checkStatus(HERE);
 }
 
 /**
@@ -157,30 +128,6 @@ BackupClient::getSession()
 }
 
 /**
- * Allocate space to receive backup writes for a segment.
- *
- * On success the backup server promises, to the best of its ability, to
- * provide this empty segment during recovery of masterId
- * until such time the segment is freed via freeSegment().
- *
- * \param masterId
- *      Id of this server.
- * \param segmentId
- *      Id of the segment to be backed up.
- */
-void
-BackupClient::openSegment(uint64_t masterId,
-                        uint64_t segmentId)
-{
-    Buffer req, resp;
-    BackupOpenRpc::Request& reqHdr(allocHeader<BackupOpenRpc>(req));
-    reqHdr.masterId = masterId;
-    reqHdr.segmentId = segmentId;
-    sendRecv<BackupOpenRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/**
  * Test that a server exists and is responsive.
  *
  * This operation issues a no-op RPC request, which causes
@@ -225,11 +172,14 @@ BackupClient::startReadingData(uint64_t masterId)
 
 /**
  * Write the byte range specified in an open segment on the backup.
+ * This object is a continuation that blocks until the backup responds.
  *
  * On success the backup server promises, to the best of its ability, to
  * provide the data contained in this segment during recovery of masterId
  * until such time the segment is freed via freeSegment().
  *
+ * \param client
+ *      The BackupClient whose Session should be used for the call.
  * \param masterId
  *      The id of the master to which the data belongs.
  * \param segmentId
@@ -244,24 +194,39 @@ BackupClient::startReadingData(uint64_t masterId)
  *      Whether the write should open or close the segment or both or
  *      neither.  Defaults to neither.
  */
-void
-BackupClient::writeSegment(uint64_t masterId,
-                           uint64_t segmentId,
-                           uint32_t offset,
-                           const void *buf,
-                           uint32_t length,
-                           BackupWriteRpc::Flags flags)
+BackupClient::WriteSegment::WriteSegment(BackupClient& client,
+                                         uint64_t masterId,
+                                         uint64_t segmentId,
+                                         uint32_t offset,
+                                         const void *buf,
+                                         uint32_t length,
+                                         BackupWriteRpc::Flags flags)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
 {
-    Buffer req, resp;
-    BackupWriteRpc::Request& reqHdr(allocHeader<BackupWriteRpc>(req));
+    BackupWriteRpc::Request& reqHdr(
+        client.allocHeader<BackupWriteRpc>(requestBuffer));
     reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
     reqHdr.offset = offset;
     reqHdr.length = length;
     reqHdr.flags = flags;
-    Buffer::Chunk::appendToBuffer(&req, buf, length);
-    sendRecv<BackupWriteRpc>(session, req, resp);
-    checkStatus(HERE);
+    Buffer::Chunk::appendToBuffer(&requestBuffer, buf, length);
+    state = client.send<BackupWriteRpc>(client.session,
+                                        requestBuffer,
+                                        responseBuffer);
+}
+
+/**
+ * Block until the writeSegment call has completed.
+ */
+void
+BackupClient::WriteSegment::operator()()
+{
+    client.recv<BackupWriteRpc>(state);
+    client.checkStatus(HERE);
 }
 
 } // namespace RAMCloud

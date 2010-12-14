@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_CLIENT_H
 #define RAMCLOUD_CLIENT_H
 
+#include <boost/utility/result_of.hpp>
+
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Common.h"
@@ -24,6 +26,19 @@
 #include "Rpc.h"
 #include "Status.h"
 #include "Transport.h"
+
+/**
+ * Defines a synchronous RPC method in terms of an asynchronous RPC class.
+ * Defines a method named methodName that constructs an AsyncClass with a
+ * reference to its 'this' instance and the arguments it's given, then calls
+ * the AsyncClass's operator() method.
+ */
+#define DEF_SYNC_RPC_METHOD(methodName, AsyncClass) \
+    template<typename... Args> \
+    boost::result_of<AsyncClass()>::type \
+    methodName(Args&&... args) { \
+        return AsyncClass(*this, static_cast<Args&&>(args)...)(); \
+    }
 
 namespace RAMCloud {
 

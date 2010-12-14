@@ -59,6 +59,7 @@ class Log {
     void        free(const void *p);
     void        registerType(LogEntryType type,
                              log_eviction_cb_t evictionCB, void *evictionArg);
+    void        sync();
     uint64_t    getSegmentId(const void *p);
     bool        isSegmentLive(uint64_t segmentId) const;
     uint64_t    getMaximumAppendableBytes() const;

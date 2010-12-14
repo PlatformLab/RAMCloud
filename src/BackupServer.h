@@ -144,10 +144,7 @@ class BackupServer : public Server {
     uint64_t getServerId() const;
     void run();
 
-  private:
-    void closeSegment(const BackupCloseRpc::Request& reqHdr,
-                       BackupCloseRpc::Response& respHdr,
-                       Transport::ServerRpc& rpc);
+  PRIVATE:
     void closeSegment(uint64_t masterId, uint64_t segmentId);
     void freeSegment(const BackupFreeRpc::Request& reqHdr,
                      BackupFreeRpc::Response& respHdr,
@@ -159,9 +156,6 @@ class BackupServer : public Server {
     bool keepEntry(const LogEntryType type,
                    const void* data,
                    const ProtoBuf::Tablets& tablets) const;
-    void openSegment(const BackupOpenRpc::Request& reqHdr,
-                     BackupOpenRpc::Response& respHdr,
-                     Transport::ServerRpc& rpc);
     void openSegment(uint64_t masterId, uint64_t segmentId);
     void reserveSpace();
     void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
@@ -218,6 +212,8 @@ class BackupServer : public Server {
 
     /// The storage backend where closed segments are to be placed.
     BackupStorage& storage;
+
+    uint64_t bytesWritten;
 
     friend class BackupServerTest;
     friend class SegmentInfoTest;

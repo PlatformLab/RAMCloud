@@ -13,7 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#pragma GCC diagnostic ignored "-Weffc++"
+
 #include <boost/scoped_ptr.hpp>
+#include <set>
 
 #include "TestUtil.h"
 #include "Common.h"
@@ -30,215 +33,222 @@
 
 namespace RAMCloud {
 
-/**
- * Unit tests for BackupManager.
- */
-class BackupManagerTest : public CppUnit::TestFixture {
-
-    CPPUNIT_TEST_SUITE(BackupManagerTest);
-    CPPUNIT_TEST(test_closeSegment);
-    CPPUNIT_TEST(test_freeSegment);
-    CPPUNIT_TEST(test_freeSegment_overlapping);
-    CPPUNIT_TEST(test_openSegment);
-    CPPUNIT_TEST(test_writeSegment);
-    CPPUNIT_TEST(test_selectOpenHosts);
-    CPPUNIT_TEST(test_selectOpenHosts_notEnoughBackups);
-    CPPUNIT_TEST(test_selectOpenHosts_alreadyOpen);
-    CPPUNIT_TEST_SUITE_END();
-
-    BackupServer* backupServer1;
-    BackupServer* backupServer2;
-    CoordinatorClient* coordinator;
-    CoordinatorServer* coordinatorServer;
-    BackupServer::Config* config;
-    BackupManager* mgr;
+struct BackupManagerBaseTest : public ::testing::Test {
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
-    BackupStorage* storage1;
-    BackupStorage* storage2;
-    BindTransport* transport;
+    const char* coordinatorLocator;
+    ObjectTub<BindTransport> transport;
+    ObjectTub<TransportManager::MockRegistrar> mockRegistrar;
+    ObjectTub<CoordinatorServer> coordinatorServer;
+    ObjectTub<CoordinatorClient> coordinator;
+    ObjectTub<InMemoryStorage> storage1;
+    ObjectTub<InMemoryStorage> storage2;
+    ObjectTub<BackupServer::Config> backupServerConfig;
+    ObjectTub<BackupServer> backupServer1;
+    ObjectTub<BackupServer> backupServer2;
+    ObjectTub<BackupClient> backup1;
+    ObjectTub<BackupClient> backup2;
+    ObjectTub<BackupManager> mgr;
 
-  public:
-    BackupManagerTest()
-        : backupServer1()
-        , backupServer2()
-        , coordinator()
-        , coordinatorServer()
-        , config()
-        , mgr()
-        , segmentSize(1 << 16)
-        , segmentFrames(2)
-        , storage1()
-        , storage2()
-        , transport()
+    BackupManagerBaseTest()
+        : segmentSize(1 << 16)
+        , segmentFrames(4)
+        , coordinatorLocator("mock:host=coordinator")
     {
-    }
+        transport.construct();
+        mockRegistrar.construct(*transport);
 
-    void
-    setUp(bool enlist)
-    {
-        if (!enlist)
-            tearDown();
+        coordinatorServer.construct();
+        transport->addServer(*coordinatorServer, coordinatorLocator);
 
-        transport = new BindTransport;
-        transportManager.registerMock(transport);
+        coordinator.construct(coordinatorLocator);
 
-        config = new BackupServer::Config;
-        config->coordinatorLocator = "mock:host=coordinator";
+        storage1.construct(segmentSize, segmentFrames);
+        storage2.construct(segmentSize, segmentFrames);
 
-        coordinatorServer = new CoordinatorServer;
-        transport->addServer(*coordinatorServer, config->coordinatorLocator);
+        backupServerConfig.construct();
+        backupServerConfig->coordinatorLocator = coordinatorLocator;
 
-        coordinator = new CoordinatorClient(config->coordinatorLocator.c_str());
-
-        storage1 = new InMemoryStorage(segmentSize, segmentFrames);
-        storage2 = new InMemoryStorage(segmentSize, segmentFrames);
-
-        backupServer1 = new BackupServer(*config, *storage1);
-        backupServer2 = new BackupServer(*config, *storage2);
+        backupServer1.construct(*backupServerConfig, *storage1);
+        backupServer2.construct(*backupServerConfig, *storage2);
 
         transport->addServer(*backupServer1, "mock:host=backup1");
         transport->addServer(*backupServer2, "mock:host=backup2");
 
-        if (enlist) {
-            coordinator->enlistServer(BACKUP, "mock:host=backup1");
-            coordinator->enlistServer(BACKUP, "mock:host=backup2");
-        }
+        backup1.construct(transportManager.getSession("mock:host=backup1"));
+        backup2.construct(transportManager.getSession("mock:host=backup2"));
 
-        mgr = new BackupManager(coordinator);
+        mgr.construct(coordinator.get(), 99, 2);
     }
-
-    void
-    setUp()
-    {
-        setUp(true);
-    }
-
-
-    void
-    tearDown()
-    {
-        delete mgr;
-        delete backupServer2;
-        delete backupServer1;
-        delete storage2;
-        delete storage1;
-        delete coordinator;
-        delete coordinatorServer;
-        delete config;
-        transportManager.unregisterMock();
-        delete transport;
-        CPPUNIT_ASSERT_EQUAL(0,
-            BackupStorage::Handle::resetAllocatedHandlesCount());
-    }
-
-    void
-    test_closeSegment()
-    {
-        mgr->openSegment(99, 88);
-        mgr->closeSegment(99, 88);
-
-        CPPUNIT_ASSERT(mgr->openHosts.empty());
-        CPPUNIT_ASSERT_EQUAL(2,
-            BackupStorage::Handle::getAllocatedHandlesCount());
-    }
-
-    void
-    test_freeSegment()
-    {
-        mgr->openSegment(99, 88);
-        mgr->closeSegment(99, 88);
-        mgr->freeSegment(99, 88);
-        BackupManager::SegmentMap::iterator it = mgr->segments.find(88);
-        CPPUNIT_ASSERT(mgr->segments.end() == it);
-    }
-
-    void
-    test_freeSegment_overlapping()
-    {
-        // The end condition on the iterators is important, so this
-        // checks to make sure the frees work without freeing segmentIds
-        // that follow in the map.
-        mgr->openSegment(99, 87);
-        mgr->closeSegment(99, 87);
-        mgr->openSegment(99, 88);
-        mgr->closeSegment(99, 88);
-        mgr->freeSegment(99, 87);
-        mgr->freeSegment(99, 88);
-    }
-
-    void
-    test_openSegment()
-    {
-        mgr->openSegment(99, 88);
-        CPPUNIT_ASSERT_EQUAL(2, mgr->openHosts.size());
-        BackupManager::SegmentMap::iterator it = mgr->segments.find(88);
-        CPPUNIT_ASSERT(mgr->segments.end() != it);
-        it++;
-        CPPUNIT_ASSERT(mgr->segments.end() != it);
-        it++;
-        CPPUNIT_ASSERT(mgr->segments.end() == it);
-        CPPUNIT_ASSERT_EQUAL(2,
-            BackupStorage::Handle::getAllocatedHandlesCount());
-    }
-
-    void
-    test_writeSegment()
-    {
-        char segMem[segmentSize];
-        Segment seg(99, 88, segMem, segmentSize, mgr);
-        SegmentHeader header = { 99, 88, segmentSize };
-        seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
-        seg.close();
-        foreach (BackupClient* host, mgr->openHosts) {
-            Buffer resp;
-            BackupClient::GetRecoveryData(*host, 99, 88,
-                                          ProtoBuf::Tablets(), resp)();
-            const SegmentEntry* entry = resp.getStart<SegmentEntry>();
-            CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, entry->type);
-            CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), entry->length);
-            resp.truncateFront(sizeof(*entry));
-            const SegmentHeader* header = resp.getStart<SegmentHeader>();
-            CPPUNIT_ASSERT_EQUAL(99, header->logId);
-            CPPUNIT_ASSERT_EQUAL(88, header->segmentId);
-            CPPUNIT_ASSERT_EQUAL(segmentSize, header->segmentCapacity);
-        }
-    }
-
-    void
-    test_selectOpenHosts()
-    {
-        mgr->openSegment(99, 88);
-        CPPUNIT_ASSERT_EQUAL(2, mgr->openHosts.size());
-        CPPUNIT_ASSERT_EQUAL(2,
-            BackupStorage::Handle::getAllocatedHandlesCount());
-    }
-
-    void
-    test_selectOpenHosts_notEnoughBackups()
-    {
-        setUp(false);
-        logger.setLogLevels(SILENT_LOG_LEVEL);
-        CPPUNIT_ASSERT_THROW(mgr->openSegment(99, 88),
-                             FatalError);
-        CPPUNIT_ASSERT_EQUAL(0,
-            BackupStorage::Handle::getAllocatedHandlesCount());
-    }
-
-    void
-    test_selectOpenHosts_alreadyOpen()
-    {
-        mgr->openSegment(99, 88);
-        logger.setLogLevels(SILENT_LOG_LEVEL);
-        CPPUNIT_ASSERT_THROW(mgr->openSegment(99, 88),
-                             FatalError);
-        CPPUNIT_ASSERT_EQUAL(2,
-            BackupStorage::Handle::getAllocatedHandlesCount());
-    }
-
-  private:
-    DISALLOW_COPY_AND_ASSIGN(BackupManagerTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(BackupManagerTest);
+
+struct BackupManagerTest : public BackupManagerBaseTest {
+    BackupManagerTest() {
+        coordinator->enlistServer(BACKUP, "mock:host=backup1");
+        coordinator->enlistServer(BACKUP, "mock:host=backup2");
+    }
+};
+
+TEST_F(BackupManagerBaseTest, selectOpenHostsNotEnoughBackups) {
+    logger.setLogLevels(SILENT_LOG_LEVEL);
+    EXPECT_THROW(IGNORE_RESULT(mgr->openSegment(88, NULL, 0)), FatalError);
+}
+
+TEST_F(BackupManagerTest, freeSegment) {
+    mgr->freeSegment(88);
+    mgr->openSegment(89, NULL, 0)->close();
+    mgr->freeSegment(89);
+    IGNORE_RESULT(mgr->openSegment(90, NULL, 0));
+    mgr->freeSegment(90);
+
+    EXPECT_EQ(0U, mgr->segments.size());
+    EXPECT_EQ(0U, backup1->startReadingData(99).size());
+    EXPECT_EQ(0U, backup2->startReadingData(99).size());
+}
+
+TEST_F(BackupManagerTest, sync) {
+    mgr->openSegment(89, NULL, 0)->close();
+    mgr->openSegment(90, NULL, 0)->close();
+    mgr->openSegment(91, NULL, 0)->close();
+    mgr->sync();
+}
+
+TEST_F(BackupManagerTest, openSegmentInsertOrder) {
+    IGNORE_RESULT(mgr->openSegment(89, NULL, 0));
+    IGNORE_RESULT(mgr->openSegment(79, NULL, 0));
+    IGNORE_RESULT(mgr->openSegment(99, NULL, 0));
+    auto it = mgr->openSegmentList.begin();
+    EXPECT_EQ(89U, it++->segmentId);
+    EXPECT_EQ(79U, it++->segmentId);
+    EXPECT_EQ(99U, it++->segmentId);
+}
+
+TEST_F(BackupManagerTest, OpenSegmentVarLenArray) {
+    // backups[0] must be the last member of OpenSegment
+    BackupManager::OpenSegment* openSegment = NULL;
+    EXPECT_EQ(static_cast<void*>(openSegment + 1),
+              static_cast<void*>(openSegment->backups));
+}
+
+TEST_F(BackupManagerTest, OpenSegmentConstructor) {
+    MockRandom _(1);
+    const char data[] = "Hello world!";
+
+    auto openSegment = mgr->openSegment(88, data, arrayLength(data));
+
+    // make sure we think data was written
+    EXPECT_EQ(data, openSegment->data);
+    EXPECT_EQ(arrayLength(data), openSegment->offsetQueued);
+    EXPECT_FALSE(openSegment->closeQueued);
+    foreach (auto& backup, openSegment->backupIter()) {
+        EXPECT_EQ(arrayLength(data), backup.offsetSent);
+        EXPECT_FALSE(backup.closeSent);
+        EXPECT_FALSE(backup.writeSegmentTub);
+    }
+    EXPECT_EQ(arrayLength(data), backupServer1->bytesWritten);
+    EXPECT_EQ(arrayLength(data), backupServer2->bytesWritten);
+
+    // make sure OpenSegment::backups point to reasonable service locators
+    vector<string> backupLocators;
+    foreach (auto& backup, openSegment->backupIter()) {
+        backupLocators.push_back(
+            backup.client.getSession()->getServiceLocator());
+    }
+    EXPECT_EQ((vector<string> {"mock:host=backup2", "mock:host=backup1"}),
+              backupLocators);
+
+    // make sure BackupManager::segments looks sane
+    std::set<string> segmentLocators;
+    foreach (auto& s, mgr->segments) {
+        EXPECT_EQ(88U, s.first);
+        segmentLocators.insert(s.second->getServiceLocator());
+    }
+    EXPECT_EQ((std::set<string> {"mock:host=backup1", "mock:host=backup2"}),
+              segmentLocators);
+}
+
+TEST_F(BackupManagerTest, OpenSegmentwriteAssertWriteAfterClose) {
+    const char data[] = "Hello world!";
+    auto openSegment = mgr->openSegment(88, data, 0);
+    openSegment->write(4, true);
+    EXPECT_DEATH(openSegment->write(5, true), "Assertion");
+}
+
+TEST_F(BackupManagerTest, OpenSegmentwriteAssertNonAppending) {
+    const char data[] = "Hello world!";
+    auto openSegment = mgr->openSegment(88, data, 0);
+    openSegment->write(4, false);
+    openSegment->write(4, false); // OK
+    EXPECT_DEATH(openSegment->write(3, false), "Assertion");
+}
+
+TEST_F(BackupManagerTest, OpenSegmentwriteAssertPrevOpen) {
+    const char data[] = "Hello world!";
+    IGNORE_RESULT(mgr->openSegment(88, NULL, 0));
+    auto openSegment = mgr->openSegment(89, data, 0);
+    EXPECT_DEATH(openSegment->write(1, false), "Assertion");
+}
+
+TEST_F(BackupManagerTest, OpenSegmentsync) {
+    const char data[] = "Hello world!";
+
+    auto openSegment = mgr->openSegment(88, data, 0);
+    openSegment->sync();
+    openSegment->sync();
+    openSegment->write(4, false);
+    foreach (auto& backup, openSegment->backupIter()) {
+        EXPECT_EQ(4U, backup.offsetSent);
+        EXPECT_FALSE(backup.closeSent);
+        EXPECT_TRUE(backup.writeSegmentTub);
+    }
+    openSegment->sync();
+    foreach (auto& backup, openSegment->backupIter()) {
+        EXPECT_EQ(4U, backup.offsetSent);
+        EXPECT_FALSE(backup.closeSent);
+        EXPECT_FALSE(backup.writeSegmentTub);
+    }
+    openSegment->write(6, false);
+    openSegment->write(8, false);
+    openSegment->sync();
+    foreach (auto& backup, openSegment->backupIter()) {
+        EXPECT_EQ(8U, backup.offsetSent);
+        EXPECT_FALSE(backup.closeSent);
+        EXPECT_FALSE(backup.writeSegmentTub);
+    }
+    EXPECT_EQ(8U, backupServer1->bytesWritten);
+    EXPECT_EQ(8U, backupServer2->bytesWritten);
+
+    openSegment->write(9, true);
+    openSegment = NULL;
+
+    mgr->sync();
+    EXPECT_EQ(9U, backupServer1->bytesWritten);
+    EXPECT_EQ(9U, backupServer2->bytesWritten);
+    EXPECT_EQ(0U, mgr->openSegmentList.size());
+}
+
+// TODO(ongaro): This is a test that really belongs in SegmentTest.cc, but the
+// setup overhead is too high.
+TEST_F(BackupManagerTest, writeSegment) {
+    char segMem[segmentSize];
+    Segment seg(99, 88, segMem, segmentSize, mgr.get());
+    SegmentHeader header = { 99, 88, segmentSize };
+    seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
+    seg.close();
+    foreach (auto v, mgr->segments) {
+        BackupClient host(v.second);
+        Buffer resp;
+        host.startReadingData(99);
+        host.getRecoveryData(99, 88, ProtoBuf::Tablets(), resp);
+        auto* entry = resp.getStart<SegmentEntry>();
+        EXPECT_EQ(LOG_ENTRY_TYPE_SEGHEADER, entry->type);
+        EXPECT_EQ(sizeof(SegmentHeader), entry->length);
+        resp.truncateFront(sizeof(*entry));
+        auto* header = resp.getStart<SegmentHeader>();
+        EXPECT_EQ(99U, header->logId);
+        EXPECT_EQ(88U, header->segmentId);
+        EXPECT_EQ(segmentSize, header->segmentCapacity);
+    }
+}
 
 } // namespace RAMCloud

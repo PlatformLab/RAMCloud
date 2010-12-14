@@ -76,7 +76,7 @@ Log::~Log()
     foreach (ActiveIdMap::value_type& idSegmentPair, activeIdMap) {
         Segment* segment = idSegmentPair.second;
         if (segment == head)
-            segment->close();
+            segment->close(true);
         ::free(const_cast<void *>(segment->getBaseAddress()));
         delete segment;
     }
@@ -144,51 +144,52 @@ Log::getSegmentId(const void *p)
  *      to true.
  * \return
  *      On success, a const pointer into the Log's backing memory with
- *      the same contents as `buffer'. On failure, NULL.
+ *      the same contents as `buffer'.
  * \throw LogException
  *      An exception is thrown if the append exceeds the maximum permitted
- *      append length, as returned by #getMaximumAppendableBytes.
+ *      append length, as returned by #getMaximumAppendableBytes, or the log
+ *      ran out of space.
  */
 const void *
 Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     bool sync)
 {
-    const void *p = NULL;
-
     if (length > maximumAppendableBytes)
         throw LogException(HERE, "append exceeded maximum possible length");
 
-    /* 
-     * Try to append.
-     *   If we fail, try to allocate a new head.
-     *   If we run out of space entirely, return NULL.
-     */
-    do {
-        if (head != NULL) {
-            p = head->append(type, buffer, length, sync);
-            bytesAppended += length + sizeof(SegmentEntry);
+    const void *p;
+    if (head != NULL) {
+        p = head->append(type, buffer, length, sync);
+        if (p != NULL) {
+            // entry was appended to head segment
+            bytesAppended += sizeof(SegmentEntry) + length;
+            return p;
         }
+        // head segment is full
+        // allocate the next segment, /then/ close this one
+        Segment* nextHead = new Segment(logId, allocateSegmentId(),
+                                        getFromFreeList(),
+                                        segmentCapacity, backup);
+        head->close(false); // an exception here would be problematic...
+#ifdef PERF_DEBUG_RECOVERY_SYNC_BACKUP
+        head->sync();
+#endif
+        head = nextHead;
+        bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentFooter);
+    } else {
+        // allocate the first segment
+        head = new Segment(logId, allocateSegmentId(), getFromFreeList(),
+                           segmentCapacity, backup);
+    }
+    bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentHeader);
+    addToActiveMaps(head);
 
-        if (p == NULL) {
-            if (head != NULL) {
-                head->close();
-                head = NULL;
-                bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentFooter);
-            }
+    // append the entry
+    p = head->append(type, buffer, length, sync);
+    assert(p != NULL);
+    bytesAppended += sizeof(SegmentEntry) + length;
 
-            void *s = getFromFreeList();
-            if (s == NULL)
-                return NULL;
-
-            head = new Segment(logId, allocateSegmentId(), s, segmentCapacity,
-                    backup);
-            bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentHeader);
-            addToActiveMaps(head);
-
-            cleaner.clean(1);
-        }
-    } while (p == NULL);
-
+    cleaner.clean(1);
     return p;
 }
 
@@ -241,6 +242,14 @@ Log::registerType(LogEntryType type,
         throw LogException(HERE, "type already registered with the Log");
 
     callbackMap[type] = new LogTypeCallback(type, evictionCB, evictionArg);
+}
+
+/// Wait for all segments to be fully replicated.
+void
+Log::sync()
+{
+    if (head)
+        head->sync();
 }
 
 /**
@@ -323,14 +332,15 @@ Log::addToFreeList(void *p)
  * Obtain Segment backing memory from the free list.
  * \return
  *      On success, a pointer to Segment backing memory of #segmentCapacity
- *      bytes, as provided in the #addSegmentMemory method. If memory is
- *      exhausted, NULL is returned.
+ *      bytes, as provided in the #addSegmentMemory method.
+ * \throw LogException
+ *      If memory is exhausted.
  */
 void *
 Log::getFromFreeList()
 {
     if (segmentFreeList.empty())
-        return NULL;
+        throw LogException(HERE, "Log is out of space");
 
     void *p = segmentFreeList.back();
     segmentFreeList.pop_back();

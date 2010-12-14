@@ -77,7 +77,8 @@ class Segment {
     const void      *append(LogEntryType type, const void *buffer,
                             uint32_t length, bool sync = true);
     void             free(const void *p);
-    void             close();
+    void             close(bool sync = true);
+    void             sync();
     const void      *getBaseAddress() const;
     uint64_t         getId() const;
     uint64_t         getCapacity() const;
@@ -94,10 +95,8 @@ class Segment {
     const void      *forceAppendWithEntry(LogEntryType type,
                                           const void *buffer, uint32_t length,
                                           bool sync = true);
-    void             syncToBackup();
 
     BackupManager   *backup;         // makes operations on this segment durable
-    uint32_t        syncOffset;      // index of first byte not yet replicated
     void            *baseAddress;    // base address for the Segment
     uint64_t         logId;          // log this belongs to, passed to backups
     uint64_t         id;             // segment identification number
@@ -106,6 +105,12 @@ class Segment {
     uint64_t         bytesFreed;     // bytes free()'d in this Segment
     Checksum         checksum;       // Latest Segment checksum (crc32c)
     bool             closed;         // when true, no appends permitted
+
+    /**
+     * A handle to the open segment on backups,
+     * or NULL if the segment is closed.
+     */
+    BackupManager::OpenSegment* backupSegment;
 
     friend class SegmentTest;
     friend class SegmentIteratorTest;

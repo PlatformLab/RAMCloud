@@ -52,13 +52,7 @@ class SegmentTest : public CppUnit::TestFixture {
     static bool
     writeSegmentFilter(string s)
     {
-        return s == "writeSegment";
-    }
-
-    static bool
-    closeSegmentFilter(string s)
-    {
-        return s == "closeSegment";
+        return s == "write";
     }
 
     static bool
@@ -72,10 +66,11 @@ class SegmentTest : public CppUnit::TestFixture {
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
 
-        BackupManager backup(NULL, 0);
+        BackupManager backup(NULL, 1020304050, 0);
         TestLog::Enable _(&openSegmentFilter);
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf), &backup);
-        CPPUNIT_ASSERT_EQUAL("openSegment: openSegment 1020304050, 98765",
+        CPPUNIT_ASSERT_EQUAL("openSegment: "
+                             "openSegment 1020304050, 98765, ..., 28",
                              TestLog::get());
         CPPUNIT_ASSERT_EQUAL(s.baseAddress,
                              reinterpret_cast<void *>(alignedBuf));
@@ -102,7 +97,7 @@ class SegmentTest : public CppUnit::TestFixture {
         TestLog::Enable _(&freeSegmentFilter);
         {
             char alignedBuf[8192] __attribute__((aligned(8192)));
-            BackupManager backup(NULL, 0);
+            BackupManager backup(NULL, 1, 0);
             Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
         }
         CPPUNIT_ASSERT_EQUAL("freeSegment: 1, 2", TestLog::get());
@@ -114,8 +109,8 @@ class SegmentTest : public CppUnit::TestFixture {
         char alignedBuf[8192] __attribute__((aligned(8192)));
         const void *p;
 
-        BackupManager backup(NULL, 0);
-        TestLog::Enable _(&writeSegmentFilter);
+        BackupManager backup(NULL, 1, 0);
+        TestLog::Enable _;
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
         p = s.append(LOG_ENTRY_TYPE_SEGFOOTER, NULL, 0);
         CPPUNIT_ASSERT_EQUAL(NULL, p);
@@ -129,7 +124,7 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(NULL, p);
 
         CPPUNIT_ASSERT_EQUAL(
-            "writeSegment: 1, 2, 0, ..., 28",
+            "openSegment: openSegment 1, 2, ..., 28",
             TestLog::get());
 
         int bytes = s.appendableBytes();
@@ -167,11 +162,13 @@ class SegmentTest : public CppUnit::TestFixture {
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
 
-        BackupManager backup(NULL, 0);
-        TestLog::Enable _(&closeSegmentFilter);
+        BackupManager backup(NULL, 1, 0);
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
+        TestLog::Enable _;
         s.close();
-        CPPUNIT_ASSERT_EQUAL("closeSegment: 1, 2", TestLog::get());
+        CPPUNIT_ASSERT_EQUAL("write: 1, 2, 40, 1 | "
+                             "sync: Closed segment 1, 2",
+                             TestLog::get());
 
         SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
                            reinterpret_cast<char *>(s.baseAddress) +
@@ -260,14 +257,14 @@ class SegmentTest : public CppUnit::TestFixture {
     test_syncToBackup()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
-        BackupManager backup(NULL, 0);
+        BackupManager backup(NULL, 1, 0);
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
         SegmentHeader header;
         TestLog::Enable _;
         s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), false);
         CPPUNIT_ASSERT_EQUAL("", TestLog::get());
         s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), true);
-        CPPUNIT_ASSERT_EQUAL("writeSegment: 1, 2, 28, ..., 56",
+        CPPUNIT_ASSERT_EQUAL("write: 1, 2, 84, 0",
                              TestLog::get());
     }
 };

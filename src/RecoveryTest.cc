@@ -59,11 +59,11 @@ class RecoveryTest : public CppUnit::TestFixture {
             , segMem()
             , seg()
         {
-            mgr = new BackupManager(NULL, 1);
+            mgr = new BackupManager(NULL, 99, 1);
             ProtoBuf::ServerList::Entry& e(*backupList.add_server());
             e.set_service_locator(locator);
             e.set_server_type(ProtoBuf::BACKUP);
-            mgr->setHostList(backupList);
+            mgr->hosts = backupList;
 
             segMem = new char[segmentSize];
             seg = new Segment(masterId, segmentId, segMem, segmentSize, mgr);
@@ -298,14 +298,13 @@ class RecoveryTest : public CppUnit::TestFixture {
         AutoMaster(BindTransport& transport,
                    CoordinatorClient &coordinator,
                    const string& locator)
-            : backup(&coordinator, 0)
-            , config()
+            : config()
             , master()
         {
             config.coordinatorLocator = "mock:host=coordinator";
             config.localLocator = locator;
             MasterServer::sizeLogAndHashTable("64", "8", &config);
-            master = new MasterServer(config, &coordinator, &backup);
+            master = new MasterServer(config, &coordinator, 0);
             transport.addServer(*master, locator);
             coordinator.enlistServer(MASTER, locator);
         }
@@ -315,7 +314,6 @@ class RecoveryTest : public CppUnit::TestFixture {
             delete master;
         }
 
-        BackupManager backup;
         ServerConfig config;
         MasterServer* master;
 

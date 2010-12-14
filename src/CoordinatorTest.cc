@@ -37,7 +37,6 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
-    BackupManager* backup;
     CoordinatorClient* client;
     CoordinatorServer* server;
     ServerConfig masterConfig;
@@ -46,7 +45,6 @@ class CoordinatorTest : public CppUnit::TestFixture {
   public:
     CoordinatorTest()
         : transport(NULL)
-        , backup()
         , client(NULL)
         , server(NULL)
         , masterConfig()
@@ -64,13 +62,12 @@ class CoordinatorTest : public CppUnit::TestFixture {
         server->nextServerId = 2;
         transport->addServer(*server, "mock:host=coordinator");
         client = new CoordinatorClient("mock:host=coordinator");
-        backup = new BackupManager(client, 0);
         // need to add the master as a transport destinaton before it is
         // created because under BindTransport it must service an rpc
         // just after its constructor is completes
         master = static_cast<MasterServer*>(malloc(sizeof(MasterServer)));
         transport->addServer(*master, "mock:host=master");
-        master = new(master) MasterServer(masterConfig, client, backup);
+        master = new(master) MasterServer(masterConfig, client, 0);
         TestLog::enable();
     }
 
@@ -78,7 +75,6 @@ class CoordinatorTest : public CppUnit::TestFixture {
         TestLog::disable();
         master->~MasterServer();
         free(master);
-        delete backup;
         delete client;
         delete server;
         transportManager.unregisterMock();
@@ -86,7 +82,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     }
 
     void test_createTable() {
-        MasterServer master2(masterConfig, NULL, backup);
+        MasterServer master2(masterConfig, NULL, 0);
         transport->addServer(master2, "mock:host=master2");
         client->enlistServer(MASTER, "mock:host=master2");
         // master is already enlisted

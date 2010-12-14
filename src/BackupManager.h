@@ -17,62 +17,167 @@
 #ifndef RAMCLOUD_BACKUPMANAGER_H
 #define RAMCLOUD_BACKUPMANAGER_H
 
-#include <map>
-#include <algorithm>
+#include <unordered_map>
+#include <boost/pool/pool.hpp>
 
+#include "BoostIntrusive.h"
 #include "BackupClient.h"
 #include "Common.h"
+#include "ObjectTub.h"
 
 namespace RAMCloud {
 
 /**
- * A backup consisting of a multiple remote hosts.
- *
- * The precise set of backup hosts is selected by creating BackupClient
- * instances and adding them to the BackupManager instance via
- * addHost().
- *
- * Eventually this will be a more sophisticated not implementing
- * BackupClient, but rather, scheduling and orchestrating the backup
- * servers' for backup and recovery.
+ * Orchestrates operations on backup servers.
+ * This class handles selecting backup servers on a segment-by-segment basis
+ * and relays backup operations to those servers.
  */
 class BackupManager {
-  public:
-    explicit BackupManager(CoordinatorClient* coordinator,
-                           uint32_t replicas = 2);
-    virtual ~BackupManager();
+  PUBLIC:
+    /// Represents a segment that is being replicated to backups.
+    class OpenSegment {
 
-    void closeSegment(uint64_t masterId, uint64_t segmentId);
-    void freeSegment(uint64_t masterId, uint64_t segmentId);
-    void openSegment(uint64_t masterId, uint64_t segmentId);
-    void setHostList(const ProtoBuf::ServerList& hosts);
-    void writeSegment(uint64_t masterId,
-                      uint64_t segmentId,
-                      uint32_t offset,
-                      const void *buf,
-                      uint32_t length);
+      PUBLIC:
+        /**
+         * Convenience method for calling #write() with the last offset and
+         * closeSegment set.
+         */
+        void close() {
+            write(offsetQueued, true);
+        }
+        void write(uint32_t offset, bool closeSegment);
 
-  private:
-    void selectOpenHosts();
+      PRIVATE:
+        // The following private members are for BackupManager's use:
+        friend class BackupManager;
+
+        /**
+         * Return the number of bytes of space required on which to construct
+         * an OpenSegment instance.
+         */
+        static size_t sizeOf(uint32_t replicas) {
+            return sizeof(OpenSegment) + sizeof(Backup) * replicas;
+        }
+        OpenSegment(BackupManager& backupManager, uint64_t segmentId,
+                    const void* data, uint32_t len);
+        ~OpenSegment();
+        void sync();
+
+        // The following are really private:
+
+        struct Backup {
+            explicit Backup(Transport::SessionRef session)
+                : client(session)
+                , offsetSent(0)
+                , closeSent(false)
+                , writeSegmentTub()
+            {}
+            BackupClient client;
+            /**
+             * The number of bytes of #OpenSegment::data that have been
+             * transmitted to the backup (but not necessarily acknowledged).
+             */
+            uint32_t offsetSent;
+            /**
+             * Whether the backup has been told that the segment is closed (but
+             * not necessarily acknowledged).
+             */
+            bool closeSent;
+            /**
+             * Space for an asynchronous RPC call.
+             */
+            ObjectTub<BackupClient::WriteSegment> writeSegmentTub;
+        };
+
+        /**
+         * Return a range of iterators across #backups
+         * for use in foreach loops.
+         */
+        std::pair<Backup*, Backup*>
+        backupIter() {
+            return {&backups[0], &backups[backupManager.replicas]};
+        }
+
+        void sendWriteRequests();
+        void waitForWriteRequests();
+
+        BackupManager& backupManager;
+        /**
+         * A unique ID for the segment.
+         */
+        const uint64_t segmentId;
+        /**
+         * The start of an array of bytes to be replicated.
+         */
+        const void* data;
+        /**
+         * The number of bytes of #data written by the user of this class (not
+         * necessarily yet replicated).
+         */
+        uint32_t offsetQueued;
+        /**
+         * Whether the user of this class has closed this segment (not
+         * necessarily yet replicated).
+         */
+        bool closeQueued;
+        /**
+         * Intrusive list entries for #BackupManager::openSegmentList.
+         */
+        IntrusiveListHook listEntries;
+        /**
+         * An array of #BackupManager::replica backups on which to replicate
+         * the segment.
+         */
+        Backup backups[0]; // must be last member of class
+        DISALLOW_COPY_AND_ASSIGN(OpenSegment);
+    };
+
+    BackupManager(CoordinatorClient* coordinator,
+                  uint64_t masterId,
+                  uint32_t replicas);
+    ~BackupManager();
+
+    void freeSegment(uint64_t segmentId);
+    OpenSegment* openSegment(uint64_t segmentId,
+                             const void* data, uint32_t len)
+        __attribute__((warn_unused_result));
+    void sync();
+
+  PRIVATE:
+    void ensureSufficientHosts();
+    void unopenSegment(OpenSegment* openSegment);
     void updateHostListFromCoordinator();
 
-    CoordinatorClient* coordinator;
+    /// Cluster coordinator. May be NULL for testing purposes.
+    CoordinatorClient* const coordinator;
+
+    /**
+     * The coordinator-assigned server ID for this master or, equivalently, its
+     * globally unique #Log ID.
+     */
+    const uint64_t masterId;
 
     /// The host pool to schedule backups from.
     ProtoBuf::ServerList hosts;
 
-    typedef std::list<BackupClient*> OpenHostList;
-    /// List of hosts currently containing an open segment for this master.
-    OpenHostList openHosts;
-
     /// The number of backups to replicate each segment on.
     const uint32_t replicas;
 
-    typedef std::multimap<uint64_t, Transport::SessionRef> SegmentMap;
+    typedef std::unordered_multimap<uint64_t, Transport::SessionRef>
+            SegmentMap;
     /// Tells which backup each segment is stored on.
     SegmentMap segments;
 
-    friend class BackupManagerTest;
+    /// A pool from which all OpenSegment objects are allocated.
+    boost::pool<> openSegmentPool;
+
+    INTRUSIVE_LIST_TYPEDEF(OpenSegment, listEntries) OpenSegmentList;
+    /**
+     * A FIFO queue of all existing OpenSegment objects.
+     * Newly opened segments are pushed to the back of this list.
+     */
+    OpenSegmentList openSegmentList;
+
     DISALLOW_COPY_AND_ASSIGN(BackupManager);
 };
 

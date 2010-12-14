@@ -147,21 +147,21 @@ void tombstoneEvictionCallback(LogEntryType type,
  *      this server.
  * \param coordinator
  *      A client to the coordinator for the RAMCloud this Master is in.
- * \param backup
- *      Provides a mechanism for replicating changes to other servers.
+ * \param replicas
+ *      The number of backups required before writes are considered safe.
  */
 MasterServer::MasterServer(const ServerConfig config,
                            CoordinatorClient* coordinator,
-                           BackupManager* backup)
+                           uint32_t replicas)
     : config(config)
     , coordinator(coordinator)
     // Permit a NULL coordinator for testing/benchmark purposes.
     , serverId(coordinator ? coordinator->enlistServer(MASTER,
                                                        config.localLocator)
                            : 0)
-    , backup(backup)
+    , backup(coordinator, serverId, replicas)
     , bytesWritten(0)
-    , log(serverId, config.logBytes, Segment::SEGMENT_SIZE, backup)
+    , log(serverId, config.logBytes, Segment::SEGMENT_SIZE, &backup)
     , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine())
     , tablets()
 {
@@ -461,6 +461,7 @@ MasterServer::recover(uint64_t masterId,
         foreBuffer->reset();
     }
 #endif
+    log.sync();
 }
 
 /**
@@ -640,7 +641,6 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                     log.append(LOG_ENTRY_TYPE_OBJ, recoverObj,
                                 recoverObj->size(), false));
 #endif
-                assert(newObj != NULL);
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
                 objectMap.replace(tblId, objId, newObj);
@@ -729,9 +729,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
     // Mark the deleted object as free first, since the append could
     // invalidate it
     log.free(o);
-    const void* ret = log.append(
-        LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
-    assert(ret);
+    log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
     objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
@@ -952,7 +950,6 @@ objectEvictionCallback(LogEntryType type,
     if (hashTblObj == evictObj) {
         const Object *newObj = (const Object *)log.append(
             LOG_ENTRY_TYPE_OBJ, evictObj, evictObj->size());
-        assert(newObj != NULL);
         svr->objectMap.replace(evictObj->table, evictObj->id, newObj);
     }
 }
@@ -1025,11 +1022,8 @@ tombstoneEvictionCallback(LogEntryType type,
     assert(tomb != NULL);
 
     // see if the referant is still there
-    if (log.isSegmentLive(tomb->segmentId)) {
-        const void *ret = log.append(
-            LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb));
-        assert(ret != NULL);
-    }
+    if (log.isSegmentLive(tomb->segmentId))
+        log.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb));
 }
 
 void
@@ -1073,14 +1067,11 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
 
         uint64_t segmentId = log.getSegmentId(o);
         ObjectTombstone tomb(segmentId, o);
-        const void *p = log.append(LOG_ENTRY_TYPE_OBJTOMB,
-            &tomb, sizeof(tomb));
-        assert(p != NULL);
+        log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
     }
 
     const Object *objPtr = (const Object *)log.append(
         LOG_ENTRY_TYPE_OBJ, newObject, newObject->size());
-    assert(objPtr != NULL);
     objectMap.replace(tableId, id, objPtr);
 
     *newVersion = objPtr->version;
