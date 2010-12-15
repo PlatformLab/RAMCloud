@@ -346,7 +346,7 @@ Logger::logMessage(LogModule module, LogLevel level,
     struct timespec now;
 
     clock_gettime(CLOCK_REALTIME, &now);
-    fprintf(stream, "%010u.%09u %s:%d in %s %s %s[%d]: ",
+    fprintf(stream, "%010lu.%09lu %s:%d in %s %s %s[%d]: ",
             now.tv_sec, now.tv_nsec,
             where.relativeFile().c_str(), where.line,
             where.qualifiedFunction().c_str(),

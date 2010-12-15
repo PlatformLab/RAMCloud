@@ -178,7 +178,7 @@ try
     coordinatorLocator = optionParser.options.getCoordinatorLocator();
     printf("client: Connecting to %s\n", coordinatorLocator.c_str());
 
-    printf("Reads: %lu, Size: %lu, Multirow: %lu, RandomReads: %lu\n",
+    printf("Reads: %lu, Size: %lu, Multirow: %d, RandomReads: %d\n",
            count, size, multirow, randomReads);
 
     setup();
