@@ -26,6 +26,18 @@
 namespace RAMCloud {
 
 /**
+ * Default object used to make system calls.
+ */
+static Syscall defaultSyscall;
+
+/**
+ * Used by this class to make all system calls.  In normal production
+ * use it points to defaultSyscall; for testing it points to a mock
+ * object.
+ */
+Syscall* UdpDriver::sys = &defaultSyscall;
+
+/**
  * Construct a UdpDriver.
  *
  * \param localServiceLocator
@@ -39,18 +51,21 @@ namespace RAMCloud {
 UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
     : socketFd(-1), packetBufPool(sizeof(PacketBuf)), packetBufsUtilized(0)
 {
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    int fd = sys->socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
-        throw UnrecoverableDriverException(HERE, errno);
+        throw DriverException(HERE, "UdpDriver couldn't create socket",
+                              errno);
     }
 
     if (localServiceLocator != NULL) {
         IpAddress ipAddress(*localServiceLocator);
-        int r = bind(fd, &ipAddress.address, sizeof(ipAddress.address));
+        int r = sys->bind(fd, &ipAddress.address, sizeof(ipAddress.address));
         if (r == -1) {
             int e = errno;
-            close(fd);
-            throw UnrecoverableDriverException(HERE, e);
+            sys->close(fd);
+            throw DriverException(HERE,
+                    format("UdpDriver couldn't bind to locator '%s'",
+                    localServiceLocator->getOriginalString().c_str()), e);
         }
     }
 
@@ -64,8 +79,9 @@ UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
 UdpDriver::~UdpDriver()
 {
     if (packetBufsUtilized != 0)
-        LOG(WARNING, "packetBufsUtilized: %d", packetBufsUtilized);
-    close(socketFd);
+        LOG(ERROR, "UdpDriver deleted with %d packets still in use",
+            packetBufsUtilized);
+    sys->close(socketFd);
 }
 
 // See docs in Driver class.
@@ -121,12 +137,12 @@ UdpDriver::sendPacket(const Address *addr,
     msg.msg_name = const_cast<sockaddr *>(a);
     msg.msg_namelen = sizeof(*a);
 
-    ssize_t r = sendmsg(socketFd, &msg, 0);
+    ssize_t r = sys->sendmsg(socketFd, &msg, 0);
     if (r == -1) {
         int e = errno;
         close(socketFd);
         socketFd = -1;
-        throw UnrecoverableDriverException(HERE, e);
+        throw DriverException(HERE, "UdpDriver error sending to socket", e);
     }
     assert(static_cast<size_t>(r) == totalLength);
 }
@@ -138,7 +154,7 @@ UdpDriver::tryRecvPacket(Received *received)
     PacketBuf* buffer;
     buffer = new(packetBufPool.malloc()) PacketBuf();
     socklen_t addrlen = sizeof(&buffer->ipAddress.address);
-    int r = recvfrom(socketFd, buffer->payload, MAX_PAYLOAD_SIZE,
+    int r = sys->recvfrom(socketFd, buffer->payload, MAX_PAYLOAD_SIZE,
                      MSG_DONTWAIT,
                      &buffer->ipAddress.address, &addrlen);
     if (r == -1) {
@@ -146,7 +162,8 @@ UdpDriver::tryRecvPacket(Received *received)
         if (errno == EAGAIN || errno == EWOULDBLOCK)
             return false;
         // TODO(stutsman) We could probably recover from a lot of errors here.
-        throw UnrecoverableDriverException(HERE, errno);
+        throw DriverException(HERE, "UdpDriver error receiving from socket",
+                              errno);
     }
     received->len = r;
 

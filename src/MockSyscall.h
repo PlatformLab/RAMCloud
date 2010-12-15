@@ -34,9 +34,10 @@ class MockSyscall : public Syscall {
     public:
     MockSyscall() : acceptErrno(0), bindErrno(0), closeErrno(0), closeCount(0),
                     connectErrno(0), fcntlErrno(0), listenErrno(0),
-                    recvErrno(0), recvEof(false), sendmsgErrno(0),
-                    sendmsgReturnCount(-1), setsockoptErrno(0),
-                    socketErrno(0) {}
+                    recvErrno(0), recvEof(false),
+                    recvfromErrno(0), recvfromEof(false),
+                    sendmsgErrno(0), sendmsgReturnCount(-1),
+                    setsockoptErrno(0), socketErrno(0) {}
 
     int acceptErrno;
     int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
@@ -105,6 +106,20 @@ class MockSyscall : public Syscall {
             return ::recv(sockfd, buf, len, flags);
         }
         errno = recvErrno;
+        return -1;
+    }
+
+    int recvfromErrno;
+    bool recvfromEof;
+    ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
+                     sockaddr *from, socklen_t* fromLen) {
+        if (recvfromEof) {
+            return 0;
+        }
+        if (recvfromErrno == 0) {
+            return ::recvfrom(sockfd, buf, len, flags, from, fromLen);
+        }
+        errno = recvfromErrno;
         return -1;
     }
 

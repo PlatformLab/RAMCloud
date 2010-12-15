@@ -189,17 +189,16 @@ Driver::Received::getOffset(uint32_t offset)
 
 /**
  * Thrown if a Driver cannot be initialized properly or if it encounters
- * a serious problem causing it to panic.
+ * a problem sending or receiving a packet.
  */
-struct UnrecoverableDriverException: public Exception {
-    explicit UnrecoverableDriverException(const CodeLocation& where)
+struct DriverException: public Exception {
+    explicit DriverException(const CodeLocation& where)
         : Exception(where) {}
-    UnrecoverableDriverException(const CodeLocation& where, std::string msg)
+    DriverException(const CodeLocation& where, std::string msg)
         : Exception(where, msg) {}
-    UnrecoverableDriverException(const CodeLocation& where, int errNo)
+    DriverException(const CodeLocation& where, int errNo)
         : Exception(where, errNo) {}
-    UnrecoverableDriverException(const CodeLocation& where,
-                                 string msg, int errNo)
+    DriverException(const CodeLocation& where, string msg, int errNo)
         : Exception(where, msg, errNo) {}
 };
 

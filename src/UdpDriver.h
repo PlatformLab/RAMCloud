@@ -22,6 +22,7 @@
 #include "Common.h"
 #include "Driver.h"
 #include "IpAddress.h"
+#include "Syscall.h"
 
 namespace RAMCloud {
 
@@ -72,6 +73,8 @@ class UdpDriver : public Driver {
     /// Counts the number of packet buffers freed during destructors;
     /// used primarily for testing.
     static int packetBufsFreed;
+
+    static Syscall* sys;
 
     DISALLOW_COPY_AND_ASSIGN(UdpDriver);
 };

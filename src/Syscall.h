@@ -67,6 +67,11 @@ class Syscall {
         return ::recv(sockfd, buf, len, flags);
     }
     VIRTUAL_FOR_TESTING
+    ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
+                     sockaddr *from, socklen_t* fromLen) {
+        return ::recvfrom(sockfd, buf, len, flags, from, fromLen);
+    }
+    VIRTUAL_FOR_TESTING
     ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags) {
         return ::sendmsg(sockfd, msg, flags);
     }

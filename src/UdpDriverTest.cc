@@ -14,6 +14,8 @@
  */
 
 #include "TestUtil.h"
+#include "MockSyscall.h"
+#include "ObjectTub.h"
 #include "UdpDriver.h"
 
 namespace RAMCloud {
@@ -21,11 +23,14 @@ namespace RAMCloud {
 class UdpDriverTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(UdpDriverTest);
     CPPUNIT_TEST(test_basics);
+    CPPUNIT_TEST(test_constructor_errorInSocketCall);
     CPPUNIT_TEST(test_constructor_socketInUse);
     CPPUNIT_TEST(test_destructor_closeSocket);
     CPPUNIT_TEST(test_sendPacket_headerEmpty);
     CPPUNIT_TEST(test_sendPacket_payloadEmpty);
     CPPUNIT_TEST(test_sendPacket_multipleChunks);
+    CPPUNIT_TEST(test_sendPacket_errorInSend);
+    CPPUNIT_TEST(test_tryRecvPacket_errorInRecv);
     CPPUNIT_TEST(test_tryRecvPacket_noPacketAvailable);
     CPPUNIT_TEST(test_tryRecvPacket_multiplePackets);
     CPPUNIT_TEST_SUITE_END();
@@ -36,6 +41,9 @@ class UdpDriverTest : public CppUnit::TestFixture {
     IpAddress *serverAddress;
     UdpDriver *server;
     UdpDriver *client;
+    MockSyscall* sys;
+    Syscall *savedSyscall;
+    ObjectTub<TestLog::Enable> logEnabler;
 
     UdpDriverTest()
         : exceptionMessage()
@@ -43,6 +51,9 @@ class UdpDriverTest : public CppUnit::TestFixture {
         , serverAddress(NULL)
         , server(NULL)
         , client(NULL)
+        , sys(NULL)
+        , savedSyscall(NULL)
+        , logEnabler()
     {}
 
     void setUp() {
@@ -51,15 +62,27 @@ class UdpDriverTest : public CppUnit::TestFixture {
         serverAddress = new IpAddress(*serverLocator);
         server = new UdpDriver(serverLocator);
         client = new UdpDriver;
+        sys = new MockSyscall();
+        savedSyscall = UdpDriver::sys;
+        UdpDriver::sys = sys;
+        logEnabler.construct();
     }
 
     void tearDown() {
         delete serverLocator;
+        serverLocator = NULL;
         delete serverAddress;
+        serverAddress = NULL;
         if (server != NULL) {
             delete server;
+            server = NULL;
         }
         delete client;
+        client = NULL;
+        delete sys;
+        sys = NULL;
+        UdpDriver::sys = savedSyscall;
+        logEnabler.destroy();
     }
 
     void sendMessage(UdpDriver *driver, IpAddress *address,
@@ -95,21 +118,36 @@ class UdpDriverTest : public CppUnit::TestFixture {
                 toString(received2.payload, received2.len));
     }
 
+    void test_constructor_errorInSocketCall() {
+        sys->socketErrno = EPERM;
+        try {
+            UdpDriver server2(serverLocator);
+        } catch (DriverException& e) {
+            exceptionMessage = e.message;
+        }
+        CPPUNIT_ASSERT_EQUAL("UdpDriver couldn't create socket: "
+                    "Operation not permitted", exceptionMessage);
+    }
+
     void test_constructor_socketInUse() {
         try {
             UdpDriver server2(serverLocator);
-        } catch (UnrecoverableDriverException& e) {
+        } catch (DriverException& e) {
             exceptionMessage = e.message;
         }
-        CPPUNIT_ASSERT_EQUAL("Address already in use", exceptionMessage);
+        CPPUNIT_ASSERT_EQUAL("UdpDriver couldn't bind to locator "
+                "'udp: host=localhost, port=8100': Address already in use",
+                exceptionMessage);
     }
 
     void test_destructor_closeSocket() {
+        // If the socket isn't closed, we won't be able to create another
+        // UdpDriver that binds to the same socket.
         delete server;
         server = NULL;
         try {
             server = new UdpDriver(serverLocator);
-        } catch (UnrecoverableDriverException& e) {
+        } catch (DriverException& e) {
             exceptionMessage = e.message;
         }
         CPPUNIT_ASSERT_EQUAL("no exception", exceptionMessage);
@@ -148,6 +186,32 @@ class UdpDriverTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received));
         CPPUNIT_ASSERT_EQUAL("header:yzzy0123456789abc",
                 toString(received.payload, received.len));
+    }
+
+    void test_sendPacket_errorInSend() {
+        sys->sendmsgErrno = EPERM;
+        Buffer message;
+        Buffer::Chunk::appendToBuffer(&message, "xyzzy", 5);
+        Buffer::Iterator iterator(message);
+        try {
+            client->sendPacket(serverAddress, "header:", 7, &iterator);
+        } catch (DriverException& e) {
+            exceptionMessage = e.message;
+        }
+        CPPUNIT_ASSERT_EQUAL("UdpDriver error sending to socket: "
+                "Operation not permitted", exceptionMessage);
+    }
+
+    void test_tryRecvPacket_errorInRecv() {
+        sys->recvfromErrno = EPERM;
+        Driver::Received received;
+        try {
+            server->tryRecvPacket(&received);
+        } catch (DriverException& e) {
+            exceptionMessage = e.message;
+        }
+        CPPUNIT_ASSERT_EQUAL("UdpDriver error receiving from socket: "
+                "Operation not permitted", exceptionMessage);
     }
 
     void test_tryRecvPacket_noPacketAvailable() {
