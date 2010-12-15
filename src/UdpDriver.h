@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_UDPDRIVER_H
 #define RAMCLOUD_UDPDRIVER_H
 
+#include <boost/pool/pool.hpp>
 #include <vector>
 
 #include "Common.h"
@@ -48,21 +49,22 @@ class UdpDriver : public Driver {
     }
 
     /**
-     * Concatenates a UdpAddress and a variable-length payload.
-     * Used for received packets.
+     * Structure to hold an incoming packet.
      */
     struct PacketBuf {
         PacketBuf() : ipAddress() {}
-        IpAddress ipAddress;
-        char payload[0];
+        IpAddress ipAddress;                   /// Address of sender (used to
+                                               /// send reply).
+        char payload[MAX_PAYLOAD_SIZE];        /// Packet data (may not fill all
+                                               /// of the allocated space).
     };
 
     /// File descriptor of the UDP socket this driver uses for communication.
     int socketFd;
 
     /// Holds packet buffers that are no longer in use, for use any future
-    // requests; saves the overhead of calling malloc/free for each request.
-    std::vector<PacketBuf*> freePacketBufs;
+    /// requests; saves the overhead of calling malloc/free for each request.
+    boost::pool<> packetBufPool;
 
     /// Tracks number of outstanding allocated payloads.  For detecting leaks.
     int packetBufsUtilized;

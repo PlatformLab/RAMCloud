@@ -23,13 +23,11 @@ class UdpDriverTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_basics);
     CPPUNIT_TEST(test_constructor_socketInUse);
     CPPUNIT_TEST(test_destructor_closeSocket);
-    CPPUNIT_TEST(test_destructor_freeBuffers);
     CPPUNIT_TEST(test_sendPacket_headerEmpty);
     CPPUNIT_TEST(test_sendPacket_payloadEmpty);
     CPPUNIT_TEST(test_sendPacket_multipleChunks);
     CPPUNIT_TEST(test_tryRecvPacket_noPacketAvailable);
     CPPUNIT_TEST(test_tryRecvPacket_multiplePackets);
-    CPPUNIT_TEST(test_freePacketBufs);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -116,22 +114,6 @@ class UdpDriverTest : public CppUnit::TestFixture {
         }
         CPPUNIT_ASSERT_EQUAL("no exception", exceptionMessage);
     }
-    void test_destructor_freeBuffers() {
-        {
-            Driver::Received received1, received2, received3;
-            sendMessage(client, serverAddress, "header:", "first");
-            sendMessage(client, serverAddress, "header:", "second");
-            sendMessage(client, serverAddress, "header:", "third");
-            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received1));
-            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received2));
-            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received3));
-            CPPUNIT_ASSERT_EQUAL(0, server->freePacketBufs.size());
-        }
-        UdpDriver::packetBufsFreed = 0;
-        delete server;
-        server = NULL;
-        CPPUNIT_ASSERT_EQUAL(3, UdpDriver::packetBufsFreed);
-    }
 
     void test_sendPacket_headerEmpty() {
         Driver::Received received;
@@ -187,42 +169,6 @@ class UdpDriverTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received3));
         CPPUNIT_ASSERT_EQUAL("header:third",
                 toString(received3.payload, received3.len));
-    }
-
-    void test_freePacketBufs() {
-        // This test exercises the facilities for reusing old packet buffers
-        // without having to call malloc for each received packet.
-
-        // First, force the allocation of 3 packet buffers and make sure they
-        // get freed when the Received structures are destroyed.
-        Driver::Received received1;
-        {
-            Driver::Received received2, received3;
-            sendMessage(client, serverAddress, "header:", "first");
-            sendMessage(client, serverAddress, "header:", "second");
-            sendMessage(client, serverAddress, "header:", "third");
-            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received1));
-            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received2));
-            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received3));
-            CPPUNIT_ASSERT_EQUAL(0, server->freePacketBufs.size());
-        }
-        CPPUNIT_ASSERT_EQUAL(2, server->freePacketBufs.size());
-
-        // Now receive 3 more messages and make sure they use existing buffers,
-        // if available.
-        {
-            Driver::Received received4, received5, received6;
-            sendMessage(client, serverAddress, "header:", "fourth");
-            sendMessage(client, serverAddress, "header:", "fifth");
-            sendMessage(client, serverAddress, "header:", "sixth");
-            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received4));
-            CPPUNIT_ASSERT_EQUAL(1, server->freePacketBufs.size());
-            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received5));
-            CPPUNIT_ASSERT_EQUAL(0, server->freePacketBufs.size());
-            CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received6));
-            CPPUNIT_ASSERT_EQUAL(0, server->freePacketBufs.size());
-        }
-        CPPUNIT_ASSERT_EQUAL(3, server->freePacketBufs.size());
     }
 
   private:

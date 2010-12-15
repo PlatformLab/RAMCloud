@@ -25,8 +25,6 @@
 
 namespace RAMCloud {
 
-int UdpDriver::packetBufsFreed = 0;
-
 /**
  * Construct a UdpDriver.
  *
@@ -39,7 +37,7 @@ int UdpDriver::packetBufsFreed = 0;
  *      drivers.
  */
 UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
-    : socketFd(-1), freePacketBufs(), packetBufsUtilized(0)
+    : socketFd(-1), packetBufPool(sizeof(PacketBuf)), packetBufsUtilized(0)
 {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
@@ -66,12 +64,7 @@ UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
 UdpDriver::~UdpDriver()
 {
     if (packetBufsUtilized != 0)
-        LOG(WARNING, "packetBufsUtilized: %d",
-            packetBufsUtilized);
-    for (int i = freePacketBufs.size()-1; i >= 0; i--) {
-        free(freePacketBufs[i]);
-        packetBufsFreed++;
-    }
+        LOG(WARNING, "packetBufsUtilized: %d", packetBufsUtilized);
     close(socketFd);
 }
 
@@ -86,10 +79,11 @@ UdpDriver::getMaxPacketSize()
 void
 UdpDriver::release(char *payload, uint32_t len)
 {
+    // Note: the payload is actually contained in a PacketBuf structure,
+    // which we return to a pool for reuse later.
     packetBufsUtilized--;
     assert(packetBufsUtilized >= 0);
-    freePacketBufs.push_back(reinterpret_cast<PacketBuf*>
-            (payload - sizeof(PacketBuf)));
+    packetBufPool.free(payload - OFFSET_OF(PacketBuf, payload));
 }
 
 // See docs in Driver class.
@@ -142,19 +136,13 @@ bool
 UdpDriver::tryRecvPacket(Received *received)
 {
     PacketBuf* buffer;
-    if (freePacketBufs.size() > 0) {
-        buffer = freePacketBufs.back();
-        freePacketBufs.pop_back();
-    } else {
-        buffer = new(malloc(sizeof(PacketBuf) + MAX_PAYLOAD_SIZE))
-                PacketBuf();
-    }
+    buffer = new(packetBufPool.malloc()) PacketBuf();
     socklen_t addrlen = sizeof(&buffer->ipAddress.address);
     int r = recvfrom(socketFd, buffer->payload, MAX_PAYLOAD_SIZE,
                      MSG_DONTWAIT,
                      &buffer->ipAddress.address, &addrlen);
     if (r == -1) {
-        free(buffer);
+        packetBufPool.free(buffer);
         if (errno == EAGAIN || errno == EWOULDBLOCK)
             return false;
         // TODO(stutsman) We could probably recover from a lot of errors here.

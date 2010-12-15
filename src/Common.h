@@ -550,6 +550,15 @@ T second(pair<_, T> p)
     return p.second;
 }
 
-} // end RAMCloud
+/**
+ * Return the offset of a field in a structure. This is identical to the
+ * "offsetof" macro except that it uses 100 as the base address instead of
+ * 0 (g++ refuses to compile with a 0 base address).
+ */
 
-#endif
+#define OFFSET_OF(type, field) (reinterpret_cast<size_t> \
+        (reinterpret_cast<char*>(&(reinterpret_cast<type*>(100)->field))) \
+        - 100)
+
+} // end RAMCloud
+#endif // RAMCLOUD_COMMON_H
