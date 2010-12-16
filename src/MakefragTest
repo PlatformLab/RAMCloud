@@ -106,6 +106,9 @@ $(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Server.o $(OBJDIR
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
+# Do not remove.
+tests-clean:
+
 .PHONY: test-smack
 test-smack: client $(OBJDIR)/server
 	scripts/smack
