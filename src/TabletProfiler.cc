@@ -29,37 +29,46 @@
  * This maximum size dictates how long it takes to recover the partition of a
  * failed master on a new node.
  *
- * The trouble with this approach is that dividing the key space is into chunks
+ * The trouble with this approach is that dividing the key space into chunks
  * of keys that represent referants totalling a specific number of bytes is
  * hard, as the access patterns are not predictable and we cannot expect an even
- * distribution within the key space. Users could append only to the beginning
- * of the key space. They could also use random hashes for keys. Or, perhaps
- * key bits are partitioned (the upper 32-bits are a user id, the lower 32-bits
- * are some metadata, etc). Furthermore, referants may also be deleted or
- * overwritten. All of these result in unpredictable densities in the key space.
+ * distribution within the key space. For instance, users could append only to
+ * the beginning of the key space. They could also use random hashes for keys.
+ * Or, perhaps key bits are partitioned (the upper 32-bits are a user id, the
+ * lower 32-bits are some metadata, etc). They could even use multiple such
+ * methods on the same table. Furthermore, referants may also be deleted or
+ * overwritten. All of these result in unpredictable densities in the key space,
+ * which makes our task more difficult.
  *
  * The TabletProfiler tackles this problem in an approximate way, however it can
- * bound error, enabling us to partition with a guaranteed maximum error. It
- * works as follows. The entire key space is described by a root Subrange, a
- * referant that splits the space into evenly-sized regions and tracks the
- * number of referants and referant bytes used by keys in each region. Each even
- * split of a Subrange is called a Bucket. Buckets maintain statistics about the
+ * bound error. That is, if we want partitions of 500 MB, we can guarantee that
+ * what we compute is within a reasonable range of 500. Our approach  works as
+ * follows. The entire key space is described by a root Subrange, an object that
+ * splits the whole 64-bit space into evenly-sized regions and tracks the number
+ * of referants and referant bytes used by keys in each region. Each even split
+ * of a Subrange is called a Bucket. Buckets maintain statistics about the
  * number of referants and referant bytes within the range they track.
  *
- * When a Bucket gets too large (either in number of bytes, or number of
- * referants), it makes sense to take a closer look at that range so that we can
- * more accurately partition. We do so by pointing the Bucket to a new child
- * Subrange, which spans the same range as the Bucket. These nested Subranges
- * form a tree hierarchy. Each next level down the tree corresponds to smaller
- * and smaller Subranges of the key space. For instance, if each Subrange has
- * 256 Buckets, then the root Subrange's Buckets each describe 1/256th of the
- * whole 64-bit key space. Buckets in Subranges immediately under a root Bucket
- * then describe 1/256th of that 1/256th of the 64-bit key space, or simply
- * 1/2^16th. By setting the number of Buckets per Subrange, we can control how
- * many levels are necessary to zoom in, as well as the overhead for each level.
- * If each level shaves off fewer bits of the address space, we require more
- * levels and therefore longer traversals. However, more bits per level imply
- * larger Subrange structures.
+ * When a Bucket gets large (either in number of bytes, or number of referants),
+ * it makes sense to take a closer look at that range so that we can more
+ * accurately make partitions. We do so by pointing the Bucket to a new child
+ * Subrange, which spans the same range as the Bucket. This gives us a higher
+ * resolution for a hot key space. Although we don't know where the previous
+ * tracked referants fall within each of the new smaller Buckets of the child
+ * Subrange, we can track any new key insertions into the range more precisely.
+ *
+ *
+ * These nested Subranges form a tree hierarchy. Each next level down the tree
+ * corresponds to smaller and smaller Subranges of the key space. For instance,
+ * if each Subrange has 256 Buckets, then the root Subrange's Buckets each
+ * describe 1/256th of the whole 64-bit key space. Buckets in Subranges
+ * immediately under a root Bucket then describe 1/256th of that 1/256th of the
+ * 64-bit key space, or simply 1/2^16th. By setting the number of Buckets per
+ * Subrange, we can control how many levels are necessary to zoom in and track
+ * very small key ranges, as well as the memory overhead for each allocated
+ * level. This presents a trade-off: if each level shaves off fewer bits of the
+ * address space, we require more levels and therefore longer traversals.
+ * However, more bits per level imply larger Subrange structures.
  *
  * A useful analogy for the structure that these Subranges form may be processor
  * page tables. E.g., each lower level describes a smaller range of addresses,
@@ -72,29 +81,35 @@
  * enables us to dynamically drill down on hot key ranges, all the way to single
  * key granularity, if necessary. Note that the amount of resources employed in
  * tracking is simply proportional to the density of a key range. Futhermore, by
- * deciding to zoom in on a range only after seeing a low threshold number of
- * bytes or referants in that range, we can bound the error introduced in
- * computing partitions. That is, the referants we've tracked at a higher level
- * of the tree exist somewhere in an exponentially larger key space than those
- * tracked lower down. We therefore can't attribute them accurately to fine-
- * grained ranges of the key space. However, if the number of levels in the
+ * deciding to zoom in on a range only after seeing a relatively low threshold
+ * number of bytes or referants in that range, we can bound the error introduced
+ * in computing partitions. That is, the referants we've tracked at a higher
+ * level of the tree exist somewhere in an exponentially larger key space than
+ * those tracked lower down. We therefore can't attribute them accurately to
+ * fine-grained ranges of the key space. However, if the number of levels in the
  * tree is reasonably small and the maximum size before splitting a Bucket into
  * a new lower Subrange is small, the total error is small.
- * 
- * For example, if all Buckets may track at most 8MB of referants within their
- * range before starting a new child Subrange and if each Subrange splits the
- * range into 256 Buckets, then we have at most 8 levels in the tree and 
  *
- * ..... XXXX need to work on the pedagogy here 
+ * For example, say that all Buckets may track at most 8MB of referants within
+ * their range before starting a new child Subrange and each Subrange splits its
+ * range into 256 Buckets. We then have at most 8 levels in the tree. To form a
+ * new partition, we must draw a dividing line in the key space. Between this
+ * new divider and the previous one we know the exact number of bytes and
+ * referants tracked in the range except for in at most two leaf Subranges that
+ * correspond to the border lines between partitions. In the border Subrange(s),
+ * our error is at most the sum of the up to 7 previous tree levels' worth of
+ * referants, each of which may fall before or after our dividing lines. In
+ * our example, we have at worst 8*7 = 56MB of referants above us in the tree
+ * that may come before or after.
  *
- * There are two main parameters we care about:
+ * There are two main parameters of our structure that we care about:
  *      B - The number of bits of key space each Subrange spans.
  *      S - The maximum number of bytes each Bucket should track, before
  *          creating a child Subrange for more accurate accounting.
  *
  * (There is an additional parameter analogous to S for the number of referants
  *  per range, rather than total bytes, but it behaves in essentially the same
- *  way as S.) 
+ *  way as S.)
  *
  * If each Subrange covers B bits of the key space, then that range is split
  * into 2^B individual Buckets. (Actually, if 64 isn't evenly divisible by B,
@@ -103,8 +118,9 @@
  * bytes, then each Subrange is approximately B * 16 bytes in size.
  *
  * Using B and S we can compute the worst case overhead that the TabletProfiler
- * structure imposes on the system, as well as the maximum error we can * experience in computing partitions. This second aspect is especially
- * important, as it lets us bound the error.
+ * structure imposes on the system, as well as the maximum error we can
+ * experience in computing partitions. This second aspect is especially
+ * important, as it lets us compute the error bound.
  */
 
 namespace RAMCloud {
