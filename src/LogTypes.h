@@ -29,8 +29,15 @@ enum LogEntryType {
     LOG_ENTRY_TYPE_LOGDIGEST = 0x74736764  // "dgst" in little endian
 };
 
-typedef void (*log_eviction_cb_t)(LogEntryType, const void *,
-                                  const uint64_t, void *);
+/**
+ * LogTime is a (Segment #, Segment Offset) tuple that represents the logical
+ * time at which something was appended to the Log. It is currently only used
+ * for computing table partitions.
+ */
+typedef std::pair<uint64_t, uint64_t> LogTime;
+
+typedef void (*log_eviction_cb_t)(LogEntryType, const void *, const uint64_t,
+    const uint64_t, const LogTime, void *);
 
 class LogTypeCallback {
   public:

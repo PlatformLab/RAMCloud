@@ -127,6 +127,16 @@ class SegmentTest : public CppUnit::TestFixture {
             "openSegment: openSegment 1, 2, ..., 28",
             TestLog::get());
 
+        char c = '!';
+        uint64_t lengthInSegment;
+        uint64_t offsetInSegment;
+        p = s.append(LOG_ENTRY_TYPE_OBJ, &c, sizeof(c),
+            &lengthInSegment, &offsetInSegment);
+        CPPUNIT_ASSERT(p != NULL);
+        CPPUNIT_ASSERT_EQUAL(sizeof(c) + sizeof(SegmentEntry), lengthInSegment);
+        CPPUNIT_ASSERT_EQUAL(sizeof(SegmentEntry) + sizeof(SegmentHeader),
+            offsetInSegment);
+
         int bytes = s.appendableBytes();
         char buf[bytes];
         for (int i = 0; i < bytes; i++)
@@ -137,7 +147,8 @@ class SegmentTest : public CppUnit::TestFixture {
 
         SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
                            reinterpret_cast<char *>(s.baseAddress) +
-                           sizeof(SegmentEntry) + sizeof(SegmentHeader));
+                           sizeof(SegmentEntry) + sizeof(SegmentHeader) +
+                           sizeof(SegmentEntry) + sizeof(c));
 
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, se->type);
         CPPUNIT_ASSERT_EQUAL(bytes, se->length);
@@ -261,9 +272,11 @@ class SegmentTest : public CppUnit::TestFixture {
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
         SegmentHeader header;
         TestLog::Enable _;
-        s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), false);
+        s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header),
+            NULL, NULL, false);
         CPPUNIT_ASSERT_EQUAL("", TestLog::get());
-        s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header), true);
+        s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header),
+            NULL, NULL, true);
         CPPUNIT_ASSERT_EQUAL("write: 1, 2, 84, 0",
                              TestLog::get());
     }

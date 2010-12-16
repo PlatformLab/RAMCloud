@@ -50,6 +50,8 @@ class SegmentIterator {
     void         next();
     LogEntryType getType() const;
     uint64_t     getLength() const;
+    uint64_t     getLengthInLog() const;
+    LogTime      getLogTime() const;
 
     /**
      * Obtain a const T* to the data associated with the current SegmentEntry.

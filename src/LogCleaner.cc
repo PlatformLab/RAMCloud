@@ -90,11 +90,13 @@ LogCleaner::cleanSegment(Segment *segment)
         if (log->callbackMap.find(type) == log->callbackMap.end())
             continue;
 
-        uint32_t length   = i.getLength();
-        const void *p     = i.getPointer();
+        const void *p = i.getPointer();
+        uint32_t length = i.getLength();
+        uint64_t lengthInLog = i.getLengthInLog();
 
         LogTypeCallback *logCB = log->callbackMap[type];
-        logCB->evictionCB(type, p, length, logCB->evictionArg);
+        logCB->evictionCB(type, p, length, lengthInLog, i.getLogTime(),
+            logCB->evictionArg);
     }
 
     log->eraseFromActiveMaps(segment);

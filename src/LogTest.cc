@@ -101,7 +101,23 @@ class LogTest : public CppUnit::TestFixture {
     {
         Log l(57, 1 * 8192, 8192);
 
-        //XXXXXXX- need to actually implement this.
+        uint64_t lengthInLog;
+        LogTime logTime;
+        char buf[13];
+        const void *p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf),
+            &lengthInLog, &logTime);
+        CPPUNIT_ASSERT(p != NULL);
+        CPPUNIT_ASSERT_EQUAL(sizeof(SegmentEntry) + sizeof(buf), lengthInLog);
+        CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, p, sizeof(buf)));
+        CPPUNIT_ASSERT(LogTime(0,
+            sizeof(SegmentEntry) + sizeof(SegmentHeader)) == logTime);
+
+        LogTime nextTime;
+        p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), NULL, &nextTime);
+        CPPUNIT_ASSERT(p != NULL);
+        CPPUNIT_ASSERT(nextTime > logTime);
+
+        //XXXXXXX- need more.
     }
 
     void
@@ -119,8 +135,9 @@ class LogTest : public CppUnit::TestFixture {
     }
 
     static void
-    evictionCallback(LogEntryType type, const void *p, const uint64_t length,
-        void *cookie)
+    evictionCallback(LogEntryType type, const void *p,
+        const uint64_t entryLength, const uint64_t lengthInLog,
+        const LogTime logTime, void *cookie)
     {
     }
 

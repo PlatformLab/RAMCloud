@@ -137,6 +137,16 @@ Log::getSegmentId(const void *p)
  * \param[in] length
  *      Length of the data to be appended in bytes. This must be sufficiently
  *      small to fit within one Segment's worth of memory.
+ * \param[out] lengthInLog
+ *      If non-NULL, the actual number of bytes consumed by this append to
+ *      the Log is stored to this address. Note that this size includes all
+ *      Log and Segment overheads, so it will be greater than the ``length''
+ *      parameter.
+ * \param[out] logTime
+ *      If non-NULL, return the LogTime of this append operation. This is
+ *      simply a (segmentId, segmentOffset) tuple that describes a logical
+ *      time for this append. All subsequent appends will have a later
+ *      LogTime.
  * \param[in] sync
  *      If true then this write to replicated to backups before return,
  *      otherwise the replication will happen on a subsequent append()
@@ -152,17 +162,22 @@ Log::getSegmentId(const void *p)
  */
 const void *
 Log::append(LogEntryType type, const void *buffer, const uint64_t length,
-    bool sync)
+    uint64_t *lengthInLog, LogTime *logTime, bool sync)
 {
     if (length > maximumAppendableBytes)
         throw LogException(HERE, "append exceeded maximum possible length");
 
     const void *p;
+    uint64_t segmentOffset;
+
     if (head != NULL) {
-        p = head->append(type, buffer, length, sync);
+        p = head->append(type, buffer, length, lengthInLog,
+            &segmentOffset, sync);
         if (p != NULL) {
             // entry was appended to head segment
             bytesAppended += sizeof(SegmentEntry) + length;
+            if (logTime != NULL)
+                *logTime = LogTime(head->getId(), segmentOffset);
             return p;
         }
         // head segment is full
@@ -185,8 +200,10 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     addToActiveMaps(head);
 
     // append the entry
-    p = head->append(type, buffer, length, sync);
+    p = head->append(type, buffer, length, lengthInLog, &segmentOffset, sync);
     assert(p != NULL);
+    if (logTime != NULL)
+        *logTime = LogTime(head->getId(), segmentOffset);
     bytesAppended += sizeof(SegmentEntry) + length;
 
     cleaner.clean(1);

@@ -28,13 +28,6 @@
 namespace RAMCloud {
 
 /**
- * LogTime is a (Segment #, Segment Offset) tuple that represents the logical
- * time at which something was appended to the Log. It is currently only used
- * for computing table partitions.
- */
-typedef std::pair<uint64_t, uint64_t> LogTime;
-
-/**
  * An exception that is thrown when the Log class is provided invalid
  * method arguments.
  */
@@ -54,8 +47,9 @@ class Log {
     Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
             BackupManager *backup = NULL);
     ~Log();
-    const void *append(LogEntryType type,
-                       const void *buffer, uint64_t length, bool sync = true);
+    const void *append(LogEntryType type, const void *buffer, uint64_t length,
+                       uint64_t *lengthInLog = NULL, LogTime *logTime = NULL,
+                       bool sync = true);
     void        free(const void *p);
     void        registerType(LogEntryType type,
                              log_eviction_cb_t evictionCB, void *evictionArg);
