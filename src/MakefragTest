@@ -1,9 +1,5 @@
 OBJDIRS += tests
 
-# This style of test is no longer used; remove this Makefile support?
-TESTS_PYMOCK_SRCFILES := 
-TESTS_PYMOCK_OUTFILES := $(patsubst src/%.in.cc, $(OBJDIR)/%.cc, $(TESTS_PYMOCK_SRCFILES))
-
 TESTS_SRCFILES := \
 		  src/BackupManagerTest.cc \
 		  src/BackupServerTest.cc \
@@ -46,8 +42,7 @@ TESTS_SRCFILES := \
 		  src/TransportManagerTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/WindowTest.cc \
-		  $(OBJDIR)/ProtoBufTest.pb.cc \
-		  $(TESTS_PYMOCK_OUTFILES)
+		  $(OBJDIR)/ProtoBufTest.pb.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
 TESTS_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
@@ -74,9 +69,6 @@ $(OBJDIR)/gtest.a: $(OBJDIR)/gtest-all.o
 # end google test rules
 
 TESTS_LIB := -lcppunit -ldl $(LIBS)
-
-$(OBJDIR)/%Test.cc: $(TOP)/src/%Test.in.cc $(TOP)/mock.py
-	$(TOP)/mock.py $< $@
 
 $(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
 	@mkdir -p $(@D)
@@ -113,12 +105,6 @@ $(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/libramcloud.a
 $(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Server.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
-
-.PHONY: mockpy-test
-mockpy-test:
-	$(TOP)/mock.py src/tests/mockpy.in.cc $(OBJDIR)/mockpytest.out.cc
-	@diff -q src/tests/mockpy.out.cc $(OBJDIR)/mockpytest.out.cc || \
-	 diff -u src/tests/mockpy.out.cc $(OBJDIR)/mockpytest.out.cc
 
 .PHONY: test-smack
 test-smack: client $(OBJDIR)/server
