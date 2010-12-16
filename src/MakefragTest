@@ -1,7 +1,7 @@
 OBJDIRS += tests
 
-TESTS_PYMOCK_SRCFILES := \
-		src/TcpTransportTest.in.cc
+# This style of test is no longer used; remove this Makefile support?
+TESTS_PYMOCK_SRCFILES := 
 TESTS_PYMOCK_OUTFILES := $(patsubst src/%.in.cc, $(OBJDIR)/%.cc, $(TESTS_PYMOCK_SRCFILES))
 
 TESTS_SRCFILES := \
@@ -39,7 +39,7 @@ TESTS_SRCFILES := \
 		  src/ServerTest.cc \
 		  src/ServiceLocatorTest.cc \
 		  src/StatusTest.cc \
-		  src/TcpTransport2Test.cc \
+		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
@@ -119,9 +119,6 @@ mockpy-test:
 	$(TOP)/mock.py src/tests/mockpy.in.cc $(OBJDIR)/mockpytest.out.cc
 	@diff -q src/tests/mockpy.out.cc $(OBJDIR)/mockpytest.out.cc || \
 	 diff -u src/tests/mockpy.out.cc $(OBJDIR)/mockpytest.out.cc
-
-tests-clean:
-	rm -f $(TOP)/src/TcpTransportTest.cc
 
 .PHONY: test-smack
 test-smack: client $(OBJDIR)/server

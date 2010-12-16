@@ -16,260 +16,94 @@
 #ifndef RAMCLOUD_TCPTRANSPORT_H
 #define RAMCLOUD_TCPTRANSPORT_H
 
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <fcntl.h>
-#include <map>
-#include <list>
+#include <event.h>
+#include <queue>
 
-#include "Common.h"
 #include "IpAddress.h"
+#include "Syscall.h"
 #include "Transport.h"
 
 namespace RAMCloud {
 
 /**
- * An inefficient TCP-based Transport implementation.
- * This lets you execute RPCs, but it's not going to be fast.
+ * A simple transport mechanism based on TCP/IP provided by the kernel.
+ * This implementation is unlikely to be fast enough for production use;
+ * this class will be used primarily for development and as a baseline
+ * for testing.  The goal is to provide an implementation that is about as
+ * fast as possible, given its use of kernel-based TCP/IP.
  */
 class TcpTransport : public Transport {
   friend class TcpTransportTest;
-  friend class SocketTest;
+  class IncomingMessage;
+  class Socket;
+  class TcpSession;
 
   public:
-    /**
-     * Construct a TcpTransport instance.
-     * For exceptions, see #ListenSocket().
-     * \param serviceLocator
-     *      If non-NULL, the address on which to receive RPC requests.
-     */
-    explicit TcpTransport(const ServiceLocator* serviceLocator = NULL)
-        : listenSocket(serviceLocator) {}
-
+    explicit TcpTransport(const ServiceLocator* serviceLocator = NULL);
+    ~TcpTransport();
     ServerRpc* serverRecv() __attribute__((warn_unused_result));
     SessionRef getSession(const ServiceLocator& serviceLocator) {
         return new TcpSession(serviceLocator);
     }
 
-    /**
-     * A layer of indirection for the system calls used by TcpTransport.
-     *
-     * See the man pages for the identically named Linux/POSIX functions.
-     *
-     * This is only here for unit testing.
-     * This is only public for the static initializers in TcpTransport.cc.
-     */
-    class Syscalls {
-      public:
-        Syscalls() {}
-        VIRTUAL_FOR_TESTING ~Syscalls() {}
-
-        VIRTUAL_FOR_TESTING
-        int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
-            return ::accept(sockfd, addr, addrlen);
-        }
-        VIRTUAL_FOR_TESTING
-        int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-            return ::bind(sockfd, addr, addrlen);
-        }
-        VIRTUAL_FOR_TESTING
-        int close(int fd) {
-            return ::close(fd);
-        }
-        VIRTUAL_FOR_TESTING
-        int connect(int sockfd, const struct sockaddr *addr,
-                    socklen_t addrlen) {
-            return ::connect(sockfd, addr, addrlen);
-        }
-        VIRTUAL_FOR_TESTING
-        int fcntl(int fd, int cmd, int arg1) {
-            return ::fcntl(fd, cmd, arg1);
-        }
-        VIRTUAL_FOR_TESTING
-        int listen(int sockfd, int backlog) {
-            return ::listen(sockfd, backlog);
-        }
-        VIRTUAL_FOR_TESTING
-        ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
-            return ::recv(sockfd, buf, len, flags);
-        }
-        VIRTUAL_FOR_TESTING
-        ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags) {
-            return ::sendmsg(sockfd, msg, flags);
-        }
-        VIRTUAL_FOR_TESTING
-        int setsockopt(int sockfd, int level, int optname, const void *optval,
-                       socklen_t optlen) {
-            return ::setsockopt(sockfd, level, optname, optval, optlen);
-        }
-        VIRTUAL_FOR_TESTING
-        int socket(int domain, int type, int protocol) {
-            return ::socket(domain, type, protocol);
-        }
-
-      private:
-        DISALLOW_COPY_AND_ASSIGN(Syscalls);
-    };
-
-#if TESTING
-  public: // some of the test classes extend these
-#else
   private:
-#endif
-
     /**
-     * The first application-level header on the wire.
-     * This comes after the TCP headers added by the kernel but before the
-     * payload passed in from higher level layers.
+     * Header for request and response messages: precedes the actual data
+     * of the message in all transmissions.
      */
     struct Header {
         /**
-         * The size in bytes of the payload.
+         * The size in bytes of the payload (which follows immediately).
          * Must be less than or equal to #MAX_RPC_LEN.
          */
         uint32_t len;
     };
 
     /**
-     * An abstract wrapper for a socket (a file descriptor).
-     * Beyond just being a base class, this class will automatically close the
-     * file descriptor when it's destroyed (see ~Socket()).
+     * Used to manage the receipt of a message (on either client or server)
+     * using an event-based approach.
      */
-    class Socket {
-      friend class TcpTransportTest;
-      friend class SocketTest;
-      public:
-        virtual ~Socket();
-      protected:
-        Socket();
-
-        /**
-         * The file descriptor that is wrapped.
-         * This is initialized to -1.
-         */
-        int fd;
-
-      private:
-        DISALLOW_COPY_AND_ASSIGN(Socket);
-    };
-
-    /**
-     * An abstract Socket on which you can send and receive messages.
-     * (This is distinct from a ListenSocket which can only accept connections.)
-     *
-     * The concrete implementations are ServerSocket and ClientSocket.
-     */
-    class MessageSocket : public Socket {
-      public:
-        VIRTUAL_FOR_TESTING void recv(Buffer* payload);
-        VIRTUAL_FOR_TESTING void send(const Buffer* payload);
-      protected:
-
-        /**
-         * Constructor for MessageSocket.
-         */
-        MessageSocket() {}
-
-      private:
-        DISALLOW_COPY_AND_ASSIGN(MessageSocket);
-    };
-
-    // forward declaration, see below
-    class ListenSocket;
-
-    /**
-     * A MessageSocket on which you can service inbound RPCs.
-     */
-    class ServerSocket : public MessageSocket {
-      public:
-
-        /**
-         * Constructor for ServerSocket.
-         * Be sure to call #init() before using this.
-         */
-        ServerSocket() {}
-
-        VIRTUAL_FOR_TESTING void init(ListenSocket* listenSocket);
-      private:
-        DISALLOW_COPY_AND_ASSIGN(ServerSocket);
-    };
-
-    /**
-     * A Socket which can listen for new connections.
-     * This is used for initializing a ServerSocket.
-     */
-    class ListenSocket : public Socket {
-      friend class ServerSocket;
-      friend class SocketTest;
+    class IncomingMessage {
       friend class TcpTransportTest;
       public:
-        explicit ListenSocket(const ServiceLocator* serviceLocator = NULL);
+        explicit IncomingMessage(Buffer* buffer);
+        void reset(Buffer* buffer);
+        bool readMessage(int fd);
       private:
-        int accept();
-        DISALLOW_COPY_AND_ASSIGN(ListenSocket);
+        Header header;
+
+        /// The number of bytes of header that have been successfully
+        /// received so far; 0 means the header has not yet been received;
+        /// sizeof(Header) means the header is complete.
+        uint32_t headerBytesReceived;
+
+        /// Counts the number of bytes in the message body that have been
+        /// received so far.
+        uint32_t messageBytesReceived;
+
+        /// Holds the contents of the actual message (not including header).
+        Buffer *buffer;
     };
 
-    /**
-     * A MessageSocket on which you can send outbound RPCs.
-     */
-    class ClientSocket : public MessageSocket {
-      public:
-
-        /**
-         * Constructor for ClientSocket.
-         * Be sure to call one of the #init() variants before using this.
-         */
-        ClientSocket() {}
-
-        VIRTUAL_FOR_TESTING void init(const IpAddress& address);
-      private:
-        DISALLOW_COPY_AND_ASSIGN(ClientSocket);
-    };
-
-
+  public:
     /**
      * The TCP implementation of Transport::ServerRpc.
      */
     class TcpServerRpc : public Transport::ServerRpc {
       friend class TcpTransportTest;
+      friend class TcpTransport;
       public:
-
-        /**
-         * Constructor for TcpServerRpc.
-         *
-         * Normally this sets #serverSocket to #realServerSocket. If
-         * mockServerSocket is not \c NULL, however, it will be set to that
-         * instead (used for testing).
-         */
-        // TODO(ongaro): Move constructor into cc file?
-        TcpServerRpc() : realServerSocket(), serverSocket(&realServerSocket) {
-#if TESTING
-            if (mockServerSocket != NULL)
-                serverSocket = mockServerSocket;
-#endif
-        }
-
         void sendReply();
-
       private:
+        TcpServerRpc(Socket* socket, int fd, Buffer* buffer)
+            : fd(fd), socket(socket), message(buffer) { }
 
-        /**
-         * The server socket that is typically used.
-         */
-        ServerSocket realServerSocket;
+        int fd;                   /// File descriptor of the socket on
+                                  /// which the request was received.
+        Socket* socket;           /// Transport state corresponding to fd.
+        IncomingMessage message;  /// Records state of partially-received
+                                  /// request.
 
-      public:
-
-        /**
-         * A pointer to the server socket in actual use.
-         */
-        ServerSocket* CONST_FOR_PRODUCTION serverSocket;
-
-#if TESTING
-        static ServerSocket* mockServerSocket;
-#endif
-
-      private:
         DISALLOW_COPY_AND_ASSIGN(TcpServerRpc);
     };
 
@@ -278,77 +112,104 @@ class TcpTransport : public Transport {
      */
     class TcpClientRpc : public Transport::ClientRpc {
       friend class TcpTransportTest;
+      friend class TcpTransport;
+      friend class TcpSession;
       public:
-
-        /**
-         * Constructor for TcpClientRpc.
-         *
-         * Normally this sets #clientSocket to #realClientSocket. If
-         * mockClientSocket is not \c NULL, however, it will be set to that
-         * instead (used for testing).
-         */
-        // TODO(ongaro): Move constructor into cc file?
-        TcpClientRpc() : reply(NULL), realClientSocket(),
-                         clientSocket(&realClientSocket) {
-#if TESTING
-            if (mockClientSocket != NULL)
-                clientSocket = mockClientSocket;
-#endif
-        }
-
+        explicit TcpClientRpc(TcpSession* session, Buffer* reply)
+            : reply(reply), session(session), finished(false) { }
+        bool isReady();
         void wait();
-        bool isReady() {
-            // Dummy implementation; this entire class will go away soon.
-            return true;
-        }
-
         Buffer* reply;
-
       private:
-
-        /**
-         * The client socket that is typically used.
-         */
-        ClientSocket realClientSocket;
-
-      public:
-
-        /**
-         * A pointer to the client socket in actual use.
-         */
-        ClientSocket* CONST_FOR_PRODUCTION clientSocket;
-
-#if TESTING
-        static ClientSocket* mockClientSocket;
-#endif
-
-      private:
+        TcpSession *session;      /// Session used for this RPC.
+        bool finished;            /// True means that the response for this
+                                  /// RPC has been received.
         DISALLOW_COPY_AND_ASSIGN(TcpClientRpc);
     };
 
   private:
+    void closeSocket(int fd);
+    static ssize_t recvCarefully(int fd, void* buffer, size_t length);
+    static void sendMessage(int fd, Buffer& payload);
+    static void tryAccept(int fd, int16_t event, void* arg);
+    static void tryServerRecv(int fd, int16_t event, void *arg);
 
+    /**
+     * The TCP implementation of Sessions.
+     */
     class TcpSession : public Session {
+      friend class TcpTransportTest;
+      friend class TcpClientRpc;
       public:
-        explicit TcpSession(const ServiceLocator& serviceLocator)
-            : address(serviceLocator) {
-        }
-        ClientRpc* clientSend(Buffer* request, Buffer* response)
+        explicit TcpSession(const ServiceLocator& serviceLocator);
+        ~TcpSession();
+        ClientRpc* clientSend(Buffer* request, Buffer* reply)
             __attribute__((warn_unused_result));
         void release() {
             delete this;
         }
       private:
-        IpAddress address;
+        void close();
+        static void tryReadReply(int fd, int16_t event, void *arg);
+
+        IpAddress address;        /// Server to which requests will be sent.
+        int fd;                   /// File descriptor for the socket that
+                                  /// connects to address  -1 means no socket
+                                  /// open.
+        TcpClientRpc *current;    /// Only one RPC can be outstanding for
+                                  /// a session at a time; this identifies
+                                  /// the current RPC (NULL if there is none).
+        IncomingMessage message;  /// Records state of partially-received
+                                  /// reply for current.
+        event readEvent;          /// Used to get notified when response data
+                                  /// arrives.
+        string errorInfo;         /// If the session is no longer usable,
+                                  /// this variable indicates why.
+        DISALLOW_COPY_AND_ASSIGN(TcpSession);
     };
 
     /**
-     * The socket on which to listen for new connections.
-     * This isn't used for transports that are only acting as a client.
+     * An exception that is thrown when a socket has been closed by the peer.
      */
-    ListenSocket listenSocket;
+    class TcpTransportEof : public TransportException {
+      public:
+        explicit TcpTransportEof(const CodeLocation& where)
+            : TransportException(where) {}
+    };
 
-    static Syscalls* sys;
+    static Syscall* sys;
+
+    /// Service locator used to open server socket (empty string if this
+    /// isn't a server).
+    string locatorString;
+
+    /// File descriptor used by servers to listen for connections from
+    /// clients.  -1 means this instance is not a server.
+    int listenSocket;
+
+    /// Used to wait for listenSocket to become readable.
+    event listenSocketEvent;
+
+    /// Used to hold information about a file descriptor associated with
+    /// a socket, on which RPC requests may arrive.
+    struct Socket {
+        TcpServerRpc *rpc;        /// Incoming RPC that is in progress for
+                                  /// this fd, or NULL if none.
+        bool busy;                /// True means we have received a request
+                                  /// and are in the middle of processing it,
+                                  /// so no additional requests should arrive.
+        event readEvent;          /// Used to get notified whenever data
+                                  /// arrives on this fd.
+    };
+
+    /// Keeps track of all of our open client connections. Entry i has
+    /// information about file descriptor i (NULL means no client
+    /// is currently connected).
+    std::vector<Socket*> sockets;
+
+    /// Keeps track of incoming RPC requests that have not yet been serviced
+    /// (i.e., have not been returned by a call to serverRecv).
+    std::queue<TcpServerRpc*> waitingRequests;
 
     DISALLOW_COPY_AND_ASSIGN(TcpTransport);
 };

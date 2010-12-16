@@ -17,7 +17,6 @@
 #include "TransportFactory.h"
 
 #include "TcpTransport.h"
-#include "TcpTransport2.h"
 #include "FastTransport.h"
 #include "UdpDriver.h"
 
@@ -34,14 +33,6 @@ static struct TcpTransportFactory : public TransportFactory {
         return new TcpTransport(localServiceLocator);
     }
 } tcpTransportFactory;
-
-static struct TcpTransport2Factory : public TransportFactory {
-    TcpTransport2Factory()
-        : TransportFactory("kernelTcp2", "tcp2") {}
-    Transport* createTransport(const ServiceLocator* localServiceLocator) {
-        return new TcpTransport2(localServiceLocator);
-    }
-} tcpTransport2Factory;
 
 static struct FastUdpTransportFactory : public TransportFactory {
     FastUdpTransportFactory()
@@ -75,7 +66,6 @@ TransportManager::TransportManager()
     , sessionCache()
 {
     transportFactories.insert(&tcpTransportFactory);
-    transportFactories.insert(&tcpTransport2Factory);
     transportFactories.insert(&fastUdpTransportFactory);
 #ifdef INFINIBAND
     transportFactories.insert(&infRCTransportFactory);
