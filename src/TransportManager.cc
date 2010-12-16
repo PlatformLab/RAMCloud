@@ -190,15 +190,15 @@ TransportManager::getSession(const char* serviceLocator)
 /**
  * Receive an RPC request. This will block until receiving a packet from any
  * listening transport.
- * \throw UnrecoverableTransportException
+ * \throw TransportException
  *      There are no listening transports, so this call would block forever.
  */
 Transport::ServerRpc*
 TransportManager::serverRecv()
 {
     if (!initialized || listening.empty()) {
-        throw UnrecoverableTransportException(HERE,
-                                              "no transports to listen on");
+        throw TransportException(HERE,
+                                 "no transports to listen on");
     }
     uint8_t i = 0;
     while (true) {

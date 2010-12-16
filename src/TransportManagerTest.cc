@@ -62,8 +62,7 @@ class TransportManagerTest : public CppUnit::TestFixture {
 
         TransportManager manager;
 
-        CPPUNIT_ASSERT_THROW(manager.serverRecv(),
-                             UnrecoverableTransportException);
+        CPPUNIT_ASSERT_THROW(manager.serverRecv(), TransportException);
 
         MockTransport* mock1 = new MockTransport();
         MockTransport* mock2 = new MockTransport();
