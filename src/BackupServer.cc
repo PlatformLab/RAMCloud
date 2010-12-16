@@ -20,7 +20,8 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Log.h"
-#include "RecoverySegment.h"
+#include "LogTypes.h"
+#include "RecoverySegmentIterator.h"
 #include "Rpc.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
@@ -47,6 +48,9 @@ namespace RAMCloud {
 BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage, Pool& pool,
                                        uint64_t masterId, uint64_t segmentId)
     : masterId(masterId)
+    , recoveryException()
+    , recoverySegments(NULL)
+    , recoverySegmentsLength()
     , segmentId(segmentId)
     , segment()
     , segmentSync()
@@ -70,6 +74,10 @@ BackupServer::SegmentInfo::~SegmentInfo()
     }
     if (isLoading())
         getSegment();
+    if (isRecovered()) {
+        delete[] recoverySegments;
+        recoverySegmentsLength = 0;
+    }
     if (inStorage()) {
         delete storageHandle;
         storageHandle = NULL;
@@ -77,6 +85,182 @@ BackupServer::SegmentInfo::~SegmentInfo()
     if (inMemory()) {
         pool.free(segment);
         segment = NULL;
+    }
+    // recoveryException cleaned up by scoped_ptr
+    // segmentSync cleaned up by scoped_ptr
+}
+
+/**
+ * Append a recovery segment to a Buffer.  This segment must have its
+ * recovery segments constructed first; see buildRecoverySegments().
+ *
+ * \param partitionId
+ *      The partition id corresponding to the tablet ranges of the recovery
+ *      segment to append to #buffer.
+ * \param[out] buffer
+ *      A buffer which onto which the requested recovery segment will be
+ *      appended.
+ * \throw BadSegmentIdException
+ *      If the segment to which this recovery segment belongs is not yet
+ *      recovered or there is no such recovery segment for that
+ *      #partitionId.
+ * \throw SegmentRecoveryFailedException
+ *      If the segment to which this recovery segment belongs failed to
+ *      recover.
+ */
+void
+BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
+                                                 Buffer& buffer)
+{
+    if (recoveryException) {
+        auto e = SegmentRecoveryFailedException(*recoveryException);
+        recoveryException.reset();
+        throw e;
+    }
+    if (!isRecovered()) {
+        LOG(WARNING, "Asked for segment <%lu,%lu> which wasn't recovered yet",
+            masterId, segmentId);
+        throw BackupBadSegmentIdException(HERE);
+    }
+    if (partitionId >= recoverySegmentsLength) {
+        LOG(WARNING, "Asked for recovery segment %lu from segment <%lu,%lu> "
+                     "but there are only %u partitions",
+            partitionId, masterId, segmentId, recoverySegmentsLength);
+        throw BackupBadSegmentIdException(HERE);
+    }
+
+    for (Buffer::Iterator it(recoverySegments[partitionId]);
+         !it.isDone(); it.next())
+    {
+        Buffer::Chunk::appendToBuffer(&buffer, it.getData(), it.getLength());
+    }
+}
+
+/**
+ * Find which of a set of partitions this object or tombstone is in.
+ *
+ * \param type
+ *      Either LOG_ENTRY_TYPE_OBJ or LOG_ENTRY_TYPE_OBJTOMB.  The result
+ *      of this function for a SegmentEntry of any other type is undefined.
+ * \param data
+ *      The start of an object or tombstone in memory.
+ * \param partitions
+ *      The set of object ranges into which the object should be placed.
+ * \return
+ *      The id of the partition which this object or tombstone belongs in.
+ * \throw BackupMalformedSegmentException
+ *      If the object or tombstone doesn't belong to any of the partitions.
+ */
+ObjectTub<uint64_t>
+whichPartition(const LogEntryType type,
+               const void* data,
+               const ProtoBuf::Tablets& partitions)
+{
+    const Object* object =
+        reinterpret_cast<const Object*>(data);
+    const ObjectTombstone* tombstone =
+        reinterpret_cast<const ObjectTombstone*>(data);
+
+    uint64_t tableId;
+    uint64_t objectId;
+    if (type == LOG_ENTRY_TYPE_OBJ) {
+        tableId = object->table;
+        objectId = object->id;
+    } else { // LOG_ENTRY_TYPE_OBJTOMB:
+        tableId = tombstone->tableId;
+        objectId = tombstone->objectId;
+    }
+
+    ObjectTub<uint64_t> ret;
+    // TODO(stutsman): need to check how slow this is, can do better with a tree
+    for (int i = 0; i < partitions.tablet_size(); i++) {
+        const ProtoBuf::Tablets::Tablet& tablet(partitions.tablet(i));
+        if (tablet.table_id() == tableId &&
+            (tablet.start_object_id() <= objectId &&
+            tablet.end_object_id() >= objectId)) {
+            ret.construct(tablet.user_data());
+            return ret;
+        }
+    }
+
+    LOG(WARNING, "Couldn't place object <%lu,%lu> into any of the given "
+                 "tablets for recovery; hopefully it belonged to a deleted "
+                 "tablet or lives in another log now", tableId, objectId);
+    return ret;
+}
+
+/**
+ * Construct recovery segments for this segment data splitting data among
+ * them according to #partitions.
+ *
+ * \param partitions
+ *      A set of tablets grouped into partitions which are used to divide
+ *      the stored segment data into recovery segments.
+ * \param segmentSize
+ *      The size in bytes of the segments stored by this backup server.
+ */
+void
+BackupServer::SegmentInfo::buildRecoverySegments(
+    const ProtoBuf::Tablets& partitions, uint32_t segmentSize)
+{
+    assert(state == OPEN || state == CLOSED);
+
+    recoveryException.reset();
+
+    uint64_t partitionCount = 0;
+    for (int i = 0; i < partitions.tablet_size(); ++i) {
+        partitionCount = std::max(partitionCount,
+                                  partitions.tablet(i).user_data() + 1);
+    }
+    LOG(NOTICE, "Building %lu recovery segments for %lu",
+        partitionCount, segmentId);
+
+    recoverySegments = new Buffer[partitionCount];
+    recoverySegmentsLength = partitionCount;
+    try {
+        for (SegmentIterator it(getSegment(), segmentSize);
+             !it.isDone();
+             it.next())
+        {
+            if (it.getType() == LOG_ENTRY_TYPE_UNINIT)
+                break;
+            if (it.getType() != LOG_ENTRY_TYPE_OBJ &&
+                it.getType() != LOG_ENTRY_TYPE_OBJTOMB)
+                continue;
+
+            // find out which partition this entry belongs in
+            ObjectTub<uint64_t> partitionId = whichPartition(it.getType(),
+                                                             it.getPointer(),
+                                                             partitions);
+            if (!partitionId)
+                continue;
+            LOG(DEBUG, "Filtering to %lu", *partitionId);
+            const SegmentEntry* entry = reinterpret_cast<const SegmentEntry*>(
+                    reinterpret_cast<const char*>(it.getPointer()) -
+                    sizeof(*entry));
+            const uint32_t len = sizeof(*entry) + it.getLength();
+            void *out = new(&recoverySegments[*partitionId], APPEND)
+                                char[len];
+            memcpy(out, entry, len);
+        }
+#if TESTING
+        for (uint64_t i = 0; i < recoverySegmentsLength; ++i)
+            LOG(DEBUG, "Recovery segment for <%lu,%lu> partition %lu is %u B",
+                masterId, segmentId, i, recoverySegments[i].getTotalLength());
+#endif
+    } catch (const SegmentIteratorException& e) {
+        LOG(WARNING, "Exception occurred building recovery segments: %s",
+            e.what());
+        delete[] recoverySegments;
+        recoverySegments = NULL;
+        recoverySegmentsLength = 0;
+        recoveryException.reset(new SegmentRecoveryFailedException(e.where));
+    } catch (...) {
+        LOG(WARNING, "Unknown exception occurred building recovery segments");
+        delete[] recoverySegments;
+        recoverySegments = NULL;
+        recoverySegmentsLength = 0;
+        throw;
     }
 }
 
@@ -142,27 +326,6 @@ BackupServer::SegmentInfo::getSegment()
     return segment;
 }
 
-/// Return true if this segment is fully in memory.
-bool
-BackupServer::SegmentInfo::inMemory()
-{
-    return segment && !isLoading();
-}
-
-/// Return true if this segment has storage allocated.
-bool
-BackupServer::SegmentInfo::inStorage()
-{
-    return storageHandle;
-}
-
-/// Return true if this segment is OPEN.
-bool
-BackupServer::SegmentInfo::isOpen()
-{
-    return state == OPEN;
-}
-
 /**
  * Open the segment.  After this the segment is in memory and mutable
  * with reserved storage.  Any controlled shutdown of the server will
@@ -216,18 +379,6 @@ BackupServer::SegmentInfo::startLoading()
         throw;
     }
     this->segment = segment;
-}
-
-// - private -
-
-/**
- * Return whether there is an asynchronous IO op pending to retrieve the
- * segment from disk.
- */
-bool
-BackupServer::SegmentInfo::isLoading()
-{
-    return segmentSync;
 }
 
 // --- BackupServer ---
@@ -338,7 +489,7 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             break;
         case BackupStartReadingDataRpc::type:
             callHandler<BackupStartReadingDataRpc, BackupServer,
-                        &BackupServer::startReadingData>(rpc);
+                        &BackupServer::startReadingData>(rpc, responder);
             break;
         case BackupWriteRpc::type:
             callHandler<BackupWriteRpc, BackupServer,
@@ -431,14 +582,9 @@ void
 BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                               BackupGetRecoveryDataRpc::Response& respHdr,
                               Transport::ServerRpc& rpc)
-try
 {
-    LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu",
-        reqHdr.masterId, reqHdr.segmentId);
-
-    ProtoBuf::Tablets tablets;
-    ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
-                                reqHdr.tabletsLength, tablets);
+    LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
+        reqHdr.masterId, reqHdr.segmentId, reqHdr.partitionId);
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info) {
@@ -447,38 +593,9 @@ try
         throw BackupBadSegmentIdException(HERE);
     }
 
-    // TODO(stutsman) Store partition count during startReadingData use here!
-    // TODO(stutsman) Ensure each partition has a stable with partition id
-    // TODO(stutsman) Need to have all filters stored during startReadingData
-    uint32_t partitions = 2;
-    RecoverySegment segment(segmentSize * 2 / partitions);
+    info->appendRecoverySegment(reqHdr.partitionId, rpc.replyPayload);
 
-    // getSegment() will block if the segment isn't already in memory.
-    for (SegmentIterator it(info->getSegment(), segmentSize);
-         !it.isDone(); it.next())
-    {
-        // If we come across an entry left zero we know RAMCloud generate
-        // the entry, likely because something crashed before it got written
-        // so we'll assume this is the end of the segment.
-        if (it.getType() == LOG_ENTRY_TYPE_UNINIT)
-            break;
-        if (!keepEntry(it.getType(), it.getPointer(), tablets))
-            continue;
-        segment.append(it.getType(), it.getPointer(), it.getLength());
-    }
-
-    // TODO(stutsman) avoid copy here once the recovered segment lives longer
-    char* packedSegment =
-        new(&rpc.replyPayload, APPEND) char[segment.size()];
-    segment.copy(packedSegment);
-
-    LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu complete",
-        reqHdr.masterId, reqHdr.segmentId);
-} catch (const SegmentIteratorException& e) {
-    LOG(WARNING, "getRecoveryData failed due to malformed segment data: "
-                 "masterId %lu, segmentId %lu: %s",
-                 reqHdr.masterId, reqHdr.segmentId, e.str().c_str());
-    throw BackupMalformedSegmentException(HERE);
+    LOG(DEBUG, "getRecoveryData complete");
 }
 
 /**
@@ -592,14 +709,22 @@ BackupServer::openSegment(uint64_t masterId, uint64_t segmentId)
  * \param rpc
  *      The Rpc being serviced.  A back-to-back list of uint64_t segmentIds
  *      follows the respHdr in this buffer of length respHdr->segmentIdCount.
+ * \param responder
+ *      Functor to respond to the RPC before returning from this method.
  */
 void
 BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                                BackupStartReadingDataRpc::Response& respHdr,
-                               Transport::ServerRpc& rpc)
+                               Transport::ServerRpc& rpc,
+                               Responder& responder)
 {
     LOG(DEBUG, "Handling: %s %lu", __func__, reqHdr.masterId);
 
+    ProtoBuf::Tablets partitions;
+    ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
+                                reqHdr.partitionsLength, partitions);
+
+    vector<SegmentInfo*> segmentsToFilter;
     uint32_t segmentIdCount = 0;
     for (SegmentsMap::iterator it = segments.begin();
          it != segments.end(); it++)
@@ -608,14 +733,20 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
         if (masterId == reqHdr.masterId) {
             uint64_t* segmentId = new(&rpc.replyPayload, APPEND) uint64_t;
             *segmentId = it->first.segmentId;
+            segmentsToFilter.push_back(it->second);
             LOG(DEBUG, "Crashed master %lu had segment %lu",
                 masterId, *segmentId);
-            it->second->startLoading();
             segmentIdCount++;
         }
     }
     respHdr.segmentIdCount = segmentIdCount;
     LOG(DEBUG, "Sending %u segment ids for this master", segmentIdCount);
+
+    responder();
+
+    foreach (const auto& info, segmentsToFilter)
+        info->buildRecoverySegments(partitions, segmentSize);
+    LOG(NOTICE, "Done building recovery segments");
 }
 
 /**

@@ -219,7 +219,7 @@ class MasterTest : public CppUnit::TestFixture {
         ProtoBuf::Tablets tablets;
         createTabletList(tablets);
         BackupClient(transportManager.getSession("mock:host=backup1")).
-            startReadingData(123);
+            startReadingData(123, tablets);
 
         ProtoBuf::ServerList backups; {
             ProtoBuf::ServerList_Entry& server(*backups.add_server());
@@ -230,10 +230,10 @@ class MasterTest : public CppUnit::TestFixture {
         }
 
         TestLog::Enable __(&recoverSegmentFilter);
-        client->recover(123, tablets, backups);
+        client->recover(123, 0, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
             "recover: Starting recovery of 4 tablets on masterId 2 | "
-            "recover: Recovering master 123, 4 tablets, 1 hosts | "
+            "recover: Recovering master 123, partition 0, 1 hosts | "
             "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | "
             "recover: Got it: 0 bytes | "
@@ -264,7 +264,7 @@ class MasterTest : public CppUnit::TestFixture {
             TestLog::get());
     }
 
-    void
+    uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          uint64_t tblId, uint64_t objId, uint64_t version,
                          string objContents)
@@ -282,9 +282,10 @@ class MasterTest : public CppUnit::TestFixture {
                                  newObject->size());
         assert(p != NULL);
         s.close();
+        return static_cast<const char*>(p) - segmentBuf;
     }
 
-    void
+    uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          ObjectTombstone *tomb)
     {
@@ -292,6 +293,7 @@ class MasterTest : public CppUnit::TestFixture {
         const void *p = s.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb));
         assert(p != NULL);
         s.close();
+        return static_cast<const char*>(p) - segmentBuf;
     }
 
     void
@@ -308,6 +310,7 @@ class MasterTest : public CppUnit::TestFixture {
     test_recoverSegment()
     {
         char seg[8192];
+        uint32_t len; // number of bytes in a recovery segment
         Buffer value;
         bool ret;
         void *p = NULL;
@@ -332,19 +335,19 @@ class MasterTest : public CppUnit::TestFixture {
         ////////////////////////////////////////////////////////////////////
 
         // Case 1a: Newer object already there; ignore object.
-        buildRecoverySegment(seg, sizeof(seg), 0, 2000, 1, "newer guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2000, 1, "newer guy");
+        server->recoverSegment(0, seg, len, tombstoneMap);
         verifyRecoveryObject(0, 2000, "newer guy");
-        buildRecoverySegment(seg, sizeof(seg), 0, 2000, 0, "older guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2000, 0, "older guy");
+        server->recoverSegment(0, seg, len, tombstoneMap);
         verifyRecoveryObject(0, 2000, "newer guy");
 
         // Case 1b: Older object already there; replace object.
-        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 0, "older guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2001, 0, "older guy");
+        server->recoverSegment(0, seg, len, tombstoneMap);
         verifyRecoveryObject(0, 2001, "older guy");
-        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "newer guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "newer guy");
+        server->recoverSegment(0, seg, len, tombstoneMap);
         verifyRecoveryObject(0, 2001, "newer guy");
 
         // Case 2a: Equal/newer tombstone already there; ignore object.
@@ -354,10 +357,10 @@ class MasterTest : public CppUnit::TestFixture {
         ret = tombstoneMap.replace(0, 2002,
             reinterpret_cast<const ObjectTombstone *>(p));
         CPPUNIT_ASSERT_EQUAL(false, ret);
-        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "equal guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
-        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 0, "older guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "equal guy");
+        server->recoverSegment(0, seg, len, tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2001, 0, "older guy");
+        server->recoverSegment(0, seg, len, tombstoneMap);
         CPPUNIT_ASSERT_THROW(client->read(0, 2002, &value),
                              ObjectDoesntExistException);
 
@@ -369,16 +372,16 @@ class MasterTest : public CppUnit::TestFixture {
         ret = tombstoneMap.replace(0, 2003,
             reinterpret_cast<const ObjectTombstone *>(p));
         CPPUNIT_ASSERT_EQUAL(false, ret);
-        buildRecoverySegment(seg, sizeof(seg), 0, 2003, 11, "newer guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2003, 11, "newer guy");
+        server->recoverSegment(0, seg, len, tombstoneMap);
         verifyRecoveryObject(0, 2003, "newer guy");
         CPPUNIT_ASSERT_EQUAL(NULL, tombstoneMap.lookup(0, 2003));
 
         // Case 3: No tombstone, no object. Recovered object always added.
         CPPUNIT_ASSERT_EQUAL(NULL, tombstoneMap.lookup(0, 2004));
         CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2004));
-        buildRecoverySegment(seg, sizeof(seg), 0, 2004, 0, "only guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2004, 0, "only guy");
+        server->recoverSegment(0, seg, len, tombstoneMap);
         verifyRecoveryObject(0, 2004, "only guy");
         CPPUNIT_ASSERT_EQUAL(NULL, tombstoneMap.lookup(0, 2004));
 
@@ -397,54 +400,54 @@ class MasterTest : public CppUnit::TestFixture {
         ////////////////////////////////////////////////////////////////////
 
         // Case 1a: Newer object already there; ignore tombstone.
-        buildRecoverySegment(seg, sizeof(seg), 0, 2005, 1, "newer guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2005, 1, "newer guy");
+        server->recoverSegment(0, seg, len, tombstoneMap);
         ObjectTombstone t3(0, 0, 2005, 0);
-        buildRecoverySegment(seg, sizeof(seg), &t3);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), &t3);
+        server->recoverSegment(0, seg, len, tombstoneMap);
         verifyRecoveryObject(0, 2005, "newer guy");
 
         // Case 1b: Equal/older object already there; discard and add tombstone.
-        buildRecoverySegment(seg, sizeof(seg), 0, 2006, 0, "equal guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2006, 0, "equal guy");
+        server->recoverSegment(0, seg, len, tombstoneMap);
         verifyRecoveryObject(0, 2006, "equal guy");
         ObjectTombstone t4(0, 0, 2006, 0);
-        buildRecoverySegment(seg, sizeof(seg), &t4);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), &t4);
+        server->recoverSegment(0, seg, len, tombstoneMap);
         CPPUNIT_ASSERT_THROW(client->read(0, 2006, &value),
                              ObjectDoesntExistException);
-        buildRecoverySegment(seg, sizeof(seg), 0, 2007, 0, "older guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2007, 0, "older guy");
+        server->recoverSegment(0, seg, len, tombstoneMap);
         verifyRecoveryObject(0, 2007, "older guy");
         ObjectTombstone t5(0, 0, 2007, 1);
-        buildRecoverySegment(seg, sizeof(seg), &t5);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), &t5);
+        server->recoverSegment(0, seg, len, tombstoneMap);
         CPPUNIT_ASSERT_THROW(client->read(0, 2007, &value),
                              ObjectDoesntExistException);
 
         // Case 2a: Newer tombstone already there; ignore.
         ObjectTombstone t6(0, 0, 2008, 1);
-        buildRecoverySegment(seg, sizeof(seg), &t6);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), &t6);
+        server->recoverSegment(0, seg, len, tombstoneMap);
         tomb1 = tombstoneMap.lookup(0, 2008);
         CPPUNIT_ASSERT(tomb1 != NULL);
         CPPUNIT_ASSERT_EQUAL(1, tomb1->objectVersion);
         ObjectTombstone t7(0, 0, 2008, 0);
-        buildRecoverySegment(seg, sizeof(seg), &t7);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), &t7);
+        server->recoverSegment(0, seg, len, tombstoneMap);
         tomb2 = tombstoneMap.lookup(0, 2008);
         CPPUNIT_ASSERT_EQUAL(tomb1, tomb2);
 
         // Case 2b: Older tombstone already there; replace.
         ObjectTombstone t8(0, 0, 2009, 0);
-        buildRecoverySegment(seg, sizeof(seg), &t8);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), &t8);
+        server->recoverSegment(0, seg, len, tombstoneMap);
         tomb1 = tombstoneMap.lookup(0, 2009);
         CPPUNIT_ASSERT(tomb1 != NULL);
         CPPUNIT_ASSERT_EQUAL(0, tomb1->objectVersion);
         ObjectTombstone t9(0, 0, 2009, 1);
-        buildRecoverySegment(seg, sizeof(seg), &t9);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), &t9);
+        server->recoverSegment(0, seg, len, tombstoneMap);
         tomb2 = tombstoneMap.lookup(0, 2009);
         CPPUNIT_ASSERT(tomb2 != NULL);
         CPPUNIT_ASSERT_EQUAL(1, tomb2->objectVersion);
@@ -452,8 +455,8 @@ class MasterTest : public CppUnit::TestFixture {
         // Case 3: No tombstone, no object. Recovered tombstone always added.
         CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2010));
         ObjectTombstone t10(0, 0, 2010, 0);
-        buildRecoverySegment(seg, sizeof(seg), &t10);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), &t10);
+        server->recoverSegment(0, seg, len, tombstoneMap);
         CPPUNIT_ASSERT(tombstoneMap.lookup(0, 2010) != NULL);
         CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2010));
     }
@@ -819,13 +822,13 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         Segment s2(99, 88, &segMem2, sizeof(segMem2), &mgr);
         s2.close();
 
-        BackupClient(transportManager.getSession("mock:host=backup1"))
-            .startReadingData(99);
-        BackupClient(transportManager.getSession("mock:host=backup2"))
-            .startReadingData(99);
-
         ProtoBuf::Tablets tablets;
         createTabletList(tablets);
+
+        BackupClient(transportManager.getSession("mock:host=backup1"))
+            .startReadingData(99, tablets);
+        BackupClient(transportManager.getSession("mock:host=backup2"))
+            .startReadingData(99, tablets);
 
         ProtoBuf::ServerList backups; {
             ProtoBuf::ServerList_Entry& server(*backups.add_server());
@@ -853,9 +856,9 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         MockRandom __(1); // triggers deterministic rand().
         MockTSC ___(2); // triggers deterministic selection of backup locator
         TestLog::Enable _(&recoverSegmentFilter);
-        master->recover(99, tablets, backups, tombstoneMap);
+        master->recover(99, 0, backups, tombstoneMap);
         CPPUNIT_ASSERT_EQUAL(
-            "recover: Recovering master 99, 4 tablets, 3 hosts | "
+            "recover: Recovering master 99, partition 0, 3 hosts | "
             "recover: Waiting on recovery data for segment 88 from "
             "mock:host=backup1 | "
             "recover: Got it: 0 bytes | "
@@ -897,11 +900,11 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         MockRandom __(1); // triggers deterministic rand().
         TestLog::Enable _(&recoverSegmentFilter);
         CPPUNIT_ASSERT_THROW(
-            master->recover(99, tablets, backups, tombstoneMap),
+            master->recover(99, 0, backups, tombstoneMap),
             SegmentRecoveryFailedException);
         string log = TestLog::get();
         CPPUNIT_ASSERT_EQUAL(
-            "recover: Recovering master 99, 0 tablets, 2 hosts | "
+            "recover: Recovering master 99, partition 0, 2 hosts | "
             "recover: Waiting on recovery data for segment 88 from "
             "mock:host=backup1 | "
             "recover: getRecoveryData failed on mock:host=backup1, "

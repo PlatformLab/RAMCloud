@@ -93,8 +93,6 @@ class BenchUtilTest : public CppUnit::TestFixture {
 
     void test_nanosecondsToCycles_overflow() {
         const uint64_t nanoseconds[] = {
-            1UL, // 1 ns
-            10UL,
             100UL,
             1000UL, // 1 us
             10000UL,

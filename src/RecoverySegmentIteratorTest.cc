@@ -16,7 +16,7 @@
 #include <ext/algorithm>
 
 #include "TestUtil.h"
-#include "RecoverySegment.h"
+#include "RecoverySegmentIterator.h"
 
 namespace RAMCloud {
 
@@ -25,97 +25,80 @@ namespace RAMCloud {
 class RecoverySegmentIteratorTest : public ::testing::Test {
   public:
     RecoverySegmentIteratorTest()
-        : segment(0)
+        : segmentSize(1024)
+        , segment()
     {}
 
-    RecoverySegment segment;
+    const uint32_t segmentSize;
+    char segment[1024];
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RecoverySegmentIteratorTest);
 };
 
 TEST_F(RecoverySegmentIteratorTest, isDoneEmpty) {
-    RecoverySegment::Iterator it(segment);
+    RecoverySegmentIterator it(0, 0);
     EXPECT_TRUE(it.isDone());
 }
 
 TEST_F(RecoverySegmentIteratorTest, isDone) {
-    segment.append(LOG_ENTRY_TYPE_OBJ, NULL, 0);
+    SegmentEntry* entry = reinterpret_cast<SegmentEntry*>(segment);
+    entry->type = LOG_ENTRY_TYPE_OBJ;
+    entry->length = 0;
 
-    RecoverySegment::Iterator it(segment);
+    RecoverySegmentIterator it(segment, segmentSize);
     EXPECT_FALSE(it.isDone());
 }
 
 TEST_F(RecoverySegmentIteratorTest, next) {
-    segment.append(LOG_ENTRY_TYPE_OBJ, NULL, 0);
+    SegmentEntry* entry = reinterpret_cast<SegmentEntry*>(segment);
+    entry->type = LOG_ENTRY_TYPE_OBJ;
+    entry->length = 0;
 
-    RecoverySegment::Iterator it(segment);
+    RecoverySegmentIterator it(segment, segmentSize);
 }
 
 TEST_F(RecoverySegmentIteratorTest, nextWhileAtEnd) {
-    RecoverySegment::Iterator it(segment);
+    RecoverySegmentIterator it(0, 0);
     EXPECT_EQ(0u, it.offset);
     it.next();
     EXPECT_EQ(0u, it.offset);
 }
 
 TEST_F(RecoverySegmentIteratorTest, getEntry) {
-    char junk[17];
-    segment.append(LOG_ENTRY_TYPE_OBJ, junk, sizeof(junk));
+    SegmentEntry* entry = reinterpret_cast<SegmentEntry*>(segment);
+    entry->type = LOG_ENTRY_TYPE_OBJ;
+    entry->length = 17;
 
-    RecoverySegment::Iterator it(segment);
+    RecoverySegmentIterator it(segment, segmentSize);
     EXPECT_FALSE(it.isDone());
-    auto& entry = it.getEntry();
-    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, entry.type);
-    EXPECT_EQ(sizeof(junk), entry.length);
+    auto& e = it.getEntry();
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, e.type);
+    EXPECT_EQ(entry->length, e.length);
 }
 
 TEST_F(RecoverySegmentIteratorTest, getPointer) {
     const char* msg = "why can't I own a canadian?";
-    segment.append(LOG_ENTRY_TYPE_OBJ, msg, strlen(msg) + 1);
 
-    RecoverySegment::Iterator it(segment);
+    SegmentEntry* entry = reinterpret_cast<SegmentEntry*>(segment);
+    entry->type = LOG_ENTRY_TYPE_OBJ;
+    entry->length = strlen(msg) + 1;
+    memcpy(segment + sizeof(SegmentEntry), msg, strlen(msg) + 1);
+
+    RecoverySegmentIterator it(segment, segmentSize);
     EXPECT_FALSE(it.isDone());
     EXPECT_STREQ(msg, static_cast<const char*>(it.getPointer()));
 }
 
 TEST_F(RecoverySegmentIteratorTest, getOffset) {
-    char junk[17];
-    segment.append(LOG_ENTRY_TYPE_OBJ, junk, sizeof(junk));
+    SegmentEntry* entry = reinterpret_cast<SegmentEntry*>(segment);
+    entry->type = LOG_ENTRY_TYPE_OBJ;
+    entry->length = 17;
 
-    RecoverySegment::Iterator it(segment);
+    RecoverySegmentIterator it(segment, segmentSize);
     EXPECT_FALSE(it.isDone());
     auto offset = it.getOffset();
     EXPECT_EQ(sizeof(SegmentEntry), offset);
-}
-
-// --- RecoverySegmentTest ---
-
-TEST(RecoverySegmentTest, append) {
-    RecoverySegment segment(0);
-    EXPECT_EQ(0u, segment.size());
-    const char* msg = "foo";
-    segment.append(LOG_ENTRY_TYPE_OBJ, msg, strlen(msg) + 1);
-
-    RecoverySegment::Iterator it(segment);
-    EXPECT_FALSE(it.isDone());
-    EXPECT_STREQ(msg, it.get<const char>());
-    it.next();
-    EXPECT_TRUE(it.isDone());
-}
-
-TEST(RecoverySegmentTest, copy) {
-    RecoverySegment segment(0);
-    EXPECT_EQ(0u, segment.size());
-
-    const char* msg = "foo";
-    segment.append(LOG_ENTRY_TYPE_OBJ, msg, strlen(msg) + 1);
-    EXPECT_EQ(sizeof(SegmentEntry) + strlen(msg) + 1, segment.size());
-
-    char buf[segment.size()];
-    segment.copy(buf);
-    RecoverySegment::Iterator it(segment);
-    EXPECT_STREQ(msg, it.get<const char>());
 }
 
 } // namespace RAMCloud

@@ -87,7 +87,7 @@ Recovery::buildSegmentIdToBackups()
             host.service_locator().c_str());
         BackupClient backup(
             transportManager.getSession(host.service_locator().c_str()));
-        vector<uint64_t> ids(backup.startReadingData(masterId));
+        vector<uint64_t> ids(backup.startReadingData(masterId, will));
         foreach (uint64_t id, ids) {
             LOG(DEBUG, "%s has %lu", host.service_locator().c_str(), id);
             // A copy of the entry is made, we augment it with a segment id.
@@ -159,7 +159,7 @@ Recovery::start()
                 try {
                     MasterClient master(
                             transportManager.getSession(locator.c_str()));
-                    master.recover(masterId, tablets, backups);
+                    master.recover(masterId, partitionId, tablets, backups);
                 } catch (const TransportException& e) {
                     LOG(WARNING, "Couldn't contact %s, trying next master; "
                         "failure was: %s", locator.c_str(), e.message.c_str());
