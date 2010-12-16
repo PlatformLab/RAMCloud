@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_OUSTERCOUNT_H
-#define RAMCLOUD_OUSTERCOUNT_H
+#ifndef RAMCLOUD_TABLETPROFILER_H
+#define RAMCLOUD_TABLETPROFILER_H
 
 #include <vector>
 #include "Common.h"
@@ -27,10 +27,10 @@ struct Partition {
 };
 typedef std::vector<Partition> PartitionList;
 
-class Oustercount {
+class TabletProfiler {
   public:
-    Oustercount();
-    ~Oustercount();
+    TabletProfiler();
+    ~TabletProfiler();
 
     // public methods
     void           addObject(uint64_t key, uint32_t bytes, LogTime time);
@@ -71,7 +71,7 @@ class Oustercount {
         uint64_t globalTotalObjects;
         bool     isDone;
 
-        friend class OustercountTest;
+        friend class TabletProfilerTest;
 
         DISALLOW_COPY_AND_ASSIGN(PartitionCollector);
     };
@@ -99,7 +99,7 @@ class Oustercount {
             Subrange* subrange;
             int       bucketIndex;
 
-            friend class OustercountTest;
+            friend class TabletProfilerTest;
         };
 
         Subrange(BucketHandle parent, uint64_t firstKey, uint64_t lastKey,
@@ -132,7 +132,7 @@ class Oustercount {
         uint32_t     totalChildren;
         LogTime      createTime;
 
-        friend class OustercountTest;
+        friend class TabletProfilerTest;
 
         DISALLOW_COPY_AND_ASSIGN(Subrange);
     };
@@ -140,15 +140,15 @@ class Oustercount {
     // private methods
     Subrange::BucketHandle findBucket(uint64_t key, LogTime *time = NULL);
 
-    // Oustercount private variables
+    // TabletProfiler private variables
     Subrange*              root;
     Subrange::BucketHandle findHint;
 
-    friend class OustercountTest;
+    friend class TabletProfilerTest;
 
-    DISALLOW_COPY_AND_ASSIGN(Oustercount);
+    DISALLOW_COPY_AND_ASSIGN(TabletProfiler);
 };
 
 } // namespace
 
-#endif // !RAMCLOUD_OUSTERCOUNT_H
+#endif // !RAMCLOUD_TABLETPROFILER_H

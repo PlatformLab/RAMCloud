@@ -18,7 +18,7 @@
 
 #include "Common.h"
 #include "Object.h"
-#include "Oustercount.h"
+#include "TabletProfiler.h"
 #include "HashTable.h"
 
 namespace RAMCloud {
@@ -35,7 +35,7 @@ class Table {
   public:
 
     explicit Table(uint64_t tableId)
-        : oustercount(),
+        : profiler(),
           tableId(tableId),
           nextKey(0),
           nextVersion(1)
@@ -88,7 +88,7 @@ class Table {
     /**
      * Object to track key usage and object sizes for will calculation.
      */
-    Oustercount oustercount;
+    TabletProfiler profiler;
 
   private:
 

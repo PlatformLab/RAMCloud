@@ -16,52 +16,52 @@
 #include "TestUtil.h"
 
 #include "Log.h"
-#include "Oustercount.h"
+#include "TabletProfiler.h"
 
 namespace RAMCloud {
 
 /**
- * Unit tests for Oustercount.
+ * Unit tests for TabletProfiler.
  */
-class OustercountTest : public CppUnit::TestFixture {
+class TabletProfilerTest : public CppUnit::TestFixture {
 
-    DISALLOW_COPY_AND_ASSIGN(OustercountTest); // NOLINT
+    DISALLOW_COPY_AND_ASSIGN(TabletProfilerTest); // NOLINT
 
-    CPPUNIT_TEST_SUITE(OustercountTest);
-    CPPUNIT_TEST(test_Oustercount_constructor);
-    CPPUNIT_TEST(test_Oustercount_addObject);
-    CPPUNIT_TEST(test_Oustercount_removeObject);
-    CPPUNIT_TEST(test_Oustercount_getPartitions);
+    CPPUNIT_TEST_SUITE(TabletProfilerTest);
+    CPPUNIT_TEST(test_TabletProfiler_constructor);
+    CPPUNIT_TEST(test_TabletProfiler_addObject);
+    CPPUNIT_TEST(test_TabletProfiler_removeObject);
+    CPPUNIT_TEST(test_TabletProfiler_getPartitions);
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    OustercountTest() {}
+    TabletProfilerTest() {}
 
     void
-    test_Oustercount_constructor()
+    test_TabletProfiler_constructor()
     {
-        Oustercount o;
+        TabletProfiler o;
         CPPUNIT_ASSERT(o.root != NULL);
         CPPUNIT_ASSERT(o.root->createTime == LogTime(0, 0));
     }
 
     void
-    test_Oustercount_addObject()
+    test_TabletProfiler_addObject()
     {
-        Oustercount o;
+        TabletProfiler o;
         o.addObject(0, 1, LogTime(0, 0));
     }
 
     void
-    test_Oustercount_removeObject()
+    test_TabletProfiler_removeObject()
     {
     }
 
     void
-    test_Oustercount_getPartitions()
+    test_TabletProfiler_getPartitions()
     {
     }
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(OustercountTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(TabletProfilerTest);
 
 } // namespace RAMCloud

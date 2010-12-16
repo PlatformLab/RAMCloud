@@ -42,13 +42,13 @@ SHARED_SRCFILES := \
 		   src/MasterServer.cc \
 		   src/Metrics.cc \
 		   src/OptionParser.cc \
-           src/Oustercount.cc \
 		   src/Recovery.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
 		   src/Server.cc \
 		   src/ServiceLocator.cc \
 		   src/Status.cc \
+           src/TabletProfiler.cc \
 		   src/TcpTransport.cc \
 		   src/TcpTransport.cc \
            src/TimeCounter.cc \

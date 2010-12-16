@@ -26,7 +26,6 @@ TESTS_SRCFILES := \
 		  src/ObjectFinderTest.cc \
 		  src/ObjectTubTest.cc \
 		  src/OptionParserTest.cc \
-          src/OustercountTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \
 		  src/RecoveryTest.cc \
@@ -35,6 +34,7 @@ TESTS_SRCFILES := \
 		  src/ServerTest.cc \
 		  src/ServiceLocatorTest.cc \
 		  src/StatusTest.cc \
+          src/TabletProfilerTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \

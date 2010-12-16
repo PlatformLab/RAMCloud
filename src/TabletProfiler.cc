@@ -14,10 +14,10 @@
  */
 
 #include "Log.h"
-#include "Oustercount.h"
+#include "TabletProfiler.h"
 
 /*
- * The Oustercount object efficiently tracks usage of table key spaces and
+ * The TabletProfiler object efficiently tracks usage of table key spaces and
  * enables computation of partitions that have a bounded error in size and
  * number of objects.
  *
@@ -37,7 +37,7 @@
  * are some metadata, etc). Furthermore, objects may be deleted or overwritten.
  * All of these result in unpredictable object densities in the key space.
  *
- * The Oustercount tackles this problem in an approximate way, however it can
+ * The TabletProfiler tackles this problem in an approximate way, however it can
  * bound error, enabling us to partition with a guaranteed maximum error. It
  * works as follows. The entire key space is described by a root Subrange, an
  * object that splits the space into evenly-sized regions and tracks the amount 
@@ -101,7 +101,7 @@
  * the overhead involved in allocating each next Subrange. If each Bucket is 16
  * bytes, then each Subrange is approximately B * 16 bytes in size.
  *
- * Using B and S we can compute the worst case overhead that the Oustercount
+ * Using B and S we can compute the worst case overhead that the TabletProfiler
  * structure imposes on the system, as well as the maximum error we can
  * experience in computing partitions. This second aspect is especially
  * important, as it lets us bound the error.
@@ -110,19 +110,19 @@
 namespace RAMCloud {
 
 //////////////////////////////////////////////
-// Oustercount class
+// TabletProfiler class
 //////////////////////////////////////////////
 
 // Public Methods
 
 /**
- * Create an Oustercount object ready to track any keys between
+ * Create an TabletProfiler object ready to track any keys between
  * 0 and 2^64 - 1.
  *
  * \return
- *      A brand spanking new Oustercount.
+ *      A brand spanking new TabletProfiler.
  */
-Oustercount::Oustercount()
+TabletProfiler::TabletProfiler()
     : root(NULL),
       findHint(NULL, 0)
 {
@@ -133,13 +133,13 @@ Oustercount::Oustercount()
 /**
  * Destroy the object, freeing all dynamically allocated resources.
  */
-Oustercount::~Oustercount()
+TabletProfiler::~TabletProfiler()
 {
     delete root;
 }
 
 /**
- * Add an object to the Oustercount. This updates the internal state
+ * Add an object to the TabletProfiler. This updates the internal state
  * appropriately to reflect one newly introduced object of the given
  * number of bytes. This structure has no way of identifying identical
  * objects, so this must be called only once.
@@ -152,7 +152,7 @@ Oustercount::~Oustercount()
  *      The LogTime at which the object was appended to the Log.
  */
 void
-Oustercount::addObject(uint64_t key, uint32_t bytes, LogTime time)
+TabletProfiler::addObject(uint64_t key, uint32_t bytes, LogTime time)
 {
     Subrange::BucketHandle bh = findBucket(key);
     bh.getSubrange()->addObject(bh, key, bytes, time);
@@ -160,7 +160,7 @@ Oustercount::addObject(uint64_t key, uint32_t bytes, LogTime time)
 
 /**
  * Remove an object, previously added with the addObject() method, from
- * the Oustercount. This must be called at most once per object added.
+ * the TabletProfiler. This must be called at most once per object added.
  *
  * \param[in] key
  *      The key of the object to track.
@@ -170,7 +170,7 @@ Oustercount::addObject(uint64_t key, uint32_t bytes, LogTime time)
  *      The LogTime at which the object was appended to the Log.
  */
 void
-Oustercount::removeObject(uint64_t key, uint32_t bytes, LogTime time)
+TabletProfiler::removeObject(uint64_t key, uint32_t bytes, LogTime time)
 {
     Subrange::BucketHandle bh = findBucket(key, &time);
     bool deleted = bh.getSubrange()->removeObject(bh, key, bytes, time);
@@ -199,7 +199,7 @@ Oustercount::removeObject(uint64_t key, uint32_t bytes, LogTime time)
  *      first and last keys of the calculated partitions.
  */
 PartitionList*
-Oustercount::getPartitions(uint64_t maxPartitionBytes,
+TabletProfiler::getPartitions(uint64_t maxPartitionBytes,
     uint64_t maxPartitionObjects)
 {
     PartitionList* partitions = new PartitionList();
@@ -230,8 +230,8 @@ Oustercount::getPartitions(uint64_t maxPartitionBytes,
  * \return
  *      A BucketHandle to the Bucket (and associated Subrange) found.
  */
-Oustercount::Subrange::BucketHandle
-Oustercount::findBucket(uint64_t key, LogTime *time)
+TabletProfiler::Subrange::BucketHandle
+TabletProfiler::findBucket(uint64_t key, LogTime *time)
 {
     Subrange* subrange = findHint.getSubrange();
     if (subrange != NULL &&
@@ -246,7 +246,7 @@ Oustercount::findBucket(uint64_t key, LogTime *time)
 }
 
 //////////////////////////////////////////////
-// Oustercount::PartitionCollector class
+// TabletProfiler::PartitionCollector class
 //////////////////////////////////////////////
 
 /**
@@ -256,8 +256,9 @@ Oustercount::findBucket(uint64_t key, LogTime *time)
  * \return
  *      A newly constructed PartitionCollector.
  */
-Oustercount::PartitionCollector::PartitionCollector(uint64_t maxPartitionBytes,
-    uint64_t maxPartitionObjects, PartitionList* partitions)
+TabletProfiler::PartitionCollector::PartitionCollector(
+    uint64_t maxPartitionBytes, uint64_t maxPartitionObjects,
+    PartitionList* partitions)
     : partitions(partitions),
       maxPartitionBytes(maxPartitionBytes),
       maxPartitionObjects(maxPartitionObjects),
@@ -273,7 +274,7 @@ Oustercount::PartitionCollector::PartitionCollector(uint64_t maxPartitionBytes,
 
 /**
  * Update the PartitionCollector by telling it about a key range described
- * by a leaf Bucket in our Oustercount. This function expects to be called
+ * by a leaf Bucket in our TabletProfiler. This function expects to be called
  * once for all sequential, non-overlapping key ranges for the entire key
  * space, i.e. all leaf Buckets. It must not be called on internal Bucket,
  * i.e. those that have children. The addRangeNonLeaf method is provided
@@ -295,7 +296,7 @@ Oustercount::PartitionCollector::PartitionCollector(uint64_t maxPartitionBytes,
  *      The number of objects in this (firstKey, lastKey) range.
  */
 void
-Oustercount::PartitionCollector::addRangeLeaf(uint64_t firstKey,
+TabletProfiler::PartitionCollector::addRangeLeaf(uint64_t firstKey,
     uint64_t lastKey, uint64_t rangeBytes, uint64_t rangeObjects)
 {
     assert(!isDone);
@@ -319,7 +320,7 @@ Oustercount::PartitionCollector::addRangeLeaf(uint64_t firstKey,
 
 /**
  * Update the PartitionCollector by telling it about a key range described
- * by a non-leaf Bucket in our Oustercount.
+ * by a non-leaf Bucket in our TabletProfiler.
  *
  * This method only updates byte and object counts for the current partition
  * being computed. It will not close the partition if it gets too large, or
@@ -332,7 +333,7 @@ Oustercount::PartitionCollector::addRangeLeaf(uint64_t firstKey,
  *      The number of objects in this (firstKey, lastKey) range.
  */
 void
-Oustercount::PartitionCollector::addRangeNonLeaf(uint64_t rangeBytes,
+TabletProfiler::PartitionCollector::addRangeNonLeaf(uint64_t rangeBytes,
     uint64_t rangeObjects)
 {
     assert(!isDone);
@@ -349,7 +350,7 @@ Oustercount::PartitionCollector::addRangeNonLeaf(uint64_t rangeBytes,
  * be altered.
  */
 void
-Oustercount::PartitionCollector::done()
+TabletProfiler::PartitionCollector::done()
 {
     assert(!isDone);
     pushCurrentTally(~0);
@@ -367,7 +368,7 @@ Oustercount::PartitionCollector::done()
  *      partition.
  */
 void
-Oustercount::PartitionCollector::pushCurrentTally(uint64_t lastKey)
+TabletProfiler::PartitionCollector::pushCurrentTally(uint64_t lastKey)
 {
     assert(!isDone);
     if (currentTotalBytes != 0) {
@@ -380,7 +381,7 @@ Oustercount::PartitionCollector::pushCurrentTally(uint64_t lastKey)
 }
 
 //////////////////////////////////////////////
-// Oustercount::Subrange::BucketHandle class
+// TabletProfiler::Subrange::BucketHandle class
 //////////////////////////////////////////////
 
 /**
@@ -394,7 +395,7 @@ Oustercount::PartitionCollector::pushCurrentTally(uint64_t lastKey)
  * \return
  *      A newly constructed BucketHandle.
  */
-Oustercount::Subrange::BucketHandle::BucketHandle(Subrange *subrange,
+TabletProfiler::Subrange::BucketHandle::BucketHandle(Subrange *subrange,
     int bucketIndex)
     : subrange(subrange),
       bucketIndex(bucketIndex)
@@ -405,8 +406,8 @@ Oustercount::Subrange::BucketHandle::BucketHandle(Subrange *subrange,
  * \return
  *      A pointer to the Subrange this BucketHandle represents.
  */
-Oustercount::Subrange*
-Oustercount::Subrange::BucketHandle::getSubrange()
+TabletProfiler::Subrange*
+TabletProfiler::Subrange::BucketHandle::getSubrange()
 {
     return subrange;
 }
@@ -415,8 +416,8 @@ Oustercount::Subrange::BucketHandle::getSubrange()
  * \return
  *      A pointer to the Bucket this BucketHandle represents.
  */
-Oustercount::Bucket*
-Oustercount::Subrange::BucketHandle::getBucket()
+TabletProfiler::Bucket*
+TabletProfiler::Subrange::BucketHandle::getBucket()
 {
     if (subrange == NULL)
         return NULL;
@@ -428,7 +429,7 @@ Oustercount::Subrange::BucketHandle::getBucket()
  *      The first key of the range spanned by the Bucket this handle represents.
  */
 uint64_t
-Oustercount::Subrange::BucketHandle::getFirstKey()
+TabletProfiler::Subrange::BucketHandle::getFirstKey()
 {
     return subrange->getBucketFirstKey(*this);
 }
@@ -438,13 +439,13 @@ Oustercount::Subrange::BucketHandle::getFirstKey()
  *      The last key of the range spanned by the Bucket this handle represents.
  */
 uint64_t
-Oustercount::Subrange::BucketHandle::getLastKey()
+TabletProfiler::Subrange::BucketHandle::getLastKey()
 {
     return subrange->getBucketLastKey(*this);
 }
 
 //////////////////////////////////////////////
-// Oustercount::Subrange class
+// TabletProfiler::Subrange class
 //////////////////////////////////////////////
 
 /**
@@ -465,12 +466,12 @@ Oustercount::Subrange::BucketHandle::getLastKey()
  *      The last key of the key space this Subrange is tracking.
  * \param[in] time
  *      The LogTime at the time of this Subrange's creation. All future calls
- *      to Oustercount::addObject() should be for objects with a LogTime
+ *      to TabletProfiler::addObject() should be for objects with a LogTime
  *      greater than or equal to this value. 
  * \return
  *      A newly created Subrange object.
  */
-Oustercount::Subrange::Subrange(BucketHandle parent, uint64_t firstKey,
+TabletProfiler::Subrange::Subrange(BucketHandle parent, uint64_t firstKey,
     uint64_t lastKey, LogTime time)
     : parent(parent),
       bucketWidth(0),
@@ -509,7 +510,7 @@ Oustercount::Subrange::Subrange(BucketHandle parent, uint64_t firstKey,
  * Destroy the Subrange, including all child Subranges for constituent Buckets.
  * This recursively frees all memory used at and below this Subrange.
  */
-Oustercount::Subrange::~Subrange()
+TabletProfiler::Subrange::~Subrange()
 {
     for (int i = 0; i < numBuckets; i++) {
         if (buckets[i].child != NULL)
@@ -531,8 +532,8 @@ Oustercount::Subrange::~Subrange()
  * \return
  *      A BucketHandle to the Bucket (and associated Subrange) found.
  */
-Oustercount::Subrange::BucketHandle
-Oustercount::Subrange::findBucket(uint64_t key, LogTime *time)
+TabletProfiler::Subrange::BucketHandle
+TabletProfiler::Subrange::findBucket(uint64_t key, LogTime *time)
 {
     assert(key >= firstKey && key <= lastKey);
     uint64_t idx = (key - firstKey) / bucketWidth;
@@ -562,8 +563,8 @@ Oustercount::Subrange::findBucket(uint64_t key, LogTime *time)
  * \return
  *      A pointer to the Bucket corresponding to the given index.
  */
-Oustercount::Bucket*
-Oustercount::Subrange::getBucket(int bucketIndex)
+TabletProfiler::Bucket*
+TabletProfiler::Subrange::getBucket(int bucketIndex)
 {
     assert(bucketIndex >= 0 && bucketIndex < numBuckets);
     return &buckets[bucketIndex];
@@ -579,7 +580,7 @@ Oustercount::Subrange::getBucket(int bucketIndex)
  *      The first key for the referenced Bucket.
  */
 uint64_t
-Oustercount::Subrange::getBucketFirstKey(BucketHandle bh)
+TabletProfiler::Subrange::getBucketFirstKey(BucketHandle bh)
 {
     int bucketIndex = bh.getBucket() - bh.getSubrange()->buckets;
     assert(bucketIndex >= 0 && bucketIndex < numBuckets);
@@ -596,7 +597,7 @@ Oustercount::Subrange::getBucketFirstKey(BucketHandle bh)
  *      The last key for the referenced Bucket.
  */
 uint64_t
-Oustercount::Subrange::getBucketLastKey(BucketHandle bh)
+TabletProfiler::Subrange::getBucketLastKey(BucketHandle bh)
 {
     int bucketIndex = bh.getBucket() - bh.getSubrange()->buckets;
     assert(bucketIndex >= 0 && bucketIndex < numBuckets);
@@ -612,7 +613,7 @@ Oustercount::Subrange::getBucketLastKey(BucketHandle bh)
  *      true if this Subrange is at the bottom, else false.
  */
 bool
-Oustercount::Subrange::isBottom()
+TabletProfiler::Subrange::isBottom()
 {
     return (bucketWidth == 1);
 }
@@ -627,7 +628,7 @@ Oustercount::Subrange::isBottom()
  *      The PartitionCollector to use for this walk.
  */
 void
-Oustercount::Subrange::partitionWalk(PartitionCollector *pc)
+TabletProfiler::Subrange::partitionWalk(PartitionCollector *pc)
 {
     for (int i = 0; i < numBuckets; i++) {
         if (buckets[i].child != NULL) {
@@ -642,7 +643,7 @@ Oustercount::Subrange::partitionWalk(PartitionCollector *pc)
 }
 
 /**
- * Add a new object to be tracked by the Oustercount. This method will
+ * Add a new object to be tracked by the TabletProfiler. This method will
  * automatically extend the tree into a further Subrange if necessary and
  * appropriate. Note that this method should only be called on leaf Subranges.
  *
@@ -657,8 +658,8 @@ Oustercount::Subrange::partitionWalk(PartitionCollector *pc)
  *      The LogTime corresponding to the append of the object in the Log.
  */
 void
-Oustercount::Subrange::addObject(BucketHandle bh, uint64_t key, uint32_t bytes,
-    LogTime time)
+TabletProfiler::Subrange::addObject(BucketHandle bh, uint64_t key,
+    uint32_t bytes, LogTime time)
 {
     Bucket* b = bh.getBucket();
 
@@ -686,7 +687,7 @@ Oustercount::Subrange::addObject(BucketHandle bh, uint64_t key, uint32_t bytes,
 }
 
 /**
- * Remove an object previously tracked by the Oustercount (i.e. provided to
+ * Remove an object previously tracked by the TabletProfiler (i.e. provided to
  * the addObject method). This method will automatically merge the Subrange
  * with its parent Bucket if appropriate. If merging does occur, this method
  * releases unneeded resouces and returns true to indicate that the provided
@@ -711,7 +712,7 @@ Oustercount::Subrange::addObject(BucketHandle bh, uint64_t key, uint32_t bytes,
  *      valid after the call.
  */
 bool
-Oustercount::Subrange::removeObject(BucketHandle bh, uint64_t key,
+TabletProfiler::Subrange::removeObject(BucketHandle bh, uint64_t key,
     uint32_t bytes, LogTime time)
 {
     Bucket* b = bh.getBucket();
@@ -769,7 +770,7 @@ Oustercount::Subrange::removeObject(BucketHandle bh, uint64_t key,
  *      the constructor.
  */
 LogTime
-Oustercount::Subrange::getCreateTime()
+TabletProfiler::Subrange::getCreateTime()
 {
     return createTime;
 }
@@ -779,7 +780,7 @@ Oustercount::Subrange::getCreateTime()
  *      The first key of this Subrange.
  */
 uint64_t
-Oustercount::Subrange::getFirstKey()
+TabletProfiler::Subrange::getFirstKey()
 {
     return firstKey;
 }
@@ -789,7 +790,7 @@ Oustercount::Subrange::getFirstKey()
  *      The last key of this Subrange.
  */
 uint64_t
-Oustercount::Subrange::getLastKey()
+TabletProfiler::Subrange::getLastKey()
 {
     return lastKey;
 }
