@@ -705,7 +705,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 
     log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb),
         &lengthInLog, &logTime);
-    t.profiler.addObject(o->id, lengthInLog, logTime);
+    t.profiler.track(o->id, lengthInLog, logTime);
     objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
@@ -934,12 +934,12 @@ objectEvictionCallback(LogEntryType type,
         LogTime newLogTime;
         const Object *newObj = (const Object *)log.append(LOG_ENTRY_TYPE_OBJ,
             evictObj, evictObj->size(), &newLengthInLog, &newLogTime);
-        t->profiler.addObject(evictObj->id, newLengthInLog, newLogTime);
+        t->profiler.track(evictObj->id, newLengthInLog, newLogTime);
         svr->objectMap.replace(evictObj->table, evictObj->id, newObj);
     }
 
     // remove the evicted entry whether it is discarded or not
-    t->profiler.removeObject(evictObj->id, lengthInLog, logTime);
+    t->profiler.untrack(evictObj->id, lengthInLog, logTime);
 }
 
 /**
@@ -999,11 +999,11 @@ tombstoneEvictionCallback(LogEntryType type,
         LogTime newLogTime;
         log.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb),
             &newLengthInLog, &newLogTime);
-        t->profiler.addObject(tomb->objectId, newLengthInLog, newLogTime);
+        t->profiler.track(tomb->objectId, newLengthInLog, newLogTime);
     }
 
     // remove the evicted entry whether it is discarded or not
-    t->profiler.removeObject(tomb->objectId, lengthInLog, logTime);
+    t->profiler.untrack(tomb->objectId, lengthInLog, logTime);
 }
 
 void
@@ -1052,12 +1052,12 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
         ObjectTombstone tomb(segmentId, o);
         log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), &lengthInLog,
             &logTime);
-        t.profiler.addObject(id, lengthInLog, logTime);
+        t.profiler.track(id, lengthInLog, logTime);
     }
 
     const Object *objPtr = (const Object *)log.append(LOG_ENTRY_TYPE_OBJ,
         newObject, newObject->size(), &lengthInLog, &logTime);
-    t.profiler.addObject(id, lengthInLog, logTime);
+    t.profiler.track(id, lengthInLog, logTime);
     objectMap.replace(tableId, id, objPtr);
 
     *newVersion = objPtr->version;

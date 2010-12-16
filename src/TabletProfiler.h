@@ -33,10 +33,10 @@ class TabletProfiler {
     ~TabletProfiler();
 
     // public methods
-    void           addObject(uint64_t key, uint32_t bytes, LogTime time);
-    void           removeObject(uint64_t key, uint32_t bytes, LogTime time);
+    void           track(uint64_t key, uint32_t bytes, LogTime time);
+    void           untrack(uint64_t key, uint32_t bytes, LogTime time);
     PartitionList* getPartitions(uint64_t maxPartitionBytes,
-                                 uint64_t maxPartitionObjects);
+                                 uint64_t maxPartitionReferants);
 
   private:
     static const int      BITS_PER_LEVEL = 8;
@@ -48,11 +48,11 @@ class TabletProfiler {
     class PartitionCollector {
       public:
         PartitionCollector(uint64_t maxPartitionBytes,
-                           uint64_t maxPartitionObjects,
+                           uint64_t maxPartitionReferants,
                            PartitionList* partitions);
         void addRangeLeaf(uint64_t firstKey, uint64_t lastKey,
-                          uint64_t rangeBytes, uint64_t rangeObjects);
-        void addRangeNonLeaf(uint64_t rangeBytes, uint64_t rangeObjects);
+                          uint64_t rangeBytes, uint64_t rangeReferants);
+        void addRangeNonLeaf(uint64_t rangeBytes, uint64_t rangeReferants);
         void done();
 
       private:
@@ -62,13 +62,13 @@ class TabletProfiler {
 
         // current tally
         uint64_t maxPartitionBytes;
-        uint64_t maxPartitionObjects;
+        uint64_t maxPartitionReferants;
         uint64_t nextFirstKey;
         uint64_t currentFirstKey;
         uint64_t currentTotalBytes;
-        uint64_t currentTotalObjects;
+        uint64_t currentTotalReferants;
         uint64_t globalTotalBytes;
-        uint64_t globalTotalObjects;
+        uint64_t globalTotalReferants;
         bool     isDone;
 
         friend class TabletProfilerTest;
@@ -82,7 +82,7 @@ class TabletProfiler {
     struct Bucket {
         Subrange *child;
         uint64_t  totalBytes;
-        uint64_t  totalObjects;
+        uint64_t  totalReferants;
     };
 
     class Subrange {
@@ -106,9 +106,9 @@ class TabletProfiler {
                  LogTime time);
        ~Subrange();
 
-        void         addObject(BucketHandle bh, uint64_t key, uint32_t bytes,
+        void         track(BucketHandle bh, uint64_t key, uint32_t bytes,
                                LogTime time);
-        bool         removeObject(BucketHandle bh, uint64_t key, uint32_t bytes,
+        bool         untrack(BucketHandle bh, uint64_t key, uint32_t bytes,
                                   LogTime time);
         BucketHandle findBucket(uint64_t key, LogTime *time = NULL);
         Bucket*      getBucket(int bucketIndex);
@@ -128,7 +128,7 @@ class TabletProfiler {
         uint64_t     firstKey;
         uint64_t     lastKey;
         uint64_t     totalBytes;
-        uint64_t     totalObjects;
+        uint64_t     totalReferants;
         uint32_t     totalChildren;
         LogTime      createTime;
 
@@ -143,6 +143,9 @@ class TabletProfiler {
     // TabletProfiler private variables
     Subrange*              root;
     Subrange::BucketHandle findHint;
+    LogTime                lastTracked;
+    uint64_t               totalTracked;
+    uint64_t               totalTrackedBytes;
 
     friend class TabletProfilerTest;
 

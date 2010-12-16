@@ -29,8 +29,8 @@ class TabletProfilerTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(TabletProfilerTest);
     CPPUNIT_TEST(test_TabletProfiler_constructor);
-    CPPUNIT_TEST(test_TabletProfiler_addObject);
-    CPPUNIT_TEST(test_TabletProfiler_removeObject);
+    CPPUNIT_TEST(test_TabletProfiler_track);
+    CPPUNIT_TEST(test_TabletProfiler_untrack);
     CPPUNIT_TEST(test_TabletProfiler_getPartitions);
     CPPUNIT_TEST_SUITE_END();
 
@@ -46,14 +46,14 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     }
 
     void
-    test_TabletProfiler_addObject()
+    test_TabletProfiler_track()
     {
         TabletProfiler o;
-        o.addObject(0, 1, LogTime(0, 0));
+        o.track(0, 1, LogTime(0, 0));
     }
 
     void
-    test_TabletProfiler_removeObject()
+    test_TabletProfiler_untrack()
     {
     }
 
