@@ -60,22 +60,22 @@ class TcpTransport2Test : public CppUnit::TestFixture {
 
     ServiceLocator* locator;
     MockSyscall* sys;
-    ObjectTub<TestLog::Enable> logEnabler;
+    TestLog::Enable* logEnabler;
 
-    TcpTransport2Test() : locator(NULL), sys(NULL), logEnabler()
+    TcpTransport2Test() : locator(NULL), sys(NULL), logEnabler(NULL)
     {}
 
     void setUp() {
         locator = new ServiceLocator("tcp+ip: host=localhost, port=11000");
         sys = new MockSyscall();
         TcpTransport2::sys = sys;
-        logEnabler.construct();
+        logEnabler = new TestLog::Enable();
     }
 
     void tearDown() {
         delete locator;
         delete sys;
-        logEnabler.destroy();
+        delete logEnabler;
     }
 
     string catchConstruct(ServiceLocator* locator) {

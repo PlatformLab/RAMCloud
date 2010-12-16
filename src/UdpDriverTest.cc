@@ -43,7 +43,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
     UdpDriver *client;
     MockSyscall* sys;
     Syscall *savedSyscall;
-    ObjectTub<TestLog::Enable> logEnabler;
+    TestLog::Enable* logEnabler;
 
     UdpDriverTest()
         : exceptionMessage()
@@ -53,7 +53,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
         , client(NULL)
         , sys(NULL)
         , savedSyscall(NULL)
-        , logEnabler()
+        , logEnabler(NULL)
     {}
 
     void setUp() {
@@ -65,7 +65,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
         sys = new MockSyscall();
         savedSyscall = UdpDriver::sys;
         UdpDriver::sys = sys;
-        logEnabler.construct();
+        logEnabler = new TestLog::Enable();
     }
 
     void tearDown() {
@@ -82,7 +82,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
         delete sys;
         sys = NULL;
         UdpDriver::sys = savedSyscall;
-        logEnabler.destroy();
+        delete logEnabler;
     }
 
     void sendMessage(UdpDriver *driver, IpAddress *address,
