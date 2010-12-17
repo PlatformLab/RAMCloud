@@ -387,6 +387,10 @@ TabletProfiler::PartitionCollector::done()
 {
     assert(!isDone);
     pushCurrentTally(~0);
+    if (partitions->size() == 0) {
+        Partition newPart = { 0, (uint64_t)-1 };
+        partitions->push_back(newPart);
+    }
     isDone = true;
 }
 

@@ -59,6 +59,12 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_Subrange_getters);
     CPPUNIT_TEST_SUITE_END();
 
+    // convenience
+    typedef TabletProfiler::Bucket Bucket;
+    typedef TabletProfiler::Subrange Subrange;
+    typedef TabletProfiler::Subrange::BucketHandle BucketHandle;
+    typedef TabletProfiler::PartitionCollector PartitionCollector;
+
   public:
     TabletProfilerTest() {}
 
@@ -110,98 +116,360 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         delete l;
     }
 
+    // this is mostly just a wrapper around Subrange::findBucket.
+    // the only difference is we have a little bit of subtle logic to
+    // cache the last bucket for quick sequential accesses
     void
     test_TabletProfiler_findBucket()
     {
+        BucketHandle bh(NULL, 0);
         TabletProfiler tp;
+        TabletProfiler bizarroTp;
         CPPUNIT_ASSERT_EQUAL(NULL, tp.findHint.getSubrange());
 
-        // XXX what to test here?
+        // tweak the create times so we can query with earler times
+        tp.root->createTime = LogTime(1, 1);
+        bizarroTp.root->createTime = LogTime(1, 1);
+
+        /////
+        // case1x use the hint
+        /////
+
+        // case1a: subrange != NULL && time == NULL && key in range
+        bh = BucketHandle(bizarroTp.root, 1);
+        tp.findHint = bh;
+        CPPUNIT_ASSERT(tp.findBucket(tp.root->bucketWidth, NULL) == bh);
+        CPPUNIT_ASSERT(tp.findHint == bh);
+
+        // case1b: subrange != NULL && getCreateTime() <= *time && key in range
+        bh = BucketHandle(bizarroTp.root, 1);
+        tp.findHint = bh;
+        CPPUNIT_ASSERT(tp.findBucket(tp.root->bucketWidth,
+            &tp.root->createTime) == bh);
+        CPPUNIT_ASSERT(tp.findHint == bh);
+
+        /////
+        // case2x do not use the hint
+        /////
+
+        // case2a: subrange == NULL
+        bh = BucketHandle(tp.root, 1);
+        tp.findHint = BucketHandle(NULL, 0);
+        CPPUNIT_ASSERT(tp.findBucket(tp.root->bucketWidth, NULL) == bh);
+        CPPUNIT_ASSERT(tp.findHint == bh);
+
+        // case2b: subrange != NULL, but time mismatch
+        LogTime earlier = LogTime(0, 0);
+        bh = BucketHandle(tp.root, 1);
+        tp.findHint = BucketHandle(bizarroTp.root, 1);
+        CPPUNIT_ASSERT(tp.findBucket(tp.root->bucketWidth, &earlier) == bh);
+        CPPUNIT_ASSERT(tp.findHint == bh);
+
+        // case2c: subrange != NULL, time ok, but key range mismatch
+        bizarroTp.root->bucketWidth = 1;
+        bizarroTp.root->lastKey = bizarroTp.root->numBuckets - 1;
+        bh = BucketHandle(tp.root, 1);
+        tp.findHint = BucketHandle(bizarroTp.root, 2);
+        CPPUNIT_ASSERT(tp.findBucket(tp.root->bucketWidth,
+            &tp.root->createTime) == bh);
+        CPPUNIT_ASSERT(tp.findHint == bh);
     }
 
     void
     test_PartitionCollector_constructor()
     {
+        PartitionList partList;
+        PartitionCollector pc(1024 * 1024, 1000, &partList);
+
+        CPPUNIT_ASSERT_EQUAL(&partList, pc.partitions);
+        CPPUNIT_ASSERT_EQUAL(1024 * 1024, pc.maxPartitionBytes);
+        CPPUNIT_ASSERT_EQUAL(1000, pc.maxPartitionReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.nextFirstKey);
+        CPPUNIT_ASSERT_EQUAL(0, pc.currentFirstKey);
+        CPPUNIT_ASSERT_EQUAL(0, pc.currentTotalBytes);
+        CPPUNIT_ASSERT_EQUAL(0, pc.currentTotalReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.globalTotalBytes);
+        CPPUNIT_ASSERT_EQUAL(0, pc.globalTotalReferants);
+        CPPUNIT_ASSERT_EQUAL(false, pc.isDone);
     }
 
     void
     test_PartitionCollector_addRangeLeaf()
     {
+        PartitionList partList;
+        PartitionCollector pc(1024 * 1024, 1000, &partList);
+
+        pc.addRangeLeaf(0, 10, 5, 1);
+        CPPUNIT_ASSERT_EQUAL(5, pc.currentTotalBytes);
+        CPPUNIT_ASSERT_EQUAL(1, pc.currentTotalReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.partitions->size());
+        CPPUNIT_ASSERT_EQUAL(11, pc.nextFirstKey);
+        CPPUNIT_ASSERT_EQUAL(5, pc.globalTotalBytes);
+        CPPUNIT_ASSERT_EQUAL(1, pc.globalTotalReferants);
+
+        // force a new partition by size
+        pc.addRangeLeaf(11, 20, 1024*1024, 1);
+        CPPUNIT_ASSERT_EQUAL(21, pc.currentFirstKey);
+        CPPUNIT_ASSERT_EQUAL(1, pc.partitions->size());
+
+        // force a new partition by referants
+        pc.addRangeLeaf(21, 30, 1, 5000);
+        CPPUNIT_ASSERT_EQUAL(31, pc.currentFirstKey);
+        CPPUNIT_ASSERT_EQUAL(2, pc.partitions->size());
     }
 
     void
     test_PartitionCollector_addRangeNonLeaf()
     {
+        PartitionList partList;
+        PartitionCollector pc(1024 * 1024, 1000, &partList);
+
+        pc.addRangeNonLeaf(10 * 1024 * 1024, 100000);
+        CPPUNIT_ASSERT_EQUAL(10 * 1024 * 1024, pc.currentTotalBytes);
+        CPPUNIT_ASSERT_EQUAL(100000, pc.currentTotalReferants);
+        CPPUNIT_ASSERT_EQUAL(10 * 1024 * 1024, pc.globalTotalBytes);
+        CPPUNIT_ASSERT_EQUAL(100000, pc.globalTotalReferants);
     }
 
     void
     test_PartitionCollector_done()
     {
+        // ensure the last partition is pushed to the list
+        PartitionList partList1;
+        PartitionCollector pc1(1024 * 1024, 1000, &partList1);
+
+        pc1.addRangeLeaf(0, 10, 1024 * 1024 + 1, 1);
+        pc1.addRangeLeaf(11, 20, 100, 1);
+        pc1.done();
+        CPPUNIT_ASSERT_EQUAL(2, pc1.partitions->size());
+        CPPUNIT_ASSERT_EQUAL(0, pc1.partitions->begin()[0].firstKey);
+        CPPUNIT_ASSERT_EQUAL(10, pc1.partitions->begin()[0].lastKey);
+        CPPUNIT_ASSERT_EQUAL(11, pc1.partitions->begin()[1].firstKey);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)-1, pc1.partitions->begin()[1].lastKey);
+        CPPUNIT_ASSERT_EQUAL(true, pc1.isDone);
+
+        // if there were no objects at all, we should push the whole range
+        PartitionList partList2;
+        PartitionCollector pc2(1024 * 1024, 1000, &partList2);
+
+        pc2.done();
+        CPPUNIT_ASSERT_EQUAL(1, pc2.partitions->size());
+        CPPUNIT_ASSERT_EQUAL(0, pc2.partitions->begin()[0].firstKey);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)-1, pc2.partitions->begin()[0].lastKey);
+        CPPUNIT_ASSERT_EQUAL(true, pc2.isDone);
     }
 
     void
     test_PartitionCollector_pushCurrentTally()
     {
+        PartitionList partList;
+        PartitionCollector pc(1024 * 1024, 1000, &partList);
+
+        pc.addRangeLeaf(0, 10, 1000, 1);
+        pc.pushCurrentTally(8);
+        CPPUNIT_ASSERT_EQUAL(1, pc.partitions->size());
+        CPPUNIT_ASSERT_EQUAL(0, pc.partitions->begin()[0].firstKey);
+        CPPUNIT_ASSERT_EQUAL(8, pc.partitions->begin()[0].lastKey);
+        CPPUNIT_ASSERT_EQUAL(0, pc.currentTotalBytes);
+        CPPUNIT_ASSERT_EQUAL(0, pc.currentTotalReferants);
     }
 
     void
     test_BucketHandle_constructor()
     {
+        Subrange s(BucketHandle(NULL, 0), 0, 10, LogTime(0, 0));
+        BucketHandle bh(&s, 1);
+        CPPUNIT_ASSERT_EQUAL(&s, bh.subrange);
+        CPPUNIT_ASSERT_EQUAL(1, bh.bucketIndex);
     }
 
     void
     test_BucketHandle_getSubrange()
     {
+        Subrange s(BucketHandle(NULL, 0), 0, 10, LogTime(0, 0));
+        BucketHandle bh(&s, 1);
+        CPPUNIT_ASSERT_EQUAL(&s, bh.getSubrange());
     }
 
     void
     test_BucketHandle_getBucket()
     {
+        BucketHandle bh1(NULL, 1);
+        CPPUNIT_ASSERT_EQUAL(NULL, bh1.getBucket());
+
+        Subrange s2(BucketHandle(NULL, 0), 0, 10, LogTime(0, 0));
+        BucketHandle bh2(&s2, 0);
+        CPPUNIT_ASSERT_EQUAL(&s2.buckets[0], bh2.getBucket());
+
+        Subrange s3(BucketHandle(NULL, 0), 0, 10, LogTime(0, 0));
+        BucketHandle bh3(&s3, s3.numBuckets - 1);
+        CPPUNIT_ASSERT_EQUAL(&s3.buckets[s3.numBuckets - 1], bh3.getBucket());
     }
 
     void
     test_BucketHandle_getFirstKey()
     {
+        Subrange s1(BucketHandle(NULL, 0), 0, 0x100000000, LogTime(0, 0));
+        BucketHandle bh1(&s1, 0);
+        CPPUNIT_ASSERT_EQUAL(0, bh1.getFirstKey());
+
+        Subrange s2(BucketHandle(NULL, 0), 0, 0x100000000, LogTime(0, 0));
+        BucketHandle bh2(&s2, 1);
+        CPPUNIT_ASSERT_EQUAL(0 + s2.bucketWidth, bh2.getFirstKey());
+
+        Subrange s3(BucketHandle(NULL, 0), 0, 0x100000000, LogTime(0, 0));
+        BucketHandle bh3(&s3, s3.numBuckets - 1);
+        CPPUNIT_ASSERT_EQUAL(0 + s3.bucketWidth * (s3.numBuckets - 1),
+            bh3.getFirstKey());
     }
 
     void
     test_BucketHandle_getLastKey()
     {
+        Subrange s1(BucketHandle(NULL, 0), 0, 0x100000000, LogTime(0, 0));
+        BucketHandle bh1(&s1, 0);
+        CPPUNIT_ASSERT_EQUAL(s1.bucketWidth - 1, bh1.getLastKey());
+
+        Subrange s2(BucketHandle(NULL, 0), 0, 0x100000000, LogTime(0, 0));
+        BucketHandle bh2(&s2, 1);
+        CPPUNIT_ASSERT_EQUAL(0 + (s2.bucketWidth * 2) - 1, bh2.getLastKey());
+
+        Subrange s3(BucketHandle(NULL, 0), 0, 0x100000000, LogTime(0, 0));
+        BucketHandle bh3(&s3, s3.numBuckets - 1);
+        CPPUNIT_ASSERT_EQUAL(0 + (s3.bucketWidth * s3.numBuckets) - 1,
+            bh3.getLastKey());
     }
 
     void
     test_Subrange_constructor()
     {
+        // case1: full key space
+        Subrange s1(BucketHandle(NULL, 2), 0, (uint64_t)-1, LogTime(1, 9));
+        CPPUNIT_ASSERT_EQUAL(NULL, s1.parent.subrange);
+        CPPUNIT_ASSERT_EQUAL(2, s1.parent.bucketIndex);
+        CPPUNIT_ASSERT(s1.bucketWidth != 0);
+        CPPUNIT_ASSERT(s1.numBuckets != 0);
+        CPPUNIT_ASSERT_EQUAL(0, s1.bucketWidth * s1.numBuckets);
+        CPPUNIT_ASSERT_EQUAL(0, s1.firstKey);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)-1, s1.lastKey);
+        CPPUNIT_ASSERT_EQUAL(0, s1.totalBytes);
+        CPPUNIT_ASSERT_EQUAL(0, s1.totalReferants);
+        CPPUNIT_ASSERT_EQUAL(0, s1.totalChildren);
+        CPPUNIT_ASSERT(LogTime(1, 9) == s1.createTime);
+        CPPUNIT_ASSERT(s1.buckets != NULL);
+
+        // case2: all even levels
+        Subrange s2(BucketHandle(NULL, 2), 0x100000000, 0x1ffffffff, LogTime(1, 9));
+        CPPUNIT_ASSERT_EQUAL(NULL, s2.parent.subrange);
+        CPPUNIT_ASSERT_EQUAL(2, s2.parent.bucketIndex);
+        CPPUNIT_ASSERT(s2.bucketWidth != 0);
+        CPPUNIT_ASSERT(s2.numBuckets != 0);
+        CPPUNIT_ASSERT_EQUAL(0x100000000, s2.bucketWidth * s2.numBuckets);
+        CPPUNIT_ASSERT_EQUAL(0x100000000, s2.firstKey);
+        CPPUNIT_ASSERT_EQUAL(0x1ffffffff, s2.lastKey);
+        CPPUNIT_ASSERT_EQUAL(0, s2.totalBytes);
+        CPPUNIT_ASSERT_EQUAL(0, s2.totalReferants);
+        CPPUNIT_ASSERT_EQUAL(0, s2.totalChildren);
+        CPPUNIT_ASSERT(LogTime(1, 9) == s2.createTime);
+        CPPUNIT_ASSERT(s2.buckets != NULL);
+
+        // case3: last level has < BITS_PER_LEVEL
+        // XXX- need to make BITS_PER_LEVEL a parameter
     }
 
     void
     test_Subrange_findBucket()
     {
+        LogTime parentTime1(1, 9);
+        LogTime parentTime2(1, 11);
+        LogTime childTime(1, 12);
+
+        Subrange s(BucketHandle(NULL, 2), 0, (uint64_t)-1, parentTime1);
+        Subrange *c = new Subrange(BucketHandle(&s, 1), s.bucketWidth,
+            s.bucketWidth * 2 - 1, childTime);
+        s.buckets[1].child = c;
+        CPPUNIT_ASSERT(BucketHandle(&s, 0) == s.findBucket(0, NULL));
+
+        CPPUNIT_ASSERT(BucketHandle(&s, 1) ==
+            s.findBucket(s.bucketWidth, &parentTime1));
+        CPPUNIT_ASSERT(BucketHandle(&s, 1) ==
+            s.findBucket(s.bucketWidth, &parentTime2));
+        CPPUNIT_ASSERT(BucketHandle(c, 0) ==
+            s.findBucket(s.bucketWidth, &childTime));
+        CPPUNIT_ASSERT(BucketHandle(c, 0) ==
+            s.findBucket(s.bucketWidth, NULL));
     }
 
     void
     test_Subrange_getBucket()
     {
+        Subrange s(BucketHandle(NULL, 2), 0, (uint64_t)-1, LogTime(1, 9));
+        CPPUNIT_ASSERT_EQUAL(&s.buckets[0], s.getBucket(0));
+        CPPUNIT_ASSERT_EQUAL(&s.buckets[s.numBuckets - 1],
+            s.getBucket(s.numBuckets - 1));
     }
 
     void
     test_Subrange_getBucketFirstKey()
     {
+        Subrange s(BucketHandle(NULL, 2), 0, (uint64_t)-1, LogTime(1, 9));
+        int idx = s.numBuckets / 2;
+        CPPUNIT_ASSERT_EQUAL(idx * s.bucketWidth,
+            s.getBucketFirstKey(BucketHandle(&s, idx)));
     }
 
     void
     test_Subrange_getBucketLastKey()
     {
+        Subrange s(BucketHandle(NULL, 2), 0, (uint64_t)-1, LogTime(1, 9));
+        int idx = s.numBuckets / 2;
+        CPPUNIT_ASSERT_EQUAL(idx * s.bucketWidth + s.bucketWidth - 1,
+            s.getBucketLastKey(BucketHandle(&s, idx)));
     }
 
     void
     test_Subrange_isBottom()
     {
+        Subrange s(BucketHandle(NULL, 2), 0, (uint64_t)-1, LogTime(1, 9));
+        CPPUNIT_ASSERT_EQUAL(false, s.isBottom());
+        s.bucketWidth = 1;
+        CPPUNIT_ASSERT_EQUAL(true, s.isBottom());
     }
 
     void
     test_Subrange_partitionWalk()
     {
+        Subrange s(BucketHandle(NULL, 2), 0, (uint64_t)-1, LogTime(1, 9));
+        Subrange *c = new Subrange(BucketHandle(&s, 1), s.bucketWidth,
+            s.bucketWidth * 2 - 1, LogTime(1, 12));
+        
+        for (int i = 0; i < s.numBuckets; i++) {
+            if (i == 1) {
+                s.buckets[i].child = c; 
+                s.buckets[i].totalBytes = 2048UL * 1024 * 1024;
+                s.buckets[i].totalReferants = 1000;
+            } else {
+                s.buckets[i].totalBytes = 1;
+                s.buckets[i].totalReferants = 1;
+            }                     
+        }
+        for (int i = 0; i < c->numBuckets; i++)
+            c->buckets[i].totalBytes = c->buckets[i].totalReferants = 2;
+
+        PartitionList partList;
+        PartitionCollector pc(640 * 1024 * 1024, 10 * 1000 * 1000, &partList);
+        s.partitionWalk(&pc);
+        pc.done();
+        CPPUNIT_ASSERT_EQUAL(2, partList.size()); 
+        CPPUNIT_ASSERT_EQUAL(0, partList[0].firstKey);
+        CPPUNIT_ASSERT_EQUAL(s.bucketWidth + c->bucketWidth - 1,
+            partList[0].lastKey);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)-1, partList[1].lastKey);
+        CPPUNIT_ASSERT_EQUAL(
+            2048UL * 1024 * 1024 + (1 * (s.numBuckets - 1)) + 2 * c->numBuckets,
+            pc.globalTotalBytes);
+        CPPUNIT_ASSERT_EQUAL(1000 + (1 * (s.numBuckets - 1)) + 2 * c->numBuckets,
+            pc.globalTotalReferants);
     }
 
     void
@@ -235,9 +503,8 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, tp.root->totalChildren);
         CPPUNIT_ASSERT(tp.root->buckets[0].child != NULL);
 
-        TabletProfiler::Subrange *child = tp.root->buckets[0].child;
-        TabletProfiler::Subrange::BucketHandle rootBh =
-            TabletProfiler::Subrange::BucketHandle(tp.root, 0);
+        Subrange *child = tp.root->buckets[0].child;
+        BucketHandle rootBh = BucketHandle(tp.root, 0);
 
         CPPUNIT_ASSERT_EQUAL(tp.root->getBucketFirstKey(rootBh), child->firstKey);
         CPPUNIT_ASSERT_EQUAL(tp.root->getBucketLastKey(rootBh), child->lastKey);
@@ -265,9 +532,9 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         tp.track(0, 100, LogTime(1, 7));
 
         // be sure it split
-        TabletProfiler::Subrange *child = tp.root->buckets[0].child;
+        Subrange *child = tp.root->buckets[0].child;
         CPPUNIT_ASSERT(child != NULL);
-        TabletProfiler::Subrange::BucketHandle bh = tp.findBucket(0, NULL);
+        BucketHandle bh = tp.findBucket(0, NULL);
         CPPUNIT_ASSERT_EQUAL(1, tp.root->totalChildren);
         CPPUNIT_ASSERT_EQUAL(child, bh.getSubrange());
         CPPUNIT_ASSERT_EQUAL(300, child->totalBytes);
@@ -301,8 +568,8 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     void
     test_Subrange_getters()
     {
-        TabletProfiler::Subrange::BucketHandle bh(NULL, NULL);
-        TabletProfiler::Subrange s(bh, 51, 999, LogTime(134, 53)); 
+        BucketHandle bh(NULL, NULL);
+        Subrange s(bh, 51, 999, LogTime(134, 53)); 
 
         CPPUNIT_ASSERT(LogTime(134, 53) == s.getCreateTime());
         CPPUNIT_ASSERT_EQUAL(51, s.getFirstKey());

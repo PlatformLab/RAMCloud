@@ -95,6 +95,11 @@ class TabletProfiler {
             uint64_t  getFirstKey();
             uint64_t  getLastKey();
 
+            bool operator==(const BucketHandle& other) const {
+                return (this->subrange == other.subrange &&
+                       this->bucketIndex == other.bucketIndex);
+            }
+
           private:
             Subrange* subrange;
             int       bucketIndex;
