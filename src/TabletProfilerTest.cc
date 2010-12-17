@@ -359,7 +359,8 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(s1.buckets != NULL);
 
         // case2: all even levels
-        Subrange s2(BucketHandle(NULL, 2), 0x100000000, 0x1ffffffff, LogTime(1, 9));
+        Subrange s2(BucketHandle(NULL, 2),
+            0x100000000, 0x1ffffffff, LogTime(1, 9));
         CPPUNIT_ASSERT_EQUAL(NULL, s2.parent.subrange);
         CPPUNIT_ASSERT_EQUAL(2, s2.parent.bucketIndex);
         CPPUNIT_ASSERT(s2.bucketWidth != 0);
@@ -442,16 +443,16 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         Subrange s(BucketHandle(NULL, 2), 0, (uint64_t)-1, LogTime(1, 9));
         Subrange *c = new Subrange(BucketHandle(&s, 1), s.bucketWidth,
             s.bucketWidth * 2 - 1, LogTime(1, 12));
-        
+
         for (int i = 0; i < s.numBuckets; i++) {
             if (i == 1) {
-                s.buckets[i].child = c; 
+                s.buckets[i].child = c;
                 s.buckets[i].totalBytes = 2048UL * 1024 * 1024;
                 s.buckets[i].totalReferants = 1000;
             } else {
                 s.buckets[i].totalBytes = 1;
                 s.buckets[i].totalReferants = 1;
-            }                     
+            }
         }
         for (int i = 0; i < c->numBuckets; i++)
             c->buckets[i].totalBytes = c->buckets[i].totalReferants = 2;
@@ -460,7 +461,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         PartitionCollector pc(640 * 1024 * 1024, 10 * 1000 * 1000, &partList);
         s.partitionWalk(&pc);
         pc.done();
-        CPPUNIT_ASSERT_EQUAL(2, partList.size()); 
+        CPPUNIT_ASSERT_EQUAL(2, partList.size());
         CPPUNIT_ASSERT_EQUAL(0, partList[0].firstKey);
         CPPUNIT_ASSERT_EQUAL(s.bucketWidth + c->bucketWidth - 1,
             partList[0].lastKey);
@@ -468,7 +469,8 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(
             2048UL * 1024 * 1024 + (1 * (s.numBuckets - 1)) + 2 * c->numBuckets,
             pc.globalTotalBytes);
-        CPPUNIT_ASSERT_EQUAL(1000 + (1 * (s.numBuckets - 1)) + 2 * c->numBuckets,
+        CPPUNIT_ASSERT_EQUAL(
+            1000 + (1 * (s.numBuckets - 1)) + 2 * c->numBuckets,
             pc.globalTotalReferants);
     }
 
@@ -478,7 +480,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         TabletProfiler tp;
 
         // first do one insert that won't split bucket 0
-        tp.track(0, TabletProfiler::BUCKET_SPLIT_BYTES - 1, LogTime(1, 1)); 
+        tp.track(0, TabletProfiler::BUCKET_SPLIT_BYTES - 1, LogTime(1, 1));
         CPPUNIT_ASSERT(!tp.root->isBottom());
         CPPUNIT_ASSERT_EQUAL(NULL, tp.root->buckets[0].child);
         CPPUNIT_ASSERT_EQUAL(TabletProfiler::BUCKET_SPLIT_BYTES - 1,
@@ -489,7 +491,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, tp.root->totalReferants);
 
         // now force one that will split the bucket
-        tp.track(0, 2, LogTime(1,2));
+        tp.track(0, 2, LogTime(1, 2));
 
         // assert the parent hasn't changed
         CPPUNIT_ASSERT_EQUAL(TabletProfiler::BUCKET_SPLIT_BYTES - 1,
@@ -506,7 +508,8 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         Subrange *child = tp.root->buckets[0].child;
         BucketHandle rootBh = BucketHandle(tp.root, 0);
 
-        CPPUNIT_ASSERT_EQUAL(tp.root->getBucketFirstKey(rootBh), child->firstKey);
+        CPPUNIT_ASSERT_EQUAL(tp.root->getBucketFirstKey(rootBh),
+            child->firstKey);
         CPPUNIT_ASSERT_EQUAL(tp.root->getBucketLastKey(rootBh), child->lastKey);
         CPPUNIT_ASSERT_EQUAL(0, child->totalChildren);
         CPPUNIT_ASSERT_EQUAL(2, child->buckets[0].totalBytes);
@@ -543,7 +546,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(3, child->buckets[0].totalReferants);
 
         // make sure it doesn't merge before we expect
-        tp.untrack(0, 100, LogTime(1, 6)); 
+        tp.untrack(0, 100, LogTime(1, 6));
         CPPUNIT_ASSERT_EQUAL(child, bh.getSubrange());
         CPPUNIT_ASSERT_EQUAL(200, child->totalBytes);
         CPPUNIT_ASSERT_EQUAL(2, child->totalReferants);
@@ -569,7 +572,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     test_Subrange_getters()
     {
         BucketHandle bh(NULL, NULL);
-        Subrange s(bh, 51, 999, LogTime(134, 53)); 
+        Subrange s(bh, 51, 999, LogTime(134, 53));
 
         CPPUNIT_ASSERT(LogTime(134, 53) == s.getCreateTime());
         CPPUNIT_ASSERT_EQUAL(51, s.getFirstKey());
