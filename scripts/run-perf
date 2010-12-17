@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# these scripts are intended to be run from the top level
+# of the project
+
+port=11113
+cport=$(( $port + 1 ))
+
+source scripts/common.bash
+
+transport=fast+udp
+
+masterLocator=$transport:host=127.0.0.1,port=$port
+coordinatorLocator=$transport:host=127.0.0.1,port=$cport
+#masterLocator=infrc:host=127.0.0.1,port=$port
+#coordinatorLocator=infrc:host=127.0.0.1,port=$cport
+
+# Check to see if master and coordinator servers are running. If so, kill 'em!
+portslay $port
+portslay $cport
+
+atexit "portslay $port"
+atexit "portslay $cport"
+
+# Start a server and run tests
+$OBJDIR/coordinator -C $coordinatorLocator &
+$OBJDIR/server -L $masterLocator -C $coordinatorLocator &
+sleep .1
+
+# now call perl script to do the rest of the work
+scripts/latencyVSsize.pl -C $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.size.dump
+# scripts/latencyVSload.pl -C $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.load.dump
+RETVAL=$?
+
+# $OBJDIR/Bench -C $coordinatorLocator -R -m -S 1000 -n 1000
+# RETVAL=$?
+
+exit $RETVAL
+
