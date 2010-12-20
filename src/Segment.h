@@ -65,11 +65,16 @@ struct SegmentException : public Exception {
         : Exception(where, msg, errNo) {}
 };
 
+// forward decl
+class Log;
+
 class Segment {
   public:
     /// The class used to calculate segment checksums.
     typedef SegmentChecksum Checksum;
 
+    Segment(Log *log, uint64_t segmentId, void *baseAddress,
+            uint32_t capacity, BackupManager* backup = NULL);
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
             uint32_t capacity, BackupManager* backup = NULL);
     ~Segment();
@@ -92,6 +97,7 @@ class Segment {
     static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
 
   private:
+    void             commonConstructor();
     const void      *forceAppendBlob(const void *buffer, uint32_t length,
                                      bool updateChecksum = true);
     const void      *forceAppendWithEntry(LogEntryType type,
@@ -101,9 +107,10 @@ class Segment {
 
     BackupManager   *backup;         // makes operations on this segment durable
     void            *baseAddress;    // base address for the Segment
+    Log             *const log;      // optional pointer to Log (for stats)
     uint64_t         logId;          // log this belongs to, passed to backups
     uint64_t         id;             // segment identification number
-    const uint64_t   capacity;       // total byte length of segment when empty
+    const uint32_t   capacity;       // total byte length of segment when empty
     uint64_t         tail;           // offset to the next free byte in Segment
     uint64_t         bytesFreed;     // bytes free()'d in this Segment
     Checksum         checksum;       // Latest Segment checksum (crc32c)

@@ -65,7 +65,7 @@ class LogTest : public CppUnit::TestFixture {
 
         void *p = xmemalign(l.segmentCapacity, l.segmentCapacity);
         l.addSegmentMemory(p);
-        Segment s(0, 0, p, 8192);
+        Segment s((uint64_t)0, 0, p, 8192);
 
         CPPUNIT_ASSERT_EQUAL(2, l.segmentFreeList.size());
         CPPUNIT_ASSERT_EQUAL(p, l.segmentFreeList[1]);

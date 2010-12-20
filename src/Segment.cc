@@ -22,9 +22,42 @@
 #include "Crc32C.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
+#include "Log.h"
 #include "LogTypes.h"
 
 namespace RAMCloud {
+
+/**
+ * Constructor for Segment.
+ * \param[in] log
+ *      Pointer to the Log this Segment is a part of.
+ * \param[in] segmentId
+ *      The unique identifier for this Segment.
+ * \param[in] baseAddress
+ *      A pointer to memory that will back this Segment.
+ * \param[in] capacity
+ *      The size of the backing memory pointed to by baseAddress in bytes.
+ * \param[in] backup
+ *      The BackupManager responsible for this Segment's durability.
+ * \return
+ *      The newly constructed Segment object.
+ */
+Segment::Segment(Log *log, uint64_t segmentId, void *baseAddress,
+    uint32_t capacity, BackupManager *backup)
+    : backup(backup),
+      baseAddress(baseAddress),
+      log(log),
+      logId(log->getId()),
+      id(segmentId),
+      capacity(capacity),
+      tail(0),
+      bytesFreed(0),
+      checksum(),
+      closed(false),
+      backupSegment(NULL)
+{
+    commonConstructor();
+}
 
 /**
  * Constructor for Segment.
@@ -45,6 +78,7 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
     uint32_t capacity, BackupManager *backup)
     : backup(backup),
       baseAddress(baseAddress),
+      log(NULL),
       logId(logId),
       id(segmentId),
       capacity(capacity),
@@ -53,6 +87,16 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
       checksum(),
       closed(false),
       backupSegment(NULL)
+{
+    commonConstructor();
+}
+
+/**
+ * Perform actions common to all Segment constructors, including writing
+ * the header and opening the backup.
+ */
+void
+Segment::commonConstructor()
 {
     assert(capacity >= sizeof(SegmentEntry) + sizeof(SegmentHeader) +
                        sizeof(SegmentEntry) + sizeof(SegmentFooter));
@@ -295,6 +339,9 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length,
     if (updateChecksum)
         checksum.update(src, length);
     memcpy(dst, src, length);
+
+    if (log)
+        log->stats.totalBytesAppended += length;
 
     tail += length;
     return reinterpret_cast<void *>(dst);

@@ -55,7 +55,8 @@ class RecoverSegmentBenchmark {
         Segment *segments[numSegments];
         for (int i = 0; i < numSegments; i++) {
             void *p = xmalloc(Segment::SEGMENT_SIZE);
-            segments[i] = new Segment(0, 0, p, Segment::SEGMENT_SIZE, NULL);
+            segments[i] = new Segment((uint64_t)0, 0, p,
+                Segment::SEGMENT_SIZE, NULL);
             while (1) {
                 DECLARE_OBJECT(o, objectBytes);
                 o->id = nextObjId++;

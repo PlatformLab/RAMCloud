@@ -58,6 +58,29 @@ class Log {
     bool        isSegmentLive(uint64_t segmentId) const;
     uint64_t    getMaximumAppendableBytes() const;
     uint64_t    getBytesAppended() const;
+    uint64_t    getId() const;
+    uint64_t    getCapacity() const;
+
+    // This class is shared between the Log and its consituent Segments
+    // to maintain various counters.
+    class LogStats {
+      public:
+        LogStats();
+        uint64_t getBytesAppended() const;
+        uint64_t getAppends() const;
+        uint64_t getFrees() const;
+
+      private:
+        uint64_t totalBytesAppended;
+        uint64_t totalAppends;
+        uint64_t totalFrees;
+
+        // permit direct twiddling of counters by authorised classes
+        friend class Log;
+        friend class Segment;
+    };
+
+    LogStats    stats;
 
   private:
     void        addSegmentMemory(void *p);
@@ -93,9 +116,6 @@ class Log {
 
     /// Given to Segments to make them durable
     BackupManager *backup;
-
-    /// The total number of bytes appended to this log during its lifetime.
-    uint64_t bytesAppended;
 
     friend class LogTest;
     friend class LogCleaner;

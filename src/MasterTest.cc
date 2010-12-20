@@ -268,7 +268,7 @@ class MasterTest : public CppUnit::TestFixture {
                          uint64_t tblId, uint64_t objId, uint64_t version,
                          string objContents)
     {
-        Segment s(0, 0, segmentBuf, segmentCapacity, NULL);
+        Segment s((uint64_t)0, 0, segmentBuf, segmentCapacity, NULL);
 
         DECLARE_OBJECT(newObject, objContents.length() + 1);
         newObject->id = objId;
@@ -287,7 +287,7 @@ class MasterTest : public CppUnit::TestFixture {
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          ObjectTombstone *tomb)
     {
-        Segment s(0, 0, segmentBuf, segmentCapacity, NULL);
+        Segment s((uint64_t)0, 0, segmentBuf, segmentCapacity, NULL);
         const void *p = s.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb));
         assert(p != NULL);
         s.close();
