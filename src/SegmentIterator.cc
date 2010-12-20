@@ -49,7 +49,7 @@ SegmentIterator::SegmentIterator(const Segment *segment)
       firstEntry(NULL),
       currentEntry(NULL)
 {
-    CommonConstructor(false);
+    commonConstructor(false);
 }
 
 /**
@@ -80,7 +80,7 @@ SegmentIterator::SegmentIterator(const void *buffer, uint64_t capacity,
       firstEntry(NULL),
       currentEntry(NULL)
 {
-    CommonConstructor(ignoreCapacityMismatch);
+    commonConstructor(ignoreCapacityMismatch);
 }
 
 /**
@@ -90,7 +90,7 @@ SegmentIterator::SegmentIterator(const void *buffer, uint64_t capacity,
  *      See the #SegmentIterator constructor.
  */
 void
-SegmentIterator::CommonConstructor(bool ignoreCapacityMismatch)
+SegmentIterator::commonConstructor(bool ignoreCapacityMismatch)
 {
     if (segmentCapacity < (sizeof(SegmentEntry) + sizeof(SegmentHeader))) {
         throw SegmentIteratorException(HERE,
