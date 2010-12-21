@@ -124,11 +124,11 @@ TransportManager::initialize(const char* localServiceLocator)
         // physical device (NIC) does not exist.
         try {
             transport = factory->createTransport(NULL);
-        } catch (TransportException e) {
+        } catch (TransportException &e) {
         }
 
  insert_protocol_mappings:
-        if (transport != NULL) { 
+        if (transport != NULL) {
             foreach (const char* protocol, factory->getProtocols()) {
                 transports.insert(Transports::value_type(protocol, transport));
             }

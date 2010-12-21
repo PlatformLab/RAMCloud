@@ -40,7 +40,7 @@ class TransportManagerTest : public CppUnit::TestFixture {
 
         // If "mockThrow:" is _not_ in the service locator, that should be
         // caught and the transport ignored. If it is, then any exception
-        // is an error and should propagate up. 
+        // is an error and should propagate up.
         static struct MockThrowTransportFactory : public TransportFactory {
             MockThrowTransportFactory() : TransportFactory("mockThrow") {}
             Transport* createTransport(const ServiceLocator* local) {
