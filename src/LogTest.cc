@@ -143,11 +143,13 @@ class LogTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT_EQUAL(4, l.stats.totalAppends);
 
-        // fill the log and get an exception. we should be on the 3rd Segment now.
+        // fill the log and get an exception. we should be on the 3rd Segment
+        // now.
         CPPUNIT_ASSERT_EQUAL(0, l.segmentFreeList.size());
         p = l.append(LOG_ENTRY_TYPE_OBJ, fillbuf, l.head->appendableBytes());
         CPPUNIT_ASSERT(p != NULL);
-        CPPUNIT_ASSERT_THROW(l.append(LOG_ENTRY_TYPE_OBJ, buf, 1), LogException);
+        CPPUNIT_ASSERT_THROW(l.append(LOG_ENTRY_TYPE_OBJ, buf, 1),
+            LogException);
     }
 
     void

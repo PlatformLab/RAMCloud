@@ -93,7 +93,7 @@ class SegmentTest : public CppUnit::TestFixture {
 
         // be sure we count the header written in the LogStats
         Log l(0, 8192, 8192);
-        Segment s2(&l, 0, alignedBuf, sizeof(alignedBuf)); 
+        Segment s2(&l, 0, alignedBuf, sizeof(alignedBuf));
         CPPUNIT_ASSERT_EQUAL(l.getBytesAppended(), s2.tail);
     }
 
