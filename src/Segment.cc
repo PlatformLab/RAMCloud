@@ -109,6 +109,9 @@ Segment::commonConstructor()
         SegmentHeader { logId, id, capacity };
     tail += sizeof(SegmentHeader);
 
+    if (log)
+        log->stats.totalBytesAppended += tail;
+
 #ifndef PERF_DEBUG_RECOVERY_NO_CKSUM
     checksum.update(baseAddress, tail);
 #endif
