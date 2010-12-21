@@ -107,22 +107,31 @@ TransportManager::initialize(const char* localServiceLocator)
     ServiceLocator::parseServiceLocators(localServiceLocator, &locators);
 
     foreach (TransportFactory* factory, transportFactories) {
-        Transport* transport;
+        Transport* transport = NULL;
         foreach (ServiceLocator& locator, locators) {
             if (factory->supports(locator.getProtocol().c_str())) {
                 // The transport supports a protocol that we can receive
-                // packets on.
+                // packets on. Since it is expected that this transport
+                // work, we do not catch exceptions if it is unavailable.
                 transport = factory->createTransport(&locator);
                 listening.push_back(transport);
                 goto insert_protocol_mappings;
             }
         }
+
         // The transport doesn't support any protocols that we can receive
-        // packets on.
-        transport = factory->createTransport(NULL);
+        // packets on. Such transports need not be available, e.g. if the
+        // physical device (NIC) does not exist.
+        try {
+            transport = factory->createTransport(NULL);
+        } catch (TransportException e) {
+        }
+
  insert_protocol_mappings:
-        foreach (const char* protocol, factory->getProtocols()) {
-            transports.insert(Transports::value_type(protocol, transport));
+        if (transport != NULL) { 
+            foreach (const char* protocol, factory->getProtocols()) {
+                transports.insert(Transports::value_type(protocol, transport));
+            }
         }
     }
     initialized = true;
