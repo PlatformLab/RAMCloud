@@ -616,6 +616,7 @@ InfRcTransport::serverTrySetupQueuePair()
     if (len != sizeof(outgoingQpt)) {
         LOG(WARNING, "%s: sendto failed, len = %Zd\n", __func__, len);
         delete qp;
+        return;
     }
 
     // maintain the qpn -> qp mapping
