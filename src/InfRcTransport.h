@@ -20,7 +20,6 @@
  */
 
 #include <time.h>
-#include <infiniband/verbs.h>
 #include <string>
 #include <boost/unordered_map.hpp>
 
@@ -28,16 +27,19 @@
 #include "Common.h"
 #include "Segment.h"
 #include "Transport.h"
+#include "Infiniband.h"
 
 #ifndef RAMCLOUD_INFRCTRANSPORT_H
 #define RAMCLOUD_INFRCTRANSPORT_H
 
 namespace RAMCloud {
 
+typedef Infiniband::BufferDescriptor BufferDescriptor;
+typedef Infiniband::QueuePair QueuePair;
+typedef Infiniband::QueuePairTuple QueuePairTuple;
+
 class InfRcTransport : public Transport {
     // forward declarations
-    struct BufferDescriptor;
-    class  QueuePair;
     class InfRCSession;
 
   public:
@@ -119,7 +121,6 @@ class InfRcTransport : public Transport {
     // maximum RPC size we'll permit. we'll use the segment size plus a
     // little extra for header overhead, etc.
     static const uint32_t MAX_RPC_SIZE = Segment::SEGMENT_SIZE + 4096;
-    static const uint32_t MAX_INLINE_DATA = 400;
     static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 8;
     static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 64;
@@ -142,69 +143,6 @@ class InfRcTransport : public Transport {
         QueuePair* qp;
         friend class ClientRpc;
         DISALLOW_COPY_AND_ASSIGN(InfRCSession);
-    };
-
-    // wrap an RX or TX buffer registered with the HCA
-    struct BufferDescriptor {
-        char*           buffer;         // buf of getMaxPayloadSize() bytes
-        ibv_mr*         mr;             // memory region of the buffer
-
-        BufferDescriptor(char *buffer, ibv_mr *mr) :
-            buffer(buffer), mr(mr)
-        {
-        }
-        BufferDescriptor() : buffer(NULL), mr(NULL) {}
-    };
-
-    // this class exists simply for passing queue pair handshake information
-    // back and forth.
-    class QueuePairTuple {
-      public:
-        QueuePairTuple() : qpn(0), psn(0), lid(0), nonce(0) {}
-        QueuePairTuple(uint16_t lid, uint32_t qpn, uint32_t psn,
-            uint64_t nonce) : qpn(qpn), psn(psn), lid(lid), nonce(nonce) {}
-        uint16_t getLid() const { return lid; }
-        uint32_t getQpn() const { return qpn; }
-        uint32_t getPsn() const { return psn; }
-        uint64_t getNonce() const { return nonce; }
-
-      private:
-        uint32_t qpn;            // queue pair number
-        uint32_t psn;            // initial packet sequence number
-        uint16_t lid;            // infiniband address: "local id"
-        uint64_t nonce;          // random nonce used to confirm replies are
-                                 // for received requests
-
-        DISALLOW_COPY_AND_ASSIGN(QueuePairTuple); //NOLINT
-    } __attribute__((packed));
-
-    // this class encapsulates the creation, use, and destruction of an RC
-    // queue pair.
-    //
-    // the constructor will create a qp and bring it to the INIT state.
-    // after obtaining the lid, qpn, and psn of a remote queue pair, one
-    // must call plumb() to bring the queue pair to the RTS state.
-    class QueuePair {
-      public:
-        QueuePair(int ibPhysicalPort, ibv_pd *pd, ibv_srq *srq, ibv_cq *txcq,
-            ibv_cq *rxcq);
-       ~QueuePair();
-        uint32_t getInitialPsn() const;
-        uint32_t getLocalQpNumber() const;
-        uint32_t getRemoteQpNumber() const;
-        uint16_t getRemoteLid() const;
-        void     plumb(QueuePairTuple *qpt);
-
-      //private: XXXXX- move send/recv functionality into the queue pair shit
-        int         ibPhysicalPort; // physical port number of the HCA
-        ibv_pd*     pd;             // protection domain
-        ibv_srq*    srq;            // shared receive queue
-        ibv_qp*     qp;             // infiniband verbs QP handle
-        ibv_cq*     txcq;           // transmit completion queue
-        ibv_cq*     rxcq;           // receive completion queue
-        uint32_t    initialPsn;     // initial packet sequence number
-
-        DISALLOW_COPY_AND_ASSIGN(QueuePair);
     };
 
     /**
@@ -252,14 +190,8 @@ class InfRcTransport : public Transport {
     // misc helper functions
     void setNonBlocking(int fd);
 
-    // infiniband helper functions
-    ibv_device* ibFindDevice(const char *name);
-    int ibGetLid();
-    void ibPostSrqReceive(ibv_srq* srq, BufferDescriptor *bd);
-    void ibPostSend(QueuePair* qp, BufferDescriptor* bd, uint32_t length);
-    void ibPostSendAndWait(QueuePair* qp, BufferDescriptor* bd,
-                           uint32_t length);
-    BufferDescriptor allocateBufferDescriptorAndRegister();
+    // Extend Infiniband::postSrqReceive by issuing queued up transmissions
+    void postSrqReceiveAndKickTransmit(ibv_srq* srq, BufferDescriptor *bd);
 
     // queue pair connection setup helpers
     QueuePair* clientTrySetupQueuePair(const char* ip, int port);
@@ -277,13 +209,13 @@ class InfRcTransport : public Transport {
 
     ibv_srq*     serverSrq;         // shared receive work queue for server
     ibv_srq*     clientSrq;         // shared receive work queue for client
-    ibv_device*  dev;               // infiniband HCA device we're using
     ibv_context* ctxt;              // HCA device context (handle)
     ibv_pd*      pd;                // protection domain for registered memory
     ibv_cq*      serverRxCq;        // completion queue for serverRecv
     ibv_cq*      clientRxCq;        // completion queue for client wait
     ibv_cq*      commonTxCq;        // common completion queue for all transmits
     int          ibPhysicalPort;    // physical port number on the HCA
+    int          lid;               // local id for this HCA and physical port
     int          udpListenPort;     // UDP port number for server's setupSocket
     int          serverSetupSocket; // UDP socket for incoming setup requests
     int          clientSetupSocket; // UDP socket for outgoing setup requests
