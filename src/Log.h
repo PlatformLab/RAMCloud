@@ -77,6 +77,7 @@ class Log {
 
         // permit direct twiddling of counters by authorised classes
         friend class Log;
+        friend class LogTest;
         friend class Segment;
     };
 
@@ -97,6 +98,7 @@ class Log {
     vector<void *> segmentFreeList;
     uint64_t       nextSegmentId;
     uint64_t       maximumAppendableBytes;
+    bool           useCleaner;      // allow tests to disable cleaner
     LogCleaner     cleaner;
 
     /// Current head of the log

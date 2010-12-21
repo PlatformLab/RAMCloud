@@ -47,6 +47,7 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
       segmentFreeList(),
       nextSegmentId(0),
       maximumAppendableBytes(0),
+      useCleaner(true),
       cleaner(this),
       head(NULL),
       callbackMap(),
@@ -203,7 +204,8 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     if (logTime != NULL)
         *logTime = LogTime(head->getId(), segmentOffset);
 
-    cleaner.clean(1);
+    if (useCleaner)
+        cleaner.clean(1);
     stats.totalAppends++;
     return p;
 }

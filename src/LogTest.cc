@@ -99,11 +99,19 @@ class LogTest : public CppUnit::TestFixture {
     void
     test_append()
     {
-        Log l(57, 1 * 8192, 8192);
-
+        Log l(57, 2 * 8192, 8192);
         uint64_t lengthInLog;
         LogTime logTime;
         char buf[13];
+        char fillbuf[l.getMaximumAppendableBytes()];
+
+        // keep the cleaner from dumping our objects
+        l.useCleaner = false;
+
+        CPPUNIT_ASSERT(l.head == NULL);
+        CPPUNIT_ASSERT_EQUAL(2, l.segmentFreeList.size());
+
+        // exercise head == NULL path
         const void *p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf),
             &lengthInLog, &logTime);
         CPPUNIT_ASSERT(p != NULL);
@@ -111,13 +119,35 @@ class LogTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, p, sizeof(buf)));
         CPPUNIT_ASSERT(LogTime(0,
             sizeof(SegmentEntry) + sizeof(SegmentHeader)) == logTime);
+        CPPUNIT_ASSERT(l.activeIdMap.find(l.head->getId()) !=
+            l.activeIdMap.end());
+        CPPUNIT_ASSERT(l.activeBaseAddressMap.find(l.head->getBaseAddress()) !=
+            l.activeBaseAddressMap.end());
+        CPPUNIT_ASSERT_EQUAL(1, l.segmentFreeList.size());
 
+        // exercise head != NULL, but too few bytes (new head) path
+        Segment *oldHead = l.head;
+        p = l.append(LOG_ENTRY_TYPE_OBJ, fillbuf, l.head->appendableBytes());
+        CPPUNIT_ASSERT(p != NULL);
+        CPPUNIT_ASSERT_EQUAL(oldHead, l.head);
+        CPPUNIT_ASSERT_EQUAL(0, l.head->appendableBytes());
+        p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), NULL, &logTime);
+        CPPUNIT_ASSERT(p != NULL);
+        CPPUNIT_ASSERT(oldHead != l.head);
+
+        // execise regular head != NULL path
         LogTime nextTime;
         p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf), NULL, &nextTime);
         CPPUNIT_ASSERT(p != NULL);
         CPPUNIT_ASSERT(nextTime > logTime);
 
-        //XXXXXXX- need more.
+        CPPUNIT_ASSERT_EQUAL(4, l.stats.totalAppends);
+
+        // fill the log and get an exception. we should be on the 3rd Segment now.
+        CPPUNIT_ASSERT_EQUAL(0, l.segmentFreeList.size());
+        p = l.append(LOG_ENTRY_TYPE_OBJ, fillbuf, l.head->appendableBytes());
+        CPPUNIT_ASSERT(p != NULL);
+        CPPUNIT_ASSERT_THROW(l.append(LOG_ENTRY_TYPE_OBJ, buf, 1), LogException);
     }
 
     void
