@@ -462,7 +462,7 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
 
     // the queue pair should be ready to use once the client has finished
     // setting up their end.
-    LOG(NOTICE, "%s infiniband qp plumbed: qpn 0x%x, ibPhysicalPort %u",
+    LOG(DEBUG, "%s infiniband qp plumbed: qpn 0x%x, ibPhysicalPort %u",
         __func__, qp->qp_num, ibPhysicalPort);
 }
 
@@ -498,7 +498,7 @@ Infiniband::QueuePair::activate()
         throw TransportException(HERE, ret);
     }
 
-    LOG(NOTICE, "%s infiniband qp activated: qpn 0x%x, ibPhysicalPort %u",
+    LOG(DEBUG, "%s infiniband qp activated: qpn 0x%x, ibPhysicalPort %u",
         __func__, qp->qp_num, ibPhysicalPort);
 }
 
