@@ -494,7 +494,7 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
 
     // Create a new QueuePair and send its parameters to the server so it
     // can create its qp and reply with its parameters.
-    QueuePair *qp = new QueuePair(ibPhysicalPort, pd, clientSrq,
+    QueuePair *qp = new QueuePair(IBV_QPT_RC, ibPhysicalPort, pd, clientSrq,
                                   commonTxCq, clientRxCq, MAX_TX_QUEUE_DEPTH,
                                   MAX_SHARED_RX_QUEUE_DEPTH);
 
@@ -568,7 +568,7 @@ InfRcTransport::serverTrySetupQueuePair()
     //      be sure, esp. if we use an unreliable means of handshaking, in
     //      which case the response to the client request could have been lost.
 
-    QueuePair *qp = new QueuePair(ibPhysicalPort, pd, serverSrq,
+    QueuePair *qp = new QueuePair(IBV_QPT_RC, ibPhysicalPort, pd, serverSrq,
                                   commonTxCq, serverRxCq, MAX_TX_QUEUE_DEPTH,
                                   MAX_SHARED_RX_QUEUE_DEPTH);
     qp->plumb(&incomingQpt);

@@ -66,7 +66,8 @@ class Infiniband {
     // must call plumb() to bring the queue pair to the RTS state.
     class QueuePair {
       public:
-        QueuePair(int ibPhysicalPort,
+        QueuePair(ibv_qp_type type,
+                  int ibPhysicalPort,
                   ibv_pd *pd,
                   ibv_srq *srq,
                   ibv_cq *txcq,
@@ -78,9 +79,12 @@ class Infiniband {
         uint32_t getLocalQpNumber() const;
         uint32_t getRemoteQpNumber() const;
         uint16_t getRemoteLid() const;
+        int      getState() const;
         void     plumb(QueuePairTuple *qpt);
+        void     activate();
 
       //private: XXXXX- move send/recv functionality into the queue pair shit
+        int         type;           // QP type (IBV_QPT_RC, etc.)
         int         ibPhysicalPort; // physical port number of the HCA
         ibv_pd*     pd;             // protection domain
         ibv_srq*    srq;            // shared receive queue
@@ -124,6 +128,7 @@ class Infiniband {
 
   private:
     static const uint32_t MAX_INLINE_DATA = 400;
+    static const uint32_t UD_QKEY = 0xdeadbeef;
 };
 
 } // namespace

@@ -13,6 +13,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * XXX- This file is used by both Transports and Drivers, but throws
+ *      TransportExceptions. What should we do? Nix the static methods and
+ *      Template it on the exception type?
+ */
+
 #include "Transport.h"
 #include "Infiniband.h"
 
@@ -267,14 +273,22 @@ Infiniband::allocateBufferDescriptorAndRegister(ibv_pd *pd, size_t bytes)
 /**
  * Construct a QueuePair. This object hides some of the ugly
  * initialisation of Infiniband "queue pairs", which are single-side
- * transmit and receive queues. Somewhat confusingly, each communicating
- * end has a QueuePair, which are bound (one might say "paired", but that's
- * even more confusing). This object is somewhat analogous to a TCB in TCP. 
+ * transmit and receive queues. This object can represent both reliable
+ * connected (RC) and unreliable datagram (UD) queue pairs. Not all
+ * methods are valid to all queue pair types.
+ *
+ * Somewhat confusingly, each communicating end has a QueuePair, which are
+ * bound (one might say "paired", but that's even more confusing). This
+ * object is somewhat analogous to a TCB in TCP. 
  *
  * After this method completes, the QueuePair will be in the INIT state.
  * A later call to #plumb() will transition it into the RTS state for
- * regular use.
+ * regular use with RC queue pairs.
  *
+ * \param type
+ *      The type of QueuePair to create. Currently valid values are
+ *      IBV_QPT_RC for reliable QueuePairs and IBV_QPT_UD for
+ *      unreliable ones.
  * \param ibPhysicalPort
  *      The physical port on the HCA we will use this QueuePair on.
  *      The default is 1, though some devices have multiple ports.
@@ -285,7 +299,7 @@ Infiniband::allocateBufferDescriptorAndRegister(ibv_pd *pd, size_t bytes)
  * \param srq
  *      The Verbs shared receive queue to associate this QueuePair
  *      with. All writes received will use WQEs placed on the
- *      shared queue.
+ *      shared queue. If NULL, do not use a shared receive queue.
  * \param txcq
  *      The Verbs completion queue to be used for transmissions on
  *      this QueuePair.
@@ -299,17 +313,21 @@ Infiniband::allocateBufferDescriptorAndRegister(ibv_pd *pd, size_t bytes)
  *      Maximum number of outstanding receive work requests allowed on
  *      this QueuePair.
  */
-Infiniband::QueuePair::QueuePair(int ibPhysicalPort, ibv_pd *pd,
-    ibv_srq *srq, ibv_cq *txcq, ibv_cq *rxcq, uint32_t maxSendWr,
-    uint32_t maxRecvWr)
-    : ibPhysicalPort(ibPhysicalPort),
+Infiniband::QueuePair::QueuePair(ibv_qp_type type, int ibPhysicalPort,
+    ibv_pd *pd, ibv_srq *srq, ibv_cq *txcq, ibv_cq *rxcq,
+    uint32_t maxSendWr, uint32_t maxRecvWr)
+    : type(type),
+      ibPhysicalPort(ibPhysicalPort),
       pd(pd),
       srq(srq),
       qp(NULL),
       txcq(txcq),
       rxcq(rxcq),
-      initialPsn(0)
+      initialPsn(generateRandom() & 0xffffff)
 {
+    if (type != IBV_QPT_RC && type != IBV_QPT_UD)
+        throw TransportException(HERE, "invalid queue pair type");
+
     ibv_qp_init_attr qpia;
     memset(&qpia, 0, sizeof(qpia));
     qpia.send_cq = txcq;
@@ -321,12 +339,14 @@ Infiniband::QueuePair::QueuePair(int ibPhysicalPort, ibv_pd *pd,
     qpia.cap.max_recv_sge = 1;         // max recv scatter-gather elements
     qpia.cap.max_inline_data =         // max bytes of immediate data on send q
         MAX_INLINE_DATA;
-    qpia.qp_type = IBV_QPT_RC;         // RC, UC, UD, or XRC
+    qpia.qp_type = type;               // RC, UC, UD, or XRC
     qpia.sq_sig_all = 0;               // only generate CQEs on requested WQEs
 
     qp = ibv_create_qp(pd, &qpia);
-    if (qp == NULL)
+    if (qp == NULL) {
+        LOG(ERROR, "%s: ibv_create_qp failed", __func__);
         throw TransportException(HERE, "failed to create queue pair");
+    }
 
     // move from RESET to INIT state
     ibv_qp_attr qpa;
@@ -335,17 +355,26 @@ Infiniband::QueuePair::QueuePair(int ibPhysicalPort, ibv_pd *pd,
     qpa.pkey_index = 0;
     qpa.port_num   = ibPhysicalPort;
     qpa.qp_access_flags = IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE;
-    int ret = ibv_modify_qp(qp, &qpa, IBV_QP_STATE |
-                                      IBV_QP_PKEY_INDEX |
-                                      IBV_QP_PORT |
-                                      IBV_QP_ACCESS_FLAGS);
+    qpa.qkey       = UD_QKEY;
+
+    int mask = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT;
+    switch (type) {
+    case IBV_QPT_RC:
+        mask |= IBV_QP_ACCESS_FLAGS;
+        break;
+    case IBV_QPT_UD:
+        mask |= IBV_QP_QKEY;
+        break;
+    default:
+        assert(0);
+    }
+
+    int ret = ibv_modify_qp(qp, &qpa, mask);
     if (ret) {
         ibv_destroy_qp(qp);
         LOG(ERROR, "%s: failed to transition to INIT state", __func__);
         throw TransportException(HERE, ret);
     }
-
-    initialPsn = generateRandom() & 0xffffff;
 }
 
 /**
@@ -357,21 +386,35 @@ Infiniband::QueuePair::~QueuePair()
 }
 
 /**
- * Bring an newly created QueuePair into the RTS state, enabling
+ * Bring an newly created RC QueuePair into the RTS state, enabling
  * regular bidirectional communication. This is necessary before
- * the QueuePair may be used.
+ * the QueuePair may be used. Note that this only applies to
+ * RC QueuePairs.
  *
  * \param qpt
  *      QueuePairTuple representing the remote QueuePair. The Verbs
  *      interface requires us to exchange handshaking information
  *      manually. This includes initial sequence numbers, queue pair
  *      numbers, and the HCA infiniband addresses.
+ *
+ * \throw TransportException
+ *      An exception is thrown if this method is called on a QueuePair
+ *      that is not of type IBV_QPT_RC, or if the QueuePair is not
+ *      in the INIT state.
  */
 void
 Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
 {
     ibv_qp_attr qpa;
     int r;
+
+    if (type != IBV_QPT_RC)
+        throw TransportException(HERE, "plumb() called on wrong qp type");
+
+    if (getState() != IBV_QPS_INIT) {
+        LOG(ERROR, "%s: plumb() on qp in state %d", __func__, getState());
+        throw TransportException(HERE, "plumb() on qp not in INIT state");
+    }
 
     // now connect up the qps and switch to RTR
     memset(&qpa, 0, sizeof(qpa));
@@ -419,6 +462,44 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
 
     // the queue pair should be ready to use once the client has finished
     // setting up their end.
+    LOG(NOTICE, "%s infiniband qp plumbed: qpn 0x%x, ibPhysicalPort %u",
+        __func__, qp->qp_num, ibPhysicalPort);
+}
+
+void
+Infiniband::QueuePair::activate()
+{
+    ibv_qp_attr qpa;
+
+    if (type != IBV_QPT_UD)
+        throw TransportException(HERE, "activate() called on wrong qp type");
+
+    if (getState() != IBV_QPS_INIT) {
+        LOG(ERROR, "%s: activate() on qp in state %d", __func__, getState());
+        throw TransportException(HERE, "activate() on qp not in INIT state");
+    }
+
+    // now switch to RTR
+    memset(&qpa, 0, sizeof(qpa));
+    qpa.qp_state = IBV_QPS_RTR;
+
+    int ret = ibv_modify_qp(qp, &qpa, IBV_QP_STATE);
+    if (ret) {
+        LOG(ERROR, "failed to transition to RTR state");
+        throw TransportException(HERE, ret);
+    }
+
+    // now move to RTS state
+    qpa.qp_state = IBV_QPS_RTS;
+    qpa.sq_psn = initialPsn;
+    ret = ibv_modify_qp(qp, &qpa, IBV_QP_STATE | IBV_QP_SQ_PSN);
+    if (ret) {
+        LOG(ERROR, "failed to transition to RTS state");
+        throw TransportException(HERE, ret);
+    }
+
+    LOG(NOTICE, "%s infiniband qp activated: qpn 0x%x, ibPhysicalPort %u",
+        __func__, qp->qp_num, ibPhysicalPort);
 }
 
 /**
@@ -479,6 +560,20 @@ Infiniband::QueuePair::getRemoteLid() const
     }
 
     return qpa.ah_attr.dlid;
+}
+
+int
+Infiniband::QueuePair::getState() const
+{
+    ibv_qp_attr qpa;
+    ibv_qp_init_attr qpia;
+
+    int r = ibv_query_qp(qp, &qpa, IBV_QP_STATE, &qpia);
+    if (r) {
+        // XXX log?!?
+        throw TransportException(HERE, r);
+    }
+    return qpa.qp_state;
 }
 
 } // namespace
