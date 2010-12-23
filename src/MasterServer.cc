@@ -305,7 +305,7 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
  * HashTable::forEach.
  */
 static void
-recoveryCleanup(const ObjectTombstone *tomb, void *cookie)
+recoveryCleanup(const ObjectTombstone *tomb, uint8_t type, void *cookie)
 {
     free(const_cast<ObjectTombstone *>(tomb));
 }

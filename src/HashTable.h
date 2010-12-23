@@ -315,11 +315,15 @@ class HashTable {
      *      The first 64 bits of the key.
      * \param[in] key2
      *      The second 64 bits of the key.
+     * \param[out] retType
+     *      If not NULL, return the type of the referant looked
+     *      up. This is only valid if the constructor was called
+     *      with numTypes > 1.
      * \return
      *      The address of the referant, or \a NULL if one doesn't exist.
      */
     const T*
-    lookup(uint64_t key1, uint64_t key2)
+    lookup(uint64_t key1, uint64_t key2, uint8_t *retType = NULL)
     {
         uint64_t secondaryHash;
         Entry *entry;
@@ -327,7 +331,7 @@ class HashTable {
         entry = lookupEntry(bucket, secondaryHash, key1, key2);
         if (entry == NULL)
             return NULL;
-        return entry->getReferant(typeBits);
+        return entry->getReferant(typeBits, retType);
     }
 
     /**
@@ -336,11 +340,18 @@ class HashTable {
      *      The first 64 bits of the key.
      * \param[in] key2
      *      The second 64 bits of the key.
+     * \param[out] retPtr
+     *      If not NULL, return the address of the referant
+     *      removed here.
+     * \param[out] retType
+     *      If not NULL, return the type of the referant
+     *      removed here.
      * \return
      *      Whether the hash table contained the key specified.
      */
     bool
-    remove(uint64_t key1, uint64_t key2)
+    remove(uint64_t key1, uint64_t key2, const T** retPtr = NULL,
+        uint8_t *retType = NULL)
     {
         uint64_t secondaryHash;
         Entry *entry;
@@ -348,6 +359,9 @@ class HashTable {
         entry = lookupEntry(bucket, secondaryHash, key1, key2);
         if (entry == NULL)
             return false;
+        const T* p = entry->getReferant(typeBits, retType);
+        if (retPtr != NULL)
+            *retPtr = p;
         entry->clear();
         return true;
     }
@@ -361,6 +375,17 @@ class HashTable {
      *      The second 64 bits of the key. 
      * \param[in] ptr
      *      The address of the new referant.
+     * \param[in] type
+     *      Type identifier for the object to insert. Only valid if the
+     *      HashTable was constructed with numTypes > 1.
+     * \param[out] retPtr
+     *      If not NULL, return the address of the referant
+     *      replaced here. If nothing was replaced, the pointer
+     *      returned is undefined. 
+     * \param[out] retType
+     *      If not NULL, return the type of the referant
+     *      removed here. If nothing was replaced, the value is
+     *      undefined.
      * \retval true
      *      The hash table previously contained (key1, key2) and its entry has
      *      been updated to reflect the new location of the referant.
@@ -369,7 +394,8 @@ class HashTable {
      *      been created to reflect the location of the referant.
      */
     bool
-    replace(uint64_t key1, uint64_t key2, const T* ptr)
+    replace(uint64_t key1, uint64_t key2, const T* ptr, uint8_t type = 0,
+        const T **retPtr = NULL, uint8_t *retType = NULL)
     {
         CycleCounter cycles(STAT_REF(perfCounters.replaceCycles));
         uint64_t secondaryHash;
@@ -382,7 +408,10 @@ class HashTable {
         bucket = findBucket(key1, key2, &secondaryHash);
         entry = lookupEntry(bucket, secondaryHash, key1, key2);
         if (entry != NULL) {
-            entry->setReferant(secondaryHash, ptr);
+            const T* p = entry->getReferant(typeBits, retType);
+            if (retPtr != NULL)
+                *retPtr = p;
+            entry->setReferant(secondaryHash, ptr, type, typeBits);
             return true;
         }
 
@@ -391,7 +420,7 @@ class HashTable {
             entry = cl->entries;
             for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
                 if (entry->isAvailable(typeBits)) {
-                    entry->setReferant(secondaryHash, ptr);
+                    entry->setReferant(secondaryHash, ptr, type, typeBits);
                     return false;
                 }
                 entry++;
@@ -424,7 +453,7 @@ class HashTable {
      *      in the HashTable).
      */
     uint64_t
-    forEach(void (*callback)(const T* ptr, void *), void *cookie)
+    forEach(void (*callback)(const T *, uint8_t, void *), void *cookie)
     {
         uint64_t numCalls = 0;
 
@@ -435,7 +464,9 @@ class HashTable {
                     Entry *e = &cl->entries[j];
                     if (!e->isAvailable(typeBits) &&
                         e->getChainPointer(typeBits) == NULL) {
-                        callback(e->getReferant(typeBits), cookie);
+                        uint8_t type;
+                        const T *ptr = e->getReferant(typeBits, &type);
+                        callback(ptr, type, cookie);
                         numCalls++;
                     }
                 }
@@ -645,7 +676,7 @@ class HashTable {
                     // The hash within the hash table entry matches, so with
                     // high probability this is the pointer we're looking for.
                     // To check, we must go to the object.
-                    const T* c = candidate->getReferant(typeBits);
+                    const T* c = candidate->getReferant(typeBits, NULL);
                     if (c->*keyField1 == key1 && c->*keyField2 == key2) {
                         perfCounters.lookupEntryDist.storeSample(cycles.stop());
                         return candidate;
@@ -704,12 +735,16 @@ class HashTable {
          *      The secondary hash bits computed from the key (16 bits).
          * \param[in] ptr
          *      The address of the referant. Must not be \c NULL.
+         * \param[in] type
+         *      Optional type of the referant.
+         * \param[in] typeBits
+         *      Number of bits consumed by the type parameter.
          */
         void
-        setReferant(uint64_t hash, const T* ptr)
+        setReferant(uint64_t hash, const T* ptr, uint8_t type, uint8_t typeBits)
         {
             assert(ptr != NULL);
-            pack(hash, false, reinterpret_cast<uint64_t>(ptr));
+            pack(hash, false, reinterpret_cast<uint64_t>(ptr), type, typeBits);
         }
 
         /**
@@ -744,14 +779,18 @@ class HashTable {
          * a referant address with #hashMatches().
          * \param[in] typeBits
          *      Number of pointer bits used to differentiate types.
+         * \param[out] type
+         *      NULL, or a pointer to where the type should be returned.
          * \return
          *      The address of the referant stored.
          */
         const T*
-        getReferant(uint8_t typeBits) const
+        getReferant(uint8_t typeBits, uint8_t *type) const
         {
             UnpackedEntry ue = unpack(typeBits);
             assert(!ue.chain && ue.ptr != 0);
+            if (type != NULL)
+                *type = ue.type;
             return reinterpret_cast<const T*>(ue.ptr);
         }
 
@@ -825,8 +864,9 @@ class HashTable {
          *      Number of bits used by the type parameter, if it's valid.
          *      Otherwise, 0.
          * \throw Exception
-         *      An exception is thrown if typeBits > MAX_TYPEBITS or type is
-         *      too large to fit in typeBits.
+         *      An exception is thrown if typeBits > MAX_TYPEBITS, or type is
+         *      too large to fit in typeBits, or the pointer cannot fix in
+         *      the number of bits we have.
          */
         void
         pack(uint64_t hash, bool chain, uint64_t ptr, uint8_t type = 0,
@@ -845,9 +885,11 @@ class HashTable {
                 typeField <<= (47 - typeBits);
             }
 
+            if ((ptr  & ~(0x00007fffffffffffUL >> typeBits)) != 0)
+                throw Exception(HERE, "pointer cannot fit! stack addr used?");
+
             uint64_t c = chain ? 1 : 0;
             assert((hash & ~(0x000000000000ffffUL)) == 0);
-            assert((ptr  & ~(0x00007fffffffffffUL >> typeBits)) == 0);
             this->value = ((hash << 48)  | (c << 47) | typeField | ptr);
         }
 
