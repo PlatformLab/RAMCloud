@@ -135,7 +135,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         int depth = 1;
         cl = &ht.buckets[i];
         entry = &cl->entries[ht.entriesPerCacheLine() - 1];
-        while ((cl = entry->getChainPointer()) != NULL) {
+        while ((cl = entry->getChainPointer(0)) != NULL) {
             depth++;
             entry = &cl->entries[ht.entriesPerCacheLine() - 1];
         }

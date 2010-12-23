@@ -245,12 +245,19 @@ class HashTable {
      * \param[in] numBuckets
      *      The number of buckets in the new hash table. This should be a power
      *      of two.
+     * \param[in] numTypes
+     *      The number of different types of referants that can be put in this
+     *      HashTable. If numTypes > 1, the HashTable will reserve
+     *      ceil(log2(numTypes)) upper pointer bits to differentiate referants
+     *      in the table. 
      * \throw Exception
-     *      An exception is thrown is numBuckets is 0.
+     *      An exception is thrown is numBuckets is 0 or numTypes is
+     *      equal to 0 or greater than MAX_NUMTYPES.
      */
-    explicit HashTable(uint64_t numBuckets)
+    explicit HashTable(uint64_t numBuckets, uint32_t numTypes = 1)
         : buckets(NULL), numBuckets(nearestPowerOfTwo(numBuckets)),
-          useHugeTlb(false), perfCounters()
+          useHugeTlb(false), perfCounters(), numTypes(numTypes),
+          typeBits(0)
     {
         // Allocate space for a new hash table and set its entries to unused.
 
@@ -264,12 +271,28 @@ class HashTable {
         if (numBuckets == 0)
             throw Exception(HERE, "HashTable numBuckets == 0?!");
 
+        if (numTypes == 0 || numTypes > MAX_NUMTYPES)
+            throw Exception(HERE, "HashTable numTypes > MAX_NUMTYPES");
+
         size_t bucketsSize = this->numBuckets * sizeof(CacheLine);
         buckets = static_cast<CacheLine *>(mallocAligned(bucketsSize));
 
         for (i = 0; i < this->numBuckets; i++) {
             for (j = 0; j < ENTRIES_PER_CACHE_LINE; j++)
                 buckets[i].entries[j].clear();
+        }
+
+        if (numTypes > 1) {
+            uint64_t power2Types = nearestPowerOfTwo(numTypes);
+            if (power2Types != numTypes) {
+                power2Types <<= 1;
+            }
+
+            uint64_t typeMask = power2Types - 1;
+            for (int i = 0; i < 64; i++) {
+                if (typeMask & (1UL << i))
+                    typeBits++;
+            }
         }
     }
 
@@ -304,7 +327,7 @@ class HashTable {
         entry = lookupEntry(bucket, secondaryHash, key1, key2);
         if (entry == NULL)
             return NULL;
-        return entry->getReferant();
+        return entry->getReferant(typeBits);
     }
 
     /**
@@ -367,7 +390,7 @@ class HashTable {
         while (1) {
             entry = cl->entries;
             for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++) {
-                if (entry->isAvailable()) {
+                if (entry->isAvailable(typeBits)) {
                     entry->setReferant(secondaryHash, ptr);
                     return false;
                 }
@@ -375,7 +398,7 @@ class HashTable {
             }
 
             Entry &last = cl->entries[ENTRIES_PER_CACHE_LINE - 1];
-            cl = last.getChainPointer();
+            cl = last.getChainPointer(typeBits);
             if (cl == NULL) {
                 // no empty space found, allocate a new cache line
                 void *buf = mallocAligned(sizeof(CacheLine));
@@ -410,13 +433,15 @@ class HashTable {
             while (1) {
                 for (uint32_t j = 0; j < ENTRIES_PER_CACHE_LINE; j++) {
                     Entry *e = &cl->entries[j];
-                    if (!e->isAvailable() && e->getChainPointer() == NULL) {
-                        callback(e->getReferant(), cookie);
+                    if (!e->isAvailable(typeBits) &&
+                        e->getChainPointer(typeBits) == NULL) {
+                        callback(e->getReferant(typeBits), cookie);
                         numCalls++;
                     }
                 }
 
-                cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
+                Entry *entry = &cl->entries[ENTRIES_PER_CACHE_LINE - 1];
+                cl = entry->getChainPointer(typeBits);
                 if (cl == NULL)
                     break;
             }
@@ -616,11 +641,11 @@ class HashTable {
             Entry *candidate = cl->entries;
             for (i = 0; i < ENTRIES_PER_CACHE_LINE; i++, candidate++) {
 
-                if (candidate->hashMatches(secondaryHash)) {
+                if (candidate->hashMatches(secondaryHash, typeBits)) {
                     // The hash within the hash table entry matches, so with
                     // high probability this is the pointer we're looking for.
                     // To check, we must go to the object.
-                    const T* c = candidate->getReferant();
+                    const T* c = candidate->getReferant(typeBits);
                     if (c->*keyField1 == key1 && c->*keyField2 == key2) {
                         perfCounters.lookupEntryDist.storeSample(cycles.stop());
                         return candidate;
@@ -632,7 +657,8 @@ class HashTable {
 
             // Not found in this cache line, see if there's a chain to another
             // cache line.
-            cl = cl->entries[ENTRIES_PER_CACHE_LINE - 1].getChainPointer();
+            Entry *entry = &cl->entries[ENTRIES_PER_CACHE_LINE - 1];
+            cl = entry->getChainPointer(typeBits);
             if (cl == NULL) {
                 perfCounters.lookupEntryDist.storeSample(cycles.stop());
                 return NULL;
@@ -700,13 +726,15 @@ class HashTable {
 
         /**
          * Return whether a hash table entry is unused.
+         * \param[in] typeBits
+         *      Number of pointer bits used to differentiate types.
          * \return
          *      See above.
          */
         bool
-        isAvailable() const
+        isAvailable(uint8_t typeBits) const
         {
-            UnpackedEntry ue = unpack();
+            UnpackedEntry ue = unpack(typeBits);
             return (ue.ptr == 0);
         }
 
@@ -714,27 +742,31 @@ class HashTable {
          * Extract the referant's address from a hash table entry.
          * The caller must first verify that the hash table entry indeed stores
          * a referant address with #hashMatches().
+         * \param[in] typeBits
+         *      Number of pointer bits used to differentiate types.
          * \return
          *      The address of the referant stored.
          */
         const T*
-        getReferant() const
+        getReferant(uint8_t typeBits) const
         {
-            UnpackedEntry ue = unpack();
+            UnpackedEntry ue = unpack(typeBits);
             assert(!ue.chain && ue.ptr != 0);
             return reinterpret_cast<const T*>(ue.ptr);
         }
 
         /**
          * Extract the chain pointer to another cache line.
+         * \param[in] typeBits
+         *      Number of pointer bits used to differentiate types.
          * \return
          *      The chain pointer to another cache line. If this entry does not 
          *      store a chain pointer, returns \c NULL instead.
          */
         CacheLine *
-        getChainPointer() const
+        getChainPointer(uint8_t typeBits) const
         {
-            UnpackedEntry ue = unpack();
+            UnpackedEntry ue = unpack(typeBits);
             if (!ue.chain)
                 return NULL;
             return reinterpret_cast<CacheLine*>(ue.ptr);
@@ -744,14 +776,16 @@ class HashTable {
          * Check whether the secondary hash bits stored match those given.
          * \param[in] hash
          *      The secondary hash bits computed from the key to test (16 bits).
+         * \param[in] typeBits
+         *      Number of pointer bits used to differentiate types.
          * \return
          *      Whether the hash table entry holds the address to a referant and
          *      the secondary hash bits for that referant point to \a hash.
          */
         bool
-        hashMatches(uint64_t hash) const
+        hashMatches(uint64_t hash, uint8_t typeBits) const
         {
-            UnpackedEntry ue = unpack();
+            UnpackedEntry ue = unpack(typeBits);
             return (!ue.chain && ue.ptr != 0 && ue.hash == hash);
         }
 
@@ -762,7 +796,8 @@ class HashTable {
          * The exact bits are, from MSB to LSB:
          * \li 16 bits for the secondary hash
          * \li 1 bit for whether the pointer is a chain
-         * \li 47 bits for the pointer
+         * \li ``typeBits'' bits for the type of the referant
+         * \li (47 - typeBits) bits for the pointer
          *
          * The main reason why it's not a struct with bit fields is that we'll
          * probably want to use atomic operations to set it eventually.
@@ -783,17 +818,37 @@ class HashTable {
          * \param[in] ptr
          *      The chain pointer to the next cache line or the referant pointer
          *      (determined by \a chain).
+         * \param[in] type
+         *      Type identifier for the pointer being added. Only valid if the
+         *      HashTable constructor was called with numTypes > 1. 
+         * \param[in] typeBits
+         *      Number of bits used by the type parameter, if it's valid.
+         *      Otherwise, 0.
+         * \throw Exception
+         *      An exception is thrown if typeBits > MAX_TYPEBITS or type is
+         *      too large to fit in typeBits.
          */
         void
-        pack(uint64_t hash, bool chain, uint64_t ptr)
+        pack(uint64_t hash, bool chain, uint64_t ptr, uint8_t type = 0,
+            uint8_t typeBits = 0)
         {
             if (ptr == 0)
                 assert(hash == 0 && !chain);
 
+            uint64_t typeField = 0;
+            if (typeBits > 0) {
+                typeField = type;
+                if (typeBits > MAX_TYPEBITS)
+                    throw Exception(HERE, "too many typeBits");
+                if ((typeField & ~((1UL << typeBits) - 1)) != 0)
+                    throw Exception(HERE, "type needs more than typeBits");
+                typeField <<= (47 - typeBits);
+            }
+
             uint64_t c = chain ? 1 : 0;
             assert((hash & ~(0x000000000000ffffUL)) == 0);
-            assert((ptr  & ~(0x00007fffffffffffUL)) == 0);
-            this->value = ((hash << 48)  | (c << 47) | ptr);
+            assert((ptr  & ~(0x00007fffffffffffUL >> typeBits)) == 0);
+            this->value = ((hash << 48)  | (c << 47) | typeField | ptr);
         }
 
         /**
@@ -803,6 +858,7 @@ class HashTable {
         struct UnpackedEntry {
             uint64_t hash;
             bool chain;
+            uint8_t type;
             uint64_t ptr;
         };
 
@@ -812,12 +868,17 @@ class HashTable {
          *      The extracted values. See UnpackedEntry.
          */
         UnpackedEntry
-        unpack() const
+        unpack(uint8_t typeBits) const
         {
             UnpackedEntry ue;
-            ue.hash  = (this->value >> 48) & 0x000000000000ffffUL;
-            ue.chain = (this->value >> 47) & 0x0000000000000001UL;
-            ue.ptr   = this->value         & 0x00007fffffffffffUL;
+            ue.hash  = (this->value >> 48) &  0x000000000000ffffUL;
+            ue.chain = (this->value >> 47) &  0x0000000000000001UL;
+            ue.ptr   = this->value         & (0x00007fffffffffffUL >> typeBits);
+            ue.type  = 0;
+            if (typeBits != 0) {
+                ue.type = (this->value >> (47 - typeBits)) &
+                    ((1UL << typeBits) - 1);
+            }
             return ue;
         }
 
@@ -882,6 +943,26 @@ class HashTable {
      * See #getPerfCounters().
      */
     PerfCounters perfCounters;
+
+    /**
+     * Number of types of referants we're tracking.
+     */
+    uint32_t numTypes;
+
+    /**
+     * Number of pointer bits reserved for the referant type. 
+     */
+    uint8_t typeBits;
+
+    /**
+     * Maximum value of typeBits.
+     */
+    static const uint8_t MAX_TYPEBITS = 8;
+
+    /**
+     * Maxmimum value of numTypes.
+     */
+    static const uint32_t MAX_NUMTYPES = (1 << MAX_TYPEBITS);
 
     friend class HashTableEntryTest;
     friend class HashTableTest;
