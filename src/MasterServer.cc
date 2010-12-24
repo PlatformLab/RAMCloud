@@ -166,7 +166,7 @@ MasterServer::MasterServer(const ServerConfig config,
     , backup(coordinator, serverId, replicas)
     , bytesWritten(0)
     , log(serverId, config.logBytes, Segment::SEGMENT_SIZE, &backup)
-    , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine())
+    , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine(), 2)
     , tablets()
 {
     LOG(NOTICE, "My server ID is %lu", serverId);
@@ -286,28 +286,33 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
     // longer lives here.
     getTable(reqHdr.tableId, reqHdr.id);
 
-    const Object* o = objectMap.lookup(reqHdr.tableId, reqHdr.id);
+    uint8_t type;
+    const Objectable* o = objectMap.lookup(reqHdr.tableId, reqHdr.id, &type);
     if (!o) {
         throw ObjectDoesntExistException(HERE);
     }
 
-    respHdr.version = o->version;
-    rejectOperation(&reqHdr.rejectRules, o->version);
+    assert(type == 0);
+    const Object* obj = o->asObject();
+    respHdr.version = obj->version;
+    rejectOperation(&reqHdr.rejectRules, obj->version);
     Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
-                                  o->data, static_cast<uint32_t>(o->data_len));
+                                  obj->data,
+                                  static_cast<uint32_t>(obj->data_len));
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
-    // from scribbling over o->data.
-    respHdr.length = o->data_len;
+    // from scribbling over obj->data.
+    respHdr.length = obj->data_len;
 }
 
 /**
- * Callback used to purge the recovery tombstone hash table. Invoked by
+ * Callback used to purge the tombstones from the hash table. Invoked by
  * HashTable::forEach.
  */
 static void
-recoveryCleanup(const ObjectTombstone *tomb, uint8_t type, void *cookie)
+recoveryCleanup(const Objectable *maybeTomb, uint8_t type, void *cookie)
 {
-    free(const_cast<ObjectTombstone *>(tomb));
+    if (type)
+        free(const_cast<ObjectTombstone*>(maybeTomb->asObjectTombstone()));
 }
 
 // used in recover()
@@ -346,14 +351,11 @@ struct Task {
  *      A particular segment may be listed more than once if it has multiple
  *      viable backups, hence a particular backup locator can also be listed
  *      many times.
- * \param tombstoneMap
- *      (table id, object id) to ObjectTombstone map used during recovery.
  */
 void
 MasterServer::recover(uint64_t masterId,
                       const ProtoBuf::Tablets& tablets,
-                      const ProtoBuf::ServerList& backups,
-                      ObjectTombstoneMap& tombstoneMap)
+                      const ProtoBuf::ServerList& backups)
 {
     LOG(NOTICE, "Recovering master %lu, %u tablets, %u hosts",
         masterId, tablets.tablet_size(), backups.server_size());
@@ -415,8 +417,7 @@ MasterServer::recover(uint64_t masterId,
                 task->segmentId, responseLen);
             recoverSegment(task->segmentId,
                            task->response.getRange(0, responseLen),
-                           responseLen,
-                           tombstoneMap);
+                           responseLen);
             task.destroy();
             if (segIdsIt == segIdsEnd) {
                 --activeSegments;
@@ -458,19 +459,11 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
 
     // reqHdr, respHdr, and rpc are off-limits now
 
-    {
-        // Allocate a recovery hash table for the tombstones.
-        static_assert(sizeof(ObjectTombstoneMap) < 1024,
-                      "ObjectTombstoneMap is big");
-        ObjectTombstoneMap tombstoneMap(64 * 1024 * 1024 /
-            ObjectTombstoneMap::bytesPerCacheLine());
+    // Recover Segments, firing MasterServer::recoverSegment for each one.
+    recover(masterId, recoveryTablets, backups);
 
-        // Recover Segments, firing MasterServer::recoverSegment for each one.
-        recover(masterId, recoveryTablets, backups, tombstoneMap);
-
-        // Free recovery tombstones left in the hash table and deallocate it.
-        tombstoneMap.forEach(recoveryCleanup, NULL);
-    }
+    // Free recovery tombstones left in the hash table.
+    objectMap.forEach(recoveryCleanup, NULL);
 
     // Once the coordinator and the recovery master agree that the
     // master has taken over for the tablets it can update its tables
@@ -507,12 +500,9 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
  *      A SegmentIterator to use for prefetching. Note that this
  *      method modifies the iterator, so the caller should not use
  *      it for its own iteration.
- * \param tombstoneMap
- *      (table id, object id) to ObjectTombstone map used during recovery.
  */
 void
-MasterServer::recoverSegmentPrefetcher(SegmentIterator& i,
-                                       ObjectTombstoneMap& tombstoneMap)
+MasterServer::recoverSegmentPrefetcher(SegmentIterator& i)
 {
     i.next();
 
@@ -530,14 +520,13 @@ MasterServer::recoverSegmentPrefetcher(SegmentIterator& i,
     } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         const ObjectTombstone *recoverTomb =
             reinterpret_cast<const ObjectTombstone *>(i.getPointer());
-        objId = recoverTomb->objectId;
-        tblId = recoverTomb->tableId;
+        objId = recoverTomb->id;
+        tblId = recoverTomb->table;
     } else {
         return;
     }
 
-    objectMap.prefetchCacheLine(tblId, objId);
-    tombstoneMap.prefetchBucket(tblId, objId);
+    objectMap.prefetchBucket(tblId, objId);
 }
 
 /**
@@ -552,12 +541,10 @@ MasterServer::recoverSegmentPrefetcher(SegmentIterator& i,
  *      will be responsible for after the recovery completes.
  * \param bufferLength
  *      Length of the buffer in bytes.
- * \param tombstoneMap
- *      (table id, object id) to ObjectTombstone map used during recovery.
  */
 void
 MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
-    uint64_t bufferLength, ObjectTombstoneMap& tombstoneMap)
+    uint64_t bufferLength)
 {
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
 
@@ -574,7 +561,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
         LogEntryType type = i.getType();
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH
-        recoverSegmentPrefetcher(prefetch, tombstoneMap);
+        recoverSegmentPrefetcher(prefetch);
 #endif
 
         if (type == LOG_ENTRY_TYPE_OBJ) {
@@ -587,8 +574,14 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
             const Object *localObj = 0;
             const ObjectTombstone *tomb = 0;
 #else
-            const Object *localObj = objectMap.lookup(tblId, objId);
-            const ObjectTombstone *tomb = tombstoneMap.lookup(tblId, objId);
+            uint8_t type = 0;
+            const Objectable *o = objectMap.lookup(tblId, objId, &type);
+            const Object *localObj = NULL;
+            const ObjectTombstone *tomb = NULL;
+            if (type)
+                tomb = o->asObjectTombstone();
+            else
+                localObj = o->asObject();
 #endif
 
             // can't have both a tombstone and an object in the hash tables
@@ -615,24 +608,27 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 #endif
 
                 // nuke the tombstone, if it existed
-                if (tomb != NULL) {
-                    tombstoneMap.remove(tblId, objId);
+                if (tomb != NULL)
                     free(const_cast<ObjectTombstone *>(tomb));
-                }
 
                 // nuke the old object, if it existed
-                if (localObj != NULL) {
+                if (localObj != NULL)
                     log.free(localObj);
-                }
             }
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             const ObjectTombstone *recoverTomb =
                 reinterpret_cast<const ObjectTombstone *>(i.getPointer());
-            uint64_t objId = recoverTomb->objectId;
-            uint64_t tblId = recoverTomb->tableId;
+            uint64_t objId = recoverTomb->id;
+            uint64_t tblId = recoverTomb->table;
 
-            const Object *localObj = objectMap.lookup(tblId, objId);
-            const ObjectTombstone *tomb = tombstoneMap.lookup(tblId, objId);
+            uint8_t type = 0;
+            const Objectable *o = objectMap.lookup(tblId, objId, &type);
+            const Object *localObj = NULL;
+            const ObjectTombstone *tomb = NULL;
+            if (type)
+                tomb = o->asObjectTombstone();
+            else
+                localObj = o->asObject();
 
             // can't have both a tombstone and an object in the hash tables
             assert(tomb == NULL || localObj == NULL);
@@ -650,18 +646,15 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                     xmalloc(sizeof(*newTomb)));
                 memcpy(newTomb, const_cast<ObjectTombstone *>(recoverTomb),
                     sizeof(*newTomb));
-                tombstoneMap.replace(tblId, objId, newTomb);
+                objectMap.replace(tblId, objId, newTomb);
 
                 // nuke the old tombstone, if it existed
-                if (tomb != NULL) {
+                if (tomb != NULL)
                     free(const_cast<ObjectTombstone *>(tomb));
-                }
 
                 // nuke the object, if it existed
-                if (localObj != NULL) {
-                    objectMap.remove(tblId, objId);
+                if (localObj != NULL)
                     log.free(localObj);
-                }
             }
         }
 
@@ -680,23 +673,27 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
                      Transport::ServerRpc& rpc)
 {
     Table& t(getTable(reqHdr.tableId, reqHdr.id));
-    const Object* o = objectMap.lookup(reqHdr.tableId, reqHdr.id);
+    uint8_t type;
+    const Objectable *o = objectMap.lookup(reqHdr.tableId, reqHdr.id, &type);
     if (o == NULL) {
         rejectOperation(&reqHdr.rejectRules, VERSION_NONEXISTENT);
         return;
     }
-    respHdr.version = o->version;
+
+    assert(type == 0);
+    const Object *obj = o->asObject();
+    respHdr.version = obj->version;
 
     // Abort if we're trying to delete the wrong version.
     rejectOperation(&reqHdr.rejectRules, respHdr.version);
 
-    t.RaiseVersion(o->version + 1);
+    t.RaiseVersion(obj->version + 1);
 
-    ObjectTombstone tomb(tomb.segmentId, o);
+    ObjectTombstone tomb(tomb.segmentId, obj);
 
     // Mark the deleted object as free first, since the append could
     // invalidate it
-    log.free(o);
+    log.free(obj);
 
     // Write the tombstone into the Log, update our tablet
     // counters, and remove from the hash table.
@@ -705,7 +702,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 
     log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb),
         &lengthInLog, &logTime);
-    t.profiler.track(o->id, lengthInLog, logTime);
+    t.profiler.track(obj->id, lengthInLog, logTime);
     objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
@@ -925,8 +922,11 @@ objectEvictionCallback(LogEntryType type,
         return;
     }
 
-    const Object *hashTblObj =
-        svr->objectMap.lookup(evictObj->table, evictObj->id);
+    uint8_t hashTableType;
+    const Objectable *o =
+        svr->objectMap.lookup(evictObj->table, evictObj->id, &hashTableType);
+    assert(hashTableType == 0);
+    const Object *hashTblObj = o->asObject();
 
     // simple pointer comparison suffices
     if (hashTblObj == evictObj) {
@@ -987,7 +987,7 @@ tombstoneEvictionCallback(LogEntryType type,
 
     Table *t = NULL;
     try {
-        t = &svr->getTable(tomb->tableId, tomb->objectId);
+        t = &svr->getTable(tomb->table, tomb->id);
     } catch (TableDoesntExistException& e) {
         // That tablet doesn't exist on this server anymore.
         return;
@@ -999,11 +999,11 @@ tombstoneEvictionCallback(LogEntryType type,
         LogTime newLogTime;
         log.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb),
             &newLengthInLog, &newLogTime);
-        t->profiler.track(tomb->objectId, newLengthInLog, newLogTime);
+        t->profiler.track(tomb->id, newLengthInLog, newLogTime);
     }
 
     // remove the evicted entry whether it is discarded or not
-    t->profiler.untrack(tomb->objectId, lengthInLog, logTime);
+    t->profiler.untrack(tomb->id, lengthInLog, logTime);
 }
 
 void
@@ -1013,8 +1013,16 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
                         uint64_t* newVersion)
 {
     Table& t(getTable(tableId, id));
-    const Object *o = objectMap.lookup(tableId, id);
-    uint64_t version = (o != NULL) ? o->version : VERSION_NONEXISTENT;
+
+    uint8_t type;
+    const Object *obj = NULL;
+    const Objectable *o = objectMap.lookup(tableId, id, &type);
+    if (o != NULL) {
+        assert(type == 0);
+        obj = o->asObject();
+    }
+
+    uint64_t version = (obj != NULL) ? obj->version : VERSION_NONEXISTENT;
     uint64_t lengthInLog;
     LogTime logTime;
 
@@ -1030,10 +1038,10 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
     newObject->id = id;
     newObject->table = tableId;
     if (o != NULL)
-        newObject->version = o->version + 1;
+        newObject->version = obj->version + 1;
     else
         newObject->version = t.AllocateVersion();
-    assert(o == NULL || newObject->version > o->version);
+    assert(obj == NULL || newObject->version > obj->version);
     // TODO(stutsman): dm's super-fast checksum here
     newObject->checksum = 0x0BE70BE70BE70BE7ULL;
     newObject->data_len = dataLength;
@@ -1049,7 +1057,7 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
         log.free(o);
 
         uint64_t segmentId = log.getSegmentId(o);
-        ObjectTombstone tomb(segmentId, o);
+        ObjectTombstone tomb(segmentId, obj);
         log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), &lengthInLog,
             &logTime);
         t.profiler.track(id, lengthInLog, logTime);

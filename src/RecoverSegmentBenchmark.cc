@@ -44,7 +44,7 @@ class RecoverSegmentBenchmark {
     }
 
     void
-    run(int numSegments, int objectBytes, int tombstoneMapBytes)
+    run(int numSegments, int objectBytes)
     {
         /*
          * Allocate numSegments Segments and fill them up objects of
@@ -74,21 +74,13 @@ class RecoverSegmentBenchmark {
         }
 
         /*
-         * Caution: This is a little fragile. We don't want to have to call
-         * MasterServer::Recover(), which sets up the tombstone map, so do
-         * it manually.
-         */
-        ObjectTombstoneMap tombstoneMap(64 * 1024 * 1024 /
-            ObjectTombstoneMap::bytesPerCacheLine());
-
-        /*
          * Now run a fake recovery.
          */
         uint64_t before = rdtsc();
         for (int i = 0; i < numSegments; i++) {
             Segment *s = segments[i];
             server->recoverSegment(s->getId(), s->getBaseAddress(),
-                s->getCapacity(), tombstoneMap);
+                s->getCapacity());
         }
         uint64_t ticks = rdtsc() - before;
 
@@ -122,7 +114,7 @@ main()
     for (int i = 0; objectBytes[i] != 0; i++) {
         printf("==========================\n");
         RAMCloud::RecoverSegmentBenchmark rsb("2048", "10%", numSegments);
-        rsb.run(numSegments, objectBytes[i], 64 * 1024 * 1024);
+        rsb.run(numSegments, objectBytes[i]);
     }
 
     return 0;

@@ -224,16 +224,13 @@ class MasterServer : public Server {
                  Transport::ServerRpc& rpc,
                  Responder& responder);
 
-    void recoverSegmentPrefetcher(SegmentIterator& i,
-                                  ObjectTombstoneMap& tombstoneMap);
+    void recoverSegmentPrefetcher(SegmentIterator& i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
-                        uint64_t bufferLength,
-                        ObjectTombstoneMap& tombstoneMap);
+                        uint64_t bufferLength);
 
     void recover(uint64_t masterId,
                  const ProtoBuf::Tablets& tablets,
-                 const ProtoBuf::ServerList& backups,
-                 ObjectTombstoneMap& tombstoneMap);
+                 const ProtoBuf::ServerList& backups);
 
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
