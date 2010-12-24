@@ -485,11 +485,32 @@ class HashTable {
      * Prefetch the cacheline associated with the given key.
      */
     void
-    prefetch(uint64_t key1, uint64_t key2)
+    prefetchBucket(uint64_t key1, uint64_t key2)
     {
         uint64_t dummy;
         _mm_prefetch(reinterpret_cast<char *>(findBucket(key1, key2, &dummy)),
             _MM_HINT_T0);
+    }
+
+    /**
+     * Prefetch the referant associated with the given key.
+     */
+    void
+    prefetchReferant(uint64_t key1, uint64_t key2)
+    {
+        uint64_t secondaryHash;
+        CacheLine *cl = findBucket(key1, key2, &secondaryHash);
+
+        // Scan this cache line. If the secondaryHash matches, prefetch.
+        // If not, don't bother following any chain pointer.
+        Entry *candidate = cl->entries;
+        for (uint32_t i = 0; i < ENTRIES_PER_CACHE_LINE; i++, candidate++) {
+            if (candidate->hashMatches(secondaryHash, typeBits)) {
+                _mm_prefetch(reinterpret_cast<const char *>(
+                    candidate->getReferant(typeBits, NULL)), _MM_HINT_T0);
+                return;
+            }
+        }
     }
 
     /**

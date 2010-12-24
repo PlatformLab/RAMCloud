@@ -536,8 +536,8 @@ MasterServer::recoverSegmentPrefetcher(SegmentIterator& i,
         return;
     }
 
-    objectMap.prefetch(tblId, objId);
-    tombstoneMap.prefetch(tblId, objId);
+    objectMap.prefetchCacheLine(tblId, objId);
+    tombstoneMap.prefetchBucket(tblId, objId);
 }
 
 /**
