@@ -37,17 +37,24 @@
 
 namespace RAMCloud {
 
+#if TESTING
+ObjectTub<uint64_t> whichPartition(const LogEntryType type,
+                                   const void* data,
+                                   const ProtoBuf::Tablets& partitions);
+#endif
+
 /**
  * Handles Rpc requests from Masters and the Coordinator to persistently store
  * Segments and to facilitate the recovery of object data when Masters crash.
  */
 class BackupServer : public Server {
+  PRIVATE:
 
     /// The type of the in-memory segment size chunk pool.
     typedef boost::pool<SegmentAllocator> Pool;
 
     /**
-     * Tracks all state assoicated with a single segment and manages
+     * Tracks all state associated with a single segment and manages
      * resources and storage associated with it.
      */
     class SegmentInfo {
@@ -70,21 +77,46 @@ class BackupServer : public Server {
         SegmentInfo(BackupStorage& storage, Pool& pool,
                     uint64_t masterId, uint64_t segmentId);
         ~SegmentInfo();
+        void appendRecoverySegment(uint64_t partitionId,
+                                   Buffer& buffer);
+        void buildRecoverySegments(const ProtoBuf::Tablets& partitions,
+                                   uint32_t segmentSize);
         void close();
         void free();
         char* getSegment();
-        bool inMemory();
-        bool inStorage();
-        bool isOpen();
+
+        /// Return true if this segment is fully in memory.
+        bool inMemory() const { return segment && !isLoading(); }
+
+        /// Return true if this segment has storage allocated.
+        bool inStorage() const { return storageHandle; }
+
+        /// Return true if this segment is OPEN.
+        bool isOpen() const { return state == OPEN; }
+
         void load();
         void open();
         void startLoading();
 
-      private:
-        bool isLoading();
+      PRIVATE:
+         /// Return true if an IO is fetching this stored segment.
+        bool isLoading() const { return segmentSync; }
+
+        /// Return true if this segment's recovery segments have been built.
+        bool isRecovered() const { return recoverySegments; }
 
         /// The id of the master from which this segment came.
         const uint64_t masterId;
+
+        /// An array of recovery segments when non-null.
+        /// The exception if one occurred while recovering a segment.
+        boost::scoped_ptr<SegmentRecoveryFailedException> recoveryException;
+
+        /// An array of recovery segments when non-null.
+        Buffer* recoverySegments;
+
+        /// The number of Buffers in #recoverySegments.
+        uint32_t recoverySegmentsLength;
 
         /// The segment id given to this segment by the master who sent it.
         const uint64_t segmentId;
@@ -160,7 +192,8 @@ class BackupServer : public Server {
     void reserveSpace();
     void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                           BackupStartReadingDataRpc::Response& respHdr,
-                          Transport::ServerRpc& rpc);
+                          Transport::ServerRpc& rpc,
+                          Responder& responder);
     void writeSegment(const BackupWriteRpc::Request& req,
                       BackupWriteRpc::Response& resp,
                       Transport::ServerRpc& rpc);
@@ -178,7 +211,7 @@ class BackupServer : public Server {
      * A pool of aligned segments (supporting O_DIRECT) to avoid
      * the memory allocator.
      */
-     Pool pool;
+    Pool pool;
 
     /// Type of the key for the segments map.
     struct MasterSegmentIdPair {
@@ -213,6 +246,7 @@ class BackupServer : public Server {
     /// The storage backend where closed segments are to be placed.
     BackupStorage& storage;
 
+    /// For unit testing.
     uint64_t bytesWritten;
 
     friend class BackupServerTest;

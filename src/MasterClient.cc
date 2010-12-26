@@ -87,6 +87,8 @@ MasterClient::ping()
  *
  * \param masterId
  *      The id of the crashed master whose data is to be recovered.
+ * \param partitionId
+ *      The partition id of #tablets inside the crashed master's will.
  * \param tablets
  *      A set of tables with key ranges describing which poritions of which
  *      tables the recovery Master should take over for.
@@ -98,12 +100,14 @@ MasterClient::ping()
  *      many times.
  */
 void
-MasterClient::recover(uint64_t masterId, const ProtoBuf::Tablets& tablets,
+MasterClient::recover(uint64_t masterId, uint64_t partitionId,
+                      const ProtoBuf::Tablets& tablets,
                       const ProtoBuf::ServerList& backups)
 {
     Buffer req, resp;
     RecoverRpc::Request& reqHdr(allocHeader<RecoverRpc>(req));
     reqHdr.masterId = masterId;
+    reqHdr.partitionId = partitionId;
     reqHdr.tabletsLength = serializeToResponse(req, tablets);
     reqHdr.serverListLength = serializeToResponse(req, backups);
     sendRecv<RecoverRpc>(session, req, resp);

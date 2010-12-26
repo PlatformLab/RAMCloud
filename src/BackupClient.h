@@ -45,7 +45,7 @@ class BackupClient : public Client {
         GetRecoveryData(BackupClient& client,
                         uint64_t masterId,
                         uint64_t segmentId,
-                        const ProtoBuf::Tablets& tablets,
+                        uint64_t partitionId,
                         Buffer& responseBuffer);
         bool isReady() { return client.isReady(state); }
         void operator()();
@@ -98,7 +98,8 @@ class BackupClient : public Client {
     }
 
     void ping();
-    vector<uint64_t> startReadingData(uint64_t masterId);
+    vector<uint64_t> startReadingData(uint64_t masterId,
+                                      const ProtoBuf::Tablets& partitions);
 
   private:
     /**
