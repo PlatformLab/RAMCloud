@@ -23,6 +23,7 @@
 
 #include "Common.h"
 #include "Transport.h"
+#include "InfAddress.h"
 
 #ifndef RAMCLOUD_INFINIBAND_H
 #define RAMCLOUD_INFINIBAND_H
@@ -73,7 +74,8 @@ class Infiniband {
                   ibv_cq *txcq,
                   ibv_cq *rxcq,
                   uint32_t maxSendWr,
-                  uint32_t maxRecvWr);
+                  uint32_t maxRecvWr,
+                  uint32_t QKey = 0);
        ~QueuePair();
         uint32_t getInitialPsn() const;
         uint32_t getLocalQpNumber() const;
@@ -98,37 +100,48 @@ class Infiniband {
 
     // wrap an RX or TX buffer registered with the HCA
     struct BufferDescriptor {
-        char*           buffer;         // buf of ``bytes'' length
+        char *          buffer;         // buf of ``bytes'' length
         uint32_t        bytes;          // length of buffer in bytes
-        ibv_mr*         mr;             // memory region of the buffer
+        uint32_t        messageBytes;   // byte length of message in the buffer
+        ibv_mr *        mr;             // memory region of the buffer
 
         BufferDescriptor(char *buffer, uint64_t bytes, ibv_mr *mr) :
-            buffer(buffer), bytes(bytes), mr(mr)
+            buffer(buffer), bytes(bytes), messageBytes(0), mr(mr)
         {
         }
-        BufferDescriptor() : buffer(NULL), bytes(0), mr(NULL) {}
+        BufferDescriptor() : buffer(NULL), bytes(0), messageBytes(0),
+            mr(NULL) {}
     };
 
     static const char*  wcStatusToString(int status);
     static ibv_context* openDevice(const char *name);
     static int          getLid(ibv_context *ctxt,
                                int port);
-    static void         postSrqReceive(ibv_srq* srq,
-                                       BufferDescriptor *bd);
+    static BufferDescriptor* tryReceive(QueuePair *qp,
+                                        InfAddress *sourceAddress = NULL);
+    static BufferDescriptor* receive(QueuePair *qp,
+                                     InfAddress *sourceAddress = NULL);
+    static void              postReceive(QueuePair *qp, BufferDescriptor *bd);
+    static void              postSrqReceive(ibv_srq* srq,
+                                            BufferDescriptor *bd);
     static void         postSend(QueuePair* qp,
                                  BufferDescriptor* bd,
-                                 uint32_t length);
+                                 uint32_t length,
+                                 ibv_ah *ah = NULL,
+                                 uint32_t remoteQpn = 0,
+                                 uint32_t remoteQKey = 0);
     static void         postSendAndWait(QueuePair* qp,
                                         BufferDescriptor* bd,
                                         uint32_t length,
-                                        ibv_cq *cq);
-    static BufferDescriptor
-                       allocateBufferDescriptorAndRegister(ibv_pd *pd,
-                                                           size_t bytes);
+                                        ibv_cq *cq,
+                                        ibv_ah *ah = NULL,
+                                        uint32_t remoteQpn = 0,
+                                        uint32_t remoteQKey = 0);
+    static BufferDescriptor  allocateBufferDescriptorAndRegister(ibv_pd *pd,
+                                                                 size_t bytes);
 
   private:
     static const uint32_t MAX_INLINE_DATA = 400;
-    static const uint32_t UD_QKEY = 0xdeadbeef;
 };
 
 } // namespace

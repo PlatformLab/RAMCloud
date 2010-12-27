@@ -134,6 +134,117 @@ Infiniband::getLid(ibv_context *ctxt, int port)
 }
 
 /**
+ * Try to receive a message from the given Queue Pair if one
+ * is available. Do not block.
+ *
+ * \param[in] qp
+ *      The queue pair to poll for a received message.
+ * \param[in] sourceAddress
+ *      For UD queue pairs only. If not NULL, store the sender's
+ *      address here. 
+ * \return
+ *      NULL if no message is available. Otherwise, a pointer to
+ *      a BufferDescriptor containing the message.
+ * \throw
+ *      ThrowException if arguments are invalid or polling failed.  
+ */
+Infiniband::BufferDescriptor*
+Infiniband::tryReceive(QueuePair *qp, InfAddress *sourceAddress)
+{
+    if (qp->type != IBV_QPT_UD && sourceAddress != NULL) {
+        throw TransportException(HERE, "sourceAddress for non-UD qp");
+    }
+
+    ibv_wc wc;
+    int r = ibv_poll_cq(qp->rxcq, 1, &wc);
+
+    if (r == 0)
+        return NULL;
+
+    if (r < 0) {
+        LOG(ERROR, "ibv_poll_cq failed: %d", r);
+        throw TransportException(HERE, r);
+    }
+
+    if (wc.status != IBV_WC_SUCCESS) {
+        LOG(ERROR, "wc.status != IBV_WC_SUCCESS; is %d", wc.status);
+        throw TransportException(HERE, wc.status);
+    }
+
+    BufferDescriptor *bd = reinterpret_cast<BufferDescriptor*>(wc.wr_id);
+    bd->messageBytes = wc.byte_len;
+
+    if (sourceAddress != NULL) {
+        sourceAddress->address.lid = wc.slid;
+        sourceAddress->address.qpn = wc.qp_num;
+    }
+
+    return bd;
+}
+
+/**
+ * Try to receive a message from the given Queue Pair if one
+ * is available. If one is not, keep trying.
+ *
+ * \param[in] qp
+ *      The queue pair to poll for a received message.
+ * \param[in] sourceAddress
+ *      For UD queue pairs only. If not NULL, store the sender's
+ *      address here. 
+ * \return
+ *      A pointer to a BufferDescriptor containing the message.
+ * \throw
+ *      ThrowException if polling failed.  
+ */
+Infiniband::BufferDescriptor *
+Infiniband::receive(QueuePair *qp, InfAddress *sourceAddress)
+{
+    BufferDescriptor *bd = NULL;
+
+    do {
+        bd = tryReceive(qp, sourceAddress);
+    } while (bd == NULL);
+
+    return bd;
+}
+
+
+/**
+ * Add the given BufferDescriptor to the receive queue for the given
+ * QueuePair.
+ *
+ * \param[in] qp
+ *      The QueuePair on whose receive queue we are to enqueue this
+ *      BufferDescriptor.
+ * \param[in] bd
+ *      The BufferDescriptor to enqueue.
+ * \throw
+ *      TransportException if posting to the queue fails.
+ */
+void
+Infiniband::postReceive(QueuePair *qp, BufferDescriptor *bd)
+{
+    ibv_sge isge = {
+        (uint64_t)bd->buffer,
+        bd->bytes,
+        bd->mr->lkey
+    };
+    ibv_recv_wr rxWorkRequest;
+
+    memset(&rxWorkRequest, 0, sizeof(rxWorkRequest));
+    rxWorkRequest.wr_id   = reinterpret_cast<uint64_t>(bd);
+    rxWorkRequest.next    = NULL;
+    rxWorkRequest.sg_list = &isge;
+    rxWorkRequest.num_sge = 1;
+
+    ibv_recv_wr *badWorkRequest;
+    int ret = ibv_post_recv(qp->qp, &rxWorkRequest, &badWorkRequest);
+    if (ret) {
+        throw TransportException(HERE, ret);
+    }
+}
+
+/**
  * Add the given BufferDescriptor to the given shared receive queue.
  *
  * \param[in] srq
@@ -176,10 +287,29 @@ Infiniband::postSrqReceive(ibv_srq* srq, BufferDescriptor *bd)
  *      The BufferDescriptor that contains the data to be transmitted.
  * \param[in] length
  *      The number of bytes used by the packet in the given BufferDescriptor.
+ * \param[in] ah
+ *      UD queue pairs only. The address handle of the host to send to. 
+ * \param[in] remoteQpn
+ *      UD queue pairs only. The queue pair number of the remote pair to send
+ *      to.
+ * \param[in] remoteQKey
+ *      UD queue pairs only. The Q_Key of the remote pair to send to.
+ * \throw
+ *      TransportException if the arguments are invalid or the send post
+ *      fails.
  */
 void
-Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length)
+Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length,
+    ibv_ah *ah, uint32_t remoteQpn, uint32_t remoteQKey)
 {
+    if (qp->type == IBV_QPT_UD) {
+        if (ah == NULL)
+            throw TransportException(HERE, "invalid arguments for UD qp");
+    } else {
+        if (ah != NULL || remoteQpn != 0 || remoteQKey != 0)
+            throw TransportException(HERE, "invalid arguments for non-UD qp");
+    }
+
     ibv_sge isge = {
         reinterpret_cast<uint64_t>(bd->buffer),
         length,
@@ -189,6 +319,11 @@ Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length)
 
     memset(&txWorkRequest, 0, sizeof(txWorkRequest));
     txWorkRequest.wr_id = reinterpret_cast<uint64_t>(bd);// stash descriptor ptr
+    if (qp->type == IBV_QPT_UD) {
+        txWorkRequest.wr.ud.ah = ah;
+        txWorkRequest.wr.ud.remote_qpn = remoteQpn;
+        txWorkRequest.wr.ud.remote_qkey = remoteQKey;
+    }
     txWorkRequest.next = NULL;
     txWorkRequest.sg_list = &isge;
     txWorkRequest.num_sge = 1;
@@ -203,8 +338,7 @@ Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length)
 
     ibv_send_wr *bad_txWorkRequest;
     if (ibv_post_send(qp->qp, &txWorkRequest, &bad_txWorkRequest)) {
-        fprintf(stderr, "ibv_post_send failed!\n");
-        exit(1);
+        throw TransportException(HERE, "ibv_post_send failed");
     }
 }
 
@@ -221,15 +355,23 @@ Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length)
  *      The number of bytes used by the packet in the given BufferDescriptor.
  * \param[in] cq
  *      The completion queue to poll.
+ * \param[in] ah
+ *      UD queue pairs only. The address handle of the host to send to. 
+ * \param[in] remoteQpn
+ *      UD queue pairs only. The queue pair number of the remote pair to send
+ *      to.
+ * \param[in] remoteQKey
+ *      UD queue pairs only. The Q_Key of the remote pair to send to.
  * \throw
- *      TransportException is the send does not result in success
+ *      TransportException if the send does not result in success
  *      (IBV_WC_SUCCESS).
  */
 void
 Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
-    uint32_t length, ibv_cq *cq)
+    uint32_t length, ibv_cq *cq, ibv_ah *ah, uint32_t remoteQpn,
+    uint32_t remoteQKey)
 {
-    postSend(qp, bd, length);
+    postSend(qp, bd, length, ah, remoteQpn, remoteQKey);
 
     ibv_wc wc;
     while (ibv_poll_cq(cq, 1, &wc) < 1) {}
@@ -312,10 +454,12 @@ Infiniband::allocateBufferDescriptorAndRegister(ibv_pd *pd, size_t bytes)
  * \param maxRecvWr
  *      Maximum number of outstanding receive work requests allowed on
  *      this QueuePair.
+ * \param QKey
+ *      UD Queue Pairs only. The QKey for this pair. 
  */
 Infiniband::QueuePair::QueuePair(ibv_qp_type type, int ibPhysicalPort,
     ibv_pd *pd, ibv_srq *srq, ibv_cq *txcq, ibv_cq *rxcq,
-    uint32_t maxSendWr, uint32_t maxRecvWr)
+    uint32_t maxSendWr, uint32_t maxRecvWr, uint32_t QKey)
     : type(type),
       ibPhysicalPort(ibPhysicalPort),
       pd(pd),
@@ -355,7 +499,7 @@ Infiniband::QueuePair::QueuePair(ibv_qp_type type, int ibPhysicalPort,
     qpa.pkey_index = 0;
     qpa.port_num   = ibPhysicalPort;
     qpa.qp_access_flags = IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE;
-    qpa.qkey       = UD_QKEY;
+    qpa.qkey       = QKey;
 
     int mask = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT;
     switch (type) {
