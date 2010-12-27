@@ -506,8 +506,8 @@ BackupServer::keepEntry(const LogEntryType type,
         objectId = object->id;
         break;
       case LOG_ENTRY_TYPE_OBJTOMB:
-        tableId = tombstone->tableId;
-        objectId = tombstone->objectId;
+        tableId = tombstone->table;
+        objectId = tombstone->id;
         break;
       case LOG_ENTRY_TYPE_LOGDIGEST:
       case LOG_ENTRY_TYPE_INVALID:

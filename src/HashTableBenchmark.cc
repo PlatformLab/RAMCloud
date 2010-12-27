@@ -96,7 +96,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
     uint64_t lookupCycles = rdtsc();
     for (i = 0; i < nkeys; i++) {
-        const Object *p = ht.lookup(0, i);
+        const Objectable *p = ht.lookup(0, i);
         assert(p != NULL);
     }
     i = rdtsc() - lookupCycles;

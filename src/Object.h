@@ -32,7 +32,7 @@ class ObjectTombstone;
 
 class Objectable {
   public:
-    Objectable(uint64_t id, uint64_t table) : id(id), table(table) {}
+    Objectable(uint64_t table, uint64_t id) : table(table), id(id) {}
     virtual ~Objectable() {}
 
     const Object*
@@ -47,8 +47,8 @@ class Objectable {
         return reinterpret_cast<const ObjectTombstone*>(this);
     }
 
-    uint64_t id;
     uint64_t table;
+    uint64_t id;
 } __attribute__((__packed__));
 
 class Object : public Objectable {

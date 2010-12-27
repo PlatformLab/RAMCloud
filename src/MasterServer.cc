@@ -308,11 +308,26 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
  * Callback used to purge the tombstones from the hash table. Invoked by
  * HashTable::forEach.
  */
-static void
+void
 recoveryCleanup(const Objectable *maybeTomb, uint8_t type, void *cookie)
 {
-    if (type)
-        free(const_cast<ObjectTombstone*>(maybeTomb->asObjectTombstone()));
+    if (type) {
+        const ObjectTombstone *tomb = maybeTomb->asObjectTombstone();
+        MasterServer *server = reinterpret_cast<MasterServer*>(cookie);
+        bool ret = server->objectMap.remove(tomb->table, tomb->id);
+        assert(ret);
+        free(const_cast<ObjectTombstone*>(tomb));
+    }
+}
+
+/**
+ * Remove leftover tombstones in the hash table added during recovery.
+ * This method exists independently for testing purposes.
+ */
+void
+MasterServer::removeTombstones()
+{
+    objectMap.forEach(recoveryCleanup, this);
 }
 
 // used in recover()
@@ -463,7 +478,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
     recover(masterId, recoveryTablets, backups);
 
     // Free recovery tombstones left in the hash table.
-    objectMap.forEach(recoveryCleanup, NULL);
+    removeTombstones();
 
     // Once the coordinator and the recovery master agree that the
     // master has taken over for the tablets it can update its tables
@@ -604,7 +619,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 #endif
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
-                objectMap.replace(tblId, objId, newObj);
+                objectMap.replace(tblId, objId, newObj, 0);
 #endif
 
                 // nuke the tombstone, if it existed
@@ -646,7 +661,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                     xmalloc(sizeof(*newTomb)));
                 memcpy(newTomb, const_cast<ObjectTombstone *>(recoverTomb),
                     sizeof(*newTomb));
-                objectMap.replace(tblId, objId, newTomb);
+                objectMap.replace(tblId, objId, newTomb, 1);
 
                 // nuke the old tombstone, if it existed
                 if (tomb != NULL)

@@ -333,14 +333,14 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT(!it.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
-        CPPUNIT_ASSERT_EQUAL(123, it.get<ObjectTombstone>()->tableId);
-        CPPUNIT_ASSERT_EQUAL(29, it.get<ObjectTombstone>()->objectId);
+        CPPUNIT_ASSERT_EQUAL(123, it.get<ObjectTombstone>()->table);
+        CPPUNIT_ASSERT_EQUAL(29, it.get<ObjectTombstone>()->id);
         it.next();
 
         CPPUNIT_ASSERT(!it.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
-        CPPUNIT_ASSERT_EQUAL(124, it.get<ObjectTombstone>()->tableId);
-        CPPUNIT_ASSERT_EQUAL(20, it.get<ObjectTombstone>()->objectId);
+        CPPUNIT_ASSERT_EQUAL(124, it.get<ObjectTombstone>()->table);
+        CPPUNIT_ASSERT_EQUAL(20, it.get<ObjectTombstone>()->id);
         it.next();
 
         CPPUNIT_ASSERT(!it.isDone());
