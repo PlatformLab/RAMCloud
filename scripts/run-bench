@@ -10,8 +10,13 @@ source scripts/common.bash
 
 masterLocator=fast+udp:host=127.0.0.1,port=$port
 coordinatorLocator=fast+udp:host=127.0.0.1,port=$cport
-#masterLocator=infrc:host=127.0.0.1,port=$port
-#coordinatorLocator=infrc:host=127.0.0.1,port=$cport
+
+if [ $# -eq 1 ]; then
+    if [ $1 == "infrc" ]; then
+        masterLocator=infrc:host=127.0.0.1,port=$port
+        coordinatorLocator=infrc:host=127.0.0.1,port=$cport
+    fi
+fi
 
 # Check to see if master and coordinator servers are running. If so, kill 'em!
 portslay $port
