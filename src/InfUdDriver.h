@@ -33,19 +33,25 @@ namespace RAMCloud {
 typedef Infiniband::BufferDescriptor BufferDescriptor;
 typedef Infiniband::QueuePair QueuePair;
 
+/**
+ * A Driver for Infiniband unreliable datagram (UD) communication.
+ * Simple packet send/receive style interface. See Driver for more detail.
+ */
 class InfUdDriver : public Driver {
   public:
+    /// The maximum number bytes we can stuff in a UDP packet payload.
     static const uint32_t MAX_PAYLOAD_SIZE = 1024;
 
     explicit InfUdDriver(const ServiceLocator* localServiceLocator = NULL);
     virtual ~InfUdDriver();
-    virtual uint32_t getMaxPayloadSize();
+    virtual uint32_t getMaxPacketSize();
     virtual void release(char *payload, uint32_t len);
     virtual void sendPacket(const Address *addr,
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
     virtual bool tryRecvPacket(Received *received);
+    virtual ServiceLocator getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator& serviceLocator) {
         return new InfAddress(serviceLocator);
@@ -92,6 +98,9 @@ class InfUdDriver : public Driver {
     int ibPhysicalPort;                 // our HCA's physical port index
     int lid;                            // our infiniband local id
     int qpn;                            // our queue pair number
+
+    /// Our ServiceLocator, including the dynamic lid and qpn
+    string              locatorString;
 
     DISALLOW_COPY_AND_ASSIGN(InfUdDriver);
 };

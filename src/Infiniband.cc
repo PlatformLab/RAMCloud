@@ -176,7 +176,7 @@ Infiniband::tryReceive(QueuePair *qp, InfAddress *sourceAddress)
 
     if (sourceAddress != NULL) {
         sourceAddress->address.lid = wc.slid;
-        sourceAddress->address.qpn = wc.qp_num;
+        sourceAddress->address.qpn = wc.src_qp;
     }
 
     return bd;
@@ -353,8 +353,6 @@ Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length,
  *      The BufferDescriptor that contains the data to be transmitted.
  * \param[in] length
  *      The number of bytes used by the packet in the given BufferDescriptor.
- * \param[in] cq
- *      The completion queue to poll.
  * \param[in] ah
  *      UD queue pairs only. The address handle of the host to send to. 
  * \param[in] remoteQpn
@@ -368,13 +366,12 @@ Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length,
  */
 void
 Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
-    uint32_t length, ibv_cq *cq, ibv_ah *ah, uint32_t remoteQpn,
-    uint32_t remoteQKey)
+    uint32_t length, ibv_ah *ah, uint32_t remoteQpn, uint32_t remoteQKey)
 {
     postSend(qp, bd, length, ah, remoteQpn, remoteQKey);
 
     ibv_wc wc;
-    while (ibv_poll_cq(cq, 1, &wc) < 1) {}
+    while (ibv_poll_cq(qp->txcq, 1, &wc) < 1) {}
     if (wc.status != IBV_WC_SUCCESS) {
         LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
             wc.status, wcStatusToString(wc.status));
@@ -431,6 +428,10 @@ Infiniband::allocateBufferDescriptorAndRegister(ibv_pd *pd, size_t bytes)
  *      The type of QueuePair to create. Currently valid values are
  *      IBV_QPT_RC for reliable QueuePairs and IBV_QPT_UD for
  *      unreliable ones.
+ * \param ctxt
+ *      The device context of the HCA to use this QueuePair with. This
+ *      is the value returned by Infiniband::openDevice(), or the Verbs
+ *      ibv_open_device() function.
  * \param ibPhysicalPort
  *      The physical port on the HCA we will use this QueuePair on.
  *      The default is 1, though some devices have multiple ports.
@@ -457,10 +458,11 @@ Infiniband::allocateBufferDescriptorAndRegister(ibv_pd *pd, size_t bytes)
  * \param QKey
  *      UD Queue Pairs only. The QKey for this pair. 
  */
-Infiniband::QueuePair::QueuePair(ibv_qp_type type, int ibPhysicalPort,
-    ibv_pd *pd, ibv_srq *srq, ibv_cq *txcq, ibv_cq *rxcq,
+Infiniband::QueuePair::QueuePair(ibv_qp_type type, ibv_context *ctxt,
+    int ibPhysicalPort, ibv_pd *pd, ibv_srq *srq, ibv_cq *txcq, ibv_cq *rxcq,
     uint32_t maxSendWr, uint32_t maxRecvWr, uint32_t QKey)
     : type(type),
+      ctxt(ctxt),
       ibPhysicalPort(ibPhysicalPort),
       pd(pd),
       srq(srq),
@@ -606,8 +608,11 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
 
     // the queue pair should be ready to use once the client has finished
     // setting up their end.
-    LOG(DEBUG, "%s infiniband qp plumbed: qpn 0x%x, ibPhysicalPort %u",
-        __func__, qp->qp_num, ibPhysicalPort);
+    LOG(DEBUG, "%s: infiniband qp plumbed: lid 0x%x, qpn 0x%x, psn 0x%x, "
+        "ibPhysicalPort %u to remote lid 0x%x, remote qpn 0x%x, "
+        "remote psn 0x%x", __func__, getLid(ctxt, ibPhysicalPort), qp->qp_num,
+        initialPsn, ibPhysicalPort, qpt->getLid(), qpt->getQpn(),
+        qpt->getPsn());
 }
 
 void
@@ -642,8 +647,9 @@ Infiniband::QueuePair::activate()
         throw TransportException(HERE, ret);
     }
 
-    LOG(DEBUG, "%s infiniband qp activated: qpn 0x%x, ibPhysicalPort %u",
-        __func__, qp->qp_num, ibPhysicalPort);
+    LOG(DEBUG, "%s: infiniband qp activated: lid 0x%x, qpn 0x%x, "
+        "ibPhysicalPort %u", __func__, getLid(ctxt, ibPhysicalPort),
+        qp->qp_num, ibPhysicalPort);
 }
 
 /**

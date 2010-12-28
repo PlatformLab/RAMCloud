@@ -223,6 +223,7 @@ template<> const char*
 ServiceLocator::getOption(const string& key,
                           const char* defaultValue) const;
 
+typedef std::vector<ServiceLocator> ServiceLocatorList;
 
 } // end RAMCloud
 

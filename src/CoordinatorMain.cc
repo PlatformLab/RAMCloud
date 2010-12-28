@@ -25,10 +25,10 @@ main(int argc, char *argv[])
     try {
         OptionParser optionParser(OptionsDescription("Coordinator"),
                                   argc, argv);
-        const string& localLocator(
-            optionParser.options.getCoordinatorLocator());
-        LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
+        string localLocator = optionParser.options.getCoordinatorLocator();
         transportManager.initialize(localLocator.c_str());
+        localLocator = transportManager.getListeningLocatorsString();
+        LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
         CoordinatorServer().run();
         return 0;
     } catch (RAMCloud::Exception& e) {

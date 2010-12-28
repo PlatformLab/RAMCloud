@@ -52,6 +52,13 @@ FastTransport::~FastTransport()
     delete driver;
 }
 
+// See Transport::getServiceLocator().
+ServiceLocator
+FastTransport::getServiceLocator()
+{
+    return driver->getServiceLocator();
+}
+
 // See Transport::getSession().
 Transport::SessionRef
 FastTransport::getSession(const ServiceLocator& serviceLocator)

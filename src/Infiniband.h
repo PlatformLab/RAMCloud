@@ -68,6 +68,7 @@ class Infiniband {
     class QueuePair {
       public:
         QueuePair(ibv_qp_type type,
+                  ibv_context *ctxt,
                   int ibPhysicalPort,
                   ibv_pd *pd,
                   ibv_srq *srq,
@@ -86,14 +87,15 @@ class Infiniband {
         void     activate();
 
       //private: XXXXX- move send/recv functionality into the queue pair shit
-        int         type;           // QP type (IBV_QPT_RC, etc.)
-        int         ibPhysicalPort; // physical port number of the HCA
-        ibv_pd*     pd;             // protection domain
-        ibv_srq*    srq;            // shared receive queue
-        ibv_qp*     qp;             // infiniband verbs QP handle
-        ibv_cq*     txcq;           // transmit completion queue
-        ibv_cq*     rxcq;           // receive completion queue
-        uint32_t    initialPsn;     // initial packet sequence number
+        int          type;           // QP type (IBV_QPT_RC, etc.)
+        ibv_context* ctxt;           // device context of the HCA to use
+        int          ibPhysicalPort; // physical port number of the HCA
+        ibv_pd*      pd;             // protection domain
+        ibv_srq*     srq;            // shared receive queue
+        ibv_qp*      qp;             // infiniband verbs QP handle
+        ibv_cq*      txcq;           // transmit completion queue
+        ibv_cq*      rxcq;           // receive completion queue
+        uint32_t     initialPsn;     // initial packet sequence number
 
         DISALLOW_COPY_AND_ASSIGN(QueuePair);
     };
@@ -133,7 +135,6 @@ class Infiniband {
     static void         postSendAndWait(QueuePair* qp,
                                         BufferDescriptor* bd,
                                         uint32_t length,
-                                        ibv_cq *cq,
                                         ibv_ah *ah = NULL,
                                         uint32_t remoteQpn = 0,
                                         uint32_t remoteQKey = 0);

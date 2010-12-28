@@ -132,11 +132,14 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
       queuePairMap(),
       clientSendQueue(),
       numUsedClientSrqBuffers(MAX_SHARED_RX_QUEUE_DEPTH),
-      outstandingRpcs()
+      outstandingRpcs(),
+      locatorString()
 {
     const char *ibDeviceName = NULL;
 
     if (sl != NULL) {
+        locatorString = sl->getOriginalString();
+
         try {
             ibDeviceName   = sl->getOption<const char *>("dev");
         } catch (ServiceLocator::NoSuchKeyException& e) {}
@@ -494,8 +497,9 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
 
     // Create a new QueuePair and send its parameters to the server so it
     // can create its qp and reply with its parameters.
-    QueuePair *qp = new QueuePair(IBV_QPT_RC, ibPhysicalPort, pd, clientSrq,
-                                  commonTxCq, clientRxCq, MAX_TX_QUEUE_DEPTH,
+    QueuePair *qp = new QueuePair(IBV_QPT_RC, ctxt, ibPhysicalPort, pd,
+                                  clientSrq, commonTxCq, clientRxCq,
+                                  MAX_TX_QUEUE_DEPTH,
                                   MAX_SHARED_RX_QUEUE_DEPTH);
 
     for (uint32_t i = 0; i < QP_EXCHANGE_MAX_TIMEOUTS; i++) {
@@ -568,8 +572,9 @@ InfRcTransport::serverTrySetupQueuePair()
     //      be sure, esp. if we use an unreliable means of handshaking, in
     //      which case the response to the client request could have been lost.
 
-    QueuePair *qp = new QueuePair(IBV_QPT_RC, ibPhysicalPort, pd, serverSrq,
-                                  commonTxCq, serverRxCq, MAX_TX_QUEUE_DEPTH,
+    QueuePair *qp = new QueuePair(IBV_QPT_RC, ctxt, ibPhysicalPort, pd,
+                                  serverSrq, commonTxCq, serverRxCq,
+                                  MAX_TX_QUEUE_DEPTH,
                                   MAX_SHARED_RX_QUEUE_DEPTH);
     qp->plumb(&incomingQpt);
 
@@ -633,6 +638,13 @@ InfRcTransport::getMaxRpcSize() const
     return MAX_RPC_SIZE;
 }
 
+
+ServiceLocator
+InfRcTransport::getServiceLocator()
+{
+    return ServiceLocator(locatorString);
+}
+
 //-------------------------------------
 // InfRcTransport::ServerRpc class
 //-------------------------------------
@@ -684,8 +696,7 @@ InfRcTransport::ServerRpc::sendReply()
     replyPayload.copy(0, replyPayload.getTotalLength(), bd->buffer);
     totalSendReplyCopyTime += rdtsc() - start;
     totalSendReplyCopyBytes += replyPayload.getTotalLength();
-    Infiniband::postSendAndWait(qp, bd, replyPayload.getTotalLength(),
-        t->commonTxCq);
+    Infiniband::postSendAndWait(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
     LOG(DEBUG, "Sent response with nonce %016lx", nonce);
 }
@@ -743,8 +754,7 @@ InfRcTransport::ClientRpc::sendOrQueue()
         totalClientSendCopyTime += rdtsc() - start;
         totalClientSendCopyBytes += request->getTotalLength();
         LOG(DEBUG, "Sending request with nonce %016lx", nonce);
-        Infiniband::postSendAndWait(session->qp, bd, request->getTotalLength(),
-            t->commonTxCq);
+        Infiniband::postSendAndWait(session->qp, bd, request->getTotalLength());
         request->truncateFront(sizeof(Header)); // for politeness
 
         t->outstandingRpcs.push_back(*this);

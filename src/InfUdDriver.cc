@@ -19,6 +19,17 @@
  * driver using unconnected datagram queue-pairs (UD).
  */
 
+/*
+ * Note that in UD mode, Infiniband receivers prepend a 40-byte
+ * Global Routing Header (GRH) to all incoming frames. Immediately
+ * following is the data transmitted. The interface is not symmetric:
+ * Sending applications do not include a GRH in the buffers they pass
+ * to the HCA.
+ *
+ * The code below has a few 40-byte constants sprinkled about to deal
+ * with this phenomenon.
+ */
+
 #include <errno.h>
 #include <sys/types.h>
 
@@ -49,11 +60,13 @@ namespace RAMCloud {
 InfUdDriver::InfUdDriver(const ServiceLocator *sl)
     : ctxt(0), pd(0), rxcq(0), txcq(0), qp(NULL), packetBufPool(),
       packetBufsUtilized(0), currentRxBuffer(0), txBuffer(),
-      ibPhysicalPort(1), lid(0), qpn(0)
+      ibPhysicalPort(1), lid(0), qpn(0), locatorString()
 {
     const char *ibDeviceName = NULL;
 
     if (sl != NULL) {
+        locatorString = sl->getOriginalString();
+
         try {
             ibDeviceName   = sl->getOption<const char *>("dev");
         } catch (ServiceLocator::NoSuchKeyException& e) {}
@@ -72,24 +85,29 @@ InfUdDriver::InfUdDriver(const ServiceLocator *sl)
     // XXX- for now we allocate one TX buffer and RX buffers as a ring.
     for (uint32_t i = 0; i < MAX_RX_QUEUE_DEPTH; i++) {
         rxBuffers[i] = Infiniband::allocateBufferDescriptorAndRegister(
-            pd, getMaxPayloadSize());
+            pd, getMaxPacketSize() + 40);
     }
     txBuffer = Infiniband::allocateBufferDescriptorAndRegister(
-        pd, getMaxPayloadSize());
+        pd, getMaxPacketSize() + 40);
 
     // create completion queues for receive and transmit
-    ibv_cq *rxcq = ibv_create_cq(ctxt, MAX_RX_QUEUE_DEPTH, NULL, NULL, 0);
+    rxcq = ibv_create_cq(ctxt, MAX_RX_QUEUE_DEPTH, NULL, NULL, 0);
     error_check_null(rxcq, "failed to create receive completion queue");
 
-    ibv_cq *txcq = ibv_create_cq(ctxt, MAX_TX_QUEUE_DEPTH, NULL, NULL, 0);
+    txcq = ibv_create_cq(ctxt, MAX_TX_QUEUE_DEPTH, NULL, NULL, 0);
     error_check_null(txcq, "failed to create transmit completion queue");
 
-    qp = new QueuePair(IBV_QPT_UD, ibPhysicalPort, pd, NULL, txcq, rxcq,
+    qp = new QueuePair(IBV_QPT_UD, ctxt, ibPhysicalPort, pd, NULL, txcq, rxcq,
         MAX_TX_QUEUE_DEPTH, MAX_RX_QUEUE_DEPTH, QKEY);
 
     // cache these for easier access
     lid = Infiniband::getLid(ctxt, ibPhysicalPort);
     qpn = qp->getLocalQpNumber();
+
+    // update our locatorString, if one was provided, with the dynamic
+    // address
+    if (!locatorString.empty())
+        locatorString += format("lid=%u,qpn=%u", lid, qpn);
 
     // add receive buffers so we can transition to RTR
     for (uint32_t i = 0; i < MAX_RX_QUEUE_DEPTH; i++)
@@ -117,7 +135,7 @@ InfUdDriver::~InfUdDriver()
  * See docs in the ``Driver'' class.
  */
 uint32_t
-InfUdDriver::getMaxPayloadSize()
+InfUdDriver::getMaxPacketSize()
 {
     return MAX_PAYLOAD_SIZE;
 }
@@ -147,13 +165,15 @@ InfUdDriver::sendPacket(const Address *addr,
 {
     uint32_t totalLength = headerLen +
                            (payload ? payload->getTotalLength() : 0);
-    assert(totalLength <= getMaxPayloadSize());
+    assert(totalLength <= getMaxPacketSize());
+
+    const InfAddress *infAddr = static_cast<const InfAddress *>(addr);
 
     // XXX for UD, we need to allocate an address handle. this should _not_
     // be done on the fly (it takes tens of microseconds!), but should be
     // instead associated with sessions somehow.
     ibv_ah_attr attr;
-    attr.dlid = static_cast<const InfAddress *>(addr)->address.lid;
+    attr.dlid = infAddr->address.lid;
     attr.src_path_bits = 0;
     attr.is_global = 0;
     attr.sl = 0;
@@ -176,10 +196,14 @@ InfUdDriver::sendPacket(const Address *addr,
     }
     uint32_t length = p - bd->buffer;
 
-    uint32_t remoteQpn = static_cast<const InfAddress *>(addr)->address.qpn;
+    uint32_t remoteQpn = infAddr->address.qpn;
     try {
-        Infiniband::postSendAndWait(qp, bd, length, txcq, ah, remoteQpn, QKEY);
+        LOG(DEBUG, "%s: sending %u bytes to %s...", __func__, length,
+            infAddr->toString().c_str());
+        Infiniband::postSendAndWait(qp, bd, length, ah, remoteQpn, QKEY);
+        LOG(DEBUG, "%s: sent successfully!", __func__);
     } catch (...) {
+        LOG(DEBUG, "%s: send failed!", __func__);
         ibv_destroy_ah(ah);
         throw;
     }
@@ -208,20 +232,38 @@ InfUdDriver::tryRecvPacket(Received *received)
         return false;
     }
 
-    // copy from the infiniband buffer into our dynamically allocated
-    // buffer.
-    memcpy(buffer->payload, bd->buffer, bd->messageBytes);
+    if (bd->messageBytes < 40) {
+        LOG(ERROR, "%s: received packet without GRH!", __func__);
+        packetBufPool.destroy(buffer);
+    } else {
+        LOG(DEBUG, "%s: received %u byte packet (not including GRH) from %s",
+            __func__, bd->messageBytes - 40,
+            buffer->infAddress.toString().c_str());
 
-    packetBufsUtilized++;
-    received->payload = buffer->payload;
-    received->len = bd->messageBytes;
-    received->sender = &buffer->infAddress;
-    received->driver = this;
+        // copy from the infiniband buffer into our dynamically allocated
+        // buffer.
+        memcpy(buffer->payload, bd->buffer + 40, bd->messageBytes - 40);
+
+        packetBufsUtilized++;
+        received->payload = buffer->payload;
+        received->len = bd->messageBytes - 40;
+        received->sender = &buffer->infAddress;
+        received->driver = this;
+    }
 
     // post the original infiniband buffer back to the receive queue
     Infiniband::postReceive(qp, bd);
 
     return true;
+}
+
+/**
+ * See docs in the ``Driver'' class.
+ */
+ServiceLocator
+InfUdDriver::getServiceLocator()
+{
+    return ServiceLocator(locatorString);
 }
 
 } // namespace RAMCloud

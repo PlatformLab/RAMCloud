@@ -49,6 +49,7 @@ class InfRcTransport : public Transport {
     SessionRef getSession(const ServiceLocator& sl) {
         return new InfRCSession(this, sl);
     }
+    ServiceLocator getServiceLocator();
     void dumpStats() {
         LOG(NOTICE, "InfRcTransport totalClientSendCopyTime: %lu",
             totalClientSendCopyTime);
@@ -125,7 +126,7 @@ class InfRcTransport : public Transport {
     static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 64;
     static const uint32_t MAX_TX_SGE_COUNT = 8;
-    static const uint32_t QP_EXCHANGE_USEC_TIMEOUT = 500;
+    static const uint32_t QP_EXCHANGE_USEC_TIMEOUT = 50000;
     static const uint32_t QP_EXCHANGE_MAX_TIMEOUTS = 10;
 
     INTRUSIVE_LIST_TYPEDEF(ClientRpc, queueEntries) ClientRpcList;
@@ -249,6 +250,11 @@ class InfRcTransport : public Transport {
 
     /// RPCs which are awaiting their responses from the network.
     ClientRpcList outstandingRpcs;
+
+    /// ServiceLocator string. May be empty if a NULL ServiceLocator was
+    /// passed to the constructor. Since InfRcTransport bootstraps over
+    /// UDP, this could in the future contain a dynamic UDP port number.
+    string locatorString;
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };

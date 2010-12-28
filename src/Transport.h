@@ -266,6 +266,17 @@ class Transport {
      */
     virtual SessionRef getSession(const ServiceLocator& serviceLocator) = 0;
 
+    /**
+     * Return the ServiceLocator for this Transport. If the transport
+     * was not provided static parameters (e.g. fixed TCP or UDP port),
+     * this function will return a SerivceLocator with those dynamically
+     * allocated attributes.
+     *
+     * Enlisting the dynamic ServiceLocator with the Coordinator permits
+     * other hosts to contact dynamically addressed services.
+     */
+    virtual ServiceLocator getServiceLocator() = 0;
+
     /// Dump out performance and debugging statistics.
     virtual void dumpStats() {}
 
