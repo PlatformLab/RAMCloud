@@ -138,6 +138,15 @@ MockDriver::tryRecvPacket(Driver::Received *received)
 }
 
 /**
+ * See Driver::getServiceLocator. 
+ */
+ServiceLocator
+MockDriver::getServiceLocator()
+{
+    return ServiceLocator("mock:");
+}
+
+/**
  * This method is invoked by tests to provide a Received that will
  * be used to synthesize an input message the next time one is
  * needed (such as for a packet).

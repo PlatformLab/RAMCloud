@@ -62,6 +62,7 @@ class MockDriver : public Driver {
                             Buffer::Iterator *payload);
     void setInput(Driver::Received* received);
     virtual bool tryRecvPacket(Received *received);
+    virtual ServiceLocator getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator& serviceLocator) {
         return new MockAddress(serviceLocator);

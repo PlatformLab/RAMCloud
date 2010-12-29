@@ -25,6 +25,8 @@ class TransportManagerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_initialize);
     CPPUNIT_TEST(test_getSession);
     CPPUNIT_TEST(test_serverRecv);
+    CPPUNIT_TEST(test_getListeningLocators);
+    CPPUNIT_TEST(test_getListeningLocatorsString);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -99,6 +101,49 @@ class TransportManagerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("x",
             static_cast<const char*>(rpc->recvPayload.getRange(0, 2)));
         delete rpc;
+    }
+
+    void test_getListeningLocators() {
+        TransportManager manager;
+
+        CPPUNIT_ASSERT_THROW(manager.getListeningLocators(),
+            TransportException);
+
+        ServiceLocator mock1sl("hi:");
+        ServiceLocator mock2sl("there:");
+        MockTransport *mock1 = new MockTransport(&mock1sl);
+        MockTransport *mock2 = new MockTransport(&mock2sl);
+        manager.registerMock(mock1);
+        manager.registerMock(mock2);
+
+        CPPUNIT_ASSERT_EQUAL(2, manager.listening.size());
+
+        ServiceLocatorList sll = manager.getListeningLocators();
+        CPPUNIT_ASSERT_EQUAL(2, sll.size());
+        CPPUNIT_ASSERT_EQUAL("hi:", sll[0].getOriginalString());
+        CPPUNIT_ASSERT_EQUAL("there:", sll[1].getOriginalString());
+    }
+
+    void test_getListeningLocatorsString() {
+        TransportManager manager;
+
+        CPPUNIT_ASSERT_THROW(manager.getListeningLocators(),
+            TransportException);
+
+        ServiceLocator mock1sl("hi:");
+        ServiceLocator mock2sl("there:");
+        MockTransport *mock1 = new MockTransport(&mock1sl);
+        MockTransport *mock2 = new MockTransport(&mock2sl);
+
+        manager.initialize("");
+        CPPUNIT_ASSERT_EQUAL("", manager.getListeningLocatorsString());
+
+        manager.registerMock(mock1);
+        CPPUNIT_ASSERT_EQUAL("hi:", manager.getListeningLocatorsString());
+
+        manager.registerMock(mock2);
+        CPPUNIT_ASSERT_EQUAL("hi:;there:",
+            manager.getListeningLocatorsString());
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(TransportManagerTest);
