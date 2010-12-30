@@ -27,6 +27,11 @@
 
 namespace RAMCloud {
 
+// The following variable is used only by getCyclesPerSecond (to cache its
+// result so it needn't be recomputed continuously). It is pulled out here
+// so that it can be modified to simplify unit testing.
+uint64_t cyclesPerSec = 0;
+
 /**
  * Return the approximate number of cycles per second for this CPU.
  * The value is computed once during the first call, then reused in
@@ -37,9 +42,8 @@ namespace RAMCloud {
 uint64_t
 getCyclesPerSecond()
 {
-    static uint64_t cycles = 0;
-    if (cycles)
-        return cycles;
+    if (cyclesPerSec)
+        return cyclesPerSec;
 
     // Overall strategy: take parallel time readings using both rdtsc
     // and gettimeofday. After 10ms have elapsed, take the ratio between
@@ -70,15 +74,16 @@ getCyclesPerSecond()
             micros = (stopTime.tv_usec - startTime.tv_usec) +
                     (stopTime.tv_sec - startTime.tv_sec)*1000000;
             if (micros > 10000) {
-                cycles = 1000000*(stopCycles - startCycles) / micros;
+                cyclesPerSec = 1000000*(stopCycles - startCycles) / micros;
                 break;
             }
         }
-        uint64_t delta = cycles/1000;
-        if ((oldCycles > (cycles - delta)) && (oldCycles < (cycles + delta))) {
-            return cycles;
+        uint64_t delta = cyclesPerSec/1000;
+        if ((oldCycles > (cyclesPerSec - delta)) &&
+                (oldCycles < (cyclesPerSec + delta))) {
+            return cyclesPerSec;
         }
-        oldCycles = cycles;
+        oldCycles = cyclesPerSec;
     }
 }
 

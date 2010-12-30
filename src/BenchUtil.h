@@ -34,6 +34,7 @@ void spin(uint64_t ns);
 void fillRandom(void* buf, uint32_t size);
 void fillPrintableRandom(void* buf, uint32_t size);
 
+extern uint64_t cyclesPerSec;
 } // end RAMCloud
 
 #endif
