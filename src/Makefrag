@@ -42,7 +42,6 @@ SHARED_SRCFILES := \
 		   src/MasterServer.cc \
 		   src/Metrics.cc \
 		   src/OptionParser.cc \
-           src/Oustercount.cc \
 		   src/Recovery.cc \
 		   src/RecoverySegmentIterator.cc \
 		   src/Segment.cc \
@@ -50,8 +49,9 @@ SHARED_SRCFILES := \
 		   src/Server.cc \
 		   src/ServiceLocator.cc \
 		   src/Status.cc \
+           src/TabletProfiler.cc \
 		   src/TcpTransport.cc \
-		   src/TcpTransport2.cc \
+		   src/TcpTransport.cc \
            src/TimeCounter.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \

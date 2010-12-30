@@ -64,7 +64,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         SegmentIterator si2(alignedBuf, sizeof(alignedBuf));
         CPPUNIT_ASSERT_EQUAL((const void *)alignedBuf, si2.baseAddress);
         CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), si2.segmentCapacity);
-        CPPUNIT_ASSERT_EQUAL(-1, si2.id);
+        CPPUNIT_ASSERT_EQUAL(98765, si2.id);
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, si2.type);
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), si2.length);
         CPPUNIT_ASSERT_EQUAL(reinterpret_cast<const char *>(si2.baseAddress) +
@@ -180,18 +180,33 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
         memset(alignedBuf, 0, sizeof(alignedBuf));
 
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
+
+        char buf;
+        uint64_t offsetInSegment;
+        s.append(LOG_ENTRY_TYPE_OBJ, &buf, sizeof(buf), NULL, &offsetInSegment);
         SegmentIterator si(&s);
 
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, si.getType());
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentHeader), si.getLength());
+        CPPUNIT_ASSERT_EQUAL(sizeof(SegmentEntry) + sizeof(SegmentHeader),
+            si.getLengthInLog());
+        CPPUNIT_ASSERT(si.getLogTime() == LogTime(98765, 0));
         CPPUNIT_ASSERT_EQUAL((const void *)(alignedBuf + sizeof(SegmentEntry)),
             si.getPointer());
         CPPUNIT_ASSERT_EQUAL((uintptr_t)si.getPointer() -
             (uintptr_t)si.baseAddress, si.getOffset());
 
+        si.next();
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, si.getType());
+        CPPUNIT_ASSERT_EQUAL(sizeof(buf), si.getLength());
+        CPPUNIT_ASSERT(si.getLogTime() == LogTime(98765, offsetInSegment));
+        CPPUNIT_ASSERT(si.getLogTime() > LogTime(98765, 0));
+
         si.currentEntry = NULL;
         CPPUNIT_ASSERT_THROW(si.getType(), SegmentIteratorException);
         CPPUNIT_ASSERT_THROW(si.getLength(), SegmentIteratorException);
+        CPPUNIT_ASSERT_THROW(si.getLengthInLog(), SegmentIteratorException);
+        CPPUNIT_ASSERT_THROW(si.getLogTime(), SegmentIteratorException);
         CPPUNIT_ASSERT_THROW(si.getPointer(), SegmentIteratorException);
         CPPUNIT_ASSERT_THROW(si.getType(), SegmentIteratorException);
     }

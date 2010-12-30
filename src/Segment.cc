@@ -97,19 +97,32 @@ Segment::~Segment()
  *      otherwise the replication will happen on a subsequent append()
  *      where sync is true or when the segment is closed.  This defaults
  *      to true.
+ * \param[out] lengthInSegment
+ *      If non-NULL, the actual number of bytes consumed by this append to
+ *      the Segment is stored to this address. Note that this size includes
+ *      all Log and Segment overheads, so it will be greater than the
+ *      ``length'' parameter. 
+ * \param[out] offsetInSegment
+ *      If non-NULL, the offset in this Segment at which the operation was
+ *      performed is returned here. Note that this offset does not correspond
+ *      to where the contents of ``buffer'' was written, but to the preceding
+ *      metadata for this operation.
  * \return
  *      On success, a const pointer into the Segment's backing memory with
  *      the same contents as `buffer'. On failure, NULL. 
  */
 const void *
 Segment::append(LogEntryType type, const void *buffer, uint32_t length,
-    bool sync)
+    uint64_t *lengthInSegment, uint64_t *offsetInSegment, bool sync)
 {
     if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
       appendableBytes() < length)
         return NULL;
 
-    return forceAppendWithEntry(type, buffer, length, sync);
+    if (offsetInSegment != NULL)
+        *offsetInSegment = tail;
+
+    return forceAppendWithEntry(type, buffer, length, lengthInSegment, sync);
 }
 
 /**
@@ -296,6 +309,11 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length,
  *      Data to be appended to this Segment.
  * \param[in] length
  *      Length of the data to be appended in bytes.
+ * \param[out] lengthOfAppend
+ *      If non-NULL, the actual number of bytes consumed by this append to
+ *      the Segment is stored to this address. Note that this size includes all
+ *      Log and Segment overheads, so it will be greater than the ``length''
+ *      parameter. 
  * \param[in] sync
  *      If true then this write to replicated to backups before return,
  *      otherwise the replication will happen on a subsequent append()
@@ -307,7 +325,7 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length,
  */
 const void *
 Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
-    uint32_t length, bool sync)
+    uint32_t length, uint64_t *lengthOfAppend, bool sync)
 {
     assert(!closed);
 
@@ -322,6 +340,9 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
 
     if (sync)
         this->sync();
+
+    if (lengthOfAppend != NULL)
+        *lengthOfAppend = needBytes;
 
     return datap;
 }

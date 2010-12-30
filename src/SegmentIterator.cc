@@ -113,6 +113,10 @@ SegmentIterator::CommonConstructor(bool ignoreCapacityMismatch)
                                        "Segment capacity");
     }
 
+    if (id != (uint64_t)-1 && header->segmentId != id)
+        throw SegmentIteratorException(HERE, "id mismatch");
+    id = header->segmentId;
+
     type    = entry->type;
     length  = entry->length;
     blobPtr = reinterpret_cast<const char *>(baseAddress) + sizeof(*entry);
@@ -229,6 +233,36 @@ SegmentIterator::getLength() const
         throw SegmentIteratorException(HERE,
                                        "getLength after iteration complete");
     return length;
+}
+
+/**
+ * Obtain the length of the SegmentEntry currently being iterated over.
+ * \return
+ *      The length of the current entry in bytes.
+ * \throw SegmentIteratorException
+ *      An exception is thrown if the iterator has no more entries.
+ */
+uint64_t
+SegmentIterator::getLengthInLog() const
+{
+    return getLength() + sizeof(SegmentEntry);
+}
+
+/**
+ * Obtain the LogTime corresponding to the append of this entry.
+ * \return
+ *      The LogTime corresponding to this entry's append.
+ * \throw SegmentIteratorException
+ *      An exception is thrown if the iterator has no more entries.
+ */
+LogTime
+SegmentIterator::getLogTime() const
+{
+    if (currentEntry == NULL)
+        throw SegmentIteratorException(HERE,
+                                       "getLogTime after iteration complete");
+    assert(getOffset() >= sizeof(SegmentEntry));
+    return LogTime(id, getOffset() - sizeof(SegmentEntry));
 }
 
 /**

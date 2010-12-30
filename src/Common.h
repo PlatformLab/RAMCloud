@@ -106,7 +106,7 @@ _xmalloc(size_t len, const char *file, const int line, const char *func)
 {
     void *p = malloc(len > 0 ? len : 1);
     if (p == NULL) {
-        fprintf(stderr, "malloc(%d) failed: %s:%d (%s)\n",
+        fprintf(stderr, "malloc(%lu) failed: %s:%d (%s)\n",
                 len, file, line, func);
         exit(1);
     }
@@ -139,7 +139,7 @@ _xmemalign(size_t alignment, size_t len,
 
     // alignment must be a power of two
     if ((alignment & (alignment - 1)) != 0) {
-        fprintf(stderr, "xmemalign alignment (%d) must be "
+        fprintf(stderr, "xmemalign alignment (%lu) must be "
                         "a power of two: %s:%d (%s)\n",
                 alignment, file, line, func);
         exit(1);
@@ -147,7 +147,7 @@ _xmemalign(size_t alignment, size_t len,
 
     // alignment must be a multiple of sizeof(void*)
     if (alignment % sizeof(void*) != 0) { // NOLINT
-        fprintf(stderr, "xmemalign alignment (%d) must be "
+        fprintf(stderr, "xmemalign alignment (%lu) must be "
                         "a multiple of sizeof(void*): %s:%d (%s)\n",
                 alignment, file, line, func);
         exit(1);
@@ -155,7 +155,7 @@ _xmemalign(size_t alignment, size_t len,
 
     r = posix_memalign(&p, alignment, len > 0 ? len : 1);
     if (r != 0) {
-        fprintf(stderr, "posix_memalign(%d, %d) failed: %s:%d (%s)\n",
+        fprintf(stderr, "posix_memalign(%lu, %lu) failed: %s:%d (%s)\n",
                 alignment, len, file, line, func);
         exit(1);
     }
@@ -180,7 +180,7 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
                                const int line, const char* func) {
     void *p = realloc(ptr, len > 0 ? len : 1);
     if (p == NULL) {
-        fprintf(stderr, "realloc(%d) failed: %s:%d (%s)\n",
+        fprintf(stderr, "realloc(%lu) failed: %s:%d (%s)\n",
                 len, file, line, func);
         exit(1);
     }

@@ -23,7 +23,7 @@ GTEST_DIR ?= $(TOP)/gtest
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
 OPTFLAG	 :=
-DEBUGFLAGS := -DPERF_COUNTERS=1 -DTESTING=1
+DEBUGFLAGS := -DPERF_COUNTERS=1 -DTESTING=1 -fno-builtin
 else
 BASECFLAGS :=
 OPTFLAG := -O3
@@ -31,7 +31,7 @@ DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
 endif
 
 COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
-	        -fno-builtin -MD -m$(SSE) \
+	        -MD -m$(SSE) \
 	        $(DEBUGFLAGS)
 ifeq ($(COMPILER),gnu)
 COMFLAGS += -march=core2
@@ -134,7 +134,7 @@ endef
 all:
 
 tests: test
-test: python-test mockpy-test
+test: python-test
 
 .SUFFIXES:
 

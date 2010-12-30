@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_OUSTERCOUNT_H
-#define RAMCLOUD_OUSTERCOUNT_H
+#ifndef RAMCLOUD_TABLETPROFILER_H
+#define RAMCLOUD_TABLETPROFILER_H
 
 #include <vector>
 #include "Common.h"
@@ -27,16 +27,16 @@ struct Partition {
 };
 typedef std::vector<Partition> PartitionList;
 
-class Oustercount {
+class TabletProfiler {
   public:
-    Oustercount();
-    ~Oustercount();
+    TabletProfiler();
+    ~TabletProfiler();
 
     // public methods
-    void           addObject(uint64_t key, uint32_t bytes, LogTime time);
-    void           removeObject(uint64_t key, uint32_t bytes, LogTime time);
+    void           track(uint64_t key, uint32_t bytes, LogTime time);
+    void           untrack(uint64_t key, uint32_t bytes, LogTime time);
     PartitionList* getPartitions(uint64_t maxPartitionBytes,
-                                 uint64_t maxPartitionObjects);
+                                 uint64_t maxPartitionReferants);
 
   private:
     static const int      BITS_PER_LEVEL = 8;
@@ -48,11 +48,11 @@ class Oustercount {
     class PartitionCollector {
       public:
         PartitionCollector(uint64_t maxPartitionBytes,
-                           uint64_t maxPartitionObjects,
+                           uint64_t maxPartitionReferants,
                            PartitionList* partitions);
         void addRangeLeaf(uint64_t firstKey, uint64_t lastKey,
-                          uint64_t rangeBytes, uint64_t rangeObjects);
-        void addRangeNonLeaf(uint64_t rangeBytes, uint64_t rangeObjects);
+                          uint64_t rangeBytes, uint64_t rangeReferants);
+        void addRangeNonLeaf(uint64_t rangeBytes, uint64_t rangeReferants);
         void done();
 
       private:
@@ -62,16 +62,16 @@ class Oustercount {
 
         // current tally
         uint64_t maxPartitionBytes;
-        uint64_t maxPartitionObjects;
+        uint64_t maxPartitionReferants;
         uint64_t nextFirstKey;
         uint64_t currentFirstKey;
         uint64_t currentTotalBytes;
-        uint64_t currentTotalObjects;
+        uint64_t currentTotalReferants;
         uint64_t globalTotalBytes;
-        uint64_t globalTotalObjects;
+        uint64_t globalTotalReferants;
         bool     isDone;
 
-        friend class OustercountTest;
+        friend class TabletProfilerTest;
 
         DISALLOW_COPY_AND_ASSIGN(PartitionCollector);
     };
@@ -82,7 +82,7 @@ class Oustercount {
     struct Bucket {
         Subrange *child;
         uint64_t  totalBytes;
-        uint64_t  totalObjects;
+        uint64_t  totalReferants;
     };
 
     class Subrange {
@@ -95,20 +95,25 @@ class Oustercount {
             uint64_t  getFirstKey();
             uint64_t  getLastKey();
 
+            bool operator==(const BucketHandle& other) const {
+                return (this->subrange == other.subrange &&
+                       this->bucketIndex == other.bucketIndex);
+            }
+
           private:
             Subrange* subrange;
             int       bucketIndex;
 
-            friend class OustercountTest;
+            friend class TabletProfilerTest;
         };
 
         Subrange(BucketHandle parent, uint64_t firstKey, uint64_t lastKey,
                  LogTime time);
        ~Subrange();
 
-        void         addObject(BucketHandle bh, uint64_t key, uint32_t bytes,
+        void         track(BucketHandle bh, uint64_t key, uint32_t bytes,
                                LogTime time);
-        bool         removeObject(BucketHandle bh, uint64_t key, uint32_t bytes,
+        bool         untrack(BucketHandle bh, uint64_t key, uint32_t bytes,
                                   LogTime time);
         BucketHandle findBucket(uint64_t key, LogTime *time = NULL);
         Bucket*      getBucket(int bucketIndex);
@@ -128,11 +133,11 @@ class Oustercount {
         uint64_t     firstKey;
         uint64_t     lastKey;
         uint64_t     totalBytes;
-        uint64_t     totalObjects;
+        uint64_t     totalReferants;
         uint32_t     totalChildren;
         LogTime      createTime;
 
-        friend class OustercountTest;
+        friend class TabletProfilerTest;
 
         DISALLOW_COPY_AND_ASSIGN(Subrange);
     };
@@ -140,15 +145,18 @@ class Oustercount {
     // private methods
     Subrange::BucketHandle findBucket(uint64_t key, LogTime *time = NULL);
 
-    // Oustercount private variables
+    // TabletProfiler private variables
     Subrange*              root;
     Subrange::BucketHandle findHint;
+    LogTime                lastTracked;
+    uint64_t               totalTracked;
+    uint64_t               totalTrackedBytes;
 
-    friend class OustercountTest;
+    friend class TabletProfilerTest;
 
-    DISALLOW_COPY_AND_ASSIGN(Oustercount);
+    DISALLOW_COPY_AND_ASSIGN(TabletProfiler);
 };
 
 } // namespace
 
-#endif // !RAMCLOUD_OUSTERCOUNT_H
+#endif // !RAMCLOUD_TABLETPROFILER_H

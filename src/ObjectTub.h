@@ -21,11 +21,28 @@
 namespace RAMCloud {
 
 /**
- * An ObjectTub holds an object that may be uninitialized.
+ * An ObjectTub holds an object that may be uninitialized; it allows the
+ * allocation of memory for objects to be separated from its construction
+ * and destruction. When you initially create an ObjectTub its object
+ * is uninitialized (and should not be used). You can call #construct and
+ * #destroy to invoke the constructor and destructor of the embedded object,
+ * and #get or -> will return the embedded object. The embedded object
+ * is automatically destroyed when the ObjectTub is destroyed (if it was
+ * ever constructed in the first place).
  *
- * It is a special case of the boost::object_pool interface that can allocate
- * at most 1 element at a time. Destroy and free methods that take no arguments
- * are provided since there is no ambiguity as to which object is meant.
+ * ObjectTubs are useful in situations like the following:
+ * - You want to create an array of objects, but the objects need
+ *   complex constructors with multiple arguments.
+ * - You want to create a collection of objects, only some of which
+ *   will be used, and you don't want to pay the cost of constructing
+ *   objects that will never be used.
+ * - You want automatic destruction of an object but don't want to
+ *   heap-allocate the object (as with std::auto_ptr).
+ *
+ * Another way of thinking about this class is as a special case of the
+ * boost::object_pool interface that can allocate at most 1 element at a time.
+ * Destroy and free methods that take no arguments are provided since there
+ * is no ambiguity as to which object is meant.
  *
  * It can also serve as a more efficient implementation of boost::scoped_ptr
  * for certain uses.

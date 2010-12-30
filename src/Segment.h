@@ -75,7 +75,10 @@ class Segment {
     ~Segment();
 
     const void      *append(LogEntryType type, const void *buffer,
-                            uint32_t length, bool sync = true);
+                            uint32_t length,
+                            uint64_t *lengthInSegment = NULL,
+                            uint64_t *offsetInSegment = NULL,
+                            bool sync = true);
     void             free(const void *p);
     void             close(bool sync = true);
     void             sync();
@@ -93,6 +96,7 @@ class Segment {
                                      bool updateChecksum = true);
     const void      *forceAppendWithEntry(LogEntryType type,
                                           const void *buffer, uint32_t length,
+                                          uint64_t *lengthOfAppend = NULL,
                                           bool sync = true);
 
     BackupManager   *backup;         // makes operations on this segment durable

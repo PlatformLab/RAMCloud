@@ -1,9 +1,5 @@
 OBJDIRS += tests
 
-TESTS_PYMOCK_SRCFILES := \
-		src/TcpTransportTest.in.cc
-TESTS_PYMOCK_OUTFILES := $(patsubst src/%.in.cc, $(OBJDIR)/%.cc, $(TESTS_PYMOCK_SRCFILES))
-
 TESTS_SRCFILES := \
 		  src/BackupManagerTest.cc \
 		  src/BackupServerTest.cc \
@@ -30,7 +26,6 @@ TESTS_SRCFILES := \
 		  src/ObjectFinderTest.cc \
 		  src/ObjectTubTest.cc \
 		  src/OptionParserTest.cc \
-          src/OustercountTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \
 		  src/RecoverySegmentIteratorTest.cc \
@@ -40,15 +35,15 @@ TESTS_SRCFILES := \
 		  src/ServerTest.cc \
 		  src/ServiceLocatorTest.cc \
 		  src/StatusTest.cc \
-		  src/TcpTransport2Test.cc \
+          src/TabletProfilerTest.cc \
+		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
 		  src/TransportManagerTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/WindowTest.cc \
-		  $(OBJDIR)/ProtoBufTest.pb.cc \
-		  $(TESTS_PYMOCK_OUTFILES)
+		  $(OBJDIR)/ProtoBufTest.pb.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
 TESTS_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(TESTS_OBJFILES))
@@ -75,9 +70,6 @@ $(OBJDIR)/gtest.a: $(OBJDIR)/gtest-all.o
 # end google test rules
 
 TESTS_LIB := -lcppunit -ldl $(LIBS)
-
-$(OBJDIR)/%Test.cc: $(TOP)/src/%Test.in.cc $(TOP)/mock.py
-	$(TOP)/mock.py $< $@
 
 $(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
 	@mkdir -p $(@D)
@@ -115,14 +107,8 @@ $(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Server.o $(OBJDIR
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
-.PHONY: mockpy-test
-mockpy-test:
-	$(TOP)/mock.py src/tests/mockpy.in.cc $(OBJDIR)/mockpytest.out.cc
-	@diff -q src/tests/mockpy.out.cc $(OBJDIR)/mockpytest.out.cc || \
-	 diff -u src/tests/mockpy.out.cc $(OBJDIR)/mockpytest.out.cc
-
+# Do not remove.
 tests-clean:
-	rm -f $(TOP)/src/TcpTransportTest.cc
 
 .PHONY: test-smack
 test-smack: client $(OBJDIR)/server

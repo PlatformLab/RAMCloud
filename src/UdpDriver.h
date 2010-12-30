@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_UDPDRIVER_H
 #define RAMCLOUD_UDPDRIVER_H
 
-#include <boost/pool/pool.hpp>
+#include <boost/pool/object_pool.hpp>
 #include <vector>
 
 #include "Common.h"
@@ -65,7 +65,7 @@ class UdpDriver : public Driver {
 
     /// Holds packet buffers that are no longer in use, for use any future
     /// requests; saves the overhead of calling malloc/free for each request.
-    boost::pool<> packetBufPool;
+    boost::object_pool<PacketBuf> packetBufPool;
 
     /// Tracks number of outstanding allocated payloads.  For detecting leaks.
     int packetBufsUtilized;

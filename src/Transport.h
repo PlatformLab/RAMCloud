@@ -40,30 +40,6 @@ struct TransportException : public Exception {
 };
 
 /**
- * This class is now deprecated: there isn't a clean division between this and
- * TransportException, so just use TransportException everywhere (see JO for
- * details).
- *
- * An exception that is thrown when the Transport class encounters a fatal
- * error. This is not recoverable unless you have another Transport to fall
- * back to, but it's also not a failed assertion because it depends on the
- * configuration of the outside world (for example, a port number is already in
- * use). In general, you should probably handle this by printing out a message
- * and exiting.
- */
-struct UnrecoverableTransportException : public Exception {
-    explicit UnrecoverableTransportException(const CodeLocation& where)
-        : Exception(where) {}
-    UnrecoverableTransportException(const CodeLocation& where, std::string msg)
-        : Exception(where, msg) {}
-    UnrecoverableTransportException(const CodeLocation& where, int errNo)
-        : Exception(where, errNo) {}
-    UnrecoverableTransportException(const CodeLocation& where,
-                                    string msg, int errNo)
-        : Exception(where, msg, errNo) {}
-};
-
-/**
  * An interface for reliable communication across the network.
  *
  * Implementations all send and receive RPC messages reliably over the network.

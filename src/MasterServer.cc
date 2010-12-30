@@ -133,11 +133,15 @@ SegmentLocatorChooser::markAsDown(uint64_t segmentId, const string& locator)
 
 void objectEvictionCallback(LogEntryType type,
                             const void* p,
-                            uint64_t len,
+                            const uint64_t entryLength,
+                            const uint64_t lenghtInLog,
+                            const LogTime,
                             void* cookie);
 void tombstoneEvictionCallback(LogEntryType type,
                                const void* p,
-                               uint64_t len,
+                               const uint64_t entryLength,
+                               const uint64_t lenghtInLog,
+                               const LogTime,
                                void* cookie);
 
 /**
@@ -695,7 +699,15 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
     // Mark the deleted object as free first, since the append could
     // invalidate it
     log.free(o);
-    log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
+
+    // Write the tombstone into the Log, update our tablet
+    // counters, and remove from the hash table.
+    uint64_t lengthInLog;
+    LogTime logTime;
+
+    log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb),
+        &lengthInLog, &logTime);
+    t.profiler.track(o->id, lengthInLog, logTime);
     objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
@@ -861,11 +873,6 @@ MasterServer::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 // and there are no unit tests for it.
 //-----------------------------------------------------------------------
 
-struct obj_replay_cookie {
-    MasterServer *server;
-    uint64_t usedBytes;
-};
-
 /**
  * Callback used by the LogCleaner when it's cleaning a Segment and evicts
  * an Object (i.e. an entry of type LOG_ENTRY_TYPE_OBJ).
@@ -879,15 +886,25 @@ struct obj_replay_cookie {
  *      LogEntryType of the evictee (LOG_ENTRY_TYPE_OBJ).
  * \param[in]  p
  *      Opaque pointer to the immutable entry in the log. 
- * \param[in]  len
- *      Size of the log entry being evicted in bytes.
+ * \param[in]  entryLength
+ *      Size of the log entry being evicted in bytes. This value is only
+ *      the number of bytes of the buffer given to the Log::append() method.
+ * \param[in]  lengthInLog
+ *      objectLength plus all bytes of overhead consumed in the Log. This
+ *      represents the total amount of system memory consumed by the
+ *      Log::append() operation that wrote this entry.
+ * \param[in]  logTime
+ *      The LogTime corresponding to the append operation that wrote this
+ *      entry.
  * \param[in]  cookie
  *      The opaque state pointer registered with the callback.
  */
 void
 objectEvictionCallback(LogEntryType type,
                        const void* p,
-                       uint64_t len,
+                       const uint64_t entryLength,
+                       const uint64_t lengthInLog,
+                       const LogTime logTime,
                        void* cookie)
 {
     assert(type == LOG_ENTRY_TYPE_OBJ);
@@ -900,8 +917,9 @@ objectEvictionCallback(LogEntryType type,
     const Object *evictObj = static_cast<const Object *>(p);
     assert(evictObj != NULL);
 
+    Table *t = NULL;
     try {
-        svr->getTable(evictObj->table, evictObj->id);
+        t = &svr->getTable(evictObj->table, evictObj->id);
     } catch (TableDoesntExistException& e) {
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
@@ -914,44 +932,16 @@ objectEvictionCallback(LogEntryType type,
 
     // simple pointer comparison suffices
     if (hashTblObj == evictObj) {
-        const Object *newObj = (const Object *)log.append(
-            LOG_ENTRY_TYPE_OBJ, evictObj, evictObj->size());
+        uint64_t newLengthInLog;
+        LogTime newLogTime;
+        const Object *newObj = (const Object *)log.append(LOG_ENTRY_TYPE_OBJ,
+            evictObj, evictObj->size(), &newLengthInLog, &newLogTime);
+        t->profiler.track(evictObj->id, newLengthInLog, newLogTime);
         svr->objectMap.replace(evictObj->table, evictObj->id, newObj);
     }
-}
 
-void
-objectReplayCallback(LogEntryType type,
-                     const void *p,
-                     uint64_t len,
-                     void *cookiep)
-{
-    obj_replay_cookie *cookie = static_cast<obj_replay_cookie *>(cookiep);
-    MasterServer *server = cookie->server;
-
-    //printf("ObjectReplayCallback: type %u\n", type);
-
-    // Used to determine free_bytes after passing over the segment
-    cookie->usedBytes += len;
-
-    switch (type) {
-    case LOG_ENTRY_TYPE_OBJ: {
-        const Object *obj = static_cast<const Object *>(p);
-        assert(obj);
-
-        server->objectMap.remove(obj->table, obj->id);
-        server->objectMap.replace(obj->table, obj->id, obj);
-    }
-        break;
-    case LOG_ENTRY_TYPE_OBJTOMB:
-        assert(false);  //XXX- fixme
-        break;
-    case LOG_ENTRY_TYPE_SEGHEADER:
-    case LOG_ENTRY_TYPE_SEGFOOTER:
-        break;
-    default:
-        printf("!!! Unknown object type on log replay: 0x%x", type);
-    }
+    // remove the evicted entry whether it is discarded or not
+    t->profiler.untrack(evictObj->id, lengthInLog, logTime);
 }
 
 /**
@@ -965,15 +955,25 @@ objectReplayCallback(LogEntryType type,
  *      LogEntryType of the evictee (LOG_ENTRY_TYPE_OBJTOMB).
  * \param[in]  p
  *      Opaque pointer to the immutable entry in the log.
- * \param[in]  len
- *      Size of the log entry being evicted in bytes.
+ * \param[in]  entryLength
+ *      Size of the log entry being evicted in bytes. This value is only
+ *      the number of bytes of the buffer given to the Log::append() method.
+ * \param[in]  lengthInLog
+ *      objectLength plus all bytes of overhead consumed in the Log. This
+ *      represents the total amount of system memory consumed by the
+ *      Log::append() operation that wrote this entry.
+ * \param[in]  logTime
+ *      The LogTime corresponding to the append operation that wrote this
+ *      entry.
  * \param[in]  cookie
  *      The opaque state pointer registered with the callback.
  */
 void
 tombstoneEvictionCallback(LogEntryType type,
                           const void* p,
-                          uint64_t len,
+                          const uint64_t entryLength,
+                          const uint64_t lengthInLog,
+                          const LogTime logTime,
                           void* cookie)
 {
     assert(type == LOG_ENTRY_TYPE_OBJTOMB);
@@ -987,9 +987,25 @@ tombstoneEvictionCallback(LogEntryType type,
         static_cast<const ObjectTombstone *>(p);
     assert(tomb != NULL);
 
+    Table *t = NULL;
+    try {
+        t = &svr->getTable(tomb->tableId, tomb->objectId);
+    } catch (TableDoesntExistException& e) {
+        // That tablet doesn't exist on this server anymore.
+        return;
+    }
+
     // see if the referant is still there
-    if (log.isSegmentLive(tomb->segmentId))
-        log.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb));
+    if (log.isSegmentLive(tomb->segmentId)) {
+        uint64_t newLengthInLog;
+        LogTime newLogTime;
+        log.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb),
+            &newLengthInLog, &newLogTime);
+        t->profiler.track(tomb->objectId, newLengthInLog, newLogTime);
+    }
+
+    // remove the evicted entry whether it is discarded or not
+    t->profiler.untrack(tomb->objectId, lengthInLog, logTime);
 }
 
 void
@@ -1001,6 +1017,9 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
     Table& t(getTable(tableId, id));
     const Object *o = objectMap.lookup(tableId, id);
     uint64_t version = (o != NULL) ? o->version : VERSION_NONEXISTENT;
+    uint64_t lengthInLog;
+    LogTime logTime;
+
     try {
         rejectOperation(rejectRules, version);
     } catch (...) {
@@ -1033,11 +1052,14 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
 
         uint64_t segmentId = log.getSegmentId(o);
         ObjectTombstone tomb(segmentId, o);
-        log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb));
+        log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), &lengthInLog,
+            &logTime);
+        t.profiler.track(id, lengthInLog, logTime);
     }
 
-    const Object *objPtr = (const Object *)log.append(
-        LOG_ENTRY_TYPE_OBJ, newObject, newObject->size());
+    const Object *objPtr = (const Object *)log.append(LOG_ENTRY_TYPE_OBJ,
+        newObject, newObject->size(), &lengthInLog, &logTime);
+    t.profiler.track(id, lengthInLog, logTime);
     objectMap.replace(tableId, id, objPtr);
 
     *newVersion = objPtr->version;

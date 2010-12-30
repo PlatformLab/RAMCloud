@@ -77,14 +77,14 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     printf("== replace() ==\n");
 
-    printf("    external avg: %llu ticks, %llu nsec\n",
+    printf("    external avg: %lu ticks, %lu nsec\n",
            i / nkeys, cyclesToNanoseconds(i / nkeys));
 
-    printf("    internal avg: %llu ticks, %llu nsec\n",
+    printf("    internal avg: %lu ticks, %lu nsec\n",
            pc.replaceCycles / nkeys,
            cyclesToNanoseconds(pc.replaceCycles / nkeys));
 
-    printf("    multi-cacheline accesses: %llu / %lu\n",
+    printf("    multi-cacheline accesses: %lu / %lu\n",
            pc.insertChainsFollowed, nkeys);
 
     // replace affects the PerfDistribution, so reset for lookup benchmarks
@@ -104,23 +104,23 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     printf("== lookup() ==\n");
 
-    printf("    external avg: %llu ticks, %llu nsec\n", i / nkeys,
+    printf("    external avg: %lu ticks, %lu nsec\n", i / nkeys,
         cyclesToNanoseconds(i / nkeys));
 
-    printf("    internal avg: %llu ticks, %llu nsec\n",
+    printf("    internal avg: %lu ticks, %lu nsec\n",
            pc.lookupEntryCycles / nkeys,
            cyclesToNanoseconds(pc.lookupEntryCycles / nkeys));
 
-    printf("    multi-cacheline accesses: %llu / %lu\n",
-           pc.lookupEntryChainsFollowed, nkeys, pc.lookupEntryHashCollisions);
+    printf("    multi-cacheline accesses: %lu / %lu\n",
+           pc.lookupEntryChainsFollowed, nkeys);
 
-    printf("    minikey false positives: %llu\n", pc.lookupEntryHashCollisions);
+    printf("    minikey false positives: %lu\n", pc.lookupEntryHashCollisions);
 
-    printf("    min ticks: %llu, %llu nsec\n",
+    printf("    min ticks: %lu, %lu nsec\n",
            pc.lookupEntryDist.min,
            cyclesToNanoseconds(pc.lookupEntryDist.min));
 
-    printf("    max ticks: %llu, %llu nsec\n",
+    printf("    max ticks: %lu, %lu nsec\n",
            pc.lookupEntryDist.max,
            cyclesToNanoseconds(pc.lookupEntryDist.max));
 
@@ -149,7 +149,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         if (histogram[i] != 0) {
             double percent = static_cast<double>(histogram[i]) * 100.0 /
                              static_cast<double>(nlines);
-            printf("%5d: %.4f%%\n", i, percent);
+            printf("%5lu: %.4f%%\n", i, percent);
         }
     }
 
@@ -166,7 +166,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
                          static_cast<double>(nkeys);
         if (percent < 0.5)
             continue;
-        printf("%5d to %5d ticks / %5d to %5d nsec: (%6.2f%%) ",
+        printf("%5lu to %5lu ticks / %5lu to %5lu nsec: (%6.2f%%) ",
                i * lcd.BIN_WIDTH, (i + 1) * lcd.BIN_WIDTH - 1,
                cyclesToNanoseconds(i * lcd.BIN_WIDTH),
                cyclesToNanoseconds((i + 1) * lcd.BIN_WIDTH - 1),
@@ -185,7 +185,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         double percent = static_cast<double>(lcd.bins[i]) * 100.0 /
                          static_cast<double>(nkeys);
         total += percent;
-        printf(" <= %5d ticks (%d nsec): %6.2f%%\n",
+        printf(" <= %5lu ticks (%lu nsec): %6.2f%%\n",
                (i + 1) * lcd.BIN_WIDTH - 1,
                cyclesToNanoseconds((i + 1) * lcd.BIN_WIDTH - 1), total);
         if (total >= 99.99)

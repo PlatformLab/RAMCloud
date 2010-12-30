@@ -49,7 +49,7 @@ Syscall* UdpDriver::sys = &defaultSyscall;
  *      drivers.
  */
 UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
-    : socketFd(-1), packetBufPool(sizeof(PacketBuf)), packetBufsUtilized(0)
+    : socketFd(-1), packetBufPool(), packetBufsUtilized(0)
 {
     int fd = sys->socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
@@ -99,7 +99,8 @@ UdpDriver::release(char *payload, uint32_t len)
     // which we return to a pool for reuse later.
     packetBufsUtilized--;
     assert(packetBufsUtilized >= 0);
-    packetBufPool.free(payload - OFFSET_OF(PacketBuf, payload));
+    packetBufPool.destroy(
+        reinterpret_cast<PacketBuf*>(payload - OFFSET_OF(PacketBuf, payload)));
 }
 
 // See docs in Driver class.
@@ -152,13 +153,13 @@ bool
 UdpDriver::tryRecvPacket(Received *received)
 {
     PacketBuf* buffer;
-    buffer = new(packetBufPool.malloc()) PacketBuf();
+    buffer = packetBufPool.construct();
     socklen_t addrlen = sizeof(&buffer->ipAddress.address);
     int r = sys->recvfrom(socketFd, buffer->payload, MAX_PAYLOAD_SIZE,
                      MSG_DONTWAIT,
                      &buffer->ipAddress.address, &addrlen);
     if (r == -1) {
-        packetBufPool.free(buffer);
+        packetBufPool.destroy(buffer);
         if (errno == EAGAIN || errno == EWOULDBLOCK)
             return false;
         // TODO(stutsman) We could probably recover from a lot of errors here.

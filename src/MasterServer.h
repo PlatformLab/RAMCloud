@@ -283,13 +283,13 @@ class MasterServer : public Server {
      */
     ProtoBuf::Tablets tablets;
 
-    friend void objectEvictionCallback(LogEntryType type,
-            const void* p, uint64_t len, void* cookie);
-    friend void tombstoneEvictionCallback(LogEntryType type,
-            const void* p, uint64_t len, void* cookie);
+    friend void objectEvictionCallback(LogEntryType type, const void* p,
+        uint64_t entryLength, uint64_t lengthInLog, LogTime logTime,
+        void* cookie);
+    friend void tombstoneEvictionCallback(LogEntryType type, const void* p,
+        uint64_t entryLength, uint64_t lengthInLog, LogTime logTime,
+        void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
-    friend void objectReplayCallback(LogEntryType type,
-            const void* p, uint64_t len, void* cookie);
     Table& getTable(uint32_t tableId, uint64_t objectId);
     void rejectOperation(const RejectRules* rejectRules, uint64_t version);
     void storeData(uint64_t table, uint64_t id,
