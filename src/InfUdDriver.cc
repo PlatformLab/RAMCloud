@@ -79,7 +79,7 @@ InfUdDriver::InfUdDriver(const ServiceLocator *sl)
     ctxt = Infiniband::openDevice(ibDeviceName);
     error_check_null(ctxt, "failed to open infiniband device");
 
-    pd = ibv_alloc_pd(ctxt);
+    pd = Infiniband::allocateProtectionDomain(ctxt);
     error_check_null(pd, "failed to allocate infiniband pd");
 
     // XXX- for now we allocate one TX buffer and RX buffers as a ring.
@@ -91,10 +91,10 @@ InfUdDriver::InfUdDriver(const ServiceLocator *sl)
         pd, getMaxPacketSize() + 40);
 
     // create completion queues for receive and transmit
-    rxcq = ibv_create_cq(ctxt, MAX_RX_QUEUE_DEPTH, NULL, NULL, 0);
+    rxcq = Infiniband::createCompletionQueue(ctxt, MAX_RX_QUEUE_DEPTH);
     error_check_null(rxcq, "failed to create receive completion queue");
 
-    txcq = ibv_create_cq(ctxt, MAX_TX_QUEUE_DEPTH, NULL, NULL, 0);
+    txcq = Infiniband::createCompletionQueue(ctxt, MAX_TX_QUEUE_DEPTH);
     error_check_null(txcq, "failed to create transmit completion queue");
 
     qp = new QueuePair(IBV_QPT_UD, ctxt, ibPhysicalPort, pd, NULL, txcq, rxcq,
@@ -179,7 +179,7 @@ InfUdDriver::sendPacket(const Address *addr,
     attr.sl = 0;
     attr.port_num = ibPhysicalPort;
 
-    ibv_ah *ah = ibv_create_ah(pd, &attr);
+    ibv_ah *ah = Infiniband::createAddressHandle(pd, &attr);
     error_check_null(ah, "failed to create ah");
 
     // use the sole TX buffer
@@ -204,11 +204,11 @@ InfUdDriver::sendPacket(const Address *addr,
         LOG(DEBUG, "%s: sent successfully!", __func__);
     } catch (...) {
         LOG(DEBUG, "%s: send failed!", __func__);
-        ibv_destroy_ah(ah);
+        Infiniband::destroyAddressHandle(ah);
         throw;
     }
 
-    ibv_destroy_ah(ah);
+    Infiniband::destroyAddressHandle(ah);
 }
 
 /*

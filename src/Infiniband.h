@@ -141,6 +141,19 @@ class Infiniband {
     static BufferDescriptor  allocateBufferDescriptorAndRegister(ibv_pd *pd,
                                                                  size_t bytes);
 
+    // the following are straight up wrappers that can be overridden for testing
+    static ibv_pd* allocateProtectionDomain(ibv_context* ctxt);
+    static ibv_cq* createCompletionQueue(ibv_context* ctxt,
+                                         int minimumEntries);
+    static ibv_ah* createAddressHandle(ibv_pd *pd,
+                                       ibv_ah_attr* attr);
+    static void destroyAddressHandle(ibv_ah *ah);
+    static ibv_srq* createSharedReceiveQueue(ibv_pd *pd,
+                                             ibv_srq_init_attr *attr);
+    static int pollCompletionQueue(ibv_cq *cq,
+                                   int numEntries,
+                                   ibv_wc *retWcArray);
+
   private:
     static const uint32_t MAX_INLINE_DATA = 400;
 };

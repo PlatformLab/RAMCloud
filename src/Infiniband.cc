@@ -140,8 +140,7 @@ Infiniband::getLid(ibv_context *ctxt, int port)
  * \param[in] qp
  *      The queue pair to poll for a received message.
  * \param[in] sourceAddress
- *      For UD queue pairs only. If not NULL, store the sender's
- *      address here. 
+ *      Optional. If not NULL, store the sender's address here. 
  * \return
  *      NULL if no message is available. Otherwise, a pointer to
  *      a BufferDescriptor containing the message.
@@ -151,10 +150,6 @@ Infiniband::getLid(ibv_context *ctxt, int port)
 Infiniband::BufferDescriptor*
 Infiniband::tryReceive(QueuePair *qp, InfAddress *sourceAddress)
 {
-    if (qp->type != IBV_QPT_UD && sourceAddress != NULL) {
-        throw TransportException(HERE, "sourceAddress for non-UD qp");
-    }
-
     ibv_wc wc;
     int r = ibv_poll_cq(qp->rxcq, 1, &wc);
 
@@ -403,6 +398,103 @@ Infiniband::allocateBufferDescriptorAndRegister(ibv_pd *pd, size_t bytes)
         throw TransportException(HERE, "failed to register ring buffer");
 
     return BufferDescriptor(reinterpret_cast<char *>(p), bytes, mr);
+}
+
+/**
+ * Allocate a protection domain. This simply wraps the verbs call.
+ *
+ * \param[in] ctxt
+ *      The device context with which to associate the protection domain.
+ * \return
+ *      A valid ibv_pd pointer, or NULL on error.
+ */
+ibv_pd*
+Infiniband::allocateProtectionDomain(ibv_context* ctxt)
+{
+    return ibv_alloc_pd(ctxt);
+}
+
+/**
+ * Create a completion queue. This simply wraps the verbs call.
+ *
+ * \param[in] ctxt
+ *      The device context with which to associate the completion queue.
+ * \param[in] minimumEntries
+ *      The minimum number of completion entries this queue will support.
+ * \return
+ *      A valid ibv_cq pointer, or NULL on error.
+ */
+ibv_cq*
+Infiniband::createCompletionQueue(ibv_context* ctxt, int minimumEntries)
+{
+    return ibv_create_cq(ctxt, minimumEntries, NULL, NULL, 0);
+}
+
+/**
+ * Create an address handle. This simply wraps the verbs call.
+ *
+ * \param[in] pd 
+ *      The protection domain with which to associate the handle.
+ * \param[in] attr
+ *      Pointer to an ibv_ah_attr struct describing the handle to
+ *      create.
+ * \return
+ *      A valid ibv_ah pointer, or NULL on error.
+ */
+ibv_ah*
+Infiniband::createAddressHandle(ibv_pd *pd, ibv_ah_attr* attr)
+{
+    return ibv_create_ah(pd, attr);
+}
+
+/**
+ * Destroy an address handle previously created with createAddressHandle().
+ * This simply wraps the verbs call.
+ *
+ * \param[in] ah
+ *      The address handle to destroy.
+ */
+void
+Infiniband::destroyAddressHandle(ibv_ah *ah)
+{
+    ibv_destroy_ah(ah);
+}
+
+/**
+ * Create a shared receive queue. This simply wraps the verbs call. 
+ *
+ * \param[in] pd
+ *      Pointer to an ibv_pd (protection domain) with which to associate
+ *      the queue.
+ * \param[in] attr
+ *      Pointer to an ibv_srq_init_attr that describes the shared receive
+ *      queue to be created.
+ * \return
+ *      A valid ibv_srq pointer, or NULL on error.
+ */
+ibv_srq*
+Infiniband::createSharedReceiveQueue(ibv_pd *pd, ibv_srq_init_attr *attr)
+{
+    return ibv_create_srq(pd, attr);
+}
+
+/**
+ * Poll a completion queue. This simply wraps the verbs call. 
+ *
+ * \param[in] cq 
+ *      The completion queue to poll.
+ * \param[in] numEntries 
+ *      The maximum number of work completion entries to obtain.
+ * \param[out] retWcArray
+ *      Pointer to an an array of ``numEntries'' ibv_wc structs.
+ *      Completions are returned here.
+ * \return
+ *      The number of entries obtained. 0 if none, < 0 on error. 
+ */
+int
+Infiniband::pollCompletionQueue(ibv_cq *cq, int numEntries, ibv_wc *retWcArray)
+{
+    return ibv_poll_cq(cq, numEntries, retWcArray);
 }
 
 //-------------------------------------

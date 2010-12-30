@@ -214,7 +214,7 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
 
     check_error_null(ctxt, "failed to open infiniband device");
 
-    pd = ibv_alloc_pd(ctxt);
+    pd = Infiniband::allocateProtectionDomain(ctxt);
     check_error_null(pd, "failed to allocate infiniband pd");
 
     lid = Infiniband::getLid(ctxt, ibPhysicalPort);
@@ -230,10 +230,10 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
     sia.attr.max_wr = MAX_SHARED_RX_QUEUE_DEPTH;
     sia.attr.max_sge = MAX_SHARED_RX_SGE_COUNT;
 
-    serverSrq = ibv_create_srq(pd, &sia);
+    serverSrq = Infiniband::createSharedReceiveQueue(pd, &sia);
     check_error_null(serverSrq,
                      "failed to create server shared receive queue");
-    clientSrq = ibv_create_srq(pd, &sia);
+    clientSrq = Infiniband::createSharedReceiveQueue(pd, &sia);
     check_error_null(clientSrq,
                      "failed to create client shared receive queue");
 
@@ -256,17 +256,17 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
 
     // create completion queues for server receive, client receive, and
     // server/client transmit
-    serverRxCq = ibv_create_cq(ctxt, MAX_SHARED_RX_QUEUE_DEPTH,
-        NULL, NULL, 0);
+    serverRxCq = Infiniband::createCompletionQueue(ctxt,
+        MAX_SHARED_RX_QUEUE_DEPTH);
     check_error_null(serverRxCq,
                      "failed to create server receive completion queue");
 
-    clientRxCq = ibv_create_cq(ctxt, MAX_SHARED_RX_QUEUE_DEPTH,
-        NULL, NULL, 0);
+    clientRxCq = Infiniband::createCompletionQueue(ctxt,
+        MAX_SHARED_RX_QUEUE_DEPTH);
     check_error_null(clientRxCq,
                      "failed to create client receive completion queue");
 
-    commonTxCq = ibv_create_cq(ctxt, MAX_TX_QUEUE_DEPTH, NULL, NULL, 0);
+    commonTxCq = Infiniband::createCompletionQueue(ctxt, MAX_TX_QUEUE_DEPTH);
     check_error_null(commonTxCq,
                      "failed to create transmit completion queue");
 }
@@ -299,36 +299,35 @@ InfRcTransport::serverRecv()
     // query the infiniband adapter first. if there's nothing to process,
     // try to read a datagram from a connecting client.
     // in the future, this should occur in separate threads.
-    while (1) {
-        ibv_wc wc;
-
-        if (ibv_poll_cq(serverRxCq, 1, &wc) >= 1) {
-            if (queuePairMap.find(wc.qp_num) == queuePairMap.end()) {
-                LOG(ERROR, "%s: failed to find qp_num in map", __func__);
-                continue;
-            }
-
-            QueuePair *qp = queuePairMap[wc.qp_num];
-
-            BufferDescriptor* bd =
-                reinterpret_cast<BufferDescriptor*>(wc.wr_id);
-
-            if (wc.status == IBV_WC_SUCCESS) {
-                Header& header(*reinterpret_cast<Header*>(bd->buffer));
-                ServerRpc *r = new ServerRpc(this, qp, header.nonce);
-                PayloadChunk::appendToBuffer(&r->recvPayload,
-                    bd->buffer + sizeof(header),
-                    wc.byte_len - sizeof(header), this, serverSrq, bd);
-                LOG(DEBUG, "Received request with nonce %016lx", header.nonce);
-                return r;
-            }
-
-            LOG(ERROR, "%s: failed to receive rpc!", __func__);
-            postSrqReceiveAndKickTransmit(serverSrq, bd);
-        } else {
-            serverTrySetupQueuePair();
+    ibv_wc wc;
+    if (Infiniband::pollCompletionQueue(serverRxCq, 1, &wc) >= 1) {
+        if (queuePairMap.find(wc.qp_num) == queuePairMap.end()) {
+            LOG(ERROR, "%s: failed to find qp_num in map", __func__);
+            return NULL;
         }
+
+        QueuePair *qp = queuePairMap[wc.qp_num];
+
+        BufferDescriptor* bd =
+            reinterpret_cast<BufferDescriptor*>(wc.wr_id);
+
+        if (wc.status == IBV_WC_SUCCESS) {
+            Header& header(*reinterpret_cast<Header*>(bd->buffer));
+            ServerRpc *r = new ServerRpc(this, qp, header.nonce);
+            PayloadChunk::appendToBuffer(&r->recvPayload,
+                bd->buffer + sizeof(header),
+                wc.byte_len - sizeof(header), this, serverSrq, bd);
+            LOG(DEBUG, "Received request with nonce %016lx", header.nonce);
+            return r;
+        }
+
+        LOG(ERROR, "%s: failed to receive rpc!", __func__);
+        postSrqReceiveAndKickTransmit(serverSrq, bd);
+    } else {
+        serverTrySetupQueuePair();
     }
+
+    return NULL;
 }
 
 /**
@@ -776,7 +775,7 @@ InfRcTransport::poll()
 {
     InfRcTransport *t = this;
     ibv_wc wc;
-    while (ibv_poll_cq(clientRxCq, 1, &wc) > 0) {
+    while (Infiniband::pollCompletionQueue(clientRxCq, 1, &wc) > 0) {
         BufferDescriptor *bd = reinterpret_cast<BufferDescriptor *>(wc.wr_id);
         if (wc.status != IBV_WC_SUCCESS) {
             LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
