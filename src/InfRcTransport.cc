@@ -98,6 +98,18 @@
 
 namespace RAMCloud {
 
+/**
+ * Default object used to make Infiniband Verbs-related calls.
+ */
+static Infiniband defaultInfiniband;
+
+/**
+ * Used by this class to make all Infiniband verb calls.  In normal
+ * production use it points to defaultInfiniband; for testing it
+ * points to a mock object.
+ */
+Infiniband* InfRcTransport::infiniband = &defaultInfiniband;
+
 //------------------------------
 // InfRcTransport class
 //------------------------------
@@ -153,7 +165,7 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
         } catch (ServiceLocator::NoSuchKeyException& e) {}
     }
 
-    ctxt = Infiniband::openDevice(ibDeviceName);
+    ctxt = infiniband->openDevice(ibDeviceName);
     if (ctxt == NULL) {
         LOG(WARNING, "%s: infiniband device [%s] not found", __func__,
             ibDeviceName);
@@ -214,10 +226,10 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
 
     check_error_null(ctxt, "failed to open infiniband device");
 
-    pd = Infiniband::allocateProtectionDomain(ctxt);
+    pd = infiniband->allocateProtectionDomain(ctxt);
     check_error_null(pd, "failed to allocate infiniband pd");
 
-    lid = Infiniband::getLid(ctxt, ibPhysicalPort);
+    lid = infiniband->getLid(ctxt, ibPhysicalPort);
 
     // create two shared receive queues. all client queue pairs use one and all
     // server queue pairs use the other. we post receive buffer work requests
@@ -230,43 +242,43 @@ InfRcTransport::InfRcTransport(const ServiceLocator *sl)
     sia.attr.max_wr = MAX_SHARED_RX_QUEUE_DEPTH;
     sia.attr.max_sge = MAX_SHARED_RX_SGE_COUNT;
 
-    serverSrq = Infiniband::createSharedReceiveQueue(pd, &sia);
+    serverSrq = infiniband->createSharedReceiveQueue(pd, &sia);
     check_error_null(serverSrq,
                      "failed to create server shared receive queue");
-    clientSrq = Infiniband::createSharedReceiveQueue(pd, &sia);
+    clientSrq = infiniband->createSharedReceiveQueue(pd, &sia);
     check_error_null(clientSrq,
                      "failed to create client shared receive queue");
 
     // XXX- for now we allocate TX and RX buffers and use them as a ring.
     for (uint32_t i = 0; i < MAX_SHARED_RX_QUEUE_DEPTH; i++) {
-        serverRxBuffers[i] = Infiniband::allocateBufferDescriptorAndRegister(
+        serverRxBuffers[i] = infiniband->allocateBufferDescriptorAndRegister(
             pd, getMaxRpcSize());
         postSrqReceiveAndKickTransmit(serverSrq, &serverRxBuffers[i]);
     }
     for (uint32_t i = 0; i < MAX_SHARED_RX_QUEUE_DEPTH; i++) {
-        clientRxBuffers[i] = Infiniband::allocateBufferDescriptorAndRegister(
+        clientRxBuffers[i] = infiniband->allocateBufferDescriptorAndRegister(
             pd, getMaxRpcSize());
         postSrqReceiveAndKickTransmit(clientSrq, &clientRxBuffers[i]);
     }
     for (uint32_t i = 0; i < MAX_TX_QUEUE_DEPTH; i++) {
-        txBuffers[i] = Infiniband::allocateBufferDescriptorAndRegister(
+        txBuffers[i] = infiniband->allocateBufferDescriptorAndRegister(
             pd, getMaxRpcSize());
     }
     assert(numUsedClientSrqBuffers == 0);
 
     // create completion queues for server receive, client receive, and
     // server/client transmit
-    serverRxCq = Infiniband::createCompletionQueue(ctxt,
+    serverRxCq = infiniband->createCompletionQueue(ctxt,
         MAX_SHARED_RX_QUEUE_DEPTH);
     check_error_null(serverRxCq,
                      "failed to create server receive completion queue");
 
-    clientRxCq = Infiniband::createCompletionQueue(ctxt,
+    clientRxCq = infiniband->createCompletionQueue(ctxt,
         MAX_SHARED_RX_QUEUE_DEPTH);
     check_error_null(clientRxCq,
                      "failed to create client receive completion queue");
 
-    commonTxCq = Infiniband::createCompletionQueue(ctxt, MAX_TX_QUEUE_DEPTH);
+    commonTxCq = infiniband->createCompletionQueue(ctxt, MAX_TX_QUEUE_DEPTH);
     check_error_null(commonTxCq,
                      "failed to create transmit completion queue");
 }
@@ -300,7 +312,7 @@ InfRcTransport::serverRecv()
     // try to read a datagram from a connecting client.
     // in the future, this should occur in separate threads.
     ibv_wc wc;
-    if (Infiniband::pollCompletionQueue(serverRxCq, 1, &wc) >= 1) {
+    if (infiniband->pollCompletionQueue(serverRxCq, 1, &wc) >= 1) {
         if (queuePairMap.find(wc.qp_num) == queuePairMap.end()) {
             LOG(ERROR, "%s: failed to find qp_num in map", __func__);
             return NULL;
@@ -361,7 +373,7 @@ InfRcTransport::InfRCSession::release()
 }
 
 /**
- * Issue an RPC request using infiniband.
+ * Issue an RPC request using infiniband->
  *
  * \param request
  *      Contents of the request message.
@@ -496,10 +508,11 @@ InfRcTransport::clientTrySetupQueuePair(const char* ip, int port)
 
     // Create a new QueuePair and send its parameters to the server so it
     // can create its qp and reply with its parameters.
-    QueuePair *qp = new QueuePair(IBV_QPT_RC, ctxt, ibPhysicalPort, pd,
-                                  clientSrq, commonTxCq, clientRxCq,
-                                  MAX_TX_QUEUE_DEPTH,
-                                  MAX_SHARED_RX_QUEUE_DEPTH);
+    QueuePair *qp = infiniband->createQueuePair(IBV_QPT_RC, ctxt,
+                                                ibPhysicalPort, pd, clientSrq,
+                                                commonTxCq, clientRxCq,
+                                                MAX_TX_QUEUE_DEPTH,
+                                                MAX_SHARED_RX_QUEUE_DEPTH);
 
     for (uint32_t i = 0; i < QP_EXCHANGE_MAX_TIMEOUTS; i++) {
         QueuePairTuple outgoingQpt(lid, qp->getLocalQpNumber(),
@@ -571,10 +584,11 @@ InfRcTransport::serverTrySetupQueuePair()
     //      be sure, esp. if we use an unreliable means of handshaking, in
     //      which case the response to the client request could have been lost.
 
-    QueuePair *qp = new QueuePair(IBV_QPT_RC, ctxt, ibPhysicalPort, pd,
-                                  serverSrq, commonTxCq, serverRxCq,
-                                  MAX_TX_QUEUE_DEPTH,
-                                  MAX_SHARED_RX_QUEUE_DEPTH);
+    QueuePair *qp = infiniband->createQueuePair(IBV_QPT_RC, ctxt,
+                                                ibPhysicalPort, pd, serverSrq,
+                                                commonTxCq, serverRxCq,
+                                                MAX_TX_QUEUE_DEPTH,
+                                                MAX_SHARED_RX_QUEUE_DEPTH);
     qp->plumb(&incomingQpt);
 
     // now send the client back our queue pair information so they can
@@ -609,7 +623,7 @@ void
 InfRcTransport::postSrqReceiveAndKickTransmit(ibv_srq* srq,
     BufferDescriptor *bd)
 {
-    Infiniband::postSrqReceive(srq, bd);
+    infiniband->postSrqReceive(srq, bd);
 
     // TODO(ongaro): This condition is hacky. One idea is to wrap ibv_srq in an
     // object and make this a virtual method instead.
@@ -695,7 +709,7 @@ InfRcTransport::ServerRpc::sendReply()
     replyPayload.copy(0, replyPayload.getTotalLength(), bd->buffer);
     totalSendReplyCopyTime += rdtsc() - start;
     totalSendReplyCopyBytes += replyPayload.getTotalLength();
-    Infiniband::postSendAndWait(qp, bd, replyPayload.getTotalLength());
+    infiniband->postSendAndWait(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
     LOG(DEBUG, "Sent response with nonce %016lx", nonce);
 }
@@ -753,7 +767,7 @@ InfRcTransport::ClientRpc::sendOrQueue()
         totalClientSendCopyTime += rdtsc() - start;
         totalClientSendCopyBytes += request->getTotalLength();
         LOG(DEBUG, "Sending request with nonce %016lx", nonce);
-        Infiniband::postSendAndWait(session->qp, bd, request->getTotalLength());
+        infiniband->postSendAndWait(session->qp, bd, request->getTotalLength());
         request->truncateFront(sizeof(Header)); // for politeness
 
         t->outstandingRpcs.push_back(*this);
@@ -775,11 +789,11 @@ InfRcTransport::poll()
 {
     InfRcTransport *t = this;
     ibv_wc wc;
-    while (Infiniband::pollCompletionQueue(clientRxCq, 1, &wc) > 0) {
+    while (infiniband->pollCompletionQueue(clientRxCq, 1, &wc) > 0) {
         BufferDescriptor *bd = reinterpret_cast<BufferDescriptor *>(wc.wr_id);
         if (wc.status != IBV_WC_SUCCESS) {
             LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
-                wc.status, Infiniband::wcStatusToString(wc.status));
+                wc.status, infiniband->wcStatusToString(wc.status));
             t->postSrqReceiveAndKickTransmit(t->clientSrq, bd);
             throw TransportException(HERE, wc.status);
         }
@@ -833,7 +847,7 @@ InfRcTransport::ClientRpc::wait()
 }
 
 //-------------------------------------
-// Infiniband::PayloadChunk class
+// InfRcTransport::PayloadChunk class
 //-------------------------------------
 
 /**

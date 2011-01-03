@@ -1,5 +1,13 @@
 OBJDIRS += tests
 
+ifeq ($(INFINIBAND),yes)
+INFINIBAND_SRCFILES := \
+	   src/MockInfiniband.cc \
+	   $(NULL)
+else
+INFINIBAND_SRCFILES :=
+endif
+
 TESTS_SRCFILES := \
 		  src/BackupManagerTest.cc \
 		  src/BackupServerTest.cc \
@@ -43,6 +51,7 @@ TESTS_SRCFILES := \
 		  src/TransportManagerTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/WindowTest.cc \
+		  $(INFINIBAND_SRCFILES) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)

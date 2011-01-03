@@ -102,6 +102,9 @@ class InfUdDriver : public Driver {
     /// Our ServiceLocator, including the dynamic lid and qpn
     string              locatorString;
 
+    /// Infiniband object. Used mainly to mocking.
+    static Infiniband* infiniband;
+
     DISALLOW_COPY_AND_ASSIGN(InfUdDriver);
 };
 

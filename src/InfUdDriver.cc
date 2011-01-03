@@ -47,6 +47,18 @@
 namespace RAMCloud {
 
 /**
+ * Default object used to make Infiniband Verbs-related calls.
+ */
+static Infiniband defaultInfiniband;
+
+/**
+ * Used by this class to make all Infiniband verb calls.  In normal
+ * production use it points to defaultInfiniband; for testing it
+ * points to a mock object.
+ */
+Infiniband* InfUdDriver::infiniband = &defaultInfiniband;
+
+/**
  * Construct an InfUdDriver.
  *
  * \param sl
@@ -76,32 +88,33 @@ InfUdDriver::InfUdDriver(const ServiceLocator *sl)
         } catch (ServiceLocator::NoSuchKeyException& e) {}
     }
 
-    ctxt = Infiniband::openDevice(ibDeviceName);
+    ctxt = infiniband->openDevice(ibDeviceName);
     error_check_null(ctxt, "failed to open infiniband device");
 
-    pd = Infiniband::allocateProtectionDomain(ctxt);
+    pd = infiniband->allocateProtectionDomain(ctxt);
     error_check_null(pd, "failed to allocate infiniband pd");
 
     // XXX- for now we allocate one TX buffer and RX buffers as a ring.
     for (uint32_t i = 0; i < MAX_RX_QUEUE_DEPTH; i++) {
-        rxBuffers[i] = Infiniband::allocateBufferDescriptorAndRegister(
+        rxBuffers[i] = infiniband->allocateBufferDescriptorAndRegister(
             pd, getMaxPacketSize() + 40);
     }
-    txBuffer = Infiniband::allocateBufferDescriptorAndRegister(
+    txBuffer = infiniband->allocateBufferDescriptorAndRegister(
         pd, getMaxPacketSize() + 40);
 
     // create completion queues for receive and transmit
-    rxcq = Infiniband::createCompletionQueue(ctxt, MAX_RX_QUEUE_DEPTH);
+    rxcq = infiniband->createCompletionQueue(ctxt, MAX_RX_QUEUE_DEPTH);
     error_check_null(rxcq, "failed to create receive completion queue");
 
-    txcq = Infiniband::createCompletionQueue(ctxt, MAX_TX_QUEUE_DEPTH);
+    txcq = infiniband->createCompletionQueue(ctxt, MAX_TX_QUEUE_DEPTH);
     error_check_null(txcq, "failed to create transmit completion queue");
 
-    qp = new QueuePair(IBV_QPT_UD, ctxt, ibPhysicalPort, pd, NULL, txcq, rxcq,
-        MAX_TX_QUEUE_DEPTH, MAX_RX_QUEUE_DEPTH, QKEY);
+    qp = infiniband->createQueuePair(IBV_QPT_UD, ctxt, ibPhysicalPort, pd,
+                                     NULL, txcq, rxcq, MAX_TX_QUEUE_DEPTH,
+                                     MAX_RX_QUEUE_DEPTH, QKEY);
 
     // cache these for easier access
-    lid = Infiniband::getLid(ctxt, ibPhysicalPort);
+    lid = infiniband->getLid(ctxt, ibPhysicalPort);
     qpn = qp->getLocalQpNumber();
 
     // update our locatorString, if one was provided, with the dynamic
@@ -111,7 +124,7 @@ InfUdDriver::InfUdDriver(const ServiceLocator *sl)
 
     // add receive buffers so we can transition to RTR
     for (uint32_t i = 0; i < MAX_RX_QUEUE_DEPTH; i++)
-        Infiniband::postReceive(qp, &rxBuffers[i]);
+        infiniband->postReceive(qp, &rxBuffers[i]);
 
     qp->activate();
 }
@@ -179,7 +192,7 @@ InfUdDriver::sendPacket(const Address *addr,
     attr.sl = 0;
     attr.port_num = ibPhysicalPort;
 
-    ibv_ah *ah = Infiniband::createAddressHandle(pd, &attr);
+    ibv_ah *ah = infiniband->createAddressHandle(pd, &attr);
     error_check_null(ah, "failed to create ah");
 
     // use the sole TX buffer
@@ -200,15 +213,15 @@ InfUdDriver::sendPacket(const Address *addr,
     try {
         LOG(DEBUG, "%s: sending %u bytes to %s...", __func__, length,
             infAddr->toString().c_str());
-        Infiniband::postSendAndWait(qp, bd, length, ah, remoteQpn, QKEY);
+        infiniband->postSendAndWait(qp, bd, length, ah, remoteQpn, QKEY);
         LOG(DEBUG, "%s: sent successfully!", __func__);
     } catch (...) {
         LOG(DEBUG, "%s: send failed!", __func__);
-        Infiniband::destroyAddressHandle(ah);
+        infiniband->destroyAddressHandle(ah);
         throw;
     }
 
-    Infiniband::destroyAddressHandle(ah);
+    infiniband->destroyAddressHandle(ah);
 }
 
 /*
@@ -221,7 +234,7 @@ InfUdDriver::tryRecvPacket(Received *received)
     BufferDescriptor* bd = NULL;
 
     try {
-        bd = Infiniband::tryReceive(qp, &buffer->infAddress);
+        bd = infiniband->tryReceive(qp, &buffer->infAddress);
     } catch (...) {
         packetBufPool.destroy(buffer);
         throw;
@@ -252,7 +265,7 @@ InfUdDriver::tryRecvPacket(Received *received)
     }
 
     // post the original infiniband buffer back to the receive queue
-    Infiniband::postReceive(qp, bd);
+    infiniband->postReceive(qp, bd);
 
     return true;
 }

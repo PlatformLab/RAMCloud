@@ -256,6 +256,9 @@ class InfRcTransport : public Transport {
     /// UDP, this could in the future contain a dynamic UDP port number.
     string locatorString;
 
+    /// Infiniband object. Used mainly to mocking.
+    static Infiniband* infiniband;
+
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };
 

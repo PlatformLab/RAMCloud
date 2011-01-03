@@ -25,6 +25,37 @@
 namespace RAMCloud {
 
 /**
+ * Construct an Infiniband object. These currently maintain no
+ * state.
+ */
+Infiniband::Infiniband()
+{
+}
+
+/**
+ * Destroy an Infiniband object.
+ */
+Infiniband::~Infiniband()
+{
+}
+
+/**
+ * Create a new QueuePair. This factory should be used in preference to
+ * the QueuePair constructor directly, since this lets derivatives of
+ * Infiniband, e.g. MockInfiniband, return mocked out QueuePair derivatives.
+ *
+ * See QueuePair::QueuePair for parameter documentation.
+ */
+Infiniband::QueuePair*
+Infiniband::createQueuePair(ibv_qp_type type, ibv_context *ctxt,
+    int ibPhysicalPort, ibv_pd *pd, ibv_srq *srq, ibv_cq *txcq, ibv_cq *rxcq,
+    uint32_t maxSendWr, uint32_t maxRecvWr, uint32_t QKey)
+{
+    return new QueuePair(type, ctxt, ibPhysicalPort, pd, srq, txcq, rxcq,
+        maxSendWr, maxRecvWr, QKey);
+}
+
+/**
  * Given a string representation of the `status' field from Verbs
  * struct `ibv_wc'.
  *
@@ -702,8 +733,8 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
     // setting up their end.
     LOG(DEBUG, "%s: infiniband qp plumbed: lid 0x%x, qpn 0x%x, psn 0x%x, "
         "ibPhysicalPort %u to remote lid 0x%x, remote qpn 0x%x, "
-        "remote psn 0x%x", __func__, getLid(ctxt, ibPhysicalPort), qp->qp_num,
-        initialPsn, ibPhysicalPort, qpt->getLid(), qpt->getQpn(),
+        "remote psn 0x%x", __func__, Infiniband().getLid(ctxt, ibPhysicalPort),
+        qp->qp_num, initialPsn, ibPhysicalPort, qpt->getLid(), qpt->getQpn(),
         qpt->getPsn());
 }
 
@@ -740,8 +771,9 @@ Infiniband::QueuePair::activate()
     }
 
     LOG(DEBUG, "%s: infiniband qp activated: lid 0x%x, qpn 0x%x, "
-        "ibPhysicalPort %u", __func__, getLid(ctxt, ibPhysicalPort),
-        qp->qp_num, ibPhysicalPort);
+        "ibPhysicalPort %u", __func__,
+        Infiniband().getLid(ctxt, ibPhysicalPort), qp->qp_num,
+        ibPhysicalPort);
 }
 
 /**
@@ -768,6 +800,10 @@ Infiniband::QueuePair::getLocalQpNumber() const
 /**
  * Get the remote queue pair number for this QueuePair, as set in #plumb().
  * QPNs are analogous to UDP/TCP port numbers.
+ *
+ * \throw
+ *      TransportException is thrown if querying the queue pair
+ *      fails.
  */
 uint32_t
 Infiniband::QueuePair::getRemoteQpNumber() const
@@ -788,6 +824,10 @@ Infiniband::QueuePair::getRemoteQpNumber() const
  * Get the remote infiniband address for this QueuePair, as set in #plumb().
  * LIDs are "local IDs" in infiniband terminology. They are short, locally
  * routable addresses.
+ *
+ * \throw
+ *      TransportException is thrown if querying the queue pair
+ *      fails.
  */
 uint16_t
 Infiniband::QueuePair::getRemoteLid() const
@@ -804,6 +844,13 @@ Infiniband::QueuePair::getRemoteLid() const
     return qpa.ah_attr.dlid;
 }
 
+/**
+ * Get the state of a QueuePair.
+ *
+ * \throw
+ *      TransportException is thrown if querying the queue pair
+ *      fails.
+ */
 int
 Infiniband::QueuePair::getState() const
 {

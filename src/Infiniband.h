@@ -28,10 +28,14 @@
 #ifndef RAMCLOUD_INFINIBAND_H
 #define RAMCLOUD_INFINIBAND_H
 
+#define V4T VIRTUAL_FOR_TESTING
+
 namespace RAMCloud {
 
 class Infiniband {
   public:
+    Infiniband();
+    V4T ~Infiniband();
 
     // this class exists simply for passing queue pair handshake information
     // back and forth.
@@ -77,14 +81,18 @@ class Infiniband {
                   uint32_t maxSendWr,
                   uint32_t maxRecvWr,
                   uint32_t QKey = 0);
-       ~QueuePair();
-        uint32_t getInitialPsn() const;
-        uint32_t getLocalQpNumber() const;
-        uint32_t getRemoteQpNumber() const;
-        uint16_t getRemoteLid() const;
-        int      getState() const;
-        void     plumb(QueuePairTuple *qpt);
-        void     activate();
+        // exists solely as superclass constructor for MockQueuePair derivative
+        QueuePair() : type(0), ctxt(NULL), ibPhysicalPort(-1), pd(NULL),
+                      srq(NULL), qp(NULL), txcq(NULL), rxcq(NULL),
+                      initialPsn(-1) {}
+        V4T ~QueuePair();
+        V4T uint32_t getInitialPsn() const;
+        V4T uint32_t getLocalQpNumber() const;
+        V4T uint32_t getRemoteQpNumber() const;
+        V4T uint16_t getRemoteLid() const;
+        V4T int      getState() const;
+        V4T void     plumb(QueuePairTuple *qpt);
+        V4T void     activate();
 
       //private: XXXXX- move send/recv functionality into the queue pair shit
         int          type;           // QP type (IBV_QPT_RC, etc.)
@@ -115,44 +123,61 @@ class Infiniband {
             mr(NULL) {}
     };
 
-    static const char*  wcStatusToString(int status);
-    static ibv_context* openDevice(const char *name);
-    static int          getLid(ibv_context *ctxt,
-                               int port);
-    static BufferDescriptor* tryReceive(QueuePair *qp,
-                                        InfAddress *sourceAddress = NULL);
-    static BufferDescriptor* receive(QueuePair *qp,
+    //------ Methods that need not be overriden ------
+    const char*  wcStatusToString(int status);
+
+    //------ Methods that must be overriden ------
+
+    // factory for QueuePair and derivatives
+    V4T QueuePair* createQueuePair(ibv_qp_type type,
+                                   ibv_context *ctxt,
+                                   int ibPhysicalPort,
+                                   ibv_pd *pd,
+                                   ibv_srq *srq,
+                                   ibv_cq *txcq,
+                                   ibv_cq *rxcq,
+                                   uint32_t maxSendWr,
+                                   uint32_t maxRecvWr,
+                                   uint32_t QKey = 0);
+
+    V4T ibv_context* openDevice(const char *name);
+    V4T int          getLid(ibv_context *ctxt,
+                            int port);
+    V4T BufferDescriptor* tryReceive(QueuePair *qp,
                                      InfAddress *sourceAddress = NULL);
-    static void              postReceive(QueuePair *qp, BufferDescriptor *bd);
-    static void              postSrqReceive(ibv_srq* srq,
-                                            BufferDescriptor *bd);
-    static void         postSend(QueuePair* qp,
-                                 BufferDescriptor* bd,
-                                 uint32_t length,
-                                 ibv_ah *ah = NULL,
-                                 uint32_t remoteQpn = 0,
-                                 uint32_t remoteQKey = 0);
-    static void         postSendAndWait(QueuePair* qp,
-                                        BufferDescriptor* bd,
-                                        uint32_t length,
-                                        ibv_ah *ah = NULL,
-                                        uint32_t remoteQpn = 0,
-                                        uint32_t remoteQKey = 0);
-    static BufferDescriptor  allocateBufferDescriptorAndRegister(ibv_pd *pd,
-                                                                 size_t bytes);
+    V4T BufferDescriptor* receive(QueuePair *qp,
+                                  InfAddress *sourceAddress = NULL);
+    V4T void              postReceive(QueuePair *qp,
+                                      BufferDescriptor *bd);
+    V4T void              postSrqReceive(ibv_srq* srq,
+                                         BufferDescriptor *bd);
+    V4T void              postSend(QueuePair* qp,
+                                   BufferDescriptor* bd,
+                                   uint32_t length,
+                                   ibv_ah *ah = NULL,
+                                   uint32_t remoteQpn = 0,
+                                   uint32_t remoteQKey = 0);
+    V4T void              postSendAndWait(QueuePair* qp,
+                                          BufferDescriptor* bd,
+                                          uint32_t length,
+                                          ibv_ah *ah = NULL,
+                                          uint32_t remoteQpn = 0,
+                                          uint32_t remoteQKey = 0);
+    V4T BufferDescriptor  allocateBufferDescriptorAndRegister(ibv_pd *pd,
+                                                              size_t bytes);
 
     // the following are straight up wrappers that can be overridden for testing
-    static ibv_pd* allocateProtectionDomain(ibv_context* ctxt);
-    static ibv_cq* createCompletionQueue(ibv_context* ctxt,
-                                         int minimumEntries);
-    static ibv_ah* createAddressHandle(ibv_pd *pd,
-                                       ibv_ah_attr* attr);
-    static void destroyAddressHandle(ibv_ah *ah);
-    static ibv_srq* createSharedReceiveQueue(ibv_pd *pd,
-                                             ibv_srq_init_attr *attr);
-    static int pollCompletionQueue(ibv_cq *cq,
-                                   int numEntries,
-                                   ibv_wc *retWcArray);
+    V4T ibv_pd*  allocateProtectionDomain(ibv_context* ctxt);
+    V4T ibv_cq*  createCompletionQueue(ibv_context* ctxt,
+                                       int minimumEntries);
+    V4T ibv_ah*  createAddressHandle(ibv_pd *pd,
+                                     ibv_ah_attr* attr);
+    V4T void     destroyAddressHandle(ibv_ah *ah);
+    V4T ibv_srq* createSharedReceiveQueue(ibv_pd *pd,
+                                          ibv_srq_init_attr *attr);
+    V4T int      pollCompletionQueue(ibv_cq *cq,
+                                     int numEntries,
+                                     ibv_wc *retWcArray);
 
   private:
     static const uint32_t MAX_INLINE_DATA = 400;
