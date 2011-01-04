@@ -26,15 +26,40 @@ namespace RAMCloud {
     Object *name = new(name##_buf) Object(sizeof(name##_buf)); \
     assert((reinterpret_cast<uint64_t>(name) & 0x7) == 0);
 
-struct Object {
+// forward decl
+class Object;
+class ObjectTombstone;
 
+class Objectable {
+  public:
+    Objectable(uint64_t table, uint64_t id) : table(table), id(id) {}
+    virtual ~Objectable() {}
+
+    const Object*
+    asObject() const
+    {
+        return reinterpret_cast<const Object*>(this);
+    }
+
+    const ObjectTombstone *
+    asObjectTombstone() const
+    {
+        return reinterpret_cast<const ObjectTombstone*>(this);
+    }
+
+    uint64_t table;
+    uint64_t id;
+} __attribute__((__packed__));
+
+class Object : public Objectable {
+  public:
     /*
      * This buf_size parameter is here to annoy you a little bit if you try
      * stack-allocating one of these. You'll think twice about it, maybe
      * realize sizeof(data) is bogus, and proceed to dynamically allocating
      * a buffer instead.
      */
-    explicit Object(size_t buf_size) : id(-1), table(-1), version(-1),
+    explicit Object(size_t buf_size) : Objectable(-1, -1), version(-1),
                                        checksum(0), data_len(0) {
         assert(buf_size >= sizeof(*this));
     }
@@ -43,34 +68,30 @@ struct Object {
         return sizeof(*this) + this->data_len;
     }
 
-    uint64_t id;
-    uint64_t table;
     uint64_t version;
     uint64_t checksum;
     uint64_t data_len;
     char data[0];
 
   private:
-    Object() : id(-1), table(-1), version(-1), checksum(0), data_len(0) { }
+    Object() : Objectable(-1, -1), version(-1), checksum(0), data_len(0) { }
 
     // to use default constructor in arrays
     friend class BackupServerTest;
     friend class HashTableTest;
     friend void hashTableBenchmark(uint64_t, uint64_t);
 
-    DISALLOW_COPY_AND_ASSIGN(Object);
-};
+    DISALLOW_COPY_AND_ASSIGN(Object); // NOLINT
+} __attribute__((__packed__));
 
-struct ObjectTombstone {
+class ObjectTombstone : public Objectable {
+  public:
     uint64_t segmentId;
-    uint64_t tableId;
-    uint64_t objectId;
     uint64_t objectVersion;
 
     ObjectTombstone(uint64_t segmentId, const Object *object)
-        : segmentId(segmentId),
-          tableId(object->table),
-          objectId(object->id),
+        : Objectable(object->table, object->id),
+          segmentId(segmentId),
           objectVersion(object->version)
     {
     }
@@ -78,20 +99,17 @@ struct ObjectTombstone {
   private:
     ObjectTombstone(uint64_t segmentId, uint64_t tableId,
                     uint64_t objectId, uint64_t objectVersion)
-        : segmentId(segmentId)
-        , tableId(tableId)
-        , objectId(objectId)
-        , objectVersion(objectVersion)
+        : Objectable(tableId, objectId),
+          segmentId(segmentId),
+          objectVersion(objectVersion)
     {
     }
 
     friend class BackupServerTest;
     friend class MasterTest;
-};
+} __attribute__((__packed__));
 
-typedef HashTable<Object, &Object::table, &Object::id> ObjectMap;
-typedef HashTable<ObjectTombstone, &ObjectTombstone::tableId,
-                  &ObjectTombstone::objectId> ObjectTombstoneMap;
+typedef HashTable<Objectable, &Objectable::table, &Objectable::id> ObjectMap;
 
 } // namespace RAMCloud
 

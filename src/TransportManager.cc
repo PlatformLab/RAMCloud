@@ -22,6 +22,7 @@
 
 #ifdef INFINIBAND
 #include "InfRcTransport.h"
+#include "InfUdDriver.h"
 #endif
 
 namespace RAMCloud {
@@ -43,6 +44,14 @@ static struct FastUdpTransportFactory : public TransportFactory {
 } fastUdpTransportFactory;
 
 #ifdef INFINIBAND
+static struct FastInfUdTransportFactory : public TransportFactory {
+    FastInfUdTransportFactory()
+        : TransportFactory("fast+infinibandud", "fast+infud") {}
+    Transport* createTransport(const ServiceLocator* localServiceLocator) {
+        return new FastTransport(new InfUdDriver(localServiceLocator));
+    }
+} fastInfUdTransportFactory;
+
 static struct InfRcTransportFactory : public TransportFactory {
     InfRcTransportFactory()
         : TransportFactory("infinibandrc", "infrc") {}
@@ -68,6 +77,7 @@ TransportManager::TransportManager()
     transportFactories.insert(&tcpTransportFactory);
     transportFactories.insert(&fastUdpTransportFactory);
 #ifdef INFINIBAND
+    transportFactories.insert(&fastInfUdTransportFactory);
     transportFactories.insert(&infRCTransportFactory);
 #endif
 }
@@ -107,22 +117,31 @@ TransportManager::initialize(const char* localServiceLocator)
     ServiceLocator::parseServiceLocators(localServiceLocator, &locators);
 
     foreach (TransportFactory* factory, transportFactories) {
-        Transport* transport;
+        Transport* transport = NULL;
         foreach (ServiceLocator& locator, locators) {
             if (factory->supports(locator.getProtocol().c_str())) {
                 // The transport supports a protocol that we can receive
-                // packets on.
+                // packets on. Since it is expected that this transport
+                // work, we do not catch exceptions if it is unavailable.
                 transport = factory->createTransport(&locator);
                 listening.push_back(transport);
                 goto insert_protocol_mappings;
             }
         }
+
         // The transport doesn't support any protocols that we can receive
-        // packets on.
-        transport = factory->createTransport(NULL);
+        // packets on. Such transports need not be available, e.g. if the
+        // physical device (NIC) does not exist.
+        try {
+            transport = factory->createTransport(NULL);
+        } catch (TransportException &e) {
+        }
+
  insert_protocol_mappings:
-        foreach (const char* protocol, factory->getProtocols()) {
-            transports.insert(Transports::value_type(protocol, transport));
+        if (transport != NULL) {
+            foreach (const char* protocol, factory->getProtocols()) {
+                transports.insert(Transports::value_type(protocol, transport));
+            }
         }
     }
     initialized = true;
@@ -213,6 +232,50 @@ TransportManager::serverRecv()
             yield();    // give other tasks a chance to run.
         }
     }
+}
+
+/**
+ * Obtain a list of listening ServiceLocators.
+ * \return
+ *      A vector of ServiceLocators that are listening for RPCs.
+ * \throw
+ *      TransporException if this TranportManager has not been initialized.
+ */
+ServiceLocatorList
+TransportManager::getListeningLocators()
+{
+    if (!initialized)
+        throw TransportException(HERE, "TransportManager not initialized");
+
+    ServiceLocatorList list;
+
+    foreach (Transport* t, listening) {
+        list.push_back(t->getServiceLocator());
+    }
+
+    return list;
+}
+
+/**
+ * Obtain a ServiceLocator string corresponding to the listening
+ * ServiceLocators.
+ * \return
+ *      A semicolon-delimited, ServiceLocator string containing all
+ *      ServiceLocators' strings that are listening to RPCs. 
+ * \throw
+ *      TransporException if this TranportManager has not been initialized.
+ */
+string
+TransportManager::getListeningLocatorsString()
+{
+    ServiceLocatorList sll = getListeningLocators();
+    string ret;
+    for (uint32_t i = 0; i < sll.size(); i++) {
+        if (i > 0)
+            ret += ";";
+        ret += sll[i].getOriginalString();
+    }
+    return ret;
 }
 
 /**

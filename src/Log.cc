@@ -40,19 +40,20 @@ namespace RAMCloud {
  */
 Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
         BackupManager *backup)
-    : logId(logId),
+    : stats(),
+      logId(logId),
       logCapacity(logCapacity),
       segmentCapacity(segmentCapacity),
       segmentFreeList(),
       nextSegmentId(0),
       maximumAppendableBytes(0),
+      useCleaner(true),
       cleaner(this),
       head(NULL),
       callbackMap(),
       activeIdMap(),
       activeBaseAddressMap(),
-      backup(backup),
-      bytesAppended(0)
+      backup(backup)
 {
     uint64_t numSegments = logCapacity / segmentCapacity;
     if (numSegments < 1) {
@@ -175,28 +176,26 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
             &segmentOffset, sync);
         if (p != NULL) {
             // entry was appended to head segment
-            bytesAppended += sizeof(SegmentEntry) + length;
             if (logTime != NULL)
                 *logTime = LogTime(head->getId(), segmentOffset);
+            stats.totalAppends++;
             return p;
         }
         // head segment is full
         // allocate the next segment, /then/ close this one
-        Segment* nextHead = new Segment(logId, allocateSegmentId(),
-                                        getFromFreeList(),
-                                        segmentCapacity, backup);
+        Segment* nextHead = new Segment(this, allocateSegmentId(),
+                                        getFromFreeList(), segmentCapacity,
+                                        backup);
         head->close(false); // an exception here would be problematic...
 #ifdef PERF_DEBUG_RECOVERY_SYNC_BACKUP
         head->sync();
 #endif
         head = nextHead;
-        bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentFooter);
     } else {
         // allocate the first segment
-        head = new Segment(logId, allocateSegmentId(), getFromFreeList(),
+        head = new Segment(this, allocateSegmentId(), getFromFreeList(),
                            segmentCapacity, backup);
     }
-    bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentHeader);
     addToActiveMaps(head);
 
     // append the entry
@@ -204,9 +203,10 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     assert(p != NULL);
     if (logTime != NULL)
         *logTime = LogTime(head->getId(), segmentOffset);
-    bytesAppended += sizeof(SegmentEntry) + length;
 
-    cleaner.clean(1);
+    if (useCleaner)
+        cleaner.clean(1);
+    stats.totalAppends++;
     return p;
 }
 
@@ -228,6 +228,7 @@ Log::free(const void *p)
         throw LogException(HERE, "free on invalid pointer");
     Segment *s = it->second;
     s->free(p);
+    stats.totalFrees++;
 }
 
 /**
@@ -279,11 +280,13 @@ Log::getMaximumAppendableBytes() const
     return maximumAppendableBytes;
 }
 
-/// Return total bytes concatenated to the log so far including overhead.
+/**
+ * Return total bytes concatenated to the Log so far including overhead.
+ */
 uint64_t
 Log::getBytesAppended() const
 {
-    return bytesAppended;
+    return stats.totalBytesAppended;
 }
 
 ////////////////////////////////////
@@ -304,7 +307,7 @@ Log::addSegmentMemory(void *p)
     addToFreeList(p);
 
     if (maximumAppendableBytes == 0) {
-        Segment s(0, 0, p, segmentCapacity);
+        Segment s((uint64_t)0, 0, p, segmentCapacity);
         maximumAppendableBytes = s.appendableBytes();
     }
 }
@@ -387,6 +390,53 @@ Log::getSegmentBaseAddress(const void *p)
 {
     uintptr_t base = (uintptr_t)p;
     return (const void *)(base - (base % segmentCapacity));
+}
+
+/**
+ * Obtain the 64-bit identifier assigned to this Log.
+ */
+uint64_t
+Log::getId() const
+{
+    return logId;
+}
+
+/**
+ * Obtain the capacity of this Log in bytes.
+ */
+uint64_t
+Log::getCapacity() const
+{
+    return logCapacity;
+}
+
+////////////////////////////////////
+// LogStats subclass
+////////////////////////////////////
+
+Log::LogStats::LogStats()
+    : totalBytesAppended(0),
+      totalAppends(0),
+      totalFrees(0)
+{
+}
+
+uint64_t
+Log::LogStats::getBytesAppended() const
+{
+    return totalBytesAppended;
+}
+
+uint64_t
+Log::LogStats::getAppends() const
+{
+    return totalAppends;
+}
+
+uint64_t
+Log::LogStats::getFrees() const
+{
+    return totalFrees;
 }
 
 } // namespace

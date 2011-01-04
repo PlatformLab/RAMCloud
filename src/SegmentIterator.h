@@ -113,7 +113,7 @@ class SegmentIterator {
     }
 
   private:
-    void            CommonConstructor(bool ignoreCapacityMismatch);
+    void            commonConstructor(bool ignoreCapacityMismatch);
     bool            isEntryValid(const SegmentEntry *entry) const;
 
     const void     *baseAddress;     // base address for the Segment

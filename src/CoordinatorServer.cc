@@ -223,21 +223,26 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
     uint64_t serverId = nextServerId++;
     ProtoBuf::ServerType serverType =
         static_cast<ProtoBuf::ServerType>(reqHdr.serverType);
+    const char *serviceLocator = getString(rpc.recvPayload, sizeof(reqHdr),
+                                           reqHdr.serviceLocatorLength);
+
     ProtoBuf::ServerList& serverList(serverType == ProtoBuf::MASTER
                                      ? masterList
                                      : backupList);
     ProtoBuf::ServerList_Entry& server(*serverList.add_server());
     server.set_server_type(serverType);
     server.set_server_id(serverId);
-    server.set_service_locator(getString(rpc.recvPayload, sizeof(reqHdr),
-                                         reqHdr.serviceLocatorLength));
+    server.set_service_locator(serviceLocator);
+
     if (server.server_type() == ProtoBuf::MASTER) {
         // create empty will
         server.set_user_data(
             reinterpret_cast<uint64_t>(new ProtoBuf::Tablets));
-        LOG(DEBUG, "Master enlisted with id %lu", serverId);
+        LOG(DEBUG, "Master enlisted with id %lu, sl [%s]", serverId,
+            serviceLocator);
     } else {
-        LOG(DEBUG, "Backup enlisted with id %lu", serverId);
+        LOG(DEBUG, "Backup enlisted with id %lu, sl [%s]", serverId,
+            serviceLocator);
     }
     respHdr.serverId = serverId;
 }

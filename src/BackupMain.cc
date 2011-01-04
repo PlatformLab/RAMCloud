@@ -64,8 +64,6 @@ try
     config.coordinatorLocator = optionParser.options.getCoordinatorLocator();
     config.localLocator = optionParser.options.getLocalLocator();
 
-    LOG(NOTICE, "backup: Listening on %s", config.localLocator.c_str());
-
     if (cpu != -1) {
         if (!pinToCpu(cpu))
             DIE("backup: Couldn't pin to core %d", cpu);
@@ -74,6 +72,8 @@ try
 
     // Set the address for the backup to listen on.
     transportManager.initialize(config.localLocator.c_str());
+    config.localLocator = transportManager.getListeningLocatorsString();
+    LOG(NOTICE, "backup: Listening on %s", config.localLocator.c_str());
 
     std::unique_ptr<BackupStorage> storage;
     if (inMemory)

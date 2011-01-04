@@ -46,6 +46,8 @@ class TransportManager {
     void initialize(const char* serviceLocator);
     Transport::SessionRef getSession(const char* serviceLocator);
     Transport::ServerRpc* serverRecv();
+    ServiceLocatorList getListeningLocators();
+    string getListeningLocatorsString();
     void dumpStats();
 
 #if TESTING

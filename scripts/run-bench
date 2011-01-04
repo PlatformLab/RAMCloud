@@ -10,8 +10,16 @@ source scripts/common.bash
 
 masterLocator=fast+udp:host=127.0.0.1,port=$port
 coordinatorLocator=fast+udp:host=127.0.0.1,port=$cport
-#masterLocator=infrc:host=127.0.0.1,port=$port
-#coordinatorLocator=infrc:host=127.0.0.1,port=$cport
+
+if [ $# -eq 1 ]; then
+    if [ $1 == "infrc" ]; then
+        masterLocator=infrc:host=127.0.0.1,port=$port
+        coordinatorLocator=infrc:host=127.0.0.1,port=$cport
+    elif [ $1 == "infud" ]; then
+        masterLocator="fast+infud:"
+        coordinatorLocator="fast+udp:host=127.0.0.1,port=$cport;fast+infud:"
+    fi
+fi
 
 # Check to see if master and coordinator servers are running. If so, kill 'em!
 portslay $port
@@ -24,11 +32,11 @@ VER=$(git log -1 | grep '^commit' | awk '{print $2;}')
 DATE=$(git log -1 --date=short | grep '^Date:' | awk '{print $2;}')
 
 # Start a server and run tests
-$OBJDIR/coordinator -C $coordinatorLocator &
-$OBJDIR/server -L $masterLocator -C $coordinatorLocator &
+$OBJDIR/coordinator -C "$coordinatorLocator" &
+$OBJDIR/server -L "$masterLocator" -C "$coordinatorLocator" &
 sleep .1
 
-VAL=$($OBJDIR/Bench -C $coordinatorLocator -R -S 1000 -n 10000 | \
+VAL=$($OBJDIR/Bench -C "$coordinatorLocator" -R -S 1000 -n 10000 | \
         grep '^readMany avgns' | awk '{print $3;}')
 RETVAL=$?
 

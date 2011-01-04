@@ -16,6 +16,7 @@
 #include "TestUtil.h"
 
 #include "Segment.h"
+#include "Log.h"
 #include "LogTypes.h"
 #include "BackupManager.h"
 
@@ -89,6 +90,11 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1020304050, sh->logId);
         CPPUNIT_ASSERT_EQUAL(98765, sh->segmentId);
         CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf), sh->segmentCapacity);
+
+        // be sure we count the header written in the LogStats
+        Log l(0, 8192, 8192);
+        Segment s2(&l, 0, alignedBuf, sizeof(alignedBuf));
+        CPPUNIT_ASSERT_EQUAL(l.getBytesAppended(), s2.tail);
     }
 
     void
@@ -225,13 +231,17 @@ class SegmentTest : public CppUnit::TestFixture {
         for (unsigned int i = 0; i < sizeof(buf); i++)
             buf[i] = i;
 
-        Segment s(112233, 445566, alignedBuf, sizeof(alignedBuf));
+        Log l(0, 8192, 8192);
+        Segment s(&l, 445566, alignedBuf, sizeof(alignedBuf));
+        uint64_t bytesBeforeAppend = l.getBytesAppended();
         s.forceAppendBlob(buf, sizeof(buf));
         CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, reinterpret_cast<char *>(
             s.baseAddress) + sizeof(SegmentEntry) + sizeof(SegmentHeader),
             sizeof(buf)));
         CPPUNIT_ASSERT_EQUAL(sizeof(buf) + sizeof(SegmentEntry) +
             sizeof(SegmentHeader), s.tail);
+        CPPUNIT_ASSERT_EQUAL(bytesBeforeAppend + sizeof(buf),
+            l.getBytesAppended());
     }
 
     void

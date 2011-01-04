@@ -25,10 +25,27 @@ namespace RAMCloud {
 /**
  * Construct a MockTransport.
  */
-MockTransport::MockTransport()
-            : outputLog(), inputMessage(NULL),
-              serverRecvCount(0), serverSendCount(0),
-              clientSendCount(0), clientRecvCount(0) { }
+MockTransport::MockTransport(const ServiceLocator *serviceLocator)
+            : outputLog(),
+              inputMessage(NULL),
+              serverRecvCount(0),
+              serverSendCount(0),
+              clientSendCount(0),
+              clientRecvCount(0),
+              locatorString()
+{
+    if (serviceLocator != NULL)
+        locatorString = serviceLocator->getOriginalString();
+}
+
+/**
+ * See Transport::getServiceLocator.
+ */
+ServiceLocator
+MockTransport::getServiceLocator()
+{
+    return ServiceLocator(locatorString);
+}
 
 /**
  * Return an incoming request. This is a fake method that uses a request

@@ -225,16 +225,13 @@ class MasterServer : public Server {
                  Transport::ServerRpc& rpc,
                  Responder& responder);
 
-    void recoverSegmentPrefetcher(RecoverySegmentIterator& i,
-                                  ObjectTombstoneMap& tombstoneMap);
+    void recoverSegmentPrefetcher(RecoverySegmentIterator& i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
-                        uint64_t bufferLength,
-                        ObjectTombstoneMap& tombstoneMap);
+                        uint64_t bufferLength);
 
     void recover(uint64_t masterId,
                  uint64_t partitionId,
-                 const ProtoBuf::ServerList& backups,
-                 ObjectTombstoneMap& tombstoneMap);
+                 const ProtoBuf::ServerList& backups);
 
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
@@ -283,6 +280,13 @@ class MasterServer : public Server {
      */
     ProtoBuf::Tablets tablets;
 
+    /**
+     * Remove leftover tombstones in the hash table added during recovery.
+     */
+    void removeTombstones();
+
+    friend void recoveryCleanup(const Objectable *maybeTomb, uint8_t type,
+        void *cookie);
     friend void objectEvictionCallback(LogEntryType type, const void* p,
         uint64_t entryLength, uint64_t lengthInLog, LogTime logTime,
         void* cookie);

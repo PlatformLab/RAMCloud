@@ -59,22 +59,25 @@ TcpTransport::TcpTransport(const ServiceLocator* serviceLocator)
     locatorString = serviceLocator->getOriginalString();
 
     listenSocket = sys->socket(PF_INET, SOCK_STREAM, 0);
-    if (listenSocket == -1)
+    if (listenSocket == -1) {
         throw TransportException(HERE,
                 "TcpTransport couldn't create listen socket", errno);
+    }
 
     int r = sys->fcntl(listenSocket, F_SETFL, O_NONBLOCK);
-    if (r != 0)
+    if (r != 0) {
         throw TransportException(HERE,
                 "TcpTransport couldn't set nonblocking on listen socket",
                 errno);
+    }
 
     int optval = 1;
     if (sys->setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, &optval,
-                           sizeof(optval)) != 0)
+                           sizeof(optval)) != 0) {
         throw TransportException(HERE,
                 "TcpTransport couldn't set SO_REUSEADDR on listen socket",
                 errno);
+    }
 
     if (sys->bind(listenSocket, &address.address,
             sizeof(address.address)) == -1) {
@@ -310,9 +313,10 @@ TcpTransport::sendMessage(int fd, Buffer& payload)
 
     ssize_t r = sys->sendmsg(fd, &msg, MSG_NOSIGNAL);
     if (static_cast<size_t>(r) != (sizeof(header) + header.len)) {
-        if (r == -1)
+        if (r == -1) {
             throw TransportException(HERE,
                     "I/O error in TcpTransport::sendMessage", errno);
+        }
         throw TransportException(HERE, format("Incomplete sendmsg in "
                 "TcpTransport::sendMessage: %d bytes sent out of %d",
                 static_cast<int>(r),
@@ -580,9 +584,8 @@ void
 TcpTransport::TcpClientRpc::wait()
 {
     while (!finished) {
-        if (session->fd == -1) {
+        if (session->fd == -1)
             throw TransportException(HERE, session->errorInfo);
-        }
         event_loop(EVLOOP_ONCE);
     }
 }

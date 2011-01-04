@@ -13,8 +13,11 @@ $(OBJDIR)/%.pb.cc $(OBJDIR)/%.pb.h: $(TOP)/src/%.proto
 
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
-           src/InfRcTransport.cc \
-           $(NULL)
+	   src/InfAddress.cc \
+	   src/Infiniband.cc \
+	   src/InfRcTransport.cc \
+	   src/InfUdDriver.cc \
+	   $(NULL)
 else
 INFINIBAND_SRCFILES :=
 endif
@@ -49,10 +52,10 @@ SHARED_SRCFILES := \
 		   src/Server.cc \
 		   src/ServiceLocator.cc \
 		   src/Status.cc \
-           src/TabletProfiler.cc \
+		   src/TabletProfiler.cc \
 		   src/TcpTransport.cc \
 		   src/TcpTransport.cc \
-           src/TimeCounter.cc \
+		   src/TimeCounter.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
 		   $(INFINIBAND_SRCFILES) \

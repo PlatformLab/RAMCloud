@@ -183,8 +183,8 @@ whichPartition(const LogEntryType type,
         tableId = object->table;
         objectId = object->id;
     } else { // LOG_ENTRY_TYPE_OBJTOMB:
-        tableId = tombstone->tableId;
-        objectId = tombstone->objectId;
+        tableId = tombstone->table;
+        objectId = tombstone->id;
     }
 
     ObjectTub<uint64_t> ret;
@@ -731,8 +731,8 @@ BackupServer::keepEntry(const LogEntryType type,
         objectId = object->id;
         break;
       case LOG_ENTRY_TYPE_OBJTOMB:
-        tableId = tombstone->tableId;
-        objectId = tombstone->objectId;
+        tableId = tombstone->table;
+        objectId = tombstone->id;
         break;
       case LOG_ENTRY_TYPE_LOGDIGEST:
       case LOG_ENTRY_TYPE_INVALID:
