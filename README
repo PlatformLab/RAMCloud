@@ -110,7 +110,7 @@ scripts/           Tools.
 
 src/               Main source directory.
 
-gtest/             git submodule that contains the code for google test 
+gtest/             git submodule that contains the code for google test
 
 
 */
