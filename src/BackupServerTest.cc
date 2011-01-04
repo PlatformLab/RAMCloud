@@ -659,6 +659,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
 
     segment.close();
     info.close();
+    info.setRecovering();
 
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
@@ -680,6 +681,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
 TEST_F(SegmentInfoTest, appendRecoverySegmentMalformedSegment) {
     info.open();
     memcpy(info.getSegment(), "garbage", 7);
+    info.setRecovering();
 
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
@@ -705,6 +707,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentPartitionOutOfBounds) {
     Segment segment(123, 88, info.getSegment(), segmentSize);
     segment.close();
     info.close();
+    info.setRecovering();
     ProtoBuf::Tablets partitions;
     info.buildRecoverySegments(partitions, segmentSize);
     EXPECT_EQ(0u, info.recoverySegmentsLength);
@@ -763,6 +766,7 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
 
     segment.close();
     info.close();
+    info.setRecovering();
 
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
@@ -781,6 +785,7 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
 TEST_F(SegmentInfoTest, buildRecoverySegmentMalformedSegment) {
     info.open();
     memcpy(info.getSegment(), "garbage", 7);
+    info.setRecovering();
 
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
@@ -795,6 +800,7 @@ TEST_F(SegmentInfoTest, buildRecoverySegmentNoTablets) {
     info.open();
     Segment segment(123, 88, info.getSegment(), segmentSize);
     segment.close();
+    info.setRecovering();
     info.buildRecoverySegments(ProtoBuf::Tablets(), segmentSize);
     EXPECT_FALSE(info.recoveryException);
     EXPECT_EQ(0u, info.recoverySegmentsLength);

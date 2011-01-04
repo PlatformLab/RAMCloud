@@ -70,6 +70,14 @@ class BackupServer : public Server {
              * This segment will be closed if this is deleted.
              */
             OPEN,
+            /**
+             * A RecoverySegmentBuilder thread has ownership of this
+             * SegmentInfo.  The only legal operation from the main thread
+             * is to read the state field until the other thread changes
+             * the state to CLOSED.  The builder thread may modify
+             * any of the other fields while this object is so locked.
+             */
+            RECOVERING,
             CLOSED,     ///< Immutable and has moved to stable store.
             FREED,      ///< delete is the only valid op.
         };
@@ -94,16 +102,48 @@ class BackupServer : public Server {
         /// Return true if this segment is OPEN.
         bool isOpen() const { return state == OPEN; }
 
-        void load();
+        /**
+         * Return true if this segment is RECOVERING.
+         * Forces read of the value from the cache hierarchy and does
+         * not allow reordering around this call by the compiler or
+         * the CPU.
+         */
+        bool isRecovering() const {
+            __sync_synchronize();
+            return state == RECOVERING;
+        }
+
         void open();
         void startLoading();
+
+        /**
+         * Mark this SegmentInfo as RECOVERING and off limits to the
+         * main thread other than status checks (isOpen(), isRecovering(),
+         * isRecovered()).
+         */
+        void setRecovering() { state = RECOVERING; }
+
+        /**
+         * Mark this SegmentInfo as CLOSED and available to the
+         * main thread.  Forces a write of the value to the cache
+         * hierarchy and does not allow reordering around this call
+         * by the compiler or the CPU.
+         */
+        void syncSetClosed() {
+            state = CLOSED;
+            __sync_synchronize();
+        }
+
+        bool operator<(const SegmentInfo& info) const {
+            return segmentId < info.segmentId;
+        }
 
       PRIVATE:
          /// Return true if an IO is fetching this stored segment.
         bool isLoading() const { return segmentSync; }
 
         /// Return true if this segment's recovery segments have been built.
-        bool isRecovered() const { return recoverySegments; }
+        bool isRecovered() const { return !isRecovering() && recoverySegments; }
 
         /// The id of the master from which this segment came.
         const uint64_t masterId;
@@ -156,6 +196,38 @@ class BackupServer : public Server {
         DISALLOW_COPY_AND_ASSIGN(SegmentInfo);
     };
 
+    /**
+     * Asynchronously loads and splits stored segments into recovery segments,
+     * trying to acheive efficiency by overlapping work where possible using
+     * threading.  See #infos for important details on sharing constraints
+     * for SegmentInfo structures while these threads are processing.
+     */
+    class RecoverySegmentBuilder
+    {
+      public:
+        RecoverySegmentBuilder(const vector<SegmentInfo*>& infos,
+                               const ProtoBuf::Tablets& partitions,
+                               const uint32_t segmentSize);
+        void operator()();
+
+      private:
+        /**
+         * The SegmentInfos that will be loaded from disk (asynchronously)
+         * and (asynchronously) split into recovery segments.  These
+         * SegmentInfos are owned by this RecoverySegmentBuilder instance
+         * which will run in a separate thread.  Other threads shall not
+         * access any SegmentInfo in this list except to check that its
+         * state (isOpen(), isRecovering(), isRecovered() methods).
+         */
+        const vector<SegmentInfo*> infos;
+
+        /// Copy of the partitions use to split out the recovery segments.
+        const ProtoBuf::Tablets partitions;
+
+        /// Copy of the size of the segments each of the #infos describes.
+        const uint32_t segmentSize;
+    };
+
   public:
     struct Config {
         string coordinatorLocator;
@@ -190,6 +262,8 @@ class BackupServer : public Server {
                    const ProtoBuf::Tablets& tablets) const;
     void openSegment(uint64_t masterId, uint64_t segmentId);
     void reserveSpace();
+    static bool segmentInfoLessThan(const SegmentInfo* left,
+                                    const SegmentInfo* right);
     void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                           BackupStartReadingDataRpc::Response& respHdr,
                           Transport::ServerRpc& rpc,

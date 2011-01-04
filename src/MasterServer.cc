@@ -58,7 +58,6 @@ SegmentLocatorChooser::SegmentLocatorChooser(const ProtoBuf::ServerList& list)
     // not the most efficient approach in the world...
     SegmentIdList::iterator newEnd = std::unique(ids.begin(), ids.end());
     ids.erase(newEnd, ids.end());
-    std::random_shuffle(ids.begin(), ids.end());
 }
 
 /**

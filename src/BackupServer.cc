@@ -14,6 +14,7 @@
  */
 
 #include <boost/scoped_ptr.hpp>
+#include <boost/thread.hpp>
 
 #include "BackupServer.h"
 #include "BackupStorage.h"
@@ -67,6 +68,13 @@ BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage, Pool& pool,
  */
 BackupServer::SegmentInfo::~SegmentInfo()
 {
+    if (isRecovering()) {
+        LOG(WARNING, "Destructing segment <%lu,%lu> which is still recovering, "
+                     "spinning until completion", masterId, segmentId);
+        while (isRecovering());
+        LOG(WARNING, "Done spinning for segment <%lu,%lu>",
+            masterId, segmentId);
+    }
     if (isOpen()) {
         LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
             "closing out to storage", masterId, segmentId);
@@ -76,6 +84,7 @@ BackupServer::SegmentInfo::~SegmentInfo()
         getSegment();
     if (isRecovered()) {
         delete[] recoverySegments;
+        recoverySegments = NULL;
         recoverySegmentsLength = 0;
     }
     if (inStorage()) {
@@ -112,6 +121,13 @@ void
 BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
                                                  Buffer& buffer)
 {
+    if (isRecovering()) {
+        LOG(WARNING, "Asked for segment <%lu,%lu> which is still recovering, "
+                     "spinning until completion", masterId, segmentId);
+        while (isRecovering());
+        LOG(WARNING, "Done spinning for segment <%lu,%lu>",
+            masterId, segmentId);
+    }
     if (recoveryException) {
         auto e = SegmentRecoveryFailedException(*recoveryException);
         recoveryException.reset();
@@ -191,7 +207,9 @@ whichPartition(const LogEntryType type,
 
 /**
  * Construct recovery segments for this segment data splitting data among
- * them according to #partitions.
+ * them according to #partitions.  NOTE: This method is run in another
+ * thread and only occurs when that thread has ownership of this SegmentInfo
+ * (#state == RECOVERING).
  *
  * \param partitions
  *      A set of tablets grouped into partitions which are used to divide
@@ -203,7 +221,7 @@ void
 BackupServer::SegmentInfo::buildRecoverySegments(
     const ProtoBuf::Tablets& partitions, uint32_t segmentSize)
 {
-    assert(state == OPEN || state == CLOSED);
+    assert(state == RECOVERING);
 
     recoveryException.reset();
 
@@ -260,8 +278,10 @@ BackupServer::SegmentInfo::buildRecoverySegments(
         delete[] recoverySegments;
         recoverySegments = NULL;
         recoverySegmentsLength = 0;
-        throw;
     }
+    syncSetClosed();
+    LOG(WARNING, "Segment <%lu,%lu> recovery segments done, setting CLOSED",
+        masterId, segmentId);
 }
 
 /**
@@ -284,6 +304,13 @@ BackupServer::SegmentInfo::close()
 void
 BackupServer::SegmentInfo::free()
 {
+    if (isRecovering()) {
+        LOG(WARNING, "Freeing for segment <%lu,%lu> which is still recovering, "
+                     "spinning until completion", masterId, segmentId);
+        while (isRecovering());
+        LOG(WARNING, "Done spinning for segment <%lu,%lu>",
+            masterId, segmentId);
+    }
     if (isLoading())
         getSegment();
     if (inMemory())
@@ -305,7 +332,7 @@ BackupServer::SegmentInfo::free()
 char*
 BackupServer::SegmentInfo::getSegment()
 {
-    assert(state == OPEN || state == CLOSED);
+    assert(state == OPEN || state == RECOVERING || state == CLOSED);
     if (inMemory())
         return segment;
     if (!isLoading())
@@ -360,13 +387,14 @@ BackupServer::SegmentInfo::open()
 /**
  * Begin reading of segment from disk to memory. Marks the segment
  * CLOSED (immutable) as well.
- * Call load() or getSegment() to block until the load completes.
+ * Call getSegment() to block until the load completes.
  */
 void
 BackupServer::SegmentInfo::startLoading()
 {
-    assert(state == OPEN || state == CLOSED);
-    state = CLOSED;
+    assert(state == OPEN || state == RECOVERING || state == CLOSED);
+    if (state == OPEN)
+        state = CLOSED;
     if (inMemory() || isLoading())
         return;
     char* segment = static_cast<char*>(pool.malloc());
@@ -380,6 +408,76 @@ BackupServer::SegmentInfo::startLoading()
     }
     this->segment = segment;
 }
+
+// --- BackupServer::RecoverySegmentBuilder ---
+
+/**
+ * Constructs a RecoverySegmentBuilder which handles recovery
+ * segment construction for a single recovery.
+ * Makes a copy of each of the arguments as a thread local copy
+ * for use as the thread runs.
+ *
+ * \param infos
+ *      Pointers to SegmentInfo which will be loaded from storage
+ *      and split into recovery segments.  Notice, the copy here is
+ *      only of the pointer vector and not of the SegmentInfo objects.
+ *      Sharing of the SegmentInfo objects is controlled as described
+ *      in RecoverySegmentBuilder::infos.
+ * \param partitions
+ *      The partitions among which the segment should be split for recovery.
+ * \param segmentSize
+ *      The size of the segments stored for each of the #infos.
+ */
+BackupServer::RecoverySegmentBuilder::RecoverySegmentBuilder(
+        const vector<SegmentInfo*>& infos,
+        const ProtoBuf::Tablets& partitions,
+        const uint32_t segmentSize)
+    : infos(infos)
+    , partitions(partitions)
+    , segmentSize(segmentSize)
+{
+}
+
+/**
+ * In order, load each of the segments into memory, meanwhile constructing
+ * the recovery segments for the previously loaded segment.
+ *
+ * Notice this runs in a separate thread and maintains exclusive access
+ * to the SegmentInfo objects because the main thread has set their
+ * state to RECOVERING.  As the recovery segments for each
+ * SegmentInfo are constructed ownership of the SegmentInfo is returned
+ * to the main thread by resetting the state to CLOSED.
+ */
+void
+BackupServer::RecoverySegmentBuilder::operator()()
+{
+    LOG(NOTICE, "Building recovery segments on new thread");
+    if (infos.empty())
+        return;
+
+    SegmentInfo* loadingInfo = infos[0];
+    SegmentInfo* buildingInfo = NULL;
+
+    // Bring the first segment into memory
+    loadingInfo->getSegment();
+
+    for (uint32_t i = 1;; i++) {
+        buildingInfo = loadingInfo;
+        if (i < infos.size()) {
+            loadingInfo = infos[i];
+            LOG(NOTICE, "Starting load of %uth segment", i);
+            loadingInfo->startLoading();
+        }
+        buildingInfo->buildRecoverySegments(partitions, segmentSize);
+        LOG(NOTICE, "Done building recovery segments for %u", i - 1);
+        if (i == infos.size())
+            return;
+        loadingInfo->getSegment();
+        LOG(NOTICE, "%uth segment loaded", i);
+    }
+    LOG(NOTICE, "Done building recovery segments, thread exiting");
+}
+
 
 // --- BackupServer ---
 
@@ -697,6 +795,22 @@ BackupServer::openSegment(uint64_t masterId, uint64_t segmentId)
 }
 
 /**
+ * Returns true if left points to a SegmentInfo with a lesser
+ * segmentId than that pointed to by right.
+ *
+ * \param left
+ *      A pointer to a SegmentInfo to be compared to #right.
+ * \param right
+ *      A pointer to a SegmentInfo to be compared to #left.
+ */
+bool
+BackupServer::segmentInfoLessThan(const SegmentInfo* left,
+                                  const SegmentInfo* right)
+{
+    return *left < *right;
+}
+
+/**
  * Begin reading disk data for a Master and bucketing the objects in the
  * Segments according to a requested TabletMap, returning a list of backed
  * up Segments this backup has for the Master.
@@ -734,6 +848,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
             uint64_t* segmentId = new(&rpc.replyPayload, APPEND) uint64_t;
             *segmentId = it->first.segmentId;
             segmentsToFilter.push_back(it->second);
+            it->second->setRecovering();
             LOG(DEBUG, "Crashed master %lu had segment %lu",
                 masterId, *segmentId);
             segmentIdCount++;
@@ -744,9 +859,14 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
 
     responder();
 
-    foreach (const auto& info, segmentsToFilter)
-        info->buildRecoverySegments(partitions, segmentSize);
-    LOG(NOTICE, "Done building recovery segments");
+    std::sort(segmentsToFilter.begin(),
+              segmentsToFilter.end(),
+              &segmentInfoLessThan);
+
+    RecoverySegmentBuilder builder(segmentsToFilter, partitions, segmentSize);
+    boost::thread builderThread(builder);
+    LOG(NOTICE, "Kicked off building recovery segments; "
+                "main thread going back to dispatching requests");
 }
 
 /**
