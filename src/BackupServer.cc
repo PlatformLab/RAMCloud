@@ -122,10 +122,10 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
                                                  Buffer& buffer)
 {
     if (isRecovering()) {
-        LOG(WARNING, "Asked for segment <%lu,%lu> which is still recovering, "
+        LOG(DEBUG, "Asked for segment <%lu,%lu> which is still recovering, "
                      "spinning until completion", masterId, segmentId);
         while (isRecovering());
-        LOG(WARNING, "Done spinning for segment <%lu,%lu>",
+        LOG(DEBUG, "Done spinning for segment <%lu,%lu>",
             masterId, segmentId);
     }
     if (recoveryException) {
@@ -280,7 +280,7 @@ BackupServer::SegmentInfo::buildRecoverySegments(
         recoverySegmentsLength = 0;
     }
     syncSetClosed();
-    LOG(WARNING, "Segment <%lu,%lu> recovery segments done, setting CLOSED",
+    LOG(DEBUG, "Segment <%lu,%lu> recovery segments done, setting CLOSED",
         masterId, segmentId);
 }
 
@@ -451,7 +451,7 @@ BackupServer::RecoverySegmentBuilder::RecoverySegmentBuilder(
 void
 BackupServer::RecoverySegmentBuilder::operator()()
 {
-    LOG(NOTICE, "Building recovery segments on new thread");
+    LOG(DEBUG, "Building recovery segments on new thread");
     if (infos.empty())
         return;
 
@@ -465,17 +465,17 @@ BackupServer::RecoverySegmentBuilder::operator()()
         buildingInfo = loadingInfo;
         if (i < infos.size()) {
             loadingInfo = infos[i];
-            LOG(NOTICE, "Starting load of %uth segment", i);
+            LOG(DEBUG, "Starting load of %uth segment", i);
             loadingInfo->startLoading();
         }
         buildingInfo->buildRecoverySegments(partitions, segmentSize);
-        LOG(NOTICE, "Done building recovery segments for %u", i - 1);
+        LOG(DEBUG, "Done building recovery segments for %u", i - 1);
         if (i == infos.size())
             return;
         loadingInfo->getSegment();
-        LOG(NOTICE, "%uth segment loaded", i);
+        LOG(DEBUG, "%uth segment loaded", i);
     }
-    LOG(NOTICE, "Done building recovery segments, thread exiting");
+    LOG(DEBUG, "Done building recovery segments, thread exiting");
 }
 
 
@@ -865,8 +865,8 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
 
     RecoverySegmentBuilder builder(segmentsToFilter, partitions, segmentSize);
     boost::thread builderThread(builder);
-    LOG(NOTICE, "Kicked off building recovery segments; "
-                "main thread going back to dispatching requests");
+    LOG(DEBUG, "Kicked off building recovery segments; "
+               "main thread going back to dispatching requests");
 }
 
 /**

@@ -50,6 +50,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_openSegment);
     CPPUNIT_TEST(test_openSegment_alreadyOpen);
     CPPUNIT_TEST(test_openSegment_outOfStorage);
+    CPPUNIT_TEST(test_recoverySegmentBuilder);
     CPPUNIT_TEST(test_startReadingData);
     CPPUNIT_TEST(test_startReadingData_empty);
     CPPUNIT_TEST(test_writeSegment);
@@ -480,6 +481,64 @@ class BackupServerTest : public CppUnit::TestFixture {
             BackupStorageException);
         CPPUNIT_ASSERT_EQUAL(2,
             BackupStorage::Handle::getAllocatedHandlesCount());
+    }
+
+    void
+    test_recoverySegmentBuilder()
+    {
+        uint32_t offset = 0;
+        client->openSegment(99, 87);
+        offset = writeHeader(99, 87);
+        offset += writeObject(99, 87, offset, "test1", 6, 123, 9);
+        offset += writeFooter(99, 87, offset);
+        client->closeSegment(99, 87);
+
+        client->openSegment(99, 88);
+        offset = writeHeader(99, 88);
+        offset += writeObject(99, 88, offset, "test2", 6, 123, 30);
+        offset += writeFooter(99, 88, offset);
+        client->closeSegment(99, 88);
+
+        vector<BackupServer::SegmentInfo*> toBuild;
+        auto info = backup->findSegmentInfo(99, 87);
+        CPPUNIT_ASSERT(NULL != info);
+        info->setRecovering();
+        toBuild.push_back(info);
+        info = backup->findSegmentInfo(99, 88);
+        CPPUNIT_ASSERT(NULL != info);
+        info->setRecovering();
+        toBuild.push_back(info);
+
+        ProtoBuf::Tablets partitions;
+        createTabletList(partitions);
+        BackupServer::RecoverySegmentBuilder builder(toBuild,
+                                                     partitions,
+                                                     segmentSize);
+        builder();
+
+        CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::CLOSED,
+                             toBuild[0]->state);
+        CPPUNIT_ASSERT(NULL != toBuild[0]->recoverySegments);
+        Buffer* buf = &toBuild[0]->recoverySegments[0];
+        RecoverySegmentIterator it(buf->getRange(0, buf->getTotalLength()),
+                                   buf->getTotalLength());
+        CPPUNIT_ASSERT(!it.isDone());
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
+        CPPUNIT_ASSERT_EQUAL("test1", it.get<Object>()->data);
+        it.next();
+        CPPUNIT_ASSERT(it.isDone());
+
+        CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::CLOSED,
+                             toBuild[1]->state);
+        CPPUNIT_ASSERT(NULL != toBuild[1]->recoverySegments);
+        buf = &toBuild[1]->recoverySegments[1];
+        RecoverySegmentIterator it2(buf->getRange(0, buf->getTotalLength()),
+                                   buf->getTotalLength());
+        CPPUNIT_ASSERT(!it2.isDone());
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it2.getType());
+        CPPUNIT_ASSERT_EQUAL("test2", it2.get<Object>()->data);
+        it2.next();
+        CPPUNIT_ASSERT(it2.isDone());
     }
 
     void
