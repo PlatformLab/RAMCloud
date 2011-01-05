@@ -18,6 +18,7 @@
 
 #include "BackupServer.h"
 #include "BackupStorage.h"
+#include "BenchUtil.h"
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Log.h"
@@ -48,7 +49,8 @@ namespace RAMCloud {
  */
 BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage, Pool& pool,
                                        uint64_t masterId, uint64_t segmentId)
-    : masterId(masterId)
+    : lockedForRecovery()
+    , masterId(masterId)
     , recoveryException()
     , recoverySegments(NULL)
     , recoverySegmentsLength()
@@ -68,13 +70,7 @@ BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage, Pool& pool,
  */
 BackupServer::SegmentInfo::~SegmentInfo()
 {
-    if (isRecovering()) {
-        LOG(WARNING, "Destructing segment <%lu,%lu> which is still recovering, "
-                     "spinning until completion", masterId, segmentId);
-        while (isRecovering());
-        LOG(WARNING, "Done spinning for segment <%lu,%lu>",
-            masterId, segmentId);
-    }
+    waitForRecoveryCompletion();
     if (isOpen()) {
         LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
             "closing out to storage", masterId, segmentId);
@@ -121,13 +117,12 @@ void
 BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
                                                  Buffer& buffer)
 {
-    if (isRecovering()) {
-        LOG(DEBUG, "Asked for segment <%lu,%lu> which is still recovering, "
-                     "spinning until completion", masterId, segmentId);
-        while (isRecovering());
-        LOG(DEBUG, "Done spinning for segment <%lu,%lu>",
-            masterId, segmentId);
-    }
+    uint64_t start = rdtsc();
+    waitForRecoveryCompletion();
+#if !TESTING
+    LOG(DEBUG, "Done spinning for segment <%lu,%lu>, waited %lu ms", masterId,
+        segmentId, cyclesToNanoseconds(rdtsc() - start) / 1000 / 1000);
+#endif
     if (recoveryException) {
         auto e = SegmentRecoveryFailedException(*recoveryException);
         recoveryException.reset();
@@ -150,6 +145,9 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
     {
         Buffer::Chunk::appendToBuffer(&buffer, it.getData(), it.getLength());
     }
+    LOG(DEBUG, "appendRecoverySegment <%lu,%lu>, took %lu ms",
+        masterId, segmentId,
+        cyclesToNanoseconds(rdtsc() - start) / 1000 / 1000);
 }
 
 /**
@@ -209,7 +207,7 @@ whichPartition(const LogEntryType type,
  * Construct recovery segments for this segment data splitting data among
  * them according to #partitions.  NOTE: This method is run in another
  * thread and only occurs when that thread has ownership of this SegmentInfo
- * (#state == RECOVERING).
+ * (see #lockedForRecovery).
  *
  * \param partitions
  *      A set of tablets grouped into partitions which are used to divide
@@ -221,7 +219,8 @@ void
 BackupServer::SegmentInfo::buildRecoverySegments(
     const ProtoBuf::Tablets& partitions, uint32_t segmentSize)
 {
-    assert(state == RECOVERING);
+    uint64_t start = rdtsc();
+    assert(state == OPEN || state == CLOSED);
 
     recoveryException.reset();
 
@@ -252,7 +251,6 @@ BackupServer::SegmentInfo::buildRecoverySegments(
                                                              partitions);
             if (!partitionId)
                 continue;
-            LOG(DEBUG, "Filtering to %lu", *partitionId);
             const SegmentEntry* entry = reinterpret_cast<const SegmentEntry*>(
                     reinterpret_cast<const char*>(it.getPointer()) -
                     sizeof(*entry));
@@ -279,9 +277,11 @@ BackupServer::SegmentInfo::buildRecoverySegments(
         recoverySegments = NULL;
         recoverySegmentsLength = 0;
     }
-    syncSetClosed();
-    LOG(DEBUG, "Segment <%lu,%lu> recovery segments done, setting CLOSED",
-        masterId, segmentId);
+    LOG(DEBUG, "<%lu,%lu> recovery segments took %lu ms to construct, "
+               "returning ownership to the main thread",
+        masterId, segmentId,
+        cyclesToNanoseconds(rdtsc() - start) / 1000 / 1000);
+    setUnlockedAfterRecovery();
 }
 
 /**
@@ -304,13 +304,7 @@ BackupServer::SegmentInfo::close()
 void
 BackupServer::SegmentInfo::free()
 {
-    if (isRecovering()) {
-        LOG(WARNING, "Freeing for segment <%lu,%lu> which is still recovering, "
-                     "spinning until completion", masterId, segmentId);
-        while (isRecovering());
-        LOG(WARNING, "Done spinning for segment <%lu,%lu>",
-            masterId, segmentId);
-    }
+    waitForRecoveryCompletion();
     if (isLoading())
         getSegment();
     if (inMemory())
@@ -332,7 +326,7 @@ BackupServer::SegmentInfo::free()
 char*
 BackupServer::SegmentInfo::getSegment()
 {
-    assert(state == OPEN || state == RECOVERING || state == CLOSED);
+    assert(state == OPEN || state == CLOSED);
     if (inMemory())
         return segment;
     if (!isLoading())
@@ -392,9 +386,8 @@ BackupServer::SegmentInfo::open()
 void
 BackupServer::SegmentInfo::startLoading()
 {
-    assert(state == OPEN || state == RECOVERING || state == CLOSED);
-    if (state == OPEN)
-        state = CLOSED;
+    assert(state == OPEN || state == CLOSED);
+    state = CLOSED;
     if (inMemory() || isLoading())
         return;
     char* segment = static_cast<char*>(pool.malloc());
@@ -442,11 +435,10 @@ BackupServer::RecoverySegmentBuilder::RecoverySegmentBuilder(
  * In order, load each of the segments into memory, meanwhile constructing
  * the recovery segments for the previously loaded segment.
  *
- * Notice this runs in a separate thread and maintains exclusive access
- * to the SegmentInfo objects because the main thread has set their
- * state to RECOVERING.  As the recovery segments for each
- * SegmentInfo are constructed ownership of the SegmentInfo is returned
- * to the main thread by resetting the state to CLOSED.
+ * Notice this runs in a separate thread and maintains exclusive access to the
+ * SegmentInfo objects because the main thread has set #lockedForRecovery.  As
+ * the recovery segments for each SegmentInfo are constructed ownership of the
+ * SegmentInfo is returned to the main thread by resetting #lockedForRecovery.
  */
 void
 BackupServer::RecoverySegmentBuilder::operator()()
@@ -673,8 +665,8 @@ BackupServer::findSegmentInfo(uint64_t masterId, uint64_t segmentId)
  *      respHdr->recoveredObjectCount.
  *
  * \throw BackupBadSegmentIdException
- *      If the segment is not in RECOVERING state (startReadingData() must have
- *      been called for its corresponding master id).
+ *      If the segment has not had recovery started for it (startReadingData()
+ *      must have been called for its corresponding master id).
  */
 void
 BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
@@ -848,7 +840,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
             uint64_t* segmentId = new(&rpc.replyPayload, APPEND) uint64_t;
             *segmentId = it->first.segmentId;
             segmentsToFilter.push_back(it->second);
-            it->second->setRecovering();
+            it->second->setLockedForRecovery();
             LOG(DEBUG, "Crashed master %lu had segment %lu",
                 masterId, *segmentId);
             segmentIdCount++;
@@ -895,7 +887,6 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
                            BackupWriteRpc::Response& respHdr,
                            Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "writeSegment <%lu,%lu>", reqHdr.masterId, reqHdr.segmentId);
     if (reqHdr.flags == BackupWriteRpc::OPEN ||
         reqHdr.flags == BackupWriteRpc::OPENCLOSE)
         openSegment(reqHdr.masterId, reqHdr.segmentId);

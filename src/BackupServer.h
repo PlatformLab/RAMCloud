@@ -70,14 +70,6 @@ class BackupServer : public Server {
              * This segment will be closed if this is deleted.
              */
             OPEN,
-            /**
-             * A RecoverySegmentBuilder thread has ownership of this
-             * SegmentInfo.  The only legal operation from the main thread
-             * is to read the state field until the other thread changes
-             * the state to CLOSED.  The builder thread may modify
-             * any of the other fields while this object is so locked.
-             */
-            RECOVERING,
             CLOSED,     ///< Immutable and has moved to stable store.
             FREED,      ///< delete is the only valid op.
         };
@@ -102,35 +94,42 @@ class BackupServer : public Server {
         /// Return true if this segment is OPEN.
         bool isOpen() const { return state == OPEN; }
 
-        /**
-         * Return true if this segment is RECOVERING.
-         * Forces read of the value from the cache hierarchy and does
-         * not allow reordering around this call by the compiler or
-         * the CPU.
-         */
-        bool isRecovering() const {
-            __sync_synchronize();
-            return state == RECOVERING;
-        }
 
         void open();
         void startLoading();
 
         /**
-         * Mark this SegmentInfo as RECOVERING and off limits to the
-         * main thread other than status checks (isOpen(), isRecovering(),
-         * isRecovered()).
+         * Mark this SegmentInfo as off limits to the main thread other than
+         * status checks (isOpen(), isRecovering(), isRecovered()).
          */
-        void setRecovering() { state = RECOVERING; }
+        void setLockedForRecovery() { lockedForRecovery = true; }
 
         /**
-         * Mark this SegmentInfo as CLOSED and available to the
+         * Mark this SegmentInfo available to the
          * main thread.  Forces a write of the value to the cache
          * hierarchy and does not allow reordering around this call
          * by the compiler or the CPU.
          */
-        void syncSetClosed() {
-            state = CLOSED;
+        void setUnlockedAfterRecovery() {
+            // Make sure the compiler and CPU have written back everything
+            __sync_synchronize();
+            lockedForRecovery = false;
+        }
+
+        /**
+         * Block until recovery segment construction for this SegmentInfo
+         * is finished, at which point the main thread again has ownership
+         * of this SegmentInfo.
+         */
+        void waitForRecoveryCompletion() const {
+            if (lockedForRecovery) {
+                LOG(DEBUG, "Waiting for segment <%lu,%lu> which is recovering, "
+                             "spinning until completion", masterId, segmentId);
+                while (lockedForRecovery);
+                LOG(DEBUG, "Done waiting for segment <%lu,%lu> recovery",
+                    masterId, segmentId);
+            }
+            // Makes sure no instructions move above this by CPU or compiler.
             __sync_synchronize();
         }
 
@@ -143,7 +142,18 @@ class BackupServer : public Server {
         bool isLoading() const { return segmentSync; }
 
         /// Return true if this segment's recovery segments have been built.
-        bool isRecovered() const { return !isRecovering() && recoverySegments; }
+        bool isRecovered() const
+        {
+            return !lockedForRecovery && recoverySegments;
+        }
+
+        /**
+         * When set the main thread must not read or write this SegmentInfo
+         * other than calls to check status (isOpen(), isRecovering()) or
+         * to wait for recovery segment construction to finish
+         * (waitForRecoveryCompletion()).
+         */
+        volatile bool lockedForRecovery;
 
         /// The id of the master from which this segment came.
         const uint64_t masterId;
