@@ -604,6 +604,8 @@ class BufferIteratorTest : public CppUnit::TestFixture {
         , oneIter(NULL)
         , twoIter(NULL)
     {
+        memset(x, 'A', sizeof(x) - 1);
+        x[sizeof(x) - 1] = '\0';
     }
 
     void

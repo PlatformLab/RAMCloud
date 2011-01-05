@@ -76,7 +76,7 @@ class LogTest : public CppUnit::TestFixture {
     test_isSegmentLive()
     {
         Log l(57, 1 * 8192, 8192);
-        char buf[64];
+        static char buf[64];
 
         uint64_t segmentId = l.nextSegmentId;
         CPPUNIT_ASSERT_EQUAL(false, l.isSegmentLive(segmentId));
@@ -88,7 +88,7 @@ class LogTest : public CppUnit::TestFixture {
     test_getSegmentId()
     {
         Log l(57, 1 * 8192, 8192);
-        char buf[64];
+        static char buf[64];
 
         const void *p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         CPPUNIT_ASSERT_EQUAL(0, l.getSegmentId(p));
@@ -102,8 +102,9 @@ class LogTest : public CppUnit::TestFixture {
         Log l(57, 2 * 8192, 8192);
         uint64_t lengthInLog;
         LogTime logTime;
-        char buf[13];
+        static char buf[13];
         char fillbuf[l.getMaximumAppendableBytes()];
+        memset(fillbuf, 'A', sizeof(fillbuf));
 
         // keep the cleaner from dumping our objects
         l.useCleaner = false;
@@ -156,7 +157,7 @@ class LogTest : public CppUnit::TestFixture {
     test_free()
     {
         Log l(57, 1 * 8192, 8192);
-        char buf[64];
+        static char buf[64];
 
         const void *p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         l.free(p);

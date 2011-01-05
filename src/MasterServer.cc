@@ -704,7 +704,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 
     t.RaiseVersion(obj->version + 1);
 
-    ObjectTombstone tomb(tomb.segmentId, obj);
+    ObjectTombstone tomb(log.getSegmentId(obj), obj);
 
     // Mark the deleted object as free first, since the append could
     // invalidate it
