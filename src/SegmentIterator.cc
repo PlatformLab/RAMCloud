@@ -135,15 +135,16 @@ SegmentIterator::commonConstructor(bool ignoreCapacityMismatch)
 bool
 SegmentIterator::isEntryValid(const SegmentEntry *entry) const
 {
-    uintptr_t lastByte      = (uintptr_t)baseAddress + segmentCapacity - 1;
+    uintptr_t pastEnd       = (uintptr_t)baseAddress + segmentCapacity;
     uintptr_t entryStart    = (uintptr_t)entry;
-    uintptr_t entryLastByte = entryStart + entry->length + sizeof(*entry) - 1;
 
     // this is an internal error
     assert(entryStart >= (uintptr_t)baseAddress);
 
-    if (entryLastByte > lastByte)
+    if (entryStart + sizeof(*entry) > pastEnd ||
+        entryStart + sizeof(*entry) + entry->length > pastEnd) {
         return false;
+    }
 
     return true;
 }

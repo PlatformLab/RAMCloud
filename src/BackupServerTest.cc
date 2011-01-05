@@ -136,6 +136,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         char objectMem[sizeof(Object) + bytes];
         Object* obj = reinterpret_cast<Object*>(objectMem);
+        memset(obj, 'A', sizeof(*obj));
         obj->id = objectId;
         obj->table = tableId;
         obj->version = 0;

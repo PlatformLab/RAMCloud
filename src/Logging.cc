@@ -150,6 +150,23 @@ static const char* logModuleNames[] = {"default", "transport"};
 static_assert(unsafeArrayLength(logModuleNames) == NUM_LOG_MODULES,
               "logModuleNames size does not match NUM_LOG_MODULES");
 
+namespace {
+/// RAII-style POSIX stdio file lock
+class FileLocker {
+  public:
+    explicit FileLocker(FILE* handle)
+        : handle(handle) {
+        flockfile(handle);
+    }
+    ~FileLocker() {
+        funlockfile(handle);
+    }
+  private:
+    FILE* const handle;
+    DISALLOW_COPY_AND_ASSIGN(FileLocker);
+};
+} // anonymous namespace
+
 /**
  * Create a new debug logger.
  * \param[in] level
@@ -346,6 +363,8 @@ Logger::logMessage(LogModule module, LogLevel level,
     struct timespec now;
 
     clock_gettime(CLOCK_REALTIME, &now);
+    FileLocker _(stream);
+
     fprintf(stream, "%010lu.%09lu %s:%d in %s %s %s[%d]: ",
             now.tv_sec, now.tv_nsec,
             where.relativeFile().c_str(), where.line,
