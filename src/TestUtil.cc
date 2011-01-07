@@ -325,4 +325,21 @@ assertMatchesPosixRegex(const string& pattern, const string& subject)
     regfree(&pregStorage);
 }
 
+/**
+ * Delay execution for a while.
+ *
+ * \param delayMs
+ *      How long to sleep, in milliseconds.
+ */
+
+void sleepMs(uint32_t delayMs)
+{
+    fd_set set;
+    struct timeval delay;
+    delay.tv_sec = delayMs/1000;
+    delay.tv_usec = (delayMs%1000)*1000;
+    FD_ZERO(&set);
+    CPPUNIT_ASSERT_EQUAL(0, select(0, &set, &set, &set, &delay));
+}
+
 } // namespace RAMCloud
