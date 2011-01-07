@@ -45,6 +45,7 @@ SingleFileStorage::GetSegment::GetSegment(SingleFileStorage& storage,
                                           const BackupStorage::Handle* handle,
                                           char* segment)
     : cb()
+    , segmentSize(storage.segmentSize)
 {
     uint32_t sourceSegmentFrame =
         static_cast<const Handle*>(handle)->getSegmentFrame();
@@ -56,7 +57,7 @@ SingleFileStorage::GetSegment::GetSegment(SingleFileStorage& storage,
     // to add it to a vector for lio_listio.
     cb.aio_lio_opcode = LIO_READ;
     cb.aio_buf = segment;
-    cb.aio_nbytes = storage.segmentSize;
+    cb.aio_nbytes = segmentSize;
     cb.aio_offset = offset;
     cb.aio_sigevent.sigev_notify = SIGEV_NONE;
     int r = aio_read(&cb);
@@ -73,6 +74,12 @@ void SingleFileStorage::GetSegment::operator()()
     if (r != 0)
         throw BackupStorageException(HERE,
                 "AIO op failed while retrieving segment from storage", errno);
+    ssize_t bytes = aio_return(&cb);
+    if (bytes != segmentSize) {
+        throw BackupStorageException(HERE,
+                format("AIO op only read %lu bytes of a %u byte segment",
+                       bytes, segmentSize));
+    }
 }
 
 // --- SingleFileStorage ---

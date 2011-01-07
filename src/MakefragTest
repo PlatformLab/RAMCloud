@@ -37,6 +37,7 @@ TESTS_SRCFILES := \
 		  src/OptionParserTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \
+		  src/RecoverySegmentIteratorTest.cc \
 		  src/RecoveryTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \

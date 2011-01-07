@@ -52,7 +52,7 @@ endif
 # -Wconversion
 # Failed deconstructor inlines are generating noise
 # -Winline
-LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lcryptopp -lrt -levent
+LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lcryptopp -lrt -levent -lboost_thread
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
 ifeq ($(INFINIBAND),yes)

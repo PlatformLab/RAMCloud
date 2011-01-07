@@ -20,6 +20,7 @@
 #include "MasterServer.h"
 #include "ObjectTub.h"
 #include "ProtoBuf.h"
+#include "RecoverySegmentIterator.h"
 #include "Rpc.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
@@ -57,7 +58,6 @@ SegmentLocatorChooser::SegmentLocatorChooser(const ProtoBuf::ServerList& list)
     // not the most efficient approach in the world...
     SegmentIdList::iterator newEnd = std::unique(ids.begin(), ids.end());
     ids.erase(newEnd, ids.end());
-    std::random_shuffle(ids.begin(), ids.end());
 }
 
 /**
@@ -333,12 +333,12 @@ MasterServer::removeTombstones()
 // used in recover()
 struct Task {
     Task(uint64_t masterId, uint64_t segmentId,
-         const char* backupLocator, const ProtoBuf::Tablets& tablets)
+         const char* backupLocator, uint64_t partitionId)
         : segmentId(segmentId)
         , backupLocator(backupLocator)
         , response()
         , client(transportManager.getSession(backupLocator))
-        , rpc(client, masterId, segmentId, tablets, response)
+        , rpc(client, masterId, segmentId, partitionId, response)
     {}
     uint64_t segmentId;
     const char* backupLocator;
@@ -357,9 +357,9 @@ struct Task {
  * \param masterId
  *      The id of the crashed master for which recoveryMaster will be taking
  *      over ownership of tablets.
- * \param tablets
- *      A set of tables with key ranges describing which poritions of which
- *      tables recoveryMaster should have replayed to it.
+ * \param partitionId
+ *      The partition id of tablets inside the crashed master's will that
+ *      this master is recovering.
  * \param backups
  *      A list of backup locators along with a segmentId specifying for each
  *      segmentId a backup who can provide a filtered recovery data segment.
@@ -369,11 +369,11 @@ struct Task {
  */
 void
 MasterServer::recover(uint64_t masterId,
-                      const ProtoBuf::Tablets& tablets,
+                      uint64_t partitionId,
                       const ProtoBuf::ServerList& backups)
 {
-    LOG(NOTICE, "Recovering master %lu, %u tablets, %u hosts",
-        masterId, tablets.tablet_size(), backups.server_size());
+    LOG(NOTICE, "Recovering master %lu, partition %lu, %u hosts",
+        masterId, partitionId, backups.server_size());
 
 #if TESTING
     if (!mockRandomValue)
@@ -402,7 +402,7 @@ MasterServer::recover(uint64_t masterId,
         uint64_t segmentId = *segIdsIt++;
         task.construct(masterId, segmentId,
                        chooser.get(segmentId).c_str(),
-                       tablets);
+                       partitionId);
         ++activeSegments;
     }
 
@@ -441,7 +441,7 @@ MasterServer::recover(uint64_t masterId,
             uint64_t segmentId = *segIdsIt++;
             task.construct(masterId, segmentId,
                            chooser.get(segmentId).c_str(),
-                           tablets);
+                           partitionId);
         }
     }
 
@@ -460,7 +460,8 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
                       Transport::ServerRpc& rpc,
                       Responder& responder)
 {
-    uint64_t masterId = reqHdr.masterId;
+    const auto& masterId = reqHdr.masterId;
+    const auto& partitionId = reqHdr.partitionId;
     ProtoBuf::Tablets recoveryTablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, recoveryTablets);
@@ -475,7 +476,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
     // reqHdr, respHdr, and rpc are off-limits now
 
     // Recover Segments, firing MasterServer::recoverSegment for each one.
-    recover(masterId, recoveryTablets, backups);
+    recover(masterId, partitionId, backups);
 
     // Free recovery tombstones left in the hash table.
     removeTombstones();
@@ -507,17 +508,17 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
 }
 
 /**
- * Given a SegmentIterator for the Segment we're currently recovering,
- * advance it and issue prefetches on the hash tables. This is used
- * exclusively by recoverSegment().
+ * Given a RecoverySegmentIterator for the Segment we're currently
+ * recovering, advance it and issue prefetches on the hash tables.
+ * This is used exclusively by recoverSegment().
  *
  * \param[in] i
- *      A SegmentIterator to use for prefetching. Note that this
+ *      A RecoverySegmentIterator to use for prefetching. Note that this
  *      method modifies the iterator, so the caller should not use
  *      it for its own iteration.
  */
 void
-MasterServer::recoverSegmentPrefetcher(SegmentIterator& i)
+MasterServer::recoverSegmentPrefetcher(RecoverySegmentIterator& i)
 {
     i.next();
 
@@ -563,9 +564,9 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 {
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
 
-    SegmentIterator i(buffer, bufferLength, true);
+    RecoverySegmentIterator i(buffer, bufferLength);
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH
-    SegmentIterator prefetch(buffer, bufferLength, true);
+    RecoverySegmentIterator prefetch(buffer, bufferLength);
 #endif
 
 #ifdef PERF_DEBUG_RECOVERY_REC_SEG_JUST_ITER
@@ -704,7 +705,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 
     t.RaiseVersion(obj->version + 1);
 
-    ObjectTombstone tomb(tomb.segmentId, obj);
+    ObjectTombstone tomb(log.getSegmentId(obj), obj);
 
     // Mark the deleted object as free first, since the append could
     // invalidate it

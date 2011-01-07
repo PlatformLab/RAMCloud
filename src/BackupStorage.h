@@ -242,6 +242,7 @@ class SingleFileStorage : public BackupStorage {
       private:
         /// Linux AIO struct to manage the asynchronous read of the segment.
         aiocb cb;
+        const uint32_t segmentSize;
         DISALLOW_COPY_AND_ASSIGN(GetSegment);
     };
 

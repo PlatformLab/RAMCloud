@@ -37,17 +37,24 @@
 
 namespace RAMCloud {
 
+#if TESTING
+ObjectTub<uint64_t> whichPartition(const LogEntryType type,
+                                   const void* data,
+                                   const ProtoBuf::Tablets& partitions);
+#endif
+
 /**
  * Handles Rpc requests from Masters and the Coordinator to persistently store
  * Segments and to facilitate the recovery of object data when Masters crash.
  */
 class BackupServer : public Server {
+  PRIVATE:
 
     /// The type of the in-memory segment size chunk pool.
     typedef boost::pool<SegmentAllocator> Pool;
 
     /**
-     * Tracks all state assoicated with a single segment and manages
+     * Tracks all state associated with a single segment and manages
      * resources and storage associated with it.
      */
     class SegmentInfo {
@@ -70,21 +77,96 @@ class BackupServer : public Server {
         SegmentInfo(BackupStorage& storage, Pool& pool,
                     uint64_t masterId, uint64_t segmentId);
         ~SegmentInfo();
+        void appendRecoverySegment(uint64_t partitionId,
+                                   Buffer& buffer);
+        void buildRecoverySegments(const ProtoBuf::Tablets& partitions,
+                                   uint32_t segmentSize);
         void close();
         void free();
         char* getSegment();
-        bool inMemory();
-        bool inStorage();
-        bool isOpen();
-        void load();
+
+        /// Return true if this segment is fully in memory.
+        bool inMemory() const { return segment && !isLoading(); }
+
+        /// Return true if this segment has storage allocated.
+        bool inStorage() const { return storageHandle; }
+
+        /// Return true if this segment is OPEN.
+        bool isOpen() const { return state == OPEN; }
+
+
         void open();
         void startLoading();
 
-      private:
-        bool isLoading();
+        /**
+         * Mark this SegmentInfo as off limits to the main thread other than
+         * status checks (isOpen(), isRecovering(), isRecovered()).
+         */
+        void setLockedForRecovery() { lockedForRecovery = true; }
+
+        /**
+         * Mark this SegmentInfo available to the
+         * main thread.  Forces a write of the value to the cache
+         * hierarchy and does not allow reordering around this call
+         * by the compiler or the CPU.
+         */
+        void setUnlockedAfterRecovery() {
+            // Make sure the compiler and CPU have written back everything
+            __sync_synchronize();
+            lockedForRecovery = false;
+        }
+
+        /**
+         * Block until recovery segment construction for this SegmentInfo
+         * is finished, at which point the main thread again has ownership
+         * of this SegmentInfo.
+         */
+        void waitForRecoveryCompletion() const {
+            if (lockedForRecovery) {
+                LOG(DEBUG, "Waiting for segment <%lu,%lu> which is recovering, "
+                             "spinning until completion", masterId, segmentId);
+                while (lockedForRecovery);
+                LOG(DEBUG, "Done waiting for segment <%lu,%lu> recovery",
+                    masterId, segmentId);
+            }
+            // Makes sure no instructions move above this by CPU or compiler.
+            __sync_synchronize();
+        }
+
+        bool operator<(const SegmentInfo& info) const {
+            return segmentId < info.segmentId;
+        }
+
+      PRIVATE:
+         /// Return true if an IO is fetching this stored segment.
+        bool isLoading() const { return segmentSync; }
+
+        /// Return true if this segment's recovery segments have been built.
+        bool isRecovered() const
+        {
+            return !lockedForRecovery && recoverySegments;
+        }
+
+        /**
+         * When set the main thread must not read or write this SegmentInfo
+         * other than calls to check status (isOpen(), isRecovering()) or
+         * to wait for recovery segment construction to finish
+         * (waitForRecoveryCompletion()).
+         */
+        volatile bool lockedForRecovery;
 
         /// The id of the master from which this segment came.
         const uint64_t masterId;
+
+        /// An array of recovery segments when non-null.
+        /// The exception if one occurred while recovering a segment.
+        boost::scoped_ptr<SegmentRecoveryFailedException> recoveryException;
+
+        /// An array of recovery segments when non-null.
+        Buffer* recoverySegments;
+
+        /// The number of Buffers in #recoverySegments.
+        uint32_t recoverySegmentsLength;
 
         /// The segment id given to this segment by the master who sent it.
         const uint64_t segmentId;
@@ -124,6 +206,38 @@ class BackupServer : public Server {
         DISALLOW_COPY_AND_ASSIGN(SegmentInfo);
     };
 
+    /**
+     * Asynchronously loads and splits stored segments into recovery segments,
+     * trying to acheive efficiency by overlapping work where possible using
+     * threading.  See #infos for important details on sharing constraints
+     * for SegmentInfo structures while these threads are processing.
+     */
+    class RecoverySegmentBuilder
+    {
+      public:
+        RecoverySegmentBuilder(const vector<SegmentInfo*>& infos,
+                               const ProtoBuf::Tablets& partitions,
+                               const uint32_t segmentSize);
+        void operator()();
+
+      private:
+        /**
+         * The SegmentInfos that will be loaded from disk (asynchronously)
+         * and (asynchronously) split into recovery segments.  These
+         * SegmentInfos are owned by this RecoverySegmentBuilder instance
+         * which will run in a separate thread.  Other threads shall not
+         * access any SegmentInfo in this list except to check that its
+         * state (isOpen(), isRecovering(), isRecovered() methods).
+         */
+        const vector<SegmentInfo*> infos;
+
+        /// Copy of the partitions use to split out the recovery segments.
+        const ProtoBuf::Tablets partitions;
+
+        /// Copy of the size of the segments each of the #infos describes.
+        const uint32_t segmentSize;
+    };
+
   public:
     struct Config {
         string coordinatorLocator;
@@ -158,9 +272,12 @@ class BackupServer : public Server {
                    const ProtoBuf::Tablets& tablets) const;
     void openSegment(uint64_t masterId, uint64_t segmentId);
     void reserveSpace();
+    static bool segmentInfoLessThan(const SegmentInfo* left,
+                                    const SegmentInfo* right);
     void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                           BackupStartReadingDataRpc::Response& respHdr,
-                          Transport::ServerRpc& rpc);
+                          Transport::ServerRpc& rpc,
+                          Responder& responder);
     void writeSegment(const BackupWriteRpc::Request& req,
                       BackupWriteRpc::Response& resp,
                       Transport::ServerRpc& rpc);
@@ -178,7 +295,7 @@ class BackupServer : public Server {
      * A pool of aligned segments (supporting O_DIRECT) to avoid
      * the memory allocator.
      */
-     Pool pool;
+    Pool pool;
 
     /// Type of the key for the segments map.
     struct MasterSegmentIdPair {
@@ -213,6 +330,7 @@ class BackupServer : public Server {
     /// The storage backend where closed segments are to be placed.
     BackupStorage& storage;
 
+    /// For unit testing.
     uint64_t bytesWritten;
 
     friend class BackupServerTest;

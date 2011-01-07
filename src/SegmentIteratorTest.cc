@@ -158,6 +158,9 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
 
             SegmentEntry *se = const_cast<SegmentEntry *>(si.currentEntry);
             se->length = sizeof(alignedBuf) + 1;
+            SegmentEntry *next = reinterpret_cast<SegmentEntry*>(
+                 reinterpret_cast<char*>(se) + sizeof(*se) + se->length);
+            next->length = 10 * 1024 * 1024;
             si.next();
             CPPUNIT_ASSERT_EQUAL(NULL, si.currentEntry);
         }
@@ -181,7 +184,7 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
 
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf));
 
-        char buf;
+        static char buf;
         uint64_t offsetInSegment;
         s.append(LOG_ENTRY_TYPE_OBJ, &buf, sizeof(buf), NULL, &offsetInSegment);
         SegmentIterator si(&s);
@@ -216,11 +219,11 @@ class SegmentIteratorTest : public CppUnit::TestFixture {
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
         memset(alignedBuf, 0, sizeof(alignedBuf));
-        memset(alignedBuf, 0, sizeof(alignedBuf));
 
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
 
         SegmentIterator i(&s);
+
         CPPUNIT_ASSERT_THROW(i.isChecksumValid(), SegmentIteratorException);
 
         s.close();

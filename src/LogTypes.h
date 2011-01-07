@@ -21,6 +21,7 @@
 namespace RAMCloud {
 
 enum LogEntryType {
+    LOG_ENTRY_TYPE_UNINIT    = 0x0,        // in case of unfinished segment
     LOG_ENTRY_TYPE_INVALID   = 0x21444142, // "BAD!" in little endian
     LOG_ENTRY_TYPE_SEGHEADER = 0x72646873, // "shdr" in little endian
     LOG_ENTRY_TYPE_SEGFOOTER = 0x72746673, // "sftr" in little endian

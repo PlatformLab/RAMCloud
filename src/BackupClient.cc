@@ -76,9 +76,9 @@ BackupClient::freeSegment(uint64_t masterId,
  * \param segmentId
  *      The id of the segment to recover which the crashed master had stored
  *      on this backup.
- * \param tablets
- *      A set of table is and object id ranges which is used to select
- *      which objects are send back as part of the recovery segment.
+ * \param partitionId
+ *      Which partition of those send are part of the will on
+ *      startReadingData() to fetch the recovery segment of.
  * \param[out] responseBuffer
  *      An empty Buffer which will contain the filtered recovery segment
  *      upon return.
@@ -86,7 +86,7 @@ BackupClient::freeSegment(uint64_t masterId,
 BackupClient::GetRecoveryData::GetRecoveryData(BackupClient& client,
                                                uint64_t masterId,
                                                uint64_t segmentId,
-                                               const ProtoBuf::Tablets& tablets,
+                                               uint64_t partitionId,
                                                Buffer& responseBuffer)
     : client(client)
     , requestBuffer()
@@ -97,8 +97,7 @@ BackupClient::GetRecoveryData::GetRecoveryData(BackupClient& client,
         reqHdr(client.allocHeader<BackupGetRecoveryDataRpc>(requestBuffer));
     reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
-    reqHdr.tabletsLength = ProtoBuf::serializeToResponse(requestBuffer,
-                                                         tablets);
+    reqHdr.partitionId = partitionId;
     Transport::SessionRef session(client.getSession());
     state = client.send<BackupGetRecoveryDataRpc>(session,
                                                   requestBuffer,
@@ -146,20 +145,27 @@ BackupClient::ping()
 }
 
 /**
- * Begin reading the objects stored for the given server from disk.
+ * Begin reading the objects stored for the given server from disk and
+ * split them into recovery segments.
  *
  * \param masterId
  *      The id of the master whose data is to be recovered.
+ * \param partitions
+ *      The will of the crashed master which is used to determine how to
+ *      build recovery segments from the backup's stored segments.
  * \return
  *      A set of segment IDs for that server which will be read from disk.
  */
 vector<uint64_t>
-BackupClient::startReadingData(uint64_t masterId)
+BackupClient::startReadingData(uint64_t masterId,
+                               const ProtoBuf::Tablets& partitions)
 {
     Buffer req, resp;
     BackupStartReadingDataRpc::Request&
         reqHdr(allocHeader<BackupStartReadingDataRpc>(req));
     reqHdr.masterId = masterId;
+    reqHdr.partitionsLength = ProtoBuf::serializeToResponse(req,
+                                                            partitions);
     const BackupStartReadingDataRpc::Response&
         respHdr(sendRecv<BackupStartReadingDataRpc>(session, req, resp));
     checkStatus(HERE);
