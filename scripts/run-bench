@@ -18,6 +18,9 @@ if [ $# -eq 1 ]; then
     elif [ $1 == "infud" ]; then
         masterLocator="fast+infud:"
         coordinatorLocator="fast+udp:host=127.0.0.1,port=$cport;fast+infud:"
+    elif [ $1 == "tcp" ]; then
+        masterLocator=tcp:host=127.0.0.1,port=$port
+        coordinatorLocator=tcp:host=127.0.0.1,port=$cport
     fi
 fi
 
