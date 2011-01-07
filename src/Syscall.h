@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_SYSCALL_H
 #define RAMCLOUD_SYSCALL_H
 
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <fcntl.h>
@@ -38,11 +39,11 @@ class Syscall {
     VIRTUAL_FOR_TESTING ~Syscall() {}
 
     VIRTUAL_FOR_TESTING
-    int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
+    int accept(int sockfd, sockaddr *addr, socklen_t *addrlen) {
         return ::accept(sockfd, addr, addrlen);
     }
     VIRTUAL_FOR_TESTING
-    int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+    int bind(int sockfd, const sockaddr *addr, socklen_t addrlen) {
         return ::bind(sockfd, addr, addrlen);
     }
     VIRTUAL_FOR_TESTING
@@ -50,9 +51,22 @@ class Syscall {
         return ::close(fd);
     }
     VIRTUAL_FOR_TESTING
-    int connect(int sockfd, const struct sockaddr *addr,
+    int connect(int sockfd, const sockaddr *addr,
                 socklen_t addrlen) {
         return ::connect(sockfd, addr, addrlen);
+    }
+    VIRTUAL_FOR_TESTING
+    int epoll_create(int size) {
+        return ::epoll_create(size);
+    }
+    VIRTUAL_FOR_TESTING
+    int epoll_ctl(int epfd, int op, int fd, epoll_event *event) {
+        return ::epoll_ctl(epfd, op, fd, event);
+    }
+    VIRTUAL_FOR_TESTING
+    int epoll_wait(int epfd, epoll_event* events,
+            int maxEvents, int timeout) {
+        return ::epoll_wait(epfd, events, maxEvents, timeout);
     }
     VIRTUAL_FOR_TESTING
     int fcntl(int fd, int cmd, int arg1) {
@@ -61,6 +75,10 @@ class Syscall {
     VIRTUAL_FOR_TESTING
     int listen(int sockfd, int backlog) {
         return ::listen(sockfd, backlog);
+    }
+    VIRTUAL_FOR_TESTING
+    int pipe(int fds[2]) {
+        return ::pipe(fds);
     }
     VIRTUAL_FOR_TESTING
     ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
@@ -72,7 +90,7 @@ class Syscall {
         return ::recvfrom(sockfd, buf, len, flags, from, fromLen);
     }
     VIRTUAL_FOR_TESTING
-    ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags) {
+    ssize_t sendmsg(int sockfd, const msghdr *msg, int flags) {
         return ::sendmsg(sockfd, msg, flags);
     }
     VIRTUAL_FOR_TESTING
@@ -83,6 +101,10 @@ class Syscall {
     VIRTUAL_FOR_TESTING
     int socket(int domain, int type, int protocol) {
         return ::socket(domain, type, protocol);
+    }
+    VIRTUAL_FOR_TESTING
+    ssize_t write(int fd, const void* buf, size_t count) {
+        return ::write(fd, buf, count);
     }
 
     private:
