@@ -856,22 +856,14 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         }
 
         MockRandom __(1); // triggers deterministic rand().
-        MockTSC ___(2); // triggers deterministic selection of backup locator
         TestLog::Enable _(&recoverSegmentFilter);
         master->recover(99, 0, backups);
-        CPPUNIT_ASSERT_EQUAL(
-            "recover: Recovering master 99, partition 0, 3 hosts | "
-            "recover: Waiting on recovery data for segment 88 from "
-            "mock:host=backup1 | "
-            "recover: Recovering segment 88 with size 0 | "
-            "recoverSegment: recoverSegment 88, ... | "
-            "recoverSegment: Segment 88 replay complete | "
-            "recover: Waiting on recovery data for segment 87 from "
-            "mock:host=backup1 | "
-            "recover: Recovering segment 87 with size 0 | "
-            "recoverSegment: recoverSegment 87, ... | "
-            "recoverSegment: Segment 87 replay complete",
-            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(0, TestLog::get().find(
+            "recover: Recovering master 99, partition 0, 3 hosts"));
+        CPPUNIT_ASSERT(string::npos != TestLog::get().find(
+            "recoverSegment: Segment 88 replay complete"));
+        CPPUNIT_ASSERT(string::npos != TestLog::get().find(
+            "recoverSegment: Segment 87 replay complete"));
     }
 
     void

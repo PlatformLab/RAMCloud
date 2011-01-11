@@ -23,6 +23,8 @@
 #ifndef RAMCLOUD_BACKUPSERVER_H
 #define RAMCLOUD_BACKUPSERVER_H
 
+#include <cstdatomic>
+#include <boost/thread.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/pool/pool.hpp>
 #include <map>
@@ -50,15 +52,174 @@ ObjectTub<uint64_t> whichPartition(const LogEntryType type,
 class BackupServer : public Server {
   PRIVATE:
 
-    /// The type of the in-memory segment size chunk pool.
-    typedef boost::pool<SegmentAllocator> Pool;
+    /**
+     * Wraps the given type with a mutex to make it thread safe.
+     * Just defines a few basic operators for integral types which
+     * are the only few the BackupServer code needs.
+     *
+     * \param T
+     *      The base type to be made thread safe.
+     */
+    template <typename T>
+    class Atomic {
+      public:
+        Atomic<T>(const T& value) : value(value)
+            , mutex()
+        {
+        }
+
+        Atomic<T>()
+            : value()
+            , mutex()
+        {
+        }
+
+        Atomic<T>& operator--() {
+            boost::unique_lock<boost::mutex> lock(mutex);
+            value--;
+            return *this;
+        }
+
+        Atomic<T>& operator++() {
+            boost::unique_lock<boost::mutex> lock(mutex);
+            value++;
+            return *this;
+        }
+
+        bool operator>(int rhs) {
+            boost::unique_lock<boost::mutex> lock(mutex);
+            return value > rhs;
+        }
+
+        operator int() {
+            boost::unique_lock<boost::mutex> lock(mutex);
+            return value;
+        }
+
+      private:
+        T value;
+        boost::mutex mutex;
+    };
+
+    // We occassionally see a corrupted thread count using std::atomic_int
+    // typedef std::atomic_int AtomicInt;
+    typedef Atomic<int> AtomicInt;
+
+    /**
+     * Decrement the value referred to on the constructor on
+     * destruction.
+     *
+     * \tparam T
+     *      Type of the value that will be decremented when an
+     *      instance of a class that is a an instance of this
+     *      template gets destructed.
+     */
+    template <typename T>
+    class ReferenceDecrementer {
+      public:
+        /**
+         * \param value
+         *      Reference to a value that should be decremented when
+         *      #this is destroyed.
+         */
+        explicit ReferenceDecrementer(T& value)
+            : value(value)
+        {
+        }
+
+        /// Decrement the value referred to by #value.
+        ~ReferenceDecrementer()
+        {
+            --value;
+        }
+
+      private:
+        /// Reference to the value to be decremented on destruction of this.
+        T& value;
+    };
+
+    /**
+     * Mediates access to a memory chunk pool to maintain thread safety.
+     * Detailed documentation for each of the methods can be found
+     * as part of boost::pool<>.
+     */
+    class ThreadSafePool {
+      public:
+        /// The type of the in-memory segment size chunk pool.
+        typedef boost::pool<SegmentAllocator> Pool;
+
+        /// The type of lock used to make access to #pool thread safe.
+        typedef boost::unique_lock<boost::mutex> Lock;
+
+        explicit ThreadSafePool(uint32_t chunkSize)
+            : allocatedChunks()
+            , mutex()
+            , pool(chunkSize)
+        {
+        }
+
+        // See boost::pool<>.
+        ~ThreadSafePool()
+        {
+            Lock _(mutex);
+            if (allocatedChunks)
+                LOG(WARNING, "Backup segment pool destroyed with %u chunks "
+                             "still allocated", allocatedChunks);
+        }
+
+        // See boost::pool<>.
+        void
+        free(void* chunk)
+        {
+            Lock _(mutex);
+            pool.free(chunk);
+            allocatedChunks--;
+        }
+
+#if TESTING
+        // See boost::pool<>.
+        bool
+        is_from(void* chunk)
+        {
+            Lock _(mutex);
+            return pool.is_from(chunk);
+        }
+#endif
+
+        // See boost::pool<>.
+        void*
+        malloc()
+        {
+            Lock _(mutex);
+            void* r = pool.malloc();
+            allocatedChunks++;
+            return r;
+        }
+
+      private:
+        /// Track the number of allocated chunks for stat keeping.
+        uint32_t allocatedChunks;
+
+        /// Used to serialize access to #pool and #allocatedChunks.
+        boost::mutex mutex;
+
+        /// The backing pool that manages memory chunks.
+        Pool pool;
+    };
+
+    class LoadOp;
+    class StoreOp;
 
     /**
      * Tracks all state associated with a single segment and manages
-     * resources and storage associated with it.
+     * resources and storage associated with it.  Public calls are
+     * protected by #mutex to provide thread safety.
      */
     class SegmentInfo {
       public:
+        /// The type of locks used to lock #mutex.
+        typedef boost::unique_lock<boost::mutex> Lock;
+
         /**
          * Tracks current state of the segment which is sufficient to
          * determine which operations are legal.
@@ -71,89 +232,100 @@ class BackupServer : public Server {
              */
             OPEN,
             CLOSED,     ///< Immutable and has moved to stable store.
+            RECOVERING, ///< Rec segs building, all other ops must wait.
             FREED,      ///< delete is the only valid op.
         };
 
-        SegmentInfo(BackupStorage& storage, Pool& pool,
-                    uint64_t masterId, uint64_t segmentId);
+        SegmentInfo(BackupStorage& storage, ThreadSafePool& pool,
+                    uint64_t masterId, uint64_t segmentId,
+                    uint32_t segmentSize);
         ~SegmentInfo();
         void appendRecoverySegment(uint64_t partitionId,
                                    Buffer& buffer);
-        void buildRecoverySegments(const ProtoBuf::Tablets& partitions,
-                                   uint32_t segmentSize);
+        void buildRecoverySegments(const ProtoBuf::Tablets& partitions);
         void close();
         void free();
-        char* getSegment();
-
-        /// Return true if this segment is fully in memory.
-        bool inMemory() const { return segment && !isLoading(); }
-
-        /// Return true if this segment has storage allocated.
-        bool inStorage() const { return storageHandle; }
 
         /// Return true if this segment is OPEN.
-        bool isOpen() const { return state == OPEN; }
-
+        bool
+        isOpen()
+        {
+            Lock _(mutex);
+            return state == OPEN;
+        }
 
         void open();
+
+        /// Set the state to #RECOVERING from #OPEN or #CLOSED.
+        void
+        setRecovering()
+        {
+            Lock _(mutex);
+            state = RECOVERING;
+        }
+
         void startLoading();
+        void write(Buffer& src, uint32_t srcOffset,
+                   uint32_t length, uint32_t destOffset);
 
         /**
-         * Mark this SegmentInfo as off limits to the main thread other than
-         * status checks (isOpen(), isRecovering(), isRecovered()).
+         * Return true if #this should be loaded from disk before
+         * #info.  Locks both objects during comparision.
+         *
+         * \param info
+         *      Another SegmentInfo to order against.
          */
-        void setLockedForRecovery() { lockedForRecovery = true; }
-
-        /**
-         * Mark this SegmentInfo available to the
-         * main thread.  Forces a write of the value to the cache
-         * hierarchy and does not allow reordering around this call
-         * by the compiler or the CPU.
-         */
-        void setUnlockedAfterRecovery() {
-            // Make sure the compiler and CPU have written back everything
-            __sync_synchronize();
-            lockedForRecovery = false;
-        }
-
-        /**
-         * Block until recovery segment construction for this SegmentInfo
-         * is finished, at which point the main thread again has ownership
-         * of this SegmentInfo.
-         */
-        void waitForRecoveryCompletion() const {
-            if (lockedForRecovery) {
-                LOG(DEBUG, "Waiting for segment <%lu,%lu> which is recovering, "
-                             "spinning until completion", masterId, segmentId);
-                while (lockedForRecovery);
-                LOG(DEBUG, "Done waiting for segment <%lu,%lu> recovery",
-                    masterId, segmentId);
-            }
-            // Makes sure no instructions move above this by CPU or compiler.
-            __sync_synchronize();
-        }
-
-        bool operator<(const SegmentInfo& info) const {
+        bool operator<(SegmentInfo& info)
+        {
+            if (&info == this)
+                return false;
+            Lock _(mutex);
+            Lock __(info.mutex);
             return segmentId < info.segmentId;
         }
 
       PRIVATE:
-         /// Return true if an IO is fetching this stored segment.
-        bool isLoading() const { return segmentSync; }
+        /// Return true if this segment is fully in memory.
+        bool inMemory() { return segment; }
+
+        /// Return true if this segment has storage allocated.
+        bool inStorage() const { return storageHandle; }
+
 
         /// Return true if this segment's recovery segments have been built.
-        bool isRecovered() const
+        bool isRecovered() const { return recoverySegments; }
+
+        /**
+         * Wait for any LoadOps or StoreOps to complete.
+         * The caller must be holding a lock on #mutex.
+         */
+        void
+        waitForOngoingOps(Lock& lock)
         {
-            return !lockedForRecovery && recoverySegments;
+            int lastThreadCount = 0;
+            while (storageThreadCount > 0) {
+                if (storageThreadCount != lastThreadCount) {
+                    LOG(WARNING, "Waiting for storage threads to terminate "
+                        "for a segment, %d threads still running",
+                        static_cast<int>(storageThreadCount));
+                    lastThreadCount = storageThreadCount;
+                }
+                condition.wait(lock);
+            }
         }
 
         /**
-         * When set the main thread must not read or write this SegmentInfo
-         * other than calls to check status (isOpen(), isRecovering()) or
-         * to wait for recovery segment construction to finish
-         * (waitForRecoveryCompletion()).
+         * Provides mutal exclusion between all public method calls and
+         * storage operations that can be performed on SegmentInfos.
          */
-        volatile bool lockedForRecovery;
+        boost::mutex mutex;
+
+        /**
+         * Notified when a store or load for this segment completes, or
+         * when this segment's recovery segments are constructed and valid.
+         * Used in conjunction with #mutex.
+         */
+        boost::condition_variable condition;
 
         /// The id of the master from which this segment came.
         const uint64_t masterId;
@@ -178,12 +350,8 @@ class BackupServer : public Server {
          */
         char* segment;
 
-        /**
-         * Action which must be invoked for the data in #segment to be valid.
-         *
-         * Allocated when isLoading() (happens while CLOSED).
-         */
-        boost::scoped_ptr<BackupStorage::Syncable> segmentSync;
+        /// The size in bytes that make up this segment.
+        const uint32_t segmentSize;
 
         /// The state of this segment.  See State.
         State state;
@@ -196,14 +364,49 @@ class BackupServer : public Server {
         BackupStorage::Handle* storageHandle;
 
         /// To allocate memory for segments to be staged/recovered in.
-        Pool& pool;
+        ThreadSafePool& pool;
 
         /// For allocating, loading, storing segments to.
         BackupStorage& storage;
 
+        /// Count of threads performing loads/stores on this segment.
+        int storageThreadCount;
+
+        friend class LoadOp;
+        friend class StoreOp;
         friend class BackupServerTest;
         friend class SegmentInfoTest;
         DISALLOW_COPY_AND_ASSIGN(SegmentInfo);
+    };
+
+    /**
+     * Load a segment from disk into a valid buffer in memory.  Locks
+     * the #SegmentInfo::mutex to ensure other operations aren't performed
+     * on the segment in the meantime.
+     */
+    class LoadOp {
+      public:
+        explicit LoadOp(SegmentInfo& info);
+        void operator()();
+
+      private:
+        /// The SegmentInfo this LoadOp operates on.
+        SegmentInfo& info;
+    };
+
+    /**
+     * Store a segment to disk from a valid buffer in memory.  Locks
+     * the #SegmentInfo::mutex to ensure other operations aren't performed
+     * on the segment in the meantime.
+     */
+    class StoreOp {
+      public:
+        explicit StoreOp(SegmentInfo& info);
+        void operator()();
+
+      private:
+        /// The SegmentInfo this StoreOp operates on.
+        SegmentInfo& info;
     };
 
     /**
@@ -217,7 +420,7 @@ class BackupServer : public Server {
       public:
         RecoverySegmentBuilder(const vector<SegmentInfo*>& infos,
                                const ProtoBuf::Tablets& partitions,
-                               const uint32_t segmentSize);
+                               AtomicInt& recoveryThreadCount);
         void operator()();
 
       private:
@@ -225,17 +428,16 @@ class BackupServer : public Server {
          * The SegmentInfos that will be loaded from disk (asynchronously)
          * and (asynchronously) split into recovery segments.  These
          * SegmentInfos are owned by this RecoverySegmentBuilder instance
-         * which will run in a separate thread.  Other threads shall not
-         * access any SegmentInfo in this list except to check that its
-         * state (isOpen(), isRecovering(), isRecovered() methods).
+         * which will run in a separate thread by locking #mutex.
+         * All public methods of SegmentInfo obey this mutex ensuring
+         * thread safety.
          */
         const vector<SegmentInfo*> infos;
 
         /// Copy of the partitions use to split out the recovery segments.
         const ProtoBuf::Tablets partitions;
 
-        /// Copy of the size of the segments each of the #infos describes.
-        const uint32_t segmentSize;
+        AtomicInt& recoveryThreadCount;
     };
 
   public:
@@ -259,7 +461,6 @@ class BackupServer : public Server {
     void run();
 
   PRIVATE:
-    void closeSegment(uint64_t masterId, uint64_t segmentId);
     void freeSegment(const BackupFreeRpc::Request& reqHdr,
                      BackupFreeRpc::Response& respHdr,
                      Transport::ServerRpc& rpc);
@@ -267,13 +468,8 @@ class BackupServer : public Server {
     void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                          BackupGetRecoveryDataRpc::Response& respHdr,
                          Transport::ServerRpc& rpc);
-    bool keepEntry(const LogEntryType type,
-                   const void* data,
-                   const ProtoBuf::Tablets& tablets) const;
-    void openSegment(uint64_t masterId, uint64_t segmentId);
-    void reserveSpace();
-    static bool segmentInfoLessThan(const SegmentInfo* left,
-                                    const SegmentInfo* right);
+    static bool segmentInfoLessThan(SegmentInfo* left,
+                                    SegmentInfo* right);
     void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                           BackupStartReadingDataRpc::Response& respHdr,
                           Transport::ServerRpc& rpc,
@@ -295,7 +491,10 @@ class BackupServer : public Server {
      * A pool of aligned segments (supporting O_DIRECT) to avoid
      * the memory allocator.
      */
-    Pool pool;
+    ThreadSafePool pool;
+
+    /// Count of threads performing recoveries.
+    AtomicInt recoveryThreadCount;
 
     /// Type of the key for the segments map.
     struct MasterSegmentIdPair {

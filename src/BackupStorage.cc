@@ -28,60 +28,6 @@ namespace RAMCloud {
 
 int32_t BackupStorage::Handle::allocatedHandlesCount = 0;
 
-// --- SingleFileStorage::GetSegment ---
-
-/**
- * See BackupStorage::getSegment.
- *
- * \param storage
- *      The SingleFileStorage the desired segment is stored in.
- * \param handle
- *      A Handle that was returned from this->allocate().
- * \param segment
- *      The start of a contiguous region of memory where the segment
- *      should be placed after being read from storage.
- */
-SingleFileStorage::GetSegment::GetSegment(SingleFileStorage& storage,
-                                          const BackupStorage::Handle* handle,
-                                          char* segment)
-    : cb()
-    , segmentSize(storage.segmentSize)
-{
-    uint32_t sourceSegmentFrame =
-        static_cast<const Handle*>(handle)->getSegmentFrame();
-    off_t offset = storage.offsetOfSegmentFrame(sourceSegmentFrame);
-
-    memset(&cb, 0, sizeof(cb));
-    cb.aio_fildes = storage.fd;
-    // Not needed for aio_read, but makes this work if we decide
-    // to add it to a vector for lio_listio.
-    cb.aio_lio_opcode = LIO_READ;
-    cb.aio_buf = segment;
-    cb.aio_nbytes = segmentSize;
-    cb.aio_offset = offset;
-    cb.aio_sigevent.sigev_notify = SIGEV_NONE;
-    int r = aio_read(&cb);
-    if (r)
-        throw BackupStorageException(HERE,
-                "Failure scheduling AIO op for backup storage", errno);
-}
-
-/// Block until the associated segment has been loaded into the given buffer.
-void SingleFileStorage::GetSegment::operator()()
-{
-    int r;
-    while ((r = aio_error(&cb) == EINPROGRESS));
-    if (r != 0)
-        throw BackupStorageException(HERE,
-                "AIO op failed while retrieving segment from storage", errno);
-    ssize_t bytes = aio_return(&cb);
-    if (bytes != segmentSize) {
-        throw BackupStorageException(HERE,
-                format("AIO op only read %lu bytes of a %u byte segment",
-                       bytes, segmentSize));
-    }
-}
-
 // --- SingleFileStorage ---
 
 // - public -
@@ -180,27 +126,36 @@ SingleFileStorage::free(BackupStorage::Handle* handle)
 }
 
 // See BackupStorage::getSegment().
-BackupStorage::Syncable*
+// NOTE: This must remain thread-safe, so be careful about adding
+// access to other resources.
+void
 SingleFileStorage::getSegment(const BackupStorage::Handle* handle,
-                              char* segment)
+                              char* segment) const
 {
-    return new GetSegment(*this, handle, segment);
+    uint32_t sourceSegmentFrame =
+        static_cast<const Handle*>(handle)->getSegmentFrame();
+    off_t offset = offsetOfSegmentFrame(sourceSegmentFrame);
+    if (offset == -1)
+        throw BackupStorageException(HERE, errno);
+    ssize_t r = pread(fd, segment, segmentSize, offset);
+    if (r != static_cast<ssize_t>(segmentSize))
+        throw BackupStorageException(HERE, errno);
 }
 
 // See BackupStorage::putSegment().
+// NOTE: This must remain thread-safe, so be careful about adding
+// access to other resources.
 void
 SingleFileStorage::putSegment(const BackupStorage::Handle* handle,
-                              const char* segment)
+                              const char* segment) const
 {
     uint32_t targetSegmentFrame =
         static_cast<const Handle*>(handle)->getSegmentFrame();
-    off_t offset = lseek(fd,
-                         offsetOfSegmentFrame(targetSegmentFrame),
-                         SEEK_SET);
+    off_t offset = offsetOfSegmentFrame(targetSegmentFrame);
     if (offset == -1)
         throw BackupStorageException(HERE,
                 "Failed to seek to segment frame to write storage", errno);
-    ssize_t r = write(fd, segment, segmentSize);
+    ssize_t r = pwrite(fd, segment, segmentSize, offset);
     if (r != static_cast<ssize_t>(segmentSize))
         throw BackupStorageException(HERE, errno);
 }
@@ -291,22 +246,25 @@ InMemoryStorage::free(BackupStorage::Handle* handle)
 }
 
 // See BackupStorage::getSegment().
-BackupStorage::Syncable*
+// NOTE: This must remain thread-safe, so be careful about adding
+// access to other resources.
+void
 InMemoryStorage::getSegment(const BackupStorage::Handle* handle,
-                            char* segment)
+                            char* segment) const
 {
     char* address = static_cast<const Handle*>(handle)->getAddress();
-    std::copy(address, address + segmentSize, segment);
-    return new Syncable();
+    memcpy(segment, address, segmentSize);
 }
 
 // See BackupStorage::putSegment().
+// NOTE: This must remain thread-safe, so be careful about adding
+// access to other resources.
 void
 InMemoryStorage::putSegment(const BackupStorage::Handle* handle,
-                            const char* segment)
+                            const char* segment) const
 {
     char* address = static_cast<const Handle*>(handle)->getAddress();
-    std::copy(segment, segment + segmentSize, address);
+    memcpy(address, segment, segmentSize);
 }
 
 } // namespace RAMCloud

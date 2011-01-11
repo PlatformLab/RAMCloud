@@ -50,18 +50,18 @@ start ${host[0]} coordinator coordinator$suffix
 
 sleep .5
 
-#start ${host[0]} "backup -L $proto:host=${host[0]},port=12243" backup1$suffix
-start ${host[1]} "backup -L $proto:host=${host[1]},port=12244" backup2$suffix
-start ${host[2]} "backup -L $proto:host=${host[2]},port=12290" backup3$suffix
-start ${host[3]} "backup -L $proto:host=${host[3]},port=12291" backup4$suffix
-start ${host[4]} "backup -L $proto:host=${host[4]},port=12292" backup5$suffix
-start ${host[5]} "backup -L $proto:host=${host[5]},port=12293" backup6$suffix
+start ${host[0]} "backup -m -L $proto:host=${host[0]},port=12243" backup1$suffix
+#start ${host[1]} "backup -m -L $proto:host=${host[1]},port=12244" backup2$suffix
+#start ${host[2]} "backup -m -L $proto:host=${host[2]},port=12290" backup3$suffix
+#start ${host[3]} "backup -m -L $proto:host=${host[3]},port=12291" backup4$suffix
+#start ${host[4]} "backup -m -L $proto:host=${host[4]},port=12292" backup5$suffix
+#start ${host[5]} "backup -m -L $proto:host=${host[5]},port=12293" backup6$suffix
 
 sleep .5
 
 start ${host[0]} "server -m 2048 -r 1 -L $proto:host=${host[0]},port=12242" master1$suffix
 sleep .5
-start ${host[1]} "server -m 2048 -r 0 -L $proto:host=${host[1]},port=12247" master2$suffix
+start ${host[1]} "server -m 2048 -r 1 -L $proto:host=${host[1]},port=12247" master2$suffix
 
 sleep .5
 

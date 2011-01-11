@@ -188,6 +188,11 @@ class BackupServerTest : public CppUnit::TestFixture {
         char* storageAddress =
             static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
                 getAddress();
+        {
+            BackupServer::SegmentInfo::Lock lock(info.mutex);
+            while (info.segment)
+                info.condition.wait(lock);
+        }
         CPPUNIT_ASSERT(NULL != storageAddress);
         CPPUNIT_ASSERT_EQUAL("test", &storageAddress[10]);
         CPPUNIT_ASSERT_EQUAL(NULL, static_cast<void*>(info.segment));
@@ -502,21 +507,24 @@ class BackupServerTest : public CppUnit::TestFixture {
         vector<BackupServer::SegmentInfo*> toBuild;
         auto info = backup->findSegmentInfo(99, 87);
         CPPUNIT_ASSERT(NULL != info);
-        info->setLockedForRecovery();
+        info->setRecovering();
+        info->startLoading();
         toBuild.push_back(info);
         info = backup->findSegmentInfo(99, 88);
         CPPUNIT_ASSERT(NULL != info);
-        info->setLockedForRecovery();
+        info->setRecovering();
+        info->startLoading();
         toBuild.push_back(info);
 
         ProtoBuf::Tablets partitions;
         createTabletList(partitions);
+        BackupServer::AtomicInt recoveryThreadCount{0};
         BackupServer::RecoverySegmentBuilder builder(toBuild,
                                                      partitions,
-                                                     segmentSize);
+                                                     recoveryThreadCount);
         builder();
 
-        CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::CLOSED,
+        CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
                              toBuild[0]->state);
         CPPUNIT_ASSERT(NULL != toBuild[0]->recoverySegments);
         Buffer* buf = &toBuild[0]->recoverySegments[0];
@@ -528,12 +536,12 @@ class BackupServerTest : public CppUnit::TestFixture {
         it.next();
         CPPUNIT_ASSERT(it.isDone());
 
-        CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::CLOSED,
+        CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
                              toBuild[1]->state);
         CPPUNIT_ASSERT(NULL != toBuild[1]->recoverySegments);
         buf = &toBuild[1]->recoverySegments[1];
         RecoverySegmentIterator it2(buf->getRange(0, buf->getTotalLength()),
-                                   buf->getTotalLength());
+                                    buf->getTotalLength());
         CPPUNIT_ASSERT(!it2.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it2.getType());
         CPPUNIT_ASSERT_EQUAL("test2", it2.get<Object>()->data);
@@ -641,13 +649,13 @@ class SegmentInfoTest : public ::testing::Test {
         : segmentSize(64 * 1024)
         , pool{segmentSize}
         , storage{segmentSize, 2}
-        , info{storage, pool, 99, 88}
+        , info{storage, pool, 99, 88, segmentSize}
     {
         logger.setLogLevels(SILENT_LOG_LEVEL);
     }
 
     uint32_t segmentSize;
-    BackupServer::Pool pool;
+    BackupServer::ThreadSafePool pool;
     InMemoryStorage storage;
     SegmentInfo info;
 
@@ -656,7 +664,7 @@ class SegmentInfoTest : public ::testing::Test {
 TEST_F(SegmentInfoTest, destructor) {
     TestLog::Enable _;
     {
-        SegmentInfo info{storage, pool, 99, 88};
+        SegmentInfo info{storage, pool, 99, 88, segmentSize};
         info.open();
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
     }
@@ -668,7 +676,7 @@ TEST_F(SegmentInfoTest, destructor) {
 
 TEST_F(SegmentInfoTest, destructorLoading) {
     {
-        SegmentInfo info{storage, pool, 99, 88};
+        SegmentInfo info{storage, pool, 99, 88, segmentSize};
         info.open();
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
         info.close();
@@ -704,7 +712,7 @@ createTabletList(ProtoBuf::Tablets& tablets)
 
 TEST_F(SegmentInfoTest, appendRecoverySegment) {
     info.open();
-    Segment segment(123, 88, info.getSegment(), segmentSize);
+    Segment segment(123, 88, info.segment, segmentSize);
 
     SegmentHeader header = { 99, 88, segmentSize };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
@@ -719,12 +727,12 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
 
     segment.close();
     info.close();
-    info.setLockedForRecovery();
+    info.setRecovering();
+    info.startLoading();
 
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
-
-    info.buildRecoverySegments(partitions, segmentSize);
+    info.buildRecoverySegments(partitions);
 
     Buffer buffer;
     info.appendRecoverySegment(0, buffer);
@@ -740,13 +748,13 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
 
 TEST_F(SegmentInfoTest, appendRecoverySegmentMalformedSegment) {
     info.open();
-    memcpy(info.getSegment(), "garbage", 7);
-    info.setLockedForRecovery();
+    memcpy(info.segment, "garbage", 7);
+    info.setRecovering();
+    info.startLoading();
 
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
-
-    info.buildRecoverySegments(partitions, segmentSize);
+    info.buildRecoverySegments(partitions);
 
     Buffer buffer;
     EXPECT_THROW(info.appendRecoverySegment(0, buffer),
@@ -758,18 +766,21 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentNotYetRecovered) {
     TestLog::Enable _;
     EXPECT_THROW(info.appendRecoverySegment(0, buffer),
                  BackupBadSegmentIdException);
-    EXPECT_EQ("appendRecoverySegment: Asked for segment <99,88> which wasn't "
-              "recovered yet", TestLog::get());
+    EXPECT_EQ("appendRecoverySegment: Asked for segment <99,88> which isn't "
+              "recovering", TestLog::get());
 }
 
 TEST_F(SegmentInfoTest, appendRecoverySegmentPartitionOutOfBounds) {
     info.open();
-    Segment segment(123, 88, info.getSegment(), segmentSize);
+    Segment segment(123, 88, info.segment, segmentSize);
     segment.close();
     info.close();
-    info.setLockedForRecovery();
+    info.setRecovering();
+    info.startLoading();
+
     ProtoBuf::Tablets partitions;
-    info.buildRecoverySegments(partitions, segmentSize);
+    info.buildRecoverySegments(partitions);
+
     EXPECT_EQ(0u, info.recoverySegmentsLength);
     Buffer buffer;
     TestLog::Enable _;
@@ -811,7 +822,7 @@ TEST_F(SegmentInfoTest, whichPartition) {
 
 TEST_F(SegmentInfoTest, buildRecoverySegment) {
     info.open();
-    Segment segment(123, 88, info.getSegment(), segmentSize);
+    Segment segment(123, 88, info.segment, segmentSize);
 
     SegmentHeader header = { 99, 88, segmentSize };
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
@@ -826,12 +837,13 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
 
     segment.close();
     info.close();
-    info.setLockedForRecovery();
+    info.setRecovering();
+    info.startLoading();
 
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
 
-    info.buildRecoverySegments(partitions, segmentSize);
+    info.buildRecoverySegments(partitions);
 
     EXPECT_FALSE(info.recoveryException);
     EXPECT_EQ(2u, info.recoverySegmentsLength);
@@ -844,13 +856,14 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
 
 TEST_F(SegmentInfoTest, buildRecoverySegmentMalformedSegment) {
     info.open();
-    memcpy(info.getSegment(), "garbage", 7);
-    info.setLockedForRecovery();
+    memcpy(info.segment, "garbage", 7);
+    info.setRecovering();
+    info.startLoading();
 
     ProtoBuf::Tablets partitions;
     createTabletList(partitions);
 
-    info.buildRecoverySegments(partitions, segmentSize);
+    info.buildRecoverySegments(partitions);
     EXPECT_TRUE(info.recoveryException);
     EXPECT_FALSE(info.recoverySegments);
     EXPECT_EQ(0u, info.recoverySegmentsLength);
@@ -858,10 +871,11 @@ TEST_F(SegmentInfoTest, buildRecoverySegmentMalformedSegment) {
 
 TEST_F(SegmentInfoTest, buildRecoverySegmentNoTablets) {
     info.open();
-    Segment segment(123, 88, info.getSegment(), segmentSize);
+    Segment segment(123, 88, info.segment, segmentSize);
     segment.close();
-    info.setLockedForRecovery();
-    info.buildRecoverySegments(ProtoBuf::Tablets(), segmentSize);
+    info.setRecovering();
+    info.startLoading();
+    info.buildRecoverySegments(ProtoBuf::Tablets());
     EXPECT_FALSE(info.recoveryException);
     EXPECT_EQ(0u, info.recoverySegmentsLength);
     ASSERT_TRUE(info.recoverySegments);
@@ -876,6 +890,11 @@ TEST_F(SegmentInfoTest, close) {
 
     info.close();
     EXPECT_EQ(SegmentInfo::CLOSED, info.state);
+    {
+        // wait for the store op to complete
+        SegmentInfo::Lock lock(info.mutex);
+        info.waitForOngoingOps(lock);
+    }
     EXPECT_FALSE(pool.is_from(info.segment));
 
     char seg[segmentSize];
@@ -892,24 +911,17 @@ TEST_F(SegmentInfoTest, closeWhileNotOpen) {
 TEST_F(SegmentInfoTest, free) {
     info.open();
     info.close();
-    info.startLoading();
-    EXPECT_TRUE(pool.is_from(info.segment));
-    EXPECT_TRUE(info.isLoading());
+    {
+        // wait for the store op to complete
+        SegmentInfo::Lock lock(info.mutex);
+        info.waitForOngoingOps(lock);
+    }
     EXPECT_FALSE(info.inMemory());
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
     info.free();
     EXPECT_FALSE(pool.is_from(info.segment));
-    EXPECT_FALSE(info.isLoading());
     EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
     EXPECT_EQ(SegmentInfo::FREED, info.state);
-}
-
-TEST_F(SegmentInfoTest, getSegment) {
-    info.open();
-    EXPECT_TRUE(pool.is_from(info.segment));
-    const char* magic = "kitties!";
-    snprintf(info.segment, segmentSize, "%s", magic);
-    info.close();
 }
 
 TEST_F(SegmentInfoTest, open) {
@@ -922,7 +934,7 @@ TEST_F(SegmentInfoTest, open) {
 
 TEST_F(SegmentInfoTest, openStorageAllocationFailure) {
     InMemoryStorage storage{segmentSize, 0};
-    SegmentInfo info{storage, pool, 99, 88};
+    SegmentInfo info{storage, pool, 99, 88, segmentSize};
     EXPECT_THROW(info.open(), BackupStorageException);
     ASSERT_EQ(static_cast<char*>(NULL), info.segment);
     EXPECT_EQ(static_cast<Handle*>(NULL), info.storageHandle);
@@ -933,8 +945,6 @@ TEST_F(SegmentInfoTest, startLoading) {
     info.open();
     info.close();
     info.startLoading();
-    ASSERT_NE(static_cast<char*>(NULL), info.segment);
-    EXPECT_TRUE(info.isLoading());
     EXPECT_EQ(SegmentInfo::CLOSED, info.state);
 }
 
