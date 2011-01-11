@@ -8,12 +8,11 @@ cport=$(( $port + 1 ))
 
 source scripts/common.bash
 
-transport=fast+udp
+transport=tcp
+ip=`hostname -i`
 
-masterLocator=$transport:host=127.0.0.1,port=$port
-coordinatorLocator=$transport:host=127.0.0.1,port=$cport
-#masterLocator=infrc:host=127.0.0.1,port=$port
-#coordinatorLocator=infrc:host=127.0.0.1,port=$cport
+masterLocator=$transport:host=$ip,port=$port
+coordinatorLocator=$transport:host=$ip,port=$cport
 
 # Check to see if master and coordinator servers are running. If so, kill 'em!
 portslay $port
@@ -28,12 +27,9 @@ $OBJDIR/server -L $masterLocator -C $coordinatorLocator &
 sleep .1
 
 # now call perl script to do the rest of the work
-scripts/latencyVSsize.pl -C $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.size.dump
-# scripts/latencyVSload.pl -C $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.load.dump
+# scripts/latencyVSsize.pl -co $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.size.dump
+scripts/latencyVSload.pl -co $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.load.dump -cl rc0[2-7].scs.stanford.edu
 RETVAL=$?
-
-# $OBJDIR/Bench -C $coordinatorLocator -R -m -S 1000 -n 1000
-# RETVAL=$?
 
 exit $RETVAL
 
