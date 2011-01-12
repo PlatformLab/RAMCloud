@@ -20,6 +20,7 @@
 #include <boost/unordered_map.hpp>
 #include <vector>
 
+#include "LargeBlockOfMemory.h"
 #include "LogCleaner.h"
 #include "LogTypes.h"
 #include "Segment.h"
@@ -130,6 +131,10 @@ class Log {
     uint64_t       logId;
     uint64_t       logCapacity;
     uint64_t       segmentCapacity;
+
+    /// A very large memory allocation that backs all segments.
+    LargeBlockOfMemory<> segmentMemory;
+
     vector<void *> segmentFreeList;
     uint64_t       nextSegmentId;
     uint64_t       maximumAppendableBytes;
