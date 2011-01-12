@@ -61,7 +61,7 @@ class TransportManager {
     void registerMock(Transport* transport) {
         initialized = true;
         listening.push_back(transport);
-        transports.insert(Transports::value_type("mock", transport));
+        transports.insert({"mock", transport});
     }
 
     /**
@@ -94,18 +94,16 @@ class TransportManager {
      */
     bool initialized;
 
-    typedef std::set<TransportFactory*> TransportFactories;
     /**
      * A set of factories to create all possible transports.
      */
-    TransportFactories transportFactories;
+    std::set<TransportFactory*> transportFactories;
 
-    typedef std::vector<Transport*> Listening;
     /**
      * Transports on which to receive RPC requests. These are polled
      * round-robin in #serverRecv().
      */
-    Listening listening;
+    std::vector<Transport*> listening;
 
     /**
      * The index into #listening of the next Transport that should be polled.
@@ -114,13 +112,12 @@ class TransportManager {
      */
     uint32_t nextToListen;
 
-    typedef std::multimap<string, Transport*> Transports;
     /**
      * A map from protocol string to Transport instances for #getSession().
      * This is also used to free Transport instances: the set of unique values
      * are deleted in the destructor.
      */
-    Transports transports;
+    std::multimap<string, Transport*> transports;
 
     /**
      * A map from service locator to SessionRef instances for #getSession().
