@@ -82,9 +82,8 @@ class ServiceLocator {
         string key;
     };
 
-    static void
-    parseServiceLocators(const string& serviceLocator,
-                         std::vector<ServiceLocator>* locators);
+    static vector<ServiceLocator>
+    parseServiceLocators(const string& serviceLocator);
 
     explicit ServiceLocator(const string& serviceLocator);
 

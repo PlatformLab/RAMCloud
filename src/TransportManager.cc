@@ -113,8 +113,7 @@ TransportManager::initialize(const char* localServiceLocator)
 {
     assert(!initialized);
 
-    std::vector<ServiceLocator> locators;
-    ServiceLocator::parseServiceLocators(localServiceLocator, &locators);
+    auto locators = ServiceLocator::parseServiceLocators(localServiceLocator);
 
     foreach (TransportFactory* factory, transportFactories) {
         Transport* transport = NULL;
@@ -175,8 +174,7 @@ TransportManager::getSession(const char* serviceLocator)
     }
 
     // Session was not found in the cache, a new one will be created
-    std::vector<ServiceLocator> locators;
-    ServiceLocator::parseServiceLocators(serviceLocator, &locators);
+    auto locators = ServiceLocator::parseServiceLocators(serviceLocator);
     // The first protocol specified in the locator that works is chosen
     foreach (ServiceLocator& locator, locators) {
         foreach (Transports::value_type protocolTransport,

@@ -84,9 +84,8 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
     }
 
     void test_parseServiceLocators_goodInput() {
-        std::vector<ServiceLocator> locators;
-        ServiceLocator::parseServiceLocators("fast: ; tcp: port=3;x:",
-                                             &locators);
+        std::vector<ServiceLocator> locators =
+            ServiceLocator::parseServiceLocators("fast: ; tcp: port=3;x:");
         CPPUNIT_ASSERT_EQUAL(3, locators.size());
         CPPUNIT_ASSERT_EQUAL("fast:", locators.at(0).getOriginalString());
         CPPUNIT_ASSERT_EQUAL("tcp: port=3",
@@ -97,8 +96,8 @@ class ServiceLocatorTest : public CppUnit::TestFixture {
     void test_parseServiceLocators_badInput() {
         std::vector<ServiceLocator> locators;
         CPPUNIT_ASSERT_THROW(
-            ServiceLocator::parseServiceLocators("fast: ; tcp: port=3;!",
-                                                 &locators),
+            locators =
+                ServiceLocator::parseServiceLocators("fast: ; tcp: port=3;!"),
             ServiceLocator::BadServiceLocatorException);
         CPPUNIT_ASSERT_EQUAL(0, locators.size());
     }
