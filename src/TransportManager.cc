@@ -69,9 +69,10 @@ TransportManager transportManager;
 TransportManager::TransportManager()
     : initialized(false)
     , transportFactories()
+    , transports()
     , listening()
     , nextToListen(0)
-    , transports()
+    , protocolTransportMap()
     , sessionCache()
 {
     transportFactories.insert(&tcpTransportFactory);
@@ -87,11 +88,7 @@ TransportManager::~TransportManager()
     // Must clear the cache and destroy sessionRefs before the
     // transports are destroyed.
     sessionCache.clear();
-
-    std::set<Transport*> toFree;
-    foreach (auto& protocolTransport, transports)
-        toFree.insert(protocolTransport.second);
-    foreach (auto transport, toFree)
+    foreach (auto transport, transports)
         delete transport;
 }
 
@@ -135,8 +132,9 @@ TransportManager::initialize(const char* localServiceLocator)
 
  insert_protocol_mappings:
         if (transport != NULL) {
+            transports.push_back(transport);
             foreach (auto protocol, factory->getProtocols()) {
-                transports.insert({protocol, transport});
+                protocolTransportMap.insert({protocol, transport});
             }
         }
     }
@@ -173,7 +171,7 @@ TransportManager::getSession(const char* serviceLocator)
     // The first protocol specified in the locator that works is chosen
     foreach (auto& locator, locators) {
         foreach (auto& protocolTransport,
-                 transports.equal_range(locator.getProtocol())) {
+                 protocolTransportMap.equal_range(locator.getProtocol())) {
             auto transport = protocolTransport.second;
             try {
                 auto session = transport->getSession(locator);
@@ -269,8 +267,8 @@ TransportManager::getListeningLocatorsString()
 void
 TransportManager::dumpStats()
 {
-    foreach (auto& protocolTransport, transports)
-        protocolTransport.second->dumpStats();
+    foreach (auto transport, transports)
+        transport->dumpStats();
 }
 
 } // namespace RAMCloud

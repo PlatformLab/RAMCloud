@@ -61,7 +61,8 @@ class TransportManager {
     void registerMock(Transport* transport) {
         initialized = true;
         listening.push_back(transport);
-        transports.insert({"mock", transport});
+        transports.push_back(transport);
+        protocolTransportMap.insert({"mock", transport});
     }
 
     /**
@@ -69,8 +70,9 @@ class TransportManager {
      * Must be paired with a call to #registerMock().
      */
     void unregisterMock() {
+        protocolTransportMap.erase("mock");
+        transports.pop_back();
         listening.pop_back();
-        transports.erase("mock");
         // Invalidate cache because mock transports are ephemeral and
         // come and go.
         sessionCache.clear();
@@ -100,6 +102,11 @@ class TransportManager {
     std::set<TransportFactory*> transportFactories;
 
     /**
+     * The set of all Transport instances.
+     */
+    std::vector<Transport*> transports;
+
+    /**
      * Transports on which to receive RPC requests. These are polled
      * round-robin in #serverRecv().
      */
@@ -114,10 +121,8 @@ class TransportManager {
 
     /**
      * A map from protocol string to Transport instances for #getSession().
-     * This is also used to free Transport instances: the set of unique values
-     * are deleted in the destructor.
      */
-    std::multimap<string, Transport*> transports;
+    std::multimap<string, Transport*> protocolTransportMap;
 
     /**
      * A map from service locator to SessionRef instances for #getSession().
