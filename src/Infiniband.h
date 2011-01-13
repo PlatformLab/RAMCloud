@@ -13,12 +13,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * \file
- * This file contains a collection of Infiniband helper functions and classes,
- * which can be shared across different Infiniband transports and drivers.
- */
-
 #include <infiniband/verbs.h>
 
 #include "Common.h"
@@ -28,14 +22,18 @@
 #ifndef RAMCLOUD_INFINIBAND_H
 #define RAMCLOUD_INFINIBAND_H
 
-#define V4T VIRTUAL_FOR_TESTING
-
 namespace RAMCloud {
 
-class Infiniband {
-  public:
-    Infiniband();
-    V4T ~Infiniband();
+/**
+ * A collection of Infiniband helper functions and classes, which can be shared
+ * across different Infiniband transports and drivers.
+ */
+class RealInfiniband {
+    typedef RealInfiniband Infiniband;
+  PUBLIC:
+
+    static const char*
+    wcStatusToString(int status);
 
     // this class exists simply for passing queue pair handshake information
     // back and forth.
@@ -47,7 +45,8 @@ class Infiniband {
                               "QueuePairTuple has unexpected size");
         }
         QueuePairTuple(uint16_t lid, uint32_t qpn, uint32_t psn,
-            uint64_t nonce) : qpn(qpn), psn(psn), lid(lid), nonce(nonce) {}
+                       uint64_t nonce)
+            : qpn(qpn), psn(psn), lid(lid), nonce(nonce) {}
         uint16_t getLid() const { return lid; }
         uint32_t getQpn() const { return qpn; }
         uint32_t getPsn() const { return psn; }
@@ -59,56 +58,10 @@ class Infiniband {
         uint16_t lid;            // infiniband address: "local id"
         uint64_t nonce;          // random nonce used to confirm replies are
                                  // for received requests
-
-        DISALLOW_COPY_AND_ASSIGN(QueuePairTuple); //NOLINT
     } __attribute__((packed));
 
-    // this class encapsulates the creation, use, and destruction of an RC
-    // queue pair.
-    //
-    // the constructor will create a qp and bring it to the INIT state.
-    // after obtaining the lid, qpn, and psn of a remote queue pair, one
-    // must call plumb() to bring the queue pair to the RTS state.
-    class QueuePair {
-      public:
-        QueuePair(ibv_qp_type type,
-                  ibv_context *ctxt,
-                  int ibPhysicalPort,
-                  ibv_pd *pd,
-                  ibv_srq *srq,
-                  ibv_cq *txcq,
-                  ibv_cq *rxcq,
-                  uint32_t maxSendWr,
-                  uint32_t maxRecvWr,
-                  uint32_t QKey = 0);
-        // exists solely as superclass constructor for MockQueuePair derivative
-        QueuePair() : type(0), ctxt(NULL), ibPhysicalPort(-1), pd(NULL),
-                      srq(NULL), qp(NULL), txcq(NULL), rxcq(NULL),
-                      initialPsn(-1) {}
-        V4T ~QueuePair();
-        V4T uint32_t getInitialPsn() const;
-        V4T uint32_t getLocalQpNumber() const;
-        V4T uint32_t getRemoteQpNumber() const;
-        V4T uint16_t getRemoteLid() const;
-        V4T int      getState() const;
-        V4T void     plumb(QueuePairTuple *qpt);
-        V4T void     activate();
-
-      //private: XXXXX- move send/recv functionality into the queue pair shit
-        int          type;           // QP type (IBV_QPT_RC, etc.)
-        ibv_context* ctxt;           // device context of the HCA to use
-        int          ibPhysicalPort; // physical port number of the HCA
-        ibv_pd*      pd;             // protection domain
-        ibv_srq*     srq;            // shared receive queue
-        ibv_qp*      qp;             // infiniband verbs QP handle
-        ibv_cq*      txcq;           // transmit completion queue
-        ibv_cq*      rxcq;           // receive completion queue
-        uint32_t     initialPsn;     // initial packet sequence number
-
-        DISALLOW_COPY_AND_ASSIGN(QueuePair);
-    };
-
     // wrap an RX or TX buffer registered with the HCA
+    // TODO(ongaro): memory management on mr member
     struct BufferDescriptor {
         char *          buffer;         // buf of ``bytes'' length
         uint32_t        bytes;          // length of buffer in bytes
@@ -123,66 +76,205 @@ class Infiniband {
             mr(NULL) {}
     };
 
-    //------ Methods that need not be overriden ------
-    const char*  wcStatusToString(int status);
+    explicit RealInfiniband(const char* deviceName);
+    ~RealInfiniband();
 
-    //------ Methods that must be overriden ------
+    class DeviceList {
+      public:
+        DeviceList()
+            : devices(ibv_get_device_list(NULL))
+        {
+            if (devices == NULL) {
+                throw TransportException(HERE,
+                    "Could not open infiniband device list", errno);
+            }
+        }
+        ~DeviceList() {
+            ibv_free_device_list(devices);
+        }
+        ibv_device*
+        lookup(const char* name) {
+            if (name == NULL)
+                return devices[0];
+            for (int i = 0; devices[i] != NULL; i++) {
+                if (strcmp(devices[i]->name, name) == 0)
+                    return devices[i];
+            }
+            return NULL;
+        }
+      private:
+        ibv_device** const devices;
+        DISALLOW_COPY_AND_ASSIGN(DeviceList);
+    };
 
-    // factory for QueuePair and derivatives
-    V4T QueuePair* createQueuePair(ibv_qp_type type,
-                                   ibv_context *ctxt,
-                                   int ibPhysicalPort,
-                                   ibv_pd *pd,
-                                   ibv_srq *srq,
-                                   ibv_cq *txcq,
-                                   ibv_cq *rxcq,
-                                   uint32_t maxSendWr,
-                                   uint32_t maxRecvWr,
-                                   uint32_t QKey = 0);
+    class Device {
+      public:
+        explicit Device(const char* name)
+            : ctxt(NULL)
+        {
+            // The lifetime of the device list needs to extend
+            // through the call to ibv_open_device.
+            DeviceList deviceList;
 
-    V4T ibv_context* openDevice(const char *name);
-    V4T int          getLid(ibv_context *ctxt,
-                            int port);
-    V4T BufferDescriptor* tryReceive(QueuePair *qp,
-                                     InfAddress *sourceAddress = NULL);
-    V4T BufferDescriptor* receive(QueuePair *qp,
-                                  InfAddress *sourceAddress = NULL);
-    V4T void              postReceive(QueuePair *qp,
-                                      BufferDescriptor *bd);
-    V4T void              postSrqReceive(ibv_srq* srq,
-                                         BufferDescriptor *bd);
-    V4T void              postSend(QueuePair* qp,
-                                   BufferDescriptor* bd,
-                                   uint32_t length,
-                                   ibv_ah *ah = NULL,
-                                   uint32_t remoteQpn = 0,
-                                   uint32_t remoteQKey = 0);
-    V4T void              postSendAndWait(QueuePair* qp,
-                                          BufferDescriptor* bd,
-                                          uint32_t length,
-                                          ibv_ah *ah = NULL,
-                                          uint32_t remoteQpn = 0,
-                                          uint32_t remoteQKey = 0);
-    V4T BufferDescriptor  allocateBufferDescriptorAndRegister(ibv_pd *pd,
-                                                              size_t bytes);
+            auto dev = deviceList.lookup(name);
+            if (dev == NULL) {
+                throw TransportException(HERE,
+                    format("failed to find infiniband device: %s",
+                           name == NULL ? "any" : name), errno);
+            }
 
-    // the following are straight up wrappers that can be overridden for testing
-    V4T ibv_pd*  allocateProtectionDomain(ibv_context* ctxt);
-    V4T ibv_cq*  createCompletionQueue(ibv_context* ctxt,
-                                       int minimumEntries);
-    V4T ibv_ah*  createAddressHandle(ibv_pd *pd,
-                                     ibv_ah_attr* attr);
-    V4T void     destroyAddressHandle(ibv_ah *ah);
-    V4T ibv_srq* createSharedReceiveQueue(ibv_pd *pd,
-                                          ibv_srq_init_attr *attr);
-    V4T int      pollCompletionQueue(ibv_cq *cq,
-                                     int numEntries,
-                                     ibv_wc *retWcArray);
+            ctxt = ibv_open_device(dev);
+            if (ctxt == NULL) {
+                throw TransportException(HERE,
+                    format("failed to open infiniband device: %s",
+                           name == NULL ? "any" : name), errno);
+            }
+        }
 
-  private:
+        ~Device() {
+            int rc = ibv_close_device(ctxt);
+            if (rc != 0)
+                LOG(WARNING, "ibv_close_device failed");
+        }
+
+        ibv_context* ctxt; // const after construction
+        DISALLOW_COPY_AND_ASSIGN(Device);
+    };
+
+    class ProtectionDomain {
+      public:
+        explicit ProtectionDomain(Device& device)
+            : pd(ibv_alloc_pd(device.ctxt))
+        {
+            if (pd == NULL) {
+                throw TransportException(HERE,
+                    "failed to allocate infiniband protection domain", errno);
+            }
+        }
+        ~ProtectionDomain() {
+            int rc = ibv_dealloc_pd(pd);
+            if (rc != 0) {
+                // TODO(ongaro): Change to WARNING after closing RAM-195.
+                LOG(DEBUG, "ibv_dealloc_pd failed");
+            }
+        }
+        ibv_pd* const pd;
+        DISALLOW_COPY_AND_ASSIGN(ProtectionDomain);
+    };
+
+    // this class encapsulates the creation, use, and destruction of an RC
+    // queue pair.
+    //
+    // the constructor will create a qp and bring it to the INIT state.
+    // after obtaining the lid, qpn, and psn of a remote queue pair, one
+    // must call plumb() to bring the queue pair to the RTS state.
+    class QueuePair {
+      public:
+        QueuePair(Infiniband& infiniband,
+                  ibv_qp_type type,
+                  int ibPhysicalPort,
+                  ibv_srq *srq,
+                  ibv_cq *txcq,
+                  ibv_cq *rxcq,
+                  uint32_t maxSendWr,
+                  uint32_t maxRecvWr,
+                  uint32_t QKey = 0);
+        // exists solely as superclass constructor for MockQueuePair derivative
+        explicit QueuePair(Infiniband& infiniband)
+            : infiniband(infiniband), type(0), ctxt(NULL), ibPhysicalPort(-1),
+            pd(NULL), srq(NULL), qp(NULL), txcq(NULL), rxcq(NULL),
+            initialPsn(-1) {}
+        ~QueuePair();
+        uint32_t getInitialPsn() const;
+        uint32_t getLocalQpNumber() const;
+        uint32_t getRemoteQpNumber() const;
+        uint16_t getRemoteLid() const;
+        int      getState() const;
+        void     plumb(QueuePairTuple *qpt);
+        void     activate();
+
+      //private: XXXXX- move send/recv functionality into the queue pair shit
+        Infiniband&  infiniband;     // Infiniband to which this QP belongs
+        int          type;           // QP type (IBV_QPT_RC, etc.)
+        ibv_context* ctxt;           // device context of the HCA to use
+        int          ibPhysicalPort; // physical port number of the HCA
+        ibv_pd*      pd;             // protection domain
+        ibv_srq*     srq;            // shared receive queue
+        ibv_qp*      qp;             // infiniband verbs QP handle
+        ibv_cq*      txcq;           // transmit completion queue
+        ibv_cq*      rxcq;           // receive completion queue
+        uint32_t     initialPsn;     // initial packet sequence number
+
+        DISALLOW_COPY_AND_ASSIGN(QueuePair);
+    };
+
+    QueuePair*
+    createQueuePair(ibv_qp_type type,
+                    int ibPhysicalPort,
+                    ibv_srq *srq,
+                    ibv_cq *txcq,
+                    ibv_cq *rxcq,
+                    uint32_t maxSendWr,
+                    uint32_t maxRecvWr,
+                    uint32_t QKey = 0);
+
+    int
+    getLid(int port);
+
+    BufferDescriptor*
+    tryReceive(QueuePair* qp, InfAddress* sourceAddress = NULL);
+
+    BufferDescriptor*
+    receive(QueuePair* qp, InfAddress* sourceAddress = NULL);
+
+    void
+    postReceive(QueuePair* qp, BufferDescriptor* bd);
+
+    void
+    postSrqReceive(ibv_srq* srq, BufferDescriptor* bd);
+
+    void
+    postSend(QueuePair* qp,
+             BufferDescriptor* bd,
+             uint32_t length,
+             ibv_ah *ah = NULL,
+             uint32_t remoteQpn = 0,
+             uint32_t remoteQKey = 0);
+
+    void
+    postSendAndWait(QueuePair* qp,
+                    BufferDescriptor* bd,
+                    uint32_t length,
+                    ibv_ah *ah = NULL,
+                    uint32_t remoteQpn = 0,
+                    uint32_t remoteQKey = 0);
+
+    BufferDescriptor
+    allocateBufferDescriptorAndRegister(size_t bytes);
+
+    ibv_cq*
+    createCompletionQueue(int minimumEntries);
+
+    ibv_ah*
+    createAddressHandle(ibv_ah_attr* attr);
+
+    void
+    destroyAddressHandle(ibv_ah *ah);
+
+    ibv_srq*
+    createSharedReceiveQueue(uint32_t maxWr, uint32_t maxSge);
+
+    int
+    pollCompletionQueue(ibv_cq *cq,
+                        int numEntries,
+                        ibv_wc *retWcArray);
+
+  PRIVATE:
+    Device device;
+    ProtectionDomain pd;
     static const uint32_t MAX_INLINE_DATA = 400;
 };
 
-} // namespace
+} // namespace RAMCloud
 
 #endif // !RAMCLOUD_INFINIBAND_H

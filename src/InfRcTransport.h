@@ -34,13 +34,13 @@
 
 namespace RAMCloud {
 
-typedef Infiniband::BufferDescriptor BufferDescriptor;
-typedef Infiniband::QueuePair QueuePair;
-typedef Infiniband::QueuePairTuple QueuePairTuple;
-
+template<typename Infiniband = RealInfiniband>
 class InfRcTransport : public Transport {
     // forward declarations
     class InfRCSession;
+    typedef typename Infiniband::BufferDescriptor BufferDescriptor;
+    typedef typename Infiniband::QueuePair QueuePair;
+    typedef typename Infiniband::QueuePairTuple QueuePairTuple;
 
   public:
     explicit InfRcTransport(const ServiceLocator* sl = NULL);
@@ -202,6 +202,16 @@ class InfRcTransport : public Transport {
                                            uint32_t usTimeout);
     void       serverTrySetupQueuePair();
 
+    /// See #infiniband.
+    ObjectTub<Infiniband> realInfiniband;
+
+    /**
+     * Used by this class to make all Infiniband verb calls.  In normal
+     * production use it points to #realInfiniband; for testing it points to a
+     * mock object.
+     */
+    Infiniband* infiniband;
+
     BufferDescriptor    serverRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
     BufferDescriptor    clientRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
 
@@ -210,8 +220,6 @@ class InfRcTransport : public Transport {
 
     ibv_srq*     serverSrq;         // shared receive work queue for server
     ibv_srq*     clientSrq;         // shared receive work queue for client
-    ibv_context* ctxt;              // HCA device context (handle)
-    ibv_pd*      pd;                // protection domain for registered memory
     ibv_cq*      serverRxCq;        // completion queue for serverRecv
     ibv_cq*      clientRxCq;        // completion queue for client wait
     ibv_cq*      commonTxCq;        // common completion queue for all transmits
@@ -256,11 +264,10 @@ class InfRcTransport : public Transport {
     /// UDP, this could in the future contain a dynamic UDP port number.
     string locatorString;
 
-    /// Infiniband object. Used mainly to mocking.
-    static Infiniband* infiniband;
-
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };
+
+extern template class InfRcTransport<RealInfiniband>;
 
 }  // namespace RAMCloud
 

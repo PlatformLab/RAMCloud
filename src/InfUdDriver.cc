@@ -47,18 +47,6 @@
 namespace RAMCloud {
 
 /**
- * Default object used to make Infiniband Verbs-related calls.
- */
-static Infiniband defaultInfiniband;
-
-/**
- * Used by this class to make all Infiniband verb calls.  In normal
- * production use it points to defaultInfiniband; for testing it
- * points to a mock object.
- */
-Infiniband* InfUdDriver::infiniband = &defaultInfiniband;
-
-/**
  * Construct an InfUdDriver.
  *
  * \param sl
@@ -69,10 +57,21 @@ Infiniband* InfUdDriver::infiniband = &defaultInfiniband;
  *      for servers until we add some facility for dynamic addresses
  *      and resolution.
  */
-InfUdDriver::InfUdDriver(const ServiceLocator *sl)
-    : ctxt(0), pd(0), rxcq(0), txcq(0), qp(NULL), packetBufPool(),
-      packetBufsUtilized(0), currentRxBuffer(0), txBuffer(),
-      ibPhysicalPort(1), lid(0), qpn(0), locatorString()
+template<typename Infiniband>
+InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
+    : realInfiniband()
+    , infiniband()
+    , rxcq(0)
+    , txcq(0)
+    , qp(NULL)
+    , packetBufPool()
+    , packetBufsUtilized(0)
+    , currentRxBuffer(0)
+    , txBuffer()
+    , ibPhysicalPort(1)
+    , lid(0)
+    , qpn(0)
+    , locatorString()
 {
     const char *ibDeviceName = NULL;
 
@@ -88,33 +87,29 @@ InfUdDriver::InfUdDriver(const ServiceLocator *sl)
         } catch (ServiceLocator::NoSuchKeyException& e) {}
     }
 
-    ctxt = infiniband->openDevice(ibDeviceName);
-    error_check_null(ctxt, "failed to open infiniband device");
-
-    pd = infiniband->allocateProtectionDomain(ctxt);
-    error_check_null(pd, "failed to allocate infiniband pd");
+    infiniband = realInfiniband.construct(ibDeviceName);
 
     // XXX- for now we allocate one TX buffer and RX buffers as a ring.
     for (uint32_t i = 0; i < MAX_RX_QUEUE_DEPTH; i++) {
         rxBuffers[i] = infiniband->allocateBufferDescriptorAndRegister(
-            pd, getMaxPacketSize() + 40);
+            getMaxPacketSize() + 40);
     }
     txBuffer = infiniband->allocateBufferDescriptorAndRegister(
-        pd, getMaxPacketSize() + 40);
+        getMaxPacketSize() + 40);
 
     // create completion queues for receive and transmit
-    rxcq = infiniband->createCompletionQueue(ctxt, MAX_RX_QUEUE_DEPTH);
+    rxcq = infiniband->createCompletionQueue(MAX_RX_QUEUE_DEPTH);
     error_check_null(rxcq, "failed to create receive completion queue");
 
-    txcq = infiniband->createCompletionQueue(ctxt, MAX_TX_QUEUE_DEPTH);
+    txcq = infiniband->createCompletionQueue(MAX_TX_QUEUE_DEPTH);
     error_check_null(txcq, "failed to create transmit completion queue");
 
-    qp = infiniband->createQueuePair(IBV_QPT_UD, ctxt, ibPhysicalPort, pd,
-                                     NULL, txcq, rxcq, MAX_TX_QUEUE_DEPTH,
+    qp = infiniband->createQueuePair(IBV_QPT_UD, ibPhysicalPort, NULL,
+                                     txcq, rxcq, MAX_TX_QUEUE_DEPTH,
                                      MAX_RX_QUEUE_DEPTH, QKEY);
 
     // cache these for easier access
-    lid = infiniband->getLid(ctxt, ibPhysicalPort);
+    lid = infiniband->getLid(ibPhysicalPort);
     qpn = qp->getLocalQpNumber();
 
     // update our locatorString, if one was provided, with the dynamic
@@ -132,7 +127,8 @@ InfUdDriver::InfUdDriver(const ServiceLocator *sl)
 /**
  * Destroy an InfUdDriver and free allocated resources.
  */
-InfUdDriver::~InfUdDriver()
+template<typename Infiniband>
+InfUdDriver<Infiniband>::~InfUdDriver()
 {
     if (packetBufsUtilized != 0) {
         LOG(WARNING, "packetBufsUtilized: %lu",
@@ -147,8 +143,9 @@ InfUdDriver::~InfUdDriver()
 /*
  * See docs in the ``Driver'' class.
  */
+template<typename Infiniband>
 uint32_t
-InfUdDriver::getMaxPacketSize()
+InfUdDriver<Infiniband>::getMaxPacketSize()
 {
     return MAX_PAYLOAD_SIZE;
 }
@@ -156,8 +153,9 @@ InfUdDriver::getMaxPacketSize()
 /*
  * See docs in the ``Driver'' class.
  */
+template<typename Infiniband>
 void
-InfUdDriver::release(char *payload, uint32_t len)
+InfUdDriver<Infiniband>::release(char *payload, uint32_t len)
 {
     // Note: the payload is actually contained in a PacketBuf structure,
     // which we return to a pool for reuse later.
@@ -170,8 +168,9 @@ InfUdDriver::release(char *payload, uint32_t len)
 /*
  * See docs in the ``Driver'' class.
  */
+template<typename Infiniband>
 void
-InfUdDriver::sendPacket(const Address *addr,
+InfUdDriver<Infiniband>::sendPacket(const Address *addr,
                         const void *header,
                         uint32_t headerLen,
                         Buffer::Iterator *payload)
@@ -192,7 +191,7 @@ InfUdDriver::sendPacket(const Address *addr,
     attr.sl = 0;
     attr.port_num = ibPhysicalPort;
 
-    ibv_ah *ah = infiniband->createAddressHandle(pd, &attr);
+    ibv_ah *ah = infiniband->createAddressHandle(&attr);
     error_check_null(ah, "failed to create ah");
 
     // use the sole TX buffer
@@ -227,8 +226,9 @@ InfUdDriver::sendPacket(const Address *addr,
 /*
  * See docs in the ``Driver'' class.
  */
+template<typename Infiniband>
 bool
-InfUdDriver::tryRecvPacket(Received *received)
+InfUdDriver<Infiniband>::tryRecvPacket(Received *received)
 {
     PacketBuf* buffer = packetBufPool.construct();
     BufferDescriptor* bd = NULL;
@@ -273,10 +273,13 @@ InfUdDriver::tryRecvPacket(Received *received)
 /**
  * See docs in the ``Driver'' class.
  */
+template<typename Infiniband>
 ServiceLocator
-InfUdDriver::getServiceLocator()
+InfUdDriver<Infiniband>::getServiceLocator()
 {
     return ServiceLocator(locatorString);
 }
+
+template class InfUdDriver<RealInfiniband>;
 
 } // namespace RAMCloud
