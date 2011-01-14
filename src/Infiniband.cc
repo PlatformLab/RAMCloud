@@ -142,7 +142,7 @@ Infiniband::getLid(int port)
  *      if polling failed.  
  */
 Infiniband::BufferDescriptor*
-Infiniband::tryReceive(QueuePair *qp, InfAddress *sourceAddress)
+Infiniband::tryReceive(QueuePair *qp, ObjectTub<Address>* sourceAddress)
 {
     ibv_wc wc;
     int r = ibv_poll_cq(qp->rxcq, 1, &wc);
@@ -164,8 +164,8 @@ Infiniband::tryReceive(QueuePair *qp, InfAddress *sourceAddress)
     bd->messageBytes = wc.byte_len;
 
     if (sourceAddress != NULL) {
-        sourceAddress->address.lid = wc.slid;
-        sourceAddress->address.qpn = wc.src_qp;
+        sourceAddress->construct(*this, qp->ibPhysicalPort,
+                                 wc.slid, wc.src_qp);
     }
 
     return bd;
@@ -186,7 +186,7 @@ Infiniband::tryReceive(QueuePair *qp, InfAddress *sourceAddress)
  *      if polling failed.  
  */
 Infiniband::BufferDescriptor *
-Infiniband::receive(QueuePair *qp, InfAddress *sourceAddress)
+Infiniband::receive(QueuePair *qp, ObjectTub<Address>* sourceAddress)
 {
     BufferDescriptor *bd = NULL;
 
@@ -275,11 +275,8 @@ Infiniband::postSrqReceive(ibv_srq* srq, BufferDescriptor *bd)
  *      The BufferDescriptor that contains the data to be transmitted.
  * \param[in] length
  *      The number of bytes used by the packet in the given BufferDescriptor.
- * \param[in] ah
- *      UD queue pairs only. The address handle of the host to send to. 
- * \param[in] remoteQpn
- *      UD queue pairs only. The queue pair number of the remote pair to send
- *      to.
+ * \param[in] address
+ *      UD queue pairs only. The address of the host to send to. 
  * \param[in] remoteQKey
  *      UD queue pairs only. The Q_Key of the remote pair to send to.
  * \throw TransportException
@@ -287,13 +284,12 @@ Infiniband::postSrqReceive(ibv_srq* srq, BufferDescriptor *bd)
  */
 void
 Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length,
-    ibv_ah *ah, uint32_t remoteQpn, uint32_t remoteQKey)
+                     const Address* address, uint32_t remoteQKey)
 {
     if (qp->type == IBV_QPT_UD) {
-        assert(ah != NULL);
+        assert(address != NULL);
     } else {
-        assert(ah == NULL);
-        assert(remoteQpn == 0);
+        assert(address == NULL);
         assert(remoteQKey == 0);
     }
 
@@ -307,8 +303,8 @@ Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length,
     memset(&txWorkRequest, 0, sizeof(txWorkRequest));
     txWorkRequest.wr_id = reinterpret_cast<uint64_t>(bd);// stash descriptor ptr
     if (qp->type == IBV_QPT_UD) {
-        txWorkRequest.wr.ud.ah = ah;
-        txWorkRequest.wr.ud.remote_qpn = remoteQpn;
+        txWorkRequest.wr.ud.ah = address->getHandle();
+        txWorkRequest.wr.ud.remote_qpn = address->getQpn();
         txWorkRequest.wr.ud.remote_qkey = remoteQKey;
     }
     txWorkRequest.next = NULL;
@@ -340,11 +336,8 @@ Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length,
  *      The BufferDescriptor that contains the data to be transmitted.
  * \param[in] length
  *      The number of bytes used by the packet in the given BufferDescriptor.
- * \param[in] ah
- *      UD queue pairs only. The address handle of the host to send to. 
- * \param[in] remoteQpn
- *      UD queue pairs only. The queue pair number of the remote pair to send
- *      to.
+ * \param[in] address
+ *      UD queue pairs only. The address of the host to send to. 
  * \param[in] remoteQKey
  *      UD queue pairs only. The Q_Key of the remote pair to send to.
  * \throw
@@ -353,9 +346,9 @@ Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length,
  */
 void
 Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
-    uint32_t length, ibv_ah *ah, uint32_t remoteQpn, uint32_t remoteQKey)
+    uint32_t length, const Address* address, uint32_t remoteQKey)
 {
-    postSend(qp, bd, length, ah, remoteQpn, remoteQKey);
+    postSend(qp, bd, length, address, remoteQKey);
 
     ibv_wc wc;
     while (ibv_poll_cq(qp->txcq, 1, &wc) < 1) {}
@@ -801,6 +794,97 @@ Infiniband::QueuePair::getState() const
         throw TransportException(HERE, r);
     }
     return qpa.qp_state;
+}
+
+/**
+ * Construct an Address from the information in a ServiceLocator.
+ * \param infiniband
+ *      Infiniband instance under which this address is valid.
+ * \param physicalPort
+ *      The physical port number on the local device through which to send.
+ * \param serviceLocator
+ *      The "lid" and "qpn" options describe the desired address.
+ * \throw BadAddress
+ *      The serviceLocator couldn't be converted to an Address
+ *      (e.g. a required option was missing, or the host name
+ *      couldn't be parsed).
+ */
+Infiniband::Address::Address(RealInfiniband& infiniband,
+                             int physicalPort,
+                             const ServiceLocator& serviceLocator)
+    : infiniband(infiniband)
+    , physicalPort(physicalPort)
+    , lid()
+    , qpn()
+    , ah(NULL)
+{
+    try {
+        lid = serviceLocator.getOption<uint16_t>("lid");
+    } catch (NoSuchKeyException &e) {
+        throw BadAddressException(HERE,
+            "Mandatory option ``lid'' missing from infiniband ServiceLocator.",
+            serviceLocator);
+    } catch (...) {
+        throw BadAddressException(HERE,
+            "Could not parse lid. Invalid or out of range.",
+            serviceLocator);
+    }
+
+    try {
+        qpn = serviceLocator.getOption<uint32_t>("qpn");
+    } catch (NoSuchKeyException &e) {
+        throw BadAddressException(HERE,
+            "Mandatory option ``qpn'' missing from infiniband "
+            "ServiceLocator.", serviceLocator);
+    } catch (...) {
+        throw BadAddressException(HERE,
+            "Could not parse qpn. Invalid or out of range.",
+            serviceLocator);
+    }
+}
+
+Infiniband::Address::~Address() {
+    if (ah != NULL) {
+        int rc = ibv_destroy_ah(ah);
+        if (rc != 0)
+            LOG(WARNING, "Destroying address handle failed with %d", rc);
+    }
+}
+
+/**
+ * Return a string describing the contents of this Address (host
+ * address & port).
+ */
+string
+Infiniband::Address::toString() const
+{
+    return format("%u:%u", lid, qpn);
+}
+
+/**
+ * Return an Infiniband address handle for this Address.
+ *
+ * Performance note: The first time this is called, it will allocate memory for
+ * the address handle.
+ *
+ * \throw TransportException
+ *      if ibv_create_ah fails
+ */
+ibv_ah*
+Infiniband::Address::getHandle() const
+{
+    if (ah == NULL) {
+        ibv_ah_attr attr;
+        attr.dlid = lid;
+        attr.src_path_bits = 0;
+        attr.is_global = 0;
+        attr.sl = 0;
+        attr.port_num = physicalPort;
+        ah = ibv_create_ah(infiniband.pd.pd, &attr);
+        if (ah == NULL)
+            throw TransportException(HERE, "failed to create ah", errno);
+    }
+    return ah;
 }
 
 } // namespace

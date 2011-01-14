@@ -14,9 +14,11 @@
  */
 
 #include "TestUtil.h"
-#include "InfAddress.h"
+#include "Infiniband.h"
 
 namespace RAMCloud {
+
+typedef RealInfiniband Infiniband;
 
 class InfAddressTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(InfAddressTest);
@@ -26,11 +28,14 @@ class InfAddressTest : public CppUnit::TestFixture {
 
   public:
     InfAddressTest() {}
+    char x[0];
 
     string tryLocator(const char *locator) {
         try {
-            InfAddress(ServiceLocator(locator));
-        } catch (InfAddress::BadInfAddressException& e) {
+            // dangerous cast!
+            Infiniband::Address(*reinterpret_cast<RealInfiniband*>(x), 0,
+                       ServiceLocator(locator));
+        } catch (Infiniband::Address::BadAddressException& e) {
             return e.message;
         }
         return "ok";
@@ -63,7 +68,9 @@ class InfAddressTest : public CppUnit::TestFixture {
     }
 
     void test_toString() {
-        InfAddress a(ServiceLocator("fast+infud: lid=721, qpn=23472"));
+        // dangerous cast!
+        Infiniband::Address a(*reinterpret_cast<RealInfiniband*>(x), 0,
+                          ServiceLocator("fast+infud: lid=721, qpn=23472"));
         CPPUNIT_ASSERT_EQUAL("721:23472", a.toString());
     }
 

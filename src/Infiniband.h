@@ -16,8 +16,9 @@
 #include <infiniband/verbs.h>
 
 #include "Common.h"
+#include "Driver.h"
+#include "ObjectTub.h"
 #include "Transport.h"
-#include "InfAddress.h"
 
 #ifndef RAMCLOUD_INFINIBAND_H
 #define RAMCLOUD_INFINIBAND_H
@@ -208,6 +209,81 @@ class RealInfiniband {
         DISALLOW_COPY_AND_ASSIGN(QueuePair);
     };
 
+    /**
+     * This class translates between ServiceLocators and native Infiniband
+     * addresses (LIDs, QueuePair numbers, etc), providing a standard mechanism
+     * for use in Transport and Driver classes.
+     */
+    class Address : public Driver::Address {
+      public:
+        /**
+         * Exception that is thrown when a ServiceLocator can't be
+         * parsed into an Infiniband address.
+         */
+        class BadAddressException : public Exception {
+          public:
+            /**
+             * Construct a BadAddressException.
+             * \param where
+             *      Pass #HERE here.
+             * \param msg
+             *      String describing the problem; should start with a
+             *      lower-case letter.
+             * \param serviceLocator
+             *      The ServiceLocator that couldn't be parsed: used to
+             *      generate a prefix message containing the original locator
+             *      string.
+             */
+            explicit BadAddressException(const CodeLocation& where,
+                                            std::string msg,
+                    const ServiceLocator& serviceLocator) : Exception(where,
+                    "Service locator '" + serviceLocator.getOriginalString() +
+                    "' couldn't be converted to Infiniband address: " + msg) {}
+        };
+        Address* clone() const {
+            return new Address(*this);
+        }
+        string toString() const;
+
+        Address(Infiniband& infiniband, int physicalPort,
+                   const ServiceLocator& serviceLocator);
+        Address(Infiniband& infiniband, int physicalPort,
+                   uint16_t lid, uint32_t qpn)
+            : Driver::Address()
+            , infiniband(infiniband)
+            , physicalPort(physicalPort)
+            , lid(lid)
+            , qpn(qpn)
+            , ah(NULL)
+        {
+        }
+        Address(const Address& other)
+            : Driver::Address(other)
+            , infiniband(other.infiniband)
+            , physicalPort(other.physicalPort)
+            , lid(other.lid)
+            , qpn(other.qpn)
+            , ah(NULL) // don't want multiple ibv_destroy_ah calls
+        {
+        }
+        ~Address();
+
+        int getPhysicalPort() const { return physicalPort; }
+        uint16_t getLid() const { return lid; }
+        uint32_t getQpn() const { return qpn; }
+        ibv_ah* getHandle() const;
+
+        void operator=(Address&) = delete;
+
+      private:
+        Infiniband& infiniband; // Infiniband instance under which this address
+                                // is valid.
+        int physicalPort;   // physical port number on local device
+        uint16_t lid;       // local id (address)
+        uint32_t qpn;       // queue pair number
+        mutable ibv_ah* ah; // address handle, may be NULL
+    };
+
     QueuePair*
     createQueuePair(ibv_qp_type type,
                     int ibPhysicalPort,
@@ -222,10 +298,10 @@ class RealInfiniband {
     getLid(int port);
 
     BufferDescriptor*
-    tryReceive(QueuePair* qp, InfAddress* sourceAddress = NULL);
+    tryReceive(QueuePair* qp, ObjectTub<Address>* sourceAddress = NULL);
 
     BufferDescriptor*
-    receive(QueuePair* qp, InfAddress* sourceAddress = NULL);
+    receive(QueuePair* qp, ObjectTub<Address>* sourceAddress = NULL);
 
     void
     postReceive(QueuePair* qp, BufferDescriptor* bd);
@@ -237,16 +313,14 @@ class RealInfiniband {
     postSend(QueuePair* qp,
              BufferDescriptor* bd,
              uint32_t length,
-             ibv_ah *ah = NULL,
-             uint32_t remoteQpn = 0,
+             const Address* address = NULL,
              uint32_t remoteQKey = 0);
 
     void
     postSendAndWait(QueuePair* qp,
                     BufferDescriptor* bd,
                     uint32_t length,
-                    ibv_ah *ah = NULL,
-                    uint32_t remoteQpn = 0,
+                    const Address* address = NULL,
                     uint32_t remoteQKey = 0);
 
     BufferDescriptor

@@ -26,7 +26,6 @@
 #include "Common.h"
 #include "Driver.h"
 #include "Infiniband.h"
-#include "InfAddress.h"
 #include "ObjectTub.h"
 
 namespace RAMCloud {
@@ -40,6 +39,7 @@ class InfUdDriver : public Driver {
     typedef typename Infiniband::BufferDescriptor BufferDescriptor;
     typedef typename Infiniband::QueuePairTuple QueuePairTuple;
     typedef typename Infiniband::QueuePair QueuePair;
+    typedef typename Infiniband::Address Address;
 
   public:
     /// The maximum number bytes we can stuff in a UDP packet payload.
@@ -49,7 +49,7 @@ class InfUdDriver : public Driver {
     virtual ~InfUdDriver();
     virtual uint32_t getMaxPacketSize();
     virtual void release(char *payload, uint32_t len);
-    virtual void sendPacket(const Address *addr,
+    virtual void sendPacket(const Driver::Address *addr,
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
@@ -57,7 +57,7 @@ class InfUdDriver : public Driver {
     virtual ServiceLocator getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator& serviceLocator) {
-        return new InfAddress(serviceLocator);
+        return new Address(*infiniband, ibPhysicalPort, serviceLocator);
     }
 
   private:
@@ -72,10 +72,14 @@ class InfUdDriver : public Driver {
      */
     struct PacketBuf {
         PacketBuf() : infAddress() {}
-        InfAddress infAddress;                 /// Address of sender (used to
-                                               /// send reply).
-        char payload[MAX_PAYLOAD_SIZE];        /// Packet data (may not fill all
-                                               /// of the allocated space).
+        /**
+         * Address of sender (used to send reply).
+         */
+        ObjectTub<Address> infAddress;
+        /**
+         * Packet data (may not fill all of the allocated space).
+         */
+        char payload[MAX_PAYLOAD_SIZE];
     };
 
     /// See #infiniband.

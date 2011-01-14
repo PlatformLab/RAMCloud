@@ -170,7 +170,7 @@ InfUdDriver<Infiniband>::release(char *payload, uint32_t len)
  */
 template<typename Infiniband>
 void
-InfUdDriver<Infiniband>::sendPacket(const Address *addr,
+InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
                         const void *header,
                         uint32_t headerLen,
                         Buffer::Iterator *payload)
@@ -179,20 +179,7 @@ InfUdDriver<Infiniband>::sendPacket(const Address *addr,
                            (payload ? payload->getTotalLength() : 0);
     assert(totalLength <= getMaxPacketSize());
 
-    const InfAddress *infAddr = static_cast<const InfAddress *>(addr);
-
-    // XXX for UD, we need to allocate an address handle. this should _not_
-    // be done on the fly (it takes tens of microseconds!), but should be
-    // instead associated with sessions somehow.
-    ibv_ah_attr attr;
-    attr.dlid = infAddr->address.lid;
-    attr.src_path_bits = 0;
-    attr.is_global = 0;
-    attr.sl = 0;
-    attr.port_num = ibPhysicalPort;
-
-    ibv_ah *ah = infiniband->createAddressHandle(&attr);
-    error_check_null(ah, "failed to create ah");
+    const Address *infAddr = static_cast<const Address *>(addr);
 
     // use the sole TX buffer
     BufferDescriptor* bd = &txBuffer;
@@ -208,19 +195,15 @@ InfUdDriver<Infiniband>::sendPacket(const Address *addr,
     }
     uint32_t length = p - bd->buffer;
 
-    uint32_t remoteQpn = infAddr->address.qpn;
     try {
         LOG(DEBUG, "%s: sending %u bytes to %s...", __func__, length,
             infAddr->toString().c_str());
-        infiniband->postSendAndWait(qp, bd, length, ah, remoteQpn, QKEY);
+        infiniband->postSendAndWait(qp, bd, length, infAddr, QKEY);
         LOG(DEBUG, "%s: sent successfully!", __func__);
     } catch (...) {
         LOG(DEBUG, "%s: send failed!", __func__);
-        infiniband->destroyAddressHandle(ah);
         throw;
     }
-
-    infiniband->destroyAddressHandle(ah);
 }
 
 /*
@@ -251,7 +234,7 @@ InfUdDriver<Infiniband>::tryRecvPacket(Received *received)
     } else {
         LOG(DEBUG, "%s: received %u byte packet (not including GRH) from %s",
             __func__, bd->messageBytes - 40,
-            buffer->infAddress.toString().c_str());
+            buffer->infAddress->toString().c_str());
 
         // copy from the infiniband buffer into our dynamically allocated
         // buffer.
@@ -260,7 +243,7 @@ InfUdDriver<Infiniband>::tryRecvPacket(Received *received)
         packetBufsUtilized++;
         received->payload = buffer->payload;
         received->len = bd->messageBytes - 40;
-        received->sender = &buffer->infAddress;
+        received->sender = buffer->infAddress.get();
         received->driver = this;
     }
 
