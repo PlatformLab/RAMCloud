@@ -614,9 +614,16 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 const Object* newObj = localObj;
 #else
                 // write to log (with lazy backup flush) & update hash table
+                uint64_t lengthInLog;
+                LogTime logTime;
                 const Object *newObj = reinterpret_cast<const Object*>(
                     log.append(LOG_ENTRY_TYPE_OBJ, recoverObj,
-                                recoverObj->size(), false));
+                                recoverObj->size(), &lengthInLog,
+                                &logTime, false));
+
+                // update the TabletProfiler
+                Table& t(getTable(recoverObj->table, recoverObj->id));
+                t.profiler.track(recoverObj->id, lengthInLog, logTime);
 #endif
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT

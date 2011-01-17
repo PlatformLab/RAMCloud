@@ -17,6 +17,7 @@
 #include "ClientException.h"
 #include "Logging.h"
 #include "MasterServer.h"
+#include "Tablets.pb.h"
 
 namespace RAMCloud {
 
@@ -72,6 +73,17 @@ class RecoverSegmentBenchmark {
             }
             segments[i]->close();
         }
+
+        /* Update the list of Tablets */
+        ProtoBuf::Tablets_Tablet tablet;
+        tablet.set_table_id(0);
+        tablet.set_start_object_id(0);
+        tablet.set_end_object_id(nextObjId - 1);
+        tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+        tablet.set_server_id(server->serverId);
+        ProtoBuf::Tablets tablets;
+        *tablets.add_tablet() = tablet;
+        server->setTablets(tablets);
 
         /*
          * Now run a fake recovery.
