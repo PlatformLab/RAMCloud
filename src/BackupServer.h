@@ -52,58 +52,7 @@ ObjectTub<uint64_t> whichPartition(const LogEntryType type,
 class BackupServer : public Server {
   PRIVATE:
 
-    /**
-     * Wraps the given type with a mutex to make it thread safe.
-     * Just defines a few basic operators for integral types which
-     * are the only few the BackupServer code needs.
-     *
-     * \param T
-     *      The base type to be made thread safe.
-     */
-    template <typename T>
-    class Atomic {
-      public:
-        Atomic<T>(const T& value) : value(value)
-            , mutex()
-        {
-        }
-
-        Atomic<T>()
-            : value()
-            , mutex()
-        {
-        }
-
-        Atomic<T>& operator--() {
-            boost::unique_lock<boost::mutex> lock(mutex);
-            value--;
-            return *this;
-        }
-
-        Atomic<T>& operator++() {
-            boost::unique_lock<boost::mutex> lock(mutex);
-            value++;
-            return *this;
-        }
-
-        bool operator>(int rhs) {
-            boost::unique_lock<boost::mutex> lock(mutex);
-            return value > rhs;
-        }
-
-        operator int() {
-            boost::unique_lock<boost::mutex> lock(mutex);
-            return value;
-        }
-
-      private:
-        T value;
-        boost::mutex mutex;
-    };
-
-    // We occassionally see a corrupted thread count using std::atomic_int
-    // typedef std::atomic_int AtomicInt;
-    typedef Atomic<int> AtomicInt;
+    typedef std::atomic_int AtomicInt;
 
     /**
      * Decrement the value referred to on the constructor on

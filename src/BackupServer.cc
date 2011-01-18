@@ -595,7 +595,7 @@ BackupServer::BackupServer(const Config& config,
     , coordinator(config.coordinatorLocator.c_str())
     , serverId(0)
     , pool(storage.getSegmentSize())
-    , recoveryThreadCount()
+    , recoveryThreadCount{0}
     , segments()
     , segmentSize(storage.getSegmentSize())
     , storage(storage)
