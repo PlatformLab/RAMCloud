@@ -195,7 +195,7 @@ TcpTransport::tryAccept(int fd, int16_t event, void* arg)
     // At this point we have successfully opened a client connection.
     // Save information about it and create a handler for incoming
     // requests.
-    if (transport->sockets.capacity() <=
+    if (transport->sockets.size() <=
             static_cast<unsigned int>(acceptedFd)) {
         transport->sockets.resize(acceptedFd + 1);
     }
