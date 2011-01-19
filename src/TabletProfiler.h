@@ -29,6 +29,17 @@ class Partition {
           minReferants(0), maxReferants(0)
     {
     }
+#if TESTING
+    // only for testing. too many u64 args make it too error-prone in
+    // normal use. this is just an expedient for tests.
+    Partition(uint64_t firstKey, uint64_t lastKey, uint64_t minBytes,
+              uint64_t maxBytes, uint64_t minReferants, uint64_t maxReferants)
+        : firstKey(firstKey), lastKey(lastKey), minBytes(minBytes),
+          maxBytes(maxBytes), minReferants(minReferants),
+          maxReferants(maxReferants)
+    {
+    }
+#endif
     uint64_t firstKey;
     uint64_t lastKey;
     uint64_t minBytes;
@@ -144,7 +155,8 @@ class TabletProfiler {
         uint64_t     getBucketFirstKey(BucketHandle bh);
         uint64_t     getBucketLastKey(BucketHandle bh);
         bool         isBottom();
-        void         partitionWalk(PartitionCollector *pc, uint64_t parentBytes = 0,
+        void         partitionWalk(PartitionCollector *pc,
+                                   uint64_t parentBytes = 0,
                                    uint64_t parentReferants = 0);
         LogTime      getCreateTime();
         uint64_t     getFirstKey();

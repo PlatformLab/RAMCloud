@@ -42,7 +42,7 @@ class Will {
     };
     typedef std::vector<WillEntry> WillList;
 
-    // current partition state 
+    // current partition state
     uint64_t currentId;
     uint64_t currentMaxBytes;
     uint64_t currentMaxReferants;
@@ -55,8 +55,8 @@ class Will {
     WillList entries;
 
     void     addTablet(const ProtoBuf::Tablets::Tablet& tablet);
-    void     addPartition(const ProtoBuf::Tablets::Tablet&,
-                          Partition& partition);
+    void     addPartition(Partition& partition,
+                          const ProtoBuf::Tablets::Tablet& tablet);
 
 
     friend class WillTest;

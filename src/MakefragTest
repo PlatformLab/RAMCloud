@@ -51,6 +51,7 @@ TESTS_SRCFILES := \
 		  src/TestUtilTest.cc \
 		  src/TransportManagerTest.cc \
 		  src/UdpDriverTest.cc \
+		  src/WillTest.cc \
 		  src/WindowTest.cc \
 		  $(INFINIBAND_SRCFILES) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc

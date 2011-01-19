@@ -294,6 +294,7 @@ class MasterServer : public Server {
         uint64_t entryLength, uint64_t lengthInLog, LogTime logTime,
         void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
+    void calculateWill();
     Table& getTable(uint32_t tableId, uint64_t objectId);
     void rejectOperation(const RejectRules* rejectRules, uint64_t version);
     void storeData(uint64_t table, uint64_t id,

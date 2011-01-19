@@ -26,6 +26,7 @@
 #include "SegmentIterator.h"
 #include "Transport.h"
 #include "TransportManager.h"
+#include "Will.h"
 
 namespace RAMCloud {
 
@@ -822,6 +823,15 @@ MasterServer::write(const WriteRpc::Request& reqHdr,
     storeData(reqHdr.tableId, reqHdr.id,
               &reqHdr.rejectRules, &rpc.recvPayload, sizeof(reqHdr),
               static_cast<uint32_t>(reqHdr.length), &respHdr.version);
+}
+
+void
+MasterServer::calculateWill()
+{
+#define MAX_BYTES 640 * 1024 * 1024
+#define MAX_REFS 10 * 1000 * 1000
+    Will will(tablets, MAX_BYTES, MAX_REFS);
+    will.debugDump();
 }
 
 /**

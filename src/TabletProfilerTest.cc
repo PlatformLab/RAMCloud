@@ -486,7 +486,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         s.partitionWalk(&pc);
         pc.done();
 
-        CPPUNIT_ASSERT_EQUAL(2, (int)partList.size());
+        CPPUNIT_ASSERT_EQUAL(2, partList.size());
         CPPUNIT_ASSERT_EQUAL(0, partList[0].firstKey);
         CPPUNIT_ASSERT_EQUAL(partList[1].firstKey - 1,
             partList[0].lastKey);

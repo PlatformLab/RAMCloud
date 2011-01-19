@@ -432,6 +432,14 @@ TabletProfiler::PartitionCollector::done()
  * \param[in] lastKey
  *      The last key to be associated with the currently-computed
  *      partition.
+ * \param[in] minBytes
+ *      The minimum number of bytes that could be in this partition.
+ * \param[in] maxBytes
+ *      The maximum number of bytes that could be in this partition.
+ * \param[in] minReferants
+ *      The minimum number of referants that could be in this partition.
+ * \param[in] maxReferants
+ *      The maximum number of referants that could be in this partition.
  */
 void
 TabletProfiler::PartitionCollector::pushCurrentTally(uint64_t lastKey,
@@ -445,7 +453,7 @@ TabletProfiler::PartitionCollector::pushCurrentTally(uint64_t lastKey,
         Partition newPart;
         newPart.firstKey = currentFirstKey;
         newPart.lastKey = lastKey;
-        newPart.minBytes = minBytes; 
+        newPart.minBytes = minBytes;
         newPart.maxBytes = maxBytes;
         newPart.minReferants = minReferants;
         newPart.maxReferants = maxReferants;
@@ -454,7 +462,7 @@ TabletProfiler::PartitionCollector::pushCurrentTally(uint64_t lastKey,
         currentKnownBytes = 0;
         currentKnownReferants = 0;
         residualMaxBytes = 0;
-        residualMaxReferants = 0; 
+        residualMaxReferants = 0;
     }
 }
 
