@@ -144,7 +144,7 @@ class WillTest : public CppUnit::TestFixture {
         {
             ProtoBuf::Tablets::Tablet tablet = createTablet(0, 97, 500, 10000);
             Partition p(0, -1, 100, 150, 10, 20);
-            w.addPartition(tablet, p);
+            w.addPartition(p, tablet);
         }
 
         CPPUNIT_ASSERT_EQUAL(0, w.entries[0].partitionId);
@@ -164,7 +164,7 @@ class WillTest : public CppUnit::TestFixture {
         {
             ProtoBuf::Tablets::Tablet tablet = createTablet(0, 12, 0, -1);
             Partition p(0, -1, 4000, 4849, 10, 20);
-            w.addPartition(tablet, p);
+            w.addPartition(p, tablet);
         }
 
         CPPUNIT_ASSERT_EQUAL(0, w.currentId);
@@ -173,7 +173,7 @@ class WillTest : public CppUnit::TestFixture {
         {
             ProtoBuf::Tablets::Tablet tablet = createTablet(0, 15, 0, -1);
             Partition p(0, -1, 2, 2, 10, 10);
-            w.addPartition(tablet, p);
+            w.addPartition(p, tablet);
         }
 
         CPPUNIT_ASSERT_EQUAL(1, w.currentId);
@@ -184,7 +184,7 @@ class WillTest : public CppUnit::TestFixture {
         {
             ProtoBuf::Tablets::Tablet tablet = createTablet(0, 12, 0, -1);
             Partition p(0, -1, 3, 3, 49, 49);
-            w.addPartition(tablet, p);
+            w.addPartition(p, tablet);
         }
 
         CPPUNIT_ASSERT_EQUAL(2, w.currentId);
