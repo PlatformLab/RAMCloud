@@ -376,15 +376,6 @@ MasterServer::recover(uint64_t masterId,
     LOG(NOTICE, "Recovering master %lu, partition %lu, %u hosts",
         masterId, partitionId, backups.server_size());
 
-#if TESTING
-    if (!mockRandomValue)
-        srand(rdtsc());
-    else
-        srand(0);
-#else
-    srand(rdtsc());
-#endif
-
 #ifdef PERF_DEBUG_RECOVERY_SERIAL
     ObjectTub<Task> tasks[1];
 #else

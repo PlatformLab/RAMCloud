@@ -53,13 +53,13 @@ class RecoveryTest : public CppUnit::TestFixture {
         Segment* seg;
 
         WriteValidSegment(uint64_t masterId, uint64_t segmentId,
-                          const uint32_t segmentSize, const string& locator)
+                          const uint32_t segmentSize, const string locator)
             : backupList()
             , mgr()
             , segMem()
             , seg()
         {
-            mgr = new BackupManager(NULL, 99, 1);
+            mgr = new BackupManager(NULL, masterId, 1);
             ProtoBuf::ServerList::Entry& e(*backupList.add_server());
             e.set_service_locator(locator);
             e.set_server_type(ProtoBuf::BACKUP);
