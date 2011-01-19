@@ -18,12 +18,23 @@
 
 #include <vector>
 #include "Common.h"
+#include "Log.h"
 
 namespace RAMCloud {
 
-struct Partition {
+class Partition {
+ public:
+    Partition()
+        : firstKey(0), lastKey(0), minBytes(0), maxBytes(0),
+          minReferants(0), maxReferants(0)
+    {
+    }
     uint64_t firstKey;
     uint64_t lastKey;
+    uint64_t minBytes;
+    uint64_t maxBytes;
+    uint64_t minReferants;
+    uint64_t maxReferants;
 };
 typedef std::vector<Partition> PartitionList;
 
@@ -36,7 +47,9 @@ class TabletProfiler {
     void           track(uint64_t key, uint32_t bytes, LogTime time);
     void           untrack(uint64_t key, uint32_t bytes, LogTime time);
     PartitionList* getPartitions(uint64_t maxPartitionBytes,
-                                 uint64_t maxPartitionReferants);
+                                 uint64_t maxPartitionReferants,
+                                 uint64_t residualMaxBytes,
+                                 uint64_t residualMaxReferants);
 
   private:
     static const int      BITS_PER_LEVEL = 8;
@@ -49,26 +62,37 @@ class TabletProfiler {
       public:
         PartitionCollector(uint64_t maxPartitionBytes,
                            uint64_t maxPartitionReferants,
-                           PartitionList* partitions);
-        void addRangeLeaf(uint64_t firstKey, uint64_t lastKey,
-                          uint64_t rangeBytes, uint64_t rangeReferants);
-        void addRangeNonLeaf(uint64_t rangeBytes, uint64_t rangeReferants);
+                           PartitionList* partitions,
+                           uint64_t residualMaxBytes,
+                           uint64_t residualMaxReferants);
+        void addRange(uint64_t firstKey, uint64_t lastKey,
+                      uint64_t rangeBytes, uint64_t rangeReferants,
+                      uint64_t possibleBytes, uint64_t possibleReferants);
         void done();
 
       private:
         PartitionList* partitions;
 
-        void pushCurrentTally(uint64_t lastKey);
+        void pushCurrentTally(uint64_t lastKey,
+                              uint64_t minBytes,
+                              uint64_t maxBytes,
+                              uint64_t minReferants,
+                              uint64_t maxReferants);
+
+        // residual counts passed in to the constructor, for use in the
+        // first partition generated
+        uint64_t residualMaxBytes;
+        uint64_t residualMaxReferants;
 
         // current tally
         uint64_t maxPartitionBytes;
         uint64_t maxPartitionReferants;
         uint64_t nextFirstKey;
         uint64_t currentFirstKey;
-        uint64_t currentTotalBytes;
-        uint64_t currentTotalReferants;
-        uint64_t globalTotalBytes;
-        uint64_t globalTotalReferants;
+        uint64_t currentKnownBytes;
+        uint64_t currentKnownReferants;
+        uint64_t previousPossibleBytes;
+        uint64_t previousPossibleReferants;
         bool     isDone;
 
         friend class TabletProfilerTest;
@@ -120,7 +144,8 @@ class TabletProfiler {
         uint64_t     getBucketFirstKey(BucketHandle bh);
         uint64_t     getBucketLastKey(BucketHandle bh);
         bool         isBottom();
-        void         partitionWalk(PartitionCollector *pc);
+        void         partitionWalk(PartitionCollector *pc, uint64_t parentBytes = 0,
+                                   uint64_t parentReferants = 0);
         LogTime      getCreateTime();
         uint64_t     getFirstKey();
         uint64_t     getLastKey();

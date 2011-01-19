@@ -38,8 +38,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_TabletProfiler_getPartitions);
     CPPUNIT_TEST(test_TabletProfiler_findBucket);
     CPPUNIT_TEST(test_PartitionCollector_constructor);
-    CPPUNIT_TEST(test_PartitionCollector_addRangeLeaf);
-    CPPUNIT_TEST(test_PartitionCollector_addRangeNonLeaf);
+    CPPUNIT_TEST(test_PartitionCollector_addRange);
     CPPUNIT_TEST(test_PartitionCollector_done);
     CPPUNIT_TEST(test_PartitionCollector_pushCurrentTally);
     CPPUNIT_TEST(test_BucketHandle_constructor);
@@ -105,15 +104,46 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     {
         TabletProfiler tp;
         tp.track(0, 7, LogTime(1, 2));
-        tp.track(0, 8, LogTime(1, 3));
-        PartitionList *l = tp.getPartitions(1000, 1000);
+        tp.track(0x100000000000000L, 8, LogTime(1, 3));
+        tp.track(-1, 25, LogTime(1, 4));
 
+        PartitionList *l = tp.getPartitions(1000, 1000, 0, 0);
         CPPUNIT_ASSERT(l != NULL);
-        CPPUNIT_ASSERT(l->size() == 1);
+        CPPUNIT_ASSERT_EQUAL(1, l->size());
         CPPUNIT_ASSERT_EQUAL(0, l->begin()[0].firstKey);
         CPPUNIT_ASSERT_EQUAL((uint64_t)-1, l->begin()[0].lastKey);
-
         delete l;
+
+        l = tp.getPartitions(1000, 1000, 984, 1);
+        CPPUNIT_ASSERT(l != NULL);
+        CPPUNIT_ASSERT_EQUAL(1, l->size());
+        delete l;
+
+        l = tp.getPartitions(1000, 1000, 985, 1);
+        CPPUNIT_ASSERT(l != NULL);
+        CPPUNIT_ASSERT_EQUAL(2, l->size());
+        delete l;
+
+        l = tp.getPartitions(1000, 1000, 20, 997);
+        CPPUNIT_ASSERT(l != NULL);
+        CPPUNIT_ASSERT_EQUAL(1, l->size());
+        delete l;
+
+        l = tp.getPartitions(1000, 1000, 20, 998);
+        CPPUNIT_ASSERT(l != NULL);
+        CPPUNIT_ASSERT_EQUAL(2, l->size());
+        delete l;
+
+        // assert if we have < the max number of bytes/referants,
+        // then our count is precise. we must force a split so
+        // that the walker takes into account parent bytes.
+        tp.track(0, TabletProfiler::BUCKET_SPLIT_BYTES, LogTime(1, 5));
+        tp.track(0, TabletProfiler::BUCKET_SPLIT_BYTES / 2, LogTime(1, 6));
+        l = tp.getPartitions(640 * 1024 * 1024, 1000, 0, 0);
+        CPPUNIT_ASSERT(l != NULL);
+        CPPUNIT_ASSERT_EQUAL(1, l->size());
+        CPPUNIT_ASSERT_EQUAL((*l)[0].minBytes, (*l)[0].maxBytes);
+        CPPUNIT_ASSERT_EQUAL((*l)[0].minReferants,  (*l)[0].maxReferants);
     }
 
     // this is mostly just a wrapper around Subrange::findBucket.
@@ -179,56 +209,43 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     test_PartitionCollector_constructor()
     {
         PartitionList partList;
-        PartitionCollector pc(1024 * 1024, 1000, &partList);
+        PartitionCollector pc(1024 * 1024, 1000, &partList, 0, 0);
 
         CPPUNIT_ASSERT_EQUAL(&partList, pc.partitions);
         CPPUNIT_ASSERT_EQUAL(1024 * 1024, pc.maxPartitionBytes);
         CPPUNIT_ASSERT_EQUAL(1000, pc.maxPartitionReferants);
         CPPUNIT_ASSERT_EQUAL(0, pc.nextFirstKey);
         CPPUNIT_ASSERT_EQUAL(0, pc.currentFirstKey);
-        CPPUNIT_ASSERT_EQUAL(0, pc.currentTotalBytes);
-        CPPUNIT_ASSERT_EQUAL(0, pc.currentTotalReferants);
-        CPPUNIT_ASSERT_EQUAL(0, pc.globalTotalBytes);
-        CPPUNIT_ASSERT_EQUAL(0, pc.globalTotalReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.currentKnownBytes);
+        CPPUNIT_ASSERT_EQUAL(0, pc.currentKnownReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.previousPossibleBytes);
+        CPPUNIT_ASSERT_EQUAL(0, pc.previousPossibleReferants);
         CPPUNIT_ASSERT_EQUAL(false, pc.isDone);
     }
 
     void
-    test_PartitionCollector_addRangeLeaf()
+    test_PartitionCollector_addRange()
     {
         PartitionList partList;
-        PartitionCollector pc(1024 * 1024, 1000, &partList);
+        PartitionCollector pc(1024 * 1024, 1000, &partList, 0, 0);
 
-        pc.addRangeLeaf(0, 10, 5, 1);
-        CPPUNIT_ASSERT_EQUAL(5, pc.currentTotalBytes);
-        CPPUNIT_ASSERT_EQUAL(1, pc.currentTotalReferants);
+        pc.addRange(0, 10, 5, 1, 0, 0);
+        CPPUNIT_ASSERT_EQUAL(5, pc.currentKnownBytes);
+        CPPUNIT_ASSERT_EQUAL(1, pc.currentKnownReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.previousPossibleBytes);
+        CPPUNIT_ASSERT_EQUAL(0, pc.previousPossibleReferants);
         CPPUNIT_ASSERT_EQUAL(0, pc.partitions->size());
         CPPUNIT_ASSERT_EQUAL(11, pc.nextFirstKey);
-        CPPUNIT_ASSERT_EQUAL(5, pc.globalTotalBytes);
-        CPPUNIT_ASSERT_EQUAL(1, pc.globalTotalReferants);
 
         // force a new partition by size
-        pc.addRangeLeaf(11, 20, 1024*1024, 1);
+        pc.addRange(11, 20, 1024*1024, 1, 0, 0);
         CPPUNIT_ASSERT_EQUAL(21, pc.currentFirstKey);
         CPPUNIT_ASSERT_EQUAL(1, pc.partitions->size());
 
         // force a new partition by referants
-        pc.addRangeLeaf(21, 30, 1, 5000);
+        pc.addRange(21, 30, 1, 5000, 0, 0);
         CPPUNIT_ASSERT_EQUAL(31, pc.currentFirstKey);
         CPPUNIT_ASSERT_EQUAL(2, pc.partitions->size());
-    }
-
-    void
-    test_PartitionCollector_addRangeNonLeaf()
-    {
-        PartitionList partList;
-        PartitionCollector pc(1024 * 1024, 1000, &partList);
-
-        pc.addRangeNonLeaf(10 * 1024 * 1024, 100000);
-        CPPUNIT_ASSERT_EQUAL(10 * 1024 * 1024, pc.currentTotalBytes);
-        CPPUNIT_ASSERT_EQUAL(100000, pc.currentTotalReferants);
-        CPPUNIT_ASSERT_EQUAL(10 * 1024 * 1024, pc.globalTotalBytes);
-        CPPUNIT_ASSERT_EQUAL(100000, pc.globalTotalReferants);
     }
 
     void
@@ -236,10 +253,12 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     {
         // ensure the last partition is pushed to the list
         PartitionList partList1;
-        PartitionCollector pc1(1024 * 1024, 1000, &partList1);
+        PartitionCollector pc1(1024 * 1024, 1000, &partList1, 0, 0);
 
-        pc1.addRangeLeaf(0, 10, 1024 * 1024 + 1, 1);
-        pc1.addRangeLeaf(11, 20, 100, 1);
+        pc1.addRange(0, 10, 1024 * 1024 + 1, 1, 42, 83);
+        CPPUNIT_ASSERT_EQUAL(42, pc1.previousPossibleBytes);
+        CPPUNIT_ASSERT_EQUAL(83, pc1.previousPossibleReferants);
+        pc1.addRange(11, 20, 100, 1, 0, 0);
         pc1.done();
         CPPUNIT_ASSERT_EQUAL(2, pc1.partitions->size());
         CPPUNIT_ASSERT_EQUAL(0, pc1.partitions->begin()[0].firstKey);
@@ -250,7 +269,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
 
         // if there were no objects at all, we should push the whole range
         PartitionList partList2;
-        PartitionCollector pc2(1024 * 1024, 1000, &partList2);
+        PartitionCollector pc2(1024 * 1024, 1000, &partList2, 0, 0);
 
         pc2.done();
         CPPUNIT_ASSERT_EQUAL(1, pc2.partitions->size());
@@ -263,15 +282,17 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     test_PartitionCollector_pushCurrentTally()
     {
         PartitionList partList;
-        PartitionCollector pc(1024 * 1024, 1000, &partList);
+        PartitionCollector pc(1024 * 1024, 1000, &partList, 0, 0);
 
-        pc.addRangeLeaf(0, 10, 1000, 1);
-        pc.pushCurrentTally(8);
+        pc.addRange(0, 10, 1000, 1, 0, 0);
+        pc.pushCurrentTally(8, 1000, 1000, 1, 1);
         CPPUNIT_ASSERT_EQUAL(1, pc.partitions->size());
         CPPUNIT_ASSERT_EQUAL(0, pc.partitions->begin()[0].firstKey);
         CPPUNIT_ASSERT_EQUAL(8, pc.partitions->begin()[0].lastKey);
-        CPPUNIT_ASSERT_EQUAL(0, pc.currentTotalBytes);
-        CPPUNIT_ASSERT_EQUAL(0, pc.currentTotalReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.currentKnownBytes);
+        CPPUNIT_ASSERT_EQUAL(0, pc.currentKnownReferants);
+        CPPUNIT_ASSERT_EQUAL(0, pc.residualMaxBytes);
+        CPPUNIT_ASSERT_EQUAL(0, pc.residualMaxReferants);
     }
 
     void
@@ -447,31 +468,29 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         for (int i = 0; i < s.numBuckets; i++) {
             if (i == 1) {
                 s.buckets[i].child = c;
-                s.buckets[i].totalBytes = 2048UL * 1024 * 1024;
+                s.buckets[i].totalBytes = 8 * 1024 * 1024;
                 s.buckets[i].totalReferants = 1000;
             } else {
-                s.buckets[i].totalBytes = 1;
-                s.buckets[i].totalReferants = 1;
+                s.buckets[i].totalBytes = 0;
+                s.buckets[i].totalReferants = 0;
             }
         }
-        for (int i = 0; i < c->numBuckets; i++)
-            c->buckets[i].totalBytes = c->buckets[i].totalReferants = 2;
+        for (int i = 0; i < c->numBuckets; i++) {
+            c->buckets[i].totalBytes = 4 * 1024 * 1024;
+            c->buckets[i].totalReferants = 1;
+        }
 
         PartitionList partList;
-        PartitionCollector pc(640 * 1024 * 1024, 10 * 1000 * 1000, &partList);
+        PartitionCollector pc(640 * 1024 * 1024, 10 * 1000 * 1000,
+            &partList, 0, 0);
         s.partitionWalk(&pc);
         pc.done();
-        CPPUNIT_ASSERT_EQUAL(2, partList.size());
+
+        CPPUNIT_ASSERT_EQUAL(2, (int)partList.size());
         CPPUNIT_ASSERT_EQUAL(0, partList[0].firstKey);
-        CPPUNIT_ASSERT_EQUAL(s.bucketWidth + c->bucketWidth - 1,
+        CPPUNIT_ASSERT_EQUAL(partList[1].firstKey - 1,
             partList[0].lastKey);
         CPPUNIT_ASSERT_EQUAL((uint64_t)-1, partList[1].lastKey);
-        CPPUNIT_ASSERT_EQUAL(
-            2048UL * 1024 * 1024 + (1 * (s.numBuckets - 1)) + 2 * c->numBuckets,
-            pc.globalTotalBytes);
-        CPPUNIT_ASSERT_EQUAL(
-            1000 + (1 * (s.numBuckets - 1)) + 2 * c->numBuckets,
-            pc.globalTotalReferants);
     }
 
     void

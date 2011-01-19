@@ -227,18 +227,41 @@ TabletProfiler::untrack(uint64_t key, uint32_t bytes, LogTime time)
  *      The desired maximum number of bytes per partition.
  * \param[in] maxPartitionReferants
  *      The desired maximum number of referants per partition.
+ * \param[in] residualMaxBytes
+ *      Residual byte count to take into account for the first
+ *      partition computed. This can be used to obtain a smaller first
+ *      partition, which is helpful when combining multiple Tablets'
+ *      partitions during the Will computation.
+ * \param[in] residualMaxReferants
+ *      Same as residualMaxBytes, but for referant counts instead of
+ *      byte counts.
  * \return
  *      A PartitionList (vector of Partition structures) that describes the
  *      first and last keys of the calculated partitions.
  */
 PartitionList*
 TabletProfiler::getPartitions(uint64_t maxPartitionBytes,
-    uint64_t maxPartitionReferants)
+    uint64_t maxPartitionReferants, uint64_t residualMaxBytes,
+    uint64_t residualMaxReferants)
 {
     PartitionList* partitions = new PartitionList();
-    PartitionCollector pc(maxPartitionBytes, maxPartitionReferants, partitions);
-    root->partitionWalk(&pc);
-    pc.done();
+
+    // if we have only one partition's worth, then we can give an exact tally
+    if ((totalTrackedBytes + residualMaxBytes) < maxPartitionBytes &&
+        (totalTracked + residualMaxReferants) < maxPartitionReferants) {
+        Partition newPart;
+        newPart.minBytes = newPart.maxBytes = totalTrackedBytes;
+        newPart.minReferants = newPart.maxReferants = totalTracked;
+        newPart.firstKey = 0;
+        newPart.lastKey = (uint64_t)-1;
+        partitions->push_back(newPart);
+    } else {
+        PartitionCollector pc(maxPartitionBytes, maxPartitionReferants,
+            partitions, residualMaxBytes, residualMaxReferants);
+        root->partitionWalk(&pc);
+        pc.done();
+    }
+
     return partitions;
 }
 
@@ -291,16 +314,19 @@ TabletProfiler::findBucket(uint64_t key, LogTime *time)
  */
 TabletProfiler::PartitionCollector::PartitionCollector(
     uint64_t maxPartitionBytes, uint64_t maxPartitionReferants,
-    PartitionList* partitions)
+    PartitionList* partitions, uint64_t residualMaxBytes,
+    uint64_t residualMaxReferants)
     : partitions(partitions),
+      residualMaxBytes(residualMaxBytes),
+      residualMaxReferants(residualMaxReferants),
       maxPartitionBytes(maxPartitionBytes),
       maxPartitionReferants(maxPartitionReferants),
       nextFirstKey(0),
       currentFirstKey(0),
-      currentTotalBytes(0),
-      currentTotalReferants(0),
-      globalTotalBytes(0),
-      globalTotalReferants(0),
+      currentKnownBytes(0),
+      currentKnownReferants(0),
+      previousPossibleBytes(0),
+      previousPossibleReferants(0),
       isDone(false)
 {
 }
@@ -310,8 +336,7 @@ TabletProfiler::PartitionCollector::PartitionCollector(
  * by a leaf Bucket in our TabletProfiler. This function expects to be called
  * once for all sequential, non-overlapping key ranges for the entire key
  * space, i.e. all leaf Buckets. It must not be called on internal Bucket,
- * i.e. those that have children. The addRangeNonLeaf method is provided
- * for those cases.
+ * i.e. those that have children.
  *
  * This method tracks the next partition and, if parameters are exceeded,
  * closes the current partition, saves it, and starts a new one. 
@@ -327,68 +352,72 @@ TabletProfiler::PartitionCollector::PartitionCollector(
  *      The number of referant bytes consumed by this (firstKey, lastKey) range.
  * \param[in] rangeReferants 
  *      The number of referant in this (firstKey, lastKey) range.
+ * \param[in] possibleBytes
+ *      The number of referant bytes that may exist in this range, but we're not
+ *      sure.
+ * \param[in] possibleReferants
+ *      The number of referants that may exist in this range, but we're not sure.
  */
 void
-TabletProfiler::PartitionCollector::addRangeLeaf(uint64_t firstKey,
-    uint64_t lastKey, uint64_t rangeBytes, uint64_t rangeReferants)
+TabletProfiler::PartitionCollector::addRange(uint64_t firstKey,
+    uint64_t lastKey, uint64_t rangeBytes, uint64_t rangeReferants,
+    uint64_t possibleBytes, uint64_t possibleReferants)
 {
     assert(!isDone);
     assert(nextFirstKey == firstKey);
 
-    currentTotalBytes += rangeBytes;
-    currentTotalReferants += rangeReferants;
+    currentKnownBytes += rangeBytes;
+    currentKnownReferants += rangeReferants;
 
-    if (currentTotalBytes > maxPartitionBytes ||
-        currentTotalReferants > maxPartitionReferants) {
+    uint64_t maxPossibleBytes = currentKnownBytes +
+                                possibleBytes +
+                                previousPossibleBytes;
 
-        pushCurrentTally(lastKey);
+    uint64_t maxPossibleReferants = currentKnownReferants +
+                                    possibleReferants +
+                                    previousPossibleReferants;
+
+    if (maxPossibleBytes + residualMaxBytes >= maxPartitionBytes ||
+        maxPossibleReferants + residualMaxReferants >= maxPartitionReferants) {
+
+        pushCurrentTally(lastKey, currentKnownBytes, maxPossibleBytes,
+            currentKnownReferants, maxPossibleReferants);
         currentFirstKey = lastKey + 1;
+
+        // Remember by how many bytes and referants we could have been off
+        // when drawing this line in the sand. We will need this for the
+        // next one.
+        //
+        // Note that this can be optimised if the Subranges in which we
+        // drawn lines to form a Partition share common ancestors. In
+        // such cases, we can safely obtain lower estimates. I'm not sure
+        // it's worth doing.
+        previousPossibleBytes = possibleBytes;
+        previousPossibleReferants = possibleReferants;
     }
 
     nextFirstKey = lastKey + 1;
-
-    globalTotalBytes += rangeBytes;
-    globalTotalReferants += rangeReferants;
 }
 
 /**
- * Update the PartitionCollector by telling it about a key range described
- * by a non-leaf Bucket in our TabletProfiler.
- *
- * This method only updates byte and referant counts for the current partition
- * being computed. It will not close the partition if it gets too large, or
- * modify any other state. This method should be called pre-order in the
- * traversal, thus it only adds the error-bounded bytes from internal Buckets.
- *
- * \param[in] rangeBytes
- *      The number of referant bytes consumed by this (firstKey, lastKey) range.
- * \param[in] rangeReferants 
- *      The number of referants in this (firstKey, lastKey) range.
- */
-void
-TabletProfiler::PartitionCollector::addRangeNonLeaf(uint64_t rangeBytes,
-    uint64_t rangeReferants)
-{
-    assert(!isDone);
-
-    currentTotalBytes += rangeBytes;
-    currentTotalReferants += rangeReferants;
-    globalTotalBytes += rangeBytes;
-    globalTotalReferants += rangeReferants;
-}
-
-/**
- * Finalise the PartitionCollector after all calls to addRangeLeaf and
- * addRangeNonLeaf have been made. After invocation, the object cannot
- * be altered.
+ * Finalise the PartitionCollector after all calls to addRangeLeaf
+ * have been made. After invocation, the object cannot be altered.
  */
 void
 TabletProfiler::PartitionCollector::done()
 {
     assert(!isDone);
-    pushCurrentTally(~0);
+    pushCurrentTally(~0,
+        currentKnownBytes,
+        currentKnownBytes + previousPossibleBytes,
+        currentKnownReferants,
+        currentKnownReferants + previousPossibleReferants);
+
     if (partitions->size() == 0) {
-        Partition newPart = { 0, (uint64_t)-1 };
+        // empty tablet case
+        Partition newPart;
+        newPart.firstKey = 0;
+        newPart.lastKey = (uint64_t)-1;
         partitions->push_back(newPart);
     }
     isDone = true;
@@ -405,15 +434,27 @@ TabletProfiler::PartitionCollector::done()
  *      partition.
  */
 void
-TabletProfiler::PartitionCollector::pushCurrentTally(uint64_t lastKey)
+TabletProfiler::PartitionCollector::pushCurrentTally(uint64_t lastKey,
+    uint64_t minBytes, uint64_t maxBytes, uint64_t minReferants,
+    uint64_t maxReferants)
 {
     assert(!isDone);
-    if (currentTotalBytes != 0) {
-        assert(currentTotalReferants != 0);
-        Partition newPart = { currentFirstKey, lastKey };
+    if (currentKnownBytes != 0) {
+        assert(currentKnownReferants != 0);
+
+        Partition newPart;
+        newPart.firstKey = currentFirstKey;
+        newPart.lastKey = lastKey;
+        newPart.minBytes = minBytes; 
+        newPart.maxBytes = maxBytes;
+        newPart.minReferants = minReferants;
+        newPart.maxReferants = maxReferants;
+
         partitions->push_back(newPart);
-        currentTotalBytes = 0;
-        currentTotalReferants = 0;
+        currentKnownBytes = 0;
+        currentKnownReferants = 0;
+        residualMaxBytes = 0;
+        residualMaxReferants = 0; 
     }
 }
 
@@ -656,26 +697,38 @@ TabletProfiler::Subrange::isBottom()
 }
 
 /**
- * Walk this Subrange, calling the addRangeNonLeaf method of the
- * PartitionCollector on all internal Buckets before recursing, and
- * calling the addRangeLeaf method on all leaf Buckets. This is
- * used to compute the desired partitions of the key space.
+ * Walk this Subrange, tracking the number of parent bytes and
+ * referants before recursing, and calling the addRangeLeaf method on
+ * all leaf Buckets. This is used to compute the desired partitions
+ * of the key space.
  *
  * \param[in] pc
  *      The PartitionCollector to use for this walk.
+ * \param[in] parentBytes
+ *      The number of bytes in parent Subranges, which may or may
+ *      not be in this smaller Subrange. This parameter is used for
+ *      internal recursion, and should normally be omitted in preference
+ *      of the default value. 
+ * \param[in] parentReferants
+ *      The number of referants in parent Subranges, which may or may
+ *      not be in this smaller Subrange. This parameter is used for
+ *      internal recursion, and should normally be omitted in preference
+ *      of the default value. 
  */
 void
-TabletProfiler::Subrange::partitionWalk(PartitionCollector *pc)
+TabletProfiler::Subrange::partitionWalk(PartitionCollector *pc,
+    uint64_t parentBytes, uint64_t parentReferants)
 {
     for (int i = 0; i < numBuckets; i++) {
         if (buckets[i].child != NULL) {
-            pc->addRangeNonLeaf(buckets[i].totalBytes,
-                buckets[i].totalReferants);
-            buckets[i].child->partitionWalk(pc);
+            buckets[i].child->partitionWalk(pc,
+                parentBytes + buckets[i].totalBytes,
+                parentReferants + buckets[i].totalReferants);
         } else {
             BucketHandle bh(this, i);
-            pc->addRangeLeaf(bh.getFirstKey(), bh.getLastKey(),
-                buckets[i].totalBytes, buckets[i].totalReferants);
+            pc->addRange(bh.getFirstKey(), bh.getLastKey(),
+                buckets[i].totalBytes, buckets[i].totalReferants,
+                parentBytes, parentReferants);
         }
     }
 }
