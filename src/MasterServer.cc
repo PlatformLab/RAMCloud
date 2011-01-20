@@ -614,8 +614,10 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                                 &logTime, false));
 
                 // update the TabletProfiler
+#if 0 // this is broken. tablets aren't currently created until after recovery
                 Table& t(getTable(recoverObj->table, recoverObj->id));
                 t.profiler.track(recoverObj->id, lengthInLog, logTime);
+#endif
 #endif
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
