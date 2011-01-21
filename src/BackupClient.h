@@ -98,8 +98,9 @@ class BackupClient : public Client {
     }
 
     void ping();
-    vector<uint64_t> startReadingData(uint64_t masterId,
-                                      const ProtoBuf::Tablets& partitions);
+
+    vector<pair<uint64_t, uint32_t>>
+    startReadingData(uint64_t masterId, const ProtoBuf::Tablets& partitions);
 
   private:
     /**

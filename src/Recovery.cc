@@ -87,11 +87,16 @@ Recovery::buildSegmentIdToBackups()
             host.service_locator().c_str());
         BackupClient backup(
             transportManager.getSession(host.service_locator().c_str()));
-        vector<uint64_t> ids(backup.startReadingData(masterId, will));
-        foreach (uint64_t id, ids) {
-            LOG(DEBUG, "%s has %lu", host.service_locator().c_str(), id);
+        vector<pair<uint64_t, uint32_t>> idAndLengths(
+            backup.startReadingData(masterId, will));
+        foreach (const auto& idAndLength, idAndLengths) {
+            auto segmentId = idAndLength.first;
+            auto segmentWrittenLength = idAndLength.second;
+            LOG(DEBUG, "%s has %lu with length %u",
+                host.service_locator().c_str(),
+                segmentId, segmentWrittenLength);
             // A copy of the entry is made, we augment it with a segment id.
-            segmentIdToBackups.insert(BackupMap::value_type(id, host));
+            segmentIdToBackups.insert(BackupMap::value_type(segmentId, host));
         }
     }
 }
