@@ -35,6 +35,8 @@ typedef RealInfiniband Infiniband;
 Infiniband::RealInfiniband(const char* deviceName)
     : device(deviceName)
     , pd(device)
+    , totalAddressHandleAllocCalls()
+    , totalAddressHandleAllocTime()
 {
 }
 
@@ -43,6 +45,17 @@ Infiniband::RealInfiniband(const char* deviceName)
  */
 Infiniband::~RealInfiniband()
 {
+}
+
+void
+Infiniband::dumpStats()
+{
+    LOG(NOTICE, "totalAddressHandleAllocCalls: %lu (count)",
+        totalAddressHandleAllocCalls);
+    LOG(NOTICE, "totalAddressHandleAllocTime: %lu (ticks)",
+        totalAddressHandleAllocTime);
+    totalAddressHandleAllocCalls = 0;
+    totalAddressHandleAllocTime = 0;
 }
 
 /**
@@ -378,7 +391,7 @@ Infiniband::allocateBufferDescriptorAndRegister(size_t bytes)
     ibv_mr *mr = ibv_reg_mr(pd.pd, p, bytes,
         IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
     if (mr == NULL)
-        throw TransportException(HERE, "failed to register ring buffer");
+        throw TransportException(HERE, "failed to register ring buffer", errno);
 
     return BufferDescriptor(reinterpret_cast<char *>(p), bytes, mr);
 }
@@ -880,7 +893,10 @@ Infiniband::Address::getHandle() const
         attr.is_global = 0;
         attr.sl = 0;
         attr.port_num = physicalPort;
+        infiniband.totalAddressHandleAllocCalls += 1;
+        uint64_t start = rdtsc();
         ah = ibv_create_ah(infiniband.pd.pd, &attr);
+        infiniband.totalAddressHandleAllocTime += rdtsc() - start;
         if (ah == NULL)
             throw TransportException(HERE, "failed to create ah", errno);
     }

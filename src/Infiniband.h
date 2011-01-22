@@ -80,6 +80,8 @@ class RealInfiniband {
     explicit RealInfiniband(const char* deviceName);
     ~RealInfiniband();
 
+    void dumpStats();
+
     class DeviceList {
       public:
         DeviceList()
@@ -346,6 +348,8 @@ class RealInfiniband {
   PRIVATE:
     Device device;
     ProtectionDomain pd;
+    uint64_t totalAddressHandleAllocCalls;
+    uint64_t totalAddressHandleAllocTime;
     static const uint32_t MAX_INLINE_DATA = 400;
 };
 

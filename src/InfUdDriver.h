@@ -47,6 +47,7 @@ class InfUdDriver : public Driver {
 
     explicit InfUdDriver(const ServiceLocator* localServiceLocator = NULL);
     virtual ~InfUdDriver();
+    virtual void dumpStats() { infiniband->dumpStats(); }
     virtual uint32_t getMaxPacketSize();
     virtual void release(char *payload, uint32_t len);
     virtual void sendPacket(const Driver::Address *addr,

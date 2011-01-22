@@ -63,6 +63,7 @@ class InfRcTransport : public Transport {
         totalClientSendCopyBytes = 0;
         totalSendReplyCopyTime = 0;
         totalSendReplyCopyBytes = 0;
+        infiniband->dumpStats();
     }
     uint32_t getMaxRpcSize() const;
 
