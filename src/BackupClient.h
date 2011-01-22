@@ -59,6 +59,27 @@ class BackupClient : public Client {
     };
     DEF_SYNC_RPC_METHOD(getRecoveryData, GetRecoveryData);
 
+    class StartReadingData {
+      public:
+        StartReadingData(BackupClient& client,
+                         uint64_t masterId,
+                         const ProtoBuf::Tablets& partitions);
+        bool isReady() { return client.isReady(state); }
+        vector<pair<uint64_t, uint32_t>> operator()();
+        BackupClient& client;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+
+        friend class BackupClient;
+        DISALLOW_COPY_AND_ASSIGN(StartReadingData);
+    };
+    vector<pair<uint64_t, uint32_t>>
+    startReadingData(uint64_t masterId, const ProtoBuf::Tablets& partitions)
+    {
+        return StartReadingData(*this, masterId, partitions)();
+    }
+
     class WriteSegment {
       public:
         WriteSegment(BackupClient& client,
@@ -98,9 +119,6 @@ class BackupClient : public Client {
     }
 
     void ping();
-
-    vector<pair<uint64_t, uint32_t>>
-    startReadingData(uint64_t masterId, const ProtoBuf::Tablets& partitions);
 
   private:
     /**

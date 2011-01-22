@@ -148,31 +148,49 @@ BackupClient::ping()
  * Begin reading the objects stored for the given server from disk and
  * split them into recovery segments.
  *
+ * \param client
+ *      The BackupClient whose Session should be used for the call.
  * \param masterId
  *      The id of the master whose data is to be recovered.
  * \param partitions
  *      The will of the crashed master which is used to determine how to
  *      build recovery segments from the backup's stored segments.
+ */
+BackupClient::StartReadingData::StartReadingData(
+    BackupClient& client,
+    uint64_t masterId,
+    const ProtoBuf::Tablets& partitions)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    BackupStartReadingDataRpc::Request&
+        reqHdr(client.allocHeader<BackupStartReadingDataRpc>(requestBuffer));
+    reqHdr.masterId = masterId;
+    reqHdr.partitionsLength = ProtoBuf::serializeToResponse(requestBuffer,
+                                                            partitions);
+    Transport::SessionRef session(client.getSession());
+    state = client.send<BackupStartReadingDataRpc>(session,
+                                                   requestBuffer,
+                                                   responseBuffer);
+}
+
+/**
  * \return
- *      A set of segment IDs for that server which will be read from disk.
+ *      A set of segment IDs for masterId which will be read from disk
+ *      along with their written lengths.
  */
 vector<pair<uint64_t, uint32_t>>
-BackupClient::startReadingData(uint64_t masterId,
-                               const ProtoBuf::Tablets& partitions)
+BackupClient::StartReadingData::operator()()
 {
-    Buffer req, resp;
-    BackupStartReadingDataRpc::Request&
-        reqHdr(allocHeader<BackupStartReadingDataRpc>(req));
-    reqHdr.masterId = masterId;
-    reqHdr.partitionsLength = ProtoBuf::serializeToResponse(req,
-                                                            partitions);
-    const BackupStartReadingDataRpc::Response&
-        respHdr(sendRecv<BackupStartReadingDataRpc>(session, req, resp));
-    checkStatus(HERE);
-
+    const BackupStartReadingDataRpc::Response& respHdr(
+        client.recv<BackupStartReadingDataRpc>(state));
+    client.checkStatus(HERE);
     uint64_t segmentIdCount = respHdr.segmentIdCount;
-    resp.truncateFront(sizeof(respHdr));
-    auto const* segmentIdsRaw = resp.getStart<pair<uint64_t, uint32_t>>();
+    responseBuffer.truncateFront(sizeof(respHdr));
+    auto const* segmentIdsRaw =
+        responseBuffer.getStart<pair<uint64_t, uint32_t>>();
     return vector<pair<uint64_t, uint32_t>>(segmentIdsRaw,
                                             segmentIdsRaw + segmentIdCount);
 }
