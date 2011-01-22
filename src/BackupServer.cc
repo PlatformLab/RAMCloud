@@ -60,6 +60,7 @@ BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage,
     , recoveryException()
     , recoverySegments(NULL)
     , recoverySegmentsLength()
+    , rightmostWrittenOffset(0)
     , segmentId(segmentId)
     , segment()
     , segmentSize(segmentSize)
@@ -330,6 +331,7 @@ BackupServer::SegmentInfo::close()
         throw BackupBadSegmentIdException(HERE);
 
     state = CLOSED;
+    rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
 
     assert(storageHandle);
     StoreOp io(*this);
@@ -412,6 +414,9 @@ BackupServer::SegmentInfo::startLoading()
 
 /**
  * Store data from a buffer into the backup segment.
+ * Tracks, for this segment, which is the rightmost written byte which
+ * is used as a proxy for "segment length" for the return of
+ * startReadingData calls.
  *
  * \param src
  *      The Buffer from which data is to be stored.
@@ -432,6 +437,8 @@ BackupServer::SegmentInfo::write(Buffer& src,
     Lock lock(mutex);
     assert(state == OPEN && inMemory());
     src.copy(srcOffset, length, &segment[destOffset]);
+    rightmostWrittenOffset = std::max(rightmostWrittenOffset,
+                                      destOffset + length);
 }
 
 // --- BackupServer::LoadOp ---
@@ -830,12 +837,16 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     {
         uint64_t masterId = it->first.masterId;
         if (masterId == reqHdr.masterId) {
-            uint64_t* segmentId = new(&rpc.replyPayload, APPEND) uint64_t;
-            *segmentId = it->first.segmentId;
+            SegmentInfo& info = *it->second;
+            // Send back segment length if open, otherwise magic value to
+            // say that it is closed.
+            uint32_t writtenLength = info.getRightmostWrittenOffset();
+            new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
+                (it->first.segmentId, writtenLength);
             segmentsToFilter.push_back(it->second);
             it->second->setRecovering();
             LOG(DEBUG, "Crashed master %lu had segment %lu",
-                masterId, *segmentId);
+                masterId, it->first.segmentId);
             segmentIdCount++;
         }
     }

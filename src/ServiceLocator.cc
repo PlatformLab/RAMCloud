@@ -21,26 +21,22 @@ namespace RAMCloud {
  * Parse a list of ServiceLocator objects from a service locator string.
  * \param[in] serviceLocator
  *      A ';'-delimited list of \ref ServiceLocatorStrings.
- * \param[out] locators
- *      An empty vector to be filled with ServiceLocator objects parsed from
- *      \a serviceLocator.
+ * \return
+ *      ServiceLocator objects parsed from \a serviceLocator.
  * \throw BadServiceLocatorException
- *      Any part of \a serviceLocator could not be parsed. In this case,
- *      \a locators will not be modified.
+ *      Any part of \a serviceLocator could not be parsed.
  */
-void
-ServiceLocator::parseServiceLocators(const string& serviceLocator,
-                                     std::vector<ServiceLocator>* locators)
+vector<ServiceLocator>
+ServiceLocator::parseServiceLocators(const string& serviceLocator)
 {
-    assert(locators->empty());
-    std::vector<ServiceLocator> ret;
+    vector<ServiceLocator> ret;
     pcrecpp::StringPiece remainingServiceLocator(serviceLocator);
     while (!remainingServiceLocator.empty()) {
         ServiceLocator locator;
         locator.init(&remainingServiceLocator);
-        ret.push_back(locator);
+        ret.push_back(std::move(locator));
     }
-    locators->swap(ret);
+    return ret;
 }
 
 /**

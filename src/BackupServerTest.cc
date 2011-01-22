@@ -553,10 +553,11 @@ class BackupServerTest : public CppUnit::TestFixture {
     test_startReadingData()
     {
         client->openSegment(99, 88);
-        vector<uint64_t> result = client->startReadingData(99,
-                                                           ProtoBuf::Tablets());
+        client->writeSegment(99, 88, 0, "test", 4);
+        auto result = client->startReadingData(99, ProtoBuf::Tablets());
         CPPUNIT_ASSERT_EQUAL(1, result.size());
-        CPPUNIT_ASSERT_EQUAL(88, result[0]);
+        CPPUNIT_ASSERT_EQUAL(88, result[0].first);
+        CPPUNIT_ASSERT_EQUAL(4, result[0].second);
         CPPUNIT_ASSERT_EQUAL(1,
             BackupStorage::Handle::getAllocatedHandlesCount());
     }
@@ -564,8 +565,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_startReadingData_empty()
     {
-        vector<uint64_t> result = client->startReadingData(99,
-                                                           ProtoBuf::Tablets());
+        auto result = client->startReadingData(99, ProtoBuf::Tablets());
         CPPUNIT_ASSERT_EQUAL(0, result.size());
     }
 

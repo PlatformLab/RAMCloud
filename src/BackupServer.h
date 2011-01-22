@@ -195,6 +195,13 @@ class BackupServer : public Server {
         void close();
         void free();
 
+        /// See #rightmostWrittenOffset.
+        uint32_t
+        getRightmostWrittenOffset()
+        {
+            return rightmostWrittenOffset;
+        }
+
         /// Return true if this segment is OPEN.
         bool
         isOpen()
@@ -288,6 +295,19 @@ class BackupServer : public Server {
 
         /// The number of Buffers in #recoverySegments.
         uint32_t recoverySegmentsLength;
+
+        /**
+         * Indicate to callers of startReadingData() that particular
+         * segment's #rightmostWrittenOffset is not needed because it was
+         * successfully closed.
+         */
+        enum { BYTES_WRITTEN_CLOSED = ~(0u) };
+
+        /**
+         * An approximation for written segment "length" for startReadingData
+         * if this segment is still open, otherwise BYTES_WRITTEN_CLOSED.
+         */
+        uint32_t rightmostWrittenOffset;
 
         /// The segment id given to this segment by the master who sent it.
         const uint64_t segmentId;

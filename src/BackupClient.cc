@@ -156,7 +156,7 @@ BackupClient::ping()
  * \return
  *      A set of segment IDs for that server which will be read from disk.
  */
-vector<uint64_t>
+vector<pair<uint64_t, uint32_t>>
 BackupClient::startReadingData(uint64_t masterId,
                                const ProtoBuf::Tablets& partitions)
 {
@@ -172,8 +172,9 @@ BackupClient::startReadingData(uint64_t masterId,
 
     uint64_t segmentIdCount = respHdr.segmentIdCount;
     resp.truncateFront(sizeof(respHdr));
-    uint64_t const * segmentIdsRaw = resp.getStart<uint64_t>();
-    return vector<uint64_t>(segmentIdsRaw, segmentIdsRaw + segmentIdCount);
+    auto const* segmentIdsRaw = resp.getStart<pair<uint64_t, uint32_t>>();
+    return vector<pair<uint64_t, uint32_t>>(segmentIdsRaw,
+                                            segmentIdsRaw + segmentIdCount);
 }
 
 /**
