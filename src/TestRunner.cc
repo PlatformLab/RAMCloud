@@ -33,6 +33,7 @@
 
 char testName[256];
 bool progress = false;
+bool googleOnly = false;
 
 void __attribute__ ((noreturn))
 usage(char *arg0)
@@ -41,6 +42,7 @@ usage(char *arg0)
             "[-p] [-t testName]\n"
            "\t-t\t--test\tRun a specific test..\n"
            "\t-p\t--progress\tShow test progress.\n",
+           "\t-g\t--google\tRun google tests only.\n",
            arg0);
     exit(EXIT_FAILURE);
 }
@@ -51,12 +53,13 @@ cmdline(int argc, char *argv[])
     struct option long_options[] = {
         {"test", required_argument, NULL, 't'},
         {"progress", no_argument, NULL, 'p'},
+        {"google", no_argument, NULL, 'g'},
         {0, 0, 0, 0},
     };
 
     int c;
     int i = 0;
-    while ((c = getopt_long(argc, argv, "t:p",
+    while ((c = getopt_long(argc, argv, "t:pg",
                             long_options, &i)) >= 0)
     {
         switch (c) {
@@ -66,6 +69,9 @@ cmdline(int argc, char *argv[])
             break;
         case 'p':
             progress = true;
+            break;
+        case 'g':
+            googleOnly = true;
             break;
         default:
             usage(argv[0]);
@@ -129,5 +135,10 @@ main(int argc, char *argv[])
     };
     ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
 
-    return !runner.run(testName, false, true, progress) + RUN_ALL_TESTS();
+    int r = 0;
+    if (!googleOnly)
+        r += !runner.run(testName, false, true, progress);
+    if (googleOnly || !strcmp(testName, defaultTest))
+        r += RUN_ALL_TESTS();
+    return r;
 }
