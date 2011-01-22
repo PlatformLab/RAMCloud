@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <math.h>
+
 #include "Log.h"
 #include "TabletProfiler.h"
 
@@ -357,12 +359,16 @@ TabletProfiler::PartitionCollector::PartitionCollector(
  *      sure.
  * \param[in] possibleReferants
  *      The number of referants that may exist in this range, but we're not sure.
+ * \return
+ *      true if no Partition was made during this call, else false.
  */
-void
-TabletProfiler::PartitionCollector::addRange(uint64_t firstKey,
+bool
+TabletProfiler::PartitionCollector::addRangeLeaf(uint64_t firstKey,
     uint64_t lastKey, uint64_t rangeBytes, uint64_t rangeReferants,
     uint64_t possibleBytes, uint64_t possibleReferants)
 {
+    bool noPartitionMade = true;
+
     assert(!isDone);
     assert(nextFirstKey == firstKey);
 
@@ -394,14 +400,42 @@ TabletProfiler::PartitionCollector::addRange(uint64_t firstKey,
         // it's worth doing.
         previousPossibleBytes = possibleBytes;
         previousPossibleReferants = possibleReferants;
+
+        noPartitionMade = false;
     }
 
     nextFirstKey = lastKey + 1;
+    return noPartitionMade;
 }
 
 /**
- * Finalise the PartitionCollector after all calls to addRangeLeaf
- * have been made. After invocation, the object cannot be altered.
+ * Add the given byte and reference counts to our current Partition-in-
+ * progress. This method will never result in the Partition being split
+ * off and a new one started. The reason is that calls to addRangeLeaf()
+ * will always split based on a worst-case estimate. If no split occurs,
+ * then parent Subranges can use this method to track those values that
+ * could not have resulted in a split anyway.
+ *
+ * Yes, it's a bit confusing, but without drawing pictures I'm not sure
+ * how to explain it concisely.
+ *
+ * \param[in] rangeBytes
+ *      The number of bytes to add to our current Partition's count.
+ * \param[in] rangeReferants
+ *      The number of referants to add to our current Partition's count.
+ */
+void
+TabletProfiler::PartitionCollector::addRangeNonLeaf(uint64_t rangeBytes,
+    uint64_t rangeReferants)
+{
+    currentKnownBytes += rangeBytes;
+    currentKnownReferants += rangeReferants;
+}
+
+/**
+ * Finalise the PartitionCollector after all calls to addRangeLeaf and
+ * addRangeNonLeaf have been made. After invocation, the object cannot be
+ * altered.
  */
 void
 TabletProfiler::PartitionCollector::done()
@@ -707,8 +741,9 @@ TabletProfiler::Subrange::isBottom()
 /**
  * Walk this Subrange, tracking the number of parent bytes and
  * referants before recursing, and calling the addRangeLeaf method on
- * all leaf Buckets. This is used to compute the desired partitions
- * of the key space.
+ * all leaf Buckets and the addRangeNonLeaf method on non-leaf Buckets,
+ * none of whose children participated in a Partition being made. This
+ * is used to compute the desired partitions of the key space.
  *
  * \param[in] pc
  *      The PartitionCollector to use for this walk.
@@ -722,23 +757,39 @@ TabletProfiler::Subrange::isBottom()
  *      not be in this smaller Subrange. This parameter is used for
  *      internal recursion, and should normally be omitted in preference
  *      of the default value. 
+ * \return
+ *      True if no Partition as generated due to this call (or any of its,
+ *      recursive calls). False otherwise. This is used to determine when to
+ *      add counts to the current Partition being generated, and when those
+ *      bytes/referants have already been taken into account when a Partition
+ *      was made.
  */
-void
+bool
 TabletProfiler::Subrange::partitionWalk(PartitionCollector *pc,
     uint64_t parentBytes, uint64_t parentReferants)
 {
+    bool noPartitionMade = true;
     for (int i = 0; i < numBuckets; i++) {
         if (buckets[i].child != NULL) {
-            buckets[i].child->partitionWalk(pc,
+            bool ret = buckets[i].child->partitionWalk(pc,
                 parentBytes + buckets[i].totalBytes,
                 parentReferants + buckets[i].totalReferants);
+
+            if (ret) {
+                pc->addRangeNonLeaf(buckets[i].totalBytes,
+                    buckets[i].totalReferants);
+            }
+
+            noPartitionMade = ret && noPartitionMade;
         } else {
             BucketHandle bh(this, i);
-            pc->addRange(bh.getFirstKey(), bh.getLastKey(),
+            bool ret = pc->addRangeLeaf(bh.getFirstKey(), bh.getLastKey(),
                 buckets[i].totalBytes, buckets[i].totalReferants,
                 parentBytes, parentReferants);
+            noPartitionMade = ret && noPartitionMade;
         }
     }
+    return noPartitionMade;
 }
 
 /**

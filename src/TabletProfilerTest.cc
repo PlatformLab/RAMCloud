@@ -38,7 +38,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_TabletProfiler_getPartitions);
     CPPUNIT_TEST(test_TabletProfiler_findBucket);
     CPPUNIT_TEST(test_PartitionCollector_constructor);
-    CPPUNIT_TEST(test_PartitionCollector_addRange);
+    CPPUNIT_TEST(test_PartitionCollector_addRangeLeaf);
     CPPUNIT_TEST(test_PartitionCollector_done);
     CPPUNIT_TEST(test_PartitionCollector_pushCurrentTally);
     CPPUNIT_TEST(test_BucketHandle_constructor);
@@ -224,12 +224,13 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     }
 
     void
-    test_PartitionCollector_addRange()
+    test_PartitionCollector_addRangeLeaf()
     {
         PartitionList partList;
         PartitionCollector pc(1024 * 1024, 1000, &partList, 0, 0);
 
-        pc.addRange(0, 10, 5, 1, 0, 0);
+        bool ret = pc.addRangeLeaf(0, 10, 5, 1, 0, 0);
+        CPPUNIT_ASSERT_EQUAL(true, ret);
         CPPUNIT_ASSERT_EQUAL(5, pc.currentKnownBytes);
         CPPUNIT_ASSERT_EQUAL(1, pc.currentKnownReferants);
         CPPUNIT_ASSERT_EQUAL(0, pc.previousPossibleBytes);
@@ -238,12 +239,14 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(11, pc.nextFirstKey);
 
         // force a new partition by size
-        pc.addRange(11, 20, 1024*1024, 1, 0, 0);
+        ret = pc.addRangeLeaf(11, 20, 1024*1024, 1, 0, 0);
+        CPPUNIT_ASSERT_EQUAL(false, ret);
         CPPUNIT_ASSERT_EQUAL(21, pc.currentFirstKey);
         CPPUNIT_ASSERT_EQUAL(1, pc.partitions->size());
 
         // force a new partition by referants
-        pc.addRange(21, 30, 1, 5000, 0, 0);
+        ret = pc.addRangeLeaf(21, 30, 1, 5000, 0, 0);
+        CPPUNIT_ASSERT_EQUAL(false, ret);
         CPPUNIT_ASSERT_EQUAL(31, pc.currentFirstKey);
         CPPUNIT_ASSERT_EQUAL(2, pc.partitions->size());
     }
@@ -255,10 +258,10 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         PartitionList partList1;
         PartitionCollector pc1(1024 * 1024, 1000, &partList1, 0, 0);
 
-        pc1.addRange(0, 10, 1024 * 1024 + 1, 1, 42, 83);
+        pc1.addRangeLeaf(0, 10, 1024 * 1024 + 1, 1, 42, 83);
         CPPUNIT_ASSERT_EQUAL(42, pc1.previousPossibleBytes);
         CPPUNIT_ASSERT_EQUAL(83, pc1.previousPossibleReferants);
-        pc1.addRange(11, 20, 100, 1, 0, 0);
+        pc1.addRangeLeaf(11, 20, 100, 1, 0, 0);
         pc1.done();
         CPPUNIT_ASSERT_EQUAL(2, pc1.partitions->size());
         CPPUNIT_ASSERT_EQUAL(0, pc1.partitions->begin()[0].firstKey);
@@ -284,7 +287,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         PartitionList partList;
         PartitionCollector pc(1024 * 1024, 1000, &partList, 0, 0);
 
-        pc.addRange(0, 10, 1000, 1, 0, 0);
+        pc.addRangeLeaf(0, 10, 1000, 1, 0, 0);
         pc.pushCurrentTally(8, 1000, 1000, 1, 1);
         CPPUNIT_ASSERT_EQUAL(1, pc.partitions->size());
         CPPUNIT_ASSERT_EQUAL(0, pc.partitions->begin()[0].firstKey);

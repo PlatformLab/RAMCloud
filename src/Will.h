@@ -47,6 +47,10 @@ class Will {
     uint64_t currentMaxBytes;
     uint64_t currentMaxReferants;
 
+    // current number of TabletProfiler partitions added since the
+    // last currentId increment
+    uint64_t currentCount;
+
     // parameters dictating partition sizes
     uint64_t maxBytesPerPartition;
     uint64_t maxReferantsPerPartition;
@@ -59,6 +63,7 @@ class Will {
                           const ProtoBuf::Tablets::Tablet& tablet);
 
 
+    friend class WillBenchmark;
     friend class WillTest;
 
     DISALLOW_COPY_AND_ASSIGN(Will);

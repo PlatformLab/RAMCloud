@@ -43,6 +43,7 @@ Will::Will(ProtoBuf::Tablets &tablets, uint64_t maxBytesPerPartition,
     : currentId(0),
       currentMaxBytes(0),
       currentMaxReferants(0),
+      currentCount(0),
       maxBytesPerPartition(maxBytesPerPartition),
       maxReferantsPerPartition(maxReferantsPerPartition),
       entries()
@@ -113,17 +114,13 @@ void
 Will::addPartition(Partition& partition,
     const ProtoBuf::Tablets::Tablet& tablet)
 {
-    assert(partition.maxBytes <= maxBytesPerPartition);
-    assert(partition.maxReferants <= maxReferantsPerPartition);
-
     uint64_t maxBytes = partition.maxBytes + currentMaxBytes;
     uint64_t maxReferants = partition.maxReferants + currentMaxReferants;
 
-    if (maxBytes > maxBytesPerPartition ||
-        maxReferants > maxReferantsPerPartition) {
-
+    if ((maxBytes > maxBytesPerPartition ||
+         maxReferants > maxReferantsPerPartition) && currentCount > 0) {
         currentId++;
-        currentMaxBytes = currentMaxReferants = 0;
+        currentMaxBytes = currentMaxReferants = currentCount = 0;
     }
 
     WillEntry we;
@@ -144,6 +141,7 @@ Will::addPartition(Partition& partition,
 
     currentMaxBytes += partition.maxBytes;
     currentMaxReferants += partition.maxReferants;
+    currentCount++;
 }
 
 } // namespace

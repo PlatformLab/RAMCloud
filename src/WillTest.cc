@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <boost/unordered_map.hpp>
+
 #include "TestUtil.h"
 
 #include "Log.h"
@@ -36,6 +38,8 @@ class WillTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_Will_addTablet);
     CPPUNIT_TEST(test_Will_addPartition);
     CPPUNIT_TEST(test_Will_endToEnd);
+    CPPUNIT_TEST(test_Will_endToEnd_2);
+    CPPUNIT_TEST(test_Will_endToEnd_3);
     CPPUNIT_TEST_SUITE_END();
 
     ProtoBuf::Tablets::Tablet
@@ -97,6 +101,7 @@ class WillTest : public CppUnit::TestFixture {
         Will w(tablets, 1000, 1001);
         CPPUNIT_ASSERT_EQUAL(0, w.currentId);
         CPPUNIT_ASSERT_EQUAL(0, w.currentMaxBytes);
+        CPPUNIT_ASSERT_EQUAL(0, w.currentCount);
         CPPUNIT_ASSERT_EQUAL(1000, w.maxBytesPerPartition);
         CPPUNIT_ASSERT_EQUAL(1001, w.maxReferantsPerPartition);
         CPPUNIT_ASSERT_EQUAL(0, w.entries.size());
@@ -159,6 +164,7 @@ class WillTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(150, w.currentMaxBytes);
         CPPUNIT_ASSERT_EQUAL(20, w.currentMaxReferants);
         CPPUNIT_ASSERT_EQUAL(0, w.currentId);
+        CPPUNIT_ASSERT_EQUAL(1, w.currentCount);
 
         // add another partition that doesn't go over the max
         {
@@ -168,6 +174,7 @@ class WillTest : public CppUnit::TestFixture {
         }
 
         CPPUNIT_ASSERT_EQUAL(0, w.currentId);
+        CPPUNIT_ASSERT_EQUAL(2, w.currentCount);
 
         // now exceed the byte maximum
         {
@@ -177,6 +184,7 @@ class WillTest : public CppUnit::TestFixture {
         }
 
         CPPUNIT_ASSERT_EQUAL(1, w.currentId);
+        CPPUNIT_ASSERT_EQUAL(1, w.currentCount);
         CPPUNIT_ASSERT_EQUAL(2, w.currentMaxBytes);
         CPPUNIT_ASSERT_EQUAL(10, w.currentMaxReferants);
 
@@ -188,18 +196,291 @@ class WillTest : public CppUnit::TestFixture {
         }
 
         CPPUNIT_ASSERT_EQUAL(2, w.currentId);
+        CPPUNIT_ASSERT_EQUAL(1, w.currentCount);
         CPPUNIT_ASSERT_EQUAL(3, w.currentMaxBytes);
         CPPUNIT_ASSERT_EQUAL(49, w.currentMaxReferants);
     }
 
-    // This is an end-to-end test of the Will and TabletProfiler code.
-    // Basically, we want to set up a simulated set of table operations
-    // followed by a Will calculation and ensure that it matches what we
-    // expect.
+
+////////////////////////////////////////////////////////////////////
+// The following is all part of end-to-end testing of the Will and
+// TabletProfiler code.
+//
+// Basically, we want to set up a simulated set of table operations
+// followed by a Will calculation and ensure that it matches what we
+// expect.
+////////////////////////////////////////////////////////////////////
+
+    // A simple class that tracks all "objects" in a "tablet".
+    // One can query the exact number of bytes and objects within
+    // specific key ranges.
+    class TabletOracle {
+      public:
+        TabletOracle() : objectMap() {}
+
+        void
+        addObject(uint64_t key, uint64_t bytes)
+        {
+            if (objectMap.find(key) != objectMap.end())
+                throw Exception(HERE, "don't do that!");
+            objectMap[key] = bytes;
+        }
+
+        void
+        removeObject(uint64_t key)
+        {
+            if (objectMap.find(key) == objectMap.end())
+                throw Exception(HERE, "don't do this, either!");
+            objectMap.erase(key);
+        }
+
+        uint64_t
+        getBytesInRange(uint64_t firstKey, uint64_t lastKey)
+        {
+            boost::unordered_map<uint64_t, uint64_t>::iterator it =
+                objectMap.begin();
+            uint64_t bytes = 0;
+            while (it != objectMap.end()) {
+                if (it->first >= firstKey && it->first <= lastKey)
+                    bytes += it->second;
+                it++;
+            }
+            return bytes;
+        }
+
+        uint64_t
+        getReferantsInRange(uint64_t firstKey, uint64_t lastKey)
+        {
+            boost::unordered_map<uint64_t, uint64_t>::iterator it =
+                objectMap.begin();
+            uint64_t objects = 0;
+            while (it != objectMap.end()) {
+                if (it->first >= firstKey && it->first <= lastKey)
+                    objects++;
+                it++;
+            }
+            return objects;
+        }
+
+      private:
+        boost::unordered_map<uint64_t, uint64_t> objectMap;
+    };
+
+    // A wrapper for TabletOracle that takes into account
+    // multiple tablets.
+    class Oracle {
+      public:
+        Oracle() : tabletMap() {}
+
+        void
+        addObject(uint64_t table, uint64_t key, uint64_t bytes)
+        {
+            tabletMap[table].addObject(key, bytes);
+        }
+
+        void
+        removeObject(uint64_t table, uint64_t key)
+        {
+            tabletMap[table].removeObject(key);
+        }
+
+        uint64_t
+        getBytesInRange(uint64_t table, uint64_t firstKey, uint64_t lastKey)
+        {
+            return tabletMap[table].getBytesInRange(firstKey, lastKey);
+        }
+
+        uint64_t
+        getReferantsInRange(uint64_t table, uint64_t firstKey, uint64_t lastKey)
+        {
+            return tabletMap[table].getReferantsInRange(firstKey, lastKey);
+        }
+
+      private:
+        boost::unordered_map<uint64_t, TabletOracle> tabletMap;
+    };
+
+    void
+    sanityCheckWill(Will& w, Oracle& o)
+    {
+        uint64_t totalMinBytes = 0;
+        uint64_t totalMaxBytes = 0;
+        uint64_t totalMinReferants = 0;
+        uint64_t totalMaxReferants = 0;
+        uint64_t totalRealBytes = 0;
+        uint64_t totalRealReferants = 0;
+        uint64_t lastId = 0;
+        for (unsigned int i = 0; i < w.entries.size(); i++) {
+            Will::WillEntry* we = &w.entries[i];
+
+            uint64_t realBytes = o.getBytesInRange(we->tableId,
+                we->firstKey, we->lastKey);
+            uint64_t realReferants = o.getReferantsInRange(we->tableId,
+                we->firstKey, we->lastKey);
+
+#if 0
+            fprintf(stderr, "part %lu, tbl %lu, fk 0x%016lx, lk 0x%016lx\n",
+                we->partitionId, we->tableId, we->firstKey, we->lastKey);
+            fprintf(stderr, "  we->maxBytes: %lu, realBytes: %lu\n\n",
+                we->maxBytes, realBytes);
+#endif
+
+            if (we->partitionId != lastId) {
+                CPPUNIT_ASSERT(totalRealBytes <= totalMaxBytes);
+                CPPUNIT_ASSERT(labs(totalMaxBytes - totalRealBytes) <=
+                    (int64_t)TabletProfiler::getMaximumByteError());
+                CPPUNIT_ASSERT(totalRealReferants <= totalMaxReferants);
+                CPPUNIT_ASSERT(labs(totalMaxReferants - totalRealReferants) <=
+                    (int64_t)TabletProfiler::getMaximumReferantError());
+
+                totalMinBytes = 0;
+                totalMaxBytes = 0;
+                totalMinReferants = 0;
+                totalMaxReferants = 0;
+                totalRealBytes = 0;
+                totalRealReferants = 0;
+                lastId = we->partitionId;
+            }
+
+            CPPUNIT_ASSERT(we->minBytes <= realBytes);
+            CPPUNIT_ASSERT(we->maxBytes >= realBytes);
+            CPPUNIT_ASSERT(we->minReferants <= realReferants);
+            CPPUNIT_ASSERT(we->maxReferants >= realReferants);
+
+            totalMinBytes += we->minBytes;
+            totalMaxBytes += we->maxBytes;
+            totalMinReferants += we->minReferants;
+            totalMaxReferants += we->maxReferants;
+            totalRealBytes += realBytes;
+            totalRealReferants += realReferants;
+        }
+        CPPUNIT_ASSERT(totalRealBytes <= totalMaxBytes);
+        CPPUNIT_ASSERT(labs(totalMaxBytes - totalRealBytes) <=
+            (int64_t)TabletProfiler::getMaximumByteError());
+        CPPUNIT_ASSERT(totalRealReferants <= totalMaxReferants);
+        CPPUNIT_ASSERT(labs(totalMaxReferants - totalRealReferants) <=
+            (int64_t)TabletProfiler::getMaximumReferantError());
+    }
+
+    // Simple test that writes 18GB of objects with incrementing
+    // keys, computes a will, then deletes 6GB and recomputes.
     void
     test_Will_endToEnd()
     {
+        ProtoBuf::Tablets tablets;
+        Table* t;
+        Oracle o;
 
+        const uint64_t maxBytesPerPartition = 640 * 1024 * 1024;
+        const uint64_t maxReferantsPerPartition = 10 * 1000 * 1000;
+
+        // 5GB, auto-incrementing, 256KB objects
+        t = createAndAddTablet(tablets, 0, 0, 0, -1);
+        for (uint64_t i = 0; i < (5UL * 1024 * 1024) / 256; i++) {
+            t->profiler.track(i, 256 * 1024, LogTime(0, i));
+            o.addObject(0, i, 256 * 1024);
+        }
+
+        // 1GB, auto-incrementing, 64KB objects
+        t = createAndAddTablet(tablets, 0, 1, 0, -1);
+        for (uint64_t i = 0; i < (1UL * 1024 * 1024) / 64; i++) {
+            t->profiler.track(i, 64 * 1024, LogTime(0, i));
+            o.addObject(1, i, 64 * 1024);
+        }
+
+        // 12GB, auto-incrementing, 512KB objects
+        t = createAndAddTablet(tablets, 0, 2, 0, -1);
+        for (uint64_t i = 0; i < (12UL * 1024 * 1024) / 512; i++) {
+            t->profiler.track(i, 512 * 1024, LogTime(0, i));
+            o.addObject(2, i, 512 * 1024);
+        }
+
+        {
+            Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+            sanityCheckWill(w, o);
+        }
+
+        // Untrack half of the 12GB ones
+        for (uint64_t i = 0; i < (12UL * 1024 * 1024) / 512; i += 2) {
+            t->profiler.untrack(i, 512 * 1024, LogTime(0, i));
+            o.removeObject(2, i);
+        }
+
+        {
+            Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+            sanityCheckWill(w, o);
+        }
+    }
+
+    // Try very small objects to test the referant limit, rather
+    // than the byte limit.
+    void
+    test_Will_endToEnd_2()
+    {
+        ProtoBuf::Tablets tablets;
+        Table* t;
+        Oracle o;
+
+        const uint64_t maxBytesPerPartition = 640 * 1024 * 1024;
+        const uint64_t maxReferantsPerPartition = 100 * 1000;
+
+        // 5GB, auto-incrementing, 10KB objects
+        t = createAndAddTablet(tablets, 0, 0, 0, -1);
+        for (uint64_t i = 0; i < 200 * 1000; i++) {
+            t->profiler.track(i, 1, LogTime(0, i));
+            o.addObject(0, i, 1);
+        }
+
+        {
+            Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+            sanityCheckWill(w, o);
+        }
+    }
+
+    // mix of random keys, sequential keys, and multi-field keys.
+    // objects are randomly sized, uniformly from 128bytes to 64KB
+    void
+    test_Will_endToEnd_3()
+    {
+        ProtoBuf::Tablets tablets;
+        Table* t;
+        Oracle o;
+
+        const uint64_t maxBytesPerPartition = 640 * 1024 * 1024;
+        const uint64_t maxReferantsPerPartition = 10 * 1000 * 1000;
+
+        // 2GB, random keys, avg. 128KB objects
+        t = createAndAddTablet(tablets, 0, 0, 0, -1);
+        for (uint64_t i = 0; i < 27307; i++) {
+            uint64_t key = generateRandom();
+            uint64_t bytes = ((key % 2048) + 1) * 128;
+            t->profiler.track(key, bytes, LogTime(0, i));
+            o.addObject(0, key, bytes);
+        }
+
+        // 2GB, sequential keys, avg. 128KB objects
+        t = createAndAddTablet(tablets, 0, 1, 0, -1);
+        for (uint64_t i = 0; i < 27307; i++) {
+            uint64_t bytes = ((generateRandom() % 2048) + 1) * 128;
+            t->profiler.track(i, bytes, LogTime(1, i));
+            o.addObject(1, i, bytes);
+        }
+
+        // 2GB, multi-field (2) keys, avg. 128KB objects
+        t = createAndAddTablet(tablets, 0, 2, 0, -1);
+        for (uint64_t i = 0; i < 27307; i++) {
+            uint64_t key = i / 2;
+            if (i & 1)
+                key |= (1UL << 60);
+            uint64_t bytes = ((generateRandom() % 2048) + 1) * 128;
+            t->profiler.track(key, bytes, LogTime(2, i));
+            o.addObject(2, key, bytes);
+        }
+
+        {
+            Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+            sanityCheckWill(w, o);
+        }
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(WillTest);

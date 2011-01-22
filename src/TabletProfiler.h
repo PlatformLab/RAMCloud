@@ -62,6 +62,30 @@ class TabletProfiler {
                                  uint64_t residualMaxBytes,
                                  uint64_t residualMaxReferants);
 
+    /**
+     * Return the maximum number of bytes we can be off by when calculating
+     * Partitions. The actual count is always <= what we report, so we can
+     * only overestimate by at most this amount of error. We never underestimate.
+     */
+    static uint64_t
+    getMaximumByteError()
+    {
+        return 2 * ((uint64_t)ceil(64.0 / BITS_PER_LEVEL) - 1) *
+            BUCKET_SPLIT_BYTES;
+    }
+
+    /**
+     * Return the maximum number of referants we can be off by when calculating
+     * Partitions. The actual count is always <= what we report, so we can
+     * only overestimate by at most this amount of error. We never underestimate.
+     */
+    static uint64_t
+    getMaximumReferantError()
+    {
+        return 2 * ((uint64_t)ceil(64.0 / BITS_PER_LEVEL) - 1) *
+            BUCKET_SPLIT_OBJS;
+    }
+
   private:
     static const int      BITS_PER_LEVEL = 8;
     static const uint64_t BUCKET_SPLIT_BYTES = 8 * 1024 * 1024;
@@ -76,9 +100,10 @@ class TabletProfiler {
                            PartitionList* partitions,
                            uint64_t residualMaxBytes,
                            uint64_t residualMaxReferants);
-        void addRange(uint64_t firstKey, uint64_t lastKey,
-                      uint64_t rangeBytes, uint64_t rangeReferants,
-                      uint64_t possibleBytes, uint64_t possibleReferants);
+        bool addRangeLeaf(uint64_t firstKey, uint64_t lastKey,
+                          uint64_t rangeBytes, uint64_t rangeReferants,
+                          uint64_t possibleBytes, uint64_t possibleReferants);
+        void addRangeNonLeaf(uint64_t rangeBytes, uint64_t rangeReferants);
         void done();
 
       private:
@@ -155,7 +180,7 @@ class TabletProfiler {
         uint64_t     getBucketFirstKey(BucketHandle bh);
         uint64_t     getBucketLastKey(BucketHandle bh);
         bool         isBottom();
-        void         partitionWalk(PartitionCollector *pc,
+        bool         partitionWalk(PartitionCollector *pc,
                                    uint64_t parentBytes = 0,
                                    uint64_t parentReferants = 0);
         LogTime      getCreateTime();
