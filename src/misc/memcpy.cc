@@ -35,7 +35,7 @@ measure(int bytes, bool cached)
     memcpy(dst, src, bytes);
 
     // do more runs for smaller inputs
-    int runs = 1;
+    int runs = 10;
     if (bytes < 4096)
         runs = 100;
 
@@ -54,7 +54,7 @@ measure(int bytes, bool cached)
     }
     total /= runs;
 
-    printf("%10d bytes: %10llu ticks    %10llu nsec    %.2f nsec/byte\n",
+    printf("%10d bytes: %10lu ticks    %10lu nsec    %.2f nsec/byte\n",
         bytes,
         total,
         RAMCloud::cyclesToNanoseconds(total),
@@ -69,15 +69,11 @@ int
 main()
 {
     printf("=== Cached Memcpy ===\n");
-    for (int i = 1; i < 128; i++)
-        measure(i, true);
-    for (int i = 128; i <= (16 * 1024 * 1024); i *= 2)
+    for (int i = 1; i <= (16 * 1024 * 1024); i *= 2)
         measure(i, true);
 
     printf("\n=== Uncached Memcpy ===\n");
-    for (int i = 1; i < 128; i++)
-        measure(i, false);
-    for (int i = 128; i <= (16 * 1024 * 1024); i *= 2)
+    for (int i = 1; i <= (16 * 1024 * 1024); i *= 2)
         measure(i, false);
 
     return 0;
