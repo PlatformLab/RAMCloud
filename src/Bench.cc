@@ -91,6 +91,7 @@ bench(const char *name, uint64_t (f)(void))
     printf("%s avgctr %12.2f\n", name,
            static_cast<double>(serverCounter) /
            static_cast<double>(count));
+    client->ping();
 }
 
 #define BENCH(fname) bench(#fname, fname)

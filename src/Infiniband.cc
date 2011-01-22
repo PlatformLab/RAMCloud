@@ -24,19 +24,38 @@
 
 namespace RAMCloud {
 
+typedef RealInfiniband Infiniband;
+
 /**
- * Construct an Infiniband object. These currently maintain no
- * state.
+ * Construct an Infiniband object.
+ * \param[in] deviceName
+ *      The string name of the installed interface to look for.
+ *      If NULL, open the first one returned by the Verbs library.
  */
-Infiniband::Infiniband()
+Infiniband::RealInfiniband(const char* deviceName)
+    : device(deviceName)
+    , pd(device)
+    , totalAddressHandleAllocCalls()
+    , totalAddressHandleAllocTime()
 {
 }
 
 /**
  * Destroy an Infiniband object.
  */
-Infiniband::~Infiniband()
+Infiniband::~RealInfiniband()
 {
+}
+
+void
+Infiniband::dumpStats()
+{
+    LOG(NOTICE, "totalAddressHandleAllocCalls: %lu (count)",
+        totalAddressHandleAllocCalls);
+    LOG(NOTICE, "totalAddressHandleAllocTime: %lu (ticks)",
+        totalAddressHandleAllocTime);
+    totalAddressHandleAllocCalls = 0;
+    totalAddressHandleAllocTime = 0;
 }
 
 /**
@@ -47,12 +66,12 @@ Infiniband::~Infiniband()
  * See QueuePair::QueuePair for parameter documentation.
  */
 Infiniband::QueuePair*
-Infiniband::createQueuePair(ibv_qp_type type, ibv_context *ctxt,
-    int ibPhysicalPort, ibv_pd *pd, ibv_srq *srq, ibv_cq *txcq, ibv_cq *rxcq,
-    uint32_t maxSendWr, uint32_t maxRecvWr, uint32_t QKey)
+Infiniband::createQueuePair(ibv_qp_type type, int ibPhysicalPort, ibv_srq *srq,
+                            ibv_cq *txcq, ibv_cq *rxcq, uint32_t maxSendWr,
+                            uint32_t maxRecvWr, uint32_t QKey)
 {
-    return new QueuePair(type, ctxt, ibPhysicalPort, pd, srq, txcq, rxcq,
-        maxSendWr, maxRecvWr, QKey);
+    return new QueuePair(*this, type, ibPhysicalPort, srq, txcq, rxcq,
+                         maxSendWr, maxRecvWr, QKey);
 }
 
 /**
@@ -98,52 +117,9 @@ Infiniband::wcStatusToString(int status)
 }
 
 /**
- * Find an installed infiniband device by name and open it.
- *
- * \param[in] name
- *      The string name of the interface to look for. If NULL,
- *      open the first one returned by the Verbs library.
- * \return
- *      NULL if the device wasn't found or couldn't be opened, else
- *      a valid ibv_context pointer.
- */
-ibv_context*
-Infiniband::openDevice(const char *name)
-{
-    ibv_device **devices;
-
-    devices = ibv_get_device_list(NULL);
-    if (devices == NULL)
-        return false;
-
-    ibv_device *dev = NULL;
-
-    if (name == NULL) {
-        dev = devices[0];
-    } else {
-        for (int i = 0; devices[i] != NULL; i++) {
-            if (strcmp(devices[i]->name, name) == 0) {
-                dev = devices[i];
-                break;
-            }
-        }
-    }
-
-    ibv_context *ctxt = NULL;
-    if (dev != NULL)
-        ctxt = ibv_open_device(dev);
-
-    ibv_free_device_list(devices);
-
-    return ctxt;
-}
-
-/**
  * Obtain the infiniband "local ID" of the device corresponding to
  * the provided context and port number.
  *
- * \param[in] ctxt
- *      Context of the device whose local ID we're looking up.
  * \param[in] port
  *      Port on the device whose local ID we're looking up. This value
  *      is typically 1, except on adapters with multiple physical ports.
@@ -153,10 +129,10 @@ Infiniband::openDevice(const char *name)
  *      TransportException if the port cannot be queried.
  */
 int
-Infiniband::getLid(ibv_context *ctxt, int port)
+Infiniband::getLid(int port)
 {
     ibv_port_attr ipa;
-    int ret = ibv_query_port(ctxt, port, &ipa);
+    int ret = ibv_query_port(device.ctxt, port, &ipa);
     if (ret) {
         LOG(ERROR, "ibv_query_port failed on port %u\n", port);
         throw TransportException(HERE, ret);
@@ -175,11 +151,11 @@ Infiniband::getLid(ibv_context *ctxt, int port)
  * \return
  *      NULL if no message is available. Otherwise, a pointer to
  *      a BufferDescriptor containing the message.
- * \throw
- *      ThrowException if arguments are invalid or polling failed.  
+ * \throw TransportException
+ *      if polling failed.  
  */
 Infiniband::BufferDescriptor*
-Infiniband::tryReceive(QueuePair *qp, InfAddress *sourceAddress)
+Infiniband::tryReceive(QueuePair *qp, ObjectTub<Address>* sourceAddress)
 {
     ibv_wc wc;
     int r = ibv_poll_cq(qp->rxcq, 1, &wc);
@@ -201,8 +177,8 @@ Infiniband::tryReceive(QueuePair *qp, InfAddress *sourceAddress)
     bd->messageBytes = wc.byte_len;
 
     if (sourceAddress != NULL) {
-        sourceAddress->address.lid = wc.slid;
-        sourceAddress->address.qpn = wc.src_qp;
+        sourceAddress->construct(*this, qp->ibPhysicalPort,
+                                 wc.slid, wc.src_qp);
     }
 
     return bd;
@@ -219,11 +195,11 @@ Infiniband::tryReceive(QueuePair *qp, InfAddress *sourceAddress)
  *      address here. 
  * \return
  *      A pointer to a BufferDescriptor containing the message.
- * \throw
- *      ThrowException if polling failed.  
+ * \throw TransportException
+ *      if polling failed.  
  */
 Infiniband::BufferDescriptor *
-Infiniband::receive(QueuePair *qp, InfAddress *sourceAddress)
+Infiniband::receive(QueuePair *qp, ObjectTub<Address>* sourceAddress)
 {
     BufferDescriptor *bd = NULL;
 
@@ -233,7 +209,6 @@ Infiniband::receive(QueuePair *qp, InfAddress *sourceAddress)
 
     return bd;
 }
-
 
 /**
  * Add the given BufferDescriptor to the receive queue for the given
@@ -313,27 +288,22 @@ Infiniband::postSrqReceive(ibv_srq* srq, BufferDescriptor *bd)
  *      The BufferDescriptor that contains the data to be transmitted.
  * \param[in] length
  *      The number of bytes used by the packet in the given BufferDescriptor.
- * \param[in] ah
- *      UD queue pairs only. The address handle of the host to send to. 
- * \param[in] remoteQpn
- *      UD queue pairs only. The queue pair number of the remote pair to send
- *      to.
+ * \param[in] address
+ *      UD queue pairs only. The address of the host to send to. 
  * \param[in] remoteQKey
  *      UD queue pairs only. The Q_Key of the remote pair to send to.
- * \throw
- *      TransportException if the arguments are invalid or the send post
- *      fails.
+ * \throw TransportException
+ *      if the send post fails.
  */
 void
 Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length,
-    ibv_ah *ah, uint32_t remoteQpn, uint32_t remoteQKey)
+                     const Address* address, uint32_t remoteQKey)
 {
     if (qp->type == IBV_QPT_UD) {
-        if (ah == NULL)
-            throw TransportException(HERE, "invalid arguments for UD qp");
+        assert(address != NULL);
     } else {
-        if (ah != NULL || remoteQpn != 0 || remoteQKey != 0)
-            throw TransportException(HERE, "invalid arguments for non-UD qp");
+        assert(address == NULL);
+        assert(remoteQKey == 0);
     }
 
     ibv_sge isge = {
@@ -346,8 +316,8 @@ Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length,
     memset(&txWorkRequest, 0, sizeof(txWorkRequest));
     txWorkRequest.wr_id = reinterpret_cast<uint64_t>(bd);// stash descriptor ptr
     if (qp->type == IBV_QPT_UD) {
-        txWorkRequest.wr.ud.ah = ah;
-        txWorkRequest.wr.ud.remote_qpn = remoteQpn;
+        txWorkRequest.wr.ud.ah = address->getHandle();
+        txWorkRequest.wr.ud.remote_qpn = address->getQpn();
         txWorkRequest.wr.ud.remote_qkey = remoteQKey;
     }
     txWorkRequest.next = NULL;
@@ -379,11 +349,8 @@ Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length,
  *      The BufferDescriptor that contains the data to be transmitted.
  * \param[in] length
  *      The number of bytes used by the packet in the given BufferDescriptor.
- * \param[in] ah
- *      UD queue pairs only. The address handle of the host to send to. 
- * \param[in] remoteQpn
- *      UD queue pairs only. The queue pair number of the remote pair to send
- *      to.
+ * \param[in] address
+ *      UD queue pairs only. The address of the host to send to. 
  * \param[in] remoteQKey
  *      UD queue pairs only. The Q_Key of the remote pair to send to.
  * \throw
@@ -392,9 +359,9 @@ Infiniband::postSend(QueuePair* qp, BufferDescriptor *bd, uint32_t length,
  */
 void
 Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
-    uint32_t length, ibv_ah *ah, uint32_t remoteQpn, uint32_t remoteQKey)
+    uint32_t length, const Address* address, uint32_t remoteQKey)
 {
-    postSend(qp, bd, length, ah, remoteQpn, remoteQKey);
+    postSend(qp, bd, length, address, remoteQKey);
 
     ibv_wc wc;
     while (ibv_poll_cq(qp->txcq, 1, &wc) < 1) {}
@@ -409,8 +376,6 @@ Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
  * Allocate a BufferDescriptor and register the backing memory with the
  * HCA. Note that the memory will be wired (i.e. cannot be swapped out)!
  *
- * \param[in] pd
- *      The protection domain to register this memory with.
  * \param[in] bytes
  *      Number of bytes to allocate.
  * \return
@@ -419,53 +384,35 @@ Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
  *      TransportException if allocation or registration failed.
  */
 Infiniband::BufferDescriptor
-Infiniband::allocateBufferDescriptorAndRegister(ibv_pd *pd, size_t bytes)
+Infiniband::allocateBufferDescriptorAndRegister(size_t bytes)
 {
     void *p = xmemalign(4096, bytes);
 
-    ibv_mr *mr = ibv_reg_mr(pd, p, bytes,
+    ibv_mr *mr = ibv_reg_mr(pd.pd, p, bytes,
         IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
     if (mr == NULL)
-        throw TransportException(HERE, "failed to register ring buffer");
+        throw TransportException(HERE, "failed to register ring buffer", errno);
 
     return BufferDescriptor(reinterpret_cast<char *>(p), bytes, mr);
 }
 
 /**
- * Allocate a protection domain. This simply wraps the verbs call.
- *
- * \param[in] ctxt
- *      The device context with which to associate the protection domain.
- * \return
- *      A valid ibv_pd pointer, or NULL on error.
- */
-ibv_pd*
-Infiniband::allocateProtectionDomain(ibv_context* ctxt)
-{
-    return ibv_alloc_pd(ctxt);
-}
-
-/**
  * Create a completion queue. This simply wraps the verbs call.
  *
- * \param[in] ctxt
- *      The device context with which to associate the completion queue.
  * \param[in] minimumEntries
  *      The minimum number of completion entries this queue will support.
  * \return
  *      A valid ibv_cq pointer, or NULL on error.
  */
 ibv_cq*
-Infiniband::createCompletionQueue(ibv_context* ctxt, int minimumEntries)
+Infiniband::createCompletionQueue(int minimumEntries)
 {
-    return ibv_create_cq(ctxt, minimumEntries, NULL, NULL, 0);
+    return ibv_create_cq(device.ctxt, minimumEntries, NULL, NULL, 0);
 }
 
 /**
  * Create an address handle. This simply wraps the verbs call.
  *
- * \param[in] pd 
- *      The protection domain with which to associate the handle.
  * \param[in] attr
  *      Pointer to an ibv_ah_attr struct describing the handle to
  *      create.
@@ -473,9 +420,9 @@ Infiniband::createCompletionQueue(ibv_context* ctxt, int minimumEntries)
  *      A valid ibv_ah pointer, or NULL on error.
  */
 ibv_ah*
-Infiniband::createAddressHandle(ibv_pd *pd, ibv_ah_attr* attr)
+Infiniband::createAddressHandle(ibv_ah_attr* attr)
 {
-    return ibv_create_ah(pd, attr);
+    return ibv_create_ah(pd.pd, attr);
 }
 
 /**
@@ -492,21 +439,24 @@ Infiniband::destroyAddressHandle(ibv_ah *ah)
 }
 
 /**
- * Create a shared receive queue. This simply wraps the verbs call. 
+ * Create a shared receive queue. This basically wraps the verbs call. 
  *
- * \param[in] pd
- *      Pointer to an ibv_pd (protection domain) with which to associate
- *      the queue.
- * \param[in] attr
- *      Pointer to an ibv_srq_init_attr that describes the shared receive
- *      queue to be created.
+ * \param[in] maxWr
+ *      The max number of outstanding work requests in the SRQ.
+ * \param[in] maxSge
+ *      The max number of scatter elements per WR.
  * \return
  *      A valid ibv_srq pointer, or NULL on error.
  */
 ibv_srq*
-Infiniband::createSharedReceiveQueue(ibv_pd *pd, ibv_srq_init_attr *attr)
+Infiniband::createSharedReceiveQueue(uint32_t maxWr, uint32_t maxSge)
 {
-    return ibv_create_srq(pd, attr);
+    ibv_srq_init_attr sia;
+    memset(&sia, 0, sizeof(sia));
+    sia.srq_context = device.ctxt;
+    sia.attr.max_wr = maxWr;
+    sia.attr.max_sge = maxSge;
+    return ibv_create_srq(pd.pd, &sia);
 }
 
 /**
@@ -517,7 +467,7 @@ Infiniband::createSharedReceiveQueue(ibv_pd *pd, ibv_srq_init_attr *attr)
  * \param[in] numEntries 
  *      The maximum number of work completion entries to obtain.
  * \param[out] retWcArray
- *      Pointer to an an array of ``numEntries'' ibv_wc structs.
+ *      Pointer to an array of ``numEntries'' ibv_wc structs.
  *      Completions are returned here.
  * \return
  *      The number of entries obtained. 0 if none, < 0 on error. 
@@ -547,21 +497,15 @@ Infiniband::pollCompletionQueue(ibv_cq *cq, int numEntries, ibv_wc *retWcArray)
  * A later call to #plumb() will transition it into the RTS state for
  * regular use with RC queue pairs.
  *
+ * \param infiniband
+ *      The #Infiniband object to associate this QueuePair with.
  * \param type
  *      The type of QueuePair to create. Currently valid values are
  *      IBV_QPT_RC for reliable QueuePairs and IBV_QPT_UD for
  *      unreliable ones.
- * \param ctxt
- *      The device context of the HCA to use this QueuePair with. This
- *      is the value returned by Infiniband::openDevice(), or the Verbs
- *      ibv_open_device() function.
  * \param ibPhysicalPort
  *      The physical port on the HCA we will use this QueuePair on.
  *      The default is 1, though some devices have multiple ports.
- * \param pd
- *      The Verbs protection domain this QueuePair will be associated
- *      with. Only memory registered under this domain can be handled
- *      by this QueuePair.
  * \param srq
  *      The Verbs shared receive queue to associate this QueuePair
  *      with. All writes received will use WQEs placed on the
@@ -581,13 +525,14 @@ Infiniband::pollCompletionQueue(ibv_cq *cq, int numEntries, ibv_wc *retWcArray)
  * \param QKey
  *      UD Queue Pairs only. The QKey for this pair. 
  */
-Infiniband::QueuePair::QueuePair(ibv_qp_type type, ibv_context *ctxt,
-    int ibPhysicalPort, ibv_pd *pd, ibv_srq *srq, ibv_cq *txcq, ibv_cq *rxcq,
+Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
+    int ibPhysicalPort, ibv_srq *srq, ibv_cq *txcq, ibv_cq *rxcq,
     uint32_t maxSendWr, uint32_t maxRecvWr, uint32_t QKey)
-    : type(type),
-      ctxt(ctxt),
+    : infiniband(infiniband),
+      type(type),
+      ctxt(infiniband.device.ctxt),
       ibPhysicalPort(ibPhysicalPort),
-      pd(pd),
+      pd(infiniband.pd.pd),
       srq(srq),
       qp(NULL),
       txcq(txcq),
@@ -733,7 +678,7 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
     // setting up their end.
     LOG(DEBUG, "%s: infiniband qp plumbed: lid 0x%x, qpn 0x%x, psn 0x%x, "
         "ibPhysicalPort %u to remote lid 0x%x, remote qpn 0x%x, "
-        "remote psn 0x%x", __func__, Infiniband().getLid(ctxt, ibPhysicalPort),
+        "remote psn 0x%x", __func__, infiniband.getLid(ibPhysicalPort),
         qp->qp_num, initialPsn, ibPhysicalPort, qpt->getLid(), qpt->getQpn(),
         qpt->getPsn());
 }
@@ -772,8 +717,7 @@ Infiniband::QueuePair::activate()
 
     LOG(DEBUG, "%s: infiniband qp activated: lid 0x%x, qpn 0x%x, "
         "ibPhysicalPort %u", __func__,
-        Infiniband().getLid(ctxt, ibPhysicalPort), qp->qp_num,
-        ibPhysicalPort);
+        infiniband.getLid(ibPhysicalPort), qp->qp_num, ibPhysicalPort);
 }
 
 /**
@@ -863,6 +807,100 @@ Infiniband::QueuePair::getState() const
         throw TransportException(HERE, r);
     }
     return qpa.qp_state;
+}
+
+/**
+ * Construct an Address from the information in a ServiceLocator.
+ * \param infiniband
+ *      Infiniband instance under which this address is valid.
+ * \param physicalPort
+ *      The physical port number on the local device through which to send.
+ * \param serviceLocator
+ *      The "lid" and "qpn" options describe the desired address.
+ * \throw BadAddress
+ *      The serviceLocator couldn't be converted to an Address
+ *      (e.g. a required option was missing, or the host name
+ *      couldn't be parsed).
+ */
+Infiniband::Address::Address(RealInfiniband& infiniband,
+                             int physicalPort,
+                             const ServiceLocator& serviceLocator)
+    : infiniband(infiniband)
+    , physicalPort(physicalPort)
+    , lid()
+    , qpn()
+    , ah(NULL)
+{
+    try {
+        lid = serviceLocator.getOption<uint16_t>("lid");
+    } catch (NoSuchKeyException &e) {
+        throw BadAddressException(HERE,
+            "Mandatory option ``lid'' missing from infiniband ServiceLocator.",
+            serviceLocator);
+    } catch (...) {
+        throw BadAddressException(HERE,
+            "Could not parse lid. Invalid or out of range.",
+            serviceLocator);
+    }
+
+    try {
+        qpn = serviceLocator.getOption<uint32_t>("qpn");
+    } catch (NoSuchKeyException &e) {
+        throw BadAddressException(HERE,
+            "Mandatory option ``qpn'' missing from infiniband "
+            "ServiceLocator.", serviceLocator);
+    } catch (...) {
+        throw BadAddressException(HERE,
+            "Could not parse qpn. Invalid or out of range.",
+            serviceLocator);
+    }
+}
+
+Infiniband::Address::~Address() {
+    if (ah != NULL) {
+        int rc = ibv_destroy_ah(ah);
+        if (rc != 0)
+            LOG(WARNING, "Destroying address handle failed with %d", rc);
+    }
+}
+
+/**
+ * Return a string describing the contents of this Address (host
+ * address & port).
+ */
+string
+Infiniband::Address::toString() const
+{
+    return format("%u:%u", lid, qpn);
+}
+
+/**
+ * Return an Infiniband address handle for this Address.
+ *
+ * Performance note: The first time this is called, it will allocate memory for
+ * the address handle.
+ *
+ * \throw TransportException
+ *      if ibv_create_ah fails
+ */
+ibv_ah*
+Infiniband::Address::getHandle() const
+{
+    if (ah == NULL) {
+        ibv_ah_attr attr;
+        attr.dlid = lid;
+        attr.src_path_bits = 0;
+        attr.is_global = 0;
+        attr.sl = 0;
+        attr.port_num = physicalPort;
+        infiniband.totalAddressHandleAllocCalls += 1;
+        uint64_t start = rdtsc();
+        ah = ibv_create_ah(infiniband.pd.pd, &attr);
+        infiniband.totalAddressHandleAllocTime += rdtsc() - start;
+        if (ah == NULL)
+            throw TransportException(HERE, "failed to create ah", errno);
+    }
+    return ah;
 }
 
 } // namespace

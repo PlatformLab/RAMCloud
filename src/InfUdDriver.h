@@ -26,27 +26,31 @@
 #include "Common.h"
 #include "Driver.h"
 #include "Infiniband.h"
-#include "InfAddress.h"
+#include "ObjectTub.h"
 
 namespace RAMCloud {
-
-typedef Infiniband::BufferDescriptor BufferDescriptor;
-typedef Infiniband::QueuePair QueuePair;
 
 /**
  * A Driver for Infiniband unreliable datagram (UD) communication.
  * Simple packet send/receive style interface. See Driver for more detail.
  */
+template<typename Infiniband = RealInfiniband>
 class InfUdDriver : public Driver {
+    typedef typename Infiniband::BufferDescriptor BufferDescriptor;
+    typedef typename Infiniband::QueuePairTuple QueuePairTuple;
+    typedef typename Infiniband::QueuePair QueuePair;
+    typedef typename Infiniband::Address Address;
+
   public:
     /// The maximum number bytes we can stuff in a UDP packet payload.
     static const uint32_t MAX_PAYLOAD_SIZE = 1024;
 
     explicit InfUdDriver(const ServiceLocator* localServiceLocator = NULL);
     virtual ~InfUdDriver();
+    virtual void dumpStats() { infiniband->dumpStats(); }
     virtual uint32_t getMaxPacketSize();
     virtual void release(char *payload, uint32_t len);
-    virtual void sendPacket(const Address *addr,
+    virtual void sendPacket(const Driver::Address *addr,
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
@@ -54,7 +58,7 @@ class InfUdDriver : public Driver {
     virtual ServiceLocator getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator& serviceLocator) {
-        return new InfAddress(serviceLocator);
+        return new Address(*infiniband, ibPhysicalPort, serviceLocator);
     }
 
   private:
@@ -69,17 +73,29 @@ class InfUdDriver : public Driver {
      */
     struct PacketBuf {
         PacketBuf() : infAddress() {}
-        InfAddress infAddress;                 /// Address of sender (used to
-                                               /// send reply).
-        char payload[MAX_PAYLOAD_SIZE];        /// Packet data (may not fill all
-                                               /// of the allocated space).
+        /**
+         * Address of sender (used to send reply).
+         */
+        ObjectTub<Address> infAddress;
+        /**
+         * Packet data (may not fill all of the allocated space).
+         */
+        char payload[MAX_PAYLOAD_SIZE];
     };
 
-    ibv_context*           ctxt;           // verbs HCA device context
-    ibv_pd*                pd;             // verbs protection domain
+    /// See #infiniband.
+    ObjectTub<Infiniband> realInfiniband;
+
+    /**
+     * Used by this class to make all Infiniband verb calls.  In normal
+     * production use it points to #realInfiniband; for testing it points to a
+     * mock object.
+     */
+    Infiniband* infiniband;
+
     ibv_cq*                rxcq;           // verbs rx completion queue
     ibv_cq*                txcq;           // verbs tx completion queue
-    Infiniband::QueuePair* qp;             // verbs queue pair wrapper
+    QueuePair* qp;             // verbs queue pair wrapper
 
     /// Holds packet buffers that are no longer in use, for use any future
     /// requests; saves the overhead of calling malloc/free for each request.
@@ -102,11 +118,10 @@ class InfUdDriver : public Driver {
     /// Our ServiceLocator, including the dynamic lid and qpn
     string              locatorString;
 
-    /// Infiniband object. Used mainly to mocking.
-    static Infiniband* infiniband;
-
     DISALLOW_COPY_AND_ASSIGN(InfUdDriver);
 };
+
+extern template class InfUdDriver<RealInfiniband>;
 
 } // end RAMCloud
 

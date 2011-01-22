@@ -13,7 +13,6 @@ $(OBJDIR)/%.pb.cc $(OBJDIR)/%.pb.h: $(TOP)/src/%.proto
 
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
-	   src/InfAddress.cc \
 	   src/Infiniband.cc \
 	   src/InfRcTransport.cc \
 	   src/InfUdDriver.cc \

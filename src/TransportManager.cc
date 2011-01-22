@@ -48,7 +48,8 @@ static struct FastInfUdTransportFactory : public TransportFactory {
     FastInfUdTransportFactory()
         : TransportFactory("fast+infinibandud", "fast+infud") {}
     Transport* createTransport(const ServiceLocator* localServiceLocator) {
-        return new FastTransport(new InfUdDriver(localServiceLocator));
+        return new FastTransport(
+            new InfUdDriver<>(localServiceLocator));
     }
 } fastInfUdTransportFactory;
 
@@ -56,7 +57,7 @@ static struct InfRcTransportFactory : public TransportFactory {
     InfRcTransportFactory()
         : TransportFactory("infinibandrc", "infrc") {}
     Transport* createTransport(const ServiceLocator* localServiceLocator) {
-        return new InfRcTransport(localServiceLocator);
+        return new InfRcTransport<>(localServiceLocator);
     }
 } infRcTransportFactory;
 #endif

@@ -2,7 +2,6 @@ OBJDIRS += client_shared
 
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
-	   src/InfAddress.cc \
 	   src/Infiniband.cc \
 	   src/InfRcTransport.cc \
 	   src/InfUdDriver.cc \

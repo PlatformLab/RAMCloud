@@ -102,6 +102,9 @@ class Driver {
 
     virtual ~Driver();
 
+    /// \copydoc Transport::dumpStats
+    virtual void dumpStats() {}
+
     /**
      * The maximum number of bytes this Driver can transmit in a single call
      * to sendPacket including both header and payload.
