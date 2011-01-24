@@ -157,11 +157,16 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
         throw BackupBadSegmentIdException(HERE);
     }
 
+#ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
+    auto& bufLen = recoverySegments[partitionId];
+    Buffer::Chunk::appendToBuffer(&buffer, bufLen.first, bufLen.second);
+#else
     for (Buffer::Iterator it(recoverySegments[partitionId]);
          !it.isDone(); it.next())
     {
         Buffer::Chunk::appendToBuffer(&buffer, it.getData(), it.getLength());
     }
+#endif
     LOG(DEBUG, "appendRecoverySegment <%lu,%lu>, took %lu ms",
         masterId, segmentId,
         cyclesToNanoseconds(rdtsc() - start) / 1000 / 1000);
@@ -253,7 +258,14 @@ BackupServer::SegmentInfo::buildRecoverySegments(
     LOG(NOTICE, "Building %lu recovery segments for %lu",
         partitionCount, segmentId);
 
+#ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
+    recoverySegments = new pair<char[Segment::SEGMENT_SIZE], uint32_t>
+                                                [partitionCount];
+    for (uint32_t i = 0; i < partitionCount; ++i)
+        recoverySegments[i].second = 0;
+#else
     recoverySegments = new Buffer[partitionCount];
+#endif
     recoverySegmentsLength = partitionCount;
 
     try {
@@ -277,14 +289,25 @@ BackupServer::SegmentInfo::buildRecoverySegments(
                     reinterpret_cast<const char*>(it.getPointer()) -
                     sizeof(*entry));
             const uint32_t len = sizeof(*entry) + it.getLength();
-            void *out = new(&recoverySegments[*partitionId], APPEND)
-                                char[len];
+#ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
+            auto& bufLen = recoverySegments[*partitionId];
+            assert(bufLen.second + len <= Segment::SEGMENT_SIZE);
+            void *out = bufLen.first + bufLen.second;
+            bufLen.second += len;
+#else
+            void *out = new(&recoverySegments[*partitionId], APPEND) char[len];
+#endif
             memcpy(out, entry, len);
         }
 #if TESTING
-        for (uint64_t i = 0; i < recoverySegmentsLength; ++i)
+        for (uint64_t i = 0; i < recoverySegmentsLength; ++i) {
             LOG(DEBUG, "Recovery segment for <%lu,%lu> partition %lu is %u B",
+#ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
+                masterId, segmentId, i, recoverySegments[i].second);
+#else
                 masterId, segmentId, i, recoverySegments[i].getTotalLength());
+#endif
+        }
 #endif
     } catch (const SegmentIteratorException& e) {
         LOG(WARNING, "Exception occurred building recovery segments: %s",

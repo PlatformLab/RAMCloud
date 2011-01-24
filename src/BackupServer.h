@@ -291,7 +291,12 @@ class BackupServer : public Server {
         boost::scoped_ptr<SegmentRecoveryFailedException> recoveryException;
 
         /// An array of recovery segments when non-null.
+#ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
+        // first is byte array, second is number of bytes used
+        pair<char[Segment::SEGMENT_SIZE], uint32_t>* recoverySegments;
+#else
         Buffer* recoverySegments;
+#endif
 
         /// The number of Buffers in #recoverySegments.
         uint32_t recoverySegmentsLength;
