@@ -36,6 +36,7 @@ bool pmcInsteadOfTSC;
 uint64_t count;
 uint64_t size;
 int cpu;
+bool readOnly = false;
 
 RC::RamCloud *client;
 uint32_t table;
@@ -169,6 +170,10 @@ try
         ("tablename,t",
          RC::ProgramOptions::value<std::string>(&tableName),
          "Name of test table used. Default 'test'.")
+        ("readonly,o",
+         RC::ProgramOptions::bool_switch(&readOnly),
+         "Only perform read operations. Do not perform first"
+         " bootstrapping write. Default off.")
         ("size,S",
          RC::ProgramOptions::value<uint64_t>(&size)->
            default_value(100),
@@ -184,10 +189,12 @@ try
 
     setup();
 
-    if (multirow) {
-        BENCH(writeMany);
-    } else {
-        BENCH(writeOne);
+    if (!readOnly) {
+        if (multirow) {
+            BENCH(writeMany);
+        } else {
+            BENCH(writeOne);
+        }
     }
 
     BENCH(readMany);

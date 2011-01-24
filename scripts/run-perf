@@ -8,7 +8,7 @@ cport=$(( $port + 1 ))
 
 source scripts/common.bash
 
-transport=tcp
+transport=infrc
 ip=`hostname -i`
 
 masterLocator=$transport:host=$ip,port=$port
@@ -28,7 +28,7 @@ sleep .1
 
 # now call perl script to do the rest of the work
 # scripts/latencyVSsize.pl -co $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.size.dump
-scripts/latencyVSload.pl -co $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.load.dump -cl rc0[2-7].scs.stanford.edu
+scripts/latencyVSload.pl -co $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.load.dump -cl rc0[4,5,7].scs.stanford.edu
 RETVAL=$?
 
 exit $RETVAL
