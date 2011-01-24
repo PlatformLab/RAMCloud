@@ -47,6 +47,7 @@ class Log {
     Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
             BackupManager *backup = NULL);
     ~Log();
+    Segment*    allocateHead();
     const void *append(LogEntryType type, const void *buffer, uint64_t length,
                        uint64_t *lengthInLog = NULL, LogTime *logTime = NULL,
                        bool sync = true);
@@ -123,6 +124,97 @@ class Log {
     friend class LogCleaner;
 
     DISALLOW_COPY_AND_ASSIGN(Log);
+};
+
+class LogDigest {
+  public:
+    /**
+     * Create a LogDigest that will contain ``segmentCount''
+     * SegmentIDs and serialise it to the given buffer. This
+     * is the method to call when creating a new LogDigest,
+     * i.e. when addSegment() will be called.
+     *
+     * \param[in] segmentCount
+     *      The number of SegmentIDs that are to be stored in
+     *      this LogDigest.
+     * \param[in] base
+     *      Base address of a buffer in which to serialise this
+     *      LogDigest.
+     * \param[in] length
+     *      Length of the buffer pointed to by ``base'' in bytes.
+     */
+    LogDigest(uint32_t segmentCount, void* base, uint32_t length)
+        : ldd(static_cast<LogDigestData*>(base)),
+          currentSegment(0)
+    {
+        assert(length >= getBytesFromCount(segmentCount));
+        ldd->segmentCount = segmentCount;
+        for (uint32_t i = 0; i < segmentCount; i++)
+            ldd->segmentIds[i] = Segment::INVALID_SEGMENT_ID;
+    }
+
+    /**
+     * Create a LogDigest object from a previous one that was
+     * serialised in the given buffer. This is the method to
+     * call when accessing a previously-constructed and
+     * serialised LogDigest. 
+     *
+     * \param[in] base
+     *      Base address of a buffer that contains a serialised
+     *      LogDigest. 
+     * \param[in] length
+     *      Length of the buffer pointed to by ``base'' in bytes.
+     */
+    LogDigest(const void* base, uint32_t length)
+        : ldd(static_cast<LogDigestData*>(const_cast<void*>(base))),
+          currentSegment(ldd->segmentCount)
+    {
+    }
+
+    /**
+     * Add a SegmentID to this LogDigest.
+     */
+    void
+    addSegment(uint64_t id)
+    {
+        assert(currentSegment < ldd->segmentCount);
+        ldd->segmentIds[currentSegment++] = id;
+    }
+
+    /**
+     * Get the number of SegmentIDs in this LogDigest.
+     */
+    int getSegmentCount() { return ldd->segmentCount; }
+
+    /**
+     * Get an array of SegmentIDs in this LogDigest. There
+     * will be getSegmentCount() elements in the array.
+     */
+    const uint64_t* getSegmentIds() { return ldd->segmentIds; }
+
+    /**
+     * Return the number of bytes needed to store a LogDigest
+     * that contains ``segmentCount'' Segment IDs.
+     */
+    static uint32_t
+    getBytesFromCount(uint32_t segmentCount)
+    {
+        return sizeof(LogDigestData) + segmentCount * sizeof(uint64_t);
+    }
+
+  private:
+    struct LogDigestData {
+        uint32_t segmentCount;
+        uint64_t segmentIds[0];
+    } __attribute__((__packed__));
+
+    LogDigestData* ldd;
+    uint32_t       currentSegment;
+
+    friend class LogTest;
+    friend class LogDigestTest;
+
+    DISALLOW_COPY_AND_ASSIGN(LogDigest);
 };
 
 } // namespace

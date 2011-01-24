@@ -90,6 +90,37 @@ Log::~Log()
 }
 
 /**
+ * Allocate a new head Segment and write the LogDigest before returning.
+ * The current head is not replaced; that is up to the caller.
+ *
+ * \throw LogException
+ *      If no Segments are free.
+ */
+Segment*
+Log::allocateHead()
+{
+    Segment* newHead = new Segment(this, allocateSegmentId(), getFromFreeList(),
+        segmentCapacity, backup);
+
+    uint32_t segmentCount = activeIdMap.size() + 1;
+    uint32_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
+    char temp[digestBytes];
+    LogDigest ld(segmentCount, temp, digestBytes);
+
+    foreach (ActiveIdMap::value_type& idSegmentPair, activeIdMap) {
+        Segment* segment = idSegmentPair.second;
+        ld.addSegment(segment->getId());
+    }
+    ld.addSegment(newHead->getId());
+
+    const void* p = newHead->append(LOG_ENTRY_TYPE_LOGDIGEST,
+        temp, digestBytes);
+    assert(p != NULL);
+
+    return newHead;
+}
+
+/**
  * Determine whether or not the provided Segment identifier is currently
  * live. A live Segment is one that is still being used by the Log for
  * storage. This method can be used to determine if data once written to the
@@ -183,9 +214,8 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
         }
         // head segment is full
         // allocate the next segment, /then/ close this one
-        Segment* nextHead = new Segment(this, allocateSegmentId(),
-                                        getFromFreeList(), segmentCapacity,
-                                        backup);
+        Segment* nextHead = allocateHead();
+
         head->close(false); // an exception here would be problematic...
 #ifdef PERF_DEBUG_RECOVERY_SYNC_BACKUP
         head->sync();
@@ -193,8 +223,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
         head = nextHead;
     } else {
         // allocate the first segment
-        head = new Segment(this, allocateSegmentId(), getFromFreeList(),
-                           segmentCapacity, backup);
+        head = allocateHead();
     }
     addToActiveMaps(head);
 
