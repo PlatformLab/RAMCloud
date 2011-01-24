@@ -52,15 +52,10 @@ Recovery::Recovery(uint64_t masterId,
     , masterHosts(masterHosts)
     , backupHosts(backupHosts)
     , masterId(masterId)
-    , segmentIdToBackups()
     , tabletsUnderRecovery()
     , will(will)
 {
     buildSegmentIdToBackups();
-
-    // Wait to create this list after all the inserts because multimap sorts
-    // it by segment id for us, flatten it and augment it with segment ids.
-    createBackupList(backups);
 }
 
 Recovery::~Recovery()
@@ -75,25 +70,47 @@ struct Task {
          const ProtoBuf::Tablets& partitions)
         : backupHost(backupHost)
         , response()
-        , client(
-            transportManager.getSession(backupHost.service_locator().c_str()))
-        , rpc(client, crashedMasterId, partitions)
+        , client()
+        , rpc()
+        , result()
+        , done()
     {
+        response.construct();
+        client.construct(
+            transportManager.getSession(backupHost.service_locator().c_str()));
+        rpc.construct(*client, crashedMasterId, partitions);
         LOG(DEBUG, "Starting startReadingData on %s",
             backupHost.service_locator().c_str());
     }
+
+    bool isDone() const { return done; }
+    bool isReady() { return rpc && rpc->isReady(); }
+
+    void
+    operator()()
+    {
+        result = (*rpc)();
+        rpc.destroy();
+        client.destroy();
+        response.destroy();
+        done = true;
+    }
+
     const ProtoBuf::ServerList::Entry& backupHost;
-    Buffer response;
-    BackupClient client;
-    BackupClient::StartReadingData rpc;
+    ObjectTub<Buffer> response;
+    ObjectTub<BackupClient> client;
+    ObjectTub<BackupClient::StartReadingData> rpc;
+    BackupClient::StartReadingData::Result result;
+    bool done;
     DISALLOW_COPY_AND_ASSIGN(Task);
 };
 }
 
 /**
- * Builds the segmentIdToBackups by contacting all backups in
- * the RAMCloud describing where each copy of each segment can be found
- * by backup locator.  Only used by the constructor.
+ * Creates a flattened ServerList of backups describing for each copy
+ * of each segment on some backup the service locator where that backup is
+ * that can be tranferred easily over the wire. Only used by the
+ * constructor.
  */
 void
 Recovery::buildSegmentIdToBackups()
@@ -102,74 +119,74 @@ Recovery::buildSegmentIdToBackups()
                "them for recovery");
 
     // Adjust this array size to hone the number of concurrent requests.
-    ObjectTub<Task> tasks[10];
+    ObjectTub<Task> tasks[backupHosts.server_size()];
     auto backupHostsIt = backupHosts.server().begin();
     auto backupHostsEnd = backupHosts.server().end();
+    const uint32_t maxActiveBackupHosts = 10;
     uint32_t activeBackupHosts = 0;
 
     // Start off first round of RPCs
-    foreach (auto& task, tasks) {
-        if (backupHostsIt == backupHostsEnd)
+    for (int i = 0; i < backupHosts.server_size(); ++i) {
+        auto& task = tasks[i];
+        if (backupHostsIt == backupHostsEnd ||
+            activeBackupHosts == maxActiveBackupHosts)
             break;
         task.construct(*backupHostsIt++, masterId, will);
         ++activeBackupHosts;
     }
 
-    // As RPCs complete, process them and start more
+    // As RPCs complete kick off new ones
     while (activeBackupHosts > 0) {
-        foreach (auto& task, tasks) {
-            BackupClient::StartReadingData::Result idAndLengths;
-            if (!task || !task->rpc.isReady())
+        for (int i = 0; i < backupHosts.server_size(); ++i) {
+            auto& task = tasks[i];
+            if (!task || !task->isReady() || task->isDone())
                 continue;
-            const auto& locator = task->backupHost.service_locator();
+
             try {
-                idAndLengths = (task->rpc)();
+                (*task)();
+                LOG(DEBUG, "%s returned %lu segment id/lengths",
+                    task->backupHost.service_locator().c_str(),
+                    task->result.size());
             } catch (const TransportException& e) {
                 LOG(DEBUG, "Couldn't contact %s, "
-                    "failure was: %s", locator.c_str(), e.str().c_str());
+                    "failure was: %s",
+                    task->backupHost.service_locator().c_str(),
+                    e.str().c_str());
             } catch (const ClientException& e) {
                 LOG(DEBUG, "startReadingData failed on %s, "
-                    "failure was: %s", locator.c_str(), e.str().c_str());
+                    "failure was: %s",
+                    task->backupHost.service_locator().c_str(),
+                    e.str().c_str());
             }
 
-            LOG(DEBUG, "%s returned %lu segment id/lengths",
-                locator.c_str(), idAndLengths.size());
-            foreach (const auto& idAndLength, idAndLengths) {
-                auto segmentId = idAndLength.first;
-                auto segmentWrittenLength = idAndLength.second;
-                LOG(DEBUG, "%s has %lu with length %u",
-                    locator.c_str(),
-                    segmentId, segmentWrittenLength);
-                // A copy of the entry is made, augmented with a segment id.
-                segmentIdToBackups.insert(
-                    BackupMap::value_type(segmentId, task->backupHost));
-            }
-
-            task.destroy();
             if (backupHostsIt == backupHostsEnd) {
                 --activeBackupHosts;
                 continue;
             }
-            task.construct(*backupHostsIt++, masterId, will);
         }
     }
-}
 
-/**
- * Creates a flattened ServerList of backups describing for each copy
- * of each segment on some backup the service locator where that backup is
- * that can be tranferred easily over the wire.
- *
- * \param backups
- *      The ProtoBuf::ServerList to append the flattened list to.
- */
-void
-Recovery::createBackupList(ProtoBuf::ServerList& backups) const
-{
-    foreach (const BackupMap::value_type& value, segmentIdToBackups) {
-        ProtoBuf::ServerList_Entry& server(*backups.add_server());
-        server = value.second;
-        server.set_segment_id(value.first);
+    // Create the ServerList 'script' that recovery masters will replay
+    for (uint32_t slot = 0;; ++slot) {
+        // Keep working if some segment list had a value in offset 'slot'.
+        bool stillWorking = false;
+        // TODO(stutsman) we'll want to add some modular arithmetic here
+        // to generate unique replay scripts for each recovery master
+        for (int i = 0; i < backupHosts.server_size(); ++i) {
+            assert(tasks[i]);
+            const auto& task = tasks[i];
+            if (slot >= task->result.size())
+                continue;
+            stillWorking = true;
+            ProtoBuf::ServerList::Entry& backupHost = *backups.add_server();
+            // Copy backup host into the new server list.
+            backupHost = task->backupHost;
+            // Augment it with the segment id.
+            uint64_t segmentId = task->result[slot].first;
+            backupHost.set_segment_id(segmentId);
+        }
+        if (!stillWorking)
+            break;
     }
 }
 

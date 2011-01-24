@@ -54,14 +54,14 @@ BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage,
                                        uint64_t masterId,
                                        uint64_t segmentId,
                                        uint32_t segmentSize)
-    : mutex()
+    : masterId(masterId)
+    , segmentId(segmentId)
+    , mutex()
     , condition()
-    , masterId(masterId)
     , recoveryException()
     , recoverySegments(NULL)
     , recoverySegmentsLength()
     , rightmostWrittenOffset(0)
-    , segmentId(segmentId)
     , segment()
     , segmentSize(segmentSize)
     , state(UNINIT)
@@ -854,31 +854,30 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                                 reqHdr.partitionsLength, partitions);
 
     vector<SegmentInfo*> segmentsToFilter;
-    uint32_t segmentIdCount = 0;
     for (SegmentsMap::iterator it = segments.begin();
          it != segments.end(); it++)
     {
         uint64_t masterId = it->first.masterId;
-        if (masterId == reqHdr.masterId) {
-            SegmentInfo& info = *it->second;
-            // Send back segment length if open, otherwise magic value to
-            // say that it is closed.
-            uint32_t writtenLength = info.getRightmostWrittenOffset();
-            new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
-                (it->first.segmentId, writtenLength);
+        if (masterId == reqHdr.masterId)
             segmentsToFilter.push_back(it->second);
-            it->second->setRecovering();
-            LOG(DEBUG, "Crashed master %lu had segment %lu",
-                masterId, it->first.segmentId);
-            segmentIdCount++;
-        }
     }
-    respHdr.segmentIdCount = segmentIdCount;
-    LOG(DEBUG, "Sending %u segment ids for this master", segmentIdCount);
 
     std::sort(segmentsToFilter.begin(),
               segmentsToFilter.end(),
               &segmentInfoLessThan);
+    std::reverse(segmentsToFilter.begin(),
+                 segmentsToFilter.end());
+
+    foreach (auto info, segmentsToFilter) {
+        new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
+            (info->segmentId, info->getRightmostWrittenOffset());
+        LOG(DEBUG, "Crashed master %lu had segment %lu",
+            info->masterId, info->segmentId);
+        info->setRecovering();
+    }
+    respHdr.segmentIdCount = segmentsToFilter.size();
+    LOG(DEBUG, "Sending %u segment ids for this master",
+        respHdr.segmentIdCount);
 
     responder();
 
