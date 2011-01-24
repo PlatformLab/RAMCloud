@@ -61,11 +61,12 @@ class BackupClient : public Client {
 
     class StartReadingData {
       public:
+        typedef vector<pair<uint64_t, uint32_t>> Result;
         StartReadingData(BackupClient& client,
                          uint64_t masterId,
                          const ProtoBuf::Tablets& partitions);
         bool isReady() { return client.isReady(state); }
-        vector<pair<uint64_t, uint32_t>> operator()();
+        Result operator()();
         BackupClient& client;
         Buffer requestBuffer;
         Buffer responseBuffer;
@@ -74,7 +75,7 @@ class BackupClient : public Client {
         friend class BackupClient;
         DISALLOW_COPY_AND_ASSIGN(StartReadingData);
     };
-    vector<pair<uint64_t, uint32_t>>
+    StartReadingData::Result
     startReadingData(uint64_t masterId, const ProtoBuf::Tablets& partitions)
     {
         return StartReadingData(*this, masterId, partitions)();

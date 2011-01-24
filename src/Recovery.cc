@@ -118,7 +118,7 @@ Recovery::buildSegmentIdToBackups()
     // As RPCs complete, process them and start more
     while (activeBackupHosts > 0) {
         foreach (auto& task, tasks) {
-            vector<pair<uint64_t, uint32_t>> idAndLengths;
+            BackupClient::StartReadingData::Result idAndLengths;
             if (!task || !task->rpc.isReady())
                 continue;
             const auto& locator = task->backupHost.service_locator();
