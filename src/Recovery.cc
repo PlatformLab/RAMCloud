@@ -17,6 +17,7 @@
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "MasterClient.h"
+#include "ObjectTub.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
 
@@ -66,37 +67,90 @@ Recovery::~Recovery()
 {
 }
 
+namespace {
+// Only used in Recovery::buildSegmentIdToBackups().
+struct Task {
+    Task(const ProtoBuf::ServerList::Entry& backupHost,
+         uint64_t crashedMasterId,
+         const ProtoBuf::Tablets& partitions)
+        : backupHost(backupHost)
+        , response()
+        , client(
+            transportManager.getSession(backupHost.service_locator().c_str()))
+        , rpc(client, crashedMasterId, partitions)
+    {
+        LOG(DEBUG, "Starting startReadingData on %s",
+            backupHost.service_locator().c_str());
+    }
+    const ProtoBuf::ServerList::Entry& backupHost;
+    Buffer response;
+    BackupClient client;
+    BackupClient::StartReadingData rpc;
+    DISALLOW_COPY_AND_ASSIGN(Task);
+};
+}
+
 /**
  * Builds the segmentIdToBackups by contacting all backups in
  * the RAMCloud describing where each copy of each segment can be found
  * by backup locator.  Only used by the constructor.
- *
- * \bug Completely serial.  Should overlap each of the startReadingData
- *      requests.
  */
 void
 Recovery::buildSegmentIdToBackups()
 {
     LOG(DEBUG, "Getting segment lists from backups and preparing "
                "them for recovery");
-    // Find all the segments for the crashed master from each of
-    // the backups in the entire RAMCloud.
-    for (int i = 0; i < backupHosts.server_size(); i++) {
-        const ProtoBuf::ServerList::Entry& host(backupHosts.server(i));
-        LOG(DEBUG, "Getting segment info from %s",
-            host.service_locator().c_str());
-        BackupClient backup(
-            transportManager.getSession(host.service_locator().c_str()));
-        vector<pair<uint64_t, uint32_t>> idAndLengths(
-            backup.startReadingData(masterId, will));
-        foreach (const auto& idAndLength, idAndLengths) {
-            auto segmentId = idAndLength.first;
-            auto segmentWrittenLength = idAndLength.second;
-            LOG(DEBUG, "%s has %lu with length %u",
-                host.service_locator().c_str(),
-                segmentId, segmentWrittenLength);
-            // A copy of the entry is made, we augment it with a segment id.
-            segmentIdToBackups.insert(BackupMap::value_type(segmentId, host));
+
+    // Adjust this array size to hone the number of concurrent requests.
+    ObjectTub<Task> tasks[10];
+    auto backupHostsIt = backupHosts.server().begin();
+    auto backupHostsEnd = backupHosts.server().end();
+    uint32_t activeBackupHosts = 0;
+
+    // Start off first round of RPCs
+    foreach (auto& task, tasks) {
+        if (backupHostsIt == backupHostsEnd)
+            break;
+        task.construct(*backupHostsIt++, masterId, will);
+        ++activeBackupHosts;
+    }
+
+    // As RPCs complete, process them and start more
+    while (activeBackupHosts > 0) {
+        foreach (auto& task, tasks) {
+            vector<pair<uint64_t, uint32_t>> idAndLengths;
+            if (!task || !task->rpc.isReady())
+                continue;
+            const auto& locator = task->backupHost.service_locator();
+            try {
+                idAndLengths = (task->rpc)();
+            } catch (const TransportException& e) {
+                LOG(DEBUG, "Couldn't contact %s, "
+                    "failure was: %s", locator.c_str(), e.str().c_str());
+            } catch (const ClientException& e) {
+                LOG(DEBUG, "startReadingData failed on %s, "
+                    "failure was: %s", locator.c_str(), e.str().c_str());
+            }
+
+            LOG(DEBUG, "%s returned %lu segment id/lengths",
+                locator.c_str(), idAndLengths.size());
+            foreach (const auto& idAndLength, idAndLengths) {
+                auto segmentId = idAndLength.first;
+                auto segmentWrittenLength = idAndLength.second;
+                LOG(DEBUG, "%s has %lu with length %u",
+                    locator.c_str(),
+                    segmentId, segmentWrittenLength);
+                // A copy of the entry is made, augmented with a segment id.
+                segmentIdToBackups.insert(
+                    BackupMap::value_type(segmentId, task->backupHost));
+            }
+
+            task.destroy();
+            if (backupHostsIt == backupHostsEnd) {
+                --activeBackupHosts;
+                continue;
+            }
+            task.construct(*backupHostsIt++, masterId, will);
         }
     }
 }

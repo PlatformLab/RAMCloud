@@ -331,6 +331,7 @@ MasterServer::removeTombstones()
     objectMap.forEach(recoveryCleanup, this);
 }
 
+namespace {
 // used in recover()
 struct Task {
     Task(uint64_t masterId, uint64_t segmentId,
@@ -348,6 +349,7 @@ struct Task {
     BackupClient::GetRecoveryData rpc;
     DISALLOW_COPY_AND_ASSIGN(Task);
 };
+}
 
 /**
  * Helper for public recover() method.
