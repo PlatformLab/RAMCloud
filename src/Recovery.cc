@@ -54,7 +54,8 @@ Recovery::Recovery(uint64_t masterId,
     , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
-    , logDigestList()
+    , tasks(new ObjectTub<Task>[backupHosts.server_size()])
+    , digestList()
     , segmentMap()
 {
     buildSegmentIdToBackups();
@@ -63,54 +64,7 @@ Recovery::Recovery(uint64_t masterId,
 
 Recovery::~Recovery()
 {
-    foreach (auto digestPair, logDigestList) {
-        LogDigest* ld = digestPair.second;
-        delete ld;
-    }
-}
-
-namespace {
-// Only used in Recovery::buildSegmentIdToBackups().
-struct Task {
-    Task(const ProtoBuf::ServerList::Entry& backupHost,
-         uint64_t crashedMasterId,
-         const ProtoBuf::Tablets& partitions)
-        : backupHost(backupHost)
-        , response()
-        , client()
-        , rpc()
-        , result()
-        , done()
-    {
-        response.construct();
-        client.construct(
-            transportManager.getSession(backupHost.service_locator().c_str()));
-        rpc.construct(*client, crashedMasterId, partitions);
-        LOG(DEBUG, "Starting startReadingData on %s",
-            backupHost.service_locator().c_str());
-    }
-
-    bool isDone() const { return done; }
-    bool isReady() { return rpc && rpc->isReady(); }
-
-    void
-    operator()()
-    {
-        (*rpc)(&result);
-        rpc.destroy();
-        client.destroy();
-        response.destroy();
-        done = true;
-    }
-
-    const ProtoBuf::ServerList::Entry& backupHost;
-    ObjectTub<Buffer> response;
-    ObjectTub<BackupClient> client;
-    ObjectTub<BackupClient::StartReadingData> rpc;
-    BackupClient::StartReadingData::Result result;
-    bool done;
-    DISALLOW_COPY_AND_ASSIGN(Task);
-};
+    delete[] tasks;
 }
 
 /**
@@ -125,8 +79,6 @@ Recovery::buildSegmentIdToBackups()
     LOG(DEBUG, "Getting segment lists from backups and preparing "
                "them for recovery");
 
-    // Adjust this array size to hone the number of concurrent requests.
-    ObjectTub<Task> tasks[backupHosts.server_size()];
     auto backupHostsIt = backupHosts.server().begin();
     auto backupHostsEnd = backupHosts.server().end();
     const uint32_t maxActiveBackupHosts = 10;
@@ -189,18 +141,17 @@ Recovery::buildSegmentIdToBackups()
             // Copy backup host into the new server list.
             backupHost = task->backupHost;
             // Augment it with the segment id.
-            uint64_t segmentId = task->result.segmentIdAndLength[slot].first;
+            uint64_t segmentId  = task->result.segmentIdAndLength[slot].first;
+            uint32_t segmentLen = task->result.segmentIdAndLength[slot].second;
             backupHost.set_segment_id(segmentId);
 
             // If this Segment is a potential head of the log and includes a
             // LogDigest, set it aside for verifyCompleteLog().
             if (task->result.logDigestBuffer != NULL) {
-                uint32_t bytes = task->result.logDigestBytes;
-                const void* base = task->result.logDigestBuffer;
-                void* copy = xmalloc(bytes);
-                memcpy(copy, base, bytes);
-                LogDigest* ld = new LogDigest(copy, bytes, true);
-                logDigestList.push_back({segmentId, ld});
+                digestList.push_back({ segmentId,
+                                       segmentLen,
+                                       task->result.logDigestBuffer,
+                                       task->result.logDigestBytes });
             }
 
             if (segmentMap.find(segmentId) != segmentMap.end())
@@ -225,13 +176,16 @@ Recovery::verifyCompleteLog()
     // find the newest head
     LogDigest* headDigest = NULL;
     uint64_t headId = 0;
-    foreach (auto digestPair, logDigestList) {
-        uint64_t id = digestPair.first;
-        LogDigest *ld = digestPair.second;
+    uint32_t headLen = 0;
+    foreach (auto digestTuple, digestList) {
+        uint64_t id = digestTuple.segmentId;
+        uint32_t len = digestTuple.segmentLength;
+        LogDigest *ld = &digestTuple.logDigest;
 
-        if (id >= headId) {
+        if (id > headId || (id == headId && len >= headLen)) {
             headDigest = ld;
             headId = id;
+            headLen = len;
         }
     }
 

@@ -68,6 +68,64 @@ class Recovery : public BaseRecovery {
     bool tabletsRecovered(const ProtoBuf::Tablets& tablets);
 
   private:
+    // Only used in Recovery::buildSegmentIdToBackups().
+    struct Task {
+        Task(const ProtoBuf::ServerList::Entry& backupHost,
+             uint64_t crashedMasterId,
+             const ProtoBuf::Tablets& partitions)
+            : backupHost(backupHost)
+            , response()
+            , client()
+            , rpc()
+            , result()
+            , done()
+        {
+            response.construct();
+            client.construct(
+                transportManager.getSession(
+                    backupHost.service_locator().c_str()));
+            rpc.construct(*client, crashedMasterId, partitions);
+            LOG(DEBUG, "Starting startReadingData on %s",
+                backupHost.service_locator().c_str());
+        }
+
+        bool isDone() const { return done; }
+        bool isReady() { return rpc && rpc->isReady(); }
+
+        void
+        operator()()
+        {
+            (*rpc)(&result);
+            rpc.destroy();
+            client.destroy();
+            response.destroy();
+            done = true;
+        }
+
+        const ProtoBuf::ServerList::Entry& backupHost;
+        ObjectTub<Buffer> response;
+        ObjectTub<BackupClient> client;
+        ObjectTub<BackupClient::StartReadingData> rpc;
+        BackupClient::StartReadingData::Result result;
+        bool done;
+        DISALLOW_COPY_AND_ASSIGN(Task);
+    };
+
+    class SegmentAndDigestTuple {
+      public:
+        SegmentAndDigestTuple(uint64_t segmentId, uint32_t segmentLength,
+            const void* logDigestPtr, uint32_t logDigestBytes)
+            : segmentId(segmentId),
+              segmentLength(segmentLength),
+              logDigest(logDigestPtr, logDigestBytes)
+        {
+        }
+
+        uint64_t  segmentId;
+        uint32_t  segmentLength;
+        LogDigest logDigest;
+    };
+
     /**
      * A mapping of segmentIds to backup host service locators.
      * Created from #hosts in createBackupList().
@@ -89,10 +147,14 @@ class Recovery : public BaseRecovery {
     /// A partitioning of tablets for the crashed master.
     const ProtoBuf::Tablets& will;
 
-    /// List of serialised LogDigests from possible log heads
-    vector<pair<uint64_t, LogDigest*>> logDigestList;
+    /// List of asynchronous startReadingData tasks and their replies
+    ObjectTub<Task> *tasks;
 
-    /// Map of Segment Ids -> counts of backup copies that were found. 
+    /// List of serialised LogDigests from possible log heads, including
+    /// the corresponding Segment IDs and lengths.
+    vector<SegmentAndDigestTuple> digestList;
+
+    /// Map of Segment Ids -> counts of backup copies that were found.
     boost::unordered_map<uint64_t, uint32_t> segmentMap;
 
     friend class RecoveryTest;

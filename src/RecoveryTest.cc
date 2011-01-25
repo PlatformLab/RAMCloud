@@ -51,8 +51,11 @@ class RecoveryTest : public CppUnit::TestFixture {
         char *segMem;
         Segment* seg;
 
-        WriteValidSegment(uint64_t masterId, uint64_t segmentId,
-                          const uint32_t segmentSize, const string locator)
+        WriteValidSegment(uint64_t masterId,
+                          uint64_t segmentId,
+                          vector<uint64_t> digestIds,
+                          const uint32_t segmentSize,
+                          const string locator, bool close)
             : backupList()
             , mgr()
             , segMem()
@@ -66,7 +69,15 @@ class RecoveryTest : public CppUnit::TestFixture {
 
             segMem = new char[segmentSize];
             seg = new Segment(masterId, segmentId, segMem, segmentSize, mgr);
-            seg->close();
+
+            char temp[LogDigest::getBytesFromCount(digestIds.size())];
+            LogDigest ld(digestIds.size(), temp, sizeof(temp));
+            for (unsigned int i = 0; i < digestIds.size(); i++)
+                ld.addSegment(digestIds[i]);
+            seg->append(LOG_ENTRY_TYPE_LOGDIGEST, temp, sizeof(temp));
+
+            if (close)
+                seg->close();
         }
 
         ~WriteValidSegment()
@@ -166,12 +177,15 @@ class RecoveryTest : public CppUnit::TestFixture {
 
         // Two segs on backup1, one that overlaps with backup2
         segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, segmentSize, "mock:host=backup1"));
+            new WriteValidSegment(99, 88, { 88 }, segmentSize,
+                "mock:host=backup1", true));
         segmentsToFree.push_back(
-            new WriteValidSegment(99, 89, segmentSize, "mock:host=backup1"));
+            new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
+                "mock:host=backup1", false));
         // One seg on backup2
         segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, segmentSize, "mock:host=backup2"));
+            new WriteValidSegment(99, 88, { 88 }, segmentSize,
+                "mock:host=backup2", true));
         // Zero segs on backup3
 
         masterHosts = new ProtoBuf::ServerList();
