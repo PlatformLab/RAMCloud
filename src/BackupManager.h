@@ -139,7 +139,7 @@ class BackupManager {
 
     void freeSegment(uint64_t segmentId);
     OpenSegment* openSegment(uint64_t segmentId,
-                             const void* data, uint32_t len)
+                             const void* data, uint32_t len);
         __attribute__((warn_unused_result));
     void sync();
 

@@ -762,7 +762,7 @@ class SegmentInfoTest : public ::testing::Test {
         : segmentSize(64 * 1024)
         , pool{segmentSize}
         , storage{segmentSize, 2}
-        , info{storage, pool, 99, 88, segmentSize}
+        , info{storage, pool, 99, 88, segmentSize, true}
     {
         logger.setLogLevels(SILENT_LOG_LEVEL);
     }
@@ -777,7 +777,7 @@ class SegmentInfoTest : public ::testing::Test {
 TEST_F(SegmentInfoTest, destructor) {
     TestLog::Enable _;
     {
-        SegmentInfo info{storage, pool, 99, 88, segmentSize};
+        SegmentInfo info{storage, pool, 99, 88, segmentSize, true};
         info.open();
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
     }
@@ -789,7 +789,7 @@ TEST_F(SegmentInfoTest, destructor) {
 
 TEST_F(SegmentInfoTest, destructorLoading) {
     {
-        SegmentInfo info{storage, pool, 99, 88, segmentSize};
+        SegmentInfo info{storage, pool, 99, 88, segmentSize, true};
         info.open();
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
         info.close();
@@ -1047,7 +1047,7 @@ TEST_F(SegmentInfoTest, open) {
 
 TEST_F(SegmentInfoTest, openStorageAllocationFailure) {
     InMemoryStorage storage{segmentSize, 0};
-    SegmentInfo info{storage, pool, 99, 88, segmentSize};
+    SegmentInfo info{storage, pool, 99, 88, segmentSize, true};
     EXPECT_THROW(info.open(), BackupStorageException);
     ASSERT_EQ(static_cast<char*>(NULL), info.segment);
     EXPECT_EQ(static_cast<Handle*>(NULL), info.storageHandle);

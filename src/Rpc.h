@@ -395,7 +395,10 @@ struct BackupWriteRpc {
         NONE = 0,
         OPEN = 1,
         CLOSE = 2,
-        OPENCLOSE = 3,
+        OPENCLOSE = OPEN | CLOSE,
+        PRIMARY = 4,
+        OPENPRIMARY = OPEN | PRIMARY,
+        OPENCLOSEPRIMARY = OPEN | CLOSE | PRIMARY,
     };
     struct Request {
         RpcRequestCommon common;

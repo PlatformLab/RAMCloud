@@ -15,6 +15,8 @@
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
+#include <boost/lambda/lambda.hpp>
+#include <boost/lambda/bind.hpp>
 
 #include "BackupServer.h"
 #include "BackupStorage.h"
@@ -48,17 +50,24 @@ namespace RAMCloud {
  *      The segment id of the segment being managed.
  * \param segmentSize
  *      The number of bytes contained in this segment.
+ * \param primary
+ *      True if this is the primary copy of this segment for the master
+ *      who stored it.  Determines whether recovery segments are built
+ *      at recovery start or on demand.
  */
 BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage,
                                        ThreadSafePool& pool,
                                        uint64_t masterId,
                                        uint64_t segmentId,
-                                       uint32_t segmentSize)
+                                       uint32_t segmentSize,
+                                       bool primary)
     : masterId(masterId)
+    , primary(primary)
     , segmentId(segmentId)
     , mutex()
     , condition()
     , recoveryException()
+    , recoveryPartitions()
     , recoverySegments(NULL)
     , recoverySegmentsLength()
     , rightmostWrittenOffset(0)
@@ -131,6 +140,20 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
         LOG(WARNING, "Asked for segment <%lu,%lu> which isn't recovering",
             masterId, segmentId);
         throw BackupBadSegmentIdException(HERE);
+    }
+
+    if (!primary) {
+        if (!isRecovered() && !recoveryException) {
+            LOG(DEBUG, "Requested segment <%lu,%lu> is secondary, "
+                "starting build of recovery segments now", masterId, segmentId);
+            waitForOngoingOps(lock);
+            LoadOp io(*this);
+            ++storageThreadCount;
+            boost::thread _(io);
+            lock.unlock();
+            buildRecoverySegments(*recoveryPartitions);
+            lock.lock();
+        }
     }
 
     uint64_t start = rdtsc();
@@ -239,9 +262,9 @@ void
 BackupServer::SegmentInfo::buildRecoverySegments(
     const ProtoBuf::Tablets& partitions)
 {
+    Lock lock(mutex);
     assert(state == RECOVERING);
 
-    Lock lock(mutex);
     waitForOngoingOps(lock);
 
     assert(inMemory());
@@ -373,7 +396,10 @@ BackupServer::SegmentInfo::free()
     Lock lock(mutex);
     waitForOngoingOps(lock);
 
+    // Don't wait for secondary segment recovery segments
+    // they aren't running in a separate thread.
     while (state == RECOVERING &&
+           primary &&
            !isRecovered() &&
            !recoveryException)
         condition.wait(lock);
@@ -889,51 +915,66 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     uint32_t logDigestBytes = 0;
     const void* logDigestPtr = NULL;
 
-    vector<SegmentInfo*> segmentsToFilter;
+    vector<SegmentInfo*> primarySegments;
+    vector<SegmentInfo*> secondarySegments;
+
     for (SegmentsMap::iterator it = segments.begin();
          it != segments.end(); it++)
     {
         uint64_t masterId = it->first.masterId;
+        SegmentInfo* info = it->second;
         if (masterId == reqHdr.masterId) {
-            const MasterSegmentIdPair& msip = it->first;
-            SegmentInfo& info = *it->second;
-
-            segmentsToFilter.push_back(it->second);
+            (info->primary ?
+                primarySegments :
+                secondarySegments).push_back(info);
 
             // Obtain the LogDigest from the highest Segment Id of any
             // #OPEN Segment.
-            if (info.isOpen() && msip.segmentId >= logDigestLastId) {
+            uint64_t segmentId = info->segmentId;
+            if (info->isOpen() && segmentId >= logDigestLastId) {
                 const void* newDigest = NULL;
                 uint32_t newDigestBytes;
-                newDigest = info.getLogDigest(&newDigestBytes);
+                newDigest = info->getLogDigest(&newDigestBytes);
                 if (newDigest != NULL) {
-                    logDigestLastId = msip.segmentId;
+                    logDigestLastId = segmentId;
                     logDigestBytes = newDigestBytes;
                     logDigestPtr = newDigest;
                     LOG(DEBUG, "Segment %lu's LogDigest queued for response",
-                        msip.segmentId);
+                        segmentId);
                 } else {
-                    LOG(WARNING, "Segment %lu missing LogDigest",
-                        msip.segmentId);
+                    LOG(WARNING, "Segment %lu missing LogDigest", segmentId);
                 }
             }
         }
     }
 
-    std::sort(segmentsToFilter.begin(),
-              segmentsToFilter.end(),
+    // sort the primary entries
+    std::sort(primarySegments.begin(),
+              primarySegments.end(),
               &segmentInfoLessThan);
-    std::reverse(segmentsToFilter.begin(),
-                 segmentsToFilter.end());
+    std::reverse(primarySegments.begin(), primarySegments.end());
+    // sort the secondary entries
+    std::sort(secondarySegments.begin(),
+              secondarySegments.end(),
+              &segmentInfoLessThan);
+    std::reverse(secondarySegments.begin(), secondarySegments.end());
 
-    foreach (auto info, segmentsToFilter) {
+    foreach (auto info, primarySegments) {
         new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
             (info->segmentId, info->getRightmostWrittenOffset());
-        LOG(DEBUG, "Crashed master %lu had segment %lu",
+        LOG(DEBUG, "Crashed master %lu had segment %lu (primary)",
             info->masterId, info->segmentId);
         info->setRecovering();
     }
-    respHdr.segmentIdCount = segmentsToFilter.size();
+    foreach (auto info, secondarySegments) {
+        new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
+            (info->segmentId, info->getRightmostWrittenOffset());
+        LOG(DEBUG, "Crashed master %lu had segment %lu (secondary), "
+            "stored partitions for deferred recovery segment construction",
+            info->masterId, info->segmentId);
+        info->setRecovering(partitions);
+    }
+    respHdr.segmentIdCount = primarySegments.size() + secondarySegments.size();
     LOG(DEBUG, "Sending %u segment ids for this master",
         respHdr.segmentIdCount);
 
@@ -946,7 +987,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
 
     responder();
 
-    RecoverySegmentBuilder builder(segmentsToFilter,
+    RecoverySegmentBuilder builder(primarySegments,
                                    partitions,
                                    recoveryThreadCount);
     ++recoveryThreadCount;
@@ -998,14 +1039,14 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
 
     SegmentInfo* info = findSegmentInfo(masterId, segmentId);
 
-    if (reqHdr.flags == BackupWriteRpc::OPEN ||
-        reqHdr.flags == BackupWriteRpc::OPENCLOSE) {
+    if (reqHdr.flags & BackupWriteRpc::OPEN) {
         if (info)
             throw BackupSegmentAlreadyOpenException(HERE);
 
         try {
+            bool primary = reqHdr.flags & BackupWriteRpc::PRIMARY;
             info = new SegmentInfo(storage, pool,
-                                   masterId, segmentId, segmentSize);
+                                   masterId, segmentId, segmentSize, primary);
             segments[MasterSegmentIdPair(masterId, segmentId)] = info;
             info->open();
         } catch (...) {
@@ -1030,8 +1071,7 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
                 reqHdr.length, reqHdr.offset);
     bytesWritten += reqHdr.length;
 
-    if (reqHdr.flags == BackupWriteRpc::CLOSE ||
-        reqHdr.flags == BackupWriteRpc::OPENCLOSE)
+    if (reqHdr.flags & BackupWriteRpc::CLOSE)
         info->close();
 }
 
