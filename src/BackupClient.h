@@ -113,10 +113,14 @@ class BackupClient : public Client {
     void freeSegment(uint64_t masterId, uint64_t segmentId);
     Transport::SessionRef getSession();
 
-    void openSegment(uint64_t masterId, uint64_t segmentId) {
+    void openSegment(uint64_t masterId,
+                     uint64_t segmentId,
+                     bool primary = true)
+    {
         writeSegment(masterId, segmentId,
                      0, static_cast<const void*>(NULL), 0,
-                     BackupWriteRpc::OPEN);
+                     primary ? BackupWriteRpc::OPENPRIMARY
+                             : BackupWriteRpc::OPEN);
     }
 
     void ping();

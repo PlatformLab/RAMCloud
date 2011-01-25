@@ -396,7 +396,10 @@ BackupServer::SegmentInfo::free()
     Lock lock(mutex);
     waitForOngoingOps(lock);
 
+    // Don't wait for secondary segment recovery segments
+    // they aren't running in a separate thread.
     while (state == RECOVERING &&
+           primary &&
            !isRecovered() &&
            !recoveryException)
         condition.wait(lock);
