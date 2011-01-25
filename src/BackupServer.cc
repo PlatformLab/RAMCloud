@@ -478,14 +478,20 @@ BackupServer::SegmentInfo::write(Buffer& src,
 const void*
 BackupServer::SegmentInfo::getLogDigest(uint32_t* byteLength)
 {
-    SegmentIterator si(segment, segmentSize, true);
-    while (!si.isDone()) {
-        if (si.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
-            if (byteLength != NULL)
-                *byteLength = si.getLength();
-            return si.getPointer();
+    // If the Segment is malformed somehow, just ignore it. The
+    // coordinator will have to deal.
+    try {
+        SegmentIterator si(segment, segmentSize, true);
+        while (!si.isDone()) {
+            if (si.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
+                if (byteLength != NULL)
+                    *byteLength = si.getLength();
+                return si.getPointer();
+            }
+            si.next();
         }
-        si.next();
+    } catch (SegmentIteratorException& e) {
+        LOG(WARNING, "SegmentIterator constructor failed: %s", e.str().c_str());
     }
     return NULL;
 }
@@ -889,23 +895,26 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     {
         uint64_t masterId = it->first.masterId;
         if (masterId == reqHdr.masterId) {
+            const MasterSegmentIdPair& msip = it->first;
+            SegmentInfo& info = *it->second;
+
             segmentsToFilter.push_back(it->second);
 
             // Obtain the LogDigest from the highest Segment Id of any
-            // #OPEN Segment. 
-            if (info.isOpen() && msip->segmentId >= logDigestLastId) {
+            // #OPEN Segment.
+            if (info.isOpen() && msip.segmentId >= logDigestLastId) {
                 const void* newDigest = NULL;
                 uint32_t newDigestBytes;
                 newDigest = info.getLogDigest(&newDigestBytes);
                 if (newDigest != NULL) {
-                    logDigestLastId = msip->segmentId;
+                    logDigestLastId = msip.segmentId;
                     logDigestBytes = newDigestBytes;
                     logDigestPtr = newDigest;
                     LOG(DEBUG, "Segment %lu's LogDigest queued for response",
-                        msip->segmentId);
+                        msip.segmentId);
                 } else {
                     LOG(WARNING, "Segment %lu missing LogDigest",
-                        msip->segmentId);
+                        msip.segmentId);
                 }
             }
         }

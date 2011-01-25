@@ -103,8 +103,18 @@ TEST_F(BackupManagerTest, freeSegment) {
 
     ProtoBuf::Tablets will;
     EXPECT_EQ(0U, mgr->segments.size());
-    EXPECT_EQ(0U, backup1->startReadingData(99, will).size());
-    EXPECT_EQ(0U, backup2->startReadingData(99, will).size());
+
+    {
+        BackupClient::StartReadingData::Result result;
+        backup1->startReadingData(99, will, &result);
+        EXPECT_EQ(0U, result.segmentIdAndLength.size());
+    }
+
+    {
+        BackupClient::StartReadingData::Result result;
+        backup2->startReadingData(99, will, &result);
+        EXPECT_EQ(0U, result.segmentIdAndLength.size());
+    }
 }
 
 TEST_F(BackupManagerTest, sync) {
@@ -255,7 +265,8 @@ TEST_F(BackupManagerTest, writeSegment) {
     foreach (auto v, mgr->segments) {
         BackupClient host(v.second);
         Buffer resp;
-        host.startReadingData(99, will);
+        BackupClient::StartReadingData::Result result;
+        host.startReadingData(99, will, &result);
         host.getRecoveryData(99, 88, 0, resp);
         auto* entry = resp.getStart<SegmentEntry>();
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, entry->type);

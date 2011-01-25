@@ -56,10 +56,6 @@ Recovery::Recovery(uint64_t masterId,
     , will(will)
 {
     buildSegmentIdToBackups();
-
-    // Check that the Log to be recovered can actually be recovered, i.e.
-    // the head was found and copies of all needed Segments are apparently
-    // available.
     verifyCompleteLog();
 }
 
@@ -94,7 +90,7 @@ struct Task {
     void
     operator()()
     {
-        result = (*rpc)();
+        (*rpc)(&result);
         rpc.destroy();
         client.destroy();
         response.destroy();
@@ -151,7 +147,7 @@ Recovery::buildSegmentIdToBackups()
                 (*task)();
                 LOG(DEBUG, "%s returned %lu segment id/lengths",
                     task->backupHost.service_locator().c_str(),
-                    task->result.size());
+                    task->result.segmentIdAndLength.size());
             } catch (const TransportException& e) {
                 LOG(DEBUG, "Couldn't contact %s, "
                     "failure was: %s",
@@ -180,14 +176,14 @@ Recovery::buildSegmentIdToBackups()
         for (int i = 0; i < backupHosts.server_size(); ++i) {
             assert(tasks[i]);
             const auto& task = tasks[i];
-            if (slot >= task->result.size())
+            if (slot >= task->result.segmentIdAndLength.size())
                 continue;
             stillWorking = true;
             ProtoBuf::ServerList::Entry& backupHost = *backups.add_server();
             // Copy backup host into the new server list.
             backupHost = task->backupHost;
             // Augment it with the segment id.
-            uint64_t segmentId = task->result[slot].first;
+            uint64_t segmentId = task->result.segmentIdAndLength[slot].first;
             backupHost.set_segment_id(segmentId);
         }
         if (!stillWorking)

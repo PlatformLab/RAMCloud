@@ -177,20 +177,35 @@ BackupClient::StartReadingData::StartReadingData(
 }
 
 /**
- * \return
- *      A set of segment IDs for masterId which will be read from disk
- *      along with their written lengths.
+ * \param[out] result
+ *      Return a set of segment IDs for masterId which will be read from disk
+ *      along with their written lengths, as well as a buffer containing
+ *      the LogDigest of the newest open Segment from this masterId, if one
+ *      exists.
  */
-auto BackupClient::StartReadingData::operator()() -> Result
+void
+BackupClient::StartReadingData::operator()(
+    BackupClient::StartReadingData::Result* result)
 {
     const BackupStartReadingDataRpc::Response& respHdr(
         client.recv<BackupStartReadingDataRpc>(state));
     client.checkStatus(HERE);
+
     uint64_t segmentIdCount = respHdr.segmentIdCount;
+    uint32_t logDigestBytes = respHdr.logDigestBytes;
+
     responseBuffer.truncateFront(sizeof(respHdr));
     auto const* segmentIdsRaw =
         responseBuffer.getStart<pair<uint64_t, uint32_t>>();
-    return Result(segmentIdsRaw, segmentIdsRaw + segmentIdCount);
+
+    const void* logDigestPtr = NULL;
+    if (logDigestBytes > 0) {
+        responseBuffer.truncateFront(segmentIdCount *
+            sizeof(pair<uint64_t, uint32_t>));
+        logDigestPtr = responseBuffer.getStart<const void*>();
+    }
+
+    result->set(segmentIdsRaw, segmentIdCount, logDigestPtr, logDigestBytes);
 }
 
 /**

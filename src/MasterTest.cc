@@ -218,8 +218,9 @@ class MasterTest : public CppUnit::TestFixture {
 
         ProtoBuf::Tablets tablets;
         createTabletList(tablets);
+        BackupClient::StartReadingData::Result result;
         BackupClient(transportManager.getSession("mock:host=backup1")).
-            startReadingData(123, tablets);
+            startReadingData(123, tablets, &result);
 
         ProtoBuf::ServerList backups; {
             ProtoBuf::ServerList_Entry& server(*backups.add_server());
@@ -832,10 +833,16 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         ProtoBuf::Tablets tablets;
         createTabletList(tablets);
 
-        BackupClient(transportManager.getSession("mock:host=backup1"))
-            .startReadingData(99, tablets);
-        BackupClient(transportManager.getSession("mock:host=backup2"))
-            .startReadingData(99, tablets);
+        {
+            BackupClient::StartReadingData::Result result;
+            BackupClient(transportManager.getSession("mock:host=backup1"))
+                .startReadingData(99, tablets, &result);
+        }
+        {
+            BackupClient::StartReadingData::Result result;
+            BackupClient(transportManager.getSession("mock:host=backup2"))
+                .startReadingData(99, tablets, &result);
+        }
 
         ProtoBuf::ServerList backups; {
             ProtoBuf::ServerList_Entry& server(*backups.add_server());
