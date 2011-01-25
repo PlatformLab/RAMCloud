@@ -54,6 +54,8 @@ Recovery::Recovery(uint64_t masterId,
     , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
+    , logDigestList()
+    , segmentMap()
 {
     buildSegmentIdToBackups();
     verifyCompleteLog();
@@ -61,6 +63,10 @@ Recovery::Recovery(uint64_t masterId,
 
 Recovery::~Recovery()
 {
+    foreach (auto digestPair, logDigestList) {
+        LogDigest* ld = digestPair.second;
+        delete ld;
+    }
 }
 
 namespace {
@@ -185,6 +191,22 @@ Recovery::buildSegmentIdToBackups()
             // Augment it with the segment id.
             uint64_t segmentId = task->result.segmentIdAndLength[slot].first;
             backupHost.set_segment_id(segmentId);
+
+            // If this Segment is a potential head of the log and includes a
+            // LogDigest, set it aside for verifyCompleteLog().
+            if (task->result.logDigestBuffer != NULL) {
+                uint32_t bytes = task->result.logDigestBytes;
+                const void* base = task->result.logDigestBuffer;
+                void* copy = xmalloc(bytes);
+                memcpy(copy, base, bytes);
+                LogDigest* ld = new LogDigest(copy, bytes, true);
+                logDigestList.push_back({segmentId, ld});
+            }
+
+            if (segmentMap.find(segmentId) != segmentMap.end())
+                segmentMap[segmentId] += 1;
+            else
+                segmentMap[segmentId] = 1;
         }
         if (!stillWorking)
             break;
@@ -200,22 +222,39 @@ Recovery::buildSegmentIdToBackups()
 void
 Recovery::verifyCompleteLog()
 {
-#if 0
-    // determine which LogDigest is the HOL.
+    // find the newest head
+    LogDigest* headDigest = NULL;
+    uint64_t headId = 0;
+    foreach (auto digestPair, logDigestList) {
+        uint64_t id = digestPair.first;
+        LogDigest *ld = digestPair.second;
+
+        if (id >= headId) {
+            headDigest = ld;
+            headId = id;
+        }
+    }
+
+    if (headDigest == NULL) {
+        // we're seriously boned.
+        LOG(ERROR, "No log head & digest found!! Kiss your data good-bye!");
+        throw Exception(HERE, "ouch! data lost!");
+    }
 
     // scan the backup map
     uint32_t missing = 0;
-    for (segmentId in hol.LogDigest()) {
-        if (segmentIdToBackups.find(segmentId) == segmentIdToBackups.end()) {
-            LOG(WARNING, "Segment %lu is missing!", segmentId);
+    for (int i = 0; i < headDigest->getSegmentCount(); i++) {
+        uint64_t id = headDigest->getSegmentIds()[i];
+        if (segmentMap.find(id) == segmentMap.end()) {
+            LOG(WARNING, "Segment %lu is missing!", id);
             missing++;
         }
     }
 
     if (missing) {
-        // what to do?!
+        LOG(ERROR, "%u segments in the digest, but not obtained from backups!",
+            missing);
     }
-#endif
 }
 
 /**

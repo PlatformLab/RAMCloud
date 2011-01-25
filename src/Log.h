@@ -142,10 +142,15 @@ class LogDigest {
      *      LogDigest.
      * \param[in] length
      *      Length of the buffer pointed to by ``base'' in bytes.
+     * \param[in] ownMemory
+     *      If true, the destructor will deallocate the pointer
+     *      provided. If false, it will take no action.
      */
-    LogDigest(uint32_t segmentCount, void* base, uint32_t length)
+    LogDigest(uint32_t segmentCount, void* base, uint32_t length,
+        bool ownMemory = false)
         : ldd(static_cast<LogDigestData*>(base)),
-          currentSegment(0)
+          currentSegment(0),
+          ownMemory(ownMemory)
     {
         assert(length >= getBytesFromCount(segmentCount));
         ldd->segmentCount = segmentCount;
@@ -164,11 +169,21 @@ class LogDigest {
      *      LogDigest. 
      * \param[in] length
      *      Length of the buffer pointed to by ``base'' in bytes.
+     * \param[in] ownMemory
+     *      If true, the destructor will deallocate the pointer
+     *      provided. If false, it will take no action.
      */
-    LogDigest(const void* base, uint32_t length)
+    LogDigest(const void* base, uint32_t length, bool ownMemory = false)
         : ldd(static_cast<LogDigestData*>(const_cast<void*>(base))),
-          currentSegment(ldd->segmentCount)
+          currentSegment(ldd->segmentCount),
+          ownMemory(ownMemory)
     {
+    }
+
+    ~LogDigest()
+    {
+        if (ownMemory)
+            free(static_cast<void*>(ldd));
     }
 
     /**
@@ -210,6 +225,7 @@ class LogDigest {
 
     LogDigestData* ldd;
     uint32_t       currentSegment;
+    bool           ownMemory;
 
     friend class LogTest;
     friend class LogDigestTest;

@@ -18,8 +18,10 @@
 #define RAMCLOUD_RECOVERY_H
 
 #include <map>
+#include <boost/unordered_map.hpp>
 
 #include "Common.h"
+#include "Log.h"
 #include "ProtoBuf.h"
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
@@ -86,6 +88,12 @@ class Recovery : public BaseRecovery {
 
     /// A partitioning of tablets for the crashed master.
     const ProtoBuf::Tablets& will;
+
+    /// List of serialised LogDigests from possible log heads
+    vector<pair<uint64_t, LogDigest*>> logDigestList;
+
+    /// Map of Segment Ids -> counts of backup copies that were found. 
+    boost::unordered_map<uint64_t, uint32_t> segmentMap;
 
     friend class RecoveryTest;
     DISALLOW_COPY_AND_ASSIGN(Recovery);

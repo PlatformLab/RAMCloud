@@ -70,6 +70,12 @@ class BackupClient : public Client {
             {
             }
 
+            ~Result()
+            {
+                if (logDigestBuffer != NULL)
+                    free(const_cast<void*>(logDigestBuffer));
+            }
+
             void
             set(const pair<uint64_t, uint32_t>* idLengthTuples,
                 uint64_t numTuples, const void* logDigestPtr,
@@ -84,12 +90,6 @@ class BackupClient : public Client {
                         logDigestBytes);
                     this->logDigestBytes = logDigestBytes;
                 }
-            }
-
-            ~Result()
-            {
-                if (logDigestBuffer != NULL)
-                    free(const_cast<void*>(logDigestBuffer));
             }
 
             vector<pair<uint64_t, uint32_t>> segmentIdAndLength;
