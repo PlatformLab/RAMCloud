@@ -307,7 +307,6 @@ MasterServer::recover(uint64_t masterId,
         ++backup;
         while (backup != backupsEnd &&
                contains(runningSet, backup->segment_id())) {
-            LOG(DEBUG, "SKIP %lu", backup->segment_id());
             ++backup;
         }
     }

@@ -40,6 +40,7 @@ BackupManager::OpenSegment::OpenSegment(BackupManager& backupManager,
     // and tell each of the backups to open the segment:
     backupManager.ensureSufficientHosts();
     uint64_t random = generateRandom();
+    auto flags = BackupWriteRpc::OPENPRIMARY;
     foreach (auto& backup, backupIter()) {
         uint32_t index = random++ % backupManager.hosts.server_size();
         const auto& host = backupManager.hosts.server(index);
@@ -52,8 +53,8 @@ BackupManager::OpenSegment::OpenSegment(BackupManager& backupManager,
         backupManager.segments.insert({segmentId, session});
         backup.writeSegmentTub.construct(backup.client,
                                          backupManager.masterId, segmentId,
-                                         0, data, len,
-                                         BackupWriteRpc::OPEN);
+                                         0, data, len, flags);
+        flags = BackupWriteRpc::OPEN;
         backup.offsetSent = len;
     }
     // Wait for segment open acknowledgements from backups:
