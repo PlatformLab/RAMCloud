@@ -381,7 +381,29 @@ MasterServer::recover(uint64_t masterId,
         }
     }
 
-    // TODO(stutsman) Detect failed recovery here and throw
+    boost::unordered_set<uint64_t> failures;
+    foreach (const auto& backup, backups.server()) {
+        switch (backup.user_data()) {
+        case OK:
+            failures.erase(backup.segment_id());
+            break;
+        case FAILED:
+            failures.insert(backup.segment_id());
+            break;
+        case WAITING:
+        case NOT_STARTED:
+        default:
+            assert(false);
+            break;
+        }
+    }
+    if (!failures.empty()) {
+        LOG(ERROR, "Recovery master failed to recover master %lu "
+            "partition %lu", masterId, partitionId);
+        foreach (auto segmentId, failures)
+            LOG(ERROR, "Unable to recovery segment %lu", segmentId);
+        throw SegmentRecoveryFailedException(HERE);
+    }
 
     log.sync();
 }

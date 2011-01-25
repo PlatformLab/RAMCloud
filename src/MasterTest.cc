@@ -898,8 +898,6 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         }
 
         MockRandom __(1); // triggers deterministic rand().
-        // TODO(stutsman) Has to be reworked for the new replay system
-#if 0
         TestLog::Enable _(&recoverSegmentFilter);
         CPPUNIT_ASSERT_THROW(
             master->recover(99, 0, backups),
@@ -907,12 +905,15 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         string log = TestLog::get();
         CPPUNIT_ASSERT_EQUAL(
             "recover: Recovering master 99, partition 0, 2 hosts | "
-            "recover: Waiting on recovery data for segment 88 from "
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 87 | "
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 88 | "
+            "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | "
             "recover: getRecoveryData failed on mock:host=backup1, "
             "trying next backup; failure was: bad segment id",
             log.substr(0, log.find(" thrown at")));
-#endif
     }
     DISALLOW_COPY_AND_ASSIGN(MasterRecoverTest);
 };
