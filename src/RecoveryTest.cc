@@ -37,7 +37,6 @@ class RecoveryTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(RecoveryTest);
     CPPUNIT_TEST(test_buildSegmentIdToBackups);
-    CPPUNIT_TEST(test_createBackupList);
     CPPUNIT_TEST(test_start);
     CPPUNIT_TEST(test_start_notEnoughMasters);
     CPPUNIT_TEST_SUITE_END();
@@ -244,38 +243,11 @@ class RecoveryTest : public CppUnit::TestFixture {
         ProtoBuf::Tablets tablets;
         Recovery recovery(99, tablets, *masterHosts, *backupHosts);
 
-        Recovery::BackupMap::iterator it = recovery.segmentIdToBackups.begin();
-        CPPUNIT_ASSERT_EQUAL(88, it->first);
-        CPPUNIT_ASSERT_EQUAL("mock:host=backup1", it->second.service_locator());
-        CPPUNIT_ASSERT_EQUAL(backupServer1->getServerId(),
-                             it->second.server_id());
-        it++;
-        CPPUNIT_ASSERT(recovery.segmentIdToBackups.end() != it);
-        CPPUNIT_ASSERT_EQUAL(88, it->first);
-        CPPUNIT_ASSERT_EQUAL("mock:host=backup2", it->second.service_locator());
-        CPPUNIT_ASSERT_EQUAL(backupServer2->getServerId(),
-                             it->second.server_id());
-        it++;
-        CPPUNIT_ASSERT(recovery.segmentIdToBackups.end() != it);
-        CPPUNIT_ASSERT_EQUAL(89, it->first);
-        CPPUNIT_ASSERT_EQUAL("mock:host=backup1", it->second.service_locator());
-        CPPUNIT_ASSERT_EQUAL(backupServer1->getServerId(),
-                             it->second.server_id());
-        it++;
-        CPPUNIT_ASSERT(recovery.segmentIdToBackups.end() == it);
-    }
-
-    void
-    test_createBackupList()
-    {
-        ProtoBuf::Tablets tablets;
-        Recovery recovery(99, tablets, *masterHosts, *backupHosts);
-
         CPPUNIT_ASSERT_EQUAL(3, recovery.backups.server_size());
         {
             const ProtoBuf::ServerList::Entry&
                 backup(recovery.backups.server(0));
-            CPPUNIT_ASSERT_EQUAL(88, backup.segment_id());
+            CPPUNIT_ASSERT_EQUAL(89, backup.segment_id());
             CPPUNIT_ASSERT_EQUAL("mock:host=backup1", backup.service_locator());
             CPPUNIT_ASSERT_EQUAL(ProtoBuf::BACKUP, backup.server_type());
         }{
@@ -287,7 +259,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         }{
             const ProtoBuf::ServerList::Entry&
                 backup(recovery.backups.server(2));
-            CPPUNIT_ASSERT_EQUAL(89, backup.segment_id());
+            CPPUNIT_ASSERT_EQUAL(88, backup.segment_id());
             CPPUNIT_ASSERT_EQUAL("mock:host=backup1", backup.service_locator());
             CPPUNIT_ASSERT_EQUAL(ProtoBuf::BACKUP, backup.server_type());
         }
@@ -364,18 +336,18 @@ class RecoveryTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(
             "start: Trying partition recovery on mock:host=master1 with "
             "2 tablets and 3 hosts | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
             "partitionId 0 | "
             "getRecoveryData: getRecoveryData complete | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
             "partitionId 0 | "
             "getRecoveryData: getRecoveryData complete | "
             "start: Trying partition recovery on mock:host=master2 with "
             "1 tablets and 3 hosts | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
             "partitionId 1 | "
             "getRecoveryData: getRecoveryData complete | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
             "partitionId 1 | "
             "getRecoveryData: getRecoveryData complete",
             TestLog::get());
@@ -417,18 +389,18 @@ class RecoveryTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(
             "start: Trying partition recovery on mock:host=master1 with "
             "1 tablets and 3 hosts | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
             "partitionId 0 | "
             "getRecoveryData: getRecoveryData complete | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
             "partitionId 0 | "
             "getRecoveryData: getRecoveryData complete | "
             "start: Trying partition recovery on mock:host=master2 with "
             "1 tablets and 3 hosts | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
             "partitionId 1 | "
             "getRecoveryData: getRecoveryData complete | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
+            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
             "partitionId 1 | "
             "getRecoveryData: getRecoveryData complete | "
             "start: Failed to recover all partitions for a crashed master, "

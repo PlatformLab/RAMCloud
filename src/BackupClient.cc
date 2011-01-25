@@ -181,8 +181,7 @@ BackupClient::StartReadingData::StartReadingData(
  *      A set of segment IDs for masterId which will be read from disk
  *      along with their written lengths.
  */
-vector<pair<uint64_t, uint32_t>>
-BackupClient::StartReadingData::operator()()
+auto BackupClient::StartReadingData::operator()() -> Result
 {
     const BackupStartReadingDataRpc::Response& respHdr(
         client.recv<BackupStartReadingDataRpc>(state));
@@ -191,8 +190,7 @@ BackupClient::StartReadingData::operator()()
     responseBuffer.truncateFront(sizeof(respHdr));
     auto const* segmentIdsRaw =
         responseBuffer.getStart<pair<uint64_t, uint32_t>>();
-    return vector<pair<uint64_t, uint32_t>>(segmentIdsRaw,
-                                            segmentIdsRaw + segmentIdCount);
+    return Result(segmentIdsRaw, segmentIdsRaw + segmentIdCount);
 }
 
 /**

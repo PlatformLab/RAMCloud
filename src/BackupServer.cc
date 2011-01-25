@@ -54,14 +54,14 @@ BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage,
                                        uint64_t masterId,
                                        uint64_t segmentId,
                                        uint32_t segmentSize)
-    : mutex()
+    : masterId(masterId)
+    , segmentId(segmentId)
+    , mutex()
     , condition()
-    , masterId(masterId)
     , recoveryException()
     , recoverySegments(NULL)
     , recoverySegmentsLength()
     , rightmostWrittenOffset(0)
-    , segmentId(segmentId)
     , segment()
     , segmentSize(segmentSize)
     , state(UNINIT)
@@ -884,20 +884,12 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     const void* logDigestPtr = NULL;
 
     vector<SegmentInfo*> segmentsToFilter;
-    uint32_t segmentIdCount = 0;
     for (SegmentsMap::iterator it = segments.begin();
          it != segments.end(); it++)
     {
-        const MasterSegmentIdPair* msip = &it->first;
-        uint64_t masterId = msip->masterId;
+        uint64_t masterId = it->first.masterId;
         if (masterId == reqHdr.masterId) {
-            SegmentInfo& info = *it->second;
-            // Send back segment length if open, otherwise magic value to
-            // say that it is closed.
-            uint32_t writtenLength = info.getRightmostWrittenOffset();
-            new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
-                (msip->segmentId, writtenLength);
-            segmentsToFilter.push_back(&info);
+            segmentsToFilter.push_back(it->second);
 
             // Obtain the LogDigest from the highest Segment Id of any
             // #OPEN Segment. 
@@ -916,15 +908,25 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                         msip->segmentId);
                 }
             }
-
-            info.setRecovering();
-            LOG(DEBUG, "Crashed master %lu had segment %lu",
-                masterId, msip->segmentId);
-            segmentIdCount++;
         }
     }
-    respHdr.segmentIdCount = segmentIdCount;
-    LOG(DEBUG, "Sending %u segment ids for this master", segmentIdCount);
+
+    std::sort(segmentsToFilter.begin(),
+              segmentsToFilter.end(),
+              &segmentInfoLessThan);
+    std::reverse(segmentsToFilter.begin(),
+                 segmentsToFilter.end());
+
+    foreach (auto info, segmentsToFilter) {
+        new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
+            (info->segmentId, info->getRightmostWrittenOffset());
+        LOG(DEBUG, "Crashed master %lu had segment %lu",
+            info->masterId, info->segmentId);
+        info->setRecovering();
+    }
+    respHdr.segmentIdCount = segmentsToFilter.size();
+    LOG(DEBUG, "Sending %u segment ids for this master",
+        respHdr.segmentIdCount);
 
     respHdr.logDigestBytes = logDigestBytes;
     if (respHdr.logDigestBytes) {
@@ -932,10 +934,6 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
         memcpy(out, logDigestPtr, respHdr.logDigestBytes);
         LOG(DEBUG, "Sent %u bytes of LogDigest to master", logDigestBytes);
     }
-
-    std::sort(segmentsToFilter.begin(),
-              segmentsToFilter.end(),
-              &segmentInfoLessThan);
 
     responder();
 

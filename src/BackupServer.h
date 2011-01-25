@@ -241,6 +241,12 @@ class BackupServer : public Server {
             return segmentId < info.segmentId;
         }
 
+        /// The id of the master from which this segment came.
+        const uint64_t masterId;
+
+        /// The segment id given to this segment by the master who sent it.
+        const uint64_t segmentId;
+
       PRIVATE:
         /// Return true if this segment is fully in memory.
         bool inMemory() { return segment; }
@@ -284,9 +290,6 @@ class BackupServer : public Server {
          */
         boost::condition_variable condition;
 
-        /// The id of the master from which this segment came.
-        const uint64_t masterId;
-
         /// An array of recovery segments when non-null.
         /// The exception if one occurred while recovering a segment.
         boost::scoped_ptr<SegmentRecoveryFailedException> recoveryException;
@@ -314,9 +317,6 @@ class BackupServer : public Server {
          * if this segment is still open, otherwise BYTES_WRITTEN_CLOSED.
          */
         uint32_t rightmostWrittenOffset;
-
-        /// The segment id given to this segment by the master who sent it.
-        const uint64_t segmentId;
 
         /**
          * The staging location for this segment in memory.

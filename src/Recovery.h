@@ -52,9 +52,6 @@ class BaseRecovery {
  * A Recovery from the perspective of the CoordinatorServer.
  */
 class Recovery : public BaseRecovery {
-  private:
-    typedef std::multimap<uint64_t, ProtoBuf::ServerList::Entry> BackupMap;
-
   public:
     Recovery(uint64_t masterId,
              const ProtoBuf::Tablets& will,
@@ -83,9 +80,6 @@ class Recovery : public BaseRecovery {
 
     /// The id of the crashed master whose is being recovered.
     uint64_t masterId;
-
-    /// Tells which backup each segment is stored on.
-    BackupMap segmentIdToBackups;
 
     /// Number of tablets left to recover before done.
     uint32_t tabletsUnderRecovery;
