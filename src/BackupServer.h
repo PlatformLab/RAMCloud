@@ -223,6 +223,7 @@ class BackupServer : public Server {
         void startLoading();
         void write(Buffer& src, uint32_t srcOffset,
                    uint32_t length, uint32_t destOffset);
+        const void* getLogDigest(uint32_t* byteLength = NULL);
 
         /**
          * Return true if #this should be loaded from disk before

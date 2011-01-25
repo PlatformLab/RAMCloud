@@ -464,6 +464,32 @@ BackupServer::SegmentInfo::write(Buffer& src,
                                       destOffset + length);
 }
 
+/**
+ * Scan the current Segment for a LogDigest. If it exists, return a pointer
+ * to it. The out parameter can be used to supply the number of bytes it
+ * occupies.
+ *
+ * \param[out] byteLength
+ *      Optional out parameter for the number of bytes the LogDigest
+ *      occupies.
+ * \return
+ *      NULL if no LogDigest exists in the Segment, else a valid pointer.
+ */
+const void*
+BackupServer::SegmentInfo::getLogDigest(uint32_t* byteLength)
+{
+    SegmentIterator si(segment, segmentSize, true);
+    while (!si.isDone()) {
+        if (si.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
+            if (byteLength != NULL)
+                *byteLength = si.getLength();
+            return si.getPointer();
+        }
+        si.next();
+    }
+    return NULL;
+}
+
 // --- BackupServer::LoadOp ---
 
 /**
@@ -853,28 +879,59 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.partitionsLength, partitions);
 
+    uint32_t logDigestLastId = 0;
+    uint32_t logDigestBytes = 0;
+    const void* logDigestPtr = NULL;
+
     vector<SegmentInfo*> segmentsToFilter;
     uint32_t segmentIdCount = 0;
     for (SegmentsMap::iterator it = segments.begin();
          it != segments.end(); it++)
     {
-        uint64_t masterId = it->first.masterId;
+        const MasterSegmentIdPair* msip = &it->first;
+        uint64_t masterId = msip->masterId;
         if (masterId == reqHdr.masterId) {
             SegmentInfo& info = *it->second;
             // Send back segment length if open, otherwise magic value to
             // say that it is closed.
             uint32_t writtenLength = info.getRightmostWrittenOffset();
             new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
-                (it->first.segmentId, writtenLength);
-            segmentsToFilter.push_back(it->second);
-            it->second->setRecovering();
+                (msip->segmentId, writtenLength);
+            segmentsToFilter.push_back(&info);
+
+            // Obtain the LogDigest from the highest Segment Id of any
+            // #OPEN Segment. 
+            if (info.isOpen() && msip->segmentId >= logDigestLastId) {
+                const void* newDigest = NULL;
+                uint32_t newDigestBytes;
+                newDigest = info.getLogDigest(&newDigestBytes);
+                if (newDigest != NULL) {
+                    logDigestLastId = msip->segmentId;
+                    logDigestBytes = newDigestBytes;
+                    logDigestPtr = newDigest;
+                    LOG(DEBUG, "Segment %lu's LogDigest queued for response",
+                        msip->segmentId);
+                } else {
+                    LOG(WARNING, "Segment %lu missing LogDigest",
+                        msip->segmentId);
+                }
+            }
+
+            info.setRecovering();
             LOG(DEBUG, "Crashed master %lu had segment %lu",
-                masterId, it->first.segmentId);
+                masterId, msip->segmentId);
             segmentIdCount++;
         }
     }
     respHdr.segmentIdCount = segmentIdCount;
     LOG(DEBUG, "Sending %u segment ids for this master", segmentIdCount);
+
+    respHdr.logDigestBytes = logDigestBytes;
+    if (respHdr.logDigestBytes) {
+        void* out = new(&rpc.replyPayload, APPEND) char[respHdr.logDigestBytes];
+        memcpy(out, logDigestPtr, respHdr.logDigestBytes);
+        LOG(DEBUG, "Sent %u bytes of LogDigest to master", logDigestBytes);
+    }
 
     std::sort(segmentsToFilter.begin(),
               segmentsToFilter.end(),

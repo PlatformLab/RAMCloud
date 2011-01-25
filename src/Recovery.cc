@@ -58,6 +58,11 @@ Recovery::Recovery(uint64_t masterId,
 {
     buildSegmentIdToBackups();
 
+    // Check that the Log to be recovered can actually be recovered, i.e.
+    // the head was found and copies of all needed Segments are apparently
+    // available.
+    verifyCompleteLog();
+
     // Wait to create this list after all the inserts because multimap sorts
     // it by segment id for us, flatten it and augment it with segment ids.
     createBackupList(backups);
@@ -153,6 +158,33 @@ Recovery::buildSegmentIdToBackups()
             task.construct(*backupHostsIt++, masterId, will);
         }
     }
+}
+
+/*
+ * Check to see if the Log being recovered can actually be recovered.
+ * This requires us to use the Log head's LogDigest, which was returned
+ * in response to startReadingData. That gives us a complete list of
+ * the Segment IDs we need to do a full recovery. 
+ */
+void
+Recovery::verifyCompleteLog()
+{
+#if 0
+    // determine which LogDigest is the HOL.
+
+    // scan the backup map
+    uint32_t missing = 0;
+    for (segmentId in hol.LogDigest()) {
+        if (segmentIdToBackups.find(segmentId) == segmentIdToBackups.end()) {
+            LOG(WARNING, "Segment %lu is missing!", segmentId);
+            missing++;
+        }
+    }
+
+    if (missing) {
+        // what to do?!
+    }
+#endif
 }
 
 /**

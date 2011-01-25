@@ -63,6 +63,7 @@ class Recovery : public BaseRecovery {
     ~Recovery();
 
     void buildSegmentIdToBackups();
+    void verifyCompleteLog();
     void createBackupList(ProtoBuf::ServerList& backups) const;
     void start();
     bool tabletsRecovered(const ProtoBuf::Tablets& tablets);
