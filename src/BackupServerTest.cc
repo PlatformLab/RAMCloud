@@ -583,14 +583,14 @@ class BackupServerTest : public CppUnit::TestFixture {
     // with a LogDigest containing the given IDs.
     void
     writeDigestedSegment(uint64_t masterId, uint64_t segmentId,
-        uint64_t* digestIds, uint32_t numIds)
+        vector<uint64_t> digestIds)
     {
             char segBuf[1024 * 1024];
             Segment s((uint64_t)0, segmentId, segBuf, sizeof(segBuf));
 
-            char digestBuf[LogDigest::getBytesFromCount(numIds)];
-            LogDigest src(numIds, digestBuf, sizeof(digestBuf));
-            for (uint32_t i = 0; i < numIds; i++)
+            char digestBuf[LogDigest::getBytesFromCount(digestIds.size())];
+            LogDigest src(digestIds.size(), digestBuf, sizeof(digestBuf));
+            for (uint32_t i = 0; i < digestIds.size(); i++)
                 src.addSegment(digestIds[i]);
 
             uint64_t lengthInSegment, offsetInSegment;
@@ -606,13 +606,14 @@ class BackupServerTest : public CppUnit::TestFixture {
         // ensure that we get the LogDigest back at all.
         client->openSegment(99, 88);
         {
-            uint64_t ids[1] = { 0x3f17c2451f0cafUL };
-            writeDigestedSegment(99, 88, ids, 1);
+            writeDigestedSegment(99, 88, { 0x3f17c2451f0cafUL });
 
             BackupClient::StartReadingData::Result result;
             client->startReadingData(99, ProtoBuf::Tablets(), &result);
             CPPUNIT_ASSERT_EQUAL(LogDigest::getBytesFromCount(1),
                 result.logDigestBytes);
+            CPPUNIT_ASSERT_EQUAL(88, result.logDigestSegmentId);
+            CPPUNIT_ASSERT_EQUAL(48, result.logDigestSegmentLen);
             LogDigest ld(result.logDigestBuffer, result.logDigestBytes);
             CPPUNIT_ASSERT_EQUAL(1, ld.getSegmentCount());
             CPPUNIT_ASSERT_EQUAL(0x3f17c2451f0cafUL, ld.getSegmentIds()[0]);
@@ -621,13 +622,14 @@ class BackupServerTest : public CppUnit::TestFixture {
         // add a newer Segment and check that we get its LogDigest instead.
         client->openSegment(99, 89);
         {
-            uint64_t ids[1] = { 0x5d8ec445d537e15UL };
-            writeDigestedSegment(99, 89, ids, 1);
+            writeDigestedSegment(99, 89, { 0x5d8ec445d537e15UL });
 
             BackupClient::StartReadingData::Result result;
             client->startReadingData(99, ProtoBuf::Tablets(), &result);
             CPPUNIT_ASSERT_EQUAL(LogDigest::getBytesFromCount(1),
                 result.logDigestBytes);
+            CPPUNIT_ASSERT_EQUAL(89, result.logDigestSegmentId);
+            CPPUNIT_ASSERT_EQUAL(48, result.logDigestSegmentLen);
             LogDigest ld(result.logDigestBuffer, result.logDigestBytes);
             CPPUNIT_ASSERT_EQUAL(1, ld.getSegmentCount());
             CPPUNIT_ASSERT_EQUAL(0x5d8ec445d537e15UL, ld.getSegmentIds()[0]);
@@ -638,22 +640,18 @@ class BackupServerTest : public CppUnit::TestFixture {
     test_startReadingData_logDigest_latest()
     {
         client->openSegment(99, 88);
-        {
-            uint64_t ids[1] = { 0x39e874a1e85fcUL };
-            writeDigestedSegment(99, 88, ids, 1);
-        }
+        writeDigestedSegment(99, 88, { 0x39e874a1e85fcUL });
 
         client->openSegment(99, 89);
-        {
-            uint64_t ids[1] = { 0xbe5fbc1e62af6UL };
-            writeDigestedSegment(99, 89, ids, 1);
-        }
+        writeDigestedSegment(99, 89, { 0xbe5fbc1e62af6UL });
 
         // close the new one. we should get the old one now.
         client->closeSegment(99, 89);
         {
             BackupClient::StartReadingData::Result result;
             client->startReadingData(99, ProtoBuf::Tablets(), &result);
+            CPPUNIT_ASSERT_EQUAL(88, result.logDigestSegmentId);
+            CPPUNIT_ASSERT_EQUAL(48, result.logDigestSegmentLen);
             CPPUNIT_ASSERT_EQUAL(LogDigest::getBytesFromCount(1),
                 result.logDigestBytes);
             LogDigest ld(result.logDigestBuffer, result.logDigestBytes);
@@ -667,10 +665,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         // closed segments don't count.
         client->openSegment(99, 88);
-        {
-            uint64_t ids[1] = { 0xe966e17be4aUL };
-            writeDigestedSegment(99, 88, ids, 1);
-        }
+        writeDigestedSegment(99, 88, { 0xe966e17be4aUL });
 
         client->closeSegment(99, 88);
         {
