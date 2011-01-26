@@ -13,6 +13,7 @@ TESTS_SRCFILES := \
 		  src/CommonTest.cc \
 		  src/CoordinatorTest.cc \
           src/Crc32CTest.cc \
+          src/DispatchTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/IpAddressTest.cc \

@@ -32,6 +32,7 @@ SHARED_SRCFILES := \
 		   src/Buffer.cc \
 		   src/ClientException.cc \
 		   src/Common.cc \
+		   src/Dispatch.cc \
 		   src/Driver.cc \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
