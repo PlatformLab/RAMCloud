@@ -66,7 +66,9 @@ class BackupClient : public Client {
             Result()
                 : segmentIdAndLength(),
                   logDigestBuffer(NULL),
-                  logDigestBytes(0)
+                  logDigestBytes(0),
+                  logDigestSegmentId(-1),
+                  logDigestSegmentLen(-1)
             {
             }
 
@@ -79,7 +81,8 @@ class BackupClient : public Client {
             void
             set(const pair<uint64_t, uint32_t>* idLengthTuples,
                 uint64_t numTuples, const void* logDigestPtr,
-                uint32_t logDigestBytes)
+                uint32_t logDigestBytes, uint64_t logDigestSegmentId,
+                uint32_t logDigestSegmentLen)
             {
                 for (uint64_t i = 0; i < numTuples; i++)
                     segmentIdAndLength.push_back(idLengthTuples[i]);
@@ -89,12 +92,16 @@ class BackupClient : public Client {
                     memcpy(const_cast<void*>(logDigestBuffer), logDigestPtr,
                         logDigestBytes);
                     this->logDigestBytes = logDigestBytes;
+                    this->logDigestSegmentId = logDigestSegmentId;
+                    this->logDigestSegmentLen = logDigestSegmentLen;
                 }
             }
 
             vector<pair<uint64_t, uint32_t>> segmentIdAndLength;
             const void* logDigestBuffer;
             uint32_t logDigestBytes;
+            uint64_t logDigestSegmentId;
+            uint32_t logDigestSegmentLen;
 
             DISALLOW_COPY_AND_ASSIGN(Result);
         };

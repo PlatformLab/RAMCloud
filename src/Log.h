@@ -202,6 +202,16 @@ class LogDigest {
         return sizeof(LogDigestData) + segmentCount * sizeof(uint64_t);
     }
 
+    /**
+     * Return a raw pointer to the memory passed in to the constructor.
+     */
+    const void* getRawPointer() { return static_cast<void*>(ldd); }
+
+    /**
+     * Return the number of bytes this LogDigest uses.
+     */
+    uint32_t getBytes() { return getBytesFromCount(ldd->segmentCount); }
+
   private:
     struct LogDigestData {
         uint32_t segmentCount;

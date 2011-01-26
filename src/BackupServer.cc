@@ -911,7 +911,8 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.partitionsLength, partitions);
 
-    uint32_t logDigestLastId = 0;
+    uint64_t logDigestLastId = 0;
+    uint32_t logDigestLastLen = 0;
     uint32_t logDigestBytes = 0;
     const void* logDigestPtr = NULL;
 
@@ -937,6 +938,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                 newDigest = info->getLogDigest(&newDigestBytes);
                 if (newDigest != NULL) {
                     logDigestLastId = segmentId;
+                    logDigestLastLen = info->getRightmostWrittenOffset();
                     logDigestBytes = newDigestBytes;
                     logDigestPtr = newDigest;
                     LOG(DEBUG, "Segment %lu's LogDigest queued for response",
@@ -978,11 +980,13 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     LOG(DEBUG, "Sending %u segment ids for this master",
         respHdr.segmentIdCount);
 
-    respHdr.logDigestBytes = logDigestBytes;
-    if (respHdr.logDigestBytes) {
-        void* out = new(&rpc.replyPayload, APPEND) char[respHdr.logDigestBytes];
-        memcpy(out, logDigestPtr, respHdr.logDigestBytes);
-        LOG(DEBUG, "Sent %u bytes of LogDigest to master", logDigestBytes);
+    respHdr.digestSegmentId  = logDigestLastId;
+    respHdr.digestSegmentLen = logDigestLastLen;
+    respHdr.digestBytes = logDigestBytes;
+    if (respHdr.digestBytes > 0) {
+        void* out = new(&rpc.replyPayload, APPEND) char[respHdr.digestBytes];
+        memcpy(out, logDigestPtr, respHdr.digestBytes);
+        LOG(DEBUG, "Sent %u bytes of LogDigest to coord", respHdr.digestBytes);
     }
 
     responder();

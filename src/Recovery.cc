@@ -142,18 +142,10 @@ Recovery::buildSegmentIdToBackups()
             backupHost = task->backupHost;
             // Augment it with the segment id.
             uint64_t segmentId  = task->result.segmentIdAndLength[slot].first;
-            uint32_t segmentLen = task->result.segmentIdAndLength[slot].second;
             backupHost.set_segment_id(segmentId);
 
-            // If this Segment is a potential head of the log and includes a
-            // LogDigest, set it aside for verifyCompleteLog().
-            if (task->result.logDigestBuffer != NULL) {
-                digestList.push_back({ segmentId,
-                                       segmentLen,
-                                       task->result.logDigestBuffer,
-                                       task->result.logDigestBytes });
-            }
-
+            // Keep a count of each segmentId seen so we can cross check with
+            // the LogDigest.
             if (segmentMap.find(segmentId) != segmentMap.end())
                 segmentMap[segmentId] += 1;
             else
@@ -161,6 +153,25 @@ Recovery::buildSegmentIdToBackups()
         }
         if (!stillWorking)
             break;
+    }
+
+    for (int i = 0; i < backupHosts.server_size(); i++) {
+        const auto& task = tasks[i];
+
+        // If this backup returned a potential head of the log and it
+        // includes a LogDigest, set it aside for verifyCompleteLog().
+        if (task->result.logDigestBuffer != NULL) {
+            digestList.push_back({ task->result.logDigestSegmentId,
+                                   task->result.logDigestSegmentLen,
+                                   task->result.logDigestBuffer,
+                                   task->result.logDigestBytes });
+
+            if (task->result.logDigestSegmentId == (uint32_t)-1) {
+                LOG(ERROR, "segment %lu has a LogDigest, but len "
+                    "== -1!! from %s\n", task->result.logDigestSegmentId,
+                    task->backupHost.service_locator().c_str());
+            }
+        }
     }
 }
 
@@ -175,6 +186,7 @@ Recovery::verifyCompleteLog()
 {
     // find the newest head
     LogDigest* headDigest = NULL;
+
     uint64_t headId = 0;
     uint32_t headLen = 0;
     foreach (auto digestTuple, digestList) {
@@ -195,7 +207,10 @@ Recovery::verifyCompleteLog()
         throw Exception(HERE, "ouch! data lost!");
     }
 
-    // scan the backup map
+    LOG(DEBUG, "Segment %lu of length %u bytes is the head of the log",
+        headId, headLen);
+
+    // scan the backup map to determine if all needed segments are available
     uint32_t missing = 0;
     for (int i = 0; i < headDigest->getSegmentCount(); i++) {
         uint64_t id = headDigest->getSegmentIds()[i];
