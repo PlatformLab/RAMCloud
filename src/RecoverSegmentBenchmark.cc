@@ -66,7 +66,7 @@ class RecoverSegmentBenchmark {
                 o->checksum = 0;
                 o->data_len = objectBytes;
                 const void *so = segments[i]->append(LOG_ENTRY_TYPE_OBJ,
-                    o, o->size());
+                    o, o->size()).pointer();
                 if (so == NULL)
                     break;
                 numObjects++;

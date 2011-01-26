@@ -42,25 +42,32 @@ struct LogException : public Exception {
         : Exception(where, msg, errNo) {}
 };
 
+// Use the same handle for Segments and the Log.
+typedef SegmentEntryHandle LogEntryHandle;
+
 class Log {
   public:
     Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
             BackupManager *backup = NULL);
     ~Log();
-    Segment*    allocateHead();
-    const void *append(LogEntryType type, const void *buffer, uint64_t length,
-                       uint64_t *lengthInLog = NULL, LogTime *logTime = NULL,
-                       bool sync = true);
-    void        free(const void *p);
-    void        registerType(LogEntryType type,
-                             log_eviction_cb_t evictionCB, void *evictionArg);
-    void        sync();
-    uint64_t    getSegmentId(const void *p);
-    bool        isSegmentLive(uint64_t segmentId) const;
-    uint64_t    getMaximumAppendableBytes() const;
-    uint64_t    getBytesAppended() const;
-    uint64_t    getId() const;
-    uint64_t    getCapacity() const;
+    Segment*       allocateHead();
+    LogEntryHandle append(LogEntryType type,
+                          const void *buffer,
+                          uint64_t length,
+                          uint64_t *lengthInLog = NULL,
+                          LogTime *logTime = NULL,
+                          bool sync = true);
+    void           free(LogEntryHandle entry);
+    void           registerType(LogEntryType type,
+                                log_eviction_cb_t evictionCB,
+                                void *evictionArg);
+    void           sync();
+    uint64_t       getSegmentId(const void *p);
+    bool           isSegmentLive(uint64_t segmentId) const;
+    uint64_t       getMaximumAppendableBytes() const;
+    uint64_t       getBytesAppended() const;
+    uint64_t       getId() const;
+    uint64_t       getCapacity() const;
 
     // This class is shared between the Log and its consituent Segments
     // to maintain various counters.

@@ -118,15 +118,16 @@ class SegmentTest : public CppUnit::TestFixture {
         BackupManager backup(NULL, 1, 0);
         TestLog::Enable _;
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
-        p = s.append(LOG_ENTRY_TYPE_SEGFOOTER, NULL, 0);
+        p = s.append(LOG_ENTRY_TYPE_SEGFOOTER, NULL, 0).pointer();
         CPPUNIT_ASSERT_EQUAL(NULL, p);
 
         s.closed = true;
-        p = s.append(LOG_ENTRY_TYPE_OBJ, alignedBuf, 1);
+        p = s.append(LOG_ENTRY_TYPE_OBJ, alignedBuf, 1).pointer();
         CPPUNIT_ASSERT_EQUAL(NULL, p);
         s.closed = false;
 
-        p = s.append(LOG_ENTRY_TYPE_OBJ, NULL, s.appendableBytes() + 1);
+        p = s.append(LOG_ENTRY_TYPE_OBJ,
+            NULL, s.appendableBytes() + 1).pointer();
         CPPUNIT_ASSERT_EQUAL(NULL, p);
 
         CPPUNIT_ASSERT_EQUAL(
@@ -137,7 +138,7 @@ class SegmentTest : public CppUnit::TestFixture {
         uint64_t lengthInSegment;
         uint64_t offsetInSegment;
         p = s.append(LOG_ENTRY_TYPE_OBJ, &c, sizeof(c),
-            &lengthInSegment, &offsetInSegment);
+            &lengthInSegment, &offsetInSegment).pointer();
         CPPUNIT_ASSERT(p != NULL);
         CPPUNIT_ASSERT_EQUAL(sizeof(c) + sizeof(SegmentEntry), lengthInSegment);
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentEntry) + sizeof(SegmentHeader),
@@ -148,7 +149,7 @@ class SegmentTest : public CppUnit::TestFixture {
         for (int i = 0; i < bytes; i++)
             buf[i] = i;
 
-        p = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes);
+        p = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes).pointer();
         CPPUNIT_ASSERT(p != NULL);
 
         SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
@@ -169,8 +170,8 @@ class SegmentTest : public CppUnit::TestFixture {
         static char buf[12];
 
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
-        const void *p = s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
-        s.free(p);
+        SegmentEntryHandle h = s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        s.free(h);
         CPPUNIT_ASSERT_EQUAL(sizeof(buf) + sizeof(SegmentEntry), s.bytesFreed);
     }
 
@@ -214,7 +215,8 @@ class SegmentTest : public CppUnit::TestFixture {
             sizeof(SegmentHeader) - sizeof(SegmentFooter), s.appendableBytes());
 
         static char buf[57];
-        while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)) != NULL) {}
+        while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)).pointer() != NULL)
+            (void)buf;
         CPPUNIT_ASSERT_EQUAL(23 - sizeof(Segment::Checksum::ResultType),
                              s.appendableBytes());
 

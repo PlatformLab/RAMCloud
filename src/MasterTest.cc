@@ -282,7 +282,7 @@ class MasterTest : public CppUnit::TestFixture {
         strcpy(newObject->data, objContents.c_str()); // NOLINT fuck off
 
         const void *p = s.append(LOG_ENTRY_TYPE_OBJ, newObject,
-                                 newObject->size());
+                                 newObject->size()).pointer();
         assert(p != NULL);
         s.close();
         return static_cast<const char*>(p) - segmentBuf;
@@ -293,7 +293,8 @@ class MasterTest : public CppUnit::TestFixture {
                          ObjectTombstone *tomb)
     {
         Segment s((uint64_t)0, 0, segmentBuf, segmentCapacity, NULL);
-        const void *p = s.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb));
+        const void *p = s.append(LOG_ENTRY_TYPE_OBJTOMB,
+            tomb, sizeof(*tomb)).pointer();
         assert(p != NULL);
         s.close();
         return static_cast<const char*>(p) - segmentBuf;

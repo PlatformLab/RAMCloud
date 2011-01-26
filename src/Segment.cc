@@ -155,40 +155,41 @@ Segment::~Segment()
  *      to where the contents of ``buffer'' was written, but to the preceding
  *      metadata for this operation.
  * \return
- *      On success, a const pointer into the Segment's backing memory with
- *      the same contents as `buffer'. On failure, NULL. 
+ *      A SegmentEntryHandle is returned, which points to the ``buffer''
+ *      written. On failure, a handle is still returned, but the isValid()
+ *      method will be false. We do this to avoid throwing expensive exceptions
+ *      in the fast path.
  */
-const void *
+SegmentEntryHandle
 Segment::append(LogEntryType type, const void *buffer, uint32_t length,
     uint64_t *lengthInSegment, uint64_t *offsetInSegment, bool sync)
 {
     if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
       appendableBytes() < length)
-        return NULL;
+        return SegmentEntryHandle(NULL);
 
     if (offsetInSegment != NULL)
         *offsetInSegment = tail;
 
-    return forceAppendWithEntry(type, buffer, length, lengthInSegment, sync);
+    return SegmentEntryHandle(
+        forceAppendWithEntry(type, buffer, length, lengthInSegment, sync));
 }
 
 /**
  * Mark bytes used by a single entry in this Segment as freed. This simply
  * maintains a tally that can be used to compute utilisation of the Segment.
- * \param[in] p
- *      A pointer into the Segment as returned by an #append call.
+ * \param[in] entry
+ *      A SegmentEntryHandle as returned by an #append call.
  */
 void
-Segment::free(const void *p)
+Segment::free(SegmentEntryHandle entry)
 {
+    const void* p = entry.pointer();
     assert((uintptr_t)p >= ((uintptr_t)baseAddress + sizeof(SegmentEntry)));
     assert((uintptr_t)p <  ((uintptr_t)baseAddress + capacity));
 
-    const SegmentEntry *entry = (const SegmentEntry *)
-        ((const uintptr_t)p - sizeof(SegmentEntry));
-
     // be sure to account for SegmentEntry structs before each append
-    uint32_t length = entry->length + sizeof(SegmentEntry);
+    uint32_t length = entry.length() + sizeof(SegmentEntry);
 
     assert((bytesFreed + length) <= tail);
 

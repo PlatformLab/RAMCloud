@@ -578,7 +578,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 const Object *newObj = reinterpret_cast<const Object*>(
                     log.append(LOG_ENTRY_TYPE_OBJ, recoverObj,
                                 recoverObj->size(), &lengthInLog,
-                                &logTime, false));
+                                &logTime, false).pointer());
 
                 // update the TabletProfiler
 #if 0 // this is broken. tablets aren't currently created until after recovery
@@ -597,7 +597,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
                 // nuke the old object, if it existed
                 if (localObj != NULL)
-                    log.free(localObj);
+                    log.free(LogEntryHandle(localObj));
             }
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             const ObjectTombstone *recoverTomb =
@@ -638,7 +638,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
                 // nuke the object, if it existed
                 if (localObj != NULL)
-                    log.free(localObj);
+                    log.free(LogEntryHandle(localObj));
             }
         }
 
@@ -677,7 +677,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 
     // Mark the deleted object as free first, since the append could
     // invalidate it
-    log.free(obj);
+    log.free(LogEntryHandle(obj));
 
     // Write the tombstone into the Log, update our tablet
     // counters, and remove from the hash table.
@@ -917,7 +917,7 @@ objectEvictionCallback(LogEntryType type,
         uint64_t newLengthInLog;
         LogTime newLogTime;
         const Object *newObj = (const Object *)log.append(LOG_ENTRY_TYPE_OBJ,
-            evictObj, evictObj->size(), &newLengthInLog, &newLogTime);
+            evictObj, evictObj->size(), &newLengthInLog, &newLogTime).pointer();
         t->profiler.track(evictObj->id, newLengthInLog, newLogTime);
         svr->objectMap.replace(evictObj->table, evictObj->id, newObj);
     }
@@ -1038,7 +1038,7 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
         // log. If we do it afterwards, the LogCleaner could be triggered and
         // `o' could be reclaimed before log->append() returns. The subsequent
         // free then breaks, as that Segment may have been cleaned.
-        log.free(o);
+        log.free(LogEntryHandle(o));
 
         uint64_t segmentId = log.getSegmentId(o);
         ObjectTombstone tomb(segmentId, obj);
@@ -1048,7 +1048,7 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
     }
 
     const Object *objPtr = (const Object *)log.append(LOG_ENTRY_TYPE_OBJ,
-        newObject, newObject->size(), &lengthInLog, &logTime);
+        newObject, newObject->size(), &lengthInLog, &logTime).pointer();
     t.profiler.track(id, lengthInLog, logTime);
     objectMap.replace(tableId, id, objPtr);
 

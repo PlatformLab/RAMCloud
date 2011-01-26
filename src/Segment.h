@@ -68,6 +68,88 @@ struct SegmentException : public Exception {
 // forward decl
 class Log;
 
+/**
+ * SegmentEntryHandle is a simple wrapper around a const void*. This is
+ * used to refer to an entry written into a Segment. It has a few useful
+ * helper methods that access the preceding SegmentEntry structure to
+ * extract the type and length information.
+ */
+class SegmentEntryHandle {
+  public:
+    /**
+     * Construct a SegmentEntryHandle that does not point to a
+     * valid entry.
+     */
+    SegmentEntryHandle() : p(NULL) {}
+
+    /**
+     * Construct a SegmentEntryHandle that points to data in the
+     * Segment at ``p''.
+     *
+     * \param[in] p
+     *      Pointer to the user-supplied data written into the
+     *      Segment.
+     */
+    explicit SegmentEntryHandle(const void* p)
+        : p(p)
+    {
+        static_assert(sizeof(*this) == sizeof(p),
+            "SegmentEntryHandle != sizeof(void*)");
+    }
+
+    /**
+     * Return a pointer to the user data that this handle refers to.
+     */
+    const void*
+    pointer()
+    {
+        return p;
+    }
+
+    /**
+     * Return the length of the user data referred to by this handle.
+     * This does #not include any Segment overheads.
+     */
+    uint32_t
+    length()
+    {
+        return getSegmentEntry()->length;
+    }
+
+    /**
+     * Return the type of the data written. This is the value that was
+     * passed to the Segment::append() method.
+     */
+    uint32_t
+    type()
+    {
+        return getSegmentEntry()->type;
+    }
+
+    /**
+     * Return true if the handle is valid, else false.
+     */
+    bool
+    isValid()
+    {
+        return p != NULL;
+    }
+
+  private:
+    /*
+     * Since ``p'' points to the user data, we can subtract off it to
+     * access the preceding SegmentEntry structure.
+     */
+    const SegmentEntry*
+    getSegmentEntry()
+    {
+        return reinterpret_cast<const SegmentEntry*>(
+            reinterpret_cast<const uint8_t*>(p) - sizeof(SegmentEntry));
+    }
+
+    const void* p;
+};
+
 class Segment {
   public:
     /// The class used to calculate segment checksums.
@@ -79,19 +161,19 @@ class Segment {
             uint32_t capacity, BackupManager* backup = NULL);
     ~Segment();
 
-    const void      *append(LogEntryType type, const void *buffer,
-                            uint32_t length,
-                            uint64_t *lengthInSegment = NULL,
-                            uint64_t *offsetInSegment = NULL,
-                            bool sync = true);
-    void             free(const void *p);
-    void             close(bool sync = true);
-    void             sync();
-    const void      *getBaseAddress() const;
-    uint64_t         getId() const;
-    uint64_t         getCapacity() const;
-    uint64_t         appendableBytes() const;
-    int              getUtilisation() const;
+    SegmentEntryHandle append(LogEntryType type, const void *buffer,
+                              uint32_t length,
+                              uint64_t *lengthInSegment = NULL,
+                              uint64_t *offsetInSegment = NULL,
+                              bool sync = true);
+    void               free(SegmentEntryHandle entry);
+    void               close(bool sync = true);
+    void               sync();
+    const void        *getBaseAddress() const;
+    uint64_t           getId() const;
+    uint64_t           getCapacity() const;
+    uint64_t           appendableBytes() const;
+    int                getUtilisation() const;
 
     static const uint32_t  SEGMENT_SIZE = 8 * 1024 * 1024;
     static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);

@@ -113,9 +113,9 @@ Log::allocateHead()
     }
     ld.addSegment(newHead->getId());
 
-    const void* p = newHead->append(LOG_ENTRY_TYPE_LOGDIGEST,
+    SegmentEntryHandle seh = newHead->append(LOG_ENTRY_TYPE_LOGDIGEST,
         temp, digestBytes);
-    assert(p != NULL);
+    assert(seh.isValid());
 
     return newHead;
 }
@@ -185,32 +185,33 @@ Log::getSegmentId(const void *p)
  *      where sync is true or when the segment is closed.  This defaults
  *      to true.
  * \return
- *      On success, a const pointer into the Log's backing memory with
- *      the same contents as `buffer'.
+ *      A LogEntryHandle is returned, which points to the ``buffer''
+ *      written. The handle is guaranteed to be valid, i.e. the isValid()
+ *      method will return true.
  * \throw LogException
  *      An exception is thrown if the append exceeds the maximum permitted
  *      append length, as returned by #getMaximumAppendableBytes, or the log
  *      ran out of space.
  */
-const void *
+LogEntryHandle
 Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     uint64_t *lengthInLog, LogTime *logTime, bool sync)
 {
     if (length > maximumAppendableBytes)
         throw LogException(HERE, "append exceeded maximum possible length");
 
-    const void *p;
+    SegmentEntryHandle seh;
     uint64_t segmentOffset;
 
     if (head != NULL) {
-        p = head->append(type, buffer, length, lengthInLog,
+        seh = head->append(type, buffer, length, lengthInLog,
             &segmentOffset, sync);
-        if (p != NULL) {
+        if (seh.isValid()) {
             // entry was appended to head segment
             if (logTime != NULL)
                 *logTime = LogTime(head->getId(), segmentOffset);
             stats.totalAppends++;
-            return p;
+            return seh;
         }
         // head segment is full
         // allocate the next segment, /then/ close this one
@@ -228,35 +229,35 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     addToActiveMaps(head);
 
     // append the entry
-    p = head->append(type, buffer, length, lengthInLog, &segmentOffset, sync);
-    assert(p != NULL);
+    seh = head->append(type, buffer, length, lengthInLog, &segmentOffset, sync);
+    assert(seh.isValid());
     if (logTime != NULL)
         *logTime = LogTime(head->getId(), segmentOffset);
 
     if (useCleaner)
         cleaner.clean(1);
     stats.totalAppends++;
-    return p;
+    return seh;
 }
 
 /**
  * Mark bytes in Log as freed. This simply maintains a per-Segment tally that
  * can be used to compute utilisation of individual Log Segments.
- * \param[in] p
- *      A pointer into the Segment as returned by an #append call.
+ * \param[in] entry
+ *      A LogEntryHandle as returned by an #append call.
  * \throw LogException
  *      An exception is thrown if the pointer provided is not valid.
  */
 void
-Log::free(const void *p)
+Log::free(LogEntryHandle entry)
 {
-    const void *base = getSegmentBaseAddress(p);
+    const void *base = getSegmentBaseAddress(entry.pointer());
 
     BaseAddressMap::const_iterator it = activeBaseAddressMap.find(base);
     if (it == activeBaseAddressMap.end())
         throw LogException(HERE, "free on invalid pointer");
     Segment *s = it->second;
-    s->free(p);
+    s->free(entry);
     stats.totalFrees++;
 }
 
