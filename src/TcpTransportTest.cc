@@ -30,13 +30,13 @@ class TcpTransportTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_constructor_bindError);
     CPPUNIT_TEST(test_constructor_listenError);
     CPPUNIT_TEST(test_destructor);
-    CPPUNIT_TEST(test_tryAccept_noConnection);
-    CPPUNIT_TEST(test_tryAccept_acceptFailure);
-    CPPUNIT_TEST(test_tryAccept_success);
-    CPPUNIT_TEST(test_tryServerRecv);
-    CPPUNIT_TEST(test_tryServerRecv_unexpectedData);
-    CPPUNIT_TEST(test_tryServerRecv_eof);
-    CPPUNIT_TEST(test_tryServerRecv_error);
+    CPPUNIT_TEST(test_AcceptHandler_noConnection);
+    CPPUNIT_TEST(test_AcceptHandler_acceptFailure);
+    CPPUNIT_TEST(test_AcceptHandler_success);
+    CPPUNIT_TEST(test_RequestReadHandler);
+    CPPUNIT_TEST(test_RequestReadHandler_unexpectedData);
+    CPPUNIT_TEST(test_RequestReadHandler_eof);
+    CPPUNIT_TEST(test_RequestReadHandler_error);
     CPPUNIT_TEST(test_sendMessage_multipleChunks);
     CPPUNIT_TEST(test_sendMessage_errorOnSend);
     CPPUNIT_TEST(test_sendMessage_brokenPipe);
@@ -49,10 +49,10 @@ class TcpTransportTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_sessionConstructor_connectError);
     CPPUNIT_TEST(test_sessionDestructor);
     CPPUNIT_TEST(test_clientSend_sessionClosed);
-    CPPUNIT_TEST(test_tryReadReply_eof);
-    CPPUNIT_TEST(test_tryReadReply_eofOutsideRPC);
-    CPPUNIT_TEST(test_tryReadReply_unexpectedDataFromServer);
-    CPPUNIT_TEST(test_tryReadReply_ioError);
+    CPPUNIT_TEST(test_ReplyReadHandler_eof);
+    CPPUNIT_TEST(test_ReplyReadHandler_eofOutsideRPC);
+    CPPUNIT_TEST(test_ReplyReadHandler_unexpectedDataFromServer);
+    CPPUNIT_TEST(test_ReplyReadHandler_ioError);
     CPPUNIT_TEST(test_wait_throwError);
     CPPUNIT_TEST_SUITE_END();
 
@@ -129,7 +129,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
         serverRpc->replyPayload.fillFromString("klmn");
         serverRpc->sendReply();
-        event_loop(EVLOOP_ONCE);
+        Dispatch::handleEvent();
         CPPUNIT_ASSERT_EQUAL(true, clientRpc->isReady());
         CPPUNIT_ASSERT_EQUAL("klmn/0", toString(&reply));
 
@@ -221,27 +221,27 @@ class TcpTransportTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(5, sys->closeCount);
     }
 
-    void test_tryAccept_noConnection() {
+    void test_AcceptHandler_noConnection() {
         TcpTransport server(locator);
-        TcpTransport::tryAccept(-1, 0, &server);
+        (*server.acceptHandler)();
         CPPUNIT_ASSERT_EQUAL(0, server.sockets.size());
     }
 
-    void test_tryAccept_acceptFailure() {
+    void test_AcceptHandler_acceptFailure() {
         TcpTransport server(locator);
         sys->acceptErrno = EPERM;
-        TcpTransport::tryAccept(-1, 0, &server);
-        CPPUNIT_ASSERT_EQUAL("tryAccept: error in TcpTransport "
+        (*server.acceptHandler)();
+        CPPUNIT_ASSERT_EQUAL("operator(): error in TcpTransport::AcceptHandler "
                 "accepting connection for 'tcp+ip: host=localhost, "
                 "port=11000': Operation not permitted", TestLog::get());
         CPPUNIT_ASSERT_EQUAL(-1, server.listenSocket);
         CPPUNIT_ASSERT_EQUAL(1, sys->closeCount);
     }
 
-    void test_tryAccept_success() {
+    void test_AcceptHandler_success() {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
-        TcpTransport::tryAccept(-1, 0, &server);
+        (*server.acceptHandler)();
         if (server.sockets.size() == 0) {
             CPPUNIT_FAIL("socket vector doesn't have enough space");
         }
@@ -251,10 +251,10 @@ class TcpTransportTest : public CppUnit::TestFixture {
         close(fd);
     }
 
-    void test_tryServerRecv() {
+    void test_RequestReadHandler() {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
-        TcpTransport::tryAccept(-1, 0, &server);
+        (*server.acceptHandler)();
         if (server.sockets.size() == 0) {
             CPPUNIT_FAIL("no socket allocated in server transport");
         }
@@ -265,23 +265,23 @@ class TcpTransportTest : public CppUnit::TestFixture {
         header.len = 6;
         CPPUNIT_ASSERT_EQUAL(sizeof(header),
             write(fd, &header, sizeof(header)));
-        TcpTransport::tryServerRecv(serverFd, 0, &server);
+        (*server.sockets[serverFd]->readHandler)();
         if (server.sockets[serverFd]->rpc == 0) {
             CPPUNIT_FAIL("no rpc object allocated");
         }
         CPPUNIT_ASSERT_EQUAL(0, server.waitingRequests.size());
 
         CPPUNIT_ASSERT_EQUAL(6, write(fd, "abcdef", 6));
-        TcpTransport::tryServerRecv(serverFd, 0, &server);
+        (*server.sockets[serverFd]->readHandler)();
         CPPUNIT_ASSERT_EQUAL(1, server.waitingRequests.size());
 
         close(fd);
     }
 
-    void test_tryServerRecv_unexpectedData() {
+    void test_RequestReadHandler_unexpectedData() {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
-        TcpTransport::tryAccept(-1, 0, &server);
+        (*server.acceptHandler)();
         if (server.sockets.size() == 0) {
             CPPUNIT_FAIL("no socket allocated in server transport");
         }
@@ -291,39 +291,40 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport::Header header;
         header.len = 0;
         write(fd, &header, sizeof(header));
-        TcpTransport::tryServerRecv(serverFd, 0, &server);
+        (*server.sockets[serverFd]->readHandler)();
         CPPUNIT_ASSERT_EQUAL(true, server.sockets[serverFd]->busy);
 
         // Send more junk to the server.
         write(fd, "abcdef", 6);
-        TcpTransport::tryServerRecv(serverFd, 0, &server);
-        CPPUNIT_ASSERT_EQUAL("tryServerRecv: TcpTransport discarding "
-                "6 unexpected bytes from client", TestLog::get());
+        (*server.sockets[serverFd]->readHandler)();
+        CPPUNIT_ASSERT_EQUAL("operator(): TcpTransport::RequestReadHandler "
+                "discarding 6 unexpected bytes from client",
+                TestLog::get());
 
         close(fd);
     }
 
-    void test_tryServerRecv_eof() {
+    void test_RequestReadHandler_eof() {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
-        TcpTransport::tryAccept(-1, 0, &server);
+        (*server.acceptHandler)();
         int serverFd = server.sockets.size() - 1;
         close(fd);
-        TcpTransport::tryServerRecv(serverFd, 0, &server);
+        (*server.sockets[serverFd]->readHandler)();
         CPPUNIT_ASSERT_EQUAL(NULL, server.sockets[serverFd]);
     }
 
-    void test_tryServerRecv_error() {
+    void test_RequestReadHandler_error() {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
-        TcpTransport::tryAccept(-1, 0, &server);
+        (*server.acceptHandler)();
         int serverFd = server.sockets.size() - 1;
         sys->recvErrno = EPERM;
-        TcpTransport::tryServerRecv(serverFd, 0, &server);
+        (*server.sockets[serverFd]->readHandler)();
         CPPUNIT_ASSERT_EQUAL(NULL, server.sockets[serverFd]);
-        CPPUNIT_ASSERT_EQUAL("tryServerRecv: TcpTransport closing client "
-                "connection: I/O read error in TcpTransport: Operation "
-                "not permitted", TestLog::get());
+        CPPUNIT_ASSERT_EQUAL("operator(): TcpTransport::RequestReadHandler "
+                "closing client connection: I/O read error in TcpTransport: "
+                "Operation not permitted", TestLog::get());
 
         close(fd);
     }
@@ -370,7 +371,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport server(locator);
         TcpTransport client;
         Transport::SessionRef session = client.getSession(*locator);
-        event_loop(EVLOOP_ONCE|EVLOOP_NONBLOCK);
+        Dispatch::handleEvent();
         int serverFd = server.sockets.size() - 1;
         server.closeSocket(serverFd);
         string message("no exception");
@@ -435,7 +436,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
     void test_readMessage_receiveHeaderInPieces() {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
-        TcpTransport::tryAccept(-1, 0, &server);
+        (*server.acceptHandler)();
         int serverFd = server.sockets.size() - 1;
 
         // Try to receive when there is no data at all.
@@ -469,7 +470,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
     void test_readMessage_zeroLengthMessage() {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
-        TcpTransport::tryAccept(-1, 0, &server);
+        (*server.acceptHandler)();
         int serverFd = server.sockets.size() - 1;
         Buffer buffer;
         TcpTransport::IncomingMessage incoming(&buffer);
@@ -485,7 +486,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
     void test_readMessage_receiveBodyInPieces() {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
-        TcpTransport::tryAccept(-1, 0, &server);
+        (*server.acceptHandler)();
         int serverFd = server.sockets.size() - 1;
         Buffer buffer;
         TcpTransport::IncomingMessage incoming(&buffer);
@@ -562,7 +563,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("session closed", message);
     }
 
-    void test_tryReadReply_eof() {
+    void test_ReplyReadHandler_eof() {
         // In this test, arrange for the connection to get closed
         // while an RPC is outstanding and we are waiting for a response.
         TcpTransport server(locator);
@@ -579,44 +580,42 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport::TcpSession* rawSession =
                 reinterpret_cast<TcpTransport::TcpSession*>(session.get());
         sys->recvEof = true;
-        TcpTransport::TcpSession::tryReadReply(rawSession->fd, 0,
-                rawSession);
+        (*rawSession->replyHandler)();
         CPPUNIT_ASSERT_EQUAL(-1, rawSession->fd);
         CPPUNIT_ASSERT_EQUAL("socket closed by server", rawSession->errorInfo);
     }
 
-    void test_tryReadReply_eofOutsideRPC() {
+    void test_ReplyReadHandler_eofOutsideRPC() {
         // In this test, close the connection when there is no RPC
         // outstanding; this creates additional stress because not all
         // data structures have been initialized.
         TcpTransport server(locator);
         TcpTransport client;
         Transport::SessionRef session = client.getSession(*locator);
-        TcpTransport::tryAccept(-1, 0, &server);
+        (*server.acceptHandler)();
         server.closeSocket(server.sockets.size() - 1);
         TcpTransport::TcpSession* rawSession =
                 reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-        TcpTransport::TcpSession::tryReadReply(rawSession->fd, 0,
-                rawSession);
+        (*rawSession->replyHandler)();
         CPPUNIT_ASSERT_EQUAL(-1, rawSession->fd);
         CPPUNIT_ASSERT_EQUAL("socket closed by server", rawSession->errorInfo);
     }
 
-    void test_tryReadReply_unexpectedDataFromServer() {
+    void test_ReplyReadHandler_unexpectedDataFromServer() {
         TcpTransport server(locator);
         TcpTransport client;
         Transport::SessionRef session = client.getSession(*locator);
-        TcpTransport::tryAccept(-1, 0, &server);
+        (*server.acceptHandler)();
         write(server.sockets.size() - 1, "abcdef", 6);
         TcpTransport::TcpSession* rawSession =
                 reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-        TcpTransport::TcpSession::tryReadReply(rawSession->fd, 0,
-                rawSession);
-        CPPUNIT_ASSERT_EQUAL("tryReadReply: TcpTransport discarding 6 "
-                "unexpected bytes from server 127.0.0.1:11000", TestLog::get());
+        (*rawSession->replyHandler)();
+        CPPUNIT_ASSERT_EQUAL("operator(): TcpTransport::ReplyReadHandler "
+                "discarding 6 unexpected bytes from server 127.0.0.1:11000",
+                TestLog::get());
     }
 
-    void test_tryReadReply_ioError() {
+    void test_ReplyReadHandler_ioError() {
         TcpTransport server(locator);
         TcpTransport client;
         Transport::SessionRef session = client.getSession(*locator);
@@ -631,12 +630,11 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport::TcpSession* rawSession =
                 reinterpret_cast<TcpTransport::TcpSession*>(session.get());
         sys->recvErrno = EPERM;
-        TcpTransport::TcpSession::tryReadReply(rawSession->fd, 0,
-                rawSession);
+        (*rawSession->replyHandler)();
         CPPUNIT_ASSERT_EQUAL(-1, rawSession->fd);
-        CPPUNIT_ASSERT_EQUAL("tryReadReply: TcpTransport closing session "
-                "socket: I/O read error in TcpTransport: Operation not "
-                "permitted", TestLog::get());
+        CPPUNIT_ASSERT_EQUAL("operator(): TcpTransport::ReplyReadHandler "
+                "closing session socket: I/O read error in TcpTransport: "
+                "Operation not permitted", TestLog::get());
         CPPUNIT_ASSERT_EQUAL("I/O read error in TcpTransport: Operation "
                 "not permitted", rawSession->errorInfo);
     }
