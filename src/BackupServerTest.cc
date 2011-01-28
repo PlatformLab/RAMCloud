@@ -48,6 +48,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_getRecoveryData_malformedSegment);
     CPPUNIT_TEST(test_getRecoveryData_notRecovered);
     CPPUNIT_TEST(test_openSegment);
+    CPPUNIT_TEST(test_openSegment_secondary);
     CPPUNIT_TEST(test_openSegment_alreadyOpen);
     CPPUNIT_TEST(test_openSegment_outOfStorage);
     CPPUNIT_TEST(test_recoverySegmentBuilder);
@@ -76,7 +77,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         , client(NULL)
         , coordinatorServer(NULL)
         , segmentSize(1 << 10)
-        , segmentFrames(2)
+        , segmentFrames(4)
         , storage(NULL)
         , config(NULL)
         , transport(NULL)
@@ -457,12 +458,21 @@ class BackupServerTest : public CppUnit::TestFixture {
         BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
         CPPUNIT_ASSERT(NULL != info.segment);
         CPPUNIT_ASSERT_EQUAL(0, *info.segment);
+        CPPUNIT_ASSERT(info.primary);
         char* address =
             static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
                 getAddress();
         CPPUNIT_ASSERT(NULL != address);
         CPPUNIT_ASSERT_EQUAL(1,
             BackupStorage::Handle::getAllocatedHandlesCount());
+    }
+
+    void
+    test_openSegment_secondary()
+    {
+        client->openSegment(99, 88, false);
+        BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
+        CPPUNIT_ASSERT(!info.primary);
     }
 
     void
@@ -481,10 +491,12 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         client->openSegment(99, 86);
         client->openSegment(99, 87);
+        client->openSegment(99, 88);
+        client->openSegment(99, 89);
         CPPUNIT_ASSERT_THROW(
-            client->openSegment(99, 88),
+            client->openSegment(99, 90),
             BackupStorageException);
-        CPPUNIT_ASSERT_EQUAL(2,
+        CPPUNIT_ASSERT_EQUAL(4,
             BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
@@ -554,11 +566,52 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         client->openSegment(99, 88);
         client->writeSegment(99, 88, 0, "test", 4);
+        client->openSegment(99, 89);
+        client->openSegment(99, 98, false);
+        client->openSegment(99, 99, false);
         auto result = client->startReadingData(99, ProtoBuf::Tablets());
-        CPPUNIT_ASSERT_EQUAL(1, result.size());
-        CPPUNIT_ASSERT_EQUAL(88, result[0].first);
-        CPPUNIT_ASSERT_EQUAL(4, result[0].second);
-        CPPUNIT_ASSERT_EQUAL(1,
+        CPPUNIT_ASSERT_EQUAL(4, result.size());
+
+        CPPUNIT_ASSERT_EQUAL(89, result[0].first);
+        CPPUNIT_ASSERT_EQUAL(0, result[0].second);
+        {
+            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 89);
+            BackupServer::SegmentInfo::Lock lock(info.mutex);
+            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+                                 info.state);
+        }
+
+        CPPUNIT_ASSERT_EQUAL(88, result[1].first);
+        CPPUNIT_ASSERT_EQUAL(4, result[1].second);
+        {
+            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 88);
+            BackupServer::SegmentInfo::Lock lock(info.mutex);
+            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+                                 info.state);
+        }
+
+        CPPUNIT_ASSERT_EQUAL(99, result[2].first);
+        CPPUNIT_ASSERT_EQUAL(0, result[2].second);
+        CPPUNIT_ASSERT(backup->findSegmentInfo(99, 99)->recoveryPartitions);
+        {
+            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 99);
+            BackupServer::SegmentInfo::Lock lock(info.mutex);
+            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+                                 info.state);
+            CPPUNIT_ASSERT(info.recoveryPartitions);
+        }
+
+        CPPUNIT_ASSERT_EQUAL(98, result[3].first);
+        CPPUNIT_ASSERT_EQUAL(0, result[3].second);
+        {
+            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 98);
+            BackupServer::SegmentInfo::Lock lock(info.mutex);
+            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+                                 info.state);
+            CPPUNIT_ASSERT(info.recoveryPartitions);
+        }
+
+        CPPUNIT_ASSERT_EQUAL(4,
             BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
@@ -746,6 +799,43 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
     EXPECT_TRUE(it.isDone());
 }
 
+TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
+    SegmentInfo info{storage, pool, 99, 88, segmentSize, false};
+    info.open();
+    Segment segment(123, 88, info.segment, segmentSize);
+
+    SegmentHeader header = { 99, 88, segmentSize };
+    segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
+
+    Object object(sizeof(object));
+    object.id = 10;
+    object.table = 123;
+    object.version = 0;
+    object.checksum = 0xff00ff00ff00;
+    object.data_len = 0;
+    segment.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
+
+    segment.close();
+    info.close();
+
+    ProtoBuf::Tablets partitions;
+    createTabletList(partitions);
+    info.setRecovering(partitions);
+
+    Buffer buffer;
+    info.appendRecoverySegment(0, buffer);
+    buffer.reset();
+    info.appendRecoverySegment(0, buffer);
+    RecoverySegmentIterator it(buffer.getRange(0, buffer.getTotalLength()),
+                                 buffer.getTotalLength());
+    EXPECT_FALSE(it.isDone());
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, it.getType());
+    EXPECT_EQ(sizeof(Object), it.getLength());
+
+    it.next();
+    EXPECT_TRUE(it.isDone());
+}
+
 TEST_F(SegmentInfoTest, appendRecoverySegmentMalformedSegment) {
     info.open();
     memcpy(info.segment, "garbage", 7);
@@ -918,6 +1008,17 @@ TEST_F(SegmentInfoTest, free) {
     }
     EXPECT_FALSE(info.inMemory());
     EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
+    info.free();
+    EXPECT_FALSE(pool.is_from(info.segment));
+    EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
+    EXPECT_EQ(SegmentInfo::FREED, info.state);
+}
+
+TEST_F(SegmentInfoTest, freeRecoveringSecondary) {
+    SegmentInfo info{storage, pool, 99, 88, segmentSize, false};
+    info.open();
+    info.close();
+    info.setRecovering(ProtoBuf::Tablets());
     info.free();
     EXPECT_FALSE(pool.is_from(info.segment));
     EXPECT_EQ(0, BackupStorage::Handle::getAllocatedHandlesCount());
