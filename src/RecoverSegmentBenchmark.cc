@@ -36,7 +36,7 @@ class RecoverSegmentBenchmark {
         config.localLocator = "bogus";
         config.coordinatorLocator = "bogus";
         MasterServer::sizeLogAndHashTable(logSize, hashTableSize, &config);
-        server = new MasterServer(config, NULL, NULL);
+        server = new MasterServer(config, NULL, 0);
     }
 
     ~RecoverSegmentBenchmark()
@@ -65,9 +65,9 @@ class RecoverSegmentBenchmark {
                 o->version = 0;
                 o->checksum = 0;
                 o->data_len = objectBytes;
-                const void *so = segments[i]->append(LOG_ENTRY_TYPE_OBJ,
-                    o, o->size())->userData();
-                if (so == NULL)
+                SegmentEntryHandle seh = segments[i]->append(LOG_ENTRY_TYPE_OBJ,
+                    o, o->size());
+                if (seh == NULL)
                     break;
                 numObjects++;
             }
