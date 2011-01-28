@@ -375,6 +375,7 @@ class MasterTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(server->objectMap.lookup(0, 2003) != NULL);
         CPPUNIT_ASSERT(server->objectMap.lookup(0, 2003) != logTomb1);
         CPPUNIT_ASSERT(server->objectMap.lookup(0, 2003) != logTomb2);
+        server->removeTombstones();
 
         // Case 3: No tombstone, no object. Recovered object always added.
         CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2004));
@@ -463,10 +464,6 @@ class MasterTest : public CppUnit::TestFixture {
             server->objectMap.lookup(0, 2010)->type());
         CPPUNIT_ASSERT_EQUAL(0, memcmp(&t10, server->objectMap.lookup(
             0, 2010)->userData(), sizeof(t10)));
-
-        // Cleanup
-        server->freeRecoveryTombstone(logTomb1);
-        server->freeRecoveryTombstone(logTomb2);
     }
 
     void test_remove_basics() {
