@@ -56,9 +56,11 @@ USAGE
 
 my %data;
 my $size = 1000;
-my $operation_count = 30 * 100 * 1000;
+# smallish count so that worker checks command flag responsively.
+my $operation_count = 10000;
 
-my @loads = ( 0 .. 15 );
+
+my @loads = ( 0 .. 20 );
 my $clienthosts = HostPattern::hosts(\@clientspattern);
 print STDERR join ("\n", @$clienthosts)."\n";
 
@@ -79,28 +81,26 @@ foreach my $clients (@loads) {
     if ($i != 0) {
       $cmd .= "-o ";
     }
-    $cmd .= "-t test -S $size -n $operation_count 2>&1\" &";
+    $cmd .= "-t test -S $size -n $operation_count --executionmode worker"
+      ." --workerid $i 1>/tmp/worker.$i.log 2>&1\" &";
     # TODO multiobject option for writes 
+    print STDERR "Calling $cmd\n";
     system($cmd) == 0
-      or die "$cmd failed: $?"; 
+      or die "$cmd failed: $?";
     print STDERR "Load $clients : Number $i : Host $remotehost\n";
   }
  
-  #  1 read = 10 us
-  # 1000 reads = 10 ms
-  # 100,000 reads = 1 s
-  # time taken for ssh operation - upto 30 seconds
-  # numbers of safe reads for load = 30 * 100 * measuring_reads
-  # 1/3000
-  my $measure_operation_count = $operation_count/3000;
+  my $measure_operation_count = 100000;
   # Run on the first client host for measurements
   my $remotehost = $clienthosts->[0];
 
-  my $cmd = "ssh $remotehost $benchBinaryFull -C $coordinatorLocator "; 
+  my $cmd = "ssh $remotehost $benchBinaryFull -C $coordinatorLocator  "; 
+  $cmd .= "--executionmode queen --numworkers $clients ";
   if ($clients != 0) {
     # Do the first bootstrapping write
     $cmd .= "-o ";
   }
+  print STDERR "Calling $cmd\n";
   open (B, $cmd . 
         "-t test -S $size -n $measure_operation_count |") 
     or die "Cannot open binary - $!";
@@ -114,14 +114,6 @@ foreach my $clients (@loads) {
 
   close (B) or 
     die "Close failed - $!";
-
-  # kill all instances of Bench just in case.
-  #TODO track pids and kill instead of name
-  for (my $i=0; $i<$clients; $i++) {
-    my $remotehost = $clienthosts->[$i % (scalar @$clienthosts)]; 
-    system("ssh $remotehost pkill Bench");
-  }
-  sleep 2; # To "hope" killing is done - useless
 }
 
 print STDERR Dumper \%data;
