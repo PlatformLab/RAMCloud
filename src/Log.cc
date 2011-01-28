@@ -90,6 +90,37 @@ Log::~Log()
 }
 
 /**
+ * Allocate a new head Segment and write the LogDigest before returning.
+ * The current head is not replaced; that is up to the caller.
+ *
+ * \throw LogException
+ *      If no Segments are free.
+ */
+Segment*
+Log::allocateHead()
+{
+    Segment* newHead = new Segment(this, allocateSegmentId(), getFromFreeList(),
+        segmentCapacity, backup);
+
+    uint32_t segmentCount = activeIdMap.size() + 1;
+    uint32_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
+    char temp[digestBytes];
+    LogDigest ld(segmentCount, temp, digestBytes);
+
+    foreach (ActiveIdMap::value_type& idSegmentPair, activeIdMap) {
+        Segment* segment = idSegmentPair.second;
+        ld.addSegment(segment->getId());
+    }
+    ld.addSegment(newHead->getId());
+
+    SegmentEntryHandle seh = newHead->append(LOG_ENTRY_TYPE_LOGDIGEST,
+        temp, digestBytes);
+    assert(seh != NULL);
+
+    return newHead;
+}
+
+/**
  * Determine whether or not the provided Segment identifier is currently
  * live. A live Segment is one that is still being used by the Log for
  * storage. This method can be used to determine if data once written to the
@@ -154,38 +185,37 @@ Log::getSegmentId(const void *p)
  *      where sync is true or when the segment is closed.  This defaults
  *      to true.
  * \return
- *      On success, a const pointer into the Log's backing memory with
- *      the same contents as `buffer'.
+ *      A LogEntryHandle is returned, which points to the ``buffer''
+ *      written. The handle is guaranteed to be valid, i.e. non-NULL.
  * \throw LogException
  *      An exception is thrown if the append exceeds the maximum permitted
  *      append length, as returned by #getMaximumAppendableBytes, or the log
  *      ran out of space.
  */
-const void *
+LogEntryHandle
 Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     uint64_t *lengthInLog, LogTime *logTime, bool sync)
 {
     if (length > maximumAppendableBytes)
         throw LogException(HERE, "append exceeded maximum possible length");
 
-    const void *p;
+    SegmentEntryHandle seh;
     uint64_t segmentOffset;
 
     if (head != NULL) {
-        p = head->append(type, buffer, length, lengthInLog,
+        seh = head->append(type, buffer, length, lengthInLog,
             &segmentOffset, sync);
-        if (p != NULL) {
+        if (seh != NULL) {
             // entry was appended to head segment
             if (logTime != NULL)
                 *logTime = LogTime(head->getId(), segmentOffset);
             stats.totalAppends++;
-            return p;
+            return seh;
         }
         // head segment is full
         // allocate the next segment, /then/ close this one
-        Segment* nextHead = new Segment(this, allocateSegmentId(),
-                                        getFromFreeList(), segmentCapacity,
-                                        backup);
+        Segment* nextHead = allocateHead();
+
         head->close(false); // an exception here would be problematic...
 #ifdef PERF_DEBUG_RECOVERY_SYNC_BACKUP
         head->sync();
@@ -193,41 +223,41 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
         head = nextHead;
     } else {
         // allocate the first segment
-        head = new Segment(this, allocateSegmentId(), getFromFreeList(),
-                           segmentCapacity, backup);
+        head = allocateHead();
     }
     addToActiveMaps(head);
 
     // append the entry
-    p = head->append(type, buffer, length, lengthInLog, &segmentOffset, sync);
-    assert(p != NULL);
+    seh = head->append(type, buffer, length, lengthInLog, &segmentOffset, sync);
+    assert(seh != NULL);
     if (logTime != NULL)
         *logTime = LogTime(head->getId(), segmentOffset);
 
     if (useCleaner)
         cleaner.clean(1);
     stats.totalAppends++;
-    return p;
+    return seh;
 }
 
 /**
  * Mark bytes in Log as freed. This simply maintains a per-Segment tally that
  * can be used to compute utilisation of individual Log Segments.
- * \param[in] p
- *      A pointer into the Segment as returned by an #append call.
+ * \param[in] entry
+ *      A LogEntryHandle as returned by an #append call.
  * \throw LogException
  *      An exception is thrown if the pointer provided is not valid.
  */
 void
-Log::free(const void *p)
+Log::free(LogEntryHandle entry)
 {
-    const void *base = getSegmentBaseAddress(p);
+    const void *base = getSegmentBaseAddress(
+        reinterpret_cast<const void*>(entry));
 
     BaseAddressMap::const_iterator it = activeBaseAddressMap.find(base);
     if (it == activeBaseAddressMap.end())
         throw LogException(HERE, "free on invalid pointer");
     Segment *s = it->second;
-    s->free(p);
+    s->free(entry);
     stats.totalFrees++;
 }
 

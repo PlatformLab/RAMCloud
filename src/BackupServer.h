@@ -187,7 +187,7 @@ class BackupServer : public Server {
 
         SegmentInfo(BackupStorage& storage, ThreadSafePool& pool,
                     uint64_t masterId, uint64_t segmentId,
-                    uint32_t segmentSize);
+                    uint32_t segmentSize, bool primary);
         ~SegmentInfo();
         void appendRecoverySegment(uint64_t partitionId,
                                    Buffer& buffer);
@@ -212,17 +212,38 @@ class BackupServer : public Server {
 
         void open();
 
-        /// Set the state to #RECOVERING from #OPEN or #CLOSED.
+        /**
+         * Set the state to #RECOVERING from #OPEN or #CLOSED.
+         * This can only be called on a primary segment.
+         */
         void
         setRecovering()
         {
             Lock _(mutex);
+            assert(primary);
             state = RECOVERING;
+        }
+
+        /**
+         * Set the state to #RECOVERING from #OPEN or #CLOSED and store
+         * a copy of the supplied tablet information in case construction
+         * of recovery segments is needed later for this secondary
+         * segment.
+         */
+        void
+        setRecovering(const ProtoBuf::Tablets& partitions)
+        {
+            Lock _(mutex);
+            assert(!primary);
+            state = RECOVERING;
+            // Make a copy of the partition list for deferred filtering.
+            recoveryPartitions.construct(partitions);
         }
 
         void startLoading();
         void write(Buffer& src, uint32_t srcOffset,
                    uint32_t length, uint32_t destOffset);
+        const void* getLogDigest(uint32_t* byteLength = NULL);
 
         /**
          * Return true if #this should be loaded from disk before
@@ -239,6 +260,19 @@ class BackupServer : public Server {
             Lock __(info.mutex);
             return segmentId < info.segmentId;
         }
+
+        /// The id of the master from which this segment came.
+        const uint64_t masterId;
+
+        /**
+         * True if this is the primary copy of this segment for the master
+         * who stored it.  Determines whether recovery segments are built
+         * at recovery start or on demand.
+         */
+        const bool primary;
+
+        /// The segment id given to this segment by the master who sent it.
+        const uint64_t segmentId;
 
       PRIVATE:
         /// Return true if this segment is fully in memory.
@@ -283,12 +317,15 @@ class BackupServer : public Server {
          */
         boost::condition_variable condition;
 
-        /// The id of the master from which this segment came.
-        const uint64_t masterId;
-
         /// An array of recovery segments when non-null.
         /// The exception if one occurred while recovering a segment.
         boost::scoped_ptr<SegmentRecoveryFailedException> recoveryException;
+
+        /**
+         * Only used if this segment is recovering but the filtering is
+         * deferred (i.e. this isn't the primary segment backup copy).
+         */
+        ObjectTub<ProtoBuf::Tablets> recoveryPartitions;
 
         /// An array of recovery segments when non-null.
 #ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
@@ -313,9 +350,6 @@ class BackupServer : public Server {
          * if this segment is still open, otherwise BYTES_WRITTEN_CLOSED.
          */
         uint32_t rightmostWrittenOffset;
-
-        /// The segment id given to this segment by the master who sent it.
-        const uint64_t segmentId;
 
         /**
          * The staging location for this segment in memory.

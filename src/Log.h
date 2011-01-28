@@ -42,24 +42,59 @@ struct LogException : public Exception {
         : Exception(where, msg, errNo) {}
 };
 
+// Use the same handle for Segments and the Log.
+typedef SegmentEntryHandle LogEntryHandle;
+
+/**
+ * LogTime is a (Segment #, Segment Offset) tuple that represents the logical
+ * time at which something was appended to the Log. It is currently only used
+ * for computing table partitions.
+ */
+typedef std::pair<uint64_t, uint64_t> LogTime;
+
+typedef void (*log_eviction_cb_t)(LogEntryHandle, const LogTime, void *);
+
+class LogTypeCallback {
+  public:
+    LogTypeCallback(LogEntryType type,
+                     log_eviction_cb_t evictionCB, void *evictionArg)
+        : type(type),
+          evictionCB(evictionCB),
+          evictionArg(evictionArg)
+    {
+    }
+
+    const LogEntryType        type;
+    const log_eviction_cb_t   evictionCB;
+    void                     *evictionArg;
+
+  private:
+    DISALLOW_COPY_AND_ASSIGN(LogTypeCallback);
+};
+
 class Log {
   public:
     Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
             BackupManager *backup = NULL);
     ~Log();
-    const void *append(LogEntryType type, const void *buffer, uint64_t length,
-                       uint64_t *lengthInLog = NULL, LogTime *logTime = NULL,
-                       bool sync = true);
-    void        free(const void *p);
-    void        registerType(LogEntryType type,
-                             log_eviction_cb_t evictionCB, void *evictionArg);
-    void        sync();
-    uint64_t    getSegmentId(const void *p);
-    bool        isSegmentLive(uint64_t segmentId) const;
-    uint64_t    getMaximumAppendableBytes() const;
-    uint64_t    getBytesAppended() const;
-    uint64_t    getId() const;
-    uint64_t    getCapacity() const;
+    Segment*       allocateHead();
+    LogEntryHandle append(LogEntryType type,
+                          const void *buffer,
+                          uint64_t length,
+                          uint64_t *lengthInLog = NULL,
+                          LogTime *logTime = NULL,
+                          bool sync = true);
+    void           free(LogEntryHandle entry);
+    void           registerType(LogEntryType type,
+                                log_eviction_cb_t evictionCB,
+                                void *evictionArg);
+    void           sync();
+    uint64_t       getSegmentId(const void *p);
+    bool           isSegmentLive(uint64_t segmentId) const;
+    uint64_t       getMaximumAppendableBytes() const;
+    uint64_t       getBytesAppended() const;
+    uint64_t       getId() const;
+    uint64_t       getCapacity() const;
 
     // This class is shared between the Log and its consituent Segments
     // to maintain various counters.
@@ -123,6 +158,105 @@ class Log {
     friend class LogCleaner;
 
     DISALLOW_COPY_AND_ASSIGN(Log);
+};
+
+class LogDigest {
+  public:
+    /**
+     * Create a LogDigest that will contain ``segmentCount''
+     * SegmentIDs and serialise it to the given buffer. This
+     * is the method to call when creating a new LogDigest,
+     * i.e. when addSegment() will be called.
+     *
+     * \param[in] segmentCount
+     *      The number of SegmentIDs that are to be stored in
+     *      this LogDigest.
+     * \param[in] base
+     *      Base address of a buffer in which to serialise this
+     *      LogDigest.
+     * \param[in] length
+     *      Length of the buffer pointed to by ``base'' in bytes.
+     */
+    LogDigest(uint32_t segmentCount, void* base, uint32_t length)
+        : ldd(static_cast<LogDigestData*>(base)),
+          currentSegment(0)
+    {
+        assert(length >= getBytesFromCount(segmentCount));
+        ldd->segmentCount = segmentCount;
+        for (uint32_t i = 0; i < segmentCount; i++)
+            ldd->segmentIds[i] = Segment::INVALID_SEGMENT_ID;
+    }
+
+    /**
+     * Create a LogDigest object from a previous one that was
+     * serialised in the given buffer. This is the method to
+     * call when accessing a previously-constructed and
+     * serialised LogDigest. 
+     *
+     * \param[in] base
+     *      Base address of a buffer that contains a serialised
+     *      LogDigest. 
+     * \param[in] length
+     *      Length of the buffer pointed to by ``base'' in bytes.
+     */
+    LogDigest(const void* base, uint32_t length)
+        : ldd(static_cast<LogDigestData*>(const_cast<void*>(base))),
+          currentSegment(ldd->segmentCount)
+    {
+    }
+
+    /**
+     * Add a SegmentID to this LogDigest.
+     */
+    void
+    addSegment(uint64_t id)
+    {
+        assert(currentSegment < ldd->segmentCount);
+        ldd->segmentIds[currentSegment++] = id;
+    }
+
+    /**
+     * Get the number of SegmentIDs in this LogDigest.
+     */
+    int getSegmentCount() { return ldd->segmentCount; }
+
+    /**
+     * Get an array of SegmentIDs in this LogDigest. There
+     * will be getSegmentCount() elements in the array.
+     */
+    const uint64_t* getSegmentIds() { return ldd->segmentIds; }
+
+    /**
+     * Return the number of bytes needed to store a LogDigest
+     * that contains ``segmentCount'' Segment IDs.
+     */
+    static uint32_t
+    getBytesFromCount(uint32_t segmentCount)
+    {
+        return sizeof(LogDigestData) + segmentCount * sizeof(uint64_t);
+    }
+
+    /**
+     * Return a raw pointer to the memory passed in to the constructor.
+     */
+    const void* getRawPointer() { return static_cast<void*>(ldd); }
+
+    /**
+     * Return the number of bytes this LogDigest uses.
+     */
+    uint32_t getBytes() { return getBytesFromCount(ldd->segmentCount); }
+
+  private:
+    struct LogDigestData {
+        uint32_t segmentCount;
+        uint64_t segmentIds[0];
+    } __attribute__((__packed__));
+
+    LogDigestData* ldd;
+    uint32_t       currentSegment;
+
+    friend class LogTest;
+    friend class LogDigestTest;
 };
 
 } // namespace

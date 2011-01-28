@@ -267,6 +267,23 @@ SegmentIterator::getLogTime() const
 }
 
 /**
+ * Obtain a SegmentEntryHandle for this iterator.
+ * \return
+ *      The SegmentEntryHandle corresponding to the current entry in the
+ *      iteration.
+ * \throw
+ *      An exception is thrown if the iterator has no more entries.
+ */
+SegmentEntryHandle
+SegmentIterator::getHandle() const
+{
+    if (currentEntry == NULL)
+        throw SegmentIteratorException(HERE,
+                                       "getHandle after iteration complete");
+    return reinterpret_cast<SegmentEntryHandle>(currentEntry);
+}
+
+/**
  * Obtain a const void* to the data associated with the current SegmentEntry. 
  * \return
  *      A const void* to the current data.

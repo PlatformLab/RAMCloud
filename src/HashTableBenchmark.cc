@@ -23,17 +23,26 @@
 #include "Common.h"
 #include "BenchUtil.h"
 #include "HashTable.h"
-#include "Object.h"
 #include "OptionParser.h"
 
 namespace RAMCloud {
+
+class TestObject {
+  public:
+    TestObject(uint64_t key1, uint64_t key2) : _key1(key1), _key2(key2) {}
+    uint64_t key1() const { return _key1; }
+    uint64_t key2() const { return _key2; }
+    uint64_t _key1, _key2;
+};
+typedef HashTable<TestObject*> TestObjectMap;
 
 void
 hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 {
     uint64_t i;
-    ObjectMap ht(nlines);
-    Object **values = static_cast<Object**>(xmalloc(nkeys * sizeof(values[0])));
+    TestObjectMap ht(nlines);
+    TestObject **values = static_cast<TestObject**>(
+        xmalloc(nkeys * sizeof(values[0])));
 
     printf("hash table keys: %lu\n", nkeys);
     printf("hash table lines: %lu\n", nlines);
@@ -44,10 +53,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     printf("populating table...");
     fflush(stdout);
     for (i = 0; i < nkeys; i++) {
-        values[i] = new Object(sizeof(Object));
-        values[i]->table = 0;
-        values[i]->id = i;
-        ht.replace(0, i, values[i]);
+        values[i] = new TestObject(0, i);
+        ht.replace(values[i]);
 
         // Here just in case.
         //   NB: This alters our PerfDistribution bin counts,
@@ -66,14 +73,14 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
     uint64_t replaceCycles = rdtsc();
     for (i = 0; i < nkeys; i++)
-        ht.replace(0, i, values[i]);
+        ht.replace(values[i]);
     i = rdtsc() - replaceCycles;
     printf("done!\n");
 
     free(values);
     values = NULL;
 
-    const ObjectMap::PerfCounters & pc = ht.getPerfCounters();
+    const TestObjectMap::PerfCounters & pc = ht.getPerfCounters();
 
     printf("== replace() ==\n");
 
@@ -96,7 +103,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
     uint64_t lookupCycles = rdtsc();
     for (i = 0; i < nkeys; i++) {
-        const Objectable *p = ht.lookup(0, i);
+        TestObject *p = ht.lookup(0, i);
         assert(p != NULL);
     }
     i = rdtsc() - lookupCycles;
@@ -129,8 +136,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     memset(histogram, 0, sizeof(nlines * sizeof(histogram[0])));
 
     for (i = 0; i < nlines; i++) {
-        ObjectMap::CacheLine *cl;
-        ObjectMap::Entry *entry;
+        TestObjectMap::CacheLine *cl;
+        TestObjectMap::Entry *entry;
 
         int depth = 1;
         cl = &ht.buckets[i];
@@ -156,7 +163,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     free(histogram);
     histogram = NULL;
 
-    const ObjectMap::PerfDistribution & lcd = pc.lookupEntryDist;
+    const TestObjectMap::PerfDistribution & lcd = pc.lookupEntryDist;
 
     printf("lookup cycle histogram:\n");
     for (i = 0; i < lcd.NBINS; i++) {
@@ -221,13 +228,13 @@ main(int argc, char **argv)
     OptionParser optionParser(benchmarkOptions, argc, argv);
 
     uint64_t numberOfCachelines = (hashTableMegs * 1024 * 1024) /
-        ObjectMap::bytesPerCacheLine();
+        TestObjectMap::bytesPerCacheLine();
 
     // If the user specified a load factor, auto-calculate the number of
     // keys based on the number of cachelines.
     if (numberOfKeys == 0) {
         uint64_t totalEntries = numberOfCachelines *
-            ObjectMap::entriesPerCacheLine();
+            TestObjectMap::entriesPerCacheLine();
         numberOfKeys = loadFactor * totalEntries;
     }
 
