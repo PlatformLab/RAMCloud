@@ -19,7 +19,7 @@
 #include <stdint.h>
 #include <vector>
 #include "Crc32C.h"
-#include "Segment.h"
+#include "Log.h"
 
 using std::vector;
 
@@ -71,9 +71,10 @@ class SegmentIterator {
         return reinterpret_cast<const T*>(blobPtr);
     }
 
-    const void  *getPointer() const;
-    uint64_t     getOffset() const;
-    bool         isChecksumValid() const;
+    SegmentEntryHandle getHandle() const;
+    const void        *getPointer() const;
+    uint64_t           getOffset() const;
+    bool               isChecksumValid() const;
 
     /**
      * Given the backing memory for a Segment, calculate the checksum.

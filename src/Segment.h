@@ -20,6 +20,7 @@
 #include "Common.h"
 #include "Crc32C.h"
 #include "LogTypes.h"
+#include "Object.h"
 
 namespace RAMCloud {
 
@@ -69,41 +70,40 @@ struct SegmentException : public Exception {
 class Log;
 
 /**
- * SegmentEntryHandle is a simple wrapper around a const void*. This is
- * used to refer to an entry written into a Segment. It has a few useful
- * helper methods that access the preceding SegmentEntry structure to
- * extract the type and length information.
+ * SegmentEntryHandle is used to refer to an entry written into a Segment.
+ * It has a few useful helper methods that access the SegmentEntry structure
+ * to extract the type and length information.
+ *
+ * This is always used by the pointer typedef. There are never actually any
+ * SegmentEntryHandles extant in the system. It's simply an accessor that
+ * points to a SegmentEntry.
  */
-class SegmentEntryHandle {
+class _SegmentEntryHandle {
   public:
     /**
      * Construct a SegmentEntryHandle that does not point to a
      * valid entry.
      */
-    SegmentEntryHandle() : p(NULL) {}
-
-    /**
-     * Construct a SegmentEntryHandle that points to data in the
-     * Segment at ``p''.
-     *
-     * \param[in] p
-     *      Pointer to the user-supplied data written into the
-     *      Segment.
-     */
-    explicit SegmentEntryHandle(const void* p)
-        : p(p)
+    _SegmentEntryHandle()
     {
-        static_assert(sizeof(*this) == sizeof(p),
-            "SegmentEntryHandle != sizeof(void*)");
+        throw Exception(HERE, "_SegmentEntryHandles don't really exist!");
     }
 
     /**
      * Return a pointer to the user data that this handle refers to.
      */
     const void*
-    pointer()
+    userData() const
     {
-        return p;
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(getSegmentEntry());
+        return (p + sizeof(SegmentEntry));
+    }
+
+    template<typename T>
+    const T*
+    userData() const
+    {
+        return reinterpret_cast<const T*>(userData());
     }
 
     /**
@@ -111,44 +111,78 @@ class SegmentEntryHandle {
      * This does #not include any Segment overheads.
      */
     uint32_t
-    length()
+    length() const
     {
         return getSegmentEntry()->length;
+    }
+
+    /**
+     * Return the total length, including overhead, of this entry
+     * in the Segment.
+     */
+    uint32_t
+    totalLength() const
+    {
+        return length() + sizeof(SegmentEntry);
     }
 
     /**
      * Return the type of the data written. This is the value that was
      * passed to the Segment::append() method.
      */
-    uint32_t
-    type()
+    LogEntryType
+    type() const
     {
         return getSegmentEntry()->type;
     }
 
     /**
-     * Return true if the handle is valid, else false.
+     * Used by HashTable to get the first uint64_t key for supported
+     * types.
      */
-    bool
-    isValid()
+    uint64_t
+    key1() const
     {
-        return p != NULL;
+        if (type() == LOG_ENTRY_TYPE_OBJ) {
+            return reinterpret_cast<const Object*>(
+                userData())->id.tableId;
+        } else if (type() == LOG_ENTRY_TYPE_OBJTOMB) {
+            return reinterpret_cast<const ObjectTombstone*>(
+                userData())->id.tableId;
+        }
+        throw Exception(HERE, "not of object or object tombstone types");
+    }
+
+    /**
+     * Used by HashTable to get the second uint64_t key for supported
+     * types.
+     */
+    uint64_t
+    key2() const
+    {
+        if (type() == LOG_ENTRY_TYPE_OBJ) {
+            return reinterpret_cast<const Object*>(
+                userData())->id.objectId;
+        } else if (type() == LOG_ENTRY_TYPE_OBJTOMB) {
+            return reinterpret_cast<const ObjectTombstone*>(
+                userData())->id.objectId;
+        }
+        throw Exception(HERE, "not of object or object tombstone types");
     }
 
   private:
     /*
-     * Since ``p'' points to the user data, we can subtract off it to
-     * access the preceding SegmentEntry structure.
+     * ``this'' always points to a SegmentEntry structure.
      */
     const SegmentEntry*
-    getSegmentEntry()
+    getSegmentEntry() const
     {
-        return reinterpret_cast<const SegmentEntry*>(
-            reinterpret_cast<const uint8_t*>(p) - sizeof(SegmentEntry));
+        if (this == NULL)
+            throw Exception(HERE, "NULL SegmentEntryHandle dereference");
+        return reinterpret_cast<const SegmentEntry*>(this);
     }
-
-    const void* p;
 };
+typedef const _SegmentEntryHandle* SegmentEntryHandle;
 
 class Segment {
   public:
@@ -179,13 +213,15 @@ class Segment {
     static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
 
   private:
-    void             commonConstructor();
-    const void      *forceAppendBlob(const void *buffer, uint32_t length,
-                                     bool updateChecksum = true);
-    const void      *forceAppendWithEntry(LogEntryType type,
-                                          const void *buffer, uint32_t length,
-                                          uint64_t *lengthOfAppend = NULL,
-                                          bool sync = true);
+    void               commonConstructor();
+    const void        *forceAppendBlob(const void *buffer,
+                                       uint32_t length,
+                                       bool updateChecksum = true);
+    SegmentEntryHandle forceAppendWithEntry(LogEntryType type,
+                                            const void *buffer,
+                                            uint32_t length,
+                                            uint64_t *lengthOfAppend = NULL,
+                                            bool sync = true);
 
     BackupManager   *backup;         // makes operations on this segment durable
     void            *baseAddress;    // base address for the Segment

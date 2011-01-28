@@ -246,8 +246,8 @@ TEST_F(BackupManagerTest, writeSegment) {
     SegmentHeader header = { 99, 88, segmentSize };
     seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
     Object object(sizeof(object));
-    object.id = 10;
-    object.table = 123;
+    object.id.objectId = 10;
+    object.id.tableId = 123;
     object.version = 0;
     object.checksum = 0xff00ff00ff00;
     object.data_len = 0;
@@ -273,8 +273,8 @@ TEST_F(BackupManagerTest, writeSegment) {
         EXPECT_EQ(sizeof(Object), entry->length);
         resp.truncateFront(sizeof(*entry));
         auto* obj = resp.getStart<Object>();
-        EXPECT_EQ(10U, obj->id);
-        EXPECT_EQ(123U, obj->table);
+        EXPECT_EQ(10U, obj->id.objectId);
+        EXPECT_EQ(123U, obj->id.tableId);
     }
 }
 

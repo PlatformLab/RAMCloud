@@ -45,6 +45,33 @@ struct LogException : public Exception {
 // Use the same handle for Segments and the Log.
 typedef SegmentEntryHandle LogEntryHandle;
 
+/**
+ * LogTime is a (Segment #, Segment Offset) tuple that represents the logical
+ * time at which something was appended to the Log. It is currently only used
+ * for computing table partitions.
+ */
+typedef std::pair<uint64_t, uint64_t> LogTime;
+
+typedef void (*log_eviction_cb_t)(LogEntryHandle, const LogTime, void *);
+
+class LogTypeCallback {
+  public:
+    LogTypeCallback(LogEntryType type,
+                     log_eviction_cb_t evictionCB, void *evictionArg)
+        : type(type),
+          evictionCB(evictionCB),
+          evictionArg(evictionArg)
+    {
+    }
+
+    const LogEntryType        type;
+    const log_eviction_cb_t   evictionCB;
+    void                     *evictionArg;
+
+  private:
+    DISALLOW_COPY_AND_ASSIGN(LogTypeCallback);
+};
+
 class Log {
   public:
     Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,

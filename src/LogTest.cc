@@ -134,7 +134,7 @@ class LogTest : public CppUnit::TestFixture {
         static char buf[64];
 
         const void *p = l.append(LOG_ENTRY_TYPE_OBJ,
-            buf, sizeof(buf)).pointer();
+            buf, sizeof(buf))->userData();
         CPPUNIT_ASSERT_EQUAL(0, l.getSegmentId(p));
         CPPUNIT_ASSERT_THROW(l.getSegmentId(
             reinterpret_cast<const char *>(p) + 8192), LogException);
@@ -158,7 +158,7 @@ class LogTest : public CppUnit::TestFixture {
 
         // exercise head == NULL path
         const void *p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf),
-            &lengthInLog, &logTime).pointer();
+            &lengthInLog, &logTime)->userData();
         CPPUNIT_ASSERT(p != NULL);
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentEntry) + sizeof(buf), lengthInLog);
         CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, p, sizeof(buf)));
@@ -181,19 +181,19 @@ class LogTest : public CppUnit::TestFixture {
         // exercise head != NULL, but too few bytes (new head) path
         Segment *oldHead = l.head;
         p = l.append(LOG_ENTRY_TYPE_OBJ,
-            fillbuf, l.head->appendableBytes()).pointer();
+            fillbuf, l.head->appendableBytes())->userData();
         CPPUNIT_ASSERT(p != NULL);
         CPPUNIT_ASSERT_EQUAL(oldHead, l.head);
         CPPUNIT_ASSERT_EQUAL(0, l.head->appendableBytes());
         p = l.append(LOG_ENTRY_TYPE_OBJ,
-            buf, sizeof(buf), NULL, &logTime).pointer();
+            buf, sizeof(buf), NULL, &logTime)->userData();
         CPPUNIT_ASSERT(p != NULL);
         CPPUNIT_ASSERT(oldHead != l.head);
 
         // execise regular head != NULL path
         LogTime nextTime;
         p = l.append(LOG_ENTRY_TYPE_OBJ,
-            buf, sizeof(buf), NULL, &nextTime).pointer();
+            buf, sizeof(buf), NULL, &nextTime)->userData();
         CPPUNIT_ASSERT(p != NULL);
         CPPUNIT_ASSERT(nextTime > logTime);
 
@@ -203,7 +203,7 @@ class LogTest : public CppUnit::TestFixture {
         // now.
         CPPUNIT_ASSERT_EQUAL(0, l.segmentFreeList.size());
         p = l.append(LOG_ENTRY_TYPE_OBJ,
-            fillbuf, l.head->appendableBytes()).pointer();
+            fillbuf, l.head->appendableBytes())->userData();
         CPPUNIT_ASSERT(p != NULL);
         CPPUNIT_ASSERT_THROW(l.append(LOG_ENTRY_TYPE_OBJ, buf, 1),
             LogException);
@@ -224,9 +224,7 @@ class LogTest : public CppUnit::TestFixture {
     }
 
     static void
-    evictionCallback(LogEntryType type, const void *p,
-        const uint64_t entryLength, const uint64_t lengthInLog,
-        const LogTime logTime, void *cookie)
+    evictionCallback(LogEntryHandle handle, const LogTime logTime, void *cookie)
     {
     }
 

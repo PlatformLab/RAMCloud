@@ -157,7 +157,7 @@ class MasterServer : public Server {
         }
 
         uint64_t numHashTableLines =
-            hashTableBytes / ObjectMap::bytesPerCacheLine();
+            hashTableBytes / HashTable<LogEntryHandle>::bytesPerCacheLine();
         if (numHashTableLines < 1) {
             throw Exception(HERE,
                             "invalid `MasterTotalMemory' and/or "
@@ -237,7 +237,7 @@ class MasterServer : public Server {
      * server; objects from deleted tablets are not immediately purged from the
      * hash table.
      */
-    ObjectMap objectMap;
+    HashTable<LogEntryHandle> objectMap;
 
     /**
      * Tablets this master owns.
@@ -245,19 +245,17 @@ class MasterServer : public Server {
      */
     ProtoBuf::Tablets tablets;
 
-    /**
-     * Remove leftover tombstones in the hash table added during recovery.
-     */
+    /* Temporary tombstone methods used during recovery. */
+    LogEntryHandle allocRecoveryTombstone(const ObjectTombstone* srcTomb);
+    void freeRecoveryTombstone(LogEntryHandle handle);
     void removeTombstones();
 
-    friend void recoveryCleanup(const Objectable *maybeTomb, uint8_t type,
+    friend void recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type,
         void *cookie);
-    friend void objectEvictionCallback(LogEntryType type, const void* p,
-        uint64_t entryLength, uint64_t lengthInLog, LogTime logTime,
+    friend void objectEvictionCallback(LogEntryHandle handle, LogTime logTime,
         void* cookie);
-    friend void tombstoneEvictionCallback(LogEntryType type, const void* p,
-        uint64_t entryLength, uint64_t lengthInLog, LogTime logTime,
-        void* cookie);
+    friend void tombstoneEvictionCallback(LogEntryHandle handle,
+        LogTime logTime, void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
     Table& getTable(uint32_t tableId, uint64_t objectId);
     void rejectOperation(const RejectRules* rejectRules, uint64_t version);

@@ -115,7 +115,7 @@ Log::allocateHead()
 
     SegmentEntryHandle seh = newHead->append(LOG_ENTRY_TYPE_LOGDIGEST,
         temp, digestBytes);
-    assert(seh.isValid());
+    assert(seh != NULL);
 
     return newHead;
 }
@@ -186,8 +186,7 @@ Log::getSegmentId(const void *p)
  *      to true.
  * \return
  *      A LogEntryHandle is returned, which points to the ``buffer''
- *      written. The handle is guaranteed to be valid, i.e. the isValid()
- *      method will return true.
+ *      written. The handle is guaranteed to be valid, i.e. non-NULL.
  * \throw LogException
  *      An exception is thrown if the append exceeds the maximum permitted
  *      append length, as returned by #getMaximumAppendableBytes, or the log
@@ -206,7 +205,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     if (head != NULL) {
         seh = head->append(type, buffer, length, lengthInLog,
             &segmentOffset, sync);
-        if (seh.isValid()) {
+        if (seh != NULL) {
             // entry was appended to head segment
             if (logTime != NULL)
                 *logTime = LogTime(head->getId(), segmentOffset);
@@ -230,7 +229,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
 
     // append the entry
     seh = head->append(type, buffer, length, lengthInLog, &segmentOffset, sync);
-    assert(seh.isValid());
+    assert(seh != NULL);
     if (logTime != NULL)
         *logTime = LogTime(head->getId(), segmentOffset);
 
@@ -251,7 +250,8 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
 void
 Log::free(LogEntryHandle entry)
 {
-    const void *base = getSegmentBaseAddress(entry.pointer());
+    const void *base = getSegmentBaseAddress(
+        reinterpret_cast<const void*>(entry));
 
     BaseAddressMap::const_iterator it = activeBaseAddressMap.find(base);
     if (it == activeBaseAddressMap.end())

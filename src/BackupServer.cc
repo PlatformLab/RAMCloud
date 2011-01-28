@@ -223,11 +223,11 @@ whichPartition(const LogEntryType type,
     uint64_t tableId;
     uint64_t objectId;
     if (type == LOG_ENTRY_TYPE_OBJ) {
-        tableId = object->table;
-        objectId = object->id;
+        tableId = object->id.tableId;
+        objectId = object->id.objectId;
     } else { // LOG_ENTRY_TYPE_OBJTOMB:
-        tableId = tombstone->table;
-        objectId = tombstone->id;
+        tableId = tombstone->id.tableId;
+        objectId = tombstone->id.objectId;
     }
 
     ObjectTub<uint64_t> ret;

@@ -155,10 +155,9 @@ Segment::~Segment()
  *      to where the contents of ``buffer'' was written, but to the preceding
  *      metadata for this operation.
  * \return
- *      A SegmentEntryHandle is returned, which points to the ``buffer''
- *      written. On failure, a handle is still returned, but the isValid()
- *      method will be false. We do this to avoid throwing expensive exceptions
- *      in the fast path.
+ *      On success, a SegmentEntryHandle is returned, which points to the
+ *      ``buffer'' written. On failure, the handle is NULL. We avoid using
+ *      slow exceptions since this can be on the fast path.
  */
 SegmentEntryHandle
 Segment::append(LogEntryType type, const void *buffer, uint32_t length,
@@ -166,13 +165,12 @@ Segment::append(LogEntryType type, const void *buffer, uint32_t length,
 {
     if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
       appendableBytes() < length)
-        return SegmentEntryHandle(NULL);
+        return NULL;
 
     if (offsetInSegment != NULL)
         *offsetInSegment = tail;
 
-    return SegmentEntryHandle(
-        forceAppendWithEntry(type, buffer, length, lengthInSegment, sync));
+    return forceAppendWithEntry(type, buffer, length, lengthInSegment, sync);
 }
 
 /**
@@ -184,12 +182,11 @@ Segment::append(LogEntryType type, const void *buffer, uint32_t length,
 void
 Segment::free(SegmentEntryHandle entry)
 {
-    const void* p = entry.pointer();
-    assert((uintptr_t)p >= ((uintptr_t)baseAddress + sizeof(SegmentEntry)));
-    assert((uintptr_t)p <  ((uintptr_t)baseAddress + capacity));
+    assert((uintptr_t)entry >= ((uintptr_t)baseAddress + sizeof(SegmentEntry)));
+    assert((uintptr_t)entry <  ((uintptr_t)baseAddress + capacity));
 
     // be sure to account for SegmentEntry structs before each append
-    uint32_t length = entry.length() + sizeof(SegmentEntry);
+    uint32_t length = entry->totalLength();
 
     assert((bytesFreed + length) <= tail);
 
@@ -371,10 +368,9 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length,
  *      where sync is true or when the segment is closed.  This defaults
  *      to true.
  * \return
- *      A pointer into the Segment corresponding to the first data byte that
- *      was copied in to (i.e. the contents are the same as #buffer).
+ *      A SegmentEntryHandle corresponding to the data just written. 
  */
-const void *
+SegmentEntryHandle
 Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     uint32_t length, uint64_t *lengthOfAppend, bool sync)
 {
@@ -386,8 +382,8 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
         return NULL;
 
     SegmentEntry entry = { type, length };
-    forceAppendBlob(&entry, sizeof(entry));
-    const void *datap = forceAppendBlob(buffer, length);
+    const void* entryPointer = forceAppendBlob(&entry, sizeof(entry));
+    forceAppendBlob(buffer, length);
 
     if (sync)
         this->sync();
@@ -395,7 +391,7 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     if (lengthOfAppend != NULL)
         *lengthOfAppend = needBytes;
 
-    return datap;
+    return reinterpret_cast<SegmentEntryHandle>(entryPointer);
 }
 
 } // namespace

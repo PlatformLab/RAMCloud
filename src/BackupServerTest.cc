@@ -141,8 +141,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         char objectMem[sizeof(Object) + bytes];
         Object* obj = reinterpret_cast<Object*>(objectMem);
         memset(obj, 'A', sizeof(*obj));
-        obj->id = objectId;
-        obj->table = tableId;
+        obj->id.objectId = objectId;
+        obj->id.tableId = tableId;
         obj->version = 0;
         obj->checksum = 0xff00ff00ff00;
         obj->data_len = bytes;
@@ -336,26 +336,26 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT(!it.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
-        CPPUNIT_ASSERT_EQUAL(123, it.get<Object>()->table);
-        CPPUNIT_ASSERT_EQUAL(29, it.get<Object>()->id);
+        CPPUNIT_ASSERT_EQUAL(123, it.get<Object>()->id.tableId);
+        CPPUNIT_ASSERT_EQUAL(29, it.get<Object>()->id.objectId);
         it.next();
 
         CPPUNIT_ASSERT(!it.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, it.getType());
-        CPPUNIT_ASSERT_EQUAL(124, it.get<Object>()->table);
-        CPPUNIT_ASSERT_EQUAL(20, it.get<Object>()->id);
+        CPPUNIT_ASSERT_EQUAL(124, it.get<Object>()->id.tableId);
+        CPPUNIT_ASSERT_EQUAL(20, it.get<Object>()->id.objectId);
         it.next();
 
         CPPUNIT_ASSERT(!it.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
-        CPPUNIT_ASSERT_EQUAL(123, it.get<ObjectTombstone>()->table);
-        CPPUNIT_ASSERT_EQUAL(29, it.get<ObjectTombstone>()->id);
+        CPPUNIT_ASSERT_EQUAL(123, it.get<ObjectTombstone>()->id.tableId);
+        CPPUNIT_ASSERT_EQUAL(29, it.get<ObjectTombstone>()->id.objectId);
         it.next();
 
         CPPUNIT_ASSERT(!it.isDone());
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJTOMB, it.getType());
-        CPPUNIT_ASSERT_EQUAL(124, it.get<ObjectTombstone>()->table);
-        CPPUNIT_ASSERT_EQUAL(20, it.get<ObjectTombstone>()->id);
+        CPPUNIT_ASSERT_EQUAL(124, it.get<ObjectTombstone>()->id.tableId);
+        CPPUNIT_ASSERT_EQUAL(20, it.get<ObjectTombstone>()->id.objectId);
         it.next();
 
         CPPUNIT_ASSERT(it.isDone());
@@ -826,8 +826,8 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
 
     Object object(sizeof(object));
-    object.id = 10;
-    object.table = 123;
+    object.id.objectId = 10;
+    object.id.tableId = 123;
     object.version = 0;
     object.checksum = 0xff00ff00ff00;
     object.data_len = 0;
@@ -904,8 +904,8 @@ TEST_F(SegmentInfoTest, whichPartition) {
     createTabletList(partitions);
 
     Object object(sizeof(object));
-    object.id = 10;
-    object.table = 123;
+    object.id.objectId = 10;
+    object.id.tableId = 123;
     object.version = 0;
     object.checksum = 0xff00ff00ff00;
     object.data_len = 0;
@@ -914,13 +914,13 @@ TEST_F(SegmentInfoTest, whichPartition) {
     EXPECT_TRUE(r);
     EXPECT_EQ(0u, *r);
 
-    object.id = 30;
+    object.id.objectId = 30;
     r = whichPartition(LOG_ENTRY_TYPE_OBJ, &object, partitions);
     EXPECT_TRUE(r);
     EXPECT_EQ(1u, *r);
 
     TestLog::Enable _;
-    object.id = 40;
+    object.id.objectId = 40;
     r = whichPartition(LOG_ENTRY_TYPE_OBJ, &object, partitions);
     EXPECT_FALSE(r);
     EXPECT_EQ("whichPartition: Couldn't place object <123,40> into any of the "
@@ -936,8 +936,8 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
     segment.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
 
     Object object(sizeof(object));
-    object.id = 10;
-    object.table = 123;
+    object.id.objectId = 10;
+    object.id.tableId = 123;
     object.version = 0;
     object.checksum = 0xff00ff00ff00;
     object.data_len = 0;

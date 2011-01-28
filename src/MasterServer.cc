@@ -32,16 +32,10 @@ namespace RAMCloud {
 
 // --- MasterServer ---
 
-void objectEvictionCallback(LogEntryType type,
-                            const void* p,
-                            const uint64_t entryLength,
-                            const uint64_t lenghtInLog,
+void objectEvictionCallback(LogEntryHandle handle,
                             const LogTime,
                             void* cookie);
-void tombstoneEvictionCallback(LogEntryType type,
-                               const void* p,
-                               const uint64_t entryLength,
-                               const uint64_t lenghtInLog,
+void tombstoneEvictionCallback(LogEntryHandle handle,
                                const LogTime,
                                void* cookie);
 
@@ -68,7 +62,8 @@ MasterServer::MasterServer(const ServerConfig config,
     , backup(coordinator, serverId, replicas)
     , bytesWritten(0)
     , log(serverId, config.logBytes, Segment::SEGMENT_SIZE, &backup)
-    , objectMap(config.hashTableBytes / ObjectMap::bytesPerCacheLine(), 2)
+    , objectMap(config.hashTableBytes /
+        HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()
 {
     LOG(NOTICE, "My server ID is %lu", serverId);
@@ -188,14 +183,13 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
     // longer lives here.
     getTable(reqHdr.tableId, reqHdr.id);
 
-    uint8_t type;
-    const Objectable* o = objectMap.lookup(reqHdr.tableId, reqHdr.id, &type);
-    if (!o) {
+    LogEntryHandle handle = objectMap.lookup(reqHdr.tableId, reqHdr.id);
+    if (handle == NULL) {
         throw ObjectDoesntExistException(HERE);
     }
 
-    assert(type == 0);
-    const Object* obj = o->asObject();
+    assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
+    const Object* obj = handle->userData<Object>();
     respHdr.version = obj->version;
     rejectOperation(&reqHdr.rejectRules, obj->version);
     Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
@@ -207,18 +201,57 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
 }
 
 /**
+ * This method allocates an ObjectTombstone on the heap, initialises it
+ * to the given ``srcTomb'', and prepends a SegmentEntry structure to make
+ * it look as though it's a valid Log entry. The purpose is so that we can
+ * avoid writing ObjectTombstones to the Log on recovery while still being
+ * able to put them in the regular HashTable.
+ *
+ * This is an ugly hack, but I don't see a better way right now. In the
+ * future, we may want to use a temporary backup-less Log and write into
+ * that, but we'd need that Log, as well as our main Log, to use a common
+ * pool of Segments, since we don't know how many tombstones we might
+ * encounter.
+ *
+ * \param[in] srcTomb
+ *      A source ObjectTombstone to copy into our allocated tombstone.
+ * \return
+ *      A valid LogEntryHandle to the ObjectTombstone allocated.
+ */
+LogEntryHandle
+MasterServer::allocRecoveryTombstone(const ObjectTombstone* srcTomb)
+{
+    uint8_t* buf = new uint8_t[sizeof(SegmentEntry) + sizeof(ObjectTombstone)];
+    SegmentEntry* se = reinterpret_cast<SegmentEntry*>(buf);
+    se->type = LOG_ENTRY_TYPE_OBJTOMB;
+    se->length = sizeof(ObjectTombstone);
+    memcpy(buf + sizeof(SegmentEntry), srcTomb, sizeof(ObjectTombstone));
+    return reinterpret_cast<LogEntryHandle>(buf);
+}
+
+/**
+ * Free the tombstone allocated in #allocRecoveryTombstone().
+ */
+void
+MasterServer::freeRecoveryTombstone(LogEntryHandle handle)
+{
+    const uint8_t* p = reinterpret_cast<const uint8_t*>(handle);
+    delete[] p;
+}
+
+/**
  * Callback used to purge the tombstones from the hash table. Invoked by
  * HashTable::forEach.
  */
 void
-recoveryCleanup(const Objectable *maybeTomb, uint8_t type, void *cookie)
+recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type, void *cookie)
 {
-    if (type) {
-        const ObjectTombstone *tomb = maybeTomb->asObjectTombstone();
+    if (maybeTomb->type() == LOG_ENTRY_TYPE_OBJTOMB) {
+        const ObjectTombstone *tomb = maybeTomb->userData<ObjectTombstone>();
         MasterServer *server = reinterpret_cast<MasterServer*>(cookie);
-        bool ret = server->objectMap.remove(tomb->table, tomb->id);
-        assert(ret);
-        free(const_cast<ObjectTombstone*>(tomb));
+        bool r = server->objectMap.remove(tomb->id.tableId, tomb->id.objectId);
+        assert(r);
+        server->freeRecoveryTombstone(maybeTomb);
     }
 }
 
@@ -490,13 +523,13 @@ MasterServer::recoverSegmentPrefetcher(RecoverySegmentIterator& i)
     if (type == LOG_ENTRY_TYPE_OBJ) {
         const Object *recoverObj = reinterpret_cast<const Object *>(
                      i.getPointer());
-        objId = recoverObj->id;
-        tblId = recoverObj->table;
+        objId = recoverObj->id.objectId;
+        tblId = recoverObj->id.tableId;
     } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         const ObjectTombstone *recoverTomb =
             reinterpret_cast<const ObjectTombstone *>(i.getPointer());
-        objId = recoverTomb->id;
-        tblId = recoverTomb->table;
+        objId = recoverTomb->id.objectId;
+        tblId = recoverTomb->id.tableId;
     } else {
         return;
     }
@@ -542,21 +575,22 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
         if (type == LOG_ENTRY_TYPE_OBJ) {
             const Object *recoverObj = reinterpret_cast<const Object *>(
                 i.getPointer());
-            uint64_t objId = recoverObj->id;
-            uint64_t tblId = recoverObj->table;
+            uint64_t objId = recoverObj->id.objectId;
+            uint64_t tblId = recoverObj->id.tableId;
 
 #ifdef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
             const Object *localObj = 0;
             const ObjectTombstone *tomb = 0;
 #else
-            uint8_t type = 0;
-            const Objectable *o = objectMap.lookup(tblId, objId, &type);
             const Object *localObj = NULL;
             const ObjectTombstone *tomb = NULL;
-            if (type)
-                tomb = o->asObjectTombstone();
-            else
-                localObj = o->asObject();
+            LogEntryHandle handle = objectMap.lookup(tblId, objId);
+            if (handle != NULL) {
+                if (handle->type() == LOG_ENTRY_TYPE_OBJTOMB)
+                    tomb = handle->userData<ObjectTombstone>();
+                else
+                    localObj = handle->userData<Object>();
+            }
 #endif
 
             // can't have both a tombstone and an object in the hash tables
@@ -575,10 +609,9 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 // write to log (with lazy backup flush) & update hash table
                 uint64_t lengthInLog;
                 LogTime logTime;
-                const Object *newObj = reinterpret_cast<const Object*>(
-                    log.append(LOG_ENTRY_TYPE_OBJ, recoverObj,
-                                recoverObj->size(), &lengthInLog,
-                                &logTime, false).pointer());
+                LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
+                    recoverObj, recoverObj->size(), &lengthInLog,
+                    &logTime, false);
 
                 // update the TabletProfiler
 #if 0 // this is broken. tablets aren't currently created until after recovery
@@ -588,12 +621,12 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 #endif
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
-                objectMap.replace(tblId, objId, newObj, 0);
+                objectMap.replace(newObjHandle);
 #endif
 
                 // nuke the tombstone, if it existed
                 if (tomb != NULL)
-                    free(const_cast<ObjectTombstone *>(tomb));
+                    freeRecoveryTombstone(handle);
 
                 // nuke the old object, if it existed
                 if (localObj != NULL)
@@ -602,17 +635,18 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             const ObjectTombstone *recoverTomb =
                 reinterpret_cast<const ObjectTombstone *>(i.getPointer());
-            uint64_t objId = recoverTomb->id;
-            uint64_t tblId = recoverTomb->table;
+            uint64_t objId = recoverTomb->id.objectId;
+            uint64_t tblId = recoverTomb->id.tableId;
 
-            uint8_t type = 0;
-            const Objectable *o = objectMap.lookup(tblId, objId, &type);
             const Object *localObj = NULL;
             const ObjectTombstone *tomb = NULL;
-            if (type)
-                tomb = o->asObjectTombstone();
-            else
-                localObj = o->asObject();
+            LogEntryHandle handle = objectMap.lookup(tblId, objId);
+            if (handle != NULL) {
+                if (handle->type() == LOG_ENTRY_TYPE_OBJTOMB)
+                    tomb = handle->userData<ObjectTombstone>();
+                else
+                    localObj = handle->userData<Object>();
+            }
 
             // can't have both a tombstone and an object in the hash tables
             assert(tomb == NULL || localObj == NULL);
@@ -626,15 +660,12 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
             if (recoverTomb->objectVersion >= minSuccessor) {
                 // allocate memory for the tombstone & update hash table
                 // TODO(ongaro): Change to new with copy constructor?
-                ObjectTombstone *newTomb = reinterpret_cast<ObjectTombstone *>(
-                    xmalloc(sizeof(*newTomb)));
-                memcpy(newTomb, const_cast<ObjectTombstone *>(recoverTomb),
-                    sizeof(*newTomb));
-                objectMap.replace(tblId, objId, newTomb, 1);
+                LogEntryHandle newTomb = allocRecoveryTombstone(recoverTomb);
+                objectMap.replace(newTomb);
 
                 // nuke the old tombstone, if it existed
                 if (tomb != NULL)
-                    free(const_cast<ObjectTombstone *>(tomb));
+                    freeRecoveryTombstone(handle);
 
                 // nuke the object, if it existed
                 if (localObj != NULL)
@@ -657,15 +688,14 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
                      Transport::ServerRpc& rpc)
 {
     Table& t(getTable(reqHdr.tableId, reqHdr.id));
-    uint8_t type;
-    const Objectable *o = objectMap.lookup(reqHdr.tableId, reqHdr.id, &type);
-    if (o == NULL) {
+    LogEntryHandle handle = objectMap.lookup(reqHdr.tableId, reqHdr.id);
+    if (handle == NULL) {
         rejectOperation(&reqHdr.rejectRules, VERSION_NONEXISTENT);
         return;
     }
 
-    assert(type == 0);
-    const Object *obj = o->asObject();
+    assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
+    const Object *obj = handle->userData<Object>();
     respHdr.version = obj->version;
 
     // Abort if we're trying to delete the wrong version.
@@ -686,7 +716,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 
     log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb),
         &lengthInLog, &logTime);
-    t.profiler.track(obj->id, lengthInLog, logTime);
+    t.profiler.track(obj->id.objectId, lengthInLog, logTime);
     objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
@@ -861,17 +891,8 @@ MasterServer::rejectOperation(const RejectRules* rejectRules, uint64_t version)
  * by the hash table. Otherwise, it's an old object and a tombstone for it
  * exists.
  *
- * \param[in]  type
- *      LogEntryType of the evictee (LOG_ENTRY_TYPE_OBJ).
- * \param[in]  p
- *      Opaque pointer to the immutable entry in the log. 
- * \param[in]  entryLength
- *      Size of the log entry being evicted in bytes. This value is only
- *      the number of bytes of the buffer given to the Log::append() method.
- * \param[in]  lengthInLog
- *      objectLength plus all bytes of overhead consumed in the Log. This
- *      represents the total amount of system memory consumed by the
- *      Log::append() operation that wrote this entry.
+ * \param[in]  handle
+ *      LogEntryHandle to the entry being evicted.
  * \param[in]  logTime
  *      The LogTime corresponding to the append operation that wrote this
  *      entry.
@@ -879,51 +900,47 @@ MasterServer::rejectOperation(const RejectRules* rejectRules, uint64_t version)
  *      The opaque state pointer registered with the callback.
  */
 void
-objectEvictionCallback(LogEntryType type,
-                       const void* p,
-                       const uint64_t entryLength,
-                       const uint64_t lengthInLog,
+objectEvictionCallback(LogEntryHandle handle,
                        const LogTime logTime,
                        void* cookie)
 {
-    assert(type == LOG_ENTRY_TYPE_OBJ);
+    assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
 
     MasterServer *svr = static_cast<MasterServer *>(cookie);
     assert(svr != NULL);
 
     Log& log = svr->log;
 
-    const Object *evictObj = static_cast<const Object *>(p);
+    const Object *evictObj = handle->userData<Object>();
     assert(evictObj != NULL);
 
     Table *t = NULL;
     try {
-        t = &svr->getTable(evictObj->table, evictObj->id);
+        t = &svr->getTable(evictObj->id.tableId, evictObj->id.objectId);
     } catch (TableDoesntExistException& e) {
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
-        svr->objectMap.remove(evictObj->table, evictObj->id);
+        svr->objectMap.remove(evictObj->id.tableId, evictObj->id.objectId);
         return;
     }
 
-    uint8_t hashTableType;
-    const Objectable *o =
-        svr->objectMap.lookup(evictObj->table, evictObj->id, &hashTableType);
-    assert(hashTableType == 0);
-    const Object *hashTblObj = o->asObject();
+    LogEntryHandle hashTblHandle =
+        svr->objectMap.lookup(evictObj->id.tableId, evictObj->id.objectId);
+    assert(hashTblHandle->type() == LOG_ENTRY_TYPE_OBJ);
+    const Object *hashTblObj = hashTblHandle->userData<Object>();
 
     // simple pointer comparison suffices
     if (hashTblObj == evictObj) {
         uint64_t newLengthInLog;
         LogTime newLogTime;
-        const Object *newObj = (const Object *)log.append(LOG_ENTRY_TYPE_OBJ,
-            evictObj, evictObj->size(), &newLengthInLog, &newLogTime).pointer();
-        t->profiler.track(evictObj->id, newLengthInLog, newLogTime);
-        svr->objectMap.replace(evictObj->table, evictObj->id, newObj);
+        LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
+            evictObj, evictObj->size(), &newLengthInLog, &newLogTime);
+        t->profiler.track(evictObj->id.objectId, newLengthInLog, newLogTime);
+        svr->objectMap.replace(newObjHandle);
     }
 
     // remove the evicted entry whether it is discarded or not
-    t->profiler.untrack(evictObj->id, lengthInLog, logTime);
+    t->profiler.untrack(evictObj->id.objectId, handle->totalLength(), logTime);
 }
 
 /**
@@ -933,17 +950,8 @@ objectEvictionCallback(LogEntryType type,
  * Tombstones are perpetuated when the Segment they reference is still
  * valid in the system.
  *
- * \param[in]  type
- *      LogEntryType of the evictee (LOG_ENTRY_TYPE_OBJTOMB).
- * \param[in]  p
- *      Opaque pointer to the immutable entry in the log.
- * \param[in]  entryLength
- *      Size of the log entry being evicted in bytes. This value is only
- *      the number of bytes of the buffer given to the Log::append() method.
- * \param[in]  lengthInLog
- *      objectLength plus all bytes of overhead consumed in the Log. This
- *      represents the total amount of system memory consumed by the
- *      Log::append() operation that wrote this entry.
+ * \param[in]  handle
+ *      LogEntryHandle to the entry being evicted.
  * \param[in]  logTime
  *      The LogTime corresponding to the append operation that wrote this
  *      entry.
@@ -951,27 +959,23 @@ objectEvictionCallback(LogEntryType type,
  *      The opaque state pointer registered with the callback.
  */
 void
-tombstoneEvictionCallback(LogEntryType type,
-                          const void* p,
-                          const uint64_t entryLength,
-                          const uint64_t lengthInLog,
+tombstoneEvictionCallback(LogEntryHandle handle,
                           const LogTime logTime,
                           void* cookie)
 {
-    assert(type == LOG_ENTRY_TYPE_OBJTOMB);
+    assert(handle->type() == LOG_ENTRY_TYPE_OBJTOMB);
 
     MasterServer *svr = static_cast<MasterServer *>(cookie);
     assert(svr != NULL);
 
     Log& log = svr->log;
 
-    const ObjectTombstone *tomb =
-        static_cast<const ObjectTombstone *>(p);
+    const ObjectTombstone *tomb = handle->userData<ObjectTombstone>();
     assert(tomb != NULL);
 
     Table *t = NULL;
     try {
-        t = &svr->getTable(tomb->table, tomb->id);
+        t = &svr->getTable(tomb->id.tableId, tomb->id.objectId);
     } catch (TableDoesntExistException& e) {
         // That tablet doesn't exist on this server anymore.
         return;
@@ -983,11 +987,11 @@ tombstoneEvictionCallback(LogEntryType type,
         LogTime newLogTime;
         log.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb),
             &newLengthInLog, &newLogTime);
-        t->profiler.track(tomb->id, newLengthInLog, newLogTime);
+        t->profiler.track(tomb->id.objectId, newLengthInLog, newLogTime);
     }
 
     // remove the evicted entry whether it is discarded or not
-    t->profiler.untrack(tomb->id, lengthInLog, logTime);
+    t->profiler.untrack(tomb->id.objectId, handle->totalLength(), logTime);
 }
 
 void
@@ -998,12 +1002,11 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
 {
     Table& t(getTable(tableId, id));
 
-    uint8_t type;
     const Object *obj = NULL;
-    const Objectable *o = objectMap.lookup(tableId, id, &type);
-    if (o != NULL) {
-        assert(type == 0);
-        obj = o->asObject();
+    LogEntryHandle handle = objectMap.lookup(tableId, id);
+    if (handle != NULL) {
+        assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
+        obj = handle->userData<Object>();
     }
 
     uint64_t version = (obj != NULL) ? obj->version : VERSION_NONEXISTENT;
@@ -1019,9 +1022,9 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
 
     DECLARE_OBJECT(newObject, dataLength);
 
-    newObject->id = id;
-    newObject->table = tableId;
-    if (o != NULL)
+    newObject->id.objectId = id;
+    newObject->id.tableId = tableId;
+    if (obj != NULL)
         newObject->version = obj->version + 1;
     else
         newObject->version = t.AllocateVersion();
@@ -1033,26 +1036,26 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
 
     // If the Object is being overwritten, we need to mark the previous space
     // used as free and add a tombstone that references it.
-    if (o != NULL) {
+    if (obj != NULL) {
         // Mark the old object as freed _before_ writing the new object to the
         // log. If we do it afterwards, the LogCleaner could be triggered and
         // `o' could be reclaimed before log->append() returns. The subsequent
         // free then breaks, as that Segment may have been cleaned.
-        log.free(LogEntryHandle(o));
+        log.free(handle);
 
-        uint64_t segmentId = log.getSegmentId(o);
+        uint64_t segmentId = log.getSegmentId(obj);
         ObjectTombstone tomb(segmentId, obj);
         log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), &lengthInLog,
             &logTime);
         t.profiler.track(id, lengthInLog, logTime);
     }
 
-    const Object *objPtr = (const Object *)log.append(LOG_ENTRY_TYPE_OBJ,
-        newObject, newObject->size(), &lengthInLog, &logTime).pointer();
+    LogEntryHandle objHandle = log.append(LOG_ENTRY_TYPE_OBJ, newObject,
+        newObject->size(), &lengthInLog, &logTime);
     t.profiler.track(id, lengthInLog, logTime);
-    objectMap.replace(tableId, id, objPtr);
+    objectMap.replace(objHandle);
 
-    *newVersion = objPtr->version;
+    *newVersion = newObject->version;
     bytesWritten += dataLength;
 }
 

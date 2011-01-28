@@ -113,22 +113,21 @@ class SegmentTest : public CppUnit::TestFixture {
     test_append()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
-        const void *p;
+        SegmentEntryHandle seh;
 
         BackupManager backup(NULL, 1, 0);
         TestLog::Enable _;
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
-        p = s.append(LOG_ENTRY_TYPE_SEGFOOTER, NULL, 0).pointer();
-        CPPUNIT_ASSERT_EQUAL(NULL, p);
+        seh = s.append(LOG_ENTRY_TYPE_SEGFOOTER, NULL, 0);
+        CPPUNIT_ASSERT_EQUAL(NULL, seh);
 
         s.closed = true;
-        p = s.append(LOG_ENTRY_TYPE_OBJ, alignedBuf, 1).pointer();
-        CPPUNIT_ASSERT_EQUAL(NULL, p);
+        seh = s.append(LOG_ENTRY_TYPE_OBJ, alignedBuf, 1);
+        CPPUNIT_ASSERT_EQUAL(NULL, seh);
         s.closed = false;
 
-        p = s.append(LOG_ENTRY_TYPE_OBJ,
-            NULL, s.appendableBytes() + 1).pointer();
-        CPPUNIT_ASSERT_EQUAL(NULL, p);
+        seh = s.append(LOG_ENTRY_TYPE_OBJ, NULL, s.appendableBytes() + 1);
+        CPPUNIT_ASSERT_EQUAL(NULL, seh);
 
         CPPUNIT_ASSERT_EQUAL(
             "openSegment: openSegment 1, 2, ..., 28",
@@ -137,9 +136,9 @@ class SegmentTest : public CppUnit::TestFixture {
         char c = '!';
         uint64_t lengthInSegment;
         uint64_t offsetInSegment;
-        p = s.append(LOG_ENTRY_TYPE_OBJ, &c, sizeof(c),
-            &lengthInSegment, &offsetInSegment).pointer();
-        CPPUNIT_ASSERT(p != NULL);
+        seh = s.append(LOG_ENTRY_TYPE_OBJ, &c, sizeof(c),
+            &lengthInSegment, &offsetInSegment);
+        CPPUNIT_ASSERT(seh != NULL);
         CPPUNIT_ASSERT_EQUAL(sizeof(c) + sizeof(SegmentEntry), lengthInSegment);
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentEntry) + sizeof(SegmentHeader),
             offsetInSegment);
@@ -149,8 +148,8 @@ class SegmentTest : public CppUnit::TestFixture {
         for (int i = 0; i < bytes; i++)
             buf[i] = i;
 
-        p = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes).pointer();
-        CPPUNIT_ASSERT(p != NULL);
+        seh = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes);
+        CPPUNIT_ASSERT(seh != NULL);
 
         SegmentEntry *se = reinterpret_cast<SegmentEntry *>(
                            reinterpret_cast<char *>(s.baseAddress) +
@@ -215,8 +214,7 @@ class SegmentTest : public CppUnit::TestFixture {
             sizeof(SegmentHeader) - sizeof(SegmentFooter), s.appendableBytes());
 
         static char buf[57];
-        while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)).pointer() != NULL)
-            (void)buf;
+        while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf))) { }
         CPPUNIT_ASSERT_EQUAL(23 - sizeof(Segment::Checksum::ResultType),
                              s.appendableBytes());
 
@@ -250,30 +248,27 @@ class SegmentTest : public CppUnit::TestFixture {
     test_forceAppendWithEntry()
     {
         char alignedBuf[8192] __attribute__((aligned(8192)));
-        const void *p;
+        SegmentEntryHandle seh;
 
         char buf[64];
         for (unsigned int i = 0; i < sizeof(buf); i++)
             buf[i] = i;
 
         Segment s(112233, 445566, alignedBuf, sizeof(alignedBuf));
-        p = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
-        CPPUNIT_ASSERT(p != NULL);
+        seh = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        CPPUNIT_ASSERT(seh != NULL);
 
-        const SegmentEntry *se = reinterpret_cast<const SegmentEntry *>(
-                                 reinterpret_cast<const char *>(p) -
-                                 sizeof(SegmentEntry));
-        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, se->type);
-        CPPUNIT_ASSERT_EQUAL(sizeof(buf), se->length);
-        CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, p, sizeof(buf)));
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, seh->type());
+        CPPUNIT_ASSERT_EQUAL(sizeof(buf), seh->length());
+        CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, seh->userData(), sizeof(buf)));
 
         s.tail = s.capacity - sizeof(SegmentEntry) - sizeof(buf) + 1;
-        p = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
-        CPPUNIT_ASSERT(p == NULL);
+        seh = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        CPPUNIT_ASSERT_EQUAL(NULL, seh);
 
         s.tail--;
-        p = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
-        CPPUNIT_ASSERT(p != NULL);
+        seh = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
+        CPPUNIT_ASSERT(seh != NULL);
     }
 
     void

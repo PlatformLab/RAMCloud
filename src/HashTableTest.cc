@@ -13,18 +13,22 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/*
- * NB: This file makes use of the ObjectMap typedef, which is just
- *     a HashTable templated on the Object type. Don't be confused
- *     when you don't see any "HashTable<...>" types lying around.
- */
-
 #include "TestUtil.h"
 
 #include "HashTable.h"
-#include "Object.h"
 
 namespace RAMCloud {
+
+class TestObject {
+  public:
+    TestObject() : _key1(0), _key2(0) {}
+    TestObject(uint64_t key1, uint64_t key2) : _key1(key1), _key2(key2) {}
+    uint64_t key1() const { return _key1; }
+    uint64_t key2() const { return _key2; }
+    uint64_t _key1, _key2;
+};
+
+typedef HashTable<TestObject*> TestObjectMap;
 
 /**
  * Unit tests for HashTable::PerfDistribution.
@@ -43,7 +47,7 @@ class HashTablePerfDistributionTest : public CppUnit::TestFixture {
 
     void test_constructor()
     {
-        RAMCloud::ObjectMap::PerfDistribution d;
+        RAMCloud::TestObjectMap::PerfDistribution d;
         CPPUNIT_ASSERT_EQUAL(~0UL, d.min);
         CPPUNIT_ASSERT_EQUAL(0UL, d.max);
         CPPUNIT_ASSERT_EQUAL(0UL, d.binOverflows);
@@ -54,13 +58,13 @@ class HashTablePerfDistributionTest : public CppUnit::TestFixture {
 
     void test_storeSample()
     {
-        ObjectMap::PerfDistribution d;
+        TestObjectMap::PerfDistribution d;
 
         // You can't use CPPUNIT_ASSERT_EQUAL here because it tries to take a
         // reference to BIN_WIDTH. See 10.4.6.2 Member Constants of The C++
         // Programming Language by Bjarne Stroustrup for more about static
         // constant integers.
-        CPPUNIT_ASSERT(10 == ObjectMap::PerfDistribution::BIN_WIDTH);
+        CPPUNIT_ASSERT(10 == TestObjectMap::PerfDistribution::BIN_WIDTH);
 
         d.storeSample(3);
         CPPUNIT_ASSERT_EQUAL(3UL, d.min);
@@ -126,10 +130,10 @@ class HashTableEntryTest : public CppUnit::TestFixture {
     packable(uint64_t hash, bool chain, uint64_t ptr, uint8_t type,
         uint32_t typeBits)
     {
-        ObjectMap::Entry e;
+        TestObjectMap::Entry e;
 
-        ObjectMap::Entry::UnpackedEntry in;
-        ObjectMap::Entry::UnpackedEntry out;
+        TestObjectMap::Entry::UnpackedEntry in;
+        TestObjectMap::Entry::UnpackedEntry out;
 
         in.hash = hash;
         in.chain = chain;
@@ -150,7 +154,7 @@ class HashTableEntryTest : public CppUnit::TestFixture {
 
     void test_size()
     {
-        CPPUNIT_ASSERT(8 == sizeof(ObjectMap::Entry));
+        CPPUNIT_ASSERT(8 == sizeof(TestObjectMap::Entry));
     }
 
     void test_pack() // also tests unpack
@@ -168,12 +172,13 @@ class HashTableEntryTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT(packable(0xa257UL, false, 0x0f37ab6fbbe6UL, 0, 2));
 
         // and now test the exception cases of pack()
-        ObjectMap::Entry e;
+        TestObjectMap::Entry e;
         CPPUNIT_ASSERT_THROW(e.pack(0, 0, 0, 4, 2), Exception);
         CPPUNIT_ASSERT_NO_THROW(e.pack(0, 0, 0, 3, 2));
-        CPPUNIT_ASSERT_THROW(e.pack(0, 0, 0, 1, ObjectMap::MAX_TYPEBITS + 1),
-            Exception);
-        CPPUNIT_ASSERT_NO_THROW(e.pack(0, 0, 0, 1, ObjectMap::MAX_TYPEBITS));
+        CPPUNIT_ASSERT_THROW(e.pack(0, 0, 0, 1,
+            TestObjectMap::MAX_TYPEBITS + 1), Exception);
+        CPPUNIT_ASSERT_NO_THROW(e.pack(0, 0, 0, 1,
+            TestObjectMap::MAX_TYPEBITS));
         CPPUNIT_ASSERT_THROW(e.pack(0, false, 0x7fffffffffffUL, 0, 1),
             Exception);     // stack addresses won't fit! ugh.
     }
@@ -182,10 +187,10 @@ class HashTableEntryTest : public CppUnit::TestFixture {
 
     void test_clear()
     {
-        ObjectMap::Entry e;
+        TestObjectMap::Entry e;
         e.value = 0xdeadbeefdeadbeefUL;
         e.clear();
-        ObjectMap::Entry::UnpackedEntry out;
+        TestObjectMap::Entry::UnpackedEntry out;
         out = e.unpack(0);
         CPPUNIT_ASSERT_EQUAL(0UL, out.hash);
         CPPUNIT_ASSERT_EQUAL(false, out.chain);
@@ -194,18 +199,18 @@ class HashTableEntryTest : public CppUnit::TestFixture {
 
     void test_setReferant()
     {
-        ObjectMap::Entry e;
+        TestObjectMap::Entry e;
         e.value = 0xdeadbeefdeadbeefUL;
-        e.setReferant(0xaaaaUL, reinterpret_cast<const Objectable*>(
+        e.setReferant(0xaaaaUL, reinterpret_cast<TestObject*>(
             0x7fffffffffffUL), 0, 0);
-        ObjectMap::Entry::UnpackedEntry out;
+        TestObjectMap::Entry::UnpackedEntry out;
         out = e.unpack(0);
         CPPUNIT_ASSERT_EQUAL(0xaaaaUL, out.hash);
         CPPUNIT_ASSERT_EQUAL(false, out.chain);
         CPPUNIT_ASSERT_EQUAL(0x7fffffffffffUL, out.ptr);
         CPPUNIT_ASSERT_EQUAL(0, out.type);
 
-        e.setReferant(0xaaaaUL, reinterpret_cast<const Objectable*>(
+        e.setReferant(0xaaaaUL, reinterpret_cast<TestObject*>(
             0x3fffffffffffUL), 1, 1);
         out = e.unpack(1);
         CPPUNIT_ASSERT_EQUAL(0xaaaaUL, out.hash);
@@ -216,15 +221,15 @@ class HashTableEntryTest : public CppUnit::TestFixture {
 
     void test_setChainPointer()
     {
-        ObjectMap::Entry e;
+        TestObjectMap::Entry e;
         e.value = 0xdeadbeefdeadbeefUL;
         {
-            ObjectMap::CacheLine *cl;
-            cl = reinterpret_cast<ObjectMap::CacheLine*>(
+            TestObjectMap::CacheLine *cl;
+            cl = reinterpret_cast<TestObjectMap::CacheLine*>(
                 0x7fffffffffffUL);
             e.setChainPointer(cl);
         }
-        ObjectMap::Entry::UnpackedEntry out;
+        TestObjectMap::Entry::UnpackedEntry out;
         out = e.unpack(0);
         CPPUNIT_ASSERT_EQUAL(0UL, out.hash);
         CPPUNIT_ASSERT_EQUAL(true, out.chain);
@@ -233,13 +238,13 @@ class HashTableEntryTest : public CppUnit::TestFixture {
 
     void test_isAvailable()
     {
-        ObjectMap::Entry e;
+        TestObjectMap::Entry e;
         e.clear();
         CPPUNIT_ASSERT(e.isAvailable(0));
-        e.setChainPointer(reinterpret_cast<ObjectMap::CacheLine*>(
+        e.setChainPointer(reinterpret_cast<TestObjectMap::CacheLine*>(
             0x1UL));
         CPPUNIT_ASSERT(!e.isAvailable(0));
-        e.setReferant(0UL, reinterpret_cast<const Objectable*>(0x1UL), 0, 0);
+        e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL), 0, 0);
         CPPUNIT_ASSERT(!e.isAvailable(0));
         e.clear();
         CPPUNIT_ASSERT(e.isAvailable(0));
@@ -247,14 +252,14 @@ class HashTableEntryTest : public CppUnit::TestFixture {
 
     void test_getReferant()
     {
-        ObjectMap::Entry e;
-        const Objectable *o =
-            reinterpret_cast<const Objectable*>(0x7fffffffffffUL);
+        TestObjectMap::Entry e;
+        TestObject *o =
+            reinterpret_cast<TestObject*>(0x7fffffffffffUL);
         e.setReferant(0xaaaaUL, o, 0, 0);
         CPPUNIT_ASSERT_EQUAL(o, e.getReferant(0, NULL));
 
         uint8_t type;
-        o = reinterpret_cast<const Objectable*>(0x3fffffffffffUL);
+        o = reinterpret_cast<TestObject*>(0x3fffffffffffUL);
         e.setReferant(0xaaaaUL, o, 1, 1);
         CPPUNIT_ASSERT_EQUAL(o, e.getReferant(1, &type));
         CPPUNIT_ASSERT_EQUAL(1, type);
@@ -262,30 +267,30 @@ class HashTableEntryTest : public CppUnit::TestFixture {
 
     void test_getChainPointer()
     {
-        ObjectMap::CacheLine *cl;
-        cl = reinterpret_cast<ObjectMap::CacheLine*>(0x7fffffffffffUL);
-        ObjectMap::Entry e;
+        TestObjectMap::CacheLine *cl;
+        cl = reinterpret_cast<TestObjectMap::CacheLine*>(0x7fffffffffffUL);
+        TestObjectMap::Entry e;
         e.setChainPointer(cl);
         CPPUNIT_ASSERT_EQUAL(cl, e.getChainPointer(0));
         e.clear();
         CPPUNIT_ASSERT(NULL == e.getChainPointer(0));
-        e.setReferant(0UL, reinterpret_cast<const Objectable*>(0x1UL), 0, 0);
+        e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL), 0, 0);
         CPPUNIT_ASSERT(NULL == e.getChainPointer(0));
     }
 
     void test_hashMatches()
     {
-        ObjectMap::Entry e;
+        TestObjectMap::Entry e;
         e.clear();
         CPPUNIT_ASSERT(!e.hashMatches(0UL, 0));
-        e.setChainPointer(reinterpret_cast<ObjectMap::CacheLine*>(
+        e.setChainPointer(reinterpret_cast<TestObjectMap::CacheLine*>(
             0x1UL));
         CPPUNIT_ASSERT(!e.hashMatches(0UL, 0));
-        e.setReferant(0UL, reinterpret_cast<const Objectable*>(0x1UL), 0, 0);
+        e.setReferant(0UL, reinterpret_cast<TestObject*>(0x1UL), 0, 0);
         CPPUNIT_ASSERT(e.hashMatches(0UL, 0));
         CPPUNIT_ASSERT(!e.hashMatches(0xbeefUL, 0));
         e.setReferant(0xbeefUL,
-            reinterpret_cast<const Objectable*>(0x1UL), 0, 0);
+            reinterpret_cast<TestObject*>(0x1UL), 0, 0);
         CPPUNIT_ASSERT(!e.hashMatches(0UL, 0));
         CPPUNIT_ASSERT(e.hashMatches(0xbeefUL, 0));
         CPPUNIT_ASSERT(!e.hashMatches(0xfeedUL, 0));
@@ -324,7 +329,7 @@ class HashTableTest : public CppUnit::TestFixture {
     DISALLOW_COPY_AND_ASSIGN(HashTableTest); //NOLINT
 
     // convenient abbreviation
-#define seven (ObjectMap::ENTRIES_PER_CACHE_LINE - 1)
+#define seven (TestObjectMap::ENTRIES_PER_CACHE_LINE - 1)
 
     /**
      * Insert an array of values into a single-bucket hash table.
@@ -342,11 +347,11 @@ class HashTableTest : public CppUnit::TestFixture {
      * \param[in] numCacheLines
      *      The number of cache lines in \a cacheLines.
      */
-    void insertArray(ObjectMap *ht, Object *values, uint64_t tableId,
-                     uint64_t numEnt, ObjectMap::CacheLine *cacheLines,
+    void insertArray(TestObjectMap *ht, TestObject *values, uint64_t tableId,
+                     uint64_t numEnt, TestObjectMap::CacheLine *cacheLines,
                      uint64_t numCacheLines)
     {
-        ObjectMap::CacheLine *cl;
+        TestObjectMap::CacheLine *cl;
 
         // clear out all the cache lines
         cl = &cacheLines[0];
@@ -365,13 +370,13 @@ class HashTableTest : public CppUnit::TestFixture {
 
         // fill in the "log" entries
         for (uint64_t i = 0; i < numEnt; i++) {
-            values[i].table = tableId;
-            values[i].id = i;
+            values[i]._key1 = tableId;
+            values[i]._key2 = i;
 
             uint64_t littleHash;
             (void) ht->findBucket(0, i, &littleHash);
 
-            ObjectMap::Entry *entry;
+            TestObjectMap::Entry *entry;
             if (0 < i && i == numEnt - 1 && i % seven == 0)
                 entry = &cacheLines[i / seven - 1].entries[seven];
             else
@@ -388,10 +393,10 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     class AutoTearDown {
       public:
-        explicit AutoTearDown(ObjectMap *ht) : ht(ht) {}
+        explicit AutoTearDown(TestObjectMap *ht) : ht(ht) {}
         ~AutoTearDown() { ht->buckets = NULL; }
       private:
-        ObjectMap *ht;
+        TestObjectMap *ht;
         DISALLOW_COPY_AND_ASSIGN(AutoTearDown);
     };
 
@@ -414,18 +419,18 @@ class HashTableTest : public CppUnit::TestFixture {
     uint64_t tableId = _tableId; \
     uint64_t numEnt = _numEnt; \
     uint64_t numCacheLines; \
-    numCacheLines = ((numEnt + ObjectMap::ENTRIES_PER_CACHE_LINE - 2) /\
-                              (ObjectMap::ENTRIES_PER_CACHE_LINE - 1));\
+    numCacheLines = ((numEnt + TestObjectMap::ENTRIES_PER_CACHE_LINE - 2) /\
+                              (TestObjectMap::ENTRIES_PER_CACHE_LINE - 1));\
     if (numCacheLines == 0) \
         numCacheLines = 1; \
-    ObjectMap ht(1); \
-    Object values[numEnt]; \
-    ObjectMap::CacheLine cacheLines[numCacheLines]; \
+    TestObjectMap ht(1); \
+    TestObject values[numEnt]; \
+    TestObjectMap::CacheLine cacheLines[numCacheLines]; \
     insertArray(&ht, values, tableId, numEnt, cacheLines, numCacheLines); \
     AutoTearDown _atd(&ht)
 
     /**
-     * Create an Object with no data on the stack.
+     * Create a TestObject with no data on the stack.
      * \param n
      *      The variable name for the object.
      * \param t
@@ -434,9 +439,9 @@ class HashTableTest : public CppUnit::TestFixture {
      *      The object ID for the object.
      */
 #define DECL_OBJECT(n, t, k) \
-    Objectable n(t, k)
+    TestObject n(t, k)
 
-#define NULL_OBJECT (static_cast<const Objectable*>(NULL))
+#define NULL_OBJECT (static_cast<TestObject*>(NULL))
 
     /**
      * Find an entry in a single-bucket hash table by position.
@@ -449,10 +454,10 @@ class HashTableTest : public CppUnit::TestFixture {
      * \return
      *      The entry at \a x and \a y in the only bucket of \a ht.
      */
-    ObjectMap::Entry& entryAt(ObjectMap *ht, uint64_t x,
+    TestObjectMap::Entry& entryAt(TestObjectMap *ht, uint64_t x,
         uint64_t y)
     {
-        ObjectMap::CacheLine *cl = &ht->buckets[0];
+        TestObjectMap::CacheLine *cl = &ht->buckets[0];
         while (x > 0) {
             cl = cl->entries[seven].getChainPointer(0);
             x--;
@@ -471,22 +476,22 @@ class HashTableTest : public CppUnit::TestFixture {
      * \param[in] ptr
      *      The pointer that we expect to find at the given position.
      */
-    void assertEntryIs(ObjectMap *ht, uint64_t x, uint64_t y,
-        const Objectable *ptr)
+    void assertEntryIs(TestObjectMap *ht, uint64_t x, uint64_t y,
+        TestObject *ptr)
     {
         uint64_t littleHash;
-        (void) ht->findBucket(0, ptr->id, &littleHash);
-        ObjectMap::Entry& entry = entryAt(ht, x, y);
+        (void) ht->findBucket(0, ptr->key2(), &littleHash);
+        TestObjectMap::Entry& entry = entryAt(ht, x, y);
         CPPUNIT_ASSERT(entry.hashMatches(littleHash, 0));
         CPPUNIT_ASSERT_EQUAL(ptr, entry.getReferant(0, NULL));
     }
 
-    ObjectMap::Entry *findBucketAndLookupEntry(ObjectMap *ht,
+    TestObjectMap::Entry *findBucketAndLookupEntry(TestObjectMap *ht,
                                                uint64_t tableId,
                                                uint64_t objectId)
     {
         uint64_t secondaryHash;
-        ObjectMap::CacheLine *bucket;
+        TestObjectMap::CacheLine *bucket;
         bucket = ht->findBucket(0, objectId, &secondaryHash);
         return ht->lookupEntry(bucket, secondaryHash, tableId, objectId);
     }
@@ -499,9 +504,9 @@ class HashTableTest : public CppUnit::TestFixture {
 
     void test_constructor()
     {
-        char buf[sizeof(ObjectMap) + 1024];
+        char buf[sizeof(TestObjectMap) + 1024];
         memset(buf, 0xca, sizeof(buf));
-        ObjectMap *ht = new(buf) ObjectMap(16);
+        TestObjectMap *ht = new(buf) TestObjectMap(16);
         for (uint32_t i = 0; i < 16; i++) {
             for (uint32_t j = 0; j < ht->entriesPerCacheLine(); j++)
                 CPPUNIT_ASSERT(ht->buckets[i].entries[j].isAvailable(0));
@@ -511,45 +516,45 @@ class HashTableTest : public CppUnit::TestFixture {
     void test_constructor_truncate()
     {
         // This is effectively testing nearestPowerOfTwo.
-        CPPUNIT_ASSERT_EQUAL(1UL, ObjectMap(1).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(2UL, ObjectMap(2).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(2UL, ObjectMap(3).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(4UL, ObjectMap(4).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(4UL, ObjectMap(5).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(4UL, ObjectMap(6).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(4UL, ObjectMap(7).numBuckets);
-        CPPUNIT_ASSERT_EQUAL(8UL, ObjectMap(8).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(1UL, TestObjectMap(1).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(2UL, TestObjectMap(2).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(2UL, TestObjectMap(3).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(4UL, TestObjectMap(4).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(4UL, TestObjectMap(5).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(4UL, TestObjectMap(6).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(4UL, TestObjectMap(7).numBuckets);
+        CPPUNIT_ASSERT_EQUAL(8UL, TestObjectMap(8).numBuckets);
     }
 
     void test_constructor_typeBits()
     {
         // Test was we handle numTypes and calculate typeBits correctly
-        CPPUNIT_ASSERT_EQUAL(1, ObjectMap(1).numTypes);
-        CPPUNIT_ASSERT_EQUAL(0, ObjectMap(1).typeBits);
+        CPPUNIT_ASSERT_EQUAL(1, TestObjectMap(1).numTypes);
+        CPPUNIT_ASSERT_EQUAL(0, TestObjectMap(1).typeBits);
 
-        CPPUNIT_ASSERT_THROW(ObjectMap(1, 0), Exception);
-        CPPUNIT_ASSERT_NO_THROW(ObjectMap(1, ObjectMap::MAX_NUMTYPES));
-        CPPUNIT_ASSERT_THROW(ObjectMap(1, ObjectMap::MAX_NUMTYPES + 1),
+        CPPUNIT_ASSERT_THROW(TestObjectMap(1, 0), Exception);
+        CPPUNIT_ASSERT_NO_THROW(TestObjectMap(1, TestObjectMap::MAX_NUMTYPES));
+        CPPUNIT_ASSERT_THROW(TestObjectMap(1, TestObjectMap::MAX_NUMTYPES + 1),
             Exception);
 
-        CPPUNIT_ASSERT_EQUAL(0, ObjectMap(1, 1).typeBits);
-        CPPUNIT_ASSERT_EQUAL(1, ObjectMap(1, 2).typeBits);
-        CPPUNIT_ASSERT_EQUAL(2, ObjectMap(1, 3).typeBits);
-        CPPUNIT_ASSERT_EQUAL(2, ObjectMap(1, 4).typeBits);
-        CPPUNIT_ASSERT_EQUAL(3, ObjectMap(1, 5).typeBits);
-        CPPUNIT_ASSERT_EQUAL(3, ObjectMap(1, 6).typeBits);
-        CPPUNIT_ASSERT_EQUAL(3, ObjectMap(1, 7).typeBits);
-        CPPUNIT_ASSERT_EQUAL(3, ObjectMap(1, 8).typeBits);
-        CPPUNIT_ASSERT_EQUAL(4, ObjectMap(1, 9).typeBits);
-        int8_t maxTypeBits = ObjectMap::MAX_TYPEBITS;
+        CPPUNIT_ASSERT_EQUAL(0, TestObjectMap(1, 1).typeBits);
+        CPPUNIT_ASSERT_EQUAL(1, TestObjectMap(1, 2).typeBits);
+        CPPUNIT_ASSERT_EQUAL(2, TestObjectMap(1, 3).typeBits);
+        CPPUNIT_ASSERT_EQUAL(2, TestObjectMap(1, 4).typeBits);
+        CPPUNIT_ASSERT_EQUAL(3, TestObjectMap(1, 5).typeBits);
+        CPPUNIT_ASSERT_EQUAL(3, TestObjectMap(1, 6).typeBits);
+        CPPUNIT_ASSERT_EQUAL(3, TestObjectMap(1, 7).typeBits);
+        CPPUNIT_ASSERT_EQUAL(3, TestObjectMap(1, 8).typeBits);
+        CPPUNIT_ASSERT_EQUAL(4, TestObjectMap(1, 9).typeBits);
+        int8_t maxTypeBits = TestObjectMap::MAX_TYPEBITS;
         CPPUNIT_ASSERT_EQUAL(maxTypeBits,
-            ObjectMap(1, ObjectMap::MAX_NUMTYPES).typeBits);
+            TestObjectMap(1, TestObjectMap::MAX_NUMTYPES).typeBits);
     }
 
     void test_destructor()
     {
-        char buf[sizeof(ObjectMap) + 1024];
-        ObjectMap *ht = new(buf) ObjectMap(16);
+        char buf[sizeof(TestObjectMap) + 1024];
+        TestObjectMap *ht = new(buf) TestObjectMap(16);
         ht->~HashTable();
         CPPUNIT_ASSERT(ht->buckets == NULL);
         ht->~HashTable();
@@ -558,26 +563,26 @@ class HashTableTest : public CppUnit::TestFixture {
 
     void test_simple()
     {
-        ObjectMap ht(1024);
+        TestObjectMap ht(1024);
 
         DECL_OBJECT(a, 0, 0);
         DECL_OBJECT(b, 0, 10);
 
         CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 0));
-        ht.replace(0, 0, &a);
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Objectable*>(&a),
+        ht.replace(&a);
+        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&a),
             ht.lookup(0, 0));
         CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 10));
-        ht.replace(0, 10, &b);
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Objectable*>(&b),
+        ht.replace(&b);
+        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&b),
             ht.lookup(0, 10));
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Objectable*>(&a),
+        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&a),
             ht.lookup(0, 0));
     }
 
     void test_multiTable()
     {
-        ObjectMap ht(1024);
+        TestObjectMap ht(1024);
 
         DECL_OBJECT(a, 0, 0);
         DECL_OBJECT(b, 1, 0);
@@ -587,15 +592,15 @@ class HashTableTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(1, 0));
         CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 1));
 
-        ht.replace(0, 0, &a);
-        ht.replace(1, 0, &b);
-        ht.replace(0, 1, &c);
+        ht.replace(&a);
+        ht.replace(&b);
+        ht.replace(&c);
 
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Objectable*>(&a),
+        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&a),
             ht.lookup(0, 0));
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Objectable*>(&b),
+        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&b),
             ht.lookup(1, 0));
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Objectable*>(&c),
+        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(&c),
             ht.lookup(0, 1));
     }
 
@@ -609,19 +614,19 @@ class HashTableTest : public CppUnit::TestFixture {
         srand(1);
         for (uint32_t i = 0; i < 50; i++) {
             uint64_t input = generateRandom();
-            observedBits |= ObjectMap::hash(input);
+            observedBits |= TestObjectMap::hash(input);
         }
         CPPUNIT_ASSERT_EQUAL(~0UL, observedBits);
     }
 
     void test_findBucket()
     {
-        ObjectMap ht(1024);
-        ObjectMap::CacheLine *bucket;
+        TestObjectMap ht(1024);
+        TestObjectMap::CacheLine *bucket;
         uint64_t hashValue;
         uint64_t secondaryHash;
         bucket = ht.findBucket(0, 4327, &secondaryHash);
-        hashValue = ObjectMap::hash(0) ^ ObjectMap::hash(4327);
+        hashValue = TestObjectMap::hash(0) ^ TestObjectMap::hash(4327);
         CPPUNIT_ASSERT_EQUAL(static_cast<uint64_t>(bucket - ht.buckets),
                              (hashValue & 0x0000ffffffffffffffffUL) % 1024);
         CPPUNIT_ASSERT_EQUAL(secondaryHash, hashValue >> 48);
@@ -635,15 +640,15 @@ class HashTableTest : public CppUnit::TestFixture {
     {
         {
             SETUP(0, 0);
-            CPPUNIT_ASSERT_EQUAL(static_cast<ObjectMap::Entry*>(NULL),
+            CPPUNIT_ASSERT_EQUAL(static_cast<TestObjectMap::Entry*>(NULL),
                                  findBucketAndLookupEntry(&ht, 0, numEnt + 1));
             CPPUNIT_ASSERT_EQUAL(1UL, ht.getPerfCounters().lookupEntryCalls);
             CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryCycles > 0);
             CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryDist.max > 0);
         }
         {
-            SETUP(0, ObjectMap::ENTRIES_PER_CACHE_LINE * 5);
-            CPPUNIT_ASSERT_EQUAL(static_cast<ObjectMap::Entry*>(NULL),
+            SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 5);
+            CPPUNIT_ASSERT_EQUAL(static_cast<TestObjectMap::Entry*>(NULL),
                                  findBucketAndLookupEntry(&ht, 0, numEnt + 1));
             CPPUNIT_ASSERT_EQUAL(5UL,
                         ht.getPerfCounters().lookupEntryChainsFollowed);
@@ -667,7 +672,7 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_lookupEntry_cacheLine0Entry7()
     {
-        SETUP(0, ObjectMap::ENTRIES_PER_CACHE_LINE);
+        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
         CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 0, seven),
                              findBucketAndLookupEntry(&ht, 0, seven));
     }
@@ -678,7 +683,7 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_lookupEntry_cacheLine2Entry0()
     {
-        SETUP(0, ObjectMap::ENTRIES_PER_CACHE_LINE * 5);
+        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 5);
 
         // with 8 entries per cache line:
         // cl0: [ k00, k01, k02, k03, k04, k05, k06, cl1 ]
@@ -700,8 +705,8 @@ class HashTableTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(&entryAt(&ht, 0, 0),
                              findBucketAndLookupEntry(&ht, 0, 0));
         CPPUNIT_ASSERT(ht.getPerfCounters().lookupEntryDist.max > 0);
-        values[0].id = 0x43324890UL;
-        CPPUNIT_ASSERT_EQUAL(static_cast<ObjectMap::Entry*>(NULL),
+        values[0]._key2 = 0x43324890UL;
+        CPPUNIT_ASSERT_EQUAL(static_cast<TestObjectMap::Entry*>(NULL),
                              findBucketAndLookupEntry(&ht, 0, 0));
         CPPUNIT_ASSERT_EQUAL(1UL,
                              ht.getPerfCounters().lookupEntryHashCollisions);
@@ -710,11 +715,11 @@ class HashTableTest : public CppUnit::TestFixture {
     void test_lookup()
     {
         uint8_t type;
-        ObjectMap ht(1, 2);
-        Objectable *v = new Objectable(0, 83UL);
+        TestObjectMap ht(1, 2);
+        TestObject *v = new TestObject(0, 83UL);
         CPPUNIT_ASSERT_EQUAL(NULL_OBJECT, ht.lookup(0, 83UL));
-        ht.replace(0, 83UL, v, 1);
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Objectable*>(v),
+        ht.replace(v, 1);
+        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(v),
             ht.lookup(0, 83UL, &type));
         CPPUNIT_ASSERT_EQUAL(1, type);
 
@@ -723,12 +728,12 @@ class HashTableTest : public CppUnit::TestFixture {
 
     void test_remove()
     {
-        const Objectable* ptr;
+        TestObject * ptr;
         uint8_t type;
-        ObjectMap ht(1, 2);
+        TestObjectMap ht(1, 2);
         CPPUNIT_ASSERT(!ht.remove(0, 83UL));
-        Objectable *v = new Objectable(0, 83UL);
-        ht.replace(0, 83UL, v, 1);
+        TestObject *v = new TestObject(0, 83UL);
+        ht.replace(v, 1);
         CPPUNIT_ASSERT(ht.remove(0, 83UL, &ptr, &type));
         CPPUNIT_ASSERT_EQUAL(v, ptr);
         CPPUNIT_ASSERT_EQUAL(1, type);
@@ -740,23 +745,23 @@ class HashTableTest : public CppUnit::TestFixture {
     void test_replace_normal()
     {
         uint8_t type;
-        const Objectable* replaced;
-        ObjectMap ht(1, 2);
-        Objectable *v = new Objectable(0, 83UL);
-        Objectable *w = new Objectable(0, 83UL);
-        CPPUNIT_ASSERT(!ht.replace(0, 83UL, v));
+        TestObject* replaced;
+        TestObjectMap ht(1, 2);
+        TestObject *v = new TestObject(0, 83UL);
+        TestObject *w = new TestObject(0, 83UL);
+        CPPUNIT_ASSERT(!ht.replace(v));
         CPPUNIT_ASSERT_EQUAL(1UL, ht.getPerfCounters().replaceCalls);
         CPPUNIT_ASSERT(ht.getPerfCounters().replaceCycles > 0);
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Objectable*>(v),
+        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(v),
             ht.lookup(0, 83UL));
-        CPPUNIT_ASSERT(ht.replace(0, 83UL, v, 1, NULL, &type));
+        CPPUNIT_ASSERT(ht.replace(v, 1, NULL, &type));
         CPPUNIT_ASSERT_EQUAL(0, type);
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Objectable*>(v),
+        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(v),
             ht.lookup(0, 83UL));
-        CPPUNIT_ASSERT(ht.replace(0, 83UL, w, 0, &replaced, &type));
+        CPPUNIT_ASSERT(ht.replace(w, 0, &replaced, &type));
         CPPUNIT_ASSERT_EQUAL(v, replaced);
         CPPUNIT_ASSERT_EQUAL(1, type);
-        CPPUNIT_ASSERT_EQUAL(const_cast<const Objectable*>(w),
+        CPPUNIT_ASSERT_EQUAL(const_cast<TestObject*>(w),
             ht.lookup(0, 83UL));
         delete v;
         delete w;
@@ -770,7 +775,7 @@ class HashTableTest : public CppUnit::TestFixture {
     {
         SETUP(0, 0);
         DECL_OBJECT(v, 0, 83UL);
-        ht.replace(0, 83UL, &v);
+        ht.replace(&v);
         assertEntryIs(&ht, 0, 0, &v);
     }
 
@@ -780,9 +785,9 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_replace_cacheLine0Entry7()
     {
-        SETUP(0, ObjectMap::ENTRIES_PER_CACHE_LINE - 1);
+        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE - 1);
         DECL_OBJECT(v, 0, 83UL);
-        ht.replace(0, 83UL, &v);
+        ht.replace(&v);
         assertEntryIs(&ht, 0, seven, &v);
     }
 
@@ -793,11 +798,11 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_replace_cacheLine2Entry0()
     {
-        SETUP(0, ObjectMap::ENTRIES_PER_CACHE_LINE * 2);
+        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE * 2);
         cacheLines[2].entries[0].clear();
         cacheLines[2].entries[1].clear();
         DECL_OBJECT(v, 0, 83UL);
-        ht.replace(0, 83UL, &v);
+        ht.replace(&v);
         assertEntryIs(&ht, 2, 0, &v);
         CPPUNIT_ASSERT_EQUAL(2UL, ht.getPerfCounters().insertChainsFollowed);
     }
@@ -809,9 +814,9 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_replace_cacheLineFull()
     {
-        SETUP(0, ObjectMap::ENTRIES_PER_CACHE_LINE);
+        SETUP(0, TestObjectMap::ENTRIES_PER_CACHE_LINE);
         DECL_OBJECT(v, 0, 83UL);
-        ht.replace(0, 83UL, &v);
+        ht.replace(&v);
         CPPUNIT_ASSERT(entryAt(&ht, 0, seven).getChainPointer(0) != NULL);
         CPPUNIT_ASSERT(entryAt(&ht, 0, seven).getChainPointer(0) !=
                        &cacheLines[1]);
@@ -820,14 +825,17 @@ class HashTableTest : public CppUnit::TestFixture {
     }
 
     struct ForEachTestStruct {
-        uint64_t key1, key2, count;
+        ForEachTestStruct() : _key1(0), _key2(0), count(0) {}
+        uint64_t key1() const { return _key1; }
+        uint64_t key2() const { return _key2; }
+        uint64_t _key1, _key2, count;
     };
 
     /**
      * Callback used by test_forEach().
      */ 
     static void
-    test_forEach_callback(const ForEachTestStruct *p, uint8_t type,
+    test_forEach_callback(ForEachTestStruct *p, uint8_t type,
         void *cookie)
     {
         CPPUNIT_ASSERT_EQUAL(cookie, reinterpret_cast<void *>(57));
@@ -840,15 +848,14 @@ class HashTableTest : public CppUnit::TestFixture {
      */
     void test_forEach()
     {
-        HashTable<ForEachTestStruct, &ForEachTestStruct::key1,
-            &ForEachTestStruct::key2> ht(2);
+        HashTable<ForEachTestStruct*> ht(2);
         ForEachTestStruct checkoff[256];
         memset(checkoff, 0, sizeof(checkoff));
 
         for (uint32_t i = 0; i < arrayLength(checkoff); i++) {
-            checkoff[i].key1 = 0;
-            checkoff[i].key2 = i;
-            ht.replace(0, i, &checkoff[i]);
+            checkoff[i]._key1 = 0;
+            checkoff[i]._key2 = i;
+            ht.replace(&checkoff[i]);
         }
 
         uint64_t t = ht.forEach(test_forEach_callback,

@@ -60,13 +60,13 @@ class RecoverSegmentBenchmark {
                 Segment::SEGMENT_SIZE, NULL);
             while (1) {
                 DECLARE_OBJECT(o, objectBytes);
-                o->id = nextObjId++;
-                o->table = 0;
+                o->id.objectId = nextObjId++;
+                o->id.tableId = 0;
                 o->version = 0;
                 o->checksum = 0;
                 o->data_len = objectBytes;
                 const void *so = segments[i]->append(LOG_ENTRY_TYPE_OBJ,
-                    o, o->size()).pointer();
+                    o, o->size())->userData();
                 if (so == NULL)
                     break;
                 numObjects++;
