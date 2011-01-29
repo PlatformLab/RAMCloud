@@ -47,8 +47,6 @@ class SegmentIteratorBenchmark {
                 o->id = nextObjId++;
                 o->table = 0;
                 o->version = 0;
-                o->checksum = 0;
-                o->data_len = size;
                 const void *so = segments[i]->append(LOG_ENTRY_TYPE_OBJ,
                     o, o->size());
                 if (so == NULL)

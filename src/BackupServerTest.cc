@@ -144,11 +144,9 @@ class BackupServerTest : public CppUnit::TestFixture {
         obj->id.objectId = objectId;
         obj->id.tableId = tableId;
         obj->version = 0;
-        obj->checksum = 0xff00ff00ff00;
-        obj->data_len = bytes;
         memcpy(objectMem + sizeof(*obj), data, bytes);
         return writeEntry(masterId, segmentId, LOG_ENTRY_TYPE_OBJ, offset,
-                          objectMem, sizeof(Object) + bytes);
+                          objectMem, obj->objectLength(bytes));
     }
 
     uint32_t
@@ -829,8 +827,6 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
     object.id.objectId = 10;
     object.id.tableId = 123;
     object.version = 0;
-    object.checksum = 0xff00ff00ff00;
-    object.data_len = 0;
     segment.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
 
     segment.close();
@@ -907,8 +903,6 @@ TEST_F(SegmentInfoTest, whichPartition) {
     object.id.objectId = 10;
     object.id.tableId = 123;
     object.version = 0;
-    object.checksum = 0xff00ff00ff00;
-    object.data_len = 0;
 
     auto r = whichPartition(LOG_ENTRY_TYPE_OBJ, &object, partitions);
     EXPECT_TRUE(r);
@@ -939,8 +933,6 @@ TEST_F(SegmentInfoTest, buildRecoverySegment) {
     object.id.objectId = 10;
     object.id.tableId = 123;
     object.version = 0;
-    object.checksum = 0xff00ff00ff00;
-    object.data_len = 0;
     segment.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
 
     segment.close();

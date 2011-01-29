@@ -193,11 +193,10 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
     respHdr.version = obj->version;
     rejectOperation(&reqHdr.rejectRules, obj->version);
     Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
-                                  obj->data,
-                                  static_cast<uint32_t>(obj->data_len));
+        obj->data, obj->dataLength(handle->length()));
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
     // from scribbling over obj->data.
-    respHdr.length = obj->data_len;
+    respHdr.length = obj->dataLength(handle->length());
 }
 
 /**
@@ -610,7 +609,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 uint64_t lengthInLog;
                 LogTime logTime;
                 LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
-                    recoverObj, recoverObj->size(), &lengthInLog,
+                    recoverObj, i.getLength(), &lengthInLog,
                     &logTime, false);
 
                 // update the TabletProfiler
@@ -934,7 +933,7 @@ objectEvictionCallback(LogEntryHandle handle,
         uint64_t newLengthInLog;
         LogTime newLogTime;
         LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
-            evictObj, evictObj->size(), &newLengthInLog, &newLogTime);
+            evictObj, handle->length(), &newLengthInLog, &newLogTime);
         t->profiler.track(evictObj->id.objectId, newLengthInLog, newLogTime);
         svr->objectMap.replace(newObjHandle);
     }
@@ -1030,8 +1029,6 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
         newObject->version = t.AllocateVersion();
     assert(obj == NULL || newObject->version > obj->version);
     // TODO(stutsman): dm's super-fast checksum here
-    newObject->checksum = 0x0BE70BE70BE70BE7ULL;
-    newObject->data_len = dataLength;
     data->copy(dataOffset, dataLength, newObject->data);
 
     // If the Object is being overwritten, we need to mark the previous space
@@ -1051,7 +1048,7 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
     }
 
     LogEntryHandle objHandle = log.append(LOG_ENTRY_TYPE_OBJ, newObject,
-        newObject->size(), &lengthInLog, &logTime);
+        newObject->objectLength(dataLength), &lengthInLog, &logTime);
     t.profiler.track(id, lengthInLog, logTime);
     objectMap.replace(objHandle);
 

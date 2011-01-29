@@ -278,11 +278,10 @@ class MasterTest : public CppUnit::TestFixture {
         newObject->id.objectId = objId;
         newObject->id.tableId = tblId;
         newObject->version = version;
-        newObject->data_len = objContents.length() + 1;
         strcpy(newObject->data, objContents.c_str()); // NOLINT fuck off
 
         const void *p = s.append(LOG_ENTRY_TYPE_OBJ, newObject,
-                                 newObject->size())->userData();
+            newObject->objectLength(objContents.length() + 1))->userData();
         assert(p != NULL);
         s.close();
         return static_cast<const char*>(p) - segmentBuf;

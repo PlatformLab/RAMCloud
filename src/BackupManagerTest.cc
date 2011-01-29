@@ -249,8 +249,6 @@ TEST_F(BackupManagerTest, writeSegment) {
     object.id.objectId = 10;
     object.id.tableId = 123;
     object.version = 0;
-    object.checksum = 0xff00ff00ff00;
-    object.data_len = 0;
     seg.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
     seg.close();
 
