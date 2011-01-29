@@ -571,6 +571,32 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
         recoverSegmentPrefetcher(prefetch);
 #endif
 
+        // verify that the checksum is correct
+        if (type == LOG_ENTRY_TYPE_OBJ || type == LOG_ENTRY_TYPE_OBJTOMB) {
+            if (!i.isChecksumValid()) {
+                uint64_t tblId, objId, version;
+                string descr;
+                if (type == LOG_ENTRY_TYPE_OBJ) {
+                    const Object *recoverObj = reinterpret_cast<const Object *>(
+                        i.getPointer());
+                    objId = recoverObj->id.objectId;
+                    tblId = recoverObj->id.tableId;
+                    version = recoverObj->version;
+                    descr = "object";
+                } else {
+                    const ObjectTombstone *recoverTomb = reinterpret_cast<
+                        const ObjectTombstone *>(i.getPointer());
+                    objId = recoverTomb->id.objectId;
+                    tblId = recoverTomb->id.tableId;
+                    version = recoverTomb->objectVersion;
+                    descr = "tombstone";
+                }
+
+                LOG(WARNING, "invalid %s checksum! tbl: %lu, obj: %lu, "
+                    "ver: %lu", descr.c_str(), tblId, objId, version);
+            }
+        }
+
         if (type == LOG_ENTRY_TYPE_OBJ) {
             const Object *recoverObj = reinterpret_cast<const Object *>(
                 i.getPointer());

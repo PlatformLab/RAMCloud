@@ -119,5 +119,15 @@ RecoverySegmentIterator::getOffset() const
     return offset + sizeof(SegmentEntry);
 }
 
+/**
+ * \return
+ *      true if the checksum is valid for the current entry.
+ */
+bool
+RecoverySegmentIterator::isChecksumValid() const
+{
+    return reinterpret_cast<SegmentEntryHandle>(&getEntry())->isChecksumValid();
+}
+
 } // namespace RAMCloud
 

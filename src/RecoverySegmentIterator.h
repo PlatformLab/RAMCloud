@@ -56,6 +56,7 @@ class RecoverySegmentIterator {
 
     const void* getPointer() const;
     uint64_t getOffset() const;
+    bool isChecksumValid() const;
 
   PRIVATE:
     /// Bytes from #segment where the current SegmentEntry is.
