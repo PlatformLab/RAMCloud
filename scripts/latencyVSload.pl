@@ -21,12 +21,13 @@ use lib "scripts";
 use HostPattern;
 
 my ($coordinatorLocator, $benchBinary, $dump, $transport, $help,
-    $debug, @clientspattern);
+    $multiobject, $debug, @clientspattern);
 $dump = "latencyVSload.dump";
 
 my $result = GetOptions ("coordinatorLocator=s" => \$coordinatorLocator,
                          "benchBinary=s"   => \$benchBinary,
                          "transport=s" => \$transport,
+                         "multiobject" => \$multiobject,
                          "debug" => \$debug,
                          "dump=s" => \$dump,
                          "clienthosts=s@" => \@clientspattern,
@@ -45,6 +46,8 @@ Usage: $0 --coordinatorLocator locator-string
           [--clienthosts <pattern for hostnames> - 
                default is no remote clients
                example - rc0[1-6].scs.stanford.edu]
+          [--multiobject (Default is a single object written to and
+                          read from.)]
           [--help]
           [--debug]
 USAGE
@@ -53,9 +56,11 @@ USAGE
 
 my %data;
 my $size = 1000;
+# smallish count so that worker checks command flag responsively.
 my $operation_count = 10000;
 
-my @loads = ( 0 .. 15 );
+
+my @loads = ( 0 .. 20 );
 my $clienthosts = HostPattern::hosts(\@clientspattern);
 print STDERR join ("\n", @$clienthosts)."\n";
 
@@ -70,22 +75,34 @@ foreach my $clients (@loads) {
     my $remotehost = $clienthosts->
       [($i % ((scalar @$clienthosts) - 1)) + 1]; 
     my $cmd =
-      "ssh $remotehost \"$benchBinaryFull -C $coordinatorLocator ".
-        "-t test.$i -R -m -S $size -n $operation_count 2>&1\" &";
-
-    print STDERR "Load $clients : Number $i : Host $remotehost\n";
+      "ssh $remotehost \"LOAD=$clients CLIENT=#$i $benchBinaryFull -C $coordinatorLocator ";
+    # First client will write the object to bootstrap - everyone else
+    # just reads
+    if ($i != 0) {
+      $cmd .= "-o ";
+    }
+    $cmd .= "-t test -S $size -n $operation_count --executionmode worker"
+      ." --workerid $i 1>/tmp/worker.$i.log 2>&1\" &";
+    # TODO multiobject option for writes 
+    print STDERR "Calling $cmd\n";
     system($cmd) == 0
-      or die "$cmd failed: $?"; 
+      or die "$cmd failed: $?";
+    print STDERR "Load $clients : Number $i : Host $remotehost\n";
   }
  
-  # run measurement 1/10 number of times so that it finishes
-  # first.
-  my $measure_operation_count = $operation_count/10;
+  my $measure_operation_count = 100000;
   # Run on the first client host for measurements
-  my $remotehost = $clienthosts->[0]; 
+  my $remotehost = $clienthosts->[0];
 
-  open (B, "ssh $remotehost $benchBinaryFull -C $coordinatorLocator ".
-        "-t test.size$clients -R -m -S $size -n $measure_operation_count |") 
+  my $cmd = "ssh $remotehost $benchBinaryFull -C $coordinatorLocator  "; 
+  $cmd .= "--executionmode queen --numworkers $clients ";
+  if ($clients != 0) {
+    # Do the first bootstrapping write
+    $cmd .= "-o ";
+  }
+  print STDERR "Calling $cmd\n";
+  open (B, $cmd . 
+        "-t test -S $size -n $measure_operation_count |") 
     or die "Cannot open binary - $!";
   while (<B>) {
     chomp;
@@ -97,13 +114,6 @@ foreach my $clients (@loads) {
 
   close (B) or 
     die "Close failed - $!";
-
-  # kill all instances of Bench just in case.
-  #TODO track pids and kill instead of name
-  for (my $i=0; $i<$clients; $i++) {
-    my $remotehost = $clienthosts->[$i % (scalar @$clienthosts)]; 
-    system("ssh $remotehost pkill Bench");
-  }
 }
 
 print STDERR Dumper \%data;

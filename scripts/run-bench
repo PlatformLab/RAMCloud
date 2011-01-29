@@ -40,7 +40,7 @@ $OBJDIR/server -L "$masterLocator" -C "$coordinatorLocator" &
 sleep .1
 
 VAL=$($OBJDIR/Bench -C "$coordinatorLocator" -R -S 1000 -n 10000 | \
-        grep '^readMany avgns' | awk '{print $3;}')
+    grep '^readMany avgns' | awk '{print $3;}')
 RETVAL=$?
 
 echo "$DATE $VER $VAL ns"
