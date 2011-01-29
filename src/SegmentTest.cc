@@ -71,7 +71,7 @@ class SegmentTest : public CppUnit::TestFixture {
         TestLog::Enable _(&openSegmentFilter);
         Segment s(1020304050, 98765, alignedBuf, sizeof(alignedBuf), &backup);
         CPPUNIT_ASSERT_EQUAL("openSegment: "
-                             "openSegment 1020304050, 98765, ..., 28",
+                             "openSegment 1020304050, 98765, ..., 32",
                              TestLog::get());
         CPPUNIT_ASSERT_EQUAL(s.baseAddress,
                              reinterpret_cast<void *>(alignedBuf));
@@ -130,7 +130,7 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(NULL, seh);
 
         CPPUNIT_ASSERT_EQUAL(
-            "openSegment: openSegment 1, 2, ..., 28",
+            "openSegment: openSegment 1, 2, ..., 32",
             TestLog::get());
 
         char c = '!';
@@ -183,7 +183,7 @@ class SegmentTest : public CppUnit::TestFixture {
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf), &backup);
         TestLog::Enable _;
         s.close();
-        CPPUNIT_ASSERT_EQUAL("write: 1, 2, 40, 1 | "
+        CPPUNIT_ASSERT_EQUAL("write: 1, 2, 48, 1 | "
                              "sync: Closed segment 1, 2",
                              TestLog::get());
 
@@ -213,10 +213,12 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(sizeof(alignedBuf) - 3 * sizeof(SegmentEntry) -
             sizeof(SegmentHeader) - sizeof(SegmentFooter), s.appendableBytes());
 
-        static char buf[57];
-        while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf))) { }
-        CPPUNIT_ASSERT_EQUAL(23 - sizeof(Segment::Checksum::ResultType),
-                             s.appendableBytes());
+        static char buf[83];
+        int i = 0;
+        while (s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf)))
+            i++;
+        CPPUNIT_ASSERT_EQUAL(85, i);
+        CPPUNIT_ASSERT_EQUAL(57, s.appendableBytes());
 
         s.close();
         CPPUNIT_ASSERT_EQUAL(0, s.appendableBytes());
@@ -284,7 +286,7 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("", TestLog::get());
         s.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header),
             NULL, NULL, true);
-        CPPUNIT_ASSERT_EQUAL("write: 1, 2, 84, 0",
+        CPPUNIT_ASSERT_EQUAL("write: 1, 2, 96, 0",
                              TestLog::get());
     }
 };

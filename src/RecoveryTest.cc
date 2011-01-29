@@ -309,7 +309,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         TestLog::Enable _(&verifyCompleteLogFilter);
         recovery.verifyCompleteLog();
         CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length "
-            "56 bytes is the head of the log", TestLog::get());
+            "64 bytes is the head of the log", TestLog::get());
 
         // ensure the longest newest head is chosen
         TestLog::reset();
@@ -319,13 +319,13 @@ class RecoveryTest : public CppUnit::TestFixture {
             oldDigestList[0].logDigest.getBytes() });
         recovery.verifyCompleteLog();
         CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length "
-            "57 bytes is the head of the log", TestLog::get());
+            "65 bytes is the head of the log", TestLog::get());
 
         // ensure we log missing segments
         TestLog::reset();
         recovery.segmentMap.erase(88);
         recovery.verifyCompleteLog();
-        CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length 57 bytes "
+        CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length 65 bytes "
             "is the head of the log | verifyCompleteLog: Segment 88 is missing!"
             " | verifyCompleteLog: 1 segments in the digest, but not obtained "
             "from backups!", TestLog::get());

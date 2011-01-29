@@ -28,10 +28,11 @@ namespace RAMCloud {
 typedef Crc32C SegmentChecksum;
 
 struct SegmentEntry {
-    LogEntryType type;
-    uint32_t     length;
+    LogEntryType                type;
+    uint32_t                    length;
+    SegmentChecksum::ResultType checksum;
 } __attribute__((__packed__));
-static_assert(sizeof(SegmentEntry) == 8,
+static_assert(sizeof(SegmentEntry) == 12,
               "SegmentEntry has unexpected padding");
 
 struct SegmentHeader {
@@ -136,6 +137,23 @@ class _SegmentEntryHandle {
         return getSegmentEntry()->type;
     }
 
+    SegmentChecksum::ResultType
+    generateChecksum() const
+    {
+        SegmentChecksum checksum;
+        SegmentEntry temp = *getSegmentEntry();
+        temp.checksum = 0;
+        checksum.update(&temp, sizeof(SegmentEntry));
+        checksum.update(userData(), length());
+        return checksum.getResult();
+    }
+
+    bool
+    isChecksumValid() const
+    {
+        return generateChecksum() == getSegmentEntry()->checksum;
+    }
+
     /**
      * Used by HashTable to get the first uint64_t key for supported
      * types.
@@ -215,13 +233,13 @@ class Segment {
   private:
     void               commonConstructor();
     const void        *forceAppendBlob(const void *buffer,
-                                       uint32_t length,
-                                       bool updateChecksum = true);
+                                       uint32_t length);
     SegmentEntryHandle forceAppendWithEntry(LogEntryType type,
                                             const void *buffer,
                                             uint32_t length,
                                             uint64_t *lengthOfAppend = NULL,
-                                            bool sync = true);
+                                            bool sync = true,
+                                            bool updateChecksum = true);
 
     BackupManager   *backup;         // makes operations on this segment durable
     void            *baseAddress;    // base address for the Segment
