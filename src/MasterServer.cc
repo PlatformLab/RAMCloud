@@ -466,6 +466,12 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
 
     // reqHdr, respHdr, and rpc are off-limits now
 
+    // Union the new tablets into an updated tablet map
+    ProtoBuf::Tablets newTablets(tablets);
+    newTablets.mutable_tablet()->MergeFrom(recoveryTablets.tablet());
+    // and set ourself as open for business.
+    setTablets(newTablets);
+
     // Recover Segments, firing MasterServer::recoverSegment for each one.
     recover(masterId, partitionId, backups);
 
@@ -490,11 +496,6 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
     coordinator->tabletsRecovered(recoveryTablets);
     // Ok - we're free to start serving now.
 
-    // Union the new tablets into an updated tablet map
-    ProtoBuf::Tablets newTablets(tablets);
-    newTablets.mutable_tablet()->MergeFrom(recoveryTablets.tablet());
-    // and set ourself as open for business.
-    setTablets(newTablets);
     // TODO(stutsman) update local copy of the will
 }
 
@@ -639,10 +640,9 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                     &logTime, false);
 
                 // update the TabletProfiler
-#if 0 // this is broken. tablets aren't currently created until after recovery
-                Table& t(getTable(recoverObj->table, recoverObj->id));
-                t.profiler.track(recoverObj->id, lengthInLog, logTime);
-#endif
+                Table& t(getTable(recoverObj->id.tableId,
+                                  recoverObj->id.objectId));
+                t.profiler.track(recoverObj->id.objectId, lengthInLog, logTime);
 #endif
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
