@@ -699,7 +699,7 @@ BackupServer::~BackupServer()
     int lastThreadCount = 0;
     while (recoveryThreadCount > 0) {
         if (lastThreadCount != recoveryThreadCount) {
-            LOG(WARNING, "Waiting for recovery threads to terminate before "
+            LOG(DEBUG, "Waiting for recovery threads to terminate before "
                 "deleting BackupServer, %d threads "
                 "still running", static_cast<int>(recoveryThreadCount));
             lastThreadCount = recoveryThreadCount;

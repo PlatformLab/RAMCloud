@@ -295,7 +295,7 @@ class BackupServer : public Server {
             int lastThreadCount = 0;
             while (storageThreadCount > 0) {
                 if (storageThreadCount != lastThreadCount) {
-                    LOG(WARNING, "Waiting for storage threads to terminate "
+                    LOG(DEBUG, "Waiting for storage threads to terminate "
                         "for a segment, %d threads still running",
                         static_cast<int>(storageThreadCount));
                     lastThreadCount = storageThreadCount;
