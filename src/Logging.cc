@@ -26,7 +26,14 @@ namespace RAMCloud {
 namespace TestLog {
     namespace {
         typedef boost::unique_lock<boost::mutex> Lock;
-        boost::mutex mutex;
+        /**
+         * Used to synchronize access to the TestLog for line level
+         * atomicity. This symbol is not exported.  It's priority ensures it is
+         * initialized before #transportManager.
+         */
+        /// @cond
+        boost::mutex mutex __attribute__((init_priority(300)));
+        /// @endcond
 
         /**
          * The current predicate which is used to select test log entries.
@@ -42,9 +49,12 @@ namespace TestLog {
 
         /**
          * The current test log.
-         * This symbol is not exported.
+         * This symbol is not exported.  It's priority ensures it is initialized
+         * before #transportManager.
          */
-        string message;
+        /// @cond
+        string  __attribute__((init_priority(300))) message;
+        /// @endcond
     }
 
     /// Reset the contents of the test log.
