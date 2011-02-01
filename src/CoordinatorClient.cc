@@ -216,17 +216,44 @@ CoordinatorClient::ping()
  * Tell the coordinator that recovery of a particular tablets have
  * been recovered on the master who is calling.
  *
- * \param tablets
+ * \param[in] masterId
+ *      The masterId of the server invoking this method.
+ * \param[in] tablets
  *      The tablets which form a partition of a will which are
  *      now done recovering.
+ * \param[in] will
+ *      The serialized ProtoBuf representation of the post-recovery
+ *      Will to send to the Coordinator.
  */
 void
-CoordinatorClient::tabletsRecovered(const ProtoBuf::Tablets& tablets)
+CoordinatorClient::tabletsRecovered(uint64_t masterId,
+    const ProtoBuf::Tablets& tablets, const ProtoBuf::Tablets& will)
 {
     Buffer req, resp;
     TabletsRecoveredRpc::Request& reqHdr(allocHeader<TabletsRecoveredRpc>(req));
-    reqHdr.tabletsLength = serializeToResponse(req, tablets);
+    reqHdr.masterId = masterId;
+    reqHdr.tabletsLength = serializeToRequest(req, tablets);
+    reqHdr.willLength = serializeToRequest(req, will);
     sendRecv<TabletsRecoveredRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
+ * Update a masterId's Will with the Coordinator.
+ *
+ * \param[in] masterId
+ *      The masterId whose Will we're updating.
+ * \param[in] will 
+ *      The ProtoBuf serialised representation of the Will.
+ */
+void
+CoordinatorClient::setWill(uint64_t masterId, const ProtoBuf::Tablets& will)
+{
+    Buffer req, resp;
+    SetWillRpc::Request& reqHdr(allocHeader<SetWillRpc>(req));
+    reqHdr.masterId = masterId;
+    reqHdr.willLength = serializeToRequest(req, will);
+    sendRecv<SetWillRpc>(session, req, resp);
     checkStatus(HERE);
 }
 

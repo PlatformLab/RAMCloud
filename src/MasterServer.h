@@ -219,6 +219,12 @@ class MasterServer : public Server {
     uint64_t serverId;
 
   private:
+    /// Maximum number of bytes per partition. For Will calculation.
+    static const uint64_t maxBytesPerPartition = 640UL * 1024 * 1024;
+
+    /// Maximum number of referants (objs) per partition. For Will calculation.
+    static const uint64_t maxReferantsPerPartition = 10UL * 1000 * 1000;
+
     BackupManager backup;
 
     /// Track total bytes of object data written (not including log overhead).

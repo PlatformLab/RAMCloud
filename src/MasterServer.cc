@@ -493,7 +493,10 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
         tablet.set_server_id(serverId);
     }
 
-    coordinator->tabletsRecovered(recoveryTablets);
+    ProtoBuf::Tablets recoveryWill;
+    Will will(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+    will.serialize(recoveryWill);
+    coordinator->tabletsRecovered(serverId, recoveryTablets, recoveryWill);
     // Ok - we're free to start serving now.
 
     // TODO(stutsman) update local copy of the will

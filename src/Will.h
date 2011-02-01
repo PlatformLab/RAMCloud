@@ -27,6 +27,7 @@ class Will {
   public:
     Will(ProtoBuf::Tablets& tablets, uint64_t maxBytesPerPartition,
          uint64_t maxReferantsPerPartition);
+    void serialize(ProtoBuf::Tablets& will);
     void debugDump();
 
   private:

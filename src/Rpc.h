@@ -47,6 +47,7 @@ enum RpcType {
     RECOVER                 = 19,
     HINT_SERVER_DOWN        = 20,
     TABLETS_RECOVERED       = 21,
+    SET_WILL                = 22,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -330,10 +331,29 @@ struct TabletsRecoveredRpc {
     static const RpcType type = TABLETS_RECOVERED;
     struct Request {
         RpcRequestCommon common;
+        uint64_t masterId;         // Server Id from whom the request is coming.
         Status status;             // Indicates whether the recovery
                                    // succeeded; if not, it explains why.
         uint32_t tabletsLength;    // Number of bytes in the tablet map.
                                    // The bytes of the tablet map follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::Tablets.
+        uint32_t willLength;       // Number of bytes in the new will.
+                                   // The bytes follow immediately after
+                                   // the tablet map.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct SetWillRpc {
+    static const RpcType type = SET_WILL;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;         // Server Id from whom the request is coming.
+        uint32_t willLength;       // Number of bytes in the will.
+                                   // The bytes of the will map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.
     };

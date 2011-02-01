@@ -234,20 +234,6 @@ class MasterTest : public CppUnit::TestFixture {
         client->recover(123, 0, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
             "recover: Starting recovery of 4 tablets on masterId 2 | "
-            "recover: Recovering master 123, partition 0, 1 hosts | "
-            "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 87 | "
-            "recover: Waiting on recovery data for segment 87 from "
-            "mock:host=backup1 | "
-            "recover: Checking mock:host=backup1 off the list for 87 | "
-            "recover: Recovering segment 87 with size 0 | "
-            "recoverSegment: recoverSegment 87, ... | "
-            "recoverSegment: Segment 87 replay complete | "
-            "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "
-            "recover: set tablet 123 10 19 to locator mock:host=master, id 2 | "
-            "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
-            "recover: set tablet 124 20 100 to locator mock:host=master, id 2 |"
-            " tabletsRecovered: called with 4 tablets | "
             "setTablets: Now serving tablets: | "
             "setTablets: table:                    0, "
                         "start:                    0, "
@@ -263,7 +249,22 @@ class MasterTest : public CppUnit::TestFixture {
                         "end  :                   29 | "
             "setTablets: table:                  124, "
                         "start:                   20, "
-                        "end  :                  100",
+                        "end  :                  100 | "
+            "recover: Recovering master 123, partition 0, 1 hosts | "
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 87 | "
+            "recover: Waiting on recovery data for segment 87 from "
+            "mock:host=backup1 | "
+            "recover: Checking mock:host=backup1 off the list for 87 | "
+            "recover: Recovering segment 87 with size 0 | "
+            "recoverSegment: recoverSegment 87, ... | "
+            "recoverSegment: Segment 87 replay complete | "
+            "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "
+            "recover: set tablet 123 10 19 to locator mock:host=master, id 2 | "
+            "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
+            "recover: set tablet 124 20 100 to locator mock:host=master, id 2 |"
+            " tabletsRecovered: called by masterId 2 with 4 tablets, "
+            "5 will entries",
             TestLog::get());
     }
 

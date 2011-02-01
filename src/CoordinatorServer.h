@@ -76,6 +76,13 @@ class CoordinatorServer : public Server {
               PingRpc::Response& respHdr,
               Transport::ServerRpc& rpc);
 
+    void setWill(const SetWillRpc::Request& reqHdr,
+                 SetWillRpc::Response& respHdr,
+                 Transport::ServerRpc& rpc);
+
+    bool setWill(uint64_t masterId, Buffer& buffer,
+                 uint32_t offset, uint32_t length);
+
     /**
      * The server id for the next server to register.
      * These are guaranteed to be unique.
