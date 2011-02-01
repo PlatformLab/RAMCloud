@@ -49,7 +49,7 @@ namespace RAMCloud {
  * non-terminal cache lines has a pointer to the next cache line instead of a
  * pointer to a referant.
  */
-template<typename T, uint64_t T::*keyField1, uint64_t T::*keyField2>
+template<typename T>
 class HashTable {
 
   public:
@@ -259,6 +259,12 @@ class HashTable {
           useHugeTlb(false), perfCounters(), numTypes(numTypes),
           typeBits(0)
     {
+        // HashTable<T> requires that T be a pointer. Assert that.
+        {
+            T assertion;
+            (void)*assertion;
+        }
+
         // Allocate space for a new hash table and set its entries to unused.
 
         uint64_t i, j;
@@ -322,7 +328,7 @@ class HashTable {
      * \return
      *      The address of the referant, or \a NULL if one doesn't exist.
      */
-    const T*
+    T
     lookup(uint64_t key1, uint64_t key2, uint8_t *retType = NULL)
     {
         uint64_t secondaryHash;
@@ -350,7 +356,7 @@ class HashTable {
      *      Whether the hash table contained the key specified.
      */
     bool
-    remove(uint64_t key1, uint64_t key2, const T** retPtr = NULL,
+    remove(uint64_t key1, uint64_t key2, T* retPtr = NULL,
         uint8_t *retType = NULL)
     {
         uint64_t secondaryHash;
@@ -359,7 +365,7 @@ class HashTable {
         entry = lookupEntry(bucket, secondaryHash, key1, key2);
         if (entry == NULL)
             return false;
-        const T* p = entry->getReferant(typeBits, retType);
+        T p = entry->getReferant(typeBits, retType);
         if (retPtr != NULL)
             *retPtr = p;
         entry->clear();
@@ -369,10 +375,6 @@ class HashTable {
     /**
      * Update the referant correspoding to a key in the hash table.
      * This is equivalent to, but faster than, #remove() followed by #replace().
-     * \param[in] key1
-     *      The first 64 bits of the key.
-     * \param[in] key2
-     *      The second 64 bits of the key. 
      * \param[in] ptr
      *      The address of the new referant.
      * \param[in] type
@@ -394,8 +396,7 @@ class HashTable {
      *      been created to reflect the location of the referant.
      */
     bool
-    replace(uint64_t key1, uint64_t key2, const T* ptr, uint8_t type = 0,
-        const T **retPtr = NULL, uint8_t *retType = NULL)
+    replace(T ptr, uint8_t type = 0, T* retPtr = NULL, uint8_t *retType = NULL)
     {
         CycleCounter cycles(STAT_REF(perfCounters.replaceCycles));
         uint64_t secondaryHash;
@@ -405,10 +406,13 @@ class HashTable {
 
         STAT_INC(perfCounters.replaceCalls);
 
+        uint64_t key1 = ptr->key1();
+        uint64_t key2 = ptr->key2();
+
         bucket = findBucket(key1, key2, &secondaryHash);
         entry = lookupEntry(bucket, secondaryHash, key1, key2);
         if (entry != NULL) {
-            const T* p = entry->getReferant(typeBits, retType);
+            T p = entry->getReferant(typeBits, retType);
             if (retPtr != NULL)
                 *retPtr = p;
             entry->setReferant(secondaryHash, ptr, type, typeBits);
@@ -453,7 +457,7 @@ class HashTable {
      *      in the HashTable).
      */
     uint64_t
-    forEach(void (*callback)(const T *, uint8_t, void *), void *cookie)
+    forEach(void (*callback)(T, uint8_t, void *), void *cookie)
     {
         uint64_t numCalls = 0;
 
@@ -465,7 +469,7 @@ class HashTable {
                     if (!e->isAvailable(typeBits) &&
                         e->getChainPointer(typeBits) == NULL) {
                         uint8_t type;
-                        const T *ptr = e->getReferant(typeBits, &type);
+                        T ptr = e->getReferant(typeBits, &type);
                         callback(ptr, type, cookie);
                         numCalls++;
                     }
@@ -523,7 +527,7 @@ class HashTable {
     }
 
     /**
-     * Return the number of entries, i.e. (key1, key2) -> T*, each cacheline
+     * Return the number of entries, i.e. (key1, key2) -> T, each cacheline
      * holds.
      */
     static uint32_t
@@ -697,8 +701,8 @@ class HashTable {
                     // The hash within the hash table entry matches, so with
                     // high probability this is the pointer we're looking for.
                     // To check, we must go to the object.
-                    const T* c = candidate->getReferant(typeBits, NULL);
-                    if (c->*keyField1 == key1 && c->*keyField2 == key2) {
+                    T c = candidate->getReferant(typeBits, NULL);
+                    if (c->key1() == key1 && c->key2() == key2) {
                         perfCounters.lookupEntryDist.storeSample(cycles.stop());
                         return candidate;
                     } else {
@@ -762,7 +766,7 @@ class HashTable {
          *      Number of bits consumed by the type parameter.
          */
         void
-        setReferant(uint64_t hash, const T* ptr, uint8_t type, uint8_t typeBits)
+        setReferant(uint64_t hash, T ptr, uint8_t type, uint8_t typeBits)
         {
             assert(ptr != NULL);
             pack(hash, false, reinterpret_cast<uint64_t>(ptr), type, typeBits);
@@ -805,14 +809,14 @@ class HashTable {
          * \return
          *      The address of the referant stored.
          */
-        const T*
+        T
         getReferant(uint8_t typeBits, uint8_t *type) const
         {
             UnpackedEntry ue = unpack(typeBits);
             assert(!ue.chain && ue.ptr != 0);
             if (type != NULL)
                 *type = ue.type;
-            return reinterpret_cast<const T*>(ue.ptr);
+            return reinterpret_cast<T>(ue.ptr);
         }
 
         /**

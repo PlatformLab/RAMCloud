@@ -223,11 +223,11 @@ whichPartition(const LogEntryType type,
     uint64_t tableId;
     uint64_t objectId;
     if (type == LOG_ENTRY_TYPE_OBJ) {
-        tableId = object->table;
-        objectId = object->id;
+        tableId = object->id.tableId;
+        objectId = object->id.objectId;
     } else { // LOG_ENTRY_TYPE_OBJTOMB:
-        tableId = tombstone->table;
-        objectId = tombstone->id;
+        tableId = tombstone->id.tableId;
+        objectId = tombstone->id.objectId;
     }
 
     ObjectTub<uint64_t> ret;
@@ -488,6 +488,38 @@ BackupServer::SegmentInfo::write(Buffer& src,
     src.copy(srcOffset, length, &segment[destOffset]);
     rightmostWrittenOffset = std::max(rightmostWrittenOffset,
                                       destOffset + length);
+}
+
+/**
+ * Scan the current Segment for a LogDigest. If it exists, return a pointer
+ * to it. The out parameter can be used to supply the number of bytes it
+ * occupies.
+ *
+ * \param[out] byteLength
+ *      Optional out parameter for the number of bytes the LogDigest
+ *      occupies.
+ * \return
+ *      NULL if no LogDigest exists in the Segment, else a valid pointer.
+ */
+const void*
+BackupServer::SegmentInfo::getLogDigest(uint32_t* byteLength)
+{
+    // If the Segment is malformed somehow, just ignore it. The
+    // coordinator will have to deal.
+    try {
+        SegmentIterator si(segment, segmentSize, true);
+        while (!si.isDone()) {
+            if (si.getType() == LOG_ENTRY_TYPE_LOGDIGEST) {
+                if (byteLength != NULL)
+                    *byteLength = si.getLength();
+                return si.getPointer();
+            }
+            si.next();
+        }
+    } catch (SegmentIteratorException& e) {
+        LOG(WARNING, "SegmentIterator constructor failed: %s", e.str().c_str());
+    }
+    return NULL;
 }
 
 // --- BackupServer::LoadOp ---
@@ -879,17 +911,43 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.partitionsLength, partitions);
 
+    uint64_t logDigestLastId = 0;
+    uint32_t logDigestLastLen = 0;
+    uint32_t logDigestBytes = 0;
+    const void* logDigestPtr = NULL;
+
     vector<SegmentInfo*> primarySegments;
     vector<SegmentInfo*> secondarySegments;
+
     for (SegmentsMap::iterator it = segments.begin();
          it != segments.end(); it++)
     {
         uint64_t masterId = it->first.masterId;
         SegmentInfo* info = it->second;
-        if (masterId == reqHdr.masterId)
+        if (masterId == reqHdr.masterId) {
             (info->primary ?
                 primarySegments :
                 secondarySegments).push_back(info);
+
+            // Obtain the LogDigest from the highest Segment Id of any
+            // #OPEN Segment.
+            uint64_t segmentId = info->segmentId;
+            if (info->isOpen() && segmentId >= logDigestLastId) {
+                const void* newDigest = NULL;
+                uint32_t newDigestBytes;
+                newDigest = info->getLogDigest(&newDigestBytes);
+                if (newDigest != NULL) {
+                    logDigestLastId = segmentId;
+                    logDigestLastLen = info->getRightmostWrittenOffset();
+                    logDigestBytes = newDigestBytes;
+                    logDigestPtr = newDigest;
+                    LOG(DEBUG, "Segment %lu's LogDigest queued for response",
+                        segmentId);
+                } else {
+                    LOG(WARNING, "Segment %lu missing LogDigest", segmentId);
+                }
+            }
+        }
     }
 
     // sort the primary entries
@@ -921,6 +979,15 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     respHdr.segmentIdCount = primarySegments.size() + secondarySegments.size();
     LOG(DEBUG, "Sending %u segment ids for this master",
         respHdr.segmentIdCount);
+
+    respHdr.digestSegmentId  = logDigestLastId;
+    respHdr.digestSegmentLen = logDigestLastLen;
+    respHdr.digestBytes = logDigestBytes;
+    if (respHdr.digestBytes > 0) {
+        void* out = new(&rpc.replyPayload, APPEND) char[respHdr.digestBytes];
+        memcpy(out, logDigestPtr, respHdr.digestBytes);
+        LOG(DEBUG, "Sent %u bytes of LogDigest to coord", respHdr.digestBytes);
+    }
 
     responder();
 

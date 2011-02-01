@@ -61,12 +61,56 @@ class BackupClient : public Client {
 
     class StartReadingData {
       public:
-        typedef vector<pair<uint64_t, uint32_t>> Result;
+        class Result {
+          public:
+            Result()
+                : segmentIdAndLength(),
+                  logDigestBuffer(NULL),
+                  logDigestBytes(0),
+                  logDigestSegmentId(-1),
+                  logDigestSegmentLen(-1)
+            {
+            }
+
+            ~Result()
+            {
+                if (logDigestBuffer != NULL)
+                    free(const_cast<void*>(logDigestBuffer));
+            }
+
+            void
+            set(const pair<uint64_t, uint32_t>* idLengthTuples,
+                uint64_t numTuples, const void* logDigestPtr,
+                uint32_t logDigestBytes, uint64_t logDigestSegmentId,
+                uint32_t logDigestSegmentLen)
+            {
+                for (uint64_t i = 0; i < numTuples; i++)
+                    segmentIdAndLength.push_back(idLengthTuples[i]);
+
+                if (logDigestPtr != NULL) {
+                    logDigestBuffer = xmalloc(logDigestBytes);
+                    memcpy(const_cast<void*>(logDigestBuffer), logDigestPtr,
+                        logDigestBytes);
+                    this->logDigestBytes = logDigestBytes;
+                    this->logDigestSegmentId = logDigestSegmentId;
+                    this->logDigestSegmentLen = logDigestSegmentLen;
+                }
+            }
+
+            vector<pair<uint64_t, uint32_t>> segmentIdAndLength;
+            const void* logDigestBuffer;
+            uint32_t logDigestBytes;
+            uint64_t logDigestSegmentId;
+            uint32_t logDigestSegmentLen;
+
+            DISALLOW_COPY_AND_ASSIGN(Result);
+        };
+
         StartReadingData(BackupClient& client,
                          uint64_t masterId,
                          const ProtoBuf::Tablets& partitions);
         bool isReady() { return client.isReady(state); }
-        Result operator()();
+        void operator()(Result* result);
         BackupClient& client;
         Buffer requestBuffer;
         Buffer responseBuffer;
@@ -75,10 +119,13 @@ class BackupClient : public Client {
         friend class BackupClient;
         DISALLOW_COPY_AND_ASSIGN(StartReadingData);
     };
-    StartReadingData::Result
-    startReadingData(uint64_t masterId, const ProtoBuf::Tablets& partitions)
+
+    // This method is currently only used for testing.
+    void
+    startReadingData(uint64_t masterId, const ProtoBuf::Tablets& partitions,
+        StartReadingData::Result* result)
     {
-        return StartReadingData(*this, masterId, partitions)();
+        StartReadingData(*this, masterId, partitions)(result);
     }
 
     class WriteSegment {

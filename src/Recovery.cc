@@ -54,56 +54,17 @@ Recovery::Recovery(uint64_t masterId,
     , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
+    , tasks(new ObjectTub<Task>[backupHosts.server_size()])
+    , digestList()
+    , segmentMap()
 {
     buildSegmentIdToBackups();
+    verifyCompleteLog();
 }
 
 Recovery::~Recovery()
 {
-}
-
-namespace {
-// Only used in Recovery::buildSegmentIdToBackups().
-struct Task {
-    Task(const ProtoBuf::ServerList::Entry& backupHost,
-         uint64_t crashedMasterId,
-         const ProtoBuf::Tablets& partitions)
-        : backupHost(backupHost)
-        , response()
-        , client()
-        , rpc()
-        , result()
-        , done()
-    {
-        response.construct();
-        client.construct(
-            transportManager.getSession(backupHost.service_locator().c_str()));
-        rpc.construct(*client, crashedMasterId, partitions);
-        LOG(DEBUG, "Starting startReadingData on %s",
-            backupHost.service_locator().c_str());
-    }
-
-    bool isDone() const { return done; }
-    bool isReady() { return rpc && rpc->isReady(); }
-
-    void
-    operator()()
-    {
-        result = (*rpc)();
-        rpc.destroy();
-        client.destroy();
-        response.destroy();
-        done = true;
-    }
-
-    const ProtoBuf::ServerList::Entry& backupHost;
-    ObjectTub<Buffer> response;
-    ObjectTub<BackupClient> client;
-    ObjectTub<BackupClient::StartReadingData> rpc;
-    BackupClient::StartReadingData::Result result;
-    bool done;
-    DISALLOW_COPY_AND_ASSIGN(Task);
-};
+    delete[] tasks;
 }
 
 /**
@@ -118,8 +79,6 @@ Recovery::buildSegmentIdToBackups()
     LOG(DEBUG, "Getting segment lists from backups and preparing "
                "them for recovery");
 
-    // Adjust this array size to hone the number of concurrent requests.
-    ObjectTub<Task> tasks[backupHosts.server_size()];
     auto backupHostsIt = backupHosts.server().begin();
     auto backupHostsEnd = backupHosts.server().end();
     const uint32_t maxActiveBackupHosts = 10;
@@ -146,7 +105,7 @@ Recovery::buildSegmentIdToBackups()
                 (*task)();
                 LOG(DEBUG, "%s returned %lu segment id/lengths",
                     task->backupHost.service_locator().c_str(),
-                    task->result.size());
+                    task->result.segmentIdAndLength.size());
             } catch (const TransportException& e) {
                 LOG(DEBUG, "Couldn't contact %s, "
                     "failure was: %s",
@@ -175,18 +134,95 @@ Recovery::buildSegmentIdToBackups()
         for (int i = 0; i < backupHosts.server_size(); ++i) {
             assert(tasks[i]);
             const auto& task = tasks[i];
-            if (slot >= task->result.size())
+            if (slot >= task->result.segmentIdAndLength.size())
                 continue;
             stillWorking = true;
             ProtoBuf::ServerList::Entry& backupHost = *backups.add_server();
             // Copy backup host into the new server list.
             backupHost = task->backupHost;
             // Augment it with the segment id.
-            uint64_t segmentId = task->result[slot].first;
+            uint64_t segmentId  = task->result.segmentIdAndLength[slot].first;
             backupHost.set_segment_id(segmentId);
+
+            // Keep a count of each segmentId seen so we can cross check with
+            // the LogDigest.
+            if (segmentMap.find(segmentId) != segmentMap.end())
+                segmentMap[segmentId] += 1;
+            else
+                segmentMap[segmentId] = 1;
         }
         if (!stillWorking)
             break;
+    }
+
+    for (int i = 0; i < backupHosts.server_size(); i++) {
+        const auto& task = tasks[i];
+
+        // If this backup returned a potential head of the log and it
+        // includes a LogDigest, set it aside for verifyCompleteLog().
+        if (task->result.logDigestBuffer != NULL) {
+            digestList.push_back({ task->result.logDigestSegmentId,
+                                   task->result.logDigestSegmentLen,
+                                   task->result.logDigestBuffer,
+                                   task->result.logDigestBytes });
+
+            if (task->result.logDigestSegmentId == (uint32_t)-1) {
+                LOG(ERROR, "segment %lu has a LogDigest, but len "
+                    "== -1!! from %s\n", task->result.logDigestSegmentId,
+                    task->backupHost.service_locator().c_str());
+            }
+        }
+    }
+}
+
+/*
+ * Check to see if the Log being recovered can actually be recovered.
+ * This requires us to use the Log head's LogDigest, which was returned
+ * in response to startReadingData. That gives us a complete list of
+ * the Segment IDs we need to do a full recovery. 
+ */
+void
+Recovery::verifyCompleteLog()
+{
+    // find the newest head
+    LogDigest* headDigest = NULL;
+
+    uint64_t headId = 0;
+    uint32_t headLen = 0;
+    foreach (auto digestTuple, digestList) {
+        uint64_t id = digestTuple.segmentId;
+        uint32_t len = digestTuple.segmentLength;
+        LogDigest *ld = &digestTuple.logDigest;
+
+        if (id > headId || (id == headId && len >= headLen)) {
+            headDigest = ld;
+            headId = id;
+            headLen = len;
+        }
+    }
+
+    if (headDigest == NULL) {
+        // we're seriously boned.
+        LOG(ERROR, "No log head & digest found!! Kiss your data good-bye!");
+        throw Exception(HERE, "ouch! data lost!");
+    }
+
+    LOG(DEBUG, "Segment %lu of length %u bytes is the head of the log",
+        headId, headLen);
+
+    // scan the backup map to determine if all needed segments are available
+    uint32_t missing = 0;
+    for (int i = 0; i < headDigest->getSegmentCount(); i++) {
+        uint64_t id = headDigest->getSegmentIds()[i];
+        if (segmentMap.find(id) == segmentMap.end()) {
+            LOG(WARNING, "Segment %lu is missing!", id);
+            missing++;
+        }
+    }
+
+    if (missing) {
+        LOG(ERROR, "%u segments in the digest, but not obtained from backups!",
+            missing);
     }
 }
 

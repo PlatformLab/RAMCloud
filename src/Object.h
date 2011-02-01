@@ -26,32 +26,19 @@ namespace RAMCloud {
     Object *name = new(name##_buf) Object(sizeof(name##_buf)); \
     assert((reinterpret_cast<uint64_t>(name) & 0x7) == 0);
 
-// forward decl
-class Object;
-class ObjectTombstone;
-
-class Objectable {
-  public:
-    Objectable(uint64_t table, uint64_t id) : table(table), id(id) {}
-    virtual ~Objectable() {}
-
-    const Object*
-    asObject() const
+struct ObjectIdentifier {
+    ObjectIdentifier(uint64_t tableId, uint64_t objectId)
+        : tableId(tableId),
+          objectId(objectId)
     {
-        return reinterpret_cast<const Object*>(this);
+        static_assert(sizeof(*this) == 16, "bad ObjectIdentifier size!");
     }
 
-    const ObjectTombstone *
-    asObjectTombstone() const
-    {
-        return reinterpret_cast<const ObjectTombstone*>(this);
-    }
-
-    uint64_t table;
-    uint64_t id;
+    uint64_t tableId;
+    uint64_t objectId;
 } __attribute__((__packed__));
 
-class Object : public Objectable {
+class Object {
   public:
     /*
      * This buf_size parameter is here to annoy you a little bit if you try
@@ -59,22 +46,43 @@ class Object : public Objectable {
      * realize sizeof(data) is bogus, and proceed to dynamically allocating
      * a buffer instead.
      */
-    explicit Object(size_t buf_size) : Objectable(-1, -1), version(-1),
-                                       checksum(0), data_len(0) {
+    explicit Object(size_t buf_size)
+        : id(-1, -1),
+          version(-1)
+    {
+        static_assert(sizeof(*this) == 24, "bad Object size!");
         assert(buf_size >= sizeof(*this));
     }
 
-    size_t size() const {
-        return sizeof(*this) + this->data_len;
+    /**
+     * Return the total byte size of an Object that contains the specified
+     * number of bytes in ``data''.  This exists because Objects do not
+     * contain a length field, since they typically exist in the Log, which
+     * must record that information anyhow.
+     */
+    uint64_t
+    objectLength(uint64_t dataBytes) const
+    {
+        return sizeof(*this) + dataBytes;
     }
 
+    /**
+     * Return the number of bytes of data an Object contains, given
+     * the total size of the Object.
+     */
+    uint64_t
+    dataLength(uint64_t totalObjectBytes) const
+    {
+        assert(totalObjectBytes >= sizeof(*this));
+        return totalObjectBytes - sizeof(*this);
+    }
+
+    struct ObjectIdentifier id;
     uint64_t version;
-    uint64_t checksum;
-    uint64_t data_len;
     char data[0];
 
   private:
-    Object() : Objectable(-1, -1), version(-1), checksum(0), data_len(0) { }
+    Object() : id(-1, -1), version(-1) { }
 
     // to use default constructor in arrays
     friend class BackupServerTest;
@@ -84,22 +92,24 @@ class Object : public Objectable {
     DISALLOW_COPY_AND_ASSIGN(Object); // NOLINT
 } __attribute__((__packed__));
 
-class ObjectTombstone : public Objectable {
+class ObjectTombstone {
   public:
-    uint64_t segmentId;
-    uint64_t objectVersion;
-
     ObjectTombstone(uint64_t segmentId, const Object *object)
-        : Objectable(object->table, object->id),
+        : id(object->id),
           segmentId(segmentId),
           objectVersion(object->version)
     {
+        static_assert(sizeof(*this) == 32, "bad Object size!");
     }
+
+    struct ObjectIdentifier id;
+    uint64_t segmentId;
+    uint64_t objectVersion;
 
   private:
     ObjectTombstone(uint64_t segmentId, uint64_t tableId,
                     uint64_t objectId, uint64_t objectVersion)
-        : Objectable(tableId, objectId),
+        : id(tableId, objectId),
           segmentId(segmentId),
           objectVersion(objectVersion)
     {
@@ -108,8 +118,6 @@ class ObjectTombstone : public Objectable {
     friend class BackupServerTest;
     friend class MasterTest;
 } __attribute__((__packed__));
-
-typedef HashTable<Objectable, &Objectable::table, &Objectable::id> ObjectMap;
 
 } // namespace RAMCloud
 

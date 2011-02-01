@@ -37,6 +37,7 @@ class RecoveryTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(RecoveryTest);
     CPPUNIT_TEST(test_buildSegmentIdToBackups);
+    CPPUNIT_TEST(test_verifyCompleteLog);
     CPPUNIT_TEST(test_start);
     CPPUNIT_TEST(test_start_notEnoughMasters);
     CPPUNIT_TEST_SUITE_END();
@@ -51,8 +52,11 @@ class RecoveryTest : public CppUnit::TestFixture {
         char *segMem;
         Segment* seg;
 
-        WriteValidSegment(uint64_t masterId, uint64_t segmentId,
-                          const uint32_t segmentSize, const string locator)
+        WriteValidSegment(uint64_t masterId,
+                          uint64_t segmentId,
+                          vector<uint64_t> digestIds,
+                          const uint32_t segmentSize,
+                          const string locator, bool close)
             : backupList()
             , mgr()
             , segMem()
@@ -66,7 +70,15 @@ class RecoveryTest : public CppUnit::TestFixture {
 
             segMem = new char[segmentSize];
             seg = new Segment(masterId, segmentId, segMem, segmentSize, mgr);
-            seg->close();
+
+            char temp[LogDigest::getBytesFromCount(digestIds.size())];
+            LogDigest ld(digestIds.size(), temp, sizeof(temp));
+            for (unsigned int i = 0; i < digestIds.size(); i++)
+                ld.addSegment(digestIds[i]);
+            seg->append(LOG_ENTRY_TYPE_LOGDIGEST, temp, sizeof(temp));
+
+            if (close)
+                seg->close();
         }
 
         ~WriteValidSegment()
@@ -166,12 +178,15 @@ class RecoveryTest : public CppUnit::TestFixture {
 
         // Two segs on backup1, one that overlaps with backup2
         segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, segmentSize, "mock:host=backup1"));
+            new WriteValidSegment(99, 88, { 88 }, segmentSize,
+                "mock:host=backup1", true));
         segmentsToFree.push_back(
-            new WriteValidSegment(99, 89, segmentSize, "mock:host=backup1"));
+            new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
+                "mock:host=backup1", false));
         // One seg on backup2
         segmentsToFree.push_back(
-            new WriteValidSegment(99, 88, segmentSize, "mock:host=backup2"));
+            new WriteValidSegment(99, 88, { 88 }, segmentSize,
+                "mock:host=backup2", true));
         // Zero segs on backup3
 
         masterHosts = new ProtoBuf::ServerList();
@@ -263,6 +278,57 @@ class RecoveryTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT_EQUAL("mock:host=backup1", backup.service_locator());
             CPPUNIT_ASSERT_EQUAL(ProtoBuf::BACKUP, backup.server_type());
         }
+    }
+
+    static bool
+    verifyCompleteLogFilter(string s)
+    {
+        return s == "verifyCompleteLog";
+    }
+
+    void
+    test_verifyCompleteLog()
+    {
+        ProtoBuf::Tablets tablets;
+        Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+
+        vector<Recovery::SegmentAndDigestTuple> oldDigestList =
+            recovery.digestList;
+        CPPUNIT_ASSERT_EQUAL(1, oldDigestList.size());
+
+        // no head is very bad news.
+        recovery.digestList.clear();
+        CPPUNIT_ASSERT_THROW(recovery.verifyCompleteLog(), Exception);
+
+        // ensure the newest head is chosen
+        recovery.digestList = oldDigestList;
+        recovery.digestList.push_back({ oldDigestList[0].segmentId + 1,
+            oldDigestList[0].segmentLength,
+            oldDigestList[0].logDigest.getRawPointer(),
+            oldDigestList[0].logDigest.getBytes() });
+        TestLog::Enable _(&verifyCompleteLogFilter);
+        recovery.verifyCompleteLog();
+        CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length "
+            "64 bytes is the head of the log", TestLog::get());
+
+        // ensure the longest newest head is chosen
+        TestLog::reset();
+        recovery.digestList.push_back({ oldDigestList[0].segmentId + 1,
+            oldDigestList[0].segmentLength + 1,
+            oldDigestList[0].logDigest.getRawPointer(),
+            oldDigestList[0].logDigest.getBytes() });
+        recovery.verifyCompleteLog();
+        CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length "
+            "65 bytes is the head of the log", TestLog::get());
+
+        // ensure we log missing segments
+        TestLog::reset();
+        recovery.segmentMap.erase(88);
+        recovery.verifyCompleteLog();
+        CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length 65 bytes "
+            "is the head of the log | verifyCompleteLog: Segment 88 is missing!"
+            " | verifyCompleteLog: 1 segments in the digest, but not obtained "
+            "from backups!", TestLog::get());
     }
 
     /// Create a master along with its config and clean them up on destruction.

@@ -247,8 +247,8 @@ TcpTransport::tryServerRecv(int fd, int16_t event, void *arg)
             ssize_t length = TcpTransport::recvCarefully(fd, buffer,
                     sizeof(buffer));
             if (length > 0) {
-                LOG(WARNING, "TcpTransport discarding %d unexpected bytes "
-                        "from client", static_cast<int>(length));
+                LOG(WARNING, "TcpTransport discarding %lu unexpected bytes "
+                        "from client", static_cast<uint64_t>(length));
             }
             return;
         }
@@ -318,9 +318,9 @@ TcpTransport::sendMessage(int fd, Buffer& payload)
                     "I/O error in TcpTransport::sendMessage", errno);
         }
         throw TransportException(HERE, format("Incomplete sendmsg in "
-                "TcpTransport::sendMessage: %d bytes sent out of %d",
-                static_cast<int>(r),
-                static_cast<int>(sizeof(header) + header.len)));
+                "TcpTransport::sendMessage: %lu bytes sent out of %lu",
+                static_cast<uint64_t>(r),
+                static_cast<uint64_t>(sizeof(header) + header.len)));
     }
 }
 
@@ -543,8 +543,8 @@ TcpTransport::TcpSession::tryReadReply(int fd, int16_t event, void *arg)
             ssize_t length = TcpTransport::recvCarefully(fd, buffer,
                     sizeof(buffer));
             if (length > 0) {
-                LOG(WARNING, "TcpTransport discarding %d unexpected bytes "
-                        "from server %s", static_cast<int>(length),
+                LOG(WARNING, "TcpTransport discarding %lu unexpected bytes "
+                        "from server %s", static_cast<uint64_t>(length),
                         session->address.toString().c_str());
             }
             return;

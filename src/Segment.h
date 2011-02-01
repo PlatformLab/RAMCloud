@@ -20,6 +20,7 @@
 #include "Common.h"
 #include "Crc32C.h"
 #include "LogTypes.h"
+#include "Object.h"
 
 namespace RAMCloud {
 
@@ -27,10 +28,11 @@ namespace RAMCloud {
 typedef Crc32C SegmentChecksum;
 
 struct SegmentEntry {
-    LogEntryType type;
-    uint32_t     length;
+    LogEntryType                type;
+    uint32_t                    length;
+    SegmentChecksum::ResultType checksum;
 } __attribute__((__packed__));
-static_assert(sizeof(SegmentEntry) == 8,
+static_assert(sizeof(SegmentEntry) == 12,
               "SegmentEntry has unexpected padding");
 
 struct SegmentHeader {
@@ -68,6 +70,138 @@ struct SegmentException : public Exception {
 // forward decl
 class Log;
 
+/**
+ * SegmentEntryHandle is used to refer to an entry written into a Segment.
+ * It has a few useful helper methods that access the SegmentEntry structure
+ * to extract the type and length information.
+ *
+ * This is always used by the pointer typedef. There are never actually any
+ * SegmentEntryHandles extant in the system. It's simply an accessor that
+ * points to a SegmentEntry.
+ */
+class _SegmentEntryHandle {
+  public:
+    /**
+     * Construct a SegmentEntryHandle that does not point to a
+     * valid entry.
+     */
+    _SegmentEntryHandle()
+    {
+        throw Exception(HERE, "_SegmentEntryHandles don't really exist!");
+    }
+
+    /**
+     * Return a pointer to the user data that this handle refers to.
+     */
+    const void*
+    userData() const
+    {
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(getSegmentEntry());
+        return (p + sizeof(SegmentEntry));
+    }
+
+    template<typename T>
+    const T*
+    userData() const
+    {
+        return reinterpret_cast<const T*>(userData());
+    }
+
+    /**
+     * Return the length of the user data referred to by this handle.
+     * This does #not include any Segment overheads.
+     */
+    uint32_t
+    length() const
+    {
+        return getSegmentEntry()->length;
+    }
+
+    /**
+     * Return the total length, including overhead, of this entry
+     * in the Segment.
+     */
+    uint32_t
+    totalLength() const
+    {
+        return length() + sizeof(SegmentEntry);
+    }
+
+    /**
+     * Return the type of the data written. This is the value that was
+     * passed to the Segment::append() method.
+     */
+    LogEntryType
+    type() const
+    {
+        return getSegmentEntry()->type;
+    }
+
+    SegmentChecksum::ResultType
+    generateChecksum() const
+    {
+        SegmentChecksum checksum;
+        SegmentEntry temp = *getSegmentEntry();
+        temp.checksum = 0;
+        checksum.update(&temp, sizeof(SegmentEntry));
+        checksum.update(userData(), length());
+        return checksum.getResult();
+    }
+
+    bool
+    isChecksumValid() const
+    {
+        return generateChecksum() == getSegmentEntry()->checksum;
+    }
+
+    /**
+     * Used by HashTable to get the first uint64_t key for supported
+     * types.
+     */
+    uint64_t
+    key1() const
+    {
+        if (type() == LOG_ENTRY_TYPE_OBJ) {
+            return reinterpret_cast<const Object*>(
+                userData())->id.tableId;
+        } else if (type() == LOG_ENTRY_TYPE_OBJTOMB) {
+            return reinterpret_cast<const ObjectTombstone*>(
+                userData())->id.tableId;
+        }
+        throw Exception(HERE, "not of object or object tombstone types");
+    }
+
+    /**
+     * Used by HashTable to get the second uint64_t key for supported
+     * types.
+     */
+    uint64_t
+    key2() const
+    {
+        if (type() == LOG_ENTRY_TYPE_OBJ) {
+            return reinterpret_cast<const Object*>(
+                userData())->id.objectId;
+        } else if (type() == LOG_ENTRY_TYPE_OBJTOMB) {
+            return reinterpret_cast<const ObjectTombstone*>(
+                userData())->id.objectId;
+        }
+        throw Exception(HERE, "not of object or object tombstone types");
+    }
+
+  private:
+    /*
+     * ``this'' always points to a SegmentEntry structure.
+     */
+    const SegmentEntry*
+    getSegmentEntry() const
+    {
+        if (this == NULL)
+            throw Exception(HERE, "NULL SegmentEntryHandle dereference");
+        return reinterpret_cast<const SegmentEntry*>(this);
+    }
+};
+typedef const _SegmentEntryHandle* SegmentEntryHandle;
+
 class Segment {
   public:
     /// The class used to calculate segment checksums.
@@ -79,31 +213,33 @@ class Segment {
             uint32_t capacity, BackupManager* backup = NULL);
     ~Segment();
 
-    const void      *append(LogEntryType type, const void *buffer,
-                            uint32_t length,
-                            uint64_t *lengthInSegment = NULL,
-                            uint64_t *offsetInSegment = NULL,
-                            bool sync = true);
-    void             free(const void *p);
-    void             close(bool sync = true);
-    void             sync();
-    const void      *getBaseAddress() const;
-    uint64_t         getId() const;
-    uint64_t         getCapacity() const;
-    uint64_t         appendableBytes() const;
-    int              getUtilisation() const;
+    SegmentEntryHandle append(LogEntryType type, const void *buffer,
+                              uint32_t length,
+                              uint64_t *lengthInSegment = NULL,
+                              uint64_t *offsetInSegment = NULL,
+                              bool sync = true);
+    void               free(SegmentEntryHandle entry);
+    void               close(bool sync = true);
+    void               sync();
+    const void        *getBaseAddress() const;
+    uint64_t           getId() const;
+    uint64_t           getCapacity() const;
+    uint64_t           appendableBytes() const;
+    int                getUtilisation() const;
 
     static const uint32_t  SEGMENT_SIZE = 8 * 1024 * 1024;
     static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
 
   private:
-    void             commonConstructor();
-    const void      *forceAppendBlob(const void *buffer, uint32_t length,
-                                     bool updateChecksum = true);
-    const void      *forceAppendWithEntry(LogEntryType type,
-                                          const void *buffer, uint32_t length,
-                                          uint64_t *lengthOfAppend = NULL,
-                                          bool sync = true);
+    void               commonConstructor();
+    const void        *forceAppendBlob(const void *buffer,
+                                       uint32_t length);
+    SegmentEntryHandle forceAppendWithEntry(LogEntryType type,
+                                            const void *buffer,
+                                            uint32_t length,
+                                            uint64_t *lengthOfAppend = NULL,
+                                            bool sync = true,
+                                            bool updateChecksum = true);
 
     BackupManager   *backup;         // makes operations on this segment durable
     void            *baseAddress;    // base address for the Segment

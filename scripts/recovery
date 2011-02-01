@@ -27,17 +27,17 @@ C=$proto:host=${host[0]},port=12246
 commonopts="-l DEBUG --logModule transport=NOTICE -C $C"
 
 xstart() {
-    xterm -e ssh -t -t $1 "umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3" &
+    xterm -e ssh -t -t $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3" &
     atexit "kill $!"
 }
 
 start() {
-    ssh $1 "umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts > $outputdir/$3 2>&1"  &
+    ssh $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts > $outputdir/$3 2>&1"  &
     atexit "kill $!"
 }
 
 startfg() {
-    ssh $1 "umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3"
+    ssh $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3"
     atexit "kill $!"
 }
 
