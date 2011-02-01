@@ -96,6 +96,19 @@ main(int argc, char *argv[])
     strncpy(testName, defaultTest, sizeof(testName));
     cmdline(argc, argv);
 
+    // First run gtest tests.
+    // set log levels for gtest unit tests
+    struct LoggerEnvironment : public ::testing::Environment {
+        void SetUp() { RAMCloud::logger.setLogLevels(RAMCloud::WARNING); }
+    };
+    ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
+
+    int r = 0;
+    if (googleOnly || !strcmp(testName, defaultTest))
+        r += RUN_ALL_TESTS();
+
+    // Next run cppunit tests.
+
     CppUnit::TextUi::TestRunner runner;
     CppUnit::TestFactoryRegistry& registry =
             CppUnit::TestFactoryRegistry::getRegistry();
@@ -126,19 +139,9 @@ main(int argc, char *argv[])
     // CppUnit's ProtectorChain::pop() will call delete on our protector, so I
     // guess they want us to use new to allocate it.
     runner.eventManager().pushProtector(new RAMCloudProtector());
-
     runner.addTest(registry.makeTest());
-
-    // set log levels for gtest unit tests
-    struct LoggerEnvironment : public ::testing::Environment {
-        void SetUp() { RAMCloud::logger.setLogLevels(RAMCloud::WARNING); }
-    };
-    ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
-
-    int r = 0;
     if (!googleOnly)
         r += !runner.run(testName, false, true, progress);
-    if (googleOnly || !strcmp(testName, defaultTest))
-        r += RUN_ALL_TESTS();
+
     return r;
 }
