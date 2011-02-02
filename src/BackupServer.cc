@@ -134,6 +134,7 @@ void
 BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
                                                  Buffer& buffer)
 {
+    uint64_t start = rdtsc();
     Lock lock(mutex);
 
     if (state != RECOVERING) {
@@ -156,15 +157,17 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
         }
     }
 
-    uint64_t start = rdtsc();
+#if !TESTING
+    uint64_t spinStart = rdtsc();
+#endif
     while (!isRecovered() && !recoveryException) {
         LOG(DEBUG, "<%lu,%lu> not yet recovered; waiting", masterId, segmentId);
         condition.wait(lock);
     }
     assert(state == RECOVERING);
 #if !TESTING
-    LOG(DEBUG, "Done spinning for segment <%lu,%lu>, waited %lu ms", masterId,
-        segmentId, cyclesToNanoseconds(rdtsc() - start) / 1000 / 1000);
+    LOG(DEBUG, "Done spinning for segment <%lu,%lu>, waited %lu us", masterId,
+        segmentId, cyclesToNanoseconds(rdtsc() - spinStart) / 1000);
 #endif
 
     if (recoveryException) {
@@ -190,9 +193,9 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
         Buffer::Chunk::appendToBuffer(&buffer, it.getData(), it.getLength());
     }
 #endif
-    LOG(DEBUG, "appendRecoverySegment <%lu,%lu>, took %lu ms",
+    LOG(DEBUG, "appendRecoverySegment <%lu,%lu>, took %lu us",
         masterId, segmentId,
-        cyclesToNanoseconds(rdtsc() - start) / 1000 / 1000);
+        cyclesToNanoseconds(rdtsc() - start) / 1000);
 }
 
 /**
@@ -538,6 +541,7 @@ BackupServer::LoadOp::LoadOp(SegmentInfo& info)
 void
 BackupServer::LoadOp::operator()()
 {
+    uint64_t startTime = rdtsc();
     SegmentInfo::Lock lock(info.mutex);
     ReferenceDecrementer<int> _(info.storageThreadCount);
 
@@ -560,6 +564,12 @@ BackupServer::LoadOp::operator()()
     }
     info.segment = segment;
     info.condition.notify_all();
+    uint64_t transferTime = cyclesToNanoseconds(rdtsc() - startTime);
+    LOG(DEBUG, "LoadOp of <%lu,%lu> took %lu us (%f MB/s)",
+        info.masterId, info.segmentId,
+        transferTime / 1000,
+        (info.segmentSize / (1 << 20)) /
+        (static_cast<double>(transferTime) / 1000000000lu));
 }
 
 // --- BackupServer::StoreOp ---
@@ -578,6 +588,7 @@ BackupServer::StoreOp::StoreOp(SegmentInfo& info)
 void
 BackupServer::StoreOp::operator()()
 {
+    uint64_t startTime = rdtsc();
     SegmentInfo::Lock lock(info.mutex);
     ReferenceDecrementer<int> _(info.storageThreadCount);
     LOG(DEBUG, "Storing segment <%lu,%lu>", info.masterId, info.segmentId);
@@ -593,6 +604,12 @@ BackupServer::StoreOp::operator()()
     info.segment = NULL;
     LOG(DEBUG, "Done storing segment <%lu,%lu>", info.masterId, info.segmentId);
     info.condition.notify_all();
+    uint64_t transferTime = cyclesToNanoseconds(rdtsc() - startTime);
+    LOG(DEBUG, "StoreOp of <%lu,%lu> took %lu us (%f MB/s)",
+        info.masterId, info.segmentId,
+        transferTime / 1000,
+        (info.segmentSize / (1 << 20)) /
+        (static_cast<double>(transferTime) / 1000000000lu));
 }
 
 // --- BackupServer::RecoverySegmentBuilder ---
@@ -652,15 +669,13 @@ BackupServer::RecoverySegmentBuilder::operator()()
     for (uint32_t i = 1;; i++) {
         assert(buildingInfo != loadingInfo);
         buildingInfo = loadingInfo;
-        if (i < infos.size()) {
-            loadingInfo = infos[i];
-            LOG(DEBUG, "Starting load of %uth segment", i);
-            loadingInfo->startLoading();
-        }
         buildingInfo->buildRecoverySegments(partitions);
         LOG(DEBUG, "Done building recovery segments for %u", i - 1);
         if (i == infos.size())
             break;
+        loadingInfo = infos[i];
+        LOG(DEBUG, "Starting load of %uth segment", i);
+        loadingInfo->startLoading();
     }
     LOG(DEBUG, "Done building recovery segments, thread exiting");
 }

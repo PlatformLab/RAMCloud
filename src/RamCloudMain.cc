@@ -79,6 +79,10 @@ runRecovery(RamCloud& client,
     // dump out coordinator rpc info
     client.ping();
 
+
+    LOG(NOTICE, "--- quiescing writes ---");
+    usleep(15 * 1000 * 1000);
+
     Transport::SessionRef session = client.objectFinder.lookup(tables[0], 0);
     LOG(NOTICE, "--- hinting that the server is down: %s ---",
         session->getServiceLocator().c_str());

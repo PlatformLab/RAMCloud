@@ -122,6 +122,10 @@ $(OBJDIR)/WillBenchmark: $(OBJDIR)/WillBenchmark.o $(SHARED_OBJFILES) $(SERVER_O
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
+$(OBJDIR)/BackupStorageBenchmark: $(OBJDIR)/BackupStorageBenchmark.o $(SHARED_OBJFILES) $(BACKUP_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) $(LIBS) -o $@ $^
+
 # Do not remove.
 tests-clean:
 

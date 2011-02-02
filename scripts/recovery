@@ -28,22 +28,22 @@ commonopts="-l DEBUG --logModule transport=NOTICE -C $C"
 
 xstart() {
     xterm -e ssh -t -t $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3" &
-    atexit "kill $!"
+    atexit "kill $!; rm /var/tmp/backup.log"
 }
 
 start() {
     ssh $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts > $outputdir/$3 2>&1"  &
-    atexit "kill $!"
+    atexit "kill $!; rm /var/tmp/backup.log"
 }
 
 startfg() {
     ssh $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3"
-    atexit "kill $!"
+    atexit "kill $!; rm /var/tmp/backup.log"
 }
 
 suffix=.$$.rclog
 
-# clean up any old logs
+# clean up any old logs and backup files
 rm $outputdir/*rclog
 
 start ${host[0]} coordinator coordinator$suffix
@@ -63,7 +63,7 @@ start ${host[0]} "server -m 2048 -r 1 -L $proto:host=${host[0]},port=12242" mast
 sleep .5
 start ${host[1]} "server -m 2048 -r 1 -L $proto:host=${host[1]},port=12247" master2$suffix
 
-# add in third master and pass "-s 2 -k 2" to this script to recover 2 partitions
+# add in third master and pass "-t 2 -k 2" to this script to recover 2 partitions
 #sleep .5
 #start ${host[2]} "server -m 2048 -r 1 -L $proto:host=${host[2]},port=12248" master3$suffix
 
@@ -73,10 +73,12 @@ startfg ${host[0]} "client -d $*" client$suffix
 
 #read
 
-# sloppy version of cleaup in case ssh -t -t doesn't do the trick
 for h in ${host[@]}; do
+    # sloppy version of cleaup in case ssh -t -t doesn't do the trick
     ssh $h "pkill backup; pkill server; pkill coordinator; pkill client"
-done
+    # clean up any backup files left
+    ssh $h "rm /var/tmp/backup.log > /dev/null 2>&1"
+done > /dev/null 2>&1
 
 sort $outputdir/*.rclog > $outputdir/rclog
 

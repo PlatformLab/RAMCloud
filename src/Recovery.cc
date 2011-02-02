@@ -155,6 +155,13 @@ Recovery::buildSegmentIdToBackups()
             break;
     }
 
+    LOG(DEBUG, "=== Replay script ===");
+    foreach (const auto& backup, backups.server()) {
+        LOG(DEBUG, "id: %lu, locator: %s, segmentId %lu",
+            backup.server_id(), backup.service_locator().c_str(),
+            backup.segment_id());
+    }
+
     for (int i = 0; i < backupHosts.server_size(); i++) {
         const auto& task = tasks[i];
 
