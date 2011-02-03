@@ -44,6 +44,7 @@ class UdpDriver : public Driver {
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
     virtual bool tryRecvPacket(Received *received);
+    virtual ServiceLocator getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator& serviceLocator) {
         return new IpAddress(serviceLocator);
@@ -75,6 +76,10 @@ class UdpDriver : public Driver {
     static int packetBufsFreed;
 
     static Syscall* sys;
+
+    /// The original ServiceLocator string. May be empty if the constructor
+    /// argument was NULL. May also differ if dynamic ports are used.
+    string locatorString;
 
     DISALLOW_COPY_AND_ASSIGN(UdpDriver);
 };

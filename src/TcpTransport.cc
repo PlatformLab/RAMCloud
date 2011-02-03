@@ -48,22 +48,25 @@ TcpTransport::TcpTransport(const ServiceLocator* serviceLocator)
     locatorString = serviceLocator->getOriginalString();
 
     listenSocket = sys->socket(PF_INET, SOCK_STREAM, 0);
-    if (listenSocket == -1)
+    if (listenSocket == -1) {
         throw TransportException(HERE,
                 "TcpTransport couldn't create listen socket", errno);
+    }
 
     int r = sys->fcntl(listenSocket, F_SETFL, O_NONBLOCK);
-    if (r != 0)
+    if (r != 0) {
         throw TransportException(HERE,
                 "TcpTransport couldn't set nonblocking on listen socket",
                 errno);
+    }
 
     int optval = 1;
     if (sys->setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, &optval,
-                           sizeof(optval)) != 0)
+                           sizeof(optval)) != 0) {
         throw TransportException(HERE,
                 "TcpTransport couldn't set SO_REUSEADDR on listen socket",
                 errno);
+    }
 
     if (sys->bind(listenSocket, &address.address,
             sizeof(address.address)) == -1) {
@@ -177,7 +180,7 @@ TcpTransport::AcceptHandler::operator() ()
     // At this point we have successfully opened a client connection.
     // Save information about it and create a handler for incoming
     // requests.
-    if (transport->sockets.capacity() <=
+    if (transport->sockets.size() <=
             static_cast<unsigned int>(acceptedFd)) {
         transport->sockets.resize(acceptedFd + 1);
     }
@@ -232,8 +235,8 @@ TcpTransport::RequestReadHandler::operator() ()
                     sizeof(buffer));
             if (length > 0) {
                 LOG(WARNING, "TcpTransport::RequestReadHandler discarding "
-                        "%d unexpected bytes from client",
-                        static_cast<int>(length));
+                        "%lu unexpected bytes from client",
+                        static_cast<uint64_t>(length));
             }
             return;
         }
@@ -298,13 +301,14 @@ TcpTransport::sendMessage(int fd, Buffer& payload)
 
     ssize_t r = sys->sendmsg(fd, &msg, MSG_NOSIGNAL);
     if (static_cast<size_t>(r) != (sizeof(header) + header.len)) {
-        if (r == -1)
+        if (r == -1) {
             throw TransportException(HERE,
                     "I/O error in TcpTransport::sendMessage", errno);
+        }
         throw TransportException(HERE, format("Incomplete sendmsg in "
-                "TcpTransport::sendMessage: %d bytes sent out of %d",
-                static_cast<int>(r),
-                static_cast<int>(sizeof(header) + header.len)));
+                "TcpTransport::sendMessage: %lu bytes sent out of %lu",
+                static_cast<uint64_t>(r),
+                static_cast<uint64_t>(sizeof(header) + header.len)));
     }
 }
 
@@ -532,9 +536,9 @@ TcpTransport::ReplyReadHandler::operator() ()
             ssize_t length = TcpTransport::recvCarefully(fd, buffer,
                     sizeof(buffer));
             if (length > 0) {
-                LOG(WARNING, "TcpTransport::ReplyReadHandler discarding "
-                        "%d unexpected bytes from server %s",
-                        static_cast<int>(length),
+                LOG(WARNING, "TcpTransport::ReplyReadHandler discarding %lu "
+                        "unexpected bytes from server %s",
+                        static_cast<uint64_t>(length),
                         session->address.toString().c_str());
             }
             return;
@@ -574,9 +578,8 @@ void
 TcpTransport::TcpClientRpc::wait()
 {
     while (!finished) {
-        if (session->fd == -1) {
+        if (session->fd == -1)
             throw TransportException(HERE, session->errorInfo);
-        }
         Dispatch::handleEvent();
     }
 }

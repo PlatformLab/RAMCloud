@@ -293,7 +293,7 @@ struct Do : public Test {
     {
     }
     void start() {
-        TestDescription::parseServiceLocators(command, &descriptions);
+        descriptions = TestDescription::parseServiceLocators(command);
         foreach (const TestDescription& desc, descriptions) {
             uint32_t repeat = desc.getOption("repeat", 1U);
             if (desc.getProtocol() == "wait") {

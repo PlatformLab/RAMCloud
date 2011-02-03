@@ -102,6 +102,9 @@ class Driver {
 
     virtual ~Driver();
 
+    /// \copydoc Transport::dumpStats
+    virtual void dumpStats() {}
+
     /**
      * The maximum number of bytes this Driver can transmit in a single call
      * to sendPacket including both header and payload.
@@ -162,6 +165,17 @@ class Driver {
      *      false otherwise.
      */
     virtual bool tryRecvPacket(Received *received) = 0;
+
+    /**
+     * Return the ServiceLocator for this Driver. If the Driver
+     * was not provided static parameters (e.g. fixed TCP or UDP port),
+     * this function will return a SerivceLocator with those dynamically
+     * allocated attributes.
+     *
+     * Enlisting the dynamic ServiceLocator with the Coordinator permits
+     * other hosts to contact dynamically addressed services.
+     */
+    virtual ServiceLocator getServiceLocator() = 0;
 };
 
 /**

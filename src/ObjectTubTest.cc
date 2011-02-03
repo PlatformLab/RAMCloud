@@ -93,4 +93,11 @@ TEST(ObjectTub, putInVector) {
     EXPECT_EQ(8, *v[2]);
 }
 
+TEST(ObjectTub, boolConversion) {
+    IntTub x;
+    EXPECT_FALSE(x);
+    x.construct(5);
+    EXPECT_TRUE(x);
+}
+
 }  // namespace RAMCloud

@@ -49,8 +49,11 @@ Syscall* UdpDriver::sys = &defaultSyscall;
  *      drivers.
  */
 UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
-    : socketFd(-1), packetBufPool(), packetBufsUtilized(0)
+    : socketFd(-1), packetBufPool(), packetBufsUtilized(0), locatorString()
 {
+    if (localServiceLocator != NULL)
+        locatorString = localServiceLocator->getOriginalString();
+
     int fd = sys->socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
         throw DriverException(HERE, "UdpDriver couldn't create socket",
@@ -174,6 +177,13 @@ UdpDriver::tryRecvPacket(Received *received)
     received->driver = this;
 
     return true;
+}
+
+// See docs in Driver class.
+ServiceLocator
+UdpDriver::getServiceLocator()
+{
+    return ServiceLocator(locatorString);
 }
 
 } // namespace RAMCloud

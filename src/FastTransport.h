@@ -81,6 +81,12 @@ class FastTransport : public Transport {
     explicit FastTransport(Driver* driver);
     ~FastTransport();
 
+    void dumpStats() {
+        driver->dumpStats();
+    }
+
+    ServiceLocator getServiceLocator();
+
     /**
      * Manages an entire request/response cycle from the client perspective.
      *

@@ -49,7 +49,7 @@ SegmentIterator::SegmentIterator(const Segment *segment)
       firstEntry(NULL),
       currentEntry(NULL)
 {
-    CommonConstructor(false);
+    commonConstructor(false);
 }
 
 /**
@@ -80,7 +80,7 @@ SegmentIterator::SegmentIterator(const void *buffer, uint64_t capacity,
       firstEntry(NULL),
       currentEntry(NULL)
 {
-    CommonConstructor(ignoreCapacityMismatch);
+    commonConstructor(ignoreCapacityMismatch);
 }
 
 /**
@@ -90,7 +90,7 @@ SegmentIterator::SegmentIterator(const void *buffer, uint64_t capacity,
  *      See the #SegmentIterator constructor.
  */
 void
-SegmentIterator::CommonConstructor(bool ignoreCapacityMismatch)
+SegmentIterator::commonConstructor(bool ignoreCapacityMismatch)
 {
     if (segmentCapacity < (sizeof(SegmentEntry) + sizeof(SegmentHeader))) {
         throw SegmentIteratorException(HERE,
@@ -135,15 +135,16 @@ SegmentIterator::CommonConstructor(bool ignoreCapacityMismatch)
 bool
 SegmentIterator::isEntryValid(const SegmentEntry *entry) const
 {
-    uintptr_t lastByte      = (uintptr_t)baseAddress + segmentCapacity - 1;
+    uintptr_t pastEnd       = (uintptr_t)baseAddress + segmentCapacity;
     uintptr_t entryStart    = (uintptr_t)entry;
-    uintptr_t entryLastByte = entryStart + entry->length + sizeof(*entry) - 1;
 
     // this is an internal error
     assert(entryStart >= (uintptr_t)baseAddress);
 
-    if (entryLastByte > lastByte)
+    if (entryStart + sizeof(*entry) > pastEnd ||
+        entryStart + sizeof(*entry) + entry->length > pastEnd) {
         return false;
+    }
 
     return true;
 }
@@ -266,6 +267,23 @@ SegmentIterator::getLogTime() const
 }
 
 /**
+ * Obtain a SegmentEntryHandle for this iterator.
+ * \return
+ *      The SegmentEntryHandle corresponding to the current entry in the
+ *      iteration.
+ * \throw
+ *      An exception is thrown if the iterator has no more entries.
+ */
+SegmentEntryHandle
+SegmentIterator::getHandle() const
+{
+    if (currentEntry == NULL)
+        throw SegmentIteratorException(HERE,
+                                       "getHandle after iteration complete");
+    return reinterpret_cast<SegmentEntryHandle>(currentEntry);
+}
+
+/**
  * Obtain a const void* to the data associated with the current SegmentEntry. 
  * \return
  *      A const void* to the current data.
@@ -297,22 +315,55 @@ SegmentIterator::getOffset() const
 }
 
 /**
+ * Generate the checksum for the current entry.
+ * \return
+ *      The current checksum for the current entry. If the entry
+ *      is corrupt, this may differ from what is stored.
+ * \throw SegmentIteratorException
+ *      An exception is thrown if the iterator has no more entries.
+ */
+SegmentChecksum::ResultType
+SegmentIterator::generateChecksum() const
+{
+    return getHandle()->generateChecksum();
+}
+
+/**
+ * Determine whether the current entry's checksum is valid or not.
+ * \return
+ *      true if the checksum is valid, else false.
+ * \throw SegmentIteratorException
+ *      An exception is thrown if the iterator has no more entries.
+ */
+bool
+SegmentIterator::isChecksumValid() const
+{
+    return getHandle()->isChecksumValid();
+}
+
+/**
  * Determine whether the checksum appended to the Segment this iterator
  * is associated with is correct. If a checksum does not exist, an
  * exception is thrown.
+ *
+ * XXX- This probably belongs in Segment.cc, not here.
+ *
  * \return
  *      true if the check is valid, else false.
  * \throw SegmentIteratorException
  *      An exception is thrown if no checksum is present in the Segment.
  */
 bool
-SegmentIterator::isChecksumValid() const
+SegmentIterator::isSegmentChecksumValid() const
 {
-    // find the checksum
+    // find the stored checksum and calculate what it should be as we go.
     SegmentIterator i(baseAddress, segmentCapacity);
+    SegmentChecksum checksum;
     while (!i.isDone()) {
         if (i.getType() == LOG_ENTRY_TYPE_SEGFOOTER)
             break;
+        SegmentChecksum::ResultType entryChecksum = i.generateChecksum();
+        checksum.update(&entryChecksum, sizeof(entryChecksum));
         i.next();
     }
 
@@ -324,8 +375,7 @@ SegmentIterator::isChecksumValid() const
     const SegmentFooter *f =
         reinterpret_cast<const SegmentFooter *>(i.getPointer());
 
-    return (f->checksum == SegmentIterator::generateChecksum(baseAddress,
-        segmentCapacity));
+    return (f->checksum == checksum.getResult());
 }
 
 } // namespace

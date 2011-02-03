@@ -60,8 +60,6 @@ try
     config.coordinatorLocator = optionParser.options.getCoordinatorLocator();
     config.localLocator = optionParser.options.getLocalLocator();
 
-    LOG(NOTICE, "server: Listening on %s", config.localLocator.c_str());
-
     if (cpu != -1) {
         if (!pinToCpu(cpu))
             DIE("server: Couldn't pin to core %d", cpu);
@@ -72,6 +70,8 @@ try
                                       hashTableMemory, &config);
 
     transportManager.initialize(config.localLocator.c_str());
+    config.localLocator = transportManager.getListeningLocatorsString();
+    LOG(NOTICE, "server: Listening on %s", config.localLocator.c_str());
 
     CoordinatorClient coordinator(
         optionParser.options.getCoordinatorLocator().c_str());

@@ -34,6 +34,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_hintServerDown_master);
     CPPUNIT_TEST(test_hintServerDown_backup);
     CPPUNIT_TEST(test_tabletsRecovered_basics);
+    CPPUNIT_TEST(test_setWill);
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
@@ -257,11 +258,20 @@ class CoordinatorTest : public CppUnit::TestFixture {
         stablet.set_user_data(
             reinterpret_cast<uint64_t>(new BaseRecovery()));
 
+        Tablets will;
+        Tablet& willEntry(*will.add_tablet());
+        willEntry.set_table_id(0);
+        willEntry.set_start_object_id(0);
+        willEntry.set_end_object_id(~(0ul));
+        willEntry.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
+        willEntry.set_user_data(0);
+
         {
             TestLog::Enable _(&tabletsRecoveredFilter);
-            client->tabletsRecovered(tablets);
+            client->tabletsRecovered(2, tablets, will);
             CPPUNIT_ASSERT_EQUAL(
-                "tabletsRecovered: called with 1 tablets | "
+                "tabletsRecovered: called by masterId 2 with 1 tablets, "
+                "1 will entries | "
                 "tabletsRecovered: Recovery complete on tablet "
                 "0,0,18446744073709551615 | "
                 "tabletsRecovered: Recovery completed | "
@@ -280,6 +290,35 @@ class CoordinatorTest : public CppUnit::TestFixture {
                              server->tabletMap.tablet(0).server_id());
     }
 
+    static bool
+    setWillFilter(string s) {
+        return s == "setWill";
+    }
+
+    void
+    test_setWill()
+    {
+        client->enlistServer(MASTER, "mock:host=master2");
+
+        ProtoBuf::Tablets will;
+        ProtoBuf::Tablets::Tablet& t(*will.add_tablet());
+        t.set_table_id(0);
+        t.set_start_object_id(235);
+        t.set_end_object_id(47234);
+        t.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
+        t.set_user_data(19);
+
+        TestLog::Enable _(&setWillFilter);
+        client->setWill(2, will);
+
+        CPPUNIT_ASSERT_EQUAL(
+            "setWill: Master 2 updated its Will (now 1 entries, was 0)",
+            TestLog::get());
+
+        // bad master id should fail
+        CPPUNIT_ASSERT_THROW(client->setWill(23481234, will),
+            InternalError);
+    }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorTest);
 };

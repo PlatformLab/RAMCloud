@@ -21,40 +21,13 @@
 namespace RAMCloud {
 
 enum LogEntryType {
+    LOG_ENTRY_TYPE_UNINIT    = 0x0,        // in case of unfinished segment
     LOG_ENTRY_TYPE_INVALID   = 0x21444142, // "BAD!" in little endian
     LOG_ENTRY_TYPE_SEGHEADER = 0x72646873, // "shdr" in little endian
     LOG_ENTRY_TYPE_SEGFOOTER = 0x72746673, // "sftr" in little endian
     LOG_ENTRY_TYPE_OBJ       = 0x216a626f, // "obj!" in little endian
     LOG_ENTRY_TYPE_OBJTOMB   = 0x626d6f74, // "tomb" in little endian
     LOG_ENTRY_TYPE_LOGDIGEST = 0x74736764  // "dgst" in little endian
-};
-
-/**
- * LogTime is a (Segment #, Segment Offset) tuple that represents the logical
- * time at which something was appended to the Log. It is currently only used
- * for computing table partitions.
- */
-typedef std::pair<uint64_t, uint64_t> LogTime;
-
-typedef void (*log_eviction_cb_t)(LogEntryType, const void *, const uint64_t,
-    const uint64_t, const LogTime, void *);
-
-class LogTypeCallback {
-  public:
-    LogTypeCallback(LogEntryType type,
-                     log_eviction_cb_t evictionCB, void *evictionArg)
-        : type(type),
-          evictionCB(evictionCB),
-          evictionArg(evictionArg)
-    {
-    }
-
-    const LogEntryType        type;
-    const log_eviction_cb_t   evictionCB;
-    void                     *evictionArg;
-
-  private:
-    DISALLOW_COPY_AND_ASSIGN(LogTypeCallback);
 };
 
 } // namespace

@@ -101,9 +101,20 @@ TEST_F(BackupManagerTest, freeSegment) {
     IGNORE_RESULT(mgr->openSegment(90, NULL, 0));
     mgr->freeSegment(90);
 
+    ProtoBuf::Tablets will;
     EXPECT_EQ(0U, mgr->segments.size());
-    EXPECT_EQ(0U, backup1->startReadingData(99).size());
-    EXPECT_EQ(0U, backup2->startReadingData(99).size());
+
+    {
+        BackupClient::StartReadingData::Result result;
+        backup1->startReadingData(99, will, &result);
+        EXPECT_EQ(0U, result.segmentIdAndLength.size());
+    }
+
+    {
+        BackupClient::StartReadingData::Result result;
+        backup2->startReadingData(99, will, &result);
+        EXPECT_EQ(0U, result.segmentIdAndLength.size());
+    }
 }
 
 TEST_F(BackupManagerTest, sync) {
@@ -234,20 +245,34 @@ TEST_F(BackupManagerTest, writeSegment) {
     Segment seg(99, 88, segMem, segmentSize, mgr.get());
     SegmentHeader header = { 99, 88, segmentSize };
     seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
+    Object object(sizeof(object));
+    object.id.objectId = 10;
+    object.id.tableId = 123;
+    object.version = 0;
+    seg.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
     seg.close();
+
+    ProtoBuf::Tablets will;
+    ProtoBuf::Tablets::Tablet& tablet(*will.add_tablet());
+    tablet.set_table_id(123);
+    tablet.set_start_object_id(0);
+    tablet.set_end_object_id(100);
+    tablet.set_state(ProtoBuf::Tablets::Tablet::RECOVERING);
+    tablet.set_user_data(0); // partition id
+
     foreach (auto v, mgr->segments) {
         BackupClient host(v.second);
         Buffer resp;
-        host.startReadingData(99);
-        host.getRecoveryData(99, 88, ProtoBuf::Tablets(), resp);
+        BackupClient::StartReadingData::Result result;
+        host.startReadingData(99, will, &result);
+        host.getRecoveryData(99, 88, 0, resp);
         auto* entry = resp.getStart<SegmentEntry>();
-        EXPECT_EQ(LOG_ENTRY_TYPE_SEGHEADER, entry->type);
-        EXPECT_EQ(sizeof(SegmentHeader), entry->length);
+        EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, entry->type);
+        EXPECT_EQ(sizeof(Object), entry->length);
         resp.truncateFront(sizeof(*entry));
-        auto* header = resp.getStart<SegmentHeader>();
-        EXPECT_EQ(99U, header->logId);
-        EXPECT_EQ(88U, header->segmentId);
-        EXPECT_EQ(segmentSize, header->segmentCapacity);
+        auto* obj = resp.getStart<Object>();
+        EXPECT_EQ(10U, obj->id.objectId);
+        EXPECT_EQ(123U, obj->id.tableId);
     }
 }
 

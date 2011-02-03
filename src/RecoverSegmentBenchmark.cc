@@ -17,6 +17,7 @@
 #include "ClientException.h"
 #include "Logging.h"
 #include "MasterServer.h"
+#include "Tablets.pb.h"
 
 namespace RAMCloud {
 
@@ -35,7 +36,7 @@ class RecoverSegmentBenchmark {
         config.localLocator = "bogus";
         config.coordinatorLocator = "bogus";
         MasterServer::sizeLogAndHashTable(logSize, hashTableSize, &config);
-        server = new MasterServer(config, NULL, NULL);
+        server = new MasterServer(config, NULL, 0);
     }
 
     ~RecoverSegmentBenchmark()
@@ -44,7 +45,7 @@ class RecoverSegmentBenchmark {
     }
 
     void
-    run(int numSegments, int objectBytes, int tombstoneMapBytes)
+    run(int numSegments, int objectBytes)
     {
         /*
          * Allocate numSegments Segments and fill them up objects of
@@ -55,30 +56,32 @@ class RecoverSegmentBenchmark {
         Segment *segments[numSegments];
         for (int i = 0; i < numSegments; i++) {
             void *p = xmalloc(Segment::SEGMENT_SIZE);
-            segments[i] = new Segment(0, 0, p, Segment::SEGMENT_SIZE, NULL);
+            segments[i] = new Segment((uint64_t)0, 0, p,
+                Segment::SEGMENT_SIZE, NULL);
             while (1) {
                 DECLARE_OBJECT(o, objectBytes);
-                o->id = nextObjId++;
-                o->table = 0;
+                o->id.objectId = nextObjId++;
+                o->id.tableId = 0;
                 o->version = 0;
-                o->checksum = 0;
-                o->data_len = objectBytes;
-                const void *so = segments[i]->append(LOG_ENTRY_TYPE_OBJ,
-                    o, o->size());
-                if (so == NULL)
+                SegmentEntryHandle seh = segments[i]->append(LOG_ENTRY_TYPE_OBJ,
+                    o, o->objectLength(objectBytes));
+                if (seh == NULL)
                     break;
                 numObjects++;
             }
             segments[i]->close();
         }
 
-        /*
-         * Caution: This is a little fragile. We don't want to have to call
-         * MasterServer::Recover(), which sets up the tombstone map, so do
-         * it manually.
-         */
-        ObjectTombstoneMap tombstoneMap(64 * 1024 * 1024 /
-            ObjectTombstoneMap::bytesPerCacheLine());
+        /* Update the list of Tablets */
+        ProtoBuf::Tablets_Tablet tablet;
+        tablet.set_table_id(0);
+        tablet.set_start_object_id(0);
+        tablet.set_end_object_id(nextObjId - 1);
+        tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+        tablet.set_server_id(server->serverId);
+        ProtoBuf::Tablets tablets;
+        *tablets.add_tablet() = tablet;
+        server->setTablets(tablets);
 
         /*
          * Now run a fake recovery.
@@ -87,7 +90,7 @@ class RecoverSegmentBenchmark {
         for (int i = 0; i < numSegments; i++) {
             Segment *s = segments[i];
             server->recoverSegment(s->getId(), s->getBaseAddress(),
-                s->getCapacity(), tombstoneMap);
+                s->getCapacity());
         }
         uint64_t ticks = rdtsc() - before;
 
@@ -121,7 +124,7 @@ main()
     for (int i = 0; objectBytes[i] != 0; i++) {
         printf("==========================\n");
         RAMCloud::RecoverSegmentBenchmark rsb("2048", "10%", numSegments);
-        rsb.run(numSegments, objectBytes[i], 64 * 1024 * 1024);
+        rsb.run(numSegments, objectBytes[i]);
     }
 
     return 0;

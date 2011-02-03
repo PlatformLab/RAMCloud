@@ -50,8 +50,8 @@ class Table {
      *      A client could have already placed an object here by fabricating the
      *      object ID.
      */
-    uint64_t AllocateKey(ObjectMap *hashTable) {
-        while (hashTable->lookup(tableId, nextKey))
+    uint64_t AllocateKey(HashTable<LogEntryHandle>* hashTable) {
+        while (hashTable->lookup(tableId, nextKey) != NULL)
             ++nextKey;
         return nextKey;
     }

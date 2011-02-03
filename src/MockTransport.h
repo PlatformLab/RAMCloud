@@ -30,8 +30,9 @@ namespace RAMCloud {
  */
 class MockTransport : public Transport {
   public:
-    MockTransport();
+    explicit MockTransport(const ServiceLocator *serviceLocator = NULL);
     virtual ~MockTransport() { }
+    virtual ServiceLocator getServiceLocator();
     virtual ServerRpc* serverRecv();
 
     virtual Transport::SessionRef
@@ -99,6 +100,10 @@ class MockTransport : public Transport {
     uint32_t serverSendCount;
     uint32_t clientSendCount;
     uint32_t clientRecvCount;
+
+    // ServiceLocator string passed to constructor, or empty if the
+    // constructor argument was NULL.
+    string locatorString;
 
     DISALLOW_COPY_AND_ASSIGN(MockTransport);
 };

@@ -30,6 +30,33 @@
 
 namespace RAMCloud {
 
+namespace {
+struct ServerListBuilder {
+    explicit ServerListBuilder(ProtoBuf::ServerList& servers)
+        : servers(servers)
+    {
+    }
+
+    ServerListBuilder&
+    operator()(ProtoBuf::ServerType type,
+               uint64_t id,
+               uint64_t segmentId,
+               const char* locator,
+               uint64_t userData = 0)
+    {
+        ProtoBuf::ServerList_Entry& server(*servers.add_server());
+        server.set_server_type(type);
+        server.set_server_id(id);
+        server.set_segment_id(segmentId);
+        server.set_service_locator(locator);
+        server.set_user_data(userData);
+        return *this;
+    }
+
+    ProtoBuf::ServerList& servers;
+};
+}
+
 class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(MasterTest);
     CPPUNIT_TEST(test_create_basics);
@@ -39,7 +66,10 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_read_badTable);
     CPPUNIT_TEST(test_read_noSuchObject);
     CPPUNIT_TEST(test_read_rejectRules);
+    CPPUNIT_TEST(test_detectSegmentRecoveryFailure_success);
+    CPPUNIT_TEST(test_detectSegmentRecoveryFailure_failure);
     CPPUNIT_TEST(test_recover_basics);
+    CPPUNIT_TEST(test_recover);
     CPPUNIT_TEST(test_recoverSegment);
     CPPUNIT_TEST(test_remove_basics);
     CPPUNIT_TEST(test_remove_badTable);
@@ -178,6 +208,34 @@ class MasterTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, version);
     }
 
+    void
+    test_detectSegmentRecoveryFailure_success()
+    {
+        typedef MasterServer MS;
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
+            (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+            (ProtoBuf::BACKUP, 123, 89, "mock:host=backup1", MS::REC_REQ_OK)
+            (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1", MS::REC_REQ_OK)
+        ;
+        detectSegmentRecoveryFailure(99, 3, backups);
+    }
+
+    void
+    test_detectSegmentRecoveryFailure_failure()
+    {
+        typedef MasterServer MS;
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
+            (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+        ;
+        CPPUNIT_ASSERT_THROW(detectSegmentRecoveryFailure(99, 3, backups),
+                             SegmentRecoveryFailedException);
+    }
+
     static bool
     recoverSegmentFilter(string s)
     {
@@ -208,42 +266,27 @@ class MasterTest : public CppUnit::TestFixture {
         appendTablet(tablets, 0, 124, 20, 100);
     }
 
-    void test_recover_basics() {
+    void
+    test_recover_basics()
+    {
         char segMem[segmentSize];
         BackupManager mgr(coordinator, 123, 1);
         Segment _(123, 87, segMem, segmentSize, &mgr);
-        // TODO(stutsman) for now just ensure that the arguments make it to
-        // BackupManager::recover, we'll do the full check of the
-        // returns later once the recovery procedures are complete
 
         ProtoBuf::Tablets tablets;
         createTabletList(tablets);
+        BackupClient::StartReadingData::Result result;
         BackupClient(transportManager.getSession("mock:host=backup1")).
-            startReadingData(123);
+            startReadingData(123, tablets, &result);
 
-        ProtoBuf::ServerList backups; {
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(123);
-            server.set_segment_id(87);
-            server.set_service_locator("mock:host=backup1");
-        }
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1");
 
         TestLog::Enable __(&recoverSegmentFilter);
-        client->recover(123, tablets, backups);
+        client->recover(123, 0, tablets, backups);
         CPPUNIT_ASSERT_EQUAL(
             "recover: Starting recovery of 4 tablets on masterId 2 | "
-            "recover: Recovering master 123, 4 tablets, 1 hosts | "
-            "recover: Waiting on recovery data for segment 87 from "
-            "mock:host=backup1 | "
-            "recover: Recovering segment 87 with size 65536 | "
-            "recoverSegment: recoverSegment 87, ... | "
-            "recoverSegment: Segment 87 replay complete | "
-            "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "
-            "recover: set tablet 123 10 19 to locator mock:host=master, id 2 | "
-            "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
-            "recover: set tablet 124 20 100 to locator mock:host=master, id 2 |"
-            " tabletsRecovered: called with 4 tablets | "
             "setTablets: Now serving tablets: | "
             "setTablets: table:                    0, "
                         "start:                    0, "
@@ -259,38 +302,193 @@ class MasterTest : public CppUnit::TestFixture {
                         "end  :                   29 | "
             "setTablets: table:                  124, "
                         "start:                   20, "
-                        "end  :                  100",
+                        "end  :                  100 | "
+            "recover: Recovering master 123, partition 0, 1 hosts | "
+            "recover: Starting getRecoveryData from mock:host=backup1 for "
+            "segment 87 (initial round of RPCs) | "
+            "recover: Waiting on recovery data for segment 87 from "
+            "mock:host=backup1 | "
+            "recover: Recovering segment 87 with size 0 | "
+            "recoverSegment: recoverSegment 87, ... | "
+            "recoverSegment: Segment 87 replay complete | "
+            "recover: Checking mock:host=backup1 off the list for 87 | "
+            "recover: Checking mock:host=backup1 off the list for 87 | "
+            "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "
+            "recover: set tablet 123 10 19 to locator mock:host=master, id 2 | "
+            "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
+            "recover: set tablet 124 20 100 to locator mock:host=master, "
+            "id 2 | "
+            "tabletsRecovered: called by masterId 2 with 4 tablets, "
+            "5 will entries",
             TestLog::get());
     }
 
+    /**
+     * Properties checked:
+     * 1) At most length of tasks number of RPCs are started initially
+     *    even with a longer backup list.
+     * 2) Ensures that if a segment is only requested in the initial
+     *    round of RPCs once.
+     * 3) Ensures that if an entry in the server list is skipped because
+     *    another RPC is outstanding for the same segment it is retried
+     *    if the earlier RPC fails.
+     * 4) Ensures that if an RPC succeeds for one copy of a segment other
+     *    RPCs for that segment don't occur.
+     * 5) A transport exception at construction time caused that entry
+     *    to be skipped and a new entry to be tried immediate, both
+     *    during initial RPC starts and following ones.
+     */
     void
+    test_recover()
+    {
+        char segMem[segmentSize];
+        BackupManager mgr(coordinator, 123, 1);
+        Segment __(123, 88, segMem, segmentSize, &mgr);
+
+        InMemoryStorage storage2{segmentSize, segmentFrames};
+        BackupServer backupServer2{backupConfig, *storage};
+        transport->addServer(backupServer2, "mock:host=backup2");
+        coordinator->enlistServer(BACKUP, "mock:host=backup2");
+
+        ProtoBuf::Tablets tablets;
+        createTabletList(tablets);
+        BackupClient::StartReadingData::Result result;
+        BackupClient(transportManager.getSession("mock:host=backup1")).
+            startReadingData(123, tablets, &result);
+
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            // Started in initial round of RPCs - eventually fails
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1")
+            // Skipped in initial round of RPCs (prior is in-flight)
+            // starts later after failure from earlier entry
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup2")
+            // Started in initial round of RPCs - eventually succeeds
+            (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1")
+            // Skipped in all rounds of RPCs (prior succeeds)
+            (ProtoBuf::BACKUP, 123, 88, "mock:host=backup2")
+            // Started in initial round of RPCs - eventually fails
+            (ProtoBuf::BACKUP, 123, 89, "mock:host=backup1")
+            // Fails to start in initial round of RPCs - bad locator
+            (ProtoBuf::BACKUP, 123, 90, "mock:host=backup3")
+            // Started in initial round of RPCs - eventually fails
+            (ProtoBuf::BACKUP, 123, 91, "mock:host=backup1")
+            // Fails to start in later rounds of RPCs - bad locator
+            (ProtoBuf::BACKUP, 123, 92, "mock:host=backup4")
+            // Started in later rounds of RPCs - eventually fails
+            (ProtoBuf::BACKUP, 123, 93, "mock:host=backup1")
+        ;
+
+        TestLog::Enable _;
+        CPPUNIT_ASSERT_THROW(server->recover(123, 0, backups),
+                             SegmentRecoveryFailedException);
+        // 1,2,3) 87 was requested from the first server list entry.
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 87 (initial round of RPCs)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(0).user_data());
+        // 2,3) 87 was *not* requested a second time in the initial RPC round
+        // but was requested later once the first failed.
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup2 "
+            "for segment 87 (after RPC completion)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(0).user_data());
+        // 1,4) 88 was requested from the third server list entry and
+        //      succeeded, which knocks the third and forth entries into
+        //      OK status, preventing the launch of the forth entry
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 88 (initial round of RPCs)",
+            TestLog::get());
+        assertMatchesPosixRegex(
+            "recover: Checking mock:host=backup1 off the list for 88 | "
+            "recover: Checking mock:host=backup2 off the list for 88",
+            TestLog::get());
+        // 1,4) 88 was requested NOT from the forth server list entry.
+        assertNotMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 88 (after RPC completion)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_OK,
+                             backups.server(2).user_data());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_OK,
+                             backups.server(3).user_data());
+        // 1) Checking to ensure RPCs for 87, 88, 89, 90 went first round
+        //    and that 91 got issued subsequently
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 89 (initial round of RPCs)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(4).user_data());
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup3 "
+            "for segment 90 (initial round of RPCs)",
+            TestLog::get());
+        // 5) Checks bad locators for initial RPCs are handled
+        assertMatchesPosixRegex(
+            "No transport found for this service locator: mock:host=backup3",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(5).user_data());
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 91 (initial round of RPCs)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(6).user_data());
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup4 "
+            "for segment 92 (after RPC completion)",
+            TestLog::get());
+        // 5) Checks bad locators for non-initial RPCs are handled
+        assertMatchesPosixRegex(
+            "No transport found for this service locator: mock:host=backup4",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(7).user_data());
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 93 (after RPC completion)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(8).user_data());
+    }
+
+    uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          uint64_t tblId, uint64_t objId, uint64_t version,
                          string objContents)
     {
-        Segment s(0, 0, segmentBuf, segmentCapacity, NULL);
+        Segment s((uint64_t)0, 0, segmentBuf, segmentCapacity, NULL);
 
         DECLARE_OBJECT(newObject, objContents.length() + 1);
-        newObject->id = objId;
-        newObject->table = tblId;
+        newObject->id.objectId = objId;
+        newObject->id.tableId = tblId;
         newObject->version = version;
-        newObject->data_len = objContents.length() + 1;
         strcpy(newObject->data, objContents.c_str()); // NOLINT fuck off
 
         const void *p = s.append(LOG_ENTRY_TYPE_OBJ, newObject,
-                                 newObject->size());
+            newObject->objectLength(objContents.length() + 1))->userData();
         assert(p != NULL);
         s.close();
+        return static_cast<const char*>(p) - segmentBuf;
     }
 
-    void
+    uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          ObjectTombstone *tomb)
     {
-        Segment s(0, 0, segmentBuf, segmentCapacity, NULL);
-        const void *p = s.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb));
+        Segment s((uint64_t)0, 0, segmentBuf, segmentCapacity, NULL);
+        const void *p = s.append(LOG_ENTRY_TYPE_OBJTOMB,
+            tomb, sizeof(*tomb))->userData();
         assert(p != NULL);
         s.close();
+        return static_cast<const char*>(p) - segmentBuf;
     }
 
     void
@@ -307,14 +505,11 @@ class MasterTest : public CppUnit::TestFixture {
     test_recoverSegment()
     {
         char seg[8192];
+        uint32_t len; // number of bytes in a recovery segment
         Buffer value;
         bool ret;
-        void *p = NULL;
         const ObjectTombstone *tomb1 = NULL;
         const ObjectTombstone *tomb2 = NULL;
-
-        ObjectTombstoneMap tombstoneMap(64 * 1024 * 1024 /
-            ObjectTombstoneMap::bytesPerCacheLine());
 
         ////////////////////////////////////////////////////////////////////
         // For Object recovery there are 3 major cases:
@@ -331,55 +526,53 @@ class MasterTest : public CppUnit::TestFixture {
         ////////////////////////////////////////////////////////////////////
 
         // Case 1a: Newer object already there; ignore object.
-        buildRecoverySegment(seg, sizeof(seg), 0, 2000, 1, "newer guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2000, 1, "newer guy");
+        server->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2000, "newer guy");
-        buildRecoverySegment(seg, sizeof(seg), 0, 2000, 0, "older guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2000, 0, "older guy");
+        server->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2000, "newer guy");
 
         // Case 1b: Older object already there; replace object.
-        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 0, "older guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2001, 0, "older guy");
+        server->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2001, "older guy");
-        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "newer guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "newer guy");
+        server->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2001, "newer guy");
 
         // Case 2a: Equal/newer tombstone already there; ignore object.
         ObjectTombstone t1(0, 0, 2002, 1);
-        p = xmalloc(sizeof(t1));
-        memcpy(p, &t1, sizeof(t1));
-        ret = tombstoneMap.replace(0, 2002,
-            reinterpret_cast<const ObjectTombstone *>(p));
+        LogEntryHandle logTomb1 = server->allocRecoveryTombstone(&t1);
+        ret = server->objectMap.replace(logTomb1);
         CPPUNIT_ASSERT_EQUAL(false, ret);
-        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "equal guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
-        buildRecoverySegment(seg, sizeof(seg), 0, 2001, 0, "older guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2002, 1, "equal guy");
+        server->recoverSegment(0, seg, len);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2002, 0, "older guy");
+        server->recoverSegment(0, seg, len);
+        CPPUNIT_ASSERT_EQUAL(logTomb1, server->objectMap.lookup(0, 2002));
+        server->removeTombstones();
         CPPUNIT_ASSERT_THROW(client->read(0, 2002, &value),
                              ObjectDoesntExistException);
 
         // Case 2b: Lesser tombstone already there; add object, remove tomb.
         ObjectTombstone t2(0, 0, 2003, 10);
-        p = xmalloc(sizeof(t2));
-        memcpy(p, &t2, sizeof(t2));
-        assert(p != NULL);
-        ret = tombstoneMap.replace(0, 2003,
-            reinterpret_cast<const ObjectTombstone *>(p));
+        LogEntryHandle logTomb2 = server->allocRecoveryTombstone(&t2);
+        ret = server->objectMap.replace(logTomb2);
         CPPUNIT_ASSERT_EQUAL(false, ret);
-        buildRecoverySegment(seg, sizeof(seg), 0, 2003, 11, "newer guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2003, 11, "newer guy");
+        server->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2003, "newer guy");
-        CPPUNIT_ASSERT_EQUAL(NULL, tombstoneMap.lookup(0, 2003));
+        CPPUNIT_ASSERT(server->objectMap.lookup(0, 2003) != NULL);
+        CPPUNIT_ASSERT(server->objectMap.lookup(0, 2003) != logTomb1);
+        CPPUNIT_ASSERT(server->objectMap.lookup(0, 2003) != logTomb2);
+        server->removeTombstones();
 
         // Case 3: No tombstone, no object. Recovered object always added.
-        CPPUNIT_ASSERT_EQUAL(NULL, tombstoneMap.lookup(0, 2004));
         CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2004));
-        buildRecoverySegment(seg, sizeof(seg), 0, 2004, 0, "only guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2004, 0, "only guy");
+        server->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2004, "only guy");
-        CPPUNIT_ASSERT_EQUAL(NULL, tombstoneMap.lookup(0, 2004));
 
         ////////////////////////////////////////////////////////////////////
         // For ObjectTombstone recovery there are the same 3 major cases:
@@ -396,65 +589,72 @@ class MasterTest : public CppUnit::TestFixture {
         ////////////////////////////////////////////////////////////////////
 
         // Case 1a: Newer object already there; ignore tombstone.
-        buildRecoverySegment(seg, sizeof(seg), 0, 2005, 1, "newer guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2005, 1, "newer guy");
+        server->recoverSegment(0, seg, len);
         ObjectTombstone t3(0, 0, 2005, 0);
-        buildRecoverySegment(seg, sizeof(seg), &t3);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), &t3);
+        server->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2005, "newer guy");
 
         // Case 1b: Equal/older object already there; discard and add tombstone.
-        buildRecoverySegment(seg, sizeof(seg), 0, 2006, 0, "equal guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2006, 0, "equal guy");
+        server->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2006, "equal guy");
         ObjectTombstone t4(0, 0, 2006, 0);
-        buildRecoverySegment(seg, sizeof(seg), &t4);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), &t4);
+        server->recoverSegment(0, seg, len);
+        server->removeTombstones();
+        CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2006));
         CPPUNIT_ASSERT_THROW(client->read(0, 2006, &value),
                              ObjectDoesntExistException);
-        buildRecoverySegment(seg, sizeof(seg), 0, 2007, 0, "older guy");
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+
+        len = buildRecoverySegment(seg, sizeof(seg), 0, 2007, 0, "older guy");
+        server->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2007, "older guy");
         ObjectTombstone t5(0, 0, 2007, 1);
-        buildRecoverySegment(seg, sizeof(seg), &t5);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
+        len = buildRecoverySegment(seg, sizeof(seg), &t5);
+        server->recoverSegment(0, seg, len);
+        server->removeTombstones();
+        CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2007));
         CPPUNIT_ASSERT_THROW(client->read(0, 2007, &value),
                              ObjectDoesntExistException);
 
         // Case 2a: Newer tombstone already there; ignore.
         ObjectTombstone t6(0, 0, 2008, 1);
-        buildRecoverySegment(seg, sizeof(seg), &t6);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
-        tomb1 = tombstoneMap.lookup(0, 2008);
+        len = buildRecoverySegment(seg, sizeof(seg), &t6);
+        server->recoverSegment(0, seg, len);
+        tomb1 = server->objectMap.lookup(0, 2008)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT(tomb1 != NULL);
         CPPUNIT_ASSERT_EQUAL(1, tomb1->objectVersion);
         ObjectTombstone t7(0, 0, 2008, 0);
-        buildRecoverySegment(seg, sizeof(seg), &t7);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
-        tomb2 = tombstoneMap.lookup(0, 2008);
+        len = buildRecoverySegment(seg, sizeof(seg), &t7);
+        server->recoverSegment(0, seg, len);
+        tomb2 = server->objectMap.lookup(0, 2008)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT_EQUAL(tomb1, tomb2);
 
         // Case 2b: Older tombstone already there; replace.
         ObjectTombstone t8(0, 0, 2009, 0);
-        buildRecoverySegment(seg, sizeof(seg), &t8);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
-        tomb1 = tombstoneMap.lookup(0, 2009);
+        len = buildRecoverySegment(seg, sizeof(seg), &t8);
+        server->recoverSegment(0, seg, len);
+        tomb1 = server->objectMap.lookup(0, 2009)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT(tomb1 != NULL);
         CPPUNIT_ASSERT_EQUAL(0, tomb1->objectVersion);
         ObjectTombstone t9(0, 0, 2009, 1);
-        buildRecoverySegment(seg, sizeof(seg), &t9);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
-        tomb2 = tombstoneMap.lookup(0, 2009);
-        CPPUNIT_ASSERT(tomb2 != NULL);
+        len = buildRecoverySegment(seg, sizeof(seg), &t9);
+        server->recoverSegment(0, seg, len);
+        tomb2 = server->objectMap.lookup(0, 2009)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT_EQUAL(1, tomb2->objectVersion);
 
         // Case 3: No tombstone, no object. Recovered tombstone always added.
         CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2010));
         ObjectTombstone t10(0, 0, 2010, 0);
-        buildRecoverySegment(seg, sizeof(seg), &t10);
-        server->recoverSegment(0, seg, sizeof(seg), tombstoneMap);
-        CPPUNIT_ASSERT(tombstoneMap.lookup(0, 2010) != NULL);
-        CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2010));
+        len = buildRecoverySegment(seg, sizeof(seg), &t10);
+        server->recoverSegment(0, seg, len);
+        CPPUNIT_ASSERT(server->objectMap.lookup(0, 2010) != NULL);
+        CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJTOMB,
+            server->objectMap.lookup(0, 2010)->type());
+        CPPUNIT_ASSERT_EQUAL(0, memcmp(&t10, server->objectMap.lookup(
+            0, 2010)->userData(), sizeof(t10)));
     }
 
     void test_remove_basics() {
@@ -818,54 +1018,36 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         Segment s2(99, 88, &segMem2, sizeof(segMem2), &mgr);
         s2.close();
 
-        BackupClient(transportManager.getSession("mock:host=backup1"))
-            .startReadingData(99);
-        BackupClient(transportManager.getSession("mock:host=backup2"))
-            .startReadingData(99);
-
         ProtoBuf::Tablets tablets;
         createTabletList(tablets);
 
-        ProtoBuf::ServerList backups; {
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(87);
-            server.set_service_locator("mock:host=backup1");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup1");
-
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup2");
+        {
+            BackupClient::StartReadingData::Result result;
+            BackupClient(transportManager.getSession("mock:host=backup1"))
+                .startReadingData(99, tablets, &result);
+        }
+        {
+            BackupClient::StartReadingData::Result result;
+            BackupClient(transportManager.getSession("mock:host=backup2"))
+                .startReadingData(99, tablets, &result);
         }
 
-        ObjectTombstoneMap tombstoneMap(64 * 1024 * 1024 /
-            ObjectTombstoneMap::bytesPerCacheLine());
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            (ProtoBuf::BACKUP, 99, 87, "mock:host=backup1")
+            (ProtoBuf::BACKUP, 99, 88, "mock:host=backup1")
+            (ProtoBuf::BACKUP, 99, 88, "mock:host=backup2")
+        ;
+
         MockRandom __(1); // triggers deterministic rand().
-        MockTSC ___(2); // triggers deterministic selection of backup locator
         TestLog::Enable _(&recoverSegmentFilter);
-        master->recover(99, tablets, backups, tombstoneMap);
-        CPPUNIT_ASSERT_EQUAL(
-            "recover: Recovering master 99, 4 tablets, 3 hosts | "
-            "recover: Waiting on recovery data for segment 88 from "
-            "mock:host=backup1 | "
-            "recover: Recovering segment 88 with size 65536 | "
-            "recoverSegment: recoverSegment 88, ... | "
-            "recoverSegment: Segment 88 replay complete | "
-            "recover: Waiting on recovery data for segment 87 from "
-            "mock:host=backup1 | "
-            "recover: Recovering segment 87 with size 65536 | "
-            "recoverSegment: recoverSegment 87, ... | "
-            "recoverSegment: Segment 87 replay complete",
-            TestLog::get());
+        master->recover(99, 0, backups);
+        CPPUNIT_ASSERT_EQUAL(0, TestLog::get().find(
+            "recover: Recovering master 99, partition 0, 3 hosts"));
+        CPPUNIT_ASSERT(string::npos != TestLog::get().find(
+            "recoverSegment: Segment 88 replay complete"));
+        CPPUNIT_ASSERT(string::npos != TestLog::get().find(
+            "recoverSegment: Segment 87 replay complete"));
     }
 
     void
@@ -873,33 +1055,26 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     {
         boost::scoped_ptr<MasterServer> master(createMasterServer());
 
-        // tests !wasRecovered case both in-loop and end-of-loop
         ProtoBuf::Tablets tablets;
-        ProtoBuf::ServerList backups; {
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(87);
-            server.set_service_locator("mock:host=backup1");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup1");
-        }
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            (ProtoBuf::BACKUP, 99, 87, "mock:host=backup1")
+            (ProtoBuf::BACKUP, 99, 88, "mock:host=backup1")
+        ;
 
-        ObjectTombstoneMap tombstoneMap(64 * 1024 * 1024 /
-            ObjectTombstoneMap::bytesPerCacheLine());
         MockRandom __(1); // triggers deterministic rand().
         TestLog::Enable _(&recoverSegmentFilter);
         CPPUNIT_ASSERT_THROW(
-            master->recover(99, tablets, backups, tombstoneMap),
+            master->recover(99, 0, backups),
             SegmentRecoveryFailedException);
         string log = TestLog::get();
         CPPUNIT_ASSERT_EQUAL(
-            "recover: Recovering master 99, 0 tablets, 2 hosts | "
-            "recover: Waiting on recovery data for segment 88 from "
+            "recover: Recovering master 99, partition 0, 2 hosts | "
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 87 (initial round of RPCs) | "
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 88 (initial round of RPCs) | "
+            "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | "
             "recover: getRecoveryData failed on mock:host=backup1, "
             "trying next backup; failure was: bad segment id",
@@ -908,133 +1083,5 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     DISALLOW_COPY_AND_ASSIGN(MasterRecoverTest);
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(MasterRecoverTest);
-
-class SegmentLocatorChooserTest : public CppUnit::TestFixture {
-
-    CPPUNIT_TEST_SUITE(SegmentLocatorChooserTest);
-    CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_markAsDown);
-    CPPUNIT_TEST_SUITE_END();
-
-  public:
-
-    SegmentLocatorChooserTest()
-    {
-    }
-
-    void
-    test_constructor()
-    {
-        ProtoBuf::ServerList backups; {
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(87);
-            server.set_service_locator("mock:host=backup1");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup2");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup3");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::MASTER); // MASTER!
-            server.set_server_id(99);
-            server.set_segment_id(90);
-            server.set_service_locator("mock:host=master1");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            // no segment id!
-            server.set_service_locator("mock:host=backup4");
-        }
-
-        logger.setLogLevels(ERROR);
-
-        SegmentLocatorChooser chooser(backups);
-        CPPUNIT_ASSERT_EQUAL(3, chooser.map.size());
-        MockTSC _(1);
-        CPPUNIT_ASSERT_EQUAL("mock:host=backup1", chooser.get(87));
-
-        CPPUNIT_ASSERT_EQUAL("mock:host=backup3", chooser.get(88));
-        MockTSC __(2);
-        CPPUNIT_ASSERT_EQUAL("mock:host=backup2", chooser.get(88));
-
-        CPPUNIT_ASSERT_THROW(chooser.get(90),
-                             SegmentRecoveryFailedException);
-
-        // ensure the segmentIdList gets constructed properly
-        bool contains87 = false;
-        bool contains88 = false;
-        uint32_t count = 0;
-        foreach (uint64_t id, chooser.getSegmentIdList()) {
-            switch (id) {
-            case 87:
-                contains87 = true;
-                break;
-            case 88:
-                contains88 = true;
-                break;
-            default:
-                CPPUNIT_ASSERT(false);
-                break;
-            }
-            count++;
-        }
-        CPPUNIT_ASSERT_EQUAL(2, count);
-        CPPUNIT_ASSERT(contains87);
-        CPPUNIT_ASSERT(contains88);
-    }
-
-    void
-    test_markAsDown()
-    {
-        ProtoBuf::ServerList backups; {
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(87);
-            server.set_service_locator("mock:host=backup1");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup2");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup3");
-        }
-
-        SegmentLocatorChooser chooser(backups);
-        const string& locator = chooser.get(87);
-        chooser.markAsDown(87, locator);
-        CPPUNIT_ASSERT_THROW(chooser.get(87),
-                             SegmentRecoveryFailedException);
-
-        const string& locator1 = chooser.get(88);
-        chooser.markAsDown(88, locator1);
-        const string& locator2 = chooser.get(88);
-        chooser.markAsDown(88, locator2);
-        CPPUNIT_ASSERT_THROW(chooser.get(87),
-                             SegmentRecoveryFailedException);
-    }
-
-
-  private:
-    DISALLOW_COPY_AND_ASSIGN(SegmentLocatorChooserTest);
-};
-CPPUNIT_TEST_SUITE_REGISTRATION(SegmentLocatorChooserTest);
 
 }  // namespace RAMCloud

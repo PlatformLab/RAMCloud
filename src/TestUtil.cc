@@ -326,13 +326,54 @@ assertMatchesPosixRegex(const string& pattern, const string& subject)
 }
 
 /**
+ * Fail the CPPUNIT test case if the given string does match the given POSIX
+ * regular expression.
+ * \param pattern
+ *      A POSIX regular expression.
+ * \param subject
+ *      The string that should not match \a pattern.
+ */
+void
+assertNotMatchesPosixRegex(const string& pattern, const string& subject)
+{
+    regex_t pregStorage;
+    int r;
+    bool fail = true;
+    string errorMsg;
+
+    r = regcomp(&pregStorage, pattern.c_str(), 0);
+    if (r != 0) {
+        errorMsg = "Pattern '";
+        errorMsg += pattern;
+        errorMsg += "' failed to compile: ";
+        errorMsg += friendlyRegerror(r, &pregStorage);
+    }
+
+    r = regexec(&pregStorage, subject.c_str(), 0, NULL, 0);
+    if (r != 0) {
+        errorMsg = "Pattern '";
+        errorMsg += pattern;
+        errorMsg += "' did not match subject '";
+        errorMsg += subject;
+        errorMsg += "'";
+        regfree(&pregStorage);
+        fail = false;
+    }
+
+    regfree(&pregStorage);
+
+    if (fail)
+        CPPUNIT_FAIL(errorMsg);
+}
+
+/**
  * Delay execution for a while.
  *
  * \param delayMs
  *      How long to sleep, in milliseconds.
  */
-
-void sleepMs(uint32_t delayMs)
+void
+sleepMs(uint32_t delayMs)
 {
     fd_set set;
     struct timeval delay;

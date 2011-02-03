@@ -82,9 +82,8 @@ class ServiceLocator {
         string key;
     };
 
-    static void
-    parseServiceLocators(const string& serviceLocator,
-                         std::vector<ServiceLocator>* locators);
+    static vector<ServiceLocator>
+    parseServiceLocators(const string& serviceLocator);
 
     explicit ServiceLocator(const string& serviceLocator);
 
@@ -223,6 +222,7 @@ template<> const char*
 ServiceLocator::getOption(const string& key,
                           const char* defaultValue) const;
 
+typedef std::vector<ServiceLocator> ServiceLocatorList;
 
 } // end RAMCloud
 

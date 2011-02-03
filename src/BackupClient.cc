@@ -76,9 +76,9 @@ BackupClient::freeSegment(uint64_t masterId,
  * \param segmentId
  *      The id of the segment to recover which the crashed master had stored
  *      on this backup.
- * \param tablets
- *      A set of table is and object id ranges which is used to select
- *      which objects are send back as part of the recovery segment.
+ * \param partitionId
+ *      Which partition of those send are part of the will on
+ *      startReadingData() to fetch the recovery segment of.
  * \param[out] responseBuffer
  *      An empty Buffer which will contain the filtered recovery segment
  *      upon return.
@@ -86,7 +86,7 @@ BackupClient::freeSegment(uint64_t masterId,
 BackupClient::GetRecoveryData::GetRecoveryData(BackupClient& client,
                                                uint64_t masterId,
                                                uint64_t segmentId,
-                                               const ProtoBuf::Tablets& tablets,
+                                               uint64_t partitionId,
                                                Buffer& responseBuffer)
     : client(client)
     , requestBuffer()
@@ -97,8 +97,7 @@ BackupClient::GetRecoveryData::GetRecoveryData(BackupClient& client,
         reqHdr(client.allocHeader<BackupGetRecoveryDataRpc>(requestBuffer));
     reqHdr.masterId = masterId;
     reqHdr.segmentId = segmentId;
-    reqHdr.tabletsLength = ProtoBuf::serializeToResponse(requestBuffer,
-                                                         tablets);
+    reqHdr.partitionId = partitionId;
     Transport::SessionRef session(client.getSession());
     state = client.send<BackupGetRecoveryDataRpc>(session,
                                                   requestBuffer,
@@ -146,28 +145,70 @@ BackupClient::ping()
 }
 
 /**
- * Begin reading the objects stored for the given server from disk.
+ * Begin reading the objects stored for the given server from disk and
+ * split them into recovery segments.
  *
+ * \param client
+ *      The BackupClient whose Session should be used for the call.
  * \param masterId
  *      The id of the master whose data is to be recovered.
- * \return
- *      A set of segment IDs for that server which will be read from disk.
+ * \param partitions
+ *      The will of the crashed master which is used to determine how to
+ *      build recovery segments from the backup's stored segments.
  */
-vector<uint64_t>
-BackupClient::startReadingData(uint64_t masterId)
+BackupClient::StartReadingData::StartReadingData(
+    BackupClient& client,
+    uint64_t masterId,
+    const ProtoBuf::Tablets& partitions)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
 {
-    Buffer req, resp;
     BackupStartReadingDataRpc::Request&
-        reqHdr(allocHeader<BackupStartReadingDataRpc>(req));
+        reqHdr(client.allocHeader<BackupStartReadingDataRpc>(requestBuffer));
     reqHdr.masterId = masterId;
-    const BackupStartReadingDataRpc::Response&
-        respHdr(sendRecv<BackupStartReadingDataRpc>(session, req, resp));
-    checkStatus(HERE);
+    reqHdr.partitionsLength = ProtoBuf::serializeToResponse(requestBuffer,
+                                                            partitions);
+    Transport::SessionRef session(client.getSession());
+    state = client.send<BackupStartReadingDataRpc>(session,
+                                                   requestBuffer,
+                                                   responseBuffer);
+}
+
+/**
+ * \param[out] result
+ *      Return a set of segment IDs for masterId which will be read from disk
+ *      along with their written lengths, as well as a buffer containing
+ *      the LogDigest of the newest open Segment from this masterId, if one
+ *      exists.
+ */
+void
+BackupClient::StartReadingData::operator()(
+    BackupClient::StartReadingData::Result* result)
+{
+    const BackupStartReadingDataRpc::Response& respHdr(
+        client.recv<BackupStartReadingDataRpc>(state));
+    client.checkStatus(HERE);
 
     uint64_t segmentIdCount = respHdr.segmentIdCount;
-    resp.truncateFront(sizeof(respHdr));
-    uint64_t const * segmentIdsRaw = resp.getStart<uint64_t>();
-    return vector<uint64_t>(segmentIdsRaw, segmentIdsRaw + segmentIdCount);
+    uint32_t digestBytes = respHdr.digestBytes;
+    uint64_t digestSegmentId = respHdr.digestSegmentId;
+    uint64_t digestSegmentLen = respHdr.digestSegmentLen;
+
+    responseBuffer.truncateFront(sizeof(respHdr));
+    auto const* segmentIdsRaw =
+        responseBuffer.getStart<pair<uint64_t, uint32_t>>();
+
+    const void* digestPtr = NULL;
+    if (digestBytes > 0) {
+        responseBuffer.truncateFront(segmentIdCount *
+            sizeof(pair<uint64_t, uint32_t>));
+        digestPtr = responseBuffer.getStart<const void*>();
+    }
+
+    result->set(segmentIdsRaw, segmentIdCount, digestPtr, digestBytes,
+        digestSegmentId, digestSegmentLen);
 }
 
 /**

@@ -22,6 +22,7 @@
 
 namespace RAMCloud {
 
+
 /**
  * Constructor for Log.
  * \param[in] logId
@@ -40,29 +41,29 @@ namespace RAMCloud {
  */
 Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
         BackupManager *backup)
-    : logId(logId),
-      logCapacity(logCapacity),
+    : stats(),
+      logId(logId),
+      logCapacity((logCapacity / segmentCapacity) * segmentCapacity),
       segmentCapacity(segmentCapacity),
+      segmentMemory(this->logCapacity),
       segmentFreeList(),
       nextSegmentId(0),
       maximumAppendableBytes(0),
+      useCleaner(true),
       cleaner(this),
       head(NULL),
       callbackMap(),
       activeIdMap(),
       activeBaseAddressMap(),
-      backup(backup),
-      bytesAppended(0)
+      backup(backup)
 {
-    uint64_t numSegments = logCapacity / segmentCapacity;
-    if (numSegments < 1) {
+    if (logCapacity == 0) {
         throw LogException(HERE,
                            "insufficient Log memory for even one segment!");
     }
-
-    for (uint64_t i = 0; i < numSegments; i++) {
-        void *p = xmemalign(segmentCapacity, segmentCapacity);
-        addSegmentMemory(p);
+    for (uint64_t i = 0; i < logCapacity / segmentCapacity; i++) {
+        addSegmentMemory(static_cast<char*>(segmentMemory.get()) +
+                         i * segmentCapacity);
     }
 }
 
@@ -71,21 +72,46 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
  */
 Log::~Log()
 {
-    // NB: don't confuse Log::free() with ::free()!
-
     foreach (ActiveIdMap::value_type& idSegmentPair, activeIdMap) {
         Segment* segment = idSegmentPair.second;
         if (segment == head)
             segment->close(true);
-        ::free(const_cast<void *>(segment->getBaseAddress()));
         delete segment;
     }
 
-    foreach (void* segment, segmentFreeList)
-        ::free(segment);
-
     foreach (CallbackMap::value_type& typeCallbackPair, callbackMap)
         delete typeCallbackPair.second;
+}
+
+/**
+ * Allocate a new head Segment and write the LogDigest before returning.
+ * The current head is not replaced; that is up to the caller.
+ *
+ * \throw LogException
+ *      If no Segments are free.
+ */
+Segment*
+Log::allocateHead()
+{
+    Segment* newHead = new Segment(this, allocateSegmentId(), getFromFreeList(),
+        segmentCapacity, backup);
+
+    uint32_t segmentCount = activeIdMap.size() + 1;
+    uint32_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
+    char temp[digestBytes];
+    LogDigest ld(segmentCount, temp, digestBytes);
+
+    foreach (ActiveIdMap::value_type& idSegmentPair, activeIdMap) {
+        Segment* segment = idSegmentPair.second;
+        ld.addSegment(segment->getId());
+    }
+    ld.addSegment(newHead->getId());
+
+    SegmentEntryHandle seh = newHead->append(LOG_ENTRY_TYPE_LOGDIGEST,
+        temp, digestBytes);
+    assert(seh != NULL);
+
+    return newHead;
 }
 
 /**
@@ -153,81 +179,80 @@ Log::getSegmentId(const void *p)
  *      where sync is true or when the segment is closed.  This defaults
  *      to true.
  * \return
- *      On success, a const pointer into the Log's backing memory with
- *      the same contents as `buffer'.
+ *      A LogEntryHandle is returned, which points to the ``buffer''
+ *      written. The handle is guaranteed to be valid, i.e. non-NULL.
  * \throw LogException
  *      An exception is thrown if the append exceeds the maximum permitted
  *      append length, as returned by #getMaximumAppendableBytes, or the log
  *      ran out of space.
  */
-const void *
+LogEntryHandle
 Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     uint64_t *lengthInLog, LogTime *logTime, bool sync)
 {
     if (length > maximumAppendableBytes)
         throw LogException(HERE, "append exceeded maximum possible length");
 
-    const void *p;
+    SegmentEntryHandle seh;
     uint64_t segmentOffset;
 
     if (head != NULL) {
-        p = head->append(type, buffer, length, lengthInLog,
+        seh = head->append(type, buffer, length, lengthInLog,
             &segmentOffset, sync);
-        if (p != NULL) {
+        if (seh != NULL) {
             // entry was appended to head segment
-            bytesAppended += sizeof(SegmentEntry) + length;
             if (logTime != NULL)
                 *logTime = LogTime(head->getId(), segmentOffset);
-            return p;
+            stats.totalAppends++;
+            return seh;
         }
         // head segment is full
         // allocate the next segment, /then/ close this one
-        Segment* nextHead = new Segment(logId, allocateSegmentId(),
-                                        getFromFreeList(),
-                                        segmentCapacity, backup);
+        Segment* nextHead = allocateHead();
+
         head->close(false); // an exception here would be problematic...
 #ifdef PERF_DEBUG_RECOVERY_SYNC_BACKUP
         head->sync();
 #endif
         head = nextHead;
-        bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentFooter);
     } else {
         // allocate the first segment
-        head = new Segment(logId, allocateSegmentId(), getFromFreeList(),
-                           segmentCapacity, backup);
+        head = allocateHead();
     }
-    bytesAppended += sizeof(SegmentEntry) + sizeof(SegmentHeader);
     addToActiveMaps(head);
 
     // append the entry
-    p = head->append(type, buffer, length, lengthInLog, &segmentOffset, sync);
-    assert(p != NULL);
+    seh = head->append(type, buffer, length, lengthInLog, &segmentOffset, sync);
+    assert(seh != NULL);
     if (logTime != NULL)
         *logTime = LogTime(head->getId(), segmentOffset);
-    bytesAppended += sizeof(SegmentEntry) + length;
 
-    cleaner.clean(1);
-    return p;
+    if (useCleaner)
+        cleaner.clean(1);
+    stats.totalAppends++;
+    return seh;
 }
 
 /**
  * Mark bytes in Log as freed. This simply maintains a per-Segment tally that
  * can be used to compute utilisation of individual Log Segments.
- * \param[in] p
- *      A pointer into the Segment as returned by an #append call.
+ * \param[in] entry
+ *      A LogEntryHandle as returned by an #append call.
  * \throw LogException
  *      An exception is thrown if the pointer provided is not valid.
  */
 void
-Log::free(const void *p)
+Log::free(LogEntryHandle entry)
 {
-    const void *base = getSegmentBaseAddress(p);
+    const void *base = getSegmentBaseAddress(
+        reinterpret_cast<const void*>(entry));
 
     BaseAddressMap::const_iterator it = activeBaseAddressMap.find(base);
     if (it == activeBaseAddressMap.end())
         throw LogException(HERE, "free on invalid pointer");
     Segment *s = it->second;
-    s->free(p);
+    s->free(entry);
+    stats.totalFrees++;
 }
 
 /**
@@ -279,11 +304,13 @@ Log::getMaximumAppendableBytes() const
     return maximumAppendableBytes;
 }
 
-/// Return total bytes concatenated to the log so far including overhead.
+/**
+ * Return total bytes concatenated to the Log so far including overhead.
+ */
 uint64_t
 Log::getBytesAppended() const
 {
-    return bytesAppended;
+    return stats.totalBytesAppended;
 }
 
 ////////////////////////////////////
@@ -304,7 +331,7 @@ Log::addSegmentMemory(void *p)
     addToFreeList(p);
 
     if (maximumAppendableBytes == 0) {
-        Segment s(0, 0, p, segmentCapacity);
+        Segment s((uint64_t)0, 0, p, segmentCapacity);
         maximumAppendableBytes = s.appendableBytes();
     }
 }
@@ -385,8 +412,56 @@ Log::allocateSegmentId()
 const void *
 Log::getSegmentBaseAddress(const void *p)
 {
-    uintptr_t base = (uintptr_t)p;
-    return (const void *)(base - (base % segmentCapacity));
+    const char* logStart = reinterpret_cast<const char*>(segmentMemory.get());
+    const char* base = reinterpret_cast<const char*>(p);
+    return base - ((base - logStart) % segmentCapacity);
+}
+
+/**
+ * Obtain the 64-bit identifier assigned to this Log.
+ */
+uint64_t
+Log::getId() const
+{
+    return logId;
+}
+
+/**
+ * Obtain the capacity of this Log in bytes.
+ */
+uint64_t
+Log::getCapacity() const
+{
+    return logCapacity;
+}
+
+////////////////////////////////////
+// LogStats subclass
+////////////////////////////////////
+
+Log::LogStats::LogStats()
+    : totalBytesAppended(0),
+      totalAppends(0),
+      totalFrees(0)
+{
+}
+
+uint64_t
+Log::LogStats::getBytesAppended() const
+{
+    return totalBytesAppended;
+}
+
+uint64_t
+Log::LogStats::getAppends() const
+{
+    return totalAppends;
+}
+
+uint64_t
+Log::LogStats::getFrees() const
+{
+    return totalFrees;
 }
 
 } // namespace

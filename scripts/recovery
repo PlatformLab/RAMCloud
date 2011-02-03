@@ -10,44 +10,52 @@ umask 0000
 
 source ./scripts/common.bash
 
+outputdir="$(pwd)/recovery"
+
 #proto=fast+udp
 #proto=tcp
 proto=infrc
 
 host[0]=10.0.0.3
 host[1]=10.0.0.4
+host[2]=10.0.0.5
+host[3]=10.0.0.6
+host[4]=10.0.0.1
+host[5]=10.0.0.2
 
 C=$proto:host=${host[0]},port=12246
-commonopts="-l 3 -C $C"
+commonopts="-l DEBUG --logModule transport=NOTICE -C $C"
 
 xstart() {
-    xterm -e ssh -t -t $1 "umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee /tmp/$3" &
-    atexit "kill $!"
+    xterm -e ssh -t -t $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3" &
+    atexit "kill $!; rm /var/tmp/backup.log"
 }
 
 start() {
-    ssh $1 "umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts > /tmp/$3 2>&1"  &
-    atexit "kill $!"
+    ssh $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts > $outputdir/$3 2>&1"  &
+    atexit "kill $!; rm /var/tmp/backup.log"
 }
 
 startfg() {
-    ssh $1 "umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee /tmp/$3"
-    atexit "kill $!"
+    ssh $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3"
+    atexit "kill $!; rm /var/tmp/backup.log"
 }
 
 suffix=.$$.rclog
 
-# clean up any old logs
-for h in ${host[@]}; do
-    ssh $h 'rm /tmp/*rclog'
-done
+# clean up any old logs and backup files
+rm $outputdir/*rclog
 
 start ${host[0]} coordinator coordinator$suffix
 
 sleep .5
 
 start ${host[0]} "backup -m -L $proto:host=${host[0]},port=12243" backup1$suffix
-#start ${host[1]} "backup -m -L $proto:host=${host[1]},port=12244" backup2$suffix
+start ${host[1]} "backup -m -L $proto:host=${host[1]},port=12244" backup2$suffix
+start ${host[2]} "backup -m -L $proto:host=${host[2]},port=12290" backup3$suffix
+start ${host[3]} "backup -m -L $proto:host=${host[3]},port=12291" backup4$suffix
+start ${host[4]} "backup -m -L $proto:host=${host[4]},port=12292" backup5$suffix
+start ${host[5]} "backup -m -L $proto:host=${host[5]},port=12293" backup6$suffix
 
 sleep .5
 
@@ -55,30 +63,31 @@ start ${host[0]} "server -m 2048 -r 1 -L $proto:host=${host[0]},port=12242" mast
 sleep .5
 start ${host[1]} "server -m 2048 -r 1 -L $proto:host=${host[1]},port=12247" master2$suffix
 
+# add in third master and pass "-t 2 -k 2" to this script to recover 2 partitions
+#sleep .5
+#start ${host[2]} "server -m 2048 -r 1 -L $proto:host=${host[2]},port=12248" master3$suffix
+
 sleep .5
 
 startfg ${host[0]} "client -d $*" client$suffix
 
 #read
 
-# sloppy version of cleaup in case ssh -t -t doesn't do the trick
 for h in ${host[@]}; do
+    # sloppy version of cleaup in case ssh -t -t doesn't do the trick
     ssh $h "pkill backup; pkill server; pkill coordinator; pkill client"
-done
+    # clean up any backup files left
+    ssh $h "rm /var/tmp/backup.log > /dev/null 2>&1"
+done > /dev/null 2>&1
 
-# aggregate logs
-for h in ${host[@]}; do
-    scp $h:/tmp/*$suffix /tmp > /dev/null
-done
-
-sort /tmp/*.rclog > /tmp/rclog
+sort $outputdir/*.rclog > $outputdir/rclog
 
 # Extract values and dump to stdout, useful when all processes are run in separate
-# xterms, otherwise it's best to extract values directly from the leftover /tmp/rclog
+# xterms, otherwise it's best to extract values directly from the leftover $outputdir/rclog
 awk '
 /Performing/ { count=$8; size=$11; }
 /All tables recovered in/ { ticks=$11; }
 /Bytes written/ { if ($9 != 0) { written=$9; } }
 /Bytes logged/ { if ($10 != 0) { logged=$10; } }
 END { print count " " size " " written " " logged " " ticks; }
-' /tmp/rclog
+' $outputdir/rclog

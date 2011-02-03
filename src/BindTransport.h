@@ -36,6 +36,12 @@ struct BindTransport : public Transport {
             addServer(*server, "mock:");
     }
 
+    ServiceLocator
+    getServiceLocator()
+    {
+        return ServiceLocator("mock:");
+    }
+
     ServerRpc* serverRecv() {
         ServerRpc* ret = waitingRequest;
         waitingRequest = NULL;

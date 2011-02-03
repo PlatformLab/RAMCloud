@@ -49,6 +49,9 @@ class TcpTransport : public Transport {
     SessionRef getSession(const ServiceLocator& serviceLocator) {
         return new TcpSession(serviceLocator);
     }
+    ServiceLocator getServiceLocator() {
+        return ServiceLocator(locatorString);
+    }
 
   private:
     /**
@@ -225,7 +228,8 @@ class TcpTransport : public Transport {
     static Syscall* sys;
 
     /// Service locator used to open server socket (empty string if this
-    /// isn't a server).
+    /// isn't a server). May differ from what was passed to the constructor
+    /// if dynamic ports are used.
     string locatorString;
 
     /// File descriptor used by servers to listen for connections from

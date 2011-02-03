@@ -47,6 +47,7 @@ enum RpcType {
     RECOVER                 = 19,
     HINT_SERVER_DOWN        = 20,
     TABLETS_RECOVERED       = 21,
+    SET_WILL                = 22,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -155,6 +156,7 @@ struct RecoverRpc {
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;
+        uint64_t partitionId;
         uint32_t tabletsLength;    // Number of bytes in the tablet map.
                                    // The bytes of the tablet map follow
                                    // immediately after this header. See
@@ -329,10 +331,29 @@ struct TabletsRecoveredRpc {
     static const RpcType type = TABLETS_RECOVERED;
     struct Request {
         RpcRequestCommon common;
+        uint64_t masterId;         // Server Id from whom the request is coming.
         Status status;             // Indicates whether the recovery
                                    // succeeded; if not, it explains why.
         uint32_t tabletsLength;    // Number of bytes in the tablet map.
                                    // The bytes of the tablet map follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::Tablets.
+        uint32_t willLength;       // Number of bytes in the new will.
+                                   // The bytes follow immediately after
+                                   // the tablet map.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct SetWillRpc {
+    static const RpcType type = SET_WILL;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;         // Server Id from whom the request is coming.
+        uint32_t willLength;       // Number of bytes in the will.
+                                   // The bytes of the will map follow
                                    // immediately after this header. See
                                    // ProtoBuf::Tablets.
     };
@@ -361,10 +382,7 @@ struct BackupGetRecoveryDataRpc {
         RpcRequestCommon common;
         uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t segmentId;     ///< Target segment to get data from.
-        uint32_t tabletsLength;    // Number of bytes in the tablet map.
-                                   // The bytes of the tablet map follow
-                                   // immediately after this header. See
-                                   // ProtoBuf::Tablets.
+        uint64_t partitionId;   ///< Partition id of :ecovery segment to fetch.
     };
     struct Response {
         RpcResponseCommon common;
@@ -376,11 +394,20 @@ struct BackupStartReadingDataRpc {
     struct Request {
         RpcRequestCommon common;
         uint64_t masterId;      ///< Server Id from whom the request is coming.
+        uint32_t partitionsLength; // Number of bytes in the partition map.
+                                   // The bytes of the partition map follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::Tablets.
     };
     struct Response {
         RpcResponseCommon common;
         uint32_t segmentIdCount;    ///< Number of segmentIds in reply payload.
+        uint32_t digestBytes;       ///< Number of bytes for optional LogDigest.
+        uint64_t digestSegmentId;   ///< SegmentId the LogDigest came from.
+        uint32_t digestSegmentLen;  ///< Byte length of the LogDigest Segment.
         // A series of segmentIdCount uint64_t segmentIds follows.
+        // If logDigestBytes != 0, then a serialised LogDigest follows
+        // immediately after the last segmentId.
     };
 };
 
@@ -390,7 +417,10 @@ struct BackupWriteRpc {
         NONE = 0,
         OPEN = 1,
         CLOSE = 2,
-        OPENCLOSE = 3,
+        OPENCLOSE = OPEN | CLOSE,
+        PRIMARY = 4,
+        OPENPRIMARY = OPEN | PRIMARY,
+        OPENCLOSEPRIMARY = OPEN | CLOSE | PRIMARY,
     };
     struct Request {
         RpcRequestCommon common;

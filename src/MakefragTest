@@ -1,5 +1,13 @@
 OBJDIRS += tests
 
+ifeq ($(INFINIBAND),yes)
+INFINIBAND_SRCFILES := \
+	   src/MockInfiniband.cc \
+	   $(NULL)
+else
+INFINIBAND_SRCFILES :=
+endif
+
 TESTS_SRCFILES := \
 		  src/BackupManagerTest.cc \
 		  src/BackupServerTest.cc \
@@ -16,9 +24,10 @@ TESTS_SRCFILES := \
           src/DispatchTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
+		  src/InfAddressTest.cc \
 		  src/IpAddressTest.cc \
-          src/LogTest.cc \
-          src/LogCleanerTest.cc \
+		  src/LogTest.cc \
+		  src/LogCleanerTest.cc \
 		  src/LoggingTest.cc \
 		  src/MasterTest.cc \
 		  src/MetricsTest.cc \
@@ -29,20 +38,23 @@ TESTS_SRCFILES := \
 		  src/OptionParserTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \
+		  src/RecoverySegmentIteratorTest.cc \
 		  src/RecoveryTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
 		  src/ServerTest.cc \
 		  src/ServiceLocatorTest.cc \
 		  src/StatusTest.cc \
-          src/TabletProfilerTest.cc \
+		  src/TabletProfilerTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
 		  src/TransportManagerTest.cc \
 		  src/UdpDriverTest.cc \
+		  src/WillTest.cc \
 		  src/WindowTest.cc \
+		  $(INFINIBAND_SRCFILES) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)
@@ -77,7 +89,7 @@ $(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
 
 # TODO(ongaro) The unit tests don't actually call HashTableBenchmark, Echo,
 # Telnet, or RecoverSegmentBenchmark. I just wanted to make sure it continues to build over time.
-test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet $(OBJDIR)/Bench $(OBJDIR)/RecoverSegmentBenchmark $(OBJDIR)/TransportSmack
+test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet $(OBJDIR)/Bench $(OBJDIR)/RecoverSegmentBenchmark $(OBJDIR)/TransportSmack $(OBJDIR)/WillBenchmark
 	$(OBJDIR)/test
 
 ftest: $(OBJDIR)/test
@@ -99,11 +111,19 @@ $(OBJDIR)/RecoverSegmentBenchmark: $(OBJDIR)/RecoverSegmentBenchmark.o $(SHARED_
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
-$(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/TestUtil.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(TESTS_LIB) -o $@ $^
+
+$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Server.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
-$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Server.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/WillBenchmark: $(OBJDIR)/WillBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) $(LIBS) -o $@ $^
+
+$(OBJDIR)/BackupStorageBenchmark: $(OBJDIR)/BackupStorageBenchmark.o $(SHARED_OBJFILES) $(BACKUP_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 

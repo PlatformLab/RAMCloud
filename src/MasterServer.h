@@ -25,46 +25,19 @@
 #include "LogCleaner.h"
 #include "BackupManager.h"
 #include "HashTable.h"
+#include "RecoverySegmentIterator.h"
 #include "Server.h"
 #include "SegmentIterator.h"
 #include "Table.h"
 
 namespace RAMCloud {
 
-/**
- * Provides two major functions to recovery masters; a segment recovery
- * schedule and a mapping to available segment locations.
- */
-class SegmentLocatorChooser {
-  public:
-
-    /// Schedule of segments to recover. Guaranteed to be a model of Container.
-    typedef vector<uint64_t> SegmentIdList;
-
-    explicit SegmentLocatorChooser(const ProtoBuf::ServerList& list);
-    const string& get(uint64_t segmentId);
-    const SegmentIdList& getSegmentIdList();
-    void markAsDown(uint64_t segmentId, const string& locator);
-
-  private:
-    /// Type of the internal data structure that does the heavy lifting.
-    typedef boost::unordered_multimap<uint64_t, string> LocatorMap;
-
-    /// A pair of iterators used when finding elements for a key.
-    typedef pair<LocatorMap::const_iterator, LocatorMap::const_iterator>
-        ConstLocatorRange;
-    /// A pair of iterators used when finding elements for a key.  Mutable.
-    typedef pair<LocatorMap::iterator, LocatorMap::iterator> LocatorRange;
-
-    /// Tracks segment ids to locator strings where they can be fetched from.
-    LocatorMap map;
-
-    /// A random ordering of segment ids each of which must be recovered.
-    SegmentIdList ids;
-
-    friend class SegmentLocatorChooserTest;
-    DISALLOW_COPY_AND_ASSIGN(SegmentLocatorChooser);
-};
+#if TESTING
+void
+detectSegmentRecoveryFailure(const uint64_t masterId,
+                             const uint64_t partitionId,
+                             const ProtoBuf::ServerList& backups);
+#endif
 
 struct ServerConfig {
     string coordinatorLocator;
@@ -191,7 +164,7 @@ class MasterServer : public Server {
         }
 
         uint64_t numHashTableLines =
-            hashTableBytes / ObjectMap::bytesPerCacheLine();
+            hashTableBytes / HashTable<LogEntryHandle>::bytesPerCacheLine();
         if (numHashTableLines < 1) {
             throw Exception(HERE,
                             "invalid `MasterTotalMemory' and/or "
@@ -208,6 +181,11 @@ class MasterServer : public Server {
         config->hashTableBytes = hashTableBytes;
     }
 
+    /**
+     * Used in detectSegmentRecoveryFailure() and MasterServer::recover() to
+     * mark and check getRecoveryData() requests statuses.
+     */
+    enum { REC_REQ_NOT_STARTED, REC_REQ_WAITING, REC_REQ_FAILED, REC_REQ_OK };
 
   private:
     void create(const CreateRpc::Request& reqHdr,
@@ -224,16 +202,13 @@ class MasterServer : public Server {
                  Transport::ServerRpc& rpc,
                  Responder& responder);
 
-    void recoverSegmentPrefetcher(SegmentIterator& i,
-                                  ObjectTombstoneMap& tombstoneMap);
+    void recoverSegmentPrefetcher(RecoverySegmentIterator& i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
-                        uint64_t bufferLength,
-                        ObjectTombstoneMap& tombstoneMap);
+                        uint64_t bufferLength);
 
     void recover(uint64_t masterId,
-                 const ProtoBuf::Tablets& tablets,
-                 const ProtoBuf::ServerList& backups,
-                 ObjectTombstoneMap& tombstoneMap);
+                 uint64_t partitionId,
+                 ProtoBuf::ServerList& backups);
 
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
@@ -256,6 +231,12 @@ class MasterServer : public Server {
     uint64_t serverId;
 
   private:
+    /// Maximum number of bytes per partition. For Will calculation.
+    static const uint64_t maxBytesPerPartition = 640UL * 1024 * 1024;
+
+    /// Maximum number of referants (objs) per partition. For Will calculation.
+    static const uint64_t maxReferantsPerPartition = 10UL * 1000 * 1000;
+
     BackupManager backup;
 
     /// Track total bytes of object data written (not including log overhead).
@@ -274,7 +255,7 @@ class MasterServer : public Server {
      * server; objects from deleted tablets are not immediately purged from the
      * hash table.
      */
-    ObjectMap objectMap;
+    HashTable<LogEntryHandle> objectMap;
 
     /**
      * Tablets this master owns.
@@ -282,12 +263,17 @@ class MasterServer : public Server {
      */
     ProtoBuf::Tablets tablets;
 
-    friend void objectEvictionCallback(LogEntryType type, const void* p,
-        uint64_t entryLength, uint64_t lengthInLog, LogTime logTime,
+    /* Temporary tombstone methods used during recovery. */
+    LogEntryHandle allocRecoveryTombstone(const ObjectTombstone* srcTomb);
+    void freeRecoveryTombstone(LogEntryHandle handle);
+    void removeTombstones();
+
+    friend void recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type,
+        void *cookie);
+    friend void objectEvictionCallback(LogEntryHandle handle, LogTime logTime,
         void* cookie);
-    friend void tombstoneEvictionCallback(LogEntryType type, const void* p,
-        uint64_t entryLength, uint64_t lengthInLog, LogTime logTime,
-        void* cookie);
+    friend void tombstoneEvictionCallback(LogEntryHandle handle,
+        LogTime logTime, void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
     Table& getTable(uint32_t tableId, uint64_t objectId);
     void rejectOperation(const RejectRules* rejectRules, uint64_t version);

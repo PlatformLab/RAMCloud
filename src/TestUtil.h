@@ -77,6 +77,7 @@ void assertEquals(void *expected, const void *actual,
 namespace RAMCloud {
 
 void assertMatchesPosixRegex(const string& pattern, const string& subject);
+void assertNotMatchesPosixRegex(const string& pattern, const string& subject);
 void convertChar(char c, string *out);
 string bufferToDebugString(Buffer* buffer);
 void sleepMs(uint32_t delayMs);

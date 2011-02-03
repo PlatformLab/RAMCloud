@@ -179,7 +179,7 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
         char dst[segmentSize];
 
         storage->putSegment(handle.get(), src);
-        (*storage->getSegment(handle.get(), dst))();
+        storage->getSegment(handle.get(), dst);
 
         CPPUNIT_ASSERT_EQUAL("1234567", dst);
     }

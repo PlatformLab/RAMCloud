@@ -2,8 +2,10 @@ OBJDIRS += client_shared
 
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
-           src/InfRcTransport.cc \
-           $(NULL)
+	   src/Infiniband.cc \
+	   src/InfRcTransport.cc \
+	   src/InfUdDriver.cc \
+	   $(NULL)
 else
 INFINIBAND_SRCFILES :=
 endif
@@ -29,7 +31,7 @@ CLIENT_SRCFILES := \
 		   src/ServiceLocator.cc \
 		   src/Status.cc \
 		   src/TcpTransport.cc \
-           src/TimeCounter.cc \
+		   src/TimeCounter.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
 		   $(INFINIBAND_SRCFILES) \

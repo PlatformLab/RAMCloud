@@ -22,6 +22,7 @@
 
 #ifdef INFINIBAND
 #include "InfRcTransport.h"
+#include "InfUdDriver.h"
 #endif
 
 namespace RAMCloud {
@@ -43,32 +44,44 @@ static struct FastUdpTransportFactory : public TransportFactory {
 } fastUdpTransportFactory;
 
 #ifdef INFINIBAND
+static struct FastInfUdTransportFactory : public TransportFactory {
+    FastInfUdTransportFactory()
+        : TransportFactory("fast+infinibandud", "fast+infud") {}
+    Transport* createTransport(const ServiceLocator* localServiceLocator) {
+        return new FastTransport(
+            new InfUdDriver<>(localServiceLocator));
+    }
+} fastInfUdTransportFactory;
+
 static struct InfRcTransportFactory : public TransportFactory {
     InfRcTransportFactory()
         : TransportFactory("infinibandrc", "infrc") {}
     Transport* createTransport(const ServiceLocator* localServiceLocator) {
-        return new InfRcTransport(localServiceLocator);
+        return new InfRcTransport<>(localServiceLocator);
     }
-} infRCTransportFactory;
+} infRcTransportFactory;
 #endif
 
 /**
  * The single instance of #TransportManager.
+ * It's priority ensures that it is initialized after the TestLog.
  */
-TransportManager transportManager;
+TransportManager  __attribute__((init_priority(400))) transportManager;
 
 TransportManager::TransportManager()
     : initialized(false)
     , transportFactories()
+    , transports()
     , listening()
     , nextToListen(0)
-    , transports()
+    , protocolTransportMap()
     , sessionCache()
 {
     transportFactories.insert(&tcpTransportFactory);
     transportFactories.insert(&fastUdpTransportFactory);
 #ifdef INFINIBAND
-    transportFactories.insert(&infRCTransportFactory);
+    transportFactories.insert(&fastInfUdTransportFactory);
+    transportFactories.insert(&infRcTransportFactory);
 #endif
 }
 
@@ -77,15 +90,8 @@ TransportManager::~TransportManager()
     // Must clear the cache and destroy sessionRefs before the
     // transports are destroyed.
     sessionCache.clear();
-
-    std::set<Transport*> toFree;
-    foreach (Transports::value_type protocolTransport, transports) {
-        toFree.insert(protocolTransport.second);
-    }
-    foreach (Transport* transport, toFree) {
+    foreach (auto transport, transports)
         delete transport;
-    }
-
 }
 
 /**
@@ -103,26 +109,35 @@ TransportManager::initialize(const char* localServiceLocator)
 {
     assert(!initialized);
 
-    std::vector<ServiceLocator> locators;
-    ServiceLocator::parseServiceLocators(localServiceLocator, &locators);
+    auto locators = ServiceLocator::parseServiceLocators(localServiceLocator);
 
-    foreach (TransportFactory* factory, transportFactories) {
-        Transport* transport;
-        foreach (ServiceLocator& locator, locators) {
+    foreach (auto factory, transportFactories) {
+        Transport* transport = NULL;
+        foreach (auto& locator, locators) {
             if (factory->supports(locator.getProtocol().c_str())) {
                 // The transport supports a protocol that we can receive
-                // packets on.
+                // packets on. Since it is expected that this transport
+                // work, we do not catch exceptions if it is unavailable.
                 transport = factory->createTransport(&locator);
                 listening.push_back(transport);
                 goto insert_protocol_mappings;
             }
         }
+
         // The transport doesn't support any protocols that we can receive
-        // packets on.
-        transport = factory->createTransport(NULL);
+        // packets on. Such transports need not be available, e.g. if the
+        // physical device (NIC) does not exist.
+        try {
+            transport = factory->createTransport(NULL);
+        } catch (TransportException &e) {
+        }
+
  insert_protocol_mappings:
-        foreach (const char* protocol, factory->getProtocols()) {
-            transports.insert(Transports::value_type(protocol, transport));
+        if (transport != NULL) {
+            transports.push_back(transport);
+            foreach (auto protocol, factory->getProtocols()) {
+                protocolTransportMap.insert({protocol, transport});
+            }
         }
     }
     initialized = true;
@@ -149,30 +164,24 @@ TransportManager::getSession(const char* serviceLocator)
     if (!initialized)
         initialize("");
 
-    std::map<string, Transport::SessionRef>::iterator it;
-    if ((it = sessionCache.find(string(serviceLocator))) !=
-        sessionCache.end()) {
-        return (*it).second;
-    }
+    auto it = sessionCache.find(serviceLocator);
+    if (it != sessionCache.end())
+        return it->second;
 
     // Session was not found in the cache, a new one will be created
-    std::vector<ServiceLocator> locators;
-    ServiceLocator::parseServiceLocators(serviceLocator, &locators);
+    auto locators = ServiceLocator::parseServiceLocators(serviceLocator);
     // The first protocol specified in the locator that works is chosen
-    foreach (ServiceLocator& locator, locators) {
-        foreach (Transports::value_type protocolTransport,
-                      transports.equal_range(locator.getProtocol())) {
-            Transport* transport = protocolTransport.second;
+    foreach (auto& locator, locators) {
+        foreach (auto& protocolTransport,
+                 protocolTransportMap.equal_range(locator.getProtocol())) {
+            auto transport = protocolTransport.second;
             try {
-                Transport::SessionRef session =
-                    transport->getSession(locator);
+                auto session = transport->getSession(locator);
 
                 // Only first protocol is used, but the cache is based
                 // on the complete initial service locator string.
                 // No caching should occur if an exception is thrown.
-                sessionCache.insert(pair<string,
-                                    Transport::SessionRef>(serviceLocator,
-                                                           session));
+                sessionCache.insert({serviceLocator, session});
                 session->setServiceLocator(serviceLocator);
                 return session;
             } catch (TransportException& e) {
@@ -196,17 +205,15 @@ TransportManager::getSession(const char* serviceLocator)
 Transport::ServerRpc*
 TransportManager::serverRecv()
 {
-    if (!initialized || listening.empty()) {
-        throw TransportException(HERE,
-                                 "no transports to listen on");
-    }
+    if (!initialized || listening.empty())
+        throw TransportException(HERE, "no transports to listen on");
     uint8_t i = 0;
     while (true) {
         if (nextToListen >= listening.size())
             nextToListen = 0;
-        Transport* transport = listening[nextToListen++];
+        auto transport = listening[nextToListen++];
 
-        Transport::ServerRpc* rpc = transport->serverRecv();
+        auto rpc = transport->serverRecv();
         if (rpc != NULL)
             return rpc;
         if (++i == 0) { // On machines with a small number of cores,
@@ -216,14 +223,54 @@ TransportManager::serverRecv()
 }
 
 /**
+ * Obtain a list of listening ServiceLocators.
+ * \return
+ *      A vector of ServiceLocators that are listening for RPCs.
+ * \throw TransportException
+ *      if this TransportManager has not been initialized.
+ */
+ServiceLocatorList
+TransportManager::getListeningLocators()
+{
+    if (!initialized)
+        throw TransportException(HERE, "TransportManager not initialized");
+
+    ServiceLocatorList list;
+    foreach (auto transport, listening)
+        list.push_back(transport->getServiceLocator());
+    return list;
+}
+
+/**
+ * Obtain a ServiceLocator string corresponding to the listening
+ * ServiceLocators.
+ * \return
+ *      A semicolon-delimited, ServiceLocator string containing all
+ *      ServiceLocators' strings that are listening to RPCs. 
+ * \throw TransportException
+ *      if this TransportManager has not been initialized.
+ */
+string
+TransportManager::getListeningLocatorsString()
+{
+    ServiceLocatorList sll = getListeningLocators();
+    string ret;
+    for (uint32_t i = 0; i < sll.size(); i++) {
+        if (i > 0)
+            ret += ";";
+        ret += sll[i].getOriginalString();
+    }
+    return ret;
+}
+
+/**
  * dumpStats() on all registered transports.
  */
 void
 TransportManager::dumpStats()
 {
-    foreach (Transports::value_type protocolTransport, transports) {
-        protocolTransport.second->dumpStats();
-    }
+    foreach (auto transport, transports)
+        transport->dumpStats();
 }
 
 } // namespace RAMCloud
