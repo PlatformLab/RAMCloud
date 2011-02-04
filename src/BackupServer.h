@@ -158,6 +158,7 @@ class BackupServer : public Server {
 
     class LoadOp;
     class StoreOp;
+    class RecoverySegmentBuilder;
 
     /**
      * Tracks all state associated with a single segment and manages
@@ -382,6 +383,7 @@ class BackupServer : public Server {
 
         friend class LoadOp;
         friend class StoreOp;
+        friend class RecoverySegmentBuilder;
         friend class BackupServerTest;
         friend class SegmentInfoTest;
         DISALLOW_COPY_AND_ASSIGN(SegmentInfo);

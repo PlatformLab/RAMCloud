@@ -15,6 +15,7 @@
 
 #include <boost/unordered_set.hpp>
 
+#include "BenchUtil.h"
 #include "Buffer.h"
 #include "ClientException.h"
 #include "MasterServer.h"
@@ -274,11 +275,13 @@ struct Task {
         , response()
         , client(transportManager.getSession(
                     backupHost.service_locator().c_str()))
+        , startTime(rdtsc())
         , rpc(client, masterId, backupHost.segment_id(), partitionId, response)
     {}
     ProtoBuf::ServerList::Entry& backupHost;
     Buffer response;
     BackupClient client;
+    const uint64_t startTime;
     BackupClient::GetRecoveryData rpc;
     DISALLOW_COPY_AND_ASSIGN(Task);
 };
@@ -408,6 +411,8 @@ MasterServer::recover(uint64_t masterId,
      * skipped entry is marked OK and notStarted is advanced (if
      * possible).
      */
+    uint64_t usefulTime = 0;
+    uint64_t start = rdtsc();
     LOG(NOTICE, "Recovering master %lu, partition %lu, %u hosts",
         masterId, partitionId, backups.server_size());
 
@@ -432,9 +437,10 @@ MasterServer::recover(uint64_t masterId,
             if (backup == backupsEnd)
                 goto doneStartingInitialTasks;
             LOG(DEBUG, "Starting getRecoveryData from %s for segment %lu "
-                "(initial round of RPCs)",
+                "on channel %ld (initial round of RPCs)",
                 backup->service_locator().c_str(),
-                backup->segment_id());
+                backup->segment_id(),
+                &task - &tasks[0]);
             try {
                 task.construct(masterId, partitionId, *backup);
                 backup->set_user_data(REC_REQ_WAITING);
@@ -465,13 +471,20 @@ MasterServer::recover(uint64_t masterId,
                 task->backupHost.service_locator().c_str());
             try {
                 (task->rpc)();
+                uint64_t grdTime = rdtsc() - task->startTime;
+                LOG(DEBUG, "Got getRecoveryData response, took %lu us "
+                    "on channel %ld",
+                    cyclesToNanoseconds(grdTime) / 1000,
+                    &task - &tasks[0]);
 
                 uint32_t responseLen = task->response.getTotalLength();
                 LOG(DEBUG, "Recovering segment %lu with size %u",
                     task->backupHost.segment_id(), responseLen);
+                uint64_t startUseful = rdtsc();
                 recoverSegment(task->backupHost.segment_id(),
                                task->response.getRange(0, responseLen),
                                responseLen);
+                usefulTime += rdtsc() - startUseful;
 
                 runningSet.erase(task->backupHost.segment_id());
                 // Mark this and any other entries for this segment as OK.
@@ -521,9 +534,10 @@ MasterServer::recover(uint64_t masterId,
                         goto outOfHosts;
                 }
                 LOG(DEBUG, "Starting getRecoveryData from %s for segment %lu "
-                    "(after RPC completion)",
+                    "on channel %ld (after RPC completion)",
                     backup->service_locator().c_str(),
-                    backup->segment_id());
+                    backup->segment_id(),
+                    &task - &tasks[0]);
                 try {
                     task.construct(masterId, partitionId, *backup);
                     backup->set_user_data(REC_REQ_WAITING);
@@ -545,6 +559,15 @@ MasterServer::recover(uint64_t masterId,
     detectSegmentRecoveryFailure(masterId, partitionId, backups);
 
     log.sync();
+
+    uint64_t totalTime = cyclesToNanoseconds(rdtsc() - start);
+    usefulTime = cyclesToNanoseconds(usefulTime);
+    LOG(NOTICE, "Recovery complete, took %lu ms, useful replaying time %lu "
+        "(%.1f%% effective)",
+        totalTime / 1000 / 1000,
+        usefulTime / 1000 / 1000,
+        (static_cast<double>(usefulTime) /
+         static_cast<double>(totalTime)) * 100.);
 }
 
 /**
@@ -665,6 +688,7 @@ void
 MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
     uint64_t bufferLength)
 {
+    uint64_t start = rdtsc();
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
 
     RecoverySegmentIterator i(buffer, bufferLength);
@@ -811,7 +835,9 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
         i.next();
     }
-    LOG(NOTICE, "Segment %lu replay complete", segmentId);
+    uint64_t replayTime = cyclesToNanoseconds(rdtsc() - start);
+    LOG(NOTICE, "Segment %lu replay complete, took %lu ms",
+        segmentId, replayTime / 1000 / 1000);
 }
 
 /**
