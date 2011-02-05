@@ -39,7 +39,6 @@ namespace RAMCloud {
  * Control flow in/under FastTransport can be rather hairy.  Below a rough
  * stack trace is given for when a packet follows through the FastTransport
  * layer just to give a developer a rough idea of where to look.
- * TODO: fix this list!
  *
  * - Client Outbound
  *  - ClientSession::clientSend
@@ -50,8 +49,8 @@ namespace RAMCloud {
  *
  * - Server Inbound
  *  - FastTransport::serverRecv
- *  - FastTransport::poll
- *  - FastTransport::tryProcessPacket
+ *  - Dispatch::poll
+ *  - FastTransport::Poller::operator()
  *  - ServerSession::processInboundPacket
  *  - ServerSession::processReceivedData
  *  - InboundMessage::processReceivedData
@@ -64,8 +63,8 @@ namespace RAMCloud {
  *
  * - Client Inbound
  *  - ClientRpc::wait
- *  - FastTransport::poll
- *  - FastTransport::tryProcessPacket
+ *  - Dispatch::poll
+ *  - FastTransport::Poller::operator()
  *  - ClientSession::processReceivedData
  *  - ClientSession::processReceivedData
  *  - InboundMessage::processReceivedData
@@ -1321,7 +1320,6 @@ class FastTransport : public Transport {
     void sendBadSessionError(Header *header, const Driver::Address* address);
     void sendPacket(const Driver::Address* address,
                     Header* header, Buffer::Iterator* payload);
-    bool tryProcessPacket();
 
     /// The Driver used to send/recv packets for this FastTransport.
     Driver* const driver;
