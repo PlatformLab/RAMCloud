@@ -89,9 +89,13 @@ TransportManager::~TransportManager()
 {
     // Must clear the cache and destroy sessionRefs before the
     // transports are destroyed.
+
+    // Can't safely execute the following code; see RAM-212 for details.
+#if 0
     sessionCache.clear();
     foreach (auto transport, transports)
         delete transport;
+#endif
 }
 
 /**
