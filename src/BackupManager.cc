@@ -39,10 +39,21 @@ BackupManager::OpenSegment::OpenSegment(BackupManager& backupManager,
     // Select backups, initialize backups,
     // and tell each of the backups to open the segment:
     backupManager.ensureSufficientHosts();
+// Choose between random and round-robin
+#define RANDOM_BACKUP_ORDER
+#ifdef RANDOM_BACKUP_ORDER
     uint64_t random = generateRandom();
+#else
+    static uint64_t random = 0;
+#endif
     auto flags = BackupWriteRpc::OPENPRIMARY;
     foreach (auto& backup, backupIter()) {
-        uint32_t index = random++ % backupManager.hosts.server_size();
+        uint32_t index = random % backupManager.hosts.server_size();
+#ifdef RANDOM_BACKUP_ORDER
+        random += 1;
+#else
+        random += 19;
+#endif
         const auto& host = backupManager.hosts.server(index);
         LOG(DEBUG, "Opening segment %lu, %lu on backup %s",
             backupManager.masterId, segmentId,
