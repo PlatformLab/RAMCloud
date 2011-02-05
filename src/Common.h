@@ -282,7 +282,7 @@ uint64_t rdpmc(uint32_t counter);
 uint64_t
 rdpmc(uint32_t counter)
 {
-    if (mockTSCValue)
+    if (mockPMCValue)
         return mockPMCValue;
     return _rdpmc(counter);
 }
