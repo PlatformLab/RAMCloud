@@ -69,8 +69,10 @@ class Dispatch {
       private:
 
         /// Index of this Poller in Dispatch::pollers.  Allows deletion
-        /// without having to scan all the entries in pollers.
-        uint32_t slot;
+        /// without having to scan all the entries in pollers. -1 means
+        /// this poller isn't currently in Dispatch::pollers (happens
+        /// after Dispatch::reset).
+        int slot;
         friend class Dispatch;
         friend class DispatchTest;
         DISALLOW_COPY_AND_ASSIGN(Poller);
@@ -135,6 +137,7 @@ class Dispatch {
         Timer();
         explicit Timer(uint64_t cycles);
         virtual ~Timer();
+        bool isRunning();
         void startCycles(uint64_t cycles);
         void startMicros(uint64_t micros);
         void startMillis(uint64_t ms);
@@ -148,18 +151,17 @@ class Dispatch {
         virtual void operator() () = 0;
       private:
 
-        /// If the timer is active it will be invoked as soon as #rdtsc
-        /// returns a value greater or equal to this.
+        /// If the timer is running it will be invoked as soon as #rdtsc
+        /// returns a value greater or equal to this. This value is only
+        /// valid if slot >= 0.
         uint64_t triggerTime;
 
-        /// True means the timer is running and should be invoked at the time
-        /// given by #triggerTime. False means the timer is not running, so
-        /// #triggerTime is meaningless.
-        bool active;
-
-        /// Index of this Poller in Dispatch::pollers.  Allows deletion
-        /// without having to scan all the entries in pollers.
-        uint32_t slot;
+        /// If >= 0 this timer is running, and the value contains the
+        /// index of this Timer in Dispatch::timers. <0 means this
+        /// timer is not currently running, and isn't in Dispatch::timers.
+        /// Among other things, this value allows a timer to be deleted
+        /// without having to scan all the entries in timers.
+        int slot;
 
         friend class Dispatch;
         friend class DispatchTest;

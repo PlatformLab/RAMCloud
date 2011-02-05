@@ -130,6 +130,7 @@ class DispatchTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_poll_dontEvenCheckTimers);
     CPPUNIT_TEST(test_poll_triggerTimers);
     CPPUNIT_TEST(test_handleEvent);
+    CPPUNIT_TEST(test_reset);
     CPPUNIT_TEST(test_File_constructor_errorInEpollCreate);
     CPPUNIT_TEST(test_File_constructor_errorCreatingExitPipe);
     CPPUNIT_TEST(test_File_constructor_errorInEpollCtl);
@@ -143,8 +144,8 @@ class DispatchTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_epollThreadMain_errorsInEpollWait);
     CPPUNIT_TEST(test_epollThreadMain_signalEventsAndExit);
     CPPUNIT_TEST(test_Timer_constructorDestructor);
-    CPPUNIT_TEST(test_Timer_destructor_updateSlot);
     CPPUNIT_TEST(test_Timer_reentrant);
+    CPPUNIT_TEST(test_isRunning);
     CPPUNIT_TEST(test_Timer_startCycles);
     CPPUNIT_TEST(test_Timer_startMicros);
     CPPUNIT_TEST(test_Timer_startMillis);
@@ -301,12 +302,12 @@ class DispatchTest : public CppUnit::TestFixture {
         DummyTimer t1("t1"), t2("t2"), t3("t3"), t4("t4");
         t1.startCycles(50);
         t2.startCycles(60);
-        t3.startCycles(70);
-        t4.startCycles(80);
-        t2.stop();
+        t3.startCycles(80);
+        t4.startCycles(70);
         mockTSCValue = 75;
         CPPUNIT_ASSERT_EQUAL(true, Dispatch::poll());
-        CPPUNIT_ASSERT_EQUAL("timer t1 invoked; timer t3 invoked", *localLog);
+        CPPUNIT_ASSERT_EQUAL("timer t1 invoked; timer t4 invoked; "
+                    "timer t2 invoked", *localLog);
         CPPUNIT_ASSERT_EQUAL(80, Dispatch::earliestTriggerTime);
     }
 
@@ -315,6 +316,24 @@ class DispatchTest : public CppUnit::TestFixture {
         Dispatch::handleEvent();
         CPPUNIT_ASSERT_EQUAL("poller p1 invoked; poller p1 invoked; "
                 "poller p1 invoked", *localLog);
+    }
+
+    void test_reset() {
+        DummyPoller p1("p1", 0), p2("p2", 0);
+        DummyTimer t1("t1", 100), t2("t2", 200);
+        int fds[2];
+        CPPUNIT_ASSERT_EQUAL(0, pipe(fds));
+        DummyFile f1("f1", false, fds[0], Dispatch::FileEvent::READABLE);
+        Dispatch::reset();
+        close(fds[0]);
+        close(fds[1]);
+        CPPUNIT_ASSERT_EQUAL(-1, p1.slot);
+        CPPUNIT_ASSERT_EQUAL(0, Dispatch::pollers.size());
+        CPPUNIT_ASSERT_EQUAL(-1, t2.slot);
+        CPPUNIT_ASSERT_EQUAL(0, Dispatch::timers.size());
+        CPPUNIT_ASSERT_EQUAL(0, f1.active);
+        CPPUNIT_ASSERT_EQUAL(0, f1.event);
+        CPPUNIT_ASSERT_EQUAL(NULL, Dispatch::files[f1.fd]);
     }
 
     void test_File_constructor_errorInEpollCreate() {
@@ -557,29 +576,20 @@ class DispatchTest : public CppUnit::TestFixture {
     void test_Timer_constructorDestructor() {
         DummyTimer* t1 = new DummyTimer("t1");
         DummyTimer* t2 = new DummyTimer("t2", 100);
-        CPPUNIT_ASSERT_EQUAL(2, Dispatch::timers.size());
-        CPPUNIT_ASSERT_EQUAL(false, t1->active);
+        CPPUNIT_ASSERT_EQUAL(1, Dispatch::timers.size());
+        CPPUNIT_ASSERT_EQUAL(-1, t1->slot);
+        CPPUNIT_ASSERT_EQUAL(0, t2->slot);
         CPPUNIT_ASSERT_EQUAL(100, t2->triggerTime);
         delete t1;
         delete t2;
         CPPUNIT_ASSERT_EQUAL(0, Dispatch::timers.size());
-    }
-
-    void test_Timer_destructor_updateSlot() {
-        DummyTimer* t1 = new DummyTimer("t1");
-        DummyTimer* t2 = new DummyTimer("t2");
-        DummyTimer t3("t3");
-        CPPUNIT_ASSERT_EQUAL(2, t3.slot);
-        delete t2;
-        CPPUNIT_ASSERT_EQUAL(1, t3.slot);
-        delete t1;
-        CPPUNIT_ASSERT_EQUAL(0, t3.slot);
+        CPPUNIT_ASSERT_EQUAL(-1, t2->slot);
     }
 
     // Make sure that a timer can safely be deleted from a timer
-    //  handler.
+    // handler.
     void test_Timer_reentrant() {
-        DummyTimer t1("t1");
+        DummyTimer t1("t1", 500);
         DummyTimer* t2 = new DummyTimer("t2", 100);
         t2->deleteWhenInvoked(t2);
         t2->deleteWhenInvoked(new DummyTimer("t3"));
@@ -590,12 +600,21 @@ class DispatchTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, Dispatch::timers.size());
     }
 
+    void test_isRunning() {
+        DummyTimer t1("t1");
+        CPPUNIT_ASSERT_EQUAL(0, t1.isRunning());
+        t1.startCycles(100);
+        CPPUNIT_ASSERT_EQUAL(1, t1.isRunning());
+        t1.stop();
+        CPPUNIT_ASSERT_EQUAL(0, t1.isRunning());
+    }
+
     void test_Timer_startCycles() {
         DummyTimer t1("t1");
         Dispatch::earliestTriggerTime = 100;
         t1.startCycles(110);
         CPPUNIT_ASSERT_EQUAL(110, t1.triggerTime);
-        CPPUNIT_ASSERT_EQUAL(1, t1.active);
+        CPPUNIT_ASSERT_EQUAL(0, t1.slot);
         CPPUNIT_ASSERT_EQUAL(100, Dispatch::earliestTriggerTime);
         t1.startCycles(90);
         CPPUNIT_ASSERT_EQUAL(90, Dispatch::earliestTriggerTime);
@@ -624,9 +643,15 @@ class DispatchTest : public CppUnit::TestFixture {
 
     void test_Timer_stop() {
         DummyTimer t1("t1", 100);
-        CPPUNIT_ASSERT_EQUAL(1, t1.active);
+        DummyTimer t2("t2", 100);
+        DummyTimer t3("t3", 100);
+        CPPUNIT_ASSERT_EQUAL(0, t1.slot);
         t1.stop();
-        CPPUNIT_ASSERT_EQUAL(0, t1.active);
+        CPPUNIT_ASSERT_EQUAL(-1, t1.slot);
+        CPPUNIT_ASSERT_EQUAL(2, Dispatch::timers.size());
+        t1.stop();
+        CPPUNIT_ASSERT_EQUAL(-1, t1.slot);
+        CPPUNIT_ASSERT_EQUAL(2, Dispatch::timers.size());
     }
 
   private:

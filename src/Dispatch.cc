@@ -67,9 +67,13 @@ Dispatch::Poller::~Poller()
     // method is in the middle of scanning the list of all pollers;
     // the worst that will happen is that the poller that got moved
     // may not be invoked in the current scan).
+    if (slot < 0) {
+        return;
+    }
     pollers[slot] = pollers.back();
     pollers[slot]->slot = slot;
     pollers.pop_back();
+    slot = -1;
 }
 
 /**
@@ -115,16 +119,18 @@ bool Dispatch::poll()
     }
     if (currentTime >= earliestTriggerTime) {
         // Looks like a timer may have triggered. Check all the timers and
-        // invoke any that have triggered. In addition, compute a new
-        // value for earliestTriggerTime.
-        for (uint32_t i = 0; i < timers.size(); i++) {
+        // invoke any that have triggered.
+        for (uint32_t i = 0; i < timers.size(); ) {
             Timer* timer = timers[i];
-            if (timer->active) {
-                if (timer->triggerTime <= currentTime) {
-                    timer->active = false;
-                    (*timer)();
-                    result = true;
-                }
+            if (timer->triggerTime <= currentTime) {
+                timer->stop();
+                (*timer)();
+                result = true;
+            } else {
+                // Only increment i if the current timer did not trigger.
+                // If it did trigger, it got removed from the vector and
+                // we need to process the timer that got moved its place.
+                i++;
             }
         }
 
@@ -135,8 +141,7 @@ bool Dispatch::poll()
         earliestTriggerTime = currentTime + 1000000000000;
         for (uint32_t i = 0; i < timers.size(); i++) {
             Timer* timer = timers[i];
-            if ((timer->triggerTime < earliestTriggerTime)
-                    && (timer->active)) {
+            if (timer->triggerTime < earliestTriggerTime) {
                 earliestTriggerTime = timer->triggerTime;
             }
         }
@@ -157,13 +162,21 @@ void Dispatch::handleEvent()
 
 /**
  * Clear all existing dispatch information; this method is intended for use
- * only in tests.
+ * only in tests. All existing Pollers become useless; all Timers are stopped,
+ * and all Files are set to FileEvent::NONE.
  */
 void Dispatch::reset()
 {
+    for (uint32_t i = 0; i < pollers.size(); i++) {
+        pollers[i]->slot = -1;
+    }
     pollers.clear();
     for (uint32_t i = 0; i < files.size(); i++) {
-        files[i] = NULL;
+        if (files[i] != NULL) {
+            files[i]->active = false;
+            files[i]->event = FileEvent::NONE;
+            files[i] = NULL;
+        }
     }
     if (epollThread != NULL) {
         // Writing data to the pipe below signals the epoll thread that it
@@ -182,7 +195,9 @@ void Dispatch::reset()
     }
     readyFd = -1;
     epollMutex.unlock();
-    timers.clear();
+    while (timers.size() > 0) {
+        timers.back()->stop();
+    }
     earliestTriggerTime = 0;
 }
 
@@ -339,9 +354,8 @@ void Dispatch::epollThreadMain() {
  * Construct a timer but do not start it: it will not fire until one of
  * the #startXXX methods is invoked.
  */
-Dispatch::Timer::Timer() : triggerTime(0), active(false), slot(timers.size())
+Dispatch::Timer::Timer() : triggerTime(0), slot(-1)
 {
-    Dispatch::timers.push_back(this);
 }
 
 /**
@@ -352,9 +366,8 @@ Dispatch::Timer::Timer() : triggerTime(0), active(false), slot(timers.size())
  *      returned by #rdtsc) from Dispatch::currentTime.
  */
 Dispatch::Timer::Timer(uint64_t cycles)
-        : triggerTime(0), active(false), slot(timers.size())
+        : triggerTime(0), slot(-1)
 {
-    Dispatch::timers.push_back(this);
     startCycles(cycles);
 }
 
@@ -364,20 +377,14 @@ Dispatch::Timer::Timer(uint64_t cycles)
 Dispatch::Timer::~Timer()
 {
     stop();
+}
 
-    // Erase this Timer from the timers vector by overwriting it with the
-    // timer that used to be the last one in the vector.
-    //
-    // Note: this approach using a vector is not thread-safe (it
-    // isn't safe to create or delete timers simultaneously in
-    // multiple threads) but it is reentrant (it is safe to delete a
-    // Timer from a timer callback, which means that the poll
-    // method is in the middle of scanning the list of all Timers;
-    // the worst that will happen is that the Timer that got moved
-    // may not be invoked in the current scan).
-    timers[slot] = timers.back();
-    timers[slot]->slot = slot;
-    timers.pop_back();
+/**
+ * Returns true if the timer is currently running, false if it isn't.
+ */
+bool Dispatch::Timer::isRunning()
+{
+    return slot >= 0;
 }
 
 /**
@@ -391,7 +398,10 @@ Dispatch::Timer::~Timer()
 void Dispatch::Timer::startCycles(uint64_t cycles)
 {
     triggerTime = Dispatch::currentTime + cycles;
-    active = true;
+    if (slot < 0) {
+        slot = timers.size();
+        timers.push_back(this);
+    }
     if (triggerTime < Dispatch::earliestTriggerTime) {
         Dispatch::earliestTriggerTime = triggerTime;
     }
@@ -437,13 +447,28 @@ void Dispatch::Timer::startSeconds(uint64_t seconds)
 }
 
 /**
- * Stop this timer. If the timer was active, it is made inactive (it won't
- * trigger until a #startXXX method is invoked). If the timer was already
- * enacted then this method has no effect.
+ * Stop this timer, if it was running. After this call, the timer won't
+ * trigger until a #startXXX method is invoked again.
  */
 void Dispatch::Timer::stop()
 {
-    active = false;
+    // Remove this Timer from the timers vector by overwriting its slot
+    // with the timer that used to be the last one in the vector.
+    //
+    // Note: this approach using a vector is not thread-safe (it
+    // isn't safe to create or delete timers simultaneously in
+    // multiple threads) but it is reentrant.  It is safe to delete
+    // a Timer while executing a timer callback, which means that the
+    // Dispatch::poll is in the middle of scanning the list of all
+    // Timers; the worst that will happen is that the Timer that got
+    // moved may not be invoked in the current scan).
+    if (slot < 0) {
+        return;
+    }
+    timers[slot] = timers.back();
+    timers[slot]->slot = slot;
+    timers.pop_back();
+    slot = -1;
 }
 
 } // namespace RAMCloud
