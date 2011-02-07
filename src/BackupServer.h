@@ -207,7 +207,6 @@ class BackupServer : public Server {
         bool
         isOpen()
         {
-            Lock _(mutex);
             return state == OPEN;
         }
 
@@ -220,7 +219,6 @@ class BackupServer : public Server {
         void
         setRecovering()
         {
-            Lock _(mutex);
             assert(primary);
             state = RECOVERING;
         }
@@ -234,7 +232,6 @@ class BackupServer : public Server {
         void
         setRecovering(const ProtoBuf::Tablets& partitions)
         {
-            Lock _(mutex);
             assert(!primary);
             state = RECOVERING;
             // Make a copy of the partition list for deferred filtering.
@@ -257,8 +254,6 @@ class BackupServer : public Server {
         {
             if (&info == this)
                 return false;
-            Lock _(mutex);
-            Lock __(info.mutex);
             return segmentId < info.segmentId;
         }
 
