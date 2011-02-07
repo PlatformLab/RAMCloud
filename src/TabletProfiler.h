@@ -40,12 +40,12 @@ class Partition {
     {
     }
 #endif
-    uint64_t firstKey;
-    uint64_t lastKey;
-    uint64_t minBytes;
-    uint64_t maxBytes;
-    uint64_t minReferants;
-    uint64_t maxReferants;
+    uint64_t firstKey;          /// the first key of this partition
+    uint64_t lastKey;           /// the last key of this partition
+    uint64_t minBytes;          /// the min possible bytes in this partition
+    uint64_t maxBytes;          /// the max possible bytes in this partition
+    uint64_t minReferants;      /// the min possible referants in this partition
+    uint64_t maxReferants;      /// the max possible referants in this partition
 };
 typedef std::vector<Partition> PartitionList;
 
@@ -87,10 +87,23 @@ class TabletProfiler {
     }
 
   private:
+    /// Bits of key space we shave off each level deeper in the structure.
+    /// The first level covers the entire 64-bit range, whereas the next
+    /// level only covers 2^(64 - BITS_PER_LEVEL), and so on. This also
+    /// affects the number of buckets per Subrange. I.e., there are at most
+    /// 2^BITS_PER_LEVEL of them.
     static const int      BITS_PER_LEVEL = 8;
+
+    /// Min bytes to track per bucket before using a child Subrange.
     static const uint64_t BUCKET_SPLIT_BYTES = 8 * 1024 * 1024;
+
+    /// Min referants to track per bucket before using a child Subrange.
     static const uint64_t BUCKET_SPLIT_OBJS  = BUCKET_SPLIT_BYTES / 100;
+
+    /// Max bytes a bucket and its parent can have before they are merged.
     static const uint64_t BUCKET_MERGE_BYTES = BUCKET_SPLIT_BYTES * 0.75;
+
+    /// Max referants a bucket and its parent can have before they are merged.
     static const uint64_t BUCKET_MERGE_OBJS  = BUCKET_SPLIT_OBJS  * 0.75;
 
     class PartitionCollector {
@@ -115,21 +128,21 @@ class TabletProfiler {
                               uint64_t minReferants,
                               uint64_t maxReferants);
 
-        // residual counts passed in to the constructor, for use in the
-        // first partition generated
-        uint64_t residualMaxBytes;
-        uint64_t residualMaxReferants;
+        /* residual counts passed in to the constructor, for use in the
+           first partition generated */
+        uint64_t residualMaxBytes;          /// Initial residual byte count
+        uint64_t residualMaxReferants;      /// Initial residual referant count
 
-        // current tally
-        uint64_t maxPartitionBytes;
-        uint64_t maxPartitionReferants;
-        uint64_t nextFirstKey;
-        uint64_t currentFirstKey;
-        uint64_t currentKnownBytes;
-        uint64_t currentKnownReferants;
-        uint64_t previousPossibleBytes;
-        uint64_t previousPossibleReferants;
-        bool     isDone;
+        /* current tally */
+        uint64_t maxPartitionBytes;         /// Current max byte count 
+        uint64_t maxPartitionReferants;     /// Current max referant count
+        uint64_t nextFirstKey;              /// Next firstKey for addRangeLeaf
+        uint64_t currentFirstKey;           /// Current first key in partition
+        uint64_t currentKnownBytes;         /// Count of exactly known bytes
+        uint64_t currentKnownReferants;     /// Count of exactly known referants
+        uint64_t previousPossibleBytes;     /// Possible last partition bytes
+        uint64_t previousPossibleReferants; /// Possible last partition refs
+        bool     isDone;                    /// Is this partition is done?
 
         friend class TabletProfilerTest;
 
@@ -139,12 +152,20 @@ class TabletProfiler {
     // forward decl
     class Subrange;
 
+    /// A Bucket is used to track the number of bytes and referants within
+    /// a contiguous subrange of the key space. Each Bucket may have a
+    /// child Subrange, which more precisely tracks that range (i.e. with
+    /// more individual Buckets). Note that counts in a parent Bucket
+    /// are _not_ reflected in any descendant Buckets.
     struct Bucket {
-        Subrange *child;
-        uint64_t  totalBytes;
-        uint64_t  totalReferants;
+        Subrange *child;                /// Pointer to child Subrange, or NULL
+        uint64_t  totalBytes;           /// Total byte count
+        uint64_t  totalReferants;       /// Total referant count
     };
 
+    /// A Subrange is an individual node in our TabletProfiler tree. It tracks
+    /// a specific contiguous subrange of the key space using individual
+    /// Buckets.
     class Subrange {
       public:
         class BucketHandle {
@@ -161,8 +182,8 @@ class TabletProfiler {
             }
 
           private:
-            Subrange* subrange;
-            int       bucketIndex;
+            Subrange* subrange;         /// Pointer to the Subrange referenced
+            int       bucketIndex;      /// Index of the Bucket in subrange
 
             friend class TabletProfilerTest;
         };
@@ -188,16 +209,16 @@ class TabletProfiler {
         uint64_t     getLastKey();
 
       private:
-        BucketHandle parent;
-        uint64_t     bucketWidth;
-        Bucket      *buckets;
-        int          numBuckets;
-        uint64_t     firstKey;
-        uint64_t     lastKey;
-        uint64_t     totalBytes;
-        uint64_t     totalReferants;
-        uint32_t     totalChildren;
-        LogTime      createTime;
+        BucketHandle parent;            /// Handle to Subrange's parent Bucket
+        uint64_t     bucketWidth;       /// Keyspace width of each Bucket
+        Bucket      *buckets;           /// Array of Buckets
+        int          numBuckets;        /// Number of Buckets in buckets array
+        uint64_t     firstKey;          /// First key of this Subrange
+        uint64_t     lastKey;           /// Last key of this Subrange
+        uint64_t     totalBytes;        /// Sum of all Buckets' totalBytes
+        uint64_t     totalReferants;    /// Sum of all Buckets' totalReferants
+        uint32_t     totalChildren;     /// Number of Buckets with child != NULL
+        LogTime      createTime;        /// LogTime of track() that created this
 
         friend class TabletProfilerTest;
 
@@ -208,11 +229,11 @@ class TabletProfiler {
     Subrange::BucketHandle findBucket(uint64_t key, LogTime *time = NULL);
 
     // TabletProfiler private variables
-    Subrange*              root;
-    Subrange::BucketHandle findHint;
-    LogTime                lastTracked;
-    uint64_t               totalTracked;
-    uint64_t               totalTrackedBytes;
+    Subrange*              root;                /// Root Subrange in our tree
+    Subrange::BucketHandle findHint;            /// Optimisation for locality
+    LogTime                lastTracked;         /// LogTime of last track() call
+    uint64_t               totalTracked;        /// Total tracked referants
+    uint64_t               totalTrackedBytes;   /// Total tracked bytes
 
     friend class TabletProfilerTest;
 

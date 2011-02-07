@@ -31,6 +31,10 @@ class Will {
     void debugDump();
 
   private:
+    /// Each entry in the Will describes a key range for a particular
+    /// Tablet and is assigned to a partition. All entries for a
+    /// particular partition must meet the total byte and referant
+    /// contraints given to the constructor.
     struct WillEntry {
         uint64_t partitionId;
         uint64_t tableId;
@@ -43,26 +47,25 @@ class Will {
     };
     typedef std::vector<WillEntry> WillList;
 
-    // current partition state
-    uint64_t currentId;
-    uint64_t currentMaxBytes;
-    uint64_t currentMaxReferants;
+    /* current partition state */
+    uint64_t currentId;             /// current partitionId we're working on
+    uint64_t currentMaxBytes        /// current max bytes in this partition
+    uint64_t currentMaxReferants;   /// current max referants in this partition
 
-    // current number of TabletProfiler partitions added since the
-    // last currentId increment
+    /// current number of TabletProfiler partitions added since the
+    /// last currentId increment
     uint64_t currentCount;
 
-    // parameters dictating partition sizes
-    uint64_t maxBytesPerPartition;
-    uint64_t maxReferantsPerPartition;
+    /* parameters dictating partition sizes */
+    uint64_t maxBytesPerPartition;      /// max bytes allowed in a partition
+    uint64_t maxReferantsPerPartition;  /// max referants allowed in a partition
 
-    // list tablets, ordered by partition
+    /// list tablets, ordered by partition
     WillList entries;
 
     void     addTablet(const ProtoBuf::Tablets::Tablet& tablet);
     void     addPartition(Partition& partition,
                           const ProtoBuf::Tablets::Tablet& tablet);
-
 
     friend class WillBenchmark;
     friend class WillTest;
