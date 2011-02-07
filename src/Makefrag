@@ -27,7 +27,6 @@ SHARED_SRCFILES := \
 		   src/ClientException.cc \
 		   src/CoordinatorClient.cc \
 		   src/Crc32C.cc \
-		   src/CycleCounter.cc \
 		   src/BackupClient.cc \
 		   src/BackupManager.cc \
 		   src/BenchUtil.cc \

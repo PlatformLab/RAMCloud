@@ -390,15 +390,6 @@ fastPower(uint64_t base, uint8_t exp)
 #else
 #define CONST_FOR_PRODUCTION const
 #endif
-
-#if PERF_COUNTERS
-#define STAT_REF(pc) &(pc)
-#define STAT_INC(pc) ++(pc)
-#else
-#define STAT_REF(pc) NULL
-#define STAT_INC(pc) (void) 0
-#endif
-
 #endif
 
 namespace RAMCloud {

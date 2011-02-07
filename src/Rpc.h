@@ -59,28 +59,10 @@ enum RpcType {
 };
 
 /**
- * Wire representation for a token requesting that the server collect a
- * particular performance metric while executing an RPC.
- */
-struct RpcPerfCounter {
-    uint32_t beginMark   : 12;    // This is actually a Mark; indicates when
-                                  // the server should start measuring.
-    uint32_t endMark     : 12;    // This is also a Mark; indicates when
-                                  // the server should stop measuring.
-    uint32_t counterType : 8;     // This is actually a PerfCounterType;
-                                  // indicates what the server should measure
-                                  // (time, cache misses, etc.).
-};
-
-/**
  * Each RPC request starts with this structure.
  */
 struct RpcRequestCommon {
     RpcType type;                 // Operation to be performed.
-    RpcPerfCounter perfCounter;   // Selects a single performance metric
-                                  // for the server to collect while
-                                  // executing this request. Zero means
-                                  // don't collect anything.
 };
 
 /**
@@ -89,9 +71,6 @@ struct RpcRequestCommon {
 struct RpcResponseCommon {
     Status status;                // Indicates whether the operation
                                   // succeeded; if not, it explains why.
-    uint32_t counterValue;        // Value of the performance metric
-                                  // collected by the server, or 0 if none
-                                  // was requested.
 };
 
 

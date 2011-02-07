@@ -48,28 +48,9 @@ class RamCloud {
                uint32_t length, const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL);
 
-    /// \copydoc Client::clearPerfCounter
-    void clearPerfCounter() {
-        selectPerfCounter(PERF_COUNTER_INC, MARK_NONE, MARK_NONE);
-    }
-
-    /// \copydoc Client::selectPerfCounter
-    void selectPerfCounter(PerfCounterType type, Mark begin, Mark end) {
-        counterType = type;
-        beginMark = begin;
-        endMark = end;
-    }
-
     /// \copydoc Client::status
     Status status;
 
-    /// \copydoc Client::counterValue
-    uint32_t counterValue;
-
-  private:
-    PerfCounterType counterType;
-    Mark beginMark;
-    Mark endMark;
   public: // public for now to make administrative calls from clients
     CoordinatorClient coordinator;
     ObjectFinder objectFinder;

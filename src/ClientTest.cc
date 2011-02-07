@@ -52,7 +52,6 @@ class ClientTest : public CppUnit::TestFixture {
 
     void setUp() {
         client.status = STATUS_OK;
-        client.clearPerfCounter();
         transport = new MockTransport();
         transportManager.registerMock(transport);
         session = transport->getSession();
@@ -65,23 +64,17 @@ class ClientTest : public CppUnit::TestFixture {
 
     void test_allocHeader() {
         Buffer req;
-        client.selectPerfCounter(PERF_COUNTER_TSC,
-                                 MARK_RPC_PROCESSING_BEGIN,
-                                 MARK_RPC_PROCESSING_END);
         TestRpc::Request& reqHdr = client.allocHeader<TestRpc>(req);
         CPPUNIT_ASSERT_EQUAL(0, reqHdr.x);
         CPPUNIT_ASSERT_EQUAL(PING, reqHdr.common.type);
-        CPPUNIT_ASSERT_EQUAL(PERF_COUNTER_TSC,
-                             reqHdr.common.perfCounter.counterType);
     }
 
     void test_sendRecv_normal() {
         Buffer req, resp;
-        transport->setInput("3 4 0x12345678");
+        transport->setInput("3 0x12345678");
         const TestRpc::Response& respHdr(
             client.sendRecv<TestRpc>(session, req, resp));
         CPPUNIT_ASSERT_EQUAL(static_cast<Status>(3), client.status);
-        CPPUNIT_ASSERT_EQUAL(4, client.counterValue);
         CPPUNIT_ASSERT_EQUAL(0x12345678, respHdr.y);
     }
 
@@ -122,7 +115,7 @@ class ClientTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(7, status);
 
         // Response too short for RpcResponseCommon.
-        b.fillFromString("8");
+        b.fillFromString("a");
         status = STATUS_OK;
         try {
             client.throwShortResponseError(b);
