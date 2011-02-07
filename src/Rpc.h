@@ -54,7 +54,8 @@ enum RpcType {
     BACKUP_OPEN             = 131,
     BACKUP_STARTREADINGDATA = 132,
     BACKUP_WRITE            = 133,
-    ILLEGAL_RPC_TYPE        = 134,  // 1 + the highest legitimate RpcType
+    BACKUP_RECOVERYCOMPLETE = 134,
+    ILLEGAL_RPC_TYPE        = 135,  // 1 + the highest legitimate RpcType
 };
 
 /**
@@ -383,6 +384,17 @@ struct BackupGetRecoveryDataRpc {
         uint64_t masterId;      ///< Server Id from whom the request is coming.
         uint64_t segmentId;     ///< Target segment to get data from.
         uint64_t partitionId;   ///< Partition id of :ecovery segment to fetch.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct BackupRecoveryCompleteRpc {
+    static const RpcType type = BACKUP_RECOVERYCOMPLETE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;      ///< Server Id which was recovered.
     };
     struct Response {
         RpcResponseCommon common;

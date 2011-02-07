@@ -306,7 +306,15 @@ bool
 Recovery::tabletsRecovered(const ProtoBuf::Tablets& tablets)
 {
     tabletsUnderRecovery--;
-    return tabletsUnderRecovery == 0;
+    if (tabletsUnderRecovery == 0) {
+        foreach (auto& backup, backupHosts.server()) {
+            auto session = transportManager.getSession(
+                                    backup.service_locator().c_str());
+            BackupClient(session).recoveryComplete(masterId);
+        }
+        return true;
+    }
+    return false;
 }
 
 } // namespace RAMCloud

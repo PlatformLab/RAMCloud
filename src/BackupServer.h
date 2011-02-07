@@ -478,6 +478,10 @@ class BackupServer : public Server {
     void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                          BackupGetRecoveryDataRpc::Response& respHdr,
                          Transport::ServerRpc& rpc);
+    void recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
+                         BackupRecoveryCompleteRpc::Response& respHdr,
+                         Transport::ServerRpc& rpc,
+                         Responder& responder);
     static bool segmentInfoLessThan(SegmentInfo* left,
                                     SegmentInfo* right);
     void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,

@@ -145,6 +145,20 @@ BackupClient::ping()
 }
 
 /**
+ * Signal to the backup server that recovery has completed. The backup server
+ * will then free any resources it has for the recovered master.
+ */
+void
+BackupClient::recoveryComplete(uint64_t masterId)
+{
+    Buffer req, resp;
+    auto& reqHdr = allocHeader<BackupRecoveryCompleteRpc>(req);
+    reqHdr.masterId = masterId;
+    sendRecv<BackupRecoveryCompleteRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
  * Begin reading the objects stored for the given server from disk and
  * split them into recovery segments.
  *

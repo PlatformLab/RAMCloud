@@ -785,6 +785,10 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             callHandler<PingRpc, Server,
                         &Server::ping>(rpc);
             break;
+        case BackupRecoveryCompleteRpc::type:
+            callHandler<BackupRecoveryCompleteRpc, BackupServer,
+                        &BackupServer::recoveryComplete>(rpc, responder);
+            break;
         case BackupStartReadingDataRpc::type:
             callHandler<BackupStartReadingDataRpc, BackupServer,
                         &BackupServer::startReadingData>(rpc, responder);
@@ -894,6 +898,26 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
     info->appendRecoverySegment(reqHdr.partitionId, rpc.replyPayload);
 
     LOG(DEBUG, "getRecoveryData complete");
+}
+
+/**
+ * Clean up state associated with the given master after recovery.
+ * \param reqHdr
+ *      Header of the Rpc request containing the segment number to free.
+ * \param respHdr
+ *      Header for the Rpc response.
+ * \param rpc
+ *      The Rpc being serviced.
+ * \param responder
+ *      Functor to respond to the RPC before returning from this method.
+ */
+void
+BackupServer::recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
+                               BackupRecoveryCompleteRpc::Response& respHdr,
+                               Transport::ServerRpc& rpc,
+                               Responder& responder)
+{
+    LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
 }
 
 /**
