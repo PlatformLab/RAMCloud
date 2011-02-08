@@ -49,7 +49,7 @@ class Will {
 
     /* current partition state */
     uint64_t currentId;             /// current partitionId we're working on
-    uint64_t currentMaxBytes        /// current max bytes in this partition
+    uint64_t currentMaxBytes;       /// current max bytes in this partition
     uint64_t currentMaxReferants;   /// current max referants in this partition
 
     /// current number of TabletProfiler partitions added since the
