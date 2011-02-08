@@ -809,22 +809,30 @@ class SegmentInfoTest : public ::testing::Test {
         : segmentSize(64 * 1024)
         , pool{segmentSize}
         , storage{segmentSize, 2}
-        , info{storage, pool, 99, 88, segmentSize, true}
+        , ioScheduler()
+        , ioThread(boost::ref(ioScheduler))
+        , info{storage, pool, ioScheduler, 99, 88, segmentSize, true}
     {
         logger.setLogLevels(SILENT_LOG_LEVEL);
+    }
+
+    ~SegmentInfoTest()
+    {
+        ioScheduler.shutdown(ioThread);
     }
 
     uint32_t segmentSize;
     BackupServer::ThreadSafePool pool;
     InMemoryStorage storage;
+    BackupServer::IoScheduler ioScheduler;
+    boost::thread ioThread;
     SegmentInfo info;
-
 };
 
 TEST_F(SegmentInfoTest, destructor) {
     TestLog::Enable _;
     {
-        SegmentInfo info{storage, pool, 99, 88, segmentSize, true};
+        SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, true};
         info.open();
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
     }
@@ -836,7 +844,7 @@ TEST_F(SegmentInfoTest, destructor) {
 
 TEST_F(SegmentInfoTest, destructorLoading) {
     {
-        SegmentInfo info{storage, pool, 99, 88, segmentSize, true};
+        SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, true};
         info.open();
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
         info.close();
@@ -905,7 +913,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
 }
 
 TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
-    SegmentInfo info{storage, pool, 99, 88, segmentSize, false};
+    SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, false};
     info.open();
     Segment segment(123, 88, info.segment, segmentSize);
 
@@ -1114,7 +1122,7 @@ TEST_F(SegmentInfoTest, free) {
 }
 
 TEST_F(SegmentInfoTest, freeRecoveringSecondary) {
-    SegmentInfo info{storage, pool, 99, 88, segmentSize, false};
+    SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, false};
     info.open();
     info.close();
     info.setRecovering(ProtoBuf::Tablets());
@@ -1134,7 +1142,7 @@ TEST_F(SegmentInfoTest, open) {
 
 TEST_F(SegmentInfoTest, openStorageAllocationFailure) {
     InMemoryStorage storage{segmentSize, 0};
-    SegmentInfo info{storage, pool, 99, 88, segmentSize, true};
+    SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, true};
     EXPECT_THROW(info.open(), BackupStorageException);
     ASSERT_EQ(static_cast<char*>(NULL), info.segment);
     EXPECT_EQ(static_cast<Handle*>(NULL), info.storageHandle);

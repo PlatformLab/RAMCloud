@@ -28,6 +28,7 @@
 #include <boost/scoped_ptr.hpp>
 #include <boost/pool/pool.hpp>
 #include <map>
+#include <queue>
 
 #include "Common.h"
 #include "BackupClient.h"
@@ -156,8 +157,7 @@ class BackupServer : public Server {
         Pool pool;
     };
 
-    class LoadOp;
-    class StoreOp;
+    class IoScheduler;
     class RecoverySegmentBuilder;
 
     /**
@@ -187,6 +187,7 @@ class BackupServer : public Server {
         };
 
         SegmentInfo(BackupStorage& storage, ThreadSafePool& pool,
+                    IoScheduler& ioScheduler,
                     uint64_t masterId, uint64_t segmentId,
                     uint32_t segmentSize, bool primary);
         ~SegmentInfo();
@@ -289,12 +290,12 @@ class BackupServer : public Server {
         waitForOngoingOps(Lock& lock)
         {
             int lastThreadCount = 0;
-            while (storageThreadCount > 0) {
-                if (storageThreadCount != lastThreadCount) {
+            while (storageOpCount > 0) {
+                if (storageOpCount != lastThreadCount) {
                     LOG(DEBUG, "Waiting for storage threads to terminate "
                         "for a segment, %d threads still running",
-                        static_cast<int>(storageThreadCount));
-                    lastThreadCount = storageThreadCount;
+                        static_cast<int>(storageOpCount));
+                    lastThreadCount = storageOpCount;
                 }
                 condition.wait(lock);
             }
@@ -312,6 +313,9 @@ class BackupServer : public Server {
          * Used in conjunction with #mutex.
          */
         boost::condition_variable condition;
+
+        /// Gatekeeper through which async IOs are scheduled.
+        IoScheduler& ioScheduler;
 
         /// An array of recovery segments when non-null.
         /// The exception if one occurred while recovering a segment.
@@ -373,11 +377,10 @@ class BackupServer : public Server {
         /// For allocating, loading, storing segments to.
         BackupStorage& storage;
 
-        /// Count of threads performing loads/stores on this segment.
-        int storageThreadCount;
+        /// Count of loads/stores pending for this segment.
+        int storageOpCount;
 
-        friend class LoadOp;
-        friend class StoreOp;
+        friend class IoScheduler;
         friend class RecoverySegmentBuilder;
         friend class BackupServerTest;
         friend class SegmentInfoTest;
@@ -385,33 +388,38 @@ class BackupServer : public Server {
     };
 
     /**
-     * Load a segment from disk into a valid buffer in memory.  Locks
-     * the #SegmentInfo::mutex to ensure other operations aren't performed
-     * on the segment in the meantime.
+     * Queues, prioritizes, and dispatches storage load/store operations.
      */
-    class LoadOp {
+    class IoScheduler {
       public:
-        explicit LoadOp(SegmentInfo& info);
+        IoScheduler();
         void operator()();
+        void load(SegmentInfo& info);
+        void store(SegmentInfo& info);
+        void shutdown(boost::thread& ioThread);
 
       private:
-        /// The SegmentInfo this LoadOp operates on.
-        SegmentInfo& info;
-    };
+        void doLoad(SegmentInfo& info) const;
+        void doStore(SegmentInfo& info) const;
 
-    /**
-     * Store a segment to disk from a valid buffer in memory.  Locks
-     * the #SegmentInfo::mutex to ensure other operations aren't performed
-     * on the segment in the meantime.
-     */
-    class StoreOp {
-      public:
-        explicit StoreOp(SegmentInfo& info);
-        void operator()();
+        typedef boost::unique_lock<boost::mutex> Lock;
 
-      private:
-        /// The SegmentInfo this StoreOp operates on.
-        SegmentInfo& info;
+        /// Protects #loadQueue, #storeQueue, and #running.
+        boost::mutex queueMutex;
+
+        /// Notified when new requests are added to either queue.
+        boost::condition_variable queueCond;
+
+        /// Queue of SegmentInfos to be loaded from storage.
+        std::queue<SegmentInfo*> loadQueue;
+
+        /// Queue of SegmentInfos to be written to storage.
+        std::queue<SegmentInfo*> storeQueue;
+
+        /// When false scheduler will exit when no outstanding requests remain.
+        bool running;
+
+        DISALLOW_COPY_AND_ASSIGN(IoScheduler);
     };
 
     /**
@@ -540,6 +548,11 @@ class BackupServer : public Server {
 
     /// For unit testing.
     uint64_t bytesWritten;
+
+    /// Gatekeeper through which async IOs are scheduled.
+    IoScheduler ioScheduler;
+    /// The thread driving #ioScheduler.
+    boost::thread ioThread;
 
     friend class BackupServerTest;
     friend class SegmentInfoTest;
