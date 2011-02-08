@@ -134,7 +134,7 @@ class TabletProfiler {
         uint64_t residualMaxReferants;      /// Initial residual referant count
 
         /* current tally */
-        uint64_t maxPartitionBytes;         /// Current max byte count 
+        uint64_t maxPartitionBytes;         /// Current max byte count
         uint64_t maxPartitionReferants;     /// Current max referant count
         uint64_t nextFirstKey;              /// Next firstKey for addRangeLeaf
         uint64_t currentFirstKey;           /// Current first key in partition
