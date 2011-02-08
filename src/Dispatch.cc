@@ -138,7 +138,7 @@ bool Dispatch::poll()
         // in the loop above, because one timer handler could delete
         // another, which can rearrange the list and cause us to miss
         // a trigger time.
-        earliestTriggerTime = currentTime + 1000000000000;
+        earliestTriggerTime = 0xfffffffffffffffful;
         for (uint32_t i = 0; i < timers.size(); i++) {
             Timer* timer = timers[i];
             if (timer->triggerTime < earliestTriggerTime) {
