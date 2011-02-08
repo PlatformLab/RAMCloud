@@ -86,6 +86,7 @@
 #include "TimeCounter.h"
 #include "Transport.h"
 #include "InfRcTransport.h"
+#include "IpAddress.h"
 #include "ServiceLocator.h"
 
 #define check_error_null(x, s)                              \
@@ -131,7 +132,6 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
       commonTxCq(NULL),
       ibPhysicalPort(1),
       lid(0),
-      udpListenPort(0),
       serverSetupSocket(-1),
       clientSetupSocket(-1),
       queuePairMap(),
@@ -151,10 +151,6 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
 
         try {
             ibPhysicalPort = sl->getOption<int>("devport");
-        } catch (ServiceLocator::NoSuchKeyException& e) {}
-
-        try {
-            udpListenPort  = sl->getOption<int>("port");
         } catch (ServiceLocator::NoSuchKeyException& e) {}
     }
 
@@ -179,10 +175,7 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
 
     // If this is a server, create a server setup socket and bind it.
     if (sl != NULL) {
-        struct sockaddr_in sin;
-        sin.sin_family = PF_INET;
-        sin.sin_port   = htons(udpListenPort);
-        sin.sin_addr.s_addr = INADDR_ANY;
+        IpAddress address(*sl);
 
         serverSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
         if (serverSetupSocket == -1) {
@@ -190,8 +183,8 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
             throw TransportException(HERE, "server socket failed");
         }
 
-        if (bind(serverSetupSocket, reinterpret_cast<sockaddr *>(&sin),
-          sizeof(sin))) {
+        if (bind(serverSetupSocket, &address.address,
+          sizeof(address.address))) {
             close(serverSetupSocket);
             LOG(ERROR, "%s: failed to bind socket", __func__);
             throw TransportException(HERE, "socket failed");
@@ -203,6 +196,8 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
             close(serverSetupSocket);
             throw;
         }
+
+        LOG(NOTICE, "InfRc listening on UDP: %s", address.toString().c_str());
     }
 
     // Step 2:
@@ -332,12 +327,11 @@ InfRcTransport<Infiniband>::InfRCSession::InfRCSession(
     : transport(transport),
       qp(NULL)
 {
-    const char *ip = sl.getOption<const char*>("host");
-    int port = sl.getOption<uint16_t>("port");
+    IpAddress address(sl);
 
     // create and set up a new queue pair for this client
     // TODO(ongaro): This probably doesn't need to allocate memory
-    qp = transport->clientTrySetupQueuePair(ip, port);
+    qp = transport->clientTrySetupQueuePair(address);
 }
 
 /**
@@ -481,12 +475,9 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
  */
 template<typename Infiniband>
 typename Infiniband::QueuePair*
-InfRcTransport<Infiniband>::clientTrySetupQueuePair(const char* ip, int port)
+InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
 {
-    sockaddr_in sin;
-    sin.sin_family = PF_INET;
-    sin.sin_addr.s_addr = inet_addr(ip);
-    sin.sin_port = htons(port);
+    sockaddr_in* sin = reinterpret_cast<sockaddr_in*>(&address.address);
 
     // Create a new QueuePair and send its parameters to the server so it
     // can create its qp and reply with its parameters.
@@ -503,7 +494,7 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(const char* ip, int port)
         bool gotResponse;
 
         try {
-            gotResponse = clientTryExchangeQueuePairs(&sin, &outgoingQpt,
+            gotResponse = clientTryExchangeQueuePairs(sin, &outgoingQpt,
                                                       &incomingQpt,
                                                       QP_EXCHANGE_USEC_TIMEOUT);
         } catch (...) {
@@ -522,8 +513,9 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(const char* ip, int port)
         return qp;
     }
 
-    LOG(WARNING, "%s: failed to exchange with server (%s:%d) within allotted "
-        "%u microseconds (sent request %u times)\n", __func__, ip, port,
+    LOG(WARNING, "%s: failed to exchange with server (%s) within allotted "
+        "%u microseconds (sent request %u times)\n", __func__,
+        address.toString().c_str(),
         QP_EXCHANGE_USEC_TIMEOUT * QP_EXCHANGE_MAX_TIMEOUTS,
         QP_EXCHANGE_MAX_TIMEOUTS);
     delete qp;
