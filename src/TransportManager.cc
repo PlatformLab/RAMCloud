@@ -213,8 +213,10 @@ TransportManager::serverRecv()
         throw TransportException(HERE, "no transports to listen on");
     uint8_t i = 0;
     while (true) {
-        if (nextToListen >= listening.size())
+        if (nextToListen >= listening.size()) {
+            Dispatch::poll();
             nextToListen = 0;
+        }
         auto transport = listening[nextToListen++];
 
         auto rpc = transport->serverRecv();
