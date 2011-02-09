@@ -67,7 +67,7 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
     , packetBufPool()
     , packetBufsUtilized(0)
     , currentRxBuffer(0)
-    , txBuffer()
+    , txBuffer(NULL)
     , ibPhysicalPort(1)
     , lid(0)
     , qpn(0)
@@ -119,7 +119,7 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
 
     // add receive buffers so we can transition to RTR
     for (uint32_t i = 0; i < MAX_RX_QUEUE_DEPTH; i++)
-        infiniband->postReceive(qp, &rxBuffers[i]);
+        infiniband->postReceive(qp, rxBuffers[i]);
 
     qp->activate();
 }
@@ -182,7 +182,7 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
     const Address *infAddr = static_cast<const Address *>(addr);
 
     // use the sole TX buffer
-    BufferDescriptor* bd = &txBuffer;
+    BufferDescriptor* bd = txBuffer;
 
     // copy buffer over
     char *p = bd->buffer;

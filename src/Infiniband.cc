@@ -383,7 +383,7 @@ Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
  * \throw
  *      TransportException if allocation or registration failed.
  */
-Infiniband::BufferDescriptor
+Infiniband::BufferDescriptor*
 Infiniband::allocateBufferDescriptorAndRegister(size_t bytes)
 {
     void *p = xmemalign(4096, bytes);
@@ -393,7 +393,7 @@ Infiniband::allocateBufferDescriptorAndRegister(size_t bytes)
     if (mr == NULL)
         throw TransportException(HERE, "failed to register ring buffer", errno);
 
-    return BufferDescriptor(reinterpret_cast<char *>(p), bytes, mr);
+    return new BufferDescriptor(reinterpret_cast<char *>(p), bytes, mr);
 }
 
 /**
