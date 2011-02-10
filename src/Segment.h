@@ -137,6 +137,19 @@ class _SegmentEntryHandle {
         return getSegmentEntry()->type;
     }
 
+    /**
+     * Return the checksum currently stored in memory for this SegmentEntry.
+     * Note that if something is corrupt, then it may not be valid.
+     */
+    SegmentChecksum::ResultType
+    checksum() const
+    {
+        return getSegmentEntry()->checksum;
+    }
+
+    /**
+     * Calculate a checksum from the stored SegmentEntry.
+     */
     SegmentChecksum::ResultType
     generateChecksum() const
     {
@@ -148,10 +161,14 @@ class _SegmentEntryHandle {
         return checksum.getResult();
     }
 
+    /**
+     * Calculate a checksum for this SegmentEntry and compare it against
+     * the stored checksum. Returns true if they match, else false. 
+     */
     bool
     isChecksumValid() const
     {
-        return generateChecksum() == getSegmentEntry()->checksum;
+        return generateChecksum() == checksum();
     }
 
     /**

@@ -56,6 +56,8 @@ class RecoverySegmentIterator {
 
     const void* getPointer() const;
     uint64_t getOffset() const;
+    SegmentChecksum::ResultType checksum() const;
+    SegmentChecksum::ResultType generateChecksum() const;
     bool isChecksumValid() const;
 
   PRIVATE:
