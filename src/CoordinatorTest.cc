@@ -29,6 +29,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(CoordinatorTest);
     CPPUNIT_TEST(test_createTable);
     CPPUNIT_TEST(test_enlistServer);
+    CPPUNIT_TEST(test_getMasterList);
     CPPUNIT_TEST(test_getBackupList);
     CPPUNIT_TEST(test_getTabletMap);
     CPPUNIT_TEST(test_hintServerDown_master);
@@ -145,17 +146,28 @@ class CoordinatorTest : public CppUnit::TestFixture {
                              server->backupList.ShortDebugString());
     }
 
+    void test_getMasterList() {
+        // master is already enlisted
+        ProtoBuf::ServerList masterList;
+        client->getMasterList(masterList);
+        // need to avoid non-deterministic 'user_data' field.
+        CPPUNIT_ASSERT_EQUAL(0, masterList.ShortDebugString().find(
+                                    "server { server_type: MASTER server_id: 2 "
+                                    "service_locator: \"mock:host=master\" "
+                                    "user_data: "));
+    }
+
     void test_getBackupList() {
         // master is already enlisted
         client->enlistServer(BACKUP, "mock:host=backup1");
         client->enlistServer(BACKUP, "mock:host=backup2");
-        ProtoBuf::ServerList serverList;
-        client->getBackupList(serverList);
+        ProtoBuf::ServerList backupList;
+        client->getBackupList(backupList);
         CPPUNIT_ASSERT_EQUAL("server { server_type: BACKUP server_id: 3 "
                              "service_locator: \"mock:host=backup1\" } "
                              "server { server_type: BACKUP server_id: 4 "
                              "service_locator: \"mock:host=backup2\" }",
-                             serverList.ShortDebugString());
+                             backupList.ShortDebugString());
     }
 
     void test_getTabletMap() {

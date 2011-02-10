@@ -45,6 +45,7 @@ SHARED_SRCFILES := \
 		   src/MasterServer.cc \
 		   src/Metrics.cc \
 		   src/OptionParser.cc \
+           src/Prodder.cc \
 		   src/Recovery.cc \
 		   src/RecoverySegmentIterator.cc \
 		   src/Segment.cc \

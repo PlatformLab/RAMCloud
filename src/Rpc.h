@@ -41,7 +41,7 @@ enum RpcType {
     WRITE                   = 13,
     REMOVE                  = 14,
     ENLIST_SERVER           = 15,
-    GET_BACKUP_LIST         = 16,
+    GET_SERVER_LIST         = 16,
     GET_TABLET_MAP          = 17,
     SET_TABLETS             = 18,
     RECOVER                 = 19,
@@ -286,10 +286,11 @@ struct EnlistServerRpc {
     };
 };
 
-struct GetBackupListRpc {
-    static const RpcType type = GET_BACKUP_LIST;
+struct GetServerListRpc {
+    static const RpcType type = GET_SERVER_LIST;
     struct Request {
         RpcRequestCommon common;
+        uint8_t serverType;        // Type of servers to get: MASTER or BACKUP
     };
     struct Response {
         RpcResponseCommon common;

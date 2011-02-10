@@ -40,6 +40,7 @@ class CoordinatorClient : public Client {
     uint32_t openTable(const char* name);
 
     uint64_t enlistServer(ServerType serverType, string localServiceLocator);
+    void getMasterList(ProtoBuf::ServerList& serverList);
     void getBackupList(ProtoBuf::ServerList& serverList);
     void getTabletMap(ProtoBuf::Tablets& tabletMap);
     void hintServerDown(string serviceLocator);
@@ -50,6 +51,8 @@ class CoordinatorClient : public Client {
     void setWill(uint64_t masterId, const ProtoBuf::Tablets& will);
 
   private:
+    void getServerList(ServerType type, ProtoBuf::ServerList& serverList);
+
     Transport::SessionRef session;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorClient);
 };
