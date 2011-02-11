@@ -26,6 +26,7 @@
 
 #include "BoostIntrusive.h"
 #include "Common.h"
+#include "Dispatch.h"
 #include "IpAddress.h"
 #include "Segment.h"
 #include "Transport.h"
@@ -46,7 +47,7 @@ class InfRcTransport : public Transport {
 
   public:
     explicit InfRcTransport(const ServiceLocator* sl = NULL);
-    ~InfRcTransport() { }
+    ~InfRcTransport();
     ServerRpc* serverRecv() __attribute__((warn_unused_result));
     SessionRef getSession(const ServiceLocator& sl) {
         return new InfRCSession(this, sl);
@@ -189,8 +190,6 @@ class InfRcTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
 
-    void poll();
-
     // misc helper functions
     void setNonBlocking(int fd);
 
@@ -207,7 +206,6 @@ class InfRcTransport : public Transport {
                                            QueuePairTuple *outgoingQpt,
                                            QueuePairTuple *incomingQpt,
                                            uint32_t usTimeout);
-    void       serverTrySetupQueuePair();
 
     /// See #infiniband.
     ObjectTub<Infiniband> realInfiniband;
@@ -268,6 +266,41 @@ class InfRcTransport : public Transport {
     /// passed to the constructor. Since InfRcTransport bootstraps over
     /// UDP, this could in the future contain a dynamic UDP port number.
     string locatorString;
+
+    /**
+     * This class (and its instance below) connect with the dispatcher's
+     * polling mechanism so that we get invoked each time through the polling
+     * loop to check for incoming packets.
+     */
+    class Poller : public Dispatch::Poller {
+      public:
+        explicit Poller(InfRcTransport* transport) : transport(transport) {}
+        virtual bool operator() ();
+
+      private:
+        /// Check this transport for packets every time we are invoked.
+        InfRcTransport* transport;
+        DISALLOW_COPY_AND_ASSIGN(Poller);
+    };
+    Poller poller;
+
+    /**
+     * An event handler used on servers to respond to incoming packets
+     * from clients that are requesting new connections.
+     */
+    class ServerConnectHandler : public Dispatch::File {
+      public:
+        ServerConnectHandler(int fd, InfRcTransport* transport)
+                : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
+                fd(fd), transport(transport) { }
+        virtual void operator() ();
+      private:
+        // The following variables are just copies of constructor arguments.
+        int fd;
+        InfRcTransport* transport;
+        DISALLOW_COPY_AND_ASSIGN(ServerConnectHandler);
+    };
+    ServerConnectHandler* serverConnectHandler;
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };
