@@ -105,11 +105,11 @@ class InfUdDriver : public Driver {
     uint64_t            packetBufsUtilized;
 
     /// Infiniband receive buffers, written directly by the HCA.
-    BufferDescriptor    rxBuffers[MAX_RX_QUEUE_DEPTH];
+    BufferDescriptor*   rxBuffers[MAX_RX_QUEUE_DEPTH];
     int                 currentRxBuffer;
 
     /// Sole infiniband transmit buffer.
-    BufferDescriptor    txBuffer;
+    BufferDescriptor*   txBuffer;
 
     int ibPhysicalPort;                 // our HCA's physical port index
     int lid;                            // our infiniband local id

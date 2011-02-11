@@ -22,9 +22,11 @@
 #include <time.h>
 #include <string>
 #include <boost/unordered_map.hpp>
+#include <vector>
 
 #include "BoostIntrusive.h"
 #include "Common.h"
+#include "IpAddress.h"
 #include "Segment.h"
 #include "Transport.h"
 #include "Infiniband.h"
@@ -125,7 +127,7 @@ class InfRcTransport : public Transport {
     static const uint32_t MAX_RPC_SIZE = Segment::SEGMENT_SIZE + 4096;
     static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 16;
     static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
-    static const uint32_t MAX_TX_QUEUE_DEPTH = 64;
+    static const uint32_t MAX_TX_QUEUE_DEPTH = 8;
     static const uint32_t MAX_TX_SGE_COUNT = 8;
     static const uint32_t QP_EXCHANGE_USEC_TIMEOUT = 50000;
     static const uint32_t QP_EXCHANGE_MAX_TIMEOUTS = 10;
@@ -195,8 +197,12 @@ class InfRcTransport : public Transport {
     // Extend Infiniband::postSrqReceive by issuing queued up transmissions
     void postSrqReceiveAndKickTransmit(ibv_srq* srq, BufferDescriptor *bd);
 
+    // Grab a transmit buffer from our free list, or wait for completions if
+    // necessary.
+    BufferDescriptor* getTransmitBuffer();
+
     // queue pair connection setup helpers
-    QueuePair* clientTrySetupQueuePair(const char* ip, int port);
+    QueuePair* clientTrySetupQueuePair(IpAddress& address);
     bool       clientTryExchangeQueuePairs(struct sockaddr_in *sin,
                                            QueuePairTuple *outgoingQpt,
                                            QueuePairTuple *incomingQpt,
@@ -213,11 +219,10 @@ class InfRcTransport : public Transport {
      */
     Infiniband* infiniband;
 
-    BufferDescriptor    serverRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
-    BufferDescriptor    clientRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
+    BufferDescriptor*   serverRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
+    BufferDescriptor*   clientRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
 
-    BufferDescriptor    txBuffers[MAX_TX_QUEUE_DEPTH];
-    int                 currentTxBuffer;
+    vector<BufferDescriptor*> txBuffers;
 
     ibv_srq*     serverSrq;         // shared receive work queue for server
     ibv_srq*     clientSrq;         // shared receive work queue for client
@@ -226,7 +231,6 @@ class InfRcTransport : public Transport {
     ibv_cq*      commonTxCq;        // common completion queue for all transmits
     int          ibPhysicalPort;    // physical port number on the HCA
     int          lid;               // local id for this HCA and physical port
-    int          udpListenPort;     // UDP port number for server's setupSocket
     int          serverSetupSocket; // UDP socket for incoming setup requests
     int          clientSetupSocket; // UDP socket for outgoing setup requests
 

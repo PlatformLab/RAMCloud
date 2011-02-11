@@ -104,6 +104,15 @@ cyclesToNanoseconds(uint64_t cycles)
 }
 
 /**
+ * \copydoc cyclesToNanoseconds
+ */
+double
+cyclesToNanoseconds(double cycles)
+{
+    return (cycles * 1000 * 1000 * 1000 / getCyclesPerSecond());
+}
+
+/**
  * Given an elapsed number of cycles, return a floating-point number giving
  * the corresponding time in seconds.
  * \param cycles

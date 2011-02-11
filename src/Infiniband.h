@@ -325,7 +325,7 @@ class RealInfiniband {
                     const Address* address = NULL,
                     uint32_t remoteQKey = 0);
 
-    BufferDescriptor
+    BufferDescriptor*
     allocateBufferDescriptorAndRegister(size_t bytes);
 
     ibv_cq*
