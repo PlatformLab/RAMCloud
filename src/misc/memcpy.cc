@@ -21,16 +21,16 @@
 #include <math.h>
 #include <boost/thread.hpp>
 
-#include <Common.h>
-#include <BenchUtil.h>
-#include <ObjectTub.h>
+#include "Common.h"
+#include "BenchUtil.h"
+#include "ObjectTub.h"
 
 namespace RAMCloud {
 
 /**
  * The size of #scrub.
  */
-enum { SCRUB_SIZE = 1024UL * 1024 * 1024 }; 
+enum { SCRUB_SIZE = 1024UL * 1024 * 1024 };
 
 /**
  * A memory area used as scratch space to empty out caches.
@@ -92,7 +92,7 @@ template<uint32_t N>
 inline void
 nop()
 {
-    asm volatile ("nop");
+    asm volatile("nop");
     nop<N - 1>();
 }
 template<>
@@ -158,7 +158,7 @@ template<bool cached, void* (*memcpyFn)(void*, const void*, size_t)>
 static void
 measure(uint64_t bytes)
 {
-    uint8_t *src = reinterpret_cast<uint8_t *>(xmalloc(bytes)); 
+    uint8_t *src = reinterpret_cast<uint8_t *>(xmalloc(bytes));
     uint8_t *dst = reinterpret_cast<uint8_t *>(xmalloc(bytes));
 
     // Write to all pages so that the OS is forced to allocate them. Note that
