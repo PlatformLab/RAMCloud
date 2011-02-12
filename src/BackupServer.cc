@@ -779,10 +779,6 @@ BackupServer::RecoverySegmentBuilder::operator()()
         assert(buildingInfo != loadingInfo);
         buildingInfo = loadingInfo;
         if (i < infos.size()) {
-            {
-                SegmentInfo::Lock lock(loadingInfo->mutex);
-                loadingInfo->waitForOngoingOps(lock);
-            }
             loadingInfo = infos[i];
             LOG(DEBUG, "Starting load of %uth segment", i);
             loadingInfo->startLoading();
