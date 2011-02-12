@@ -29,19 +29,31 @@ class DummyPoller : public Dispatch::Poller {
         : Dispatch::Poller(), myName(name), callsUntilTrue(callsUntilTrue),
         pollersToDelete() { }
     bool operator() () {
+        bool deleteThis = false;
+        bool result = true;
         if (localLog->length() != 0) {
             localLog->append("; ");
         }
         localLog->append(format("poller %s invoked", myName));
         for (uint32_t i = 0; i < pollersToDelete.size(); i++) {
-            delete pollersToDelete[i];
+            if (pollersToDelete[i] != this) {
+                delete pollersToDelete[i];
+            } else {
+                // We're supposed to delete this object, which is fine except
+                // we can't do it now because we're about to access more fields
+                // in it.  Wait until the end of the method.
+                deleteThis = true;
+            }
         }
         pollersToDelete.clear();
         if (callsUntilTrue > 0) {
             callsUntilTrue--;
-            return false;
+            result = false;
         }
-        return true;
+        if (deleteThis) {
+            delete this;
+        }
+        return result;
     }
     // Arrange to delete a given poller the next time this poller is
     // invoked (used for testing reentrancy).
@@ -64,14 +76,25 @@ class DummyTimer : public Dispatch::Timer {
     DummyTimer(const char *name, uint64_t cycles)
             : Dispatch::Timer(cycles), myName(name), timersToDelete() { }
     void operator() () {
+        bool deleteThis = false;
         if (localLog->length() != 0) {
             localLog->append("; ");
         }
         localLog->append(format("timer %s invoked", myName));
         for (uint32_t i = 0; i < timersToDelete.size(); i++) {
-            delete timersToDelete[i];
+            if (timersToDelete[i] != this) {
+                delete timersToDelete[i];
+            } else {
+                // We're supposed to delete this object, which is fine except
+                // we can't do it now because we're about to access more fields
+                // in it.  Wait until the end of the method.
+                deleteThis = true;
+            }
         }
         timersToDelete.clear();
+        if (deleteThis) {
+            delete this;
+        }
     }
     // Arrange to delete a given timer the next time this timer is
     // invoked (used for testing reentrancy).
@@ -583,7 +606,6 @@ class DispatchTest : public CppUnit::TestFixture {
         delete t1;
         delete t2;
         CPPUNIT_ASSERT_EQUAL(0, Dispatch::timers.size());
-        CPPUNIT_ASSERT_EQUAL(-1, t2->slot);
     }
 
     // Make sure that a timer can safely be deleted from a timer
