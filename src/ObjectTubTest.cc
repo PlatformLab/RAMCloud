@@ -46,12 +46,9 @@ typedef ObjectTub<int> IntTub;
 TEST(ObjectTub, basics) {
     {
         FooTub fooTub;
-        EXPECT_EQ(NULL, fooTub.get());
         EXPECT_FALSE(fooTub);
-        EXPECT_FALSE(fooTub.is_from(NULL));
         Foo* foo = fooTub.construct(1, 2, 3);
         EXPECT_TRUE(fooTub);
-        EXPECT_TRUE(fooTub.is_from(foo));
         EXPECT_EQ(1, foo->x);
         EXPECT_EQ(2, foo->y);
         EXPECT_EQ(3, foo->z);
@@ -63,8 +60,6 @@ TEST(ObjectTub, basics) {
         EXPECT_EQ(5, foo->x);
         EXPECT_EQ(6, foo->y);
         EXPECT_EQ(0, foo->z);
-
-        EXPECT_EQ(NULL, fooTub.construct(3, 4));
     }
     EXPECT_EQ(0, Foo::liveCount);
 }
