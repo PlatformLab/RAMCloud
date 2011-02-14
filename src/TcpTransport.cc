@@ -39,7 +39,7 @@ Syscall* TcpTransport::sys = &defaultSyscall;
  *      If NULL this transport will be used only for outgoing requests.
  */
 TcpTransport::TcpTransport(const ServiceLocator* serviceLocator)
-        : locatorString(), listenSocket(-1), acceptHandler(NULL), sockets(),
+        : locatorString(), listenSocket(-1), acceptHandler(), sockets(),
         waitingRequests()
 {
     if (serviceLocator == NULL)
@@ -83,7 +83,7 @@ TcpTransport::TcpTransport(const ServiceLocator* serviceLocator)
     }
 
     // Arrange to be notified whenever anyone connects to listenSocket.
-    acceptHandler = new AcceptHandler(listenSocket, this);
+    acceptHandler.construct(listenSocket, this);
 }
 
 /**
@@ -96,8 +96,6 @@ TcpTransport::~TcpTransport()
         sys->close(listenSocket);
         listenSocket = -1;
     }
-    delete acceptHandler;
-    acceptHandler = NULL;
     for (unsigned int i = 0; i < sockets.size(); i++) {
         if (sockets[i] != NULL) {
             closeSocket(i);
@@ -113,11 +111,9 @@ TcpTransport::~TcpTransport()
  */
 void
 TcpTransport::closeSocket(int fd) {
-    delete sockets[fd]->readHandler;
-    sys->close(fd);
-    sockets[fd]->busy = false;
-    sockets[fd]->rpc = NULL;
+    delete sockets[fd];
     sockets[fd] = NULL;
+    sys->close(fd);
 }
 
 /**
@@ -184,10 +180,7 @@ TcpTransport::AcceptHandler::operator() ()
             static_cast<unsigned int>(acceptedFd)) {
         transport->sockets.resize(acceptedFd + 1);
     }
-    Socket* socket = transport->sockets[acceptedFd] = new Socket;
-    socket->rpc =  NULL;
-    socket->busy = false;
-    socket->readHandler = new RequestReadHandler(acceptedFd, transport);
+    transport->sockets[acceptedFd] = new Socket(acceptedFd, transport);
 }
 
 /**
@@ -441,7 +434,7 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  */
 TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
         : address(serviceLocator), fd(-1), current(NULL), message(NULL),
-        replyHandler(NULL), errorInfo()
+        replyHandler(), errorInfo()
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -458,7 +451,7 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
     }
 
     /// Arrange for notification whenever the server sends us data.
-    replyHandler = new ReplyReadHandler(fd, this);
+    replyHandler.construct(fd, this);
 }
 
 /**
@@ -479,8 +472,8 @@ TcpTransport::TcpSession::close()
         sys->close(fd);
         fd = -1;
     }
-    delete replyHandler;
-    replyHandler = NULL;
+    if (replyHandler)
+        replyHandler.destroy();
 }
 
 // See Transport::Session::clientSend for documentation.

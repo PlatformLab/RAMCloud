@@ -28,6 +28,7 @@
 #include "Common.h"
 #include "Dispatch.h"
 #include "IpAddress.h"
+#include "ObjectTub.h"
 #include "Segment.h"
 #include "Transport.h"
 #include "Infiniband.h"
@@ -279,7 +280,7 @@ class InfRcTransport : public Transport {
         InfRcTransport* transport;
         DISALLOW_COPY_AND_ASSIGN(ServerConnectHandler);
     };
-    ServerConnectHandler* serverConnectHandler;
+    ObjectTub<ServerConnectHandler> serverConnectHandler;
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };

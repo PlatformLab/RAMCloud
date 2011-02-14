@@ -133,7 +133,7 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
       outstandingRpcs(),
       locatorString(),
       poller(this),
-      serverConnectHandler(NULL)
+      serverConnectHandler()
 {
     const char *ibDeviceName = NULL;
 
@@ -193,8 +193,7 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
         }
 
         LOG(NOTICE, "InfRc listening on UDP: %s", address.toString().c_str());
-        serverConnectHandler = new ServerConnectHandler(serverSetupSocket,
-                                                        this);
+        serverConnectHandler.construct(serverSetupSocket, this);
     }
 
     // Step 2:
@@ -255,7 +254,6 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
 template<typename Infiniband>
 InfRcTransport<Infiniband>::~InfRcTransport()
 {
-    delete serverConnectHandler;
 }
 
 template<typename Infiniband>
