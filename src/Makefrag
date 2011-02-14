@@ -1,6 +1,7 @@
 OBJDIRS += $(OBJDIR)
 
 AUTO_GEN_HEADERS := $(patsubst src/%.proto, $(OBJDIR)/%.pb.h, $(wildcard src/*.proto))
+AUTO_GEN_HEADERS += $(OBJDIR)/Metrics.in.h
 .SECONDARY: $(AUTO_GEN_HEADERS)
 $(OBJDIR)/%.pb.cc $(OBJDIR)/%.pb.h: $(TOP)/src/%.proto
 	@mkdir -p $(OBJDIR)
@@ -76,5 +77,8 @@ $(OBJDIR)/%.o: $(TOP)/src/%.cc $(AUTO_GEN_HEADERS)
 $(OBJDIR)/%.o: $(OBJDIR)/%.cc $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<, -fPIC)
+
+$(OBJDIR)/Metrics.in.cc  $(OBJDIR)/Metrics.in.h: $(TOP)/scripts/metrics.py
+	$(TOP)/scripts/metrics.py --build-only
 
 all:

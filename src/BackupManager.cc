@@ -15,6 +15,8 @@
 
 #include "BackupClient.h"
 #include "BackupManager.h"
+#include "CycleCounter.h"
+#include "Metrics.h"
 
 namespace RAMCloud {
 
@@ -65,6 +67,7 @@ BackupManager::OpenSegment::OpenSegment(BackupManager& backupManager,
         backup.offsetSent = len;
     }
     // Wait for segment open acknowledgements from backups:
+    CycleCounter<Metric> _(&metrics->master.segmentOpenStallTicks);
     waitForWriteRequests();
 }
 
@@ -95,6 +98,7 @@ void
 BackupManager::OpenSegment::write(uint32_t offset,
                                   bool closeSegment)
 {
+    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
     TEST_LOG("%lu, %lu, %u, %d",
              backupManager.masterId, segmentId, offset, closeSegment);
 
@@ -113,6 +117,8 @@ BackupManager::OpenSegment::write(uint32_t offset,
     // immutable after close
     assert(!closeQueued);
     closeQueued = closeSegment;
+    if (closeQueued)
+        ++metrics->master.segmentCloseCount;
 
     sendWriteRequests();
 }
@@ -124,9 +130,15 @@ BackupManager::OpenSegment::write(uint32_t offset,
 void
 BackupManager::OpenSegment::sync()
 {
-    waitForWriteRequests();
+    {
+        CycleCounter<Metric> _(&metrics->master.segmentWriteStallTicks);
+        waitForWriteRequests();
+    }
     sendWriteRequests();
-    waitForWriteRequests();
+    {
+        CycleCounter<Metric> _(&metrics->master.segmentWriteStallTicks);
+        waitForWriteRequests();
+    }
     if (closeQueued) {
         LOG(DEBUG, "Closed segment %lu, %lu",
             backupManager.masterId, segmentId);
@@ -210,6 +222,7 @@ BackupManager::~BackupManager()
 void
 BackupManager::freeSegment(uint64_t segmentId)
 {
+    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
     TEST_LOG("%lu, %lu", masterId, segmentId);
 
     // Make sure this segment isn't open:
@@ -253,6 +266,7 @@ BackupManager::freeSegment(uint64_t segmentId)
 BackupManager::OpenSegment*
 BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
 {
+    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
     LOG(DEBUG, "openSegment %lu, %lu, ..., %u", masterId, segmentId, len);
     auto* p = openSegmentPool.malloc();
     if (p == NULL)
@@ -269,6 +283,7 @@ BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
 void
 BackupManager::sync()
 {
+    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
     if (openSegmentList.empty())
         return;
     // At most one segment can have outstanding data,

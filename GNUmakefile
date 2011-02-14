@@ -186,7 +186,9 @@ doc: docs
 docs: python-docs
 	@DOCSID=`git branch --no-color | grep "*" | cut -f2 -d" "` ;\
 	DOCSID=$$DOCSID-`cat ".git/$$( git symbolic-ref HEAD )" | cut -c1-6` ;\
-	echo "PROJECT_NUMBER = \"Version [$$DOCSID]\"" | cat Doxyfile - | doxygen -
+	(echo "PROJECT_NUMBER = \"Version [$$DOCSID]\""; \
+	 echo "INPUT = src bindings README $(OBJDIR)"; \
+	 echo "INCLUDE_PATH = $(OBJDIR)"; ) | cat Doxyfile - | doxygen -
 
 docs-clean: python-docs-clean
 	rm -rf docs/doxygen/

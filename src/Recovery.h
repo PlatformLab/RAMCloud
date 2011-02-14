@@ -21,7 +21,9 @@
 #include <boost/unordered_map.hpp>
 
 #include "Common.h"
+#include "CycleCounter.h"
 #include "Log.h"
+#include "Metrics.h"
 #include "ProtoBuf.h"
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
@@ -125,6 +127,8 @@ class Recovery : public BaseRecovery {
         uint32_t  segmentLength;
         LogDigest logDigest;
     };
+
+    CycleCounter<Metric> recoveryTicks;
 
     /**
      * A mapping of segmentIds to backup host service locators.

@@ -20,6 +20,8 @@
 #include <string.h>
 
 #include "Crc32C.h"
+#include "CycleCounter.h"
+#include "Metrics.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
 #include "Log.h"
@@ -364,19 +366,22 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
         return NULL;
 
     SegmentEntry entry = { type, length, 0 };
-    SegmentChecksum entryChecksum;
-#ifdef PERF_DEBUG_RECOVERY_NO_CKSUM
-    updateChecksum = false;
-#else
-    entryChecksum.update(&entry, sizeof(entry));
-    entryChecksum.update(buffer, length);
-#endif
-    entry.checksum = entryChecksum.getResult();
-    const void* entryPointer = forceAppendBlob(&entry, sizeof(entry));
-    forceAppendBlob(buffer, length);
-
-    if (updateChecksum)
+#ifndef PERF_DEBUG_RECOVERY_NO_CKSUM
+    if (updateChecksum) {
+        CycleCounter<Metric> _(&metrics->master.segmentAppendChecksumTicks);
+        SegmentChecksum entryChecksum;
+        entryChecksum.update(&entry, sizeof(entry));
+        entryChecksum.update(buffer, length);
+        entry.checksum = entryChecksum.getResult();
         checksum.update(&entry.checksum, sizeof(entry.checksum));
+    }
+#endif
+    const void* entryPointer;
+    {
+        CycleCounter<Metric> _(&metrics->master.segmentAppendCopyTicks);
+        entryPointer = forceAppendBlob(&entry, sizeof(entry));
+        forceAppendBlob(buffer, length);
+    }
 
     if (sync)
         this->sync();
