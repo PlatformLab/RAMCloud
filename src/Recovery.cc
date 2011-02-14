@@ -17,7 +17,7 @@
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "MasterClient.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
 
@@ -56,7 +56,7 @@ Recovery::Recovery(uint64_t masterId,
     , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
-    , tasks(new ObjectTub<Task>[backupHosts.server_size()])
+    , tasks(new Tub<Task>[backupHosts.server_size()])
     , digestList()
     , segmentMap()
 {

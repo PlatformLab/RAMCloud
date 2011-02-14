@@ -23,7 +23,7 @@
 
 #include "Common.h"
 #include "BenchUtil.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -67,7 +67,7 @@ parallelMemcpy(void* dst, const void* src, size_t bytes)
 {
     uint32_t numThreads = numJobs - 1;
     size_t bytesPerJob = bytes / numJobs;
-    ObjectTub<boost::thread> threads[numThreads];
+    Tub<boost::thread> threads[numThreads];
     uint32_t i;
     for (i = 0; i < numThreads; i++) {
         threads[i].construct(memcpyFn,

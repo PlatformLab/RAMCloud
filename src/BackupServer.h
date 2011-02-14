@@ -43,7 +43,7 @@
 namespace RAMCloud {
 
 #if TESTING
-ObjectTub<uint64_t> whichPartition(const LogEntryType type,
+Tub<uint64_t> whichPartition(const LogEntryType type,
                                    const void* data,
                                    const ProtoBuf::Tablets& partitions);
 #endif
@@ -327,7 +327,7 @@ class BackupServer : public Server {
          * Only used if this segment is recovering but the filtering is
          * deferred (i.e. this isn't the primary segment backup copy).
          */
-        ObjectTub<ProtoBuf::Tablets> recoveryPartitions;
+        Tub<ProtoBuf::Tablets> recoveryPartitions;
 
         /// An array of recovery segments when non-null.
 #ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
@@ -507,10 +507,10 @@ class BackupServer : public Server {
     uint64_t serverId;
 
     /**
-     * Times each recovery. This is an ObjectTub that is reset on every
+     * Times each recovery. This is an Tub that is reset on every
      * recovery, since CycleCounters can't presently be restarted.
      */
-    ObjectTub<CycleCounter<Metric>> recoveryTicks;
+    Tub<CycleCounter<Metric>> recoveryTicks;
 
     /**
      * A pool of aligned segments (supporting O_DIRECT) to avoid

@@ -21,7 +21,7 @@
 
 #include "Dispatch.h"
 #include "IpAddress.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 #include "Syscall.h"
 #include "Transport.h"
 
@@ -218,7 +218,7 @@ class TcpTransport : public Transport {
                                   /// the current RPC (NULL if there is none).
         IncomingMessage message;  /// Records state of partially-received
                                   /// reply for current.
-        ObjectTub<ReplyReadHandler> replyHandler;
+        Tub<ReplyReadHandler> replyHandler;
                                   /// Used to get notified when response data
                                   /// arrives.
         string errorInfo;         /// If the session is no longer usable,
@@ -238,7 +238,7 @@ class TcpTransport : public Transport {
     int listenSocket;
 
     /// Used to wait for listenSocket to become readable.
-    ObjectTub<AcceptHandler> acceptHandler;
+    Tub<AcceptHandler> acceptHandler;
 
     /// Used to hold information about a file descriptor associated with
     /// a socket, on which RPC requests may arrive.

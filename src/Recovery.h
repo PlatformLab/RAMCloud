@@ -105,9 +105,9 @@ class Recovery : public BaseRecovery {
         }
 
         const ProtoBuf::ServerList::Entry& backupHost;
-        ObjectTub<Buffer> response;
-        ObjectTub<BackupClient> client;
-        ObjectTub<BackupClient::StartReadingData> rpc;
+        Tub<Buffer> response;
+        Tub<BackupClient> client;
+        Tub<BackupClient::StartReadingData> rpc;
         BackupClient::StartReadingData::Result result;
         bool done;
         DISALLOW_COPY_AND_ASSIGN(Task);
@@ -152,7 +152,7 @@ class Recovery : public BaseRecovery {
     const ProtoBuf::Tablets& will;
 
     /// List of asynchronous startReadingData tasks and their replies
-    ObjectTub<Task> *tasks;
+    Tub<Task> *tasks;
 
     /// List of serialised LogDigests from possible log heads, including
     /// the corresponding Segment IDs and lengths.

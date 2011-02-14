@@ -34,7 +34,7 @@ TESTS_SRCFILES := \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
 		  src/ObjectFinderTest.cc \
-		  src/ObjectTubTest.cc \
+		  src/TubTest.cc \
 		  src/OptionParserTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \

@@ -16,7 +16,7 @@
 #include "TestUtil.h"
 #include "TcpTransport.h"
 #include "MockSyscall.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 

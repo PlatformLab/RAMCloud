@@ -23,7 +23,7 @@
 #include "BoostIntrusive.h"
 #include "BackupClient.h"
 #include "Common.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -86,7 +86,7 @@ class BackupManager {
             /**
              * Space for an asynchronous RPC call.
              */
-            ObjectTub<BackupClient::WriteSegment> writeSegmentTub;
+            Tub<BackupClient::WriteSegment> writeSegmentTub;
         };
 
         /**

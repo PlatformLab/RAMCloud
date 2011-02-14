@@ -157,7 +157,7 @@ Infiniband::getLid(int port)
  *      if polling failed.  
  */
 Infiniband::BufferDescriptor*
-Infiniband::tryReceive(QueuePair *qp, ObjectTub<Address>* sourceAddress)
+Infiniband::tryReceive(QueuePair *qp, Tub<Address>* sourceAddress)
 {
     ibv_wc wc;
     int r = ibv_poll_cq(qp->rxcq, 1, &wc);
@@ -201,7 +201,7 @@ Infiniband::tryReceive(QueuePair *qp, ObjectTub<Address>* sourceAddress)
  *      if polling failed.  
  */
 Infiniband::BufferDescriptor *
-Infiniband::receive(QueuePair *qp, ObjectTub<Address>* sourceAddress)
+Infiniband::receive(QueuePair *qp, Tub<Address>* sourceAddress)
 {
     BufferDescriptor *bd = NULL;
 

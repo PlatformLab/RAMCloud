@@ -13,49 +13,47 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_OBJECTTUB_H
-#define RAMCLOUD_OBJECTTUB_H
+#ifndef RAMCLOUD_TUB_H
+#define RAMCLOUD_TUB_H
 
 #include "Common.h"
 
 namespace RAMCloud {
 
 /**
- * An ObjectTub holds an object that may be uninitialized; it allows the
- * allocation of memory for objects to be separated from its construction and
- * destruction. When you initially create an ObjectTub its object is
- * uninitialized (and should not be used). You can call #construct and #destroy
- * to invoke the constructor and destructor of the embedded object, and #get or
- * #operator-> will return the embedded object. The embedded object is
- * automatically destroyed when the ObjectTub is destroyed (if it was ever
- * constructed in the first place).
+ * A Tub holds an object that may be uninitialized; it allows the allocation of
+ * memory for objects to be separated from its construction and destruction.
+ * When you initially create a Tub its object is uninitialized (and should not
+ * be used). You can call #construct and #destroy to invoke the constructor and
+ * destructor of the embedded object, and #get or #operator-> will return the
+ * embedded object. The embedded object is automatically destroyed when the Tub
+ * is destroyed (if it was ever constructed in the first place).
  *
- * ObjectTubs are useful in situations like the following:
- * - You want to create an array of objects, but the objects need
- *   complex constructors with multiple arguments.
- * - You want to create a collection of objects, only some of which
- *   will be used, and you don't want to pay the cost of constructing
- *   objects that will never be used.
+ * Tubs are useful in situations like the following:
+ * - You want to create an array of objects, but the objects need complex
+ *   constructors with multiple arguments.
+ * - You want to create a collection of objects, only some of which will be
+ *   used, and you don't want to pay the cost of constructing objects that will
+ *   never be used.
  * - You want automatic destruction of an object but don't want to
  *   heap-allocate the object (as with std::unique_ptr).
  *
- * ObjectTub is CopyConstructible if and only if ElementType is
- * CopyConstructible, and
- * ObjectTub is Assignable if and only if ElementType is Assignable.
+ * Tub is CopyConstructible if and only if ElementType is CopyConstructible,
+ * and Tub is Assignable if and only if ElementType is Assignable.
  *
  * \tparam ElementType
- *      The type of the object to be stored within the ObjectTub.
+ *      The type of the object to be stored within the Tub.
  */
 template<typename ElementType>
-class ObjectTub {
+class Tub {
   public:
-    /// The type of the object to be stored within the ObjectTub.
+    /// The type of the object to be stored within the Tub.
     typedef ElementType element_type;
 
     /**
      * Default constructor: the object starts off uninitialized.
      */
-    ObjectTub()
+    Tub()
         : occupied(false)
     {}
 
@@ -68,7 +66,7 @@ class ObjectTub {
      * \param other
      *      Source of the copy.
      */
-    ObjectTub(const ObjectTub<ElementType>& other) // NOLINT
+    Tub(const Tub<ElementType>& other) // NOLINT
         : occupied(false)
     {
         if (other.occupied)
@@ -78,9 +76,8 @@ class ObjectTub {
     /**
      * Destructor: destroy the object if it was initialized.
      */
-    ~ObjectTub() {
-        if (occupied)
-            destroy();
+    ~Tub() {
+        destroy();
     }
 
     /**
@@ -89,11 +86,10 @@ class ObjectTub {
      * \pre
      *      ElementType is Assignable.
      */
-    ObjectTub<ElementType>&
-    operator=(const ObjectTub<ElementType>& other) {
+    Tub<ElementType>&
+    operator=(const Tub<ElementType>& other) {
         if (this != &other) {
-            if (occupied)
-                destroy();
+            destroy();
             if (other.occupied) {
                 *object = *other.object; // use ElementType's assignment
                 occupied = true;
@@ -123,18 +119,18 @@ class ObjectTub {
     }
 
     /**
-     * Destroy the object, leaving the ObjectTub in the same state
+     * Destroy the object, leaving the Tub in the same state
      * as after the no-argument constructor.
-     * \pre
-     *      The object is initialized.
+     * If the object was not initialized, this will have no effect.
      * \post
      *      The object is uninitialized.
      */
     void
     destroy() {
-        assert(occupied);
-        object->~ElementType();
-        occupied = false;
+        if (occupied) {
+            object->~ElementType();
+            occupied = false;
+        }
     }
 
     /**
@@ -149,8 +145,7 @@ class ObjectTub {
     template<typename... Args>
     ElementType*
     reset(Args&&... args) {
-        if (occupied)
-            destroy();
+        destroy();
         return construct(static_cast<Args&&>(args)...);
     }
 
@@ -223,4 +218,4 @@ class ObjectTub {
 
 } // end RAMCloud
 
-#endif  // RAMCLOUD_OBJECTTUB_H
+#endif  // RAMCLOUD_TUB_H

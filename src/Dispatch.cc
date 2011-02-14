@@ -34,7 +34,7 @@ Syscall* Dispatch::sys = &defaultSyscall;
 std::vector<Dispatch::Poller*> Dispatch::pollers;
 std::vector<Dispatch::File*> Dispatch::files;
 int Dispatch::epollFd = -1;
-ObjectTub<boost::thread> Dispatch::epollThread;
+Tub<boost::thread> Dispatch::epollThread;
 int Dispatch::exitPipeFds[2] = {-1, -1};
 volatile int Dispatch::readyFd = -1;
 int Dispatch::fileInvocationSerial = 0;

@@ -218,7 +218,7 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
  * \throw BackupMalformedSegmentException
  *      If the object or tombstone doesn't belong to any of the partitions.
  */
-ObjectTub<uint64_t>
+Tub<uint64_t>
 whichPartition(const LogEntryType type,
                const void* data,
                const ProtoBuf::Tablets& partitions)
@@ -238,7 +238,7 @@ whichPartition(const LogEntryType type,
         objectId = tombstone->id.objectId;
     }
 
-    ObjectTub<uint64_t> ret;
+    Tub<uint64_t> ret;
     // TODO(stutsman): need to check how slow this is, can do better with a tree
     for (int i = 0; i < partitions.tablet_size(); i++) {
         const ProtoBuf::Tablets::Tablet& tablet(partitions.tablet(i));
@@ -312,7 +312,7 @@ BackupServer::SegmentInfo::buildRecoverySegments(
                 continue;
 
             // find out which partition this entry belongs in
-            ObjectTub<uint64_t> partitionId = whichPartition(it.getType(),
+            Tub<uint64_t> partitionId = whichPartition(it.getType(),
                                                              it.getPointer(),
                                                              partitions);
             if (!partitionId)

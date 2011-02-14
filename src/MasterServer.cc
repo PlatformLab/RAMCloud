@@ -20,7 +20,7 @@
 #include "ClientException.h"
 #include "MasterServer.h"
 #include "Metrics.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 #include "ProtoBuf.h"
 #include "RecoverySegmentIterator.h"
 #include "Rpc.h"
@@ -423,9 +423,9 @@ MasterServer::recover(uint64_t masterId,
         backup.set_user_data(REC_REQ_NOT_STARTED);
 
 #ifdef PERF_DEBUG_RECOVERY_SERIAL
-    ObjectTub<Task> tasks[1];
+    Tub<Task> tasks[1];
 #else
-    ObjectTub<Task> tasks[4];
+    Tub<Task> tasks[4];
 #endif
     uint32_t activeRequests = 0;
 
@@ -465,7 +465,7 @@ MasterServer::recover(uint64_t masterId,
   doneStartingInitialTasks:
 
     // As RPCs complete, process them and start more
-    ObjectTub<CycleCounter<Metric>> readStallTicks;
+    Tub<CycleCounter<Metric>> readStallTicks;
     readStallTicks.construct(&metrics->master.segmentReadStallTicks);
     while (activeRequests) {
         foreach (auto& task, tasks) {

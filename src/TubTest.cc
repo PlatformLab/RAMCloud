@@ -14,14 +14,14 @@
  */
 
 #include "TestUtil.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
-static_assert(__alignof__(ObjectTub<char>) == 1,
-              "Alignment of ObjectTub<char> is wrong");
-static_assert(__alignof__(ObjectTub<uint64_t>) == 8,
-              "Alignment of ObjectTub<uint64_t> is wrong");
+static_assert(__alignof__(Tub<char>) == 1,
+              "Alignment of Tub<char> is wrong");
+static_assert(__alignof__(Tub<uint64_t>) == 8,
+              "Alignment of Tub<uint64_t> is wrong");
 
 struct Foo {
     Foo(int x, int y, int z = 0)
@@ -40,10 +40,10 @@ struct Foo {
 };
 int Foo::liveCount = 0;
 
-typedef ObjectTub<Foo> FooTub;
-typedef ObjectTub<int> IntTub;
+typedef Tub<Foo> FooTub;
+typedef Tub<int> IntTub;
 
-TEST(ObjectTub, basics) {
+TEST(Tub, basics) {
     {
         FooTub fooTub;
         EXPECT_FALSE(fooTub);
@@ -64,7 +64,7 @@ TEST(ObjectTub, basics) {
     EXPECT_EQ(0, Foo::liveCount);
 }
 
-TEST(ObjectTub, copyAndAssign) {
+TEST(Tub, copyAndAssign) {
     IntTub x;
     x.construct(5);
     IntTub y;
@@ -74,7 +74,7 @@ TEST(ObjectTub, copyAndAssign) {
     EXPECT_EQ(5, *z);
 }
 
-TEST(ObjectTub, putInVector) {
+TEST(Tub, putInVector) {
     vector<IntTub> v;
     v.push_back(IntTub());
     IntTub eight;
@@ -88,7 +88,7 @@ TEST(ObjectTub, putInVector) {
     EXPECT_EQ(8, *v[2]);
 }
 
-TEST(ObjectTub, boolConversion) {
+TEST(Tub, boolConversion) {
     IntTub x;
     EXPECT_FALSE(x);
     x.construct(5);

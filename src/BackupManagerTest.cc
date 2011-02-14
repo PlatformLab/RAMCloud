@@ -37,18 +37,18 @@ struct BackupManagerBaseTest : public ::testing::Test {
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     const char* coordinatorLocator;
-    ObjectTub<BindTransport> transport;
-    ObjectTub<TransportManager::MockRegistrar> mockRegistrar;
-    ObjectTub<CoordinatorServer> coordinatorServer;
-    ObjectTub<CoordinatorClient> coordinator;
-    ObjectTub<InMemoryStorage> storage1;
-    ObjectTub<InMemoryStorage> storage2;
-    ObjectTub<BackupServer::Config> backupServerConfig;
-    ObjectTub<BackupServer> backupServer1;
-    ObjectTub<BackupServer> backupServer2;
-    ObjectTub<BackupClient> backup1;
-    ObjectTub<BackupClient> backup2;
-    ObjectTub<BackupManager> mgr;
+    Tub<BindTransport> transport;
+    Tub<TransportManager::MockRegistrar> mockRegistrar;
+    Tub<CoordinatorServer> coordinatorServer;
+    Tub<CoordinatorClient> coordinator;
+    Tub<InMemoryStorage> storage1;
+    Tub<InMemoryStorage> storage2;
+    Tub<BackupServer::Config> backupServerConfig;
+    Tub<BackupServer> backupServer1;
+    Tub<BackupServer> backupServer2;
+    Tub<BackupClient> backup1;
+    Tub<BackupClient> backup2;
+    Tub<BackupManager> mgr;
 
     BackupManagerBaseTest()
         : segmentSize(1 << 16)

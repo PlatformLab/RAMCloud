@@ -28,7 +28,7 @@
 #include "Common.h"
 #include "Dispatch.h"
 #include "IpAddress.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 #include "Segment.h"
 #include "Transport.h"
 #include "Infiniband.h"
@@ -197,7 +197,7 @@ class InfRcTransport : public Transport {
                                            uint32_t usTimeout);
 
     /// See #infiniband.
-    ObjectTub<Infiniband> realInfiniband;
+    Tub<Infiniband> realInfiniband;
 
     /**
      * Used by this class to make all Infiniband verb calls.  In normal
@@ -280,7 +280,7 @@ class InfRcTransport : public Transport {
         InfRcTransport* transport;
         DISALLOW_COPY_AND_ASSIGN(ServerConnectHandler);
     };
-    ObjectTub<ServerConnectHandler> serverConnectHandler;
+    Tub<ServerConnectHandler> serverConnectHandler;
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };
