@@ -21,8 +21,6 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Common.h"
-#include "Mark.h"
-#include "PerfCounterType.h"
 #include "Rpc.h"
 #include "Status.h"
 #include "Transport.h"
@@ -47,46 +45,13 @@ namespace RAMCloud {
  */
 class Client {
   public:
-    Client() : status(STATUS_OK), counterValue(0), perfCounter() {}
+    Client() : status(STATUS_OK) {}
     virtual ~Client() {}
-
-    /**
-     * Cancel any performance counter request previously specified by a call to
-     * selectPerfCounter.
-     */
-    void clearPerfCounter() {
-        selectPerfCounter(PERF_COUNTER_INC, MARK_NONE, MARK_NONE);
-    }
-
-    /**
-     * Arrange for a performance metric to be collected by the server
-     * during each future RPC. The value of the metric can be read from
-     * the "counterValue" variable after each RPC.
-     *
-     * \param type
-     *      Specifies what to measure (elapsed time, cache misses, etc.)
-     * \param begin
-     *      Indicates a point during the RPC when measurement should start.
-     * \param end
-     *      Indicates a point during the RPC when measurement should stop.
-     */
-    void selectPerfCounter(PerfCounterType type, Mark begin, Mark end) {
-        perfCounter.counterType = type;
-        perfCounter.beginMark = begin;
-        perfCounter.endMark = end;
-    }
 
     /**
      * Completion status from the most recent RPC completed for this client.
      */
     Status status;
-
-    /**
-     * Performance metric from the response in the most recent RPC (as
-     * requested by selectPerfCounter). If no metric was requested and done
-     * most recent RPC, then this value is 0.
-     */
-    uint32_t counterValue;
 
   protected:
 
@@ -105,7 +70,6 @@ class Client {
             *new(&requestBuffer, APPEND) typename Rpc::Request);
         memset(&requestHeader, 0, sizeof(requestHeader));
         requestHeader.common.type = Rpc::type;
-        requestHeader.common.perfCounter = perfCounter;
         return requestHeader;
     }
 
@@ -148,7 +112,6 @@ class Client {
         if (responseHeader == NULL)
             throwShortResponseError(*state.responseBuffer);
         status = responseHeader->common.status;
-        counterValue = responseHeader->common.counterValue;
         return *responseHeader;
     }
 
@@ -181,12 +144,6 @@ class Client {
 
     void throwShortResponseError(Buffer& response)
         __attribute__((noreturn));
-
-    /**
-     * Every RPC request will ask the server to measure this during the
-     * execution of the RPC.
-     */
-    RpcPerfCounter perfCounter;
 
   private:
     friend class ClientTest;

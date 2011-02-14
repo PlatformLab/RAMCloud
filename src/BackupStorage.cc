@@ -49,7 +49,7 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
                                      uint32_t segmentFrames,
                                      const char* filePath,
                                      int openFlags)
-    : BackupStorage(segmentSize)
+    : BackupStorage(segmentSize, Type::DISK)
     , freeMap(segmentFrames)
     , fd(-1)
     , lastAllocatedFrame(FreeMap::npos)
@@ -205,7 +205,7 @@ SingleFileStorage::reserveSpace()
  */
 InMemoryStorage::InMemoryStorage(uint32_t segmentSize,
                                  uint32_t segmentFrames)
-    : BackupStorage(segmentSize)
+    : BackupStorage(segmentSize, Type::MEMORY)
     , pool(segmentSize)
     , segmentFrames(segmentFrames)
 {

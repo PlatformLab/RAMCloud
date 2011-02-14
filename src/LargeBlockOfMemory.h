@@ -46,7 +46,7 @@ struct LargeBlockOfMemory {
                                      MAP_SHARED | MAP_ANONYMOUS |
                                      MAP_LOCKED | MAP_POPULATE, -1, 0)))
     {
-        if (block == NULL) {
+        if (block == MAP_FAILED) {
             if (length == 0)
                 return;
             throw FatalError(HERE,

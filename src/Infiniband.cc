@@ -19,8 +19,10 @@
  *      Template it on the exception type?
  */
 
-#include "Transport.h"
+#include "CycleCounter.h"
 #include "Infiniband.h"
+#include "Metrics.h"
+#include "Transport.h"
 
 namespace RAMCloud {
 
@@ -362,6 +364,7 @@ Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
     uint32_t length, const Address* address, uint32_t remoteQKey)
 {
     postSend(qp, bd, length, address, remoteQKey);
+    CycleCounter<Metric> _(&metrics->transport.transmit.dmaTicks);
 
     ibv_wc wc;
     while (ibv_poll_cq(qp->txcq, 1, &wc) < 1) {}

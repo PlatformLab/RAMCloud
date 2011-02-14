@@ -54,18 +54,6 @@ class InfRcTransport : public Transport {
     }
     ServiceLocator getServiceLocator();
     void dumpStats() {
-        LOG(NOTICE, "InfRcTransport totalClientSendCopyTime: %lu",
-            totalClientSendCopyTime);
-        LOG(NOTICE, "InfRcTransport totalClientSendCopyBytes: %lu",
-            totalClientSendCopyBytes);
-        LOG(NOTICE, "InfRcTransport totalSendReplyCopyTime: %lu",
-            totalSendReplyCopyTime);
-        LOG(NOTICE, "InfRcTransport totalSendReplyCopyBytes: %lu",
-            totalSendReplyCopyBytes);
-        totalClientSendCopyTime = 0;
-        totalClientSendCopyBytes = 0;
-        totalSendReplyCopyTime = 0;
-        totalSendReplyCopyBytes = 0;
         infiniband->dumpStats();
     }
     uint32_t getMaxRpcSize() const;
@@ -235,15 +223,6 @@ class InfRcTransport : public Transport {
     // ibv_wc.qp_num to QueuePair* lookup used to look up the QueuePair given
     // a completion event on the shared receive queue
     boost::unordered_map<uint32_t, QueuePair*> queuePairMap;
-
-    /// For tracking stats on how much time is spent memcpying on request TX.
-    static uint64_t totalClientSendCopyTime;
-    /// For tracking stats on how much data is memcpyed on request TX.
-    static uint64_t totalClientSendCopyBytes;
-    /// For tracking stats on how much time is spent memcpying on reply TX.
-    static uint64_t totalSendReplyCopyTime;
-    /// For tracking stats on how much data is memcpyed on reply TX.
-    static uint64_t totalSendReplyCopyBytes;
 
     /**
      * RPCs which are waiting for a receive buffer to become available before

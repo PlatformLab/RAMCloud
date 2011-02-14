@@ -34,7 +34,9 @@
 #include "BackupClient.h"
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
+#include "CycleCounter.h"
 #include "LogTypes.h"
+#include "Metrics.h"
 #include "Rpc.h"
 #include "Server.h"
 
@@ -503,6 +505,12 @@ class BackupServer : public Server {
 
     /// Coordinator-assigned ID for this backup server
     uint64_t serverId;
+
+    /**
+     * Times each recovery. This is an ObjectTub that is reset on every
+     * recovery, since CycleCounters can't presently be restarted.
+     */
+    ObjectTub<CycleCounter<Metric>> recoveryTicks;
 
     /**
      * A pool of aligned segments (supporting O_DIRECT) to avoid

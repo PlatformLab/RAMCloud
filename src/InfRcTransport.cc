@@ -83,6 +83,8 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "Common.h"
+#include "CycleCounter.h"
+#include "Metrics.h"
 #include "TimeCounter.h"
 #include "Transport.h"
 #include "InfRcTransport.h"
@@ -102,15 +104,6 @@ namespace RAMCloud {
 //------------------------------
 // InfRcTransport class
 //------------------------------
-
-template<typename Infiniband>
-uint64_t InfRcTransport<Infiniband>::totalClientSendCopyTime;
-template<typename Infiniband>
-uint64_t InfRcTransport<Infiniband>::totalClientSendCopyBytes;
-template<typename Infiniband>
-uint64_t InfRcTransport<Infiniband>::totalSendReplyCopyTime;
-template<typename Infiniband>
-uint64_t InfRcTransport<Infiniband>::totalSendReplyCopyBytes;
 
 /**
  * Construct a InfRcTransport.
@@ -292,6 +285,7 @@ template<typename Infiniband>
 Transport::ServerRpc*
 InfRcTransport<Infiniband>::serverRecv()
 {
+    CycleCounter<Metric> receiveTicks;
     ibv_wc wc;
     if (infiniband->pollCompletionQueue(serverRxCq, 1, &wc) >= 1) {
         if (queuePairMap.find(wc.qp_num) == queuePairMap.end()) {
@@ -311,6 +305,13 @@ InfRcTransport<Infiniband>::serverRecv()
                 bd->buffer + sizeof(header),
                 wc.byte_len - sizeof(header), this, serverSrq, bd);
             LOG(DEBUG, "Received request with nonce %016lx", header.nonce);
+            ++metrics->transport.receive.messageCount;
+            ++metrics->transport.receive.packetCount;
+            metrics->transport.receive.iovecCount +=
+                r->recvPayload.getNumberChunks();
+            metrics->transport.receive.byteCount +=
+                r->recvPayload.getTotalLength();
+            metrics->transport.receive.ticks += receiveTicks.stop();
             return r;
         }
 
@@ -717,6 +718,9 @@ template<typename Infiniband>
 void
 InfRcTransport<Infiniband>::ServerRpc::sendReply()
 {
+    CycleCounter<Metric> _(&metrics->transport.transmit.ticks);
+    ++metrics->transport.transmit.messageCount;
+    ++metrics->transport.transmit.packetCount;
     LOG(DEBUG, "Sending response with nonce %016lx", nonce);
     // "delete this;" on our way out of the method
     boost::scoped_ptr<InfRcTransport::ServerRpc> suicide(this);
@@ -730,10 +734,12 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
 
     BufferDescriptor* bd = t->getTransmitBuffer();
     new(&replyPayload, PREPEND) Header(nonce);
-    uint64_t start = rdtsc();
-    replyPayload.copy(0, replyPayload.getTotalLength(), bd->buffer);
-    totalSendReplyCopyTime += rdtsc() - start;
-    totalSendReplyCopyBytes += replyPayload.getTotalLength();
+    {
+        CycleCounter<Metric> copyTicks(&metrics->transport.transmit.copyTicks);
+        replyPayload.copy(0, replyPayload.getTotalLength(), bd->buffer);
+    }
+    metrics->transport.transmit.iovecCount += replyPayload.getNumberChunks();
+    metrics->transport.transmit.byteCount += replyPayload.getTotalLength();
     t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
     LOG(DEBUG, "Sent response with nonce %016lx", nonce);
@@ -786,12 +792,18 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
     InfRcTransport* const t = transport;
     if (t->numUsedClientSrqBuffers < MAX_SHARED_RX_QUEUE_DEPTH) {
         // send out the request
+        CycleCounter<Metric> _(&metrics->transport.transmit.ticks);
+        ++metrics->transport.transmit.messageCount;
+        ++metrics->transport.transmit.packetCount;
         new(request, PREPEND) Header(nonce);
         BufferDescriptor* bd = t->getTransmitBuffer();
-        uint64_t start = rdtsc();
-        request->copy(0, request->getTotalLength(), bd->buffer);
-        totalClientSendCopyTime += rdtsc() - start;
-        totalClientSendCopyBytes += request->getTotalLength();
+        {
+            CycleCounter<Metric>
+                copyTicks(&metrics->transport.transmit.copyTicks);
+            request->copy(0, request->getTotalLength(), bd->buffer);
+        }
+        metrics->transport.transmit.iovecCount += request->getNumberChunks();
+        metrics->transport.transmit.byteCount += request->getTotalLength();
         LOG(DEBUG, "Sending request with nonce %016lx", nonce);
         t->infiniband->postSend(session->qp, bd,
                                 request->getTotalLength());
@@ -824,6 +836,7 @@ InfRcTransport<Infiniband>::Poller::operator() ()
     InfRcTransport* t = transport;
     ibv_wc wc;
     while (t->infiniband->pollCompletionQueue(t->clientRxCq, 1, &wc) > 0) {
+        CycleCounter<Metric> receiveTicks;
         BufferDescriptor *bd = reinterpret_cast<BufferDescriptor *>(wc.wr_id);
         if (wc.status != IBV_WC_SUCCESS) {
             LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
@@ -856,6 +869,13 @@ InfRcTransport<Infiniband>::Poller::operator() ()
             }
             rpc.state = ClientRpc::RESPONSE_RECEIVED;
             result = true;
+            ++metrics->transport.receive.messageCount;
+            ++metrics->transport.receive.packetCount;
+            metrics->transport.receive.iovecCount +=
+                rpc.response->getNumberChunks();
+            metrics->transport.receive.byteCount +=
+                rpc.response->getTotalLength();
+            metrics->transport.receive.ticks += receiveTicks.stop();
             goto next;
         }
         LOG(WARNING, "dropped packet because no nonce matched %016lx",
