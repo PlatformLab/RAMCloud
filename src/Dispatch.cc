@@ -34,7 +34,7 @@ Syscall* Dispatch::sys = &defaultSyscall;
 std::vector<Dispatch::Poller*> Dispatch::pollers;
 std::vector<Dispatch::File*> Dispatch::files;
 int Dispatch::epollFd = -1;
-boost::thread* Dispatch::epollThread = NULL;
+ObjectTub<boost::thread> Dispatch::epollThread;
 int Dispatch::exitPipeFds[2] = {-1, -1};
 volatile int Dispatch::readyFd = -1;
 int Dispatch::fileInvocationSerial = 0;
@@ -178,13 +178,12 @@ void Dispatch::reset()
             files[i] = NULL;
         }
     }
-    if (epollThread != NULL) {
+    if (epollThread) {
         // Writing data to the pipe below signals the epoll thread that it
         // should exit.
         sys->write(exitPipeFds[1], "x", 1);
         epollThread->join();
-        delete epollThread;
-        epollThread = NULL;
+        epollThread.destroy();
         sys->close(exitPipeFds[0]);
         sys->close(exitPipeFds[1]);
         exitPipeFds[1] = exitPipeFds[0] = -1;
@@ -218,7 +217,7 @@ Dispatch::File::File(int fd, Dispatch::FileEvent event)
 {
     // Start the polling thread if it doesn't already exist (and also create
     // the epoll file descriptor and the exit pipe).
-    if (Dispatch::epollThread == NULL) {
+    if (!epollThread) {
         epollFd = sys->epoll_create(10);
         if (epollFd < 0) {
             throw FatalError(HERE, "epoll_create failed in Dispatch", errno);
@@ -242,7 +241,7 @@ Dispatch::File::File(int fd, Dispatch::FileEvent event)
                     "Dispatch couldn't set epoll event for exit pipe",
                     errno);
         }
-        epollThread = new boost::thread(Dispatch::epollThreadMain);
+        epollThread.construct(Dispatch::epollThreadMain);
     }
 
     if (Dispatch::files.size() <= static_cast<uint32_t>(fd)) {

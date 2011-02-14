@@ -18,6 +18,7 @@
 
 #include <boost/thread.hpp>
 #include "Common.h"
+#include "ObjectTub.h"
 #include "Syscall.h"
 
 namespace RAMCloud {
@@ -185,9 +186,9 @@ class Dispatch {
     static int epollFd;
 
     // We start a separate thread to invoke epoll kernel calls, so the
-    // main polling loop is not delayed by kernel calls.  NULL means the
-    // epoll thread has not yet been created.
-    static boost::thread* epollThread;
+    // main polling loop is not delayed by kernel calls.  This thread
+    // is only used when there are active Files.
+    static ObjectTub<boost::thread> epollThread;
 
     // Read and write descriptors for a pipe.  The epoll thread always has
     // the read fd for this pipe in its active set; writing data to the pipe
