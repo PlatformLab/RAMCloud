@@ -90,8 +90,8 @@ sort $outputdir/*.rclog > $outputdir/rclog
 # xterms, otherwise it's best to extract values directly from the leftover $outputdir/rclog
 awk '
 /Performing/ { count=$8; size=$11; }
-/All tables recovered in/ { ticks=$11; }
+/Recovery completed in/ { ns=$10; }
 /Bytes written/ { if ($9 != 0) { written=$9; } }
 /Bytes logged/ { if ($10 != 0) { logged=$10; } }
-END { print count " " size " " written " " logged " " ticks; }
+END { print count " " size " " written " " logged " " ns; }
 ' $outputdir/rclog

@@ -18,6 +18,7 @@
 #include <getopt.h>
 #include <assert.h>
 
+#include "BenchUtil.h"
 #include "RamCloud.h"
 #include "OptionParser.h"
 
@@ -109,8 +110,8 @@ runRecovery(RamCloud& client,
         session = client.objectFinder.lookup(tables[t], 0);
         LOG(NOTICE, "read value has length %u", nb.getTotalLength());
     }
-    LOG(NOTICE, "All tables recovered in %lu ticks", rdtsc() - b);
-    LOG(NOTICE, "- recovery worked!");
+    LOG(NOTICE, "Recovery completed in %lu ns",
+        cyclesToNanoseconds(rdtsc() - b));
 
     // dump out coordinator rpc info
     client.ping();
