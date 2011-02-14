@@ -80,7 +80,6 @@ void assertMatchesPosixRegex(const string& pattern, const string& subject);
 void assertNotMatchesPosixRegex(const string& pattern, const string& subject);
 void convertChar(char c, string *out);
 string bufferToDebugString(Buffer* buffer);
-void sleepMs(uint32_t delayMs);
 string toString(const char *buf, uint32_t length);
 string toString(Buffer* buffer);
 

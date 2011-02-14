@@ -260,20 +260,20 @@ class DispatchTest : public CppUnit::TestFixture {
         DummyFile *f = new DummyFile("f1", true, pipeFds[0],
                 Dispatch::FileEvent::READABLE);
         Dispatch::fileInvocationSerial = -2;
-        sleepMs(5);
+        usleep(5000);
 
         // No event on file.
         CPPUNIT_ASSERT_EQUAL(false, Dispatch::poll());
         CPPUNIT_ASSERT_EQUAL("", *localLog);
         write(pipeFds[1], "0123456789abcdefghijklmnop", 26);
-        sleepMs(5);
+        usleep(5000);
 
         // File ready.
         CPPUNIT_ASSERT_EQUAL(true, Dispatch::poll());
         CPPUNIT_ASSERT_EQUAL("file f1 invoked, read '0123456789'", *localLog);
         CPPUNIT_ASSERT_EQUAL(-1, f->lastInvocationId);
         localLog->clear();
-        sleepMs(5);
+        usleep(5000);
 
         // File is still ready; make sure event re-enabled.
         CPPUNIT_ASSERT_EQUAL(true, Dispatch::poll());
@@ -294,13 +294,13 @@ class DispatchTest : public CppUnit::TestFixture {
                 Dispatch::FileEvent::WRITABLE);
         f->deleteThis = true;
         Dispatch::fileInvocationSerial = 400;
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(true, Dispatch::poll());
         // If poll tried to reenable the event it would have thrown an
         // exception since the handler also closed the file descriptor.
         // Just to double-check, wait a moment and make sure the
         // fd doesn't appear in readyFd.
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
         // The following check is technically unsafe (since f has been
         // deleted); it can be removed if it causes complaints from program
@@ -431,10 +431,10 @@ class DispatchTest : public CppUnit::TestFixture {
         // Now delete the handler, and make sure that data in the pipe
         // is ignored.
         delete f1;
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
         CPPUNIT_ASSERT_EQUAL(1, write(pipeFds[1], "y", 1));
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
     }
 
@@ -460,7 +460,7 @@ class DispatchTest : public CppUnit::TestFixture {
         }
         localLog->clear();
         DummyFile f("f1", false, fd, event);
-        sleepMs(5);
+        usleep(5000);
         while (Dispatch::poll()) {
             /* Empty loop body */
         }
@@ -566,32 +566,32 @@ class DispatchTest : public CppUnit::TestFixture {
         // Start up the polling thread; it will hang in epoll_wait.
         Dispatch::readyFd = -1;
         boost::thread(epollThreadWrapper).detach();
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
 
         // Allow epoll_wait to complete; the polling thread should now
         // signal the first ready file.
         mutex.unlock();
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(43, Dispatch::readyFd);
 
         // The polling thread should now be waiting on epollMutex, so
         // clearing readyFd should have no impact.
         Dispatch::readyFd = -1;
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
 
         // Unlock epollMutex so the polling thread can signal the next
         // ready file.
         Dispatch::epollMutex.unlock();
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(19, Dispatch::readyFd);
 
         // Let the polling thread see the next ready file, which should
         // cause it to exit.
         Dispatch::readyFd = -1;
         Dispatch::epollMutex.unlock();
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
         CPPUNIT_ASSERT_EQUAL("epoll thread finished", *localLog);
     }
