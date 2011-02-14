@@ -53,8 +53,7 @@ class ObjectTub {
     typedef ElementType element_type;
 
     /**
-     * Default constructor.
-     * The object will remain uninitialized.
+     * Default constructor: the object starts off uninitialized.
      */
     ObjectTub()
         : occupied(false)
@@ -77,8 +76,7 @@ class ObjectTub {
     }
 
     /**
-     * Destructor.
-     * The object will be destroyed if it is initialized.
+     * Destructor: destroy the object if it was initialized.
      */
     ~ObjectTub() {
         if (occupied)
@@ -86,9 +84,8 @@ class ObjectTub {
     }
 
     /**
-     * Assignment.
-     * If initialized, the object will be destroyed. The object will then be
-     * initialized if and only if the source of the assignment is initialized.
+     * Assignment: destroy current object if initialized, replace with
+     * source.  Result will be uninitialized if source is uninitialized.
      * \pre
      *      ElementType is Assignable.
      */
@@ -126,7 +123,8 @@ class ObjectTub {
     }
 
     /**
-     * Destroy the object.
+     * Destroy the object, leaving the ObjectTub in the same state
+     * as after the no-argument constructor.
      * \pre
      *      The object is initialized.
      * \post
@@ -140,8 +138,7 @@ class ObjectTub {
     }
 
     /**
-     * Re-initialize the object.
-     * If the object was already initialized, it will first be destroyed.
+     * Destroy the object if it was initialized, then reconstruct it.
      * \param args
      *      Arguments to ElementType's constructor.
      * \return
