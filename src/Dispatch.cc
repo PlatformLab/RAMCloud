@@ -138,7 +138,7 @@ bool Dispatch::poll()
         // in the loop above, because one timer handler could delete
         // another, which can rearrange the list and cause us to miss
         // a trigger time.
-        earliestTriggerTime = 0xfffffffffffffffful;
+        earliestTriggerTime = ~(0ull);
         for (uint32_t i = 0; i < timers.size(); i++) {
             Timer* timer = timers[i];
             if (timer->triggerTime < earliestTriggerTime) {
@@ -210,7 +210,7 @@ void Dispatch::reset()
  * \param event
  *      Invoke the object when any of the events specified by this
  *      parameter occur. If this is NONE then the file handler starts
- *      off in active; it will not trigger until setEvent has been
+ *      off inactive; it will not trigger until setEvent has been
  *      called.
  */
 Dispatch::File::File(int fd, Dispatch::FileEvent event)
