@@ -25,19 +25,21 @@ host[5]=10.0.0.2
 
 C=$proto:host=${host[0]},port=12246
 commonopts="-l DEBUG --logModule transport=NOTICE -C $C"
+#remoteprecmd="ulimit -c 100000000; export LD_LIBRARY_PATH=/usr/local/lib;"
+remoteprecmd="export LD_LIBRARY_PATH=/usr/local/lib;"
 
 xstart() {
-    xterm -e ssh -t -t $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3" &
+    xterm -e ssh -t -t $1 "$remoteprecmd $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3" &
     atexit "kill $!; rm /var/tmp/backup.log"
 }
 
 start() {
-    ssh $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts > $outputdir/$3 2>&1"  &
+    ssh $1 "$remoteprecmd $(pwd)/$OBJDIR/$2 $commonopts > $outputdir/$3 2>&1"  &
     atexit "kill $!; rm /var/tmp/backup.log"
 }
 
 startfg() {
-    ssh $1 "ulimit -c 100000000; umask 0000; export LD_LIBRARY_PATH=/usr/local/lib; $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3"
+    ssh $1 "$remoteprecmd $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3"
     atexit "kill $!; rm /var/tmp/backup.log"
 }
 
