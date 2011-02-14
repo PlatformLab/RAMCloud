@@ -181,6 +181,7 @@ class DispatchTest : public CppUnit::TestFixture {
     MockSyscall* sys;
     Syscall *savedSyscall;
     TestLog::Enable* logEnabler;
+    int pipeFds[2];
 
     DispatchTest()
         : exceptionMessage()
@@ -201,12 +202,15 @@ class DispatchTest : public CppUnit::TestFixture {
         savedSyscall = Dispatch::sys;
         Dispatch::sys = sys;
         logEnabler = new TestLog::Enable();
+        CPPUNIT_ASSERT_EQUAL(0, pipe(pipeFds));
     }
 
     void tearDown() {
         delete sys;
         sys = NULL;
         Dispatch::sys = savedSyscall;
+        close(pipeFds[0]);
+        close(pipeFds[1]);
     }
 
     static string log;
@@ -253,9 +257,7 @@ class DispatchTest : public CppUnit::TestFixture {
     }
 
     void test_poll_fileHandling() {
-        int fds[2];
-        pipe(fds);
-        DummyFile *f = new DummyFile("f1", true, fds[0],
+        DummyFile *f = new DummyFile("f1", true, pipeFds[0],
                 Dispatch::FileEvent::READABLE);
         Dispatch::fileInvocationSerial = -2;
         sleepMs(5);
@@ -263,7 +265,7 @@ class DispatchTest : public CppUnit::TestFixture {
         // No event on file.
         CPPUNIT_ASSERT_EQUAL(false, Dispatch::poll());
         CPPUNIT_ASSERT_EQUAL("", *localLog);
-        write(fds[1], "0123456789abcdefghijklmnop", 26);
+        write(pipeFds[1], "0123456789abcdefghijklmnop", 26);
         sleepMs(5);
 
         // File ready.
@@ -283,8 +285,6 @@ class DispatchTest : public CppUnit::TestFixture {
         // File still ready, but object has been deleted.
         CPPUNIT_ASSERT_EQUAL(false, Dispatch::poll());
         CPPUNIT_ASSERT_EQUAL("", *localLog);
-        close(fds[0]);
-        close(fds[1]);
     }
 
     void test_poll_fileDeletedDuringInvocation() {
@@ -362,7 +362,7 @@ class DispatchTest : public CppUnit::TestFixture {
     void test_File_constructor_errorInEpollCreate() {
         sys->epollCreateErrno = EPERM;
         try {
-            DummyFile f1("f1", false, 0);
+            DummyFile f1("f1", false, pipeFds[0]);
         } catch (FatalError& e) {
             exceptionMessage = e.message;
         }
@@ -373,7 +373,7 @@ class DispatchTest : public CppUnit::TestFixture {
     void test_File_constructor_errorCreatingExitPipe() {
         sys->pipeErrno = EPERM;
         try {
-            DummyFile f1("f1", false, 0);
+            DummyFile f1("f1", false, pipeFds[0]);
         } catch (FatalError& e) {
             exceptionMessage = e.message;
         }
@@ -384,7 +384,7 @@ class DispatchTest : public CppUnit::TestFixture {
     void test_File_constructor_errorInEpollCtl() {
         sys->epollCtlErrno = EPERM;
         try {
-            DummyFile f1("f1", false, 0);
+            DummyFile f1("f1", false, pipeFds[0]);
         } catch (FatalError& e) {
             exceptionMessage = e.message;
         }
@@ -394,7 +394,7 @@ class DispatchTest : public CppUnit::TestFixture {
 
     void test_File_constructor_createPollingThread() {
         CPPUNIT_ASSERT_EQUAL(NULL, Dispatch::epollThread);
-        DummyFile f1("f1", false, 0);
+        DummyFile f1("f1", false, pipeFds[0]);
         CPPUNIT_ASSERT(Dispatch::epollThread != NULL);
     }
 
@@ -409,8 +409,8 @@ class DispatchTest : public CppUnit::TestFixture {
 
     void test_File_constructor_twoHandlersForSameFd() {
         try {
-            DummyFile f1("f1", false, 0);
-            DummyFile f2("f2", false, 0);
+            DummyFile f1("f1", false, pipeFds[0]);
+            DummyFile f2("f2", false, pipeFds[0]);
         } catch (FatalError& e) {
             exceptionMessage = e.message;
         }
@@ -419,14 +419,12 @@ class DispatchTest : public CppUnit::TestFixture {
     }
 
     void test_File_destructor_disableEvent() {
-        int fds[2];
-        CPPUNIT_ASSERT_EQUAL(0, pipe(fds));
-        DummyFile* f1 = new DummyFile("f1", true, fds[0],
+        DummyFile* f1 = new DummyFile("f1", true, pipeFds[0],
                 Dispatch::FileEvent::READABLE);
 
         // First make sure that the handler responds to data written
         // to the pipe.
-        CPPUNIT_ASSERT_EQUAL(1, write(fds[1], "x", 1));
+        CPPUNIT_ASSERT_EQUAL(1, write(pipeFds[1], "x", 1));
         Dispatch::handleEvent();
         CPPUNIT_ASSERT_EQUAL("file f1 invoked, read 'x'", *localLog);
 
@@ -435,23 +433,9 @@ class DispatchTest : public CppUnit::TestFixture {
         delete f1;
         sleepMs(5);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
-        CPPUNIT_ASSERT_EQUAL(1, write(fds[1], "y", 1));
+        CPPUNIT_ASSERT_EQUAL(1, write(pipeFds[1], "y", 1));
         sleepMs(5);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
-    }
-
-    bool testReady(int fd, Dispatch::FileEvent event) {
-        // Flush any stale events.
-        while (Dispatch::poll()) {
-            /* Empty loop body */
-        }
-        localLog->clear();
-        DummyFile f("f1", false, fd, event);
-        sleepMs(5);
-        while (Dispatch::poll()) {
-            /* Empty loop body */
-        }
-        return localLog->size() > 0;
     }
 
     void test_File_checkInvocationId() {
@@ -465,6 +449,22 @@ class DispatchTest : public CppUnit::TestFixture {
         }
         CPPUNIT_ASSERT_EQUAL("no exception", exceptionMessage);
         CPPUNIT_ASSERT_EQUAL(Dispatch::FileEvent::READABLE, f.event);
+    }
+
+    // Utility method: create a DummyFile for a particular file descriptor
+    // and see if it gets invoked.
+    bool checkReady(int fd, Dispatch::FileEvent event) {
+        // Flush any stale events.
+        while (Dispatch::poll()) {
+            /* Empty loop body */
+        }
+        localLog->clear();
+        DummyFile f("f1", false, fd, event);
+        sleepMs(5);
+        while (Dispatch::poll()) {
+            /* Empty loop body */
+        }
+        return localLog->size() > 0;
     }
 
     void test_File_setEvent_variousEvents() {
@@ -483,17 +483,17 @@ class DispatchTest : public CppUnit::TestFixture {
             }
             CPPUNIT_ASSERT(i < 100);
         }
-        CPPUNIT_ASSERT_EQUAL(false, testReady(readable[0],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(readable[0],
             Dispatch::FileEvent::NONE));
-        CPPUNIT_ASSERT_EQUAL(true, testReady(readable[0],
+        CPPUNIT_ASSERT_EQUAL(true, checkReady(readable[0],
             Dispatch::FileEvent::READABLE));
-        CPPUNIT_ASSERT_EQUAL(true, testReady(readable[0],
+        CPPUNIT_ASSERT_EQUAL(true, checkReady(readable[0],
             Dispatch::FileEvent::READABLE_OR_WRITABLE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(readable[1],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(readable[1],
             Dispatch::FileEvent::NONE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(readable[1],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(readable[1],
             Dispatch::FileEvent::WRITABLE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(readable[1],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(readable[1],
             Dispatch::FileEvent::READABLE_OR_WRITABLE));
         close(readable[0]);
         close(readable[1]);
@@ -502,17 +502,17 @@ class DispatchTest : public CppUnit::TestFixture {
         // and make sure all the correct events fire.
         int writable[2];
         CPPUNIT_ASSERT_EQUAL(0, pipe(writable));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(writable[0],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(writable[0],
             Dispatch::FileEvent::NONE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(writable[0],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(writable[0],
             Dispatch::FileEvent::READABLE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(writable[0],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(writable[0],
             Dispatch::FileEvent::READABLE_OR_WRITABLE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(writable[1],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(writable[1],
             Dispatch::FileEvent::NONE));
-        CPPUNIT_ASSERT_EQUAL(true, testReady(writable[1],
+        CPPUNIT_ASSERT_EQUAL(true, checkReady(writable[1],
             Dispatch::FileEvent::WRITABLE));
-        CPPUNIT_ASSERT_EQUAL(true, testReady(writable[1],
+        CPPUNIT_ASSERT_EQUAL(true, checkReady(writable[1],
             Dispatch::FileEvent::READABLE_OR_WRITABLE));
         close(writable[0]);
         close(writable[1]);

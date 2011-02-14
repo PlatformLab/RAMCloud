@@ -202,15 +202,16 @@ void Dispatch::reset()
 }
 
 /**
- * Construct a file handler with an initial event of NONE, so it won't
- * trigger until #setEvent is invoked.
+ * Construct a file handler.
  *
  * \param fd
  *      File descriptor of interest. Note: at most one Dispatch::File
  *      may be created for a single file descriptor.
  * \param event
  *      Invoke the object when any of the events specified by this
- *      parameter occur.
+ *      parameter occur. If this is NONE then the file handler starts
+ *      off in active; it will not trigger until setEvent has been
+ *      called.
  */
 Dispatch::File::File(int fd, Dispatch::FileEvent event)
         : fd(fd), event(NONE), active(false), invocationId(0)
@@ -227,13 +228,16 @@ Dispatch::File::File(int fd, Dispatch::FileEvent event)
                     "Dispatch couldn't create exit pipe for epoll thread",
                     errno);
         }
-        epoll_event event;
-        event.events = EPOLLIN|EPOLLONESHOT;
+        epoll_event epollEvent;
+        // The following statement is not needed, but without it valgrind
+        // will generate false errors about uninitialized data.
+        epollEvent.data.u64 = 0;
+        epollEvent.events = EPOLLIN|EPOLLONESHOT;
 
         // -1 fd signals to epoll thread to exit.
-        event.data.fd = -1;
+        epollEvent.data.fd = -1;
         if (sys->epoll_ctl(epollFd, EPOLL_CTL_ADD, exitPipeFds[0],
-                &event) != 0) {
+                &epollEvent) != 0) {
             throw FatalError(HERE,
                     "Dispatch couldn't set epoll event for exit pipe",
                     errno);
@@ -282,6 +286,9 @@ Dispatch::File::~File()
 void Dispatch::File::setEvent(FileEvent event)
 {
     epoll_event epollEvent;
+    // The following statement is not needed, but without it valgrind
+    // will generate false errors about uninitialized data.
+    epollEvent.data.u64 = 0;
     this->event = event;
     if (invocationId != 0) {
         // Don't communicate anything to epoll while a call to
