@@ -16,7 +16,7 @@
 #include "TestUtil.h"
 #include "TcpTransport.h"
 #include "MockSyscall.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -104,10 +104,12 @@ class TcpTransportTest : public CppUnit::TestFixture {
     Transport::ServerRpc*
     waitRequest(Transport* transport) {
         Transport::ServerRpc* result;
-        do {
+        while (true) {
             result = transport->serverRecv();
-        } while (result == NULL);
-        return result;
+            if (result != NULL)
+                return result;
+            Dispatch::poll();
+        }
     }
 
     void test_sanityCheck() {
@@ -265,14 +267,14 @@ class TcpTransportTest : public CppUnit::TestFixture {
         header.len = 6;
         CPPUNIT_ASSERT_EQUAL(sizeof(header),
             write(fd, &header, sizeof(header)));
-        (*server.sockets[serverFd]->readHandler)();
+        server.sockets[serverFd]->readHandler();
         if (server.sockets[serverFd]->rpc == 0) {
             CPPUNIT_FAIL("no rpc object allocated");
         }
         CPPUNIT_ASSERT_EQUAL(0, server.waitingRequests.size());
 
         CPPUNIT_ASSERT_EQUAL(6, write(fd, "abcdef", 6));
-        (*server.sockets[serverFd]->readHandler)();
+        server.sockets[serverFd]->readHandler();
         CPPUNIT_ASSERT_EQUAL(1, server.waitingRequests.size());
 
         close(fd);
@@ -291,12 +293,12 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport::Header header;
         header.len = 0;
         write(fd, &header, sizeof(header));
-        (*server.sockets[serverFd]->readHandler)();
+        server.sockets[serverFd]->readHandler();
         CPPUNIT_ASSERT_EQUAL(true, server.sockets[serverFd]->busy);
 
         // Send more junk to the server.
         write(fd, "abcdef", 6);
-        (*server.sockets[serverFd]->readHandler)();
+        server.sockets[serverFd]->readHandler();
         CPPUNIT_ASSERT_EQUAL("operator(): TcpTransport::RequestReadHandler "
                 "discarding 6 unexpected bytes from client",
                 TestLog::get());
@@ -310,7 +312,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         (*server.acceptHandler)();
         int serverFd = server.sockets.size() - 1;
         close(fd);
-        (*server.sockets[serverFd]->readHandler)();
+        server.sockets[serverFd]->readHandler();
         CPPUNIT_ASSERT_EQUAL(NULL, server.sockets[serverFd]);
     }
 
@@ -320,7 +322,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         (*server.acceptHandler)();
         int serverFd = server.sockets.size() - 1;
         sys->recvErrno = EPERM;
-        (*server.sockets[serverFd]->readHandler)();
+        server.sockets[serverFd]->readHandler();
         CPPUNIT_ASSERT_EQUAL(NULL, server.sockets[serverFd]);
         CPPUNIT_ASSERT_EQUAL("operator(): TcpTransport::RequestReadHandler "
                 "closing client connection: I/O read error in TcpTransport: "

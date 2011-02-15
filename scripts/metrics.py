@@ -1,0 +1,785 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2011 Stanford University
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+"""Recovery metrics."""
+
+from __future__ import division, print_function
+from glob import glob
+from optparse import OptionParser
+from pprint import pprint
+import math
+import random
+import sys
+
+from common import *
+
+### Utilities:
+
+class Out:
+    """Indents text and writes it to a file.
+
+    Useful for generated code.
+    """
+    def __init__(self, stream=sys.stdout, indent=0):
+        self._stream = stream
+        self._indent = indent
+    def __call__(self, s):
+        self._stream.write('%s%s\n' % (' ' * 4 * self._indent, s))
+    def indent(self):
+        return Out(self._stream, self._indent + 1)
+
+class AttrDict(dict):
+    """A mapping with string keys that aliases x.y syntax to x['y'] syntax.
+
+    The attribute syntax is easier to read and type than the item syntax.
+    """
+    def __getattr__(self, name):
+        return self[name]
+    def __setattr__(self, name, value):
+        self[name] = value
+    def __delattr__(self, name):
+        del self[name]
+
+class Struct(object):
+    """A container for other metrics."""
+
+    # These attributes are defined out here to simplify
+    # the implementation of getFields.
+    doc = ''
+    typeName = ''
+
+    def __init__(self, doc, typeName):
+        self.doc = doc
+        self.typeName = typeName
+
+    def getFields(self):
+        fieldNames = sorted(set(dir(self)) - set(dir(Struct)))
+        return [(n, getattr(self, n)) for n in fieldNames]
+
+    def dumpHeader(self, out, name=''):
+        out('/// %s' % self.doc)
+        out('struct %s {' % self.typeName)
+        fields = self.getFields()
+        if fields:
+            out('    %s()' % self.typeName)
+            out('        : %s {}' %
+                ('\n%s, ' % (' ' * 4 * (out._indent + 2))).join(
+                    ['%s(%s)' % (n, f.initializer()) for n, f in fields]))
+            for n, f in fields:
+                f.dumpHeader(out.indent(), n)
+        if name:
+            out('} %s;' % name)
+        else:
+            out('};')
+
+    def initializer(self):
+        return ''
+
+    def dumpLoggingCode(self, out, name, fullName):
+        # name is the path (e.g., 'metrics->master') to get to this struct
+        #
+        # fullName is the prefix of the path (e.g., 'metrics->master.') to get
+        # to the members of this struct
+        for n, f in self.getFields():
+            f.dumpLoggingCode(out,
+                              '%s%s' % (fullName, n),
+                              '%s%s.' % (fullName, n))
+
+    def assign(self, values):
+        # values is a list of ('x.y.z', '3') pairs
+        valuesDict = dict(values)
+        ret = AttrDict()
+        for var in set([var.split('.')[0] for var, _ in values]):
+            filtValues = [(v.split('.', 1)[1], value)
+                          for v, value in values if v.startswith('%s.' % var)]
+            if var in valuesDict:
+                filtValues.append(('', valuesDict[var]))
+            ret[var] = getattr(self, var).assign(filtValues)
+        return ret
+
+class u64(object):
+    """A 64-bit unsigned integer metric."""
+
+    def __init__(self, doc):
+        self.doc = doc
+    def dumpHeader(self, out, name):
+        out('/// %s' % self.doc)
+        out('Metric %s;' % name)
+    def initializer(self):
+        return '0'
+    def dumpLoggingCode(self, out, name, fullName):
+        out('LOG(NOTICE,')
+        out('    "%s = %%lu",' % name)
+        out('    static_cast<uint64_t>(%s));' % name)
+    def assign(self, values):
+        assert len(values) == 1
+        assert not values[0][0]
+        return int(values[0][1])
+
+def parse(f):
+    """Parse a RAMCloud log file into nested AttrDicts of metrics values."""
+    lines = None
+    for line in f:
+        line = ' '.join(line[:-1].split(' ')[6:])
+        if line == 'Metrics:':
+            lines = []
+        elif line == 'End of Metrics':
+            break
+        else:
+            if lines is not None:
+                lines.append(line)
+    if not lines:
+        raise Exception, 'no metrics in %s' % f.name
+    values = []
+    for line in lines:
+        var, value = line.split(' = ')
+        var = var.split('metrics->')[1]
+        values.append((var, value))
+    return r.assign(values)
+
+def average(points):
+    """Return the average of a sequence of numbers."""
+    return sum(points)/len(points)
+
+def avgAndStdDev(points):
+    """Return the (average, standard deviation) of a sequence of numbers."""
+    avg = average(points)
+    return (avg, math.sqrt(average([p**2 for p in points]) - avg**2))
+
+def seq(x):
+    """Turn the argument into a sequence.
+
+    If x is already a sequence, do nothing. If it is not, wrap it in a list.
+    """
+    try:
+        iter(x)
+    except TypeError:
+        return [x]
+    else:
+        return x
+
+### Report formatting:
+
+def defaultFormat(x):
+    """Return a reasonable format string for the argument."""
+    if type(x) is int:
+        return '{0:6d}'
+    elif type(x) is float:
+        return '{0:6.1f}'
+    else:
+        return '{0:>6s}'
+
+class Report(object):
+    """A concatenation of Sections."""
+    def __init__(self):
+        self.sections = []
+    def addSection(self, *args, **kwargs):
+        section = Section(*args, **kwargs)
+        self.sections.append(section)
+        return section
+    def __str__(self):
+        return '\n\n'.join([str(section)
+                            for section in self.sections if section])
+
+class Section(object):
+    """A part of a Report consisting of lines with present metrics."""
+
+    def __init__(self, title):
+        self.title = title
+        self.lines = []
+
+    def __len__(self):
+        return len(self.lines)
+
+    def __str__(self):
+        if not self.lines:
+            return ''
+        lines = []
+        lines.append('=== {0:} ==='.format(self.title))
+        maxLabelLength = max([len(label) for label, columns in self.lines])
+        for label, columns in self.lines:
+            lines.append('{0:<{labelWidth:}} {1:}'.format(
+                '{0:}:'.format(label), columns,
+                labelWidth=(maxLabelLength + 1)))
+        return '\n'.join(lines)
+
+    def line(self, label, columns, note=''):
+        """Add a line of text to the Section.
+
+        It will look like this:
+            label: columns[0] / ... / columns[-1] (note)
+        """
+        columns = ' / '.join(columns)
+        if note:
+            right = '{0:s}  ({1:s})'.format(columns, note)
+        else:
+            right = columns
+        self.lines.append((label, right))
+
+    def avgStdSum(self, label, points, pointFormat=None, note=''):
+        """Add a line with the average, std dev, and sum of a set of points.
+
+        label and note are passed onto line()
+
+        If more than one point is given, the columns will be the average,
+        standard deviation, and sum of the points. If, however, only one point
+        is given, the only column will be one showing that point.
+
+        If pointFormat is not given, a reasonable default will be determined
+        with defaultFormat(). A floating point format will be used for the
+        average and standard deviation.
+        """
+        points = seq(points)
+        columns = []
+        if len(points) == 1:
+            point = points[0]
+            if pointFormat is None:
+                pointFormat = defaultFormat(point)
+            columns.append(pointFormat.format(point))
+        else:
+            if pointFormat is None:
+                avgStdFormat = '{0:6.1f}'
+                sumFormat = defaultFormat(points[0])
+            else:
+                avgStdFormat = pointFormat
+                sumFormat = pointFormat
+            avg, stddev = avgAndStdDev(points)
+            columns.append('{0:} avg'.format(avgStdFormat.format(avg)))
+            columns.append('stddev {0:}'.format(avgStdFormat.format(stddev)))
+            columns.append('{0:} total'.format(sumFormat.format(sum(points))))
+        self.line(label, columns, note)
+
+    def avgStdFrac(self, label, points, pointFormat=None,
+                 total=None, fractionLabel='', note=''):
+        """Add a line with the average, std dev, and avg percentage of a
+        set of points.
+
+        label and note are passed onto line()
+
+        If more than one point is given, the columns will be the average and
+        standard deviation of the points. If total is given, an additional
+        column will show the percentage of total that the average of the points
+        make up.
+
+        If, however, only one point is given, the first column will be one
+        showing that point. If total is given, an additional column will show
+        the percentage of total that the point makes up.
+
+        If pointFormat is not given, a reasonable default will be determined
+        with defaultFormat(). A floating point format will be used for the
+        average and standard deviation.
+
+        If total and fractionLabel are given, fractionLabel will be printed
+        next to the percentage of total that points make up.
+        """
+        points = seq(points)
+        if fractionLabel:
+            fractionLabel = ' {0:}'.format(fractionLabel)
+        columns = []
+        if len(points) == 1:
+            point = points[0]
+            if pointFormat is None:
+                pointFormat = defaultFormat(point)
+            columns.append(pointFormat.format(point))
+            if total is not None:
+                columns.append('{0:6.2%}{1:}'.format(point / total,
+                                                     fractionLabel))
+        else:
+            if pointFormat is None:
+                pointFormat = '{0:6.1f}'
+            avg, stddev = avgAndStdDev(points)
+            columns.append('{0:} avg'.format(pointFormat.format(avg)))
+            columns.append('stddev {0:}'.format(pointFormat.format(stddev)))
+            if total is not None:
+                columns.append('{0:6.2%} avg{1:}'.format(avg / total,
+                                                         fractionLabel))
+        self.line(label, columns, note)
+
+    avgStd = avgStdFrac
+    """Same as avgStdFrac.
+
+    The intent is that you don't pass total, so you won't get the Frac part.
+    """
+
+    def ms(self, label, points, **kwargs):
+        """Calls avgStdFrac to print the points shown in milliseconds.
+
+        points and total should still be provided in full seconds!
+        """
+        kwargs['pointFormat'] = '{0:6.1f} ms'
+        if 'total' in kwargs:
+            kwargs['total'] *= 1000
+        self.avgStdFrac(label, [p * 1000 for p in seq(points)], **kwargs)
+
+### Metrics definitions:
+class Local(Struct):
+    # see for loop below
+    pass
+for i in range(10):
+    setattr(Local, 'ticks{0:}'.format(i), 
+            u64('total amount of time for some undefined activity'))
+    setattr(Local, 'count{0:}'.format(i), 
+            u64('total number of occurrences of some undefined event'))
+
+class TransmitReceiveCommon(Struct):
+    ticks = u64('total time elapsed transmitting/receiving messages')
+    messageCount = u64('total number of messages transmitted/received')
+    packetCount = u64('total number of packets transmitted/received')
+    iovecCount = u64('total number of Buffer chunks transmitted/received')
+    byteCount = u64('total number of bytes transmitted/received')
+
+class Transmit(TransmitReceiveCommon):
+    copyTicks = u64('total time elapsed copying messages')
+    dmaTicks = u64('total time elapsed waiting for DMA to HCA')
+
+class Transport(Struct):
+    transmit = Transmit('transmit docs', 'Transmit')
+    receive = TransmitReceiveCommon('receive docs', 'Receive')
+
+class Coordinator(Struct):
+    recoveryConstructorTicks = u64(
+        'total amount of time in Recovery constructor')
+    recoveryStartTicks = u64('total amount of time in Recovery::start')
+    local = Local('local metrics', 'Local')
+
+class Master(Struct):
+    tabletsRecoveredTicks = u64(
+        'total amount of time spent calling Coordinator::tabletsRecovered')
+    backupManagerTicks = u64(
+        'total amount of time spent in BackupManager')
+    segmentAppendChecksumTicks = u64(
+        'total amount of time spent checksumming in Segment::append')
+    segmentAppendCopyTicks = u64(
+        'total amount of time spent copying in Segment::append')
+    segmentOpenStallTicks = u64(
+        'total amount of time waiting for segment open responses from backups')
+    segmentReadCount = u64(
+        'total number of BackupClient::getRecoveryData calls issued')
+    segmentReadStallTicks = u64(
+        'total amount of time stalled waiting for segments from backups')
+    segmentReadByteCount = u64(
+        'total size in bytes of recovery segments received from backups')
+    verifyChecksumTicks = u64(
+        'total amount of time verifying checksums on objects from backups')
+    recoverSegmentTicks = u64(
+        'total amount of time spent in MasterServer::recoverSegment')
+    segmentCloseCount = u64(
+        'total number of complete segments written to backups')
+    segmentWriteStallTicks = u64(
+        'total amount of time spent stalled on writing segments to backups')
+    liveObjectCount = u64('total number of live objects')
+    liveObjectBytes = u64('total number of bytes of live object data')
+    objectAppendCount = u64('total number of objects appended to the log')
+    objectDiscardCount = u64('total number of objects not appended to the log')
+    tombstoneAppendCount = u64(
+        'total number of tombstones kept (currently to the side)')
+    tombstoneDiscardCount = u64('total number of tombstones discarded')
+    logSyncTicks = u64(
+        'total amount of time syncing the log at the end of recovery')
+    recoveryWillTicks = u64(
+        'total amount of time rebuilding will at the end of recovery')
+    removeTombstoneTicks = u64(
+        'total amount of time deleting tombstones at the end of recovery')
+    local = Local('local metrics', 'Local')
+
+class Backup(Struct):
+    startReadingDataTicks = u64('total amount of time in sRD')
+    readCount = u64('total number of getRecoveryData requests processed')
+    readStallTicks = u64(
+        'total amount of time in gRD waiting for filtered segment')
+    storageReadCount = u64('total number of segment reads from disk')
+    storageReadBytes = u64('total amount of bytes read from disk')
+    storageReadTicks = u64('total amount of time reading from disk')
+    writeTicks = u64('total amount of time servicing write RPC')
+    writeClearTicks = u64(
+        'total amount of time clearing segment memory during segment open')
+    writeCopyTicks = u64(
+        'total amount of time clearing segment memory during segment open')
+    writeCount = u64('total number of writeSegment requests processed')
+    storageWriteCount = u64('total number of segment writes to disk')
+    storageWriteBytes = u64('total amount of bytes written to disk')
+    storageWriteTicks = u64('total amount of time writing to disk')
+    filterTicks = u64('total amount of time filtering segments')
+    currentOpenSegmentCount = u64('total number of open segments')
+    totalSegmentCount = u64('total number of open or closed segments')
+    storageType = u64('1 = in-memory, 2 = on-disk')
+    local = Local('local metrics', 'Local')
+
+class Recovery(Struct):
+    serverId = u64('server id assigned by coordinator')
+    pid = u64('process ID on machine')
+    serverRole = u64('0 = coordinator, 1 = master, 2 = backup')
+    clockFrequency = u64('cycles per second for the cpu')
+    recoveryTicks = u64('total time elapsed during recovery')
+    idleTicks = u64('total time spent idling')
+    transport = Transport('transport docs', 'Transport')
+    coordinator = Coordinator('coordinator docs', 'Coordinator')
+    master = Master('master docs', 'Master')
+    backup = Backup('backup docs', 'Backup')
+
+### Parse command line options, read/write files:
+
+parser = OptionParser()
+parser.add_option('-b', '--build-only',
+                  dest='buildOnly', action='store_true',
+                  help='Only generate C++ files, do not run a report')
+parser.add_option('-r', '--raw',
+                  dest='raw', action='store_true',
+                  help='Print out raw data (helpful for debugging)')
+options, args = parser.parse_args()
+
+r = Recovery('recovery metrics', 'Metrics')
+
+if options.buildOnly: # Called automatically by make when this file is modified
+    h = Out(open('%s/Metrics.in.h' % obj_dir, 'w'))
+    h('// This file was automatically generated by scripts/metrics.py.')
+    h('// Do not edit it.')
+    h('namespace RAMCloud {')
+    r.dumpHeader(h)
+    h('} // namespace RAMCloud')
+
+    cc = Out(open('%s/Metrics.in.cc' % obj_dir, 'w'))
+    cc('// This file was automatically generated by scripts/metrics.py.')
+    cc('// Do not edit it.')
+    r.dumpLoggingCode(cc, 'metrics', 'metrics->')
+    sys.exit(0)
+
+coord = parse(open(glob('recovery/coordinator.*.rclog')[0]))
+masters = [parse(open(f)) for f in sorted(glob('recovery/master*.*.rclog'))
+           if not f.startswith('recovery/master1.')]
+backups = [parse(open(f)) for f in sorted(glob('recovery/backup*.*.rclog'))]
+
+if options.raw: # Prints out raw data for debugging
+    print('Coordinator:')
+    pprint(coord)
+    print()
+    print('Sample Master:')
+    pprint(random.choice(masters))
+    print()
+    print('Sample Backup:')
+    pprint(random.choice(backups))
+
+### Generate report:
+
+recoveryTime = coord.recoveryTicks / coord.clockFrequency
+report = Report()
+
+# TODO(ongaro): Size distributions of filtered segments
+
+summary = report.addSection('Summary')
+summary.avgStd('Recovery time', recoveryTime, '{0:6.3f} s')
+summary.avgStd('Masters', len(masters))
+summary.avgStd('Backups', len(backups))
+summary.avgStd('Number of objects',
+               sum([master.master.liveObjectCount
+                    for master in masters]))
+summary.avgStd('Object size',
+               [master.master.liveObjectBytes /
+                master.master.liveObjectCount
+                for master in masters],
+               '{0:6.0f} bytes avg')
+
+if backups:
+    storageTypes = set([backup.backup.storageType for backup in backups])
+    if len(storageTypes) > 1:
+        storageType = 'mixed'
+    else:
+        storageType = {1: 'memory',
+                       2: 'disk'}.get(int(storageTypes.pop()),
+                                      'unknown')
+    summary.line('Storage type', [storageType])
+
+coordSection = report.addSection('Coordinator Time')
+coordSection.ms('Idle',
+                coord.idleTicks / coord.clockFrequency,
+                total=recoveryTime,
+                fractionLabel='of total recovery')
+coordSection.ms('Starting recovery on backups',
+                coord.coordinator.recoveryConstructorTicks /
+                coord.clockFrequency,
+                total=recoveryTime,
+                fractionLabel='of total recovery')
+coordSection.ms('Starting recovery on masters',
+                coord.coordinator.recoveryStartTicks / coord.clockFrequency,
+                total=recoveryTime,
+                fractionLabel='of total recovery')
+
+masterSection = report.addSection('Master Time')
+masterSection.ms('Total',
+                 [master.recoveryTicks / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+masterSection.ms('Inside recoverSegment',
+                 [master.master.recoverSegmentTicks / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+masterSection.ms('  Backup opens, writes',
+                 [master.master.backupManagerTicks / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+masterSection.ms('  Approx. CPU',
+                 [(master.master.recoverSegmentTicks -
+                   master.master.backupManagerTicks)
+                  / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery',
+                 note='other')
+masterSection.ms('    Verify checksum',
+                 [master.master.verifyChecksumTicks / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+masterSection.ms('    Segment append copy',
+                 [master.master.segmentAppendCopyTicks / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+masterSection.ms('    Segment append checksum',
+                 [master.master.segmentAppendChecksumTicks /
+                  master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+masterSection.ms('    HT, profiler, etc',
+                 [(master.master.recoverSegmentTicks -
+                   master.master.backupManagerTicks -
+                   master.master.verifyChecksumTicks -
+                   master.master.segmentAppendCopyTicks -
+                   master.master.segmentAppendChecksumTicks) /
+                  master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery',
+                 note='other')
+masterSection.ms('Waiting for backups',
+                 [(master.master.segmentOpenStallTicks +
+                   master.master.segmentWriteStallTicks +
+                   master.master.segmentReadStallTicks)
+                  / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+masterSection.ms('  Stalled on segment open',
+                 [master.master.segmentOpenStallTicks / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+masterSection.ms('  Stalled on segment write',
+                 [master.master.segmentWriteStallTicks / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+masterSection.ms('  Stalled on segment read',
+                 [master.master.segmentReadStallTicks / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+masterSection.ms('Removing tombstones',
+                 [master.master.removeTombstoneTicks / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+masterSection.ms('Transmitting in transport',
+                 [master.transport.transmit.ticks / master.clockFrequency
+                  for master in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+
+backupSection = report.addSection('Backup Time')
+backupSection.ms('Total in RPC thread',
+                 [backup.recoveryTicks / backup.clockFrequency
+                  for backup in backups],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+backupSection.ms('  Idle',
+                 [backup.idleTicks / backup.clockFrequency
+                  for backup in backups],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+backupSection.ms('  startReadingData',
+                 [backup.backup.startReadingDataTicks / backup.clockFrequency
+                  for backup in backups],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+backupSection.ms('  Open/write segment',
+                 [backup.backup.writeTicks / backup.clockFrequency
+                  for backup in backups],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+backupSection.ms('    Open segment memset',
+                 [backup.backup.writeClearTicks / backup.clockFrequency
+                  for backup in backups],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+backupSection.ms('    Copy',
+                 [backup.backup.writeCopyTicks / backup.clockFrequency
+                  for backup in backups],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+backupSection.ms('    Other',
+                 [(backup.backup.writeTicks -
+                   backup.backup.writeClearTicks -
+                   backup.backup.writeCopyTicks) / backup.clockFrequency
+                  for backup in backups],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+backupSection.ms('  Read segment stall',
+                 [backup.backup.readStallTicks / backup.clockFrequency
+                  for backup in backups],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+backupSection.ms('  Transmitting in transport',
+                 [backup.transport.transmit.ticks / backup.clockFrequency
+                  for backup in backups],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+backupSection.ms('  Other',
+                 [(backup.recoveryTicks -
+                   backup.idleTicks -
+                   backup.backup.startReadingDataTicks -
+                   backup.backup.writeTicks -
+                   backup.backup.readStallTicks -
+                   backup.transport.transmit.ticks) /
+                  backup.clockFrequency
+                  for backup in backups],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+backupSection.ms('Filtering segments',
+                 [backup.backup.filterTicks / backup.clockFrequency
+                  for backup in backups],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
+
+efficiencySection = report.addSection('Efficiency')
+
+# TODO(ongaro): get stddev among segments
+efficiencySection.avgStd('recoverSegment CPU',
+                         average([((master.master.recoverSegmentTicks -
+                                    master.master.backupManagerTicks) /
+                                   master.clockFrequency * 1000 /
+                                   master.master.segmentReadCount)
+                                  for master in masters]),
+                         pointFormat='{0:6.2f} ms avg')
+
+# TODO(ongaro): get stddev among segments
+efficiencySection.avgStd('Writing a segment',
+                         average([(backup.backup.writeTicks /
+                                   backup.clockFrequency * 1000 /
+                                   backup.backup.readCount)
+                                  for backup in backups]),
+                         pointFormat='{0:6.2f} ms avg',
+                         note='backup RPC thread')
+# TODO(ongaro): get stddev among segments
+efficiencySection.avgStd('Filtering a segment',
+                         average([(backup.backup.filterTicks /
+                                   backup.clockFrequency * 1000 /
+                                   backup.backup.readCount)
+                                  for backup in backups]),
+                         pointFormat='{0:6.2f} ms avg')
+
+networkSection = report.addSection('Network Utilization')
+networkSection.avgStdFrac('Aggregate',
+                          (sum([host.transport.transmit.byteCount
+                                for host in [coord] + masters + backups]) *
+                           8 / 2**30 / recoveryTime),
+                          '{0:4.2f} Gb/s',
+                          total=(max(len(masters), len(backups)) * 32),
+                          fractionLabel='of network capacity',
+                          note='overall')
+networkSection.avgStdSum('Master in',
+                         [(master.transport.receive.byteCount * 8 / 2**30) /
+                          recoveryTime for master in masters],
+                         '{0:4.2f} Gb/s',
+                         note='overall')
+networkSection.avgStdSum('Master out',
+                         [(master.transport.transmit.byteCount * 8 / 2**30) /
+                          recoveryTime for master in masters],
+                         '{0:4.2f} Gb/s',
+                         note='overall')
+networkSection.avgStdSum('Backup in',
+                         [(backup.transport.receive.byteCount * 8 / 2**30) /
+                          recoveryTime for backup in backups],
+                         '{0:4.2f} Gb/s',
+                         note='overall')
+networkSection.avgStdSum('Backup out',
+                         [(backup.transport.transmit.byteCount * 8 / 2**30) /
+                          recoveryTime for backup in backups],
+                         '{0:4.2f} Gb/s',
+                         note='overall')
+
+diskSection = report.addSection('Disk Utilization')
+diskSection.avgStdSum('Effective bandwidth',
+                   [((backup.backup.storageReadBytes +
+                      backup.backup.storageWriteBytes) / 2**20) /
+                    recoveryTime
+                    for backup in backups],
+                   '{0:6.2f} MB/s')
+diskSection.avgStdSum('Active bandwidth',
+                   [((backup.backup.storageReadBytes +
+                      backup.backup.storageWriteBytes) / 2**20) /
+                    ((backup.backup.storageReadTicks +
+                      backup.backup.storageWriteTicks) / backup.clockFrequency)
+                    for backup in backups],
+                   '{0:6.2f} MB/s')
+diskSection.avgStd('Disk active',
+                   [100 * ((backup.backup.storageReadTicks +
+                            backup.backup.storageWriteTicks) /
+                           backup.clockFrequency) /
+                    recoveryTime
+                    for backup in backups],
+                   '{0:6.2f}%',
+                   note='of total recovery')
+diskSection.avgStd('  Reading',
+                   [100 * (backup.backup.storageReadTicks /
+                           backup.clockFrequency) /
+                    recoveryTime
+                    for backup in backups],
+                   '{0:6.2f}%',
+                   note='of total recovery')
+diskSection.avgStd('  Writing',
+                   [100 * (backup.backup.storageWriteTicks /
+                           backup.clockFrequency) /
+                    recoveryTime
+                    for backup in backups],
+                   '{0:6.2f}%',
+                   note='of total recovery')
+
+localSection = report.addSection('Local Metrics')
+for hosts, attr in [([coord], 'coordinator'),
+                    (masters, 'master'),
+                    (backups, 'backup')]:
+    for i in range(10):
+        field = 'ticks{0:}'.format(i)
+        points = [host[attr].local[field] / host.clockFrequency
+                  for host in hosts]
+        if any(points):
+            localSection.ms('{0:}.local.{1:}'.format(attr, field),
+                            points,
+                            total=recoveryTime,
+                            fractionLabel='of total recovery')
+    for i in range(10):
+        field = 'count{0:}'.format(i)
+        points = [host[attr].local[field] for host in hosts]
+        if any(points):
+            localSection.avgStd('{0:}.local.{1:}'.format(attr, field),
+                                points)
+
+print(report)
+

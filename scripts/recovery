@@ -50,12 +50,14 @@ start ${host[0]} coordinator coordinator$suffix
 
 sleep .5
 
-start ${host[0]} "backup -m -L $proto:host=${host[0]},port=12243" backup1$suffix
-start ${host[1]} "backup -m -L $proto:host=${host[1]},port=12244" backup2$suffix
-start ${host[2]} "backup -m -L $proto:host=${host[2]},port=12290" backup3$suffix
-start ${host[3]} "backup -m -L $proto:host=${host[3]},port=12291" backup4$suffix
-start ${host[4]} "backup -m -L $proto:host=${host[4]},port=12292" backup5$suffix
-start ${host[5]} "backup -m -L $proto:host=${host[5]},port=12293" backup6$suffix
+backupflags="-m"
+#backupflags="-f /dev/sdb1"
+start ${host[0]} "backup $backupflags -L $proto:host=${host[0]},port=12243" backup1$suffix
+start ${host[1]} "backup $backupflags -L $proto:host=${host[1]},port=12244" backup2$suffix
+start ${host[2]} "backup $backupflags -L $proto:host=${host[2]},port=12290" backup3$suffix
+start ${host[3]} "backup $backupflags -L $proto:host=${host[3]},port=12291" backup4$suffix
+start ${host[4]} "backup $backupflags -L $proto:host=${host[4]},port=12292" backup5$suffix
+start ${host[5]} "backup $backupflags -L $proto:host=${host[5]},port=12293" backup6$suffix
 
 sleep .5
 

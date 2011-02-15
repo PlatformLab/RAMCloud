@@ -16,8 +16,6 @@
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "ClientException.h"
-#include "Mark.h"
-#include "PerfCounterType.h"
 #include "Rpc.h"
 #include "TransportManager.h"
 

@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "CycleCounter.h"
+#include "Metrics.h"
 #include "TransportManager.h"
 #include "TransportFactory.h"
 
@@ -211,18 +213,17 @@ TransportManager::serverRecv()
 {
     if (!initialized || listening.empty())
         throw TransportException(HERE, "no transports to listen on");
-    uint8_t i = 0;
+    CycleCounter<Metric> _(&metrics->idleTicks);
     while (true) {
-        if (nextToListen >= listening.size())
+        if (nextToListen >= listening.size()) {
+            Dispatch::poll();
             nextToListen = 0;
+        }
         auto transport = listening[nextToListen++];
 
         auto rpc = transport->serverRecv();
         if (rpc != NULL)
             return rpc;
-        if (++i == 0) { // On machines with a small number of cores,
-            yield();    // give other tasks a chance to run.
-        }
     }
 }
 

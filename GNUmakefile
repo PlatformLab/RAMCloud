@@ -25,8 +25,7 @@ BASECFLAGS := -g
 OPTFLAG	 :=
 ## Note: -DBOOST_DISABLE_ASSERTS is needed below because Dispatch performs
 ## extraneous unlocks on mutexes, which pthreads doesn't really like.
-DEBUGFLAGS := -DPERF_COUNTERS=1 -DTESTING=1 -DBOOST_DISABLE_ASSERTS \
-              -fno-builtin
+DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
 BASECFLAGS :=
 OPTFLAG := -O3
@@ -186,7 +185,9 @@ doc: docs
 docs: python-docs
 	@DOCSID=`git branch --no-color | grep "*" | cut -f2 -d" "` ;\
 	DOCSID=$$DOCSID-`cat ".git/$$( git symbolic-ref HEAD )" | cut -c1-6` ;\
-	echo "PROJECT_NUMBER = \"Version [$$DOCSID]\"" | cat Doxyfile - | doxygen -
+	(echo "PROJECT_NUMBER = \"Version [$$DOCSID]\""; \
+	 echo "INPUT = src bindings README $(OBJDIR)"; \
+	 echo "INCLUDE_PATH = $(OBJDIR)"; ) | cat Doxyfile - | doxygen -
 
 docs-clean: python-docs-clean
 	rm -rf docs/doxygen/

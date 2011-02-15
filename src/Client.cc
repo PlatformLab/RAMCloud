@@ -38,7 +38,6 @@ Client::throwShortResponseError(Buffer& response)
 {
     const RpcResponseCommon* common = response.getStart<RpcResponseCommon>();
     if (common != NULL) {
-        counterValue = common->counterValue;
         if (common->status == STATUS_OK) {
             // This makes no sense: the server claims to have handled
             // the RPC correctly, but it didn't return the right size

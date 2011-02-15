@@ -21,6 +21,7 @@
 
 #include "Dispatch.h"
 #include "IpAddress.h"
+#include "Tub.h"
 #include "Syscall.h"
 #include "Transport.h"
 
@@ -140,42 +141,6 @@ class TcpTransport : public Transport {
     static void sendMessage(int fd, Buffer& payload);
 
     /**
-     * The TCP implementation of Sessions.
-     */
-    class TcpSession : public Session {
-      friend class TcpTransportTest;
-      friend class TcpClientRpc;
-      friend class ReplyReadHandler;
-      public:
-        explicit TcpSession(const ServiceLocator& serviceLocator);
-        ~TcpSession();
-        ClientRpc* clientSend(Buffer* request, Buffer* reply)
-            __attribute__((warn_unused_result));
-        void release() {
-            delete this;
-        }
-      private:
-        void close();
-        static void tryReadReply(int fd, int16_t event, void *arg);
-
-        IpAddress address;        /// Server to which requests will be sent.
-        int fd;                   /// File descriptor for the socket that
-                                  /// connects to address  -1 means no socket
-                                  /// open.
-        TcpClientRpc *current;    /// Only one RPC can be outstanding for
-                                  /// a session at a time; this identifies
-                                  /// the current RPC (NULL if there is none).
-        IncomingMessage message;  /// Records state of partially-received
-                                  /// reply for current.
-        ReplyReadHandler* replyHandler;
-                                  /// Used to get notified when response data
-                                  /// arrives.
-        string errorInfo;         /// If the session is no longer usable,
-                                  /// this variable indicates why.
-        DISALLOW_COPY_AND_ASSIGN(TcpSession);
-    };
-
-    /**
      * An exception that is thrown when a socket has been closed by the peer.
      */
     class TcpTransportEof : public TransportException {
@@ -225,6 +190,42 @@ class TcpTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(ReplyReadHandler);
     };
 
+    /**
+     * The TCP implementation of Sessions.
+     */
+    class TcpSession : public Session {
+      friend class TcpTransportTest;
+      friend class TcpClientRpc;
+      friend class ReplyReadHandler;
+      public:
+        explicit TcpSession(const ServiceLocator& serviceLocator);
+        ~TcpSession();
+        ClientRpc* clientSend(Buffer* request, Buffer* reply)
+            __attribute__((warn_unused_result));
+        void release() {
+            delete this;
+        }
+      private:
+        void close();
+        static void tryReadReply(int fd, int16_t event, void *arg);
+
+        IpAddress address;        /// Server to which requests will be sent.
+        int fd;                   /// File descriptor for the socket that
+                                  /// connects to address  -1 means no socket
+                                  /// open.
+        TcpClientRpc *current;    /// Only one RPC can be outstanding for
+                                  /// a session at a time; this identifies
+                                  /// the current RPC (NULL if there is none).
+        IncomingMessage message;  /// Records state of partially-received
+                                  /// reply for current.
+        Tub<ReplyReadHandler> replyHandler;
+                                  /// Used to get notified when response data
+                                  /// arrives.
+        string errorInfo;         /// If the session is no longer usable,
+                                  /// this variable indicates why.
+        DISALLOW_COPY_AND_ASSIGN(TcpSession);
+    };
+
     static Syscall* sys;
 
     /// Service locator used to open server socket (empty string if this
@@ -237,19 +238,23 @@ class TcpTransport : public Transport {
     int listenSocket;
 
     /// Used to wait for listenSocket to become readable.
-    AcceptHandler* acceptHandler;
+    Tub<AcceptHandler> acceptHandler;
 
     /// Used to hold information about a file descriptor associated with
     /// a socket, on which RPC requests may arrive.
-    struct Socket {
+    class Socket {
+        public:
+        Socket(int fd, TcpTransport *transport)
+                : rpc(NULL), busy(false), readHandler(fd, transport) { }
         TcpServerRpc *rpc;        /// Incoming RPC that is in progress for
                                   /// this fd, or NULL if none.
         bool busy;                /// True means we have received a request
                                   /// and are in the middle of processing it,
                                   /// so no additional requests should arrive.
-        RequestReadHandler* readHandler;
+        RequestReadHandler readHandler;
                                   /// Used to get notified whenever data
                                   /// arrives on this fd.
+        DISALLOW_COPY_AND_ASSIGN(Socket);
     };
 
     /// Keeps track of all of our open client connections. Entry i has

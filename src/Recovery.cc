@@ -17,7 +17,7 @@
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "MasterClient.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
 
@@ -48,16 +48,20 @@ Recovery::Recovery(uint64_t masterId,
                    const ProtoBuf::Tablets& will,
                    const ProtoBuf::ServerList& masterHosts,
                    const ProtoBuf::ServerList& backupHosts)
-    : backups()
+
+    : recoveryTicks(&metrics->recoveryTicks)
+    , backups()
     , masterHosts(masterHosts)
     , backupHosts(backupHosts)
     , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
-    , tasks(new ObjectTub<Task>[backupHosts.server_size()])
+    , tasks(new Tub<Task>[backupHosts.server_size()])
     , digestList()
     , segmentMap()
 {
+    CycleCounter<Metric> _(&metrics->coordinator.recoveryConstructorTicks);
+    reset(metrics, 0, 0);
     buildSegmentIdToBackups();
     verifyCompleteLog();
 }
@@ -65,6 +69,8 @@ Recovery::Recovery(uint64_t masterId,
 Recovery::~Recovery()
 {
     delete[] tasks;
+    recoveryTicks.stop();
+    dump(metrics);
 }
 
 /**
@@ -246,6 +252,7 @@ Recovery::verifyCompleteLog()
 void
 Recovery::start()
 {
+    CycleCounter<Metric> _(&metrics->coordinator.recoveryStartTicks);
     uint64_t partitionId = 0;
     int hostIndexToRecoverOnNext = 0;
     for (;;) {

@@ -15,7 +15,7 @@
 
 #include "TestUtil.h"
 #include "MockSyscall.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 #include "UdpDriver.h"
 
 namespace RAMCloud {

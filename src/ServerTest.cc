@@ -48,7 +48,6 @@ class ServerTest : public CppUnit::TestFixture {
         transport = new MockTransport();
         transportManager.registerMock(transport);
         server = new Server();
-        Metrics::setup(PERF_COUNTER_INC, MARK_NONE, MARK_NONE);
         TestLog::enable();
     }
 
@@ -90,8 +89,8 @@ class ServerTest : public CppUnit::TestFixture {
     }
 
     void test_handleRpc_messageTooShortForCommon() {
-        rpc("abcdef");
-        CPPUNIT_ASSERT_EQUAL("serverReply: 6 0", transport->outputLog);
+        rpc("a");
+        CPPUNIT_ASSERT_EQUAL("serverReply: 6", transport->outputLog);
     }
     void test_handleRpc_collectPerformanceInfo() {
         // 0x2001 means RpcPerfCounter { 1, 2, 0 }

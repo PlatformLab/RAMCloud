@@ -34,11 +34,10 @@ Syscall* Dispatch::sys = &defaultSyscall;
 std::vector<Dispatch::Poller*> Dispatch::pollers;
 std::vector<Dispatch::File*> Dispatch::files;
 int Dispatch::epollFd = -1;
-boost::thread* Dispatch::epollThread = NULL;
+Tub<boost::thread> Dispatch::epollThread;
 int Dispatch::exitPipeFds[2] = {-1, -1};
 volatile int Dispatch::readyFd = -1;
 int Dispatch::fileInvocationSerial = 0;
-boost::mutex Dispatch::epollMutex;
 std::vector<Dispatch::Timer*> Dispatch::timers;
 uint64_t Dispatch::currentTime = rdtsc();
 uint64_t Dispatch::earliestTriggerTime = 0;
@@ -93,7 +92,6 @@ bool Dispatch::poll()
     if (readyFd >= 0) {
         int fd = readyFd;
         readyFd = -1;
-        epollMutex.unlock();
         File* file = files[fd];
         if (file) {
             int id = fileInvocationSerial + 1;
@@ -138,7 +136,7 @@ bool Dispatch::poll()
         // in the loop above, because one timer handler could delete
         // another, which can rearrange the list and cause us to miss
         // a trigger time.
-        earliestTriggerTime = 0xfffffffffffffffful;
+        earliestTriggerTime = ~(0ull);
         for (uint32_t i = 0; i < timers.size(); i++) {
             Timer* timer = timers[i];
             if (timer->triggerTime < earliestTriggerTime) {
@@ -178,13 +176,12 @@ void Dispatch::reset()
             files[i] = NULL;
         }
     }
-    if (epollThread != NULL) {
+    if (epollThread) {
         // Writing data to the pipe below signals the epoll thread that it
         // should exit.
         sys->write(exitPipeFds[1], "x", 1);
         epollThread->join();
-        delete epollThread;
-        epollThread = NULL;
+        epollThread.destroy();
         sys->close(exitPipeFds[0]);
         sys->close(exitPipeFds[1]);
         exitPipeFds[1] = exitPipeFds[0] = -1;
@@ -194,7 +191,6 @@ void Dispatch::reset()
         epollFd = -1;
     }
     readyFd = -1;
-    epollMutex.unlock();
     while (timers.size() > 0) {
         timers.back()->stop();
     }
@@ -202,22 +198,23 @@ void Dispatch::reset()
 }
 
 /**
- * Construct a file handler with an initial event of NONE, so it won't
- * trigger until #setEvent is invoked.
+ * Construct a file handler.
  *
  * \param fd
  *      File descriptor of interest. Note: at most one Dispatch::File
  *      may be created for a single file descriptor.
  * \param event
  *      Invoke the object when any of the events specified by this
- *      parameter occur.
+ *      parameter occur. If this is NONE then the file handler starts
+ *      off inactive; it will not trigger until setEvent has been
+ *      called.
  */
 Dispatch::File::File(int fd, Dispatch::FileEvent event)
         : fd(fd), event(NONE), active(false), invocationId(0)
 {
     // Start the polling thread if it doesn't already exist (and also create
     // the epoll file descriptor and the exit pipe).
-    if (Dispatch::epollThread == NULL) {
+    if (!epollThread) {
         epollFd = sys->epoll_create(10);
         if (epollFd < 0) {
             throw FatalError(HERE, "epoll_create failed in Dispatch", errno);
@@ -227,18 +224,21 @@ Dispatch::File::File(int fd, Dispatch::FileEvent event)
                     "Dispatch couldn't create exit pipe for epoll thread",
                     errno);
         }
-        epoll_event event;
-        event.events = EPOLLIN|EPOLLONESHOT;
+        epoll_event epollEvent;
+        // The following statement is not needed, but without it valgrind
+        // will generate false errors about uninitialized data.
+        epollEvent.data.u64 = 0;
+        epollEvent.events = EPOLLIN|EPOLLONESHOT;
 
         // -1 fd signals to epoll thread to exit.
-        event.data.fd = -1;
+        epollEvent.data.fd = -1;
         if (sys->epoll_ctl(epollFd, EPOLL_CTL_ADD, exitPipeFds[0],
-                &event) != 0) {
+                &epollEvent) != 0) {
             throw FatalError(HERE,
                     "Dispatch couldn't set epoll event for exit pipe",
                     errno);
         }
-        epollThread = new boost::thread(Dispatch::epollThreadMain);
+        epollThread.construct(Dispatch::epollThreadMain);
     }
 
     if (Dispatch::files.size() <= static_cast<uint32_t>(fd)) {
@@ -282,6 +282,9 @@ Dispatch::File::~File()
 void Dispatch::File::setEvent(FileEvent event)
 {
     epoll_event epollEvent;
+    // The following statement is not needed, but without it valgrind
+    // will generate false errors about uninitialized data.
+    epollEvent.data.u64 = 0;
     this->event = event;
     if (invocationId != 0) {
         // Don't communicate anything to epoll while a call to
@@ -343,7 +346,11 @@ void Dispatch::epollThreadMain() {
                 return;
             }
             while (readyFd >= 0) {
-                epollMutex.lock();
+                // The main polling loop hasn't yet noticed the last file
+                // that became ready; wait for the shared memory location
+                // to clear again.  This loop busy-waits but yields the
+                // CPU to any other runnable threads.
+                sched_yield();
             }
             readyFd = events[i].data.fd;
         }

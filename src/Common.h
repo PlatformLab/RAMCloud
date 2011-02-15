@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -240,6 +240,18 @@ _rdtsc()
     return (((uint64_t)hi << 32) | lo);
 }
 
+
+__inline __attribute__((always_inline, no_instrument_function))
+uint64_t _rdtscp();
+uint64_t
+_rdtscp()
+{
+    uint32_t aux;
+    uint32_t lo, hi;
+    __asm__ __volatile__("rdtscp" : "=a" (lo), "=d" (hi), "=c" (aux));
+    return (((uint64_t)hi << 32) | lo);
+}
+
 __inline __attribute__((always_inline, no_instrument_function))
 uint64_t _rdpmc(uint32_t counter);
 uint64_t
@@ -276,6 +288,15 @@ rdtsc()
     if (mockTSCValue)
         return mockTSCValue;
     return _rdtsc();
+}
+__inline __attribute__((always_inline, no_instrument_function))
+uint64_t rdtscp();
+uint64_t
+rdtscp()
+{
+    if (mockTSCValue)
+        return mockTSCValue;
+    return _rdtscp();
 }
 __inline __attribute__((always_inline, no_instrument_function))
 uint64_t rdpmc(uint32_t counter);
@@ -323,6 +344,7 @@ class MockRandom {
 };
 #else
 #define rdtsc() _rdtsc()
+#define rdtscp() _rdtscp()
 #define rdpmc(c) _rdpmc(c)
 #define generateRandom() RAMCloud::_generateRandom()
 #endif
@@ -368,15 +390,6 @@ fastPower(uint64_t base, uint8_t exp)
 #else
 #define CONST_FOR_PRODUCTION const
 #endif
-
-#if PERF_COUNTERS
-#define STAT_REF(pc) &(pc)
-#define STAT_INC(pc) ++(pc)
-#else
-#define STAT_REF(pc) NULL
-#define STAT_INC(pc) (void) 0
-#endif
-
 #endif
 
 namespace RAMCloud {

@@ -48,17 +48,11 @@ runRecovery(RamCloud& client,
 
         LOG(NOTICE, "Performing %u inserts of %u byte objects",
             count, objectDataSize);
-        uint64_t sum = 0;
         b = rdtsc();
-        for (int j = 0; j < count; j++) {
+        for (int j = 0; j < count; j++)
             id = client.create(table, val, objectDataSize);
-            sum += client.counterValue;
-        }
         LOG(DEBUG, "%d inserts took %lu ticks", count, rdtsc() - b);
         LOG(DEBUG, "avg insert took %lu ticks", (rdtsc() - b) / count);
-        LOG(DEBUG, "%d inserts took %lu ticks on the server", count, sum);
-        LOG(DEBUG, "%d avg insert took %lu ticks on the server", count,
-               sum / count);
 
         // Create tables on the other masters so we skip back around to the
         // first in round-robin order to create multiple tables in the same
@@ -113,8 +107,6 @@ runRecovery(RamCloud& client,
         }
 
         session = client.objectFinder.lookup(tables[t], 0);
-        LOG(NOTICE, "read after recovery took %u ticks",
-            client.counterValue);
         LOG(NOTICE, "read value has length %u", nb.getTotalLength());
     }
     LOG(NOTICE, "All tables recovered in %lu ticks", rdtsc() - b);
@@ -168,9 +160,6 @@ try
         optionParser.options.getCoordinatorLocator().c_str());
 
     RamCloud client(optionParser.options.getCoordinatorLocator().c_str());
-    client.selectPerfCounter(PERF_COUNTER_TSC,
-                             MARK_RPC_PROCESSING_BEGIN,
-                             MARK_RPC_PROCESSING_END);
 
     if (hintServerDown) {
         runRecovery(client, count, objectDataSize,
@@ -185,28 +174,20 @@ try
     uint32_t table;
     table = client.openTable("test");
     LOG(DEBUG, "create+open table took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "open took %u ticks on the server",
-           client.counterValue);
 
     b = rdtsc();
     client.ping();
     LOG(DEBUG, "ping took %lu ticks on the client", rdtsc() - b);
-    LOG(DEBUG, "ping took %u ticks on the server",
-           client.counterValue);
 
     b = rdtsc();
     client.write(table, 42, "Hello, World!", 14);
     LOG(DEBUG, "write took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "write took %u ticks on the server",
-           client.counterValue);
 
     b = rdtsc();
     const char *value = "0123456789012345678901234567890"
         "123456789012345678901234567890123456789";
     client.write(table, 43, value, strlen(value) + 1);
     LOG(DEBUG, "write took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "write took %u ticks on the server",
-           client.counterValue);
 
     Buffer buffer;
     b = rdtsc();
@@ -214,8 +195,6 @@ try
 
     client.read(table, 43, &buffer);
     LOG(DEBUG, "read took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "read took %u ticks on the server",
-           client.counterValue);
 
     length = buffer.getTotalLength();
     LOG(DEBUG, "Got back [%s] len %u",
@@ -224,8 +203,6 @@ try
 
     client.read(table, 42, &buffer);
     LOG(DEBUG, "read took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "read took %u ticks on the server",
-           client.counterValue);
     length = buffer.getTotalLength();
     LOG(DEBUG, "Got back [%s] len %u",
         static_cast<const char*>(buffer.getRange(0, length)),
@@ -235,15 +212,11 @@ try
     uint64_t id = 0xfffffff;
     id = client.create(table, "Hello, World?", 14);
     LOG(DEBUG, "insert took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "insert took %u ticks on the server",
-           client.counterValue);
     LOG(DEBUG, "Got back [%lu] id", id);
 
     b = rdtsc();
     client.read(table, id, &buffer);
     LOG(DEBUG, "read took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "read took %u ticks on the server",
-           client.counterValue);
     length = buffer.getTotalLength();
     LOG(DEBUG, "Got back [%s] len %u",
         static_cast<const char*>(buffer.getRange(0, length)),
@@ -255,17 +228,11 @@ try
 
     LOG(NOTICE, "Performing %u inserts of %u byte objects",
         count, objectDataSize);
-    uint64_t sum = 0;
     b = rdtsc();
-    for (int j = 0; j < count; j++) {
+    for (int j = 0; j < count; j++)
         id = client.create(table, val, strlen(val) + 1);
-        sum += client.counterValue;
-    }
     LOG(DEBUG, "%d inserts took %lu ticks", count, rdtsc() - b);
     LOG(DEBUG, "avg insert took %lu ticks", (rdtsc() - b) / count);
-    LOG(DEBUG, "%d inserts took %lu ticks on the server", count, sum);
-    LOG(DEBUG, "%d avg insert took %lu ticks on the server", count,
-           sum / count);
 
     client.dropTable("test");
 

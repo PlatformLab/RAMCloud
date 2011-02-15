@@ -19,7 +19,8 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "MasterServer.h"
-#include "ObjectTub.h"
+#include "Metrics.h"
+#include "Tub.h"
 #include "ProtoBuf.h"
 #include "RecoverySegmentIterator.h"
 #include "Rpc.h"
@@ -262,6 +263,7 @@ recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type, void *cookie)
 void
 MasterServer::removeTombstones()
 {
+    CycleCounter<Metric> _(&metrics->master.removeTombstoneTicks);
     objectMap.forEach(recoveryCleanup, this);
 }
 
@@ -421,9 +423,9 @@ MasterServer::recover(uint64_t masterId,
         backup.set_user_data(REC_REQ_NOT_STARTED);
 
 #ifdef PERF_DEBUG_RECOVERY_SERIAL
-    ObjectTub<Task> tasks[1];
+    Tub<Task> tasks[1];
 #else
-    ObjectTub<Task> tasks[4];
+    Tub<Task> tasks[4];
 #endif
     uint32_t activeRequests = 0;
 
@@ -445,6 +447,7 @@ MasterServer::recover(uint64_t masterId,
                 task.construct(masterId, partitionId, *backup);
                 backup->set_user_data(REC_REQ_WAITING);
                 runningSet.insert(backup->segment_id());
+                ++metrics->master.segmentReadCount;
                 ++activeRequests;
             } catch (const TransportException& e) {
                 LOG(DEBUG, "Couldn't contact %s, trying next backup; "
@@ -462,10 +465,13 @@ MasterServer::recover(uint64_t masterId,
   doneStartingInitialTasks:
 
     // As RPCs complete, process them and start more
+    Tub<CycleCounter<Metric>> readStallTicks;
+    readStallTicks.construct(&metrics->master.segmentReadStallTicks);
     while (activeRequests) {
         foreach (auto& task, tasks) {
             if (!task || !task->rpc.isReady())
                 continue;
+            readStallTicks.destroy();
             LOG(DEBUG, "Waiting on recovery data for segment %lu from %s",
                 task->backupHost.segment_id(),
                 task->backupHost.service_locator().c_str());
@@ -478,6 +484,7 @@ MasterServer::recover(uint64_t masterId,
                     &task - &tasks[0]);
 
                 uint32_t responseLen = task->response.getTotalLength();
+                metrics->master.segmentReadByteCount += responseLen;
                 LOG(DEBUG, "Recovering segment %lu with size %u",
                     task->backupHost.segment_id(), responseLen);
                 uint64_t startUseful = rdtsc();
@@ -542,6 +549,7 @@ MasterServer::recover(uint64_t masterId,
                     task.construct(masterId, partitionId, *backup);
                     backup->set_user_data(REC_REQ_WAITING);
                     runningSet.insert(backup->segment_id());
+                    ++metrics->master.segmentReadCount;
                 } catch (const TransportException& e) {
                     LOG(DEBUG, "Couldn't contact %s, trying next backup; "
                         "failure was: %s",
@@ -553,12 +561,18 @@ MasterServer::recover(uint64_t masterId,
           outOfHosts:
             if (!task)
                 --activeRequests;
+            readStallTicks.construct(&metrics->master.segmentReadStallTicks);
         }
     }
+    if (readStallTicks)
+        readStallTicks.destroy();
 
     detectSegmentRecoveryFailure(masterId, partitionId, backups);
 
-    log.sync();
+    {
+        CycleCounter<Metric> logSyncTicks(&metrics->master.logSyncTicks);
+        log.sync();
+    }
 
     uint64_t totalTime = cyclesToNanoseconds(rdtsc() - start);
     usefulTime = cyclesToNanoseconds(usefulTime);
@@ -582,55 +596,71 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
                       Transport::ServerRpc& rpc,
                       Responder& responder)
 {
-    const auto& masterId = reqHdr.masterId;
-    const auto& partitionId = reqHdr.partitionId;
-    ProtoBuf::Tablets recoveryTablets;
-    ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
-                                reqHdr.tabletsLength, recoveryTablets);
-    ProtoBuf::ServerList backups;
-    ProtoBuf::parseFromResponse(rpc.recvPayload,
-                                sizeof(reqHdr) + reqHdr.tabletsLength,
-                                reqHdr.serverListLength, backups);
-    LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
-        recoveryTablets.tablet_size(), serverId);
-    responder();
+    {
+        CycleCounter<Metric> recoveryTicks(&metrics->recoveryTicks);
+        reset(metrics, serverId, 1);
 
-    // reqHdr, respHdr, and rpc are off-limits now
+        const auto& masterId = reqHdr.masterId;
+        const auto& partitionId = reqHdr.partitionId;
+        ProtoBuf::Tablets recoveryTablets;
+        ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
+                                    reqHdr.tabletsLength, recoveryTablets);
+        ProtoBuf::ServerList backups;
+        ProtoBuf::parseFromResponse(rpc.recvPayload,
+                                    sizeof(reqHdr) + reqHdr.tabletsLength,
+                                    reqHdr.serverListLength, backups);
+        LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
+            recoveryTablets.tablet_size(), serverId);
+        responder();
 
-    // Union the new tablets into an updated tablet map
-    ProtoBuf::Tablets newTablets(tablets);
-    newTablets.mutable_tablet()->MergeFrom(recoveryTablets.tablet());
-    // and set ourself as open for business.
-    setTablets(newTablets);
+        // reqHdr, respHdr, and rpc are off-limits now
 
-    // Recover Segments, firing MasterServer::recoverSegment for each one.
-    recover(masterId, partitionId, backups);
+        // Union the new tablets into an updated tablet map
+        ProtoBuf::Tablets newTablets(tablets);
+        newTablets.mutable_tablet()->MergeFrom(recoveryTablets.tablet());
+        // and set ourself as open for business.
+        setTablets(newTablets);
 
-    // Free recovery tombstones left in the hash table.
-    removeTombstones();
+        // Recover Segments, firing MasterServer::recoverSegment for each one.
+        recover(masterId, partitionId, backups);
 
-    // Once the coordinator and the recovery master agree that the
-    // master has taken over for the tablets it can update its tables
-    // and begin serving requests.
+        // Free recovery tombstones left in the hash table.
+        removeTombstones();
 
-    // Update the recoveryTablets to reflect the fact that this master is
-    // going to try to become the owner.
-    foreach (ProtoBuf::Tablets::Tablet& tablet,
-             *recoveryTablets.mutable_tablet()) {
-        LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
-                 tablet.table_id(), tablet.start_object_id(),
-                 tablet.end_object_id(), config.localLocator.c_str(), serverId);
-        tablet.set_service_locator(config.localLocator);
-        tablet.set_server_id(serverId);
+        // Once the coordinator and the recovery master agree that the
+        // master has taken over for the tablets it can update its tables
+        // and begin serving requests.
+
+        // Update the recoveryTablets to reflect the fact that this master is
+        // going to try to become the owner.
+        foreach (ProtoBuf::Tablets::Tablet& tablet,
+                 *recoveryTablets.mutable_tablet()) {
+            LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
+                     tablet.table_id(), tablet.start_object_id(),
+                     tablet.end_object_id(), config.localLocator.c_str(),
+                     serverId);
+            tablet.set_service_locator(config.localLocator);
+            tablet.set_server_id(serverId);
+        }
+
+        // TODO(ongaro): don't need to calculate a new will here
+        ProtoBuf::Tablets recoveryWill;
+        {
+            CycleCounter<Metric> _(&metrics->master.recoveryWillTicks);
+            Will will(tablets, maxBytesPerPartition, maxReferantsPerPartition);
+            will.serialize(recoveryWill);
+        }
+
+        {
+            CycleCounter<Metric> _(&metrics->master.tabletsRecoveredTicks);
+            coordinator->tabletsRecovered(serverId, recoveryTablets,
+                                          recoveryWill);
+        }
+        // Ok - we're free to start serving now.
+
+        // TODO(stutsman) update local copy of the will
     }
-
-    ProtoBuf::Tablets recoveryWill;
-    Will will(tablets, maxBytesPerPartition, maxReferantsPerPartition);
-    will.serialize(recoveryWill);
-    coordinator->tabletsRecovered(serverId, recoveryTablets, recoveryWill);
-    // Ok - we're free to start serving now.
-
-    // TODO(stutsman) update local copy of the will
+    dump(metrics);
 }
 
 /**
@@ -690,6 +720,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 {
     uint64_t start = rdtsc();
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
+    CycleCounter<Metric> _(&metrics->master.recoverSegmentTicks);
 
     RecoverySegmentIterator i(buffer, bufferLength);
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH
@@ -709,6 +740,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
         // verify that the checksum is correct
         if (type == LOG_ENTRY_TYPE_OBJ || type == LOG_ENTRY_TYPE_OBJTOMB) {
+            CycleCounter<Metric> c(&metrics->master.verifyChecksumTicks);
             if (!i.isChecksumValid()) {
                 uint64_t tblId, objId, version;
                 string descr;
@@ -773,6 +805,9 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
                     recoverObj, i.getLength(), &lengthInLog,
                     &logTime, false);
+                ++metrics->master.objectAppendCount;
+                metrics->master.liveObjectBytes +=
+                    localObj->dataLength(i.getLength());
 
                 // update the TabletProfiler
                 Table& t(getTable(recoverObj->id.tableId,
@@ -789,8 +824,15 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                     freeRecoveryTombstone(handle);
 
                 // nuke the old object, if it existed
-                if (localObj != NULL)
-                    log.free(LogEntryHandle(localObj));
+                if (localObj != NULL) {
+                    metrics->master.liveObjectBytes -=
+                        localObj->dataLength(handle->length());
+                    log.free(handle);
+                } else {
+                    ++metrics->master.liveObjectCount;
+                }
+            } else {
+                ++metrics->master.objectDiscardCount;
             }
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             const ObjectTombstone *recoverTomb =
@@ -821,6 +863,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 // allocate memory for the tombstone & update hash table
                 // TODO(ongaro): Change to new with copy constructor?
                 LogEntryHandle newTomb = allocRecoveryTombstone(recoverTomb);
+                ++metrics->master.tombstoneAppendCount;
                 objectMap.replace(newTomb);
 
                 // nuke the old tombstone, if it existed
@@ -828,8 +871,14 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                     freeRecoveryTombstone(handle);
 
                 // nuke the object, if it existed
-                if (localObj != NULL)
-                    log.free(LogEntryHandle(localObj));
+                if (localObj != NULL) {
+                    --metrics->master.liveObjectCount;
+                    metrics->master.liveObjectBytes -=
+                        localObj->dataLength(handle->length());
+                    log.free(handle);
+                }
+            } else {
+                ++metrics->master.tombstoneDiscardCount;
             }
         }
 

@@ -36,7 +36,7 @@ class MockSyscall : public Syscall {
     MockSyscall() : acceptErrno(0), bindErrno(0), closeErrno(0), closeCount(0),
                     connectErrno(0), epollCreateErrno(0), epollCtlErrno(0),
                     epollWaitCount(-1), epollWaitEvents(NULL),
-                    epollWaitMutex(NULL), epollWaitErrno(0),
+                    epollWaitErrno(0),
                     fcntlErrno(0), listenErrno(0),
                     pipeErrno(0), recvErrno(0), recvEof(false),
                     recvfromErrno(0), recvfromEof(false),
@@ -102,13 +102,9 @@ class MockSyscall : public Syscall {
 
     int epollWaitCount;
     epoll_event* epollWaitEvents;
-    boost::mutex* epollWaitMutex;
     int epollWaitErrno;
     int epoll_wait(int epfd, epoll_event* events,
             int maxEvents, int timeout) {
-        if (epollWaitMutex != NULL) {
-            epollWaitMutex->lock();
-        }
         if (epollWaitCount >= 0) {
             memcpy(events, epollWaitEvents,
                    epollWaitCount*sizeof(epoll_event));

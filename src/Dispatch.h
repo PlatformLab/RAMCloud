@@ -18,6 +18,7 @@
 
 #include <boost/thread.hpp>
 #include "Common.h"
+#include "Tub.h"
 #include "Syscall.h"
 
 namespace RAMCloud {
@@ -185,9 +186,9 @@ class Dispatch {
     static int epollFd;
 
     // We start a separate thread to invoke epoll kernel calls, so the
-    // main polling loop is not delayed by kernel calls.  NULL means the
-    // epoll thread has not yet been created.
-    static boost::thread* epollThread;
+    // main polling loop is not delayed by kernel calls.  This thread
+    // is only used when there are active Files.
+    static Tub<boost::thread> epollThread;
 
     // Read and write descriptors for a pipe.  The epoll thread always has
     // the read fd for this pipe in its active set; writing data to the pipe
@@ -203,10 +204,6 @@ class Dispatch {
     // Used to assign a (nearly) unique identifier to each invocation
     // of a File.
     static int fileInvocationSerial;
-
-    // If #readyFd is already in use when the epoll thread wants to notify,
-    // the epoll thread waits on this mutex, which is unlocked by #poll.
-    static boost::mutex epollMutex;
 
     // Keeps track of all of the timers currently defined.  We don't
     // use an intrusive list here because it isn't reentrant: we need

@@ -29,19 +29,31 @@ class DummyPoller : public Dispatch::Poller {
         : Dispatch::Poller(), myName(name), callsUntilTrue(callsUntilTrue),
         pollersToDelete() { }
     bool operator() () {
+        bool deleteThis = false;
+        bool result = true;
         if (localLog->length() != 0) {
             localLog->append("; ");
         }
         localLog->append(format("poller %s invoked", myName));
         for (uint32_t i = 0; i < pollersToDelete.size(); i++) {
-            delete pollersToDelete[i];
+            if (pollersToDelete[i] != this) {
+                delete pollersToDelete[i];
+            } else {
+                // We're supposed to delete this object, which is fine except
+                // we can't do it now because we're about to access more fields
+                // in it.  Wait until the end of the method.
+                deleteThis = true;
+            }
         }
         pollersToDelete.clear();
         if (callsUntilTrue > 0) {
             callsUntilTrue--;
-            return false;
+            result = false;
         }
-        return true;
+        if (deleteThis) {
+            delete this;
+        }
+        return result;
     }
     // Arrange to delete a given poller the next time this poller is
     // invoked (used for testing reentrancy).
@@ -64,14 +76,25 @@ class DummyTimer : public Dispatch::Timer {
     DummyTimer(const char *name, uint64_t cycles)
             : Dispatch::Timer(cycles), myName(name), timersToDelete() { }
     void operator() () {
+        bool deleteThis = false;
         if (localLog->length() != 0) {
             localLog->append("; ");
         }
         localLog->append(format("timer %s invoked", myName));
         for (uint32_t i = 0; i < timersToDelete.size(); i++) {
-            delete timersToDelete[i];
+            if (timersToDelete[i] != this) {
+                delete timersToDelete[i];
+            } else {
+                // We're supposed to delete this object, which is fine except
+                // we can't do it now because we're about to access more fields
+                // in it.  Wait until the end of the method.
+                deleteThis = true;
+            }
         }
         timersToDelete.clear();
+        if (deleteThis) {
+            delete this;
+        }
     }
     // Arrange to delete a given timer the next time this timer is
     // invoked (used for testing reentrancy).
@@ -158,6 +181,7 @@ class DispatchTest : public CppUnit::TestFixture {
     MockSyscall* sys;
     Syscall *savedSyscall;
     TestLog::Enable* logEnabler;
+    int pipeFds[2];
 
     DispatchTest()
         : exceptionMessage()
@@ -178,12 +202,15 @@ class DispatchTest : public CppUnit::TestFixture {
         savedSyscall = Dispatch::sys;
         Dispatch::sys = sys;
         logEnabler = new TestLog::Enable();
+        CPPUNIT_ASSERT_EQUAL(0, pipe(pipeFds));
     }
 
     void tearDown() {
         delete sys;
         sys = NULL;
         Dispatch::sys = savedSyscall;
+        close(pipeFds[0]);
+        close(pipeFds[1]);
     }
 
     static string log;
@@ -230,25 +257,23 @@ class DispatchTest : public CppUnit::TestFixture {
     }
 
     void test_poll_fileHandling() {
-        int fds[2];
-        pipe(fds);
-        DummyFile *f = new DummyFile("f1", true, fds[0],
+        DummyFile *f = new DummyFile("f1", true, pipeFds[0],
                 Dispatch::FileEvent::READABLE);
         Dispatch::fileInvocationSerial = -2;
-        sleepMs(5);
+        usleep(5000);
 
         // No event on file.
         CPPUNIT_ASSERT_EQUAL(false, Dispatch::poll());
         CPPUNIT_ASSERT_EQUAL("", *localLog);
-        write(fds[1], "0123456789abcdefghijklmnop", 26);
-        sleepMs(5);
+        write(pipeFds[1], "0123456789abcdefghijklmnop", 26);
+        usleep(5000);
 
         // File ready.
         CPPUNIT_ASSERT_EQUAL(true, Dispatch::poll());
         CPPUNIT_ASSERT_EQUAL("file f1 invoked, read '0123456789'", *localLog);
         CPPUNIT_ASSERT_EQUAL(-1, f->lastInvocationId);
         localLog->clear();
-        sleepMs(5);
+        usleep(5000);
 
         // File is still ready; make sure event re-enabled.
         CPPUNIT_ASSERT_EQUAL(true, Dispatch::poll());
@@ -260,8 +285,6 @@ class DispatchTest : public CppUnit::TestFixture {
         // File still ready, but object has been deleted.
         CPPUNIT_ASSERT_EQUAL(false, Dispatch::poll());
         CPPUNIT_ASSERT_EQUAL("", *localLog);
-        close(fds[0]);
-        close(fds[1]);
     }
 
     void test_poll_fileDeletedDuringInvocation() {
@@ -271,13 +294,13 @@ class DispatchTest : public CppUnit::TestFixture {
                 Dispatch::FileEvent::WRITABLE);
         f->deleteThis = true;
         Dispatch::fileInvocationSerial = 400;
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(true, Dispatch::poll());
         // If poll tried to reenable the event it would have thrown an
         // exception since the handler also closed the file descriptor.
         // Just to double-check, wait a moment and make sure the
         // fd doesn't appear in readyFd.
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
         // The following check is technically unsafe (since f has been
         // deleted); it can be removed if it causes complaints from program
@@ -339,7 +362,7 @@ class DispatchTest : public CppUnit::TestFixture {
     void test_File_constructor_errorInEpollCreate() {
         sys->epollCreateErrno = EPERM;
         try {
-            DummyFile f1("f1", false, 0);
+            DummyFile f1("f1", false, pipeFds[0]);
         } catch (FatalError& e) {
             exceptionMessage = e.message;
         }
@@ -350,7 +373,7 @@ class DispatchTest : public CppUnit::TestFixture {
     void test_File_constructor_errorCreatingExitPipe() {
         sys->pipeErrno = EPERM;
         try {
-            DummyFile f1("f1", false, 0);
+            DummyFile f1("f1", false, pipeFds[0]);
         } catch (FatalError& e) {
             exceptionMessage = e.message;
         }
@@ -361,7 +384,7 @@ class DispatchTest : public CppUnit::TestFixture {
     void test_File_constructor_errorInEpollCtl() {
         sys->epollCtlErrno = EPERM;
         try {
-            DummyFile f1("f1", false, 0);
+            DummyFile f1("f1", false, pipeFds[0]);
         } catch (FatalError& e) {
             exceptionMessage = e.message;
         }
@@ -371,7 +394,7 @@ class DispatchTest : public CppUnit::TestFixture {
 
     void test_File_constructor_createPollingThread() {
         CPPUNIT_ASSERT_EQUAL(NULL, Dispatch::epollThread);
-        DummyFile f1("f1", false, 0);
+        DummyFile f1("f1", false, pipeFds[0]);
         CPPUNIT_ASSERT(Dispatch::epollThread != NULL);
     }
 
@@ -386,8 +409,8 @@ class DispatchTest : public CppUnit::TestFixture {
 
     void test_File_constructor_twoHandlersForSameFd() {
         try {
-            DummyFile f1("f1", false, 0);
-            DummyFile f2("f2", false, 0);
+            DummyFile f1("f1", false, pipeFds[0]);
+            DummyFile f2("f2", false, pipeFds[0]);
         } catch (FatalError& e) {
             exceptionMessage = e.message;
         }
@@ -396,39 +419,23 @@ class DispatchTest : public CppUnit::TestFixture {
     }
 
     void test_File_destructor_disableEvent() {
-        int fds[2];
-        CPPUNIT_ASSERT_EQUAL(0, pipe(fds));
-        DummyFile* f1 = new DummyFile("f1", true, fds[0],
+        DummyFile* f1 = new DummyFile("f1", true, pipeFds[0],
                 Dispatch::FileEvent::READABLE);
 
         // First make sure that the handler responds to data written
         // to the pipe.
-        CPPUNIT_ASSERT_EQUAL(1, write(fds[1], "x", 1));
+        CPPUNIT_ASSERT_EQUAL(1, write(pipeFds[1], "x", 1));
         Dispatch::handleEvent();
         CPPUNIT_ASSERT_EQUAL("file f1 invoked, read 'x'", *localLog);
 
         // Now delete the handler, and make sure that data in the pipe
         // is ignored.
         delete f1;
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
-        CPPUNIT_ASSERT_EQUAL(1, write(fds[1], "y", 1));
-        sleepMs(5);
+        CPPUNIT_ASSERT_EQUAL(1, write(pipeFds[1], "y", 1));
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
-    }
-
-    bool testReady(int fd, Dispatch::FileEvent event) {
-        // Flush any stale events.
-        while (Dispatch::poll()) {
-            /* Empty loop body */
-        }
-        localLog->clear();
-        DummyFile f("f1", false, fd, event);
-        sleepMs(5);
-        while (Dispatch::poll()) {
-            /* Empty loop body */
-        }
-        return localLog->size() > 0;
     }
 
     void test_File_checkInvocationId() {
@@ -442,6 +449,22 @@ class DispatchTest : public CppUnit::TestFixture {
         }
         CPPUNIT_ASSERT_EQUAL("no exception", exceptionMessage);
         CPPUNIT_ASSERT_EQUAL(Dispatch::FileEvent::READABLE, f.event);
+    }
+
+    // Utility method: create a DummyFile for a particular file descriptor
+    // and see if it gets invoked.
+    bool checkReady(int fd, Dispatch::FileEvent event) {
+        // Flush any stale events.
+        while (Dispatch::poll()) {
+            /* Empty loop body */
+        }
+        localLog->clear();
+        DummyFile f("f1", false, fd, event);
+        usleep(5000);
+        while (Dispatch::poll()) {
+            /* Empty loop body */
+        }
+        return localLog->size() > 0;
     }
 
     void test_File_setEvent_variousEvents() {
@@ -460,17 +483,17 @@ class DispatchTest : public CppUnit::TestFixture {
             }
             CPPUNIT_ASSERT(i < 100);
         }
-        CPPUNIT_ASSERT_EQUAL(false, testReady(readable[0],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(readable[0],
             Dispatch::FileEvent::NONE));
-        CPPUNIT_ASSERT_EQUAL(true, testReady(readable[0],
+        CPPUNIT_ASSERT_EQUAL(true, checkReady(readable[0],
             Dispatch::FileEvent::READABLE));
-        CPPUNIT_ASSERT_EQUAL(true, testReady(readable[0],
+        CPPUNIT_ASSERT_EQUAL(true, checkReady(readable[0],
             Dispatch::FileEvent::READABLE_OR_WRITABLE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(readable[1],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(readable[1],
             Dispatch::FileEvent::NONE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(readable[1],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(readable[1],
             Dispatch::FileEvent::WRITABLE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(readable[1],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(readable[1],
             Dispatch::FileEvent::READABLE_OR_WRITABLE));
         close(readable[0]);
         close(readable[1]);
@@ -479,17 +502,17 @@ class DispatchTest : public CppUnit::TestFixture {
         // and make sure all the correct events fire.
         int writable[2];
         CPPUNIT_ASSERT_EQUAL(0, pipe(writable));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(writable[0],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(writable[0],
             Dispatch::FileEvent::NONE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(writable[0],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(writable[0],
             Dispatch::FileEvent::READABLE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(writable[0],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(writable[0],
             Dispatch::FileEvent::READABLE_OR_WRITABLE));
-        CPPUNIT_ASSERT_EQUAL(false, testReady(writable[1],
+        CPPUNIT_ASSERT_EQUAL(false, checkReady(writable[1],
             Dispatch::FileEvent::NONE));
-        CPPUNIT_ASSERT_EQUAL(true, testReady(writable[1],
+        CPPUNIT_ASSERT_EQUAL(true, checkReady(writable[1],
             Dispatch::FileEvent::WRITABLE));
-        CPPUNIT_ASSERT_EQUAL(true, testReady(writable[1],
+        CPPUNIT_ASSERT_EQUAL(true, checkReady(writable[1],
             Dispatch::FileEvent::READABLE_OR_WRITABLE));
         close(writable[0]);
         close(writable[1]);
@@ -527,7 +550,7 @@ class DispatchTest : public CppUnit::TestFixture {
     void test_epollThreadMain_signalEventsAndExit() {
         // This unit test tests several things:
         // * Several files becoming ready simultaneously
-        // * Using epollMutex to synchronize with the poll loop.
+        // * Using readyFd to synchronize with the poll loop.
         // * Exiting when fd -1 is seen.
         epoll_event events[3];
         events[0].data.fd = 43;
@@ -536,39 +559,23 @@ class DispatchTest : public CppUnit::TestFixture {
         sys->epollWaitEvents = events;
         sys->epollWaitCount = 3;
 
-        boost::mutex mutex;
-        mutex.lock();
-        sys->epollWaitMutex = &mutex;
 
-        // Start up the polling thread; it will hang in epoll_wait.
+        // Start up the polling thread; it will signal the first ready file.
         Dispatch::readyFd = -1;
         boost::thread(epollThreadWrapper).detach();
-        sleepMs(5);
-        CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
-
-        // Allow epoll_wait to complete; the polling thread should now
-        // signal the first ready file.
-        mutex.unlock();
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(43, Dispatch::readyFd);
 
-        // The polling thread should now be waiting on epollMutex, so
-        // clearing readyFd should have no impact.
+        // The polling thread should already be waiting on readyFd,
+        // so clearing it should cause another fd to appear immediately.
         Dispatch::readyFd = -1;
-        sleepMs(5);
-        CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
-
-        // Unlock epollMutex so the polling thread can signal the next
-        // ready file.
-        Dispatch::epollMutex.unlock();
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(19, Dispatch::readyFd);
 
         // Let the polling thread see the next ready file, which should
         // cause it to exit.
         Dispatch::readyFd = -1;
-        Dispatch::epollMutex.unlock();
-        sleepMs(5);
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
         CPPUNIT_ASSERT_EQUAL("epoll thread finished", *localLog);
     }
@@ -583,7 +590,6 @@ class DispatchTest : public CppUnit::TestFixture {
         delete t1;
         delete t2;
         CPPUNIT_ASSERT_EQUAL(0, Dispatch::timers.size());
-        CPPUNIT_ASSERT_EQUAL(-1, t2->slot);
     }
 
     // Make sure that a timer can safely be deleted from a timer

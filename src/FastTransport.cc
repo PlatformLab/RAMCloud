@@ -74,9 +74,7 @@ FastTransport::ServerRpc*
 FastTransport::serverRecv()
 {
     if (serverReadyQueue.empty()) {
-        Dispatch::poll();
-        if (serverReadyQueue.empty())
-            return NULL;
+        return NULL;
     }
     ServerRpc* rpc = &serverReadyQueue.front();
     serverReadyQueue.pop_front();
@@ -268,9 +266,6 @@ FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
 bool
 FastTransport::ClientRpc::isReady()
 {
-    if (state != IN_PROGRESS)
-        return true;
-    Dispatch::poll();
     return (state != IN_PROGRESS);
 }
 
@@ -278,7 +273,6 @@ FastTransport::ClientRpc::isReady()
 void
 FastTransport::ClientRpc::wait()
 {
-    uint8_t i = 0;
     while (true) {
         switch (state) {
         case IN_PROGRESS:
@@ -290,8 +284,6 @@ FastTransport::ClientRpc::wait()
         case ABORTED:
             throw TransportException(HERE, "RPC aborted");
         }
-        if (++i == 0) // On machines with a small number of cores,
-            yield();  // give other tasks a chance to run.
     }
 }
 

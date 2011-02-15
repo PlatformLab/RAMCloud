@@ -109,6 +109,9 @@ class BackupStorage {
       DISALLOW_COPY_AND_ASSIGN(Handle);
     };
 
+    /// See #storageType.
+    enum class Type { UNKNOWN = 0, MEMORY = 1, DISK = 2 };
+
     /**
      * Set aside storage for a specific segment and give a handle back
      * for working with that storage.
@@ -169,14 +172,22 @@ class BackupStorage {
      *
      * \param segmentSize
      *      The segment size this BackupStorage operates on.
+     * \param storageType
+     *      The storage type corresponding with the concrete implementation of
+     *      this class.
      */
-    explicit BackupStorage(uint32_t segmentSize)
+    explicit BackupStorage(uint32_t segmentSize, Type storageType)
         : segmentSize(segmentSize)
+        , storageType(storageType)
     {
     }
 
     /// The segment size this BackupStorage operates on.
     uint32_t const segmentSize;
+
+  public:
+    /// Used in Metrics to print out the backup storage type.
+    const Type storageType;
 
     DISALLOW_COPY_AND_ASSIGN(BackupStorage);
 };

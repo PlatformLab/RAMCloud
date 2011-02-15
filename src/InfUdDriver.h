@@ -26,7 +26,7 @@
 #include "Common.h"
 #include "Driver.h"
 #include "Infiniband.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -76,7 +76,7 @@ class InfUdDriver : public Driver {
         /**
          * Address of sender (used to send reply).
          */
-        ObjectTub<Address> infAddress;
+        Tub<Address> infAddress;
         /**
          * Packet data (may not fill all of the allocated space).
          */
@@ -84,7 +84,7 @@ class InfUdDriver : public Driver {
     };
 
     /// See #infiniband.
-    ObjectTub<Infiniband> realInfiniband;
+    Tub<Infiniband> realInfiniband;
 
     /**
      * Used by this class to make all Infiniband verb calls.  In normal
