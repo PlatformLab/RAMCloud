@@ -560,9 +560,6 @@ TcpTransport::ReplyReadHandler::operator() ()
 bool
 TcpTransport::TcpClientRpc::isReady()
 {
-    if (finished || session->fd == -1)
-        return true;
-    Dispatch::poll();
     return (finished || session->fd == -1);
 }
 
@@ -582,9 +579,7 @@ Transport::ServerRpc*
 TcpTransport::serverRecv()
 {
     if (waitingRequests.empty()) {
-        Dispatch::poll();
-        if (waitingRequests.empty())
-            return NULL;
+        return NULL;
     }
     ServerRpc* result = waitingRequests.front();
     waitingRequests.pop();

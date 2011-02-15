@@ -887,9 +887,6 @@ InfRcTransport<Infiniband>::Poller::operator() ()
 template<typename Infiniband>
 bool
 InfRcTransport<Infiniband>::ClientRpc::isReady() {
-    if (state == RESPONSE_RECEIVED)
-        return true;
-    Dispatch::poll();
     return (state == RESPONSE_RECEIVED);
 }
 

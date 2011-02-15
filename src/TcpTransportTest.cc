@@ -104,10 +104,12 @@ class TcpTransportTest : public CppUnit::TestFixture {
     Transport::ServerRpc*
     waitRequest(Transport* transport) {
         Transport::ServerRpc* result;
-        do {
+        while (true) {
             result = transport->serverRecv();
-        } while (result == NULL);
-        return result;
+            if (result != NULL)
+                return result;
+            Dispatch::poll();
+        }
     }
 
     void test_sanityCheck() {
