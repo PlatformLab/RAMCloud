@@ -205,10 +205,6 @@ class Dispatch {
     // of a File.
     static int fileInvocationSerial;
 
-    // If #readyFd is already in use when the epoll thread wants to notify,
-    // the epoll thread waits on this mutex, which is unlocked by #poll.
-    static boost::mutex epollMutex;
-
     // Keeps track of all of the timers currently defined.  We don't
     // use an intrusive list here because it isn't reentrant: we need
     // to add/remove elements while the dispatcher is traversing the list.

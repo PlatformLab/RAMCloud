@@ -38,7 +38,6 @@ Tub<boost::thread> Dispatch::epollThread;
 int Dispatch::exitPipeFds[2] = {-1, -1};
 volatile int Dispatch::readyFd = -1;
 int Dispatch::fileInvocationSerial = 0;
-boost::mutex Dispatch::epollMutex;
 std::vector<Dispatch::Timer*> Dispatch::timers;
 uint64_t Dispatch::currentTime = rdtsc();
 uint64_t Dispatch::earliestTriggerTime = 0;
@@ -93,7 +92,6 @@ bool Dispatch::poll()
     if (readyFd >= 0) {
         int fd = readyFd;
         readyFd = -1;
-        epollMutex.unlock();
         File* file = files[fd];
         if (file) {
             int id = fileInvocationSerial + 1;
@@ -193,7 +191,6 @@ void Dispatch::reset()
         epollFd = -1;
     }
     readyFd = -1;
-    epollMutex.unlock();
     while (timers.size() > 0) {
         timers.back()->stop();
     }
@@ -349,7 +346,11 @@ void Dispatch::epollThreadMain() {
                 return;
             }
             while (readyFd >= 0) {
-                epollMutex.lock();
+                // The main polling loop hasn't yet noticed the last file
+                // that became ready; wait for the shared memory location
+                // to clear again.  This loop busy-waits but yields the
+                // CPU to any other runnable threads.
+                sched_yield();
             }
             readyFd = events[i].data.fd;
         }

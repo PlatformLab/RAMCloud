@@ -550,7 +550,7 @@ class DispatchTest : public CppUnit::TestFixture {
     void test_epollThreadMain_signalEventsAndExit() {
         // This unit test tests several things:
         // * Several files becoming ready simultaneously
-        // * Using epollMutex to synchronize with the poll loop.
+        // * Using readyFd to synchronize with the poll loop.
         // * Exiting when fd -1 is seen.
         epoll_event events[3];
         events[0].data.fd = 43;
@@ -559,38 +559,22 @@ class DispatchTest : public CppUnit::TestFixture {
         sys->epollWaitEvents = events;
         sys->epollWaitCount = 3;
 
-        boost::mutex mutex;
-        mutex.lock();
-        sys->epollWaitMutex = &mutex;
 
-        // Start up the polling thread; it will hang in epoll_wait.
+        // Start up the polling thread; it will signal the first ready file.
         Dispatch::readyFd = -1;
         boost::thread(epollThreadWrapper).detach();
         usleep(5000);
-        CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
-
-        // Allow epoll_wait to complete; the polling thread should now
-        // signal the first ready file.
-        mutex.unlock();
-        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(43, Dispatch::readyFd);
 
-        // The polling thread should now be waiting on epollMutex, so
-        // clearing readyFd should have no impact.
+        // The polling thread should already be waiting on readyFd,
+        // so clearing it should cause another fd to appear immediately.
         Dispatch::readyFd = -1;
-        usleep(5000);
-        CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
-
-        // Unlock epollMutex so the polling thread can signal the next
-        // ready file.
-        Dispatch::epollMutex.unlock();
         usleep(5000);
         CPPUNIT_ASSERT_EQUAL(19, Dispatch::readyFd);
 
         // Let the polling thread see the next ready file, which should
         // cause it to exit.
         Dispatch::readyFd = -1;
-        Dispatch::epollMutex.unlock();
         usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
         CPPUNIT_ASSERT_EQUAL("epoll thread finished", *localLog);

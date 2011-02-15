@@ -25,8 +25,7 @@ BASECFLAGS := -g
 OPTFLAG	 :=
 ## Note: -DBOOST_DISABLE_ASSERTS is needed below because Dispatch performs
 ## extraneous unlocks on mutexes, which pthreads doesn't really like.
-DEBUGFLAGS := -DTESTING=1 -DBOOST_DISABLE_ASSERTS \
-              -fno-builtin
+DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
 BASECFLAGS :=
 OPTFLAG := -O3
