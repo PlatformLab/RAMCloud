@@ -228,7 +228,7 @@ class MasterServer : public Server {
   public:
     CoordinatorClient* coordinator;
 
-    uint64_t serverId;
+    Tub<uint64_t> serverId;
 
   private:
     /// Maximum number of bytes per partition. For Will calculation.

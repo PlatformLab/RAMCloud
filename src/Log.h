@@ -75,8 +75,10 @@ class LogTypeCallback {
 
 class Log {
   public:
-    Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
-            BackupManager *backup = NULL);
+    Log(const Tub<uint64_t>& logId,
+        uint64_t logCapacity,
+        uint64_t segmentCapacity,
+        BackupManager *backup = NULL);
     ~Log();
     Segment*       allocateHead();
     LogEntryHandle append(LogEntryType type,
@@ -128,7 +130,7 @@ class Log {
     uint64_t    allocateSegmentId();
     const void *getSegmentBaseAddress(const void *p);
 
-    uint64_t       logId;
+    const Tub<uint64_t>& logId;
     uint64_t       logCapacity;
     uint64_t       segmentCapacity;
 

@@ -48,6 +48,7 @@ struct BackupManagerBaseTest : public ::testing::Test {
     Tub<BackupServer> backupServer2;
     Tub<BackupClient> backup1;
     Tub<BackupClient> backup2;
+    Tub<uint64_t> serverId;
     Tub<BackupManager> mgr;
 
     BackupManagerBaseTest()
@@ -78,7 +79,8 @@ struct BackupManagerBaseTest : public ::testing::Test {
         backup1.construct(transportManager.getSession("mock:host=backup1"));
         backup2.construct(transportManager.getSession("mock:host=backup2"));
 
-        mgr.construct(coordinator.get(), 99, 2);
+        serverId.construct(99);
+        mgr.construct(coordinator.get(), serverId, 2);
     }
 };
 

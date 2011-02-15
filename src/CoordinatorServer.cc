@@ -75,6 +75,10 @@ CoordinatorServer::dispatch(RpcType type,
             callHandler<GetBackupListRpc, CoordinatorServer,
                         &CoordinatorServer::getBackupList>(rpc);
             break;
+        case GetServerListRpc::type:
+            callHandler<GetServerListRpc, CoordinatorServer,
+                        &CoordinatorServer::getServerList>(rpc);
+            break;
         case GetTabletMapRpc::type:
             callHandler<GetTabletMapRpc, CoordinatorServer,
                         &CoordinatorServer::getTabletMap>(rpc);
@@ -262,6 +266,22 @@ CoordinatorServer::getBackupList(const GetBackupListRpc::Request& reqHdr,
 {
     respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
                                                    backupList);
+}
+
+/**
+ * Handle the GET_SERVER_LIST RPC.
+ * \copydetails Server::ping
+ */
+void
+CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
+                                 GetServerListRpc::Response& respHdr,
+                                 Transport::ServerRpc& rpc)
+{
+    ProtoBuf::ServerList serverList;
+    serverList.MergeFrom(backupList);
+    serverList.MergeFrom(masterList);
+    respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
+                                                   serverList);
 }
 
 /**

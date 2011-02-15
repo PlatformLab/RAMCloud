@@ -59,6 +59,10 @@ class CoordinatorServer : public Server {
                       GetBackupListRpc::Response& respHdr,
                       Transport::ServerRpc& rpc);
 
+    void getServerList(const GetServerListRpc::Request& reqHdr,
+                      GetServerListRpc::Response& respHdr,
+                      Transport::ServerRpc& rpc);
+
     void getTabletMap(const GetTabletMapRpc::Request& reqHdr,
                       GetTabletMapRpc::Response& respHdr,
                       Transport::ServerRpc& rpc);

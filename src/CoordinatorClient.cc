@@ -159,6 +159,25 @@ CoordinatorClient::getBackupList(ProtoBuf::ServerList& serverList)
 }
 
 /**
+ * List all live servers.
+ * Used in ensureHosts.
+ * \param[out] serverList
+ *      An empty ServerList that will be filled with current servers.
+ */
+void
+CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
+{
+    Buffer req;
+    Buffer resp;
+    allocHeader<GetServerListRpc>(req);
+    const GetServerListRpc::Response& respHdr(
+        sendRecv<GetServerListRpc>(session, req, resp));
+    checkStatus(HERE);
+    ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
+                                respHdr.serverListLength, serverList);
+}
+
+/**
  * Return the entire tablet map.
  * Clients use this to find objects.
  * If the returned data becomes too big, we should add parameters to

@@ -133,7 +133,7 @@ class BackupManager {
     };
 
     BackupManager(CoordinatorClient* coordinator,
-                  uint64_t masterId,
+                  const Tub<uint64_t>& masterId,
                   uint32_t replicas);
     ~BackupManager();
 
@@ -155,7 +155,7 @@ class BackupManager {
      * The coordinator-assigned server ID for this master or, equivalently, its
      * globally unique #Log ID.
      */
-    const uint64_t masterId;
+    const Tub<uint64_t>& masterId;
 
     /// The host pool to schedule backups from.
     ProtoBuf::ServerList hosts;

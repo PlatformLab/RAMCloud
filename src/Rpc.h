@@ -48,6 +48,7 @@ enum RpcType {
     HINT_SERVER_DOWN        = 20,
     TABLETS_RECOVERED       = 21,
     SET_WILL                = 22,
+    GET_SERVER_LIST         = 23,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -267,6 +268,20 @@ struct EnlistServerRpc {
 
 struct GetBackupListRpc {
     static const RpcType type = GET_BACKUP_LIST;
+    struct Request {
+        RpcRequestCommon common;
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint32_t serverListLength; // Number of bytes in the server list.
+                                   // The bytes of the server list follow
+                                   // immediately after this header. See
+                                   // ProtoBuf::ServerList.
+    };
+};
+
+struct GetServerListRpc {
+    static const RpcType type = GET_SERVER_LIST;
     struct Request {
         RpcRequestCommon common;
     };

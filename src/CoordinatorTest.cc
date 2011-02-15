@@ -69,6 +69,8 @@ class CoordinatorTest : public CppUnit::TestFixture {
         master = static_cast<MasterServer*>(malloc(sizeof(MasterServer)));
         transport->addServer(*master, "mock:host=master");
         master = new(master) MasterServer(masterConfig, client, 0);
+        master->serverId.construct(
+            client->enlistServer(MASTER, masterConfig.localLocator));
         TestLog::enable();
     }
 
@@ -130,7 +132,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     // TODO(ongaro): test drop, open table
 
     void test_enlistServer() {
-        CPPUNIT_ASSERT_EQUAL(2, master->serverId);
+        CPPUNIT_ASSERT_EQUAL(2, *master->serverId);
         CPPUNIT_ASSERT_EQUAL(3,
                              client->enlistServer(BACKUP, "mock:host=backup"));
         assertMatchesPosixRegex("server { server_type: MASTER server_id: 2 "
@@ -215,7 +217,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
                  server->tabletMap.tablet())
         {
-            if (tablet.server_id() == master->serverId) {
+            if (tablet.server_id() == *master->serverId) {
                 CPPUNIT_ASSERT_EQUAL(&mockRecovery,
                     reinterpret_cast<Recovery*>(tablet.user_data()));
             }

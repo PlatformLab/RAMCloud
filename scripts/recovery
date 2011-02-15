@@ -43,6 +43,10 @@ startfg() {
     atexit "kill $!; rm /var/tmp/backup.log"
 }
 
+ensure() {
+    $OBJDIR/ensureHosts -C $C -n $1 -l 1 || exit 1
+}
+
 suffix=.$$.rclog
 
 # clean up any old logs and backup files
@@ -50,7 +54,7 @@ rm $outputdir/*rclog
 
 start ${host[0]} coordinator coordinator$suffix
 
-sleep .5
+ensure 0
 
 backupflags="-m"
 #backupflags="-f /dev/sdb1"
@@ -61,17 +65,16 @@ start ${host[3]} "backup $backupflags -L $proto:host=${host[3]},port=12291" back
 start ${host[4]} "backup $backupflags -L $proto:host=${host[4]},port=12292" backup5$suffix
 start ${host[5]} "backup $backupflags -L $proto:host=${host[5]},port=12293" backup6$suffix
 
-sleep .5
+ensure 6
 
 start ${host[0]} "server -m 2048 -r 1 -L $proto:host=${host[0]},port=12242" master1$suffix
-sleep .5
+ensure 7
 start ${host[1]} "server -m 2048 -r 1 -L $proto:host=${host[1]},port=12247" master2$suffix
 
 # add in third master and pass "-t 2 -k 2" to this script to recover 2 partitions
-#sleep .5
 #start ${host[2]} "server -m 2048 -r 1 -L $proto:host=${host[2]},port=12248" master3$suffix
 
-sleep .5
+ensure 8
 
 startfg ${host[0]} "client -d $*" client$suffix
 

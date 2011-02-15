@@ -62,7 +62,9 @@ class RecoveryTest : public CppUnit::TestFixture {
             , segMem()
             , seg()
         {
-            mgr = new BackupManager(NULL, masterId, 1);
+            Tub<uint64_t> masterIdTub;
+            masterIdTub.construct(masterId);
+            mgr = new BackupManager(NULL, masterIdTub, 1);
             ProtoBuf::ServerList::Entry& e(*backupList.add_server());
             e.set_service_locator(locator);
             e.set_server_type(ProtoBuf::BACKUP);
@@ -344,7 +346,8 @@ class RecoveryTest : public CppUnit::TestFixture {
             MasterServer::sizeLogAndHashTable("64", "8", &config);
             master = new MasterServer(config, &coordinator, 0);
             transport.addServer(*master, locator);
-            coordinator.enlistServer(MASTER, locator);
+            master->serverId.construct(
+                coordinator.enlistServer(MASTER, locator));
         }
 
         ~AutoMaster()
