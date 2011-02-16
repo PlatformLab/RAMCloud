@@ -194,54 +194,28 @@ if __name__ == '__main__':
         timeout = timeout * float(options.timeout_scale) / 100
         print label
         servers = []
-        try:
+        with Sandbox() as sandbox:
             for host in server_hosts:
-                servers.append(rsh(host['ssh'],
+                sandbox.rsh(host['ssh'],
                                    ('%s -l %d -L %s' %
                                     (RBIN, options.log_level,
                                      host[options.transport])),
-                                   bg=True))
+                                   bg=True)
             time.sleep(1)
             command = ('%s --client -l %d --test "%s"' %
                        (RBIN, options.log_level, addbs(desc, '"')))
-            client = rsh(client_host['ssh'], command, bg=True)
+            client = sandbox.rsh(client_host['ssh'], command, bg=True)
             success = False
             while True:
                 rc = client.poll()
                 if rc is None:
                     if timeout < 0:
                         print "Timeout exceeded"
-                        try:
-                            client.kill()
-                        except OSError as e:
-                            print e
-                            pass
-                        time.sleep(1)
-                        try:
-                            client.terminate()
-                        except OSError as e:
-                            print e
-                            pass
-                        break
                     time.sleep(0.1)
                     timeout -= 0.1
                 else:
                     success = (rc == 0)
                     break
-        finally:
-            for server in servers:
-                try:
-                    server.kill()
-                except OSError as e:
-                    print e
-                    pass
-            time.sleep(1)
-            for server in servers:
-                try:
-                    server.terminate()
-                except OSError as e:
-                    print e
-                    pass
         if success:
             print "Ok"
         else:
