@@ -291,6 +291,7 @@ class BackupServer : public Server {
         void
         waitForOngoingOps(Lock& lock)
         {
+#ifndef SINGLE_THREADED_BACKUP
             int lastThreadCount = 0;
             while (storageOpCount > 0) {
                 if (storageOpCount != lastThreadCount) {
@@ -301,6 +302,7 @@ class BackupServer : public Server {
                 }
                 condition.wait(lock);
             }
+#endif
         }
 
         /**
