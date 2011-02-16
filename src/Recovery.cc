@@ -128,6 +128,8 @@ Recovery::buildSegmentIdToBackups()
                 --activeBackupHosts;
                 continue;
             }
+
+            task.construct(*backupHostsIt++, masterId, will);
         }
     }
 
