@@ -18,6 +18,7 @@
 #include "BenchUtil.h"
 #include "Buffer.h"
 #include "ClientException.h"
+#include "Dispatch.h"
 #include "MasterServer.h"
 #include "Metrics.h"
 #include "Tub.h"
@@ -467,10 +468,16 @@ MasterServer::recover(uint64_t masterId,
     // As RPCs complete, process them and start more
     Tub<CycleCounter<Metric>> readStallTicks;
     readStallTicks.construct(&metrics->master.segmentReadStallTicks);
+
+    bool someTaskWasReady = false;
     while (activeRequests) {
+        if (!someTaskWasReady)
+            while (Dispatch::poll());
+        someTaskWasReady = false;
         foreach (auto& task, tasks) {
             if (!task || !task->rpc.isReady())
                 continue;
+            someTaskWasReady = true;
             readStallTicks.destroy();
             LOG(DEBUG, "Waiting on recovery data for segment %lu from %s",
                 task->backupHost.segment_id(),
