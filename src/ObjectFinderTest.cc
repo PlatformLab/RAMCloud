@@ -74,7 +74,7 @@ class ObjectFinderTest : public CppUnit::TestFixture {
     void setUp() {
         transport = new BindTransport();
         transportManager.registerMock(transport);
-        coordinatorServer = new CoordinatorServer();
+        coordinatorServer = new CoordinatorServer("mock:");
         transport->addServer(*coordinatorServer, "mock:host=coordinator");
         coordinatorClient = new CoordinatorClient("mock:host=coordinator");
         nullServer = new Server();

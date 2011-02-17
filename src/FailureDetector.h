@@ -19,6 +19,7 @@
 #include <list>
 
 #include "Common.h"
+#include "IpAddress.h"
 #include "Rpc.h"
 #include "ServiceLocator.h"
 #include "ServerList.pb.h"
@@ -33,6 +34,73 @@ class FailureDetector {
         string listeningLocatorsString, ServerType type);
     ~FailureDetector();
     void mainLoop();
+
+    /**
+     * Given a ServiceLocator for a server (master, backup, or coordinator),
+     * generate the IP and UDP port they should be listening on for incoming
+     * pings, and return the appropriate sockaddr_in struct.
+     *
+     * Since there may be multiple protocols used with different ports (and,
+     * perhaps, IPs), we need to establish an order of precedence. It's
+     * currently:
+     *      - infrc
+     *      - fast+udp
+     *      - tcp
+     *
+     * Once we have the ip and port values, we simply add 2111 to the port
+     * number. Voila.
+     *
+     * To support testing, if the protocol is "mock", we will return a sin
+     * with INADDR_ANY.
+     */
+    static sockaddr_in
+    serviceLocatorStringToSockaddrIn(string sl)
+    {
+        auto locators = ServiceLocator::parseServiceLocators(sl);
+        ServiceLocator* useSl = NULL;
+        string order[3] = { "infrc", "fast+udp", "tcp" };
+        foreach (auto& s, order) {
+            foreach (auto& l, locators) {
+                if (l.getProtocol() == "mock") {
+                    sockaddr_in sin;
+                    memset(&sin, 0, sizeof(sin));
+                    sin.sin_addr.s_addr = INADDR_ANY;
+                    sin.sin_port = htons(0);
+                    return sin;
+                } else if (l.getProtocol() == s) {
+                    useSl = &l;
+                    break;
+                }
+            }
+            if (useSl != NULL)
+                break;
+        }
+
+        if (useSl == NULL)
+            throw Exception(HERE, "could not determine IP/port for sl string");
+
+        IpAddress addr(*useSl);
+        sockaddr_in sin;
+        memcpy(&sin, &addr.address, sizeof(sin));
+        sin.sin_family = PF_INET;
+        sin.sin_port = htons(ntohs(sin.sin_port) + 2111);
+        return sin;
+    }
+
+    /// Maximum payload in any datagram. This should be enough to get 40
+    /// machines worth of ServiceLocators for our cluster. Try to temper
+    /// your disgust with the fact that this whole class is a temporary
+    /// hack.
+    static const uint32_t MAXIMUM_MTU_BYTES = 9000;
+
+    /// Number of microseconds between probes.
+    static const uint32_t PROBE_INTERVAL_USECS = 10 * 1000;
+
+    /// Number of microseconds before a probe is considered to have timed out.
+    static const uint32_t TIMEOUT_USECS = 50 * 1000;
+
+    /// Number of microseconds between refreshes of the server list.
+    static const uint32_t REFRESH_INTERVAL_USECS = 5 * 1000 * 1000;
 
   private:
     /// The TimeoutQueue contains a list of previously-issued pings,
@@ -72,18 +140,6 @@ class FailureDetector {
         DISALLOW_COPY_AND_ASSIGN(TimeoutQueue);
     };
 
-    /// Maximum payload in any datagram. This should be enough to get 40
-    /// machines worth of ServiceLocators for our cluster. Try to temper
-    /// your disgust with the fact that this whole class is a temporary
-    /// hack.
-    static const int MAXIMUM_MTU_BYTES = 9000;
-
-    /// Number of microseconds between probes.
-    static const int PROBE_INTERVAL_USECS = 10 * 1000;
-
-    /// Number of microseconds before a probe is considered to have timed out.
-    static const int TIMEOUT_USECS = 50 * 1000;
-
     /// Socket used for outbound pings and their incoming responses, i.e.
     /// what we use to ping out and hear back.
     int clientFd;
@@ -111,7 +167,6 @@ class FailureDetector {
     /// special stubs.
     static Syscall*      sys;
 
-    sockaddr_in serviceLocatorStringToSockaddrIn(string sl);
     void handleIncomingRequest(char* buf, ssize_t bytes,
         sockaddr_in* sourceAddress);
     void handleIncomingResponse(char* buf, ssize_t bytes,

@@ -100,47 +100,6 @@ FailureDetector::~FailureDetector()
 }
 
 /**
- * Given a ServiceLocator for a server (master or backup), generate the IP and
- * UDP port they should be listening on for incoming pings, and return the
- * appropriate sockaddr_in struct.
- *
- * Since there may be multiple protocols used with different ports (and, perhaps,
- * IPs), we need to establish an order of precedence. It's currently:
- *      - infrc
- *      - fast+udp
- *      - tcp
- *
- * Once we have the values, we simply add 2111 to the port number.
- */
-sockaddr_in
-FailureDetector::serviceLocatorStringToSockaddrIn(string sl)
-{
-    auto locators = ServiceLocator::parseServiceLocators(sl);
-    ServiceLocator* useSl = NULL;
-    string order[3] = { "infrc", "fast+udp", "tcp" };
-    foreach (auto& s, order) {
-        foreach (auto& l, locators) {
-            if (l.getProtocol() == s) {
-                useSl = &l;
-                break;
-            }
-        }
-        if (useSl != NULL)
-            break;
-    }
-
-    if (useSl == NULL)
-        throw Exception(HERE, "could not determine IP/port for sl string");
-
-    IpAddress addr(*useSl);
-    sockaddr_in sin;
-    sin.sin_family = PF_INET;
-    memcpy(&sin, &addr.address, sizeof(sin));
-    sin.sin_port = htons(ntohs(sin.sin_port) + 2111);
-    return sin;
-}
-
-/**
  * Handle an incoming request. There are two types: 1) a ping request from
  * another master or backup server, and 2) a proxy ping request from the
  * coordinator. The former simply requires sending the payload back to the
@@ -411,12 +370,12 @@ FailureDetector::processPacket(int fd)
 void
 FailureDetector::requestServerList()
 {
-    LOG(DEBUG, "requesting server list");
-
     GetServerListRpc::Request rpc;
     rpc.common.type = GET_SERVER_LIST;
     rpc.serverType = type;
     sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);
+    LOG(DEBUG, "requesting server list from %s:%d",
+        inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
     ssize_t r = sys->sendto(coordFd, &rpc, sizeof(rpc), 0,
         reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
     if (r != sizeof(rpc))
@@ -431,11 +390,19 @@ void
 FailureDetector::mainLoop()
 {
     uint64_t lastPingUsec = 0;
+    uint64_t lastServerListRefreshUsec = 0;
 
     while (!terminate) {
-        // check if time to ping again
+        // check if time to request a new server list
         uint64_t nowUsec = cyclesToNanoseconds(rdtsc()) / 1000;
-        if (nowUsec >= (lastPingUsec + PROBE_INTERVAL_USECS)) {
+        if (nowUsec >= (lastServerListRefreshUsec + REFRESH_INTERVAL_USECS)) {
+            requestServerList();
+            lastServerListRefreshUsec = nowUsec;
+        }
+
+        // check if time to ping again
+        nowUsec = cyclesToNanoseconds(rdtsc()) / 1000;
+        if (nowUsec >= lastPingUsec + PROBE_INTERVAL_USECS) {
             pingRandomServer();
             lastPingUsec = nowUsec;
         }
@@ -446,10 +413,19 @@ FailureDetector::mainLoop()
         FD_SET(serverFd, &fds);
         FD_SET(coordFd, &fds);
 
-        uint64_t nextPingMicros =
-            PROBE_INTERVAL_USECS - (nowUsec - lastPingUsec);
-        uint64_t sleepMicros = MIN(queue.microsUntilNextTimeout(),
-                                   nextPingMicros);
+        uint64_t nextPingMicros = 0;
+        if (PROBE_INTERVAL_USECS >= (nowUsec - lastPingUsec)) {
+            nextPingMicros = PROBE_INTERVAL_USECS - (nowUsec - lastPingUsec);
+        }
+
+        uint64_t nextRefreshMicros = 0;
+        if (REFRESH_INTERVAL_USECS >= (nowUsec - lastServerListRefreshUsec)) {
+            nextRefreshMicros =
+                REFRESH_INTERVAL_USECS - (nowUsec - lastServerListRefreshUsec);
+        }
+
+        uint64_t sleepMicros = MIN(MIN(queue.microsUntilNextTimeout(),
+                                   nextPingMicros), nextRefreshMicros);
         timeval tv;
         tv.tv_sec  = sleepMicros / 1000000;
         tv.tv_usec = sleepMicros % 1000000;

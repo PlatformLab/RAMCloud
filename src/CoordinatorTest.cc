@@ -61,7 +61,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     void setUp() {
         transport = new BindTransport();
         transportManager.registerMock(transport);
-        server = new CoordinatorServer();
+        server = new CoordinatorServer("mock:");
         server->nextServerId = 2;
         transport->addServer(*server, "mock:host=coordinator");
         client = new CoordinatorClient("mock:host=coordinator");

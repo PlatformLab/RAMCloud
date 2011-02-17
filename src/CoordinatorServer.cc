@@ -13,17 +13,23 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// Here for the UDP-based FailureDetector code.
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #include <boost/scoped_ptr.hpp>
 
 #include "BackupClient.h"
 #include "CoordinatorServer.h"
+#include "FailureDetector.h"
 #include "MasterClient.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
 
 namespace RAMCloud {
 
-CoordinatorServer::CoordinatorServer()
+CoordinatorServer::CoordinatorServer(string localLocator)
     : nextServerId(1)
     , backupList()
     , masterList()
@@ -31,8 +37,25 @@ CoordinatorServer::CoordinatorServer()
     , tables()
     , nextTableId(0)
     , nextTableMasterIdx(0)
+    , failureDetectorFd(-1)
+    , failureDetectorHandler()
     , mockRecovery(NULL)
 {
+    failureDetectorFd = socket(PF_INET, SOCK_DGRAM, 0);
+    if (failureDetectorFd == -1)
+        throw Exception(HERE, "failed to create failureDetector socket");
+
+    sockaddr_in sin =
+        FailureDetector::serviceLocatorStringToSockaddrIn(localLocator);
+    if (bind(failureDetectorFd,
+      reinterpret_cast<sockaddr*>(&sin), sizeof(sin))) {
+        close(failureDetectorFd);
+        throw Exception(HERE, "failed to bind failureDetector socket");
+    }
+    LOG(NOTICE, "listening for FailureDetector messages on %s:%d",
+        inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+
+    failureDetectorHandler.construct(failureDetectorFd, this);
 }
 
 CoordinatorServer::~CoordinatorServer()
@@ -517,6 +540,105 @@ CoordinatorServer::setWill(uint64_t masterId, Buffer& buffer,
 
     LOG(WARNING, "Master %lu could not be found!!", masterId);
     return false;
+}
+
+/**
+ * Constructor for FailureDetectorHandler.
+ *
+ * \param fd
+ *      File descriptor for a client socket on which requests may arrive.
+ * \param coordinator
+ *      The CoordinatorServer that uses this socket.
+ */
+CoordinatorServer::FailureDetectorHandler::FailureDetectorHandler(int fd,
+    CoordinatorServer* coordinator)
+    : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
+      fd(fd),
+      coordinator(coordinator)
+{
+    // Empty constructor body.
+}
+
+/**
+ * Handle an incoming message from a FailureDetector on our UDP port.
+ * This is invoked by Dispatch when there's something to read on the
+ * socket.
+ *
+ * There are two possible messages: HintServerDown, and GetServerList.
+ * The former is just a hint and the sender expects no response. The
+ * latter is an actual request, so we should reply. Since we're using
+ * UDP, the requested server list must fit within the network MTU. This
+ * is hacky, but it keeps things simple. In the future we'll want this
+ * entire mechanism to be based on our RPC subsystem, but that will
+ * require some significant changes.
+ */
+void
+CoordinatorServer::FailureDetectorHandler::operator()()
+{
+    char buf[FailureDetector::MAXIMUM_MTU_BYTES];
+    struct sockaddr_in sin;
+    socklen_t length = sizeof(sin);
+
+    ssize_t r = recvfrom(fd, buf, sizeof(buf), 0,
+        reinterpret_cast<sockaddr*>(&sin), &length);
+    if (r < 0) {
+        LOG(WARNING, "recvfrom failed with %zd", r);
+        return;
+    }
+
+    RpcRequestCommon* req = reinterpret_cast<RpcRequestCommon*>(buf);
+    if (req->type == HINT_SERVER_DOWN) {
+        HintServerDownRpc::Request* hSDReq =
+            reinterpret_cast<HintServerDownRpc::Request*>(buf);
+
+        if ((sizeof(*hSDReq) + hSDReq->serviceLocatorLength) >
+          FailureDetector::MAXIMUM_MTU_BYTES) {
+            LOG(WARNING, "bad serviceLocatorLength: %u",
+                hSDReq->serviceLocatorLength);
+            return;
+        }
+
+        char locatorBuf[hSDReq->serviceLocatorLength + 1];
+        memcpy(locatorBuf, &buf[sizeof(*hSDReq)], hSDReq->serviceLocatorLength);
+        locatorBuf[hSDReq->serviceLocatorLength] = '\0';
+
+        LOG(NOTICE, "HintServerDown on [%s] from %s:%d",
+            locatorBuf, inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+    } else if (req->type == GET_SERVER_LIST) {
+        LOG(DEBUG, "GetServerList request from %s:%d",
+            inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+
+        GetServerListRpc::Request* getReq =
+            reinterpret_cast<GetServerListRpc::Request*>(buf);
+        char responseBuf[FailureDetector::MAXIMUM_MTU_BYTES];
+        GetServerListRpc::Response* resp =
+            reinterpret_cast<GetServerListRpc::Response*>(responseBuf);
+
+        std::ostringstream ostream;
+        if (getReq->serverType == MASTER)
+            coordinator->masterList.SerializePartialToOstream(&ostream);
+        else
+            coordinator->backupList.SerializePartialToOstream(&ostream);
+        string str(ostream.str());
+        uint32_t length = str.length();
+
+        if ((sizeof(*resp) + length) > FailureDetector::MAXIMUM_MTU_BYTES) {
+            LOG(WARNING, "cannot fit %s list into rpc",
+                (getReq->serverType == MASTER) ? "master" : "server");
+            return;
+        }
+
+        memcpy(&responseBuf[sizeof(*resp)], str.c_str(), length);
+        resp->common.status = STATUS_OK;
+        resp->serverListLength = length;
+
+        ssize_t r = sendto(fd, responseBuf, sizeof(*resp) + length, 0,
+            reinterpret_cast<sockaddr*>(&sin), length);
+        if (r != static_cast<ssize_t>(sizeof(*resp) + length))
+            LOG(WARNING, "failed to send GetServerList reply; r = %zd", r);
+    } else {
+        LOG(WARNING, "weird rpc type received: %d", req->type);
+    }
 }
 
 } // namespace RAMCloud

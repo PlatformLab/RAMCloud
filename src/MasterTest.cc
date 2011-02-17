@@ -119,7 +119,7 @@ class MasterTest : public CppUnit::TestFixture {
         logger.setLogLevels(SILENT_LOG_LEVEL);
         transport = new BindTransport();
         transportManager.registerMock(transport);
-        coordinatorServer = new CoordinatorServer();
+        coordinatorServer = new CoordinatorServer("mock:");
         transport->addServer(*coordinatorServer, "mock:host=coordinator");
         coordinator = new CoordinatorClient("mock:host=coordinator");
 
@@ -935,7 +935,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         config = new BackupServer::Config;
         config->coordinatorLocator = "mock:host=coordinator";
 
-        coordinatorServer = new CoordinatorServer;
+        coordinatorServer = new CoordinatorServer("mock:");
         transport->addServer(*coordinatorServer, config->coordinatorLocator);
 
         coordinator = new CoordinatorClient(config->coordinatorLocator.c_str());

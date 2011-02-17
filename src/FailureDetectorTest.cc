@@ -406,7 +406,8 @@ class FailureDetectorTest : public CppUnit::TestFixture {
         fd.sys = &saveSendtoSyscalls;
         TestLog::reset();
         fd.requestServerList();
-        CPPUNIT_ASSERT_EQUAL("requestServerList: requesting server list",
+        CPPUNIT_ASSERT_EQUAL("requestServerList: requesting server list from "
+            "10.0.0.1:2353",
             TestLog::get());
         GetServerListRpc::Request* req =
             reinterpret_cast<GetServerListRpc::Request*>(saveSendtoBuf);

@@ -18,6 +18,7 @@
 #include <errno.h>
 
 #include "BackupClient.h"
+#include "FailureDetector.h"
 #include "OptionParser.h"
 #include "MasterServer.h"
 #include "TransportManager.h"
@@ -25,13 +26,26 @@
 static int cpu;
 static uint32_t replicas;
 
+namespace RAMCloud {
+
+ServerConfig config;
+
+static void*
+failureDetectorThread(void* unused)
+{
+    FailureDetector fd(config.coordinatorLocator, config.localLocator, MASTER);
+    fd.mainLoop();
+    return NULL;
+}
+
+} // namespace
+
 int
 main(int argc, char *argv[])
 try
 {
     using namespace RAMCloud;
 
-    ServerConfig config;
     string masterTotalMemory, hashTableMemory;
 
     OptionsDescription serverOptions("Master");
@@ -76,6 +90,11 @@ try
     CoordinatorClient coordinator(
         optionParser.options.getCoordinatorLocator().c_str());
     MasterServer server(config, &coordinator, replicas);
+
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, failureDetectorThread, NULL))
+        DIE("server: couldn't spawn failure detector thread");
+
     server.run();
 
     return 0;

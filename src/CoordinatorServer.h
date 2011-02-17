@@ -21,6 +21,7 @@
 
 #include "Common.h"
 #include "ClientException.h"
+#include "Dispatch.h"
 #include "Metrics.h"
 #include "Recovery.h"
 #include "Rpc.h"
@@ -34,7 +35,7 @@ namespace RAMCloud {
  */
 class CoordinatorServer : public Server {
   public:
-    CoordinatorServer();
+    explicit CoordinatorServer(string localLocator);
     ~CoordinatorServer();
     void run();
     void dispatch(RpcType type,
@@ -84,6 +85,22 @@ class CoordinatorServer : public Server {
                  uint32_t offset, uint32_t length);
 
     /**
+     * An event handler for incoming FailureDetector UDP messages.
+     * These include HintServerDown and GetServerList ``RPCs'' -
+     * only the latter generates a response.
+     */
+    class FailureDetectorHandler : public Dispatch::File {
+      public:
+        FailureDetectorHandler(int fd, CoordinatorServer* coordinator);
+        virtual void operator()();
+      private:
+        // The following variables are just copies of constructor arguments.
+        int fd;
+        CoordinatorServer* coordinator;
+        DISALLOW_COPY_AND_ASSIGN(FailureDetectorHandler);
+    };
+
+    /**
      * The server id for the next server to register.
      * These are guaranteed to be unique.
      */
@@ -126,6 +143,16 @@ class CoordinatorServer : public Server {
      * next table.
      */
     uint32_t nextTableMasterIdx;
+
+    /**
+     * UDP socket used to receive messages from FailureDetectors.
+     */
+    int failureDetectorFd;
+
+    /**
+     * The Dispatch handler for failureDetectorFd.
+     */
+    Tub<FailureDetectorHandler> failureDetectorHandler;
 
     /// Used in unit testing.
     BaseRecovery* mockRecovery;

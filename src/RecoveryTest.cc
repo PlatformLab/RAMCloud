@@ -148,7 +148,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         config = new BackupServer::Config;
         config->coordinatorLocator = "mock:host=coordinator";
 
-        coordinatorServer = new CoordinatorServer;
+        coordinatorServer = new CoordinatorServer("mock:");
         transport->addServer(*coordinatorServer, config->coordinatorLocator);
 
         coordinator = new CoordinatorClient(config->coordinatorLocator.c_str());

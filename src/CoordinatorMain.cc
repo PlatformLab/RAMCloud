@@ -29,7 +29,7 @@ main(int argc, char *argv[])
         transportManager.initialize(localLocator.c_str());
         localLocator = transportManager.getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
-        CoordinatorServer().run();
+        CoordinatorServer(localLocator).run();
         return 0;
     } catch (RAMCloud::Exception& e) {
         LOG(ERROR, "coordinator: %s", e.str().c_str());

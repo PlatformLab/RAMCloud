@@ -20,9 +20,24 @@
 
 #include "BackupServer.h"
 #include "BackupStorage.h"
+#include "FailureDetector.h"
 #include "OptionParser.h"
 #include "TransportManager.h"
 #include "Segment.h"
+
+namespace RAMCloud {
+
+BackupServer::Config config;
+
+static void*
+failureDetectorThread(void* unused)
+{
+    FailureDetector fd(config.coordinatorLocator, config.localLocator, BACKUP);
+    fd.mainLoop();
+    return NULL;
+}
+
+} // namespace
 
 /**
  * Instantiates a backup server.
@@ -35,7 +50,6 @@ try
 {
     using namespace RAMCloud;
 
-    BackupServer::Config config;
     // CPU mask for binding the backup to a specific set of cores.
     int cpu;
     bool inMemory;
@@ -86,6 +100,11 @@ try
                                             O_DIRECT | O_SYNC));
 
     BackupServer server(config, *storage);
+
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, failureDetectorThread, NULL))
+        DIE("backup: couldn't spawn failure detector thread");
+
     server.run();
 
     return 0;

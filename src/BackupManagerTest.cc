@@ -59,7 +59,7 @@ struct BackupManagerBaseTest : public ::testing::Test {
         transport.construct();
         mockRegistrar.construct(*transport);
 
-        coordinatorServer.construct();
+        coordinatorServer.construct("mock:");
         transport->addServer(*coordinatorServer, coordinatorLocator);
 
         coordinator.construct(coordinatorLocator);
