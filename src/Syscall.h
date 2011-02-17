@@ -90,8 +90,20 @@ class Syscall {
         return ::recvfrom(sockfd, buf, len, flags, from, fromLen);
     }
     VIRTUAL_FOR_TESTING
+    int select(int nfds, fd_set *readfds, fd_set *writefds,
+           fd_set *errorfds, struct timeval *timeout)
+    {
+        return ::select(nfds, readfds, writefds, errorfds, timeout);
+    }
+    VIRTUAL_FOR_TESTING
     ssize_t sendmsg(int sockfd, const msghdr *msg, int flags) {
         return ::sendmsg(sockfd, msg, flags);
+    }
+    VIRTUAL_FOR_TESTING
+    ssize_t sendto(int socket, const void *buffer, size_t length, int flags,
+           const struct sockaddr *destAddr, socklen_t destLen)
+    {
+        return ::sendto(socket, buffer, length, flags, destAddr, destLen);
     }
     VIRTUAL_FOR_TESTING
     int setsockopt(int sockfd, int level, int optname, const void *optval,
