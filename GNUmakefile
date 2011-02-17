@@ -8,6 +8,7 @@ DEBUG ?= yes
 YIELD ?= no
 SSE ?= sse4.2
 COMPILER ?= gnu
+VALGRIND ?= no
 
 INFINIBAND := $(shell [ -e /usr/lib/libibverbs.so ] && echo -n "yes")
 
@@ -38,6 +39,10 @@ COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
 ifeq ($(COMPILER),gnu)
 COMFLAGS += -march=core2
 endif
+ifeq ($(VALGRIND),yes)
+COMFLAGS += -DVALGRIND
+endif
+
 COMWARNS := -Wall -Wformat=2 -Wextra \
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute
 CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
