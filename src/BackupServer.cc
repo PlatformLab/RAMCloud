@@ -597,12 +597,16 @@ BackupServer::IoScheduler::operator()()
 void
 BackupServer::IoScheduler::load(SegmentInfo& info)
 {
+#ifdef SINGLE_THREADED_BACKUP
+    doLoad(info);
+#else
     Lock lock(queueMutex);
     loadQueue.push(&info);
     uint32_t count = loadQueue.size() + storeQueue.size();
     LOG(DEBUG, "Queued load of <%lu,%lu> (%u segments waiting for IO)",
         info.masterId, info.segmentId, count);
     queueCond.notify_all();
+#endif
 }
 
 /**
@@ -614,12 +618,16 @@ BackupServer::IoScheduler::load(SegmentInfo& info)
 void
 BackupServer::IoScheduler::store(SegmentInfo& info)
 {
+#ifdef SINGLE_THREADED_BACKUP
+    doStore(info);
+#else
     Lock lock(queueMutex);
     storeQueue.push(&info);
     uint32_t count = loadQueue.size() + storeQueue.size();
     LOG(DEBUG, "Queued store of <%lu,%lu> (%u segments waiting for IO)",
         info.masterId, info.segmentId, count);
     queueCond.notify_all();
+#endif
 }
 
 /**
@@ -661,7 +669,9 @@ BackupServer::IoScheduler::shutdown(boost::thread& ioThread)
 void
 BackupServer::IoScheduler::doLoad(SegmentInfo& info) const
 {
+#ifndef SINGLE_THREADED_BACKUP
     SegmentInfo::Lock lock(info.mutex);
+#endif
     ReferenceDecrementer<int> _(info.storageOpCount);
 
     LOG(DEBUG, "Loading segment <%lu,%lu>", info.masterId, info.segmentId);
@@ -706,7 +716,9 @@ BackupServer::IoScheduler::doLoad(SegmentInfo& info) const
 void
 BackupServer::IoScheduler::doStore(SegmentInfo& info) const
 {
+#ifndef SINGLE_THREADED_BACKUP
     SegmentInfo::Lock lock(info.mutex);
+#endif
     ReferenceDecrementer<int> _(info.storageOpCount);
 
     LOG(DEBUG, "Storing segment <%lu,%lu>", info.masterId, info.segmentId);
@@ -838,7 +850,11 @@ BackupServer::BackupServer(const Config& config,
     , storage(storage)
     , bytesWritten(0)
     , ioScheduler()
+#ifdef SINGLE_THREADED_BACKUP
+    , ioThread()
+#else
     , ioThread(boost::ref(ioScheduler))
+#endif
 {
     recoveryTicks.construct(); // make unit tests happy
 }
@@ -1177,6 +1193,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     responder();
     srdTicks.stop();
 
+#ifndef SINGLE_THREADED_BACKUP
     RecoverySegmentBuilder builder(primarySegments,
                                    partitions,
                                    recoveryThreadCount);
@@ -1184,6 +1201,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     boost::thread builderThread(builder);
     LOG(DEBUG, "Kicked off building recovery segments; "
                "main thread going back to dispatching requests");
+#endif
 }
 
 /**
@@ -1236,7 +1254,11 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
             throw BackupSegmentAlreadyOpenException(HERE);
 
         try {
+#ifdef SINGLE_THREADED_BACKUP
+            bool primary = false;
+#else
             bool primary = reqHdr.flags & BackupWriteRpc::PRIMARY;
+#endif
             info = new SegmentInfo(storage, pool, ioScheduler,
                                    masterId, segmentId, segmentSize, primary);
             segments[MasterSegmentIdPair(masterId, segmentId)] = info;
