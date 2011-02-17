@@ -48,6 +48,7 @@ class RecoveryTest : public CppUnit::TestFixture {
      */
     struct WriteValidSegment {
         ProtoBuf::ServerList backupList;
+        Tub<uint64_t> masterIdTub;
         BackupManager* mgr;
         char *segMem;
         Segment* seg;
@@ -58,12 +59,11 @@ class RecoveryTest : public CppUnit::TestFixture {
                           const uint32_t segmentSize,
                           const string locator, bool close)
             : backupList()
+            , masterIdTub(masterId)
             , mgr()
             , segMem()
             , seg()
         {
-            Tub<uint64_t> masterIdTub;
-            masterIdTub.construct(masterId);
             mgr = new BackupManager(NULL, masterIdTub, 1);
             ProtoBuf::ServerList::Entry& e(*backupList.add_server());
             e.set_service_locator(locator);
