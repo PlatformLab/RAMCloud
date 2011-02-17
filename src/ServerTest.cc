@@ -26,7 +26,6 @@ class ServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_dispatch_ping);
     CPPUNIT_TEST(test_dispatch_unknown);
     CPPUNIT_TEST(test_handleRpc_messageTooShortForCommon);
-    CPPUNIT_TEST(test_handleRpc_collectPerformanceInfo);
     CPPUNIT_TEST(test_getString_basics);
     CPPUNIT_TEST(test_getString_lengthZero);
     CPPUNIT_TEST(test_getString_bufferTooShort);
@@ -59,7 +58,7 @@ class ServerTest : public CppUnit::TestFixture {
     }
 
     void test_callHandler_normal() {
-        transport->setInput("0 0");
+        transport->setInput("7 0 0 0");
         Transport::ServerRpc& rpc(*transport->serverRecv());
         server->callHandler<PingRpc, Server, &Server::ping>(rpc);
         assertMatchesPosixRegex("ping", TestLog::get());
@@ -73,7 +72,7 @@ class ServerTest : public CppUnit::TestFixture {
     }
 
     void test_dispatch_ping() {
-        transport->setInput("0 0");
+        transport->setInput("7 0 0 0");
         Transport::ServerRpc& rpc(*transport->serverRecv());
         Server::Responder responder(*server, rpc);
         server->dispatch(PingRpc::type, rpc, responder);
@@ -92,22 +91,6 @@ class ServerTest : public CppUnit::TestFixture {
         rpc("a");
         CPPUNIT_ASSERT_EQUAL("serverReply: 6", transport->outputLog);
     }
-    void test_handleRpc_collectPerformanceInfo() {
-        // 0x2001 means RpcPerfCounter { 1, 2, 0 }
-        // or { MARK_RPC_PROCESSING_BEGIN, MARK_RPC_PROCESSING_END,
-        // PERF_COUNTER_TSC }
-        // Note that this value might end up getting interpreted as an
-        // ascii string by the toString() function.
-        rpc("7 0x2001");
-        int status = -1, counter = -1;
-        // Must use %i for the counter - because TestUtil.h's
-        // toString() may return a hex or decimal value
-        sscanf(transport->outputLog.c_str(), "serverReply: %d %i", // NOLINT
-                &status, &counter);
-        CPPUNIT_ASSERT_EQUAL(0, status);
-        CPPUNIT_ASSERT(counter != 0);
-    }
-
     void test_getString_basics() {
         Buffer buffer;
         buffer.fillFromString("abcdefg");
