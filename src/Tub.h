@@ -30,6 +30,9 @@ namespace RAMCloud {
  * is destroyed (if it was ever constructed in the first place).
  *
  * Tubs are useful in situations like the following:
+ * - You want to defer construction, e.g. a Tub can be in the initializer
+ *   list, but you can construct its element until some series of operations
+ *   occurs, like binding sockets, etc.
  * - You want to create an array of objects, but the objects need complex
  *   constructors with multiple arguments.
  * - You want to create a collection of objects, only some of which will be
