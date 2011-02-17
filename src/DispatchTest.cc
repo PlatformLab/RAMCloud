@@ -302,10 +302,6 @@ class DispatchTest : public CppUnit::TestFixture {
         // fd doesn't appear in readyFd.
         usleep(5000);
         CPPUNIT_ASSERT_EQUAL(-1, Dispatch::readyFd);
-        // The following check is technically unsafe (since f has been
-        // deleted); it can be removed if it causes complaints from program
-        // checkers such as valgrind.
-        CPPUNIT_ASSERT_EQUAL(401, f->invocationId);
         close(fds[0]);
     }
 
