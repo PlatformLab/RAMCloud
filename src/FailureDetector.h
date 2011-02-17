@@ -57,7 +57,7 @@ class FailureDetector {
             uint64_t nonce;
         };
 
-        TimeoutQueue(uint64_t timeoutUsec);
+        explicit TimeoutQueue(uint64_t timeoutUsec);
         void enqueue(string locator, uint64_t nonce);
         Tub<TimeoutEntry> dequeue();
         Tub<TimeoutEntry> dequeue(uint64_t nonce);
@@ -73,7 +73,7 @@ class FailureDetector {
     };
 
     /// Maximum payload in any datagram. This should be enough to get 40
-    /// machines worth of ServiceLocators for our cluster. Try to temper 
+    /// machines worth of ServiceLocators for our cluster. Try to temper
     /// your disgust with the fact that this whole class is a temporary
     /// hack.
     static const int MAXIMUM_MTU_BYTES = 9000;

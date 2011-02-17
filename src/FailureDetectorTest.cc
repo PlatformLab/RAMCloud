@@ -19,12 +19,13 @@
 
 #include "TestUtil.h"
 
+#include "BenchUtil.h"
 #include "FailureDetector.h"
 #include "ServerList.pb.h"
 
 namespace RAMCloud {
 
-static char alertSyscallsBuf[16384];
+static char saveSendtoBuf[16384];
 
 /**
  * Unit tests for FailureDetector.
@@ -36,7 +37,7 @@ class FailureDetectorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(FailureDetectorTest);
     CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_serviceLocatorStringToSockaddrIn);
-    CPPUNIT_TEST(test_handleIncomingPing);
+    CPPUNIT_TEST(test_handleIncomingRequest);
     CPPUNIT_TEST(test_handleIncomingResponse);
     CPPUNIT_TEST(test_handleCoordinatorResponse);
     CPPUNIT_TEST(test_pingRandomServer);
@@ -44,6 +45,11 @@ class FailureDetectorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_processPacket);
     CPPUNIT_TEST(test_requestServerList);
     CPPUNIT_TEST(test_mainLoop);
+    CPPUNIT_TEST(test_tq_constructor);
+    CPPUNIT_TEST(test_tq_enqueue);
+    CPPUNIT_TEST(test_tq_dequeue);
+    CPPUNIT_TEST(test_tq_dequeue_arg);
+    CPPUNIT_TEST(test_tq_microsUntilNextTimeout);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -51,7 +57,7 @@ class FailureDetectorTest : public CppUnit::TestFixture {
 
     FailureDetectorTest()
         : logEnabler(NULL),
-          alertSyscalls(),
+          saveSendtoSyscalls(),
           processPacketSyscalls()
     {
     }
@@ -67,6 +73,10 @@ class FailureDetectorTest : public CppUnit::TestFixture {
     {
         delete logEnabler;
     }
+
+///////////////////////////////////////////
+// Tests for FailureDetector
+///////////////////////////////////////////
 
     static bool
     failureDetectorFilter(string s)
@@ -114,14 +124,77 @@ class FailureDetectorTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("1.9.8.5", inet_ntoa(sin.sin_addr));
         CPPUNIT_ASSERT_EQUAL(59 + 2111, ntohs(sin.sin_port));
 
-        CPPUNIT_ASSERT_THROW(fd.serviceLocatorStringToSockaddrIn("bogus:foo=bar"),
+        CPPUNIT_ASSERT_THROW(
+            fd.serviceLocatorStringToSockaddrIn("bogus:foo=bar"),
             Exception);
     }
 
-    void
-    test_handleIncomingPing()
+    class SaveSendtoSyscalls : public Syscall {
+        ssize_t
+        sendto(int socket, const void *buffer, size_t length, int flags,
+            const struct sockaddr *dest_addr, socklen_t dest_len)
+        {
+            memcpy(saveSendtoBuf, buffer,
+                MIN(length, sizeof(saveSendtoBuf)));
+            return length;
+        }
+    } saveSendtoSyscalls;
+
+    static bool
+    handleIncomingRequest(string s)
     {
-        // not sure it's worth testing such a simple method
+        return s == "handleIncomingRequest";
+    }
+
+    void
+    test_handleIncomingRequest()
+    {
+        TestLog::Enable _(&handleIncomingRequest);
+
+        sockaddr_in sin;
+        memset(&sin, 0xcc, sizeof(sin));
+
+        FailureDetector fd("tcp:host=10.0.0.1,port=242",
+            "fast+udp:host=127.0.0.1,port=30293", MASTER);
+
+        fd.sys = &saveSendtoSyscalls;
+
+        {
+            PingRpc::Request req;
+            req.common.type = PING;
+            req.nonce = 0x1122334455667788UL;
+            fd.handleIncomingRequest(reinterpret_cast<char*>(&req),
+                sizeof(req), &sin);
+            CPPUNIT_ASSERT_EQUAL("handleIncomingRequest: incoming request "
+                "from 204.204.204.204:52428", TestLog::get());
+            PingRpc::Response* resp =
+                reinterpret_cast<PingRpc::Response*>(saveSendtoBuf);
+            CPPUNIT_ASSERT_EQUAL(STATUS_OK, resp->common.status);
+            CPPUNIT_ASSERT_EQUAL(0x1122334455667788UL, resp->nonce);
+        }
+
+        TestLog::reset();
+
+        {
+            char buf[500];
+            ProxyPingRpc::Request* req =
+                reinterpret_cast<ProxyPingRpc::Request*>(buf);
+            req->common.type = PROXY_PING;
+            req->timeoutNanoseconds = -1;    // we ignore this
+            req->serviceLocatorLength = 31;
+            memcpy(&buf[sizeof(*req)], "tcp:host=71.53.23.21,port=5723\0", 31);
+            fd.handleIncomingRequest(reinterpret_cast<char*>(req),
+                sizeof(*req) + 31, &sin);
+            CPPUNIT_ASSERT_EQUAL("handleIncomingRequest: incoming request from "
+                "204.204.204.204:52428 | handleIncomingRequest: sending proxy "
+                "ping to tcp:host=71.53.23.21,port=5723",
+                TestLog::get());
+            PingRpc::Request* proxiedReq =
+                reinterpret_cast<PingRpc::Request*>(saveSendtoBuf);
+            CPPUNIT_ASSERT_EQUAL(PING, proxiedReq->common.type);
+            CPPUNIT_ASSERT(proxiedReq->nonce & 0x8000000000000000UL);
+            CPPUNIT_ASSERT_EQUAL(true, fd.queue.dequeue(proxiedReq->nonce));
+        }
     }
 
     static bool
@@ -133,27 +206,47 @@ class FailureDetectorTest : public CppUnit::TestFixture {
     void
     test_handleIncomingResponse()
     {
-#if 0
         TestLog::Enable _(&handleIncomingResponse);
 
         FailureDetector fd("tcp:host=10.0.0.1,port=242",
             "fast+udp:host=127.0.0.1,port=30293", MASTER);
 
-        uint64_t nonce = 10;
+        PingRpc::Response resp;
+        resp.common.status = STATUS_OK;
+        resp.nonce = 10;
+
         sockaddr_in sin;
         memset(&sin, 0xcc, sizeof(sin));
-        fd.handleIncomingResponse(reinterpret_cast<char*>(&nonce),
-            sizeof(nonce), &sin);
+        fd.handleIncomingResponse(reinterpret_cast<char*>(&resp),
+            sizeof(resp), &sin);
         CPPUNIT_ASSERT_EQUAL("handleIncomingResponse: incoming ping response "
             "from 204.204.204.204:52428 | handleIncomingResponse: received "
             "invalid nonce -- too late?",
             TestLog::get());
 
-        fd.lastNonce = 10;
-        fd.handleIncomingResponse(reinterpret_cast<char*>(&nonce),
-            sizeof(nonce), &sin);
-        CPPUNIT_ASSERT_EQUAL(true, fd.lastResponded);
-#endif
+        TestLog::reset();
+
+        fd.queue.enqueue("blah", resp.nonce);
+        fd.handleIncomingResponse(reinterpret_cast<char*>(&resp),
+            sizeof(resp), &sin);
+        CPPUNIT_ASSERT_EQUAL("handleIncomingResponse: incoming ping response "
+            "from 204.204.204.204:52428 | handleIncomingResponse: received "
+            "response from 204.204.204.204:52428",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(false, fd.queue.dequeue());
+
+        TestLog::reset();
+
+        resp.nonce = 0x8000000000000000UL | 10;
+        fd.queue.enqueue("blah", resp.nonce);
+        fd.handleIncomingResponse(reinterpret_cast<char*>(&resp),
+            sizeof(resp), &sin);
+        CPPUNIT_ASSERT_EQUAL("handleIncomingResponse: incoming ping response "
+            "from 204.204.204.204:52428 | handleIncomingResponse: received "
+            "response from 204.204.204.204:52428 | handleIncomingResponse: "
+            "issued reply to coordinator",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(false, fd.queue.dequeue());
     }
 
     void
@@ -208,6 +301,8 @@ class FailureDetectorTest : public CppUnit::TestFixture {
 
         FailureDetector fd("tcp:host=10.0.0.1,port=242",
             "fast+udp:host=127.0.0.1,port=30293", MASTER);
+        fd.sys = &saveSendtoSyscalls;
+
         fd.pingRandomServer();
         CPPUNIT_ASSERT_EQUAL("pingRandomServer: No servers besides myself "
             "to probe! List has 0 entries.",
@@ -222,52 +317,54 @@ class FailureDetectorTest : public CppUnit::TestFixture {
             "to probe! List has 1 entries.",
             TestLog::get());
 
-        // is it worth interposing somehow to ensure that the call to
-        // sendto does the right thing?
+        ProtoBuf::ServerList_Entry& other(*fd.serverList.add_server());
+        other.set_service_locator("tcp:host=134.23.42.25,port=2734");
+        fd.pingRandomServer();
+        PingRpc::Request* req =
+            reinterpret_cast<PingRpc::Request*>(saveSendtoBuf);
+        CPPUNIT_ASSERT_EQUAL(PING, req->common.type);
+        CPPUNIT_ASSERT_EQUAL(0, req->common.type & 0x8000000000000000UL);
+        CPPUNIT_ASSERT_EQUAL(1, fd.queue.entries.size());
     }
-
-    class AlertSyscalls : public Syscall {
-        ssize_t
-        sendto(int socket, const void *buffer, size_t length, int flags,
-            const struct sockaddr *dest_addr, socklen_t dest_len)
-        {
-            memcpy(alertSyscallsBuf, buffer,
-                MIN(length, sizeof(alertSyscallsBuf)));
-            return length;
-        }
-    } alertSyscalls;
 
     void
     test_alertCoordinator()
     {
-#if 0
         FailureDetector fd("tcp:host=10.0.0.1,port=242",
             "fast+udp:host=127.0.0.1,port=30293", MASTER);
 
-        fd.sys = &alertSyscalls;
-        ProtoBuf::ServerList_Entry& me(*fd.serverList.add_server());
-        me.set_service_locator("fast+udp:host=1.2.4.6,port=51525");
-        fd.lastIndex = 0;
-        fd.alertCoordinator();
+        fd.sys = &saveSendtoSyscalls;
 
-        HintServerDownRpc::Request* rpc = 
-            reinterpret_cast<HintServerDownRpc::Request*>(alertSyscallsBuf);
+        // first try the random ping case
+        FailureDetector::TimeoutQueue::TimeoutEntry te(
+            0, "fast+udp:host=1.2.4.6,port=51525", 10);
+        fd.alertCoordinator(&te);
+        HintServerDownRpc::Request* rpc =
+            reinterpret_cast<HintServerDownRpc::Request*>(saveSendtoBuf);
         CPPUNIT_ASSERT_EQUAL(HINT_SERVER_DOWN, rpc->common.type);
         CPPUNIT_ASSERT_EQUAL(33, rpc->serviceLocatorLength);
-        CPPUNIT_ASSERT_EQUAL(32, strlen(&alertSyscallsBuf[sizeof(*rpc)]));
-        CPPUNIT_ASSERT_EQUAL('\0', alertSyscallsBuf[sizeof(*rpc) + 32]);
+        CPPUNIT_ASSERT_EQUAL(32, strlen(&saveSendtoBuf[sizeof(*rpc)]));
+        CPPUNIT_ASSERT_EQUAL('\0', saveSendtoBuf[sizeof(*rpc) + 32]);
         CPPUNIT_ASSERT_EQUAL("fast+udp:host=1.2.4.6,port=51525",
-            &alertSyscallsBuf[sizeof(*rpc)]);
-#endif
+            &saveSendtoBuf[sizeof(*rpc)]);
+
+        // next try the proxied ping case
+        FailureDetector::TimeoutQueue::TimeoutEntry te2(
+            0, "fast+udp:host=9.2.3.8,port=21173", 0x8000000000000000UL | 10);
+        fd.alertCoordinator(&te2);
+        ProxyPingRpc::Response* resp =
+            reinterpret_cast<ProxyPingRpc::Response*>(saveSendtoBuf);
+        CPPUNIT_ASSERT_EQUAL(STATUS_OK, resp->common.status);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)-1, resp->replyNanoseconds);
     }
 
     class ProcessPacketSyscalls : public Syscall {
         ssize_t
         recvfrom(int sockfd, void *buf, size_t len, int flags,
                  sockaddr *from, socklen_t* fromLen)
-                
         {
             memset(from, 0xcc, *fromLen);
+            memset(buf, 0xcc, len);
             return 0;
         }
 
@@ -289,41 +386,111 @@ class FailureDetectorTest : public CppUnit::TestFixture {
         fd.processPacket(fd.serverFd);
         fd.processPacket(fd.clientFd);
         fd.processPacket(fd.coordFd);
-        CPPUNIT_ASSERT_EQUAL("handleIncomingPing: incoming ping from "
-            "204.204.204.204:52428 | handleIncomingResponse: incoming ping "
-            "response from 204.204.204.204:52428 | handleIncomingResponse: "
-            "payload isn't 8 bytes! | handleCoordinatorResponse: incoming "
-            "coordinator response from 204.204.204.204:52428 | "
-            "handleCoordinatorResponse: impossibly small coordinator response: "
-            "0 bytes",
-            TestLog::get()); 
+        CPPUNIT_ASSERT_EQUAL("handleIncomingRequest: incoming request from "
+            "204.204.204.204:52428 | handleIncomingRequest: unknown request "
+            "encountered (3435973836); ignoring | handleIncomingResponse: "
+            "incoming ping response from 204.204.204.204:52428 | "
+            "handleIncomingResponse: payload isn't 16 bytes, but 0! | "
+            "handleCoordinatorResponse: incoming coordinator response from "
+            "204.204.204.204:52428 | handleCoordinatorResponse: impossibly "
+            "small coordinator response: 0 bytes",
+            TestLog::get());
     }
-
-    class RequestServerListSyscalls : public Syscall {
-        ssize_t
-        sendto(int socket, const void *buffer, size_t length, int flags,
-               const struct sockaddr *destAddr, socklen_t destLen)
-        {
-            return 0;
-        }
-    };
 
     void
     test_requestServerList()
     {
         FailureDetector fd("tcp:host=10.0.0.1,port=242",
             "fast+udp:host=127.0.0.1,port=30293", MASTER);
+        fd.sys = &saveSendtoSyscalls;
         TestLog::reset();
         fd.requestServerList();
-        CPPUNIT_ASSERT_EQUAL("",
+        CPPUNIT_ASSERT_EQUAL("requestServerList: requesting server list",
             TestLog::get());
+        GetServerListRpc::Request* req =
+            reinterpret_cast<GetServerListRpc::Request*>(saveSendtoBuf);
+        CPPUNIT_ASSERT_EQUAL(GET_SERVER_LIST, req->common.type);
+        CPPUNIT_ASSERT_EQUAL(MASTER, req->serverType);
     }
 
     void
     test_mainLoop()
     {
-        // this is the big boy. lots to do here.
+        // XXX- fill me in. there isn't much to do here, but we should
+        //      ensure that the select timeout is sensible
+    }
 
+///////////////////////////////////////////
+// Tests for FailureDetector::TimeoutQueue
+///////////////////////////////////////////
+
+    typedef FailureDetector::TimeoutQueue TimeoutQueue;
+
+    void
+    test_tq_constructor()
+    {
+        TimeoutQueue q(523);
+        CPPUNIT_ASSERT_EQUAL(0, q.entries.size());
+        CPPUNIT_ASSERT_EQUAL(523, q.timeoutUsecs);
+    }
+
+    void
+    test_tq_enqueue()
+    {
+        TimeoutQueue q(523);
+        mockTSCValue = nanosecondsToCycles(12 * 1000);
+        q.enqueue("hello, there", 8734723);
+        CPPUNIT_ASSERT_EQUAL(1, q.entries.size());
+        CPPUNIT_ASSERT_EQUAL("hello, there", q.entries.front().locator);
+        CPPUNIT_ASSERT_EQUAL(8734723, q.entries.front().nonce);
+        CPPUNIT_ASSERT_EQUAL(12, q.entries.front().startUsec);
+        mockTSCValue = 0;
+    }
+
+    void
+    test_tq_dequeue()
+    {
+        TimeoutQueue q(523);
+        mockTSCValue = nanosecondsToCycles(12 * 1000);
+        q.enqueue("hello, there", 8734723);
+        CPPUNIT_ASSERT_EQUAL(false, q.dequeue());
+        mockTSCValue += nanosecondsToCycles(522 * 1000);
+        CPPUNIT_ASSERT_EQUAL(false, q.dequeue());
+        mockTSCValue += nanosecondsToCycles(1 * 1000);
+        CPPUNIT_ASSERT_EQUAL(true, q.dequeue());
+        CPPUNIT_ASSERT_EQUAL(false, q.dequeue());
+        CPPUNIT_ASSERT_EQUAL(0, q.entries.size());
+        mockTSCValue = 0;
+    }
+
+    void
+    test_tq_dequeue_arg()
+    {
+        TimeoutQueue q(523);
+        q.enqueue("hello, there", 8734723);
+        CPPUNIT_ASSERT_EQUAL(1, q.entries.size());
+        CPPUNIT_ASSERT_EQUAL(true, q.dequeue(8734723));
+        CPPUNIT_ASSERT_EQUAL(false, q.dequeue(8734723));
+        CPPUNIT_ASSERT_EQUAL(0, q.entries.size());
+    }
+
+    void
+    test_tq_microsUntilNextTimeout()
+    {
+        TimeoutQueue q(523);
+        CPPUNIT_ASSERT_EQUAL((uint64_t)-1, q.microsUntilNextTimeout());
+        mockTSCValue = nanosecondsToCycles(12 * 1000);
+        q.enqueue("hi", 12347234);
+        CPPUNIT_ASSERT_EQUAL(523, q.microsUntilNextTimeout());
+        mockTSCValue += nanosecondsToCycles(522 * 1000);
+        CPPUNIT_ASSERT_EQUAL(1, q.microsUntilNextTimeout());
+        mockTSCValue += nanosecondsToCycles(1 * 1000);
+        CPPUNIT_ASSERT_EQUAL(0, q.microsUntilNextTimeout());
+        mockTSCValue += nanosecondsToCycles(1000 * 1000);
+        CPPUNIT_ASSERT_EQUAL(0, q.microsUntilNextTimeout());
+        q.dequeue();
+        CPPUNIT_ASSERT_EQUAL((uint64_t)-1, q.microsUntilNextTimeout());
+        mockTSCValue = 0;
     }
 };
 CPPUNIT_TEST_SUITE_REGISTRATION(FailureDetectorTest);

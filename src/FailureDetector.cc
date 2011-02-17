@@ -31,6 +31,14 @@
 namespace RAMCloud {
 
 /**
+ * I don't want to sully the TimeoutQueue interface to deal with the fact
+ * that we have random- and coordinator-initiated probes and need to
+ * differentiate them. Instead, I'll just use the 64'th bit of the nonce
+ * as a flag.
+ */
+static const uint64_t COORD_PROBE_FLAG = 0x8000000000000000UL;
+
+/**
  * Default object used to make system calls.
  */
 static Syscall defaultSyscall;
@@ -133,14 +141,21 @@ FailureDetector::serviceLocatorStringToSockaddrIn(string sl)
 }
 
 /**
- * Handle an incoming ping request. This simply requires sending the
- * payload back to the sender.
+ * Handle an incoming request. There are two types: 1) a ping request from
+ * another master or backup server, and 2) a proxy ping request from the
+ * coordinator. The former simply requires sending the payload back to the
+ * sender, whereas the latter requires us to queue a probe.
+ *
+ * Note that we do not do proxied pings synchronously. The coordinator does
+ * not expect an explicit response, but it will receive a hint server down
+ * rpc if contact cannot be made.
  */
 void
 FailureDetector::handleIncomingRequest(char* buf, ssize_t bytes,
     sockaddr_in* sourceAddress)
 {
-    LOG(DEBUG, "incoming request from %s:%d", inet_ntoa(sourceAddress->sin_addr),
+    LOG(DEBUG, "incoming request from %s:%d",
+        inet_ntoa(sourceAddress->sin_addr),
         ntohs(sourceAddress->sin_port));
 
     // there are just two types of requests: ping, and proxy ping.
@@ -150,13 +165,39 @@ FailureDetector::handleIncomingRequest(char* buf, ssize_t bytes,
 
     RpcRequestCommon* req = reinterpret_cast<RpcRequestCommon*>(buf);
     if (req->type == PING) {
-        // just turn the ping around
-        ssize_t r = sys->sendto(serverFd, buf, bytes, 0,
+        PingRpc::Request *req = reinterpret_cast<PingRpc::Request*>(buf);
+        PingRpc::Response resp;
+        resp.common.status = STATUS_OK;
+        resp.nonce = req->nonce;
+        ssize_t r = sys->sendto(serverFd, &resp, sizeof(resp), 0,
             reinterpret_cast<sockaddr*>(sourceAddress), sizeof(*sourceAddress));
-        if (r != bytes)
+        if (r != sizeof(resp))
             LOG(WARNING, "sendto returned wrong number of bytes (%Zd)", r);
     } else if (req->type == PROXY_PING) {
-        /// XXXXX
+        ProxyPingRpc::Request *req =
+            reinterpret_cast<ProxyPingRpc::Request*>(buf);
+        uint32_t locLen = req->serviceLocatorLength;
+        if ((locLen + sizeof(*req)) != (size_t)bytes) {
+            LOG(WARNING, "bad proxy ping packet: %u total bytes, %u locator",
+                static_cast<uint32_t>(bytes),
+                static_cast<uint32_t>(locLen));
+            return;
+        }
+
+        string locator(&buf[sizeof(*req)]);
+        LOG(DEBUG, "sending proxy ping to %s", locator.c_str());
+
+        uint64_t nonce = generateRandom() | COORD_PROBE_FLAG;
+        PingRpc::Request proxyReq;
+        proxyReq.common.type = PING;
+        proxyReq.nonce = nonce;
+        sockaddr_in sin = serviceLocatorStringToSockaddrIn(locator);
+        ssize_t r = sys->sendto(clientFd, &proxyReq, sizeof(proxyReq), 0,
+            reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
+        if (r != sizeof(proxyReq))
+            LOG(WARNING, "sendto failed; couldn't ping server! (r = %Zd)", r);
+        else
+            queue.enqueue(locator, nonce);
     } else {
         LOG(WARNING, "unknown request encountered (%u); ignoring",
             (uint32_t)req->type);
@@ -165,8 +206,9 @@ FailureDetector::handleIncomingRequest(char* buf, ssize_t bytes,
 
 /**
  * Handle an incoming ping response, i.e. a reply to one of our requests.
- * If the nonce matches our last ping sent, set a flag so we know it didn't
- * time out in the mainLoop. If it doesn't match, drop and log.
+ * There are two types of replies: 1) those we initiated ourselves when
+ * pinging a random server, and 2) those we initiated on behalf of the
+ * coordinator. 
  */
 void
 FailureDetector::handleIncomingResponse(char* buf, ssize_t bytes,
@@ -175,15 +217,38 @@ FailureDetector::handleIncomingResponse(char* buf, ssize_t bytes,
     LOG(DEBUG, "incoming ping response from %s:%d",
         inet_ntoa(sourceAddress->sin_addr), ntohs(sourceAddress->sin_port));
 
-    if (bytes != 8) {
-        LOG(WARNING, "payload isn't 8 bytes!");
+    if (bytes != sizeof(PingRpc::Response)) {
+        LOG(WARNING, "payload isn't %u bytes, but %u!",
+            static_cast<uint32_t>(sizeof(PingRpc::Response)),
+            static_cast<uint32_t>(bytes));
         return;
     }
 
-    uint64_t* nonce = reinterpret_cast<uint64_t*>(buf);
-    if (queue.dequeue(*nonce)) {
+    PingRpc::Response* resp = reinterpret_cast<PingRpc::Response*>(buf);
+
+    auto tubTimeoutEntry = queue.dequeue(resp->nonce);
+    if (tubTimeoutEntry) {
         LOG(DEBUG, "received response from %s:%d",
             inet_ntoa(sourceAddress->sin_addr), ntohs(sourceAddress->sin_port));
+
+        if (resp->nonce & COORD_PROBE_FLAG) {
+            uint64_t replyUsecs = (cyclesToNanoseconds(rdtsc()) / 1000) -
+                tubTimeoutEntry->startUsec;
+
+            ProxyPingRpc::Response resp;
+            resp.common.status = STATUS_OK;
+            resp.replyNanoseconds = replyUsecs * 1000;
+
+            sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);
+            ssize_t r = sys->sendto(serverFd, &resp, sizeof(resp), 0,
+                reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
+            if (r != sizeof(resp)) {
+                LOG(WARNING, "sendto failed; couldn't reply to server! "
+                    "(r = %Zd)", r);
+            } else {
+                LOG(DEBUG, "issued reply to coordinator");
+            }
+        }
     } else {
         LOG(WARNING, "received invalid nonce -- too late?");
     }
@@ -206,7 +271,7 @@ FailureDetector::handleCoordinatorResponse(char* buf, ssize_t bytes,
     GetServerListRpc::Response* resp =
         reinterpret_cast<GetServerListRpc::Response*>(buf);
 
-    if (bytes < (int)sizeof(*resp)) {
+    if (bytes < static_cast<ssize_t>(sizeof(*resp))) {
         LOG(WARNING, "impossibly small coordinator response: %Zd bytes", bytes);
         return;
     }
@@ -244,40 +309,64 @@ FailureDetector::pingRandomServer()
         locator = &serverList.server(index).service_locator();
     }
 
-    uint64_t nonce = generateRandom();
+    uint64_t nonce = generateRandom() & ~COORD_PROBE_FLAG;
+    PingRpc::Request req;
+    req.common.type = PING;
+    req.nonce = nonce;
     sockaddr_in sin = serviceLocatorStringToSockaddrIn(*locator);
-    ssize_t r = sys->sendto(clientFd, &nonce,
-        sizeof(nonce), 0, reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
-    if (r != sizeof(nonce))
+    ssize_t r = sys->sendto(clientFd, &req,
+        sizeof(req), 0, reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
+    if (r != sizeof(req))
         LOG(WARNING, "sendto failed; couldn't ping server! (r = %Zd)", r);
     else
         queue.enqueue(*locator, nonce);
 }
 
 /**
- * Send a HintServerDown rpc request to the Coordinator. No reply will be
- * issued.
+ * Tell the coordinator that we failed to get a timely ping response.
+ * If this was a ping we initiated, send a HintServerDown rpc request
+ * to the Coordinator. If it was a proxied ping initiated by the coordinator,
+ * then reply to the RPC that caused it.
+ *
+ * Note that a HintServerDown message is not really an RPC. The coordinator
+ * should not reply to it. There's no reason for it to confirm receipt, and
+ * we'd like to keep things simple where all inbound traffic on coordFd can
+ * be assumed to be server lists.
  */
 void
 FailureDetector::alertCoordinator(TimeoutQueue::TimeoutEntry* te)
 {
     const string& loc(te->locator);
 
-    int bytesNeeded = loc.length() + 1 + sizeof(HintServerDownRpc::Request);
-    char buf[bytesNeeded];
-    memset(buf, 0, bytesNeeded);
+    if (te->nonce & COORD_PROBE_FLAG) {
+        ProxyPingRpc::Response resp;
+        resp.common.status = STATUS_OK;
+        resp.replyNanoseconds = (uint64_t)-1;
 
-    HintServerDownRpc::Request* rpc =
-        reinterpret_cast<HintServerDownRpc::Request*>(buf);
-    rpc->common.type = HINT_SERVER_DOWN;
-    rpc->serviceLocatorLength = loc.length() + 1;
-    memcpy(&buf[sizeof(*rpc)], loc.c_str(), loc.length());
+        sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);
+        ssize_t r = sys->sendto(serverFd, &resp,
+            sizeof(resp), 0, reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
+        if (r != sizeof(resp)) {
+            LOG(WARNING, "sendto failed; couldn't reply to server! "
+                "(r = %Zd)", r);
+        }
+    } else {
+        int bytesNeeded = loc.length() + 1 + sizeof(HintServerDownRpc::Request);
+        char buf[bytesNeeded];
+        memset(buf, 0, bytesNeeded);
 
-    sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);
-    ssize_t r = sys->sendto(coordFd, buf, bytesNeeded, 0,
-        reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
-    if (r != sizeof(rpc))
-        LOG(WARNING, "failed to send hint server down rpc to coordinator");
+        HintServerDownRpc::Request* rpc =
+            reinterpret_cast<HintServerDownRpc::Request*>(buf);
+        rpc->common.type = HINT_SERVER_DOWN;
+        rpc->serviceLocatorLength = loc.length() + 1;
+        memcpy(&buf[sizeof(*rpc)], loc.c_str(), loc.length());
+
+        sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);
+        ssize_t r = sys->sendto(coordFd, buf, bytesNeeded, 0,
+            reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
+        if (r != sizeof(rpc))
+            LOG(WARNING, "failed to send hint server down rpc to coordinator");
+    }
 }
 
 /**
@@ -296,8 +385,9 @@ FailureDetector::processPacket(int fd)
         reinterpret_cast<sockaddr*>(&address), &addressLength);
     if (r >= 0) {
         if (addressLength != sizeof(address)) {
-            LOG(ERROR, "weird address length: %d (expected %d)",
-                (int)addressLength, (int)sizeof(address));
+            LOG(ERROR, "weird address length: %u (expected %u)",
+                static_cast<uint32_t>(addressLength),
+                static_cast<uint32_t>(sizeof(address)));
         } else {
             if (fd == serverFd)
                 handleIncomingRequest(buf, r, &address);
@@ -321,6 +411,8 @@ FailureDetector::processPacket(int fd)
 void
 FailureDetector::requestServerList()
 {
+    LOG(DEBUG, "requesting server list");
+
     GetServerListRpc::Request rpc;
     rpc.common.type = GET_SERVER_LIST;
     rpc.serverType = type;
@@ -341,7 +433,7 @@ FailureDetector::mainLoop()
     uint64_t lastPingUsec = 0;
 
     while (!terminate) {
-        // check if time to ping again 
+        // check if time to ping again
         uint64_t nowUsec = cyclesToNanoseconds(rdtsc()) / 1000;
         if (nowUsec >= (lastPingUsec + PROBE_INTERVAL_USECS)) {
             pingRandomServer();
@@ -434,10 +526,14 @@ FailureDetector::TimeoutQueue::dequeue()
     uint64_t now = cyclesToNanoseconds(rdtsc()) / 1000;
     auto it = entries.begin();
     while (it != entries.end()) {
-        if (now >= (it->startUsec + timeoutUsecs))
-            return {*it};
-        else
-            break;          // non-descending order means we can bail early
+        if (now >= (it->startUsec + timeoutUsecs)) {
+            auto copyTub = *it;
+            entries.erase(it);
+            return copyTub;
+        } else {
+            // non-descending order means we can bail early
+            break;
+        }
         it++;
     }
     return {};
@@ -462,8 +558,9 @@ FailureDetector::TimeoutQueue::dequeue(uint64_t nonce)
     auto it = entries.begin();
     while (it != entries.end()) {
         if (it->nonce == nonce) {
+            auto copyTub = *it;
             entries.erase(it);
-            return {*it};
+            return copyTub;
         }
         it++;
     }
@@ -482,7 +579,7 @@ FailureDetector::TimeoutQueue::microsUntilNextTimeout()
     uint64_t now = cyclesToNanoseconds(rdtsc()) / 1000;
     auto it = entries.begin();
     if (it == entries.end())
-        return ~(uint64_t)0; 
+        return ~(uint64_t)0;
     uint64_t next = it->startUsec + timeoutUsecs;
     if (next >= now)
         return next - now;
