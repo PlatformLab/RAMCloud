@@ -163,6 +163,21 @@ CoordinatorClient::getServerList(ServerType type,
 }
 
 /**
+ * List all live servers.
+ * Used in ensureHosts.
+ * \param[out] serverList
+ *      An empty ServerList that will be filled with current servers.
+ */
+void
+CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
+{
+    getServerList(MASTER, serverList);
+    ProtoBuf::ServerList mergeList;
+    getServerList(BACKUP, mergeList);
+    serverList.MergeFrom(mergeList);
+}
+
+/**
  * List all live master servers.
  * The failure detector uses this to periodically probe for failed masters.
  * \param[out] serverList

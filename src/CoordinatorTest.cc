@@ -31,6 +31,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_enlistServer);
     CPPUNIT_TEST(test_getMasterList);
     CPPUNIT_TEST(test_getBackupList);
+    CPPUNIT_TEST(test_getServerList);
     CPPUNIT_TEST(test_getTabletMap);
     CPPUNIT_TEST(test_hintServerDown_master);
     CPPUNIT_TEST(test_hintServerDown_backup);
@@ -70,6 +71,8 @@ class CoordinatorTest : public CppUnit::TestFixture {
         master = static_cast<MasterServer*>(malloc(sizeof(MasterServer)));
         transport->addServer(*master, "mock:host=master");
         master = new(master) MasterServer(masterConfig, client, 0);
+        master->serverId.construct(
+            client->enlistServer(MASTER, masterConfig.localLocator));
         TestLog::enable();
     }
 
@@ -131,7 +134,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     // TODO(ongaro): test drop, open table
 
     void test_enlistServer() {
-        CPPUNIT_ASSERT_EQUAL(2, master->serverId);
+        CPPUNIT_ASSERT_EQUAL(2, *master->serverId);
         CPPUNIT_ASSERT_EQUAL(3,
                              client->enlistServer(BACKUP, "mock:host=backup"));
         assertMatchesPosixRegex("server { server_type: MASTER server_id: 2 "
@@ -168,6 +171,16 @@ class CoordinatorTest : public CppUnit::TestFixture {
                              "server { server_type: BACKUP server_id: 4 "
                              "service_locator: \"mock:host=backup2\" }",
                              backupList.ShortDebugString());
+    }
+
+    void test_getServerList() {
+        // master is already enlisted
+        client->enlistServer(BACKUP, "mock:host=backup1");
+        ProtoBuf::ServerList serverList;
+        client->getServerList(serverList);
+        CPPUNIT_ASSERT_EQUAL(2, serverList.server_size());
+        CPPUNIT_ASSERT_EQUAL(MASTER, serverList.server(0).server_type());
+        CPPUNIT_ASSERT_EQUAL(BACKUP, serverList.server(1).server_type());
     }
 
     void test_getTabletMap() {
@@ -227,7 +240,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
                  server->tabletMap.tablet())
         {
-            if (tablet.server_id() == master->serverId) {
+            if (tablet.server_id() == *master->serverId) {
                 CPPUNIT_ASSERT_EQUAL(&mockRecovery,
                     reinterpret_cast<Recovery*>(tablet.user_data()));
             }
