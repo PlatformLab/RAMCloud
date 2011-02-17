@@ -164,7 +164,7 @@ CoordinatorClient::getServerList(ServerType type,
 
 /**
  * List all live master servers.
- * The Prodder class uses this to periodically probe for failed masters.
+ * The failure detector uses this to periodically probe for failed masters.
  * \param[out] serverList
  *      An empty ServerList that will be filled with current master servers.
  */
@@ -176,8 +176,8 @@ CoordinatorClient::getMasterList(ProtoBuf::ServerList& serverList)
 
 /**
  * List all live backup servers.
- * Masters call and cache this periodically to find backups. The Prodder class
- * also uses this to periodically probe for failed backups.
+ * Masters call and cache this periodically to find backups. The failure
+ * detector also uses this to periodically probe for failed backups.
  * \param[out] serverList
  *      An empty ServerList that will be filled with current backup servers.
  */
