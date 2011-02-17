@@ -72,6 +72,10 @@ TEST(Tub, copyAndAssign) {
     IntTub z(y);
     EXPECT_EQ(5, *y);
     EXPECT_EQ(5, *z);
+
+    int p = 5;
+    IntTub q(p);
+    EXPECT_EQ(5, *q);
 }
 
 TEST(Tub, putInVector) {

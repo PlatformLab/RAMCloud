@@ -37,6 +37,9 @@ namespace RAMCloud {
  *   never be used.
  * - You want automatic destruction of an object but don't want to
  *   heap-allocate the object (as with std::unique_ptr).
+ * - You want a way to return failure from a method without using pointers,
+ *   exceptions, or special values (e.g. -1). The Tub gives you a 'maybe'
+ *   object; it may be empty if a failure occurred.
  *
  * Tub is CopyConstructible if and only if ElementType is CopyConstructible,
  * and Tub is Assignable if and only if ElementType is Assignable.
@@ -56,6 +59,20 @@ class Tub {
     Tub()
         : occupied(false)
     {}
+
+    /**
+     * Construct an occupied Tub, whose contained object is initialized
+     * with a copy of the given object.
+     * \pre
+     *      ElementType is CopyConstructible.
+     * \param other
+     *      Source of the copy.
+     */
+    Tub(const ElementType& other) // NOLINT
+        : occupied(false)
+    {
+        construct(other);
+    }
 
     /**
      * Copy constructor.
