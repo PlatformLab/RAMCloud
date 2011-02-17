@@ -273,6 +273,7 @@ class FailureDetectorTest : public CppUnit::TestFixture {
         memcpy(&buf[sizeof(*resp)], str.c_str(), length);
 
         struct sockaddr_in sin;
+        memset(&sin, 0xcc, sizeof(sin));
         fd.handleCoordinatorResponse(buf,
             length + sizeof(GetServerListRpc::Response), &sin);
 
