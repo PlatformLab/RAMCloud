@@ -20,6 +20,7 @@ from __future__ import division, print_function
 from glob import glob
 from optparse import OptionParser
 from pprint import pprint
+from functools import partial
 import math
 import random
 import sys
@@ -186,8 +187,7 @@ class Report(object):
     """A concatenation of Sections."""
     def __init__(self):
         self.sections = []
-    def addSection(self, *args, **kwargs):
-        section = Section(*args, **kwargs)
+    def add(self, section):
         self.sections.append(section)
         return section
     def __str__(self):
@@ -439,6 +439,9 @@ parser.add_option('-b', '--build-only',
 parser.add_option('-r', '--raw',
                   dest='raw', action='store_true',
                   help='Print out raw data (helpful for debugging)')
+parser.add_option('-l', '--latex',
+                  dest='latex', action='store_true',
+                  help='Print out a short report in LaTeX for the SOSP paper')
 options, args = parser.parse_args()
 
 r = Recovery('recovery metrics', 'Metrics')
@@ -472,6 +475,169 @@ if options.raw: # Prints out raw data for debugging
     print('Sample Backup:')
     pprint(random.choice(backups))
 
+### Generate LaTeX commands if requested
+
+if options.latex:
+    def newcommand(prefix, name, numbers, precision=0):
+        try:
+            iter(numbers)
+        except TypeError:
+            print('\\newcommand{{\\{0:}{1:}}}{{{2:.{precision}f}}}'.format(
+                  prefix, name, numbers, precision=precision))
+        else:
+            avg, stddev = avgAndStdDev(seq(numbers))
+            print('\\newcommand{\\%s%sAvg}{%.2f}' % (prefix, name, avg))
+            print('\\newcommand{\\%s%sStdDev}{%.2f}' % (prefix, name, stddev))
+    pnewcommand = partial(newcommand, 'breakdown')
+    def msWithPct(name, numbers, divisor):
+        try:
+            iter(numbers)
+        except TypeError:
+            pass
+        else:
+            numbers, stddev = avgAndStdDev(seq(numbers))
+        numbers *= 1000
+        divisor *= 1000
+        pnewcommand(name, numbers, 1)
+        pnewcommand('%sPct' % name,  100.0 * numbers / divisor, 2)
+    recoveryTime = coord.recoveryTicks / coord.clockFrequency
+    pnewcommand('RecoveryTime', recoveryTime, 2)
+    pnewcommand('Masters', len(masters))
+    pnewcommand('Backups', len(backups))
+    pnewcommand('ObjectCount', sum([master.master.liveObjectCount
+                                   for master in masters]))
+    pnewcommand('ObjectSize', [master.master.liveObjectBytes /
+                              master.master.liveObjectCount
+                              for master in masters])
+    msWithPct('CoordinatorIdle', (coord.idleTicks / coord.clockFrequency),
+                               recoveryTime)
+    msWithPct('CoordinatorStartRecoveryOnBackups',
+               coord.coordinator.recoveryConstructorTicks /
+               coord.clockFrequency,
+               recoveryTime)
+    msWithPct('CoordinatorStartRecoveryOnMasters',
+               coord.coordinator.recoveryStartTicks /
+               coord.clockFrequency,
+               recoveryTime)
+    msWithPct('MasterTotal', [master.recoveryTicks / master.clockFrequency
+                              for master in masters], recoveryTime)
+    msWithPct('MasterRecoverSegment',
+              [master.master.recoverSegmentTicks / master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterBackupOpenWrite',
+              [master.master.backupManagerTicks / master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterApproxCpu',
+              [(master.master.recoverSegmentTicks -
+              master.master.backupManagerTicks)
+              / master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterVerifyChecksum',
+              [master.master.verifyChecksumTicks / master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterSegmentAppendCopy',
+              [master.master.segmentAppendCopyTicks / master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterSegmentAppendChecksum',
+              [master.master.segmentAppendChecksumTicks /
+              master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterHtProfiler',
+              [(master.master.recoverSegmentTicks -
+              master.master.backupManagerTicks -
+              master.master.verifyChecksumTicks -
+              master.master.segmentAppendCopyTicks -
+              master.master.segmentAppendChecksumTicks) /
+              master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterWaitingForBackups',
+              [(master.master.segmentOpenStallTicks +
+              master.master.segmentWriteStallTicks +
+              master.master.segmentReadStallTicks)
+              / master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterStalledOnSegmentOpen',
+              [master.master.segmentOpenStallTicks / master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterStalledOnSegmentWrite',
+              [master.master.segmentWriteStallTicks / master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterStalledOnSegmentRead',
+              [master.master.segmentReadStallTicks / master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterRemovingTombstones',
+              [master.master.removeTombstoneTicks / master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('MasterTransmittingInTransport',
+              [master.transport.transmit.ticks / master.clockFrequency
+              for master in masters],
+              recoveryTime)
+    msWithPct('BackupTotalMainThread',
+                     [backup.recoveryTicks / backup.clockFrequency
+                      for backup in backups],
+                     recoveryTime)
+    msWithPct('BackupIdle',
+                     [backup.idleTicks / backup.clockFrequency
+                      for backup in backups],
+                     recoveryTime)
+    msWithPct('BackupStartReadingData',
+                     [backup.backup.startReadingDataTicks / backup.clockFrequency
+                      for backup in backups],
+                     recoveryTime)
+    msWithPct('BackupOpenWriteSegment',
+                     [backup.backup.writeTicks / backup.clockFrequency
+                      for backup in backups],
+                     recoveryTime)
+    msWithPct('BackupOpenSegmentZeroMemory',
+                     [backup.backup.writeClearTicks / backup.clockFrequency
+                      for backup in backups],
+                     recoveryTime)
+    msWithPct('BackupWriteCopy',
+                     [backup.backup.writeCopyTicks / backup.clockFrequency
+                      for backup in backups],
+                     recoveryTime)
+    msWithPct('BackupWriteOther',
+                     [(backup.backup.writeTicks -
+                       backup.backup.writeClearTicks -
+                       backup.backup.writeCopyTicks) / backup.clockFrequency
+                      for backup in backups],
+                     recoveryTime)
+    msWithPct('BackupReadSegmentStall',
+                     [backup.backup.readStallTicks / backup.clockFrequency
+                      for backup in backups],
+                     recoveryTime)
+    msWithPct('BackupTransmittingInTransport',
+                     [backup.transport.transmit.ticks / backup.clockFrequency
+                      for backup in backups],
+                     recoveryTime)
+    msWithPct('BackupOther',
+                     [(backup.recoveryTicks -
+                       backup.idleTicks -
+                       backup.backup.startReadingDataTicks -
+                       backup.backup.writeTicks -
+                       backup.backup.readStallTicks -
+                       backup.transport.transmit.ticks) /
+                      backup.clockFrequency
+                      for backup in backups],
+                     recoveryTime)
+    msWithPct('BackupFilteringSegmentsThread',
+                     [backup.backup.filterTicks / backup.clockFrequency
+                      for backup in backups],
+                     recoveryTime)
+    exit(0)
+
 ### Generate report:
 
 recoveryTime = coord.recoveryTicks / coord.clockFrequency
@@ -479,7 +645,7 @@ report = Report()
 
 # TODO(ongaro): Size distributions of filtered segments
 
-summary = report.addSection('Summary')
+summary = report.add(Section('Summary'))
 summary.avgStd('Recovery time', recoveryTime, '{0:6.3f} s')
 summary.avgStd('Masters', len(masters))
 summary.avgStd('Backups', len(backups))
@@ -502,7 +668,7 @@ if backups:
                                       'unknown')
     summary.line('Storage type', [storageType])
 
-coordSection = report.addSection('Coordinator Time')
+coordSection = report.add(Section('Coordinator Time'))
 coordSection.ms('Idle',
                 coord.idleTicks / coord.clockFrequency,
                 total=recoveryTime,
@@ -517,7 +683,7 @@ coordSection.ms('Starting recovery on masters',
                 total=recoveryTime,
                 fractionLabel='of total recovery')
 
-masterSection = report.addSection('Master Time')
+masterSection = report.add(Section('Master Time'))
 masterSection.ms('Total',
                  [master.recoveryTicks / master.clockFrequency
                   for master in masters],
@@ -602,7 +768,7 @@ masterSection.ms('Transmitting in transport',
                  total=recoveryTime,
                  fractionLabel='of total recovery')
 
-backupSection = report.addSection('Backup Time')
+backupSection = report.add(Section('Backup Time'))
 backupSection.ms('Total in RPC thread',
                  [backup.recoveryTicks / backup.clockFrequency
                   for backup in backups],
@@ -667,7 +833,7 @@ backupSection.ms('Filtering segments',
                  total=recoveryTime,
                  fractionLabel='of total recovery')
 
-efficiencySection = report.addSection('Efficiency')
+efficiencySection = report.add(Section('Efficiency'))
 
 # TODO(ongaro): get stddev among segments
 efficiencySection.avgStd('recoverSegment CPU',
@@ -694,7 +860,7 @@ efficiencySection.avgStd('Filtering a segment',
                                   for backup in backups]),
                          pointFormat='{0:6.2f} ms avg')
 
-networkSection = report.addSection('Network Utilization')
+networkSection = report.add(Section('Network Utilization'))
 networkSection.avgStdFrac('Aggregate',
                           (sum([host.transport.transmit.byteCount
                                 for host in [coord] + masters + backups]) *
@@ -724,7 +890,7 @@ networkSection.avgStdSum('Backup out',
                          '{0:4.2f} Gb/s',
                          note='overall')
 
-diskSection = report.addSection('Disk Utilization')
+diskSection = report.add(Section('Disk Utilization'))
 diskSection.avgStdSum('Effective bandwidth',
                    [((backup.backup.storageReadBytes +
                       backup.backup.storageWriteBytes) / 2**20) /
@@ -761,7 +927,7 @@ diskSection.avgStd('  Writing',
                    '{0:6.2f}%',
                    note='of total recovery')
 
-localSection = report.addSection('Local Metrics')
+localSection = report.add(Section('Local Metrics'))
 for hosts, attr in [([coord], 'coordinator'),
                     (masters, 'master'),
                     (backups, 'backup')]:
