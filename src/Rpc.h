@@ -131,7 +131,7 @@ struct ProxyPingRpc {
                                        // follow immediately after this header.
     };
     struct Response {
-        RpcRequestCommon common;
+        RpcResponseCommon common;
         uint64_t replyNanoseconds;     // Number of nanoseconds it took to get
                                        // the reply. If a timeout occurred, the
                                        // value is -1.
