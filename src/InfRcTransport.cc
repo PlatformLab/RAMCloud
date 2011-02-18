@@ -471,6 +471,11 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
         if (elapsedUs >= (uint64_t)usTimeout)
             return false;
         usTimeout -= elapsedUs;
+
+        // We need to call the dispatcher in order to let other event handlers
+        // run (this is particularly important if the server we are trying to
+        // connect to is us).
+        Dispatch::poll();
     }
 }
 

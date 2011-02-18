@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -49,7 +49,8 @@ Syscall* UdpDriver::sys = &defaultSyscall;
  *      drivers.
  */
 UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
-    : socketFd(-1), packetBufPool(), packetBufsUtilized(0), locatorString()
+    : socketFd(-1), transport(NULL), readHandler(),
+      packetBufPool(), packetBufsUtilized(0), locatorString()
 {
     if (localServiceLocator != NULL)
         locatorString = localServiceLocator->getOriginalString();
@@ -85,6 +86,20 @@ UdpDriver::~UdpDriver()
         LOG(ERROR, "UdpDriver deleted with %d packets still in use",
             packetBufsUtilized);
     sys->close(socketFd);
+}
+
+// See docs in Driver class.
+void
+UdpDriver::connect(FastTransport* transport) {
+    this->transport = transport;
+    readHandler.construct(socketFd, this);
+}
+
+// See docs in Driver class.
+void
+UdpDriver::disconnect() {
+    readHandler.destroy();
+    this->transport = NULL;
 }
 
 // See docs in Driver class.
@@ -151,32 +166,36 @@ UdpDriver::sendPacket(const Address *addr,
     assert(static_cast<size_t>(r) == totalLength);
 }
 
-// See docs in Driver class.
-bool
-UdpDriver::tryRecvPacket(Received *received)
+/**
+ * Invoked by the dispatcher when our socket becomes readable.
+ * Reads a packet from the socket, if there is one, and passes it on
+ * to the associated FastTransport instance.
+ */
+void
+UdpDriver::ReadHandler::operator() ()
 {
     PacketBuf* buffer;
-    buffer = packetBufPool.construct();
+    buffer = driver->packetBufPool.construct();
     socklen_t addrlen = sizeof(&buffer->ipAddress.address);
-    int r = sys->recvfrom(socketFd, buffer->payload, MAX_PAYLOAD_SIZE,
+    int r = sys->recvfrom(driver->socketFd, buffer->payload, MAX_PAYLOAD_SIZE,
                      MSG_DONTWAIT,
                      &buffer->ipAddress.address, &addrlen);
     if (r == -1) {
-        packetBufPool.destroy(buffer);
+        driver->packetBufPool.destroy(buffer);
         if (errno == EAGAIN || errno == EWOULDBLOCK)
-            return false;
+            return;
         // TODO(stutsman) We could probably recover from a lot of errors here.
         throw DriverException(HERE, "UdpDriver error receiving from socket",
                               errno);
     }
-    received->len = r;
+    Received received;
+    received.len = r;
 
-    packetBufsUtilized++;
-    received->payload = buffer->payload;
-    received->sender = &buffer->ipAddress;
-    received->driver = this;
-
-    return true;
+    driver->packetBufsUtilized++;
+    received.payload = buffer->payload;
+    received.sender = &buffer->ipAddress;
+    received.driver = driver;
+    driver->transport->handleIncomingPacket(&received);
 }
 
 // See docs in Driver class.

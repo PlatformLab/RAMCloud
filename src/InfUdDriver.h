@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,11 +24,13 @@
 #include <boost/pool/object_pool.hpp>
 
 #include "Common.h"
+#include "Dispatch.h"
 #include "Driver.h"
 #include "Infiniband.h"
 #include "Tub.h"
 
 namespace RAMCloud {
+class FastTransport;
 
 /**
  * A Driver for Infiniband unreliable datagram (UD) communication.
@@ -47,6 +49,8 @@ class InfUdDriver : public Driver {
 
     explicit InfUdDriver(const ServiceLocator* localServiceLocator = NULL);
     virtual ~InfUdDriver();
+    virtual void connect(FastTransport* transport);
+    virtual void disconnect();
     virtual void dumpStats() { infiniband->dumpStats(); }
     virtual uint32_t getMaxPacketSize();
     virtual void release(char *payload, uint32_t len);
@@ -54,7 +58,6 @@ class InfUdDriver : public Driver {
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
-    virtual bool tryRecvPacket(Received *received);
     virtual ServiceLocator getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator& serviceLocator) {
@@ -117,6 +120,26 @@ class InfUdDriver : public Driver {
 
     /// Our ServiceLocator, including the dynamic lid and qpn
     string              locatorString;
+
+    /// The FastTransport object that will handle all incoming packets
+    /// received by this driver.  NULL means #connect hasn't been called
+    /// yet.
+    FastTransport* transport;
+
+    /**
+     * The following object is invoked by the dispatcher's polling loop;
+     * it reads incoming packets and passes them on to #transport.
+     */
+    class Poller : public Dispatch::Poller {
+      public:
+        explicit Poller(InfUdDriver* driver) : driver(driver) { }
+        virtual bool operator() ();
+      private:
+        // Driver on whose behalf this poller operates.
+        InfUdDriver* driver;
+        DISALLOW_COPY_AND_ASSIGN(Poller);
+    };
+    Tub<Poller> poller;
 
     DISALLOW_COPY_AND_ASSIGN(InfUdDriver);
 };
