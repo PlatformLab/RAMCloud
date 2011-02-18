@@ -37,18 +37,6 @@ class InfRcTransportTest : public CppUnit::TestFixture {
         delete locator;
     }
 
-    // Call serverRecv until there is an incoming RPC available.
-    Transport::ServerRpc*
-    waitRequest(Transport* transport) {
-        Transport::ServerRpc* result;
-        while (true) {
-            result = transport->serverRecv();
-            if (result != NULL)
-                return result;
-            Dispatch::poll();
-        }
-    }
-
     void test_sanityCheck() {
         // Create a server and a client and verify that we can
         // send a request, receive it, send a reply, and receive it.
@@ -63,7 +51,8 @@ class InfRcTransportTest : public CppUnit::TestFixture {
         request.fillFromString("abcdefg");
         Transport::ClientRpc* clientRpc = session->clientSend(&request,
                 &reply);
-        Transport::ServerRpc* serverRpc = waitRequest(&server);
+        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
+        CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
         CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
         serverRpc->replyPayload.fillFromString("klmn");
@@ -75,7 +64,8 @@ class InfRcTransportTest : public CppUnit::TestFixture {
         fillLargeBuffer(&request, 100000);
         reply.reset();
         clientRpc = session->clientSend(&request, &reply);
-        serverRpc = waitRequest(&server);
+        serverRpc = waitForRpcRequest(&server, 1.0);
+        CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("ok",
                 checkLargeBuffer(&serverRpc->recvPayload, 100000));
         fillLargeBuffer(&serverRpc->replyPayload, 50000);

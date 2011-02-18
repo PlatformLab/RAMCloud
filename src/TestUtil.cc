@@ -21,6 +21,8 @@
 
 #include <string.h>
 #include "TestUtil.h"
+#include "BenchUtil.h"
+#include "Dispatch.h"
 
 using namespace RAMCloud;
 
@@ -445,6 +447,34 @@ checkLargeBuffer(Buffer* buffer, int expectedLength)
         }
     }
     return string("ok");
+}
+
+/**
+ * Wait for an RPC request to arrive on a given transport, but give up if
+ * it takes too long.
+ *
+ * \param transport
+ *      Wait for a request on this transport.
+ * \param timeoutSeconds
+ *      Request doesn't arrive within this many seconds, return NULL.
+ *
+ * \result
+ *      The incoming RPC request, or NULL if nothing arrived within the time
+ *      limit.
+ */
+Transport::ServerRpc*
+waitForRpcRequest(Transport* transport, double timeoutSeconds) {
+    Transport::ServerRpc* result;
+    uint64_t start = rdtsc();
+    while (true) {
+        result = transport->serverRecv();
+        if (result != NULL)
+            return result;
+        if (cyclesToSeconds(rdtsc() - start) > timeoutSeconds) {
+            return NULL;
+        }
+        Dispatch::poll();
+    }
 }
 
 } // namespace RAMCloud

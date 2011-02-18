@@ -100,18 +100,6 @@ class TcpTransportTest : public CppUnit::TestFixture {
         return fd;
     }
 
-    // Call serverRecv until there is an incoming RPC available.
-    Transport::ServerRpc*
-    waitRequest(Transport* transport) {
-        Transport::ServerRpc* result;
-        while (true) {
-            result = transport->serverRecv();
-            if (result != NULL)
-                return result;
-            Dispatch::poll();
-        }
-    }
-
     void test_sanityCheck() {
         // Create a server and a client and verify that we can
         // send a request, receive it, send a reply, and receive it.
@@ -126,7 +114,8 @@ class TcpTransportTest : public CppUnit::TestFixture {
         request.fillFromString("abcdefg");
         Transport::ClientRpc* clientRpc = session->clientSend(&request,
                 &reply);
-        Transport::ServerRpc* serverRpc = waitRequest(&server);
+        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
+        CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
         CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
         serverRpc->replyPayload.fillFromString("klmn");
@@ -138,7 +127,8 @@ class TcpTransportTest : public CppUnit::TestFixture {
         request.fillFromString("request2");
         reply.reset();
         clientRpc = session->clientSend(&request, &reply);
-        serverRpc = waitRequest(&server);
+        serverRpc = waitForRpcRequest(&server, 1.0);
+        CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("request2/0", toString(&serverRpc->recvPayload));
         serverRpc->replyPayload.fillFromString("reply2");
         serverRpc->sendReply();
@@ -200,8 +190,10 @@ class TcpTransportTest : public CppUnit::TestFixture {
                 &reply1);
         Transport::ClientRpc* clientRpc2 = session2->clientSend(&request2,
                 &reply2);
-        Transport::ServerRpc* serverRpc1 = waitRequest(server);
-        Transport::ServerRpc* serverRpc2 = waitRequest(server);
+        Transport::ServerRpc* serverRpc1 = waitForRpcRequest(server, 1.0);
+        CPPUNIT_ASSERT(serverRpc1 != NULL);
+        Transport::ServerRpc* serverRpc2 = waitForRpcRequest(server, 1.0);
+        CPPUNIT_ASSERT(serverRpc2 != NULL);
         CPPUNIT_ASSERT_EQUAL("request1/0", toString(&serverRpc1->recvPayload));
         CPPUNIT_ASSERT_EQUAL("request2/0", toString(&serverRpc2->recvPayload));
         serverRpc1->replyPayload.fillFromString("reply1");
@@ -340,7 +332,8 @@ class TcpTransportTest : public CppUnit::TestFixture {
         Buffer::Chunk::appendToBuffer(&payload, "12345678", 8);
         TcpTransport::sendMessage(fd, payload);
 
-        Transport::ServerRpc* serverRpc = waitRequest(&server);
+        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
+        CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("abcdexxx12345678",
                 toString(&serverRpc->recvPayload));
 
