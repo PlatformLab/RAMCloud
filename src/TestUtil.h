@@ -80,6 +80,8 @@ void assertMatchesPosixRegex(const string& pattern, const string& subject);
 void assertNotMatchesPosixRegex(const string& pattern, const string& subject);
 void convertChar(char c, string *out);
 string bufferToDebugString(Buffer* buffer);
+string checkLargeBuffer(Buffer* buffer, int expectedLength);
+void fillLargeBuffer(Buffer* buffer, int size);
 string toString(const char *buf, uint32_t length);
 string toString(Buffer* buffer);
 
