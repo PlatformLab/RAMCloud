@@ -178,7 +178,7 @@ InfUdDriver<Infiniband>::getMaxPacketSize()
  */
 template<typename Infiniband>
 void
-InfUdDriver<Infiniband>::release(char *payload, uint32_t len)
+InfUdDriver<Infiniband>::release(char *payload)
 {
     // Note: the payload is actually contained in a PacketBuf structure,
     // which we return to a pool for reuse later.

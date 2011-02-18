@@ -53,7 +53,7 @@ class InfUdDriver : public Driver {
     virtual void disconnect();
     virtual void dumpStats() { infiniband->dumpStats(); }
     virtual uint32_t getMaxPacketSize();
-    virtual void release(char *payload, uint32_t len);
+    virtual void release(char *payload);
     virtual void sendPacket(const Driver::Address *addr,
                             const void *header,
                             uint32_t headerLen,

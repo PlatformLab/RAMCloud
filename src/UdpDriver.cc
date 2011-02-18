@@ -111,7 +111,7 @@ UdpDriver::getMaxPacketSize()
 
 // See docs in Driver class.
 void
-UdpDriver::release(char *payload, uint32_t len)
+UdpDriver::release(char *payload)
 {
     // Note: the payload is actually contained in a PacketBuf structure,
     // which we return to a pool for reuse later.

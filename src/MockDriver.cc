@@ -63,7 +63,7 @@ MockDriver::disconnect() {
  * See Driver::release().
  */
 void
-MockDriver::release(char *payload, uint32_t len)
+MockDriver::release(char *payload)
 {
     releaseCount++;
 }

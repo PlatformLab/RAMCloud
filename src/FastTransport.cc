@@ -391,23 +391,19 @@ FastTransport::ServerRpc::sendReply()
  *      The Driver to release() this payload to on Buffer destruction.
  * \param payload
  *      The address to release() to the Driver on destruction.
- * \param payloadLength
- *      The length of the resources starting at payload to release.
  */
 FastTransport::PayloadChunk*
 FastTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
                                              char* data,
                                              uint32_t dataLength,
                                              Driver* driver,
-                                             char* payload,
-                                             uint32_t payloadLength)
+                                             char* payload)
 {
     PayloadChunk* chunk =
         new(buffer, CHUNK) PayloadChunk(data,
                                         dataLength,
                                         driver,
-                                        payload,
-                                        payloadLength);
+                                        payload);
     Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
     return chunk;
 }
@@ -431,23 +427,19 @@ FastTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
  *      The Driver to release() this payload to on Buffer destruction.
  * \param payload
  *      The address to release() to the Driver on destruction.
- * \param payloadLength
- *      The length of the resources starting at payload to release.
  */
 FastTransport::PayloadChunk*
 FastTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
                                             Driver* driver,
-                                            char* payload,
-                                            uint32_t payloadLength)
+                                            char* payload)
 {
     PayloadChunk* chunk =
         new(buffer, CHUNK) PayloadChunk(data,
                                         dataLength,
                                         driver,
-                                        payload,
-                                        payloadLength);
+                                        payload);
     Buffer::Chunk::appendChunkToBuffer(buffer, chunk);
     return chunk;
 }
@@ -456,11 +448,11 @@ FastTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
 FastTransport::PayloadChunk::~PayloadChunk()
 {
     if (driver)
-        driver->release(payload, payloadLength);
+        driver->release(payload);
 }
 
 /**
- * Construct a PayloadChunk which will release it's resources to the
+ * Construct a PayloadChunk which will release its resources to the
  * Driver that allocated it when it's containing Buffer is destroyed.
  *
  * \param data
@@ -476,18 +468,14 @@ FastTransport::PayloadChunk::~PayloadChunk()
  *      The Driver to release() this payload to on Buffer destruction.
  * \param payload
  *      The address to release() to the Driver on destruction.
- * \param payloadLength
- *      The length of the resources starting at payload to release.
  */
 FastTransport::PayloadChunk::PayloadChunk(void* data,
                                           uint32_t dataLength,
                                           Driver* driver,
-                                          char* const payload,
-                                          uint32_t payloadLength)
+                                          char* const payload)
     : Buffer::Chunk(data, dataLength)
     , driver(driver)
     , payload(payload)
-    , payloadLength(payloadLength)
 {
 }
 
@@ -591,7 +579,7 @@ FastTransport::InboundMessage::reset()
         std::pair<char*, uint32_t> elt =
             dataStagingWindow[firstMissingFrag + 1 + i];
         if (elt.first)
-            transport->driver->release(elt.first, elt.second);
+            transport->driver->release(elt.first);
     }
     totalFrags = 0;
     dataStagingWindow.reset();
@@ -661,8 +649,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                                      payload + sizeof(Header),
                                      length - sizeof(Header),
                                      transport->driver,
-                                     payload,
-                                     length);
+                                     payload);
 
         // Advance the staging window (and firstMissingFrag) to restore the
         // invariants:
@@ -686,8 +673,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                                          payload + sizeof(Header),
                                          length - sizeof(Header),
                                          transport->driver,
-                                         payload,
-                                         length);
+                                         payload);
         }
     } else if (header->fragNumber > firstMissingFrag) {
         // If the fragNumber exceeds the firstMissingFrag of this message then

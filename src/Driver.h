@@ -112,7 +112,7 @@ class Driver {
      */
     virtual uint32_t getMaxPacketSize() = 0;
 
-    virtual void release(char *payload, uint32_t len);
+    virtual void release(char *payload);
 
     /**
      * Invoked by a FastTransport instance to associate itself with this

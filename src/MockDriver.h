@@ -57,7 +57,7 @@ class MockDriver : public Driver {
     virtual void connect(FastTransport* transport);
     virtual void disconnect();
     virtual uint32_t getMaxPacketSize() { return 1400; }
-    virtual void release(char *payload, uint32_t len);
+    virtual void release(char *payload);
     virtual void sendPacket(const Address* addr,
                             const void *header,
                             uint32_t headerLen,

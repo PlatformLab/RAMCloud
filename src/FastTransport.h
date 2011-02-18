@@ -272,30 +272,24 @@ class FastTransport : public Transport {
                                              char* data,
                                              uint32_t dataLength,
                                              Driver* driver,
-                                             char* payload,
-                                             uint32_t payloadLength);
+                                             char* payload);
         static PayloadChunk* appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
                                             Driver* driver,
-                                            char* payload,
-                                            uint32_t payloadLength);
+                                            char* payload);
         ~PayloadChunk();
       private:
         PayloadChunk(void* data,
                      uint32_t dataLength,
                      Driver* driver,
-                     char* const payload,
-                     uint32_t payloadLength);
+                     char* const payload);
 
         /// Return the PayloadChunk memory here.
         Driver* const driver;
 
         /// The memory backing the chunk and which is to be returned.
         char* const payload;
-
-        /// Length of the memory region starting at payload.
-        const uint32_t payloadLength;
 
         DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
