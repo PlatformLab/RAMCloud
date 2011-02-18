@@ -10,7 +10,10 @@ umask 0000
 
 source ./scripts/common.bash
 
-outputdir="$(pwd)/recovery"
+datetime=$(date +%Y%m%d%H%M%S)
+outputdir="$(pwd)/recovery/$datetime"
+mkdir $outputdir
+(cd recovery; ln -fsT $datetime latest)
 
 #proto=fast+udp
 #proto=tcp
@@ -30,27 +33,24 @@ remoteprecmd="export LD_LIBRARY_PATH=/usr/local/lib;"
 
 xstart() {
     xterm -e ssh -t -t $1 "$remoteprecmd $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3" &
-    atexit "kill $!; rm /var/tmp/backup.log"
+    atexit "kill $! 2>/dev/null"
 }
 
 start() {
     ssh $1 "$remoteprecmd $(pwd)/$OBJDIR/$2 $commonopts > $outputdir/$3 2>&1"  &
-    atexit "kill $!; rm /var/tmp/backup.log"
+    atexit "kill $! 2>/dev/null"
 }
 
 startfg() {
     ssh $1 "$remoteprecmd $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3"
-    atexit "kill $!; rm /var/tmp/backup.log"
+    atexit "kill $! 2>/dev/null"
 }
 
 ensure() {
     $OBJDIR/ensureHosts -C $C -n $1 -l 1 || exit 1
 }
 
-suffix=.$$.rclog
-
-# clean up any old logs and backup files
-rm $outputdir/*rclog
+suffix=.log
 
 start ${host[0]} coordinator coordinator$suffix
 
@@ -67,12 +67,12 @@ start ${host[5]} "backup $backupflags -L $proto:host=${host[5]},port=12293" back
 
 ensure 6
 
-start ${host[0]} "server -m 2048 -r 1 -L $proto:host=${host[0]},port=12242" master1$suffix
+start ${host[0]} "server -m 2048 -r 1 -L $proto:host=${host[0]},port=12242" oldMaster$suffix
 ensure 7
-start ${host[1]} "server -m 2048 -r 1 -L $proto:host=${host[1]},port=12247" master2$suffix
+start ${host[1]} "server -m 2048 -r 1 -L $proto:host=${host[1]},port=12247" newMaster1$suffix
 
 # add in third master and pass "-t 2 -k 2" to this script to recover 2 partitions
-#start ${host[2]} "server -m 2048 -r 1 -L $proto:host=${host[2]},port=12248" master3$suffix
+#start ${host[2]} "server -m 2048 -r 1 -L $proto:host=${host[2]},port=12248" newMaster2$suffix
 
 ensure 8
 
@@ -83,18 +83,16 @@ startfg ${host[0]} "client -d $*" client$suffix
 for h in ${host[@]}; do
     # sloppy version of cleaup in case ssh -t -t doesn't do the trick
     ssh $h "pkill backup; pkill server; pkill coordinator; pkill client"
-    # clean up any backup files left
-    ssh $h "rm /var/tmp/backup.log > /dev/null 2>&1"
 done > /dev/null 2>&1
 
-sort $outputdir/*.rclog > $outputdir/rclog
+sort $outputdir/*.log > $outputdir/all.log
 
 # Extract values and dump to stdout, useful when all processes are run in separate
-# xterms, otherwise it's best to extract values directly from the leftover $outputdir/rclog
+# xterms, otherwise it's best to extract values directly from the leftover $outputdir/all.log
 awk '
 /Performing/ { count=$8; size=$11; }
 /Recovery completed in/ { ns=$10; }
 /Bytes written/ { if ($9 != 0) { written=$9; } }
 /Bytes logged/ { if ($10 != 0) { logged=$10; } }
 END { print count " " size " " written " " logged " " ns; }
-' $outputdir/rclog
+' $outputdir/all.log

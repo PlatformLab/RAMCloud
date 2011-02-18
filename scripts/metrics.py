@@ -460,10 +460,12 @@ if options.buildOnly: # Called automatically by make when this file is modified
     r.dumpLoggingCode(cc, 'metrics', 'metrics->')
     sys.exit(0)
 
-coord = parse(open(glob('recovery/coordinator.*.rclog')[0]))
-masters = [parse(open(f)) for f in sorted(glob('recovery/master*.*.rclog'))
-           if not f.startswith('recovery/master1.')]
-backups = [parse(open(f)) for f in sorted(glob('recovery/backup*.*.rclog'))]
+recovery_dir = 'recovery/latest'
+coord = parse(open(glob('%s/coordinator.log' % recovery_dir)[0]))
+masters = [parse(open(f))
+           for f in sorted(glob('%s/newMaster*.log' % recovery_dir))]
+backups = [parse(open(f))
+           for f in sorted(glob('%s/backup*.log' % recovery_dir))]
 
 if options.raw: # Prints out raw data for debugging
     print('Coordinator:')
