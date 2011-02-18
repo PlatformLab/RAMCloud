@@ -1,0 +1,6 @@
+#!/bin/bash
+pidfile=/dev/shm/.$USER.$1.pid
+export LD_LIBRARY_PATH=~/bin:/usr/local/lib:$LD_LIBRARY_PATH
+echo $$ >> $pidfile
+shift
+exec $*

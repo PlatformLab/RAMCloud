@@ -158,7 +158,14 @@ def average(points):
 def avgAndStdDev(points):
     """Return the (average, standard deviation) of a sequence of numbers."""
     avg = average(points)
-    return (avg, math.sqrt(average([p**2 for p in points]) - avg**2))
+    variance = average([p**2 for p in points]) - avg**2
+    if variance < 0:
+        # poor floating point arithmetic made variance negative
+        assert variance > -0.1
+        stddev = 0.0
+    else:
+        stddev = math.sqrt(variance)
+    return (avg, stddev)
 
 def seq(x):
     """Turn the argument into a sequence.
@@ -348,6 +355,8 @@ class Transmit(TransmitReceiveCommon):
 class Transport(Struct):
     transmit = Transmit('transmit docs', 'Transmit')
     receive = TransmitReceiveCommon('receive docs', 'Receive')
+    sessionOpenTicks = u64(
+        'total amount of time opening sessions for RPCs')
 
 class Coordinator(Struct):
     recoveryConstructorTicks = u64(
@@ -460,10 +469,12 @@ if options.buildOnly: # Called automatically by make when this file is modified
     r.dumpLoggingCode(cc, 'metrics', 'metrics->')
     sys.exit(0)
 
-coord = parse(open(glob('recovery/coordinator.*.rclog')[0]))
-masters = [parse(open(f)) for f in sorted(glob('recovery/master*.*.rclog'))
-           if not f.startswith('recovery/master1.')]
-backups = [parse(open(f)) for f in sorted(glob('recovery/backup*.*.rclog'))]
+recovery_dir = 'recovery/latest'
+coord = parse(open(glob('%s/coordinator.log' % recovery_dir)[0]))
+masters = [parse(open(f))
+           for f in sorted(glob('%s/newMaster*.log' % recovery_dir))]
+backups = [parse(open(f))
+           for f in sorted(glob('%s/backup*.log' % recovery_dir))]
 
 if options.raw: # Prints out raw data for debugging
     print('Coordinator:')
@@ -767,6 +778,11 @@ masterSection.ms('Transmitting in transport',
                   for master in masters],
                  total=recoveryTime,
                  fractionLabel='of total recovery')
+masterSection.ms('Opening sessions',
+                 [master.transport.sessionOpenTicks / master.clockFrequency
+                  for msater in masters],
+                 total=recoveryTime,
+                 fractionLabel='of total recovery')
 
 backupSection = report.add(Section('Backup Time'))
 backupSection.ms('Total in RPC thread',
@@ -837,26 +853,30 @@ efficiencySection = report.add(Section('Efficiency'))
 
 # TODO(ongaro): get stddev among segments
 efficiencySection.avgStd('recoverSegment CPU',
-                         average([((master.master.recoverSegmentTicks -
-                                    master.master.backupManagerTicks) /
-                                   master.clockFrequency * 1000 /
-                                   master.master.segmentReadCount)
-                                  for master in masters]),
-                         pointFormat='{0:6.2f} ms avg')
+                         (sum([(master.master.recoverSegmentTicks -
+                                master.master.backupManagerTicks) /
+                               master.clockFrequency
+                               for master in masters]) * 1000 /
+                          sum([master.master.segmentReadCount
+                               for master in masters])),
+                         pointFormat='{0:6.2f} ms avg',
+                         note='per filtered segment')
 
 # TODO(ongaro): get stddev among segments
 efficiencySection.avgStd('Writing a segment',
-                         average([(backup.backup.writeTicks /
-                                   backup.clockFrequency * 1000 /
-                                   backup.backup.readCount)
-                                  for backup in backups]),
+                         (sum([backup.backup.writeTicks / backup.clockFrequency
+                               for backup in backups]) * 1000 /
+# Divide count by 2 since each segment does two writes: one to open the segment
+# and one to write the data.
+                          sum([backup.backup.writeCount / 2
+                               for backup in backups])),
                          pointFormat='{0:6.2f} ms avg',
                          note='backup RPC thread')
 # TODO(ongaro): get stddev among segments
 efficiencySection.avgStd('Filtering a segment',
                          average([(backup.backup.filterTicks /
                                    backup.clockFrequency * 1000 /
-                                   backup.backup.readCount)
+                                   backup.backup.storageReadCount)
                                   for backup in backups]),
                          pointFormat='{0:6.2f} ms avg')
 

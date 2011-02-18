@@ -174,6 +174,8 @@ TransportManager::getSession(const char* serviceLocator)
     if (it != sessionCache.end())
         return it->second;
 
+    CycleCounter<Metric> _(&metrics->transport.sessionOpenTicks);
+
     // Session was not found in the cache, a new one will be created
     auto locators = ServiceLocator::parseServiceLocators(serviceLocator);
     // The first protocol specified in the locator that works is chosen
