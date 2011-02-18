@@ -213,6 +213,31 @@ class DispatchTest : public CppUnit::TestFixture {
         close(pipeFds[1]);
     }
 
+    // Calls Dispatch::poll repeatedly until either it returns true
+    // or a given amount of time has elapsed.  Returns "ok" if
+    // Dispatch::poll actually did something, "no dispatch activity"
+    // if nothing happened
+    const char* waitForPollSuccess(double timeoutSeconds) {
+        uint64_t start = rdtsc();
+        while (!Dispatch::poll()) {
+            usleep(1000);
+            if (cyclesToSeconds(rdtsc() - start) > timeoutSeconds)
+                return "no dispatch activity";
+        }
+        return "ok";
+    }
+
+    // Waits for a file to become ready, but gives up after a given
+    // elapsed time.
+    void waitForReadyFd(double timeoutSeconds) {
+        uint64_t start = rdtsc();
+        while (Dispatch::readyFd < 0) {
+            usleep(1000);
+            if (cyclesToSeconds(rdtsc() - start) > timeoutSeconds)
+                return;
+        }
+    }
+
     static string log;
 
     // The following test exercises most of the functionality related to
@@ -260,23 +285,21 @@ class DispatchTest : public CppUnit::TestFixture {
         DummyFile *f = new DummyFile("f1", true, pipeFds[0],
                 Dispatch::FileEvent::READABLE);
         Dispatch::fileInvocationSerial = -2;
-        usleep(5000);
 
         // No event on file.
+        usleep(5000);
         CPPUNIT_ASSERT_EQUAL(false, Dispatch::poll());
         CPPUNIT_ASSERT_EQUAL("", *localLog);
         write(pipeFds[1], "0123456789abcdefghijklmnop", 26);
-        usleep(5000);
 
         // File ready.
-        CPPUNIT_ASSERT_EQUAL(true, Dispatch::poll());
+        CPPUNIT_ASSERT_EQUAL("ok", waitForPollSuccess(1.0));
         CPPUNIT_ASSERT_EQUAL("file f1 invoked, read '0123456789'", *localLog);
         CPPUNIT_ASSERT_EQUAL(-1, f->lastInvocationId);
         localLog->clear();
-        usleep(5000);
 
         // File is still ready; make sure event re-enabled.
-        CPPUNIT_ASSERT_EQUAL(true, Dispatch::poll());
+        CPPUNIT_ASSERT_EQUAL("ok", waitForPollSuccess(1.0));
         CPPUNIT_ASSERT_EQUAL("file f1 invoked, read 'abcdefghij'", *localLog);
         CPPUNIT_ASSERT_EQUAL(1, f->lastInvocationId);
         localLog->clear();
@@ -294,8 +317,7 @@ class DispatchTest : public CppUnit::TestFixture {
                 Dispatch::FileEvent::WRITABLE);
         f->deleteThis = true;
         Dispatch::fileInvocationSerial = 400;
-        usleep(5000);
-        CPPUNIT_ASSERT_EQUAL(true, Dispatch::poll());
+        CPPUNIT_ASSERT_EQUAL("ok", waitForPollSuccess(1.0));
         // If poll tried to reenable the event it would have thrown an
         // exception since the handler also closed the file descriptor.
         // Just to double-check, wait a moment and make sure the
@@ -563,13 +585,13 @@ class DispatchTest : public CppUnit::TestFixture {
         // Start up the polling thread; it will signal the first ready file.
         Dispatch::readyFd = -1;
         boost::thread(epollThreadWrapper).detach();
-        usleep(5000);
+        waitForReadyFd(1.0);
         CPPUNIT_ASSERT_EQUAL(43, Dispatch::readyFd);
 
         // The polling thread should already be waiting on readyFd,
         // so clearing it should cause another fd to appear immediately.
         Dispatch::readyFd = -1;
-        usleep(5000);
+        waitForReadyFd(1.0);
         CPPUNIT_ASSERT_EQUAL(19, Dispatch::readyFd);
 
         // Let the polling thread see the next ready file, which should
