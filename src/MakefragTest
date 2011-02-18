@@ -20,8 +20,9 @@ TESTS_SRCFILES := \
 		  src/ClientTest.cc \
 		  src/CommonTest.cc \
 		  src/CoordinatorTest.cc \
-          src/Crc32CTest.cc \
-          src/DispatchTest.cc \
+		  src/Crc32CTest.cc \
+		  src/DispatchTest.cc \
+		  src/FailureDetectorTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
 		  src/InfAddressTest.cc \

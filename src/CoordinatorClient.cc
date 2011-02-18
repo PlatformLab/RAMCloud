@@ -140,22 +140,66 @@ CoordinatorClient::enlistServer(ServerType serverType,
 }
 
 /**
+ * List all live servers of the given type.
+ * \param[in] type
+ *      The type of server to get a list of. Presently either MASTER or BACKUP.
+ * \param[out] serverList
+ *      An empty ServerList that will be filled with current master servers.
+ */
+void
+CoordinatorClient::getServerList(ServerType type,
+                                 ProtoBuf::ServerList& serverList)
+{
+    Buffer req;
+    Buffer resp;
+    GetServerListRpc::Request& reqHdr(
+        allocHeader<GetServerListRpc>(req));
+    reqHdr.serverType = type;
+    const GetServerListRpc::Response& respHdr(
+        sendRecv<GetServerListRpc>(session, req, resp));
+    checkStatus(HERE);
+    ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
+                                respHdr.serverListLength, serverList);
+}
+
+/**
+ * List all live servers.
+ * Used in ensureHosts.
+ * \param[out] serverList
+ *      An empty ServerList that will be filled with current servers.
+ */
+void
+CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
+{
+    getServerList(MASTER, serverList);
+    ProtoBuf::ServerList mergeList;
+    getServerList(BACKUP, mergeList);
+    serverList.MergeFrom(mergeList);
+}
+
+/**
+ * List all live master servers.
+ * The failure detector uses this to periodically probe for failed masters.
+ * \param[out] serverList
+ *      An empty ServerList that will be filled with current master servers.
+ */
+void
+CoordinatorClient::getMasterList(ProtoBuf::ServerList& serverList)
+{
+    getServerList(MASTER, serverList);
+}
+
+/**
  * List all live backup servers.
- * Masters call and cache this periodically to find backups.
+ * Masters call and cache this periodically to find backups. The failure
+ * detector also uses this to periodically probe for failed backups.
  * \param[out] serverList
  *      An empty ServerList that will be filled with current backup servers.
  */
 void
 CoordinatorClient::getBackupList(ProtoBuf::ServerList& serverList)
 {
-    Buffer req;
-    Buffer resp;
-    allocHeader<GetBackupListRpc>(req);
-    const GetBackupListRpc::Response& respHdr(
-        sendRecv<GetBackupListRpc>(session, req, resp));
-    checkStatus(HERE);
-    ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
-                                respHdr.serverListLength, serverList);
+    getServerList(BACKUP, serverList);
 }
 
 /**

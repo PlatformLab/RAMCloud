@@ -33,21 +33,22 @@ namespace RAMCloud {
  */
 enum RpcType {
     PING                    = 7,
-    CREATE_TABLE            = 8,
-    OPEN_TABLE              = 9,
-    DROP_TABLE              = 10,
-    CREATE                  = 11,
-    READ                    = 12,
-    WRITE                   = 13,
-    REMOVE                  = 14,
-    ENLIST_SERVER           = 15,
-    GET_BACKUP_LIST         = 16,
-    GET_TABLET_MAP          = 17,
-    SET_TABLETS             = 18,
-    RECOVER                 = 19,
-    HINT_SERVER_DOWN        = 20,
-    TABLETS_RECOVERED       = 21,
-    SET_WILL                = 22,
+    PROXY_PING              = 8,
+    CREATE_TABLE            = 9,
+    OPEN_TABLE              = 10,
+    DROP_TABLE              = 11,
+    CREATE                  = 12,
+    READ                    = 13,
+    WRITE                   = 14,
+    REMOVE                  = 15,
+    ENLIST_SERVER           = 16,
+    GET_SERVER_LIST         = 17,
+    GET_TABLET_MAP          = 18,
+    SET_TABLETS             = 19,
+    RECOVER                 = 20,
+    HINT_SERVER_DOWN        = 21,
+    TABLETS_RECOVERED       = 22,
+    SET_WILL                = 23,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -106,9 +107,34 @@ struct PingRpc {
     static const RpcType type = PING;
     struct Request {
         RpcRequestCommon common;
+        uint64_t nonce;             // The nonce may be used to identify
+                                    // replies to previously transmitted
+                                    // pings.
     };
     struct Response {
         RpcResponseCommon common;
+        uint64_t nonce;             // This should be identical to what was
+                                    // sent in the request being answered.
+    };
+};
+
+struct ProxyPingRpc {
+    static const RpcType type = PROXY_PING;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t timeoutNanoseconds;   // Number of nanoseconds to wait for a
+                                       // reply before responding negatively to
+                                       // this RPC.
+        uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
+                                       // including terminating NULL character.
+                                       // The bytes of the service locator
+                                       // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t replyNanoseconds;     // Number of nanoseconds it took to get
+                                       // the reply. If a timeout occurred, the
+                                       // value is -1.
     };
 };
 
@@ -265,10 +291,11 @@ struct EnlistServerRpc {
     };
 };
 
-struct GetBackupListRpc {
-    static const RpcType type = GET_BACKUP_LIST;
+struct GetServerListRpc {
+    static const RpcType type = GET_SERVER_LIST;
     struct Request {
         RpcRequestCommon common;
+        uint8_t serverType;        // Type of servers to get: MASTER or BACKUP
     };
     struct Response {
         RpcResponseCommon common;

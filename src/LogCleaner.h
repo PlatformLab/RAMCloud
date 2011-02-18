@@ -37,7 +37,7 @@ class LogCleaner {
     void cleanSegment(Segment *segment);
 
     /// Only clean when <= this percentage of segments are free.
-    static const uint64_t FREELIST_LOW_WATERMARK_PCT = 20;
+    static const uint64_t FREELIST_LOW_WATERMARK_PCT = 5;
 
     Log *log;
 

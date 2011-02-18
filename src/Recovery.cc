@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "Dispatch.h"
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "MasterClient.h"
@@ -101,11 +102,16 @@ Recovery::buildSegmentIdToBackups()
     }
 
     // As RPCs complete kick off new ones
+    bool someTaskWasReady = false;
     while (activeBackupHosts > 0) {
+        if (!someTaskWasReady)
+            while (Dispatch::poll());
+        someTaskWasReady = false;
         for (int i = 0; i < backupHosts.server_size(); ++i) {
             auto& task = tasks[i];
             if (!task || !task->isReady() || task->isDone())
                 continue;
+            someTaskWasReady = true;
 
             try {
                 (*task)();
@@ -128,6 +134,8 @@ Recovery::buildSegmentIdToBackups()
                 --activeBackupHosts;
                 continue;
             }
+
+            task.construct(*backupHostsIt++, masterId, will);
         }
     }
 

@@ -71,9 +71,9 @@ CoordinatorServer::dispatch(RpcType type,
             callHandler<EnlistServerRpc, CoordinatorServer,
                         &CoordinatorServer::enlistServer>(rpc);
             break;
-        case GetBackupListRpc::type:
-            callHandler<GetBackupListRpc, CoordinatorServer,
-                        &CoordinatorServer::getBackupList>(rpc);
+        case GetServerListRpc::type:
+            callHandler<GetServerListRpc, CoordinatorServer,
+                        &CoordinatorServer::getServerList>(rpc);
             break;
         case GetTabletMapRpc::type:
             callHandler<GetTabletMapRpc, CoordinatorServer,
@@ -252,16 +252,28 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
 }
 
 /**
- * Handle the GET_BACKUP_LIST RPC.
+ * Handle the GET_SERVER_LIST RPC.
  * \copydetails Server::ping
  */
 void
-CoordinatorServer::getBackupList(const GetBackupListRpc::Request& reqHdr,
-                                 GetBackupListRpc::Response& respHdr,
+CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
+                                 GetServerListRpc::Response& respHdr,
                                  Transport::ServerRpc& rpc)
 {
-    respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
-                                                   backupList);
+    switch (reqHdr.serverType) {
+    case MASTER:
+        respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
+                                                       masterList);
+        break;
+
+    case BACKUP:
+        respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
+                                                       backupList);
+        break;
+
+    default:
+        throw RequestFormatError(HERE);
+    }
 }
 
 /**

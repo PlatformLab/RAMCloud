@@ -18,6 +18,7 @@
 #include "BenchUtil.h"
 #include "Buffer.h"
 #include "ClientException.h"
+#include "Dispatch.h"
 #include "MasterServer.h"
 #include "Metrics.h"
 #include "Tub.h"
@@ -57,10 +58,7 @@ MasterServer::MasterServer(const ServerConfig config,
                            uint32_t replicas)
     : config(config)
     , coordinator(coordinator)
-    // Permit a NULL coordinator for testing/benchmark purposes.
-    , serverId(coordinator ? coordinator->enlistServer(MASTER,
-                                                       config.localLocator)
-                           : 0)
+    , serverId()
     , backup(coordinator, serverId, replicas)
     , bytesWritten(0)
     , log(serverId, config.logBytes, Segment::SEGMENT_SIZE, &backup)
@@ -68,7 +66,6 @@ MasterServer::MasterServer(const ServerConfig config,
         HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()
 {
-    LOG(NOTICE, "My server ID is %lu", serverId);
     log.registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
     log.registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 }
@@ -123,6 +120,11 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
 void __attribute__ ((noreturn))
 MasterServer::run()
 {
+    // Permit a NULL coordinator for testing/benchmark purposes.
+    if (coordinator)
+        serverId.construct(coordinator->enlistServer(MASTER,
+                                                     config.localLocator));
+    LOG(NOTICE, "My server ID is %lu", *serverId);
     while (true)
         handleRpc<MasterServer>();
 }
@@ -467,10 +469,16 @@ MasterServer::recover(uint64_t masterId,
     // As RPCs complete, process them and start more
     Tub<CycleCounter<Metric>> readStallTicks;
     readStallTicks.construct(&metrics->master.segmentReadStallTicks);
+
+    bool someTaskWasReady = false;
     while (activeRequests) {
+        if (!someTaskWasReady)
+            while (Dispatch::poll());
+        someTaskWasReady = false;
         foreach (auto& task, tasks) {
             if (!task || !task->rpc.isReady())
                 continue;
+            someTaskWasReady = true;
             readStallTicks.destroy();
             LOG(DEBUG, "Waiting on recovery data for segment %lu from %s",
                 task->backupHost.segment_id(),
@@ -598,7 +606,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
 {
     {
         CycleCounter<Metric> recoveryTicks(&metrics->recoveryTicks);
-        reset(metrics, serverId, 1);
+        reset(metrics, *serverId, 1);
 
         const auto& masterId = reqHdr.masterId;
         const auto& partitionId = reqHdr.partitionId;
@@ -610,7 +618,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
                                     sizeof(reqHdr) + reqHdr.tabletsLength,
                                     reqHdr.serverListLength, backups);
         LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
-            recoveryTablets.tablet_size(), serverId);
+            recoveryTablets.tablet_size(), *serverId);
         responder();
 
         // reqHdr, respHdr, and rpc are off-limits now
@@ -638,9 +646,9 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
             LOG(NOTICE, "set tablet %lu %lu %lu to locator %s, id %lu",
                      tablet.table_id(), tablet.start_object_id(),
                      tablet.end_object_id(), config.localLocator.c_str(),
-                     serverId);
+                     *serverId);
             tablet.set_service_locator(config.localLocator);
-            tablet.set_server_id(serverId);
+            tablet.set_server_id(*serverId);
         }
 
         // TODO(ongaro): don't need to calculate a new will here
@@ -653,7 +661,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
 
         {
             CycleCounter<Metric> _(&metrics->master.tabletsRecoveredTicks);
-            coordinator->tabletsRecovered(serverId, recoveryTablets,
+            coordinator->tabletsRecovered(*serverId, recoveryTablets,
                                           recoveryWill);
         }
         // Ok - we're free to start serving now.

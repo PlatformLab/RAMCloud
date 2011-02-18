@@ -130,6 +130,8 @@ class MasterTest : public CppUnit::TestFixture {
 
         server = new MasterServer(config, coordinator, 1);
         transport->addServer(*server, "mock:host=master");
+        server->serverId.construct(
+            coordinator->enlistServer(MASTER, config.localLocator));
         client =
             new MasterClient(transportManager.getSession("mock:host=master"));
         ProtoBuf::Tablets_Tablet& tablet(*server->tablets.add_tablet());
@@ -270,7 +272,9 @@ class MasterTest : public CppUnit::TestFixture {
     test_recover_basics()
     {
         char segMem[segmentSize];
-        BackupManager mgr(coordinator, 123, 1);
+        Tub<uint64_t> serverId;
+        serverId.construct(123);
+        BackupManager mgr(coordinator, serverId, 1);
         Segment _(123, 87, segMem, segmentSize, &mgr);
 
         ProtoBuf::Tablets tablets;
@@ -347,7 +351,9 @@ class MasterTest : public CppUnit::TestFixture {
     test_recover()
     {
         char segMem[segmentSize];
-        BackupManager mgr(coordinator, 123, 1);
+        Tub<uint64_t> serverId;
+        serverId.construct(123);
+        BackupManager mgr(coordinator, serverId, 1);
         Segment __(123, 88, segMem, segmentSize, &mgr);
 
         InMemoryStorage storage2{segmentSize, segmentFrames};
@@ -1017,7 +1023,9 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         // Give them a name so that freeSegment doesn't get called on
         // destructor until after the test.
         char segMem1[segmentSize];
-        BackupManager mgr(coordinator, 99, 2);
+        Tub<uint64_t> serverId;
+        serverId.construct(99);
+        BackupManager mgr(coordinator, serverId, 2);
         Segment s1(99, 87, &segMem1, sizeof(segMem1), &mgr);
         s1.close();
         char segMem2[segmentSize];

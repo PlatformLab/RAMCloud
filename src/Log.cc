@@ -39,8 +39,10 @@ namespace RAMCloud {
  *      An exception is thrown if #logCapacity is not sufficient for
  *      a single segment's worth of log.
  */
-Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
-        BackupManager *backup)
+Log::Log(const Tub<uint64_t>& logId,
+         uint64_t logCapacity,
+         uint64_t segmentCapacity,
+         BackupManager *backup)
     : stats(),
       logId(logId),
       logCapacity((logCapacity / segmentCapacity) * segmentCapacity),
@@ -423,7 +425,7 @@ Log::getSegmentBaseAddress(const void *p)
 uint64_t
 Log::getId() const
 {
-    return logId;
+    return *logId;
 }
 
 /**

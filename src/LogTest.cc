@@ -46,9 +46,11 @@ class LogTest : public CppUnit::TestFixture {
     void
     test_constructor()
     {
-        Log l(57, 2 * 8192, 8192);
+        Tub<uint64_t> serverId;
+        serverId.construct(57);
+        Log l(serverId, 2 * 8192, 8192);
 
-        CPPUNIT_ASSERT_EQUAL(57, l.logId);
+        CPPUNIT_ASSERT_EQUAL(57, *l.logId);
         CPPUNIT_ASSERT_EQUAL(2 * 8192, l.logCapacity);
         CPPUNIT_ASSERT_EQUAL(8192, l.segmentCapacity);
         CPPUNIT_ASSERT_EQUAL(2, l.segmentFreeList.size());
@@ -62,7 +64,9 @@ class LogTest : public CppUnit::TestFixture {
     void
     test_allocateHead()
     {
-        Log l(57, 2 * 8192, 8192);
+        Tub<uint64_t> serverId;
+        serverId.construct(57);
+        Log l(serverId, 2 * 8192, 8192);
 
         {
             Segment* s = l.allocateHead();
@@ -104,7 +108,9 @@ class LogTest : public CppUnit::TestFixture {
     void
     test_addSegmentMemory()
     {
-        Log l(57, 1 * 8192, 8192);
+        Tub<uint64_t> serverId;
+        serverId.construct(57);
+        Log l(serverId, 1 * 8192, 8192);
 
         void *p = xmemalign(l.segmentCapacity, l.segmentCapacity);
         l.addSegmentMemory(p);
@@ -118,7 +124,9 @@ class LogTest : public CppUnit::TestFixture {
     void
     test_isSegmentLive()
     {
-        Log l(57, 1 * 8192, 8192);
+        Tub<uint64_t> serverId;
+        serverId.construct(57);
+        Log l(serverId, 1 * 8192, 8192);
         static char buf[64];
 
         uint64_t segmentId = l.nextSegmentId;
@@ -130,7 +138,9 @@ class LogTest : public CppUnit::TestFixture {
     void
     test_getSegmentId()
     {
-        Log l(57, 1 * 8192, 8192);
+        Tub<uint64_t> serverId;
+        serverId.construct(57);
+        Log l(serverId, 1 * 8192, 8192);
         static char buf[64];
 
         const void *p = l.append(LOG_ENTRY_TYPE_OBJ,
@@ -143,7 +153,9 @@ class LogTest : public CppUnit::TestFixture {
     void
     test_append()
     {
-        Log l(57, 2 * 8192, 8192);
+        Tub<uint64_t> serverId;
+        serverId.construct(57);
+        Log l(serverId, 2 * 8192, 8192);
         uint64_t lengthInLog;
         LogTime logTime;
         static char buf[13];
@@ -212,7 +224,9 @@ class LogTest : public CppUnit::TestFixture {
     void
     test_free()
     {
-        Log l(57, 1 * 8192, 8192);
+        Tub<uint64_t> serverId;
+        serverId.construct(57);
+        Log l(serverId, 1 * 8192, 8192);
         static char buf[64];
 
         LogEntryHandle h = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
@@ -231,7 +245,9 @@ class LogTest : public CppUnit::TestFixture {
     void
     test_registerType()
     {
-        Log l(57, 1 * 8192, 8192);
+        Tub<uint64_t> serverId;
+        serverId.construct(57);
+        Log l(serverId, 1 * 8192, 8192);
 
         l.registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL);
         CPPUNIT_ASSERT_THROW(
@@ -248,7 +264,9 @@ class LogTest : public CppUnit::TestFixture {
     void
     test_getSegmentBaseAddress()
     {
-        Log l(57, 1 * 128, 128);
+        Tub<uint64_t> serverId;
+        serverId.construct(57);
+        Log l(serverId, 1 * 128, 128);
         CPPUNIT_ASSERT_EQUAL(128,
             reinterpret_cast<uintptr_t>(l.getSegmentBaseAddress(
             reinterpret_cast<void *>(128))));

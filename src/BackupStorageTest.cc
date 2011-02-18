@@ -208,8 +208,10 @@ class SingleFileStorageTest : public CppUnit::TestFixture {
         boost::scoped_ptr<BackupStorage::Handle>
             handle(storage->allocate(99, 1));
         close(storage->fd);
+        char buf[segmentSize];
+        memset(buf, 0, sizeof(buf));
         CPPUNIT_ASSERT_THROW(
-            storage->putSegment(handle.get(), NULL),
+            storage->putSegment(handle.get(), buf),
             BackupStorageException);
         storage->fd = open(path, O_CREAT | O_RDWR, 0666); // supresses LOG ERROR
     }

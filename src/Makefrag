@@ -37,6 +37,7 @@ SHARED_SRCFILES := \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
 		   src/FastTransport.cc \
+		   src/FailureDetector.cc \
 		   src/IpAddress.cc \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
