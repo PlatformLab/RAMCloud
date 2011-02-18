@@ -12,7 +12,7 @@ source ./scripts/common.bash
 
 datetime=$(date +%Y%m%d%H%M%S)
 outputdir="$(pwd)/recovery/$datetime"
-mkdir $outputdir
+mkdir -p $outputdir
 (cd recovery; ln -fsT $datetime latest)
 
 #proto=fast+udp
