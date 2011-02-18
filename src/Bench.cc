@@ -1,4 +1,3 @@
-
 /* Copyright (c) 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -144,18 +143,17 @@ bench(const char *name, uint64_t (f)(void))
     end = rdtsc();
 
     cycles = end - start;
-    printf("%s ns     %12lu\n", name,
-           RC::cyclesToNanoseconds(cycles));
+    printf("%s ns     %12.2f\n", name,
+           1000*1000*1000*RC::cyclesToSeconds(cycles));
     printf("%s avgns  %12.2f\n", name,
-           static_cast<double>(RC::cyclesToNanoseconds(cycles)) /
+           1000*1000*1000*RC::cyclesToSeconds(cycles) /
            static_cast<double>(count));
     printf("%s ctr    %12.0f\n", name,
            static_cast<double>(serverCounter));
     printf("%s avgctr %12.2f\n", name,
            static_cast<double>(serverCounter) /
            static_cast<double>(count));
-    client->ping();
-    return RC::cyclesToNanoseconds(cycles);
+    return 1000*1000*1000*RC::cyclesToSeconds(cycles);
 }
 
 #define BENCH(fname) bench(#fname, fname)
@@ -169,9 +167,7 @@ writeInt(uint32_t table, uint64_t key, uint64_t val)
         fprintf(stderr, "sprintf error.");
         return 1;
     }
-
     client->write(table, key, &buf[0], ret);
-
     return client->counterValue;
 }
 
@@ -184,7 +180,6 @@ readInt(uint32_t table, uint64_t key, uint64_t& val)
     stringstream ss;
     ss << str;
     ss >> val;
-    // val = atoi(str.c_str());
     return client->counterValue;
 }
 
@@ -263,7 +258,7 @@ checkAllWorkersInSameState(BenchMapper::WORKER_STATE state) {
 
 int
 waitForAllWorkersToHitState(BenchMapper::WORKER_STATE state,
-                            uint64_t timeout = 4) {
+                            uint64_t timeout = 10) {
         bool allReady = false;
         uint64_t timeoutmicros = 0;
         while (!allReady) {

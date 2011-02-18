@@ -20,13 +20,19 @@ use Cwd 'abs_path';
 use lib "scripts";
 use HostPattern;
 
-my ($coordinatorLocator, $benchBinary, $dump, $transport, $help,
-    $multiobject, $debug, @clientspattern);
+my ($coordinatorLocator, $benchBinary, $dump, $help,
+    $multiobject, $debug, @clientspattern, $loadStart, $loadEnd, $size);
+
 $dump = "latencyVSload.dump";
+$loadStart = 6;
+$loadEnd = 6;
+$size = 100;
 
 my $result = GetOptions ("coordinatorLocator=s" => \$coordinatorLocator,
                          "benchBinary=s"   => \$benchBinary,
-                         "transport=s" => \$transport,
+                         "loadStart=s" => \$loadStart,
+                         "loadEnd=s" => \$loadEnd,
+                         "objSize=s" => \$size,
                          "multiobject" => \$multiobject,
                          "debug" => \$debug,
                          "dump=s" => \$dump,
@@ -48,6 +54,11 @@ Usage: $0 --coordinatorLocator locator-string
                example - rc0[1-6].scs.stanford.edu]
           [--multiobject (Default is a single object written to and
                           read from.)]
+          [--objSize - size of objects for RC operations in
+                       bytes. Default 100 bytes.]
+          [--loadStart - worker load to start benchmark with - default
+0]
+          [--loadEnd - worker load to end benchmark with - default 20]
           [--help]
           [--debug]
 USAGE
@@ -55,12 +66,11 @@ USAGE
 }
 
 my %data;
-my $size = 1000;
 # smallish count so that worker checks command flag responsively.
 my $operation_count = 10000;
 
 
-my @loads = ( 0 .. 20 );
+my @loads = ( $loadStart .. $loadEnd );
 my $clienthosts = HostPattern::hosts(\@clientspattern);
 print STDERR join ("\n", @$clienthosts)."\n";
 
@@ -100,9 +110,9 @@ foreach my $clients (@loads) {
     # Do the first bootstrapping write
     $cmd .= "-o ";
   }
+  $cmd .= "-t test -S $size -n $measure_operation_count ";
   print STDERR "Calling $cmd\n";
-  open (B, $cmd . 
-        "-t test -S $size -n $measure_operation_count |") 
+  open (B, $cmd . " |") 
     or die "Cannot open binary - $!";
   while (<B>) {
     chomp;
