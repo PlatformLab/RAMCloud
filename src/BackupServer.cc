@@ -1181,8 +1181,9 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
         info->setRecovering(partitions);
     }
     respHdr.segmentIdCount = primarySegments.size() + secondarySegments.size();
-    LOG(DEBUG, "Sending %u segment ids for this master",
-        respHdr.segmentIdCount);
+    respHdr.primarySegmentCount = primarySegments.size();
+    LOG(DEBUG, "Sending %u segment ids for this master (%u primary)",
+        respHdr.segmentIdCount, respHdr.primarySegmentCount);
 
     respHdr.digestSegmentId  = logDigestLastId;
     respHdr.digestSegmentLen = logDigestLastLen;

@@ -37,6 +37,7 @@ class RecoveryTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(RecoveryTest);
     CPPUNIT_TEST(test_buildSegmentIdToBackups);
+    CPPUNIT_TEST(test_buildSegmentIdToBackups_secondariesEarlyInSomeList);
     CPPUNIT_TEST(test_verifyCompleteLog);
     CPPUNIT_TEST(test_start);
     CPPUNIT_TEST(test_start_notEnoughMasters);
@@ -57,17 +58,20 @@ class RecoveryTest : public CppUnit::TestFixture {
                           uint64_t segmentId,
                           vector<uint64_t> digestIds,
                           const uint32_t segmentSize,
-                          const string locator, bool close)
+                          const vector<const char*> locators,
+                          bool close)
             : backupList()
             , masterIdTub(masterId)
             , mgr()
             , segMem()
             , seg()
         {
-            mgr = new BackupManager(NULL, masterIdTub, 1);
-            ProtoBuf::ServerList::Entry& e(*backupList.add_server());
-            e.set_service_locator(locator);
-            e.set_server_type(ProtoBuf::BACKUP);
+            mgr = new BackupManager(NULL, masterIdTub, locators.size());
+            foreach (const auto& locator, locators) {
+                ProtoBuf::ServerList::Entry& e(*backupList.add_server());
+                e.set_service_locator(locator);
+                e.set_server_type(ProtoBuf::BACKUP);
+            }
             mgr->hosts = backupList;
 
             segMem = new char[segmentSize];
@@ -125,7 +129,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         , config()
         , masterHosts()
         , backupHosts()
-        , segmentFrames(2)
+        , segmentFrames(3)
         , segmentSize(1 << 16)
         , segmentsToFree()
         , storage1()
@@ -181,14 +185,14 @@ class RecoveryTest : public CppUnit::TestFixture {
         // Two segs on backup1, one that overlaps with backup2
         segmentsToFree.push_back(
             new WriteValidSegment(99, 88, { 88 }, segmentSize,
-                "mock:host=backup1", true));
+                {"mock:host=backup1"}, true));
         segmentsToFree.push_back(
             new WriteValidSegment(99, 89, { 88, 89 }, segmentSize,
-                "mock:host=backup1", false));
+                {"mock:host=backup1"}, false));
         // One seg on backup2
         segmentsToFree.push_back(
             new WriteValidSegment(99, 88, { 88 }, segmentSize,
-                "mock:host=backup2", true));
+                {"mock:host=backup2"}, true));
         // Zero segs on backup3
 
         masterHosts = new ProtoBuf::ServerList();
@@ -279,6 +283,35 @@ class RecoveryTest : public CppUnit::TestFixture {
             CPPUNIT_ASSERT_EQUAL(88, backup.segment_id());
             CPPUNIT_ASSERT_EQUAL("mock:host=backup1", backup.service_locator());
             CPPUNIT_ASSERT_EQUAL(ProtoBuf::BACKUP, backup.server_type());
+        }
+    }
+
+    void
+    test_buildSegmentIdToBackups_secondariesEarlyInSomeList()
+    {
+        // Add one more primary to backup1
+        // Add a primary/secondary segment pair to backup2 and backup3
+        // No matter which host its placed on it appears earlier in the
+        // segment list of 2 or 3 than the latest primary on 1 (which is
+        // in slot 3).  Check to make sure the code prevents this secondary
+        // from showing up before any primary in the list.
+        segmentsToFree.push_back(
+            new WriteValidSegment(99, 90, { 88, 89, 90 }, segmentSize,
+                {"mock:host=backup1"}, true));
+        segmentsToFree.push_back(
+            new WriteValidSegment(99, 91, { 88, 89, 90, 91 }, segmentSize,
+                {"mock:host=backup2", "mock:host=backup3"}, true));
+
+        ProtoBuf::Tablets tablets;
+        Recovery recovery(99, tablets, *masterHosts, *backupHosts);
+
+        CPPUNIT_ASSERT_EQUAL(6, recovery.backups.server_size());
+        bool sawSecondary = false;
+        foreach (const auto& backup, recovery.backups.server()) {
+            if (!backup.user_data())
+                sawSecondary = true;
+            else
+                CPPUNIT_ASSERT(!sawSecondary);
         }
     }
 

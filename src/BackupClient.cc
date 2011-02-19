@@ -204,6 +204,7 @@ BackupClient::StartReadingData::operator()(
     client.checkStatus(HERE);
 
     uint64_t segmentIdCount = respHdr.segmentIdCount;
+    uint64_t primarySegmentCount = respHdr.primarySegmentCount;
     uint32_t digestBytes = respHdr.digestBytes;
     uint64_t digestSegmentId = respHdr.digestSegmentId;
     uint64_t digestSegmentLen = respHdr.digestSegmentLen;
@@ -219,8 +220,8 @@ BackupClient::StartReadingData::operator()(
         digestPtr = responseBuffer.getStart<const void*>();
     }
 
-    result->set(segmentIdsRaw, segmentIdCount, digestPtr, digestBytes,
-        digestSegmentId, digestSegmentLen);
+    result->set(segmentIdsRaw, segmentIdCount, primarySegmentCount,
+                digestPtr, digestBytes, digestSegmentId, digestSegmentLen);
 }
 
 /**

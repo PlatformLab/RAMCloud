@@ -420,6 +420,8 @@ struct BackupStartReadingDataRpc {
     struct Response {
         RpcResponseCommon common;
         uint32_t segmentIdCount;    ///< Number of segmentIds in reply payload.
+        uint32_t primarySegmentCount;   ///< Count of segmentIds which prefix
+                                        ///< the reply payload are primary.
         uint32_t digestBytes;       ///< Number of bytes for optional LogDigest.
         uint64_t digestSegmentId;   ///< SegmentId the LogDigest came from.
         uint32_t digestSegmentLen;  ///< Byte length of the LogDigest Segment.

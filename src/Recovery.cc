@@ -140,40 +140,60 @@ Recovery::buildSegmentIdToBackups()
     }
 
     // Create the ServerList 'script' that recovery masters will replay
-    for (uint32_t slot = 0;; ++slot) {
-        // Keep working if some segment list had a value in offset 'slot'.
-        bool stillWorking = false;
-        // TODO(stutsman) we'll want to add some modular arithmetic here
-        // to generate unique replay scripts for each recovery master
-        for (int i = 0; i < backupHosts.server_size(); ++i) {
-            assert(tasks[i]);
-            const auto& task = tasks[i];
-            if (slot >= task->result.segmentIdAndLength.size())
-                continue;
-            stillWorking = true;
-            ProtoBuf::ServerList::Entry& backupHost = *backups.add_server();
-            // Copy backup host into the new server list.
-            backupHost = task->backupHost;
-            // Augment it with the segment id.
-            uint64_t segmentId  = task->result.segmentIdAndLength[slot].first;
-            backupHost.set_segment_id(segmentId);
+    // First add all primaries to the list, then all secondaries
+    for (bool primary = true;; primary = !primary) {
+        for (uint32_t slot = 0;; ++slot) {
+            // Keep working if some segment list had a value in offset 'slot'.
+            bool stillWorking = false;
+            // TODO(stutsman) we'll want to add some modular arithmetic here
+            // to generate unique replay scripts for each recovery master
+            for (int i = 0; i < backupHosts.server_size(); ++i) {
+                assert(tasks[i]);
+                const auto& task = tasks[i];
 
-            // Keep a count of each segmentId seen so we can cross check with
-            // the LogDigest.
-            if (segmentMap.find(segmentId) != segmentMap.end())
-                segmentMap[segmentId] += 1;
-            else
-                segmentMap[segmentId] = 1;
+                // Amount per result's segment array to compensate to
+                // skip over primaries in the list, only used when adding
+                // secondaries to the script, no effect on primary pass
+                uint32_t firstSecondary = primary ?
+                                            0 :
+                                            task->result.primarySegmentCount;
+                uint32_t adjustedSlot = slot + firstSecondary;
+                if (adjustedSlot >= task->result.segmentIdAndLength.size() ||
+                    (primary &&
+                     adjustedSlot >= task->result.primarySegmentCount))
+                    continue;
+                stillWorking = true;
+                ProtoBuf::ServerList::Entry& backupHost = *backups.add_server();
+                // Copy backup host into the new server list.
+                backupHost = task->backupHost;
+                // Augment it with the segment id.
+                uint64_t segmentId =
+                    task->result.segmentIdAndLength[adjustedSlot].first;
+                backupHost.set_segment_id(segmentId);
+                // Just for debugging for now so the debug print out can include
+                // whether or not each entry is a primary
+                backupHost.set_user_data(adjustedSlot <
+                                         task->result.primarySegmentCount);
+
+                // Keep count of each segmentId seen so we can cross check with
+                // the LogDigest.
+                if (segmentMap.find(segmentId) != segmentMap.end())
+                    segmentMap[segmentId] += 1;
+                else
+                    segmentMap[segmentId] = 1;
+            }
+            if (!stillWorking)
+                break;
         }
-        if (!stillWorking)
+        if (!primary)
             break;
     }
 
     LOG(DEBUG, "=== Replay script ===");
     foreach (const auto& backup, backups.server()) {
-        LOG(DEBUG, "id: %lu, locator: %s, segmentId %lu",
+        LOG(DEBUG, "id: %lu, locator: %s, segmentId %lu, primary %lu",
             backup.server_id(), backup.service_locator().c_str(),
-            backup.segment_id());
+            backup.segment_id(), backup.user_data());
     }
 
     for (int i = 0; i < backupHosts.server_size(); i++) {
