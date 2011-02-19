@@ -87,6 +87,12 @@ getCyclesPerSecond()
     }
 }
 
+namespace {
+    // Run getCyclesPerSecond during process initialization so that it doesn't
+    // stall the process for 20ms at some unexpected later time.
+    uint64_t _ = getCyclesPerSecond();
+};
+
 /**
  * Given an elapsed number of cycles, return an approximate number of
  * nanoseconds elapsed.
