@@ -21,6 +21,7 @@
 #include "BenchUtil.h"
 #include "RamCloud.h"
 #include "OptionParser.h"
+#include "Tub.h"
 
 using namespace RAMCloud;
 
@@ -50,10 +51,19 @@ runRecovery(RamCloud& client,
         LOG(NOTICE, "Performing %u inserts of %u byte objects",
             count, objectDataSize);
         b = rdtsc();
+        Tub<RamCloud::Create> createRpcs[8];
         for (int j = 0; j < count - 1; j++) {
-            id = client.create(table, val, objectDataSize,
-                               /* version = */ NULL,
-                               /* async = */ true);
+            auto& createRpc = createRpcs[j % arrayLength(createRpcs)];
+            if (createRpc)
+                (*createRpc)();
+            createRpc.construct(client,
+                                table, static_cast<void*>(val), objectDataSize,
+                                /* version = */ static_cast<uint64_t*>(NULL),
+                                /* async = */ true);
+        }
+        foreach (auto& createRpc, createRpcs) {
+            if (createRpc)
+                (*createRpc)();
         }
         id = client.create(table, val, objectDataSize,
                            /* version = */ NULL,
