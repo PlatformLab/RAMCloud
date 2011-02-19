@@ -424,6 +424,8 @@ class Backup(Struct):
     filterTicks = u64('total amount of time filtering segments')
     currentOpenSegmentCount = u64('total number of open segments')
     totalSegmentCount = u64('total number of open or closed segments')
+    primaryLoadCount = u64('total number of primary segments requested')
+    secondaryLoadCount = u64('total number of secondary segments requested')
     storageType = u64('1 = in-memory, 2 = on-disk')
     local = Local('local metrics', 'Local')
 
@@ -448,6 +450,9 @@ parser.add_option('-b', '--build-only',
 parser.add_option('-r', '--raw',
                   dest='raw', action='store_true',
                   help='Print out raw data (helpful for debugging)')
+parser.add_option('-a', '--all',
+                  dest='all', action='store_true',
+                  help='Print out all raw data not just a sample')
 parser.add_option('-l', '--latex',
                   dest='latex', action='store_true',
                   help='Print out a short report in LaTeX for the SOSP paper')
@@ -469,7 +474,10 @@ if options.buildOnly: # Called automatically by make when this file is modified
     r.dumpLoggingCode(cc, 'metrics', 'metrics->')
     sys.exit(0)
 
-recovery_dir = 'recovery/latest'
+if len(args) > 0:
+    recovery_dir = args[0]
+else:
+    recovery_dir = 'recovery/latest'
 coord = parse(open(glob('%s/coordinator.log' % recovery_dir)[0]))
 masters = [parse(open(f))
            for f in sorted(glob('%s/newMaster*.log' % recovery_dir))]
@@ -477,14 +485,19 @@ backups = [parse(open(f))
            for f in sorted(glob('%s/backup*.log' % recovery_dir))]
 
 if options.raw: # Prints out raw data for debugging
-    print('Coordinator:')
-    pprint(coord)
-    print()
-    print('Sample Master:')
-    pprint(random.choice(masters))
-    print()
-    print('Sample Backup:')
-    pprint(random.choice(backups))
+    if options.all:
+        pprint(coord)
+        pprint(masters)
+        pprint(backups)
+    else:
+        print('Coordinator:')
+        pprint(coord)
+        print()
+        print('Sample Master:')
+        pprint(random.choice(masters))
+        print()
+        print('Sample Master:')
+        pprint(random.choice(backups))
 
 ### Generate LaTeX commands if requested
 
@@ -946,6 +959,14 @@ diskSection.avgStd('  Writing',
                     for backup in backups],
                    '{0:6.2f}%',
                    note='of total recovery')
+
+backupSection = report.add(Section('Backup Events'))
+backupSection.avgStd('Segments opened',
+                     [backup.backup.totalSegmentCount for backup in backups])
+backupSection.avgStd('Primary segments loaded',
+                     [backup.backup.primaryLoadCount for backup in backups])
+backupSection.avgStd('Secondary segments loaded',
+                     [backup.backup.secondaryLoadCount for backup in backups])
 
 localSection = report.add(Section('Local Metrics'))
 for hosts, attr in [([coord], 'coordinator'),
