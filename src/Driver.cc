@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -27,11 +27,9 @@ Driver::~Driver()
  *
  * \param payload
  *      The address of the resources to give back.
- * \param len
- *      The length in bytes of the resources to give back.
  */
 void
-Driver::release(char *payload, uint32_t len)
+Driver::release(char *payload)
 {
 }
 
@@ -52,7 +50,7 @@ Driver::Received::Received()
 Driver::Received::~Received()
 {
     if (payload)
-        driver->release(payload, len);
+        driver->release(payload);
 }
 
 /**

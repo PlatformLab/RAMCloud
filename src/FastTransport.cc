@@ -26,16 +26,16 @@ namespace RAMCloud {
  *
  * \param driver
  *      The lower-level driver (presumably to an unreliable mechanism) to
- *      send/receive fragments on. The transport takes ownership of this driver
- *      and will delete it in the destructor.
+ *      send/receive fragments on. The transport takes ownership of this
+ *      driver and will delete it in the destructor.
  */
 FastTransport::FastTransport(Driver* driver)
     : driver(driver)
     , clientSessions(this)
     , serverSessions(this)
     , serverReadyQueue()
-    , poller(this)
 {
+    driver->connect(this);
 }
 
 FastTransport::~FastTransport()
@@ -157,74 +157,70 @@ FastTransport::sendPacket(const Driver::Address* address,
 }
 
 /**
- * Check for a single packet from the Driver; if there is one, dispatch it
- * to the appropriate handler.
+ * This method is invoked by drivers when they receive packets.  Depending
+ * on the packet type this method does whatever is needed to process the
+ * information in the packet.
  *
- * \retval false
- *      If the Driver didn't have a packet ready.
- * \retval true
- *      A packet was processed and more may be waiting.
+ * \param received
+ *      Information about the incoming packet, including both the contents
+ *      of the packet and metadata such as the source address. Note: we're
+ *      not allowed to retain access to the packet after this method returns
+ *      unless we invoke #received.steal, and we must clone the sender Address
+ *      if we need to retain it after this method returns.
  */
-bool
-FastTransport::Poller::operator() ()
+void FastTransport::handleIncomingPacket(Driver::Received* received)
 {
-    Driver::Received received;
-    if (!transport->driver->tryRecvPacket(&received)) {
-        TEST_LOG("no packet ready");
-        return false;
-    }
-
-    Header* header = received.getOffset<Header>(0);
+    Header* header = received->getOffset<Header>(0);
     if (header == NULL) {
         LOG(WARNING,
             "packet too short (%d bytes)",
-            received.len);
-        return true;
+            received->len);
+        return;
     }
     if (header->pleaseDrop) {
         TEST_LOG("dropped");
-        return true;
+        return;
     }
 
     if (header->getDirection() == Header::CLIENT_TO_SERVER) {
         // Packet is from the client being processed on the server; find
         // an existing session or open a new one.
-        if (header->serverSessionHint >= transport->serverSessions.size()) {
+        if (header->serverSessionHint >= serverSessions.size()) {
             if (header->getPayloadType() == Header::SESSION_OPEN) {
                 // Start a new session on this server for the client.
                 LOG(DEBUG, "opening session %d", header->clientSessionHint);
-                transport->serverSessions.expire();
-                ServerSession* session = transport->serverSessions.get();
-                session->startSession(received.sender,
+                serverSessions.expire();
+                ServerSession* session = serverSessions.get();
+                session->startSession(received->sender,
                                       header->clientSessionHint);
             } else {
                 LOG(WARNING, "bad session hint %d", header->serverSessionHint);
-                transport->sendBadSessionError(header, received.sender);
+                sendBadSessionError(header, received->sender);
             }
-            return true;
+            return;
         }
         ServerSession* session =
-                transport->serverSessions[header->serverSessionHint];
+                serverSessions[header->serverSessionHint];
         if (session->getToken() == header->sessionToken) {
             TEST_LOG("calling ServerSession::processInboundPacket");
-            session->processInboundPacket(&received);
-            return true;
+            session->processInboundPacket(received);
+            return;
         } else {
             LOG(WARNING, "bad session token (0x%lx in session %d, "
                 "0x%lx in packet)", session->getToken(),
                 header->serverSessionHint, header->sessionToken);
-            transport->sendBadSessionError(header, received.sender);
-            return true;
+            sendBadSessionError(header, received->sender);
+            return;
         }
     } else {
         // Packet is from the server being processed on the client.
-        if (header->clientSessionHint < transport->clientSessions.size()) {
+        if (header->clientSessionHint < clientSessions.size()) {
             ClientSession* session =
-                    transport->clientSessions[header->clientSessionHint];
+                    clientSessions[header->clientSessionHint];
             TEST_LOG("client session processing packet");
             if (session->getToken() == header->sessionToken ||
                 header->getPayloadType() == Header::SESSION_OPEN) {
-                session->processInboundPacket(&received);
+                session->processInboundPacket(received);
             } else {
                 LOG(WARNING, "bad fragment token (0x%lx in session %d, "
                     "0x%lx in packet), client dropping", session->getToken(),
@@ -235,7 +231,6 @@ FastTransport::Poller::operator() ()
                 header->clientSessionHint);
         }
     }
-    return true;
 }
 
 // --- ClientRpc ---
@@ -396,23 +391,19 @@ FastTransport::ServerRpc::sendReply()
  *      The Driver to release() this payload to on Buffer destruction.
  * \param payload
  *      The address to release() to the Driver on destruction.
- * \param payloadLength
- *      The length of the resources starting at payload to release.
  */
 FastTransport::PayloadChunk*
 FastTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
                                              char* data,
                                              uint32_t dataLength,
                                              Driver* driver,
-                                             char* payload,
-                                             uint32_t payloadLength)
+                                             char* payload)
 {
     PayloadChunk* chunk =
         new(buffer, CHUNK) PayloadChunk(data,
                                         dataLength,
                                         driver,
-                                        payload,
-                                        payloadLength);
+                                        payload);
     Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
     return chunk;
 }
@@ -436,23 +427,19 @@ FastTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
  *      The Driver to release() this payload to on Buffer destruction.
  * \param payload
  *      The address to release() to the Driver on destruction.
- * \param payloadLength
- *      The length of the resources starting at payload to release.
  */
 FastTransport::PayloadChunk*
 FastTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
                                             Driver* driver,
-                                            char* payload,
-                                            uint32_t payloadLength)
+                                            char* payload)
 {
     PayloadChunk* chunk =
         new(buffer, CHUNK) PayloadChunk(data,
                                         dataLength,
                                         driver,
-                                        payload,
-                                        payloadLength);
+                                        payload);
     Buffer::Chunk::appendChunkToBuffer(buffer, chunk);
     return chunk;
 }
@@ -461,11 +448,11 @@ FastTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
 FastTransport::PayloadChunk::~PayloadChunk()
 {
     if (driver)
-        driver->release(payload, payloadLength);
+        driver->release(payload);
 }
 
 /**
- * Construct a PayloadChunk which will release it's resources to the
+ * Construct a PayloadChunk which will release its resources to the
  * Driver that allocated it when it's containing Buffer is destroyed.
  *
  * \param data
@@ -481,18 +468,14 @@ FastTransport::PayloadChunk::~PayloadChunk()
  *      The Driver to release() this payload to on Buffer destruction.
  * \param payload
  *      The address to release() to the Driver on destruction.
- * \param payloadLength
- *      The length of the resources starting at payload to release.
  */
 FastTransport::PayloadChunk::PayloadChunk(void* data,
                                           uint32_t dataLength,
                                           Driver* driver,
-                                          char* const payload,
-                                          uint32_t payloadLength)
+                                          char* const payload)
     : Buffer::Chunk(data, dataLength)
     , driver(driver)
     , payload(payload)
-    , payloadLength(payloadLength)
 {
 }
 
@@ -596,7 +579,7 @@ FastTransport::InboundMessage::reset()
         std::pair<char*, uint32_t> elt =
             dataStagingWindow[firstMissingFrag + 1 + i];
         if (elt.first)
-            transport->driver->release(elt.first, elt.second);
+            transport->driver->release(elt.first);
     }
     totalFrags = 0;
     dataStagingWindow.reset();
@@ -666,8 +649,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                                      payload + sizeof(Header),
                                      length - sizeof(Header),
                                      transport->driver,
-                                     payload,
-                                     length);
+                                     payload);
 
         // Advance the staging window (and firstMissingFrag) to restore the
         // invariants:
@@ -691,8 +673,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                                          payload + sizeof(Header),
                                          length - sizeof(Header),
                                          transport->driver,
-                                         payload,
-                                         length);
+                                         payload);
         }
     } else if (header->fragNumber > firstMissingFrag) {
         // If the fragNumber exceeds the firstMissingFrag of this message then

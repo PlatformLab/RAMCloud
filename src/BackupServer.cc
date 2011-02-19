@@ -148,6 +148,7 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
     }
 
     if (!primary) {
+        ++metrics->backup.secondaryLoadCount;
         if (!isRecovered() && !recoveryException) {
             LOG(DEBUG, "Requested segment <%lu,%lu> is secondary, "
                 "starting build of recovery segments now", masterId, segmentId);
@@ -158,6 +159,8 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
             buildRecoverySegments(*recoveryPartitions);
             lock.lock();
         }
+    } else {
+        ++metrics->backup.primaryLoadCount;
     }
 
     CycleCounter<Metric> stallTicks(&metrics->backup.readStallTicks);

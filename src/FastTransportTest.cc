@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -17,6 +17,7 @@
 #include "MockDriver.h"
 #include "MockTransport.h"
 #include "FastTransport.h"
+#include "UdpDriver.h"
 
 namespace RAMCloud {
 
@@ -83,12 +84,22 @@ class MockReceived : public Driver::Received {
 
 class FastTransportTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(FastTransportTest);
+    CPPUNIT_TEST(test_sanityCheck);
     CPPUNIT_TEST(test_getSession_noneExpirable);
     CPPUNIT_TEST(test_getSession_reuseExpired);
     CPPUNIT_TEST(test_serverRecv);
     CPPUNIT_TEST(test_numFrags_fullPacket);
     CPPUNIT_TEST(test_numFrags_oneByteTooBig);
     CPPUNIT_TEST(test_sendBadSessionError);
+    CPPUNIT_TEST(test_handleIncomingPacket_tooSmall);
+    CPPUNIT_TEST(test_handleIncomingPacket_dropped);
+    CPPUNIT_TEST(test_handleIncomingPacket_c2sBadHintOpenSession);
+    CPPUNIT_TEST(test_handleIncomingPacket_c2sBadSession);
+    CPPUNIT_TEST(test_handleIncomingPacket_c2sGoodHint);
+    CPPUNIT_TEST(test_handleIncomingPacket_c2sGoodHintBadToken);
+    CPPUNIT_TEST(test_handleIncomingPacket_s2cGoodHint);
+    CPPUNIT_TEST(test_handleIncomingPacket_s2cGoodHintBadToken);
+    CPPUNIT_TEST(test_handleIncomingPacket_s2cBadHint);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -100,6 +111,10 @@ class FastTransportTest : public CppUnit::TestFixture {
         transport = new FastTransport(driver);
 
         logger.setLogLevels(SILENT_LOG_LEVEL);
+
+        // The following is necessary in case some other tests messed up
+        // currentTime (e.g. by resetting it to 0).
+        Dispatch::currentTime = rdtsc();
     }
 
     void
@@ -118,6 +133,46 @@ class FastTransportTest : public CppUnit::TestFixture {
         , port(1234)
     {}
 
+    void test_sanityCheck() {
+        // Create a server and a client and verify that we can
+        // send a request, receive it, send a reply, and receive it.
+        // Then try a second request with bigger chunks of data.
+
+        ServiceLocator serverLocator("fast+udp: host=localhost, port=11101");
+        UdpDriver* serverDriver = new UdpDriver(&serverLocator);
+        FastTransport server(serverDriver);
+        UdpDriver* clientDriver = new UdpDriver();
+        FastTransport client(clientDriver);
+        Transport::SessionRef session = client.getSession(serverLocator);
+
+        Buffer request;
+        Buffer reply;
+        request.fillFromString("abcdefg");
+        Transport::ClientRpc* clientRpc = session->clientSend(&request,
+                &reply);
+        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
+        CPPUNIT_ASSERT(serverRpc != NULL);
+        CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
+        CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
+        serverRpc->replyPayload.fillFromString("klmn");
+        serverRpc->sendReply();
+        Dispatch::handleEvent();
+        CPPUNIT_ASSERT_EQUAL(true, clientRpc->isReady());
+        CPPUNIT_ASSERT_EQUAL("klmn/0", toString(&reply));
+
+        fillLargeBuffer(&request, 100000);
+        reply.reset();
+        clientRpc = session->clientSend(&request, &reply);
+        serverRpc = waitForRpcRequest(&server, 1.0);
+        CPPUNIT_ASSERT(serverRpc != NULL);
+        CPPUNIT_ASSERT_EQUAL("ok",
+                checkLargeBuffer(&serverRpc->recvPayload, 100000));
+        fillLargeBuffer(&serverRpc->replyPayload, 50000);
+        serverRpc->sendReply();
+        clientRpc->wait();
+        CPPUNIT_ASSERT_EQUAL("ok", checkLargeBuffer(&reply, 50000));
+    }
+
     void
     test_getSession_noneExpirable()
     {
@@ -134,6 +189,7 @@ class FastTransportTest : public CppUnit::TestFixture {
     void
     test_getSession_reuseExpired()
     {
+        Dispatch::currentTime = 0;
         CPPUNIT_ASSERT_EQUAL(0, transport->clientSessions.size());
         Transport::Session* firstSession =
             transport->getSession(serviceLocator).get();
@@ -215,114 +271,44 @@ class FastTransportTest : public CppUnit::TestFixture {
             "drop:0 payloadType:4 } ", driver->outputLog);
     }
 
-  private:
-    ServiceLocator serviceLocator;
-    FastTransport* transport;
-    MockDriver* driver;
-    const char* address;
-    uint16_t port;
-
-    DISALLOW_COPY_AND_ASSIGN(FastTransportTest);
-};
-CPPUNIT_TEST_SUITE_REGISTRATION(FastTransportTest);
-
-// --- PollerTest ---
-
-class PollerTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(PollerTest);
-    CPPUNIT_TEST(test_invoke_noPacketReady);
-    CPPUNIT_TEST(test_invoke_tooSmall);
-    CPPUNIT_TEST(test_invoke_dropped);
-    CPPUNIT_TEST(test_invoke_c2sBadHintOpenSession);
-    CPPUNIT_TEST(test_invoke_c2sBadSession);
-    CPPUNIT_TEST(test_invoke_c2sGoodHint);
-    CPPUNIT_TEST(test_invoke_c2sGoodHintBadToken);
-    CPPUNIT_TEST(test_invoke_s2cGoodHint);
-    CPPUNIT_TEST(test_invoke_s2cGoodHintBadToken);
-    CPPUNIT_TEST(test_invoke_s2cBadHint);
-    CPPUNIT_TEST_SUITE_END();
-
-  public:
-
-    void
-    setUp()
-    {
-        driver = new MockDriver(FastTransport::Header::headerToString);
-        transport = new FastTransport(driver);
-
-        logger.setLogLevels(SILENT_LOG_LEVEL);
-    }
-
-    void
-    tearDown()
-    {
-        delete transport;
-        FastTransport::timeoutCyclesOverride = 0;
-        FastTransport::sessionTimeoutCyclesOverride = 0;
-    }
-
-    PollerTest()
-        : serviceLocator("fast+udp: host=1.2.3.4, port=1234")
-        , transport(NULL)
-        , driver(NULL)
-        , address("1.2.3.4")
-        , port(1234)
-    {}
-
     /// A predicate to limit TestLog messages to invoke
     static bool
     tppPred(string s)
     {
-        return s == "operator()";
+        return s == "handleIncomingPacket";
     }
 
     void
-    test_invoke_noPacketReady()
-    {
-        TestLog::Enable _(&tppPred);
-
-        bool result = transport->poller();
-        CPPUNIT_ASSERT_EQUAL(false, result);
-        CPPUNIT_ASSERT_EQUAL(
-            "operator(): "
-            "no packet ready", TestLog::get());
-    }
-
-    void
-    test_invoke_tooSmall()
+    test_handleIncomingPacket_tooSmall()
     {
         TestLog::Enable _(&tppPred);
 
         MockReceived recvd(0, 1, "");
         // corrupt the size
         recvd.len = 1;
-        driver->setInput(&recvd);
 
-        bool result = transport->poller();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "operator(): "
+            "handleIncomingPacket: "
             "packet too short (1 bytes)", TestLog::get());
     }
 
     void
-    test_invoke_dropped()
+    test_handleIncomingPacket_dropped()
     {
         TestLog::Enable _(&tppPred);
 
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->pleaseDrop = 1;
-        driver->setInput(&recvd);
 
-        bool result = transport->poller();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "operator(): "
+            "handleIncomingPacket: "
             "dropped", TestLog::get());
     }
 
     void
-    test_invoke_c2sBadHintOpenSession()
+    test_handleIncomingPacket_c2sBadHintOpenSession()
     {
         TestLog::Enable _(&tppPred);
 
@@ -336,28 +322,24 @@ class PollerTest : public CppUnit::TestFixture {
         recvd.getHeader()->payloadType = FastTransport::Header::SESSION_OPEN;
         ServiceLocator sl("mock:");
         recvd.sender = driver->newAddress(sl);
-        driver->setInput(&recvd);
 
-        bool result = transport->poller();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "operator(): "
+            "handleIncomingPacket: "
             "opening session 0", TestLog::get());
         CPPUNIT_ASSERT_EQUAL(1, transport->serverSessions.size());
     }
 
     void
-    test_invoke_c2sBadSession()
+    test_handleIncomingPacket_c2sBadSession()
     {
         TestLog::Enable _(&tppPred);
 
         MockReceived recvd(0, 1, "");
-        driver->setInput(&recvd);
 
-        bool result = transport->poller();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "operator(): "
+            "handleIncomingPacket: "
             "bad session hint 0", TestLog::get());
         CPPUNIT_ASSERT_EQUAL(
             "{ sessionToken:0 rpcId:0 clientSessionHint:0 "
@@ -366,7 +348,7 @@ class PollerTest : public CppUnit::TestFixture {
     }
 
     void
-    test_invoke_c2sGoodHint()
+    test_handleIncomingPacket_c2sGoodHint()
     {
         TestLog::Enable _(&tppPred);
 
@@ -374,19 +356,17 @@ class PollerTest : public CppUnit::TestFixture {
                 transport->serverSessions.get();
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->sessionToken = session->token;
-        driver->setInput(&recvd);
 
-        bool result = transport->poller();
+        transport->handleIncomingPacket(&recvd);
         session->channels[0].state =
                 FastTransport::ServerSession::ServerChannel::IDLE;
-        CPPUNIT_ASSERT_EQUAL(true, result);
         CPPUNIT_ASSERT_EQUAL(
-            "operator(): "
+            "handleIncomingPacket: "
             "calling ServerSession::processInboundPacket", TestLog::get());
     }
 
     void
-    test_invoke_c2sGoodHintBadToken()
+    test_handleIncomingPacket_c2sGoodHintBadToken()
     {
         TestLog::Enable _(&tppPred);
 
@@ -394,12 +374,10 @@ class PollerTest : public CppUnit::TestFixture {
                 transport->serverSessions.get();
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->sessionToken = session->token+1;
-        driver->setInput(&recvd);
 
-        bool result = transport->poller();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "operator(): "
+            "handleIncomingPacket: "
             "bad session token (0xcccccccccccccccc in session 0, "
             "0xcccccccccccccccd in packet)", TestLog::get());
         CPPUNIT_ASSERT_EQUAL(
@@ -409,7 +387,7 @@ class PollerTest : public CppUnit::TestFixture {
     }
 
     void
-    test_invoke_s2cGoodHint()
+    test_handleIncomingPacket_s2cGoodHint()
     {
         TestLog::Enable _(&tppPred);
 
@@ -421,17 +399,15 @@ class PollerTest : public CppUnit::TestFixture {
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->direction = FastTransport::Header::SERVER_TO_CLIENT;
         clientSession->token = recvd.getHeader()->sessionToken;
-        driver->setInput(&recvd);
 
-        bool result = transport->poller();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "operator(): "
+            "handleIncomingPacket: "
             "client session processing packet", TestLog::get());
     }
 
     void
-    test_invoke_s2cGoodHintBadToken()
+    test_handleIncomingPacket_s2cGoodHintBadToken()
     {
         TestLog::Enable _(&tppPred);
 
@@ -440,32 +416,28 @@ class PollerTest : public CppUnit::TestFixture {
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->direction =
                 FastTransport::Header::SERVER_TO_CLIENT;
-        driver->setInput(&recvd);
 
-        bool result = transport->poller();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "operator(): "
+            "handleIncomingPacket: "
             "client session processing packet | "
-            "operator(): "
+            "handleIncomingPacket: "
             "bad fragment token (0xcccccccccccccccc in session 0, "
             "0x0 in packet), client dropping", TestLog::get());
     }
 
     void
-    test_invoke_s2cBadHint()
+    test_handleIncomingPacket_s2cBadHint()
     {
         TestLog::Enable _(&tppPred);
 
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->direction =
                 FastTransport::Header::SERVER_TO_CLIENT;
-        driver->setInput(&recvd);
 
-        bool result = transport->poller();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "operator(): "
+            "handleIncomingPacket: "
             "bad client session hint 0", TestLog::get());
     }
 
@@ -476,9 +448,9 @@ class PollerTest : public CppUnit::TestFixture {
     const char* address;
     uint16_t port;
 
-    DISALLOW_COPY_AND_ASSIGN(PollerTest);
+    DISALLOW_COPY_AND_ASSIGN(FastTransportTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(PollerTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(FastTransportTest);
 
 // --- ClientRpcTest ---
 
@@ -2213,7 +2185,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
 
     void
     test_processReceivedData_queueEmpty()
-    {
+    {;
         FastTransport::ClientRpc rpc(transport, request, response);
         session->channelQueue.push_back(rpc);
 

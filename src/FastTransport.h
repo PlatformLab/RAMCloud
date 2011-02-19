@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -50,7 +50,8 @@ namespace RAMCloud {
  * - Server Inbound
  *  - FastTransport::serverRecv
  *  - Dispatch::poll
- *  - FastTransport::Poller::operator()
+ *  - Driver
+ *  - FastTransport::handleIncomingPacket
  *  - ServerSession::processInboundPacket
  *  - ServerSession::processReceivedData
  *  - InboundMessage::processReceivedData
@@ -64,7 +65,8 @@ namespace RAMCloud {
  * - Client Inbound
  *  - ClientRpc::wait
  *  - Dispatch::poll
- *  - FastTransport::Poller::operator()
+ *  - Driver
+ *  - FastTransport::handleIncomingPacket
  *  - ClientSession::processReceivedData
  *  - ClientSession::processReceivedData
  *  - InboundMessage::processReceivedData
@@ -85,6 +87,7 @@ class FastTransport : public Transport {
     void dumpStats() {
         driver->dumpStats();
     }
+    VIRTUAL_FOR_TESTING void handleIncomingPacket(Driver::Received *received);
 
     ServiceLocator getServiceLocator();
 
@@ -269,30 +272,24 @@ class FastTransport : public Transport {
                                              char* data,
                                              uint32_t dataLength,
                                              Driver* driver,
-                                             char* payload,
-                                             uint32_t payloadLength);
+                                             char* payload);
         static PayloadChunk* appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
                                             Driver* driver,
-                                            char* payload,
-                                            uint32_t payloadLength);
+                                            char* payload);
         ~PayloadChunk();
       private:
         PayloadChunk(void* data,
                      uint32_t dataLength,
                      Driver* driver,
-                     char* const payload,
-                     uint32_t payloadLength);
+                     char* const payload);
 
         /// Return the PayloadChunk memory here.
         Driver* const driver;
 
         /// The memory backing the chunk and which is to be returned.
         char* const payload;
-
-        /// Length of the memory region starting at payload.
-        const uint32_t payloadLength;
 
         DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
@@ -1299,22 +1296,6 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(SessionTable);
     };
 
-    /**
-     * This class is used to connect FastTransport with the dispatcher's
-     * polling mechanism, so that we get invoked each time through the polling
-     * loop to check for incoming packets.
-     */
-    class Poller : public Dispatch::Poller {
-      public:
-        explicit Poller(FastTransport* transport) : transport(transport) {}
-        virtual bool operator() ();
-
-      private:
-        /// Check this transport for packets every time we are invoked.
-        FastTransport* transport;
-        DISALLOW_COPY_AND_ASSIGN(Poller);
-    };
-
     uint32_t dataPerFragment();
     uint32_t numFrags(const Buffer* dataBuffer);
     void sendBadSessionError(Header *header, const Driver::Address* address);
@@ -1333,9 +1314,6 @@ class FastTransport : public Transport {
     /// Holds incoming RPCs until the Server is ready (see serverRecv()).
     INTRUSIVE_LIST_TYPEDEF(ServerRpc, readyQueueEntries) ServerReadyQueue;
     ServerReadyQueue serverReadyQueue;
-
-    /// Allows us to get invoked during the dispatcher's polling loop.
-    Poller poller;
 
     // If non-zero, overrides the value of timeoutCycles during tests.
     static uint64_t timeoutCyclesOverride;
