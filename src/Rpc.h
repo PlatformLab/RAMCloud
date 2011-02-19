@@ -95,6 +95,7 @@ struct CreateRpc {
         uint32_t length;              // Length of the value in bytes. The
                                       // actual bytes follow immediately after
                                       // this header.
+        uint8_t async;
     };
     struct Response {
         RpcResponseCommon common;
@@ -217,6 +218,7 @@ struct WriteRpc {
                                       // The actual bytes of the object follow
                                       // immediately after this header.
         RejectRules rejectRules;
+        uint8_t async;
     };
     struct Response {
         RpcResponseCommon common;

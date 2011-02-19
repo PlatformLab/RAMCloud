@@ -38,7 +38,9 @@ RejectRules defaultRejectRules;
  *      If non-NULL, the version number of the new object is returned
  *      here; guaranteed to be greater than that of any previous
  *      object that used the same id in the same table.
- *      
+ * \param async
+ *      If true, the new object will not be immediately replicated to backups.
+ *      Data loss may occur!
  * \return
  *      The identifier for the new object: unique within the table
  *      and guaranteed not to be in use already. Generally, servers
@@ -49,12 +51,13 @@ RejectRules defaultRejectRules;
  */
 uint64_t
 MasterClient::create(uint32_t tableId, const void* buf, uint32_t length,
-        uint64_t* version)
+                     uint64_t* version, bool async)
 {
     Buffer req, resp;
     CreateRpc::Request& reqHdr(allocHeader<CreateRpc>(req));
     reqHdr.tableId = tableId;
     reqHdr.length = length;
+    reqHdr.async = async;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
     const CreateRpc::Response& respHdr(
         sendRecv<CreateRpc>(session, req, resp));
@@ -238,14 +241,18 @@ MasterClient::setTablets(const ProtoBuf::Tablets& tablets)
  *      any previous version of the object. If the operation failed
  *      then the version number returned is the current version of
  *      the object, or 0 if the object does not exist.
+ * \param async
+ *      If true, the new object will not be immediately replicated to backups.
+ *      Data loss may occur!
  *
  * \exception RejectRulesException
  * \exception InternalError
  */
 void
 MasterClient::write(uint32_t tableId, uint64_t id,
-                      const void* buf, uint32_t length,
-                      const RejectRules* rejectRules, uint64_t* version)
+                    const void* buf, uint32_t length,
+                    const RejectRules* rejectRules, uint64_t* version,
+                    bool async)
 {
     Buffer req, resp;
     WriteRpc::Request& reqHdr(allocHeader<WriteRpc>(req));
@@ -253,6 +260,7 @@ MasterClient::write(uint32_t tableId, uint64_t id,
     reqHdr.tableId = tableId;
     reqHdr.length = length;
     reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    reqHdr.async = async;
     Buffer::Chunk::appendToBuffer(&req, buf, length);
     const WriteRpc::Response& respHdr(sendRecv<WriteRpc>(session, req, resp));
     if (version != NULL)

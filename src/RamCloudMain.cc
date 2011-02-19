@@ -50,8 +50,14 @@ runRecovery(RamCloud& client,
         LOG(NOTICE, "Performing %u inserts of %u byte objects",
             count, objectDataSize);
         b = rdtsc();
-        for (int j = 0; j < count; j++)
-            id = client.create(table, val, objectDataSize);
+        for (int j = 0; j < count - 1; j++) {
+            id = client.create(table, val, objectDataSize,
+                               /* version = */ NULL,
+                               /* async = */ true);
+        }
+        id = client.create(table, val, objectDataSize,
+                           /* version = */ NULL,
+                           /* async = */ false);
         LOG(DEBUG, "%d inserts took %lu ticks", count, rdtsc() - b);
         LOG(DEBUG, "avg insert took %lu ticks", (rdtsc() - b) / count);
 
