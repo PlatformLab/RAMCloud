@@ -1106,7 +1106,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                                Responder& responder)
 {
     LOG(DEBUG, "Handling: %s %lu", __func__, reqHdr.masterId);
-    recoveryTicks.reset(&metrics->recoveryTicks);
+    recoveryTicks.construct(&metrics->recoveryTicks);
     reset(metrics, serverId, 2);
     metrics->backup.storageType = static_cast<uint64_t>(storage.storageType);
     CycleCounter<Metric> srdTicks(&metrics->backup.startReadingDataTicks);
