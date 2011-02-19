@@ -63,6 +63,8 @@ CoordinatorServer::~CoordinatorServer()
     // delete wills
     foreach (const ProtoBuf::ServerList::Entry& master, masterList.server())
         delete reinterpret_cast<ProtoBuf::Tablets*>(master.user_data());
+    failureDetectorHandler.destroy();
+    close(failureDetectorFd);
 }
 
 void
@@ -577,10 +579,10 @@ CoordinatorServer::FailureDetectorHandler::operator()()
 {
     char buf[FailureDetector::MAXIMUM_MTU_BYTES];
     struct sockaddr_in sin;
-    socklen_t length = sizeof(sin);
+    socklen_t sinLength = sizeof(sin);
 
     ssize_t r = recvfrom(fd, buf, sizeof(buf), 0,
-        reinterpret_cast<sockaddr*>(&sin), &length);
+        reinterpret_cast<sockaddr*>(&sin), &sinLength);
     if (r < 0) {
         LOG(WARNING, "recvfrom failed with %zd", r);
         return;
@@ -620,22 +622,23 @@ CoordinatorServer::FailureDetectorHandler::operator()()
         else
             coordinator->backupList.SerializePartialToOstream(&ostream);
         string str(ostream.str());
-        uint32_t length = str.length();
 
-        if ((sizeof(*resp) + length) > FailureDetector::MAXIMUM_MTU_BYTES) {
+        if (sizeof(*resp) + str.length() > FailureDetector::MAXIMUM_MTU_BYTES) {
             LOG(WARNING, "cannot fit %s list into rpc",
                 (getReq->serverType == MASTER) ? "master" : "server");
             return;
         }
 
-        memcpy(&responseBuf[sizeof(*resp)], str.c_str(), length);
+        memcpy(&responseBuf[sizeof(*resp)], str.c_str(), str.length());
         resp->common.status = STATUS_OK;
-        resp->serverListLength = length;
+        resp->serverListLength = str.length();
 
-        ssize_t r = sendto(fd, responseBuf, sizeof(*resp) + length, 0,
-            reinterpret_cast<sockaddr*>(&sin), length);
-        if (r != static_cast<ssize_t>(sizeof(*resp) + length))
-            LOG(WARNING, "failed to send GetServerList reply; r = %zd", r);
+        ssize_t r = sendto(fd, responseBuf, sizeof(*resp) + str.length(), 0,
+            reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
+        if (r != static_cast<ssize_t>(sizeof(*resp) + str.length())) {
+            LOG(WARNING, "failed to send GetServerList reply; r = %zd, "
+                "errno %d: %s", r, errno, strerror(errno));
+        }
     } else {
         LOG(WARNING, "weird rpc type received: %d", req->type);
     }

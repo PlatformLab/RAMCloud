@@ -323,8 +323,10 @@ FailureDetector::alertCoordinator(TimeoutQueue::TimeoutEntry* te)
         sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);
         ssize_t r = sys->sendto(coordFd, buf, bytesNeeded, 0,
             reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
-        if (r != sizeof(rpc))
-            LOG(WARNING, "failed to send hint server down rpc to coordinator");
+        if (r != bytesNeeded) {
+            LOG(WARNING, "failed to send hint server down rpc to coordinator. "
+                "r = %zd, errno %d: %s", r, errno, strerror(errno));
+        }
     }
 }
 
@@ -378,8 +380,10 @@ FailureDetector::requestServerList()
         inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
     ssize_t r = sys->sendto(coordFd, &rpc, sizeof(rpc), 0,
         reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
-    if (r != sizeof(rpc))
-        LOG(WARNING, "failed to send host list request to coordinator");
+    if (r != sizeof(rpc)) {
+        LOG(WARNING, "failed to send host list request to coordinator. "
+            "r = %zd, errno %d: %s", r, errno, strerror(errno));
+    }
 }
 
 /**
