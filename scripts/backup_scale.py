@@ -34,13 +34,7 @@ for numBackups in range(1, 7):
     args['disk'] = '/dev/sdb1'
     args['numObjects'] = 626012 * 400 // 640
     args['oldMasterArgs'] = '-m 3000'
-    while True:
-        try:
-            r = recovery.recover(**args)
-        except subprocess.CalledProcessError, e:
-            print e
-        else:
-            break
+    r = recovery.insist(**args)
     print 'Recovery', r
     dat.write('%d\t%d\n' % (numBackups, r['ns']))
     dat.flush()

@@ -169,5 +169,14 @@ def recover(numBackups=1,
         stats['ns'] = stats['metrics'].client.recoveryNs
         return stats
 
+def insist(*args, **kwargs):
+    """Keep insistly trying recoveries until the damn thing succeeds"""
+    while True:
+        try:
+            return recover(*args, **kwargs)
+        except subprocess.CalledProcessError, e:
+            print 'Recovery failed:', e
+            print 'Trying again...'
+
 if __name__ == '__main__':
     pprint.pprint(recover())
