@@ -143,6 +143,22 @@ BackupClient::ping()
 }
 
 /**
+ * Flush all data to storage.
+ * Returns once all dirty buffers have been written to storage.
+ * This is useful for measuring recovery performance accurately.
+ *
+ * \exception InternalError
+ */
+void
+BackupClient::quiesce()
+{
+    Buffer req, resp;
+    allocHeader<BackupQuiesceRpc>(req);
+    sendRecv<BackupQuiesceRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
  * Signal to the backup server that recovery has completed. The backup server
  * will then free any resources it has for the recovered master.
  */

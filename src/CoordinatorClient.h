@@ -46,6 +46,7 @@ class CoordinatorClient : public Client {
     void getTabletMap(ProtoBuf::Tablets& tabletMap);
     void hintServerDown(string serviceLocator);
     void ping();
+    void quiesce();
     void tabletsRecovered(uint64_t masterId,
                           const ProtoBuf::Tablets& tablets,
                           const ProtoBuf::Tablets& will);

@@ -548,6 +548,7 @@ BackupServer::IoScheduler::IoScheduler()
     , loadQueue()
     , storeQueue()
     , running(true)
+    , outstandingStores(0)
 {
 }
 
@@ -613,6 +614,18 @@ BackupServer::IoScheduler::load(SegmentInfo& info)
 }
 
 /**
+ * Flush all data to storage.
+ * Returns once all dirty buffers have been written to storage.
+ */
+void
+BackupServer::IoScheduler::quiesce()
+{
+    while (outstandingStores > 0) {
+        /* pass */;
+    }
+}
+
+/**
  * Queue a segment store operation to be done on a separate thread.
  *
  * \param info
@@ -624,6 +637,7 @@ BackupServer::IoScheduler::store(SegmentInfo& info)
 #ifdef SINGLE_THREADED_BACKUP
     doStore(info);
 #else
+    ++outstandingStores;
     Lock lock(queueMutex);
     storeQueue.push(&info);
     uint32_t count = loadQueue.size() + storeQueue.size();
@@ -745,6 +759,7 @@ BackupServer::IoScheduler::doStore(SegmentInfo& info) const
     }
     info.pool.free(info.segment);
     info.segment = NULL;
+    --outstandingStores;
     LOG(DEBUG, "Done storing segment <%lu,%lu>", info.masterId, info.segmentId);
     info.condition.notify_all();
 }
@@ -929,6 +944,10 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             callHandler<PingRpc, Server,
                         &Server::ping>(rpc);
             break;
+        case BackupQuiesceRpc::type:
+            callHandler<BackupQuiesceRpc, BackupServer,
+                        &BackupServer::quiesce>(rpc);
+            break;
         case BackupRecoveryCompleteRpc::type:
             callHandler<BackupRecoveryCompleteRpc, BackupServer,
                         &BackupServer::recoveryComplete>(rpc, responder);
@@ -1043,6 +1062,24 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
     info->appendRecoverySegment(reqHdr.partitionId, rpc.replyPayload);
 
     LOG(DEBUG, "getRecoveryData complete");
+}
+
+/**
+ * Flush all data to storage.
+ * Returns once all dirty buffers have been written to storage.
+ * \param reqHdr
+ *      Header of the Rpc request.
+ * \param respHdr
+ *      Header for the Rpc response.
+ * \param rpc
+ *      The Rpc being serviced.
+ */
+void
+BackupServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
+                      BackupQuiesceRpc::Response& respHdr,
+                      Transport::ServerRpc& rpc)
+{
+    ioScheduler.quiesce();
 }
 
 /**

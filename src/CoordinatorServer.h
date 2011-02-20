@@ -76,6 +76,10 @@ class CoordinatorServer : public Server {
               PingRpc::Response& respHdr,
               Transport::ServerRpc& rpc);
 
+    void quiesce(const BackupQuiesceRpc::Request& reqHdr,
+                 BackupQuiesceRpc::Response& respHdr,
+                 Transport::ServerRpc& rpc);
+
     void setWill(const SetWillRpc::Request& reqHdr,
                  SetWillRpc::Response& respHdr,
                  Transport::ServerRpc& rpc);

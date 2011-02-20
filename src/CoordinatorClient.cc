@@ -257,6 +257,20 @@ CoordinatorClient::ping()
 }
 
 /**
+ * Have all backups flush their dirty segments to storage.
+ * This is useful for measuring recovery performance accurately.
+ */
+void
+CoordinatorClient::quiesce()
+{
+    Buffer req;
+    Buffer resp;
+    allocHeader<BackupQuiesceRpc>(req);
+    sendRecv<BackupQuiesceRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
  * Tell the coordinator that recovery of a particular tablets have
  * been recovered on the master who is calling.
  *

@@ -91,6 +91,10 @@ CoordinatorServer::dispatch(RpcType type,
             callHandler<PingRpc, CoordinatorServer,
                         &CoordinatorServer::ping>(rpc);
             break;
+        case BackupQuiesceRpc::type:
+            callHandler<BackupQuiesceRpc, CoordinatorServer,
+                        &CoordinatorServer::quiesce>(rpc);
+            break;
         case SetWillRpc::type:
             callHandler<SetWillRpc, CoordinatorServer,
                         &CoordinatorServer::setWill>(rpc);
@@ -474,6 +478,21 @@ CoordinatorServer::ping(const PingRpc::Request& reqHdr,
             server.service_locator().c_str())).ping();
 
     Server::ping(reqHdr, respHdr, rpc);
+}
+
+/**
+ * Have all backups flush their dirty segments to storage.
+ * \copydetails Server::ping
+ */
+void
+CoordinatorServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
+                           BackupQuiesceRpc::Response& respHdr,
+                           Transport::ServerRpc& rpc)
+{
+    foreach (auto& server, backupList.server()) {
+        BackupClient(transportManager.getSession(
+                        server.service_locator().c_str())).quiesce();
+    }
 }
 
 /**

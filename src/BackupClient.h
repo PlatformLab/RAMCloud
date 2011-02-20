@@ -177,6 +177,7 @@ class BackupClient : public Client {
     }
 
     void ping();
+    void quiesce();
     void recoveryComplete(uint64_t masterId);
 
   private:
