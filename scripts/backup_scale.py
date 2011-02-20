@@ -21,12 +21,14 @@ Varies the number of backups feeding data to one recovery master.
 
 from __future__ import division
 from common import *
+import metrics
 import recovery
 import subprocess
 
 dat = open('%s/recovery/backup_scale.data' % top_path, 'w')
 
 for numBackups in range(1, 7):
+    print 'Running recovery with %d backup(s)' % numBackups
     args = {}
     args['numBackups'] = numBackups
     args['numPartitions'] = 1
@@ -34,7 +36,14 @@ for numBackups in range(1, 7):
     args['disk'] = '/dev/sdb1'
     args['numObjects'] = 626012 * 400 // 640
     args['oldMasterArgs'] = '-m 3000'
+    args['replicas'] = 1
     r = recovery.insist(**args)
-    print 'Recovery', r
-    dat.write('%d\t%d\n' % (numBackups, r['ns']))
+    masterCpuNs = metrics.average(
+        [(master.recoveryTicks -
+          master.master.segmentOpenStallTicks -
+          master.master.segmentWriteStallTicks -
+          master.master.segmentReadStallTicks) /
+         master.clockFrequency
+         for master in r['metrics'].masters]) * 1e9
+    dat.write('%d\t%d\t%d\n' % (numBackups, r['ns'], masterCpuNs))
     dat.flush()

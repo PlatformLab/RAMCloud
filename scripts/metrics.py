@@ -28,7 +28,7 @@ import sys
 
 from common import *
 
-__all__ = ['parseRecovery']
+__all__ = ['average', 'parseRecovery']
 
 ### Utilities:
 
