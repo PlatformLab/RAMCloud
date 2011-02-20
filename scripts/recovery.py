@@ -17,7 +17,9 @@
 """Runs a recovery of a master."""
 
 from common import *
+import metrics
 import os
+import pprint
 import re
 import subprocess
 import time
@@ -160,6 +162,7 @@ def recover(numBackups=1,
                 raise Exception('timeout exceeded')
 
         stats = {}
+        stats['metrics'] = metrics.parseRecovery(run)
         stats['run'] = run
         stats['count'] = numObjects
         stats['size'] = objectSize
@@ -170,4 +173,4 @@ def recover(numBackups=1,
         return stats
 
 if __name__ == '__main__':
-    print recover()
+    pprint.pprint(recover())
