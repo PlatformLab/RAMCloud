@@ -166,10 +166,7 @@ def recover(numBackups=1,
         stats['run'] = run
         stats['count'] = numObjects
         stats['size'] = objectSize
-        for line in open('%s/client.log' % run):
-            m = re.search(r'\bRecovery completed in (\d+) ns\b', line)
-            if m:
-                stats['ns'] = int(m.group(1))
+        stats['ns'] = stats['metrics'].client.recoveryNs
         return stats
 
 if __name__ == '__main__':

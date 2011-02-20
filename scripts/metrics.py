@@ -23,6 +23,7 @@ from pprint import pprint
 from functools import partial
 import math
 import random
+import re
 import sys
 
 from common import *
@@ -454,6 +455,11 @@ def parseRecovery(recovery_dir, definitions=None):
                     for f in sorted(glob('%s/newMaster*.log' % recovery_dir))]
     data.backups = [parse(open(f), definitions)
                     for f in sorted(glob('%s/backup*.log' % recovery_dir))]
+    data.client = AttrDict()
+    for line in open('%s/client.log' % recovery_dir):
+        m = re.search(r'\bRecovery completed in (\d+) ns\b', line)
+        if m:
+            data.client.recoveryNs = int(m.group(1))
     return data
 
 def writeBuildFiles(definitions):
@@ -472,6 +478,8 @@ def writeBuildFiles(definitions):
 def rawSample(data):
     """Prints out some raw data for debugging"""
 
+    print('Client:')
+    pprint(data.client)
     print('Coordinator:')
     pprint(data.coordinator)
     print()
@@ -659,7 +667,7 @@ def textReport(data):
     masters = data.masters
     backups = data.backups
 
-    recoveryTime = coord.recoveryTicks / coord.clockFrequency
+    recoveryTime = data.client.recoveryNs / 1e9
     report = Report()
 
     # TODO(ongaro): Size distributions of filtered segments
@@ -688,16 +696,28 @@ def textReport(data):
         summary.line('Storage type', [storageType])
 
     coordSection = report.add(Section('Coordinator Time'))
-    coordSection.ms('Idle',
+    coordSection.ms('Total',
+        coord.recoveryTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    coordSection.ms('  Idle',
         coord.idleTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
-    coordSection.ms('Starting recovery on backups',
+    coordSection.ms('  Starting recovery on backups',
         coord.coordinator.recoveryConstructorTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
-    coordSection.ms('Starting recovery on masters',
+    coordSection.ms('  Starting recovery on masters',
         coord.coordinator.recoveryStartTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    coordSection.ms('  Other',
+        ((coord.recoveryTicks -
+          coord.idleTicks -
+          coord.coordinator.recoveryConstructorTicks -
+          coord.coordinator.recoveryStartTicks) /
+         coord.clockFrequency),
         total=recoveryTime,
         fractionLabel='of total recovery')
 
