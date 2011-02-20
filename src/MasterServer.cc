@@ -104,6 +104,10 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             callHandler<RemoveRpc, MasterServer,
                         &MasterServer::remove>(rpc);
             break;
+        case RereplicateSegmentsRpc::type:
+            callHandler<RereplicateSegmentsRpc, MasterServer,
+                        &MasterServer::rereplicateSegments>(rpc);
+            break;
         case SetTabletsRpc::type:
             callHandler<SetTabletsRpc, MasterServer,
                         &MasterServer::setTablets>(rpc);
@@ -938,6 +942,25 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
         &lengthInLog, &logTime);
     t.profiler.track(obj->id.objectId, lengthInLog, logTime);
     objectMap.remove(reqHdr.tableId, reqHdr.id);
+}
+
+
+/**
+ * Top-level server method to handle the REREPLICATE_SEGMENTS request.
+ * Using the server id of a crashed backup from #reqHdr this MasterServer
+ * rereplicates any live segments it had stored on that backup to new backups
+ * in order to maintain any replication requirements after a backup failure.
+ *
+ * \copydetails Server::ping
+ */
+void
+MasterServer::rereplicateSegments(const RereplicateSegmentsRpc::Request& reqHdr,
+                                  RereplicateSegmentsRpc::Response& respHdr,
+                                  Transport::ServerRpc& rpc)
+{
+    const uint64_t failedBackupId = reqHdr.backupId;
+    LOG(NOTICE, "Backup %lu failed, rereplicating segments elsewhere",
+        failedBackupId);
 }
 
 /**

@@ -49,6 +49,7 @@ enum RpcType {
     HINT_SERVER_DOWN        = 21,
     TABLETS_RECOVERED       = 22,
     SET_WILL                = 23,
+    REREPLICATE_SEGMENTS    = 24,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -173,6 +174,17 @@ struct RecoverRpc {
                                    // The bytes of the server list follow
                                    // after the bytes for the Tablets. See
                                    // ProtoBuf::ServerList.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct RereplicateSegmentsRpc {
+    static const RpcType type = REREPLICATE_SEGMENTS;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t backupId;        // The server id of a crashed backup.
     };
     struct Response {
         RpcResponseCommon common;

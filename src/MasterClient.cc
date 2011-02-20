@@ -90,6 +90,39 @@ MasterClient::Write::operator()()
 }
 
 /**
+ * Report to a master that a particular backup has failed so that it
+ * can rereplicate any segments that might have been stored there.
+ *
+ * \param client
+ *      The MasterClient instance over which the RPC should be issued.
+ * \param backupId
+ *      The server id of a backup which has failed.
+ */
+MasterClient::RereplicateSegments::RereplicateSegments(MasterClient& client,
+                                                       uint64_t backupId)
+    : client(client)
+    , backupId(backupId)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    RereplicateSegmentsRpc::Request& reqHdr(
+        client.allocHeader<RereplicateSegmentsRpc>(requestBuffer));
+    reqHdr.backupId = backupId;
+    state = client.send<RereplicateSegmentsRpc>(client.session,
+                                                requestBuffer,
+                                                responseBuffer);
+}
+
+/// Wait for the rereplicateSegments RPC to complete.
+void
+MasterClient::RereplicateSegments::operator()()
+{
+    client.recv<RereplicateSegmentsRpc>(state);
+    client.checkStatus(HERE);
+}
+
+/**
  * Create a new object in a table, with an id assigned by the server.
  *
  * \param tableId
