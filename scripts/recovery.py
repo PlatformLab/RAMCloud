@@ -17,7 +17,9 @@
 """Runs a recovery of a master."""
 
 from common import *
+import metrics
 import os
+import pprint
 import re
 import subprocess
 import time
@@ -160,14 +162,21 @@ def recover(numBackups=1,
                 raise Exception('timeout exceeded')
 
         stats = {}
+        stats['metrics'] = metrics.parseRecovery(run)
         stats['run'] = run
         stats['count'] = numObjects
         stats['size'] = objectSize
-        for line in open('%s/client.log' % run):
-            m = re.search(r'\bRecovery completed in (\d+) ns\b', line)
-            if m:
-                stats['ns'] = int(m.group(1))
+        stats['ns'] = stats['metrics'].client.recoveryNs
         return stats
 
+def insist(*args, **kwargs):
+    """Keep insistly trying recoveries until the damn thing succeeds"""
+    while True:
+        try:
+            return recover(*args, **kwargs)
+        except subprocess.CalledProcessError, e:
+            print 'Recovery failed:', e
+            print 'Trying again...'
+
 if __name__ == '__main__':
-    print recover()
+    pprint.pprint(recover())

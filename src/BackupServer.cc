@@ -148,6 +148,7 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
     }
 
     if (!primary) {
+        ++metrics->backup.secondaryLoadCount;
         if (!isRecovered() && !recoveryException) {
             LOG(DEBUG, "Requested segment <%lu,%lu> is secondary, "
                 "starting build of recovery segments now", masterId, segmentId);
@@ -158,6 +159,8 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
             buildRecoverySegments(*recoveryPartitions);
             lock.lock();
         }
+    } else {
+        ++metrics->backup.primaryLoadCount;
     }
 
     CycleCounter<Metric> stallTicks(&metrics->backup.readStallTicks);
@@ -545,6 +548,7 @@ BackupServer::IoScheduler::IoScheduler()
     , loadQueue()
     , storeQueue()
     , running(true)
+    , outstandingStores(0)
 {
 }
 
@@ -610,6 +614,18 @@ BackupServer::IoScheduler::load(SegmentInfo& info)
 }
 
 /**
+ * Flush all data to storage.
+ * Returns once all dirty buffers have been written to storage.
+ */
+void
+BackupServer::IoScheduler::quiesce()
+{
+    while (outstandingStores > 0) {
+        /* pass */;
+    }
+}
+
+/**
  * Queue a segment store operation to be done on a separate thread.
  *
  * \param info
@@ -621,6 +637,7 @@ BackupServer::IoScheduler::store(SegmentInfo& info)
 #ifdef SINGLE_THREADED_BACKUP
     doStore(info);
 #else
+    ++outstandingStores;
     Lock lock(queueMutex);
     storeQueue.push(&info);
     uint32_t count = loadQueue.size() + storeQueue.size();
@@ -742,6 +759,7 @@ BackupServer::IoScheduler::doStore(SegmentInfo& info) const
     }
     info.pool.free(info.segment);
     info.segment = NULL;
+    --outstandingStores;
     LOG(DEBUG, "Done storing segment <%lu,%lu>", info.masterId, info.segmentId);
     info.condition.notify_all();
 }
@@ -926,6 +944,10 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             callHandler<PingRpc, Server,
                         &Server::ping>(rpc);
             break;
+        case BackupQuiesceRpc::type:
+            callHandler<BackupQuiesceRpc, BackupServer,
+                        &BackupServer::quiesce>(rpc);
+            break;
         case BackupRecoveryCompleteRpc::type:
             callHandler<BackupRecoveryCompleteRpc, BackupServer,
                         &BackupServer::recoveryComplete>(rpc, responder);
@@ -1043,6 +1065,24 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 }
 
 /**
+ * Flush all data to storage.
+ * Returns once all dirty buffers have been written to storage.
+ * \param reqHdr
+ *      Header of the Rpc request.
+ * \param respHdr
+ *      Header for the Rpc response.
+ * \param rpc
+ *      The Rpc being serviced.
+ */
+void
+BackupServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
+                      BackupQuiesceRpc::Response& respHdr,
+                      Transport::ServerRpc& rpc)
+{
+    ioScheduler.quiesce();
+}
+
+/**
  * Clean up state associated with the given master after recovery.
  * \param reqHdr
  *      Header of the Rpc request containing the segment number to free.
@@ -1103,7 +1143,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                                Responder& responder)
 {
     LOG(DEBUG, "Handling: %s %lu", __func__, reqHdr.masterId);
-    recoveryTicks.reset(&metrics->recoveryTicks);
+    recoveryTicks.construct(&metrics->recoveryTicks);
     reset(metrics, serverId, 2);
     metrics->backup.storageType = static_cast<uint64_t>(storage.storageType);
     CycleCounter<Metric> srdTicks(&metrics->backup.startReadingDataTicks);
@@ -1178,8 +1218,9 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
         info->setRecovering(partitions);
     }
     respHdr.segmentIdCount = primarySegments.size() + secondarySegments.size();
-    LOG(DEBUG, "Sending %u segment ids for this master",
-        respHdr.segmentIdCount);
+    respHdr.primarySegmentCount = primarySegments.size();
+    LOG(DEBUG, "Sending %u segment ids for this master (%u primary)",
+        respHdr.segmentIdCount, respHdr.primarySegmentCount);
 
     respHdr.digestSegmentId  = logDigestLastId;
     respHdr.digestSegmentLen = logDigestLastLen;

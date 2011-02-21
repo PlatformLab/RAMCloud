@@ -18,6 +18,7 @@
 
 #include "Common.h"
 #include "CoordinatorClient.h"
+#include "MasterClient.h"
 #include "ObjectFinder.h"
 
 namespace RAMCloud {
@@ -31,12 +32,54 @@ namespace RAMCloud {
  */
 class RamCloud {
   public:
+    /// An asynchronous version of #create().
+    class Create {
+      public:
+        /// Start a create RPC. See RamCloud::create.
+        Create(RamCloud& ramCloud,
+               uint32_t tableId, const void* buf, uint32_t length,
+               uint64_t* version = NULL, bool async = false)
+            : master(ramCloud.objectFinder.lookupHead(tableId))
+            , masterCreate(master, tableId, buf, length, version, async)
+        {
+        }
+        bool isReady() { return masterCreate.isReady(); }
+        /// Wait for the create RPC to complete.
+        uint64_t operator()() { return masterCreate(); }
+      private:
+        MasterClient master;
+        MasterClient::Create masterCreate;
+        DISALLOW_COPY_AND_ASSIGN(Create);
+    };
+
+    /// An asynchronous version of #write().
+    class Write {
+      public:
+        /// Start a write RPC. See RamCloud::write.
+        Write(RamCloud& ramCloud,
+              uint32_t tableId, uint64_t id, const void* buf,
+              uint32_t length, const RejectRules* rejectRules = NULL,
+              uint64_t* version = NULL, bool async = false)
+            : master(ramCloud.objectFinder.lookup(tableId, id))
+            , masterWrite(master, tableId, id, buf, length,
+                          rejectRules, version, async)
+        {
+        }
+        bool isReady() { return masterWrite.isReady(); }
+        /// Wait for the write RPC to complete.
+        void operator()() { masterWrite(); }
+      private:
+        MasterClient master;
+        MasterClient::Write masterWrite;
+        DISALLOW_COPY_AND_ASSIGN(Write);
+    };
+
     explicit RamCloud(const char* serviceLocator);
     void createTable(const char* name);
     void dropTable(const char* name);
     uint32_t openTable(const char* name);
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
-                    uint64_t* version = NULL);
+                    uint64_t* version = NULL, bool async = false);
     void ping();
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,
@@ -46,7 +89,7 @@ class RamCloud {
                 uint64_t* version = NULL);
     void write(uint32_t tableId, uint64_t id, const void* buf,
                uint32_t length, const RejectRules* rejectRules = NULL,
-               uint64_t* version = NULL);
+               uint64_t* version = NULL, bool async = false);
 
     /// \copydoc Client::status
     Status status;

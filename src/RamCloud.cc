@@ -58,10 +58,9 @@ RamCloud::openTable(const char* name)
 /// \copydoc MasterClient::create
 uint64_t
 RamCloud::create(uint32_t tableId, const void* buf, uint32_t length,
-                 uint64_t* version)
+                 uint64_t* version, bool async)
 {
-    MasterClient master(objectFinder.lookupHead(tableId));
-    return master.create(tableId, buf, length, version);
+    return Create(*this, tableId, buf, length, version, async)();
 }
 
 /// \copydoc CoordinatorClient::ping
@@ -93,10 +92,10 @@ RamCloud::remove(uint32_t tableId, uint64_t id,
 void
 RamCloud::write(uint32_t tableId, uint64_t id,
                 const void* buf, uint32_t length,
-                const RejectRules* rejectRules, uint64_t* version)
+                const RejectRules* rejectRules, uint64_t* version,
+                bool async)
 {
-    MasterClient master(objectFinder.lookup(tableId, id));
-    master.write(tableId, id, buf, length, rejectRules, version);
+    Write(*this, tableId, id, buf, length, rejectRules, version, async)();
 }
 
 }  // namespace RAMCloud
