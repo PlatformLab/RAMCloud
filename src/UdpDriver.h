@@ -19,10 +19,10 @@
 #include <boost/pool/object_pool.hpp>
 #include <vector>
 
-#include "Common.h"
-#include "Driver.h"
+#include "FastTransport.h"
 #include "IpAddress.h"
 #include "Syscall.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -37,13 +37,14 @@ class UdpDriver : public Driver {
 
     explicit UdpDriver(const ServiceLocator* localServiceLocator = NULL);
     virtual ~UdpDriver();
+    virtual void connect(FastTransport* transport);
+    virtual void disconnect();
     virtual uint32_t getMaxPacketSize();
-    virtual void release(char *payload, uint32_t len);
+    virtual void release(char *payload);
     virtual void sendPacket(const Address *addr,
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
-    virtual bool tryRecvPacket(Received *received);
     virtual ServiceLocator getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator& serviceLocator) {
@@ -64,7 +65,28 @@ class UdpDriver : public Driver {
     /// File descriptor of the UDP socket this driver uses for communication.
     int socketFd;
 
-    /// Holds packet buffers that are no longer in use, for use any future
+    /// FastTransport to invoke whenever packets arrive.
+    FastTransport* transport;
+
+    /**
+     * An event handler that reads incoming packets and passes them on to
+     * #transport.
+     */
+    class ReadHandler : public Dispatch::File {
+      public:
+        ReadHandler(int fd, UdpDriver* driver)
+                : Dispatch::File(fd, Dispatch::FileEvent::READABLE)
+                , driver(driver)
+        { }
+        virtual void operator() ();
+      private:
+        // Driver that owns this handler.
+        UdpDriver* driver;
+        DISALLOW_COPY_AND_ASSIGN(ReadHandler);
+    };
+    Tub<ReadHandler> readHandler;
+
+    /// Holds packet buffers that are no longer in use, for use in future
     /// requests; saves the overhead of calling malloc/free for each request.
     boost::object_pool<PacketBuf> packetBufPool;
 

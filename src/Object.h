@@ -46,24 +46,43 @@ class Object {
      * realize sizeof(data) is bogus, and proceed to dynamically allocating
      * a buffer instead.
      */
-    explicit Object(size_t buf_size) : id(-1, -1), version(-1),
-                                       checksum(0), data_len(0) {
-        static_assert(sizeof(*this) == 40, "bad Object size!");
+    explicit Object(size_t buf_size)
+        : id(-1, -1),
+          version(-1)
+    {
+        static_assert(sizeof(*this) == 24, "bad Object size!");
         assert(buf_size >= sizeof(*this));
     }
 
-    size_t size() const {
-        return sizeof(*this) + this->data_len;
+    /**
+     * Return the total byte size of an Object that contains the specified
+     * number of bytes in ``data''.  This exists because Objects do not
+     * contain a length field, since they typically exist in the Log, which
+     * must record that information anyhow.
+     */
+    uint64_t
+    objectLength(uint64_t dataBytes) const
+    {
+        return sizeof(*this) + dataBytes;
+    }
+
+    /**
+     * Return the number of bytes of data an Object contains, given
+     * the total size of the Object.
+     */
+    uint64_t
+    dataLength(uint64_t totalObjectBytes) const
+    {
+        assert(totalObjectBytes >= sizeof(*this));
+        return totalObjectBytes - sizeof(*this);
     }
 
     struct ObjectIdentifier id;
     uint64_t version;
-    uint64_t checksum;
-    uint64_t data_len;
     char data[0];
 
   private:
-    Object() : id(-1, -1), version(-1), checksum(0), data_len(0) { }
+    Object() : id(-1, -1), version(-1) { }
 
     // to use default constructor in arrays
     friend class BackupServerTest;

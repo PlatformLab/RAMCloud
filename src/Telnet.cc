@@ -118,7 +118,6 @@ try
             uint64_t totalFrags = (generateRandom() & 0x3FF);
             for (uint32_t i = 0; i < totalFrags; i++)
                 Buffer::Chunk::appendToBuffer(&request, buf, sizeof(buf));
-            CycleCounter c;
             session[0]->clientSend(&request, &response)->wait();
         }
     }

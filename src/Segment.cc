@@ -20,6 +20,8 @@
 #include <string.h>
 
 #include "Crc32C.h"
+#include "CycleCounter.h"
+#include "Metrics.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
 #include "Log.h"
@@ -101,20 +103,10 @@ Segment::commonConstructor()
     assert(capacity >= sizeof(SegmentEntry) + sizeof(SegmentHeader) +
                        sizeof(SegmentEntry) + sizeof(SegmentFooter));
 
-    new(static_cast<uint8_t*>(baseAddress) + tail)
-        SegmentEntry { LOG_ENTRY_TYPE_SEGHEADER, sizeof(SegmentHeader) };
-    tail += sizeof(SegmentEntry);
-
-    new(static_cast<uint8_t*>(baseAddress) + tail)
-        SegmentHeader { logId, id, capacity };
-    tail += sizeof(SegmentHeader);
-
-    if (log)
-        log->stats.totalBytesAppended += tail;
-
-#ifndef PERF_DEBUG_RECOVERY_NO_CKSUM
-    checksum.update(baseAddress, tail);
-#endif
+    SegmentHeader segHdr = { logId, id, capacity };
+    SegmentEntryHandle h = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGHEADER,
+        &segHdr, sizeof(segHdr), false);
+    assert(h != NULL);
 
     if (backup)
         backupSegment = backup->openSegment(id, baseAddress, tail);
@@ -209,12 +201,10 @@ Segment::close(bool sync)
     if (closed)
         throw SegmentException(HERE, "Segment has already been closed");
 
-    SegmentEntry entry = { LOG_ENTRY_TYPE_SEGFOOTER, sizeof(SegmentFooter) };
-    const void *p = forceAppendBlob(&entry, sizeof(entry));
-    assert(p != NULL);
-
     SegmentFooter footer = { checksum.getResult() };
-    p = forceAppendBlob(&footer, sizeof(footer), false);
+
+    const void *p = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGFOOTER, &footer,
+        sizeof(SegmentFooter), NULL, false, false);
     assert(p != NULL);
 
     // ensure that any future append() will fail
@@ -316,17 +306,12 @@ Segment::getUtilisation() const
  *      Pointer to the data to be appended to the Segment's backing memory.
  * \param[in] length
  *      Length of the buffer to be appended in bytes.
- * \param[in] updateChecksum
- *      Optional boolean to disable updates to the Segment checksum. The
- *      default is to update the running checksum while appending data, but
- *      this can be stopped when appending the SegmentFooter, for instance.
  * \return
  *      A pointer into the Segment corresponding to the first byte that was
  *      copied in to.
  */
 const void *
-Segment::forceAppendBlob(const void *buffer, uint32_t length,
-    bool updateChecksum)
+Segment::forceAppendBlob(const void *buffer, uint32_t length)
 {
     assert((tail + length) <= capacity);
     assert(!closed);
@@ -334,11 +319,6 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length,
     const uint8_t *src = reinterpret_cast<const uint8_t *>(buffer);
     uint8_t       *dst = reinterpret_cast<uint8_t *>(baseAddress) + tail;
 
-#ifdef PERF_DEBUG_RECOVERY_NO_CKSUM
-    updateChecksum = false;
-#endif // PERF_DEBUG_RECOVERY_NO_CKSUM
-    if (updateChecksum)
-        checksum.update(src, length);
     memcpy(dst, src, length);
 
     if (log)
@@ -367,12 +347,16 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length,
  *      otherwise the replication will happen on a subsequent append()
  *      where sync is true or when the segment is closed.  This defaults
  *      to true.
+ * \param[in] updateChecksum
+ *      Optional boolean to disable updates to the Segment checksum. The
+ *      default is to update the running checksum while appending data, but
+ *      this can be stopped when appending the SegmentFooter, for instance.
  * \return
  *      A SegmentEntryHandle corresponding to the data just written. 
  */
 SegmentEntryHandle
 Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
-    uint32_t length, uint64_t *lengthOfAppend, bool sync)
+    uint32_t length, uint64_t *lengthOfAppend, bool sync, bool updateChecksum)
 {
     assert(!closed);
 
@@ -381,9 +365,23 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     if (freeBytes < needBytes)
         return NULL;
 
-    SegmentEntry entry = { type, length };
-    const void* entryPointer = forceAppendBlob(&entry, sizeof(entry));
-    forceAppendBlob(buffer, length);
+    SegmentEntry entry = { type, length, 0 };
+#ifndef PERF_DEBUG_RECOVERY_NO_CKSUM
+    if (updateChecksum) {
+        CycleCounter<Metric> _(&metrics->master.segmentAppendChecksumTicks);
+        SegmentChecksum entryChecksum;
+        entryChecksum.update(&entry, sizeof(entry));
+        entryChecksum.update(buffer, length);
+        entry.checksum = entryChecksum.getResult();
+        checksum.update(&entry.checksum, sizeof(entry.checksum));
+    }
+#endif
+    const void* entryPointer;
+    {
+        CycleCounter<Metric> _(&metrics->master.segmentAppendCopyTicks);
+        entryPointer = forceAppendBlob(&entry, sizeof(entry));
+        forceAppendBlob(buffer, length);
+    }
 
     if (sync)
         this->sync();

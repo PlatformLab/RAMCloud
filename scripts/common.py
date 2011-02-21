@@ -15,15 +15,21 @@
 
 """Misc utilities and variables for Python scripts."""
 
+import contextlib
 import os
+import random
 import re
 import shlex
+import signal
 import subprocess
 import sys
+import time
 
-import remoteexec
+__all__ = ['git_branch', 'obj_dir', 'sh', 'captureSh', 'Sandbox',
+           'scripts_path', 'top_path']
 
-__all__ = ['git_branch', 'obj_dir', 'sh', 'captureSh', 'rsh']
+scripts_path = os.path.dirname(os.path.abspath(__file__))
+top_path = os.path.abspath(scripts_path + '/..')
 
 try:
     ld_library_path = os.environ['LD_LIBRARY_PATH'].split(':')
@@ -57,20 +63,6 @@ def captureSh(command, **kwargs):
     else:
         return output
 
-remoteexec_src = os.path.abspath(sys.modules['remoteexec'].__file__)
-if remoteexec_src.endswith('.pyc'):
-    remoteexec_src = remoteexec_src[:-1]
-
-def rsh(host, command, bg=False, **kwargs):
-    """Execute a remote command."""
-    # Wrap remote command with remoteexec.py since it won't receive SIGHUP.
-    # Assume remoteexec.py is at the same path on the remote machine.
-    sh_command = ['ssh', host, 'python', remoteexec_src, "'%s'" % command]
-    if bg:
-        return subprocess.Popen(sh_command, **kwargs)
-    else:
-        subprocess.check_call(sh_command, **kwargs)
-
 try:
     git_branch = re.search('^refs/heads/(.*)$',
                            captureSh('git symbolic-ref -q HEAD 2>/dev/null'))
@@ -80,3 +72,76 @@ except subprocess.CalledProcessError:
 else:
     git_branch = git_branch.group(1)
     obj_dir = 'obj.%s' % git_branch
+
+class Sandbox(object):
+    """A context manager for launching and cleaning up remote processes."""
+    class Process(object):
+        def __init__(self, host, command, kwargs, sonce, proc):
+            self.host = host
+            self.command = command
+            self.kwargs = kwargs
+            self.sonce = sonce
+            self.proc = proc
+    def __init__(self):
+        self.processes = []
+    def rsh(self, host, command, bg=False, **kwargs):
+        """Execute a remote command."""
+        if bg:
+            sonce = ''.join([chr(random.choice(range(ord('a'), ord('z'))))
+                             for c in range(8)])
+            # Assumes scripts are at same path on remote machine
+            sh_command = ['ssh', host,
+                          '%s/regexec' % scripts_path, sonce,
+                          "'%s'" % command]
+            p = subprocess.Popen(sh_command, **kwargs)
+            self.processes.append(self.Process(host, command,
+                                               kwargs, sonce, p))
+            return p
+        else:
+            sh_command = ['ssh', host,
+                          '%s/remoteexec.py' % scripts_path,
+                          "'%s'" % command]
+            subprocess.check_call(sh_command, **kwargs)
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        with delayedInterrupts():
+            for p in self.processes:
+                # Assumes scripts are at same path on remote machine
+                self.rsh(p.host, '%s/killpid %s' % (scripts_path, p.sonce))
+        # a half-assed attempt to clean up zombies
+        for p in self.processes:
+            try:
+                p.proc.kill()
+            except:
+                pass
+            p.proc.wait()
+    def checkFailures(self):
+        """Raise exception if any process has exited with a non-zero status."""
+        for p in self.processes:
+            rc = p.proc.poll()
+            if rc is not None and rc != 0:
+                raise subprocess.CalledProcessError(rc, p.command)
+
+@contextlib.contextmanager
+def delayedInterrupts():
+    """Block SIGINT and SIGTERM temporarily."""
+    quit = []
+    def delay(sig, frame):
+        if quit:
+            print ('Ctrl-C: Quitting during delayed interrupts section ' +
+                   'because user insisted')
+            raise KeyboardInterrupt
+        else:
+            quit.append((sig, frame))
+    sigs = [signal.SIGINT, signal.SIGTERM]
+    prevHandlers = [signal.signal(sig, delay)
+                    for sig in sigs]
+    try:
+        yield None
+    finally:
+        for sig, handler in zip(sigs, prevHandlers):
+            signal.signal(sig, handler)
+        if quit:
+            raise KeyboardInterrupt(
+                'Signal received while in delayed interrupts section')

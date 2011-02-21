@@ -119,5 +119,37 @@ RecoverySegmentIterator::getOffset() const
     return offset + sizeof(SegmentEntry);
 }
 
+/**
+ * \return
+ *      The checksum stored with the current SegmentEntry. Note that it could
+ *      be invalid if data corruption occurred.
+ */
+SegmentChecksum::ResultType
+RecoverySegmentIterator::checksum() const
+{
+    return reinterpret_cast<SegmentEntryHandle>(&getEntry())->checksum();
+}
+
+/**
+ * \return
+ *      The checksum calculated for the current SegmentEntry.
+ */
+SegmentChecksum::ResultType
+RecoverySegmentIterator::generateChecksum() const
+{
+    return reinterpret_cast<SegmentEntryHandle>(
+        &getEntry())->generateChecksum();
+}
+
+/**
+ * \return
+ *      true if the checksum is valid for the current entry.
+ */
+bool
+RecoverySegmentIterator::isChecksumValid() const
+{
+    return reinterpret_cast<SegmentEntryHandle>(&getEntry())->isChecksumValid();
+}
+
 } // namespace RAMCloud
 

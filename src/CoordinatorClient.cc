@@ -140,22 +140,66 @@ CoordinatorClient::enlistServer(ServerType serverType,
 }
 
 /**
+ * List all live servers of the given type.
+ * \param[in] type
+ *      The type of server to get a list of. Presently either MASTER or BACKUP.
+ * \param[out] serverList
+ *      An empty ServerList that will be filled with current master servers.
+ */
+void
+CoordinatorClient::getServerList(ServerType type,
+                                 ProtoBuf::ServerList& serverList)
+{
+    Buffer req;
+    Buffer resp;
+    GetServerListRpc::Request& reqHdr(
+        allocHeader<GetServerListRpc>(req));
+    reqHdr.serverType = type;
+    const GetServerListRpc::Response& respHdr(
+        sendRecv<GetServerListRpc>(session, req, resp));
+    checkStatus(HERE);
+    ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
+                                respHdr.serverListLength, serverList);
+}
+
+/**
+ * List all live servers.
+ * Used in ensureHosts.
+ * \param[out] serverList
+ *      An empty ServerList that will be filled with current servers.
+ */
+void
+CoordinatorClient::getServerList(ProtoBuf::ServerList& serverList)
+{
+    getServerList(MASTER, serverList);
+    ProtoBuf::ServerList mergeList;
+    getServerList(BACKUP, mergeList);
+    serverList.MergeFrom(mergeList);
+}
+
+/**
+ * List all live master servers.
+ * The failure detector uses this to periodically probe for failed masters.
+ * \param[out] serverList
+ *      An empty ServerList that will be filled with current master servers.
+ */
+void
+CoordinatorClient::getMasterList(ProtoBuf::ServerList& serverList)
+{
+    getServerList(MASTER, serverList);
+}
+
+/**
  * List all live backup servers.
- * Masters call and cache this periodically to find backups.
+ * Masters call and cache this periodically to find backups. The failure
+ * detector also uses this to periodically probe for failed backups.
  * \param[out] serverList
  *      An empty ServerList that will be filled with current backup servers.
  */
 void
 CoordinatorClient::getBackupList(ProtoBuf::ServerList& serverList)
 {
-    Buffer req;
-    Buffer resp;
-    allocHeader<GetBackupListRpc>(req);
-    const GetBackupListRpc::Response& respHdr(
-        sendRecv<GetBackupListRpc>(session, req, resp));
-    checkStatus(HERE);
-    ProtoBuf::parseFromResponse(resp, sizeof(respHdr),
-                                respHdr.serverListLength, serverList);
+    getServerList(BACKUP, serverList);
 }
 
 /**
@@ -216,17 +260,44 @@ CoordinatorClient::ping()
  * Tell the coordinator that recovery of a particular tablets have
  * been recovered on the master who is calling.
  *
- * \param tablets
+ * \param[in] masterId
+ *      The masterId of the server invoking this method.
+ * \param[in] tablets
  *      The tablets which form a partition of a will which are
  *      now done recovering.
+ * \param[in] will
+ *      The serialized ProtoBuf representation of the post-recovery
+ *      Will to send to the Coordinator.
  */
 void
-CoordinatorClient::tabletsRecovered(const ProtoBuf::Tablets& tablets)
+CoordinatorClient::tabletsRecovered(uint64_t masterId,
+    const ProtoBuf::Tablets& tablets, const ProtoBuf::Tablets& will)
 {
     Buffer req, resp;
     TabletsRecoveredRpc::Request& reqHdr(allocHeader<TabletsRecoveredRpc>(req));
-    reqHdr.tabletsLength = serializeToResponse(req, tablets);
+    reqHdr.masterId = masterId;
+    reqHdr.tabletsLength = serializeToRequest(req, tablets);
+    reqHdr.willLength = serializeToRequest(req, will);
     sendRecv<TabletsRecoveredRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
+ * Update a masterId's Will with the Coordinator.
+ *
+ * \param[in] masterId
+ *      The masterId whose Will we're updating.
+ * \param[in] will 
+ *      The ProtoBuf serialised representation of the Will.
+ */
+void
+CoordinatorClient::setWill(uint64_t masterId, const ProtoBuf::Tablets& will)
+{
+    Buffer req, resp;
+    SetWillRpc::Request& reqHdr(allocHeader<SetWillRpc>(req));
+    reqHdr.masterId = masterId;
+    reqHdr.willLength = serializeToRequest(req, will);
+    sendRecv<SetWillRpc>(session, req, resp);
     checkStatus(HERE);
 }
 

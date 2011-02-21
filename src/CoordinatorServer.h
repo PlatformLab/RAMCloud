@@ -55,9 +55,9 @@ class CoordinatorServer : public Server {
                       EnlistServerRpc::Response& respHdr,
                       Transport::ServerRpc& rpc);
 
-    void getBackupList(const GetBackupListRpc::Request& reqHdr,
-                      GetBackupListRpc::Response& respHdr,
-                      Transport::ServerRpc& rpc);
+    void getServerList(const GetServerListRpc::Request& reqHdr,
+                       GetServerListRpc::Response& respHdr,
+                       Transport::ServerRpc& rpc);
 
     void getTabletMap(const GetTabletMapRpc::Request& reqHdr,
                       GetTabletMapRpc::Response& respHdr,
@@ -75,6 +75,13 @@ class CoordinatorServer : public Server {
     void ping(const PingRpc::Request& reqHdr,
               PingRpc::Response& respHdr,
               Transport::ServerRpc& rpc);
+
+    void setWill(const SetWillRpc::Request& reqHdr,
+                 SetWillRpc::Response& respHdr,
+                 Transport::ServerRpc& rpc);
+
+    bool setWill(uint64_t masterId, Buffer& buffer,
+                 uint32_t offset, uint32_t length);
 
     /**
      * The server id for the next server to register.

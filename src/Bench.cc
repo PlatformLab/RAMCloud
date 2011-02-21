@@ -77,7 +77,6 @@ std::string tableName("test");
 std::string controlTableName("test");
 bool multirow;
 bool randomReads;
-bool pmcInsteadOfTSC;
 uint64_t count;
 uint64_t size;
 int cpu;
@@ -116,12 +115,6 @@ setup()
 
     assert(!atexit(cleanup));
 
-    RC::PerfCounterType type;
-    type = pmcInsteadOfTSC ? RC::PERF_COUNTER_PMC : RC::PERF_COUNTER_TSC;
-    client->selectPerfCounter(type,
-                              RC::MARK_RPC_PROCESSING_BEGIN,
-                              RC::MARK_RPC_PROCESSING_END);
-
     client->createTable(tableName.c_str());
     table = client->openTable(tableName.c_str());
 
@@ -134,44 +127,38 @@ setup()
 }
 
 uint64_t
-bench(const char *name, uint64_t (f)(void))
+bench(const char *name, void (f)(void))
 {
     uint64_t start, end, cycles;
 
     start = rdtsc();
-    uint64_t serverCounter = f();
+    f();
     end = rdtsc();
 
     cycles = end - start;
-    printf("%s ns     %12.2f\n", name,
-           1000*1000*1000*RC::cyclesToSeconds(cycles));
-    printf("%s avgns  %12.2f\n", name,
-           1000*1000*1000*RC::cyclesToSeconds(cycles) /
-           static_cast<double>(count));
-    printf("%s ctr    %12.0f\n", name,
-           static_cast<double>(serverCounter));
-    printf("%s avgctr %12.2f\n", name,
-           static_cast<double>(serverCounter) /
-           static_cast<double>(count));
-    return 1000*1000*1000*RC::cyclesToSeconds(cycles);
+    printf("%s ns     %12lu\n", name,
+           RC::cyclesToNanoseconds(cycles));
+    printf("%s avgns  %12lu\n", name,
+           RC::cyclesToNanoseconds(cycles) / count);
+    client->ping();
+    return RC::cyclesToNanoseconds(cycles);
 }
 
 #define BENCH(fname) bench(#fname, fname)
 
-uint64_t
+void
 writeInt(uint32_t table, uint64_t key, uint64_t val)
 {
     char buf[1000]; // TODO(nandu) use a better size
     int ret = snprintf(buf, sizeof(buf), "%lu", val);
     if (ret < 0) {
         fprintf(stderr, "sprintf error.");
-        return 1;
+        return;
     }
     client->write(table, key, &buf[0], ret);
-    return client->counterValue;
 }
 
-uint64_t
+void
 readInt(uint32_t table, uint64_t key, uint64_t& val)
 {
     RC::Buffer value;
@@ -180,10 +167,9 @@ readInt(uint32_t table, uint64_t key, uint64_t& val)
     stringstream ss;
     ss << str;
     ss >> val;
-    return client->counterValue;
 }
 
-uint64_t
+void
 writeOne()
 {
     char buf[size];
@@ -191,43 +177,29 @@ writeOne()
     buf[size - 1] = 0;
 
     client->write(table, 0, &buf[0], size);
-
-    return client->counterValue;
 }
 
-uint64_t
+void
 writeMany(void)
 {
-    uint64_t serverCounter;
-
     char buf[size];
     memset(&buf[0], 0xFF, size);
     buf[size - 1] = 0;
 
-    serverCounter = 0;
-    for (uint64_t i = 0; i < count; i++) {
+    for (uint64_t i = 0; i < count; i++)
         client->write(table, i, &buf[0], size);
-        serverCounter += client->counterValue;
-    }
-
-    return serverCounter;
 }
 
-uint64_t
+void
 readMany()
 {
-    uint64_t serverCounter;
     uint64_t key;
 
-    serverCounter = 0;
     for (uint64_t i = 0; i < count; i++) {
         RC::Buffer value;
         key = randomReads ? generateRandom() % count : i;
         client->read(table, multirow ? key : 0, &value);
-        serverCounter += client->counterValue;
     }
-
-    return serverCounter;
 }
 
 bool
@@ -293,9 +265,6 @@ try
         ("random,R",
          RC::ProgramOptions::bool_switch(&randomReads),
          "Randomize key order instead of incremental.")
-        ("performance,P",
-         RC::ProgramOptions::bool_switch(&pmcInsteadOfTSC),
-         "Measure using rdpmc instead of rdtsc")
         ("tablename,t",
          RC::ProgramOptions::value<std::string>(&tableName),
          "Name of test table used. Default 'test'.")

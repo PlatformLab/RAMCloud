@@ -20,6 +20,7 @@
 #include <cppunit/CompilerOutputter.h>
 #include <cppunit/Message.h>
 #include <cppunit/Protector.h>
+#include <cppunit/Test.h>
 #include <cppunit/TestResult.h>
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/TypeInfoHelper.h>
@@ -81,7 +82,8 @@ cmdline(int argc, char *argv[])
 
 // CppUnit doesn't put this in a public header
 struct CppUnit::ProtectorContext {
-    void* _[2];
+    CppUnit::Test *test;
+    CppUnit::TestResult *result;
     std::string description;
 };
 
@@ -96,6 +98,19 @@ main(int argc, char *argv[])
     strncpy(testName, defaultTest, sizeof(testName));
     cmdline(argc, argv);
 
+    // First run gtest tests.
+    // set log levels for gtest unit tests
+    struct LoggerEnvironment : public ::testing::Environment {
+        void SetUp() { RAMCloud::logger.setLogLevels(RAMCloud::WARNING); }
+    };
+    ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
+
+    int r = 0;
+    if (googleOnly || !strcmp(testName, defaultTest))
+        r += RUN_ALL_TESTS();
+
+    // Next run cppunit tests.
+
     CppUnit::TextUi::TestRunner runner;
     CppUnit::TestFactoryRegistry& registry =
             CppUnit::TestFactoryRegistry::getRegistry();
@@ -105,8 +120,15 @@ main(int argc, char *argv[])
     class RAMCloudProtector : public CppUnit::Protector {
         bool protect(const CppUnit::Functor& functor,
                      const CppUnit::ProtectorContext& context) {
-            if (context.description == "setUp() failed")
+            if (context.description == "setUp() failed") {
                 RAMCloud::logger.setLogLevels(RAMCloud::WARNING);
+#ifdef VALGRIND
+                // Since valgrind is slow, it's nice to have the test names
+                // output to your terminal while you wait.
+                printf("%s\n", context.test->getName().c_str());
+                fflush(stdout);
+#endif
+            }
             try {
                 return functor();
             } catch (const RAMCloud::Exception& e) {
@@ -126,19 +148,9 @@ main(int argc, char *argv[])
     // CppUnit's ProtectorChain::pop() will call delete on our protector, so I
     // guess they want us to use new to allocate it.
     runner.eventManager().pushProtector(new RAMCloudProtector());
-
     runner.addTest(registry.makeTest());
-
-    // set log levels for gtest unit tests
-    struct LoggerEnvironment : public ::testing::Environment {
-        void SetUp() { RAMCloud::logger.setLogLevels(RAMCloud::WARNING); }
-    };
-    ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
-
-    int r = 0;
     if (!googleOnly)
         r += !runner.run(testName, false, true, progress);
-    if (googleOnly || !strcmp(testName, defaultTest))
-        r += RUN_ALL_TESTS();
+
     return r;
 }

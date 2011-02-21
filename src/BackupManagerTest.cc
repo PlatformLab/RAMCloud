@@ -37,18 +37,19 @@ struct BackupManagerBaseTest : public ::testing::Test {
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     const char* coordinatorLocator;
-    ObjectTub<BindTransport> transport;
-    ObjectTub<TransportManager::MockRegistrar> mockRegistrar;
-    ObjectTub<CoordinatorServer> coordinatorServer;
-    ObjectTub<CoordinatorClient> coordinator;
-    ObjectTub<InMemoryStorage> storage1;
-    ObjectTub<InMemoryStorage> storage2;
-    ObjectTub<BackupServer::Config> backupServerConfig;
-    ObjectTub<BackupServer> backupServer1;
-    ObjectTub<BackupServer> backupServer2;
-    ObjectTub<BackupClient> backup1;
-    ObjectTub<BackupClient> backup2;
-    ObjectTub<BackupManager> mgr;
+    Tub<BindTransport> transport;
+    Tub<TransportManager::MockRegistrar> mockRegistrar;
+    Tub<CoordinatorServer> coordinatorServer;
+    Tub<CoordinatorClient> coordinator;
+    Tub<InMemoryStorage> storage1;
+    Tub<InMemoryStorage> storage2;
+    Tub<BackupServer::Config> backupServerConfig;
+    Tub<BackupServer> backupServer1;
+    Tub<BackupServer> backupServer2;
+    Tub<BackupClient> backup1;
+    Tub<BackupClient> backup2;
+    Tub<uint64_t> serverId;
+    Tub<BackupManager> mgr;
 
     BackupManagerBaseTest()
         : segmentSize(1 << 16)
@@ -78,7 +79,8 @@ struct BackupManagerBaseTest : public ::testing::Test {
         backup1.construct(transportManager.getSession("mock:host=backup1"));
         backup2.construct(transportManager.getSession("mock:host=backup2"));
 
-        mgr.construct(coordinator.get(), 99, 2);
+        serverId.construct(99);
+        mgr.construct(coordinator.get(), serverId, 2);
     }
 };
 
@@ -249,8 +251,6 @@ TEST_F(BackupManagerTest, writeSegment) {
     object.id.objectId = 10;
     object.id.tableId = 123;
     object.version = 0;
-    object.checksum = 0xff00ff00ff00;
-    object.data_len = 0;
     seg.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
     seg.close();
 

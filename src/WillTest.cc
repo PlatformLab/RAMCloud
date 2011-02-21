@@ -34,6 +34,7 @@ class WillTest : public CppUnit::TestFixture {
 
     CPPUNIT_TEST_SUITE(WillTest);
     CPPUNIT_TEST(test_Will_constructor);
+    CPPUNIT_TEST(test_Will_serialize);
     CPPUNIT_TEST(test_Will_debugDump);
     CPPUNIT_TEST(test_Will_addTablet);
     CPPUNIT_TEST(test_Will_addPartition);
@@ -105,6 +106,40 @@ class WillTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1000, w.maxBytesPerPartition);
         CPPUNIT_ASSERT_EQUAL(1001, w.maxReferantsPerPartition);
         CPPUNIT_ASSERT_EQUAL(0, w.entries.size());
+    }
+
+    void
+    test_Will_serialize()
+    {
+        ProtoBuf::Tablets tablets;
+        Table *t = createAndAddTablet(tablets, 0, 0, 0, -1);
+        t->profiler.track(0, 5000, LogTime(0, 0));
+        t->profiler.track(-1, 1500, LogTime(0, 1));
+        createAndAddTablet(tablets, 0, 23, 0, -1);
+        Will w(tablets, 5000, 10);
+
+        ProtoBuf::Tablets will;
+        w.serialize(will);
+        CPPUNIT_ASSERT_EQUAL(3, will.tablet_size());
+        CPPUNIT_ASSERT_EQUAL(0, will.tablet(0).table_id());
+        CPPUNIT_ASSERT_EQUAL(0, will.tablet(0).start_object_id());
+        CPPUNIT_ASSERT_EQUAL(0x00ffffffffffffffUL,
+            will.tablet(0).end_object_id());
+        CPPUNIT_ASSERT_EQUAL(ProtoBuf::Tablets_Tablet_State_NORMAL,
+            will.tablet(0).state());
+        CPPUNIT_ASSERT_EQUAL(0, will.tablet(0).user_data());
+
+        CPPUNIT_ASSERT_EQUAL(0, will.tablet(1).table_id());
+        CPPUNIT_ASSERT_EQUAL(0x0100000000000000UL,
+            will.tablet(1).start_object_id());
+        CPPUNIT_ASSERT_EQUAL(0xffffffffffffffffUL,
+            will.tablet(1).end_object_id());
+        CPPUNIT_ASSERT_EQUAL(ProtoBuf::Tablets_Tablet_State_NORMAL,
+            will.tablet(1).state());
+        CPPUNIT_ASSERT_EQUAL(1, will.tablet(1).user_data());
+
+        CPPUNIT_ASSERT_EQUAL(23, will.tablet(2).table_id());
+        CPPUNIT_ASSERT_EQUAL(1, will.tablet(2).user_data());
     }
 
     void

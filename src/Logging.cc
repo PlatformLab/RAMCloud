@@ -17,34 +17,51 @@
 #include <time.h>
 
 #include <boost/lexical_cast.hpp>
+#include <boost/thread/thread.hpp>
 
 #include "Logging.h"
 
 namespace RAMCloud {
 
 namespace TestLog {
-    /**
-     * The current predicate which is used to select test log entries.
-     * This symbol is not exported.
-     */
-    bool (*predicate)(string) = 0;
+    namespace {
+        typedef boost::unique_lock<boost::mutex> Lock;
+        /**
+         * Used to synchronize access to the TestLog for line level
+         * atomicity. This symbol is not exported.  It's priority ensures it is
+         * initialized before #transportManager.
+         */
+        /// @cond
+        boost::mutex mutex __attribute__((init_priority(300)));
+        /// @endcond
 
-    /**
-     * Whether test log entries should be recorded.
-     * This symbol is not exported.
-     */
-    bool enabled = false;
+        /**
+         * The current predicate which is used to select test log entries.
+         * This symbol is not exported.
+         */
+        bool (*predicate)(string) = 0;
 
-    /**
-     * The current test log.
-     * This symbol is not exported.
-     */
-    string message;
+        /**
+         * Whether test log entries should be recorded.
+         * This symbol is not exported.
+         */
+        bool enabled = false;
+
+        /**
+         * The current test log.
+         * This symbol is not exported.  It's priority ensures it is initialized
+         * before #transportManager.
+         */
+        /// @cond
+        string  __attribute__((init_priority(300))) message;
+        /// @endcond
+    }
 
     /// Reset the contents of the test log.
     void
     reset()
     {
+        Lock _(mutex);
         message = "";
     }
 
@@ -55,7 +72,8 @@ namespace TestLog {
     void
     disable()
     {
-        reset();
+        Lock _(mutex);
+        message = "";
         enabled = false;
         predicate = NULL;
     }
@@ -64,7 +82,8 @@ namespace TestLog {
     void
     enable()
     {
-        reset();
+        Lock _(mutex);
+        message = "";
         enabled = true;
     }
 
@@ -77,6 +96,7 @@ namespace TestLog {
     string
     get()
     {
+        Lock _(mutex);
         return message;
     }
 
@@ -96,6 +116,7 @@ namespace TestLog {
     log(const CodeLocation& where,
         const char* format, ...)
     {
+        Lock _(mutex);
         va_list ap;
         char line[512];
 
@@ -126,6 +147,7 @@ namespace TestLog {
     void
     setPredicate(bool (*pred)(string))
     {
+        Lock _(mutex);
         predicate = pred;
     }
 } // end RAMCloud::TestLog

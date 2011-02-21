@@ -21,7 +21,9 @@
 #include <boost/unordered_map.hpp>
 
 #include "Common.h"
+#include "CycleCounter.h"
 #include "Log.h"
+#include "Metrics.h"
 #include "ProtoBuf.h"
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
@@ -103,9 +105,9 @@ class Recovery : public BaseRecovery {
         }
 
         const ProtoBuf::ServerList::Entry& backupHost;
-        ObjectTub<Buffer> response;
-        ObjectTub<BackupClient> client;
-        ObjectTub<BackupClient::StartReadingData> rpc;
+        Tub<Buffer> response;
+        Tub<BackupClient> client;
+        Tub<BackupClient::StartReadingData> rpc;
         BackupClient::StartReadingData::Result result;
         bool done;
         DISALLOW_COPY_AND_ASSIGN(Task);
@@ -125,6 +127,8 @@ class Recovery : public BaseRecovery {
         uint32_t  segmentLength;
         LogDigest logDigest;
     };
+
+    CycleCounter<Metric> recoveryTicks;
 
     /**
      * A mapping of segmentIds to backup host service locators.
@@ -148,7 +152,7 @@ class Recovery : public BaseRecovery {
     const ProtoBuf::Tablets& will;
 
     /// List of asynchronous startReadingData tasks and their replies
-    ObjectTub<Task> *tasks;
+    Tub<Task> *tasks;
 
     /// List of serialised LogDigests from possible log heads, including
     /// the corresponding Segment IDs and lengths.

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -27,7 +27,6 @@ MockDriver::MockDriver()
             , inputReceived(0)
             , outputLog()
             , sendPacketCount(0)
-            , tryRecvPacketCount(0)
             , releaseCount(0)
 {
 }
@@ -45,9 +44,16 @@ MockDriver::MockDriver(HeaderToString headerToString)
             , inputReceived(0)
             , outputLog()
             , sendPacketCount(0)
-            , tryRecvPacketCount(0)
             , releaseCount(0)
 {
+}
+
+void
+MockDriver::connect(FastTransport* transport) {
+}
+
+void
+MockDriver::disconnect() {
 }
 
 /**
@@ -57,7 +63,7 @@ MockDriver::MockDriver(HeaderToString headerToString)
  * See Driver::release().
  */
 void
-MockDriver::release(char *payload, uint32_t len)
+MockDriver::release(char *payload)
 {
     releaseCount++;
 }
@@ -112,53 +118,12 @@ MockDriver::sendPacket(const Address *addr,
 }
 
 /**
- * Wait for an incoming packet. This is a fake method that uses
- * a message explicitly provided by the test, or an empty
- * buffer if none was provided.
- *
- * See Driver::tryRecvPacket.
- */
-bool
-MockDriver::tryRecvPacket(Driver::Received *received)
-{
-    tryRecvPacketCount++;
-
-    if (!inputReceived)
-        return false;
-
-    // dangerous, but only used in testing
-    received->sender = inputReceived->sender;
-    received->payload = inputReceived->payload;
-    received->len = inputReceived->len;
-    received->driver = this;
-
-    inputReceived = 0;
-
-    return true;
-}
-
-/**
  * See Driver::getServiceLocator. 
  */
 ServiceLocator
 MockDriver::getServiceLocator()
 {
     return ServiceLocator("mock:");
-}
-
-/**
- * This method is invoked by tests to provide a Received that will
- * be used to synthesize an input message the next time one is
- * needed (such as for a packet).
- *
- * \param received
- *      A Driver::Received to return from the next call to
- *      tryRecvPacket(); probably a MockReceived, even.
- */
-void
-MockDriver::setInput(Driver::Received* received)
-{
-    inputReceived = received;
 }
 
 }  // namespace RAMCloud

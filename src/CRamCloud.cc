@@ -95,17 +95,6 @@ void rc_disconnect(struct rc_client* client) {
     delete client;
 }
 
-/**
- * Cancel any performance counter request previously specified by a call to
- * rc_selectPerfCounter.  After this call, future RPCs will not return
- * any performance metrics
- */
-void
-rc_clearPerfCounter(struct rc_client* client)
-{
-    client->client->clearPerfCounter();
-}
-
 // Most of the methods below are all just wrappers around the corresponding
 // RamCloudClient methods, except for the following differences:
 // * RPC requests here return Status values, whereas the C++ methods
@@ -145,19 +134,6 @@ rc_dropTable(struct rc_client* client, const char* name)
         return e.status;
     }
     return STATUS_OK;
-}
-
-/**
- * Return the performance counter provided by the server in its response
- * to the most recent RPC. If no performance counter has been enabled
- * (via rc_selectPerfCounter) then 0 will be returned.
- *
- * \return
- *      See above.
- */
-uint32_t
-rc_getCounterValue(struct rc_client* client) {
-    return client->client->counterValue;
 }
 
 /**
@@ -255,29 +231,6 @@ rc_remove(struct rc_client* client, uint32_t tableId, uint64_t id,
         return e.status;
     }
     return STATUS_OK;
-}
-
-/**
- * Arrange for a performance metric to be collected by the server
- * during each future RPC. The value of the metric can be read after
- * each RPC using rc_getCounterValue.
- *
- * \param client
- *      Handle for the RAMCloud connection (return value from a
- *      previous call to rc_connect).
- * \param type
- *      Specifies what to measure (elapsed time, cache misses, etc.)
- * \param begin
- *      Indicates a point during the RPC when measurement should start.
- * \param end
- *      Indicates a point during the RPC when measurement should stop.
- */
-void
-rc_selectPerfCounter(struct rc_client* client,
-        enum PerfCounterType type,
-        enum Mark begin, enum Mark end)
-{
-    client->client->selectPerfCounter(type, begin, end);
 }
 
 Status

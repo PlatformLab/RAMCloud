@@ -19,11 +19,13 @@ CLIENT_SRCFILES := \
 		   src/CoordinatorClient.cc \
 		   src/Crc32C.cc \
 		   src/Common.cc \
+		   src/Dispatch.cc \
 		   src/Driver.cc \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
 		   src/Logging.cc \
 		   src/MasterClient.cc \
+		   src/Metrics.cc \
 		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
 		   src/RamCloud.cc \
@@ -67,7 +69,11 @@ $(OBJDIR)/client: $(OBJDIR)/RamCloudMain.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -o $@ $< -L$(OBJDIR) $(OBJDIR)/libramcloud.a
 
-.PHONY: client client-lib client-lib-static client-lib-shared client-lib-install client-lib-uninstall
+$(OBJDIR)/ensureHosts: $(OBJDIR)/EnsureHosts.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(OBJDIR) $(OBJDIR)/libramcloud.a
+
+.PHONY: client client-lib client-lib-static client-lib-shared client-lib-install client-lib-uninstall ensureHosts
 
 client-lib-static: $(OBJDIR)/libramcloud.a
 client-lib-shared: $(OBJDIR)/libramcloud.so
@@ -92,6 +98,6 @@ client-lib-install:
 client-lib-uninstall:
 	rm -rfv $(CLIENT_LIB_INSTALL_PREFIX){/lib/libramcloud*,/include/ramcloud}
 
-client: $(OBJDIR)/client $(OBJDIR)/libramcloud.a $(OBJDIR)/libramcloud.so
+client: $(OBJDIR)/client $(OBJDIR)/ensureHosts $(OBJDIR)/libramcloud.a $(OBJDIR)/libramcloud.so
 
 all: client

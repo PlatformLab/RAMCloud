@@ -14,10 +14,11 @@
  */
 
 #include "Common.h"
+#include "Dispatch.h"
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "MasterClient.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
 
@@ -48,16 +49,20 @@ Recovery::Recovery(uint64_t masterId,
                    const ProtoBuf::Tablets& will,
                    const ProtoBuf::ServerList& masterHosts,
                    const ProtoBuf::ServerList& backupHosts)
-    : backups()
+
+    : recoveryTicks(&metrics->recoveryTicks)
+    , backups()
     , masterHosts(masterHosts)
     , backupHosts(backupHosts)
     , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
-    , tasks(new ObjectTub<Task>[backupHosts.server_size()])
+    , tasks(new Tub<Task>[backupHosts.server_size()])
     , digestList()
     , segmentMap()
 {
+    CycleCounter<Metric> _(&metrics->coordinator.recoveryConstructorTicks);
+    reset(metrics, 0, 0);
     buildSegmentIdToBackups();
     verifyCompleteLog();
 }
@@ -65,6 +70,8 @@ Recovery::Recovery(uint64_t masterId,
 Recovery::~Recovery()
 {
     delete[] tasks;
+    recoveryTicks.stop();
+    dump(metrics);
 }
 
 /**
@@ -95,11 +102,16 @@ Recovery::buildSegmentIdToBackups()
     }
 
     // As RPCs complete kick off new ones
+    bool someTaskWasReady = false;
     while (activeBackupHosts > 0) {
+        if (!someTaskWasReady)
+            while (Dispatch::poll());
+        someTaskWasReady = false;
         for (int i = 0; i < backupHosts.server_size(); ++i) {
             auto& task = tasks[i];
             if (!task || !task->isReady() || task->isDone())
                 continue;
+            someTaskWasReady = true;
 
             try {
                 (*task)();
@@ -122,6 +134,8 @@ Recovery::buildSegmentIdToBackups()
                 --activeBackupHosts;
                 continue;
             }
+
+            task.construct(*backupHostsIt++, masterId, will);
         }
     }
 
@@ -153,6 +167,13 @@ Recovery::buildSegmentIdToBackups()
         }
         if (!stillWorking)
             break;
+    }
+
+    LOG(DEBUG, "=== Replay script ===");
+    foreach (const auto& backup, backups.server()) {
+        LOG(DEBUG, "id: %lu, locator: %s, segmentId %lu",
+            backup.server_id(), backup.service_locator().c_str(),
+            backup.segment_id());
     }
 
     for (int i = 0; i < backupHosts.server_size(); i++) {
@@ -239,6 +260,7 @@ Recovery::verifyCompleteLog()
 void
 Recovery::start()
 {
+    CycleCounter<Metric> _(&metrics->coordinator.recoveryStartTicks);
     uint64_t partitionId = 0;
     int hostIndexToRecoverOnNext = 0;
     for (;;) {
@@ -299,7 +321,15 @@ bool
 Recovery::tabletsRecovered(const ProtoBuf::Tablets& tablets)
 {
     tabletsUnderRecovery--;
-    return tabletsUnderRecovery == 0;
+    if (tabletsUnderRecovery == 0) {
+        foreach (auto& backup, backupHosts.server()) {
+            auto session = transportManager.getSession(
+                                    backup.service_locator().c_str());
+            BackupClient(session).recoveryComplete(masterId);
+        }
+        return true;
+    }
+    return false;
 }
 
 } // namespace RAMCloud

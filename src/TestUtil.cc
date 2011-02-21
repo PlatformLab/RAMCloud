@@ -21,6 +21,8 @@
 
 #include <string.h>
 #include "TestUtil.h"
+#include "BenchUtil.h"
+#include "Dispatch.h"
 
 using namespace RAMCloud;
 
@@ -323,6 +325,156 @@ assertMatchesPosixRegex(const string& pattern, const string& subject)
     }
 
     regfree(&pregStorage);
+}
+
+/**
+ * Fail the CPPUNIT test case if the given string does match the given POSIX
+ * regular expression.
+ * \param pattern
+ *      A POSIX regular expression.
+ * \param subject
+ *      The string that should not match \a pattern.
+ */
+void
+assertNotMatchesPosixRegex(const string& pattern, const string& subject)
+{
+    regex_t pregStorage;
+    int r;
+    bool fail = true;
+    string errorMsg;
+
+    r = regcomp(&pregStorage, pattern.c_str(), 0);
+    if (r != 0) {
+        errorMsg = "Pattern '";
+        errorMsg += pattern;
+        errorMsg += "' failed to compile: ";
+        errorMsg += friendlyRegerror(r, &pregStorage);
+    }
+
+    r = regexec(&pregStorage, subject.c_str(), 0, NULL, 0);
+    if (r != 0) {
+        errorMsg = "Pattern '";
+        errorMsg += pattern;
+        errorMsg += "' did not match subject '";
+        errorMsg += subject;
+        errorMsg += "'";
+        regfree(&pregStorage);
+        fail = false;
+    }
+
+    regfree(&pregStorage);
+
+    if (fail)
+        CPPUNIT_FAIL(errorMsg);
+}
+
+/**
+ * This method fills a buffer with a given amount of data, in a form that
+ * can be checked easily by #checkLargeBuffer. It's intended for testing
+ * proper handling of large amounts of data.
+ *
+ * \param buffer
+ *      Buffer to fill with data; any pre-existing contents are deleted.
+ * \param size
+ *      Number of bytes of data to add to the buffer.
+ */
+void
+fillLargeBuffer(Buffer* buffer, int size)
+{
+    char chunk[200];
+    buffer->reset();
+    int i = 1;
+    int bytesLeft = size;
+    while (bytesLeft > 0) {
+        snprintf(chunk, sizeof(chunk),
+                "word %d, word %d, word %d, word %d, word %d; ",
+                i, i+1, i+2, i+3, i+4);
+        int chunkLength = strlen(chunk);
+        if (chunkLength > bytesLeft) {
+            chunkLength = bytesLeft;
+        }
+        memcpy(new(buffer, APPEND) char[chunkLength], chunk, chunkLength);
+        bytesLeft -= chunkLength;
+    }
+}
+
+/**
+ * This method checks that a buffer contains the expected data, assuming
+ * it was filled by calling #fillLargeBuffer.
+ *
+ * \param buffer
+ *      Buffer whose contents are to be checked.
+ * \param expectedLength
+ *      The buffer should contain this many bytes.
+ *
+ * \return
+ *      If the buffer has the "expected" contents then "ok" is returned;
+ *      otherwise the returned string contains error information about
+ *      what was wrong with the buffer.
+ */
+string
+checkLargeBuffer(Buffer* buffer, int expectedLength)
+{
+    int length = buffer->getTotalLength();
+    if (length != expectedLength) {
+        return format("expected %d bytes, found %d bytes",
+                expectedLength, length);
+    }
+    Buffer comparison;
+    fillLargeBuffer(&comparison, expectedLength);
+    for (int i = 0; i < expectedLength; i++) {
+        char c1 = *buffer->getOffset<char>(i);
+        char c2 = *comparison.getOffset<char>(i);
+        if (c1 != c2) {
+            int start = i - 10;
+            const char* prefix = "...";
+            const char* suffix = "...";
+            if (start <= 0) {
+                start = 0;
+                prefix = "";
+            }
+            int length = 20;
+            if (start+length >= expectedLength) {
+                length = expectedLength - start;
+                suffix = "";
+            }
+            return format("expected '%c', got '%c' (\"%s%.*s%s\" "
+                    "vs \"%s%.*s%s\")", c2, c1, prefix, length,
+                    static_cast<const char*>(comparison.getRange(start,
+                    length)), suffix, prefix, length,
+                    static_cast<const char*>(buffer->getRange(start,
+                    length)), suffix);
+        }
+    }
+    return string("ok");
+}
+
+/**
+ * Wait for an RPC request to arrive on a given transport, but give up if
+ * it takes too long.
+ *
+ * \param transport
+ *      Wait for a request on this transport.
+ * \param timeoutSeconds
+ *      Request doesn't arrive within this many seconds, return NULL.
+ *
+ * \result
+ *      The incoming RPC request, or NULL if nothing arrived within the time
+ *      limit.
+ */
+Transport::ServerRpc*
+waitForRpcRequest(Transport* transport, double timeoutSeconds) {
+    Transport::ServerRpc* result;
+    uint64_t start = rdtsc();
+    while (true) {
+        result = transport->serverRecv();
+        if (result != NULL)
+            return result;
+        if (cyclesToSeconds(rdtsc() - start) > timeoutSeconds) {
+            return NULL;
+        }
+        Dispatch::poll();
+    }
 }
 
 } // namespace RAMCloud

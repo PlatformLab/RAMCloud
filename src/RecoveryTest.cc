@@ -48,6 +48,7 @@ class RecoveryTest : public CppUnit::TestFixture {
      */
     struct WriteValidSegment {
         ProtoBuf::ServerList backupList;
+        Tub<uint64_t> masterIdTub;
         BackupManager* mgr;
         char *segMem;
         Segment* seg;
@@ -58,11 +59,12 @@ class RecoveryTest : public CppUnit::TestFixture {
                           const uint32_t segmentSize,
                           const string locator, bool close)
             : backupList()
+            , masterIdTub(masterId)
             , mgr()
             , segMem()
             , seg()
         {
-            mgr = new BackupManager(NULL, masterId, 1);
+            mgr = new BackupManager(NULL, masterIdTub, 1);
             ProtoBuf::ServerList::Entry& e(*backupList.add_server());
             e.set_service_locator(locator);
             e.set_server_type(ProtoBuf::BACKUP);
@@ -309,7 +311,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         TestLog::Enable _(&verifyCompleteLogFilter);
         recovery.verifyCompleteLog();
         CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length "
-            "56 bytes is the head of the log", TestLog::get());
+            "64 bytes is the head of the log", TestLog::get());
 
         // ensure the longest newest head is chosen
         TestLog::reset();
@@ -319,13 +321,13 @@ class RecoveryTest : public CppUnit::TestFixture {
             oldDigestList[0].logDigest.getBytes() });
         recovery.verifyCompleteLog();
         CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length "
-            "57 bytes is the head of the log", TestLog::get());
+            "65 bytes is the head of the log", TestLog::get());
 
         // ensure we log missing segments
         TestLog::reset();
         recovery.segmentMap.erase(88);
         recovery.verifyCompleteLog();
-        CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length 57 bytes "
+        CPPUNIT_ASSERT_EQUAL("verifyCompleteLog: Segment 90 of length 65 bytes "
             "is the head of the log | verifyCompleteLog: Segment 88 is missing!"
             " | verifyCompleteLog: 1 segments in the digest, but not obtained "
             "from backups!", TestLog::get());
@@ -344,7 +346,8 @@ class RecoveryTest : public CppUnit::TestFixture {
             MasterServer::sizeLogAndHashTable("64", "8", &config);
             master = new MasterServer(config, &coordinator, 0);
             transport.addServer(*master, locator);
-            coordinator.enlistServer(MASTER, locator);
+            master->serverId.construct(
+                coordinator.enlistServer(MASTER, locator));
         }
 
         ~AutoMaster()

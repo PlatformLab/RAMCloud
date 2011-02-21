@@ -20,7 +20,7 @@
 
 #include "Common.h"
 #include "CycleCounter.h"
-#include "ugly_memory_stuff.h"
+#include "LargeBlockOfMemory.h"
 
 namespace RAMCloud {
 
@@ -132,7 +132,6 @@ class HashTable {
         void
         storeSample(uint64_t value)
         {
-#if PERF_COUNTERS
             if (value / BIN_WIDTH < NBINS)
                 bins[value / BIN_WIDTH]++;
             else
@@ -142,18 +141,15 @@ class HashTable {
                 min = value;
             if (value > max)
                 max = value;
-#endif
         }
 
         void
         reset()
         {
-#if PERF_COUNTERS
             memset(bins, 0, sizeof(uint64_t) * NBINS);
             binOverflows = 0;
             min = ~0UL;
             max = 0;
-#endif
         }
 
       private:
@@ -255,19 +251,17 @@ class HashTable {
      *      equal to 0 or greater than MAX_NUMTYPES.
      */
     explicit HashTable(uint64_t numBuckets, uint32_t numTypes = 1)
-        : buckets(NULL), numBuckets(nearestPowerOfTwo(numBuckets)),
-          useHugeTlb(false), perfCounters(), numTypes(numTypes),
-          typeBits(0)
+        : numBuckets(nearestPowerOfTwo(numBuckets))
+        , buckets(this->numBuckets * sizeof(CacheLine))
+        , perfCounters()
+        , numTypes(numTypes)
+        , typeBits(0)
     {
         // HashTable<T> requires that T be a pointer. Assert that.
         {
             T assertion;
             (void)*assertion;
         }
-
-        // Allocate space for a new hash table and set its entries to unused.
-
-        uint64_t i, j;
 
         if (numBuckets != this->numBuckets) {
             LOG(DEBUG, "HashTable truncated to %lu buckets "
@@ -279,14 +273,6 @@ class HashTable {
 
         if (numTypes == 0 || numTypes > MAX_NUMTYPES)
             throw Exception(HERE, "HashTable numTypes > MAX_NUMTYPES");
-
-        size_t bucketsSize = this->numBuckets * sizeof(CacheLine);
-        buckets = static_cast<CacheLine *>(mallocAligned(bucketsSize));
-
-        for (i = 0; i < this->numBuckets; i++) {
-            for (j = 0; j < ENTRIES_PER_CACHE_LINE; j++)
-                buckets[i].entries[j].clear();
-        }
 
         if (numTypes > 1) {
             uint64_t power2Types = nearestPowerOfTwo(numTypes);
@@ -308,11 +294,6 @@ class HashTable {
     ~HashTable()
     {
         // TODO(ongaro): free chained CacheLines that were allocated in insert()
-
-        if (buckets != NULL) {
-            freeAligned(buckets);
-            buckets = NULL;
-        }
     }
 
     /**
@@ -398,13 +379,13 @@ class HashTable {
     bool
     replace(T ptr, uint8_t type = 0, T* retPtr = NULL, uint8_t *retType = NULL)
     {
-        CycleCounter cycles(STAT_REF(perfCounters.replaceCycles));
+        CycleCounter<> cycles(&perfCounters.replaceCycles);
         uint64_t secondaryHash;
         CacheLine *bucket;
         Entry *entry;
         unsigned int i;
 
-        STAT_INC(perfCounters.replaceCalls);
+        ++perfCounters.replaceCalls;
 
         uint64_t key1 = ptr->key1();
         uint64_t key2 = ptr->key2();
@@ -434,14 +415,14 @@ class HashTable {
             cl = last.getChainPointer(typeBits);
             if (cl == NULL) {
                 // no empty space found, allocate a new cache line
-                void *buf = mallocAligned(sizeof(CacheLine));
+                void *buf = xmemalign(sizeof(CacheLine), sizeof(CacheLine));
                 cl = static_cast<CacheLine *>(buf);
                 cl->entries[0] = last;
                 for (i = 1; i < ENTRIES_PER_CACHE_LINE; i++)
                     cl->entries[i].clear();
                 last.setChainPointer(cl);
             }
-            STAT_INC(perfCounters.insertChainsFollowed);
+            ++perfCounters.insertChainsFollowed;
         }
     }
 
@@ -462,7 +443,7 @@ class HashTable {
         uint64_t numCalls = 0;
 
         for (uint64_t i = 0; i < numBuckets; i++) {
-            CacheLine *cl = &buckets[i];
+            CacheLine *cl = &buckets.get()[i];
             while (1) {
                 for (uint32_t j = 0; j < ENTRIES_PER_CACHE_LINE; j++) {
                     Entry *e = &cl->entries[j];
@@ -553,9 +534,7 @@ class HashTable {
     void
     resetPerfCounters()
     {
-#if PERF_COUNTERS
         perfCounters.reset();
-#endif
     }
 
   private:
@@ -582,39 +561,6 @@ class HashTable {
                 return (1 << i);
         }
         return 0;
-    }
-
-    /**
-     * Allocate an aligned chunk of memory.
-     * \param[in] len
-     *      The size of the memory chunk to allocate in bytes.
-     * \return
-     *      A pointer to the newly allocated memory chunk. This is guaranteed to
-     *      not be \c NULL.
-     */
-    void *
-    mallocAligned(uint64_t len) const
-    {
-        if (useHugeTlb)
-            return xmalloc_aligned_hugetlb(len);
-        else
-            return xmemalign(sizeof(CacheLine), len);
-    }
-
-    /**
-     * Free the chuck of memory returned by #mallocAligned().
-     * \param[in] p
-     *      A pointer to the memory chunk allocated by #mallocAligned().
-     *      Must not be \c NULL.
-     */
-    void
-    freeAligned(void *p) const
-    {
-        if (useHugeTlb) {
-            // TODO(ongaro): can't free memory from xmalloc_aligned_hugetlb
-        } else {
-            free(p);
-        }
     }
 
     /**
@@ -656,9 +602,9 @@ class HashTable {
         uint64_t hashValue = hash(key1) ^ hash(key2);
         uint64_t bucketHash = hashValue & 0x0000ffffffffffffUL;
         *secondaryHash = hashValue >> 48;
-        return &buckets[bucketHash & (numBuckets - 1)];
+        return &buckets.get()[bucketHash & (numBuckets - 1)];
         // This is equivalent to:
-        //     &buckets[bucketHash % numBuckets]
+        //     &buckets.get()[bucketHash % numBuckets]
         // since numBuckets is a power of two, and this saves about 14 cycles on
         // an Intel Core 2 (see src/misc/modulus.cc).
     }
@@ -684,10 +630,10 @@ class HashTable {
     lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
                 uint64_t key1, uint64_t key2)
     {
-        CycleCounter cycles(STAT_REF(perfCounters.lookupEntryCycles));
+        CycleCounter<> cycles(&perfCounters.lookupEntryCycles);
         unsigned int i;
 
-        STAT_INC(perfCounters.lookupEntryCalls);
+        ++perfCounters.lookupEntryCalls;
 
         CacheLine *cl = bucket;
 
@@ -706,7 +652,7 @@ class HashTable {
                         perfCounters.lookupEntryDist.storeSample(cycles.stop());
                         return candidate;
                     } else {
-                        STAT_INC(perfCounters.lookupEntryHashCollisions);
+                        ++perfCounters.lookupEntryHashCollisions;
                     }
                 }
             }
@@ -719,7 +665,7 @@ class HashTable {
                 perfCounters.lookupEntryDist.storeSample(cycles.stop());
                 return NULL;
             }
-            STAT_INC(perfCounters.lookupEntryChainsFollowed);
+            ++perfCounters.lookupEntryChainsFollowed;
         }
     }
 
@@ -751,7 +697,8 @@ class HashTable {
         void
         clear()
         {
-            pack(0, false, 0);
+            // the raw bytes of this Entry must be zero for memset, etc to work
+            value = 0;
         }
 
         /**
@@ -989,21 +936,15 @@ class HashTable {
                   "HashTable entries don't fit evenly into a cacheline");
 
     /**
-     * The array of buckets.
-     * See HashTable.
-     */
-    CacheLine *buckets;
-
-    /**
      * The number of buckets allocated to the table.
      */
     const uint64_t numBuckets;
 
     /**
-     * Whether to allocate memory using #xmalloc_aligned_hugetlb() instead of
-     * #xmemalign().
+     * The array of buckets.
+     * See HashTable.
      */
-    const bool useHugeTlb;
+    LargeBlockOfMemory<CacheLine> buckets;
 
     /**
      * The performance counters for the HashTable.

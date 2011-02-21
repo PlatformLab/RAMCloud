@@ -53,6 +53,28 @@ Will::Will(ProtoBuf::Tablets &tablets, uint64_t maxBytesPerPartition,
 }
 
 /**
+ * Serialise this Will into the ProtoBuf::Tablets format used by the
+ * Coordinator. 
+ *
+ * \param[in] will
+ *      Reference to the ProtoBuf::Tablets in which to serialise.
+ */
+void
+Will::serialize(ProtoBuf::Tablets& will)
+{
+    for (unsigned int i = 0; i < entries.size(); i++) {
+        WillEntry* we = &entries[i];
+
+        ProtoBuf::Tablets_Tablet& newEntry(*will.add_tablet());
+        newEntry.set_table_id(we->tableId);
+        newEntry.set_start_object_id(we->firstKey);
+        newEntry.set_end_object_id(we->lastKey);
+        newEntry.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
+        newEntry.set_user_data(we->partitionId);
+    }
+}
+
+/**
  * Dump a string representation of the Will to the debug log.
  */
 void

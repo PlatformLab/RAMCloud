@@ -28,10 +28,11 @@ namespace RAMCloud {
 typedef Crc32C SegmentChecksum;
 
 struct SegmentEntry {
-    LogEntryType type;
-    uint32_t     length;
+    LogEntryType                type;
+    uint32_t                    length;
+    SegmentChecksum::ResultType checksum;
 } __attribute__((__packed__));
-static_assert(sizeof(SegmentEntry) == 8,
+static_assert(sizeof(SegmentEntry) == 12,
               "SegmentEntry has unexpected padding");
 
 struct SegmentHeader {
@@ -137,6 +138,40 @@ class _SegmentEntryHandle {
     }
 
     /**
+     * Return the checksum currently stored in memory for this SegmentEntry.
+     * Note that if something is corrupt, then it may not be valid.
+     */
+    SegmentChecksum::ResultType
+    checksum() const
+    {
+        return getSegmentEntry()->checksum;
+    }
+
+    /**
+     * Calculate a checksum from the stored SegmentEntry.
+     */
+    SegmentChecksum::ResultType
+    generateChecksum() const
+    {
+        SegmentChecksum checksum;
+        SegmentEntry temp = *getSegmentEntry();
+        temp.checksum = 0;
+        checksum.update(&temp, sizeof(SegmentEntry));
+        checksum.update(userData(), length());
+        return checksum.getResult();
+    }
+
+    /**
+     * Calculate a checksum for this SegmentEntry and compare it against
+     * the stored checksum. Returns true if they match, else false. 
+     */
+    bool
+    isChecksumValid() const
+    {
+        return generateChecksum() == checksum();
+    }
+
+    /**
      * Used by HashTable to get the first uint64_t key for supported
      * types.
      */
@@ -209,19 +244,24 @@ class Segment {
     uint64_t           appendableBytes() const;
     int                getUtilisation() const;
 
+#ifdef VALGRIND
+    // can't use more than 1M, see http://bugs.kde.org/show_bug.cgi?id=203877
+    static const uint32_t  SEGMENT_SIZE = 1024 * 1024;
+#else
     static const uint32_t  SEGMENT_SIZE = 8 * 1024 * 1024;
+#endif
     static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
 
   private:
     void               commonConstructor();
     const void        *forceAppendBlob(const void *buffer,
-                                       uint32_t length,
-                                       bool updateChecksum = true);
+                                       uint32_t length);
     SegmentEntryHandle forceAppendWithEntry(LogEntryType type,
                                             const void *buffer,
                                             uint32_t length,
                                             uint64_t *lengthOfAppend = NULL,
-                                            bool sync = true);
+                                            bool sync = true,
+                                            bool updateChecksum = true);
 
     BackupManager   *backup;         // makes operations on this segment durable
     void            *baseAddress;    // base address for the Segment

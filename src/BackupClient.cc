@@ -16,8 +16,6 @@
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "ClientException.h"
-#include "Mark.h"
-#include "PerfCounterType.h"
 #include "Rpc.h"
 #include "TransportManager.h"
 
@@ -141,6 +139,20 @@ BackupClient::ping()
     Buffer req, resp;
     allocHeader<PingRpc>(req);
     sendRecv<PingRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
+ * Signal to the backup server that recovery has completed. The backup server
+ * will then free any resources it has for the recovered master.
+ */
+void
+BackupClient::recoveryComplete(uint64_t masterId)
+{
+    Buffer req, resp;
+    auto& reqHdr = allocHeader<BackupRecoveryCompleteRpc>(req);
+    reqHdr.masterId = masterId;
+    sendRecv<BackupRecoveryCompleteRpc>(session, req, resp);
     checkStatus(HERE);
 }
 

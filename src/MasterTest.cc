@@ -30,6 +30,33 @@
 
 namespace RAMCloud {
 
+namespace {
+struct ServerListBuilder {
+    explicit ServerListBuilder(ProtoBuf::ServerList& servers)
+        : servers(servers)
+    {
+    }
+
+    ServerListBuilder&
+    operator()(ProtoBuf::ServerType type,
+               uint64_t id,
+               uint64_t segmentId,
+               const char* locator,
+               uint64_t userData = 0)
+    {
+        ProtoBuf::ServerList_Entry& server(*servers.add_server());
+        server.set_server_type(type);
+        server.set_server_id(id);
+        server.set_segment_id(segmentId);
+        server.set_service_locator(locator);
+        server.set_user_data(userData);
+        return *this;
+    }
+
+    ProtoBuf::ServerList& servers;
+};
+}
+
 class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(MasterTest);
     CPPUNIT_TEST(test_create_basics);
@@ -39,7 +66,10 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_read_badTable);
     CPPUNIT_TEST(test_read_noSuchObject);
     CPPUNIT_TEST(test_read_rejectRules);
+    CPPUNIT_TEST(test_detectSegmentRecoveryFailure_success);
+    CPPUNIT_TEST(test_detectSegmentRecoveryFailure_failure);
     CPPUNIT_TEST(test_recover_basics);
+    CPPUNIT_TEST(test_recover);
     CPPUNIT_TEST(test_recoverSegment);
     CPPUNIT_TEST(test_remove_basics);
     CPPUNIT_TEST(test_remove_badTable);
@@ -100,6 +130,8 @@ class MasterTest : public CppUnit::TestFixture {
 
         server = new MasterServer(config, coordinator, 1);
         transport->addServer(*server, "mock:host=master");
+        server->serverId.construct(
+            coordinator->enlistServer(MASTER, config.localLocator));
         client =
             new MasterClient(transportManager.getSession("mock:host=master"));
         ProtoBuf::Tablets_Tablet& tablet(*server->tablets.add_tablet());
@@ -178,6 +210,34 @@ class MasterTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, version);
     }
 
+    void
+    test_detectSegmentRecoveryFailure_success()
+    {
+        typedef MasterServer MS;
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
+            (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+            (ProtoBuf::BACKUP, 123, 89, "mock:host=backup1", MS::REC_REQ_OK)
+            (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1", MS::REC_REQ_OK)
+        ;
+        detectSegmentRecoveryFailure(99, 3, backups);
+    }
+
+    void
+    test_detectSegmentRecoveryFailure_failure()
+    {
+        typedef MasterServer MS;
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
+            (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1", MS::REC_REQ_OK)
+        ;
+        CPPUNIT_ASSERT_THROW(detectSegmentRecoveryFailure(99, 3, backups),
+                             SegmentRecoveryFailedException);
+    }
+
     static bool
     recoverSegmentFilter(string s)
     {
@@ -208,13 +268,14 @@ class MasterTest : public CppUnit::TestFixture {
         appendTablet(tablets, 0, 124, 20, 100);
     }
 
-    void test_recover_basics() {
+    void
+    test_recover_basics()
+    {
         char segMem[segmentSize];
-        BackupManager mgr(coordinator, 123, 1);
+        Tub<uint64_t> serverId;
+        serverId.construct(123);
+        BackupManager mgr(coordinator, serverId, 1);
         Segment _(123, 87, segMem, segmentSize, &mgr);
-        // TODO(stutsman) for now just ensure that the arguments make it to
-        // BackupManager::recover, we'll do the full check of the
-        // returns later once the recovery procedures are complete
 
         ProtoBuf::Tablets tablets;
         createTabletList(tablets);
@@ -222,32 +283,14 @@ class MasterTest : public CppUnit::TestFixture {
         BackupClient(transportManager.getSession("mock:host=backup1")).
             startReadingData(123, tablets, &result);
 
-        ProtoBuf::ServerList backups; {
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(123);
-            server.set_segment_id(87);
-            server.set_service_locator("mock:host=backup1");
-        }
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1");
 
         TestLog::Enable __(&recoverSegmentFilter);
         client->recover(123, 0, tablets, backups);
-        CPPUNIT_ASSERT_EQUAL(
+        assertMatchesPosixRegex(
             "recover: Starting recovery of 4 tablets on masterId 2 | "
-            "recover: Recovering master 123, partition 0, 1 hosts | "
-            "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 87 | "
-            "recover: Waiting on recovery data for segment 87 from "
-            "mock:host=backup1 | "
-            "recover: Checking mock:host=backup1 off the list for 87 | "
-            "recover: Recovering segment 87 with size 0 | "
-            "recoverSegment: recoverSegment 87, ... | "
-            "recoverSegment: Segment 87 replay complete | "
-            "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "
-            "recover: set tablet 123 10 19 to locator mock:host=master, id 2 | "
-            "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
-            "recover: set tablet 124 20 100 to locator mock:host=master, id 2 |"
-            " tabletsRecovered: called with 4 tablets | "
             "setTablets: Now serving tablets: | "
             "setTablets: table:                    0, "
                         "start:                    0, "
@@ -263,8 +306,169 @@ class MasterTest : public CppUnit::TestFixture {
                         "end  :                   29 | "
             "setTablets: table:                  124, "
                         "start:                   20, "
-                        "end  :                  100",
+                        "end  :                  100 | "
+            "recover: Recovering master 123, partition 0, 1 hosts | "
+            "recover: Starting getRecoveryData from mock:host=backup1 for "
+            "segment 87 on channel 0 (initial round of RPCs) | "
+            "recover: Waiting on recovery data for segment 87 from "
+            "mock:host=backup1 | ",
             TestLog::get());
+        assertMatchesPosixRegex(
+            "recover: Recovering segment 87 with size 0 | "
+            "recoverSegment: recoverSegment 87, ... | ",
+            TestLog::get());
+        assertMatchesPosixRegex(
+            "recover: Checking mock:host=backup1 off the list for 87 | "
+            "recover: Checking mock:host=backup1 off the list for 87 | ",
+            TestLog::get());
+        assertMatchesPosixRegex(
+            "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "
+            "recover: set tablet 123 10 19 to locator mock:host=master, id 2 | "
+            "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
+            "recover: set tablet 124 20 100 to locator mock:host=master, "
+            "id 2 | "
+            "tabletsRecovered: called by masterId 2 with 4 tablets, "
+            "5 will entries",
+            TestLog::get());
+    }
+
+    /**
+     * Properties checked:
+     * 1) At most length of tasks number of RPCs are started initially
+     *    even with a longer backup list.
+     * 2) Ensures that if a segment is only requested in the initial
+     *    round of RPCs once.
+     * 3) Ensures that if an entry in the server list is skipped because
+     *    another RPC is outstanding for the same segment it is retried
+     *    if the earlier RPC fails.
+     * 4) Ensures that if an RPC succeeds for one copy of a segment other
+     *    RPCs for that segment don't occur.
+     * 5) A transport exception at construction time caused that entry
+     *    to be skipped and a new entry to be tried immediate, both
+     *    during initial RPC starts and following ones.
+     */
+    void
+    test_recover()
+    {
+        char segMem[segmentSize];
+        Tub<uint64_t> serverId;
+        serverId.construct(123);
+        BackupManager mgr(coordinator, serverId, 1);
+        Segment __(123, 88, segMem, segmentSize, &mgr);
+
+        InMemoryStorage storage2{segmentSize, segmentFrames};
+        BackupServer backupServer2{backupConfig, *storage};
+        transport->addServer(backupServer2, "mock:host=backup2");
+        coordinator->enlistServer(BACKUP, "mock:host=backup2");
+
+        ProtoBuf::Tablets tablets;
+        createTabletList(tablets);
+        BackupClient::StartReadingData::Result result;
+        BackupClient(transportManager.getSession("mock:host=backup1")).
+            startReadingData(123, tablets, &result);
+
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            // Started in initial round of RPCs - eventually fails
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1")
+            // Skipped in initial round of RPCs (prior is in-flight)
+            // starts later after failure from earlier entry
+            (ProtoBuf::BACKUP, 123, 87, "mock:host=backup2")
+            // Started in initial round of RPCs - eventually succeeds
+            (ProtoBuf::BACKUP, 123, 88, "mock:host=backup1")
+            // Skipped in all rounds of RPCs (prior succeeds)
+            (ProtoBuf::BACKUP, 123, 88, "mock:host=backup2")
+            // Started in initial round of RPCs - eventually fails
+            (ProtoBuf::BACKUP, 123, 89, "mock:host=backup1")
+            // Fails to start in initial round of RPCs - bad locator
+            (ProtoBuf::BACKUP, 123, 90, "mock:host=backup3")
+            // Started in initial round of RPCs - eventually fails
+            (ProtoBuf::BACKUP, 123, 91, "mock:host=backup1")
+            // Fails to start in later rounds of RPCs - bad locator
+            (ProtoBuf::BACKUP, 123, 92, "mock:host=backup4")
+            // Started in later rounds of RPCs - eventually fails
+            (ProtoBuf::BACKUP, 123, 93, "mock:host=backup1")
+        ;
+
+        TestLog::Enable _;
+        CPPUNIT_ASSERT_THROW(server->recover(123, 0, backups),
+                             SegmentRecoveryFailedException);
+        // 1,2,3) 87 was requested from the first server list entry.
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 87 on channel 0 (initial round of RPCs)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(0).user_data());
+        // 2,3) 87 was *not* requested a second time in the initial RPC round
+        // but was requested later once the first failed.
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup2 "
+            "for segment 87 .* (after RPC completion)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(0).user_data());
+        // 1,4) 88 was requested from the third server list entry and
+        //      succeeded, which knocks the third and forth entries into
+        //      OK status, preventing the launch of the forth entry
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 88 on channel 1 (initial round of RPCs)",
+            TestLog::get());
+        assertMatchesPosixRegex(
+            "recover: Checking mock:host=backup1 off the list for 88 | "
+            "recover: Checking mock:host=backup2 off the list for 88",
+            TestLog::get());
+        // 1,4) 88 was requested NOT from the forth server list entry.
+        assertNotMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup2 "
+            "for segment 88 .* (after RPC completion)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_OK,
+                             backups.server(2).user_data());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_OK,
+                             backups.server(3).user_data());
+        // 1) Checking to ensure RPCs for 87, 88, 89, 90 went first round
+        //    and that 91 got issued in place, first-found due to 90's
+        //    bad locator
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 89 on channel 2 (initial round of RPCs)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(4).user_data());
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup3 "
+            "for segment 90 on channel 3 (initial round of RPCs)",
+            TestLog::get());
+        // 5) Checks bad locators for initial RPCs are handled
+        assertMatchesPosixRegex(
+            "No transport found for this service locator: mock:host=backup3",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(5).user_data());
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 91 on channel 3 (initial round of RPCs)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(6).user_data());
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup4 "
+            "for segment 92 on channel 1 (after RPC completion)",
+            TestLog::get());
+        // 5) Checks bad locators for non-initial RPCs are handled
+        assertMatchesPosixRegex(
+            "No transport found for this service locator: mock:host=backup4",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(7).user_data());
+        assertMatchesPosixRegex(
+            "recover: Starting getRecoveryData from mock:host=backup1 "
+            "for segment 93 on channel 1 (after RPC completion)",
+            TestLog::get());
+        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+                             backups.server(8).user_data());
     }
 
     uint32_t
@@ -278,11 +482,10 @@ class MasterTest : public CppUnit::TestFixture {
         newObject->id.objectId = objId;
         newObject->id.tableId = tblId;
         newObject->version = version;
-        newObject->data_len = objContents.length() + 1;
         strcpy(newObject->data, objContents.c_str()); // NOLINT fuck off
 
         const void *p = s.append(LOG_ENTRY_TYPE_OBJ, newObject,
-                                 newObject->size())->userData();
+            newObject->objectLength(objContents.length() + 1))->userData();
         assert(p != NULL);
         s.close();
         return static_cast<const char*>(p) - segmentBuf;
@@ -820,7 +1023,9 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         // Give them a name so that freeSegment doesn't get called on
         // destructor until after the test.
         char segMem1[segmentSize];
-        BackupManager mgr(coordinator, 99, 2);
+        Tub<uint64_t> serverId;
+        serverId.construct(99);
+        BackupManager mgr(coordinator, serverId, 2);
         Segment s1(99, 87, &segMem1, sizeof(segMem1), &mgr);
         s1.close();
         char segMem2[segmentSize];
@@ -841,26 +1046,12 @@ class MasterRecoverTest : public CppUnit::TestFixture {
                 .startReadingData(99, tablets, &result);
         }
 
-        ProtoBuf::ServerList backups; {
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(87);
-            server.set_service_locator("mock:host=backup1");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup1");
-
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup2");
-        }
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            (ProtoBuf::BACKUP, 99, 87, "mock:host=backup1")
+            (ProtoBuf::BACKUP, 99, 88, "mock:host=backup1")
+            (ProtoBuf::BACKUP, 99, 88, "mock:host=backup2")
+        ;
 
         MockRandom __(1); // triggers deterministic rand().
         TestLog::Enable _(&recoverSegmentFilter);
@@ -878,21 +1069,12 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     {
         boost::scoped_ptr<MasterServer> master(createMasterServer());
 
-        // tests !wasRecovered case both in-loop and end-of-loop
         ProtoBuf::Tablets tablets;
-        ProtoBuf::ServerList backups; {
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(87);
-            server.set_service_locator("mock:host=backup1");
-        }{
-            ProtoBuf::ServerList_Entry& server(*backups.add_server());
-            server.set_server_type(ProtoBuf::BACKUP);
-            server.set_server_id(99);
-            server.set_segment_id(88);
-            server.set_service_locator("mock:host=backup1");
-        }
+        ProtoBuf::ServerList backups;
+        ServerListBuilder{backups}
+            (ProtoBuf::BACKUP, 99, 87, "mock:host=backup1")
+            (ProtoBuf::BACKUP, 99, 88, "mock:host=backup1")
+        ;
 
         MockRandom __(1); // triggers deterministic rand().
         TestLog::Enable _(&recoverSegmentFilter);
@@ -903,9 +1085,9 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(
             "recover: Recovering master 99, partition 0, 2 hosts | "
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 87 | "
+            "for segment 87 on channel 0 (initial round of RPCs) | "
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 88 | "
+            "for segment 88 on channel 1 (initial round of RPCs) | "
             "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | "
             "recover: getRecoveryData failed on mock:host=backup1, "

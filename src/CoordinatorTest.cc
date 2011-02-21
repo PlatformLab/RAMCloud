@@ -29,11 +29,14 @@ class CoordinatorTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(CoordinatorTest);
     CPPUNIT_TEST(test_createTable);
     CPPUNIT_TEST(test_enlistServer);
+    CPPUNIT_TEST(test_getMasterList);
     CPPUNIT_TEST(test_getBackupList);
+    CPPUNIT_TEST(test_getServerList);
     CPPUNIT_TEST(test_getTabletMap);
     CPPUNIT_TEST(test_hintServerDown_master);
     CPPUNIT_TEST(test_hintServerDown_backup);
     CPPUNIT_TEST(test_tabletsRecovered_basics);
+    CPPUNIT_TEST(test_setWill);
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
@@ -68,6 +71,8 @@ class CoordinatorTest : public CppUnit::TestFixture {
         master = static_cast<MasterServer*>(malloc(sizeof(MasterServer)));
         transport->addServer(*master, "mock:host=master");
         master = new(master) MasterServer(masterConfig, client, 0);
+        master->serverId.construct(
+            client->enlistServer(MASTER, masterConfig.localLocator));
         TestLog::enable();
     }
 
@@ -129,7 +134,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
     // TODO(ongaro): test drop, open table
 
     void test_enlistServer() {
-        CPPUNIT_ASSERT_EQUAL(2, master->serverId);
+        CPPUNIT_ASSERT_EQUAL(2, *master->serverId);
         CPPUNIT_ASSERT_EQUAL(3,
                              client->enlistServer(BACKUP, "mock:host=backup"));
         assertMatchesPosixRegex("server { server_type: MASTER server_id: 2 "
@@ -144,17 +149,38 @@ class CoordinatorTest : public CppUnit::TestFixture {
                              server->backupList.ShortDebugString());
     }
 
+    void test_getMasterList() {
+        // master is already enlisted
+        ProtoBuf::ServerList masterList;
+        client->getMasterList(masterList);
+        // need to avoid non-deterministic 'user_data' field.
+        CPPUNIT_ASSERT_EQUAL(0, masterList.ShortDebugString().find(
+                                    "server { server_type: MASTER server_id: 2 "
+                                    "service_locator: \"mock:host=master\" "
+                                    "user_data: "));
+    }
+
     void test_getBackupList() {
         // master is already enlisted
         client->enlistServer(BACKUP, "mock:host=backup1");
         client->enlistServer(BACKUP, "mock:host=backup2");
-        ProtoBuf::ServerList serverList;
-        client->getBackupList(serverList);
+        ProtoBuf::ServerList backupList;
+        client->getBackupList(backupList);
         CPPUNIT_ASSERT_EQUAL("server { server_type: BACKUP server_id: 3 "
                              "service_locator: \"mock:host=backup1\" } "
                              "server { server_type: BACKUP server_id: 4 "
                              "service_locator: \"mock:host=backup2\" }",
-                             serverList.ShortDebugString());
+                             backupList.ShortDebugString());
+    }
+
+    void test_getServerList() {
+        // master is already enlisted
+        client->enlistServer(BACKUP, "mock:host=backup1");
+        ProtoBuf::ServerList serverList;
+        client->getServerList(serverList);
+        CPPUNIT_ASSERT_EQUAL(2, serverList.server_size());
+        CPPUNIT_ASSERT_EQUAL(MASTER, serverList.server(0).server_type());
+        CPPUNIT_ASSERT_EQUAL(BACKUP, serverList.server(1).server_type());
     }
 
     void test_getTabletMap() {
@@ -214,7 +240,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
                  server->tabletMap.tablet())
         {
-            if (tablet.server_id() == master->serverId) {
+            if (tablet.server_id() == *master->serverId) {
                 CPPUNIT_ASSERT_EQUAL(&mockRecovery,
                     reinterpret_cast<Recovery*>(tablet.user_data()));
             }
@@ -257,11 +283,20 @@ class CoordinatorTest : public CppUnit::TestFixture {
         stablet.set_user_data(
             reinterpret_cast<uint64_t>(new BaseRecovery()));
 
+        Tablets will;
+        Tablet& willEntry(*will.add_tablet());
+        willEntry.set_table_id(0);
+        willEntry.set_start_object_id(0);
+        willEntry.set_end_object_id(~(0ul));
+        willEntry.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
+        willEntry.set_user_data(0);
+
         {
             TestLog::Enable _(&tabletsRecoveredFilter);
-            client->tabletsRecovered(tablets);
+            client->tabletsRecovered(2, tablets, will);
             CPPUNIT_ASSERT_EQUAL(
-                "tabletsRecovered: called with 1 tablets | "
+                "tabletsRecovered: called by masterId 2 with 1 tablets, "
+                "1 will entries | "
                 "tabletsRecovered: Recovery complete on tablet "
                 "0,0,18446744073709551615 | "
                 "tabletsRecovered: Recovery completed | "
@@ -280,6 +315,35 @@ class CoordinatorTest : public CppUnit::TestFixture {
                              server->tabletMap.tablet(0).server_id());
     }
 
+    static bool
+    setWillFilter(string s) {
+        return s == "setWill";
+    }
+
+    void
+    test_setWill()
+    {
+        client->enlistServer(MASTER, "mock:host=master2");
+
+        ProtoBuf::Tablets will;
+        ProtoBuf::Tablets::Tablet& t(*will.add_tablet());
+        t.set_table_id(0);
+        t.set_start_object_id(235);
+        t.set_end_object_id(47234);
+        t.set_state(ProtoBuf::Tablets::Tablet::NORMAL);
+        t.set_user_data(19);
+
+        TestLog::Enable _(&setWillFilter);
+        client->setWill(2, will);
+
+        CPPUNIT_ASSERT_EQUAL(
+            "setWill: Master 2 updated its Will (now 1 entries, was 0)",
+            TestLog::get());
+
+        // bad master id should fail
+        CPPUNIT_ASSERT_THROW(client->setWill(23481234, will),
+            InternalError);
+    }
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorTest);
 };

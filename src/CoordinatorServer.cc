@@ -71,9 +71,9 @@ CoordinatorServer::dispatch(RpcType type,
             callHandler<EnlistServerRpc, CoordinatorServer,
                         &CoordinatorServer::enlistServer>(rpc);
             break;
-        case GetBackupListRpc::type:
-            callHandler<GetBackupListRpc, CoordinatorServer,
-                        &CoordinatorServer::getBackupList>(rpc);
+        case GetServerListRpc::type:
+            callHandler<GetServerListRpc, CoordinatorServer,
+                        &CoordinatorServer::getServerList>(rpc);
             break;
         case GetTabletMapRpc::type:
             callHandler<GetTabletMapRpc, CoordinatorServer,
@@ -90,6 +90,10 @@ CoordinatorServer::dispatch(RpcType type,
         case PingRpc::type:
             callHandler<PingRpc, CoordinatorServer,
                         &CoordinatorServer::ping>(rpc);
+            break;
+        case SetWillRpc::type:
+            callHandler<SetWillRpc, CoordinatorServer,
+                        &CoordinatorServer::setWill>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);
@@ -248,16 +252,28 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
 }
 
 /**
- * Handle the GET_BACKUP_LIST RPC.
+ * Handle the GET_SERVER_LIST RPC.
  * \copydetails Server::ping
  */
 void
-CoordinatorServer::getBackupList(const GetBackupListRpc::Request& reqHdr,
-                                 GetBackupListRpc::Response& respHdr,
+CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
+                                 GetServerListRpc::Response& respHdr,
                                  Transport::ServerRpc& rpc)
 {
-    respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
-                                                   backupList);
+    switch (reqHdr.serverType) {
+    case MASTER:
+        respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
+                                                       masterList);
+        break;
+
+    case BACKUP:
+        respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
+                                                       backupList);
+        break;
+
+    default:
+        throw RequestFormatError(HERE);
+    }
 }
 
 /**
@@ -374,7 +390,18 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
     ProtoBuf::Tablets recoveredTablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.tabletsLength, recoveredTablets);
-    LOG(NOTICE, "called with %u tablets", recoveredTablets.tablet_size());
+    ProtoBuf::Tablets* newWill = new ProtoBuf::Tablets;
+    ProtoBuf::parseFromResponse(rpc.recvPayload,
+                                sizeof(reqHdr) + reqHdr.tabletsLength,
+                                reqHdr.willLength, *newWill);
+
+    LOG(NOTICE, "called by masterId %lu with %u tablets, %u will entries",
+        reqHdr.masterId, recoveredTablets.tablet_size(),
+        newWill->tablet_size());
+
+    // update the will
+    setWill(reqHdr.masterId, rpc.recvPayload,
+        sizeof(reqHdr) + reqHdr.tabletsLength, reqHdr.willLength);
 
     // update tablet map to point to new owner and mark as available
     foreach (const ProtoBuf::Tablets::Tablet& recoveredTablet,
@@ -447,6 +474,49 @@ CoordinatorServer::ping(const PingRpc::Request& reqHdr,
             server.service_locator().c_str())).ping();
 
     Server::ping(reqHdr, respHdr, rpc);
+}
+
+/**
+ * Update the Will associated with a specific Master. This is used
+ * by Masters to keep their partitions balanced for efficient
+ * recovery.
+ *
+ * \copydetails Server::ping
+ */
+void
+CoordinatorServer::setWill(const SetWillRpc::Request& reqHdr,
+                           SetWillRpc::Response& respHdr,
+                           Transport::ServerRpc& rpc)
+{
+    if (!setWill(reqHdr.masterId, rpc.recvPayload, sizeof(reqHdr),
+        reqHdr.willLength)) {
+        respHdr.common.status = Status(-1);
+    }
+}
+
+bool
+CoordinatorServer::setWill(uint64_t masterId, Buffer& buffer,
+    uint32_t offset, uint32_t length)
+{
+    foreach (auto& master, *masterList.mutable_server()) {
+        if (master.server_id() == masterId) {
+            ProtoBuf::Tablets* oldWill =
+                reinterpret_cast<ProtoBuf::Tablets*>(master.user_data());
+
+            ProtoBuf::Tablets* newWill = new ProtoBuf::Tablets();
+            ProtoBuf::parseFromResponse(buffer, offset, length, *newWill);
+            master.set_user_data(reinterpret_cast<uint64_t>(newWill));
+
+            LOG(NOTICE, "Master %lu updated its Will (now %d entries, was %d)",
+                masterId, newWill->tablet_size(), oldWill->tablet_size());
+
+            delete oldWill;
+            return true;
+        }
+    }
+
+    LOG(WARNING, "Master %lu could not be found!!", masterId);
+    return false;
 }
 
 } // namespace RAMCloud

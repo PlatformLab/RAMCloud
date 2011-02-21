@@ -32,6 +32,13 @@
 
 namespace RAMCloud {
 
+#if TESTING
+void
+detectSegmentRecoveryFailure(const uint64_t masterId,
+                             const uint64_t partitionId,
+                             const ProtoBuf::ServerList& backups);
+#endif
+
 struct ServerConfig {
     string coordinatorLocator;
     string localLocator;
@@ -174,6 +181,11 @@ class MasterServer : public Server {
         config->hashTableBytes = hashTableBytes;
     }
 
+    /**
+     * Used in detectSegmentRecoveryFailure() and MasterServer::recover() to
+     * mark and check getRecoveryData() requests statuses.
+     */
+    enum { REC_REQ_NOT_STARTED, REC_REQ_WAITING, REC_REQ_FAILED, REC_REQ_OK };
 
   private:
     void create(const CreateRpc::Request& reqHdr,
@@ -216,9 +228,15 @@ class MasterServer : public Server {
   public:
     CoordinatorClient* coordinator;
 
-    uint64_t serverId;
+    Tub<uint64_t> serverId;
 
   private:
+    /// Maximum number of bytes per partition. For Will calculation.
+    static const uint64_t maxBytesPerPartition = 640UL * 1024 * 1024;
+
+    /// Maximum number of referants (objs) per partition. For Will calculation.
+    static const uint64_t maxReferantsPerPartition = 10UL * 1000 * 1000;
+
     BackupManager backup;
 
     /// Track total bytes of object data written (not including log overhead).

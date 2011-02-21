@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -54,14 +54,14 @@ class MockDriver : public Driver {
     MockDriver();
     explicit MockDriver(HeaderToString headerToString);
     virtual ~MockDriver() {}
+    virtual void connect(FastTransport* transport);
+    virtual void disconnect();
     virtual uint32_t getMaxPacketSize() { return 1400; }
-    virtual void release(char *payload, uint32_t len);
+    virtual void release(char *payload);
     virtual void sendPacket(const Address* addr,
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
-    void setInput(Driver::Received* received);
-    virtual bool tryRecvPacket(Received *received);
     virtual ServiceLocator getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator& serviceLocator) {
@@ -88,7 +88,6 @@ class MockDriver : public Driver {
     // The following variables count calls to various methods, for use
     // by tests.
     uint32_t sendPacketCount;
-    uint32_t tryRecvPacketCount;
     uint32_t releaseCount;
 
     DISALLOW_COPY_AND_ASSIGN(MockDriver);

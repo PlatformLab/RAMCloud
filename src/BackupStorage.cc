@@ -49,7 +49,7 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
                                      uint32_t segmentFrames,
                                      const char* filePath,
                                      int openFlags)
-    : BackupStorage(segmentSize)
+    : BackupStorage(segmentSize, Type::DISK)
     , freeMap(segmentFrames)
     , fd(-1)
     , lastAllocatedFrame(FreeMap::npos)
@@ -135,8 +135,6 @@ SingleFileStorage::getSegment(const BackupStorage::Handle* handle,
     uint32_t sourceSegmentFrame =
         static_cast<const Handle*>(handle)->getSegmentFrame();
     off_t offset = offsetOfSegmentFrame(sourceSegmentFrame);
-    if (offset == -1)
-        throw BackupStorageException(HERE, errno);
     ssize_t r = pread(fd, segment, segmentSize, offset);
     if (r != static_cast<ssize_t>(segmentSize))
         throw BackupStorageException(HERE, errno);
@@ -152,9 +150,6 @@ SingleFileStorage::putSegment(const BackupStorage::Handle* handle,
     uint32_t targetSegmentFrame =
         static_cast<const Handle*>(handle)->getSegmentFrame();
     off_t offset = offsetOfSegmentFrame(targetSegmentFrame);
-    if (offset == -1)
-        throw BackupStorageException(HERE,
-                "Failed to seek to segment frame to write storage", errno);
     ssize_t r = pwrite(fd, segment, segmentSize, offset);
     if (r != static_cast<ssize_t>(segmentSize))
         throw BackupStorageException(HERE, errno);
@@ -210,7 +205,7 @@ SingleFileStorage::reserveSpace()
  */
 InMemoryStorage::InMemoryStorage(uint32_t segmentSize,
                                  uint32_t segmentFrames)
-    : BackupStorage(segmentSize)
+    : BackupStorage(segmentSize, Type::MEMORY)
     , pool(segmentSize)
     , segmentFrames(segmentFrames)
 {

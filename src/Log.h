@@ -20,6 +20,7 @@
 #include <boost/unordered_map.hpp>
 #include <vector>
 
+#include "LargeBlockOfMemory.h"
 #include "LogCleaner.h"
 #include "LogTypes.h"
 #include "Segment.h"
@@ -74,8 +75,10 @@ class LogTypeCallback {
 
 class Log {
   public:
-    Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
-            BackupManager *backup = NULL);
+    Log(const Tub<uint64_t>& logId,
+        uint64_t logCapacity,
+        uint64_t segmentCapacity,
+        BackupManager *backup = NULL);
     ~Log();
     Segment*       allocateHead();
     LogEntryHandle append(LogEntryType type,
@@ -127,9 +130,13 @@ class Log {
     uint64_t    allocateSegmentId();
     const void *getSegmentBaseAddress(const void *p);
 
-    uint64_t       logId;
+    const Tub<uint64_t>& logId;
     uint64_t       logCapacity;
     uint64_t       segmentCapacity;
+
+    /// A very large memory allocation that backs all segments.
+    LargeBlockOfMemory<> segmentMemory;
+
     vector<void *> segmentFreeList;
     uint64_t       nextSegmentId;
     uint64_t       maximumAppendableBytes;

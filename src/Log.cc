@@ -22,6 +22,7 @@
 
 namespace RAMCloud {
 
+
 /**
  * Constructor for Log.
  * \param[in] logId
@@ -38,12 +39,15 @@ namespace RAMCloud {
  *      An exception is thrown if #logCapacity is not sufficient for
  *      a single segment's worth of log.
  */
-Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
-        BackupManager *backup)
+Log::Log(const Tub<uint64_t>& logId,
+         uint64_t logCapacity,
+         uint64_t segmentCapacity,
+         BackupManager *backup)
     : stats(),
       logId(logId),
-      logCapacity(logCapacity),
+      logCapacity((logCapacity / segmentCapacity) * segmentCapacity),
       segmentCapacity(segmentCapacity),
+      segmentMemory(this->logCapacity),
       segmentFreeList(),
       nextSegmentId(0),
       maximumAppendableBytes(0),
@@ -55,15 +59,13 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
       activeBaseAddressMap(),
       backup(backup)
 {
-    uint64_t numSegments = logCapacity / segmentCapacity;
-    if (numSegments < 1) {
+    if (logCapacity == 0) {
         throw LogException(HERE,
                            "insufficient Log memory for even one segment!");
     }
-
-    for (uint64_t i = 0; i < numSegments; i++) {
-        void *p = xmemalign(segmentCapacity, segmentCapacity);
-        addSegmentMemory(p);
+    for (uint64_t i = 0; i < logCapacity / segmentCapacity; i++) {
+        addSegmentMemory(static_cast<char*>(segmentMemory.get()) +
+                         i * segmentCapacity);
     }
 }
 
@@ -72,18 +74,12 @@ Log::Log(uint64_t logId, uint64_t logCapacity, uint64_t segmentCapacity,
  */
 Log::~Log()
 {
-    // NB: don't confuse Log::free() with ::free()!
-
     foreach (ActiveIdMap::value_type& idSegmentPair, activeIdMap) {
         Segment* segment = idSegmentPair.second;
         if (segment == head)
             segment->close(true);
-        ::free(const_cast<void *>(segment->getBaseAddress()));
         delete segment;
     }
-
-    foreach (void* segment, segmentFreeList)
-        ::free(segment);
 
     foreach (CallbackMap::value_type& typeCallbackPair, callbackMap)
         delete typeCallbackPair.second;
@@ -418,8 +414,9 @@ Log::allocateSegmentId()
 const void *
 Log::getSegmentBaseAddress(const void *p)
 {
-    uintptr_t base = (uintptr_t)p;
-    return (const void *)(base - (base % segmentCapacity));
+    const char* logStart = reinterpret_cast<const char*>(segmentMemory.get());
+    const char* base = reinterpret_cast<const char*>(p);
+    return base - ((base - logStart) % segmentCapacity);
 }
 
 /**
@@ -428,7 +425,7 @@ Log::getSegmentBaseAddress(const void *p)
 uint64_t
 Log::getId() const
 {
-    return logId;
+    return *logId;
 }
 
 /**

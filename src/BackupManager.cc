@@ -15,6 +15,8 @@
 
 #include "BackupClient.h"
 #include "BackupManager.h"
+#include "CycleCounter.h"
+#include "Metrics.h"
 
 namespace RAMCloud {
 
@@ -39,25 +41,33 @@ BackupManager::OpenSegment::OpenSegment(BackupManager& backupManager,
     // Select backups, initialize backups,
     // and tell each of the backups to open the segment:
     backupManager.ensureSufficientHosts();
+// Choose between random and round-robin
+#define RANDOM_BACKUP_ORDER
+#ifdef RANDOM_BACKUP_ORDER
     uint64_t random = generateRandom();
+#else
+    static uint64_t random = 0;
+#endif
     auto flags = BackupWriteRpc::OPENPRIMARY;
     foreach (auto& backup, backupIter()) {
-        uint32_t index = random++ % backupManager.hosts.server_size();
+        uint32_t index = random % backupManager.hosts.server_size();
+        random += 1;
         const auto& host = backupManager.hosts.server(index);
         LOG(DEBUG, "Opening segment %lu, %lu on backup %s",
-            backupManager.masterId, segmentId,
+            *backupManager.masterId, segmentId,
             host.service_locator().c_str());
         auto session =
             transportManager.getSession(host.service_locator().c_str());
         new(&backup) Backup(session);
         backupManager.segments.insert({segmentId, session});
         backup.writeSegmentTub.construct(backup.client,
-                                         backupManager.masterId, segmentId,
+                                         *backupManager.masterId, segmentId,
                                          0, data, len, flags);
         flags = BackupWriteRpc::OPEN;
         backup.offsetSent = len;
     }
     // Wait for segment open acknowledgements from backups:
+    CycleCounter<Metric> _(&metrics->master.segmentOpenStallTicks);
     waitForWriteRequests();
 }
 
@@ -88,8 +98,9 @@ void
 BackupManager::OpenSegment::write(uint32_t offset,
                                   bool closeSegment)
 {
+    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
     TEST_LOG("%lu, %lu, %u, %d",
-             backupManager.masterId, segmentId, offset, closeSegment);
+             *backupManager.masterId, segmentId, offset, closeSegment);
 
     if (this != &backupManager.openSegmentList.front()) {
         // If this isn't the earliest open segment, the one before must be the
@@ -106,6 +117,8 @@ BackupManager::OpenSegment::write(uint32_t offset,
     // immutable after close
     assert(!closeQueued);
     closeQueued = closeSegment;
+    if (closeQueued)
+        ++metrics->master.segmentCloseCount;
 
     sendWriteRequests();
 }
@@ -117,12 +130,18 @@ BackupManager::OpenSegment::write(uint32_t offset,
 void
 BackupManager::OpenSegment::sync()
 {
-    waitForWriteRequests();
+    {
+        CycleCounter<Metric> _(&metrics->master.segmentWriteStallTicks);
+        waitForWriteRequests();
+    }
     sendWriteRequests();
-    waitForWriteRequests();
+    {
+        CycleCounter<Metric> _(&metrics->master.segmentWriteStallTicks);
+        waitForWriteRequests();
+    }
     if (closeQueued) {
         LOG(DEBUG, "Closed segment %lu, %lu",
-            backupManager.masterId, segmentId);
+            *backupManager.masterId, segmentId);
         backupManager.unopenSegment(this);
         return; // 'this' instance has been destroyed
     }
@@ -139,7 +158,7 @@ BackupManager::OpenSegment::sendWriteRequests()
             backup.offsetSent == offsetQueued)
             continue;
         backup.writeSegmentTub.construct(backup.client,
-                                         backupManager.masterId,
+                                         *backupManager.masterId,
                                          segmentId,
                                          backup.offsetSent,
                                          (static_cast<const char*>(data) +
@@ -178,7 +197,7 @@ BackupManager::OpenSegment::waitForWriteRequests()
  *      \copydoc replicas
  */
 BackupManager::BackupManager(CoordinatorClient* coordinator,
-                             uint64_t masterId,
+                             const Tub<uint64_t>& masterId,
                              uint32_t replicas)
     : coordinator(coordinator)
     , masterId(masterId)
@@ -203,7 +222,8 @@ BackupManager::~BackupManager()
 void
 BackupManager::freeSegment(uint64_t segmentId)
 {
-    TEST_LOG("%lu, %lu", masterId, segmentId);
+    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
+    TEST_LOG("%lu, %lu", *masterId, segmentId);
 
     // Make sure this segment isn't open:
     foreach (auto& openSegment, openSegmentList) {
@@ -217,7 +237,7 @@ BackupManager::freeSegment(uint64_t segmentId)
     const auto iters = segments.equal_range(segmentId);
     foreach (auto item, iters) {
         auto session = item.second;
-        BackupClient(session).freeSegment(masterId, segmentId);
+        BackupClient(session).freeSegment(*masterId, segmentId);
     }
     segments.erase(iters.first, iters.second);
 }
@@ -246,7 +266,8 @@ BackupManager::freeSegment(uint64_t segmentId)
 BackupManager::OpenSegment*
 BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
 {
-    LOG(DEBUG, "openSegment %lu, %lu, ..., %u", masterId, segmentId, len);
+    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
+    LOG(DEBUG, "openSegment %lu, %lu, ..., %u", *masterId, segmentId, len);
     auto* p = openSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
@@ -262,6 +283,7 @@ BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
 void
 BackupManager::sync()
 {
+    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
     if (openSegmentList.empty())
         return;
     // At most one segment can have outstanding data,

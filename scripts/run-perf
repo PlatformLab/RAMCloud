@@ -29,7 +29,7 @@ sleep .1
 # now call perl script to do the rest of the work
 # scripts/latencyVSsize.pl -co $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.size.dump
 # scripts/latencyVSload.pl -co $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.load.dump -cl rc0[3,4,5,6].scs.stanford.edu 
-scripts/latencyVSload.pl -co $coordinatorLocator -b $OBJDIR/Bench --dump $transport.load.dump -cl 10.0.0.[2,3,4,5,6] --loadStart 0 --loadEnd 0 --objSize 100
+scripts/latencyVSload.pl -co $coordinatorLocator -b $OBJDIR/Bench --dump $transport.load.dump -cl 10.0.0.[2,3,4,5,6] --loadStart 0 --loadEnd 10 --objSize 100
 RETVAL=$?
 
 exit $RETVAL
