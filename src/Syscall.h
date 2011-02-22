@@ -81,6 +81,10 @@ class Syscall {
         return ::pipe(fds);
     }
     VIRTUAL_FOR_TESTING
+    ssize_t read(int sockfd, void *buf, size_t len) {
+        return ::read(sockfd, buf, len);
+    }
+    VIRTUAL_FOR_TESTING
     ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
         return ::recv(sockfd, buf, len, flags);
     }

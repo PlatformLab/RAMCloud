@@ -87,6 +87,39 @@ class FailureDetector {
         return sin;
     }
 
+    /// The socket used internally to issue ping requests to the FailureDetector
+    /// thread. Transports can employ this to determine whether or not RPCs have
+    /// likely timed out.
+    static int internalClientSocket;
+
+    /// The other end of #internalClientSocket. This is where requests are
+    /// received and processed in FailureDetector's #mainLoop.
+    static int internalServerSocket;
+
+    /**
+     * Synchronously ping the given server and return true if a response
+     * was received. If no response is received within #TIMEOUT_USECS,
+     * return false.
+     *
+     * \param[in] locatorString
+     *      ServiceLocator string of the server to ping.
+     */
+    static bool
+    pingServer(string locatorString)
+    {
+        ssize_t r = write(internalClientSocket, locatorString.c_str(),
+            locatorString.length() + 1);
+        if (r != static_cast<ssize_t>(locatorString.length() + 1))
+            throw Exception(HERE, format("write failed with %zd", r));
+
+        uint8_t gotResponse;
+        r = read(internalClientSocket, &gotResponse, sizeof(gotResponse));
+        if (r != sizeof(gotResponse))
+            throw Exception(HERE, format("read failed with %zd", r));
+
+        return gotResponse == 1;
+    }
+
     /// Maximum payload in any datagram. This should be enough to get 40
     /// machines worth of ServiceLocators for our cluster. Try to temper
     /// your disgust with the fact that this whole class is a temporary
@@ -114,19 +147,22 @@ class FailureDetector {
         /// a container for a single probe.
         class TimeoutEntry {
           public:
-            TimeoutEntry(uint64_t startUsec, string locator, uint64_t nonce)
+            TimeoutEntry(uint64_t startUsec, string locator,
+              uint64_t nonce, int type)
                 : startUsec(startUsec),
                   locator(locator),
-                  nonce(nonce)
+                  nonce(nonce),
+                  type(type)
             {
             }
             uint64_t startUsec;
             string   locator;
             uint64_t nonce;
+            int      type;
         };
 
         explicit TimeoutQueue(uint64_t timeoutUsec);
-        void enqueue(string locator, uint64_t nonce);
+        void enqueue(string locator, uint64_t nonce, int type);
         Tub<TimeoutEntry> dequeue();
         Tub<TimeoutEntry> dequeue(uint64_t nonce);
         uint64_t microsUntilNextTimeout();
@@ -139,6 +175,16 @@ class FailureDetector {
 
         DISALLOW_COPY_AND_ASSIGN(TimeoutQueue);
     };
+
+    /**
+     * The following are types of probes that we passed in to the TimeoutEntry
+     * constructor. This lets us differentiate our random pings, coordinator-
+     * initiated pings, and ones that were initiated internally via the
+     * #pingServer method.
+     */
+    static const int RANDOM_PROBE   = 0;
+    static const int COORD_PROBE    = 1;
+    static const int INTERNAL_PROBE = 2;
 
     /// Socket used for outbound pings and their incoming responses, i.e.
     /// what we use to ping out and hear back.
@@ -174,9 +220,10 @@ class FailureDetector {
     void handleCoordinatorResponse(char* buf, ssize_t bytes,
         sockaddr_in* sourceAddress);
     void pingRandomServer();
-    void alertCoordinator(TimeoutQueue::TimeoutEntry* te);
+    void handleTimeout(TimeoutQueue::TimeoutEntry* te);
     void processPacket(int fd);
     void requestServerList();
+    void handleInternalPingRequest();
 
     friend class FailureDetectorTest;
 

@@ -31,17 +31,13 @@
 namespace RAMCloud {
 
 /**
- * I don't want to sully the TimeoutQueue interface to deal with the fact
- * that we have random- and coordinator-initiated probes and need to
- * differentiate them. Instead, I'll just use the 64'th bit of the nonce
- * as a flag.
- */
-static const uint64_t COORD_PROBE_FLAG = 0x8000000000000000UL;
-
-/**
  * Default object used to make system calls.
  */
 static Syscall defaultSyscall;
+
+// See the header comments.
+int FailureDetector::internalClientSocket = -1;
+int FailureDetector::internalServerSocket = -1;
 
 /**
  * Used by this class to make all system calls.  In normal production
@@ -81,10 +77,23 @@ FailureDetector::FailureDetector(string coordinatorLocatorString,
     sockaddr_in sin = serviceLocatorStringToSockaddrIn(listeningLocatorsString);
     int r = bind(serverFd, reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
 
-    if (clientFd == -1 || serverFd == -1 || coordFd == -1 || r == -1) {
+    // There can be only one instance of the FailureDetector.
+    assert(internalClientSocket == -1);
+    assert(internalServerSocket == -1);
+    int fds[2];
+    if (socketpair(PF_LOCAL, SOCK_DGRAM, 0, fds) == 0) {
+        internalClientSocket = fds[0];
+        internalServerSocket = fds[1];
+    }
+
+    if (clientFd == -1 || serverFd == -1 || coordFd == -1 || r == -1 ||
+      internalClientSocket == -1 || internalServerSocket == -1) {
         sys->close(clientFd);
         sys->close(serverFd);
         sys->close(coordFd);
+        sys->close(internalClientSocket);
+        sys->close(internalServerSocket);
+        internalClientSocket = internalServerSocket = -1;
         throw Exception(HERE);
     }
 
@@ -97,6 +106,9 @@ FailureDetector::~FailureDetector()
     sys->close(clientFd);
     sys->close(serverFd);
     sys->close(coordFd);
+    sys->close(internalClientSocket);
+    sys->close(internalServerSocket);
+    internalClientSocket = internalServerSocket = -1;
 }
 
 /**
@@ -146,7 +158,7 @@ FailureDetector::handleIncomingRequest(char* buf, ssize_t bytes,
         string locator(&buf[sizeof(*req)]);
         LOG(DEBUG, "sending proxy ping to %s", locator.c_str());
 
-        uint64_t nonce = generateRandom() | COORD_PROBE_FLAG;
+        uint64_t nonce = generateRandom();
         PingRpc::Request proxyReq;
         proxyReq.common.type = PING;
         proxyReq.nonce = nonce;
@@ -156,7 +168,7 @@ FailureDetector::handleIncomingRequest(char* buf, ssize_t bytes,
         if (r != sizeof(proxyReq))
             LOG(WARNING, "sendto failed; couldn't ping server! (r = %Zd)", r);
         else
-            queue.enqueue(locator, nonce);
+            queue.enqueue(locator, nonce, COORD_PROBE);
     } else {
         LOG(WARNING, "unknown request encountered (%u); ignoring",
             (uint32_t)req->type);
@@ -190,7 +202,7 @@ FailureDetector::handleIncomingResponse(char* buf, ssize_t bytes,
         LOG(DEBUG, "received response from %s:%d",
             inet_ntoa(sourceAddress->sin_addr), ntohs(sourceAddress->sin_port));
 
-        if (resp->nonce & COORD_PROBE_FLAG) {
+        if (tubTimeoutEntry->type == COORD_PROBE) {
             uint64_t replyUsecs = (cyclesToNanoseconds(rdtsc()) / 1000) -
                 tubTimeoutEntry->startUsec;
 
@@ -206,6 +218,16 @@ FailureDetector::handleIncomingResponse(char* buf, ssize_t bytes,
                     "(r = %Zd)", r);
             } else {
                 LOG(DEBUG, "issued reply to coordinator");
+            }
+        } else if (tubTimeoutEntry->type == INTERNAL_PROBE) {
+            uint8_t response = 1;
+            ssize_t r = sys->write(internalServerSocket,
+                &response, sizeof(response));
+            if (r != sizeof(response)) {
+                LOG(WARNING, "failed to issue response to internal socket "
+                    "(r = %Zd)", r);
+            } else {
+                LOG(DEBUG, "issued reply to internal socket");
             }
         }
     } else {
@@ -268,7 +290,7 @@ FailureDetector::pingRandomServer()
         locator = &serverList.server(index).service_locator();
     }
 
-    uint64_t nonce = generateRandom() & ~COORD_PROBE_FLAG;
+    uint64_t nonce = generateRandom();
     PingRpc::Request req;
     req.common.type = PING;
     req.nonce = nonce;
@@ -278,7 +300,7 @@ FailureDetector::pingRandomServer()
     if (r != sizeof(req))
         LOG(WARNING, "sendto failed; couldn't ping server! (r = %Zd)", r);
     else
-        queue.enqueue(*locator, nonce);
+        queue.enqueue(*locator, nonce, RANDOM_PROBE);
 }
 
 /**
@@ -287,17 +309,20 @@ FailureDetector::pingRandomServer()
  * to the Coordinator. If it was a proxied ping initiated by the coordinator,
  * then reply to the RPC that caused it.
  *
+ * If this was an internally-generated probe (i.e. via #pingServer), then we
+ * must also issue a response to the thread that invoked it.
+ *
  * Note that a HintServerDown message is not really an RPC. The coordinator
  * should not reply to it. There's no reason for it to confirm receipt, and
  * we'd like to keep things simple where all inbound traffic on coordFd can
  * be assumed to be server lists.
  */
 void
-FailureDetector::alertCoordinator(TimeoutQueue::TimeoutEntry* te)
+FailureDetector::handleTimeout(TimeoutQueue::TimeoutEntry* te)
 {
     const string& loc(te->locator);
 
-    if (te->nonce & COORD_PROBE_FLAG) {
+    if (te->type == COORD_PROBE) {
         ProxyPingRpc::Response resp;
         resp.common.status = STATUS_OK;
         resp.replyNanoseconds = (uint64_t)-1;
@@ -326,6 +351,16 @@ FailureDetector::alertCoordinator(TimeoutQueue::TimeoutEntry* te)
         if (r != bytesNeeded) {
             LOG(WARNING, "failed to send hint server down rpc to coordinator. "
                 "r = %zd, errno %d: %s", r, errno, strerror(errno));
+        }
+    }
+
+    if (te->type == INTERNAL_PROBE) {
+        uint8_t response = 0;
+        ssize_t r = sys->write(internalServerSocket,
+            &response, sizeof(response));
+        if (r != sizeof(response)) {
+            LOG(WARNING, "failed to issue response to internal socket "
+                "(r = %Zd)", r);
         }
     }
 }
@@ -387,6 +422,48 @@ FailureDetector::requestServerList()
 }
 
 /**
+ * Handle an internal ping request. These are issued by Transports in their
+ * isReady() and wait() calls on ClientRPC objects when they suspect that
+ * a server may have died (i.e. it's taking too long). We have a socketpair
+ * dedicated to passing the ServiceLocator string of the destination into this
+ * method from the querying thread (via #FailureDetector::pingServer) and
+ * returning a single uint8_t response or 1 or 0, depending on whether the ping
+ * reply did or did not arrive in time.
+ *
+ * Note that no multiplexing is done, so only one outstanding request can
+ * be made at any time (i.e. pingServer is currently synchronous and
+ * non-reentrant).
+ */
+void
+FailureDetector::handleInternalPingRequest()
+{
+    char buf[2048];
+
+    ssize_t r = sys->read(internalServerSocket, buf, sizeof(buf) - 1);
+    if (r < 0) {
+        LOG(WARNING, "read returned bad r: %zd", r);
+        return;
+    }
+
+    buf[r] = '\0';
+    string locator(buf);
+
+    LOG(DEBUG, "internal ping request to [%s]", locator.c_str());
+
+    uint64_t nonce = generateRandom();
+    PingRpc::Request req;
+    req.common.type = PING;
+    req.nonce = nonce;
+    sockaddr_in sin = serviceLocatorStringToSockaddrIn(locator);
+    r = sys->sendto(clientFd, &req,
+        sizeof(req), 0, reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
+    if (r != sizeof(req))
+        LOG(WARNING, "sendto failed; couldn't ping server! (r = %Zd)", r);
+    else
+        queue.enqueue(locator, nonce, INTERNAL_PROBE);
+}
+
+/**
  * Spin forever, probing hosts, checkings for responses, and alerting the
  * coordinator of any timeouts. 
  */
@@ -416,6 +493,7 @@ FailureDetector::mainLoop()
         FD_SET(clientFd, &fds);
         FD_SET(serverFd, &fds);
         FD_SET(coordFd, &fds);
+        FD_SET(internalServerSocket, &fds);
 
         uint64_t nextPingMicros = 0;
         if (PROBE_INTERVAL_USECS >= (nowUsec - lastPingUsec)) {
@@ -434,7 +512,8 @@ FailureDetector::mainLoop()
         tv.tv_sec  = sleepMicros / 1000000;
         tv.tv_usec = sleepMicros % 1000000;
 
-        int nfds = MAX(MAX(clientFd, serverFd), coordFd) + 1;
+        int nfds = MAX(MAX(MAX(clientFd, serverFd), coordFd),
+            internalServerSocket) + 1;
         int r = sys->select(nfds, &fds, NULL, NULL, &tv);
         if (r == -1) {
             LOG(ERROR, "select returned %d (errno %d: %s)",
@@ -448,10 +527,12 @@ FailureDetector::mainLoop()
             processPacket(serverFd);
         if (FD_ISSET(coordFd, &fds))
             processPacket(coordFd);
+        if (FD_ISSET(internalServerSocket, &fds))
+            handleInternalPingRequest();
 
         // check for ping timeout(s)
         while (Tub<TimeoutQueue::TimeoutEntry> te = queue.dequeue())
-            alertCoordinator(te.get());
+            handleTimeout(te.get());
     }
 }
 
@@ -487,12 +568,15 @@ FailureDetector::TimeoutQueue::TimeoutQueue(uint64_t timeoutUsecs)
  *      Nonces should be unique, as they are used for dequeuing a
  *      previous probe. Random collisions are not catastrophic, but
  *      may result in missing timeouts or false timeouts.
+ * \param[in] type
+ *      An opaque integer used by the caller to associate some state
+ *      with this enqueued probe.
  */
 void
-FailureDetector::TimeoutQueue::enqueue(string locator, uint64_t nonce)
+FailureDetector::TimeoutQueue::enqueue(string locator, uint64_t nonce, int type)
 {
     uint64_t now = cyclesToNanoseconds(rdtsc()) / 1000;
-    entries.push_back(TimeoutEntry(now, locator, nonce));
+    entries.push_back(TimeoutEntry(now, locator, nonce, type));
 }
 
 /**
