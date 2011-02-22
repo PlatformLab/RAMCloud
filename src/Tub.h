@@ -31,8 +31,8 @@ namespace RAMCloud {
  *
  * Tubs are useful in situations like the following:
  * - You want to defer construction, e.g. a Tub can be in the initializer
- *   list, but you can construct its element until some series of operations
- *   occurs, like binding sockets, etc.
+ *   list, but you can delay construct its element until some series of
+ *   prerequisite operations occur, like binding sockets, etc.
  * - You want to create an array of objects, but the objects need complex
  *   constructors with multiple arguments.
  * - You want to create a collection of objects, only some of which will be
@@ -43,6 +43,10 @@ namespace RAMCloud {
  * - You want a way to return failure from a method without using pointers,
  *   exceptions, or special values (e.g. -1). The Tub gives you a 'maybe'
  *   object; it may be empty if a failure occurred.
+ * - You want a singleton, but don't want to deal with heap-allocating an
+ *   object on first use and freeing it later. Instead, just declare your object
+ *   in a tub and do:
+ *      if (!tub) tub.construct();
  *
  * Tub is CopyConstructible if and only if ElementType is CopyConstructible,
  * and Tub is Assignable if and only if ElementType is Assignable.
