@@ -280,7 +280,7 @@ class MasterServer : public Server {
     void storeData(uint64_t table, uint64_t id,
                    const RejectRules* rejectRules, Buffer* data,
                    uint32_t dataOffset, uint32_t dataLength,
-                   uint64_t* newVersion);
+                   uint64_t* newVersion, bool async);
     friend class MasterTest;
     friend class MasterRecoverTest;
     friend class CoordinatorTest;

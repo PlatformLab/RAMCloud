@@ -16,34 +16,34 @@
 
 """Generates data for a recovery performance graph.
 
-Varies the number of backups feeding data to one recovery master.
+Keeps partition size constant and scales the number of objects.
 """
 
 from __future__ import division
 from common import *
-import metrics
 import recovery
 import subprocess
 
-dat = open('%s/recovery/backup_scale.data' % top_path, 'w')
+dat = open('%s/recovery/objectsize_scale.data' % top_path, 'w')
 
-for numBackups in range(1, 7):
-    print 'Running recovery with %d backup(s)' % numBackups
+for objectSize in (8192, 4096, 2048, 1024, 512, 256, 128):
     args = {}
-    args['numBackups'] = numBackups
+    args['numBackups'] = 6
     args['numPartitions'] = 1
-    args['objectSize'] = 1024
-    args['disk'] = '/dev/sdb1'
-    args['numObjects'] = 626012 * 400 // 640
-    args['oldMasterArgs'] = '-m 3000'
-    args['replicas'] = 1
-    r = recovery.insist(**args)
-    masterCpuNs = metrics.average(
-        [(master.recoveryTicks -
-          master.master.segmentOpenStallTicks -
-          master.master.segmentWriteStallTicks -
-          master.master.segmentReadStallTicks) /
-         master.clockFrequency
-         for master in r['metrics'].masters]) * 1e9
-    dat.write('%d\t%d\t%d\n' % (numBackups, r['ns'], masterCpuNs))
+    args['objectSize'] = objectSize
+    args['disk'] = True
+    numObjectsPerMb = 2**20 / (objectSize + 40)
+    print('Running with %d objects of size %d' % (numObjectsPerMb * 400, objectSize))
+    while True:
+        try:
+            r= recovery.recover(
+                oldMasterArgs='-m 3000',
+                numObjects=int(numObjectsPerMb * 400),
+                **args)
+        except subprocess.CalledProcessError, e:
+            print e
+        else:
+            break
+    print 'Result', r
+    dat.write('%d\t%d\n' % (objectSize, r['ns']))
     dat.flush()

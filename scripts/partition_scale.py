@@ -32,24 +32,12 @@ for numPartitions in reversed(range(1, 7)):
     args['numPartitions'] = numPartitions
     args['objectSize'] = 1024
     numObjectsPerMb = 626012 / 640
-    while True:
-        try:
-            big = recovery.recover(oldMasterArgs='-m 3000',
-                                   numObjects=int(numObjectsPerMb * 400),
-                                   **args)
-        except subprocess.CalledProcessError, e:
-            print e
-        else:
-            break
+    big = recovery.insist(oldMasterArgs='-m 3000',
+                            numObjects=int(numObjectsPerMb * 400),
+                            **args)
     print 'Big', big
-    while True:
-        try:
-            small = recovery.recover(numObjects=int(numObjectsPerMb * 1),
-                                     **args)
-        except subprocess.CalledProcessError, e:
-            print e
-        else:
-            break
+    small = recovery.insist(numObjects=int(numObjectsPerMb * 1),
+                              **args)
     print 'Small', small
     dat.write('%d\t%d\t%d\n' % (numPartitions, big['ns'], small['ns']))
     dat.flush()

@@ -56,7 +56,7 @@ TEST(Tub, basics) {
         EXPECT_EQ(foo, &*fooTub);
         EXPECT_EQ(1, fooTub->getX());
 
-        EXPECT_EQ(foo, fooTub.reset(5, 6));
+        EXPECT_EQ(foo, fooTub.construct(5, 6));
         EXPECT_EQ(5, foo->x);
         EXPECT_EQ(6, foo->y);
         EXPECT_EQ(0, foo->z);

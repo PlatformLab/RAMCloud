@@ -21,6 +21,7 @@
 #include "BenchUtil.h"
 #include "RamCloud.h"
 #include "OptionParser.h"
+#include "Tub.h"
 
 using namespace RAMCloud;
 
@@ -28,8 +29,7 @@ void
 runRecovery(RamCloud& client,
             int count, uint32_t objectDataSize,
             int tableCount,
-            int tableSkip,
-            uint32_t quiesceSeconds)
+            int tableSkip)
 {
     uint64_t b;
 
@@ -50,8 +50,23 @@ runRecovery(RamCloud& client,
         LOG(NOTICE, "Performing %u inserts of %u byte objects",
             count, objectDataSize);
         b = rdtsc();
-        for (int j = 0; j < count; j++)
-            id = client.create(table, val, objectDataSize);
+        Tub<RamCloud::Create> createRpcs[8];
+        for (int j = 0; j < count - 1; j++) {
+            auto& createRpc = createRpcs[j % arrayLength(createRpcs)];
+            if (createRpc)
+                (*createRpc)();
+            createRpc.construct(client,
+                                table, static_cast<void*>(val), objectDataSize,
+                                /* version = */ static_cast<uint64_t*>(NULL),
+                                /* async = */ true);
+        }
+        foreach (auto& createRpc, createRpcs) {
+            if (createRpc)
+                (*createRpc)();
+        }
+        id = client.create(table, val, objectDataSize,
+                           /* version = */ NULL,
+                           /* async = */ false);
         LOG(DEBUG, "%d inserts took %lu ticks", count, rdtsc() - b);
         LOG(DEBUG, "avg insert took %lu ticks", (rdtsc() - b) / count);
 
@@ -75,11 +90,8 @@ runRecovery(RamCloud& client,
     // dump out coordinator rpc info
     client.ping();
 
-
-    for (uint32_t i = quiesceSeconds; i > 0; --i) {
-        LOG(NOTICE, "--- quiescing writes (%u seconds) ---", i);
-        usleep(1 * 1000 * 1000);
-    }
+    LOG(NOTICE, "- quiescing writes");
+    client.coordinator.quiesce();
 
     Transport::SessionRef session = client.objectFinder.lookup(tables[0], 0);
     LOG(NOTICE, "--- hinting that the server is down: %s ---",
@@ -126,7 +138,6 @@ try
     uint32_t objectDataSize;
     uint32_t tableCount;
     uint32_t skipCount;
-    uint32_t quiesceSeconds;
 
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
@@ -149,11 +160,7 @@ try
         ("size,s",
          ProgramOptions::value<uint32_t>(&objectDataSize)->
             default_value(1024),
-         "Number of bytes to insert per object during insert phase.")
-        ("quiesce,q",
-         ProgramOptions::value<uint32_t>(&quiesceSeconds)->
-            default_value(0),
-         "Seconds to wait after insert phase before starting recovery");
+         "Number of bytes to insert per object during insert phase.");
 
     OptionParser optionParser(clientOptions, argc, argv);
 
@@ -163,8 +170,7 @@ try
     RamCloud client(optionParser.options.getCoordinatorLocator().c_str());
 
     if (hintServerDown) {
-        runRecovery(client, count, objectDataSize,
-                    tableCount, skipCount, quiesceSeconds);
+        runRecovery(client, count, objectDataSize, tableCount, skipCount);
         return 0;
     }
 

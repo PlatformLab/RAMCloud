@@ -120,8 +120,7 @@ class Tub {
 
     /**
      * Initialize the object.
-     * \pre
-     *      The object is uninitialized.
+     * If the object was already initialized, it will be destroyed first.
      * \param args
      *      Arguments to ElementType's constructor.
      * \return
@@ -132,7 +131,7 @@ class Tub {
     template<typename... Args>
     ElementType*
     construct(Args&&... args) {
-        assert(!occupied);
+        destroy();
         new(object) ElementType(static_cast<Args&&>(args)...);
         occupied = true;
         return object;
@@ -151,22 +150,6 @@ class Tub {
             object->~ElementType();
             occupied = false;
         }
-    }
-
-    /**
-     * Destroy the object if it was initialized, then reconstruct it.
-     * \param args
-     *      Arguments to ElementType's constructor.
-     * \return
-     *      A pointer to the newly initialized object.
-     * \post
-     *      The object is initialized.
-     */
-    template<typename... Args>
-    ElementType*
-    reset(Args&&... args) {
-        destroy();
-        return construct(static_cast<Args&&>(args)...);
     }
 
     /// See #get().

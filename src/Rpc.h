@@ -56,7 +56,8 @@ enum RpcType {
     BACKUP_STARTREADINGDATA = 132,
     BACKUP_WRITE            = 133,
     BACKUP_RECOVERYCOMPLETE = 134,
-    ILLEGAL_RPC_TYPE        = 135,  // 1 + the highest legitimate RpcType
+    BACKUP_QUIESCE          = 135,
+    ILLEGAL_RPC_TYPE        = 136,  // 1 + the highest legitimate RpcType
 };
 
 /**
@@ -95,6 +96,7 @@ struct CreateRpc {
         uint32_t length;              // Length of the value in bytes. The
                                       // actual bytes follow immediately after
                                       // this header.
+        uint8_t async;
     };
     struct Response {
         RpcResponseCommon common;
@@ -217,6 +219,7 @@ struct WriteRpc {
                                       // The actual bytes of the object follow
                                       // immediately after this header.
         RejectRules rejectRules;
+        uint8_t async;
     };
     struct Response {
         RpcResponseCommon common;
@@ -396,6 +399,16 @@ struct BackupGetRecoveryDataRpc {
     };
 };
 
+struct BackupQuiesceRpc {
+    static const RpcType type = BACKUP_QUIESCE;
+    struct Request {
+        RpcRequestCommon common;
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
 struct BackupRecoveryCompleteRpc {
     static const RpcType type = BACKUP_RECOVERYCOMPLETE;
     struct Request {
@@ -420,6 +433,8 @@ struct BackupStartReadingDataRpc {
     struct Response {
         RpcResponseCommon common;
         uint32_t segmentIdCount;    ///< Number of segmentIds in reply payload.
+        uint32_t primarySegmentCount;   ///< Count of segmentIds which prefix
+                                        ///< the reply payload are primary.
         uint32_t digestBytes;       ///< Number of bytes for optional LogDigest.
         uint64_t digestSegmentId;   ///< SegmentId the LogDigest came from.
         uint32_t digestSegmentLen;  ///< Byte length of the LogDigest Segment.

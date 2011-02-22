@@ -126,7 +126,7 @@ class LogTest : public CppUnit::TestFixture {
     {
         Tub<uint64_t> serverId;
         serverId.construct(57);
-        Log l(serverId, 1 * 8192, 8192);
+        Log l(serverId, 2 * 8192, 8192);
         static char buf[64];
 
         uint64_t segmentId = l.nextSegmentId;
@@ -140,7 +140,7 @@ class LogTest : public CppUnit::TestFixture {
     {
         Tub<uint64_t> serverId;
         serverId.construct(57);
-        Log l(serverId, 1 * 8192, 8192);
+        Log l(serverId, 2 * 8192, 8192);
         static char buf[64];
 
         const void *p = l.append(LOG_ENTRY_TYPE_OBJ,
@@ -226,7 +226,7 @@ class LogTest : public CppUnit::TestFixture {
     {
         Tub<uint64_t> serverId;
         serverId.construct(57);
-        Log l(serverId, 1 * 8192, 8192);
+        Log l(serverId, 2 * 8192, 8192);
         static char buf[64];
 
         LogEntryHandle h = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));

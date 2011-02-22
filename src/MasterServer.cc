@@ -149,7 +149,8 @@ MasterServer::create(const CreateRpc::Request& reqHdr,
 
     storeData(reqHdr.tableId, id, &rejectRules,
               &rpc.recvPayload, sizeof(reqHdr), reqHdr.length,
-              &respHdr.version);
+              &respHdr.version,
+              reqHdr.async);
     respHdr.id = id;
 }
 
@@ -1031,7 +1032,8 @@ MasterServer::write(const WriteRpc::Request& reqHdr,
 {
     storeData(reqHdr.tableId, reqHdr.id,
               &reqHdr.rejectRules, &rpc.recvPayload, sizeof(reqHdr),
-              static_cast<uint32_t>(reqHdr.length), &respHdr.version);
+              static_cast<uint32_t>(reqHdr.length), &respHdr.version,
+              reqHdr.async);
 }
 
 /**
@@ -1217,7 +1219,7 @@ void
 MasterServer::storeData(uint64_t tableId, uint64_t id,
                         const RejectRules* rejectRules, Buffer* data,
                         uint32_t dataOffset, uint32_t dataLength,
-                        uint64_t* newVersion)
+                        uint64_t* newVersion, bool async)
 {
     Table& t(getTable(tableId, id));
 
@@ -1263,12 +1265,12 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
         uint64_t segmentId = log.getSegmentId(obj);
         ObjectTombstone tomb(segmentId, obj);
         log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), &lengthInLog,
-            &logTime);
+            &logTime, !async);
         t.profiler.track(id, lengthInLog, logTime);
     }
 
     LogEntryHandle objHandle = log.append(LOG_ENTRY_TYPE_OBJ, newObject,
-        newObject->objectLength(dataLength), &lengthInLog, &logTime);
+        newObject->objectLength(dataLength), &lengthInLog, &logTime, !async);
     t.profiler.track(id, lengthInLog, logTime);
     objectMap.replace(objHandle);
 

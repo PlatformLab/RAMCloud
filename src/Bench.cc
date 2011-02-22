@@ -1,4 +1,3 @@
-
 /* Copyright (c) 2010 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -139,9 +138,8 @@ bench(const char *name, void (f)(void))
     cycles = end - start;
     printf("%s ns     %12lu\n", name,
            RC::cyclesToNanoseconds(cycles));
-    printf("%s avgns  %12.2f\n", name,
-           static_cast<double>(RC::cyclesToNanoseconds(cycles)) /
-           static_cast<double>(count));
+    printf("%s avgns  %12lu\n", name,
+           RC::cyclesToNanoseconds(cycles) / count);
     client->ping();
     return RC::cyclesToNanoseconds(cycles);
 }
@@ -157,7 +155,6 @@ writeInt(uint32_t table, uint64_t key, uint64_t val)
         fprintf(stderr, "sprintf error.");
         return;
     }
-
     client->write(table, key, &buf[0], ret);
 }
 
@@ -170,7 +167,6 @@ readInt(uint32_t table, uint64_t key, uint64_t& val)
     stringstream ss;
     ss << str;
     ss >> val;
-    // val = atoi(str.c_str());
 }
 
 void
@@ -234,7 +230,7 @@ checkAllWorkersInSameState(BenchMapper::WORKER_STATE state) {
 
 int
 waitForAllWorkersToHitState(BenchMapper::WORKER_STATE state,
-                            uint64_t timeout = 4) {
+                            uint64_t timeout = 10) {
         bool allReady = false;
         uint64_t timeoutmicros = 0;
         while (!allReady) {

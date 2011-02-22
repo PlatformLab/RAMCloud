@@ -26,9 +26,9 @@ if (defined $help ||
 
 my %data;
 my @sizes;
-push @sizes, ($_ * 10) for (1);
-push @sizes, ($_ * 100) for (1);
-push @sizes, ($_ * 1000) for (1 .. 9);
+push @sizes, ($_ * 10) for (1 .. 9);
+push @sizes, ($_ * 100) for (1 .. 9);
+# push @sizes, ($_ * 1000) for (1 .. 9);
 # push @sizes, ($_ * 10000) for (1 .. 9);
 # push @sizes, ($_ * 100000) for (1 .. 9);
 
@@ -39,7 +39,7 @@ for (my $i=0; $i<2; $i++) {
 
 for my $size (@sizes) {
 	open (B, "$benchBinary -C $coordinatorLocator ".
-	      "-t test.size$size -R -m -S $size -n 1000 |") 
+	      "-t test.size$size -R -m -S $size -n 100000 |") 
 		or die "Cannot open binary - $!";
 	while (<B>) {
 		chomp;

@@ -399,6 +399,7 @@ class BackupServer : public Server {
         IoScheduler();
         void operator()();
         void load(SegmentInfo& info);
+        void quiesce();
         void store(SegmentInfo& info);
         void shutdown(boost::thread& ioThread);
 
@@ -422,6 +423,13 @@ class BackupServer : public Server {
 
         /// When false scheduler will exit when no outstanding requests remain.
         bool running;
+
+        /**
+         * The number of store ops issued that have not yet completed.
+         * More precisely, this is the size of #storeQueue plus the number of
+         * threads currently executing #doStore. It is necessary for #quiesce.
+         */
+        mutable std::atomic<uint64_t> outstandingStores;
 
         DISALLOW_COPY_AND_ASSIGN(IoScheduler);
     };
@@ -485,6 +493,9 @@ class BackupServer : public Server {
     void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                          BackupGetRecoveryDataRpc::Response& respHdr,
                          Transport::ServerRpc& rpc);
+    void quiesce(const BackupQuiesceRpc::Request& reqHdr,
+                 BackupQuiesceRpc::Response& respHdr,
+                 Transport::ServerRpc& rpc);
     void recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
                          BackupRecoveryCompleteRpc::Response& respHdr,
                          Transport::ServerRpc& rpc,
