@@ -36,7 +36,7 @@ try
          ProgramOptions::value<int>(&number),
              "The number of hosts desired.")
         ("timeout,t",
-         ProgramOptions::value<int>(&number),
+         ProgramOptions::value<int>(&timeout),
              "The number of seconds for which to wait.");
 
     OptionParser optionParser(clientOptions, argc, argv);
