@@ -448,15 +448,15 @@ def parseRecovery(recovery_dir, definitions=None):
     if definitions is None:
         definitions = globals()['definitions']
     data = AttrDict()
-    data.coordinator = parse(open(glob('%s/coordinator.log' %
+    data.coordinator = parse(open(glob('%s/coordinator.*.log' %
                                        recovery_dir)[0]),
                              definitions)
     data.masters = [parse(open(f), definitions)
-                    for f in sorted(glob('%s/newMaster*.log' % recovery_dir))]
+                    for f in sorted(glob('%s/newMaster.*.log' % recovery_dir))]
     data.backups = [parse(open(f), definitions)
-                    for f in sorted(glob('%s/backup*.log' % recovery_dir))]
+                    for f in sorted(glob('%s/backup.*.log' % recovery_dir))]
     data.client = AttrDict()
-    for line in open('%s/client.log' % recovery_dir):
+    for line in open(glob('%s/client.*.log' % recovery_dir)[0]):
         m = re.search(r'\bRecovery completed in (\d+) ns\b', line)
         if m:
             data.client.recoveryNs = int(m.group(1))
