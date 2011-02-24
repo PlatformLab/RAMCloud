@@ -177,10 +177,7 @@ Recovery::buildSegmentIdToBackups()
 
                 // Keep count of each segmentId seen so we can cross check with
                 // the LogDigest.
-                if (segmentMap.find(segmentId) != segmentMap.end())
-                    segmentMap[segmentId] += 1;
-                else
-                    segmentMap[segmentId] = 1;
+                ++segmentMap[segmentId];
             }
             if (!stillWorking)
                 break;
@@ -191,7 +188,7 @@ Recovery::buildSegmentIdToBackups()
 
     LOG(DEBUG, "=== Replay script ===");
     foreach (const auto& backup, backups.server()) {
-        LOG(DEBUG, "id: %lu, locator: %s, segmentId %lu, primary %lu",
+        LOG(DEBUG, "backup: %lu, locator: %s, segmentId %lu, primary %lu",
             backup.server_id(), backup.service_locator().c_str(),
             backup.segment_id(), backup.user_data());
     }
@@ -248,7 +245,7 @@ Recovery::verifyCompleteLog()
         throw Exception(HERE, "ouch! data lost!");
     }
 
-    LOG(DEBUG, "Segment %lu of length %u bytes is the head of the log",
+    LOG(NOTICE, "Segment %lu of length %u bytes is the head of the log",
         headId, headLen);
 
     // scan the backup map to determine if all needed segments are available
@@ -256,7 +253,7 @@ Recovery::verifyCompleteLog()
     for (int i = 0; i < headDigest->getSegmentCount(); i++) {
         uint64_t id = headDigest->getSegmentIds()[i];
         if (segmentMap.find(id) == segmentMap.end()) {
-            LOG(WARNING, "Segment %lu is missing!", id);
+            LOG(ERROR, "Segment %lu is missing!", id);
             missing++;
         }
     }

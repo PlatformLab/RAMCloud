@@ -372,7 +372,10 @@ InfRcTransport<Infiniband>::InfRCSession::clientSend(Buffer* request,
 
     if (request->getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
-                                 "client request exceeds maximum rpc size");
+             format("client request exceeds maximum rpc size "
+                    "(attempted %u bytes, maximum %u bytes)",
+                    request->getTotalLength(),
+                    t->getMaxRpcSize()));
     }
 
     // Construct our ClientRpc in the response Buffer.
@@ -472,6 +475,9 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
             return false;
         usTimeout -= elapsedUs;
 
+        // TODO(ongaro): The following isn't safe, at a minimum because some
+        // other stack frame can start using clientSetupSocket.
+        //
         // We need to call the dispatcher in order to let other event handlers
         // run (this is particularly important if the server we are trying to
         // connect to is us).
