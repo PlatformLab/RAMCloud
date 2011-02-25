@@ -107,12 +107,18 @@ CoordinatorClient::openTable(const char* name)
  *      Master, etc.
  * \param localServiceLocator
  *      The service locator describing how other hosts can contact the server.
+ * \param readSpeed
+ *      Read speed of the backup in MB/s if serverType is BACKUP, ignored otherwise.
+ * \param writeSpeed
+ *      Write speed of the backup in MB/s if serverType is BACKUP, ignored otherwise.
  * \return
  *      A server ID guaranteed never to have been used before.
  */
 uint64_t
 CoordinatorClient::enlistServer(ServerType serverType,
-                                string localServiceLocator)
+                                string localServiceLocator,
+                                uint32_t readSpeed,
+                                uint32_t writeSpeed)
 {
     while (true) {
         try {
@@ -121,6 +127,8 @@ CoordinatorClient::enlistServer(ServerType serverType,
             EnlistServerRpc::Request& reqHdr(
                 allocHeader<EnlistServerRpc>(req));
             reqHdr.serverType = serverType;
+            reqHdr.readSpeed = readSpeed;
+            reqHdr.writeSpeed = writeSpeed;
             reqHdr.serviceLocatorLength = localServiceLocator.length() + 1;
             strncpy(new(&req, APPEND) char[reqHdr.serviceLocatorLength],
                     localServiceLocator.c_str(),

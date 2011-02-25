@@ -25,12 +25,14 @@ import subprocess
 import time
 
 hosts = []
-hosts.append('10.0.0.1')
-hosts.append('10.0.0.2')
-hosts.append('10.0.0.3')
-hosts.append('10.0.0.4')
-hosts.append('10.0.0.5')
-hosts.append('10.0.0.6')
+
+for i in range(1, 37):
+    if i in [
+                6, # has no infiniband device
+                15, 31, # nandu claims these are bad
+            ]:
+        continue
+    hosts.append('rc%02d' % i)
 
 obj_path = '%s/%s' % (top_path, obj_dir)
 coordinatorBin = '%s/coordinator' % obj_path
@@ -51,18 +53,19 @@ def recover(numBackups=1,
             oldMasterArgs='-m 2048',
             newMasterArgs='-m 2048',
             clientArgs=''):
+
     coordinatorHost = hosts[0]
-    coordinatorLocator = 'infrc:host=%s,port=12246' % coordinatorHost
+    coordinatorLocator = 'infrc:host=%sib,port=12246' % coordinatorHost
 
     backupHosts = hosts[:numBackups]
-    backupLocators = ['infrc:host=%s,port=12243' % host
+    backupLocators = ['infrc:host=%sib,port=12243' % host
                       for host in backupHosts]
 
     oldMasterHost = hosts[0]
-    oldMasterLocator = 'infrc:host=%s,port=12242' % oldMasterHost
+    oldMasterLocator = 'infrc:host=%sib,port=12242' % oldMasterHost
 
     newMasterHosts = (hosts[1:] + [hosts[0]])[:numPartitions]
-    newMasterLocators = ['infrc:host=%s,port=12247' % host
+    newMasterLocators = ['infrc:host=%sib,port=12247' % host
                          for host in newMasterHosts]
 
     clientHost = hosts[0]
@@ -89,9 +92,8 @@ def recover(numBackups=1,
         def ensureHosts(qty):
             sandbox.checkFailures()
             try:
-                sh('%s -C %s -n %d -l 1' % (ensureHostsBin,
-                                            coordinatorLocator,
-                                            qty))
+                sandbox.rsh(hosts[0], '%s -C %s -n %d -l 1' %
+                            (ensureHostsBin, coordinatorLocator, qty))
             except:
                 # prefer exceptions from dead processes to timeout error
                 sandbox.checkFailures()
@@ -102,7 +104,8 @@ def recover(numBackups=1,
                   ('%s -C %s %s' %
                    (coordinatorBin, coordinatorLocator, coordinatorArgs)),
                   bg=True, stderr=subprocess.STDOUT,
-                  stdout=open('%s/coordinator.log' % run, 'w'))
+                  stdout=open(('%s/coordinator.%s.log' %
+                               (run, coordinatorHost)), 'w'))
         ensureHosts(0)
 
         # start backups
@@ -116,7 +119,8 @@ def recover(numBackups=1,
                          backupLocator,
                          backupArgs)),
                        bg=True, stderr=subprocess.STDOUT,
-                       stdout=open('%s/backup%d.log' % (run, i), 'w')))
+                       stdout=open('%s/backup.%s.log' % (run, backupHost),
+                                   'w')))
         ensureHosts(len(backups))
 
         # start dying master
@@ -127,7 +131,9 @@ def recover(numBackups=1,
                           oldMasterLocator,
                           oldMasterArgs)),
                         bg=True, stderr=subprocess.STDOUT,
-                        stdout=open('%s/oldMaster.log' % run, 'w'))
+                        stdout=open(('%s/oldMaster.%s.log' %
+                                     (run, oldMasterHost)),
+                                    'w'))
         ensureHosts(len(backups) + 1)
 
         # start recovery masters
@@ -142,7 +148,8 @@ def recover(numBackups=1,
                                     newMasterLocator,
                                     newMasterArgs)),
                                   bg=True, stderr=subprocess.STDOUT,
-                                  stdout=open('%s/newMaster%d.log' % (run, i),
+                                  stdout=open(('%s/newMaster.%s.log' %
+                                               (run, newMasterHost)),
                                               'w')))
         ensureHosts(len(backups) + 1 + len(newMasters))
 
@@ -152,7 +159,7 @@ def recover(numBackups=1,
                       (clientBin, coordinatorLocator, numObjects, objectSize,
                       numPartitions, numPartitions, clientArgs)),
                      bg=True, stderr=subprocess.STDOUT,
-                     stdout=open('%s/client.log' % run, 'w'))
+                     stdout=open('%s/client.%s.log' % (run, clientHost), 'w'))
 
         start = time.time()
         while client.returncode is None:

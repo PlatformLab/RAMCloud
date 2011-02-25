@@ -21,6 +21,7 @@
 #include <boost/pool/pool.hpp>
 #include <boost/dynamic_bitset.hpp>
 
+#include "BenchUtil.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -68,6 +69,8 @@ class BackupStorage {
     virtual ~BackupStorage()
     {
     }
+
+    virtual pair<uint32_t, uint32_t> benchmark();
 
     /**
      * An opaque handle used to access a stored segment.  All concrete
@@ -233,6 +236,7 @@ class SingleFileStorage : public BackupStorage {
     virtual ~SingleFileStorage();
     virtual BackupStorage::Handle* allocate(uint64_t masterId,
                                             uint64_t segmentId);
+    virtual pair<uint32_t, uint32_t> benchmark();
     virtual void free(BackupStorage::Handle* handle);
     virtual void
     getSegment(const BackupStorage::Handle* handle,
@@ -251,6 +255,15 @@ class SingleFileStorage : public BackupStorage {
 
     /// The file descriptor of the storage file.
     int fd;
+
+    /**
+     * A short segment aligned buffer used for mutilating segment frame
+     * headers on disk.
+     */
+    void* killMessage;
+
+    /// The length killMessage in bytes.
+    uint32_t killMessageLen;
 
     /**
      * Track the last used segment frame so they can be used in FIFO.

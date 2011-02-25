@@ -49,6 +49,7 @@ enum RpcType {
     HINT_SERVER_DOWN        = 21,
     TABLETS_RECOVERED       = 22,
     SET_WILL                = 23,
+    REREPLICATE_SEGMENTS    = 24,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -179,6 +180,17 @@ struct RecoverRpc {
     };
 };
 
+struct RereplicateSegmentsRpc {
+    static const RpcType type = REREPLICATE_SEGMENTS;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t backupId;        // The server id of a crashed backup.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
 struct RemoveRpc {
     static const RpcType type = REMOVE;
     struct Request {
@@ -283,6 +295,8 @@ struct EnlistServerRpc {
         RpcRequestCommon common;
         uint8_t serverType;
         uint8_t pad[3];
+        uint32_t readSpeed;            // MB/s read speed if a BACKUP
+        uint32_t writeSpeed;           // MB/s write speed if a BACKUP
         uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
                                        // including terminating NULL character.
                                        // The bytes of the service locator

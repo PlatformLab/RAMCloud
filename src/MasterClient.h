@@ -64,6 +64,27 @@ class MasterClient : public Client {
         DISALLOW_COPY_AND_ASSIGN(Write);
     };
 
+    /**
+     * Report to a master that a particular backup has failed so that it
+     * can rereplicate any segments that might have been stored there.
+     *
+     * See MasterServer::rereplicateSegments().
+     */
+    class RereplicateSegments {
+      public:
+        RereplicateSegments(MasterClient& client,
+                            uint64_t backupId);
+        bool isReady() { return client.isReady(state); }
+        void operator()();
+      private:
+        MasterClient& client;
+        uint64_t backupId;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(RereplicateSegments);
+    };
+
     explicit MasterClient(Transport::SessionRef session) : session(session) {}
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL, bool async = false);

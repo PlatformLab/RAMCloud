@@ -213,6 +213,9 @@ class MasterServer : public Server {
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
                 Transport::ServerRpc& rpc);
+    void rereplicateSegments(const RereplicateSegmentsRpc::Request& reqHdr,
+                             RereplicateSegmentsRpc::Response& respHdr,
+                             Transport::ServerRpc& rpc);
     void setTablets(const ProtoBuf::Tablets& newTablets);
     void setTablets(const SetTabletsRpc::Request& reqHdr,
                     SetTabletsRpc::Response& respHdr,
