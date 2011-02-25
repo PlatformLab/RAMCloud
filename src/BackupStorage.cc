@@ -113,9 +113,19 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
     : BackupStorage(segmentSize, Type::DISK)
     , freeMap(segmentFrames)
     , fd(-1)
+    , killMessage()
+    , killMessageLen()
     , lastAllocatedFrame(FreeMap::npos)
     , segmentFrames(segmentFrames)
 {
+    const char* killMessageStr = "FREE";
+    killMessageLen = getpagesize();
+    int r = posix_memalign(&killMessage, killMessageLen, killMessageLen);
+    if (r != 0)
+        throw std::bad_alloc();
+    memset(killMessage, 0, killMessageLen);
+    memcpy(killMessage, killMessageStr, strlen(killMessageStr));
+
     freeMap.set();
 
     fd = open(filePath,
@@ -128,7 +138,7 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
     // If its a regular file reserve space, otherwise
     // assume its a device and we don't need to bother.
     struct stat st;
-    int r = stat(filePath, &st);
+    r = stat(filePath, &st);
     if (r == -1)
         return;
     if (st.st_mode & S_IFREG)
@@ -141,6 +151,7 @@ SingleFileStorage::~SingleFileStorage()
     int r = close(fd);
     if (r == -1)
         LOG(ERROR, "Couldn't close backup log");
+    std::free(killMessage);
 }
 
 // See BackupStorage::allocate().
@@ -189,8 +200,6 @@ SingleFileStorage::free(BackupStorage::Handle* handle)
     if (offset == -1)
         throw BackupStorageException(HERE,
                 "Failed to seek to segment frame to free storage", errno);
-    const char* killMessage = "FREE";
-    ssize_t killMessageLen = strlen(killMessage);
     ssize_t r = write(fd, killMessage, killMessageLen);
     if (r != killMessageLen)
         throw BackupStorageException(HERE,

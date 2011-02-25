@@ -257,6 +257,15 @@ class SingleFileStorage : public BackupStorage {
     int fd;
 
     /**
+     * A short segment aligned buffer used for mutilating segment frame
+     * headers on disk.
+     */
+    void* killMessage;
+
+    /// The length killMessage in bytes.
+    uint32_t killMessageLen;
+
+    /**
      * Track the last used segment frame so they can be used in FIFO.
      * This gives recovery dump tools a much better chance at recovering
      * data since old data is destroyed from disk first rather than new.
