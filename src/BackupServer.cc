@@ -918,7 +918,9 @@ BackupServer::getServerId() const
 void __attribute__ ((noreturn))
 BackupServer::run()
 {
-    serverId = coordinator.enlistServer(BACKUP, config.localLocator);
+    auto speeds = storage.benchmark();
+    serverId = coordinator.enlistServer(BACKUP, config.localLocator,
+                                        speeds.first, speeds.second);
     LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
         handleRpc<BackupServer>();

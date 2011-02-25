@@ -24,6 +24,67 @@
 
 namespace RAMCloud {
 
+// --- BackupStorage ---
+
+/**
+ * Report the read and write speed of this storage in MB/s.
+ *
+ * \return
+ *      A pair of storage read and write speeds in MB/s.
+ */
+pair<uint32_t, uint32_t>
+BackupStorage::benchmark()
+{
+    const uint64_t count = 16;
+    const uint64_t mb = Segment::SEGMENT_SIZE * count / 1024 / 1024;
+    uint32_t readSpeed = 0;
+    uint32_t writeSpeed = 0;
+    BackupStorage::Handle* handles[count];
+
+    void* p = NULL;
+    int r = posix_memalign(&p, Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
+    if (r != 0)
+        throw std::bad_alloc();
+    char* segment = static_cast<char*>(p);
+
+    try {
+        for (uint64_t i = 0; i < count; ++i)
+            handles[i] = NULL;
+        for (uint64_t i = 0; i < count; ++i)
+            handles[i] = allocate(0, i + 1);
+
+        {
+            CycleCounter<> counter;
+            for (uint64_t i = 0; i < count; ++i)
+                putSegment(handles[i], segment);
+            uint64_t ns = cyclesToNanoseconds(counter.stop());
+            writeSpeed = mb * 1000 * 1000 * 1000 / ns;
+        }
+        {
+            CycleCounter<> counter;
+            for (uint64_t i = 0; i < count; ++i)
+                getSegment(handles[i], segment);
+            uint64_t ns = cyclesToNanoseconds(counter.stop());
+            readSpeed = mb * 1000 * 1000 * 1000 / ns;
+        }
+    } catch (...) {
+        std::free(segment);
+        for (uint64_t i = 0; i < 16; ++i)
+            if (handles[i])
+                free(handles[i]);
+        throw;
+    }
+
+    std::free(segment);
+    for (uint64_t i = 0; i < 16; ++i)
+        free(handles[i]);
+
+    LOG(NOTICE, "Backup storage speeds: %u MB/s read, %u MB/s write",
+        readSpeed, writeSpeed);
+
+    return {readSpeed, writeSpeed};
+}
+
 // --- BackupStorage::Handle ---
 
 int32_t BackupStorage::Handle::allocatedHandlesCount = 0;
@@ -99,6 +160,20 @@ SingleFileStorage::allocate(uint64_t masterId,
                                                 targetSegmentFrame);
     freeMap[targetSegmentFrame] = 0;
     return new Handle(targetSegmentFrame);
+}
+
+/**
+ * Same as BackupStorage::benchmark() except it resets the storage to reuse
+ * the segment frames that may have been used during benchmarking.
+ * This allows benchmark to be called without
+ * wasting early segment frames on the disk which may be faster.
+ */
+pair<uint32_t, uint32_t>
+SingleFileStorage::benchmark()
+{
+    auto r = BackupStorage::benchmark();
+    lastAllocatedFrame = FreeMap::npos;
+    return r;
 }
 
 // See BackupStorage::free().

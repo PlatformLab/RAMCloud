@@ -231,6 +231,8 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
     uint64_t serverId = nextServerId++;
     ProtoBuf::ServerType serverType =
         static_cast<ProtoBuf::ServerType>(reqHdr.serverType);
+    const uint32_t readSpeed = reqHdr.readSpeed;
+    const uint32_t writeSpeed = reqHdr.writeSpeed;
     const char *serviceLocator = getString(rpc.recvPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
@@ -251,6 +253,8 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
     } else {
         LOG(DEBUG, "Backup enlisted with id %lu, sl [%s]", serverId,
             serviceLocator);
+        LOG(DEBUG, "Backup id %lu has %u MB/s read %u MB/s write ",
+            serverId, readSpeed, writeSpeed);
     }
     respHdr.serverId = serverId;
 }

@@ -295,6 +295,8 @@ struct EnlistServerRpc {
         RpcRequestCommon common;
         uint8_t serverType;
         uint8_t pad[3];
+        uint32_t readSpeed;            // MB/s read speed if a BACKUP
+        uint32_t writeSpeed;           // MB/s write speed if a BACKUP
         uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
                                        // including terminating NULL character.
                                        // The bytes of the service locator

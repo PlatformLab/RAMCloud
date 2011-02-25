@@ -39,7 +39,8 @@ class CoordinatorClient : public Client {
     void dropTable(const char* name);
     uint32_t openTable(const char* name);
 
-    uint64_t enlistServer(ServerType serverType, string localServiceLocator);
+    uint64_t enlistServer(ServerType serverType, string localServiceLocator,
+                          uint32_t readSpeed = 0, uint32_t writeSpeed = 0);
     void getServerList(ProtoBuf::ServerList& serverList);
     void getMasterList(ProtoBuf::ServerList& serverList);
     void getBackupList(ProtoBuf::ServerList& serverList);
