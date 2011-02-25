@@ -19,31 +19,44 @@
 Varies the number of backups feeding data to one recovery master.
 """
 
-from __future__ import division
+from __future__ import division, print_function
 from common import *
 import metrics
 import recovery
 import subprocess
 
-dat = open('%s/recovery/backup_scale.data' % top_path, 'w')
+dat = open('%s/recovery/backup_scale.data' % top_path, 'w', 1)
 
-for numBackups in range(1, 7):
-    print 'Running recovery with %d backup(s)' % numBackups
+for numBackups in range(3, 37):
+    print('Running recovery with %d backup(s)' % numBackups)
     args = {}
     args['numBackups'] = numBackups
     args['numPartitions'] = 1
     args['objectSize'] = 1024
-    args['disk'] = '/dev/sdb1'
+    args['disk'] = '/dev/sda2'
     args['numObjects'] = 626012 * 400 // 640
-    args['oldMasterArgs'] = '-m 3000'
-    args['replicas'] = 1
+    args['oldMasterArgs'] = '-m 800'
+    args['replicas'] = 3
     r = recovery.insist(**args)
-    masterCpuNs = metrics.average(
+    print('->', r['ns'] / 1e6, 'ms')
+    masterCpuMs = metrics.average(
         [(master.recoveryTicks -
           master.master.segmentOpenStallTicks -
           master.master.segmentWriteStallTicks -
           master.master.segmentReadStallTicks) /
          master.clockFrequency
-         for master in r['metrics'].masters]) * 1e9
-    dat.write('%d\t%d\t%d\n' % (numBackups, r['ns'], masterCpuNs))
-    dat.flush()
+         for master in r['metrics'].masters]) * 1e3
+    diskBandwidth = sum([(backup.backup.storageReadBytes +
+                          backup.backup.storageWriteBytes) / 2**20
+                         for backup in r['metrics'].backups]) * 1e9 / r['ns']
+    diskActiveMsPoints = [backup.backup.storageReadTicks * 1e3 /
+                          backup.clockFrequency
+                          for backup in r['metrics'].backups]
+    print(numBackups,
+          r['ns'] / 1e6,
+          masterCpuMs,
+          diskBandwidth,
+          metrics.average(diskActiveMsPoints),
+          min(diskActiveMsPoints),
+          max(diskActiveMsPoints),
+          file=dat)
