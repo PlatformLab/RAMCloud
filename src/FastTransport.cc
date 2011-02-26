@@ -1217,7 +1217,7 @@ FastTransport::ServerSession::startSession(
 {
     this->clientAddress.reset(clientAddress->clone());
     this->clientSessionHint = clientSessionHint;
-    token = ((generateRandom() << 32) | generateRandom());
+    token = generateRandom();
 
     // send session open response
     Header header;
