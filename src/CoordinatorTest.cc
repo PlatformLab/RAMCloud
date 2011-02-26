@@ -145,7 +145,8 @@ class CoordinatorTest : public CppUnit::TestFixture {
                                     server->masterList.server(0).user_data()));
         CPPUNIT_ASSERT_EQUAL(0, will.tablet_size());
         CPPUNIT_ASSERT_EQUAL("server { server_type: BACKUP server_id: 3 "
-                             "service_locator: \"mock:host=backup\" }",
+                             "service_locator: \"mock:host=backup\" "
+                             "user_data: 0 }",
                              server->backupList.ShortDebugString());
     }
 
@@ -166,10 +167,11 @@ class CoordinatorTest : public CppUnit::TestFixture {
         client->enlistServer(BACKUP, "mock:host=backup2");
         ProtoBuf::ServerList backupList;
         client->getBackupList(backupList);
-        CPPUNIT_ASSERT_EQUAL("server { server_type: BACKUP server_id: 3 "
-                             "service_locator: \"mock:host=backup1\" } "
-                             "server { server_type: BACKUP server_id: 4 "
-                             "service_locator: \"mock:host=backup2\" }",
+        CPPUNIT_ASSERT_EQUAL(
+             "server { server_type: BACKUP server_id: 3 "
+             "service_locator: \"mock:host=backup1\" user_data: 0 } "
+             "server { server_type: BACKUP server_id: 4 "
+             "service_locator: \"mock:host=backup2\" user_data: 0 }",
                              backupList.ShortDebugString());
     }
 
@@ -221,7 +223,8 @@ class CoordinatorTest : public CppUnit::TestFixture {
                                         masterHosts.ShortDebugString());
                 CPPUNIT_ASSERT_EQUAL("server { server_type: BACKUP "
                                      "server_id: 4 "
-                                     "service_locator: \"mock:host=backup\" }",
+                                     "service_locator: \"mock:host=backup\" "
+                                     "user_data: 0 }",
                                      backupHosts.ShortDebugString());
                 called = true;
             }

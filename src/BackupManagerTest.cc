@@ -170,6 +170,9 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
     EXPECT_EQ((vector<string> {"mock:host=backup2", "mock:host=backup1"}),
               backupLocators);
 
+    // TODO(ongaro): Unit test backup selection algorithm with varying disk
+    // bandwidths
+
     // make sure BackupManager::segments looks sane
     std::set<string> segmentLocators;
     foreach (auto& s, mgr->segments) {

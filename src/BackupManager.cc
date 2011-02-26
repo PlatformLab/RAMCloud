@@ -17,10 +17,70 @@
 #include "BackupManager.h"
 #include "CycleCounter.h"
 #include "Metrics.h"
+#include "Segment.h"
 
 namespace RAMCloud {
 
 // --- BackupManager::OpenSegment ---
+
+namespace {
+/**
+ * Packs and unpacks the user_data field of backupManager.hosts.
+ * Used in BackupManager.
+ */
+struct AbuserData{
+  private:
+    union X {
+        struct {
+            /**
+             * Disk bandwidth of the host in MB/s
+             */
+            uint32_t bandwidth;
+            /**
+             * Number of primary segments this master has stored on the backup.
+             */
+            uint32_t numSegments;
+        };
+        /**
+         * Raw user_data field.
+         */
+        uint64_t user_data;
+    } x;
+  public:
+    template<typename T>
+    explicit AbuserData(const T* host)
+        : x()
+    {
+        x.user_data = host->user_data();
+    }
+    X* operator*() { return &x; }
+    X* operator->() { return &x; }
+    /**
+     * Return the expected number of milliseconds the backup would take to read
+     * from its disk all of the primary segments this master has stored.
+     */
+    uint32_t getMs() {
+        // unit tests, etc default to 100 MB/s
+        uint32_t bandwidth = x.bandwidth ?: 100;
+        return (x.numSegments * 1000UL * Segment::SEGMENT_SIZE /
+                1024 / 1024 / bandwidth);
+    }
+};
+
+template <typename HostList, typename Set>
+auto
+pickRandomUnusedHost(HostList& hostList, const Set& usedHosts) ->
+    decltype(hostList.mutable_server(0))
+{
+    assert(static_cast<uint64_t>(hostList.server_size()) > usedHosts.size());
+    while (true) {
+        uint32_t index = generateRandom() % hostList.server_size();
+        auto host = hostList.mutable_server(index);
+        if (!contains(usedHosts, host))
+            return host;
+    }
+}
+} // anonymous namespace
 
 /**
  * Constructor.
@@ -41,23 +101,34 @@ BackupManager::OpenSegment::OpenSegment(BackupManager& backupManager,
     // Select backups, initialize backups,
     // and tell each of the backups to open the segment:
     backupManager.ensureSufficientHosts();
-// Choose between random and round-robin
-#define RANDOM_BACKUP_ORDER
-#ifdef RANDOM_BACKUP_ORDER
-    uint64_t random = generateRandom();
-#else
-    static uint64_t random = 0;
-#endif
     auto flags = BackupWriteRpc::OPENPRIMARY;
+    auto& hostList = backupManager.hosts;
+    std::set<decltype(hostList.mutable_server(0))> usedHosts;
+
     foreach (auto& backup, backupIter()) {
-        uint32_t index = random % backupManager.hosts.server_size();
-        random += 1;
-        const auto& host = backupManager.hosts.server(index);
+        auto host = pickRandomUnusedHost(hostList, usedHosts);
+        if (flags == BackupWriteRpc::OPENPRIMARY) {
+            // Select the least loaded of 5 random backups:
+            for (uint32_t i = 0; i < 4; ++i) {
+                auto candidate = pickRandomUnusedHost(hostList, usedHosts);
+                if (AbuserData(host).getMs() > AbuserData(candidate).getMs())
+                    host = candidate;
+            }
+            AbuserData h(host);
+            LOG(DEBUG, "Chose backup with "
+                "%u segments and %u MB/s disk bandwidth "
+                "(expected time to read on recovery is %u ms)",
+                h->numSegments, h->bandwidth, h.getMs());
+            ++h->numSegments;
+            host->set_user_data(h->user_data);
+        }
+        usedHosts.insert(host);
+
         LOG(DEBUG, "Opening segment %lu, %lu on backup %s",
             *backupManager.masterId, segmentId,
-            host.service_locator().c_str());
+            host->service_locator().c_str());
         auto session =
-            transportManager.getSession(host.service_locator().c_str());
+            transportManager.getSession(host->service_locator().c_str());
         new(&backup) Backup(session);
         backupManager.segments.insert({segmentId, session});
         backup.writeSegmentTub.construct(backup.client,
