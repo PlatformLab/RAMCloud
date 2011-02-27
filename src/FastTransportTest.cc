@@ -1607,7 +1607,7 @@ class ServerSessionTest: public CppUnit::TestFixture {
     test_startSession()
     {
         Dispatch::currentTime = 9898;
-        const uint32_t rand = 0x7676;
+        const uint64_t rand = 0x7676UL;
         MockRandom __(rand);
 
         uint32_t clientSessionHint = 0x12345678u;
@@ -1617,10 +1617,9 @@ class ServerSessionTest: public CppUnit::TestFixture {
             *static_cast<MockDriver::MockAddress*>(
                 session->clientAddress.get()));
         CPPUNIT_ASSERT_EQUAL(clientSessionHint, session->clientSessionHint);
-        CPPUNIT_ASSERT_EQUAL((static_cast<uint64_t>(rand) << 32) | rand,
-                             session->token);
+        CPPUNIT_ASSERT_EQUAL(rand, session->token);
         CPPUNIT_ASSERT_EQUAL(
-            "{ sessionToken:767600007676 rpcId:0 clientSessionHint:12345678 "
+            "{ sessionToken:7676 rpcId:0 clientSessionHint:12345678 "
             "serverSessionHint:98765432 0/0 frags channel:0 dir:1 reqACK:0 "
             "drop:0 payloadType:2 } /x08",
             driver->outputLog);

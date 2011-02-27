@@ -25,14 +25,9 @@ import subprocess
 import time
 
 hosts = []
-
 for i in range(1, 37):
-    if i in [
-                6, # has no infiniband device
-                15, 31, # nandu claims these are bad
-            ]:
-        continue
-    hosts.append('rc%02d' % i)
+    hosts.append(('rc%02d' % i,
+                  '192.168.1.%d' % (100 + i)))
 
 obj_path = '%s/%s' % (top_path, obj_dir)
 coordinatorBin = '%s/coordinator' % obj_path
@@ -55,17 +50,17 @@ def recover(numBackups=1,
             clientArgs=''):
 
     coordinatorHost = hosts[0]
-    coordinatorLocator = 'infrc:host=%sib,port=12246' % coordinatorHost
+    coordinatorLocator = 'infrc:host=%s,port=12246' % coordinatorHost[1]
 
     backupHosts = hosts[:numBackups]
-    backupLocators = ['infrc:host=%sib,port=12243' % host
+    backupLocators = ['infrc:host=%s,port=12243' % host[1]
                       for host in backupHosts]
 
     oldMasterHost = hosts[0]
-    oldMasterLocator = 'infrc:host=%sib,port=12242' % oldMasterHost
+    oldMasterLocator = 'infrc:host=%s,port=12242' % oldMasterHost[1]
 
     newMasterHosts = (hosts[1:] + [hosts[0]])[:numPartitions]
-    newMasterLocators = ['infrc:host=%sib,port=12247' % host
+    newMasterLocators = ['infrc:host=%s,port=12247' % host[1]
                          for host in newMasterHosts]
 
     clientHost = hosts[0]
@@ -92,7 +87,7 @@ def recover(numBackups=1,
         def ensureHosts(qty):
             sandbox.checkFailures()
             try:
-                sandbox.rsh(hosts[0], '%s -C %s -n %d -l 1' %
+                sandbox.rsh(clientHost[0], '%s -C %s -n %d -l 1' %
                             (ensureHostsBin, coordinatorLocator, qty))
             except:
                 # prefer exceptions from dead processes to timeout error
@@ -100,18 +95,18 @@ def recover(numBackups=1,
                 raise
 
         # start coordinator
-        coordinator = sandbox.rsh(coordinatorHost,
+        coordinator = sandbox.rsh(coordinatorHost[0],
                   ('%s -C %s %s' %
                    (coordinatorBin, coordinatorLocator, coordinatorArgs)),
                   bg=True, stderr=subprocess.STDOUT,
                   stdout=open(('%s/coordinator.%s.log' %
-                               (run, coordinatorHost)), 'w'))
+                               (run, coordinatorHost[0])), 'w'))
         ensureHosts(0)
 
         # start backups
         for i, (backupHost, backupLocator) in enumerate(zip(backupHosts,
                                                             backupLocators)):
-            backups.append(sandbox.rsh(backupHost,
+            backups.append(sandbox.rsh(backupHost[0],
                        ('%s %s -C %s -L %s %s' %
                         (backupBin,
                          '-f %s' % disk if disk else '-m',
@@ -119,12 +114,12 @@ def recover(numBackups=1,
                          backupLocator,
                          backupArgs)),
                        bg=True, stderr=subprocess.STDOUT,
-                       stdout=open('%s/backup.%s.log' % (run, backupHost),
+                       stdout=open('%s/backup.%s.log' % (run, backupHost[0]),
                                    'w')))
         ensureHosts(len(backups))
 
         # start dying master
-        oldMaster = sandbox.rsh(oldMasterHost,
+        oldMaster = sandbox.rsh(oldMasterHost[0],
                         ('%s -r %d -C %s -L %s %s' %
                          (masterBin, replicas,
                           coordinatorLocator,
@@ -132,7 +127,7 @@ def recover(numBackups=1,
                           oldMasterArgs)),
                         bg=True, stderr=subprocess.STDOUT,
                         stdout=open(('%s/oldMaster.%s.log' %
-                                     (run, oldMasterHost)),
+                                     (run, oldMasterHost[0])),
                                     'w'))
         ensureHosts(len(backups) + 1)
 
@@ -140,7 +135,7 @@ def recover(numBackups=1,
         for i, (newMasterHost,
                 newMasterLocator) in enumerate(zip(newMasterHosts,
                                                    newMasterLocators)):
-            newMasters.append(sandbox.rsh(newMasterHost,
+            newMasters.append(sandbox.rsh(newMasterHost[0],
                                   ('%s -r %d -C %s -L %s %s' %
                                    (masterBin,
                                     replicas,
@@ -149,17 +144,18 @@ def recover(numBackups=1,
                                     newMasterArgs)),
                                   bg=True, stderr=subprocess.STDOUT,
                                   stdout=open(('%s/newMaster.%s.log' %
-                                               (run, newMasterHost)),
+                                               (run, newMasterHost[0])),
                                               'w')))
         ensureHosts(len(backups) + 1 + len(newMasters))
 
         # start client
-        client = sandbox.rsh(clientHost,
+        client = sandbox.rsh(clientHost[0],
                      ('%s -d -C %s -n %d -s %d -t %d -k %d %s' %
                       (clientBin, coordinatorLocator, numObjects, objectSize,
                       numPartitions, numPartitions, clientArgs)),
                      bg=True, stderr=subprocess.STDOUT,
-                     stdout=open('%s/client.%s.log' % (run, clientHost), 'w'))
+                     stdout=open('%s/client.%s.log' % (run, clientHost[0]),
+                                 'w'))
 
         start = time.time()
         while client.returncode is None:
@@ -182,6 +178,9 @@ def insist(*args, **kwargs):
         try:
             return recover(*args, **kwargs)
         except subprocess.CalledProcessError, e:
+            print 'Recovery failed:', e
+            print 'Trying again...'
+        except ValueError, e:
             print 'Recovery failed:', e
             print 'Trying again...'
 

@@ -326,7 +326,7 @@ uint64_t
 generateRandom()
 {
     if (mockRandomValue)
-        return mockRandomValue;
+        return mockRandomValue++;
     return RAMCloud::_generateRandom();
 }
 class MockRandom {

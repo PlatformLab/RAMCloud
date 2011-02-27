@@ -86,56 +86,57 @@ Recovery::buildSegmentIdToBackups()
     LOG(DEBUG, "Getting segment lists from backups and preparing "
                "them for recovery");
 
-    auto backupHostsIt = backupHosts.server().begin();
-    auto backupHostsEnd = backupHosts.server().end();
+    const uint32_t numBackups = backupHosts.server_size();
     const uint32_t maxActiveBackupHosts = 10;
     uint32_t activeBackupHosts = 0;
+    uint32_t firstNotIssued = 0;
 
     // Start off first round of RPCs
-    for (int i = 0; i < backupHosts.server_size(); ++i) {
-        auto& task = tasks[i];
-        if (backupHostsIt == backupHostsEnd ||
-            activeBackupHosts == maxActiveBackupHosts)
-            break;
-        task.construct(*backupHostsIt++, masterId, will);
+    while (firstNotIssued < numBackups &&
+           activeBackupHosts < maxActiveBackupHosts) {
+        tasks[firstNotIssued].construct(backupHosts.server(firstNotIssued),
+                                        masterId, will);
+        ++firstNotIssued;
         ++activeBackupHosts;
     }
 
     // As RPCs complete kick off new ones
-    bool someTaskWasReady = false;
     while (activeBackupHosts > 0) {
-        if (!someTaskWasReady)
-            while (Dispatch::poll());
-        someTaskWasReady = false;
-        for (int i = 0; i < backupHosts.server_size(); ++i) {
+        while (Dispatch::poll()) {
+            /* pass */;
+        }
+        for (uint32_t i = 0; i < numBackups; ++i) {
             auto& task = tasks[i];
             if (!task || !task->isReady() || task->isDone())
                 continue;
-            someTaskWasReady = true;
 
             try {
                 (*task)();
-                LOG(DEBUG, "%s returned %lu segment id/lengths",
-                    task->backupHost.service_locator().c_str(),
+                LOG(DEBUG, "Backup %lu has %lu segments",
+                    task->backupHost.server_id(),
                     task->result.segmentIdAndLength.size());
             } catch (const TransportException& e) {
-                LOG(DEBUG, "Couldn't contact %s, "
+                LOG(WARNING, "Couldn't contact %s, "
                     "failure was: %s",
                     task->backupHost.service_locator().c_str(),
                     e.str().c_str());
+                task.destroy();
             } catch (const ClientException& e) {
-                LOG(DEBUG, "startReadingData failed on %s, "
+                LOG(WARNING, "startReadingData failed on %s, "
                     "failure was: %s",
                     task->backupHost.service_locator().c_str(),
                     e.str().c_str());
+                task.destroy();
             }
 
-            if (backupHostsIt == backupHostsEnd) {
+            if (firstNotIssued < numBackups) {
+                tasks[firstNotIssued].construct(
+                        backupHosts.server(firstNotIssued),
+                        masterId, will);
+                ++firstNotIssued;
+            } else {
                 --activeBackupHosts;
-                continue;
             }
-
-            task.construct(*backupHostsIt++, masterId, will);
         }
     }
 
@@ -148,7 +149,8 @@ Recovery::buildSegmentIdToBackups()
             // TODO(stutsman) we'll want to add some modular arithmetic here
             // to generate unique replay scripts for each recovery master
             for (int i = 0; i < backupHosts.server_size(); ++i) {
-                assert(tasks[i]);
+                if (!tasks[i])
+                    continue;
                 const auto& task = tasks[i];
 
                 // Amount per result's segment array to compensate to
@@ -177,10 +179,7 @@ Recovery::buildSegmentIdToBackups()
 
                 // Keep count of each segmentId seen so we can cross check with
                 // the LogDigest.
-                if (segmentMap.find(segmentId) != segmentMap.end())
-                    segmentMap[segmentId] += 1;
-                else
-                    segmentMap[segmentId] = 1;
+                ++segmentMap[segmentId];
             }
             if (!stillWorking)
                 break;
@@ -191,7 +190,7 @@ Recovery::buildSegmentIdToBackups()
 
     LOG(DEBUG, "=== Replay script ===");
     foreach (const auto& backup, backups.server()) {
-        LOG(DEBUG, "id: %lu, locator: %s, segmentId %lu, primary %lu",
+        LOG(DEBUG, "backup: %lu, locator: %s, segmentId %lu, primary %lu",
             backup.server_id(), backup.service_locator().c_str(),
             backup.segment_id(), backup.user_data());
     }
@@ -248,7 +247,7 @@ Recovery::verifyCompleteLog()
         throw Exception(HERE, "ouch! data lost!");
     }
 
-    LOG(DEBUG, "Segment %lu of length %u bytes is the head of the log",
+    LOG(NOTICE, "Segment %lu of length %u bytes is the head of the log",
         headId, headLen);
 
     // scan the backup map to determine if all needed segments are available
@@ -256,7 +255,7 @@ Recovery::verifyCompleteLog()
     for (int i = 0; i < headDigest->getSegmentCount(); i++) {
         uint64_t id = headDigest->getSegmentIds()[i];
         if (segmentMap.find(id) == segmentMap.end()) {
-            LOG(WARNING, "Segment %lu is missing!", id);
+            LOG(ERROR, "Segment %lu is missing!", id);
             missing++;
         }
     }

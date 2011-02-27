@@ -19,31 +19,31 @@
 Keeps partition size constant and scales the number of objects.
 """
 
-from __future__ import division
+from __future__ import division, print_function
 from common import *
 import recovery
 import subprocess
 
-dat = open('%s/recovery/objectsize_scale.data' % top_path, 'w')
+dat = open('%s/recovery/objectsize_scale.data' % top_path, 'w', 1)
 
-for objectSize in (8192, 4096, 2048, 1024, 512, 256, 128):
-    args = {}
-    args['numBackups'] = 6
-    args['numPartitions'] = 1
-    args['objectSize'] = objectSize
-    args['disk'] = True
-    numObjectsPerMb = 2**20 / (objectSize + 40)
-    print('Running with %d objects of size %d' % (numObjectsPerMb * 400, objectSize))
-    while True:
-        try:
-            r= recovery.recover(
-                oldMasterArgs='-m 3000',
-                numObjects=int(numObjectsPerMb * 400),
-                **args)
-        except subprocess.CalledProcessError, e:
-            print e
-        else:
-            break
-    print 'Result', r
-    dat.write('%d\t%d\n' % (objectSize, r['ns']))
-    dat.flush()
+for objectSize in [128, 256, 1024]:
+    print('# objectSize:', objectSize, file=dat)
+    for partitionSize in range(1, 1050, 100):
+        args = {}
+        args['numBackups'] = 36
+        args['numPartitions'] = 1
+        args['objectSize'] = objectSize
+        args['disk'] = '/dev/sda2'
+        args['replicas'] = 3
+        numObjectsPerMb = 2**20 / (objectSize + 40)
+        print('Running with objects of size %d for a %d MB partition' %
+              (objectSize, partitionSize))
+        r = recovery.insist(
+            oldMasterArgs='-m 1600',
+            newMasterArgs='-m 1600',
+            numObjects=int(numObjectsPerMb * partitionSize),
+            **args)
+        print(' ->' , r['ns'] / 1e6, 'ms')
+        print(partitionSize, r['ns'] / 1e6, file=dat)
+    print(file=dat)
+    print(file=dat)

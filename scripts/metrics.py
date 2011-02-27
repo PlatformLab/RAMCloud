@@ -28,7 +28,7 @@ import sys
 
 from common import *
 
-__all__ = ['average', 'parseRecovery']
+__all__ = ['average', 'avgAndStdDev', 'parseRecovery']
 
 ### Utilities:
 
@@ -898,9 +898,10 @@ def textReport(data):
         note='backup RPC thread')
     # TODO(ongaro): get stddev among segments
     efficiencySection.avgStd('Filtering a segment',
-        average([(backup.backup.filterTicks / backup.clockFrequency * 1000 /
-                  backup.backup.storageReadCount)
-                 for backup in backups]),
+        sum([backup.backup.filterTicks / backup.clockFrequency * 1000
+              for backup in backups]) /
+        sum([backup.backup.storageReadCount
+             for backup in backups]),
         pointFormat='{0:6.2f} ms avg')
 
     networkSection = report.add(Section('Network Utilization'))
@@ -944,7 +945,9 @@ def textReport(data):
           2**20) /
          ((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) /
           backup.clockFrequency)
-         for backup in backups],
+         for backup in backups
+         if (backup.backup.storageReadTicks +
+             backup.backup.storageWriteTicks)],
         '{0:6.2f} MB/s')
     diskSection.avgStd('Disk active',
         [((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) *
@@ -967,8 +970,8 @@ def textReport(data):
         note='of total recovery')
 
     backupSection = report.add(Section('Backup Events'))
-    backupSection.avgStd('Segments opened',
-        [backup.backup.totalSegmentCount for backup in backups])
+    backupSection.avgStd('Segments read',
+        [backup.backup.storageReadCount for backup in backups])
     backupSection.avgStd('Primary segments loaded',
         [backup.backup.primaryLoadCount for backup in backups])
     backupSection.avgStd('Secondary segments loaded',

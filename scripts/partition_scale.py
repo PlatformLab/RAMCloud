@@ -19,25 +19,44 @@
 Keeps partition size constant and scales the number of recovery masters.
 """
 
-from __future__ import division
+from __future__ import division, print_function
 from common import *
+import metrics
 import recovery
 import subprocess
 
-dat = open('%s/recovery/partition_scale.data' % top_path, 'w')
+dat = open('%s/recovery/partition_scale.data' % top_path, 'w', 1)
 
-for numPartitions in reversed(range(1, 7)):
+for numPartitions in range(1, 13):
     args = {}
-    args['numBackups'] = 6
+    args['numBackups'] = 36
     args['numPartitions'] = numPartitions
     args['objectSize'] = 1024
-    numObjectsPerMb = 626012 / 640
-    big = recovery.insist(oldMasterArgs='-m 3000',
-                            numObjects=int(numObjectsPerMb * 400),
-                            **args)
-    print 'Big', big
-    small = recovery.insist(numObjects=int(numObjectsPerMb * 1),
-                              **args)
-    print 'Small', small
-    dat.write('%d\t%d\t%d\n' % (numPartitions, big['ns'], small['ns']))
-    dat.flush()
+    args['disk'] = '/dev/sda2'
+    args['replicas'] = 1
+    args['numObjects'] = 626012 * 400 // 640
+    args['oldMasterArgs'] = '-m 17000'
+    args['newMasterArgs'] = '-m 600'
+    args['timeout'] = 60
+    print(numPartitions, 'partitions')
+    r = recovery.insist(**args)
+    print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
+    diskActiveMsPoints = [backup.backup.storageReadTicks * 1e3 /
+                          backup.clockFrequency
+                          for backup in r['metrics'].backups]
+    segmentsPerBackup = [backup.backup.storageReadCount
+                         for backup in r['metrics'].backups]
+    masterRecoveryMs = [master.recoveryTicks / master.clockFrequency * 1000
+                        for master in r['metrics'].masters]
+    print(numPartitions, r['ns'] / 1e6,
+          metrics.average(diskActiveMsPoints),
+          min(diskActiveMsPoints),
+          max(diskActiveMsPoints),
+          (min(segmentsPerBackup) *
+           sum(diskActiveMsPoints) / sum(segmentsPerBackup)),
+          (max(segmentsPerBackup) *
+           sum(diskActiveMsPoints) / sum(segmentsPerBackup)),
+          metrics.average(masterRecoveryMs),
+          min(masterRecoveryMs),
+          max(masterRecoveryMs),
+          file=dat)

@@ -277,6 +277,7 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
             serviceLocator);
         LOG(DEBUG, "Backup id %lu has %u MB/s read %u MB/s write ",
             serverId, readSpeed, writeSpeed);
+        server.set_user_data(readSpeed);
     }
     respHdr.serverId = serverId;
 }
