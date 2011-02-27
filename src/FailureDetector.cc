@@ -47,7 +47,7 @@ int FailureDetector::internalServerSocket = -1;
 Syscall* FailureDetector::sys = &defaultSyscall;
 
 /**
- * Create a new FailureDetector object.
+ * Create a new FailureDetector object for use on servers.
  *
  * \param[in] coordinatorLocatorString
  *      The ServiceLocator string of the coordinator. 
@@ -99,6 +99,49 @@ FailureDetector::FailureDetector(string coordinatorLocatorString,
 
     LOG(NOTICE, "listening on UDP socket %s:%d for incoming pings",
         inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+}
+
+/**
+ * Create a new FailureDetector object for use on clients.
+ * This instance really only provides the #pingServer()
+ * functionality.
+ *
+ * \param[in] coordinatorLocatorString
+ *      The ServiceLocator string of the coordinator. 
+ */
+FailureDetector::FailureDetector(string coordinatorLocatorString)
+    : clientFd(-1),
+      serverFd(-1),
+      coordFd(-1),
+      type(),
+      coordinator(coordinatorLocatorString),
+      localLocator(),
+      serverList(),
+      terminate(false),
+      queue(TIMEOUT_USECS),
+      haveLoggedNoServers(false)
+{
+    clientFd = sys->socket(PF_INET, SOCK_DGRAM, 0);
+
+    // There can be only one instance of the FailureDetector.
+    assert(internalClientSocket == -1);
+    assert(internalServerSocket == -1);
+    int fds[2];
+    if (socketpair(PF_LOCAL, SOCK_DGRAM, 0, fds) == 0) {
+        internalClientSocket = fds[0];
+        internalServerSocket = fds[1];
+    }
+
+    if (clientFd == -1 || internalClientSocket == -1 ||
+      internalServerSocket == -1) {
+        sys->close(clientFd);
+        sys->close(serverFd);
+        sys->close(coordFd);
+        sys->close(internalClientSocket);
+        sys->close(internalServerSocket);
+        internalClientSocket = internalServerSocket = -1;
+        throw Exception(HERE);
+    }
 }
 
 FailureDetector::~FailureDetector()
@@ -346,7 +389,7 @@ FailureDetector::handleTimeout(TimeoutQueue::TimeoutEntry* te)
         memcpy(&buf[sizeof(*rpc)], loc.c_str(), loc.length());
 
         sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);
-        ssize_t r = sys->sendto(coordFd, buf, bytesNeeded, 0,
+        ssize_t r = sys->sendto(clientFd, buf, bytesNeeded, 0,
             reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
         if (r != bytesNeeded) {
             LOG(WARNING, "failed to send hint server down rpc to coordinator. "
@@ -469,6 +512,55 @@ FailureDetector::handleInternalPingRequest()
  */
 void
 FailureDetector::mainLoop()
+{
+    if (coordFd == -1)
+        clientMainLoop();
+    else
+        serverMainLoop();
+}
+
+/**
+ * Main loop for client objects (i.e. we only support pings initiated
+ * by #pingServer() and do not service any ping requests from others).
+ */
+void
+FailureDetector::clientMainLoop()
+{
+    while (!terminate) {
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(clientFd, &fds);
+        FD_SET(internalServerSocket, &fds);
+
+        uint64_t sleepMicros = queue.microsUntilNextTimeout();
+        timeval tv;
+        tv.tv_sec  = sleepMicros / 1000000;
+        tv.tv_usec = sleepMicros % 1000000;
+
+        int nfds = MAX(clientFd, internalServerSocket) + 1;
+        int r = sys->select(nfds, &fds, NULL, NULL, &tv);
+        if (r == -1) {
+            LOG(ERROR, "select returned %d (errno %d: %s)",
+                r, errno, strerror(errno));
+            throw Exception(HERE);
+        }
+
+        if (FD_ISSET(clientFd, &fds))
+            processPacket(clientFd);
+        if (FD_ISSET(internalServerSocket, &fds))
+            handleInternalPingRequest();
+
+        // check for ping timeout(s)
+        while (Tub<TimeoutQueue::TimeoutEntry> te = queue.dequeue())
+            handleTimeout(te.get());
+    }
+}
+
+/**
+ * Main loop for server objects. This implements all functionality.
+ */
+void
+FailureDetector::serverMainLoop()
 {
     uint64_t lastPingUsec = 0;
     uint64_t lastServerListRefreshUsec = 0;
@@ -633,7 +725,7 @@ FailureDetector::TimeoutQueue::dequeue(uint64_t nonce)
 
 /**
  * Obtain the number of microseconds until the next timeout. This
- * should be used to calculate the minimum amount of time to wait
+ * should be used to calculate the exact amount of time to wait
  * before attempting another dequeue() invocation for timed-out
  * probes.
  */

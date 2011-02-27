@@ -16,12 +16,16 @@
 #ifndef RAMCLOUD_COORDINATORSERVER_H
 #define RAMCLOUD_COORDINATORSERVER_H
 
+// Here for the UDP-based FailureDetector code.
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 
 #include "Common.h"
 #include "ClientException.h"
-#include "Dispatch.h"
 #include "Metrics.h"
 #include "Recovery.h"
 #include "Rpc.h"
@@ -88,21 +92,7 @@ class CoordinatorServer : public Server {
     bool setWill(uint64_t masterId, Buffer& buffer,
                  uint32_t offset, uint32_t length);
 
-    /**
-     * An event handler for incoming FailureDetector UDP messages.
-     * These include HintServerDown and GetServerList ``RPCs'' -
-     * only the latter generates a response.
-     */
-    class FailureDetectorHandler : public Dispatch::File {
-      public:
-        FailureDetectorHandler(int fd, CoordinatorServer* coordinator);
-        virtual void operator()();
-      private:
-        // The following variables are just copies of constructor arguments.
-        int fd;
-        CoordinatorServer* coordinator;
-        DISALLOW_COPY_AND_ASSIGN(FailureDetectorHandler);
-    };
+    void failureDetectorHandler(char* buf, ssize_t length, sockaddr_in sin);
 
     /**
      * The server id for the next server to register.
@@ -153,14 +143,10 @@ class CoordinatorServer : public Server {
      */
     int failureDetectorFd;
 
-    /**
-     * The Dispatch handler for failureDetectorFd.
-     */
-    Tub<FailureDetectorHandler> failureDetectorHandler;
-
     /// Used in unit testing.
     BaseRecovery* mockRecovery;
 
+    friend void* failureDetectorThread(void* arg);
     friend class CoordinatorTest;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServer);
 };

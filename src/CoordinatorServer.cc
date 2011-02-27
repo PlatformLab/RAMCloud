@@ -13,11 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// Here for the UDP-based FailureDetector code.
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
 #include <boost/scoped_ptr.hpp>
 
 #include "BackupClient.h"
@@ -29,6 +24,8 @@
 
 namespace RAMCloud {
 
+void* failureDetectorThread(void* arg);
+
 CoordinatorServer::CoordinatorServer(string localLocator)
     : nextServerId(1)
     , backupList()
@@ -38,7 +35,6 @@ CoordinatorServer::CoordinatorServer(string localLocator)
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , failureDetectorFd(-1)
-    , failureDetectorHandler()
     , mockRecovery(NULL)
 {
     failureDetectorFd = socket(PF_INET, SOCK_DGRAM, 0);
@@ -55,7 +51,9 @@ CoordinatorServer::CoordinatorServer(string localLocator)
     LOG(NOTICE, "listening for FailureDetector messages on %s:%d",
         inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
 
-    failureDetectorHandler.construct(failureDetectorFd, this);
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, failureDetectorThread, this))
+        DIE("coordinator: couldn't spawn failure detector thread");
 }
 
 CoordinatorServer::~CoordinatorServer()
@@ -63,7 +61,6 @@ CoordinatorServer::~CoordinatorServer()
     // delete wills
     foreach (const ProtoBuf::ServerList::Entry& master, masterList.server())
         delete reinterpret_cast<ProtoBuf::Tablets*>(master.user_data());
-    failureDetectorHandler.destroy();
     close(failureDetectorFd);
 }
 
@@ -542,6 +539,18 @@ CoordinatorServer::setWill(const SetWillRpc::Request& reqHdr,
     }
 }
 
+/**
+ * Set the Will for a given master.
+ *
+ * \param[in] masterId
+ *      The ID of the master, whose Will we're setting.
+ * \param[in] buffer
+ *      Buffer containing the Will data.
+ * \param[in] offset
+ *      Offset of the Will data in the Buffer.
+ * \param[in] length
+ *      Length of the Will data in bytes.
+ */
 bool
 CoordinatorServer::setWill(uint64_t masterId, Buffer& buffer,
     uint32_t offset, uint32_t length)
@@ -568,49 +577,64 @@ CoordinatorServer::setWill(uint64_t masterId, Buffer& buffer,
 }
 
 /**
- * Constructor for FailureDetectorHandler.
+ * The thread that services incoming RPCs from FailureDetectors running
+ * on other nodes.
  *
- * \param fd
- *      File descriptor for a client socket on which requests may arrive.
- * \param coordinator
- *      The CoordinatorServer that uses this socket.
+ * \param[in] arg
+ *      Pointer to the CoordinatorServer object that this thread is servicing.
  */
-CoordinatorServer::FailureDetectorHandler::FailureDetectorHandler(int fd,
-    CoordinatorServer* coordinator)
-    : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
-      fd(fd),
-      coordinator(coordinator)
+void*
+failureDetectorThread(void* arg)
 {
-    // Empty constructor body.
+    CoordinatorServer* coordinator = reinterpret_cast<CoordinatorServer*>(arg);
+
+    while (true) {
+        char buf[FailureDetector::MAXIMUM_MTU_BYTES];
+        struct sockaddr_in sin;
+        socklen_t sinLength = sizeof(sin);
+
+        ssize_t r = recvfrom(coordinator->failureDetectorFd, buf, sizeof(buf),
+            0, reinterpret_cast<sockaddr*>(&sin), &sinLength);
+        if (r < 0) {
+            LOG(WARNING, "recvfrom failed with %zd", r);
+            break;
+        }
+
+        coordinator->failureDetectorHandler(buf, r, sin);
+    }
+
+    return NULL;
 }
 
 /**
  * Handle an incoming message from a FailureDetector on our UDP port.
- * This is invoked by Dispatch when there's something to read on the
- * socket.
+ * This must run in its own thread so that we can quickly reply to
+ * ping requests from clients who suspect their RPCs to us may have
+ * timed out.
  *
- * There are two possible messages: HintServerDown, and GetServerList.
- * The former is just a hint and the sender expects no response. The
- * latter is an actual request, so we should reply. Since we're using
+ * There are three possible messages: HintServerDown, GetServerList,
+ * an Ping.
+ *
+ * The first is just a hint and the sender expects no response. The
+ * second is an actual request, so we should reply. Since we're using
  * UDP, the requested server list must fit within the network MTU. This
  * is hacky, but it keeps things simple. In the future we'll want this
  * entire mechanism to be based on our RPC subsystem, but that will
  * require some significant changes.
+ * 
+ * The third simply generates a ping response.
+ *
+ * \param[in] buf
+ *      Pointer to the incoming RPC to handle.
+ * \param[in] length
+ *      Length of the RPC in bytes.
+ * \param[in] sin
+ *      The sockaddr_in of the RPC's sender.
  */
 void
-CoordinatorServer::FailureDetectorHandler::operator()()
+CoordinatorServer::failureDetectorHandler(char* buf, ssize_t length,
+    sockaddr_in sin)
 {
-    char buf[FailureDetector::MAXIMUM_MTU_BYTES];
-    struct sockaddr_in sin;
-    socklen_t sinLength = sizeof(sin);
-
-    ssize_t r = recvfrom(fd, buf, sizeof(buf), 0,
-        reinterpret_cast<sockaddr*>(&sin), &sinLength);
-    if (r < 0) {
-        LOG(WARNING, "recvfrom failed with %zd", r);
-        return;
-    }
-
     RpcRequestCommon* req = reinterpret_cast<RpcRequestCommon*>(buf);
     if (req->type == HINT_SERVER_DOWN) {
         HintServerDownRpc::Request* hSDReq =
@@ -641,9 +665,9 @@ CoordinatorServer::FailureDetectorHandler::operator()()
 
         std::ostringstream ostream;
         if (getReq->serverType == MASTER)
-            coordinator->masterList.SerializePartialToOstream(&ostream);
+            masterList.SerializePartialToOstream(&ostream);
         else
-            coordinator->backupList.SerializePartialToOstream(&ostream);
+            backupList.SerializePartialToOstream(&ostream);
         string str(ostream.str());
 
         if (sizeof(*resp) + str.length() > FailureDetector::MAXIMUM_MTU_BYTES) {
@@ -656,12 +680,25 @@ CoordinatorServer::FailureDetectorHandler::operator()()
         resp->common.status = STATUS_OK;
         resp->serverListLength = str.length();
 
-        ssize_t r = sendto(fd, responseBuf, sizeof(*resp) + str.length(), 0,
-            reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
+        ssize_t r = sendto(failureDetectorFd, responseBuf,
+            sizeof(*resp) + str.length(), 0, reinterpret_cast<sockaddr*>(&sin),
+            sizeof(sin));
         if (r != static_cast<ssize_t>(sizeof(*resp) + str.length())) {
             LOG(WARNING, "failed to send GetServerList reply; r = %zd, "
                 "errno %d: %s", r, errno, strerror(errno));
         }
+    } else if (req->type == PING) {
+        LOG(DEBUG, "Ping request from %s:%d",
+            inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+
+        PingRpc::Request *req = reinterpret_cast<PingRpc::Request*>(buf);
+        PingRpc::Response resp;
+        resp.common.status = STATUS_OK;
+        resp.nonce = req->nonce;
+        ssize_t r = sendto(failureDetectorFd, &resp, sizeof(resp), 0,
+            reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
+        if (r != sizeof(resp))
+            LOG(WARNING, "sendto returned wrong number of bytes (%Zd)", r);
     } else {
         LOG(WARNING, "weird rpc type received: %d", req->type);
     }

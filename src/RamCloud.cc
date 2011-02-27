@@ -14,10 +14,23 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <pthread.h>
+
+#include "FailureDetector.h"
 #include "RamCloud.h"
 #include "MasterClient.h"
+#include "Tub.h"
 
 namespace RAMCloud {
+
+static Tub<FailureDetector> failTub;
+
+static void*
+failureDetectorThread(void* unused)
+{
+    failTub->mainLoop();
+    return NULL;
+}
 
 /**
  * Construct a RamCloud for a particular service: opens a connection with the
@@ -32,7 +45,19 @@ namespace RAMCloud {
 RamCloud::RamCloud(const char* serviceLocator)
     : status(STATUS_OK)
     , coordinator(serviceLocator)
-    , objectFinder(coordinator) { }
+    , objectFinder(coordinator)
+{
+    // Create a single client FailureDetector so the transports
+    // can use FailureDetector::pingServer to abort RPCs to
+    // dead machines.
+    if (!failTub) {
+        failTub.construct(serviceLocator);
+        pthread_t tid;
+        int r = pthread_create(&tid, NULL, failureDetectorThread, NULL);
+        if (r)
+            throw Exception(HERE, "failed to create failure detector thread!");
+    }
+}
 
 /// \copydoc CoordinatorClient::createTable
 void

@@ -84,6 +84,8 @@
 
 #include "Common.h"
 #include "CycleCounter.h"
+#include "BenchUtil.h"
+#include "FailureDetector.h"
 #include "Metrics.h"
 #include "TimeCounter.h"
 #include "Transport.h"
@@ -332,7 +334,8 @@ template<typename Infiniband>
 InfRcTransport<Infiniband>::InfRCSession::InfRCSession(
     InfRcTransport *transport, const ServiceLocator& sl)
     : transport(transport),
-      qp(NULL)
+      qp(NULL),
+      serviceLocator(sl.getOriginalString())
 {
     IpAddress address(sl);
 
@@ -382,8 +385,10 @@ InfRcTransport<Infiniband>::InfRCSession::clientSend(Buffer* request,
     // they're done with it.
     ClientRpc *rpc = new(response, MISC) ClientRpc(transport, this,
                                                    request, response,
-                                                   generateRandom());
+                                                   generateRandom(),
+                                                   serviceLocator);
     rpc->sendOrQueue();
+    rpc->enqueueCycleTime = rdtsc();
     return rpc;
 }
 
@@ -765,18 +770,23 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
  *      Buffer in which the response message should be placed.
  * \param nonce
  *      Uniquely identifies this RPC.
+ * \param serviceLocator
+ *      ServiceLocator of the server this RPC is being sent to.
  */
 template<typename Infiniband>
 InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
                                      InfRCSession* session,
                                      Buffer* request,
                                      Buffer* response,
-                                     uint64_t nonce)
+                                     uint64_t nonce,
+                                     string serviceLocator)
     : transport(transport),
       session(session),
       request(request),
       response(response),
       nonce(nonce),
+      enqueueCycleTime(0),
+      serviceLocator(serviceLocator),
       state(PENDING),
       queueEntries()
 {
@@ -892,6 +902,22 @@ InfRcTransport<Infiniband>::Poller::operator() ()
 template<typename Infiniband>
 bool
 InfRcTransport<Infiniband>::ClientRpc::isReady() {
+    // if our RPC has taken a while, invoke the FailureDetector
+    if (state == REQUEST_SENT) {
+        bool suspectTimeout = false;
+        if ((cyclesToNanoseconds(rdtsc() - enqueueCycleTime) / 1000) >= 10000)
+            suspectTimeout = true;
+
+        if (suspectTimeout) {
+            if (!FailureDetector::pingServer(serviceLocator)) {
+                LOG(WARNING, "server [%s] appears to be dead; "
+                    "claiming RPC ready", serviceLocator.c_str());
+                return true;
+            }
+            enqueueCycleTime = rdtsc();
+        }
+    }
+
     return (state == RESPONSE_RECEIVED);
 }
 
@@ -900,8 +926,22 @@ template<typename Infiniband>
 void
 InfRcTransport<Infiniband>::ClientRpc::wait()
 {
-    while (state != RESPONSE_RECEIVED)
+    uint64_t lastAlive = enqueueCycleTime;
+
+    while (state != RESPONSE_RECEIVED) {
         Dispatch::poll();
+
+        // if we hear nothing within 10ms, check if the server is
+        // alive
+        if ((cyclesToNanoseconds(rdtsc() - lastAlive) / 1000) >= 10000) {
+            if (!FailureDetector::pingServer(serviceLocator)) {
+                throw TransportException(HERE,
+                    format("server [%s] appears to be dead",
+                        serviceLocator.c_str()));
+            }
+            lastAlive = rdtsc();
+        }
+    }
 }
 
 //-------------------------------------

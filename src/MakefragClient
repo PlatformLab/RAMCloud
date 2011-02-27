@@ -21,6 +21,7 @@ CLIENT_SRCFILES := \
 		   src/Common.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
+		   src/FailureDetector.cc \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
 		   src/Logging.cc \

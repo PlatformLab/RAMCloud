@@ -32,6 +32,7 @@ class FailureDetector {
   public:
     FailureDetector(string coordinatorLocatorString,
         string listeningLocatorsString, ServerType type);
+    explicit FailureDetector(string coordinatorLocatorString);
     ~FailureDetector();
     void mainLoop();
 
@@ -76,8 +77,10 @@ class FailureDetector {
                 break;
         }
 
-        if (useSl == NULL)
-            throw Exception(HERE, "could not determine IP/port for sl string");
+        if (useSl == NULL) {
+            throw Exception(HERE, format("could not determine IP/port for sl "
+                "string [%s]", sl.c_str()));
+        }
 
         IpAddress addr(*useSl);
         sockaddr_in sin;
@@ -86,15 +89,6 @@ class FailureDetector {
         sin.sin_port = htons(ntohs(sin.sin_port) + 2111);
         return sin;
     }
-
-    /// The socket used internally to issue ping requests to the FailureDetector
-    /// thread. Transports can employ this to determine whether or not RPCs have
-    /// likely timed out.
-    static int internalClientSocket;
-
-    /// The other end of #internalClientSocket. This is where requests are
-    /// received and processed in FailureDetector's #mainLoop.
-    static int internalServerSocket;
 
     /**
      * Synchronously ping the given server and return true if a response
@@ -107,6 +101,8 @@ class FailureDetector {
     static bool
     pingServer(string locatorString)
     {
+        LOG(DEBUG, "issuing request for [%s]\n", locatorString.c_str());
+
         ssize_t r = write(internalClientSocket, locatorString.c_str(),
             locatorString.length() + 1);
         if (r != static_cast<ssize_t>(locatorString.length() + 1))
@@ -198,6 +194,15 @@ class FailureDetector {
     /// thread-safe.
     int coordFd;
 
+    /// The socket used internally to issue ping requests to the FailureDetector
+    /// thread. Transports can employ this to determine whether or not RPCs have
+    /// likely timed out.
+    static int internalClientSocket;
+
+    /// The other end of #internalClientSocket. This is where requests are
+    /// received and processed in FailureDetector's #mainLoop.
+    static int internalServerSocket;
+
     ServerType           type;            /// Type of servers we're to probe.
     string               coordinator;     /// Coordinator's serviceLocator str.
     string               localLocator;    /// Our local ServiceLocator string.
@@ -224,6 +229,8 @@ class FailureDetector {
     void processPacket(int fd);
     void requestServerList();
     void handleInternalPingRequest();
+    void clientMainLoop();
+    void serverMainLoop();
 
     friend class FailureDetectorTest;
 

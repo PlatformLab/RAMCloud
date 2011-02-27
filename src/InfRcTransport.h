@@ -79,7 +79,8 @@ class InfRcTransport : public Transport {
                                InfRCSession* session,
                                Buffer* request,
                                Buffer* response,
-                               uint64_t nonce);
+                               uint64_t nonce,
+                               string ServiceLocator);
             bool isReady();
             void sendOrQueue();
             void wait();
@@ -89,8 +90,16 @@ class InfRcTransport : public Transport {
             InfRCSession*       session;
             Buffer*             request;
             Buffer*             response;
+
             /// Uniquely identifies the RPC.
             uint64_t            nonce;
+
+            /// TSC when sendOrQueue() was called to initiate this RPC.
+            uint64_t            enqueueCycleTime;
+
+            /// ServiceLocator string of server this RPC was sent to.
+            string              serviceLocator;
+
             enum {
                 PENDING,
                 REQUEST_SENT,
@@ -135,6 +144,7 @@ class InfRcTransport : public Transport {
       private:
         InfRcTransport *transport;
         QueuePair* qp;
+        string serviceLocator;
         friend class ClientRpc;
         DISALLOW_COPY_AND_ASSIGN(InfRCSession);
     };
