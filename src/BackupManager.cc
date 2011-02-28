@@ -57,12 +57,13 @@ struct AbuserData{
     X* operator->() { return &x; }
     /**
      * Return the expected number of milliseconds the backup would take to read
-     * from its disk all of the primary segments this master has stored.
+     * from its disk all of the primary segments this master has stored on it
+     * plus an additional segment.
      */
     uint32_t getMs() {
         // unit tests, etc default to 100 MB/s
         uint32_t bandwidth = x.bandwidth ?: 100;
-        return (x.numSegments * 1000UL * Segment::SEGMENT_SIZE /
+        return ((x.numSegments + 1) * 1000UL * Segment::SEGMENT_SIZE /
                 1024 / 1024 / bandwidth);
     }
 };
