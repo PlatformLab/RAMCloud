@@ -327,7 +327,15 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->startReadingData(99, tablets, &result);
 
         Buffer response;
-        BackupClient::GetRecoveryData(*client, 99, 88, 0, response)();
+        while (true) {
+            try {
+                BackupClient::GetRecoveryData(*client, 99, 88, 0, response)();
+            } catch (const RetryException& e) {
+                response.reset();
+                continue;
+            }
+            break;
+        }
 
         RecoverySegmentIterator it(
             response.getRange(0, response.getTotalLength()),
@@ -384,7 +392,16 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         {
             Buffer response;
-            BackupClient::GetRecoveryData(*client, 99, 88, 0, response)();
+            while (true) {
+                try {
+                    BackupClient::GetRecoveryData(*client, 99, 88, 0,
+                                                  response)();
+                } catch (const RetryException& e) {
+                    response.reset();
+                    continue;
+                }
+                break;
+            }
 
             RecoverySegmentIterator it(
                 response.getRange(0, response.getTotalLength()),
@@ -399,7 +416,16 @@ class BackupServerTest : public CppUnit::TestFixture {
         }
         {
             Buffer response;
-            BackupClient::GetRecoveryData(*client, 99, 87, 0, response)();
+            while (true) {
+                try {
+                    BackupClient::GetRecoveryData(*client, 99, 87, 0,
+                                                  response)();
+                } catch (const RetryException& e) {
+                    response.reset();
+                    continue;
+                }
+                break;
+            }
 
             RecoverySegmentIterator it(
                 response.getRange(0, response.getTotalLength()),
@@ -425,12 +451,21 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         BackupClient::StartReadingData::Result result;
         client->startReadingData(99, ProtoBuf::Tablets(), &result);
-        Buffer response;
 
-        BackupClient::GetRecoveryData cont(*client, 99, 88,
-                                           0, response);
-        logger.setLogLevels(SILENT_LOG_LEVEL);
-        CPPUNIT_ASSERT_THROW(cont(), SegmentRecoveryFailedException);
+        while (true) {
+            Buffer response;
+            BackupClient::GetRecoveryData cont(*client, 99, 88,
+                                               0, response);
+            logger.setLogLevels(SILENT_LOG_LEVEL);
+            CPPUNIT_ASSERT_THROW(
+                try {
+                    cont();
+                } catch (const RetryException& e) {
+                    continue;
+                },
+                SegmentRecoveryFailedException);
+            break;
+        }
 
         CPPUNIT_ASSERT_EQUAL(1,
             BackupStorage::Handle::getAllocatedHandlesCount());
@@ -934,9 +969,25 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
     info.setRecovering(partitions);
 
     Buffer buffer;
-    info.appendRecoverySegment(0, buffer);
+    while (true) {
+        try {
+            info.appendRecoverySegment(0, buffer);
+        } catch (const RetryException& e) {
+            buffer.reset();
+            continue;
+        }
+        break;
+    }
     buffer.reset();
-    info.appendRecoverySegment(0, buffer);
+    while (true) {
+        try {
+            info.appendRecoverySegment(0, buffer);
+        } catch (const RetryException& e) {
+            buffer.reset();
+            continue;
+        }
+        break;
+    }
     RecoverySegmentIterator it(buffer.getRange(0, buffer.getTotalLength()),
                                  buffer.getTotalLength());
     EXPECT_FALSE(it.isDone());

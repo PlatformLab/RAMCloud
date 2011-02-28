@@ -409,7 +409,8 @@ class Master(Struct):
 
 class Backup(Struct):
     startReadingDataTicks = u64('total amount of time in sRD')
-    readCount = u64('total number of getRecoveryData requests processed')
+    readCount = u64(
+        'total number of getRecoveryData requests processed to completion')
     readStallTicks = u64(
         'total amount of time in gRD waiting for filtered segment')
     storageReadCount = u64('total number of segment reads from disk')

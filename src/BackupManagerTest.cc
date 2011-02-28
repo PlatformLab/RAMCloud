@@ -270,7 +270,15 @@ TEST_F(BackupManagerTest, writeSegment) {
         Buffer resp;
         BackupClient::StartReadingData::Result result;
         host.startReadingData(99, will, &result);
-        host.getRecoveryData(99, 88, 0, resp);
+        while (true) {
+            try {
+                host.getRecoveryData(99, 88, 0, resp);
+            } catch (const RetryException& e) {
+                resp.reset();
+                continue;
+            }
+            break;
+        }
         auto* entry = resp.getStart<SegmentEntry>();
         EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, entry->type);
         EXPECT_EQ(sizeof(Object), entry->length);
