@@ -34,7 +34,7 @@ runRecovery(RamCloud& client,
     uint64_t b;
 
     b = rdtsc();
-    char tableName[10];
+    char tableName[20];
     int tables[tableCount];
 
     for (int t = 0; t < tableCount; t++) {
@@ -74,7 +74,7 @@ runRecovery(RamCloud& client,
         // first in round-robin order to create multiple tables in the same
         // will
         for (int tt = 0; tt < tableSkip; tt++) {
-            snprintf(tableName, sizeof(tableName), "junk%d%d", t, tt);
+            snprintf(tableName, sizeof(tableName), "junk%d.%d", t, tt);
             client.createTable(tableName);
         }
     }

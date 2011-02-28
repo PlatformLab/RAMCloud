@@ -27,7 +27,7 @@ import subprocess
 
 dat = open('%s/recovery/partition_scale.data' % top_path, 'w', 1)
 
-for numPartitions in range(1, 13):
+for numPartitions in range(1, 36):
     args = {}
     args['numBackups'] = 36
     args['numPartitions'] = numPartitions
