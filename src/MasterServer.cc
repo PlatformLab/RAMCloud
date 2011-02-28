@@ -782,33 +782,6 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
         recoverSegmentPrefetcher(prefetch);
 #endif
 
-        // verify that the checksum is correct
-        if (type == LOG_ENTRY_TYPE_OBJ || type == LOG_ENTRY_TYPE_OBJTOMB) {
-            CycleCounter<Metric> c(&metrics->master.verifyChecksumTicks);
-            if (!i.isChecksumValid()) {
-                uint64_t tblId, objId, version;
-                string descr;
-                if (type == LOG_ENTRY_TYPE_OBJ) {
-                    const Object *recoverObj = reinterpret_cast<const Object *>(
-                        i.getPointer());
-                    objId = recoverObj->id.objectId;
-                    tblId = recoverObj->id.tableId;
-                    version = recoverObj->version;
-                    descr = "object";
-                } else {
-                    const ObjectTombstone *recoverTomb = reinterpret_cast<
-                        const ObjectTombstone *>(i.getPointer());
-                    objId = recoverTomb->id.objectId;
-                    tblId = recoverTomb->id.tableId;
-                    version = recoverTomb->objectVersion;
-                    descr = "tombstone";
-                }
-
-                LOG(WARNING, "invalid %s checksum! tbl: %lu, obj: %lu, "
-                    "ver: %lu", descr.c_str(), tblId, objId, version);
-            }
-        }
-
         if (type == LOG_ENTRY_TYPE_OBJ) {
             const Object *recoverObj = reinterpret_cast<const Object *>(
                 i.getPointer());
@@ -846,9 +819,9 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 // write to log (with lazy backup flush) & update hash table
                 uint64_t lengthInLog;
                 LogTime logTime;
-                LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
-                    recoverObj, i.getLength(), &lengthInLog,
-                    &logTime, false);
+                LogEntryHandle newObjHandle = log.append(
+                    LOG_ENTRY_TYPE_OBJ, recoverObj, i.getLength(), &lengthInLog,
+                    &logTime, false, i.checksum());
                 ++metrics->master.objectAppendCount;
                 metrics->master.liveObjectBytes +=
                     localObj->dataLength(i.getLength());
@@ -884,6 +857,15 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 reinterpret_cast<const ObjectTombstone *>(i.getPointer());
             uint64_t objId = recoverTomb->id.objectId;
             uint64_t tblId = recoverTomb->id.tableId;
+
+            bool checksumIsValid = ({
+                CycleCounter<Metric> c(&metrics->master.verifyChecksumTicks);
+                i.isChecksumValid();
+            });
+            if (!checksumIsValid) {
+                LOG(WARNING, "invalid tombstone checksum! tbl: %lu, obj: %lu, "
+                    "ver: %lu", tblId, objId, recoverTomb->objectVersion);
+            }
 
             const Object *localObj = NULL;
             const ObjectTombstone *tomb = NULL;

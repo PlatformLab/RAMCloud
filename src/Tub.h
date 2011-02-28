@@ -40,6 +40,13 @@ namespace RAMCloud {
  * - You want a way to return failure from a method without using pointers,
  *   exceptions, or special values (e.g. -1). The Tub gives you a 'maybe'
  *   object; it may be empty if a failure occurred.
+ * - You want a singleton, but don't want to deal with heap-allocating an
+ *   object on first use and freeing it later. Instead, just declare your object
+ *   in a tub and do:
+ *      if (!tub) tub.construct();
+ *  - You want optional arguments to a function, but don't want to use pointers
+ *    (i.e. use the Tub's boolean to determine that an argument was passed,
+ *    rather than checking arg != NULL).
  *
  * Tub is CopyConstructible if and only if ElementType is CopyConstructible,
  * and Tub is Assignable if and only if ElementType is Assignable.

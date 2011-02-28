@@ -177,6 +177,10 @@ Log::getSegmentId(const void *p)
  *      otherwise the replication will happen on a subsequent append()
  *      where sync is true or when the segment is closed.  This defaults
  *      to true.
+ * \param[in] expectedChecksum
+ *      The checksum we expect this entry to have once appended. If the
+ *      actual calculated checksum does not match, an exception is
+ *      thrown and nothing is appended. This parameter is optional.
  * \return
  *      A LogEntryHandle is returned, which points to the ``buffer''
  *      written. The handle is guaranteed to be valid, i.e. non-NULL.
@@ -187,7 +191,8 @@ Log::getSegmentId(const void *p)
  */
 LogEntryHandle
 Log::append(LogEntryType type, const void *buffer, const uint64_t length,
-    uint64_t *lengthInLog, LogTime *logTime, bool sync)
+    uint64_t *lengthInLog, LogTime *logTime, bool sync,
+    Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
     if (length > maximumAppendableBytes)
         throw LogException(HERE, "append exceeded maximum possible length");
@@ -198,7 +203,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     if (head != NULL) {
         seh = head->append(type, buffer,
                            downCast<uint32_t>(length), lengthInLog,
-                           &segmentOffset, sync);
+                           &segmentOffset, sync, expectedChecksum);
         if (seh != NULL) {
             // entry was appended to head segment
             if (logTime != NULL)
@@ -224,7 +229,7 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     // append the entry
     seh = head->append(type, buffer,
                        downCast<uint32_t>(length), lengthInLog,
-                       &segmentOffset, sync);
+                       &segmentOffset, sync, expectedChecksum);
     assert(seh != NULL);
     if (logTime != NULL)
         *logTime = LogTime(head->getId(), segmentOffset);
