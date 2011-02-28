@@ -230,11 +230,14 @@ class Segment {
             uint32_t capacity, BackupManager* backup = NULL);
     ~Segment();
 
-    SegmentEntryHandle append(LogEntryType type, const void *buffer,
-                              uint32_t length,
-                              uint64_t *lengthInSegment = NULL,
-                              uint64_t *offsetInSegment = NULL,
-                              bool sync = true);
+    SegmentEntryHandle append(LogEntryType type,
+                             const void *buffer,
+                             uint32_t length,
+                             uint64_t *lengthInSegment = NULL,
+                             uint64_t *offsetInSegment = NULL,
+                             bool sync = true,
+                             Tub<SegmentChecksum::ResultType> expectedChecksum =
+                                Tub<SegmentChecksum::ResultType>());
     void               free(SegmentEntryHandle entry);
     void               close(bool sync = true);
     void               sync();
@@ -257,11 +260,13 @@ class Segment {
     const void        *forceAppendBlob(const void *buffer,
                                        uint32_t length);
     SegmentEntryHandle forceAppendWithEntry(LogEntryType type,
-                                            const void *buffer,
-                                            uint32_t length,
-                                            uint64_t *lengthOfAppend = NULL,
-                                            bool sync = true,
-                                            bool updateChecksum = true);
+                             const void *buffer,
+                             uint32_t length,
+                             uint64_t *lengthOfAppend = NULL,
+                             bool sync = true,
+                             bool updateChecksum = true,
+                             Tub<SegmentChecksum::ResultType> expectedChecksum =
+                                 Tub<SegmentChecksum::ResultType>());
 
     BackupManager   *backup;         // makes operations on this segment durable
     void            *baseAddress;    // base address for the Segment

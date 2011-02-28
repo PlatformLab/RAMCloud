@@ -151,12 +151,18 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentEntry) + sizeof(SegmentHeader),
             offsetInSegment);
 
+        // ensure the checksum argument works
+        CPPUNIT_ASSERT_THROW(
+            s.append(LOG_ENTRY_TYPE_OBJ, &c, 1, NULL, NULL, true, 5),
+            SegmentException);
+
         int bytes = s.appendableBytes();
         char buf[bytes];
         for (int i = 0; i < bytes; i++)
             buf[i] = i;
 
-        seh = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes);
+        seh = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes, NULL, NULL, true,
+            0x3843bce9);
         CPPUNIT_ASSERT(seh != NULL);
 
         SegmentEntry *se = reinterpret_cast<SegmentEntry *>(

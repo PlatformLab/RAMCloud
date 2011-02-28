@@ -29,7 +29,7 @@ host[5]=rc17
 C=$proto:host=${host[0]}ib,port=12246
 commonopts="-l DEBUG --logModule transport=NOTICE -C $C"
 #remoteprecmd="ulimit -c 100000000; export LD_LIBRARY_PATH=/usr/local/lib;"
-remoteprecmd="export LD_LIBRARY_PATH=/usr/local/lib;"
+remoteprecmd="ulimit -c 10000000; export LD_LIBRARY_PATH=/usr/local/lib;"
 
 xstart() {
     xterm -e ssh -t -t $1 "$remoteprecmd $(pwd)/$OBJDIR/$2 $commonopts 2>&1 | tee $outputdir/$3" &

@@ -136,6 +136,10 @@ Segment::~Segment()
  *      otherwise the replication will happen on a subsequent append()
  *      where sync is true or when the segment is closed.  This defaults
  *      to true.
+ * \param[in] expectedChecksum
+ *      The checksum we expect this entry to have once appended. If the
+ *      actual calculated checksum does not match, an exception is
+ *      thrown and nothing is appended. This parameter is optional.
  * \param[out] lengthInSegment
  *      If non-NULL, the actual number of bytes consumed by this append to
  *      the Segment is stored to this address. Note that this size includes
@@ -153,7 +157,8 @@ Segment::~Segment()
  */
 SegmentEntryHandle
 Segment::append(LogEntryType type, const void *buffer, uint32_t length,
-    uint64_t *lengthInSegment, uint64_t *offsetInSegment, bool sync)
+    uint64_t *lengthInSegment, uint64_t *offsetInSegment, bool sync,
+    Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
     if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
       appendableBytes() < length)
@@ -162,7 +167,8 @@ Segment::append(LogEntryType type, const void *buffer, uint32_t length,
     if (offsetInSegment != NULL)
         *offsetInSegment = tail;
 
-    return forceAppendWithEntry(type, buffer, length, lengthInSegment, sync);
+    return forceAppendWithEntry(type, buffer, length,
+        lengthInSegment, sync, true, expectedChecksum);
 }
 
 /**
@@ -351,12 +357,19 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length)
  *      Optional boolean to disable updates to the Segment checksum. The
  *      default is to update the running checksum while appending data, but
  *      this can be stopped when appending the SegmentFooter, for instance.
+ * \param[in] expectedChecksum
+ *      The expected checksum this new entry should have. If the calculated
+ *      checksum does not match, an exception is thrown. This exists mainly
+ *      for recovery to avoid calculating the checksum twice (once to check
+ *      the recovered object, and again when adding to the log). This
+ *      parameter is optional and is not normally used.
  * \return
  *      A SegmentEntryHandle corresponding to the data just written. 
  */
 SegmentEntryHandle
 Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
-    uint32_t length, uint64_t *lengthOfAppend, bool sync, bool updateChecksum)
+    uint32_t length, uint64_t *lengthOfAppend, bool sync, bool updateChecksum,
+    Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
     assert(!closed);
 
@@ -373,6 +386,13 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
         entryChecksum.update(&entry, sizeof(entry));
         entryChecksum.update(buffer, length);
         entry.checksum = entryChecksum.getResult();
+
+        if (expectedChecksum && *expectedChecksum != entry.checksum) {
+            throw SegmentException(HERE, format("checksum didn't match "
+                "expected (wanted: 0x%08x, got 0x%08x)", *expectedChecksum,
+                entry.checksum));
+        }
+
         if (updateChecksum)
             checksum.update(&entry.checksum, sizeof(entry.checksum));
     }
