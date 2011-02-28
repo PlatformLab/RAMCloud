@@ -31,9 +31,6 @@ runRecovery(RamCloud& client,
             int tableCount,
             int tableSkip)
 {
-    uint64_t b;
-
-    b = rdtsc();
     char tableName[20];
     int tables[tableCount];
 
@@ -41,34 +38,6 @@ runRecovery(RamCloud& client,
         snprintf(tableName, sizeof(tableName), "%d", t);
         client.createTable(tableName);
         tables[t] = client.openTable(tableName);
-        int table = tables[t];
-
-        char val[objectDataSize];
-        memset(val, 0xcc, objectDataSize);
-        uint64_t id = 0xfffffff;
-
-        LOG(NOTICE, "Performing %u inserts of %u byte objects",
-            count, objectDataSize);
-        b = rdtsc();
-        Tub<RamCloud::Create> createRpcs[8];
-        for (int j = 0; j < count - 1; j++) {
-            auto& createRpc = createRpcs[j % arrayLength(createRpcs)];
-            if (createRpc)
-                (*createRpc)();
-            createRpc.construct(client,
-                                table, static_cast<void*>(val), objectDataSize,
-                                /* version = */ static_cast<uint64_t*>(NULL),
-                                /* async = */ true);
-        }
-        foreach (auto& createRpc, createRpcs) {
-            if (createRpc)
-                (*createRpc)();
-        }
-        id = client.create(table, val, objectDataSize,
-                           /* version = */ NULL,
-                           /* async = */ false);
-        LOG(DEBUG, "%d inserts took %lu ticks", count, rdtsc() - b);
-        LOG(DEBUG, "avg insert took %lu ticks", (rdtsc() - b) / count);
 
         // Create tables on the other masters so we skip back around to the
         // first in round-robin order to create multiple tables in the same
@@ -78,6 +47,37 @@ runRecovery(RamCloud& client,
             client.createTable(tableName);
         }
     }
+
+    LOG(NOTICE, "Performing %u inserts of %u byte objects",
+        count * tableCount, objectDataSize);
+    char val[objectDataSize];
+    memset(val, 0xcc, objectDataSize);
+    Tub<RamCloud::Create> createRpcs[8];
+    uint64_t b = rdtsc();
+    for (int j = 0; j < count - 1; j++) {
+        for (int t = 0; t < tableCount; t++) {
+            auto& createRpc = createRpcs[(j * tableCount + t) %
+                                         arrayLength(createRpcs)];
+            if (createRpc)
+                (*createRpc)();
+            createRpc.construct(client,
+                                tables[t],
+                                static_cast<void*>(val), objectDataSize,
+                                /* version = */ static_cast<uint64_t*>(NULL),
+                                /* async = */ true);
+        }
+    }
+    foreach (auto& createRpc, createRpcs) {
+        if (createRpc)
+            (*createRpc)();
+    }
+    client.create(tables[0], val, objectDataSize,
+                  /* version = */ NULL,
+                  /* async = */ false);
+    LOG(DEBUG, "%d inserts took %lu ticks", count * tableCount, rdtsc() - b);
+    LOG(DEBUG, "avg insert took %lu ticks",
+        (rdtsc() - b) / count / tableCount);
+
 
     // dump the tablet map
     for (int t = 0; t < tableCount; t++) {
