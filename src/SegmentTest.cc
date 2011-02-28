@@ -209,6 +209,10 @@ class SegmentTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT_EQUAL(0, s.appendableBytes());
         CPPUNIT_ASSERT_EQUAL(true, s.closed);
+
+        // please don't break this again
+        SegmentEntryHandle seh = reinterpret_cast<SegmentEntryHandle>(se);
+        CPPUNIT_ASSERT_EQUAL(true, seh->isChecksumValid());
     }
 
     // The following tests are not ordered with respect to the code,
