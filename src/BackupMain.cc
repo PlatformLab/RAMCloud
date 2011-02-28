@@ -89,8 +89,8 @@ try
     server.run();
 
     return 0;
-} catch (RAMCloud::Exception& e) {
+} catch (std::exception& e) {
     using namespace RAMCloud;
-    LOG(ERROR, "backup: %s", e.str().c_str());
+    LOG(ERROR, "backup: %s", e.what());
     return 1;
 }

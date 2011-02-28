@@ -738,7 +738,10 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
 
     if (replyPayload.getTotalLength() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
-                                 "server response exceeds maximum rpc size");
+             format("server response exceeds maximum rpc size "
+                    "(attempted %u bytes, maximum %u bytes)",
+                    replyPayload.getTotalLength(),
+                    t->getMaxRpcSize()));
     }
 
     BufferDescriptor* bd = t->getTransmitBuffer();
