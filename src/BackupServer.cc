@@ -31,6 +31,14 @@
 
 namespace RAMCloud {
 
+namespace {
+/**
+ * The TSC reading at the start of the last recovery.
+ * Used to update #Metrics::backup::readingDataTicks.
+ */
+uint64_t recoveryStart;
+} // anonymous namespace
+
 // --- BackupServer::SegmentInfo ---
 
 /**
@@ -716,6 +724,7 @@ BackupServer::IoScheduler::doLoad(SegmentInfo& info) const
     }
     info.segment = segment;
     info.condition.notify_all();
+    metrics->backup.readingDataTicks = rdtsc() - recoveryStart;
 }
 
 /**
@@ -1142,6 +1151,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
 {
     LOG(DEBUG, "Handling: %s %lu", __func__, reqHdr.masterId);
     recoveryTicks.construct(&metrics->recoveryTicks);
+    recoveryStart = rdtsc();
     reset(metrics, serverId, 2);
     metrics->backup.storageType = static_cast<uint64_t>(storage.storageType);
     CycleCounter<Metric> srdTicks(&metrics->backup.startReadingDataTicks);

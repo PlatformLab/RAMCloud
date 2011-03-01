@@ -413,6 +413,8 @@ class Backup(Struct):
         'total number of getRecoveryData requests processed to completion')
     readStallTicks = u64(
         'total amount of time in gRD waiting for filtered segment')
+    readingDataTicks = u64(
+        'total amount of time between startReadingData to done reading')
     storageReadCount = u64('total number of segment reads from disk')
     storageReadBytes = u64('total amount of bytes read from disk')
     storageReadTicks = u64('total amount of time reading from disk')
@@ -871,6 +873,16 @@ def textReport(data):
         fractionLabel='of total recovery')
     backupSection.ms('Filtering segments',
         [backup.backup.filterTicks / backup.clockFrequency
+         for backup in backups],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    backupSection.ms('Reading segments',
+        [backup.backup.readingDataTicks / backup.clockFrequency
+         for backup in backups],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    backupSection.ms('  Using disk',
+        [backup.backup.storageReadTicks / backup.clockFrequency
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
