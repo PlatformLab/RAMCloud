@@ -79,7 +79,7 @@ class Logger {
         std::copy(newLogLevels, newLogLevels + NUM_LOG_MODULES, logLevels);
     }
 
-    void logMessage(LogModule module, LogLevel level,
+    void logMessage(string sourceFile, LogLevel level,
                     const CodeLocation& where,
                     const char* format, ...)
         __attribute__((format(printf, 5, 6)));
@@ -91,8 +91,8 @@ class Logger {
      * possible or convenient to include that work as an expression in the
      * argument list to #LOG.
      */
-    bool isLogging(LogModule module, LogLevel level) {
-        return (level <= logLevels[module]);
+    bool isLogging(string sourceFile, LogLevel level) {
+        return (level <= logLevels[fileToModule(sourceFile)]);
     }
 
   private:
@@ -108,6 +108,9 @@ class Logger {
      */
     LogLevel logLevels[NUM_LOG_MODULES];
 
+
+    LogModule fileToModule(string& file);
+
     friend class LoggingTest;
     DISALLOW_COPY_AND_ASSIGN(Logger);
 };
@@ -116,12 +119,8 @@ extern Logger logger;
 
 } // end RAMCloud
 
-#define CURRENT_LOG_MODULE RAMCloud::DEFAULT_LOG_MODULE
-
 /**
  * Log a message for the system administrator.
- * The #CURRENT_LOG_MODULE macro should be set to the LogModule to which the
- * message pertains.
  * \param[in] level
  *      The level of importance of the message (LogLevel).
  * \param[in] format
@@ -131,16 +130,14 @@ extern Logger logger;
  *      The arguments to the format string.
  */
 #define LOG(level, format, ...) do { \
-    if (RAMCloud::logger.isLogging(CURRENT_LOG_MODULE, level)) \
-        RAMCloud::logger.logMessage(CURRENT_LOG_MODULE, level, HERE, \
+    if (RAMCloud::logger.isLogging(__FILE__, level)) \
+        RAMCloud::logger.logMessage(__FILE__, level, HERE, \
                                     format "\n", ##__VA_ARGS__); \
     TEST_LOG(format, ##__VA_ARGS__); \
 } while (0)
 
 /**
  * Log an ERROR message and throw a #RAMCloud::FatalError.
- * The #CURRENT_LOG_MODULE macro should be set to the LogModule to which the
- * message pertains.
  * \param[in] format_
  *      See #LOG().
  * \param[in] ...

@@ -18,8 +18,10 @@
 
 #include <boost/lexical_cast.hpp>
 #include <boost/thread/thread.hpp>
+#include <boost/unordered_map.hpp>
 
 #include "Logging.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -364,8 +366,9 @@ Logger::changeLogLevels(int delta)
 
 /**
  * Log a message for the system administrator.
- * \param[in] module
- *      The module to which the message pertains.
+ * \param[in] sourceFile 
+ *      The file this logMessage call is associated with.
+ *      This can be used to look up the appropriate module.
  * \param[in] level
  *      See #LOG.
  * \param[in] where
@@ -376,7 +379,7 @@ Logger::changeLogLevels(int delta)
  *      See #LOG.
  */
 void
-Logger::logMessage(LogModule module, LogLevel level,
+Logger::logMessage(string sourceFile, LogLevel level,
                    const CodeLocation& where,
                    const char* format, ...)
 {
@@ -391,7 +394,7 @@ Logger::logMessage(LogModule module, LogLevel level,
             now.tv_sec, now.tv_nsec,
             where.relativeFile().c_str(), where.line,
             where.qualifiedFunction().c_str(),
-            logModuleNames[module],
+            logModuleNames[fileToModule(sourceFile)],
             logLevelNames[level],
             pid);
 
@@ -400,6 +403,44 @@ Logger::logMessage(LogModule module, LogLevel level,
     va_end(ap);
 
     fflush(stream);
+}
+
+/**
+ * Return the Module associated with the given filename. The trouble with
+ * #define'ing the module name and catching it in the LOG macro is that
+ * we must often define in the header file (for logging in inline functions).
+ * Unfortunately, doing so in headers can propagate easily throughout the
+ * system and before you know it, lots of important messages are considered
+ * part of a module you're not expecting and may well be squelching.
+ */
+LogModule
+Logger::fileToModule(string& file)
+{
+    static Tub<boost::unordered_map<string, LogModule>> lookupTub;
+
+    if (!lookupTub) {
+        lookupTub.construct();
+        boost::unordered_map<string, LogModule>& lookup = *lookupTub;
+
+        string transportFiles[] = {
+            "Driver.cc", "Driver.h", "InfUdDriver.cc", "InfUdDriver.h",
+            "MockDriver.cc", "MockDriver.h", "UdpDriver.cc", "UdpDriver.h",
+            "BindTransport.cc", "BindTransport.h", "FastTransport.cc",
+            "FastTransport.h", "InfRcTransport.cc", "InfRcTransport.h",
+            "MockFastTransport.h", "MockTransport.cc", "MockTransport.h",
+            "TcpTransport.cc", "TcpTransport.h", "Transport.h",
+            "TransportFactory.h", "TransportManager.cc",
+            "TransportManager.h"
+        };
+        for (uint32_t i = 0; i < unsafeArrayLength(transportFiles); i++)
+            lookup[transportFiles[i]] = TRANSPORT_MODULE;
+    }
+
+    boost::unordered_map<string, LogModule>& lookup = *lookupTub;
+    if (lookup.find(file) != lookup.end())
+        return lookup[file];
+
+    return DEFAULT_LOG_MODULE;
 }
 
 } // end RAMCloud
