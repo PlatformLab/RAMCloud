@@ -138,8 +138,11 @@ void
 BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
                                                  Buffer& buffer)
 {
-    uint64_t start = rdtsc();
-    Lock lock(mutex);
+    Lock lock(mutex, boost::try_to_lock_t());
+    if (!lock.owns_lock()) {
+        LOG(DEBUG, "Deferring because couldn't acquire lock immediately");
+        throw RetryException(HERE);
+    }
 
     if (state != RECOVERING) {
         LOG(WARNING, "Asked for segment <%lu,%lu> which isn't recovering",
@@ -148,7 +151,6 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
     }
 
     if (!primary) {
-        ++metrics->backup.secondaryLoadCount;
         if (!isRecovered() && !recoveryException) {
             LOG(DEBUG, "Requested segment <%lu,%lu> is secondary, "
                 "starting build of recovery segments now", masterId, segmentId);
@@ -159,24 +161,19 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
             buildRecoverySegments(*recoveryPartitions);
             lock.lock();
         }
-    } else {
-        ++metrics->backup.primaryLoadCount;
     }
 
-    CycleCounter<Metric> stallTicks(&metrics->backup.readStallTicks);
-#if !TESTING
-    uint64_t spinStart = rdtsc();
-#endif
-    while (!isRecovered() && !recoveryException) {
-        LOG(DEBUG, "<%lu,%lu> not yet recovered; waiting", masterId, segmentId);
-        condition.wait(lock);
+    if (!isRecovered() && !recoveryException) {
+        LOG(DEBUG, "Deferring because <%lu,%lu> not yet filtered",
+            masterId, segmentId);
+        throw RetryException(HERE);
     }
     assert(state == RECOVERING);
-#if !TESTING
-    LOG(DEBUG, "Done spinning for segment <%lu,%lu>, waited %lu us", masterId,
-        segmentId, cyclesToNanoseconds(rdtsc() - spinStart) / 1000);
-#endif
-    stallTicks.stop();
+
+    if (primary)
+        ++metrics->backup.primaryLoadCount;
+    else
+        ++metrics->backup.secondaryLoadCount;
 
     if (recoveryException) {
         auto e = SegmentRecoveryFailedException(*recoveryException);
@@ -201,9 +198,7 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
         Buffer::Chunk::appendToBuffer(&buffer, it.getData(), it.getLength());
     }
 #endif
-    LOG(DEBUG, "appendRecoverySegment <%lu,%lu>, took %lu us",
-        masterId, segmentId,
-        cyclesToNanoseconds(rdtsc() - start) / 1000);
+    LOG(DEBUG, "appendRecoverySegment <%lu,%lu>", masterId, segmentId);
 }
 
 /**
@@ -1052,7 +1047,6 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 {
     LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
         reqHdr.masterId, reqHdr.segmentId, reqHdr.partitionId);
-    ++metrics->backup.readCount;
 
     SegmentInfo* info = findSegmentInfo(reqHdr.masterId, reqHdr.segmentId);
     if (!info) {
@@ -1063,6 +1057,7 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 
     info->appendRecoverySegment(reqHdr.partitionId, rpc.replyPayload);
 
+    ++metrics->backup.readCount;
     LOG(DEBUG, "getRecoveryData complete");
 }
 

@@ -280,18 +280,32 @@ struct Task {
     Task(uint64_t masterId,
          uint64_t partitionId,
          ProtoBuf::ServerList::Entry& backupHost)
-        : backupHost(backupHost)
+        : masterId(masterId)
+        , partitionId(partitionId)
+        , backupHost(backupHost)
         , response()
         , client(transportManager.getSession(
                     backupHost.service_locator().c_str()))
         , startTime(rdtsc())
-        , rpc(client, masterId, backupHost.segment_id(), partitionId, response)
-    {}
+        , waitUntil(0)
+        , rpc()
+    {
+          rpc.construct(client, masterId, backupHost.segment_id(),
+                        partitionId, response);
+    }
+    void resend() {
+        response.reset();
+        rpc.construct(client, masterId, backupHost.segment_id(),
+                      partitionId, response);
+    }
+    uint64_t masterId;
+    uint64_t partitionId;
     ProtoBuf::ServerList::Entry& backupHost;
     Buffer response;
     BackupClient client;
     const uint64_t startTime;
-    BackupClient::GetRecoveryData rpc;
+    uint64_t waitUntil;
+    Tub<BackupClient::GetRecoveryData> rpc;
     DISALLOW_COPY_AND_ASSIGN(Task);
 };
 }
@@ -481,7 +495,16 @@ MasterServer::recover(uint64_t masterId,
             while (Dispatch::poll());
         someTaskWasReady = false;
         foreach (auto& task, tasks) {
-            if (!task || !task->rpc.isReady())
+            if (!task)
+                continue;
+            if (task->waitUntil) {
+                if (task->waitUntil < rdtsc()) {
+                    task->waitUntil = 0;
+                    task->resend();
+                }
+                continue;
+            }
+            if (!task->rpc->isReady())
                 continue;
             someTaskWasReady = true;
             readStallTicks.destroy();
@@ -489,7 +512,7 @@ MasterServer::recover(uint64_t masterId,
                 task->backupHost.segment_id(),
                 task->backupHost.service_locator().c_str());
             try {
-                (task->rpc)();
+                (*task->rpc)();
                 uint64_t grdTime = rdtsc() - task->startTime;
                 LOG(DEBUG, "Got getRecoveryData response, took %lu us "
                     "on channel %ld",
@@ -520,6 +543,10 @@ MasterServer::recover(uint64_t masterId,
                         backup->set_user_data(REC_REQ_OK);
                     }
                 }
+            } catch (const RetryException& e) {
+                // The backup isn't ready yet, try back later.
+                task->waitUntil = rdtsc() + 3000000; // about 1ms
+                continue;
             } catch (const TransportException& e) {
                 LOG(DEBUG, "Couldn't contact %s, trying next backup; "
                     "failure was: %s",

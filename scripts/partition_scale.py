@@ -27,13 +27,13 @@ import subprocess
 
 dat = open('%s/recovery/partition_scale.data' % top_path, 'w', 1)
 
-for numPartitions in range(1, 13):
+for numPartitions in range(1, 36):
     args = {}
     args['numBackups'] = 36
     args['numPartitions'] = numPartitions
     args['objectSize'] = 1024
     args['disk'] = '/dev/sda2'
-    args['replicas'] = 1
+    args['replicas'] = 3
     args['numObjects'] = 626012 * 400 // 640
     args['oldMasterArgs'] = '-m 17000'
     args['newMasterArgs'] = '-m 600'
