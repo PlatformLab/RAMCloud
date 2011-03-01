@@ -119,7 +119,8 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
     , segmentFrames(segmentFrames)
 {
     const char* killMessageStr = "FREE";
-    killMessageLen = getpagesize();
+    // Must write block size of larger when O_DIRECT.
+    killMessageLen = 512;
     int r = posix_memalign(&killMessage, killMessageLen, killMessageLen);
     if (r != 0)
         throw std::bad_alloc();
