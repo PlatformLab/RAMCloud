@@ -426,10 +426,10 @@ Logger::fileToModule(string& file)
             "Driver.cc", "Driver.h", "InfUdDriver.cc", "InfUdDriver.h",
             "MockDriver.cc", "MockDriver.h", "UdpDriver.cc", "UdpDriver.h",
             "BindTransport.cc", "BindTransport.h", "FastTransport.cc",
-            "FastTransport.h", "InfRcTransport.cc", "InfRcTransport.h",
-            "MockFastTransport.h", "MockTransport.cc", "MockTransport.h",
-            "TcpTransport.cc", "TcpTransport.h", "Transport.h",
-            "TransportFactory.h", "TransportManager.cc",
+            "FastTransport.h", "Infiniband.cc", "InfRcTransport.cc",
+            "InfRcTransport.h", "MockFastTransport.h", "MockTransport.cc",
+            "MockTransport.h", "TcpTransport.cc", "TcpTransport.h",
+            "Transport.h", "TransportFactory.h", "TransportManager.cc",
             "TransportManager.h"
         };
         for (uint32_t i = 0; i < unsafeArrayLength(transportFiles); i++)
