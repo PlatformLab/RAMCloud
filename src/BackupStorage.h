@@ -21,6 +21,7 @@
 #include <boost/pool/pool.hpp>
 #include <boost/dynamic_bitset.hpp>
 
+#include "BenchUtil.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -69,6 +70,8 @@ class BackupStorage {
     {
     }
 
+    virtual pair<uint32_t, uint32_t> benchmark();
+
     /**
      * An opaque handle used to access a stored segment.  All concrete
      * implementations of BackupStorage will subclass this to contain the
@@ -108,6 +111,9 @@ class BackupStorage {
 
       DISALLOW_COPY_AND_ASSIGN(Handle);
     };
+
+    /// See #storageType.
+    enum class Type { UNKNOWN = 0, MEMORY = 1, DISK = 2 };
 
     /**
      * Set aside storage for a specific segment and give a handle back
@@ -169,14 +175,22 @@ class BackupStorage {
      *
      * \param segmentSize
      *      The segment size this BackupStorage operates on.
+     * \param storageType
+     *      The storage type corresponding with the concrete implementation of
+     *      this class.
      */
-    explicit BackupStorage(uint32_t segmentSize)
+    explicit BackupStorage(uint32_t segmentSize, Type storageType)
         : segmentSize(segmentSize)
+        , storageType(storageType)
     {
     }
 
     /// The segment size this BackupStorage operates on.
     uint32_t const segmentSize;
+
+  public:
+    /// Used in Metrics to print out the backup storage type.
+    const Type storageType;
 
     DISALLOW_COPY_AND_ASSIGN(BackupStorage);
 };
@@ -222,6 +236,7 @@ class SingleFileStorage : public BackupStorage {
     virtual ~SingleFileStorage();
     virtual BackupStorage::Handle* allocate(uint64_t masterId,
                                             uint64_t segmentId);
+    virtual pair<uint32_t, uint32_t> benchmark();
     virtual void free(BackupStorage::Handle* handle);
     virtual void
     getSegment(const BackupStorage::Handle* handle,
@@ -240,6 +255,15 @@ class SingleFileStorage : public BackupStorage {
 
     /// The file descriptor of the storage file.
     int fd;
+
+    /**
+     * A short segment aligned buffer used for mutilating segment frame
+     * headers on disk.
+     */
+    void* killMessage;
+
+    /// The length killMessage in bytes.
+    uint32_t killMessageLen;
 
     /**
      * Track the last used segment frame so they can be used in FIFO.

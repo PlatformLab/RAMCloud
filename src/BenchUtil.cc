@@ -27,6 +27,11 @@
 
 namespace RAMCloud {
 
+// The following variable is used only by getCyclesPerSecond (to cache its
+// result so it needn't be recomputed continuously). It is pulled out here
+// so that it can be modified to simplify unit testing.
+uint64_t cyclesPerSec = 0;
+
 /**
  * Return the approximate number of cycles per second for this CPU.
  * The value is computed once during the first call, then reused in
@@ -37,9 +42,8 @@ namespace RAMCloud {
 uint64_t
 getCyclesPerSecond()
 {
-    static uint64_t cycles = 0;
-    if (cycles)
-        return cycles;
+    if (cyclesPerSec)
+        return cyclesPerSec;
 
     // Overall strategy: take parallel time readings using both rdtsc
     // and gettimeofday. After 10ms have elapsed, take the ratio between
@@ -70,17 +74,24 @@ getCyclesPerSecond()
             micros = (stopTime.tv_usec - startTime.tv_usec) +
                     (stopTime.tv_sec - startTime.tv_sec)*1000000;
             if (micros > 10000) {
-                cycles = 1000000*(stopCycles - startCycles) / micros;
+                cyclesPerSec = 1000000*(stopCycles - startCycles) / micros;
                 break;
             }
         }
-        uint64_t delta = cycles/1000;
-        if ((oldCycles > (cycles - delta)) && (oldCycles < (cycles + delta))) {
-            return cycles;
+        uint64_t delta = cyclesPerSec/1000;
+        if ((oldCycles > (cyclesPerSec - delta)) &&
+                (oldCycles < (cyclesPerSec + delta))) {
+            return cyclesPerSec;
         }
-        oldCycles = cycles;
+        oldCycles = cyclesPerSec;
     }
 }
+
+namespace {
+    // Run getCyclesPerSecond during process initialization so that it doesn't
+    // stall the process for 20ms at some unexpected later time.
+    uint64_t _ = getCyclesPerSecond();
+};
 
 /**
  * Given an elapsed number of cycles, return an approximate number of
@@ -93,9 +104,17 @@ getCyclesPerSecond()
 uint64_t
 cyclesToNanoseconds(uint64_t cycles)
 {
-    if (cycles > 1000UL * 1000 * 1000)
-        return (cycles * 1000UL / getCyclesPerSecond()) * 1000UL * 1000;
-    return (cycles * 1000UL * 1000 * 1000 / getCyclesPerSecond());
+    return (static_cast<__uint128_t>(cycles) * 1000 * 1000 * 1000 /
+            getCyclesPerSecond());
+}
+
+/**
+ * \copydoc cyclesToNanoseconds
+ */
+double
+cyclesToNanoseconds(double cycles)
+{
+    return (cycles * 1000 * 1000 * 1000 / getCyclesPerSecond());
 }
 
 /**
@@ -124,11 +143,8 @@ cyclesToSeconds(uint64_t cycles)
 uint64_t
 nanosecondsToCycles(uint64_t ns)
 {
-    if (ns > 1000UL * 1000 * 1000 * 1000)
-        return (ns / (1000UL * 1000 * 1000)) * getCyclesPerSecond();
-    if (ns > 1000UL * 1000 * 1000)
-        return (ns / (1000UL * 1000)) * getCyclesPerSecond() / 1000UL;
-    return (ns * getCyclesPerSecond()) / (1000UL * 1000 * 1000);
+    return (static_cast<__uint128_t>(ns) * getCyclesPerSecond() /
+            (1000UL * 1000 * 1000));
 }
 
 /// Spin for the given number of nanoseconds.

@@ -28,19 +28,22 @@
 #include <boost/scoped_ptr.hpp>
 #include <boost/pool/pool.hpp>
 #include <map>
+#include <queue>
 
 #include "Common.h"
 #include "BackupClient.h"
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
+#include "CycleCounter.h"
 #include "LogTypes.h"
+#include "Metrics.h"
 #include "Rpc.h"
 #include "Server.h"
 
 namespace RAMCloud {
 
 #if TESTING
-ObjectTub<uint64_t> whichPartition(const LogEntryType type,
+Tub<uint64_t> whichPartition(const LogEntryType type,
                                    const void* data,
                                    const ProtoBuf::Tablets& partitions);
 #endif
@@ -156,8 +159,8 @@ class BackupServer : public Server {
         Pool pool;
     };
 
-    class LoadOp;
-    class StoreOp;
+    class IoScheduler;
+    class RecoverySegmentBuilder;
 
     /**
      * Tracks all state associated with a single segment and manages
@@ -186,6 +189,7 @@ class BackupServer : public Server {
         };
 
         SegmentInfo(BackupStorage& storage, ThreadSafePool& pool,
+                    IoScheduler& ioScheduler,
                     uint64_t masterId, uint64_t segmentId,
                     uint32_t segmentSize, bool primary);
         ~SegmentInfo();
@@ -206,7 +210,6 @@ class BackupServer : public Server {
         bool
         isOpen()
         {
-            Lock _(mutex);
             return state == OPEN;
         }
 
@@ -219,7 +222,6 @@ class BackupServer : public Server {
         void
         setRecovering()
         {
-            Lock _(mutex);
             assert(primary);
             state = RECOVERING;
         }
@@ -233,7 +235,6 @@ class BackupServer : public Server {
         void
         setRecovering(const ProtoBuf::Tablets& partitions)
         {
-            Lock _(mutex);
             assert(!primary);
             state = RECOVERING;
             // Make a copy of the partition list for deferred filtering.
@@ -256,8 +257,6 @@ class BackupServer : public Server {
         {
             if (&info == this)
                 return false;
-            Lock _(mutex);
-            Lock __(info.mutex);
             return segmentId < info.segmentId;
         }
 
@@ -292,16 +291,18 @@ class BackupServer : public Server {
         void
         waitForOngoingOps(Lock& lock)
         {
+#ifndef SINGLE_THREADED_BACKUP
             int lastThreadCount = 0;
-            while (storageThreadCount > 0) {
-                if (storageThreadCount != lastThreadCount) {
+            while (storageOpCount > 0) {
+                if (storageOpCount != lastThreadCount) {
                     LOG(DEBUG, "Waiting for storage threads to terminate "
                         "for a segment, %d threads still running",
-                        static_cast<int>(storageThreadCount));
-                    lastThreadCount = storageThreadCount;
+                        static_cast<int>(storageOpCount));
+                    lastThreadCount = storageOpCount;
                 }
                 condition.wait(lock);
             }
+#endif
         }
 
         /**
@@ -317,6 +318,9 @@ class BackupServer : public Server {
          */
         boost::condition_variable condition;
 
+        /// Gatekeeper through which async IOs are scheduled.
+        IoScheduler& ioScheduler;
+
         /// An array of recovery segments when non-null.
         /// The exception if one occurred while recovering a segment.
         boost::scoped_ptr<SegmentRecoveryFailedException> recoveryException;
@@ -325,7 +329,7 @@ class BackupServer : public Server {
          * Only used if this segment is recovering but the filtering is
          * deferred (i.e. this isn't the primary segment backup copy).
          */
-        ObjectTub<ProtoBuf::Tablets> recoveryPartitions;
+        Tub<ProtoBuf::Tablets> recoveryPartitions;
 
         /// An array of recovery segments when non-null.
 #ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
@@ -377,44 +381,57 @@ class BackupServer : public Server {
         /// For allocating, loading, storing segments to.
         BackupStorage& storage;
 
-        /// Count of threads performing loads/stores on this segment.
-        int storageThreadCount;
+        /// Count of loads/stores pending for this segment.
+        int storageOpCount;
 
-        friend class LoadOp;
-        friend class StoreOp;
+        friend class IoScheduler;
+        friend class RecoverySegmentBuilder;
         friend class BackupServerTest;
         friend class SegmentInfoTest;
         DISALLOW_COPY_AND_ASSIGN(SegmentInfo);
     };
 
     /**
-     * Load a segment from disk into a valid buffer in memory.  Locks
-     * the #SegmentInfo::mutex to ensure other operations aren't performed
-     * on the segment in the meantime.
+     * Queues, prioritizes, and dispatches storage load/store operations.
      */
-    class LoadOp {
+    class IoScheduler {
       public:
-        explicit LoadOp(SegmentInfo& info);
+        IoScheduler();
         void operator()();
+        void load(SegmentInfo& info);
+        void quiesce();
+        void store(SegmentInfo& info);
+        void shutdown(boost::thread& ioThread);
 
       private:
-        /// The SegmentInfo this LoadOp operates on.
-        SegmentInfo& info;
-    };
+        void doLoad(SegmentInfo& info) const;
+        void doStore(SegmentInfo& info) const;
 
-    /**
-     * Store a segment to disk from a valid buffer in memory.  Locks
-     * the #SegmentInfo::mutex to ensure other operations aren't performed
-     * on the segment in the meantime.
-     */
-    class StoreOp {
-      public:
-        explicit StoreOp(SegmentInfo& info);
-        void operator()();
+        typedef boost::unique_lock<boost::mutex> Lock;
 
-      private:
-        /// The SegmentInfo this StoreOp operates on.
-        SegmentInfo& info;
+        /// Protects #loadQueue, #storeQueue, and #running.
+        boost::mutex queueMutex;
+
+        /// Notified when new requests are added to either queue.
+        boost::condition_variable queueCond;
+
+        /// Queue of SegmentInfos to be loaded from storage.
+        std::queue<SegmentInfo*> loadQueue;
+
+        /// Queue of SegmentInfos to be written to storage.
+        std::queue<SegmentInfo*> storeQueue;
+
+        /// When false scheduler will exit when no outstanding requests remain.
+        bool running;
+
+        /**
+         * The number of store ops issued that have not yet completed.
+         * More precisely, this is the size of #storeQueue plus the number of
+         * threads currently executing #doStore. It is necessary for #quiesce.
+         */
+        mutable std::atomic<uint64_t> outstandingStores;
+
+        DISALLOW_COPY_AND_ASSIGN(IoScheduler);
     };
 
     /**
@@ -476,6 +493,13 @@ class BackupServer : public Server {
     void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                          BackupGetRecoveryDataRpc::Response& respHdr,
                          Transport::ServerRpc& rpc);
+    void quiesce(const BackupQuiesceRpc::Request& reqHdr,
+                 BackupQuiesceRpc::Response& respHdr,
+                 Transport::ServerRpc& rpc);
+    void recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
+                         BackupRecoveryCompleteRpc::Response& respHdr,
+                         Transport::ServerRpc& rpc,
+                         Responder& responder);
     static bool segmentInfoLessThan(SegmentInfo* left,
                                     SegmentInfo* right);
     void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
@@ -494,6 +518,12 @@ class BackupServer : public Server {
 
     /// Coordinator-assigned ID for this backup server
     uint64_t serverId;
+
+    /**
+     * Times each recovery. This is an Tub that is reset on every
+     * recovery, since CycleCounters can't presently be restarted.
+     */
+    Tub<CycleCounter<Metric>> recoveryTicks;
 
     /**
      * A pool of aligned segments (supporting O_DIRECT) to avoid
@@ -539,6 +569,11 @@ class BackupServer : public Server {
 
     /// For unit testing.
     uint64_t bytesWritten;
+
+    /// Gatekeeper through which async IOs are scheduled.
+    IoScheduler ioScheduler;
+    /// The thread driving #ioScheduler.
+    boost::thread ioThread;
 
     friend class BackupServerTest;
     friend class SegmentInfoTest;

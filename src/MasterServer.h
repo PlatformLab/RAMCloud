@@ -213,6 +213,9 @@ class MasterServer : public Server {
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
                 Transport::ServerRpc& rpc);
+    void rereplicateSegments(const RereplicateSegmentsRpc::Request& reqHdr,
+                             RereplicateSegmentsRpc::Response& respHdr,
+                             Transport::ServerRpc& rpc);
     void setTablets(const ProtoBuf::Tablets& newTablets);
     void setTablets(const SetTabletsRpc::Request& reqHdr,
                     SetTabletsRpc::Response& respHdr,
@@ -228,7 +231,7 @@ class MasterServer : public Server {
   public:
     CoordinatorClient* coordinator;
 
-    uint64_t serverId;
+    Tub<uint64_t> serverId;
 
   private:
     /// Maximum number of bytes per partition. For Will calculation.
@@ -280,7 +283,7 @@ class MasterServer : public Server {
     void storeData(uint64_t table, uint64_t id,
                    const RejectRules* rejectRules, Buffer* data,
                    uint32_t dataOffset, uint32_t dataLength,
-                   uint64_t* newVersion);
+                   uint64_t* newVersion, bool async);
     friend class MasterTest;
     friend class MasterRecoverTest;
     friend class CoordinatorTest;

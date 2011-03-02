@@ -23,6 +23,105 @@ namespace RAMCloud {
 // Default RejectRules to use if none are provided by the caller.
 RejectRules defaultRejectRules;
 
+/// Start a create RPC. See MasterClient::create.
+MasterClient::Create::Create(MasterClient& client,
+                             uint32_t tableId,
+                             const void* buf, uint32_t length,
+                             uint64_t* version, bool async)
+    : client(client)
+    , version(version)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    CreateRpc::Request& reqHdr(client.allocHeader<CreateRpc>(requestBuffer));
+    reqHdr.tableId = tableId;
+    reqHdr.length = length;
+    reqHdr.async = async;
+    Buffer::Chunk::appendToBuffer(&requestBuffer, buf, length);
+    state = client.send<CreateRpc>(client.session,
+                                   requestBuffer,
+                                   responseBuffer);
+}
+
+/// Wait for the create RPC to complete.
+uint64_t
+MasterClient::Create::operator()()
+{
+    const CreateRpc::Response& respHdr(client.recv<CreateRpc>(state));
+    if (version != NULL)
+        *version = respHdr.version;
+    client.checkStatus(HERE);
+    return respHdr.id;
+}
+
+/// Start a write RPC. See MasterClient::write.
+MasterClient::Write::Write(MasterClient& client,
+                           uint32_t tableId, uint64_t id,
+                           const void* buf, uint32_t length,
+                           const RejectRules* rejectRules, uint64_t* version,
+                           bool async)
+    : client(client)
+    , version(version)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    WriteRpc::Request& reqHdr(client.allocHeader<WriteRpc>(requestBuffer));
+    reqHdr.id = id;
+    reqHdr.tableId = tableId;
+    reqHdr.length = length;
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    reqHdr.async = async;
+    Buffer::Chunk::appendToBuffer(&requestBuffer, buf, length);
+    state = client.send<WriteRpc>(client.session,
+                                  requestBuffer,
+                                  responseBuffer);
+}
+
+/// Wait for the write RPC to complete.
+void
+MasterClient::Write::operator()()
+{
+    const WriteRpc::Response& respHdr(client.recv<WriteRpc>(state));
+    if (version != NULL)
+        *version = respHdr.version;
+    client.checkStatus(HERE);
+}
+
+/**
+ * Report to a master that a particular backup has failed so that it
+ * can rereplicate any segments that might have been stored there.
+ *
+ * \param client
+ *      The MasterClient instance over which the RPC should be issued.
+ * \param backupId
+ *      The server id of a backup which has failed.
+ */
+MasterClient::RereplicateSegments::RereplicateSegments(MasterClient& client,
+                                                       uint64_t backupId)
+    : client(client)
+    , backupId(backupId)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    RereplicateSegmentsRpc::Request& reqHdr(
+        client.allocHeader<RereplicateSegmentsRpc>(requestBuffer));
+    reqHdr.backupId = backupId;
+    state = client.send<RereplicateSegmentsRpc>(client.session,
+                                                requestBuffer,
+                                                responseBuffer);
+}
+
+/// Wait for the rereplicateSegments RPC to complete.
+void
+MasterClient::RereplicateSegments::operator()()
+{
+    client.recv<RereplicateSegmentsRpc>(state);
+    client.checkStatus(HERE);
+}
+
 /**
  * Create a new object in a table, with an id assigned by the server.
  *
@@ -38,30 +137,21 @@ RejectRules defaultRejectRules;
  *      If non-NULL, the version number of the new object is returned
  *      here; guaranteed to be greater than that of any previous
  *      object that used the same id in the same table.
- *      
+ * \param async
+ *      If true, the new object will not be immediately replicated to backups.
+ *      Data loss may occur!
  * \return
  *      The identifier for the new object: unique within the table
  *      and guaranteed not to be in use already. Generally, servers
  *      choose ids sequentially starting at 1 (but they may need
  *      to skip over ids previously created using \c write).
- *
  * \exception InternalError
  */
 uint64_t
 MasterClient::create(uint32_t tableId, const void* buf, uint32_t length,
-        uint64_t* version)
+                     uint64_t* version, bool async)
 {
-    Buffer req, resp;
-    CreateRpc::Request& reqHdr(allocHeader<CreateRpc>(req));
-    reqHdr.tableId = tableId;
-    reqHdr.length = length;
-    Buffer::Chunk::appendToBuffer(&req, buf, length);
-    const CreateRpc::Response& respHdr(
-        sendRecv<CreateRpc>(session, req, resp));
-    if (version != NULL)
-        *version = respHdr.version;
-    checkStatus(HERE);
-    return respHdr.id;
+    return Create(*this, tableId, buf, length, version, async)();
 }
 
 /**
@@ -238,26 +328,20 @@ MasterClient::setTablets(const ProtoBuf::Tablets& tablets)
  *      any previous version of the object. If the operation failed
  *      then the version number returned is the current version of
  *      the object, or 0 if the object does not exist.
+ * \param async
+ *      If true, the new object will not be immediately replicated to backups.
+ *      Data loss may occur!
  *
  * \exception RejectRulesException
  * \exception InternalError
  */
 void
 MasterClient::write(uint32_t tableId, uint64_t id,
-                      const void* buf, uint32_t length,
-                      const RejectRules* rejectRules, uint64_t* version)
+                    const void* buf, uint32_t length,
+                    const RejectRules* rejectRules, uint64_t* version,
+                    bool async)
 {
-    Buffer req, resp;
-    WriteRpc::Request& reqHdr(allocHeader<WriteRpc>(req));
-    reqHdr.id = id;
-    reqHdr.tableId = tableId;
-    reqHdr.length = length;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    Buffer::Chunk::appendToBuffer(&req, buf, length);
-    const WriteRpc::Response& respHdr(sendRecv<WriteRpc>(session, req, resp));
-    if (version != NULL)
-        *version = respHdr.version;
-    checkStatus(HERE);
+    Write(*this, tableId, id, buf, length, rejectRules, version, async)();
 }
 
 }  // namespace RAMCloud

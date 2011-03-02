@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -17,6 +17,7 @@
 #include "MockDriver.h"
 #include "MockTransport.h"
 #include "FastTransport.h"
+#include "UdpDriver.h"
 
 namespace RAMCloud {
 
@@ -81,31 +82,24 @@ class MockReceived : public Driver::Received {
 
 // --- FastTransportTest ---
 
-class FastTransportTest : public CppUnit::TestFixture, FastTransport {
+class FastTransportTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(FastTransportTest);
+    CPPUNIT_TEST(test_sanityCheck);
     CPPUNIT_TEST(test_getSession_noneExpirable);
     CPPUNIT_TEST(test_getSession_reuseExpired);
     CPPUNIT_TEST(test_serverRecv);
-    CPPUNIT_TEST(test_addTimer_notIn);
-    CPPUNIT_TEST(test_addTimer_alreadyIn);
-    CPPUNIT_TEST(test_fireTimers);
     CPPUNIT_TEST(test_numFrags_fullPacket);
     CPPUNIT_TEST(test_numFrags_oneByteTooBig);
-    CPPUNIT_TEST(test_removeTimer_notIn);
-    CPPUNIT_TEST(test_removeTimer_alreadyIn);
-    CPPUNIT_TEST(test_poll);
-    CPPUNIT_TEST(test_poll_noIter);
     CPPUNIT_TEST(test_sendBadSessionError);
-    CPPUNIT_TEST(test_tryProcessPacket_noPacketReady);
-    CPPUNIT_TEST(test_tryProcessPacket_tooSmall);
-    CPPUNIT_TEST(test_tryProcessPacket_dropped);
-    CPPUNIT_TEST(test_tryProcessPacket_c2sBadHintOpenSession);
-    CPPUNIT_TEST(test_tryProcessPacket_c2sBadSession);
-    CPPUNIT_TEST(test_tryProcessPacket_c2sGoodHint);
-    CPPUNIT_TEST(test_tryProcessPacket_c2sGoodHintBadToken);
-    CPPUNIT_TEST(test_tryProcessPacket_s2cGoodHint);
-    CPPUNIT_TEST(test_tryProcessPacket_s2cGoodHintBadToken);
-    CPPUNIT_TEST(test_tryProcessPacket_s2cBadHint);
+    CPPUNIT_TEST(test_handleIncomingPacket_tooSmall);
+    CPPUNIT_TEST(test_handleIncomingPacket_dropped);
+    CPPUNIT_TEST(test_handleIncomingPacket_c2sBadHintOpenSession);
+    CPPUNIT_TEST(test_handleIncomingPacket_c2sBadSession);
+    CPPUNIT_TEST(test_handleIncomingPacket_c2sGoodHint);
+    CPPUNIT_TEST(test_handleIncomingPacket_c2sGoodHintBadToken);
+    CPPUNIT_TEST(test_handleIncomingPacket_s2cGoodHint);
+    CPPUNIT_TEST(test_handleIncomingPacket_s2cGoodHintBadToken);
+    CPPUNIT_TEST(test_handleIncomingPacket_s2cBadHint);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -113,52 +107,95 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     void
     setUp()
     {
-        driver = new MockDriver(Header::headerToString);
+        driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(driver);
 
-        request = new Buffer();
-        response = new Buffer();
         logger.setLogLevels(SILENT_LOG_LEVEL);
+
+        // The following is necessary in case some other tests messed up
+        // currentTime (e.g. by resetting it to 0).
+        Dispatch::currentTime = rdtsc();
     }
 
     void
     tearDown()
     {
-        delete response;
-        delete request;
         delete transport;
+        FastTransport::timeoutCyclesOverride = 0;
+        FastTransport::sessionTimeoutCyclesOverride = 0;
     }
 
     FastTransportTest()
-        : FastTransport(NULL)
-        , request(NULL)
-        , response(NULL)
-        , serviceLocator("fast+udp: host=1.2.3.4, port=1234")
+        : serviceLocator("fast+udp: host=1.2.3.4, port=1234")
         , transport(NULL)
         , driver(NULL)
         , address("1.2.3.4")
         , port(1234)
     {}
 
+    void test_sanityCheck() {
+        // Create a server and a client and verify that we can
+        // send a request, receive it, send a reply, and receive it.
+        // Then try a second request with bigger chunks of data.
+
+        ServiceLocator serverLocator("fast+udp: host=localhost, port=11101");
+        UdpDriver* serverDriver = new UdpDriver(&serverLocator);
+        FastTransport server(serverDriver);
+        UdpDriver* clientDriver = new UdpDriver();
+        FastTransport client(clientDriver);
+        Transport::SessionRef session = client.getSession(serverLocator);
+
+        Buffer request;
+        Buffer reply;
+        request.fillFromString("abcdefg");
+        Transport::ClientRpc* clientRpc = session->clientSend(&request,
+                &reply);
+        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
+        CPPUNIT_ASSERT(serverRpc != NULL);
+        CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
+        CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
+        serverRpc->replyPayload.fillFromString("klmn");
+        serverRpc->sendReply();
+        Dispatch::handleEvent();
+        CPPUNIT_ASSERT_EQUAL(true, clientRpc->isReady());
+        CPPUNIT_ASSERT_EQUAL("klmn/0", toString(&reply));
+
+        fillLargeBuffer(&request, 100000);
+        reply.reset();
+        clientRpc = session->clientSend(&request, &reply);
+        serverRpc = waitForRpcRequest(&server, 1.0);
+        CPPUNIT_ASSERT(serverRpc != NULL);
+        CPPUNIT_ASSERT_EQUAL("ok",
+                checkLargeBuffer(&serverRpc->recvPayload, 100000));
+        fillLargeBuffer(&serverRpc->replyPayload, 50000);
+        serverRpc->sendReply();
+        clientRpc->wait();
+        CPPUNIT_ASSERT_EQUAL("ok", checkLargeBuffer(&reply, 50000));
+    }
+
     void
     test_getSession_noneExpirable()
     {
         CPPUNIT_ASSERT_EQUAL(0, transport->clientSessions.size());
-        SessionRef session = transport->getSession(serviceLocator);
+        FastTransport::SessionRef session =
+                transport->getSession(serviceLocator);
         CPPUNIT_ASSERT(0 != session.get());
         CPPUNIT_ASSERT_EQUAL(1, transport->clientSessions.size());
-        ClientSession* clientSession =
-            static_cast<ClientSession*>(session.get());
+        FastTransport::ClientSession* clientSession =
+            static_cast<FastTransport::ClientSession*>(session.get());
         CPPUNIT_ASSERT(0 != clientSession->serverAddress.get());
     }
 
     void
     test_getSession_reuseExpired()
     {
+        Dispatch::currentTime = 0;
         CPPUNIT_ASSERT_EQUAL(0, transport->clientSessions.size());
         Transport::Session* firstSession =
             transport->getSession(serviceLocator).get();
-        MockTSC _(SESSION_TIMEOUT_NS * 2);
+        FastTransport::sessionTimeoutCyclesOverride =
+                FastTransport::SESSION_TIMEOUT_NS;
+        Dispatch::currentTime = FastTransport::SESSION_TIMEOUT_NS;
         Transport::Session* lastSession =
             transport->getSession(serviceLocator).get();
         CPPUNIT_ASSERT_EQUAL(firstSession, lastSession);
@@ -169,7 +206,7 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     test_serverRecv()
     {
         CPPUNIT_ASSERT_EQUAL(NULL, transport->serverRecv());
-        ServerRpc rpc;
+        FastTransport::ServerRpc rpc;
         rpc.setup(NULL, 0);
         transport->serverReadyQueue.push_back(rpc);
         CPPUNIT_ASSERT_EQUAL(&rpc, transport->serverRecv());
@@ -177,79 +214,26 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     }
 
     // Used in {add,remove,fire}Timer tests
-    struct MockTimer : public Timer {
+    struct MockTimer : public Dispatch::Timer {
         MockTimer()
-            : Timer()
+            : Dispatch::Timer()
             , onTimerFiredCount(0)
             , expectWhen(0)
         {}
         explicit MockTimer(uint64_t expectWhen)
-            : Timer()
+            : Dispatch::Timer()
             , onTimerFiredCount(0)
             , expectWhen(expectWhen)
         {}
-        virtual void onTimerFired(uint64_t now)
+        virtual void operator() ()
         {
             if (expectWhen)
-                CPPUNIT_ASSERT_EQUAL(expectWhen, now);
+                CPPUNIT_ASSERT_EQUAL(expectWhen, Dispatch::currentTime);
             onTimerFiredCount++;
         }
         uint32_t onTimerFiredCount;
         uint64_t expectWhen;
     };
-
-    void
-    test_addTimer_notIn()
-    {
-        MockTimer timer;
-        transport->addTimer(&timer, 1, 2);
-
-        CPPUNIT_ASSERT_EQUAL(&timer, &transport->timerList.front());
-        CPPUNIT_ASSERT_EQUAL(1, timer.startTime);
-        CPPUNIT_ASSERT_EQUAL(3, timer.when);
-        transport->timerList.pop_front(); // satisfy boost assertion
-    }
-
-    void
-    test_addTimer_alreadyIn()
-    {
-        MockTimer timer;
-        transport->addTimer(&timer, 0, 1);
-        transport->addTimer(&timer, 0, 2);
-        CPPUNIT_ASSERT_EQUAL(1, transport->timerList.size());
-        CPPUNIT_ASSERT_EQUAL(2, timer.when);
-        transport->timerList.pop_front(); // satisfy boost assertion
-    }
-
-    void
-    test_fireTimers()
-    {
-        uint64_t tsc = 10;
-        MockTSC _(tsc);
-
-        MockTimer timer1(tsc);
-        transport->addTimer(&timer1, 0, tsc - 1);
-        MockTimer timer2(tsc);
-        transport->addTimer(&timer2, 0, tsc + 1);
-        MockTimer timer3(tsc);
-        transport->addTimer(&timer3, 0, tsc);
-
-        transport->fireTimers();
-
-        CPPUNIT_ASSERT_EQUAL(1, timer1.onTimerFiredCount);
-        CPPUNIT_ASSERT_EQUAL(0, timer2.onTimerFiredCount);
-        CPPUNIT_ASSERT_EQUAL(1, timer3.onTimerFiredCount);
-        // Make sure 2 is now at the front as the unfired event
-        CPPUNIT_ASSERT_EQUAL(&timer2, &transport->timerList.front());
-
-        // Ensure that events don't get called twice
-        transport->fireTimers();
-        CPPUNIT_ASSERT_EQUAL(1, timer1.onTimerFiredCount);
-        CPPUNIT_ASSERT_EQUAL(0, timer2.onTimerFiredCount);
-        CPPUNIT_ASSERT_EQUAL(1, timer3.onTimerFiredCount);
-
-        transport->timerList.pop_front(); // satisfy boost assertion
-    }
 
     void
     test_numFrags_fullPacket()
@@ -268,62 +252,10 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     }
 
     void
-    test_removeTimer_notIn()
-    {
-        MockTimer timer;
-        timer.when = 9999;
-        CPPUNIT_ASSERT(transport->timerList.empty());
-        transport->removeTimer(&timer);
-        CPPUNIT_ASSERT(transport->timerList.empty());
-        CPPUNIT_ASSERT_EQUAL(0, timer.when);
-    }
-
-    void
-    test_removeTimer_alreadyIn()
-    {
-        MockTimer timer;
-        transport->addTimer(&timer, 0, 999);
-        CPPUNIT_ASSERT_EQUAL(&timer, &transport->timerList.front());
-        transport->removeTimer(&timer);
-        CPPUNIT_ASSERT(transport->timerList.empty());
-        CPPUNIT_ASSERT_EQUAL(0, timer.when);
-    }
-
-    void
-    test_poll()
-    {
-        MockTSC _(1);
-        MockTimer timer;
-        transport->addTimer(&timer, 0, 1);
-
-        MockReceived recvd(0, 1, "");
-        driver->setInput(&recvd);
-        transport->poll();
-
-        CPPUNIT_ASSERT_EQUAL(2, driver->tryRecvPacketCount);
-        CPPUNIT_ASSERT(transport->timerList.empty());
-        CPPUNIT_ASSERT_EQUAL(1, timer.onTimerFiredCount);
-    }
-
-    void
-    test_poll_noIter()
-    {
-        MockTSC _(1);
-        MockTimer timer;
-        transport->addTimer(&timer, 0, 1);
-
-        transport->poll();
-
-        CPPUNIT_ASSERT_EQUAL(1, driver->tryRecvPacketCount);
-        CPPUNIT_ASSERT(transport->timerList.empty());
-        CPPUNIT_ASSERT_EQUAL(1, timer.onTimerFiredCount);
-    }
-
-    void
     test_sendBadSessionError()
     {
         MockReceived recvd(0, 1, "");
-        Header *header = recvd.getHeader();
+        FastTransport::Header *header = recvd.getHeader();
         header->sessionToken = 0xabcd;
         header->rpcId = 3;
         header->clientSessionHint = 4;
@@ -339,93 +271,75 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
             "drop:0 payloadType:4 } ", driver->outputLog);
     }
 
-    /// A predicate to limit TestLog messages to tryProcessPacket
+    /// A predicate to limit TestLog messages to invoke
     static bool
     tppPred(string s)
     {
-        return s == "tryProcessPacket";
+        return s == "handleIncomingPacket";
     }
 
     void
-    test_tryProcessPacket_noPacketReady()
-    {
-        TestLog::Enable _(&tppPred);
-
-        bool result = transport->tryProcessPacket();
-        CPPUNIT_ASSERT_EQUAL(false, result);
-        CPPUNIT_ASSERT_EQUAL(
-            "tryProcessPacket: "
-            "no packet ready", TestLog::get());
-    }
-
-    void
-    test_tryProcessPacket_tooSmall()
+    test_handleIncomingPacket_tooSmall()
     {
         TestLog::Enable _(&tppPred);
 
         MockReceived recvd(0, 1, "");
         // corrupt the size
         recvd.len = 1;
-        driver->setInput(&recvd);
 
-        bool result = transport->tryProcessPacket();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "tryProcessPacket: "
+            "handleIncomingPacket: "
             "packet too short (1 bytes)", TestLog::get());
     }
 
     void
-    test_tryProcessPacket_dropped()
+    test_handleIncomingPacket_dropped()
     {
         TestLog::Enable _(&tppPred);
 
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->pleaseDrop = 1;
-        driver->setInput(&recvd);
 
-        bool result = transport->tryProcessPacket();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "tryProcessPacket: "
+            "handleIncomingPacket: "
             "dropped", TestLog::get());
     }
 
     void
-    test_tryProcessPacket_c2sBadHintOpenSession()
+    test_handleIncomingPacket_c2sBadHintOpenSession()
     {
         TestLog::Enable _(&tppPred);
 
-        MockTSC __(1); // force sessionTimeoutCycles to be deterministic
-        MockTSC ___(sessionTimeoutCycles() * 2);
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        FastTransport::sessionTimeoutCyclesOverride = 2000;
+        Dispatch::currentTime = FastTransport::sessionTimeoutCycles() * 2;
+        FastTransport::SessionOpenResponse sessResp =
+                { FastTransport::NUM_CHANNELS_PER_SESSION };
         MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
-        recvd.getHeader()->serverSessionHint = ClientSession::INVALID_HINT;
-        recvd.getHeader()->payloadType = Header::SESSION_OPEN;
+        recvd.getHeader()->serverSessionHint =
+                FastTransport::ClientSession::INVALID_HINT;
+        recvd.getHeader()->payloadType = FastTransport::Header::SESSION_OPEN;
         ServiceLocator sl("mock:");
         recvd.sender = driver->newAddress(sl);
-        driver->setInput(&recvd);
 
-        bool result = transport->tryProcessPacket();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "tryProcessPacket: "
+            "handleIncomingPacket: "
             "opening session 0", TestLog::get());
         CPPUNIT_ASSERT_EQUAL(1, transport->serverSessions.size());
     }
 
     void
-    test_tryProcessPacket_c2sBadSession()
+    test_handleIncomingPacket_c2sBadSession()
     {
         TestLog::Enable _(&tppPred);
 
         MockReceived recvd(0, 1, "");
-        driver->setInput(&recvd);
 
-        bool result = transport->tryProcessPacket();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "tryProcessPacket: "
+            "handleIncomingPacket: "
             "bad session hint 0", TestLog::get());
         CPPUNIT_ASSERT_EQUAL(
             "{ sessionToken:0 rpcId:0 clientSessionHint:0 "
@@ -434,37 +348,36 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     }
 
     void
-    test_tryProcessPacket_c2sGoodHint()
+    test_handleIncomingPacket_c2sGoodHint()
     {
         TestLog::Enable _(&tppPred);
 
-        ServerSession* session = transport->serverSessions.get();
+        FastTransport::ServerSession* session =
+                transport->serverSessions.get();
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->sessionToken = session->token;
-        driver->setInput(&recvd);
 
-        bool result = transport->tryProcessPacket();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
+        session->channels[0].state =
+                FastTransport::ServerSession::ServerChannel::IDLE;
         CPPUNIT_ASSERT_EQUAL(
-            "tryProcessPacket: "
+            "handleIncomingPacket: "
             "calling ServerSession::processInboundPacket", TestLog::get());
-        session->channels[0].state = ServerSession::ServerChannel::IDLE;
     }
 
     void
-    test_tryProcessPacket_c2sGoodHintBadToken()
+    test_handleIncomingPacket_c2sGoodHintBadToken()
     {
         TestLog::Enable _(&tppPred);
 
-        ServerSession* session = transport->serverSessions.get();
+        FastTransport::ServerSession* session =
+                transport->serverSessions.get();
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->sessionToken = session->token+1;
-        driver->setInput(&recvd);
 
-        bool result = transport->tryProcessPacket();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "tryProcessPacket: "
+            "handleIncomingPacket: "
             "bad session token (0xcccccccccccccccc in session 0, "
             "0xcccccccccccccccd in packet)", TestLog::get());
         CPPUNIT_ASSERT_EQUAL(
@@ -474,66 +387,61 @@ class FastTransportTest : public CppUnit::TestFixture, FastTransport {
     }
 
     void
-    test_tryProcessPacket_s2cGoodHint()
+    test_handleIncomingPacket_s2cGoodHint()
     {
         TestLog::Enable _(&tppPred);
 
-        SessionRef session = transport->getSession(serviceLocator);
-        ClientSession* clientSession =
-            static_cast<ClientSession*>(session.get());
+        FastTransport::SessionRef session =
+                transport->getSession(serviceLocator);
+        FastTransport::ClientSession* clientSession =
+            static_cast<FastTransport::ClientSession*>(session.get());
 
         MockReceived recvd(0, 1, "");
-        recvd.getHeader()->direction = Header::SERVER_TO_CLIENT;
+        recvd.getHeader()->direction = FastTransport::Header::SERVER_TO_CLIENT;
         clientSession->token = recvd.getHeader()->sessionToken;
-        driver->setInput(&recvd);
 
-        bool result = transport->tryProcessPacket();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "tryProcessPacket: "
+            "handleIncomingPacket: "
             "client session processing packet", TestLog::get());
     }
 
     void
-    test_tryProcessPacket_s2cGoodHintBadToken()
+    test_handleIncomingPacket_s2cGoodHintBadToken()
     {
         TestLog::Enable _(&tppPred);
 
         transport->getSession(serviceLocator);
 
         MockReceived recvd(0, 1, "");
-        recvd.getHeader()->direction = Header::SERVER_TO_CLIENT;
-        driver->setInput(&recvd);
+        recvd.getHeader()->direction =
+                FastTransport::Header::SERVER_TO_CLIENT;
 
-        bool result = transport->tryProcessPacket();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "tryProcessPacket: "
+            "handleIncomingPacket: "
             "client session processing packet | "
-            "tryProcessPacket: "
+            "handleIncomingPacket: "
             "bad fragment token (0xcccccccccccccccc in session 0, "
             "0x0 in packet), client dropping", TestLog::get());
     }
 
     void
-    test_tryProcessPacket_s2cBadHint()
+    test_handleIncomingPacket_s2cBadHint()
     {
         TestLog::Enable _(&tppPred);
 
         MockReceived recvd(0, 1, "");
-        recvd.getHeader()->direction = Header::SERVER_TO_CLIENT;
-        driver->setInput(&recvd);
+        recvd.getHeader()->direction =
+                FastTransport::Header::SERVER_TO_CLIENT;
 
-        bool result = transport->tryProcessPacket();
-        CPPUNIT_ASSERT_EQUAL(true, result);
+        transport->handleIncomingPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
-            "tryProcessPacket: "
+            "handleIncomingPacket: "
             "bad client session hint 0", TestLog::get());
     }
 
   private:
-    Buffer* request;
-    Buffer* response;
     ServiceLocator serviceLocator;
     FastTransport* transport;
     MockDriver* driver;
@@ -546,7 +454,7 @@ CPPUNIT_TEST_SUITE_REGISTRATION(FastTransportTest);
 
 // --- ClientRpcTest ---
 
-class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
+class ClientRpcTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(ClientRpcTest);
     CPPUNIT_TEST(test_constructor);
     CPPUNIT_TEST(test_isReady);
@@ -555,28 +463,9 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_wait_aborted);
     CPPUNIT_TEST_SUITE_END();
 
-    struct ClientRpcMockFastTransport : public FastTransport {
-        explicit ClientRpcMockFastTransport(Driver* driver)
-            : FastTransport(driver)
-            , rpc(NULL)
-            , pollCalled(0)
-        {
-        }
-        virtual void poll() {
-            pollCalled++;
-            if (rpc)
-                rpc->state = ClientRpc::COMPLETED;
-        }
-        ClientRpc *rpc;
-        uint32_t pollCalled;
-      private:
-        DISALLOW_COPY_AND_ASSIGN(ClientRpcMockFastTransport);
-    };
-
   public:
     ClientRpcTest()
-        : FastTransport(NULL)
-        , request(NULL)
+        : request(NULL)
         , response(NULL)
         , transport(NULL)
         , driver(NULL)
@@ -588,27 +477,15 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
     void
     setUp()
     {
-        setUp(false);
-    }
-
-    void
-    setUp(bool useMockTransport)
-    {
         tearDown();
 
-        driver = new MockDriver(Header::headerToString);
-        ClientRpcMockFastTransport* mockTransport = NULL;
-        if (useMockTransport)
-            transport = mockTransport = new ClientRpcMockFastTransport(driver);
-        else
-            transport = new FastTransport(driver);
+        driver = new MockDriver(FastTransport::Header::headerToString);
+        transport = new FastTransport(driver);
 
         request = new Buffer();
         response = new Buffer();
 
-        rpc = new ClientRpc(transport, request, response);
-        if (useMockTransport)
-            mockTransport->rpc = rpc;
+        rpc = new FastTransport::ClientRpc(transport, request, response);
     }
 
     void
@@ -627,37 +504,54 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
     {
         CPPUNIT_ASSERT_EQUAL(request, rpc->requestBuffer);
         CPPUNIT_ASSERT_EQUAL(response, rpc->responseBuffer);
-        CPPUNIT_ASSERT_EQUAL(ClientRpc::IN_PROGRESS, rpc->state);
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::IN_PROGRESS,
+                             rpc->state);
         CPPUNIT_ASSERT_EQUAL(transport, rpc->transport);
     }
 
     void
     test_isReady()
     {
-        rpc->state = ClientRpc::IN_PROGRESS;
+        rpc->state = FastTransport::ClientRpc::IN_PROGRESS;
         CPPUNIT_ASSERT_EQUAL(false, rpc->isReady());
-        rpc->state = ClientRpc::COMPLETED;
+        rpc->state = FastTransport::ClientRpc::COMPLETED;
         CPPUNIT_ASSERT_EQUAL(true, rpc->isReady());
     }
 
     void
     test_wait_inProgress()
     {
-        // get a version of the transport with a mocked poll
-        setUp(true);
-        ClientRpcMockFastTransport* mockTransport =
-            dynamic_cast<ClientRpcMockFastTransport*>(transport);
+        // This test ensures that the dispatcher gets called if the
+        // RPC hasn't finished.
 
-        rpc->state = ClientRpc::IN_PROGRESS;
-        // Make sure this calls poll
+        // Create a timer handler that will mark the RPC completed.
+        class RpcCompleter : public Dispatch::Timer {
+          public:
+            explicit RpcCompleter(FastTransport::ClientRpc* rpc)
+                    : Dispatch::Timer(), rpc(rpc), invoked(false) {
+            }
+            void operator() () {
+                rpc->state = FastTransport::ClientRpc::COMPLETED;
+                invoked = true;
+            }
+            FastTransport::ClientRpc* rpc;
+            bool invoked;
+          private:
+            DISALLOW_COPY_AND_ASSIGN(RpcCompleter);
+        };
+
+        mockTSCValue = 0;
+        RpcCompleter completer(rpc);
+        completer.startCycles(1000);
+        rpc->state = FastTransport::ClientRpc::IN_PROGRESS;
         rpc->wait();
-        CPPUNIT_ASSERT_EQUAL(1, mockTransport->pollCalled);
+        CPPUNIT_ASSERT_EQUAL(true, completer.invoked);
     }
 
     void
     test_wait_completed()
     {
-        rpc->state = ClientRpc::COMPLETED;
+        rpc->state = FastTransport::ClientRpc::COMPLETED;
         // Making sure this returns
         rpc->wait();
     }
@@ -665,7 +559,7 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
     void
     test_wait_aborted()
     {
-        rpc->state = ClientRpc::ABORTED;
+        rpc->state = FastTransport::ClientRpc::ABORTED;
         CPPUNIT_ASSERT_THROW(rpc->wait(), TransportException);
     }
 
@@ -674,7 +568,7 @@ class ClientRpcTest : public CppUnit::TestFixture, FastTransport {
     Buffer* response;
     FastTransport* transport;
     MockDriver* driver;
-    ClientRpc* rpc;
+    FastTransport::ClientRpc* rpc;
     const char* address;
     uint16_t port;
 
@@ -684,7 +578,7 @@ CPPUNIT_TEST_SUITE_REGISTRATION(ClientRpcTest);
 
 // --- InboundMessageTest ---
 
-class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
+class InboundMessageTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(InboundMessageTest);
     CPPUNIT_TEST(test_sendAck);
     CPPUNIT_TEST(test_reset);
@@ -703,7 +597,8 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
   public:
 
     void dataStagingWindowToWindow(
-                Window<pair<char*, uint32_t>, MAX_STAGING_FRAGMENTS>& w,
+                Window<pair<char*, uint32_t>,
+                FastTransport::MAX_STAGING_FRAGMENTS>& w,
                 string& s)
     {
         size_t max = 50;
@@ -734,8 +629,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
     }
 
     InboundMessageTest()
-        : FastTransport(NULL)
-        , driver(NULL)
+        : driver(NULL)
         , transport(NULL)
         , session()
         , buffer(NULL)
@@ -758,14 +652,15 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
 
         uint32_t channelId = 5;
 
-        msg = new InboundMessage();
+        msg = new FastTransport::InboundMessage();
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=1234");
         session = transport->getSession(serviceLocator);
 
-        ClientSession* clientSession =
-            static_cast<ClientSession*>(session.get());
-        clientSession->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        FastTransport::ClientSession* clientSession =
+            static_cast<FastTransport::ClientSession*>(session.get());
+        clientSession->numChannels =
+                FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         clientSession->allocateChannels();
         msg->setup(transport, clientSession, channelId, useTimer);
 
@@ -827,7 +722,6 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
 
         CPPUNIT_ASSERT_EQUAL(999, msg->totalFrags);
         CPPUNIT_ASSERT_EQUAL(&buffer, msg->dataBuffer);
-        CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
     }
 
     void
@@ -837,20 +731,16 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         uint32_t channelId = 5;
         setUp(2, useTimer);
 
-        transport->addTimer(&msg->timer, 0, 999);
-        CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
+        msg->timer.startCycles(999);
 
-        ClientSession* clientSession =
-            static_cast<ClientSession*>(session.get());
+        FastTransport::ClientSession* clientSession =
+            static_cast<FastTransport::ClientSession*>(session.get());
         for (;;) {
             msg->setup(transport, clientSession, channelId, useTimer);
             CPPUNIT_ASSERT_EQUAL(clientSession, msg->session);
             CPPUNIT_ASSERT_EQUAL(transport, msg->transport);
             CPPUNIT_ASSERT_EQUAL(channelId, msg->channelId);
-            CPPUNIT_ASSERT_EQUAL(0, msg->timer.when);
-            CPPUNIT_ASSERT_EQUAL(0, msg->timer.startTime);
-            CPPUNIT_ASSERT_EQUAL(useTimer, msg->timer.useTimer);
-            CPPUNIT_ASSERT(!msg->timer.listEntries.is_linked());
+            CPPUNIT_ASSERT_EQUAL(useTimer, msg->useTimer);
             if (!useTimer)
                 break;
             useTimer = !useTimer;
@@ -865,8 +755,7 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
         setUp(2, true);
 
         char junk[0];
-        transport->addTimer(&msg->timer, 0, 1000);
-        CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
+        msg->timer.startCycles(1000);
         msg->dataStagingWindow[11] = std::pair<char*, uint32_t>(junk, 1);
         msg->dataStagingWindow[14] = std::pair<char*, uint32_t>(junk, 1);
 
@@ -881,7 +770,6 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
                              "-, -, -, -,", s);
         CPPUNIT_ASSERT_EQUAL(0, msg->dataBuffer);
         CPPUNIT_ASSERT_EQUAL(2, driver->releaseCount);
-        CPPUNIT_ASSERT(!msg->timer.listEntries.is_linked());
     }
 
     void
@@ -1044,21 +932,18 @@ class InboundMessageTest : public CppUnit::TestFixture, FastTransport {
     {
         setUp(2, true);
 
-        transport->removeTimer(&msg->timer);
+        msg->timer.stop();
         MockReceived recvd(0, msg->totalFrags, "pkt zero");
         recvd.getHeader()->requestAck = 1;
         msg->processReceivedData(&recvd);
-
-        CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
-        CPPUNIT_ASSERT(timeoutCycles() <= msg->timer.when);
     }
 
   private:
     MockDriver* driver;
     FastTransport* transport;
-    SessionRef session;
+    FastTransport::SessionRef session;
     Buffer* buffer;
-    InboundMessage* msg;
+    FastTransport::InboundMessage* msg;
 
     DISALLOW_COPY_AND_ASSIGN(InboundMessageTest);
 };
@@ -1066,7 +951,7 @@ CPPUNIT_TEST_SUITE_REGISTRATION(InboundMessageTest);
 
 // --- OutboundMessageTest ---
 
-class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
+class OutboundMessageTest: public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(OutboundMessageTest);
     CPPUNIT_TEST(test_reset);
     CPPUNIT_TEST(test_setup);
@@ -1089,7 +974,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
 
   public:
     static void sentTimesWindowToString(
-                Window<uint64_t, MAX_STAGING_FRAGMENTS + 1>& w,
+                Window<uint64_t, FastTransport::MAX_STAGING_FRAGMENTS + 1>& w,
                 string& s)
     {
         size_t max = 50;
@@ -1097,7 +982,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
 
         for (uint32_t i = 0; i < w.getLength(); i++) {
             uint64_t val = w[w.getOffset() + i];
-            if (val == OutboundMessage::ACKED)
+            if (val == FastTransport::OutboundMessage::ACKED)
                 snprintf(tmp, max, "ACKED, ");
             else
                 snprintf(tmp, max, "%lu, ", val);
@@ -1112,13 +997,12 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     }
 
     OutboundMessageTest()
-        : FastTransport(NULL)
-        , driver(NULL)
+        : driver(NULL)
         , transport(NULL)
         , session()
         , buffer(NULL)
         , msg(NULL)
-        , tsc(999 + 2 * TIMEOUT_NS)
+        , tsc(999 + 2 * FastTransport::TIMEOUT_NS)
     {
     }
 
@@ -1135,7 +1019,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
 
         tearDown();
 
-        driver = new MockDriver(Header::headerToString);
+        driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(driver);
         buffer = new Buffer();
 
@@ -1151,12 +1035,13 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=1234");
         session = transport->getSession(serviceLocator);
-        ClientSession* clientSession =
-            static_cast<ClientSession*>(session.get());
-        clientSession->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        FastTransport::ClientSession* clientSession =
+            static_cast<FastTransport::ClientSession*>(session.get());
+        clientSession->numChannels =
+                FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         clientSession->allocateChannels();
 
-        msg = new OutboundMessage();
+        msg = new FastTransport::OutboundMessage();
         msg->setup(transport, clientSession, channelId, useTimer);
 
         msg->reset();
@@ -1166,25 +1051,17 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         msg->totalFrags = transport->numFrags(buffer);
 
         mockTSCValue = tsc;
+        Dispatch::currentTime = tsc;
     }
 
     void tearDown()
     {
-        if (msg) {
-            // satisfy boost assertion
-            if (msg->timer.listEntries.is_linked()) {
-                Timer& t(msg->timer);
-                TimerList::iterator i(transport->timerList.iterator_to(t));
-                transport->timerList.erase(i);
-            }
-            delete msg;
-        }
+        delete msg;
         session = NULL;
         if (buffer)
             delete buffer;
         if (transport)
             delete transport;
-
         mockTSCValue = 0;
     }
 
@@ -1196,7 +1073,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     test_reset()
     {
         setUp(1600, true);
-        transport->addTimer(&msg->timer, 0, 999);
+        msg->timer.startCycles(999);
 
         msg->reset();
 
@@ -1209,9 +1086,6 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
                              "0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "
                              "0, 0, 0,", s);
         CPPUNIT_ASSERT_EQUAL(0, msg->numAcked);
-        CPPUNIT_ASSERT(!msg->timer.listEntries.is_linked());
-        CPPUNIT_ASSERT_EQUAL(0, msg->timer.when);
-        CPPUNIT_ASSERT_EQUAL(0, msg->timer.startTime);
     }
 
     void
@@ -1220,14 +1094,14 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         uint32_t channelId = 999;
         bool useTimer = false;
 
-        ClientSession* clientSession =
-            static_cast<ClientSession*>(session.get());
+        FastTransport::ClientSession* clientSession =
+            static_cast<FastTransport::ClientSession*>(session.get());
         msg->setup(transport, clientSession, channelId, useTimer);
 
         CPPUNIT_ASSERT_EQUAL(clientSession, msg->session);
         CPPUNIT_ASSERT_EQUAL(transport, msg->transport);
         CPPUNIT_ASSERT_EQUAL(channelId, msg->channelId);
-        CPPUNIT_ASSERT_EQUAL(useTimer, msg->timer.useTimer);
+        CPPUNIT_ASSERT_EQUAL(useTimer, msg->useTimer);
     }
 
     void
@@ -1259,8 +1133,8 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     void
     test_send_nothingToSend()
     {
-        msg->sentTimes[0] = tsc - timeoutCycles();
-        msg->sentTimes[1] = OutboundMessage::ACKED;
+        msg->sentTimes[0] = tsc - FastTransport::timeoutCycles();
+        msg->sentTimes[1] = FastTransport::OutboundMessage::ACKED;
         msg->numAcked = 1;
 
         msg->send();
@@ -1271,7 +1145,7 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     test_send_dueToTimeout()
     {
         // this will get resent due to timeout
-        msg->sentTimes[0] = tsc - timeoutCycles() - 1;
+        msg->sentTimes[0] = tsc - FastTransport::timeoutCycles() - 1;
         // note that though this is ready to send it will not go out
         // because the protocol out sends out a single packet when
         // a retransmit occurs
@@ -1315,15 +1189,13 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         setUp(driver->getMaxPacketSize() * 4, true);
 
         msg->sentTimes[0] = 100;
-        msg->sentTimes[1] = OutboundMessage::ACKED;
+        msg->sentTimes[1] = FastTransport::OutboundMessage::ACKED;
         msg->sentTimes[2] = 99;
         msg->sentTimes[3] = 0;
 
-        CPPUNIT_ASSERT_EQUAL(0, msg->timer.when);
-        CPPUNIT_ASSERT(!msg->timer.listEntries.is_linked());
+        CPPUNIT_ASSERT_EQUAL(0, msg->timer.isRunning());
         msg->send();
-        CPPUNIT_ASSERT_EQUAL(99 + timeoutCycles(), msg->timer.when);
-        CPPUNIT_ASSERT(msg->timer.listEntries.is_linked());
+        CPPUNIT_ASSERT_EQUAL(1, msg->timer.isRunning());
     }
 
     void
@@ -1339,9 +1211,9 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     {
         TestLog::Enable _;
         msg->send();
-        AckResponse ackResp(0, 0);
+        FastTransport::AckResponse ackResp(0, 0);
         MockReceived recvd(0, msg->totalFrags, &ackResp,
-                           sizeof(AckResponse) - 1);
+                           sizeof(FastTransport::AckResponse) - 1);
         bool result = msg->processReceivedAck(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
         CPPUNIT_ASSERT_EQUAL(
@@ -1354,9 +1226,10 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
     {
         TestLog::Enable _;
         msg->send();
-        AckResponse ackResp(0, 0);
+        FastTransport::AckResponse ackResp(0, 0);
         ackResp.firstMissingFrag = 3;
-        MockReceived recvd(0, msg->totalFrags, &ackResp, sizeof(AckResponse));
+        MockReceived recvd(0, msg->totalFrags, &ackResp,
+                           sizeof(FastTransport::AckResponse));
         bool result = msg->processReceivedAck(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
         CPPUNIT_ASSERT_EQUAL(
@@ -1370,9 +1243,10 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
         TestLog::Enable _;
         msg->send();
         msg->totalFrags = 50;
-        AckResponse ackResp(0, 0);
+        FastTransport::AckResponse ackResp(0, 0);
         ackResp.firstMissingFrag = 34;
-        MockReceived recvd(0, msg->totalFrags, &ackResp, sizeof(AckResponse));
+        MockReceived recvd(0, msg->totalFrags, &ackResp,
+                           sizeof(FastTransport::AckResponse));
         bool result = msg->processReceivedAck(&recvd);
         CPPUNIT_ASSERT_EQUAL(false, result);
         CPPUNIT_ASSERT_EQUAL(
@@ -1397,9 +1271,10 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
                              "0, 0, 0, 0, 0, 0,", s);
         s = "";
 
-        AckResponse ackResp(0, 0);
+        FastTransport::AckResponse ackResp(0, 0);
         ackResp.firstMissingFrag = 2;
-        MockReceived recvd(0, msg->totalFrags, &ackResp, sizeof(AckResponse));
+        MockReceived recvd(0, msg->totalFrags, &ackResp,
+                           sizeof(FastTransport::AckResponse));
 
         bool result = msg->processReceivedAck(&recvd);
 
@@ -1429,8 +1304,9 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
                              "0, 0, 0, 0, 0, 0,", s);
         s = "";
 
-        AckResponse ackResp(3, 0xff);
-        MockReceived recvd(0, msg->totalFrags, &ackResp, sizeof(AckResponse));
+        FastTransport::AckResponse ackResp(3, 0xff);
+        MockReceived recvd(0, msg->totalFrags, &ackResp,
+                           sizeof(FastTransport::AckResponse));
 
         bool result = msg->processReceivedAck(&recvd);
 
@@ -1472,9 +1348,9 @@ class OutboundMessageTest: public CppUnit::TestFixture, FastTransport {
   private:
     MockDriver* driver;
     FastTransport* transport;
-    SessionRef session;
+    FastTransport::SessionRef session;
     Buffer* buffer;
-    OutboundMessage* msg;
+    FastTransport::OutboundMessage* msg;
     uint64_t tsc;
 
     DISALLOW_COPY_AND_ASSIGN(OutboundMessageTest);
@@ -1483,10 +1359,9 @@ CPPUNIT_TEST_SUITE_REGISTRATION(OutboundMessageTest);
 
 // --- ServerSessionTest ---
 
-class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
+class ServerSessionTest: public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(ServerSessionTest);
     CPPUNIT_TEST(test_beginSending);
-    CPPUNIT_TEST(test_expire_noActivity);
     CPPUNIT_TEST(test_expire_channelStillProcessing);
     CPPUNIT_TEST(test_expire_channelRecvOrSendWait);
     CPPUNIT_TEST(test_processInboundPacket_badChannel);
@@ -1502,8 +1377,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
 
   public:
     ServerSessionTest()
-        : FastTransport(NULL)
-        , driver(NULL)
+        : driver(NULL)
         , transport(NULL)
         , session(NULL)
         , sessionId(0x98765432)
@@ -1516,9 +1390,10 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     setUp()
     {
-        driver = new MockDriver(Header::headerToString);
+        Dispatch::currentTime = 1000;
+        driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(driver);
-        session = new ServerSession(transport, sessionId);
+        session = new FastTransport::ServerSession(transport, sessionId);
         ServiceLocator sl("mock: host=1.2.3.4, port=12345");
         driverAddress = driver->newAddress(sl);
     }
@@ -1534,96 +1409,89 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_beginSending()
     {
-        const uint64_t tsc = 9898;
-        MockTSC _(tsc);
+        Dispatch::currentTime = 9898;
 
         uint32_t channelId = 6;
         // Just here to flip us into a state where
         // channel.rpcId == 0 and we have an RPC setup
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::
+                             ServerChannel::INVALID_RPC_ID,
                              session->channels[0].rpcId);
         MockReceived junk(0, 1, "foo");
         junk.getHeader()->channelId = channelId;
         session->processInboundPacket(&junk);
 
         session->beginSending(channelId);
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::SENDING_WAITING,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::
+                             ServerChannel::SENDING_WAITING,
                              session->channels[channelId].state);
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
-    }
-
-    void
-    test_expire_noActivity()
-    {
-        CPPUNIT_ASSERT_EQUAL(0, session->lastActivityTime);
-        CPPUNIT_ASSERT(session->expire());
+        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
     }
 
     void
     test_expire_channelStillProcessing()
     {
         session->lastActivityTime = 1;
-        session->channels[NUM_CHANNELS_PER_SESSION - 1].state =
-            ServerSession::ServerChannel::PROCESSING;
+        session->channels[FastTransport::NUM_CHANNELS_PER_SESSION - 1].state =
+            FastTransport::ServerSession::ServerChannel::PROCESSING;
         CPPUNIT_ASSERT(!session->expire());
-        session->channels[NUM_CHANNELS_PER_SESSION - 1].state =
-            ServerSession::ServerChannel::IDLE;
+        session->channels[FastTransport::NUM_CHANNELS_PER_SESSION - 1].state =
+            FastTransport::ServerSession::ServerChannel::IDLE;
     }
 
     void
     test_expire_channelRecvOrSendWait()
     {
         session->lastActivityTime = 1;
-        for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++)
+        for (uint32_t i = 0; i < FastTransport::NUM_CHANNELS_PER_SESSION; i++)
             session->channels[i].state =
-                ServerSession::ServerChannel::IDLE;
+                FastTransport::ServerSession::ServerChannel::IDLE;
         uint32_t magic = 19281;
         session->channels[0].rpcId = magic;
         session->channels[1].state =
-            ServerSession::ServerChannel::RECEIVING;
+            FastTransport::ServerSession::ServerChannel::RECEIVING;
         session->channels[1].currentRpc.setup(session, 1);
         session->channels[2].state =
-            ServerSession::ServerChannel::SENDING_WAITING;
+            FastTransport::ServerSession::ServerChannel::SENDING_WAITING;
         session->channels[2].currentRpc.setup(session, 2);
 
         CPPUNIT_ASSERT(session->expire());
 
         // ensure 0 got skipped
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::IDLE,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::ServerChannel::IDLE,
                              session->channels[0].state);
         CPPUNIT_ASSERT_EQUAL(magic, session->channels[0].rpcId);
 
         // ensure 1 got reset
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::IDLE,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::ServerChannel::IDLE,
                              session->channels[1].state);
         CPPUNIT_ASSERT_EQUAL(~(0u), session->channels[1].rpcId);
         CPPUNIT_ASSERT_EQUAL(0, session->channels[1].currentRpc.session);
 
         // ensure 2 got reset
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::IDLE,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::ServerChannel::IDLE,
                              session->channels[2].state);
         CPPUNIT_ASSERT_EQUAL(~(0u), session->channels[2].rpcId);
         CPPUNIT_ASSERT_EQUAL(0, session->channels[2].currentRpc.session);
 
         // check the minor tid-bits at the end
-        CPPUNIT_ASSERT_EQUAL(ServerSession::INVALID_TOKEN, session->token);
-        CPPUNIT_ASSERT_EQUAL(ServerSession::INVALID_HINT,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::INVALID_TOKEN,
+                             session->token);
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::INVALID_HINT,
                              session->clientSessionHint);
-        CPPUNIT_ASSERT_EQUAL(0, session->lastActivityTime);
     }
 
     void
     test_processInboundPacket_badChannel()
     {
         TestLog::Enable dummy;
-        const uint64_t tsc = 9898;
-        MockTSC _(tsc);
+        Dispatch::currentTime = 9898;
 
         MockReceived recvd(0, 1, "");
-        recvd.getHeader()->channelId = NUM_CHANNELS_PER_SESSION;
+        recvd.getHeader()->channelId = FastTransport::NUM_CHANNELS_PER_SESSION;
 
         session->processInboundPacket(&recvd);
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
         CPPUNIT_ASSERT_EQUAL(
             "processInboundPacket: "
             "invalid channel id 8", TestLog::get());
@@ -1642,7 +1510,8 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
 
         // Just here to flip us into a state where
         // channel.rpcId == 0
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::
+                             ServerChannel::INVALID_RPC_ID,
                              session->channels[0].rpcId);
         MockReceived junk(0, 2, "foo");
         // Just to start the currentRpc
@@ -1666,14 +1535,15 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
 
         // Just here to flip us into a state where
         // channel.rpcId == 0
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::INVALID_RPC_ID,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::
+                             ServerChannel::INVALID_RPC_ID,
                              session->channels[0].rpcId);
         MockReceived junk(0, 2, "foo");
         session->processInboundPacket(&junk);
         TestLog::reset();
 
-        AckResponse ackResp(1, 0);
-        MockReceived recvd(0, 1, &ackResp, sizeof(AckResponse));
+        FastTransport::AckResponse ackResp(1, 0);
+        MockReceived recvd(0, 1, &ackResp, sizeof(FastTransport::AckResponse));
 
         session->processInboundPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
@@ -1692,7 +1562,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         TestLog::reset();
 
         MockReceived recvd(1, 2, "foo");
-        recvd.getHeader()->payloadType = Header::RESERVED1;
+        recvd.getHeader()->payloadType = FastTransport::Header::RESERVED1;
         session->processInboundPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
             "processInboundPacket: "
@@ -1713,7 +1583,8 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
             "processInboundPacket: "
             "processReceivedData",
             TestLog::get());
-        session->channels[0].state = ServerSession::ServerChannel::IDLE;
+        session->channels[0].state =
+                FastTransport::ServerSession::ServerChannel::IDLE;
     }
 
     void
@@ -1722,7 +1593,7 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         TestLog::Enable _(&pipPred);
 
         MockReceived recvd(0, 2, "foo");
-        recvd.getHeader()->payloadType = Header::RESERVED1;
+        recvd.getHeader()->payloadType = FastTransport::Header::RESERVED1;
         session->processInboundPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(
             "processInboundPacket: "
@@ -1735,9 +1606,8 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_startSession()
     {
-        const uint64_t tsc = 9898;
-        MockTSC _(tsc);
-        const uint32_t rand = 0x7676;
+        Dispatch::currentTime = 9898;
+        const uint64_t rand = 0x7676UL;
         MockRandom __(rand);
 
         uint32_t clientSessionHint = 0x12345678u;
@@ -1747,21 +1617,22 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
             *static_cast<MockDriver::MockAddress*>(
                 session->clientAddress.get()));
         CPPUNIT_ASSERT_EQUAL(clientSessionHint, session->clientSessionHint);
-        CPPUNIT_ASSERT_EQUAL((static_cast<uint64_t>(rand) << 32) | rand,
-                             session->token);
+        CPPUNIT_ASSERT_EQUAL(rand, session->token);
         CPPUNIT_ASSERT_EQUAL(
-            "{ sessionToken:767600007676 rpcId:0 clientSessionHint:12345678 "
+            "{ sessionToken:7676 rpcId:0 clientSessionHint:12345678 "
             "serverSessionHint:98765432 0/0 frags channel:0 dir:1 reqACK:0 "
             "drop:0 payloadType:2 } /x08",
             driver->outputLog);
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+        CPPUNIT_ASSERT_EQUAL(9898, session->lastActivityTime);
     }
 
     void
     test_processReceivedData_receiving()
     {
-        ServerSession::ServerChannel* channel = &session->channels[0];
-        channel->state = ServerSession::ServerChannel::RECEIVING;
+        FastTransport::ServerSession::ServerChannel* channel =
+                &session->channels[0];
+        channel->state =
+                FastTransport::ServerSession::ServerChannel::RECEIVING;
         channel->currentRpc.setup(session, 0);
         uint32_t totalFrags = 2;
         Buffer recvBuffer;
@@ -1771,7 +1642,8 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         MockReceived firstRecvd(0, totalFrags, "first");
         session->processReceivedData(channel, &firstRecvd);
         CPPUNIT_ASSERT_EQUAL("first", bufferToDebugString(&recvBuffer));
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::RECEIVING,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::
+                             ServerChannel::RECEIVING,
                              session->channels[0].state);
 
         // if taken (last fragment)
@@ -1781,8 +1653,11 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
                              bufferToDebugString(&recvBuffer));
         CPPUNIT_ASSERT_EQUAL(&channel->currentRpc,
                              &transport->serverReadyQueue.back());
-        CPPUNIT_ASSERT_EQUAL(ServerSession::ServerChannel::PROCESSING,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::
+                             ServerChannel::PROCESSING,
                              session->channels[0].state);
+        session->channels[0].state =
+                FastTransport::ServerSession::ServerChannel::IDLE;
     }
 
     void
@@ -1791,17 +1666,20 @@ class ServerSessionTest: public CppUnit::TestFixture, FastTransport {
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->requestAck = 1;
 
-        ServerSession::ServerChannel* channel = &session->channels[0];
-        channel->state = ServerSession::ServerChannel::PROCESSING;
+        FastTransport::ServerSession::ServerChannel* channel =
+                &session->channels[0];
+        channel->state =
+                FastTransport::ServerSession::ServerChannel::PROCESSING;
         session->processReceivedData(channel, &recvd);
 
         CPPUNIT_ASSERT(string::npos != driver->outputLog.find("payloadType:1"));
+        channel->state = FastTransport::ServerSession::ServerChannel::IDLE;
     }
 
   private:
     MockDriver* driver;
     FastTransport* transport;
-    ServerSession* session;
+    FastTransport::ServerSession* session;
     const uint32_t sessionId;
     Driver::Address* driverAddress;
     const char* address;
@@ -1813,7 +1691,7 @@ CPPUNIT_TEST_SUITE_REGISTRATION(ServerSessionTest);
 
 // --- ClientSessionTest ---
 
-class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
+class ClientSessionTest: public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(ClientSessionTest);
     CPPUNIT_TEST(test_clientSend_notConnected);
     CPPUNIT_TEST(test_clientSend_noAvailableChannel);
@@ -1843,14 +1721,11 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     CPPUNIT_TEST(test_processReceivedData_getWorkFromQueue);
     CPPUNIT_TEST(test_processSessionOpenResponse);
     CPPUNIT_TEST(test_processSessionOpenResponse_tooManyChannelsOnServer);
-    CPPUNIT_TEST(test_timer_start);
-    CPPUNIT_TEST(test_timer_start_sessionTimedOut);
     CPPUNIT_TEST_SUITE_END();
 
   public:
     ClientSessionTest()
-        : FastTransport(NULL)
-        , driver(NULL)
+        : driver(NULL)
         , transport(NULL)
         , session(NULL)
         , request(NULL)
@@ -1872,9 +1747,9 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     setUp()
     {
-        driver = new MockDriver(Header::headerToString);
+        driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(driver);
-        session = new ClientSession(transport, sessionId);
+        session = new FastTransport::ClientSession(transport, sessionId);
         request = new Buffer();
         response = new Buffer();
     }
@@ -1893,73 +1768,75 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     {
         CPPUNIT_ASSERT(!session->isConnected());
         CPPUNIT_ASSERT(session->channelQueue.empty());
-        ClientRpc* rpc = session->clientSend(request, response);
+        FastTransport::ClientRpc* rpc = session->clientSend(request, response);
         CPPUNIT_ASSERT_EQUAL(rpc, &session->channelQueue.front());
-        session->channelQueue.pop_front(); // satisfy boost assertion
+        session->channelQueue.pop_front(); // satisfy boost assertion;
     }
 
     void
     test_clientSend_noAvailableChannel()
     {
         CPPUNIT_ASSERT(session->channelQueue.empty());
-        ClientRpc* rpc = session->clientSend(request, response);
+        FastTransport::ClientRpc* rpc = session->clientSend(request, response);
         CPPUNIT_ASSERT_EQUAL(rpc, &session->channelQueue.front());
-        session->channelQueue.pop_front(); // satisfy boost assertion
+        session->channelQueue.pop_front(); // satisfy boost assertion;
     }
 
     void
     test_clientSend_availableChannel()
     {
-        uint64_t tsc = 98328;
-        MockTSC _(tsc);
+        Dispatch::currentTime = 98328;
 
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
 
-        ClientRpc* rpc = session->clientSend(request, response);
-        ClientSession::ClientChannel* channel = &session->channels[0];
-        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::SENDING,
+        FastTransport::ClientRpc* rpc = session->clientSend(request,
+                                                            response);
+        FastTransport::ClientSession::ClientChannel* channel =
+                &session->channels[0];
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::
+                             ClientChannel::SENDING,
                              channel->state);
         CPPUNIT_ASSERT_EQUAL(rpc, channel->currentRpc);
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
         channel->currentRpc = NULL;
+        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
     }
 
     void
     test_close()
     {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
 
-        ClientRpc rpc1(transport, request, response);
-        ClientRpc rpc2(transport, request, response);
-        ClientRpc rpc3(transport, request, response);
+        FastTransport::ClientRpc rpc1(transport, request, response);
+        FastTransport::ClientRpc rpc2(transport, request, response);
+        FastTransport::ClientRpc rpc3(transport, request, response);
         session->channelQueue.push_back(rpc3);
 
         session->channels[0].currentRpc = &rpc1;
         session->channels[1].currentRpc = &rpc2;
 
         session->close();
-        CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc1.state);
-        CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc2.state);
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc1.state);
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc2.state);
         CPPUNIT_ASSERT(session->channelQueue.empty());
-        CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc3.state);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_HINT,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc3.state);
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::INVALID_HINT,
                              session->serverSessionHint);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_TOKEN, session->token);
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::INVALID_TOKEN,
+                             session->token);
     }
 
     void
     test_connect()
     {
-        uint64_t tsc = 91291;
-        MockTSC _(tsc);
+        Dispatch::currentTime = 91291;
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
 
         session->connect();
-        CPPUNIT_ASSERT_EQUAL(true, session->timer.sessionOpenRequestInFlight);
+        CPPUNIT_ASSERT_EQUAL(true, session->sessionOpenRequestInFlight);
 
         // ensure the second call doesn't send an additional SessionOpenReq
         session->connect();
@@ -1968,23 +1845,23 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
             "clientSessionHint:98765432 serverSessionHint:cccccccc "
             "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
             driver->outputLog);
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
     }
 
     void
     test_connect_sessionOpenRequestRetransmit()
     {
-        uint64_t tsc = 91291;
-        MockTSC _(tsc);
+        Dispatch::currentTime = 91291;
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
 
         session->connect();
-        CPPUNIT_ASSERT_EQUAL(true, session->timer.sessionOpenRequestInFlight);
+        CPPUNIT_ASSERT_EQUAL(true, session->sessionOpenRequestInFlight);
 
-        MockTSC __(tsc + timeoutCycles() + 1);
-        transport->fireTimers();
+
+        MockTSC _(Dispatch::currentTime + FastTransport::timeoutCycles() + 1);
+        Dispatch::poll();
 
         CPPUNIT_ASSERT_EQUAL(
             "{ sessionToken:cccccccccccccccc rpcId:0 "
@@ -1999,32 +1876,32 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_connect_sessionOpenRequestTimeout()
     {
-        uint64_t tsc = 91291;
-        MockTSC _(tsc);
+        Dispatch::currentTime = 91291;
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
 
         session->connect();
-        CPPUNIT_ASSERT_EQUAL(true, session->timer.sessionOpenRequestInFlight);
+        CPPUNIT_ASSERT_EQUAL(true, session->sessionOpenRequestInFlight);
 
-        ClientRpc rpc(transport, request, response);
+        FastTransport::ClientRpc rpc(transport, request, response);
         session->channelQueue.push_back(rpc);
 
-        MockTSC __(tsc + 2 * sessionTimeoutCycles());
-        transport->fireTimers();
-        CPPUNIT_ASSERT_EQUAL(false, session->timer.sessionOpenRequestInFlight);
+        MockTSC _(Dispatch::currentTime +
+                2*FastTransport::sessionTimeoutCycles());
+        Dispatch::poll();
+        CPPUNIT_ASSERT_EQUAL(false, session->sessionOpenRequestInFlight);
 
-        CPPUNIT_ASSERT_EQUAL(ClientRpc::ABORTED, rpc.state);
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc.state);
         CPPUNIT_ASSERT(!rpc.channelQueueEntries.is_linked());
     }
 
     void
     test_expire_activeRef()
     {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
-        SessionRef s(session);
+        FastTransport::SessionRef s(session);
         bool didClose = session->expire();
         CPPUNIT_ASSERT_EQUAL(false, didClose);
     }
@@ -2032,10 +1909,10 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_expire_activeOnChannel()
     {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
 
-        ClientRpc rpc(transport, request, response);
+        FastTransport::ClientRpc rpc(transport, request, response);
         session->channels[0].currentRpc = &rpc;
 
         bool didClose = session->expire();
@@ -2046,22 +1923,22 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_expire_rpcQueued()
     {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
 
-        ClientRpc rpc(transport, request, response);
+        FastTransport::ClientRpc rpc(transport, request, response);
         session->channelQueue.push_back(rpc);
 
         bool didClose = session->expire();
         CPPUNIT_ASSERT_EQUAL(false, didClose);
 
-        session->channelQueue.pop_front(); // satisfy boost assertion
+        session->channelQueue.pop_front(); // satisfy boost assertion;
     }
 
     void
     test_expire_nothingActive()
     {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
 
         bool didClose = session->expire();
@@ -2071,8 +1948,8 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_fillHeader()
     {
-        Header header;
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        FastTransport::Header header;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
         session->fillHeader(&header, 6);
         CPPUNIT_ASSERT_EQUAL(
@@ -2093,9 +1970,10 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_processInboundPacket_sessionOpen()
     {
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        FastTransport::SessionOpenResponse sessResp =
+                { FastTransport::NUM_CHANNELS_PER_SESSION };
         MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
-        recvd.getHeader()->payloadType = Header::SESSION_OPEN;
+        recvd.getHeader()->payloadType = FastTransport::Header::SESSION_OPEN;
 
         session->processInboundPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(true, session->isConnected());
@@ -2117,41 +1995,44 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_processInboundPacket_data()
     {
-        uint64_t tsc = 91291;
-        MockTSC _(tsc);
+        Dispatch::currentTime = 91291;
 
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
-        ClientSession::ClientChannel* channel = session->getAvailableChannel();
+        FastTransport::ClientSession::ClientChannel* channel =
+                session->getAvailableChannel();
         CPPUNIT_ASSERT(channel);
-        channel->state = ClientSession::ClientChannel::SENDING;
-        channel->currentRpc = new ClientRpc(transport,
-                                            request, response);
+        channel->state = FastTransport::ClientSession::ClientChannel::SENDING;
+        channel->currentRpc = new FastTransport::ClientRpc(transport,
+                                                           request,
+                                                           response);
 
         MockReceived recvd(0, 2, "first of two");
         session->processInboundPacket(&recvd);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::RECEIVING,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::
+                             ClientChannel::RECEIVING,
                              channel->state);
 
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
+        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
         channel->currentRpc = NULL;
     }
 
     void
     test_processInboundPacket_ack()
     {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
-        ClientSession::ClientChannel* channel = session->getAvailableChannel();
+        FastTransport::ClientSession::ClientChannel* channel =
+                session->getAvailableChannel();
         CPPUNIT_ASSERT(channel);
-        channel->state = ClientSession::ClientChannel::SENDING;
+        channel->state = FastTransport::ClientSession::ClientChannel::SENDING;
 
         channel->outboundMsg.totalFrags = 5;
         channel->outboundMsg.sendBuffer = request;
 
-        AckResponse ackResp(2, 0);
-        MockReceived recvd(0, 5, &ackResp, sizeof(AckResponse));
-        recvd.getHeader()->payloadType = Header::ACK;
+        FastTransport::AckResponse ackResp(2, 0);
+        MockReceived recvd(0, 5, &ackResp, sizeof(FastTransport::AckResponse));
+        recvd.getHeader()->payloadType = FastTransport::Header::ACK;
 
         session->processInboundPacket(&recvd);
         CPPUNIT_ASSERT_EQUAL(2, channel->outboundMsg.firstMissingFrag);
@@ -2160,25 +2041,27 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_processInboundPacket_badSession()
     {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
         CPPUNIT_ASSERT(session->channelQueue.empty());
 
         // Put an RPC on one of the channels
-        ClientRpc* rpc = new ClientRpc(transport, request, response);
+        FastTransport::ClientRpc* rpc =
+                new FastTransport::ClientRpc(transport, request, response);
         session->channels[1].currentRpc = rpc;
 
         MockReceived recvd(0, 1, "");
-        recvd.getHeader()->payloadType = Header::BAD_SESSION;
+        recvd.getHeader()->payloadType = FastTransport::Header::BAD_SESSION;
 
         session->processInboundPacket(&recvd);
 
         // Make sure the RPC made it back onto the queue safely
         CPPUNIT_ASSERT_EQUAL(rpc, &session->channelQueue.front());
 
-        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_HINT,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::INVALID_HINT,
                              session->serverSessionHint);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::INVALID_TOKEN, session->token);
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::INVALID_TOKEN,
+                             session->token);
         CPPUNIT_ASSERT_EQUAL(
             "{ sessionToken:cccccccccccccccc rpcId:0 "
             "clientSessionHint:98765432 serverSessionHint:cccccccc "
@@ -2191,16 +2074,17 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     test_processInboundPacket_badPayloadType()
     {
         TestLog::Enable _;
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
-        ClientSession::ClientChannel* channel = session->getAvailableChannel();
+        FastTransport::ClientSession::ClientChannel* channel =
+                session->getAvailableChannel();
         CPPUNIT_ASSERT(channel);
-        channel->state = ClientSession::ClientChannel::SENDING;
-        channel->currentRpc = new ClientRpc(transport,
+        channel->state = FastTransport::ClientSession::ClientChannel::SENDING;
+        channel->currentRpc = new FastTransport::ClientRpc(transport,
                                             request, response);
 
         MockReceived recvd(0, 2, "packet data");
-        recvd.getHeader()->payloadType = Header::RESERVED1;
+        recvd.getHeader()->payloadType = FastTransport::Header::RESERVED1;
         session->processInboundPacket(&recvd);
         channel->currentRpc = NULL;
         CPPUNIT_ASSERT_EQUAL(
@@ -2212,12 +2096,13 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     test_processInboundPacket_stalePacket()
     {
         TestLog::Enable _;
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
-        ClientSession::ClientChannel* channel = session->getAvailableChannel();
+        FastTransport::ClientSession::ClientChannel* channel =
+                session->getAvailableChannel();
         CPPUNIT_ASSERT(channel);
-        channel->state = ClientSession::ClientChannel::SENDING;
-        channel->currentRpc = new ClientRpc(transport,
+        channel->state = FastTransport::ClientSession::ClientChannel::SENDING;
+        channel->currentRpc = new FastTransport::ClientRpc(transport,
                                             request, response);
 
         MockReceived recvd(0, 2, "packet data");
@@ -2234,8 +2119,7 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_sendSessionOpenRequest()
     {
-        uint64_t tsc = 91291;
-        MockTSC _(tsc);
+        Dispatch::currentTime = 91291;
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
@@ -2245,8 +2129,8 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
             "clientSessionHint:98765432 serverSessionHint:cccccccc "
             "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
             driver->outputLog);
-        CPPUNIT_ASSERT_EQUAL(tsc, session->lastActivityTime);
-        transport->removeTimer(&session->timer);
+        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
+        session->timer.stop();
     }
 
     void
@@ -2262,15 +2146,16 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_getAvailableChannel()
     {
-        session->numChannels = MAX_NUM_CHANNELS_PER_SESSION;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
         uint32_t i = 0;
         for (;;) {
-            ClientSession::ClientChannel* channel =
+            FastTransport::ClientSession::ClientChannel* channel =
                 session->getAvailableChannel();
             if (!channel)
                 break;
-            channel->state = ClientSession::ClientChannel::SENDING;
+            channel->state =
+                    FastTransport::ClientSession::ClientChannel::SENDING;
             i++;
         }
         CPPUNIT_ASSERT_EQUAL(session->numChannels, i);
@@ -2279,37 +2164,42 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_processReceivedData_transitionSendToReceive()
     {
-        ClientRpc rpc(transport, request, response);
+        FastTransport::ClientRpc rpc(transport, request, response);
         session->channelQueue.push_back(rpc);
 
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        FastTransport::SessionOpenResponse sessResp =
+                { FastTransport::NUM_CHANNELS_PER_SESSION };
         MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
         session->processSessionOpenResponse(&initRecvd);
 
         MockReceived recvd(0, 2, "God hates ponies.");
-        ClientSession::ClientChannel* channel = &session->channels[0];
+        FastTransport::ClientSession::ClientChannel* channel =
+                &session->channels[0];
         session->processReceivedData(channel, &recvd);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::RECEIVING,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::
+                             ClientChannel::RECEIVING,
                              channel->state);
         channel->currentRpc = NULL;
     }
 
     void
     test_processReceivedData_queueEmpty()
-    {
-        ClientRpc rpc(transport, request, response);
+    {;
+        FastTransport::ClientRpc rpc(transport, request, response);
         session->channelQueue.push_back(rpc);
 
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        FastTransport::SessionOpenResponse sessResp =
+                { FastTransport::NUM_CHANNELS_PER_SESSION };
         MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
         session->processSessionOpenResponse(&initRecvd);
 
         MockReceived recvd(0, 1, "God hates ponies.");
-        ClientSession::ClientChannel* channel = &session->channels[0];
+        FastTransport::ClientSession::ClientChannel* channel =
+                &session->channels[0];
         uint32_t prevRpcId = channel->rpcId;
         session->processReceivedData(channel, &recvd);
         CPPUNIT_ASSERT_EQUAL(prevRpcId + 1, channel->rpcId);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::IDLE,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::ClientChannel::IDLE,
                              channel->state);
         CPPUNIT_ASSERT_EQUAL(0, channel->currentRpc);
     }
@@ -2317,21 +2207,24 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_processReceivedData_getWorkFromQueue()
     {
-        ClientRpc rpc1(transport, request, response);
+        FastTransport::ClientRpc rpc1(transport, request, response);
         session->channelQueue.push_back(rpc1);
 
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        FastTransport::SessionOpenResponse sessResp =
+                { FastTransport::NUM_CHANNELS_PER_SESSION };
         MockReceived initRecvd(0, 1, &sessResp, sizeof(sessResp));
         session->processSessionOpenResponse(&initRecvd);
 
-        ClientRpc rpc2(transport, request, response);
+        FastTransport::ClientRpc rpc2(transport, request, response);
         session->channelQueue.push_back(rpc2);
 
         MockReceived recvd(0, 1, "God hates ponies.");
-        ClientSession::ClientChannel* channel = &session->channels[0];
+        FastTransport::ClientSession::ClientChannel* channel =
+                    &session->channels[0];
         session->processReceivedData(channel, &recvd);
         CPPUNIT_ASSERT_EQUAL(1, channel->rpcId);
-        CPPUNIT_ASSERT_EQUAL(ClientSession::ClientChannel::SENDING,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::
+                             ClientChannel::SENDING,
                              channel->state);
         CPPUNIT_ASSERT_EQUAL(&rpc2, channel->currentRpc);
         CPPUNIT_ASSERT(session->channelQueue.empty());
@@ -2341,14 +2234,15 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_processSessionOpenResponse()
     {
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION };
+        FastTransport::SessionOpenResponse sessResp =
+                { FastTransport::NUM_CHANNELS_PER_SESSION };
         MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
-        Header* header = recvd.getHeader();
+        FastTransport::Header* header = recvd.getHeader();
         header->serverSessionHint = 0x192837;
         header->sessionToken = 0x1212343456567878;
 
         // Insert an RPC into the work queue
-        ClientRpc rpc(transport, request, response);
+        FastTransport::ClientRpc rpc(transport, request, response);
         session->channelQueue.push_back(rpc);
 
         session->processSessionOpenResponse(&recvd);
@@ -2357,7 +2251,8 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
         CPPUNIT_ASSERT_EQUAL(header->serverSessionHint,
                              session->serverSessionHint);
         CPPUNIT_ASSERT_EQUAL(header->sessionToken, session->token);
-        CPPUNIT_ASSERT_EQUAL(NUM_CHANNELS_PER_SESSION, session->numChannels);
+        CPPUNIT_ASSERT_EQUAL(FastTransport::NUM_CHANNELS_PER_SESSION,
+                             session->numChannels);
 
         // Make sure our queued RPC made it onto the channel from the queue
         CPPUNIT_ASSERT_EQUAL(&rpc, session->channels[0].currentRpc);
@@ -2371,49 +2266,20 @@ class ClientSessionTest: public CppUnit::TestFixture, FastTransport {
     void
     test_processSessionOpenResponse_tooManyChannelsOnServer()
     {
-        SessionOpenResponse sessResp = { NUM_CHANNELS_PER_SESSION + 1 };
+        FastTransport::SessionOpenResponse sessResp =
+                { FastTransport::NUM_CHANNELS_PER_SESSION + 1 };
         MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
 
         session->processSessionOpenResponse(&recvd);
 
-        CPPUNIT_ASSERT_EQUAL(NUM_CHANNELS_PER_SESSION, session->numChannels);
-    }
-
-    void
-    test_timer_start()
-    {
-        uint64_t tsc = sessionTimeoutCycles() * 2;
-        MockTSC _(tsc);
-
-        ClientSession::Timer timer(session);
-        timer.start();
-        timer.onTimerFired(tsc + timer.when);
-
-        CPPUNIT_ASSERT_EQUAL(true, timer.sessionOpenRequestInFlight);
-        CPPUNIT_ASSERT_EQUAL(
-            "{ sessionToken:cccccccccccccccc rpcId:0 "
-            "clientSessionHint:98765432 serverSessionHint:cccccccc "
-            "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
-            driver->outputLog);
-    }
-
-    void
-    test_timer_start_sessionTimedOut()
-    {
-        uint64_t tsc = SESSION_TIMEOUT_NS * 20;
-        MockTSC _(tsc);
-
-        ClientSession::Timer timer(session);
-        timer.start();
-        timer.onTimerFired(tsc * 4);
-
-        CPPUNIT_ASSERT_EQUAL(false, timer.sessionOpenRequestInFlight);
+        CPPUNIT_ASSERT_EQUAL(FastTransport::NUM_CHANNELS_PER_SESSION,
+                             session->numChannels);
     }
 
   private:
     MockDriver* driver;
     FastTransport* transport;
-    ClientSession* session;
+    FastTransport::ClientSession* session;
     Buffer* request;
     Buffer* response;
     const uint32_t sessionId;
@@ -2429,7 +2295,7 @@ CPPUNIT_TEST_SUITE_REGISTRATION(ClientSessionTest);
 
 // --- SessionTableTest ---
 
-class SessionTableTest : public CppUnit::TestFixture, FastTransport {
+class SessionTableTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(SessionTableTest);
     CPPUNIT_TEST(test_sanity);
     CPPUNIT_TEST(test_operator_brackets);
@@ -2442,20 +2308,20 @@ class SessionTableTest : public CppUnit::TestFixture, FastTransport {
         MockSession(FastTransport* transport, uint32_t sessionHint)
             : expired(true)
             , id(sessionHint)
-            , nextFree(SessionTable<MockSession>::NONE)
-            , time(0)
+            , lastActivityTime(0)
+            , nextFree(FastTransport::SessionTable<MockSession>::NONE)
             , transport(transport)
         {
         }
         uint64_t getLastActivityTime() {
-            return time;
+            return lastActivityTime;
         }
         bool expire() {
             return expired;
         }
         // just used to mock out return from getLastActivityTime
         void setLastActivityTime(uint64_t time) {
-            this->time = time;
+            this->lastActivityTime = time;
         }
         // just used to mock out return from expired
         void setExpired(bool expired) {
@@ -2468,65 +2334,64 @@ class SessionTableTest : public CppUnit::TestFixture, FastTransport {
 
         bool expired;
         uint32_t id;
+        uint64_t lastActivityTime;
         uint32_t nextFree;
-        uint64_t time;
         FastTransport* transport;
         DISALLOW_COPY_AND_ASSIGN(MockSession);
     };
 
   public:
     SessionTableTest()
-        : FastTransport(NULL)
     {}
 
     void
     test_sanity()
     {
-        SessionTable<MockSession> st(NULL);
+        FastTransport::SessionTable<MockSession> st(NULL);
         MockSession* s[5];
 
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::TAIL,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::TAIL,
                              st.firstFree);
         s[0] = st.get();
         CPPUNIT_ASSERT_EQUAL(0, s[0]->id);
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::NONE,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::NONE,
                              s[0]->nextFree);
 
         s[1] = st.get();
         CPPUNIT_ASSERT_EQUAL(1, s[1]->id);
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::NONE,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::NONE,
                              s[1]->nextFree);
 
         s[2] = st.get();
         CPPUNIT_ASSERT_EQUAL(2, s[2]->id);
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::NONE,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::NONE,
                              s[2]->nextFree);
 
         s[3] = st.get();
         CPPUNIT_ASSERT_EQUAL(3, s[3]->id);
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::NONE,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::NONE,
                              s[3]->nextFree);
 
         st.put(s[3]);
         CPPUNIT_ASSERT_EQUAL(st.firstFree, s[3]->id);
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::TAIL,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::TAIL,
                              s[3]->nextFree);
         s[3] = st.get();
         CPPUNIT_ASSERT_EQUAL(3, s[3]->id);
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::NONE,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::NONE,
                              s[3]->nextFree);
 
         st.put(s[2]);
         s[2] = st.get();
         CPPUNIT_ASSERT_EQUAL(2, s[2]->id);
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::NONE,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::NONE,
                              s[2]->nextFree);
 
         st.put(s[0]);
         st.put(s[2]);
         CPPUNIT_ASSERT_EQUAL(2, st.firstFree);
         CPPUNIT_ASSERT_EQUAL(0, s[2]->nextFree);
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::TAIL,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::TAIL,
                              s[0]->nextFree);
 
     }
@@ -2534,7 +2399,7 @@ class SessionTableTest : public CppUnit::TestFixture, FastTransport {
     void
     test_operator_brackets()
     {
-        SessionTable<MockSession> st(NULL);
+        FastTransport::SessionTable<MockSession> st(NULL);
         MockSession* s = st.get();
         CPPUNIT_ASSERT_EQUAL(s, st[0]);
     }
@@ -2542,7 +2407,7 @@ class SessionTableTest : public CppUnit::TestFixture, FastTransport {
     void
     test_get()
     {
-        SessionTable<MockSession> st(NULL);
+        FastTransport::SessionTable<MockSession> st(NULL);
         MockSession* s = st.get();
         CPPUNIT_ASSERT_EQUAL(1, st.size());
 
@@ -2557,25 +2422,23 @@ class SessionTableTest : public CppUnit::TestFixture, FastTransport {
     void
     test_put()
     {
-        SessionTable<MockSession> st(NULL);
+        FastTransport::SessionTable<MockSession> st(NULL);
         MockSession* s[2];
         s[0] = st.get();
         s[1] = st.get();
         st.put(s[0]);
         CPPUNIT_ASSERT_EQUAL(0, st.firstFree);
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::TAIL,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::TAIL,
                              s[0]->nextFree);
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::NONE,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::NONE,
                              s[1]->nextFree);
     }
 
     void
     test_expire()
     {
-        MockTSC __(1); // force sessionTimeoutCycles to be deterministic
-        uint64_t tsc = sessionTimeoutCycles();
-        MockTSC _(tsc);
-        SessionTable<MockSession> st(NULL);
+        Dispatch::currentTime = FastTransport::sessionTimeoutCycles();
+        FastTransport::SessionTable<MockSession> st(NULL);
 
         // Make sure it runs/doesn't segfault on 0 length
         st.expire();
@@ -2584,7 +2447,7 @@ class SessionTableTest : public CppUnit::TestFixture, FastTransport {
         for (uint32_t i = 0; i < 3; i++) {
             st.get();
             // even numbered sessions are up for expire
-            st[i]->setLastActivityTime(i % 2 ? tsc : 0);
+            st[i]->setLastActivityTime(i % 2 ? Dispatch::currentTime : 0);
         }
 
         st.expire();
@@ -2593,7 +2456,7 @@ class SessionTableTest : public CppUnit::TestFixture, FastTransport {
         // the first item to be cleaned is 1
         CPPUNIT_ASSERT_EQUAL(0, st.firstFree);
         CPPUNIT_ASSERT_EQUAL(2, st[0]->nextFree);
-        CPPUNIT_ASSERT_EQUAL(SessionTable<MockSession>::TAIL,
+        CPPUNIT_ASSERT_EQUAL(FastTransport::SessionTable<MockSession>::TAIL,
                              st[2]->nextFree);
     }
 

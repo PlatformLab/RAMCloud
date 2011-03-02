@@ -14,10 +14,11 @@
  */
 
 #include "Common.h"
+#include "Dispatch.h"
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "MasterClient.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
 
@@ -48,16 +49,20 @@ Recovery::Recovery(uint64_t masterId,
                    const ProtoBuf::Tablets& will,
                    const ProtoBuf::ServerList& masterHosts,
                    const ProtoBuf::ServerList& backupHosts)
-    : backups()
+
+    : recoveryTicks(&metrics->recoveryTicks)
+    , backups()
     , masterHosts(masterHosts)
     , backupHosts(backupHosts)
     , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
-    , tasks(new ObjectTub<Task>[backupHosts.server_size()])
+    , tasks(new Tub<Task>[backupHosts.server_size()])
     , digestList()
     , segmentMap()
 {
+    CycleCounter<Metric> _(&metrics->coordinator.recoveryConstructorTicks);
+    reset(metrics, 0, 0);
     buildSegmentIdToBackups();
     verifyCompleteLog();
 }
@@ -65,6 +70,8 @@ Recovery::Recovery(uint64_t masterId,
 Recovery::~Recovery()
 {
     delete[] tasks;
+    recoveryTicks.stop();
+    dump(metrics);
 }
 
 /**
@@ -79,87 +86,113 @@ Recovery::buildSegmentIdToBackups()
     LOG(DEBUG, "Getting segment lists from backups and preparing "
                "them for recovery");
 
-    auto backupHostsIt = backupHosts.server().begin();
-    auto backupHostsEnd = backupHosts.server().end();
+    const uint32_t numBackups = backupHosts.server_size();
     const uint32_t maxActiveBackupHosts = 10;
     uint32_t activeBackupHosts = 0;
+    uint32_t firstNotIssued = 0;
 
     // Start off first round of RPCs
-    for (int i = 0; i < backupHosts.server_size(); ++i) {
-        auto& task = tasks[i];
-        if (backupHostsIt == backupHostsEnd ||
-            activeBackupHosts == maxActiveBackupHosts)
-            break;
-        task.construct(*backupHostsIt++, masterId, will);
+    while (firstNotIssued < numBackups &&
+           activeBackupHosts < maxActiveBackupHosts) {
+        tasks[firstNotIssued].construct(backupHosts.server(firstNotIssued),
+                                        masterId, will);
+        ++firstNotIssued;
         ++activeBackupHosts;
     }
 
     // As RPCs complete kick off new ones
     while (activeBackupHosts > 0) {
-        for (int i = 0; i < backupHosts.server_size(); ++i) {
+        while (Dispatch::poll()) {
+            /* pass */;
+        }
+        for (uint32_t i = 0; i < numBackups; ++i) {
             auto& task = tasks[i];
             if (!task || !task->isReady() || task->isDone())
                 continue;
 
             try {
                 (*task)();
-                LOG(DEBUG, "%s returned %lu segment id/lengths",
-                    task->backupHost.service_locator().c_str(),
+                LOG(DEBUG, "Backup %lu has %lu segments",
+                    task->backupHost.server_id(),
                     task->result.segmentIdAndLength.size());
             } catch (const TransportException& e) {
-                LOG(DEBUG, "Couldn't contact %s, "
+                LOG(WARNING, "Couldn't contact %s, "
                     "failure was: %s",
                     task->backupHost.service_locator().c_str(),
                     e.str().c_str());
+                task.destroy();
             } catch (const ClientException& e) {
-                LOG(DEBUG, "startReadingData failed on %s, "
+                LOG(WARNING, "startReadingData failed on %s, "
                     "failure was: %s",
                     task->backupHost.service_locator().c_str(),
                     e.str().c_str());
+                task.destroy();
             }
 
-            if (backupHostsIt == backupHostsEnd) {
+            if (firstNotIssued < numBackups) {
+                tasks[firstNotIssued].construct(
+                        backupHosts.server(firstNotIssued),
+                        masterId, will);
+                ++firstNotIssued;
+            } else {
                 --activeBackupHosts;
-                continue;
             }
         }
     }
 
     // Create the ServerList 'script' that recovery masters will replay
-    for (uint32_t slot = 0;; ++slot) {
-        // Keep working if some segment list had a value in offset 'slot'.
-        bool stillWorking = false;
-        // TODO(stutsman) we'll want to add some modular arithmetic here
-        // to generate unique replay scripts for each recovery master
-        for (int i = 0; i < backupHosts.server_size(); ++i) {
-            assert(tasks[i]);
-            const auto& task = tasks[i];
-            if (slot >= task->result.segmentIdAndLength.size())
-                continue;
-            stillWorking = true;
-            ProtoBuf::ServerList::Entry& backupHost = *backups.add_server();
-            // Copy backup host into the new server list.
-            backupHost = task->backupHost;
-            // Augment it with the segment id.
-            uint64_t segmentId  = task->result.segmentIdAndLength[slot].first;
-            backupHost.set_segment_id(segmentId);
+    // First add all primaries to the list, then all secondaries
+    for (bool primary = true;; primary = !primary) {
+        for (uint32_t slot = 0;; ++slot) {
+            // Keep working if some segment list had a value in offset 'slot'.
+            bool stillWorking = false;
+            // TODO(stutsman) we'll want to add some modular arithmetic here
+            // to generate unique replay scripts for each recovery master
+            for (int i = 0; i < backupHosts.server_size(); ++i) {
+                if (!tasks[i])
+                    continue;
+                const auto& task = tasks[i];
 
-            // Keep a count of each segmentId seen so we can cross check with
-            // the LogDigest.
-            if (segmentMap.find(segmentId) != segmentMap.end())
-                segmentMap[segmentId] += 1;
-            else
-                segmentMap[segmentId] = 1;
+                // Amount per result's segment array to compensate to
+                // skip over primaries in the list, only used when adding
+                // secondaries to the script, no effect on primary pass
+                uint32_t firstSecondary = primary ?
+                                            0 :
+                                            task->result.primarySegmentCount;
+                uint32_t adjustedSlot = slot + firstSecondary;
+                if (adjustedSlot >= task->result.segmentIdAndLength.size() ||
+                    (primary &&
+                     adjustedSlot >= task->result.primarySegmentCount))
+                    continue;
+                stillWorking = true;
+                ProtoBuf::ServerList::Entry& backupHost = *backups.add_server();
+                // Copy backup host into the new server list.
+                backupHost = task->backupHost;
+                // Augment it with the segment id.
+                uint64_t segmentId =
+                    task->result.segmentIdAndLength[adjustedSlot].first;
+                backupHost.set_segment_id(segmentId);
+                // Just for debugging for now so the debug print out can include
+                // whether or not each entry is a primary
+                backupHost.set_user_data(adjustedSlot <
+                                         task->result.primarySegmentCount);
+
+                // Keep count of each segmentId seen so we can cross check with
+                // the LogDigest.
+                ++segmentMap[segmentId];
+            }
+            if (!stillWorking)
+                break;
         }
-        if (!stillWorking)
+        if (!primary)
             break;
     }
 
     LOG(DEBUG, "=== Replay script ===");
     foreach (const auto& backup, backups.server()) {
-        LOG(DEBUG, "id: %lu, locator: %s, segmentId %lu",
+        LOG(DEBUG, "backup: %lu, locator: %s, segmentId %lu, primary %lu",
             backup.server_id(), backup.service_locator().c_str(),
-            backup.segment_id());
+            backup.segment_id(), backup.user_data());
     }
 
     for (int i = 0; i < backupHosts.server_size(); i++) {
@@ -214,7 +247,7 @@ Recovery::verifyCompleteLog()
         throw Exception(HERE, "ouch! data lost!");
     }
 
-    LOG(DEBUG, "Segment %lu of length %u bytes is the head of the log",
+    LOG(NOTICE, "Segment %lu of length %u bytes is the head of the log",
         headId, headLen);
 
     // scan the backup map to determine if all needed segments are available
@@ -222,7 +255,7 @@ Recovery::verifyCompleteLog()
     for (int i = 0; i < headDigest->getSegmentCount(); i++) {
         uint64_t id = headDigest->getSegmentIds()[i];
         if (segmentMap.find(id) == segmentMap.end()) {
-            LOG(WARNING, "Segment %lu is missing!", id);
+            LOG(ERROR, "Segment %lu is missing!", id);
             missing++;
         }
     }
@@ -246,6 +279,7 @@ Recovery::verifyCompleteLog()
 void
 Recovery::start()
 {
+    CycleCounter<Metric> _(&metrics->coordinator.recoveryStartTicks);
     uint64_t partitionId = 0;
     int hostIndexToRecoverOnNext = 0;
     for (;;) {
@@ -306,7 +340,15 @@ bool
 Recovery::tabletsRecovered(const ProtoBuf::Tablets& tablets)
 {
     tabletsUnderRecovery--;
-    return tabletsUnderRecovery == 0;
+    if (tabletsUnderRecovery == 0) {
+        foreach (auto& backup, backupHosts.server()) {
+            auto session = transportManager.getSession(
+                                    backup.service_locator().c_str());
+            BackupClient(session).recoveryComplete(masterId);
+        }
+        return true;
+    }
+    return false;
 }
 
 } // namespace RAMCloud

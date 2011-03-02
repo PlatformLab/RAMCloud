@@ -22,8 +22,12 @@ sub hosts {
         if (/^(!?)(\d+)(-(\d+))?$/) {
           my $low = $2;
           my $high = $3 ? $4 : $low;
+          my $fmt = "%d";
+          if (length($low) == length($high) && length($low) > 1) {
+            $fmt = "%0" . length($low) . "d";
+          }
           for (my $n = $low; $n <= $high; $n++) {
-            my $hn = $pre.$n.$post;
+            my $hn = $pre . sprintf($fmt,$n) . $post;
             if ($1) {
               @hostlist = grep { $_ ne $hn } @hostlist;
               @hosts = grep { $_ ne $hn } @hosts;

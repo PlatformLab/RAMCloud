@@ -20,7 +20,6 @@
 
 #include "Common.h"
 #include "ClientException.h"
-#include "Metrics.h"
 #include "Rpc.h"
 #include "TransportManager.h"
 
@@ -59,8 +58,6 @@ class Server {
                     new(&rpc->replyPayload, APPEND) RpcResponseCommon;
                 responseCommon->status = STATUS_RESPONSE_FORMAT_ERROR;
             }
-            Metrics::mark(MARK_RPC_PROCESSING_END);
-            responseCommon->counterValue = Metrics::read();
             server.rpcsTime[server.rpcIndex] += rdtsc() - server.start;
             rpc->sendReply();
             rpc = NULL;
@@ -75,8 +72,6 @@ class Server {
                     new(&rpc->replyPayload, APPEND) RpcResponseCommon;
             }
             responseCommon->status = status;
-            Metrics::mark(MARK_RPC_PROCESSING_END);
-            responseCommon->counterValue = Metrics::read();
             server.rpcsTime[server.rpcIndex] += rdtsc() - server.start;
             rpc->sendReply();
             rpc = NULL;
@@ -188,8 +183,6 @@ class Server {
                        header->type : ILLEGAL_RPC_TYPE;
         rpcsHandled[rpcIndex]++;
         start = rdtsc();
-        Metrics::setup(header->perfCounter);
-        Metrics::mark(MARK_RPC_PROCESSING_BEGIN);
         try {
             static_cast<S*>(this)->dispatch(header->type, rpc, responder);
         } catch (ClientException& e) {

@@ -16,8 +16,6 @@
 #include "BackupClient.h"
 #include "Buffer.h"
 #include "ClientException.h"
-#include "Mark.h"
-#include "PerfCounterType.h"
 #include "Rpc.h"
 #include "TransportManager.h"
 
@@ -145,6 +143,36 @@ BackupClient::ping()
 }
 
 /**
+ * Flush all data to storage.
+ * Returns once all dirty buffers have been written to storage.
+ * This is useful for measuring recovery performance accurately.
+ *
+ * \exception InternalError
+ */
+void
+BackupClient::quiesce()
+{
+    Buffer req, resp;
+    allocHeader<BackupQuiesceRpc>(req);
+    sendRecv<BackupQuiesceRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
+ * Signal to the backup server that recovery has completed. The backup server
+ * will then free any resources it has for the recovered master.
+ */
+void
+BackupClient::recoveryComplete(uint64_t masterId)
+{
+    Buffer req, resp;
+    auto& reqHdr = allocHeader<BackupRecoveryCompleteRpc>(req);
+    reqHdr.masterId = masterId;
+    sendRecv<BackupRecoveryCompleteRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
  * Begin reading the objects stored for the given server from disk and
  * split them into recovery segments.
  *
@@ -192,6 +220,7 @@ BackupClient::StartReadingData::operator()(
     client.checkStatus(HERE);
 
     uint64_t segmentIdCount = respHdr.segmentIdCount;
+    uint64_t primarySegmentCount = respHdr.primarySegmentCount;
     uint32_t digestBytes = respHdr.digestBytes;
     uint64_t digestSegmentId = respHdr.digestSegmentId;
     uint64_t digestSegmentLen = respHdr.digestSegmentLen;
@@ -207,8 +236,8 @@ BackupClient::StartReadingData::operator()(
         digestPtr = responseBuffer.getStart<const void*>();
     }
 
-    result->set(segmentIdsRaw, segmentIdCount, digestPtr, digestBytes,
-        digestSegmentId, digestSegmentLen);
+    result->set(segmentIdsRaw, segmentIdCount, primarySegmentCount,
+                digestPtr, digestBytes, digestSegmentId, digestSegmentLen);
 }
 
 /**

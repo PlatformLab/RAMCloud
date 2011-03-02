@@ -31,13 +31,6 @@ static Syscall defaultSyscall;
 Syscall* TcpTransport::sys = &defaultSyscall;
 
 /**
- * Used by libevent to manage events; shared among all TcpTransport
- * instances.  NULL means the event system hasn't yet been initialized.
- */
-event_base* eventBase = NULL;
-bool init = false;
-
-/**
  * Construct a TcpTransport instance.
  * \param serviceLocator
  *      If non-NULL this transport will be used to serve incoming
@@ -46,13 +39,9 @@ bool init = false;
  *      If NULL this transport will be used only for outgoing requests.
  */
 TcpTransport::TcpTransport(const ServiceLocator* serviceLocator)
-        : locatorString(), listenSocket(-1), listenSocketEvent(), sockets(),
+        : locatorString(), listenSocket(-1), acceptHandler(), sockets(),
         waitingRequests()
 {
-    if (!init) {
-        eventBase = event_init();
-        init = true;
-    }
     if (serviceLocator == NULL)
         return;
     IpAddress address(*serviceLocator);
@@ -94,22 +83,16 @@ TcpTransport::TcpTransport(const ServiceLocator* serviceLocator)
     }
 
     // Arrange to be notified whenever anyone connects to listenSocket.
-    event_set(&listenSocketEvent, listenSocket, EV_READ|EV_PERSIST,
-            tryAccept, this);
-    if (event_add(&listenSocketEvent, NULL) != 0) {
-        throw TransportException(HERE,
-                "event_add failed in TcpTransport constructor");
-    }
+    acceptHandler.construct(listenSocket, this);
 }
 
 /**
- * Destructor for TcpTransport's: close file descriptors and perform
+ * Destructor for TcpTransports: close file descriptors and perform
  * any other needed cleanup.
  */
 TcpTransport::~TcpTransport()
 {
     if (listenSocket >= 0) {
-        event_del(&listenSocketEvent);
         sys->close(listenSocket);
         listenSocket = -1;
     }
@@ -128,36 +111,34 @@ TcpTransport::~TcpTransport()
  */
 void
 TcpTransport::closeSocket(int fd) {
-    event_del(&sockets[fd]->readEvent);
-    sys->close(fd);
-    sockets[fd]->busy = false;
-    sockets[fd]->rpc = NULL;
+    delete sockets[fd];
     sockets[fd] = NULL;
+    sys->close(fd);
 }
 
 /**
- * This method is invoked by libevent when listenSocket becomes readable;
- * it tries to open a new connection with a client. If that succeeds
- * then we will begin listening on that socket for RPCs.
+ * Constructor for AcceptHandlers.
  *
  * \param fd
- *      The file descriptor that became readable (should be the same
- *      as listenSocket).
- * \param event
- *      The event that happened: should always be EV_READ.
- * \param arg
- *      Pointer to the TcpTransport object whose listenSocket became
- *      readable.
+ *      File descriptor for a socket on which the #listen system call has
+ *      been invoked.
+ * \param transport
+ *      The TcpTransport that manages this socket.
+ */
+TcpTransport::AcceptHandler::AcceptHandler(int fd, TcpTransport* transport)
+    : Dispatch::File(fd, Dispatch::FileEvent::READABLE), transport(transport)
+{
+    // Empty constructor body.
+}
+
+/**
+ * This method is invoked by Dispatch when a listening socket becomes
+ * readable; it tries to open a new connection with a client. If that
+ * succeeds then we will begin listening on that socket for RPCs.
  */
 void
-TcpTransport::tryAccept(int fd, int16_t event, void* arg)
+TcpTransport::AcceptHandler::operator() ()
 {
-    TcpTransport* transport = static_cast<TcpTransport*>(arg);
-
-    // If you opted out of listening in the constructor,
-    // you're not allowed to accept now.
-    assert(transport->listenSocket > 0);
-
     int acceptedFd = sys->accept(transport->listenSocket, NULL, NULL);
     if (acceptedFd < 0) {
         switch (errno) {
@@ -183,10 +164,10 @@ TcpTransport::tryAccept(int fd, int16_t event, void* arg)
 
         // Unexpected error: log a message and then close the socket
         // (so we don't get repeated errors).
-        LOG(ERROR, "error in TcpTransport accepting connection "
-                "for '%s': %s", transport->locatorString.c_str(),
-                strerror(errno));
-        event_del(&transport->listenSocketEvent);
+        LOG(ERROR, "error in TcpTransport::AcceptHandler accepting "
+                "connection for '%s': %s",
+                transport->locatorString.c_str(), strerror(errno));
+        setEvent(Dispatch::FileEvent::NONE);
         sys->close(transport->listenSocket);
         transport->listenSocket = -1;
         return;
@@ -199,34 +180,33 @@ TcpTransport::tryAccept(int fd, int16_t event, void* arg)
             static_cast<unsigned int>(acceptedFd)) {
         transport->sockets.resize(acceptedFd + 1);
     }
-    Socket* socket = transport->sockets[acceptedFd] = new Socket;
-    socket->rpc =  NULL;
-    socket->busy = false;
-    event_set(&socket->readEvent, acceptedFd, EV_READ|EV_PERSIST,
-            tryServerRecv, transport);
-    if (event_add(&socket->readEvent, NULL) != 0) {
-        throw TransportException(HERE,
-                "event_add failed in TcpTransport::tryAccept");
-    }
+    transport->sockets[acceptedFd] = new Socket(acceptedFd, transport);
 }
 
 /**
- * This method is invoked when a client socket becomes readable. It
- * attempts to read an incoming message from the socket. If a full
- * message is available, a TcpServerRpc object gets queued for service.
+ * Constructor for RequestReadHandlers.
  *
  * \param fd
- *      File descriptor that is now readable.
- * \param event
- *      The event that happened: should always be EV_READ.
- * \param arg
- *      Pointer to TcpTransport object associated with the socket.
+ *      File descriptor for a client socket on which RPC requests may arrive.
+ * \param transport
+ *      The TcpTransport that manages this socket.
+ */
+TcpTransport::RequestReadHandler::RequestReadHandler(int fd,
+        TcpTransport* transport)
+        : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
+        fd(fd), transport(transport)
+{
+    // Empty constructor body.
+}
+
+/**
+ * This method is invoked by Dispatch when a client socket becomes readable.
+ * It attempts to read an incoming message from the socket. If a full
+ * message is available, a TcpServerRpc object gets queued for service.
  */
 void
-TcpTransport::tryServerRecv(int fd, int16_t event, void *arg)
+TcpTransport::RequestReadHandler::operator() ()
 {
-    TcpTransport* transport = static_cast<TcpTransport*>(arg);
-
     Socket* socket = transport->sockets[fd];
     assert(socket != NULL);
     if (socket->rpc == NULL) {
@@ -247,8 +227,9 @@ TcpTransport::tryServerRecv(int fd, int16_t event, void *arg)
             ssize_t length = TcpTransport::recvCarefully(fd, buffer,
                     sizeof(buffer));
             if (length > 0) {
-                LOG(WARNING, "TcpTransport discarding %lu unexpected bytes "
-                        "from client", static_cast<uint64_t>(length));
+                LOG(WARNING, "TcpTransport::RequestReadHandler discarding "
+                        "%lu unexpected bytes from client",
+                        static_cast<uint64_t>(length));
             }
             return;
         }
@@ -264,8 +245,8 @@ TcpTransport::tryServerRecv(int fd, int16_t event, void *arg)
         // calls to this method.
         transport->closeSocket(fd);
     } catch (TransportException& e) {
-        LOG(ERROR, "TcpTransport closing client connection: %s",
-                e.message.c_str());
+        LOG(ERROR, "TcpTransport::RequestReadHandler closing client "
+                "connection: %s", e.message.c_str());
         transport->closeSocket(fd);
     }
 }
@@ -453,7 +434,7 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  */
 TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
         : address(serviceLocator), fd(-1), current(NULL), message(NULL),
-        readEvent(), errorInfo()
+        replyHandler(), errorInfo()
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -470,12 +451,7 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
     }
 
     /// Arrange for notification whenever the server sends us data.
-    event_set(&readEvent, fd, EV_READ|EV_PERSIST, TcpSession::tryReadReply,
-            this);
-    if (event_add(&readEvent, NULL) != 0) {
-        throw TransportException(HERE,
-                "event_add failed in TcpSession constructor");
-    }
+    replyHandler.construct(fd, this);
 }
 
 /**
@@ -493,10 +469,11 @@ void
 TcpTransport::TcpSession::close()
 {
     if (fd >= 0) {
-        event_del(&readEvent);
         sys->close(fd);
         fd = -1;
     }
+    if (replyHandler)
+        replyHandler.destroy();
 }
 
 // See Transport::Session::clientSend for documentation.
@@ -506,7 +483,7 @@ TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* reply)
     while (current != NULL) {
         // We can't handle more than one outstanding request at a time;
         // wait for the previous request to complete.
-        event_loop(EVLOOP_ONCE);
+        Dispatch::handleEvent();
     }
     if (fd == -1) {
         throw TransportException(HERE, errorInfo);
@@ -518,20 +495,29 @@ TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* reply)
 }
 
 /**
- * This method is invoked when the socket connecting to a server becomes
- * readable (because a reply is arriving). This method reads the reply.
+ * Constructor for ReplyReadHandlers.
  *
  * \param fd
- *      File descriptor that just became readable.
- * \param event
- *      The event that happened: should always be EV_READ.
- * \param arg
- *      Pointer to the TcpSession associated with fd.
+ *      File descriptor for a socket on which the the response for
+ *      an RPC will arrive.
+ * \param session
+ *      The TcpSession that is controlling this request and its response.
+ */
+TcpTransport::ReplyReadHandler::ReplyReadHandler(int fd,
+        TcpSession* session)
+        : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
+        fd(fd), session(session)
+{
+    // Empty constructor body.
+}
+
+/**
+ * This method is invoked when the socket connecting to a server becomes
+ * readable (because a reply is arriving). This method reads the reply.
  */
 void
-TcpTransport::TcpSession::tryReadReply(int fd, int16_t event, void *arg)
+TcpTransport::ReplyReadHandler::operator() ()
 {
-    TcpSession* session = static_cast<TcpSession*>(arg);
     try {
         if (session->current == NULL) {
             // We can get here under 2 conditions: either the server closed
@@ -543,8 +529,9 @@ TcpTransport::TcpSession::tryReadReply(int fd, int16_t event, void *arg)
             ssize_t length = TcpTransport::recvCarefully(fd, buffer,
                     sizeof(buffer));
             if (length > 0) {
-                LOG(WARNING, "TcpTransport discarding %lu unexpected bytes "
-                        "from server %s", static_cast<uint64_t>(length),
+                LOG(WARNING, "TcpTransport::ReplyReadHandler discarding %lu "
+                        "unexpected bytes from server %s",
+                        static_cast<uint64_t>(length),
                         session->address.toString().c_str());
             }
             return;
@@ -561,8 +548,8 @@ TcpTransport::TcpSession::tryReadReply(int fd, int16_t event, void *arg)
         session->current = NULL;
         session->errorInfo = "socket closed by server";
     } catch (TransportException& e) {
-        LOG(ERROR, "TcpTransport closing session socket: %s",
-                e.message.c_str());
+        LOG(ERROR, "TcpTransport::ReplyReadHandler closing session "
+                "socket: %s", e.message.c_str());
         session->close();
         session->current = NULL;
         session->errorInfo = e.message;
@@ -573,9 +560,6 @@ TcpTransport::TcpSession::tryReadReply(int fd, int16_t event, void *arg)
 bool
 TcpTransport::TcpClientRpc::isReady()
 {
-    if (finished || session->fd == -1)
-        return true;
-    event_loop(EVLOOP_NONBLOCK);
     return (finished || session->fd == -1);
 }
 
@@ -586,7 +570,7 @@ TcpTransport::TcpClientRpc::wait()
     while (!finished) {
         if (session->fd == -1)
             throw TransportException(HERE, session->errorInfo);
-        event_loop(EVLOOP_ONCE);
+        Dispatch::handleEvent();
     }
 }
 
@@ -595,9 +579,7 @@ Transport::ServerRpc*
 TcpTransport::serverRecv()
 {
     if (waitingRequests.empty()) {
-        event_loop(EVLOOP_ONCE|EVLOOP_NONBLOCK);
-        if (waitingRequests.empty())
-            return NULL;
+        return NULL;
     }
     ServerRpc* result = waitingRequests.front();
     waitingRequests.pop();

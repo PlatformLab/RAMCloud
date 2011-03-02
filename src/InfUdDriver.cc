@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -34,6 +34,7 @@
 #include <sys/types.h>
 
 #include "Common.h"
+#include "FastTransport.h"
 #include "InfUdDriver.h"
 
 #define error_check_null(x, s)                              \
@@ -67,11 +68,13 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
     , packetBufPool()
     , packetBufsUtilized(0)
     , currentRxBuffer(0)
-    , txBuffer()
+    , txBuffer(NULL)
     , ibPhysicalPort(1)
     , lid(0)
     , qpn(0)
     , locatorString()
+    , transport(NULL)
+    , poller()
 {
     const char *ibDeviceName = NULL;
 
@@ -119,7 +122,7 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
 
     // add receive buffers so we can transition to RTR
     for (uint32_t i = 0; i < MAX_RX_QUEUE_DEPTH; i++)
-        infiniband->postReceive(qp, &rxBuffers[i]);
+        infiniband->postReceive(qp, rxBuffers[i]);
 
     qp->activate();
 }
@@ -144,6 +147,26 @@ InfUdDriver<Infiniband>::~InfUdDriver()
  * See docs in the ``Driver'' class.
  */
 template<typename Infiniband>
+void
+InfUdDriver<Infiniband>::connect(FastTransport* transport) {
+    this->transport = transport;
+    poller.construct(this);
+}
+
+/*
+ * See docs in the ``Driver'' class.
+ */
+template<typename Infiniband>
+void
+InfUdDriver<Infiniband>::disconnect() {
+    poller.destroy();
+    this->transport = NULL;
+}
+
+/*
+ * See docs in the ``Driver'' class.
+ */
+template<typename Infiniband>
 uint32_t
 InfUdDriver<Infiniband>::getMaxPacketSize()
 {
@@ -155,7 +178,7 @@ InfUdDriver<Infiniband>::getMaxPacketSize()
  */
 template<typename Infiniband>
 void
-InfUdDriver<Infiniband>::release(char *payload, uint32_t len)
+InfUdDriver<Infiniband>::release(char *payload)
 {
     // Note: the payload is actually contained in a PacketBuf structure,
     // which we return to a pool for reuse later.
@@ -182,7 +205,7 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
     const Address *infAddr = static_cast<const Address *>(addr);
 
     // use the sole TX buffer
-    BufferDescriptor* bd = &txBuffer;
+    BufferDescriptor* bd = txBuffer;
 
     // copy buffer over
     char *p = bd->buffer;
@@ -211,26 +234,28 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
  */
 template<typename Infiniband>
 bool
-InfUdDriver<Infiniband>::tryRecvPacket(Received *received)
+InfUdDriver<Infiniband>::Poller::operator() ()
 {
-    PacketBuf* buffer = packetBufPool.construct();
+    PacketBuf* buffer = driver->packetBufPool.construct();
     BufferDescriptor* bd = NULL;
+    bool result = true;
 
     try {
-        bd = infiniband->tryReceive(qp, &buffer->infAddress);
+        bd = driver->infiniband->tryReceive(driver->qp, &buffer->infAddress);
     } catch (...) {
-        packetBufPool.destroy(buffer);
+        driver->packetBufPool.destroy(buffer);
         throw;
     }
 
     if (bd == NULL) {
-        packetBufPool.destroy(buffer);
+        driver->packetBufPool.destroy(buffer);
         return false;
     }
 
     if (bd->messageBytes < 40) {
         LOG(ERROR, "%s: received packet without GRH!", __func__);
-        packetBufPool.destroy(buffer);
+        driver->packetBufPool.destroy(buffer);
+        result = false;
     } else {
         LOG(DEBUG, "%s: received %u byte packet (not including GRH) from %s",
             __func__, bd->messageBytes - 40,
@@ -240,17 +265,18 @@ InfUdDriver<Infiniband>::tryRecvPacket(Received *received)
         // buffer.
         memcpy(buffer->payload, bd->buffer + 40, bd->messageBytes - 40);
 
-        packetBufsUtilized++;
-        received->payload = buffer->payload;
-        received->len = bd->messageBytes - 40;
-        received->sender = buffer->infAddress.get();
-        received->driver = this;
+        driver->packetBufsUtilized++;
+        Received received;
+        received.payload = buffer->payload;
+        received.len = bd->messageBytes - 40;
+        received.sender = buffer->infAddress.get();
+        received.driver = driver;
+        driver->transport->handleIncomingPacket(&received);
     }
 
     // post the original infiniband buffer back to the receive queue
-    infiniband->postReceive(qp, bd);
-
-    return true;
+    driver->infiniband->postReceive(driver->qp, bd);
+    return result;
 }
 
 /**

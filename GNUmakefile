@@ -8,6 +8,7 @@ DEBUG ?= yes
 YIELD ?= no
 SSE ?= sse4.2
 COMPILER ?= gnu
+VALGRIND ?= no
 
 INFINIBAND := $(shell [ -e /usr/lib/libibverbs.so ] && echo -n "yes")
 
@@ -23,7 +24,9 @@ GTEST_DIR ?= $(TOP)/gtest
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
 OPTFLAG	 :=
-DEBUGFLAGS := -DPERF_COUNTERS=1 -DTESTING=1 -fno-builtin
+## Note: -DBOOST_DISABLE_ASSERTS is needed below because Dispatch performs
+## extraneous unlocks on mutexes, which pthreads doesn't really like.
+DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
 BASECFLAGS :=
 OPTFLAG := -O3
@@ -36,6 +39,10 @@ COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
 ifeq ($(COMPILER),gnu)
 COMFLAGS += -march=core2
 endif
+ifeq ($(VALGRIND),yes)
+COMFLAGS += -DVALGRIND
+endif
+
 COMWARNS := -Wall -Wformat=2 -Wextra \
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute
 CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
@@ -52,7 +59,8 @@ endif
 # -Wconversion
 # Failed deconstructor inlines are generating noise
 # -Winline
-LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lcryptopp -lrt -levent -lboost_thread
+LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lcryptopp -lrt \
+        -lpthread -lboost_thread
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
 ifeq ($(INFINIBAND),yes)
@@ -182,7 +190,9 @@ doc: docs
 docs: python-docs
 	@DOCSID=`git branch --no-color | grep "*" | cut -f2 -d" "` ;\
 	DOCSID=$$DOCSID-`cat ".git/$$( git symbolic-ref HEAD )" | cut -c1-6` ;\
-	echo "PROJECT_NUMBER = \"Version [$$DOCSID]\"" | cat Doxyfile - | doxygen -
+	(echo "PROJECT_NUMBER = \"Version [$$DOCSID]\""; \
+	 echo "INPUT = src bindings README $(OBJDIR)"; \
+	 echo "INCLUDE_PATH = $(OBJDIR)"; ) | cat Doxyfile - | doxygen -
 
 docs-clean: python-docs-clean
 	rm -rf docs/doxygen/

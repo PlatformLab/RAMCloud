@@ -19,7 +19,9 @@
 #include <event.h>
 #include <queue>
 
+#include "Dispatch.h"
 #include "IpAddress.h"
+#include "Tub.h"
 #include "Syscall.h"
 #include "Transport.h"
 
@@ -34,7 +36,10 @@ namespace RAMCloud {
  */
 class TcpTransport : public Transport {
   friend class TcpTransportTest;
+  friend class AcceptHandler;
+  friend class RequestReadHandler;
   class IncomingMessage;
+  class ReplyReadHandler;
   class Socket;
   class TcpSession;
 
@@ -134,8 +139,56 @@ class TcpTransport : public Transport {
     void closeSocket(int fd);
     static ssize_t recvCarefully(int fd, void* buffer, size_t length);
     static void sendMessage(int fd, Buffer& payload);
-    static void tryAccept(int fd, int16_t event, void* arg);
-    static void tryServerRecv(int fd, int16_t event, void *arg);
+
+    /**
+     * An exception that is thrown when a socket has been closed by the peer.
+     */
+    class TcpTransportEof : public TransportException {
+      public:
+        explicit TcpTransportEof(const CodeLocation& where)
+            : TransportException(where) {}
+    };
+
+    /**
+     * An event handler that will accept connections on a socket.
+     */
+    class AcceptHandler : public Dispatch::File {
+      public:
+        AcceptHandler(int fd, TcpTransport* transport);
+        virtual void operator() ();
+      private:
+        // Transport that manages this socket.
+        TcpTransport* transport;
+        DISALLOW_COPY_AND_ASSIGN(AcceptHandler);
+    };
+
+    /**
+     * An event handler that reads incoming RPC requests for servers.
+     */
+    class RequestReadHandler : public Dispatch::File {
+      public:
+        RequestReadHandler(int fd, TcpTransport* transport);
+        virtual void operator() ();
+      private:
+        // The following variables are just copies of constructor arguments.
+        int fd;
+        TcpTransport* transport;
+        DISALLOW_COPY_AND_ASSIGN(RequestReadHandler);
+    };
+
+    /**
+     * An event handler that reads RPC responses for clients.
+     */
+    class ReplyReadHandler : public Dispatch::File {
+      public:
+        ReplyReadHandler(int fd, TcpSession* session);
+        virtual void operator() ();
+      private:
+        // The following variables are just copies of constructor arguments.
+        int fd;
+        TcpSession* session;
+        DISALLOW_COPY_AND_ASSIGN(ReplyReadHandler);
+    };
 
     /**
      * The TCP implementation of Sessions.
@@ -143,6 +196,7 @@ class TcpTransport : public Transport {
     class TcpSession : public Session {
       friend class TcpTransportTest;
       friend class TcpClientRpc;
+      friend class ReplyReadHandler;
       public:
         explicit TcpSession(const ServiceLocator& serviceLocator);
         ~TcpSession();
@@ -164,20 +218,12 @@ class TcpTransport : public Transport {
                                   /// the current RPC (NULL if there is none).
         IncomingMessage message;  /// Records state of partially-received
                                   /// reply for current.
-        event readEvent;          /// Used to get notified when response data
+        Tub<ReplyReadHandler> replyHandler;
+                                  /// Used to get notified when response data
                                   /// arrives.
         string errorInfo;         /// If the session is no longer usable,
                                   /// this variable indicates why.
         DISALLOW_COPY_AND_ASSIGN(TcpSession);
-    };
-
-    /**
-     * An exception that is thrown when a socket has been closed by the peer.
-     */
-    class TcpTransportEof : public TransportException {
-      public:
-        explicit TcpTransportEof(const CodeLocation& where)
-            : TransportException(where) {}
     };
 
     static Syscall* sys;
@@ -192,18 +238,23 @@ class TcpTransport : public Transport {
     int listenSocket;
 
     /// Used to wait for listenSocket to become readable.
-    event listenSocketEvent;
+    Tub<AcceptHandler> acceptHandler;
 
     /// Used to hold information about a file descriptor associated with
     /// a socket, on which RPC requests may arrive.
-    struct Socket {
+    class Socket {
+        public:
+        Socket(int fd, TcpTransport *transport)
+                : rpc(NULL), busy(false), readHandler(fd, transport) { }
         TcpServerRpc *rpc;        /// Incoming RPC that is in progress for
                                   /// this fd, or NULL if none.
         bool busy;                /// True means we have received a request
                                   /// and are in the middle of processing it,
                                   /// so no additional requests should arrive.
-        event readEvent;          /// Used to get notified whenever data
+        RequestReadHandler readHandler;
+                                  /// Used to get notified whenever data
                                   /// arrives on this fd.
+        DISALLOW_COPY_AND_ASSIGN(Socket);
     };
 
     /// Keeps track of all of our open client connections. Entry i has

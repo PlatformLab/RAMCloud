@@ -327,7 +327,15 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->startReadingData(99, tablets, &result);
 
         Buffer response;
-        BackupClient::GetRecoveryData(*client, 99, 88, 0, response)();
+        while (true) {
+            try {
+                BackupClient::GetRecoveryData(*client, 99, 88, 0, response)();
+            } catch (const RetryException& e) {
+                response.reset();
+                continue;
+            }
+            break;
+        }
 
         RecoverySegmentIterator it(
             response.getRange(0, response.getTotalLength()),
@@ -384,7 +392,16 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         {
             Buffer response;
-            BackupClient::GetRecoveryData(*client, 99, 88, 0, response)();
+            while (true) {
+                try {
+                    BackupClient::GetRecoveryData(*client, 99, 88, 0,
+                                                  response)();
+                } catch (const RetryException& e) {
+                    response.reset();
+                    continue;
+                }
+                break;
+            }
 
             RecoverySegmentIterator it(
                 response.getRange(0, response.getTotalLength()),
@@ -399,7 +416,16 @@ class BackupServerTest : public CppUnit::TestFixture {
         }
         {
             Buffer response;
-            BackupClient::GetRecoveryData(*client, 99, 87, 0, response)();
+            while (true) {
+                try {
+                    BackupClient::GetRecoveryData(*client, 99, 87, 0,
+                                                  response)();
+                } catch (const RetryException& e) {
+                    response.reset();
+                    continue;
+                }
+                break;
+            }
 
             RecoverySegmentIterator it(
                 response.getRange(0, response.getTotalLength()),
@@ -425,12 +451,21 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         BackupClient::StartReadingData::Result result;
         client->startReadingData(99, ProtoBuf::Tablets(), &result);
-        Buffer response;
 
-        BackupClient::GetRecoveryData cont(*client, 99, 88,
-                                           0, response);
-        logger.setLogLevels(SILENT_LOG_LEVEL);
-        CPPUNIT_ASSERT_THROW(cont(), SegmentRecoveryFailedException);
+        while (true) {
+            Buffer response;
+            BackupClient::GetRecoveryData cont(*client, 99, 88,
+                                               0, response);
+            logger.setLogLevels(SILENT_LOG_LEVEL);
+            CPPUNIT_ASSERT_THROW(
+                try {
+                    cont();
+                } catch (const RetryException& e) {
+                    continue;
+                },
+                SegmentRecoveryFailedException);
+            break;
+        }
 
         CPPUNIT_ASSERT_EQUAL(1,
             BackupStorage::Handle::getAllocatedHandlesCount());
@@ -809,22 +844,30 @@ class SegmentInfoTest : public ::testing::Test {
         : segmentSize(64 * 1024)
         , pool{segmentSize}
         , storage{segmentSize, 2}
-        , info{storage, pool, 99, 88, segmentSize, true}
+        , ioScheduler()
+        , ioThread(boost::ref(ioScheduler))
+        , info{storage, pool, ioScheduler, 99, 88, segmentSize, true}
     {
         logger.setLogLevels(SILENT_LOG_LEVEL);
+    }
+
+    ~SegmentInfoTest()
+    {
+        ioScheduler.shutdown(ioThread);
     }
 
     uint32_t segmentSize;
     BackupServer::ThreadSafePool pool;
     InMemoryStorage storage;
+    BackupServer::IoScheduler ioScheduler;
+    boost::thread ioThread;
     SegmentInfo info;
-
 };
 
 TEST_F(SegmentInfoTest, destructor) {
     TestLog::Enable _;
     {
-        SegmentInfo info{storage, pool, 99, 88, segmentSize, true};
+        SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, true};
         info.open();
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
     }
@@ -836,7 +879,7 @@ TEST_F(SegmentInfoTest, destructor) {
 
 TEST_F(SegmentInfoTest, destructorLoading) {
     {
-        SegmentInfo info{storage, pool, 99, 88, segmentSize, true};
+        SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, true};
         info.open();
         EXPECT_EQ(1, BackupStorage::Handle::getAllocatedHandlesCount());
         info.close();
@@ -905,7 +948,7 @@ TEST_F(SegmentInfoTest, appendRecoverySegment) {
 }
 
 TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
-    SegmentInfo info{storage, pool, 99, 88, segmentSize, false};
+    SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, false};
     info.open();
     Segment segment(123, 88, info.segment, segmentSize);
 
@@ -926,9 +969,25 @@ TEST_F(SegmentInfoTest, appendRecoverySegmentSecondarySegment) {
     info.setRecovering(partitions);
 
     Buffer buffer;
-    info.appendRecoverySegment(0, buffer);
+    while (true) {
+        try {
+            info.appendRecoverySegment(0, buffer);
+        } catch (const RetryException& e) {
+            buffer.reset();
+            continue;
+        }
+        break;
+    }
     buffer.reset();
-    info.appendRecoverySegment(0, buffer);
+    while (true) {
+        try {
+            info.appendRecoverySegment(0, buffer);
+        } catch (const RetryException& e) {
+            buffer.reset();
+            continue;
+        }
+        break;
+    }
     RecoverySegmentIterator it(buffer.getRange(0, buffer.getTotalLength()),
                                  buffer.getTotalLength());
     EXPECT_FALSE(it.isDone());
@@ -1114,7 +1173,7 @@ TEST_F(SegmentInfoTest, free) {
 }
 
 TEST_F(SegmentInfoTest, freeRecoveringSecondary) {
-    SegmentInfo info{storage, pool, 99, 88, segmentSize, false};
+    SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, false};
     info.open();
     info.close();
     info.setRecovering(ProtoBuf::Tablets());
@@ -1134,7 +1193,7 @@ TEST_F(SegmentInfoTest, open) {
 
 TEST_F(SegmentInfoTest, openStorageAllocationFailure) {
     InMemoryStorage storage{segmentSize, 0};
-    SegmentInfo info{storage, pool, 99, 88, segmentSize, true};
+    SegmentInfo info{storage, pool, ioScheduler, 99, 88, segmentSize, true};
     EXPECT_THROW(info.open(), BackupStorageException);
     ASSERT_EQ(static_cast<char*>(NULL), info.segment);
     EXPECT_EQ(static_cast<Handle*>(NULL), info.storageHandle);

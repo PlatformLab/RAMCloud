@@ -19,8 +19,10 @@
  *      Template it on the exception type?
  */
 
-#include "Transport.h"
+#include "CycleCounter.h"
 #include "Infiniband.h"
+#include "Metrics.h"
+#include "Transport.h"
 
 namespace RAMCloud {
 
@@ -155,7 +157,7 @@ Infiniband::getLid(int port)
  *      if polling failed.  
  */
 Infiniband::BufferDescriptor*
-Infiniband::tryReceive(QueuePair *qp, ObjectTub<Address>* sourceAddress)
+Infiniband::tryReceive(QueuePair *qp, Tub<Address>* sourceAddress)
 {
     ibv_wc wc;
     int r = ibv_poll_cq(qp->rxcq, 1, &wc);
@@ -199,7 +201,7 @@ Infiniband::tryReceive(QueuePair *qp, ObjectTub<Address>* sourceAddress)
  *      if polling failed.  
  */
 Infiniband::BufferDescriptor *
-Infiniband::receive(QueuePair *qp, ObjectTub<Address>* sourceAddress)
+Infiniband::receive(QueuePair *qp, Tub<Address>* sourceAddress)
 {
     BufferDescriptor *bd = NULL;
 
@@ -362,6 +364,7 @@ Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
     uint32_t length, const Address* address, uint32_t remoteQKey)
 {
     postSend(qp, bd, length, address, remoteQKey);
+    CycleCounter<Metric> _(&metrics->transport.transmit.dmaTicks);
 
     ibv_wc wc;
     while (ibv_poll_cq(qp->txcq, 1, &wc) < 1) {}
@@ -383,7 +386,7 @@ Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
  * \throw
  *      TransportException if allocation or registration failed.
  */
-Infiniband::BufferDescriptor
+Infiniband::BufferDescriptor*
 Infiniband::allocateBufferDescriptorAndRegister(size_t bytes)
 {
     void *p = xmemalign(4096, bytes);
@@ -393,7 +396,7 @@ Infiniband::allocateBufferDescriptorAndRegister(size_t bytes)
     if (mr == NULL)
         throw TransportException(HERE, "failed to register ring buffer", errno);
 
-    return BufferDescriptor(reinterpret_cast<char *>(p), bytes, mr);
+    return new BufferDescriptor(reinterpret_cast<char *>(p), bytes, mr);
 }
 
 /**

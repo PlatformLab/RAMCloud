@@ -19,6 +19,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <fcntl.h>
+#include <boost/thread.hpp>
 
 #include "Common.h"
 #include "Syscall.h"
@@ -33,14 +34,17 @@ namespace RAMCloud {
 class MockSyscall : public Syscall {
     public:
     MockSyscall() : acceptErrno(0), bindErrno(0), closeErrno(0), closeCount(0),
-                    connectErrno(0), fcntlErrno(0), listenErrno(0),
-                    recvErrno(0), recvEof(false),
+                    connectErrno(0), epollCreateErrno(0), epollCtlErrno(0),
+                    epollWaitCount(-1), epollWaitEvents(NULL),
+                    epollWaitErrno(0),
+                    fcntlErrno(0), listenErrno(0),
+                    pipeErrno(0), recvErrno(0), recvEof(false),
                     recvfromErrno(0), recvfromEof(false),
                     sendmsgErrno(0), sendmsgReturnCount(-1),
-                    setsockoptErrno(0), socketErrno(0) {}
+                    setsockoptErrno(0), socketErrno(0), writeErrno(0) {}
 
     int acceptErrno;
-    int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
+    int accept(int sockfd, sockaddr *addr, socklen_t *addrlen) {
         if (acceptErrno == 0) {
             return ::accept(sockfd, addr, addrlen);
         }
@@ -49,7 +53,7 @@ class MockSyscall : public Syscall {
     }
 
     int bindErrno;
-    int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+    int bind(int sockfd, const sockaddr *addr, socklen_t addrlen) {
         if (bindErrno == 0) {
             return ::bind(sockfd, addr, addrlen);
         }
@@ -69,12 +73,49 @@ class MockSyscall : public Syscall {
     }
 
     int connectErrno;
-    int connect(int sockfd, const struct sockaddr *addr,
+    int connect(int sockfd, const sockaddr *addr,
                 socklen_t addrlen) {
         if (connectErrno == 0) {
             return ::connect(sockfd, addr, addrlen);
         }
         errno = connectErrno;
+        return -1;
+    }
+
+    int epollCreateErrno;
+    int epoll_create(int size) {
+        if (epollCreateErrno == 0) {
+            return ::epoll_create(size);
+        }
+        errno = epollCreateErrno;
+        return -1;
+    }
+
+    int epollCtlErrno;
+    int epoll_ctl(int epfd, int op, int fd, epoll_event *event) {
+        if (epollCtlErrno == 0) {
+            return ::epoll_ctl( epfd, op, fd, event);
+        }
+        errno = epollCtlErrno;
+        return -1;
+    }
+
+    int epollWaitCount;
+    epoll_event* epollWaitEvents;
+    int epollWaitErrno;
+    int epoll_wait(int epfd, epoll_event* events,
+            int maxEvents, int timeout) {
+        if (epollWaitCount >= 0) {
+            memcpy(events, epollWaitEvents,
+                   epollWaitCount*sizeof(epoll_event));
+            int result = epollWaitCount;
+            epollWaitCount = -1;
+            return result;
+        }
+        if (epollWaitErrno == 0) {
+            return ::epoll_wait(epfd, events, maxEvents, timeout);
+        }
+        errno = epollWaitErrno;
         return -1;
     }
 
@@ -93,6 +134,15 @@ class MockSyscall : public Syscall {
             return ::listen(sockfd, backlog);
         }
         errno = listenErrno;
+        return -1;
+    }
+
+    int pipeErrno;
+    int pipe(int fds[2]) {
+        if (pipeErrno == 0) {
+            return ::pipe(fds);
+        }
+        errno = pipeErrno;
         return -1;
     }
 
@@ -125,7 +175,7 @@ class MockSyscall : public Syscall {
 
     int sendmsgErrno;
     int sendmsgReturnCount;
-    ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags) {
+    ssize_t sendmsg(int sockfd, const msghdr *msg, int flags) {
         if (sendmsgErrno != 0) {
             errno = sendmsgErrno;
             return -1;
@@ -152,6 +202,15 @@ class MockSyscall : public Syscall {
             return ::socket(domain, type, protocol);
         }
         errno = socketErrno;
+        return -1;
+    }
+
+    int writeErrno;
+    ssize_t write(int fd, const void* buf, size_t count) {
+        if (writeErrno == 0) {
+            return ::write(fd, buf, count);
+        }
+        errno = writeErrno;
         return -1;
     }
 

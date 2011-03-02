@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -14,12 +14,12 @@
  */
 
 #include "TestUtil.h"
+#include "MockFastTransport.h"
 #include "MockSyscall.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 #include "UdpDriver.h"
 
 namespace RAMCloud {
-
 class UdpDriverTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(UdpDriverTest);
     CPPUNIT_TEST(test_basics);
@@ -30,9 +30,9 @@ class UdpDriverTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_sendPacket_payloadEmpty);
     CPPUNIT_TEST(test_sendPacket_multipleChunks);
     CPPUNIT_TEST(test_sendPacket_errorInSend);
-    CPPUNIT_TEST(test_tryRecvPacket_errorInRecv);
-    CPPUNIT_TEST(test_tryRecvPacket_noPacketAvailable);
-    CPPUNIT_TEST(test_tryRecvPacket_multiplePackets);
+    CPPUNIT_TEST(test_ReadHandler_errorInRecv);
+    CPPUNIT_TEST(test_ReadHandler_noPacketAvailable);
+    CPPUNIT_TEST(test_ReadHandler_multiplePackets);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -44,6 +44,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
     MockSyscall* sys;
     Syscall *savedSyscall;
     TestLog::Enable* logEnabler;
+    MockFastTransport *clientTransport, *serverTransport;
 
     UdpDriverTest()
         : exceptionMessage()
@@ -54,18 +55,22 @@ class UdpDriverTest : public CppUnit::TestFixture {
         , sys(NULL)
         , savedSyscall(NULL)
         , logEnabler(NULL)
+        , clientTransport(NULL)
+        , serverTransport(NULL)
     {}
 
     void setUp() {
+        savedSyscall = UdpDriver::sys;
+        sys = new MockSyscall();
+        UdpDriver::sys = sys;
         exceptionMessage = "no exception";
         serverLocator = new ServiceLocator("udp: host=localhost, port=8100");
         serverAddress = new IpAddress(*serverLocator);
         server = new UdpDriver(serverLocator);
         client = new UdpDriver;
-        sys = new MockSyscall();
-        savedSyscall = UdpDriver::sys;
-        UdpDriver::sys = sys;
         logEnabler = new TestLog::Enable();
+        clientTransport = new MockFastTransport(client);
+        serverTransport = new MockFastTransport(server);
     }
 
     void tearDown() {
@@ -73,11 +78,14 @@ class UdpDriverTest : public CppUnit::TestFixture {
         serverLocator = NULL;
         delete serverAddress;
         serverAddress = NULL;
-        if (server != NULL) {
-            delete server;
+        // Note: deleting the transport deletes the driver implicitly.
+        if (serverTransport != NULL) {
+            delete serverTransport;
+            serverTransport = NULL;
             server = NULL;
         }
-        delete client;
+        delete clientTransport;
+        clientTransport = NULL;
         client = NULL;
         delete sys;
         sys = NULL;
@@ -93,29 +101,41 @@ class UdpDriverTest : public CppUnit::TestFixture {
         driver->sendPacket(address, header, strlen(header), &iterator);
     }
 
+    // Used to wait for data to arrive on a driver by invoking the
+    // dispatcher's polling loop; gives up if a long time goes by with
+    // no data.
+    const char *receivePacket(MockFastTransport *transport) {
+        transport->packetData.clear();
+        uint64_t start = rdtsc();
+        while (true) {
+            Dispatch::poll();
+            if (transport->packetData.size() != 0) {
+                return transport->packetData.c_str();
+            }
+            if (cyclesToSeconds(rdtsc() - start) > .1) {
+                return "no packet arrived";
+            }
+        }
+    }
+
     void test_basics() {
         // Send a packet from a client-style driver to a server-style
         // driver.
-        Driver::Received received;
         Buffer message;
         const char *testString = "This is a sample message";
         Buffer::Chunk::appendToBuffer(&message, testString,
                 strlen(testString));
         Buffer::Iterator iterator(message);
         client->sendPacket(serverAddress, "header:", 7, &iterator);
-        CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received));
         CPPUNIT_ASSERT_EQUAL("header:This is a sample message",
-                toString(received.payload, received.len));
+                receivePacket(serverTransport));
 
         // Send a response back in the other direction.
         message.reset();
         Buffer::Chunk::appendToBuffer(&message, "response", 8);
         Buffer::Iterator iterator2(message);
-        server->sendPacket(received.sender, "h:", 2, &iterator2);
-        Driver::Received received2;
-        CPPUNIT_ASSERT_EQUAL(true, client->tryRecvPacket(&received2));
-        CPPUNIT_ASSERT_EQUAL("h:response",
-                toString(received2.payload, received2.len));
+        server->sendPacket(serverTransport->sender, "h:", 2, &iterator2);
+        CPPUNIT_ASSERT_EQUAL("h:response", receivePacket(clientTransport));
     }
 
     void test_constructor_errorInSocketCall() {
@@ -143,10 +163,11 @@ class UdpDriverTest : public CppUnit::TestFixture {
     void test_destructor_closeSocket() {
         // If the socket isn't closed, we won't be able to create another
         // UdpDriver that binds to the same socket.
-        delete server;
-        server = NULL;
+        delete serverTransport;
+        serverTransport = NULL;
         try {
             server = new UdpDriver(serverLocator);
+            serverTransport = new MockFastTransport(server);
         } catch (DriverException& e) {
             exceptionMessage = e.message;
         }
@@ -154,38 +175,30 @@ class UdpDriverTest : public CppUnit::TestFixture {
     }
 
     void test_sendPacket_headerEmpty() {
-        Driver::Received received;
         Buffer message;
         Buffer::Chunk::appendToBuffer(&message, "xyzzy", 5);
         Buffer::Iterator iterator(message);
         client->sendPacket(serverAddress, "", 0, &iterator);
-        CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received));
-        CPPUNIT_ASSERT_EQUAL("xyzzy",
-                toString(received.payload, received.len));
+        CPPUNIT_ASSERT_EQUAL("xyzzy", receivePacket(serverTransport));
     }
 
     void test_sendPacket_payloadEmpty() {
-        Driver::Received received;
         Buffer message;
         Buffer::Chunk::appendToBuffer(&message, "xyzzy", 5);
         Buffer::Iterator iterator(message);
         client->sendPacket(serverAddress, "header:", 7, &iterator);
-        CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received));
-        CPPUNIT_ASSERT_EQUAL("header:xyzzy",
-                toString(received.payload, received.len));
+        CPPUNIT_ASSERT_EQUAL("header:xyzzy", receivePacket(serverTransport));
     }
 
     void test_sendPacket_multipleChunks() {
-        Driver::Received received;
         Buffer message;
         Buffer::Chunk::appendToBuffer(&message, "xyzzy", 5);
         Buffer::Chunk::appendToBuffer(&message, "0123456789", 10);
         Buffer::Chunk::appendToBuffer(&message, "abc", 3);
         Buffer::Iterator iterator(message, 1, 23);
         client->sendPacket(serverAddress, "header:", 7, &iterator);
-        CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received));
         CPPUNIT_ASSERT_EQUAL("header:yzzy0123456789abc",
-                toString(received.payload, received.len));
+                receivePacket(serverTransport));
     }
 
     void test_sendPacket_errorInSend() {
@@ -202,11 +215,11 @@ class UdpDriverTest : public CppUnit::TestFixture {
                 "Operation not permitted", exceptionMessage);
     }
 
-    void test_tryRecvPacket_errorInRecv() {
+    void test_ReadHandler_errorInRecv() {
         sys->recvfromErrno = EPERM;
         Driver::Received received;
         try {
-            server->tryRecvPacket(&received);
+            (*server->readHandler)();
         } catch (DriverException& e) {
             exceptionMessage = e.message;
         }
@@ -214,25 +227,18 @@ class UdpDriverTest : public CppUnit::TestFixture {
                 "Operation not permitted", exceptionMessage);
     }
 
-    void test_tryRecvPacket_noPacketAvailable() {
-        Driver::Received received;
-        CPPUNIT_ASSERT_EQUAL(false, server->tryRecvPacket(&received));
+    void test_ReadHandler_noPacketAvailable() {
+        (*server->readHandler)();
+        CPPUNIT_ASSERT_EQUAL("", serverTransport->packetData);
     }
 
-    void test_tryRecvPacket_multiplePackets() {
-        Driver::Received received1, received2, received3;
+    void test_ReadHandler_multiplePackets() {
         sendMessage(client, serverAddress, "header:", "first");
         sendMessage(client, serverAddress, "header:", "second");
         sendMessage(client, serverAddress, "header:", "third");
-        CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received1));
-        CPPUNIT_ASSERT_EQUAL("header:first",
-                toString(received1.payload, received1.len));
-        CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received2));
-        CPPUNIT_ASSERT_EQUAL("header:second",
-                toString(received2.payload, received2.len));
-        CPPUNIT_ASSERT_EQUAL(true, server->tryRecvPacket(&received3));
-        CPPUNIT_ASSERT_EQUAL("header:third",
-                toString(received3.payload, received3.len));
+        CPPUNIT_ASSERT_EQUAL("header:first", receivePacket(serverTransport));
+        CPPUNIT_ASSERT_EQUAL("header:second", receivePacket(serverTransport));
+        CPPUNIT_ASSERT_EQUAL("header:third", receivePacket(serverTransport));
     }
 
   private:

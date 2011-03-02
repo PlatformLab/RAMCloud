@@ -24,6 +24,72 @@
 
 namespace RAMCloud {
 
+// --- BackupStorage ---
+
+/**
+ * Report the read and write speed of this storage in MB/s.
+ *
+ * \return
+ *      A pair of storage read and write speeds in MB/s.
+ */
+pair<uint32_t, uint32_t>
+BackupStorage::benchmark()
+{
+    const uint64_t count = 16;
+    const uint64_t mb = Segment::SEGMENT_SIZE * count / 1024 / 1024;
+    vector<uint32_t> readSpeeds;
+    vector<uint32_t> writeSpeeds;
+    BackupStorage::Handle* handles[count];
+
+    void* p = NULL;
+    int r = posix_memalign(&p, Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
+    if (r != 0)
+        throw std::bad_alloc();
+    char* segment = static_cast<char*>(p);
+
+    try {
+        for (uint64_t i = 0; i < count; ++i)
+            handles[i] = NULL;
+        for (uint64_t i = 0; i < count; ++i)
+            handles[i] = allocate(0, i + 1);
+
+        {
+            CycleCounter<> counter;
+            for (uint64_t i = 0; i < count; ++i)
+                putSegment(handles[i], segment);
+            uint64_t ns = cyclesToNanoseconds(counter.stop());
+            writeSpeeds.push_back(mb * 1000 * 1000 * 1000 / ns);
+        }
+        {
+            CycleCounter<> counter;
+            for (uint64_t i = 0; i < count; ++i)
+                getSegment(handles[i], segment);
+            uint64_t ns = cyclesToNanoseconds(counter.stop());
+            readSpeeds.push_back(mb * 1000 * 1000 * 1000 / ns);
+        }
+    } catch (...) {
+        std::free(segment);
+        for (uint64_t i = 0; i < 16; ++i)
+            if (handles[i])
+                free(handles[i]);
+        throw;
+    }
+
+    std::free(segment);
+    for (uint64_t i = 0; i < 16; ++i)
+        free(handles[i]);
+
+    uint32_t minRead = *std::min_element(readSpeeds.begin(),
+                                         readSpeeds.end());
+    uint32_t minWrite = *std::min_element(writeSpeeds.begin(),
+                                          writeSpeeds.end());
+
+    LOG(NOTICE, "Backup storage speeds (min): %u MB/s read, %u MB/s write",
+        minRead, minWrite);
+
+    return {minRead, minWrite};
+}
+
 // --- BackupStorage::Handle ---
 
 int32_t BackupStorage::Handle::allocatedHandlesCount = 0;
@@ -49,12 +115,23 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
                                      uint32_t segmentFrames,
                                      const char* filePath,
                                      int openFlags)
-    : BackupStorage(segmentSize)
+    : BackupStorage(segmentSize, Type::DISK)
     , freeMap(segmentFrames)
     , fd(-1)
+    , killMessage()
+    , killMessageLen()
     , lastAllocatedFrame(FreeMap::npos)
     , segmentFrames(segmentFrames)
 {
+    const char* killMessageStr = "FREE";
+    // Must write block size of larger when O_DIRECT.
+    killMessageLen = 512;
+    int r = posix_memalign(&killMessage, killMessageLen, killMessageLen);
+    if (r != 0)
+        throw std::bad_alloc();
+    memset(killMessage, 0, killMessageLen);
+    memcpy(killMessage, killMessageStr, strlen(killMessageStr));
+
     freeMap.set();
 
     fd = open(filePath,
@@ -67,7 +144,7 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
     // If its a regular file reserve space, otherwise
     // assume its a device and we don't need to bother.
     struct stat st;
-    int r = stat(filePath, &st);
+    r = stat(filePath, &st);
     if (r == -1)
         return;
     if (st.st_mode & S_IFREG)
@@ -80,6 +157,7 @@ SingleFileStorage::~SingleFileStorage()
     int r = close(fd);
     if (r == -1)
         LOG(ERROR, "Couldn't close backup log");
+    std::free(killMessage);
 }
 
 // See BackupStorage::allocate().
@@ -101,6 +179,20 @@ SingleFileStorage::allocate(uint64_t masterId,
     return new Handle(targetSegmentFrame);
 }
 
+/**
+ * Same as BackupStorage::benchmark() except it resets the storage to reuse
+ * the segment frames that may have been used during benchmarking.
+ * This allows benchmark to be called without
+ * wasting early segment frames on the disk which may be faster.
+ */
+pair<uint32_t, uint32_t>
+SingleFileStorage::benchmark()
+{
+    auto r = BackupStorage::benchmark();
+    lastAllocatedFrame = FreeMap::npos;
+    return r;
+}
+
 // See BackupStorage::free().
 void
 SingleFileStorage::free(BackupStorage::Handle* handle)
@@ -114,8 +206,6 @@ SingleFileStorage::free(BackupStorage::Handle* handle)
     if (offset == -1)
         throw BackupStorageException(HERE,
                 "Failed to seek to segment frame to free storage", errno);
-    const char* killMessage = "FREE";
-    ssize_t killMessageLen = strlen(killMessage);
     ssize_t r = write(fd, killMessage, killMessageLen);
     if (r != killMessageLen)
         throw BackupStorageException(HERE,
@@ -205,7 +295,7 @@ SingleFileStorage::reserveSpace()
  */
 InMemoryStorage::InMemoryStorage(uint32_t segmentSize,
                                  uint32_t segmentFrames)
-    : BackupStorage(segmentSize)
+    : BackupStorage(segmentSize, Type::MEMORY)
     , pool(segmentSize)
     , segmentFrames(segmentFrames)
 {

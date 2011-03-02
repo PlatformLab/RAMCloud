@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "CycleCounter.h"
+#include "Metrics.h"
 #include "TransportManager.h"
 #include "TransportFactory.h"
 
@@ -89,9 +91,13 @@ TransportManager::~TransportManager()
 {
     // Must clear the cache and destroy sessionRefs before the
     // transports are destroyed.
+
+    // Can't safely execute the following code; see RAM-212 for details.
+#if 0
     sessionCache.clear();
     foreach (auto transport, transports)
         delete transport;
+#endif
 }
 
 /**
@@ -168,6 +174,8 @@ TransportManager::getSession(const char* serviceLocator)
     if (it != sessionCache.end())
         return it->second;
 
+    CycleCounter<Metric> _(&metrics->transport.sessionOpenTicks);
+
     // Session was not found in the cache, a new one will be created
     auto locators = ServiceLocator::parseServiceLocators(serviceLocator);
     // The first protocol specified in the locator that works is chosen
@@ -207,18 +215,17 @@ TransportManager::serverRecv()
 {
     if (!initialized || listening.empty())
         throw TransportException(HERE, "no transports to listen on");
-    uint8_t i = 0;
+    CycleCounter<Metric> _(&metrics->idleTicks);
     while (true) {
-        if (nextToListen >= listening.size())
+        if (nextToListen >= listening.size()) {
+            Dispatch::poll();
             nextToListen = 0;
+        }
         auto transport = listening[nextToListen++];
 
         auto rpc = transport->serverRecv();
         if (rpc != NULL)
             return rpc;
-        if (++i == 0) { // On machines with a small number of cores,
-            yield();    // give other tasks a chance to run.
-        }
     }
 }
 

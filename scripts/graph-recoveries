@@ -67,10 +67,10 @@ while [ "${flags[i]}" != "" ]; do
         ## extract the results from the run log and concat them
         awk '
         /Performing/ { count=$8; size=$11; }
-        /All tables recovered in/ { ticks=$11; }
+        /Recovery completed in/ { ns=$10; }
         /Bytes written/ { if ($9 != 0) { written=$9; } }
         /Bytes logged/ { if ($10 != 0) { logged=$10; } }
-        END { print (count/1000000) " " size " " written " " logged " " (ticks/2.4/1000/1000); }
+        END { print (count/1000000) " " size " " written " " logged " " (ns/1000); }
         ' /tmp/rclog >> /tmp/recovery-results-$i
     done
     if [ "$i" != "0" ]; then

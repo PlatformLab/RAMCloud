@@ -13,10 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
-#include <boost/lambda/lambda.hpp>
-#include <boost/lambda/bind.hpp>
 
 #include "BackupServer.h"
 #include "BackupStorage.h"
@@ -44,6 +41,8 @@ namespace RAMCloud {
  * \param pool
  *      The pool from which this segment should draw and return memory
  *      when it is moved in and out of memory.
+ * \param ioScheduler
+ *      The IoScheduler through which IO requests are made.
  * \param masterId
  *      The master id of the segment being managed.
  * \param segmentId
@@ -57,6 +56,7 @@ namespace RAMCloud {
  */
 BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage,
                                        ThreadSafePool& pool,
+                                       IoScheduler& ioScheduler,
                                        uint64_t masterId,
                                        uint64_t segmentId,
                                        uint32_t segmentSize,
@@ -66,6 +66,7 @@ BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage,
     , segmentId(segmentId)
     , mutex()
     , condition()
+    , ioScheduler(ioScheduler)
     , recoveryException()
     , recoveryPartitions()
     , recoverySegments(NULL)
@@ -77,7 +78,7 @@ BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage,
     , storageHandle()
     , pool(pool)
     , storage(storage)
-    , storageThreadCount(0)
+    , storageOpCount(0)
 {
 }
 
@@ -94,6 +95,9 @@ BackupServer::SegmentInfo::~SegmentInfo()
         LOG(NOTICE, "Backup shutting down with open segment <%lu,%lu>, "
             "closing out to storage", masterId, segmentId);
         state = CLOSED;
+        CycleCounter<Metric> _(&metrics->backup.storageWriteTicks);
+        ++metrics->backup.storageWriteCount;
+        metrics->backup.storageWriteBytes += segmentSize;
         storage.putSegment(storageHandle, segment);
     }
     if (isRecovered()) {
@@ -134,8 +138,11 @@ void
 BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
                                                  Buffer& buffer)
 {
-    uint64_t start = rdtsc();
-    Lock lock(mutex);
+    Lock lock(mutex, boost::try_to_lock_t());
+    if (!lock.owns_lock()) {
+        LOG(DEBUG, "Deferring because couldn't acquire lock immediately");
+        throw RetryException(HERE);
+    }
 
     if (state != RECOVERING) {
         LOG(WARNING, "Asked for segment <%lu,%lu> which isn't recovering",
@@ -148,27 +155,25 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
             LOG(DEBUG, "Requested segment <%lu,%lu> is secondary, "
                 "starting build of recovery segments now", masterId, segmentId);
             waitForOngoingOps(lock);
-            LoadOp io(*this);
-            ++storageThreadCount;
-            boost::thread _(io);
+            ioScheduler.load(*this);
+            ++storageOpCount;
             lock.unlock();
             buildRecoverySegments(*recoveryPartitions);
             lock.lock();
         }
     }
 
-#if !TESTING
-    uint64_t spinStart = rdtsc();
-#endif
-    while (!isRecovered() && !recoveryException) {
-        LOG(DEBUG, "<%lu,%lu> not yet recovered; waiting", masterId, segmentId);
-        condition.wait(lock);
+    if (!isRecovered() && !recoveryException) {
+        LOG(DEBUG, "Deferring because <%lu,%lu> not yet filtered",
+            masterId, segmentId);
+        throw RetryException(HERE);
     }
     assert(state == RECOVERING);
-#if !TESTING
-    LOG(DEBUG, "Done spinning for segment <%lu,%lu>, waited %lu us", masterId,
-        segmentId, cyclesToNanoseconds(rdtsc() - spinStart) / 1000);
-#endif
+
+    if (primary)
+        ++metrics->backup.primaryLoadCount;
+    else
+        ++metrics->backup.secondaryLoadCount;
 
     if (recoveryException) {
         auto e = SegmentRecoveryFailedException(*recoveryException);
@@ -193,9 +198,7 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
         Buffer::Chunk::appendToBuffer(&buffer, it.getData(), it.getLength());
     }
 #endif
-    LOG(DEBUG, "appendRecoverySegment <%lu,%lu>, took %lu us",
-        masterId, segmentId,
-        cyclesToNanoseconds(rdtsc() - start) / 1000);
+    LOG(DEBUG, "appendRecoverySegment <%lu,%lu>", masterId, segmentId);
 }
 
 /**
@@ -213,7 +216,7 @@ BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
  * \throw BackupMalformedSegmentException
  *      If the object or tombstone doesn't belong to any of the partitions.
  */
-ObjectTub<uint64_t>
+Tub<uint64_t>
 whichPartition(const LogEntryType type,
                const void* data,
                const ProtoBuf::Tablets& partitions)
@@ -233,7 +236,7 @@ whichPartition(const LogEntryType type,
         objectId = tombstone->id.objectId;
     }
 
-    ObjectTub<uint64_t> ret;
+    Tub<uint64_t> ret;
     // TODO(stutsman): need to check how slow this is, can do better with a tree
     for (int i = 0; i < partitions.tablet_size(); i++) {
         const ProtoBuf::Tablets::Tablet& tablet(partitions.tablet(i));
@@ -283,6 +286,7 @@ BackupServer::SegmentInfo::buildRecoverySegments(
     }
     LOG(NOTICE, "Building %lu recovery segments for %lu",
         partitionCount, segmentId);
+    CycleCounter<Metric> _(&metrics->backup.filterTicks);
 
 #ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
     recoverySegments = new pair<char[Segment::SEGMENT_SIZE], uint32_t>
@@ -306,7 +310,7 @@ BackupServer::SegmentInfo::buildRecoverySegments(
                 continue;
 
             // find out which partition this entry belongs in
-            ObjectTub<uint64_t> partitionId = whichPartition(it.getType(),
+            Tub<uint64_t> partitionId = whichPartition(it.getType(),
                                                              it.getPointer(),
                                                              partitions);
             if (!partitionId)
@@ -383,9 +387,8 @@ BackupServer::SegmentInfo::close()
     rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
 
     assert(storageHandle);
-    StoreOp io(*this);
-    ++storageThreadCount;
-    boost::thread _(io);
+    ioScheduler.store(*this);
+    ++storageOpCount;
 }
 
 /**
@@ -431,7 +434,11 @@ BackupServer::SegmentInfo::open()
     assert(state == UNINIT);
     // Get memory for staging the segment writes
     char* segment = static_cast<char*>(pool.malloc());
-    memset(segment, 0, segmentSize);
+    {
+        CycleCounter<Metric> q(&metrics->backup.writeClearTicks);
+        memset(segment, 0, segmentSize < sizeof(SegmentEntry) ?
+                            segmentSize : sizeof(SegmentEntry));
+    }
     BackupStorage::Handle* handle;
     try {
         // Reserve the space for this on disk
@@ -459,9 +466,8 @@ BackupServer::SegmentInfo::startLoading()
     Lock lock(mutex);
     waitForOngoingOps(lock);
 
-    LoadOp io(*this);
-    ++storageThreadCount;
-    boost::thread _(io);
+    ioScheduler.load(*this);
+    ++storageOpCount;
 }
 
 /**
@@ -525,25 +531,161 @@ BackupServer::SegmentInfo::getLogDigest(uint32_t* byteLength)
     return NULL;
 }
 
-// --- BackupServer::LoadOp ---
+// --- BackupServer::IoScheduler ---
 
 /**
- * \param info
- *      The SegmentInfo which should be loaded from storage and placed
- *      into newly a pool allocated buffer.
+ * Construct an IoScheduler.  There is just one instance of this
+ * with its operator() running in a new thread which is instantated
+ * by the BackupServer.
  */
-BackupServer::LoadOp::LoadOp(SegmentInfo& info)
-    : info(info)
+BackupServer::IoScheduler::IoScheduler()
+    : queueMutex()
+    , queueCond()
+    , loadQueue()
+    , storeQueue()
+    , running(true)
+    , outstandingStores(0)
 {
 }
 
-// See BackupServer::LoadOp.
+/**
+ * Dequeue IO requests and process them on a thread separate from the
+ * main thread.  Processes just one IO at a time.  Prioritizes loads
+ * over stores.
+ */
 void
-BackupServer::LoadOp::operator()()
+BackupServer::IoScheduler::operator()()
 {
-    uint64_t startTime = rdtsc();
+    while (true) {
+        SegmentInfo* info = NULL;
+        bool isLoad = false;
+        {
+            Lock lock(queueMutex);
+            while (loadQueue.empty() && storeQueue.empty()) {
+                if (!running)
+                    return;
+                queueCond.wait(lock);
+            }
+            isLoad = !loadQueue.empty();
+            if (isLoad) {
+                info = loadQueue.front();
+                loadQueue.pop();
+            } else {
+                info = storeQueue.front();
+                storeQueue.pop();
+            }
+        }
+
+        if (isLoad) {
+            LOG(DEBUG, "Dispatching load of <%lu,%lu>",
+                info->masterId, info->segmentId);
+            doLoad(*info);
+        } else {
+            LOG(DEBUG, "Dispatching store of <%lu,%lu>",
+                info->masterId, info->segmentId);
+            doStore(*info);
+        }
+    }
+}
+
+/**
+ * Queue a segment load operation to be done on a separate thread.
+ *
+ * \param info
+ *      The SegmentInfo whose data will be loaded from storage.
+ */
+void
+BackupServer::IoScheduler::load(SegmentInfo& info)
+{
+#ifdef SINGLE_THREADED_BACKUP
+    doLoad(info);
+#else
+    Lock lock(queueMutex);
+    loadQueue.push(&info);
+    uint32_t count = loadQueue.size() + storeQueue.size();
+    LOG(DEBUG, "Queued load of <%lu,%lu> (%u segments waiting for IO)",
+        info.masterId, info.segmentId, count);
+    queueCond.notify_all();
+#endif
+}
+
+/**
+ * Flush all data to storage.
+ * Returns once all dirty buffers have been written to storage.
+ */
+void
+BackupServer::IoScheduler::quiesce()
+{
+    while (outstandingStores > 0) {
+        /* pass */;
+    }
+}
+
+/**
+ * Queue a segment store operation to be done on a separate thread.
+ *
+ * \param info
+ *      The SegmentInfo whose data will be stored.
+ */
+void
+BackupServer::IoScheduler::store(SegmentInfo& info)
+{
+#ifdef SINGLE_THREADED_BACKUP
+    doStore(info);
+#else
+    ++outstandingStores;
+    Lock lock(queueMutex);
+    storeQueue.push(&info);
+    uint32_t count = loadQueue.size() + storeQueue.size();
+    LOG(DEBUG, "Queued store of <%lu,%lu> (%u segments waiting for IO)",
+        info.masterId, info.segmentId, count);
+    queueCond.notify_all();
+#endif
+}
+
+/**
+ * Wait for the IO scheduler to finish currently queued requests and
+ * return once the scheduler has terminated and its thread is disposed
+ * of.
+ *
+ * \param ioThread
+ *      The thread this IoScheduler is running on.  It will be joined
+ *      to ensure the scheduler has fully exited before this call
+ *      returns.
+ */
+void
+BackupServer::IoScheduler::shutdown(boost::thread& ioThread)
+{
+    {
+        Lock lock(queueMutex);
+        LOG(DEBUG, "IoScheduler thread exiting");
+        uint32_t count = loadQueue.size() + storeQueue.size();
+        if (count)
+            LOG(DEBUG, "IoScheduler must service %u pending IOs before exit",
+                count);
+        running = false;
+        queueCond.notify_one();
+    }
+    ioThread.join();
+}
+
+// - private -
+
+/**
+ * Load a segment from disk into a valid buffer in memory.  Locks
+ * the #SegmentInfo::mutex to ensure other operations aren't performed
+ * on the segment in the meantime.
+ *
+ * \param info
+ *      The SegmentInfo whose data will be loaded from storage.
+ */
+void
+BackupServer::IoScheduler::doLoad(SegmentInfo& info) const
+{
+#ifndef SINGLE_THREADED_BACKUP
     SegmentInfo::Lock lock(info.mutex);
-    ReferenceDecrementer<int> _(info.storageThreadCount);
+#endif
+    ReferenceDecrementer<int> _(info.storageOpCount);
 
     LOG(DEBUG, "Loading segment <%lu,%lu>", info.masterId, info.segmentId);
     if (info.inMemory()) {
@@ -555,7 +697,17 @@ BackupServer::LoadOp::operator()()
 
     char* segment = static_cast<char*>(info.pool.malloc());
     try {
+        CycleCounter<Metric> _(&metrics->backup.storageReadTicks);
+        ++metrics->backup.storageReadCount;
+        metrics->backup.storageReadBytes += info.segmentSize;
+        uint64_t startTime = rdtsc();
         info.storage.getSegment(info.storageHandle, segment);
+        uint64_t transferTime = cyclesToNanoseconds(rdtsc() - startTime);
+        LOG(DEBUG, "Load of <%lu,%lu> took %lu us (%f MB/s)",
+            info.masterId, info.segmentId,
+            transferTime / 1000,
+            (info.segmentSize / (1 << 20)) /
+            (static_cast<double>(transferTime) / 1000000000lu));
     } catch (...) {
         info.pool.free(segment);
         segment = NULL;
@@ -564,36 +716,37 @@ BackupServer::LoadOp::operator()()
     }
     info.segment = segment;
     info.condition.notify_all();
-    uint64_t transferTime = cyclesToNanoseconds(rdtsc() - startTime);
-    LOG(DEBUG, "LoadOp of <%lu,%lu> took %lu us (%f MB/s)",
-        info.masterId, info.segmentId,
-        transferTime / 1000,
-        (info.segmentSize / (1 << 20)) /
-        (static_cast<double>(transferTime) / 1000000000lu));
 }
-
-// --- BackupServer::StoreOp ---
 
 /**
+ * Store a segment to disk from a valid buffer in memory.  Locks
+ * the #SegmentInfo::mutex to ensure other operations aren't performed
+ * on the segment in the meantime.
+ *
  * \param info
- *      The SegmentInfo which should be stored to storage and released
- *      from memory.
+ *      The SegmentInfo whose data will be stored.
  */
-BackupServer::StoreOp::StoreOp(SegmentInfo& info)
-    : info(info)
-{
-}
-
-// See BackupServer::StoreOp.
 void
-BackupServer::StoreOp::operator()()
+BackupServer::IoScheduler::doStore(SegmentInfo& info) const
 {
-    uint64_t startTime = rdtsc();
+#ifndef SINGLE_THREADED_BACKUP
     SegmentInfo::Lock lock(info.mutex);
-    ReferenceDecrementer<int> _(info.storageThreadCount);
+#endif
+    ReferenceDecrementer<int> _(info.storageOpCount);
+
     LOG(DEBUG, "Storing segment <%lu,%lu>", info.masterId, info.segmentId);
     try {
+        CycleCounter<Metric> _(&metrics->backup.storageWriteTicks);
+        ++metrics->backup.storageWriteCount;
+        metrics->backup.storageWriteBytes += info.segmentSize;
+        uint64_t startTime = rdtsc();
         info.storage.putSegment(info.storageHandle, info.segment);
+        uint64_t transferTime = cyclesToNanoseconds(rdtsc() - startTime);
+        LOG(DEBUG, "Store of <%lu,%lu> took %lu us (%f MB/s)",
+            info.masterId, info.segmentId,
+            transferTime / 1000,
+            (info.segmentSize / (1 << 20)) /
+            (static_cast<double>(transferTime) / 1000000000lu));
     } catch (...) {
         LOG(WARNING, "Problem storing segment <%lu,%lu>",
             info.masterId, info.segmentId);
@@ -602,15 +755,11 @@ BackupServer::StoreOp::operator()()
     }
     info.pool.free(info.segment);
     info.segment = NULL;
+    --outstandingStores;
     LOG(DEBUG, "Done storing segment <%lu,%lu>", info.masterId, info.segmentId);
     info.condition.notify_all();
-    uint64_t transferTime = cyclesToNanoseconds(rdtsc() - startTime);
-    LOG(DEBUG, "StoreOp of <%lu,%lu> took %lu us (%f MB/s)",
-        info.masterId, info.segmentId,
-        transferTime / 1000,
-        (info.segmentSize / (1 << 20)) /
-        (static_cast<double>(transferTime) / 1000000000lu));
 }
+
 
 // --- BackupServer::RecoverySegmentBuilder ---
 
@@ -654,6 +803,7 @@ BackupServer::RecoverySegmentBuilder::RecoverySegmentBuilder(
 void
 BackupServer::RecoverySegmentBuilder::operator()()
 {
+    uint64_t startTime = rdtsc();
     ReferenceDecrementer<AtomicInt> _(recoveryThreadCount);
     LOG(DEBUG, "Building recovery segments on new thread");
 
@@ -669,15 +819,24 @@ BackupServer::RecoverySegmentBuilder::operator()()
     for (uint32_t i = 1;; i++) {
         assert(buildingInfo != loadingInfo);
         buildingInfo = loadingInfo;
+        if (i < infos.size()) {
+            loadingInfo = infos[i];
+            LOG(DEBUG, "Starting load of %uth segment", i);
+            loadingInfo->startLoading();
+        }
         buildingInfo->buildRecoverySegments(partitions);
         LOG(DEBUG, "Done building recovery segments for %u", i - 1);
         if (i == infos.size())
             break;
-        loadingInfo = infos[i];
-        LOG(DEBUG, "Starting load of %uth segment", i);
-        loadingInfo->startLoading();
     }
     LOG(DEBUG, "Done building recovery segments, thread exiting");
+    uint64_t totalTime = cyclesToNanoseconds(rdtsc() - startTime);
+    LOG(DEBUG, "RecoverySegmentBuilder took %lu ms to filter %lu segments "
+               "(%f MB/s)",
+        totalTime / 1000 / 1000,
+        infos.size(),
+        (Segment::SEGMENT_SIZE * infos.size() / (1 << 20)) /
+        (static_cast<double>(totalTime) / 1000000000lu));
 }
 
 
@@ -697,13 +856,21 @@ BackupServer::BackupServer(const Config& config,
     : config(config)
     , coordinator(config.coordinatorLocator.c_str())
     , serverId(0)
+    , recoveryTicks()
     , pool(storage.getSegmentSize())
     , recoveryThreadCount{0}
     , segments()
     , segmentSize(storage.getSegmentSize())
     , storage(storage)
     , bytesWritten(0)
+    , ioScheduler()
+#ifdef SINGLE_THREADED_BACKUP
+    , ioThread()
+#else
+    , ioThread(boost::ref(ioScheduler))
+#endif
 {
+    recoveryTicks.construct(); // make unit tests happy
 }
 
 /**
@@ -720,6 +887,8 @@ BackupServer::~BackupServer()
             lastThreadCount = recoveryThreadCount;
         }
     }
+
+    ioScheduler.shutdown(ioThread);
 
     // Clean up any extra SegmentInfos laying around
     // but don't free them; perhaps we want to load them up
@@ -745,7 +914,9 @@ BackupServer::getServerId() const
 void __attribute__ ((noreturn))
 BackupServer::run()
 {
-    serverId = coordinator.enlistServer(BACKUP, config.localLocator);
+    auto speeds = storage.benchmark();
+    serverId = coordinator.enlistServer(BACKUP, config.localLocator,
+                                        speeds.first, speeds.second);
     LOG(NOTICE, "My server ID is %lu", serverId);
     while (true)
         handleRpc<BackupServer>();
@@ -770,6 +941,14 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
         case PingRpc::type:
             callHandler<PingRpc, Server,
                         &Server::ping>(rpc);
+            break;
+        case BackupQuiesceRpc::type:
+            callHandler<BackupQuiesceRpc, BackupServer,
+                        &BackupServer::quiesce>(rpc);
+            break;
+        case BackupRecoveryCompleteRpc::type:
+            callHandler<BackupRecoveryCompleteRpc, BackupServer,
+                        &BackupServer::recoveryComplete>(rpc, responder);
             break;
         case BackupStartReadingDataRpc::type:
             callHandler<BackupStartReadingDataRpc, BackupServer,
@@ -879,7 +1058,48 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 
     info->appendRecoverySegment(reqHdr.partitionId, rpc.replyPayload);
 
+    ++metrics->backup.readCount;
     LOG(DEBUG, "getRecoveryData complete");
+}
+
+/**
+ * Flush all data to storage.
+ * Returns once all dirty buffers have been written to storage.
+ * \param reqHdr
+ *      Header of the Rpc request.
+ * \param respHdr
+ *      Header for the Rpc response.
+ * \param rpc
+ *      The Rpc being serviced.
+ */
+void
+BackupServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
+                      BackupQuiesceRpc::Response& respHdr,
+                      Transport::ServerRpc& rpc)
+{
+    ioScheduler.quiesce();
+}
+
+/**
+ * Clean up state associated with the given master after recovery.
+ * \param reqHdr
+ *      Header of the Rpc request containing the segment number to free.
+ * \param respHdr
+ *      Header for the Rpc response.
+ * \param rpc
+ *      The Rpc being serviced.
+ * \param responder
+ *      Functor to respond to the RPC before returning from this method.
+ */
+void
+BackupServer::recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
+                               BackupRecoveryCompleteRpc::Response& respHdr,
+                               Transport::ServerRpc& rpc,
+                               Responder& responder)
+{
+    LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
+    recoveryTicks.destroy();
+    dump(metrics);
 }
 
 /**
@@ -921,6 +1141,10 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                                Responder& responder)
 {
     LOG(DEBUG, "Handling: %s %lu", __func__, reqHdr.masterId);
+    recoveryTicks.construct(&metrics->recoveryTicks);
+    reset(metrics, serverId, 2);
+    metrics->backup.storageType = static_cast<uint64_t>(storage.storageType);
+    CycleCounter<Metric> srdTicks(&metrics->backup.startReadingDataTicks);
 
     ProtoBuf::Tablets partitions;
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
@@ -992,8 +1216,9 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
         info->setRecovering(partitions);
     }
     respHdr.segmentIdCount = primarySegments.size() + secondarySegments.size();
-    LOG(DEBUG, "Sending %u segment ids for this master",
-        respHdr.segmentIdCount);
+    respHdr.primarySegmentCount = primarySegments.size();
+    LOG(DEBUG, "Sending %u segment ids for this master (%u primary)",
+        respHdr.segmentIdCount, respHdr.primarySegmentCount);
 
     respHdr.digestSegmentId  = logDigestLastId;
     respHdr.digestSegmentLen = logDigestLastLen;
@@ -1005,7 +1230,9 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     }
 
     responder();
+    srdTicks.stop();
 
+#ifndef SINGLE_THREADED_BACKUP
     RecoverySegmentBuilder builder(primarySegments,
                                    partitions,
                                    recoveryThreadCount);
@@ -1013,6 +1240,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     boost::thread builderThread(builder);
     LOG(DEBUG, "Kicked off building recovery segments; "
                "main thread going back to dispatching requests");
+#endif
 }
 
 /**
@@ -1053,8 +1281,10 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
                            BackupWriteRpc::Response& respHdr,
                            Transport::ServerRpc& rpc)
 {
+    CycleCounter<Metric> _(&metrics->backup.writeTicks);
     uint64_t masterId = reqHdr.masterId;
     uint64_t segmentId = reqHdr.segmentId;
+    ++metrics->backup.writeCount;
 
     SegmentInfo* info = findSegmentInfo(masterId, segmentId);
 
@@ -1063,8 +1293,12 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
             throw BackupSegmentAlreadyOpenException(HERE);
 
         try {
+#ifdef SINGLE_THREADED_BACKUP
+            bool primary = false;
+#else
             bool primary = reqHdr.flags & BackupWriteRpc::PRIMARY;
-            info = new SegmentInfo(storage, pool,
+#endif
+            info = new SegmentInfo(storage, pool, ioScheduler,
                                    masterId, segmentId, segmentSize, primary);
             segments[MasterSegmentIdPair(masterId, segmentId)] = info;
             info->open();
@@ -1074,6 +1308,8 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
                 delete info;
             throw;
         }
+        ++metrics->backup.currentOpenSegmentCount;
+        ++metrics->backup.totalSegmentCount;
     }
 
     if (!info || !info->isOpen())
@@ -1086,13 +1322,17 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
         reqHdr.length + reqHdr.offset > segmentSize)
         throw BackupSegmentOverflowException(HERE);
 
-    info->write(rpc.recvPayload, sizeof(reqHdr),
-                reqHdr.length, reqHdr.offset);
+    {
+        CycleCounter<Metric> z(&metrics->backup.writeCopyTicks);
+        info->write(rpc.recvPayload, sizeof(reqHdr),
+                    reqHdr.length, reqHdr.offset);
+    }
     bytesWritten += reqHdr.length;
 
-    if (reqHdr.flags & BackupWriteRpc::CLOSE)
+    if (reqHdr.flags & BackupWriteRpc::CLOSE) {
         info->close();
+        --metrics->backup.currentOpenSegmentCount;
+    }
 }
 
 } // namespace RAMCloud
-

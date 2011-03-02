@@ -29,9 +29,65 @@ namespace RAMCloud {
  */
 class MasterClient : public Client {
   public:
+    /// An asynchronous version of #create().
+    class Create {
+      public:
+        Create(MasterClient& client,
+               uint32_t tableId, const void* buf, uint32_t length,
+               uint64_t* version = NULL, bool async = false);
+        bool isReady() { return client.isReady(state); }
+        uint64_t operator()();
+      private:
+        MasterClient& client;
+        uint64_t* version;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(Create);
+    };
+
+    /// An asynchronous version of #write().
+    class Write {
+      public:
+        Write(MasterClient& client,
+              uint32_t tableId, uint64_t id, const void* buf,
+              uint32_t length, const RejectRules* rejectRules = NULL,
+              uint64_t* version = NULL, bool async = false);
+        bool isReady() { return client.isReady(state); }
+        void operator()();
+      private:
+        MasterClient& client;
+        uint64_t* version;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(Write);
+    };
+
+    /**
+     * Report to a master that a particular backup has failed so that it
+     * can rereplicate any segments that might have been stored there.
+     *
+     * See MasterServer::rereplicateSegments().
+     */
+    class RereplicateSegments {
+      public:
+        RereplicateSegments(MasterClient& client,
+                            uint64_t backupId);
+        bool isReady() { return client.isReady(state); }
+        void operator()();
+      private:
+        MasterClient& client;
+        uint64_t backupId;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(RereplicateSegments);
+    };
+
     explicit MasterClient(Transport::SessionRef session) : session(session) {}
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
-                    uint64_t* version = NULL);
+                    uint64_t* version = NULL, bool async = false);
     void ping();
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,
@@ -45,7 +101,7 @@ class MasterClient : public Client {
     void setTablets(const ProtoBuf::Tablets& tablets);
     void write(uint32_t tableId, uint64_t id, const void* buf,
                uint32_t length, const RejectRules* rejectRules = NULL,
-               uint64_t* version = NULL);
+               uint64_t* version = NULL, bool async = false);
 
   protected:
     Transport::SessionRef session;

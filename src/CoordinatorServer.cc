@@ -71,9 +71,9 @@ CoordinatorServer::dispatch(RpcType type,
             callHandler<EnlistServerRpc, CoordinatorServer,
                         &CoordinatorServer::enlistServer>(rpc);
             break;
-        case GetBackupListRpc::type:
-            callHandler<GetBackupListRpc, CoordinatorServer,
-                        &CoordinatorServer::getBackupList>(rpc);
+        case GetServerListRpc::type:
+            callHandler<GetServerListRpc, CoordinatorServer,
+                        &CoordinatorServer::getServerList>(rpc);
             break;
         case GetTabletMapRpc::type:
             callHandler<GetTabletMapRpc, CoordinatorServer,
@@ -90,6 +90,10 @@ CoordinatorServer::dispatch(RpcType type,
         case PingRpc::type:
             callHandler<PingRpc, CoordinatorServer,
                         &CoordinatorServer::ping>(rpc);
+            break;
+        case BackupQuiesceRpc::type:
+            callHandler<BackupQuiesceRpc, CoordinatorServer,
+                        &CoordinatorServer::quiesce>(rpc);
             break;
         case SetWillRpc::type:
             callHandler<SetWillRpc, CoordinatorServer,
@@ -227,6 +231,8 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
     uint64_t serverId = nextServerId++;
     ProtoBuf::ServerType serverType =
         static_cast<ProtoBuf::ServerType>(reqHdr.serverType);
+    const uint32_t readSpeed = reqHdr.readSpeed;
+    const uint32_t writeSpeed = reqHdr.writeSpeed;
     const char *serviceLocator = getString(rpc.recvPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
@@ -247,21 +253,36 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
     } else {
         LOG(DEBUG, "Backup enlisted with id %lu, sl [%s]", serverId,
             serviceLocator);
+        LOG(DEBUG, "Backup id %lu has %u MB/s read %u MB/s write ",
+            serverId, readSpeed, writeSpeed);
+        server.set_user_data(readSpeed);
     }
     respHdr.serverId = serverId;
 }
 
 /**
- * Handle the GET_BACKUP_LIST RPC.
+ * Handle the GET_SERVER_LIST RPC.
  * \copydetails Server::ping
  */
 void
-CoordinatorServer::getBackupList(const GetBackupListRpc::Request& reqHdr,
-                                 GetBackupListRpc::Response& respHdr,
+CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
+                                 GetServerListRpc::Response& respHdr,
                                  Transport::ServerRpc& rpc)
 {
-    respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
-                                                   backupList);
+    switch (reqHdr.serverType) {
+    case MASTER:
+        respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
+                                                       masterList);
+        break;
+
+    case BACKUP:
+        respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
+                                                       backupList);
+        break;
+
+    default:
+        throw RequestFormatError(HERE);
+    }
 }
 
 /**
@@ -462,6 +483,21 @@ CoordinatorServer::ping(const PingRpc::Request& reqHdr,
             server.service_locator().c_str())).ping();
 
     Server::ping(reqHdr, respHdr, rpc);
+}
+
+/**
+ * Have all backups flush their dirty segments to storage.
+ * \copydetails Server::ping
+ */
+void
+CoordinatorServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
+                           BackupQuiesceRpc::Response& respHdr,
+                           Transport::ServerRpc& rpc)
+{
+    foreach (auto& server, backupList.server()) {
+        BackupClient(transportManager.getSession(
+                        server.service_locator().c_str())).quiesce();
+    }
 }
 
 /**

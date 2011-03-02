@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -22,12 +22,13 @@
 
 #include <vector>
 
-#include "Common.h"
-#include "Transport.h"
-#include "Driver.h"
-#include "Window.h"
-#include "BoostIntrusive.h"
 #include "BenchUtil.h"
+#include "BoostIntrusive.h"
+#include "Common.h"
+#include "Dispatch.h"
+#include "Driver.h"
+#include "Transport.h"
+#include "Window.h"
 
 #undef CURRENT_LOG_MODULE
 #define CURRENT_LOG_MODULE RAMCloud::TRANSPORT_MODULE
@@ -48,8 +49,9 @@ namespace RAMCloud {
  *
  * - Server Inbound
  *  - FastTransport::serverRecv
- *  - FastTransport::poll
- *  - FastTransport::tryProcessPacket
+ *  - Dispatch::poll
+ *  - Driver
+ *  - FastTransport::handleIncomingPacket
  *  - ServerSession::processInboundPacket
  *  - ServerSession::processReceivedData
  *  - InboundMessage::processReceivedData
@@ -62,8 +64,9 @@ namespace RAMCloud {
  *
  * - Client Inbound
  *  - ClientRpc::wait
- *  - FastTransport::poll
- *  - FastTransport::tryProcessPacket
+ *  - Dispatch::poll
+ *  - Driver
+ *  - FastTransport::handleIncomingPacket
  *  - ClientSession::processReceivedData
  *  - ClientSession::processReceivedData
  *  - InboundMessage::processReceivedData
@@ -84,6 +87,7 @@ class FastTransport : public Transport {
     void dumpStats() {
         driver->dumpStats();
     }
+    VIRTUAL_FOR_TESTING void handleIncomingPacket(Driver::Received *received);
 
     ServiceLocator getServiceLocator();
 
@@ -228,8 +232,8 @@ class FastTransport : public Transport {
     timeoutCycles()
     {
 #if TESTING
-        if (mockTSCValue)
-            return 2 * TIMEOUT_NS;
+        if (timeoutCyclesOverride)
+            return timeoutCyclesOverride;
 #endif
         static uint64_t value = 0;
         if (value == 0)
@@ -245,50 +249,14 @@ class FastTransport : public Transport {
     sessionTimeoutCycles()
     {
 #if TESTING
-        if (mockTSCValue)
-            return 2 * SESSION_TIMEOUT_NS;
+        if (sessionTimeoutCyclesOverride)
+            return sessionTimeoutCyclesOverride;
 #endif
         static uint64_t value = 0;
         if (value == 0)
             value = nanosecondsToCycles(SESSION_TIMEOUT_NS);
         return value;
     }
-
-    /**
-     * Abstract base class for all timer events.
-     *
-     * FastTransport maintains a list of active events and invokes
-     * onTimerFired() when the current TSC reaches when.
-     */
-    class Timer {
-      public:
-          Timer()
-              : startTime(0)
-              , when(0)
-              , listEntries()
-          {
-          }
-
-          /**
-           * Invoked when the system TSC reaches when. Defined in a
-           * subclass to carry out a timer-specific action such as
-           * retransmitting a packet.
-           */
-          virtual void onTimerFired(uint64_t now) = 0;
-          virtual ~Timer() {}
-
-          /// TSC of when the timer was added, 0 otherwise.
-          uint64_t startTime;
-
-          /// When TSC is >= when the FastTransport will call onTimerFired().
-          uint64_t when;
-
-          /// Entries to allow timer events to be placed in lists.
-          IntrusiveListHook listEntries;
-
-      private:
-        DISALLOW_COPY_AND_ASSIGN(Timer);
-    };
 
     /**
      * A Buffer::Chunk that is comprised of memory for incoming packets,
@@ -304,30 +272,24 @@ class FastTransport : public Transport {
                                              char* data,
                                              uint32_t dataLength,
                                              Driver* driver,
-                                             char* payload,
-                                             uint32_t payloadLength);
+                                             char* payload);
         static PayloadChunk* appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
                                             Driver* driver,
-                                            char* payload,
-                                            uint32_t payloadLength);
+                                            char* payload);
         ~PayloadChunk();
       private:
         PayloadChunk(void* data,
                      uint32_t dataLength,
                      Driver* driver,
-                     char* const payload,
-                     uint32_t payloadLength);
+                     char* const payload);
 
         /// Return the PayloadChunk memory here.
         Driver* const driver;
 
         /// The memory backing the chunk and which is to be returned.
         char* const payload;
-
-        /// Length of the memory region starting at payload.
-        const uint32_t payloadLength;
 
         DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
@@ -600,23 +562,13 @@ class FastTransport : public Transport {
         Buffer* dataBuffer;
 
         /**
-         * When invoked by the FastTransport timer code this timer will
-         * timeout the session if it is idle for too long, otherwise it
-         * will just transmit an ACK.
+         * When invoked by the dispatcher this timer will timeout the session if
+         * it is idle for too long, otherwise it will just transmit an ACK.
          */
-        class Timer : public FastTransport::Timer {
+        class Timer : public Dispatch::Timer {
           public:
             explicit Timer(InboundMessage* const inboundMsg);
-            virtual void onTimerFired(uint64_t now);
-
-            /**
-             * Whether this timer is being used by inboundMsg.
-             *
-             * Used to indicate whether the timer needs to be removed from
-             * the timer queue when inboundMsg is reset or reused.
-             */
-            bool useTimer;
-
+            virtual void operator() ();
           private:
             /// The InboundMessage this timer sendAcks on or resets if fired.
             InboundMessage* const inboundMsg;
@@ -626,6 +578,10 @@ class FastTransport : public Transport {
 
         /// Handles idle session cleanup and ACKs due to timeout.
         Timer timer;
+
+        /// False means we don't use the timer (typically means we're the
+        /// server side and timeouts are handled by the client)
+        bool useTimer;
 
         friend class FastTransportTest;
         friend class InboundMessageTest;
@@ -721,19 +677,10 @@ class FastTransport : public Transport {
          * call send() to resend packets which were sent awhile ago but
          * haven't been ACKed yet.
          */
-        class Timer : public FastTransport::Timer {
+        class Timer : public Dispatch::Timer {
           public:
             explicit Timer(OutboundMessage* const outboundMsg);
-            virtual void onTimerFired(uint64_t now);
-
-            /**
-             * Whether this timer is being used by inboundMsg.
-             *
-             * Used to indicate whether the timer needs to be removed from
-             * the timer queue when inboundMsg is reset or reused.
-             */
-            bool useTimer;
-
+            virtual void operator() ();
           private:
             /// Message this timer resends packets for or closes when fired.
             OutboundMessage* const outboundMsg;
@@ -743,6 +690,10 @@ class FastTransport : public Transport {
 
         /// Handles idle session cleanup and retransmits due to timeout.
         Timer timer;
+
+        /// False means we don't use the timer (typically means we're the
+        /// server side and timeouts are handled by the client)
+        bool useTimer;
 
         friend class ClientSessionTest;
         friend class OutboundMessageTest;
@@ -775,6 +726,7 @@ class FastTransport : public Transport {
          */
         explicit Session(FastTransport* transport, uint32_t id)
             : id(id)
+            , lastActivityTime(Dispatch::currentTime)
             , transport(transport)
             , token(INVALID_TOKEN)
         {}
@@ -825,12 +777,6 @@ class FastTransport : public Transport {
         virtual const Driver::Address* getAddress() = 0;
 
         /**
-         * The time stamp counter in ns of the last time this session
-         * received a packet from the remote party.
-         */
-        virtual uint64_t getLastActivityTime() = 0;
-
-        /**
          * Returns the authentication token the client needs to succesfully
          * reassociate with a ServerSession.
          *
@@ -851,6 +797,13 @@ class FastTransport : public Transport {
          */
         const uint32_t id;
 
+        /**
+         * Later of (a) TSC when last packet arrived from the peer at the
+         * other end and (b) TSC of the last time we started sending a new
+         * RPC request or response.
+         */
+        uint64_t lastActivityTime;
+
         /// The FastTransport this session is associated with.
         FastTransport* const transport;
 
@@ -865,6 +818,7 @@ class FastTransport : public Transport {
         uint64_t token;
 
       private:
+        friend class PollerTest;
         DISALLOW_COPY_AND_ASSIGN(Session);
     };
 
@@ -881,7 +835,6 @@ class FastTransport : public Transport {
         virtual bool expire();
         virtual void fillHeader(Header* const header, uint8_t channelId) const;
         virtual const Driver::Address* getAddress();
-        uint64_t getLastActivityTime();
         void processInboundPacket(Driver::Received* received);
         void startSession(const Driver::Address* clientAddress,
                           uint32_t clientSessionHint);
@@ -997,13 +950,8 @@ class FastTransport : public Transport {
          */
         uint32_t clientSessionHint;
 
-        /**
-         * TSC when last packet came from client or 0 if this Session isn't
-         * active.
-         */
-        uint64_t lastActivityTime;
-
         friend class FastTransportTest;
+        friend class PollerTest;
         // template friend doesn't work - no idea why
         template <typename T> friend class SessionTable;
         friend class ServerSessionTest;
@@ -1026,7 +974,6 @@ class FastTransport : public Transport {
         bool expire();
         void fillHeader(Header* const header, uint8_t channelId) const;
         const Driver::Address* getAddress();
-        uint64_t getLastActivityTime();
         void init(const ServiceLocator& serviceLocator);
         bool isConnected();
         void processInboundPacket(Driver::Received* received);
@@ -1123,22 +1070,15 @@ class FastTransport : public Transport {
         /**
          * Handles timeouts and retries in SessionOpenRequests.
          */
-        class Timer : public FastTransport::Timer {
+        class Timer : public Dispatch::Timer {
           public:
             explicit Timer(ClientSession* session);
-            virtual void onTimerFired(uint64_t now);
-            void start();
-
-            /// TSC of when the timer placed in the timer queue.
+            virtual void operator() ();
             /**
-             * The ClientSession which will be closed after
-             * TIMEOUT_NS * TIMEOUTS_UNTIL_ABORTING nanoseconds.
+             * The ClientSession for which we're waiting for a response
+             * to a SessionOpenRequest.
              */
             ClientSession* session;
-
-            /// ClientSession is waiting for a SessionOpenResponse or timeout.
-            bool sessionOpenRequestInFlight;
-
           private:
             DISALLOW_COPY_AND_ASSIGN(Timer);
         };
@@ -1158,12 +1098,6 @@ class FastTransport : public Transport {
          */
         ChannelQueue channelQueue;
 
-        /**
-         * TSC when last packet came from server or 0 if this Session isn't
-         * active.
-         */
-        uint64_t lastActivityTime;
-
         /// Number of concurrent RPCs allowed in this session.  Zero means
         /// this session isn't connected to a server.
         uint32_t numChannels;
@@ -1172,6 +1106,10 @@ class FastTransport : public Transport {
         uint32_t serverSessionHint; ///< Session offset in remote SessionTable
 
         Timer timer; ///< Tracks timeout for SessionOpenRequests.
+
+        /// True means we have issued a SessionOpenRequest but have not yet
+        /// received an acknowledgment
+        bool sessionOpenRequestInFlight;
 
         void allocateChannels();
         void resetChannels();
@@ -1308,7 +1246,7 @@ class FastTransport : public Transport {
         void expire()
         {
             const uint32_t sessionsToCheck = 5;
-            uint64_t now = rdtsc();
+            uint64_t now = Dispatch::currentTime;
             for (uint32_t i = 0; i < sessionsToCheck; i++) {
                 lastCleanedIndex++;
                 if (lastCleanedIndex >= sessions.size()) {
@@ -1318,7 +1256,7 @@ class FastTransport : public Transport {
                 }
                 T* session = sessions[lastCleanedIndex];
                 if (session->nextFree == NONE &&
-                    (session->getLastActivityTime() +
+                    (session->lastActivityTime +
                      sessionTimeoutCycles() <= now)) {
                     if (session->expire())
                         put(session);
@@ -1358,16 +1296,11 @@ class FastTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(SessionTable);
     };
 
-    void addTimer(Timer* timer, uint64_t now, uint64_t cyclesToWait);
     uint32_t dataPerFragment();
-    void fireTimers();
     uint32_t numFrags(const Buffer* dataBuffer);
-    VIRTUAL_FOR_TESTING void poll();
-    void removeTimer(Timer* timer);
     void sendBadSessionError(Header *header, const Driver::Address* address);
     void sendPacket(const Driver::Address* address,
                     Header* header, Buffer::Iterator* payload);
-    bool tryProcessPacket();
 
     /// The Driver used to send/recv packets for this FastTransport.
     Driver* const driver;
@@ -1382,11 +1315,14 @@ class FastTransport : public Transport {
     INTRUSIVE_LIST_TYPEDEF(ServerRpc, readyQueueEntries) ServerReadyQueue;
     ServerReadyQueue serverReadyQueue;
 
-    /// Timer event list to track events until they are fired.
-    INTRUSIVE_LIST_TYPEDEF(Timer, listEntries) TimerList;
-    TimerList timerList;
+    // If non-zero, overrides the value of timeoutCycles during tests.
+    static uint64_t timeoutCyclesOverride;
+
+    // If non-zero, overrides the value of sessionTimeoutCycles during tests.
+    static uint64_t sessionTimeoutCyclesOverride;
 
     friend class FastTransportTest;
+    friend class PollerTest;
     friend class ClientRpcTest;
     friend class SessionTableTest;
     friend class InboundMessageTest;
@@ -1395,6 +1331,7 @@ class FastTransport : public Transport {
     friend class ClientSessionTest;
     friend class MockReceived;
     friend class Services;
+    friend class Poller;
     DISALLOW_COPY_AND_ASSIGN(FastTransport);
 };
 

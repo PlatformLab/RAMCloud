@@ -49,6 +49,8 @@ LogCleaner::clean(uint64_t numSegments)
     if (!needsCleaning())
         return 0;
 
+    LOG(WARNING, "Uh oh, the cleaner kicked in");
+
     uint64_t maxCleanableSegs = log->activeIdMap.size() - 1;  // ignore head
     Segment *segments[maxCleanableSegs];
 

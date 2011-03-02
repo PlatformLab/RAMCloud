@@ -130,6 +130,8 @@ class MasterTest : public CppUnit::TestFixture {
 
         server = new MasterServer(config, coordinator, 1);
         transport->addServer(*server, "mock:host=master");
+        server->serverId.construct(
+            coordinator->enlistServer(MASTER, config.localLocator));
         client =
             new MasterClient(transportManager.getSession("mock:host=master"));
         ProtoBuf::Tablets_Tablet& tablet(*server->tablets.add_tablet());
@@ -270,7 +272,9 @@ class MasterTest : public CppUnit::TestFixture {
     test_recover_basics()
     {
         char segMem[segmentSize];
-        BackupManager mgr(coordinator, 123, 1);
+        Tub<uint64_t> serverId;
+        serverId.construct(123);
+        BackupManager mgr(coordinator, serverId, 1);
         Segment _(123, 87, segMem, segmentSize, &mgr);
 
         ProtoBuf::Tablets tablets;
@@ -285,7 +289,7 @@ class MasterTest : public CppUnit::TestFixture {
 
         TestLog::Enable __(&recoverSegmentFilter);
         client->recover(123, 0, tablets, backups);
-        CPPUNIT_ASSERT_EQUAL(
+        assertMatchesPosixRegex(
             "recover: Starting recovery of 4 tablets on masterId 2 | "
             "setTablets: Now serving tablets: | "
             "setTablets: table:                    0, "
@@ -305,14 +309,19 @@ class MasterTest : public CppUnit::TestFixture {
                         "end  :                  100 | "
             "recover: Recovering master 123, partition 0, 1 hosts | "
             "recover: Starting getRecoveryData from mock:host=backup1 for "
-            "segment 87 (initial round of RPCs) | "
+            "segment 87 on channel 0 (initial round of RPCs) | "
             "recover: Waiting on recovery data for segment 87 from "
-            "mock:host=backup1 | "
+            "mock:host=backup1 | ",
+            TestLog::get());
+        assertMatchesPosixRegex(
             "recover: Recovering segment 87 with size 0 | "
-            "recoverSegment: recoverSegment 87, ... | "
-            "recoverSegment: Segment 87 replay complete | "
+            "recoverSegment: recoverSegment 87, ... | ",
+            TestLog::get());
+        assertMatchesPosixRegex(
             "recover: Checking mock:host=backup1 off the list for 87 | "
-            "recover: Checking mock:host=backup1 off the list for 87 | "
+            "recover: Checking mock:host=backup1 off the list for 87 | ",
+            TestLog::get());
+        assertMatchesPosixRegex(
             "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "
             "recover: set tablet 123 10 19 to locator mock:host=master, id 2 | "
             "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
@@ -342,7 +351,9 @@ class MasterTest : public CppUnit::TestFixture {
     test_recover()
     {
         char segMem[segmentSize];
-        BackupManager mgr(coordinator, 123, 1);
+        Tub<uint64_t> serverId;
+        serverId.construct(123);
+        BackupManager mgr(coordinator, serverId, 1);
         Segment __(123, 88, segMem, segmentSize, &mgr);
 
         InMemoryStorage storage2{segmentSize, segmentFrames};
@@ -385,7 +396,7 @@ class MasterTest : public CppUnit::TestFixture {
         // 1,2,3) 87 was requested from the first server list entry.
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 87 (initial round of RPCs)",
+            "for segment 87 on channel 0 (initial round of RPCs)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(0).user_data());
@@ -393,7 +404,7 @@ class MasterTest : public CppUnit::TestFixture {
         // but was requested later once the first failed.
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup2 "
-            "for segment 87 (after RPC completion)",
+            "for segment 87 .* (after RPC completion)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(0).user_data());
@@ -402,7 +413,7 @@ class MasterTest : public CppUnit::TestFixture {
         //      OK status, preventing the launch of the forth entry
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 88 (initial round of RPCs)",
+            "for segment 88 on channel 1 (initial round of RPCs)",
             TestLog::get());
         assertMatchesPosixRegex(
             "recover: Checking mock:host=backup1 off the list for 88 | "
@@ -410,24 +421,25 @@ class MasterTest : public CppUnit::TestFixture {
             TestLog::get());
         // 1,4) 88 was requested NOT from the forth server list entry.
         assertNotMatchesPosixRegex(
-            "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 88 (after RPC completion)",
+            "recover: Starting getRecoveryData from mock:host=backup2 "
+            "for segment 88 .* (after RPC completion)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_OK,
                              backups.server(2).user_data());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_OK,
                              backups.server(3).user_data());
         // 1) Checking to ensure RPCs for 87, 88, 89, 90 went first round
-        //    and that 91 got issued subsequently
+        //    and that 91 got issued in place, first-found due to 90's
+        //    bad locator
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 89 (initial round of RPCs)",
+            "for segment 89 on channel 2 (initial round of RPCs)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(4).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup3 "
-            "for segment 90 (initial round of RPCs)",
+            "for segment 90 on channel 3 (initial round of RPCs)",
             TestLog::get());
         // 5) Checks bad locators for initial RPCs are handled
         assertMatchesPosixRegex(
@@ -437,13 +449,13 @@ class MasterTest : public CppUnit::TestFixture {
                              backups.server(5).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 91 (initial round of RPCs)",
+            "for segment 91 on channel 3 (initial round of RPCs)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(6).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup4 "
-            "for segment 92 (after RPC completion)",
+            "for segment 92 on channel 1 (after RPC completion)",
             TestLog::get());
         // 5) Checks bad locators for non-initial RPCs are handled
         assertMatchesPosixRegex(
@@ -453,7 +465,7 @@ class MasterTest : public CppUnit::TestFixture {
                              backups.server(7).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 93 (after RPC completion)",
+            "for segment 93 on channel 1 (after RPC completion)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(8).user_data());
@@ -1011,7 +1023,9 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         // Give them a name so that freeSegment doesn't get called on
         // destructor until after the test.
         char segMem1[segmentSize];
-        BackupManager mgr(coordinator, 99, 2);
+        Tub<uint64_t> serverId;
+        serverId.construct(99);
+        BackupManager mgr(coordinator, serverId, 2);
         Segment s1(99, 87, &segMem1, sizeof(segMem1), &mgr);
         s1.close();
         char segMem2[segmentSize];
@@ -1071,9 +1085,9 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(
             "recover: Recovering master 99, partition 0, 2 hosts | "
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 87 (initial round of RPCs) | "
+            "for segment 87 on channel 0 (initial round of RPCs) | "
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 88 (initial round of RPCs) | "
+            "for segment 88 on channel 1 (initial round of RPCs) | "
             "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | "
             "recover: getRecoveryData failed on mock:host=backup1, "

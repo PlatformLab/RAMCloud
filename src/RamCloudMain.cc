@@ -18,8 +18,10 @@
 #include <getopt.h>
 #include <assert.h>
 
+#include "BenchUtil.h"
 #include "RamCloud.h"
 #include "OptionParser.h"
+#include "Tub.h"
 
 using namespace RAMCloud;
 
@@ -29,44 +31,53 @@ runRecovery(RamCloud& client,
             int tableCount,
             int tableSkip)
 {
-    uint64_t b;
-
-    b = rdtsc();
-    char tableName[10];
+    char tableName[20];
     int tables[tableCount];
 
     for (int t = 0; t < tableCount; t++) {
         snprintf(tableName, sizeof(tableName), "%d", t);
         client.createTable(tableName);
         tables[t] = client.openTable(tableName);
-        int table = tables[t];
-
-        char val[objectDataSize];
-        memset(val, 0xcc, objectDataSize);
-        uint64_t id = 0xfffffff;
-
-        LOG(NOTICE, "Performing %u inserts of %u byte objects",
-            count, objectDataSize);
-        uint64_t sum = 0;
-        b = rdtsc();
-        for (int j = 0; j < count; j++) {
-            id = client.create(table, val, objectDataSize);
-            sum += client.counterValue;
-        }
-        LOG(DEBUG, "%d inserts took %lu ticks", count, rdtsc() - b);
-        LOG(DEBUG, "avg insert took %lu ticks", (rdtsc() - b) / count);
-        LOG(DEBUG, "%d inserts took %lu ticks on the server", count, sum);
-        LOG(DEBUG, "%d avg insert took %lu ticks on the server", count,
-               sum / count);
 
         // Create tables on the other masters so we skip back around to the
         // first in round-robin order to create multiple tables in the same
         // will
         for (int tt = 0; tt < tableSkip; tt++) {
-            snprintf(tableName, sizeof(tableName), "junk%d%d", t, tt);
+            snprintf(tableName, sizeof(tableName), "junk%d.%d", t, tt);
             client.createTable(tableName);
         }
     }
+
+    LOG(NOTICE, "Performing %u inserts of %u byte objects",
+        count * tableCount, objectDataSize);
+    char val[objectDataSize];
+    memset(val, 0xcc, objectDataSize);
+    Tub<RamCloud::Create> createRpcs[8];
+    uint64_t b = rdtsc();
+    for (int j = 0; j < count - 1; j++) {
+        for (int t = 0; t < tableCount; t++) {
+            auto& createRpc = createRpcs[(j * tableCount + t) %
+                                         arrayLength(createRpcs)];
+            if (createRpc)
+                (*createRpc)();
+            createRpc.construct(client,
+                                tables[t],
+                                static_cast<void*>(val), objectDataSize,
+                                /* version = */ static_cast<uint64_t*>(NULL),
+                                /* async = */ true);
+        }
+    }
+    foreach (auto& createRpc, createRpcs) {
+        if (createRpc)
+            (*createRpc)();
+    }
+    client.create(tables[0], val, objectDataSize,
+                  /* version = */ NULL,
+                  /* async = */ false);
+    LOG(DEBUG, "%d inserts took %lu ticks", count * tableCount, rdtsc() - b);
+    LOG(DEBUG, "avg insert took %lu ticks",
+        (rdtsc() - b) / count / tableCount);
+
 
     // dump the tablet map
     for (int t = 0; t < tableCount; t++) {
@@ -79,9 +90,8 @@ runRecovery(RamCloud& client,
     // dump out coordinator rpc info
     client.ping();
 
-
-    LOG(NOTICE, "--- quiescing writes ---");
-    usleep(15 * 1000 * 1000);
+    LOG(NOTICE, "- quiescing writes");
+    client.coordinator.quiesce();
 
     Transport::SessionRef session = client.objectFinder.lookup(tables[0], 0);
     LOG(NOTICE, "--- hinting that the server is down: %s ---",
@@ -110,12 +120,10 @@ runRecovery(RamCloud& client,
         }
 
         session = client.objectFinder.lookup(tables[t], 0);
-        LOG(NOTICE, "read after recovery took %u ticks",
-            client.counterValue);
         LOG(NOTICE, "read value has length %u", nb.getTotalLength());
     }
-    LOG(NOTICE, "All tables recovered in %lu ticks", rdtsc() - b);
-    LOG(NOTICE, "- recovery worked!");
+    LOG(NOTICE, "Recovery completed in %lu ns",
+        cyclesToNanoseconds(rdtsc() - b));
 
     // dump out coordinator rpc info
     client.ping();
@@ -160,9 +168,6 @@ try
         optionParser.options.getCoordinatorLocator().c_str());
 
     RamCloud client(optionParser.options.getCoordinatorLocator().c_str());
-    client.selectPerfCounter(PERF_COUNTER_TSC,
-                             MARK_RPC_PROCESSING_BEGIN,
-                             MARK_RPC_PROCESSING_END);
 
     if (hintServerDown) {
         runRecovery(client, count, objectDataSize, tableCount, skipCount);
@@ -176,28 +181,20 @@ try
     uint32_t table;
     table = client.openTable("test");
     LOG(DEBUG, "create+open table took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "open took %u ticks on the server",
-           client.counterValue);
 
     b = rdtsc();
     client.ping();
     LOG(DEBUG, "ping took %lu ticks on the client", rdtsc() - b);
-    LOG(DEBUG, "ping took %u ticks on the server",
-           client.counterValue);
 
     b = rdtsc();
     client.write(table, 42, "Hello, World!", 14);
     LOG(DEBUG, "write took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "write took %u ticks on the server",
-           client.counterValue);
 
     b = rdtsc();
     const char *value = "0123456789012345678901234567890"
         "123456789012345678901234567890123456789";
     client.write(table, 43, value, strlen(value) + 1);
     LOG(DEBUG, "write took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "write took %u ticks on the server",
-           client.counterValue);
 
     Buffer buffer;
     b = rdtsc();
@@ -205,8 +202,6 @@ try
 
     client.read(table, 43, &buffer);
     LOG(DEBUG, "read took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "read took %u ticks on the server",
-           client.counterValue);
 
     length = buffer.getTotalLength();
     LOG(DEBUG, "Got back [%s] len %u",
@@ -215,8 +210,6 @@ try
 
     client.read(table, 42, &buffer);
     LOG(DEBUG, "read took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "read took %u ticks on the server",
-           client.counterValue);
     length = buffer.getTotalLength();
     LOG(DEBUG, "Got back [%s] len %u",
         static_cast<const char*>(buffer.getRange(0, length)),
@@ -226,15 +219,11 @@ try
     uint64_t id = 0xfffffff;
     id = client.create(table, "Hello, World?", 14);
     LOG(DEBUG, "insert took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "insert took %u ticks on the server",
-           client.counterValue);
     LOG(DEBUG, "Got back [%lu] id", id);
 
     b = rdtsc();
     client.read(table, id, &buffer);
     LOG(DEBUG, "read took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "read took %u ticks on the server",
-           client.counterValue);
     length = buffer.getTotalLength();
     LOG(DEBUG, "Got back [%s] len %u",
         static_cast<const char*>(buffer.getRange(0, length)),
@@ -246,17 +235,11 @@ try
 
     LOG(NOTICE, "Performing %u inserts of %u byte objects",
         count, objectDataSize);
-    uint64_t sum = 0;
     b = rdtsc();
-    for (int j = 0; j < count; j++) {
+    for (int j = 0; j < count; j++)
         id = client.create(table, val, strlen(val) + 1);
-        sum += client.counterValue;
-    }
     LOG(DEBUG, "%d inserts took %lu ticks", count, rdtsc() - b);
     LOG(DEBUG, "avg insert took %lu ticks", (rdtsc() - b) / count);
-    LOG(DEBUG, "%d inserts took %lu ticks on the server", count, sum);
-    LOG(DEBUG, "%d avg insert took %lu ticks on the server", count,
-           sum / count);
 
     client.dropTable("test");
 

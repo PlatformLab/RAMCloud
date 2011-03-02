@@ -17,7 +17,7 @@
 
 #include "Common.h"
 #include "Driver.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 #include "Transport.h"
 
 #ifndef RAMCLOUD_INFINIBAND_H
@@ -300,10 +300,10 @@ class RealInfiniband {
     getLid(int port);
 
     BufferDescriptor*
-    tryReceive(QueuePair* qp, ObjectTub<Address>* sourceAddress = NULL);
+    tryReceive(QueuePair* qp, Tub<Address>* sourceAddress = NULL);
 
     BufferDescriptor*
-    receive(QueuePair* qp, ObjectTub<Address>* sourceAddress = NULL);
+    receive(QueuePair* qp, Tub<Address>* sourceAddress = NULL);
 
     void
     postReceive(QueuePair* qp, BufferDescriptor* bd);
@@ -325,7 +325,7 @@ class RealInfiniband {
                     const Address* address = NULL,
                     uint32_t remoteQKey = 0);
 
-    BufferDescriptor
+    BufferDescriptor*
     allocateBufferDescriptorAndRegister(size_t bytes);
 
     ibv_cq*

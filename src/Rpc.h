@@ -33,42 +33,32 @@ namespace RAMCloud {
  */
 enum RpcType {
     PING                    = 7,
-    CREATE_TABLE            = 8,
-    OPEN_TABLE              = 9,
-    DROP_TABLE              = 10,
-    CREATE                  = 11,
-    READ                    = 12,
-    WRITE                   = 13,
-    REMOVE                  = 14,
-    ENLIST_SERVER           = 15,
-    GET_BACKUP_LIST         = 16,
-    GET_TABLET_MAP          = 17,
-    SET_TABLETS             = 18,
-    RECOVER                 = 19,
-    HINT_SERVER_DOWN        = 20,
-    TABLETS_RECOVERED       = 21,
-    SET_WILL                = 22,
+    PROXY_PING              = 8,
+    CREATE_TABLE            = 9,
+    OPEN_TABLE              = 10,
+    DROP_TABLE              = 11,
+    CREATE                  = 12,
+    READ                    = 13,
+    WRITE                   = 14,
+    REMOVE                  = 15,
+    ENLIST_SERVER           = 16,
+    GET_SERVER_LIST         = 17,
+    GET_TABLET_MAP          = 18,
+    SET_TABLETS             = 19,
+    RECOVER                 = 20,
+    HINT_SERVER_DOWN        = 21,
+    TABLETS_RECOVERED       = 22,
+    SET_WILL                = 23,
+    REREPLICATE_SEGMENTS    = 24,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
     BACKUP_OPEN             = 131,
     BACKUP_STARTREADINGDATA = 132,
     BACKUP_WRITE            = 133,
-    ILLEGAL_RPC_TYPE        = 134,  // 1 + the highest legitimate RpcType
-};
-
-/**
- * Wire representation for a token requesting that the server collect a
- * particular performance metric while executing an RPC.
- */
-struct RpcPerfCounter {
-    uint32_t beginMark   : 12;    // This is actually a Mark; indicates when
-                                  // the server should start measuring.
-    uint32_t endMark     : 12;    // This is also a Mark; indicates when
-                                  // the server should stop measuring.
-    uint32_t counterType : 8;     // This is actually a PerfCounterType;
-                                  // indicates what the server should measure
-                                  // (time, cache misses, etc.).
+    BACKUP_RECOVERYCOMPLETE = 134,
+    BACKUP_QUIESCE          = 135,
+    ILLEGAL_RPC_TYPE        = 136,  // 1 + the highest legitimate RpcType
 };
 
 /**
@@ -76,10 +66,6 @@ struct RpcPerfCounter {
  */
 struct RpcRequestCommon {
     RpcType type;                 // Operation to be performed.
-    RpcPerfCounter perfCounter;   // Selects a single performance metric
-                                  // for the server to collect while
-                                  // executing this request. Zero means
-                                  // don't collect anything.
 };
 
 /**
@@ -88,9 +74,6 @@ struct RpcRequestCommon {
 struct RpcResponseCommon {
     Status status;                // Indicates whether the operation
                                   // succeeded; if not, it explains why.
-    uint32_t counterValue;        // Value of the performance metric
-                                  // collected by the server, or 0 if none
-                                  // was requested.
 };
 
 
@@ -114,6 +97,7 @@ struct CreateRpc {
         uint32_t length;              // Length of the value in bytes. The
                                       // actual bytes follow immediately after
                                       // this header.
+        uint8_t async;
     };
     struct Response {
         RpcResponseCommon common;
@@ -126,9 +110,34 @@ struct PingRpc {
     static const RpcType type = PING;
     struct Request {
         RpcRequestCommon common;
+        uint64_t nonce;             // The nonce may be used to identify
+                                    // replies to previously transmitted
+                                    // pings.
     };
     struct Response {
         RpcResponseCommon common;
+        uint64_t nonce;             // This should be identical to what was
+                                    // sent in the request being answered.
+    };
+};
+
+struct ProxyPingRpc {
+    static const RpcType type = PROXY_PING;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t timeoutNanoseconds;   // Number of nanoseconds to wait for a
+                                       // reply before responding negatively to
+                                       // this RPC.
+        uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
+                                       // including terminating NULL character.
+                                       // The bytes of the service locator
+                                       // follow immediately after this header.
+    };
+    struct Response {
+        RpcResponseCommon common;
+        uint64_t replyNanoseconds;     // Number of nanoseconds it took to get
+                                       // the reply. If a timeout occurred, the
+                                       // value is -1.
     };
 };
 
@@ -165,6 +174,17 @@ struct RecoverRpc {
                                    // The bytes of the server list follow
                                    // after the bytes for the Tablets. See
                                    // ProtoBuf::ServerList.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct RereplicateSegmentsRpc {
+    static const RpcType type = REREPLICATE_SEGMENTS;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t backupId;        // The server id of a crashed backup.
     };
     struct Response {
         RpcResponseCommon common;
@@ -211,6 +231,7 @@ struct WriteRpc {
                                       // The actual bytes of the object follow
                                       // immediately after this header.
         RejectRules rejectRules;
+        uint8_t async;
     };
     struct Response {
         RpcResponseCommon common;
@@ -274,6 +295,8 @@ struct EnlistServerRpc {
         RpcRequestCommon common;
         uint8_t serverType;
         uint8_t pad[3];
+        uint32_t readSpeed;            // MB/s read speed if a BACKUP
+        uint32_t writeSpeed;           // MB/s write speed if a BACKUP
         uint32_t serviceLocatorLength; // Number of bytes in the serviceLocator,
                                        // including terminating NULL character.
                                        // The bytes of the service locator
@@ -285,10 +308,11 @@ struct EnlistServerRpc {
     };
 };
 
-struct GetBackupListRpc {
-    static const RpcType type = GET_BACKUP_LIST;
+struct GetServerListRpc {
+    static const RpcType type = GET_SERVER_LIST;
     struct Request {
         RpcRequestCommon common;
+        uint8_t serverType;        // Type of servers to get: MASTER or BACKUP
     };
     struct Response {
         RpcResponseCommon common;
@@ -389,6 +413,27 @@ struct BackupGetRecoveryDataRpc {
     };
 };
 
+struct BackupQuiesceRpc {
+    static const RpcType type = BACKUP_QUIESCE;
+    struct Request {
+        RpcRequestCommon common;
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct BackupRecoveryCompleteRpc {
+    static const RpcType type = BACKUP_RECOVERYCOMPLETE;
+    struct Request {
+        RpcRequestCommon common;
+        uint64_t masterId;      ///< Server Id which was recovered.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
 struct BackupStartReadingDataRpc {
     static const RpcType type = BACKUP_STARTREADINGDATA;
     struct Request {
@@ -402,6 +447,8 @@ struct BackupStartReadingDataRpc {
     struct Response {
         RpcResponseCommon common;
         uint32_t segmentIdCount;    ///< Number of segmentIds in reply payload.
+        uint32_t primarySegmentCount;   ///< Count of segmentIds which prefix
+                                        ///< the reply payload are primary.
         uint32_t digestBytes;       ///< Number of bytes for optional LogDigest.
         uint64_t digestSegmentId;   ///< SegmentId the LogDigest came from.
         uint32_t digestSegmentLen;  ///< Byte length of the LogDigest Segment.

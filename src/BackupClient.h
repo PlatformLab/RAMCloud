@@ -65,6 +65,7 @@ class BackupClient : public Client {
           public:
             Result()
                 : segmentIdAndLength(),
+                  primarySegmentCount(),
                   logDigestBuffer(NULL),
                   logDigestBytes(0),
                   logDigestSegmentId(-1),
@@ -80,12 +81,16 @@ class BackupClient : public Client {
 
             void
             set(const pair<uint64_t, uint32_t>* idLengthTuples,
-                uint64_t numTuples, const void* logDigestPtr,
+                uint64_t numTuples,
+                uint32_t primarySegmentCount,
+                const void* logDigestPtr,
                 uint32_t logDigestBytes, uint64_t logDigestSegmentId,
                 uint32_t logDigestSegmentLen)
             {
                 for (uint64_t i = 0; i < numTuples; i++)
                     segmentIdAndLength.push_back(idLengthTuples[i]);
+
+                this->primarySegmentCount = primarySegmentCount;
 
                 if (logDigestPtr != NULL) {
                     logDigestBuffer = xmalloc(logDigestBytes);
@@ -98,6 +103,7 @@ class BackupClient : public Client {
             }
 
             vector<pair<uint64_t, uint32_t>> segmentIdAndLength;
+            uint32_t primarySegmentCount;
             const void* logDigestBuffer;
             uint32_t logDigestBytes;
             uint64_t logDigestSegmentId;
@@ -171,6 +177,8 @@ class BackupClient : public Client {
     }
 
     void ping();
+    void quiesce();
+    void recoveryComplete(uint64_t masterId);
 
   private:
     /**

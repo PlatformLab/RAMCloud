@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -25,12 +25,12 @@
 
 namespace RAMCloud {
 
+class FastTransport;
 class ServiceLocator;
 
 /**
- * Sends and receives packets.  Abstract class.
- *
- * For use with FastTransport.  See UdpDriver for an example of a concrete
+ * Used by FastTransport to send and receive unreliable datagrams. This
+ * is an abstract class; see UdpDriver for an example of a concrete
  * implementation.
  */
 class Driver {
@@ -62,7 +62,7 @@ class Driver {
     typedef boost::scoped_ptr<Address> AddressPtr;
 
     /**
-     * Represents a received packet.
+     * Represents an incoming packet.
      *
      * Provides a few safety and convenience methods for accessing packet data
      * and, most importantly, it returns memory resources to the Driver that
@@ -73,7 +73,8 @@ class Driver {
      * memory to be placed in a Buffer which is returned to the Driver when
      * its containing Buffer is destroyed).
      */
-    struct Received {
+    class Received {
+      public:
         Received();
         VIRTUAL_FOR_TESTING ~Received();
         // Note: getOffset is defined in this header file.
@@ -111,7 +112,25 @@ class Driver {
      */
     virtual uint32_t getMaxPacketSize() = 0;
 
-    virtual void release(char *payload, uint32_t len);
+    virtual void release(char *payload);
+
+    /**
+     * Invoked by a FastTransport instance to associate itself with this
+     * driver, so that the driver can invoke the transport's
+     * #handleIncomingPacket method whenever packets arrived.
+     * \param transport
+     *      The FastTransport instance that should be invoked for each
+     *      incoming packet.
+     */
+    virtual void connect(FastTransport* transport) = 0;
+
+    /**
+     * Breaks the association between this driver and a particular
+     * FastTransport instance, if there was one. Once this method has
+     * returned incoming packets will be ignored or discarded until
+     * #connect is invoked again.
+     */
+    virtual void disconnect() = 0;
 
     /**
      * Return a new Driver-specific network address for the given service
@@ -152,19 +171,6 @@ class Driver {
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload) = 0;
-
-    /**
-     * Try to receive a packet off the network.
-     *
-     * \param[out] received
-     *      A Received wrapping the received data.  The object will return
-     *      allocated resources to this driver when destroyed unless steal()
-     *      is called.  See release() and steal() for more detail.
-     * \return
-     *      true if a packet was received.
-     *      false otherwise.
-     */
-    virtual bool tryRecvPacket(Received *received) = 0;
 
     /**
      * Return the ServiceLocator for this Driver. If the Driver

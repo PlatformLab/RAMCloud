@@ -132,7 +132,6 @@ class HashTable {
         void
         storeSample(uint64_t value)
         {
-#if PERF_COUNTERS
             if (value / BIN_WIDTH < NBINS)
                 bins[value / BIN_WIDTH]++;
             else
@@ -142,18 +141,15 @@ class HashTable {
                 min = value;
             if (value > max)
                 max = value;
-#endif
         }
 
         void
         reset()
         {
-#if PERF_COUNTERS
             memset(bins, 0, sizeof(uint64_t) * NBINS);
             binOverflows = 0;
             min = ~0UL;
             max = 0;
-#endif
         }
 
       private:
@@ -383,13 +379,13 @@ class HashTable {
     bool
     replace(T ptr, uint8_t type = 0, T* retPtr = NULL, uint8_t *retType = NULL)
     {
-        CycleCounter cycles(STAT_REF(perfCounters.replaceCycles));
+        CycleCounter<> cycles(&perfCounters.replaceCycles);
         uint64_t secondaryHash;
         CacheLine *bucket;
         Entry *entry;
         unsigned int i;
 
-        STAT_INC(perfCounters.replaceCalls);
+        ++perfCounters.replaceCalls;
 
         uint64_t key1 = ptr->key1();
         uint64_t key2 = ptr->key2();
@@ -426,7 +422,7 @@ class HashTable {
                     cl->entries[i].clear();
                 last.setChainPointer(cl);
             }
-            STAT_INC(perfCounters.insertChainsFollowed);
+            ++perfCounters.insertChainsFollowed;
         }
     }
 
@@ -538,9 +534,7 @@ class HashTable {
     void
     resetPerfCounters()
     {
-#if PERF_COUNTERS
         perfCounters.reset();
-#endif
     }
 
   private:
@@ -636,10 +630,10 @@ class HashTable {
     lookupEntry(CacheLine *bucket, uint64_t secondaryHash,
                 uint64_t key1, uint64_t key2)
     {
-        CycleCounter cycles(STAT_REF(perfCounters.lookupEntryCycles));
+        CycleCounter<> cycles(&perfCounters.lookupEntryCycles);
         unsigned int i;
 
-        STAT_INC(perfCounters.lookupEntryCalls);
+        ++perfCounters.lookupEntryCalls;
 
         CacheLine *cl = bucket;
 
@@ -658,7 +652,7 @@ class HashTable {
                         perfCounters.lookupEntryDist.storeSample(cycles.stop());
                         return candidate;
                     } else {
-                        STAT_INC(perfCounters.lookupEntryHashCollisions);
+                        ++perfCounters.lookupEntryHashCollisions;
                     }
                 }
             }
@@ -671,7 +665,7 @@ class HashTable {
                 perfCounters.lookupEntryDist.storeSample(cycles.stop());
                 return NULL;
             }
-            STAT_INC(perfCounters.lookupEntryChainsFollowed);
+            ++perfCounters.lookupEntryChainsFollowed;
         }
     }
 

@@ -31,10 +31,6 @@ namespace RAMCloud {
  */
 RamCloud::RamCloud(const char* serviceLocator)
     : status(STATUS_OK)
-    , counterValue(0)
-    , counterType(PERF_COUNTER_INC)
-    , beginMark(MARK_NONE)
-    , endMark(MARK_NONE)
     , coordinator(serviceLocator)
     , objectFinder(coordinator) { }
 
@@ -42,49 +38,36 @@ RamCloud::RamCloud(const char* serviceLocator)
 void
 RamCloud::createTable(const char* name)
 {
-    coordinator.selectPerfCounter(counterType, beginMark, endMark);
     coordinator.createTable(name);
-    counterValue = coordinator.counterValue;
 }
 
 /// \copydoc CoordinatorClient::dropTable
 void
 RamCloud::dropTable(const char* name)
 {
-    coordinator.selectPerfCounter(counterType, beginMark, endMark);
     coordinator.dropTable(name);
-    counterValue = coordinator.counterValue;
 }
 
 /// \copydoc CoordinatorClient::openTable
 uint32_t
 RamCloud::openTable(const char* name)
 {
-    coordinator.selectPerfCounter(counterType, beginMark, endMark);
-    uint32_t retVal = coordinator.openTable(name);
-    counterValue = coordinator.counterValue;
-    return retVal;
+    return coordinator.openTable(name);
 }
 
 /// \copydoc MasterClient::create
 uint64_t
 RamCloud::create(uint32_t tableId, const void* buf, uint32_t length,
-                 uint64_t* version)
+                 uint64_t* version, bool async)
 {
-    MasterClient master(objectFinder.lookupHead(tableId));
-    master.selectPerfCounter(counterType, beginMark, endMark);
-    uint64_t retVal = master.create(tableId, buf, length, version);
-    counterValue = master.counterValue;
-    return retVal;
+    return Create(*this, tableId, buf, length, version, async)();
 }
 
 /// \copydoc CoordinatorClient::ping
 void
 RamCloud::ping()
 {
-    coordinator.selectPerfCounter(counterType, beginMark, endMark);
     coordinator.ping();
-    counterValue = coordinator.counterValue;
 }
 
 /// \copydoc MasterClient::read
@@ -93,9 +76,7 @@ RamCloud::read(uint32_t tableId, uint64_t id, Buffer* value,
                const RejectRules* rejectRules, uint64_t* version)
 {
     MasterClient master(objectFinder.lookup(tableId, id));
-    master.selectPerfCounter(counterType, beginMark, endMark);
     master.read(tableId, id, value, rejectRules, version);
-    counterValue = master.counterValue;
 }
 
 /// \copydoc MasterClient::remove
@@ -104,21 +85,17 @@ RamCloud::remove(uint32_t tableId, uint64_t id,
                  const RejectRules* rejectRules, uint64_t* version)
 {
     MasterClient master(objectFinder.lookup(tableId, id));
-    master.selectPerfCounter(counterType, beginMark, endMark);
     master.remove(tableId, id, rejectRules, version);
-    counterValue = master.counterValue;
 }
 
 /// \copydoc MasterClient::write
 void
 RamCloud::write(uint32_t tableId, uint64_t id,
                 const void* buf, uint32_t length,
-                const RejectRules* rejectRules, uint64_t* version)
+                const RejectRules* rejectRules, uint64_t* version,
+                bool async)
 {
-    MasterClient master(objectFinder.lookup(tableId, id));
-    master.selectPerfCounter(counterType, beginMark, endMark);
-    master.write(tableId, id, buf, length, rejectRules, version);
-    counterValue = master.counterValue;
+    Write(*this, tableId, id, buf, length, rejectRules, version, async)();
 }
 
 }  // namespace RAMCloud

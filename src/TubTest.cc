@@ -14,14 +14,14 @@
  */
 
 #include "TestUtil.h"
-#include "ObjectTub.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
-static_assert(__alignof__(ObjectTub<char>) == 1,
-              "Alignment of ObjectTub<char> is wrong");
-static_assert(__alignof__(ObjectTub<uint64_t>) == 8,
-              "Alignment of ObjectTub<uint64_t> is wrong");
+static_assert(__alignof__(Tub<char>) == 1,
+              "Alignment of Tub<char> is wrong");
+static_assert(__alignof__(Tub<uint64_t>) == 8,
+              "Alignment of Tub<uint64_t> is wrong");
 
 struct Foo {
     Foo(int x, int y, int z = 0)
@@ -40,18 +40,15 @@ struct Foo {
 };
 int Foo::liveCount = 0;
 
-typedef ObjectTub<Foo> FooTub;
-typedef ObjectTub<int> IntTub;
+typedef Tub<Foo> FooTub;
+typedef Tub<int> IntTub;
 
-TEST(ObjectTub, basics) {
+TEST(Tub, basics) {
     {
         FooTub fooTub;
-        EXPECT_EQ(NULL, fooTub.get());
         EXPECT_FALSE(fooTub);
-        EXPECT_FALSE(fooTub.is_from(NULL));
         Foo* foo = fooTub.construct(1, 2, 3);
         EXPECT_TRUE(fooTub);
-        EXPECT_TRUE(fooTub.is_from(foo));
         EXPECT_EQ(1, foo->x);
         EXPECT_EQ(2, foo->y);
         EXPECT_EQ(3, foo->z);
@@ -59,17 +56,15 @@ TEST(ObjectTub, basics) {
         EXPECT_EQ(foo, &*fooTub);
         EXPECT_EQ(1, fooTub->getX());
 
-        EXPECT_EQ(foo, fooTub.reset(5, 6));
+        EXPECT_EQ(foo, fooTub.construct(5, 6));
         EXPECT_EQ(5, foo->x);
         EXPECT_EQ(6, foo->y);
         EXPECT_EQ(0, foo->z);
-
-        EXPECT_EQ(NULL, fooTub.construct(3, 4));
     }
     EXPECT_EQ(0, Foo::liveCount);
 }
 
-TEST(ObjectTub, copyAndAssign) {
+TEST(Tub, copyAndAssign) {
     IntTub x;
     x.construct(5);
     IntTub y;
@@ -77,9 +72,13 @@ TEST(ObjectTub, copyAndAssign) {
     IntTub z(y);
     EXPECT_EQ(5, *y);
     EXPECT_EQ(5, *z);
+
+    int p = 5;
+    IntTub q(p);
+    EXPECT_EQ(5, *q);
 }
 
-TEST(ObjectTub, putInVector) {
+TEST(Tub, putInVector) {
     vector<IntTub> v;
     v.push_back(IntTub());
     IntTub eight;
@@ -93,7 +92,7 @@ TEST(ObjectTub, putInVector) {
     EXPECT_EQ(8, *v[2]);
 }
 
-TEST(ObjectTub, boolConversion) {
+TEST(Tub, boolConversion) {
     IntTub x;
     EXPECT_FALSE(x);
     x.construct(5);

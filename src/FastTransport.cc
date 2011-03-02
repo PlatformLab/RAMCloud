@@ -26,16 +26,16 @@ namespace RAMCloud {
  *
  * \param driver
  *      The lower-level driver (presumably to an unreliable mechanism) to
- *      send/receive fragments on. The transport takes ownership of this driver
- *      and will delete it in the destructor.
+ *      send/receive fragments on. The transport takes ownership of this
+ *      driver and will delete it in the destructor.
  */
 FastTransport::FastTransport(Driver* driver)
     : driver(driver)
     , clientSessions(this)
     , serverSessions(this)
     , serverReadyQueue()
-    , timerList()
 {
+    driver->connect(this);
 }
 
 FastTransport::~FastTransport()
@@ -73,9 +73,9 @@ FastTransport::getSession(const ServiceLocator& serviceLocator)
 FastTransport::ServerRpc*
 FastTransport::serverRecv()
 {
-    poll();
-    if (serverReadyQueue.empty())
+    if (serverReadyQueue.empty()) {
         return NULL;
+    }
     ServerRpc* rpc = &serverReadyQueue.front();
     serverReadyQueue.pop_front();
     return rpc;
@@ -83,26 +83,8 @@ FastTransport::serverRecv()
 
 // - private -
 
-/**
- * Schedule Timer::onTimerFired() to be called when the system TSC reaches when.
- *
- * If timer is already scheduled it will be rescheduled for when.
- *
- * \param timer
- *      The Timer on which to call onTimerFired().
- * \param now
- *      Roughly the current TSC.
- * \param cyclesToWait
- *      onTimerFired() is called when rdtsc() is now + cyclesToWait or beyond.
- */
-void
-FastTransport::addTimer(Timer* timer, uint64_t now, uint64_t cyclesToWait)
-{
-    timer->startTime = now;
-    timer->when = now + cyclesToWait;
-    if (!timer->listEntries.is_linked())
-        timerList.push_front(*timer);
-}
+uint64_t FastTransport::timeoutCyclesOverride = 0;
+uint64_t FastTransport::sessionTimeoutCyclesOverride = 0;
 
 /**
  * \return
@@ -113,29 +95,6 @@ uint32_t
 FastTransport::dataPerFragment()
 {
     return driver->getMaxPacketSize() - sizeof(Header);
-}
-
-/**
- * Invoke onTimerFired() on any expired, scheduled Timer after removing it
- * from the timer event queue.
- *
- * Any timer that would like to be fired again later needs to
- * reschedule itself.
- */
-void
-FastTransport::fireTimers()
-{
-    uint64_t now = rdtsc();
-    TimerList::iterator iter(timerList.begin());
-    while (iter != timerList.end()) {
-        Timer& timer(*iter);
-        if (timer.when && timer.when <= now) {
-            iter = timerList.erase(iter);
-            timer.onTimerFired(now);
-        } else {
-            ++iter;
-        }
-    }
 }
 
 /**
@@ -153,37 +112,6 @@ FastTransport::numFrags(const Buffer* dataBuffer)
     uint32_t perFragment = dataPerFragment();
     return (dataBuffer->getTotalLength() + perFragment - 1) /
             perFragment;
-}
-
-/**
- * Deschedule a Timer.
- *
- * \param timer
- *      The Timer to deschedule.
- */
-void
-FastTransport::removeTimer(Timer* timer)
-{
-    timer->when = 0;
-    if (timer->listEntries.is_linked())
-        timerList.erase(timerList.iterator_to(*timer));
-}
-
-/**
- * Try to get fragments from the Driver and accumulate an rpc request,
- * dispatching ready timer events in between.
- *
- * This method returns when the Driver no longer has incoming fragments
- * queued.
- *
- * This is only called by the server.
- */
-void
-FastTransport::poll()
-{
-    while (tryProcessPacket())
-        fireTimers();
-    fireTimers();
 }
 
 /**
@@ -229,33 +157,29 @@ FastTransport::sendPacket(const Driver::Address* address,
 }
 
 /**
- * Get a single packet from the Driver and dispatch it to the appropriate
- * handler.
+ * This method is invoked by drivers when they receive packets.  Depending
+ * on the packet type this method does whatever is needed to process the
+ * information in the packet.
  *
- * \retval false
- *      If the Driver didn't have a packet ready.
- * \retval true
- *      A packet was processed and more may be waiting.
+ * \param received
+ *      Information about the incoming packet, including both the contents
+ *      of the packet and metadata such as the source address. Note: we're
+ *      not allowed to retain access to the packet after this method returns
+ *      unless we invoke #received.steal, and we must clone the sender Address
+ *      if we need to retain it after this method returns.
  */
-bool
-FastTransport::tryProcessPacket()
+void FastTransport::handleIncomingPacket(Driver::Received* received)
 {
-    Driver::Received received;
-    if (!driver->tryRecvPacket(&received)) {
-        TEST_LOG("no packet ready");
-        return false;
-    }
-
-    Header* header = received.getOffset<Header>(0);
+    Header* header = received->getOffset<Header>(0);
     if (header == NULL) {
         LOG(WARNING,
             "packet too short (%d bytes)",
-            received.len);
-        return true;
+            received->len);
+        return;
     }
     if (header->pleaseDrop) {
         TEST_LOG("dropped");
-        return true;
+        return;
     }
 
     if (header->getDirection() == Header::CLIENT_TO_SERVER) {
@@ -267,34 +191,36 @@ FastTransport::tryProcessPacket()
                 LOG(DEBUG, "opening session %d", header->clientSessionHint);
                 serverSessions.expire();
                 ServerSession* session = serverSessions.get();
-                session->startSession(received.sender,
+                session->startSession(received->sender,
                                       header->clientSessionHint);
             } else {
                 LOG(WARNING, "bad session hint %d", header->serverSessionHint);
-                sendBadSessionError(header, received.sender);
+                sendBadSessionError(header, received->sender);
             }
-            return true;
+            return;
         }
-        ServerSession* session = serverSessions[header->serverSessionHint];
+        ServerSession* session =
+                serverSessions[header->serverSessionHint];
         if (session->getToken() == header->sessionToken) {
             TEST_LOG("calling ServerSession::processInboundPacket");
-            session->processInboundPacket(&received);
-            return true;
+            session->processInboundPacket(received);
+            return;
         } else {
             LOG(WARNING, "bad session token (0x%lx in session %d, "
                 "0x%lx in packet)", session->getToken(),
                 header->serverSessionHint, header->sessionToken);
-            sendBadSessionError(header, received.sender);
-            return true;
+            sendBadSessionError(header, received->sender);
+            return;
         }
     } else {
         // Packet is from the server being processed on the client.
         if (header->clientSessionHint < clientSessions.size()) {
-            ClientSession* session = clientSessions[header->clientSessionHint];
+            ClientSession* session =
+                    clientSessions[header->clientSessionHint];
             TEST_LOG("client session processing packet");
             if (session->getToken() == header->sessionToken ||
                 header->getPayloadType() == Header::SESSION_OPEN) {
-                session->processInboundPacket(&received);
+                session->processInboundPacket(received);
             } else {
                 LOG(WARNING, "bad fragment token (0x%lx in session %d, "
                     "0x%lx in packet), client dropping", session->getToken(),
@@ -305,7 +231,6 @@ FastTransport::tryProcessPacket()
                 header->clientSessionHint);
         }
     }
-    return true;
 }
 
 // --- ClientRpc ---
@@ -336,9 +261,6 @@ FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
 bool
 FastTransport::ClientRpc::isReady()
 {
-    if (state != IN_PROGRESS)
-        return true;
-    transport->poll();
     return (state != IN_PROGRESS);
 }
 
@@ -346,20 +268,17 @@ FastTransport::ClientRpc::isReady()
 void
 FastTransport::ClientRpc::wait()
 {
-    uint8_t i = 0;
     while (true) {
         switch (state) {
         case IN_PROGRESS:
         default:
-            transport->poll();
+            Dispatch::poll();
             break;
         case COMPLETED:
             return;
         case ABORTED:
             throw TransportException(HERE, "RPC aborted");
         }
-        if (++i == 0) // On machines with a small number of cores,
-            yield();  // give other tasks a chance to run.
     }
 }
 
@@ -472,23 +391,19 @@ FastTransport::ServerRpc::sendReply()
  *      The Driver to release() this payload to on Buffer destruction.
  * \param payload
  *      The address to release() to the Driver on destruction.
- * \param payloadLength
- *      The length of the resources starting at payload to release.
  */
 FastTransport::PayloadChunk*
 FastTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
                                              char* data,
                                              uint32_t dataLength,
                                              Driver* driver,
-                                             char* payload,
-                                             uint32_t payloadLength)
+                                             char* payload)
 {
     PayloadChunk* chunk =
         new(buffer, CHUNK) PayloadChunk(data,
                                         dataLength,
                                         driver,
-                                        payload,
-                                        payloadLength);
+                                        payload);
     Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
     return chunk;
 }
@@ -512,23 +427,19 @@ FastTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
  *      The Driver to release() this payload to on Buffer destruction.
  * \param payload
  *      The address to release() to the Driver on destruction.
- * \param payloadLength
- *      The length of the resources starting at payload to release.
  */
 FastTransport::PayloadChunk*
 FastTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
                                             Driver* driver,
-                                            char* payload,
-                                            uint32_t payloadLength)
+                                            char* payload)
 {
     PayloadChunk* chunk =
         new(buffer, CHUNK) PayloadChunk(data,
                                         dataLength,
                                         driver,
-                                        payload,
-                                        payloadLength);
+                                        payload);
     Buffer::Chunk::appendChunkToBuffer(buffer, chunk);
     return chunk;
 }
@@ -537,11 +448,11 @@ FastTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
 FastTransport::PayloadChunk::~PayloadChunk()
 {
     if (driver)
-        driver->release(payload, payloadLength);
+        driver->release(payload);
 }
 
 /**
- * Construct a PayloadChunk which will release it's resources to the
+ * Construct a PayloadChunk which will release its resources to the
  * Driver that allocated it when it's containing Buffer is destroyed.
  *
  * \param data
@@ -557,18 +468,14 @@ FastTransport::PayloadChunk::~PayloadChunk()
  *      The Driver to release() this payload to on Buffer destruction.
  * \param payload
  *      The address to release() to the Driver on destruction.
- * \param payloadLength
- *      The length of the resources starting at payload to release.
  */
 FastTransport::PayloadChunk::PayloadChunk(void* data,
                                           uint32_t dataLength,
                                           Driver* driver,
-                                          char* const payload,
-                                          uint32_t payloadLength)
+                                          char* const payload)
     : Buffer::Chunk(data, dataLength)
     , driver(driver)
     , payload(payload)
-    , payloadLength(payloadLength)
 {
 }
 
@@ -589,6 +496,7 @@ FastTransport::InboundMessage::InboundMessage()
     , dataStagingWindow()
     , dataBuffer(NULL)
     , timer(this)
+    , useTimer(false)
 {
     // The staging window always starts with the packet *after*
     // firstMissingFrag.
@@ -596,7 +504,7 @@ FastTransport::InboundMessage::InboundMessage()
 }
 
 /**
- * Cleanup an InboundMessage, releasing any unaccounted for packet
+ * Cleanup an InboundMessage, releasing any unaccounted-for packet
  * data back to the Driver.
  */
 FastTransport::InboundMessage::~InboundMessage()
@@ -619,7 +527,8 @@ FastTransport::InboundMessage::~InboundMessage()
  * \param channelId
  *      The ID of the channel this message belongs to.
  * \param useTimer
- *      Whether this message should respond to timer events.
+ *      Whether this message should set timers to detect timeouts in
+ *      communication (clients do this, servers don't).
  */
 void
 FastTransport::InboundMessage::setup(FastTransport* transport,
@@ -630,11 +539,8 @@ FastTransport::InboundMessage::setup(FastTransport* transport,
     this->transport = transport;
     this->session = session;
     this->channelId = channelId;
-    if (timer.useTimer)
-        transport->removeTimer(&timer);
-    timer.when = 0;
-    timer.startTime = 0;
-    timer.useTimer = useTimer;
+    this->useTimer = useTimer;
+    timer.stop();
 }
 
 /**
@@ -673,16 +579,14 @@ FastTransport::InboundMessage::reset()
         std::pair<char*, uint32_t> elt =
             dataStagingWindow[firstMissingFrag + 1 + i];
         if (elt.first)
-            transport->driver->release(elt.first, elt.second);
+            transport->driver->release(elt.first);
     }
     totalFrags = 0;
     dataStagingWindow.reset();
     dataStagingWindow.advance();
     firstMissingFrag = 0;
     dataBuffer = NULL;
-    timer.startTime = 0;
-    if (timer.useTimer)
-         transport->removeTimer(&timer);
+    timer.stop();
 }
 
 /**
@@ -703,8 +607,8 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
     reset();
     this->totalFrags = totalFrags;
     this->dataBuffer = dataBuffer;
-    if (timer.useTimer)
-        transport->addTimer(&timer, rdtsc(), timeoutCycles());
+    if (useTimer)
+        timer.startCycles(timeoutCycles());
 }
 
 /**
@@ -745,8 +649,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                                      payload + sizeof(Header),
                                      length - sizeof(Header),
                                      transport->driver,
-                                     payload,
-                                     length);
+                                     payload);
 
         // Advance the staging window (and firstMissingFrag) to restore the
         // invariants:
@@ -770,8 +673,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
                                          payload + sizeof(Header),
                                          length - sizeof(Header),
                                          transport->driver,
-                                         payload,
-                                         length);
+                                         payload);
         }
     } else if (header->fragNumber > firstMissingFrag) {
         // If the fragNumber exceeds the firstMissingFrag of this message then
@@ -802,8 +704,8 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
 
     if (header->requestAck)
         sendAck();
-    if (timer.useTimer)
-         transport->addTimer(&timer, rdtsc(), timeoutCycles());
+    if (useTimer)
+        timer.startCycles(timeoutCycles());
 
     return firstMissingFrag == totalFrags;
 }
@@ -818,14 +720,13 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
  *      when the timer trips.
  */
 FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
-    : useTimer(false)
-    , inboundMsg(inboundMsg)
+    : inboundMsg(inboundMsg)
 {
 }
 
 /**
- * If this message is taking too long then close it (timeoutCycles() *
- * TIMEOUTS_UNTIL_ABORTING), otherwise send an AckResponse.
+ * If this message is taking too long then close it, otherwise send an
+ * AckResponse.
  *
  * This prevents the connection from stalling if incoming fragments
  * with Header::requestAck set are lost.
@@ -833,14 +734,15 @@ FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
  * See FastTransport::Timer for general information on timers.
  */
 void
-FastTransport::InboundMessage::Timer::onTimerFired(uint64_t now)
+FastTransport::InboundMessage::Timer::operator() ()
 {
-    // NOTE: Kills the entire session because one message is stalled.
+    // NOTE: Kills the entire session if one message gets stalled.
     //       We could make this less aggressive if we think they might recover.
-    if (now - startTime > sessionTimeoutCycles()) {
+    if (Dispatch::currentTime - inboundMsg->session->lastActivityTime
+            > sessionTimeoutCycles()) {
         inboundMsg->session->close();
     } else {
-        inboundMsg->transport->addTimer(this, now, timeoutCycles());
+        startCycles(timeoutCycles());
         inboundMsg->sendAck();
     }
 }
@@ -864,13 +766,12 @@ FastTransport::OutboundMessage::OutboundMessage()
     , sentTimes()
     , numAcked(0)
     , timer(this)
+    , useTimer(false)
 {
 }
 
 FastTransport::OutboundMessage::~OutboundMessage()
 {
-    if (timer.useTimer)
-        transport->removeTimer(&timer);
 }
 
 /**
@@ -900,7 +801,7 @@ FastTransport::OutboundMessage::setup(FastTransport* transport,
     this->session = session;
     this->channelId = channelId;
     reset();
-    timer.useTimer = useTimer;
+    this->useTimer = useTimer;
 }
 
 /**
@@ -918,10 +819,7 @@ FastTransport::OutboundMessage::reset()
     packetsSinceAckReq = 0;
     sentTimes.reset();
     numAcked = 0;
-    if (timer.useTimer)
-        transport->removeTimer(&timer);
-    timer.when = 0;
-    timer.startTime = 0;
+    timer.stop();
 }
 
 /**
@@ -967,7 +865,7 @@ FastTransport::OutboundMessage::send()
      *  - If timers are enabled for this message then the timer is scheduled
      *    to fire when the next packet retransmit timeout occurs.
      */
-    uint64_t now = rdtsc();
+    uint64_t now = Dispatch::currentTime;
 
     // First, decide on candidate range of packets to send/resend
     // Only fragments less than stop will be considered for (re-)send
@@ -1002,7 +900,7 @@ FastTransport::OutboundMessage::send()
 
     // find the packet that will cause timeout the earliest and
     // schedule a timer just after that
-    if (timer.useTimer) {
+    if (useTimer) {
         uint64_t oldest = ~(0lu);
         for (uint32_t fragNumber = firstMissingFrag; fragNumber < stop;
                 fragNumber++) {
@@ -1015,7 +913,7 @@ FastTransport::OutboundMessage::send()
                     oldest = sentTime;
         }
         if (oldest != ~(0lu))
-            transport->addTimer(&timer, oldest, timeoutCycles());
+            timer.startCycles(timeoutCycles());
     }
 }
 
@@ -1116,22 +1014,20 @@ FastTransport::OutboundMessage::sendOneData(uint32_t fragNumber,
  *      when the timer trips.
  */
 FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
-    : useTimer(false)
-    , outboundMsg(outboundMsg)
+    : outboundMsg(outboundMsg)
 {
 }
 
 /**
- * If this message is taking too long then close it (timeoutCycles() *
- * TIMEOUTS_UNTIL_ABORTING), otherwise resend unacked packets
- * that were sent awhile ago.
- *
- * See FastTransport::Timer for general information on timers.
+ * Invoked when a timeout period elapses before acknowledgment arrives
+ * from our peer.  If this message is taking too long then abort the session,
+ * otherwise resend unacked packets that were sent awhile ago.
  */
 void
-FastTransport::OutboundMessage::Timer::onTimerFired(uint64_t now)
+FastTransport::OutboundMessage::Timer::operator() ()
 {
-    if (now - startTime > sessionTimeoutCycles()) {
+    if (Dispatch::currentTime - outboundMsg->session->lastActivityTime
+            > sessionTimeoutCycles()) {
         LOG(DEBUG, "closing session due to timeout");
         outboundMsg->session->close();
     } else {
@@ -1163,7 +1059,6 @@ FastTransport::ServerSession::ServerSession(FastTransport* transport,
     , nextFree(FastTransport::SessionTable<ServerSession>::NONE)
     , clientAddress()
     , clientSessionHint(INVALID_HINT)
-    , lastActivityTime(0)
 {
     for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++)
         channels[i].setup(transport, this, i);
@@ -1192,7 +1087,7 @@ FastTransport::ServerSession::beginSending(uint8_t channelId)
     channel->state = ServerChannel::SENDING_WAITING;
     Buffer* responseBuffer = &channel->currentRpc.replyPayload;
     channel->outboundMsg.beginSending(responseBuffer);
-    lastActivityTime = rdtsc();
+    lastActivityTime = Dispatch::currentTime;
 }
 
 /// This shouldn't ever be called.
@@ -1206,9 +1101,6 @@ FastTransport::ServerSession::close()
 bool
 FastTransport::ServerSession::expire()
 {
-    if (lastActivityTime == 0)
-        return true;
-
     for (uint32_t i = 0; i < NUM_CHANNELS_PER_SESSION; i++) {
         if (channels[i].state == ServerChannel::PROCESSING)
             return false;
@@ -1226,7 +1118,6 @@ FastTransport::ServerSession::expire()
 
     token = INVALID_TOKEN;
     clientSessionHint = INVALID_HINT;
-    lastActivityTime = 0;
     clientAddress.reset();
 
     return true;
@@ -1252,13 +1143,6 @@ FastTransport::ServerSession::getAddress()
     return clientAddress.get();
 }
 
-// See Session::getLastActivityTime().
-uint64_t
-FastTransport::ServerSession::getLastActivityTime()
-{
-    return lastActivityTime;
-}
-
 /**
  * Dispatch an incoming packet to the correct action for this session.
  *
@@ -1268,7 +1152,7 @@ FastTransport::ServerSession::getLastActivityTime()
 void
 FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
 {
-    lastActivityTime = rdtsc();
+    lastActivityTime = Dispatch::currentTime;
     Header* header = received->getOffset<Header>(0);
     if (header->channelId >= NUM_CHANNELS_PER_SESSION) {
         LOG(WARNING, "invalid channel id %d", header->channelId);
@@ -1333,7 +1217,7 @@ FastTransport::ServerSession::startSession(
 {
     this->clientAddress.reset(clientAddress->clone());
     this->clientSessionHint = clientSessionHint;
-    token = ((generateRandom() << 32) | generateRandom());
+    token = generateRandom();
 
     // send session open response
     Header header;
@@ -1351,7 +1235,7 @@ FastTransport::ServerSession::startSession(
     sessionOpen->numChannels = NUM_CHANNELS_PER_SESSION;
     Buffer::Iterator payloadIter(payload);
     transport->sendPacket(this->clientAddress.get(), &header, &payloadIter);
-    lastActivityTime = rdtsc();
+    lastActivityTime = Dispatch::currentTime;
 }
 
 // - private -
@@ -1451,11 +1335,11 @@ FastTransport::ClientSession::ClientSession(FastTransport* transport,
     , nextFree(FastTransport::SessionTable<ClientSession>::NONE)
     , channels(0)
     , channelQueue()
-    , lastActivityTime(0)
     , numChannels(0)
     , serverAddress()
     , serverSessionHint(INVALID_HINT)
     , timer(this)
+    , sessionOpenRequestInFlight(false)
 {
 }
 
@@ -1482,8 +1366,7 @@ FastTransport::ClientSession::close()
     resetChannels();
     serverSessionHint = INVALID_HINT;
     token = INVALID_TOKEN;
-    if (timer.listEntries.is_linked())
-        transport->removeTimer(&timer);
+    timer.stop();
 }
 
 // See Transport::Session::clientSend().
@@ -1495,7 +1378,7 @@ FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
 
     // rpc will be performed immediately on the first available channel or
     // queued until a channel is idle if none are currently available.
-    lastActivityTime = rdtsc();
+    lastActivityTime = Dispatch::currentTime;
     if (!isConnected()) {
         connect();
         LOG(DEBUG, "queueing RPC");
@@ -1523,12 +1406,8 @@ FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
 void
 FastTransport::ClientSession::connect()
 {
-    if (timer.sessionOpenRequestInFlight)
-        return;
-
-    sendSessionOpenRequest();
-
-    timer.start();
+    if (!sessionOpenRequestInFlight)
+        sendSessionOpenRequest();
 }
 
 // See Session::expire().
@@ -1567,13 +1446,6 @@ FastTransport::ClientSession::getAddress()
     return serverAddress.get();
 }
 
-// See Session::getLastActivityTime().
-uint64_t
-FastTransport::ClientSession::getLastActivityTime()
-{
-    return lastActivityTime;
-}
-
 /**
  * Set the remote address on a client session.
  */
@@ -1606,7 +1478,7 @@ FastTransport::ClientSession::isConnected()
 void
 FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
 {
-    lastActivityTime = rdtsc();
+    lastActivityTime = Dispatch::currentTime;
     Header* header = received->getOffset<Header>(0);
     if (header->channelId >= numChannels) {
         if (header->getPayloadType() == Header::SESSION_OPEN)
@@ -1669,11 +1541,11 @@ FastTransport::ClientSession::sendSessionOpenRequest()
     header.payloadType = Header::SESSION_OPEN;
     transport->sendPacket(serverAddress.get(),
                           &header, NULL);
+    lastActivityTime = Dispatch::currentTime;
+    sessionOpenRequestInFlight = true;
 
     // Schedule the timer to resend if no response.
-    uint64_t now = rdtsc();
-    transport->addTimer(&timer, now, timeoutCycles());
-    lastActivityTime = now;
+    timer.startCycles(timeoutCycles());
 }
 
 // - private -
@@ -1808,8 +1680,7 @@ FastTransport::ClientSession::processSessionOpenResponse(
         return;
 
     // Clear the SessionOpenRequest retransmit timer
-    if (timer.listEntries.is_linked())
-        transport->removeTimer(&timer);
+    timer.stop();
 
     Header* header = received->getOffset<Header>(0);
     SessionOpenResponse* response =
@@ -1837,26 +1708,19 @@ FastTransport::ClientSession::processSessionOpenResponse(
 // --- ClientSession::Timer ---
 FastTransport::ClientSession::Timer::Timer(ClientSession* session)
     : session(session)
-    , sessionOpenRequestInFlight(false)
 {
 }
 
 void
-FastTransport::ClientSession::Timer::onTimerFired(uint64_t now)
+FastTransport::ClientSession::Timer::operator() ()
 {
-    if (now - startTime > sessionTimeoutCycles()) {
-        sessionOpenRequestInFlight = false;
+    if (Dispatch::currentTime - session->lastActivityTime
+            > sessionTimeoutCycles()) {
+        session->sessionOpenRequestInFlight = false;
         session->close();
     } else {
         session->sendSessionOpenRequest();
     }
-}
-
-void
-FastTransport::ClientSession::Timer::start()
-{
-    sessionOpenRequestInFlight = true;
-    startTime = rdtsc();
 }
 
 } // end RAMCloud

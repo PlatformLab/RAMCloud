@@ -22,8 +22,6 @@
 #define RAMCLOUD_CRAMCLOUD_H
 
 #include "Common.h"
-#include "Mark.h"
-#include "PerfCounterType.h"
 #include "RejectRules.h"
 #include "Status.h"
 
@@ -38,13 +36,11 @@ RAMCloud::Status    rc_connectWithClient(
                             struct rc_client** newClient);
 void                rc_disconnect(struct rc_client* client);
 
-void                rc_clearPerfCounter(struct rc_client* client);
 RAMCloud::Status    rc_create(struct rc_client* client, uint32_t tableId,
                             const void* buf, uint32_t length, uint64_t* id,
                             uint64_t* version);
 RAMCloud::Status    rc_createTable(struct rc_client* client, const char* name);
 RAMCloud::Status    rc_dropTable(struct rc_client* client, const char* name);
-uint32_t            rc_getCounterValue(struct rc_client* client);
 RAMCloud::Status    rc_getStatus(struct rc_client* client);
 RAMCloud::Status    rc_openTable(struct rc_client* client, const char* name,
                             uint32_t* tableId);
@@ -58,10 +54,6 @@ RAMCloud::Status    rc_remove(struct rc_client* client, uint32_t tableId,
                             uint64_t id,
                             const struct RAMCloud::RejectRules* rejectRules,
                             uint64_t* version);
-void                rc_selectPerfCounter(struct rc_client* client,
-                            enum RAMCloud::PerfCounterType type,
-                            enum RAMCloud::Mark begin,
-                            enum RAMCloud::Mark end);
 RAMCloud::Status    rc_write(struct rc_client* client, uint32_t tableId,
                             uint64_t id, const void* buf, uint32_t length,
                             const struct RAMCloud::RejectRules* rejectRules,
