@@ -436,6 +436,11 @@ Logger::fileToModule(string& file)
             lookup[transportFiles[i]] = TRANSPORT_MODULE;
     }
 
+    // strip out the path
+    size_t pos = file.rfind("/");
+    if (pos != string::npos)
+        file = file.substr(pos + 1);
+
     boost::unordered_map<string, LogModule>& lookup = *lookupTub;
     if (lookup.find(file) != lookup.end())
         return lookup[file];
