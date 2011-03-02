@@ -436,7 +436,8 @@ BackupServer::SegmentInfo::open()
     char* segment = static_cast<char*>(pool.malloc());
     {
         CycleCounter<Metric> q(&metrics->backup.writeClearTicks);
-        memset(segment, 0, segmentSize);
+        memset(segment, 0, segmentSize < sizeof(SegmentEntry) ?
+                            segmentSize : sizeof(SegmentEntry));
     }
     BackupStorage::Handle* handle;
     try {

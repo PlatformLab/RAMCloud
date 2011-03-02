@@ -37,8 +37,8 @@ BackupStorage::benchmark()
 {
     const uint64_t count = 16;
     const uint64_t mb = Segment::SEGMENT_SIZE * count / 1024 / 1024;
-    uint32_t readSpeed = 0;
-    uint32_t writeSpeed = 0;
+    vector<uint32_t> readSpeeds;
+    vector<uint32_t> writeSpeeds;
     BackupStorage::Handle* handles[count];
 
     void* p = NULL;
@@ -58,14 +58,14 @@ BackupStorage::benchmark()
             for (uint64_t i = 0; i < count; ++i)
                 putSegment(handles[i], segment);
             uint64_t ns = cyclesToNanoseconds(counter.stop());
-            writeSpeed = mb * 1000 * 1000 * 1000 / ns;
+            writeSpeeds.push_back(mb * 1000 * 1000 * 1000 / ns);
         }
         {
             CycleCounter<> counter;
             for (uint64_t i = 0; i < count; ++i)
                 getSegment(handles[i], segment);
             uint64_t ns = cyclesToNanoseconds(counter.stop());
-            readSpeed = mb * 1000 * 1000 * 1000 / ns;
+            readSpeeds.push_back(mb * 1000 * 1000 * 1000 / ns);
         }
     } catch (...) {
         std::free(segment);
@@ -79,10 +79,15 @@ BackupStorage::benchmark()
     for (uint64_t i = 0; i < 16; ++i)
         free(handles[i]);
 
-    LOG(NOTICE, "Backup storage speeds: %u MB/s read, %u MB/s write",
-        readSpeed, writeSpeed);
+    uint32_t minRead = *std::min_element(readSpeeds.begin(),
+                                         readSpeeds.end());
+    uint32_t minWrite = *std::min_element(writeSpeeds.begin(),
+                                          writeSpeeds.end());
 
-    return {readSpeed, writeSpeed};
+    LOG(NOTICE, "Backup storage speeds (min): %u MB/s read, %u MB/s write",
+        minRead, minWrite);
+
+    return {minRead, minWrite};
 }
 
 // --- BackupStorage::Handle ---
@@ -119,7 +124,8 @@ SingleFileStorage::SingleFileStorage(uint32_t segmentSize,
     , segmentFrames(segmentFrames)
 {
     const char* killMessageStr = "FREE";
-    killMessageLen = getpagesize();
+    // Must write block size of larger when O_DIRECT.
+    killMessageLen = 512;
     int r = posix_memalign(&killMessage, killMessageLen, killMessageLen);
     if (r != 0)
         throw std::bad_alloc();
