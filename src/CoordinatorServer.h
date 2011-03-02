@@ -20,6 +20,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/select.h>
+
+#include <boost/unordered_map.hpp>
 
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
@@ -72,6 +75,10 @@ class CoordinatorServer : public Server {
                         HintServerDownRpc::Response& respHdr,
                         Transport::ServerRpc& rpc,
                         Responder& responder);
+
+    void hintServerDown(string serviceLocator);
+
+    bool isServerDead(string serviceLocator);
 
     void tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                           TabletsRecoveredRpc::Response& respHdr,
@@ -143,10 +150,22 @@ class CoordinatorServer : public Server {
      */
     int failureDetectorFd;
 
+    /**
+     * UDP socket used to send ping requests to validate a Hint Server Down
+     * RPC. 
+     */
+    int failureProbeFd;
+
+    /**
+     * Masters currently being recovered, indexed by ServiceLocator strings.
+     */
+    boost::unordered_map<string, bool> recoveringMasters;
+
     /// Used in unit testing.
     BaseRecovery* mockRecovery;
 
-    friend void* failureDetectorThread(void* arg);
+    friend void* failureDetectorServerThread(void* arg);
+    friend void* hintServerDownThread(void* arg);
     friend class CoordinatorTest;
     DISALLOW_COPY_AND_ASSIGN(CoordinatorServer);
 };

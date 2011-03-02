@@ -101,7 +101,7 @@ class FailureDetector {
     static bool
     pingServer(string locatorString)
     {
-        LOG(DEBUG, "issuing request for [%s]\n", locatorString.c_str());
+        LOG(DEBUG, "issuing request for [%s]", locatorString.c_str());
 
         ssize_t r = write(internalClientSocket, locatorString.c_str(),
             locatorString.length() + 1);

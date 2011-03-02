@@ -166,12 +166,18 @@ class Server {
     }
 
     /**
-     * Wait for an incoming RPC request, dispatch it, and send a response.
+     * Check for an incoming RPC request, dispatch it, and send a response.
+     * This method typically blocks, but can be made non-blocking with the
+     * #noWait parameter.
+     * \param[in] noWait
+     *      If true, return if no RPC is ready to service. Otherwise, block.
      */
     template<typename S>
     void
-    handleRpc() {
-        Transport::ServerRpc& rpc(*transportManager.serverRecv());
+    handleRpc(bool noWait = false) {
+        Transport::ServerRpc& rpc(*transportManager.serverRecv(noWait));
+        if (&rpc == NULL)
+            return;
         Responder responder(*this, rpc);
         const RpcRequestCommon* header;
         header = rpc.recvPayload.getStart<RpcRequestCommon>();

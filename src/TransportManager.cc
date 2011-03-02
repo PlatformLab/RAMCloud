@@ -207,11 +207,14 @@ TransportManager::getSession(const char* serviceLocator)
 /**
  * Receive an RPC request. This will block until receiving a packet from any
  * listening transport.
+ * \param[in] noWait
+ *      If true, return if no RPC is ready. If false (the default value),
+ *      serverRecv will block until an RPC is received.
  * \throw TransportException
  *      There are no listening transports, so this call would block forever.
  */
 Transport::ServerRpc*
-TransportManager::serverRecv()
+TransportManager::serverRecv(bool noWait)
 {
     if (!initialized || listening.empty())
         throw TransportException(HERE, "no transports to listen on");
@@ -220,6 +223,8 @@ TransportManager::serverRecv()
         if (nextToListen >= listening.size()) {
             Dispatch::poll();
             nextToListen = 0;
+            if (noWait)
+                return NULL;
         }
         auto transport = listening[nextToListen++];
 

@@ -378,6 +378,7 @@ BackupManager::ensureSufficientHosts()
     if (numHosts < replicas) {
         LOG(NOTICE, "Need backups, fetching server list from coordinator");
         updateHostListFromCoordinator();
+LOG(NOTICE, "------- GOT SERVER LIST SUCCESSFULLY!");
         numHosts = hosts.server_size();
         if (numHosts < replicas)
             DIE("Not enough backups to meet replication requirement "

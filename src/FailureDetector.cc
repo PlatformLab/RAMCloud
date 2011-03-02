@@ -365,6 +365,8 @@ FailureDetector::handleTimeout(TimeoutQueue::TimeoutEntry* te)
 {
     const string& loc(te->locator);
 
+    LOG(DEBUG, "[%s] timed out", loc.c_str());
+
     if (te->type == COORD_PROBE) {
         ProxyPingRpc::Response resp;
         resp.common.status = STATUS_OK;

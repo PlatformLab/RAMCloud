@@ -169,7 +169,9 @@ static_assert(unsafeArrayLength(logLevelNames) == NUM_LOG_LEVELS,
  * Friendly names for each #LogModule value.
  * Keep this in sync with the LogModule enum.
  */
-static const char* logModuleNames[] = {"default", "transport"};
+static const char* logModuleNames[] = {
+    "default", "transport", "failuredetector"
+};
 
 static_assert(unsafeArrayLength(logModuleNames) == NUM_LOG_MODULES,
               "logModuleNames size does not match NUM_LOG_MODULES");
@@ -434,6 +436,12 @@ Logger::fileToModule(string& file)
         };
         for (uint32_t i = 0; i < unsafeArrayLength(transportFiles); i++)
             lookup[transportFiles[i]] = TRANSPORT_MODULE;
+
+        string failureDetectorFiles[] = {
+            "FailureDetector.cc", "FailureDetector.h"
+        };
+        for (uint32_t i = 0; i < unsafeArrayLength(failureDetectorFiles); i++)
+            lookup[failureDetectorFiles[i]] = FAILUREDETECTOR_MODULE;
     }
 
     // strip out the path

@@ -944,6 +944,10 @@ InfRcTransport<Infiniband>::ClientRpc::wait()
         // alive
         if ((cyclesToNanoseconds(rdtsc() - lastAlive) / 1000) >= 10000) {
             if (!FailureDetector::pingServer(serviceLocator)) {
+                // this rpc is no longer considered outstanding 
+                transport->outstandingRpcs.erase(
+                    transport->outstandingRpcs.iterator_to(*this));
+
                 throw TransportException(HERE,
                     format("server [%s] appears to be dead",
                         serviceLocator.c_str()));

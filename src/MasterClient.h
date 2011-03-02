@@ -86,6 +86,7 @@ class MasterClient : public Client {
     };
 
     explicit MasterClient(Transport::SessionRef session) : session(session) {}
+    void commitSuicide();
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL, bool async = false);
     void ping();

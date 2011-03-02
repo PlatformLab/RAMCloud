@@ -15,8 +15,23 @@
 
 #include "Common.h"
 #include "CoordinatorServer.h"
+#include "FailureDetector.h"
 #include "OptionParser.h"
 #include "TransportManager.h"
+
+namespace RAMCloud {
+
+string localLocator;
+
+void*
+failureDetectorThread(void* unused)
+{
+    FailureDetector fd(localLocator);
+    fd.mainLoop();
+    return NULL;
+}
+
+}
 
 int
 main(int argc, char *argv[])
@@ -25,10 +40,15 @@ main(int argc, char *argv[])
     try {
         OptionParser optionParser(OptionsDescription("Coordinator"),
                                   argc, argv);
-        string localLocator = optionParser.options.getCoordinatorLocator();
+        localLocator = optionParser.options.getCoordinatorLocator();
         transportManager.initialize(localLocator.c_str());
         localLocator = transportManager.getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
+
+        pthread_t tid;
+        if (pthread_create(&tid, NULL, failureDetectorThread, NULL))
+            DIE("coordinator: couldn't spawn failure detector thread");
+
         CoordinatorServer(localLocator).run();
         return 0;
     } catch (RAMCloud::Exception& e) {

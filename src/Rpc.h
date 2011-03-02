@@ -50,6 +50,7 @@ enum RpcType {
     TABLETS_RECOVERED       = 22,
     SET_WILL                = 23,
     REREPLICATE_SEGMENTS    = 24,
+    COMMIT_SUICIDE          = 25,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -185,6 +186,16 @@ struct RereplicateSegmentsRpc {
     struct Request {
         RpcRequestCommon common;
         uint64_t backupId;        // The server id of a crashed backup.
+    };
+    struct Response {
+        RpcResponseCommon common;
+    };
+};
+
+struct CommitSuicideRpc {
+    static const RpcType type = COMMIT_SUICIDE;
+    struct Request {
+        RpcRequestCommon common;
     };
     struct Response {
         RpcResponseCommon common;

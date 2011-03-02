@@ -123,6 +123,19 @@ MasterClient::RereplicateSegments::operator()()
 }
 
 /**
+ * Instruct a server to kill itself. With fast recovery, its
+ * toiling existence was pretty meaningless anyway.
+ */
+void
+MasterClient::commitSuicide()
+{
+    Buffer req, resp;
+    allocHeader<CommitSuicideRpc>(req);
+    sendRecv<CommitSuicideRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
  * Create a new object in a table, with an id assigned by the server.
  *
  * \param tableId

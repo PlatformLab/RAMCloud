@@ -13,18 +13,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <pthread.h>
+
 #include <boost/scoped_ptr.hpp>
 
 #include "BackupClient.h"
+#include "BenchUtil.h"
 #include "CoordinatorServer.h"
 #include "FailureDetector.h"
 #include "MasterClient.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
 
+static pthread_mutex_t biglock = PTHREAD_MUTEX_INITIALIZER;
+
+#define bigLock()       pthread_mutex_lock(&biglock);
+#define bigUnlock()     pthread_mutex_unlock(&biglock);
+
 namespace RAMCloud {
 
-void* failureDetectorThread(void* arg);
+void* failureDetectorServerThread(void* arg);
 
 CoordinatorServer::CoordinatorServer(string localLocator)
     : nextServerId(1)
@@ -35,11 +43,17 @@ CoordinatorServer::CoordinatorServer(string localLocator)
     , nextTableId(0)
     , nextTableMasterIdx(0)
     , failureDetectorFd(-1)
+    , failureProbeFd(-1)
+    , recoveringMasters()
     , mockRecovery(NULL)
 {
     failureDetectorFd = socket(PF_INET, SOCK_DGRAM, 0);
     if (failureDetectorFd == -1)
         throw Exception(HERE, "failed to create failureDetector socket");
+
+    failureProbeFd = socket(PF_INET, SOCK_DGRAM, 0);
+    if (failureProbeFd == -1)
+        throw Exception(HERE, "failed to create failureProbe socket");
 
     sockaddr_in sin =
         FailureDetector::serviceLocatorStringToSockaddrIn(localLocator);
@@ -52,8 +66,8 @@ CoordinatorServer::CoordinatorServer(string localLocator)
         inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
 
     pthread_t tid;
-    if (pthread_create(&tid, NULL, failureDetectorThread, this))
-        DIE("coordinator: couldn't spawn failure detector thread");
+    if (pthread_create(&tid, NULL, failureDetectorServerThread, this))
+        DIE("coordinator: couldn't spawn failure detector server thread");
 }
 
 CoordinatorServer::~CoordinatorServer()
@@ -62,13 +76,17 @@ CoordinatorServer::~CoordinatorServer()
     foreach (const ProtoBuf::ServerList::Entry& master, masterList.server())
         delete reinterpret_cast<ProtoBuf::Tablets*>(master.user_data());
     close(failureDetectorFd);
+    close(failureProbeFd);
 }
 
 void
 CoordinatorServer::run()
 {
-    while (true)
-        handleRpc<CoordinatorServer>();
+    while (true) {
+        bigLock();
+        handleRpc<CoordinatorServer>(true);
+        bigUnlock();
+    }
 }
 
 void
@@ -291,6 +309,7 @@ CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
                                  GetServerListRpc::Response& respHdr,
                                  Transport::ServerRpc& rpc)
 {
+LOG(DEBUG, "getServerList: %d", reqHdr.serverType);
     switch (reqHdr.serverType) {
     case MASTER:
         respHdr.serverListLength = serializeToResponse(rpc.replyPayload,
@@ -321,7 +340,7 @@ CoordinatorServer::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
 }
 
 /**
- * Handle the ENLIST_SERVER RPC.
+ * Handle the HINT_SERVER_DOWN RPC.
  * \copydetails Server::ping
  * \param responder
  *      Functor to respond to the RPC before returning from this method. Used
@@ -338,8 +357,28 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
     responder();
 
     // reqHdr, respHdr, and rpc are off-limits now
+    hintServerDown(serviceLocator);
+}
 
+/**
+ * Do the heavy lifting of a HINT_SERVER_DOWN rpc. This includes poking
+ * the purportedly dead host's FailureDetector to confirm death and
+ * firing up a recovery if necessary.
+ * 
+ * \param serviceLocator
+ *      The ServiceLocator string of the purportedly failed server.
+ */
+void
+CoordinatorServer::hintServerDown(string serviceLocator)
+{
     LOG(DEBUG, "Hint server down: %s", serviceLocator.c_str());
+
+    if (!isServerDead(serviceLocator)) {
+        LOG(DEBUG, "Server isn't dead!");
+        return;
+    }
+
+    LOG(DEBUG, "Server is assumed dead; recovering!");
 
     // is it a master?
     for (int32_t i = 0; i < masterList.server_size(); i++) {
@@ -382,7 +421,7 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
             }
 
             recovery->start();
-
+LOG(DEBUG, "recovery->start() returned");
             return;
         }
     }
@@ -401,6 +440,54 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
             return;
         }
     }
+}
+
+/**
+ * Determine whether a server is actually dead or not.
+ *
+ * \param[in] serviceLocator
+ *      The ServiceLocator string of the server to check.
+ */
+bool
+CoordinatorServer::isServerDead(string serviceLocator)
+{
+    // it would be nice to use FailureDetector::pingServer here, but that
+    // fires off an HSD to the coordinator if it times out, which isn't
+    // what we want
+    uint64_t nonce = generateRandom();
+    PingRpc::Request req;
+    req.common.type = PING;
+    req.nonce = nonce;
+    sockaddr_in sin = FailureDetector::serviceLocatorStringToSockaddrIn(
+        serviceLocator);
+    ssize_t r = sendto(failureProbeFd, &req, sizeof(req), 0,
+        reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
+    if (r != sizeof(req))
+        throw Exception(HERE, "sendto failed; couldn't ping server! (r = %Zd)", r);
+
+    uint64_t startUsec = cyclesToNanoseconds(rdtsc()) / 1000;
+    while (true) {
+        uint64_t nowUsec = cyclesToNanoseconds(rdtsc()) / 1000;
+        if (nowUsec > startUsec + FailureDetector::TIMEOUT_USECS)
+            break;
+
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(failureProbeFd, &fds);
+        timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = FailureDetector::TIMEOUT_USECS - (nowUsec - startUsec);
+        select(failureProbeFd + 1, &fds, NULL, NULL, &tv);
+
+        if (FD_ISSET(failureProbeFd, &fds)) {
+            PingRpc::Response resp;
+            ssize_t r = recv(failureProbeFd, &resp, sizeof(resp), 0);
+            if (r == sizeof(resp) && resp.nonce == nonce)
+                return false;
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -500,9 +587,15 @@ CoordinatorServer::ping(const PingRpc::Request& reqHdr,
         BackupClient(transportManager.getSession(
             server.service_locator().c_str())).ping();
     foreach (const ProtoBuf::ServerList::Entry& server,
-             masterList.server())
-        MasterClient(transportManager.getSession(
-            server.service_locator().c_str())).ping();
+             masterList.server()) {
+        try {
+            MasterClient(transportManager.getSession(
+                server.service_locator().c_str())).ping();
+        } catch (...) {
+            LOG(DEBUG, "ping failed on [%s]; skipping",
+                server.service_locator().c_str());
+        }
+    }
 
     Server::ping(reqHdr, respHdr, rpc);
 }
@@ -585,7 +678,7 @@ CoordinatorServer::setWill(uint64_t masterId, Buffer& buffer,
  *      Pointer to the CoordinatorServer object that this thread is servicing.
  */
 void*
-failureDetectorThread(void* arg)
+failureDetectorServerThread(void* arg)
 {
     CoordinatorServer* coordinator = reinterpret_cast<CoordinatorServer*>(arg);
 
@@ -604,6 +697,32 @@ failureDetectorThread(void* arg)
         coordinator->failureDetectorHandler(buf, r, sin);
     }
 
+    return NULL;
+}
+
+struct hintServerDownThreadArgs {
+    string* locator;
+    CoordinatorServer* coordinator;
+};
+
+/**
+ * Jumping off point for handling a hintServerDown message via the UDP
+ * FailureDetector socket. We cannot handle it in that thread, since we
+ * risk not responding to ping requests, which can cause our clients to
+ * think we're dead and abort their RPCs.
+ *
+ * This is really starting to get messy.
+ */
+void*
+hintServerDownThread(void* arg)
+{
+    hintServerDownThreadArgs* args =
+        reinterpret_cast<hintServerDownThreadArgs*>(arg);
+    bigLock();
+    args->coordinator->hintServerDown(*args->locator);
+    bigUnlock();
+    delete args->locator;
+    delete args;
     return NULL;
 }
 
@@ -652,8 +771,26 @@ CoordinatorServer::failureDetectorHandler(char* buf, ssize_t length,
         memcpy(locatorBuf, &buf[sizeof(*hSDReq)], hSDReq->serviceLocatorLength);
         locatorBuf[hSDReq->serviceLocatorLength] = '\0';
 
-        LOG(NOTICE, "HintServerDown on [%s] from %s:%d",
-            locatorBuf, inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+        LOG(DEBUG, "HintServerDown [%s] from %s:%d", locatorBuf,
+            inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+
+        // ignore HSDs for a recovering server
+        // this needs to be much smarter, but should do for the moment
+        if (recoveringMasters.find(locatorBuf) != recoveringMasters.end())
+            return;
+        recoveringMasters[locatorBuf] = true;
+
+        // fire off another thread to handle this. if we don't, then we can't answer
+        // pings and our clients may start to assume we're dead and abort RPCs
+        hintServerDownThreadArgs* args = new hintServerDownThreadArgs();
+        args->coordinator = this;
+        args->locator = new string(locatorBuf);
+        pthread_t tid;
+        if (pthread_create(&tid, NULL, hintServerDownThread, args)) {
+            LOG(ERROR, "failed to create hintServerDown thread!");
+            delete args->locator;
+            delete args;
+        }
     } else if (req->type == GET_SERVER_LIST) {
         LOG(DEBUG, "GetServerList request from %s:%d",
             inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
@@ -665,10 +802,12 @@ CoordinatorServer::failureDetectorHandler(char* buf, ssize_t length,
             reinterpret_cast<GetServerListRpc::Response*>(responseBuf);
 
         std::ostringstream ostream;
+        bigLock();
         if (getReq->serverType == MASTER)
             masterList.SerializePartialToOstream(&ostream);
         else
             backupList.SerializePartialToOstream(&ostream);
+        bigUnlock();
         string str(ostream.str());
 
         if (sizeof(*resp) + str.length() > FailureDetector::MAXIMUM_MTU_BYTES) {

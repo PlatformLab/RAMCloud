@@ -94,29 +94,34 @@ runRecovery(RamCloud& client,
     client.coordinator.quiesce();
 
     Transport::SessionRef session = client.objectFinder.lookup(tables[0], 0);
-    LOG(NOTICE, "--- hinting that the server is down: %s ---",
+    LOG(NOTICE, "--- instructing server [%s] to kill itself ---",
         session->getServiceLocator().c_str());
 
     b = rdtsc();
-    client.coordinator.hintServerDown(
-        session->getServiceLocator().c_str());
+    try {
+        MasterClient(session).commitSuicide();
+    } catch (...) {
+        LOG(NOTICE, "- suicide RPC timed out; server presumed dead");
+    }
 
-    LOG(NOTICE, "- flushing map\n");
-    client.objectFinder.flush();
-
-    Buffer nb;
     session = client.objectFinder.lookup(tables[0], 0);
     LOG(NOTICE, "- attempting read from recovery master: %s",
         session->getServiceLocator().c_str());
 
     // Check a value in each table to make sure we're good
+    LOG(NOTICE, "reading recovered data  on %s",
+        session->getServiceLocator().c_str());
     for (int t = 0; t < tableCount; t++) {
-        LOG(NOTICE, "reading recovered data  on %s",
-            session->getServiceLocator().c_str());
         int table = tables[t];
+        Buffer nb;
+
         try {
             client.read(table, 0, &nb);
         } catch (...) {
+            LOG(NOTICE, "timed out trying to read object; retrying...");
+            client.objectFinder.flush();
+            t--;
+            continue;
         }
 
         session = client.objectFinder.lookup(tables[t], 0);
