@@ -25,8 +25,26 @@
 #include "ProtoBuf.h"
 #include "Recovery.h"
 
+/*
+ * Since recoveries are fired off in a separate thread (to ensure that the
+ * FailureDetector's pings are promptedly responded to for clients of the
+ * Coordinator), we need to ensure mutual exclusion of the transport
+ * non-reentrant transport layer. Not doing so properly results in lots
+ * of really weird errors, as one might expect.
+ *
+ * The following mutex is a sledgehammer solution. Any thread that might
+ * use the transport must first acquire the lock.
+ *
+ * Note that this also provides synchronisation for CoordinatorServer
+ * members, such as the server lists. failureDetectorServerThread also
+ * uses this lock to get exclusive access to the server lists for
+ * GET_SERVER_LIST rpcs. This is somewhat dangerous, as a long wait on
+ * the lock could result in clients thinking the coordinator is down.
+ * If this becomes problematic, we can use trylock and abort requests
+ * that wait too long, since they're not strictly necessary and will be
+ * retried by the FailureDetector.
+ */
 static pthread_mutex_t biglock = PTHREAD_MUTEX_INITIALIZER;
-
 #define bigLock()       pthread_mutex_lock(&biglock);
 #define bigUnlock()     pthread_mutex_unlock(&biglock);
 
@@ -373,10 +391,12 @@ CoordinatorServer::hintServerDown(string serviceLocator)
 {
     LOG(DEBUG, "Hint server down: %s", serviceLocator.c_str());
 
+#ifndef TESTING
     if (!isServerDead(serviceLocator)) {
         LOG(DEBUG, "Server isn't dead!");
         return;
     }
+#endif
 
     LOG(DEBUG, "Server is assumed dead; recovering!");
 
@@ -462,8 +482,10 @@ CoordinatorServer::isServerDead(string serviceLocator)
         serviceLocator);
     ssize_t r = sendto(failureProbeFd, &req, sizeof(req), 0,
         reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
-    if (r != sizeof(req))
-        throw Exception(HERE, "sendto failed; couldn't ping server! (r = %Zd)", r);
+    if (r != sizeof(req)) {
+        throw Exception(HERE,
+            format("sendto failed; couldn't ping server! (r = %Zd)", r));
+    }
 
     uint64_t startUsec = cyclesToNanoseconds(rdtsc()) / 1000;
     while (true) {
@@ -780,8 +802,9 @@ CoordinatorServer::failureDetectorHandler(char* buf, ssize_t length,
             return;
         recoveringMasters[locatorBuf] = true;
 
-        // fire off another thread to handle this. if we don't, then we can't answer
-        // pings and our clients may start to assume we're dead and abort RPCs
+        // fire off another thread to handle this. if we don't, then we can't
+        // answer pings and our clients may start to assume we're dead and
+        // abort RPCs
         hintServerDownThreadArgs* args = new hintServerDownThreadArgs();
         args->coordinator = this;
         args->locator = new string(locatorBuf);

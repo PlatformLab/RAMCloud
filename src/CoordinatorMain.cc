@@ -21,7 +21,7 @@
 
 namespace RAMCloud {
 
-string localLocator;
+string localLocator; //NOLINT
 
 void*
 failureDetectorThread(void* unused)

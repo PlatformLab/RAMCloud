@@ -173,9 +173,9 @@ class LoggingTest : public CppUnit::TestFixture {
 
     void test_isLogging() {
         Logger l(WARNING);
-        CPPUNIT_ASSERT(l.isLogging(DEFAULT_LOG_MODULE, ERROR));
-        CPPUNIT_ASSERT(l.isLogging(DEFAULT_LOG_MODULE, WARNING));
-        CPPUNIT_ASSERT(!l.isLogging(DEFAULT_LOG_MODULE, NOTICE));
+        CPPUNIT_ASSERT(l.isLogging("UnknownFileGetsDefaultModule.cc", ERROR));
+        CPPUNIT_ASSERT(l.isLogging("UnknownFileGetsDefaultModule.cc", WARNING));
+        CPPUNIT_ASSERT(!l.isLogging("UnknownFileGetsDefaultModule.cc", NOTICE));
     }
 
     void test_LOG() { // also tests logMessage

@@ -317,7 +317,7 @@ assertMatchesPosixRegex(const string& pattern, const string& subject)
     if (r != 0) {
         string errorMsg = "Pattern '";
         errorMsg += pattern;
-        errorMsg += "' did not match subject '";
+        errorMsg += "'\n\ndid not match subject '";
         errorMsg += subject;
         errorMsg += "'";
         regfree(&pregStorage);
