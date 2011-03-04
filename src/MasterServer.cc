@@ -85,8 +85,8 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
 {
     switch (type) {
         case CommitSuicideRpc::type:
-            LOG(DEBUG, "got suicide order - punching null");
-            *static_cast<volatile int*>(0) = 187;
+            LOG(DEBUG, "got suicide order - punching out!");
+            exit(0);
             break;
         case CreateRpc::type:
             callHandler<CreateRpc, MasterServer,

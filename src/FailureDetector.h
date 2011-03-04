@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_FAILUREDETECTOR_H
 #define RAMCLOUD_FAILUREDETECTOR_H
 
+#include <boost/unordered_map.hpp>
+
 #include <list>
 
 #include "Common.h"
@@ -126,10 +128,14 @@ class FailureDetector {
     static const uint32_t PROBE_INTERVAL_USECS = 10 * 1000;
 
     /// Number of microseconds before a probe is considered to have timed out.
-    static const uint32_t TIMEOUT_USECS = 50 * 1000;
+    static const uint32_t TIMEOUT_USECS = 75 * 1000;
 
     /// Number of microseconds between refreshes of the server list.
     static const uint32_t REFRESH_INTERVAL_USECS = 5 * 1000 * 1000;
+
+    /// Minimum number of microseconds before sending a duplicate
+    // HintServerDown.
+    static const uint32_t MINIMUM_HSD_INTERVAL_USECS = 5 * 1000 * 1000;
 
   private:
     /// The TimeoutQueue contains a list of previously-issued pings,
@@ -213,6 +219,10 @@ class FailureDetector {
     /// Only complain once when we go to ping a random server and there
     /// are none available in our list.
     bool                 haveLoggedNoServers;
+
+    // Map of ServiceLocators -> last HintServerDown time. This is used to avoid
+    // spamming the coordinator.
+    boost::unordered_map<string, uint64_t> lastHintServerDownTime;
 
     /// System calls used for socket operations. When testing, replaced with
     /// special stubs.

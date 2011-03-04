@@ -30,7 +30,7 @@ try
 {
     OptionsDescription clientOptions("EnsureHosts");
     int number = 0;
-    int timeout = 10;
+    int timeout = 15;
     clientOptions.add_options()
         ("number,n",
          ProgramOptions::value<int>(&number),
@@ -61,6 +61,10 @@ try
             return 0;
         usleep(10000);
     } while (rdtsc() < quitTime);
+    if (actual == -1)
+        fprintf(stderr, "No server list obtained within %d seconds", timeout);
+    printf("Not all servers found within timeout: %d servers outstanding!",
+        actual - number);
     return (actual - number);
 } catch (const ClientException& e) {
     fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());

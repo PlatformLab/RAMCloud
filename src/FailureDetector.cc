@@ -68,7 +68,8 @@ FailureDetector::FailureDetector(string coordinatorLocatorString,
       serverList(),
       terminate(false),
       queue(TIMEOUT_USECS),
-      haveLoggedNoServers(false)
+      haveLoggedNoServers(false),
+      lastHintServerDownTime()
 {
     clientFd = sys->socket(PF_INET, SOCK_DGRAM, 0);
     serverFd = sys->socket(PF_INET, SOCK_DGRAM, 0);
@@ -119,7 +120,8 @@ FailureDetector::FailureDetector(string coordinatorLocatorString)
       serverList(),
       terminate(false),
       queue(TIMEOUT_USECS),
-      haveLoggedNoServers(false)
+      haveLoggedNoServers(false),
+      lastHintServerDownTime()
 {
     clientFd = sys->socket(PF_INET, SOCK_DGRAM, 0);
 
@@ -380,22 +382,32 @@ FailureDetector::handleTimeout(TimeoutQueue::TimeoutEntry* te)
                 "(r = %Zd)", r);
         }
     } else {
-        int bytesNeeded = loc.length() + 1 + sizeof(HintServerDownRpc::Request);
-        char buf[bytesNeeded];
-        memset(buf, 0, bytesNeeded);
+        // avoid spamming the coordinator if we've recently told it about a
+        // down server
+        uint64_t nowUsec = cyclesToNanoseconds(rdtsc()) / 1000;
+        if (lastHintServerDownTime.find(loc) == lastHintServerDownTime.end() ||
+          lastHintServerDownTime[loc] + MINIMUM_HSD_INTERVAL_USECS < nowUsec) {
+            int bytesNeeded = loc.length() + 1 +
+                sizeof(HintServerDownRpc::Request);
+            char buf[bytesNeeded];
+            memset(buf, 0, bytesNeeded);
 
-        HintServerDownRpc::Request* rpc =
-            reinterpret_cast<HintServerDownRpc::Request*>(buf);
-        rpc->common.type = HINT_SERVER_DOWN;
-        rpc->serviceLocatorLength = loc.length() + 1;
-        memcpy(&buf[sizeof(*rpc)], loc.c_str(), loc.length());
+            HintServerDownRpc::Request* rpc =
+                reinterpret_cast<HintServerDownRpc::Request*>(buf);
+            rpc->common.type = HINT_SERVER_DOWN;
+            rpc->serviceLocatorLength = loc.length() + 1;
+            memcpy(&buf[sizeof(*rpc)], loc.c_str(), loc.length());
 
-        sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);
-        ssize_t r = sys->sendto(clientFd, buf, bytesNeeded, 0,
-            reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
-        if (r != bytesNeeded) {
-            LOG(WARNING, "failed to send hint server down rpc to coordinator. "
-                "r = %zd, errno %d: %s", r, errno, strerror(errno));
+            sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);
+            ssize_t r = sys->sendto(clientFd, buf, bytesNeeded, 0,
+                reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
+            if (r != bytesNeeded) {
+                LOG(WARNING, "failed to send hint server down rpc to "
+                    "coordinator. r = %zd, errno %d: %s", r, errno,
+                    strerror(errno));
+            }
+
+            lastHintServerDownTime[loc] = nowUsec;
         }
     }
 

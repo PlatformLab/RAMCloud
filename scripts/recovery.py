@@ -52,7 +52,7 @@ def recover(numBackups=1,
     coordinatorHost = hosts[0]
     coordinatorLocator = 'infrc:host=%s,port=12246' % coordinatorHost[1]
 
-    backupHosts = hosts[:numBackups]
+    backupHosts = (hosts[1:] + [hosts[0]])[:numBackups]
     backupLocators = ['infrc:host=%s,port=12243' % host[1]
                       for host in backupHosts]
 
@@ -88,7 +88,10 @@ def recover(numBackups=1,
             sandbox.checkFailures()
             try:
                 sandbox.rsh(clientHost[0], '%s -C %s -n %d -l 1' %
-                            (ensureHostsBin, coordinatorLocator, qty))
+                            (ensureHostsBin, coordinatorLocator, qty),
+                            stderr=subprocess.STDOUT,
+                            stdout=open('%s/ensureHosts.%s.log' %
+                                (run, clientHost[0]), 'a'))
             except:
                 # prefer exceptions from dead processes to timeout error
                 sandbox.checkFailures()
