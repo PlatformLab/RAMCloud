@@ -8,11 +8,11 @@ use Getopt::Long;
 use lib "scripts";
 use HostPattern;
 
-my ($help, @hostspattern);
+my ($help, $hostspattern);
 my $default_pattern = "rc0[1-6].scs.stanford.edu,10.0.0.[1-6]";
-push(@hostspattern, $default_pattern);
+$hostspattern = $default_pattern;
 
-my $result = GetOptions ("hosts=s@" => \@hostspattern,
+my $result = GetOptions ("hosts=s" => \$hostspattern,
                          "help"  => \$help);
 
 if (defined $help) {
@@ -48,7 +48,7 @@ USAGE
   exit 1;
 }
 
-my $hosts = HostPattern::hosts(\@hostspattern);
+my $hosts = HostPattern::hosts([$hostspattern]);
 print STDERR join ("\n", @$hosts)."\n";
 
 

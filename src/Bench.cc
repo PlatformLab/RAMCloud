@@ -20,6 +20,7 @@
 #include <getopt.h>
 #include <errno.h>
 #include <unistd.h>
+#include <time.h>
 
 #include <string>
 #include <sstream>
@@ -63,6 +64,8 @@ class BenchMapper {
             keymap[s.str() + "status"] = i++;
             keymap[s.str() + "commandcount"] = i++;
             keymap[s.str() + "timetaken"] = i++;
+            keymap[s.str() + "valuecount0"] = i++;
+            keymap[s.str() + "valuecount1"] = i++;
         }
     }
     uint64_t getKey(std::string s) const {
@@ -89,6 +92,7 @@ RC::RamCloud *client;
 uint32_t table;
 uint32_t controlTable;
 const BenchMapper benchMapper;
+uint64_t value_counter[2] = {0UL, 0UL}; // Work with 2 values for now - 0 and 1
 
 void
 cleanup()
@@ -140,6 +144,8 @@ bench(const char *name, void (f)(void))
            RC::cyclesToNanoseconds(cycles));
     printf("%s avgns  %12lu\n", name,
            RC::cyclesToNanoseconds(cycles) / count);
+    fprintf(stderr, "Avg. Latency %s avgns  %12lu\n", name,
+            RC::cyclesToNanoseconds(cycles) / count);
     client->ping();
     return RC::cyclesToNanoseconds(cycles);
 }
@@ -149,13 +155,7 @@ bench(const char *name, void (f)(void))
 void
 writeInt(uint32_t table, uint64_t key, uint64_t val)
 {
-    char buf[1000]; // TODO(nandu) use a better size
-    int ret = snprintf(buf, sizeof(buf), "%lu", val);
-    if (ret < 0) {
-        fprintf(stderr, "sprintf error.");
-        return;
-    }
-    client->write(table, key, &buf[0], ret);
+    client->write(table, key, &val, sizeof(val));
 }
 
 void
@@ -163,42 +163,51 @@ readInt(uint32_t table, uint64_t key, uint64_t& val)
 {
     RC::Buffer value;
     client->read(table, key, &value);
-    string str(RAMCloud::toString(&value));
-    stringstream ss;
-    ss << str;
-    ss >> val;
+    val = *value.getStart<uint64_t>();
+}
+
+void
+writeOne(uint64_t val)
+{
+    char buf[size];
+    memset(&buf[0], val, size);
+    buf[size-1] = 0;
+    client->write(table, 0, &buf[0], size);
 }
 
 void
 writeOne()
 {
-    char buf[size];
-    memset(&buf[0], 0xFF, size);
-    buf[size - 1] = 0;
-
-    client->write(table, 0, &buf[0], size);
+    writeOne(0xFF);
 }
 
 void
 writeMany(void)
 {
-    char buf[size];
-    memset(&buf[0], 0xFF, size);
-    buf[size - 1] = 0;
-
     for (uint64_t i = 0; i < count; i++)
-        client->write(table, i, &buf[0], size);
+        writeOne(0xFF);
 }
 
 void
 readMany()
 {
     uint64_t key;
-
+    RC::Buffer value;
     for (uint64_t i = 0; i < count; i++) {
-        RC::Buffer value;
         key = randomReads ? generateRandom() % count : i;
         client->read(table, multirow ? key : 0, &value);
+        uint64_t val = *value.getStart<uint64_t>();
+        if (size != value.getTotalLength()) {
+            fprintf(stderr, "readMany failed - size of object does not"
+                    " match expected size. Size was %ud",
+                    value.getTotalLength());
+            throw;
+        }
+        if (val) {
+            value_counter[1]++;
+        } else {
+            value_counter[0]++;
+        }
     }
 }
 
@@ -315,10 +324,11 @@ try
         string keyprefix = k.str();
 
         // Set up initial objects for read loads.
-        BENCH(writeOne);
+        writeOne(0xFF);
 
         uint64_t overallcount = 0;
         uint64_t overalltimetaken = 0;
+
         while (1) {
             uint64_t v = -1;
             try {
@@ -353,6 +363,12 @@ try
                 writeInt(controlTable,
                          benchMapper.getKey(keyprefix + "timetaken"),
                          overalltimetaken);
+                writeInt(controlTable,
+                         benchMapper.getKey(keyprefix + "valuecount0"),
+                         value_counter[0]);
+                writeInt(controlTable,
+                         benchMapper.getKey(keyprefix + "valuecount1"),
+                         value_counter[1]);
                 return 0;
             }
         }
@@ -379,8 +395,9 @@ try
         }
         fprintf(stderr, "All workers in READ status\n");
 
-        BENCH(writeOne);
-        BENCH(readMany);
+        writeOne(0x00); // Write 0 to signal to workers for latency counts
+        uint64_t nanos = BENCH(readMany);
+        writeOne(0xFF); // Write non-zero to signal workers
 
         fprintf(stderr, "Finished running benchmark\n");
 
@@ -405,21 +422,43 @@ try
         writeInt(controlTable, benchMapper.getKey("command"),
                  BenchMapper::IDLE);
 
+        uint64_t total_v0 = value_counter[0];
+        uint64_t total_v1 = value_counter[1];
         for (int worker = 0; worker < numWorkers; worker++) {
             stringstream k;
             k << ("worker");
             k << worker;
             uint64_t tt = -1;
             uint64_t ct = -1;
+            uint64_t v0 = -1;
+            uint64_t v1 = -1;
+
             readInt(controlTable, benchMapper.getKey(k.str() +
                                                      "timetaken"), tt);
             readInt(controlTable, benchMapper.getKey(k.str() +
-                                                     "commandcount"), ct);
+                                                     "commandcount"),
+                    ct);
+            readInt(controlTable, benchMapper.getKey(k.str() +
+                                                     "valuecount0"), v0);
+            total_v0 += v0;
+            readInt(controlTable, benchMapper.getKey(k.str() +
+                                                     "valuecount1"), v1);
+            total_v1 += v1;
             double nsperop = static_cast<double>(tt)/static_cast<double>(ct);
             fprintf(stderr, "Worker %3d performed %12lu operations in %15lu "
-                    "nanoseconds @ %8.2f ns/op.\n", worker, ct, tt, nsperop);
-
+                    "nanoseconds @ %8.2f ns/op.\n", worker, ct, tt,
+                    nsperop);
         }
+        fprintf(stderr, "Total count of read operations with value 0"
+                " is %15lu.\n", total_v0);
+        fprintf(stderr, "Total count of read operations with value 1"
+                " is %15lu.\n", total_v1);
+        fprintf(stderr, "Total nanos seen"
+                " is %15lu ns.\n", nanos);
+
+        printf("tputread ops/sec  %12lu\n",
+               total_v0 * 1000 * 1000 * 1000 / nanos);
+
         return 0;
 
     } else {
