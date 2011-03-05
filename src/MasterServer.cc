@@ -546,6 +546,8 @@ MasterServer::recover(uint64_t masterId,
             } catch (const RetryException& e) {
                 // The backup isn't ready yet, try back later.
                 task->waitUntil = rdtsc() + 3000000; // about 1ms
+                readStallTicks.construct(
+                                    &metrics->master.segmentReadStallTicks);
                 continue;
             } catch (const TransportException& e) {
                 LOG(DEBUG, "Couldn't contact %s, trying next backup; "
