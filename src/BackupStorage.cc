@@ -35,61 +35,72 @@ namespace RAMCloud {
 pair<uint32_t, uint32_t>
 BackupStorage::benchmark()
 {
-    const uint64_t count = 16;
-    const uint64_t mb = Segment::SEGMENT_SIZE * count / 1024 / 1024;
-    vector<uint32_t> readSpeeds;
-    vector<uint32_t> writeSpeeds;
+    const uint32_t count = 16;
+    uint32_t readSpeeds[count];
+    uint32_t writeSpeeds[count];
     BackupStorage::Handle* handles[count];
 
-    void* p = NULL;
-    int r = posix_memalign(&p, Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
-    if (r != 0)
-        throw std::bad_alloc();
+    void* p = xmemalign(Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
     char* segment = static_cast<char*>(p);
 
     try {
-        for (uint64_t i = 0; i < count; ++i)
+        for (uint32_t i = 0; i < count; ++i)
             handles[i] = NULL;
-        for (uint64_t i = 0; i < count; ++i)
+
+        for (uint32_t i = 0; i < count; ++i)
             handles[i] = allocate(0, i + 1);
 
-        {
+        for (uint32_t i = 0; i < count; ++i) {
             CycleCounter<> counter;
-            for (uint64_t i = 0; i < count; ++i)
-                putSegment(handles[i], segment);
+            putSegment(handles[i], segment);
             uint64_t ns = cyclesToNanoseconds(counter.stop());
-            writeSpeeds.push_back(downCast<uint32_t>(mb * 1000 * 1000 * 1000 /
-                                                     ns));
+            writeSpeeds[i] = downCast<uint32_t>(
+                                Segment::SEGMENT_SIZE * 1000UL * 1000 * 1000 /
+                                (1 << 20) / ns);
         }
-        {
+        for (uint32_t i = 0; i < count; ++i) {
             CycleCounter<> counter;
-            for (uint64_t i = 0; i < count; ++i)
-                getSegment(handles[i], segment);
+            getSegment(handles[i], segment);
             uint64_t ns = cyclesToNanoseconds(counter.stop());
-            readSpeeds.push_back(downCast<uint32_t>(mb * 1000 * 1000 * 1000 /
-                                                    ns));
+            readSpeeds[i] = downCast<uint32_t>(
+                                Segment::SEGMENT_SIZE * 1000UL * 1000 * 1000 /
+                                (1 << 20) / ns);
         }
     } catch (...) {
         std::free(segment);
-        for (uint64_t i = 0; i < 16; ++i)
+        for (uint32_t i = 0; i < count; ++i)
             if (handles[i])
                 free(handles[i]);
         throw;
     }
 
     std::free(segment);
-    for (uint64_t i = 0; i < 16; ++i)
+    for (uint32_t i = 0; i < count; ++i)
         free(handles[i]);
 
-    uint32_t minRead = *std::min_element(readSpeeds.begin(),
-                                         readSpeeds.end());
-    uint32_t minWrite = *std::min_element(writeSpeeds.begin(),
-                                          writeSpeeds.end());
+    uint32_t minRead = *std::min_element(readSpeeds,
+                                         readSpeeds + count);
+    uint32_t minWrite = *std::min_element(writeSpeeds,
+                                          writeSpeeds + count);
+    uint32_t avgRead = ({
+        uint32_t sum = 0;
+        foreach (uint32_t speed, readSpeeds)
+            sum += speed;
+        sum / count;
+    });
+    uint32_t avgWrite = ({
+        uint32_t sum = 0;
+        foreach (uint32_t speed, writeSpeeds)
+            sum += speed;
+        sum / count;
+    });
 
     LOG(NOTICE, "Backup storage speeds (min): %u MB/s read, %u MB/s write",
         minRead, minWrite);
+    LOG(NOTICE, "Backup storage speeds (avg): %u MB/s read, %u MB/s write",
+        avgRead, avgWrite);
 
-    return {minRead, minWrite};
+    return {avgRead, avgWrite};
 }
 
 // --- BackupStorage::Handle ---
