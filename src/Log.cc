@@ -95,9 +95,6 @@ Log::~Log()
 Segment*
 Log::allocateHead()
 {
-    Segment* newHead = new Segment(this, allocateSegmentId(), getFromFreeList(),
-        downCast<uint32_t>(segmentCapacity), backup);
-
     uint32_t segmentCount = downCast<uint32_t>(activeIdMap.size() + 1);
     uint32_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
     char temp[digestBytes];
@@ -107,13 +104,13 @@ Log::allocateHead()
         Segment* segment = idSegmentPair.second;
         ld.addSegment(segment->getId());
     }
-    ld.addSegment(newHead->getId());
 
-    SegmentEntryHandle seh = newHead->append(LOG_ENTRY_TYPE_LOGDIGEST,
-        temp, digestBytes);
-    assert(seh != NULL);
+    uint64_t newHeadId = allocateSegmentId();
+    ld.addSegment(newHeadId);
 
-    return newHead;
+    return new Segment(this, newHeadId, getFromFreeList(),
+        downCast<uint32_t>(segmentCapacity), backup,
+        LOG_ENTRY_TYPE_LOGDIGEST, temp, digestBytes);
 }
 
 /**

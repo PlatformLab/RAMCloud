@@ -225,7 +225,8 @@ class Segment {
     typedef SegmentChecksum Checksum;
 
     Segment(Log *log, uint64_t segmentId, void *baseAddress,
-            uint32_t capacity, BackupManager* backup = NULL);
+            uint32_t capacity, BackupManager* backup,
+            LogEntryType type, const void *buffer, uint32_t length);
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
             uint32_t capacity, BackupManager* backup = NULL);
     ~Segment();
@@ -253,7 +254,8 @@ class Segment {
     static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
 
   private:
-    void               commonConstructor();
+    void               commonConstructor(LogEntryType type,
+                                         const void *buffer, uint32_t length);
     const void        *forceAppendBlob(const void *buffer,
                                        uint32_t length);
     SegmentEntryHandle forceAppendWithEntry(LogEntryType type,

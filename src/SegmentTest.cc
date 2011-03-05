@@ -97,7 +97,8 @@ class SegmentTest : public CppUnit::TestFixture {
         Tub<uint64_t> serverId2;
         serverId2.construct(0);
         Log l(serverId2, 8192, 8192);
-        Segment s2(&l, 0, alignedBuf, sizeof(alignedBuf));
+        Segment s2(&l, 0, alignedBuf, sizeof(alignedBuf), NULL,
+                   LOG_ENTRY_TYPE_INVALID, NULL, 0);
         CPPUNIT_ASSERT_EQUAL(l.getBytesAppended(), s2.tail);
     }
 
@@ -247,7 +248,8 @@ class SegmentTest : public CppUnit::TestFixture {
         Tub<uint64_t> serverId;
         serverId.construct(0);
         Log l(serverId, 8192, 8192);
-        Segment s(&l, 445566, alignedBuf, sizeof(alignedBuf));
+        Segment s(&l, 445566, alignedBuf, sizeof(alignedBuf), NULL,
+                  LOG_ENTRY_TYPE_INVALID, NULL, 0);
         uint64_t bytesBeforeAppend = l.getBytesAppended();
         s.forceAppendBlob(buf, sizeof(buf));
         CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, reinterpret_cast<char *>(

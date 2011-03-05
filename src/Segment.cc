@@ -41,11 +41,21 @@ namespace RAMCloud {
  *      The size of the backing memory pointed to by baseAddress in bytes.
  * \param[in] backup
  *      The BackupManager responsible for this Segment's durability.
+ * \param[in] type
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
+ * \param[in] buffer
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
+ * \param[in] length
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
  * \return
  *      The newly constructed Segment object.
  */
 Segment::Segment(Log *log, uint64_t segmentId, void *baseAddress,
-    uint32_t capacity, BackupManager *backup)
+    uint32_t capacity, BackupManager *backup,
+    LogEntryType type, const void *buffer, uint32_t length)
     : backup(backup),
       baseAddress(baseAddress),
       log(log),
@@ -58,7 +68,7 @@ Segment::Segment(Log *log, uint64_t segmentId, void *baseAddress,
       closed(false),
       backupSegment(NULL)
 {
-    commonConstructor();
+    commonConstructor(type, buffer, length);
 }
 
 /**
@@ -90,15 +100,25 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
       closed(false),
       backupSegment(NULL)
 {
-    commonConstructor();
+    commonConstructor(LOG_ENTRY_TYPE_INVALID, NULL, 0);
 }
 
 /**
  * Perform actions common to all Segment constructors, including writing
  * the header and opening the backup.
+ * \param[in] type
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
+ * \param[in] buffer
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
+ * \param[in] length
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
  */
 void
-Segment::commonConstructor()
+Segment::commonConstructor(LogEntryType type,
+                           const void *buffer, uint32_t length)
 {
     assert(capacity >= sizeof(SegmentEntry) + sizeof(SegmentHeader) +
                        sizeof(SegmentEntry) + sizeof(SegmentFooter));
@@ -108,7 +128,12 @@ Segment::commonConstructor()
                                                 &segHdr, sizeof(segHdr),
                                                 NULL, false);
     assert(h != NULL);
-
+    if (length) {
+        SegmentEntryHandle h = forceAppendWithEntry(type,
+                                                    buffer, length,
+                                                    NULL, false);
+        assert(h != NULL);
+    }
     if (backup)
         backupSegment = backup->openSegment(id, baseAddress, tail);
 }
