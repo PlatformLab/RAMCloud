@@ -216,7 +216,7 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
         p += payload->getLength();
         payload->next();
     }
-    uint32_t length = p - bd->buffer;
+    uint32_t length = static_cast<uint32_t>(p - bd->buffer);
 
     try {
         LOG(DEBUG, "%s: sending %u bytes to %s...", __func__, length,

@@ -69,7 +69,7 @@ class RealInfiniband {
         uint32_t        messageBytes;   // byte length of message in the buffer
         ibv_mr *        mr;             // memory region of the buffer
 
-        BufferDescriptor(char *buffer, uint64_t bytes, ibv_mr *mr) :
+        BufferDescriptor(char *buffer, uint32_t bytes, ibv_mr *mr) :
             buffer(buffer), bytes(bytes), messageBytes(0), mr(mr)
         {
         }

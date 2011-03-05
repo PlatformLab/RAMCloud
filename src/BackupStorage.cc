@@ -58,14 +58,16 @@ BackupStorage::benchmark()
             for (uint64_t i = 0; i < count; ++i)
                 putSegment(handles[i], segment);
             uint64_t ns = cyclesToNanoseconds(counter.stop());
-            writeSpeeds.push_back(mb * 1000 * 1000 * 1000 / ns);
+            writeSpeeds.push_back(downCast<uint32_t>(mb * 1000 * 1000 * 1000 /
+                                                     ns));
         }
         {
             CycleCounter<> counter;
             for (uint64_t i = 0; i < count; ++i)
                 getSegment(handles[i], segment);
             uint64_t ns = cyclesToNanoseconds(counter.stop());
-            readSpeeds.push_back(mb * 1000 * 1000 * 1000 / ns);
+            readSpeeds.push_back(downCast<uint32_t>(mb * 1000 * 1000 * 1000 /
+                                                    ns));
         }
     } catch (...) {
         std::free(segment);

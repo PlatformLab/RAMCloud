@@ -227,7 +227,7 @@ SegmentIterator::getType() const
  * \throw SegmentIteratorException
  *      An exception is thrown if the iterator has no more entries.
  */
-uint64_t
+uint32_t
 SegmentIterator::getLength() const
 {
     if (currentEntry == NULL)
@@ -243,10 +243,10 @@ SegmentIterator::getLength() const
  * \throw SegmentIteratorException
  *      An exception is thrown if the iterator has no more entries.
  */
-uint64_t
+uint32_t
 SegmentIterator::getLengthInLog() const
 {
-    return getLength() + sizeof(SegmentEntry);
+    return getLength() + downCast<uint32_t>(sizeof(SegmentEntry));
 }
 
 /**

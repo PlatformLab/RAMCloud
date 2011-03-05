@@ -36,7 +36,7 @@ class RecoverySegmentIterator {
     void next();
     const SegmentEntry& getEntry() const;
     LogEntryType getType() const;
-    uint64_t getLength() const;
+    uint32_t getLength() const;
 
     /**
      * Obtain a const T* to the data for the current SegmentEntry.

@@ -235,7 +235,8 @@ main(int argc, char **argv)
     if (numberOfKeys == 0) {
         uint64_t totalEntries = numberOfCachelines *
             TestObjectMap::entriesPerCacheLine();
-        numberOfKeys = loadFactor * totalEntries;
+        numberOfKeys = static_cast<uint64_t>(loadFactor *
+                          static_cast<double>(totalEntries));
     }
 
     hashTableBenchmark(numberOfKeys, numberOfCachelines);

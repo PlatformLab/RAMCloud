@@ -384,12 +384,12 @@ fillLargeBuffer(Buffer* buffer, int size)
     char chunk[200];
     buffer->reset();
     int i = 1;
-    int bytesLeft = size;
+    uint32_t bytesLeft = size;
     while (bytesLeft > 0) {
         snprintf(chunk, sizeof(chunk),
                 "word %d, word %d, word %d, word %d, word %d; ",
                 i, i+1, i+2, i+3, i+4);
-        int chunkLength = strlen(chunk);
+        uint32_t chunkLength = downCast<uint32_t>(strlen(chunk));
         if (chunkLength > bytesLeft) {
             chunkLength = bytesLeft;
         }

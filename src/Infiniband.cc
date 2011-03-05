@@ -134,7 +134,7 @@ int
 Infiniband::getLid(int port)
 {
     ibv_port_attr ipa;
-    int ret = ibv_query_port(device.ctxt, port, &ipa);
+    int ret = ibv_query_port(device.ctxt, downCast<uint8_t>(port), &ipa);
     if (ret) {
         LOG(ERROR, "ibv_query_port failed on port %u\n", port);
         throw TransportException(HERE, ret);
@@ -396,7 +396,8 @@ Infiniband::allocateBufferDescriptorAndRegister(size_t bytes)
     if (mr == NULL)
         throw TransportException(HERE, "failed to register ring buffer", errno);
 
-    return new BufferDescriptor(reinterpret_cast<char *>(p), bytes, mr);
+    return new BufferDescriptor(reinterpret_cast<char *>(p),
+                                downCast<uint32_t>(bytes), mr);
 }
 
 /**
@@ -570,7 +571,7 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
     memset(&qpa, 0, sizeof(qpa));
     qpa.qp_state   = IBV_QPS_INIT;
     qpa.pkey_index = 0;
-    qpa.port_num   = ibPhysicalPort;
+    qpa.port_num   = downCast<uint8_t>(ibPhysicalPort);
     qpa.qp_access_flags = IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE;
     qpa.qkey       = QKey;
 
@@ -895,7 +896,7 @@ Infiniband::Address::getHandle() const
         attr.src_path_bits = 0;
         attr.is_global = 0;
         attr.sl = 0;
-        attr.port_num = physicalPort;
+        attr.port_num = downCast<uint8_t>(physicalPort);
         infiniband.totalAddressHandleAllocCalls += 1;
         uint64_t start = rdtsc();
         ah = ibv_create_ah(infiniband.pd.pd, &attr);

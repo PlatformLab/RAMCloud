@@ -231,13 +231,15 @@ BackupClient::StartReadingData::operator()(
 
     const void* digestPtr = NULL;
     if (digestBytes > 0) {
-        responseBuffer.truncateFront(segmentIdCount *
-            sizeof(pair<uint64_t, uint32_t>));
+        responseBuffer.truncateFront(downCast<uint32_t>(segmentIdCount *
+            sizeof(pair<uint64_t, uint32_t>)));
         digestPtr = responseBuffer.getStart<const void*>();
     }
 
-    result->set(segmentIdsRaw, segmentIdCount, primarySegmentCount,
-                digestPtr, digestBytes, digestSegmentId, digestSegmentLen);
+    result->set(segmentIdsRaw, segmentIdCount,
+                downCast<uint32_t>(primarySegmentCount),
+                digestPtr, digestBytes, digestSegmentId,
+                downCast<uint32_t>(digestSegmentLen));
 }
 
 /**

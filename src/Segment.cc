@@ -105,7 +105,8 @@ Segment::commonConstructor()
 
     SegmentHeader segHdr = { logId, id, capacity };
     SegmentEntryHandle h = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGHEADER,
-        &segHdr, sizeof(segHdr), false);
+                                                &segHdr, sizeof(segHdr),
+                                                NULL, false);
     assert(h != NULL);
 
     if (backup)
@@ -255,7 +256,7 @@ Segment::getId() const
 /**
  * Obtain the number of bytes of backing memory that this Segment represents.
  */
-uint64_t
+uint32_t
 Segment::getCapacity() const
 {
     return capacity;
@@ -266,21 +267,21 @@ Segment::getCapacity() const
  * using the #append method. Buffers equal to this size or smaller are
  * guaranteed to succeed, whereas buffers larger will fail to be appended.
  */
-uint64_t
+uint32_t
 Segment::appendableBytes() const
 {
     if (closed)
         return 0;
 
-    uint64_t freeBytes = capacity - tail;
-    uint64_t headRoom  = sizeof(SegmentEntry) + sizeof(SegmentFooter);
+    uint32_t freeBytes = capacity - tail;
+    uint32_t headRoom  = sizeof(SegmentEntry) + sizeof(SegmentFooter);
 
     assert(freeBytes >= headRoom);
 
     if ((freeBytes - headRoom) < sizeof(SegmentEntry))
         return 0;
 
-    return freeBytes - headRoom - sizeof(SegmentEntry);
+    return freeBytes - headRoom - downCast<uint32_t>(sizeof(SegmentEntry));
 }
 
 /**
@@ -291,7 +292,7 @@ Segment::appendableBytes() const
 int
 Segment::getUtilisation() const
 {
-    return (100ULL * (tail - bytesFreed)) / capacity;
+    return static_cast<int>((100UL * (tail - bytesFreed)) / capacity);
 }
 
 ////////////////////////////////////////

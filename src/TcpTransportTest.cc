@@ -252,7 +252,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         if (server.sockets.size() == 0) {
             CPPUNIT_FAIL("no socket allocated in server transport");
         }
-        int serverFd = server.sockets.size() - 1;
+        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
 
         // Send a message in 2 chunks.
         TcpTransport::Header header;
@@ -279,7 +279,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         if (server.sockets.size() == 0) {
             CPPUNIT_FAIL("no socket allocated in server transport");
         }
-        int serverFd = server.sockets.size() - 1;
+        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
 
         // Send a message to make the server busy.
         TcpTransport::Header header;
@@ -302,7 +302,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
         (*server.acceptHandler)();
-        int serverFd = server.sockets.size() - 1;
+        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
         close(fd);
         server.sockets[serverFd]->readHandler();
         CPPUNIT_ASSERT_EQUAL(NULL, server.sockets[serverFd]);
@@ -312,7 +312,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
         (*server.acceptHandler)();
-        int serverFd = server.sockets.size() - 1;
+        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
         sys->recvErrno = EPERM;
         server.sockets[serverFd]->readHandler();
         CPPUNIT_ASSERT_EQUAL(NULL, server.sockets[serverFd]);
@@ -367,7 +367,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport client;
         Transport::SessionRef session = client.getSession(*locator);
         Dispatch::handleEvent();
-        int serverFd = server.sockets.size() - 1;
+        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
         server.closeSocket(serverFd);
         string message("no exception");
         try {
@@ -432,7 +432,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
         (*server.acceptHandler)();
-        int serverFd = server.sockets.size() - 1;
+        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
 
         // Try to receive when there is no data at all.
         Buffer buffer;
@@ -466,7 +466,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
         (*server.acceptHandler)();
-        int serverFd = server.sockets.size() - 1;
+        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
         Buffer buffer;
         TcpTransport::IncomingMessage incoming(&buffer);
         TcpTransport::Header header;
@@ -482,7 +482,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport server(locator);
         int fd = connectToServer(*locator);
         (*server.acceptHandler)();
-        int serverFd = server.sockets.size() - 1;
+        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
         Buffer buffer;
         TcpTransport::IncomingMessage incoming(&buffer);
         TcpTransport::Header header;
@@ -588,7 +588,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport client;
         Transport::SessionRef session = client.getSession(*locator);
         (*server.acceptHandler)();
-        server.closeSocket(server.sockets.size() - 1);
+        server.closeSocket(downCast<unsigned>(server.sockets.size()) - 1);
         TcpTransport::TcpSession* rawSession =
                 reinterpret_cast<TcpTransport::TcpSession*>(session.get());
         (*rawSession->replyHandler)();
@@ -601,7 +601,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         TcpTransport client;
         Transport::SessionRef session = client.getSession(*locator);
         (*server.acceptHandler)();
-        write(server.sockets.size() - 1, "abcdef", 6);
+        write(downCast<unsigned>(server.sockets.size()) - 1, "abcdef", 6);
         TcpTransport::TcpSession* rawSession =
                 reinterpret_cast<TcpTransport::TcpSession*>(session.get());
         (*rawSession->replyHandler)();

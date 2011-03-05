@@ -311,7 +311,8 @@ class LogDigestTest : public CppUnit::TestFixture {
         char temp[LogDigest::getBytesFromCount(3)];
 
         {
-            LogDigest ld(3, static_cast<void*>(temp), sizeof(temp));
+            LogDigest ld(3, static_cast<void*>(temp),
+                         downCast<uint32_t>(sizeof(temp)));
             CPPUNIT_ASSERT_EQUAL(static_cast<void*>(temp),
                 static_cast<void*>(ld.ldd));
             CPPUNIT_ASSERT_EQUAL(0, ld.currentSegment);
@@ -323,7 +324,8 @@ class LogDigestTest : public CppUnit::TestFixture {
         }
 
         {
-            LogDigest ld(static_cast<void*>(temp), sizeof(temp));
+            LogDigest ld(static_cast<void*>(temp),
+                         downCast<uint32_t>(sizeof(temp)));
             CPPUNIT_ASSERT_EQUAL(static_cast<void*>(temp),
                 static_cast<void*>(ld.ldd));
             CPPUNIT_ASSERT_EQUAL(3, ld.currentSegment);
@@ -334,7 +336,8 @@ class LogDigestTest : public CppUnit::TestFixture {
     test_addSegment()
     {
         char temp[LogDigest::getBytesFromCount(3)];
-        LogDigest ld(3, static_cast<void*>(temp), sizeof(temp));
+        LogDigest ld(3, static_cast<void*>(temp),
+                     downCast<uint32_t>(sizeof(temp)));
         CPPUNIT_ASSERT_EQUAL(0, ld.currentSegment);
         ld.addSegment(54321);
         CPPUNIT_ASSERT_EQUAL(1, ld.currentSegment);
@@ -345,7 +348,8 @@ class LogDigestTest : public CppUnit::TestFixture {
     test_getters()
     {
         char temp[LogDigest::getBytesFromCount(3)];
-        LogDigest ld(3, static_cast<void*>(temp), sizeof(temp));
+        LogDigest ld(3, static_cast<void*>(temp),
+                     downCast<uint32_t>(sizeof(temp)));
 
         CPPUNIT_ASSERT_EQUAL(3, ld.getSegmentCount());
         CPPUNIT_ASSERT_EQUAL(reinterpret_cast<uint64_t*>(&temp[4]),

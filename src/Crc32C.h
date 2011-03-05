@@ -59,10 +59,10 @@ intelCrc32C(uint32_t crc, const void* buffer, uint64_t bytes)
     chunk32 = remainder >> 5;
     remainder &= 31;
     while (chunk32-- > 0) {
-        crc = CRC32Q(crc, p64[0]);
-        crc = CRC32Q(crc, p64[1]);
-        crc = CRC32Q(crc, p64[2]);
-        crc = CRC32Q(crc, p64[3]);
+        crc = downCast<uint32_t>(CRC32Q(crc, p64[0]));
+        crc = downCast<uint32_t>(CRC32Q(crc, p64[1]));
+        crc = downCast<uint32_t>(CRC32Q(crc, p64[2]));
+        crc = downCast<uint32_t>(CRC32Q(crc, p64[3]));
         p64 += 4;
     }
 
@@ -70,7 +70,7 @@ intelCrc32C(uint32_t crc, const void* buffer, uint64_t bytes)
     chunk8 = remainder >> 3;
     remainder &= 7;
     while (chunk8-- > 0) {
-        crc = CRC32Q(crc, p64[0]);
+        crc = downCast<uint32_t>(CRC32Q(crc, p64[0]));
         p64++;
     }
 
@@ -79,14 +79,14 @@ intelCrc32C(uint32_t crc, const void* buffer, uint64_t bytes)
     uint64_t chunk2 = remainder >> 1;
     remainder &= 1;
     while (chunk2-- > 0) {
-        crc = CRC32W(crc, p16[0]);
+        crc = downCast<uint32_t>(CRC32W(crc, p16[0]));
         p16++;
     }
 
     // Finally, do any remaining byte.
     if (remainder) {
         const uint8_t* p8 = reinterpret_cast<const uint8_t*>(p16);
-        crc = CRC32B(crc, p8[0]);
+        crc = downCast<uint32_t>(CRC32B(crc, p8[0]));
     }
 #undef CRC32B
 #undef CRC32W

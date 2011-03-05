@@ -66,7 +66,8 @@ class RecoveryTest : public CppUnit::TestFixture {
             , segMem()
             , seg()
         {
-            mgr = new BackupManager(NULL, masterIdTub, locators.size());
+            mgr = new BackupManager(NULL, masterIdTub,
+                                    downCast<uint32_t>(locators.size()));
             foreach (const auto& locator, locators) {
                 ProtoBuf::ServerList::Entry& e(*backupList.add_server());
                 e.set_service_locator(locator);
@@ -77,11 +78,15 @@ class RecoveryTest : public CppUnit::TestFixture {
             segMem = new char[segmentSize];
             seg = new Segment(masterId, segmentId, segMem, segmentSize, mgr);
 
-            char temp[LogDigest::getBytesFromCount(digestIds.size())];
-            LogDigest ld(digestIds.size(), temp, sizeof(temp));
+            char temp[LogDigest::getBytesFromCount(
+                                        downCast<uint32_t>(digestIds.size()))];
+            LogDigest ld(downCast<uint32_t>(digestIds.size()),
+                         temp,
+                         downCast<uint32_t>(sizeof(temp)));
             for (unsigned int i = 0; i < digestIds.size(); i++)
                 ld.addSegment(digestIds[i]);
-            seg->append(LOG_ENTRY_TYPE_LOGDIGEST, temp, sizeof(temp));
+            seg->append(LOG_ENTRY_TYPE_LOGDIGEST, temp,
+                        downCast<uint32_t>(sizeof(temp)));
 
             if (close)
                 seg->close();

@@ -489,7 +489,9 @@ class WillTest : public CppUnit::TestFixture {
         for (uint64_t i = 0; i < 27307; i++) {
             uint64_t key = generateRandom();
             uint64_t bytes = ((key % 2048) + 1) * 128;
-            t->profiler.track(key, bytes, LogTime(0, i));
+            t->profiler.track(key,
+                              downCast<uint32_t>(bytes),
+                              LogTime(0, i));
             o.addObject(0, key, bytes);
         }
 
@@ -497,7 +499,9 @@ class WillTest : public CppUnit::TestFixture {
         t = createAndAddTablet(tablets, 0, 1, 0, -1);
         for (uint64_t i = 0; i < 27307; i++) {
             uint64_t bytes = ((generateRandom() % 2048) + 1) * 128;
-            t->profiler.track(i, bytes, LogTime(1, i));
+            t->profiler.track(i,
+                              downCast<uint32_t>(bytes),
+                              LogTime(1, i));
             o.addObject(1, i, bytes);
         }
 
@@ -508,7 +512,9 @@ class WillTest : public CppUnit::TestFixture {
             if (i & 1)
                 key |= (1UL << 60);
             uint64_t bytes = ((generateRandom() % 2048) + 1) * 128;
-            t->profiler.track(key, bytes, LogTime(2, i));
+            t->profiler.track(key,
+                              downCast<uint32_t>(bytes),
+                              LogTime(2, i));
             o.addObject(2, key, bytes);
         }
 

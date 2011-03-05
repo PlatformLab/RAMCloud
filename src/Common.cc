@@ -154,20 +154,10 @@ _generateRandom()
     }
     // Each call to random returns 31 bits of randomness,
     // so we need three to get 64 bits of randomness.
-    union {
-        struct {
-            uint64_t one:31;
-            uint64_t two:31;
-            uint64_t three:2;
-        };
-        uint64_t all;
-    } r;
     static_assert(RAND_MAX >= (1 << 31), "RAND_MAX too small");
-    r.all = 0;
-    r.one = random(); // NOLINT
-    r.two = random(); // NOLINT
-    r.three = random(); // NOLINT
-    return r.all;
+    return (((random() & 0x7FFFFFFF) << 33) | // NOLINT
+            ((random() & 0x7FFFFFFF) << 2)  | // NOLINT
+            (random() & 0x00000003)); // NOLINT
 }
 
 /**
@@ -248,7 +238,7 @@ length__FILE__Prefix()
     const char* start = __FILE__;
     const char* match = strstr(__FILE__, "src/Common.cc");
     assert(match != NULL);
-    return (match - start);
+    return downCast<int>(match - start);
 }
 
 } // anonymous namespace

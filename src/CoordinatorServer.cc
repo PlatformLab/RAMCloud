@@ -397,11 +397,13 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
     }
 
     ProtoBuf::Tablets recoveredTablets;
-    ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
+    ProtoBuf::parseFromResponse(rpc.recvPayload,
+                                downCast<uint32_t>(sizeof(reqHdr)),
                                 reqHdr.tabletsLength, recoveredTablets);
     ProtoBuf::Tablets* newWill = new ProtoBuf::Tablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload,
-                                sizeof(reqHdr) + reqHdr.tabletsLength,
+                                downCast<uint32_t>(sizeof(reqHdr)) +
+                                reqHdr.tabletsLength,
                                 reqHdr.willLength, *newWill);
 
     LOG(NOTICE, "called by masterId %lu with %u tablets, %u will entries",
@@ -410,7 +412,8 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
 
     // update the will
     setWill(reqHdr.masterId, rpc.recvPayload,
-        sizeof(reqHdr) + reqHdr.tabletsLength, reqHdr.willLength);
+        downCast<uint32_t>(sizeof(reqHdr)) + reqHdr.tabletsLength,
+        reqHdr.willLength);
 
     // update tablet map to point to new owner and mark as available
     foreach (const ProtoBuf::Tablets::Tablet& recoveredTablet,
@@ -514,7 +517,8 @@ CoordinatorServer::setWill(const SetWillRpc::Request& reqHdr,
 {
     if (!setWill(reqHdr.masterId, rpc.recvPayload, sizeof(reqHdr),
         reqHdr.willLength)) {
-        respHdr.common.status = Status(-1);
+        // TODO(ongaro): should be some other error or silent
+        throw RequestFormatError(HERE);
     }
 }
 

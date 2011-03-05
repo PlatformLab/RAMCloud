@@ -193,7 +193,7 @@ try
     b = rdtsc();
     const char *value = "0123456789012345678901234567890"
         "123456789012345678901234567890123456789";
-    client.write(table, 43, value, strlen(value) + 1);
+    client.write(table, 43, value, downCast<uint32_t>(strlen(value) + 1));
     LOG(DEBUG, "write took %lu ticks", rdtsc() - b);
 
     Buffer buffer;
@@ -237,7 +237,7 @@ try
         count, objectDataSize);
     b = rdtsc();
     for (int j = 0; j < count; j++)
-        id = client.create(table, val, strlen(val) + 1);
+        id = client.create(table, val, downCast<uint32_t>(strlen(val) + 1));
     LOG(DEBUG, "%d inserts took %lu ticks", count, rdtsc() - b);
     LOG(DEBUG, "avg insert took %lu ticks", (rdtsc() - b) / count);
 

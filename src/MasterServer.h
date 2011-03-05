@@ -116,7 +116,7 @@ class MasterServer : public Server {
         if (masterTotalMemory.find("%") != string::npos) {
             string str = masterTotalMemory.substr(
                 0, masterTotalMemory.find("%"));
-            int pct = strtoull(str.c_str(), NULL, 10);
+            uint64_t pct = strtoull(str.c_str(), NULL, 10);
             if (pct <= 0 || pct > 90)
                 throw Exception(HERE,
                     "invalid `MasterTotalMemory' option specified: "
@@ -135,7 +135,7 @@ class MasterServer : public Server {
 
         if (hashTableMemory.find("%") != string::npos) {
             string str = hashTableMemory.substr(0, hashTableMemory.find("%"));
-            int pct = strtoull(str.c_str(), NULL, 10);
+            uint64_t pct = strtoull(str.c_str(), NULL, 10);
             if (pct <= 0 || pct > 50) {
                 throw Exception(HERE,
                     "invalid HashTableMemory option specified: "
@@ -204,7 +204,7 @@ class MasterServer : public Server {
 
     void recoverSegmentPrefetcher(RecoverySegmentIterator& i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
-                        uint64_t bufferLength);
+                        uint32_t bufferLength);
 
     void recover(uint64_t masterId,
                  uint64_t partitionId,

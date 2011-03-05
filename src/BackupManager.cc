@@ -63,8 +63,9 @@ struct AbuserData{
     uint32_t getMs() {
         // unit tests, etc default to 100 MB/s
         uint32_t bandwidth = x.bandwidth ?: 100;
-        return ((x.numSegments + 1) * 1000UL * Segment::SEGMENT_SIZE /
-                1024 / 1024 / bandwidth);
+        return downCast<uint32_t>((x.numSegments + 1) * 1000UL *
+                                  Segment::SEGMENT_SIZE /
+                                  1024 / 1024 / bandwidth);
     }
 };
 
@@ -75,7 +76,8 @@ pickRandomUnusedHost(HostList& hostList, const Set& usedHosts) ->
 {
     assert(static_cast<uint64_t>(hostList.server_size()) > usedHosts.size());
     while (true) {
-        uint32_t index = generateRandom() % hostList.server_size();
+        uint32_t index = downCast<uint32_t>(generateRandom() %
+                                            hostList.server_size());
         auto host = hostList.mutable_server(index);
         if (!contains(usedHosts, host))
             return host;

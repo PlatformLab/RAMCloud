@@ -67,7 +67,7 @@ class InfUdDriverTest : public CppUnit::TestFixture {
         Buffer message;
         const char *testString = "This is a sample message";
         Buffer::Chunk::appendToBuffer(&message, testString,
-                strlen(testString));
+                downCast<uint32_t>(strlen(testString)));
         Buffer::Iterator iterator(message);
         client->sendPacket(serverAddress, "header:", 7, &iterator);
         CPPUNIT_ASSERT_EQUAL("header:This is a sample message",

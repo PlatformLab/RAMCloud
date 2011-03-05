@@ -117,7 +117,7 @@ class TestUtilTest : public CppUnit::TestFixture {
     {
         Buffer b;
         const char *test = "abc \x17--\x80--\x3--\n--\x7f--\\--\"--";
-        uint32_t length = strlen(test) + 1;
+        uint32_t length = downCast<uint32_t>(strlen(test)) + 1;
         memcpy(static_cast<char*>(new(&b, APPEND) char[length]),
                 test, length);
         CPPUNIT_ASSERT_EQUAL("abc /x17--/x80--/x03--/n--/x7f--/x5c--/x22--/0",

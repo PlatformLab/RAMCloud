@@ -96,9 +96,11 @@ class UdpDriverTest : public CppUnit::TestFixture {
     void sendMessage(UdpDriver *driver, IpAddress *address,
             const char *header, const char *payload) {
         Buffer message;
-        Buffer::Chunk::appendToBuffer(&message, payload, strlen(payload));
+        Buffer::Chunk::appendToBuffer(&message, payload,
+                                      downCast<uint32_t>(strlen(payload)));
         Buffer::Iterator iterator(message);
-        driver->sendPacket(address, header, strlen(header), &iterator);
+        driver->sendPacket(address, header, downCast<uint32_t>(strlen(header)),
+                           &iterator);
     }
 
     // Used to wait for data to arrive on a driver by invoking the
@@ -124,7 +126,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
         Buffer message;
         const char *testString = "This is a sample message";
         Buffer::Chunk::appendToBuffer(&message, testString,
-                strlen(testString));
+                downCast<uint32_t>(strlen(testString)));
         Buffer::Iterator iterator(message);
         client->sendPacket(serverAddress, "header:", 7, &iterator);
         CPPUNIT_ASSERT_EQUAL("header:This is a sample message",

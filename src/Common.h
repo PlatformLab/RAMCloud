@@ -187,6 +187,11 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
     return p;
 }
 
+// htons, ntohs cause warnings
+#define HTONS(x) \
+    static_cast<uint16_t>((((x) >> 8) & 0xff) | (((x) & 0xff) << 8))
+#define NTOHS HTONS
+
 #ifdef __cplusplus
 /**
  * Return the size in bytes of a struct, except consider the size of structs
@@ -215,6 +220,19 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
 #define unsafeArrayLength(array) (sizeof(array) / sizeof(array[0]))
 
 #ifdef __cplusplus
+
+/**
+ * Cast a bigger int down to a smaller one.
+ * Asserts that no precision is lost at runtime.
+ */
+template<typename Small, typename Large>
+Small
+downCast(const Large& large)
+{
+    Small small = static_cast<Small>(large);
+    assert(small == large);
+    return small;
+}
 
 /// Return the number of elements in a statically allocated array.
 template<typename T, size_t length>

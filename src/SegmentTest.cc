@@ -134,7 +134,8 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(NULL, seh);
         s.closed = false;
 
-        seh = s.append(LOG_ENTRY_TYPE_OBJ, NULL, s.appendableBytes() + 1);
+        seh = s.append(LOG_ENTRY_TYPE_OBJ, NULL,
+                       s.appendableBytes() + 1);
         CPPUNIT_ASSERT_EQUAL(NULL, seh);
 
         CPPUNIT_ASSERT_EQUAL(
@@ -154,7 +155,7 @@ class SegmentTest : public CppUnit::TestFixture {
         int bytes = s.appendableBytes();
         char buf[bytes];
         for (int i = 0; i < bytes; i++)
-            buf[i] = i;
+            buf[i] = static_cast<char>(i);
 
         seh = s.append(LOG_ENTRY_TYPE_OBJ, buf, bytes);
         CPPUNIT_ASSERT(seh != NULL);
@@ -241,7 +242,7 @@ class SegmentTest : public CppUnit::TestFixture {
 
         char buf[64];
         for (unsigned int i = 0; i < sizeof(buf); i++)
-            buf[i] = i;
+            buf[i] = static_cast<char>(i);
 
         Tub<uint64_t> serverId;
         serverId.construct(0);
@@ -266,7 +267,7 @@ class SegmentTest : public CppUnit::TestFixture {
 
         char buf[64];
         for (unsigned int i = 0; i < sizeof(buf); i++)
-            buf[i] = i;
+            buf[i] = static_cast<char>(i);
 
         Segment s(112233, 445566, alignedBuf, sizeof(alignedBuf));
         seh = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
@@ -276,7 +277,8 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(sizeof(buf), seh->length());
         CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, seh->userData(), sizeof(buf)));
 
-        s.tail = s.capacity - sizeof(SegmentEntry) - sizeof(buf) + 1;
+        s.tail = downCast<uint32_t>(s.capacity - sizeof(SegmentEntry) -
+                                    sizeof(buf) + 1);
         seh = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         CPPUNIT_ASSERT_EQUAL(NULL, seh);
 

@@ -121,8 +121,7 @@ class DummyFile : public Dispatch::File {
             localLog->append("; ");
         }
         if (readData) {
-            int count = read(fd, buffer, sizeof(buffer) - 1);
-            CPPUNIT_ASSERT(count > 0);
+            size_t count = read(fd, buffer, sizeof(buffer) - 1);
             buffer[count] = 0;
             localLog->append(format("file %s invoked, read '%s'", myName,
                     buffer));
@@ -411,15 +410,15 @@ class DispatchTest : public CppUnit::TestFixture {
     }
 
     void test_File_constructor_createPollingThread() {
-        CPPUNIT_ASSERT_EQUAL(NULL, Dispatch::epollThread);
+        CPPUNIT_ASSERT(!Dispatch::epollThread);
         DummyFile f1("f1", false, pipeFds[0]);
-        CPPUNIT_ASSERT(Dispatch::epollThread != NULL);
+        CPPUNIT_ASSERT(Dispatch::epollThread);
     }
 
     void test_File_constructor_growFileTable() {
         uint32_t fd = 100;
         if (fd < Dispatch::files.size()) {
-            fd = Dispatch::files.size() + 10;
+            fd = downCast<uint32_t>(Dispatch::files.size()) + 10;
         }
         DummyFile f1("f1", false, fd);
         CPPUNIT_ASSERT_EQUAL(2*fd, Dispatch::files.size());

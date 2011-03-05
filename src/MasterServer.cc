@@ -647,8 +647,10 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
                                     reqHdr.tabletsLength, recoveryTablets);
         ProtoBuf::ServerList backups;
         ProtoBuf::parseFromResponse(rpc.recvPayload,
-                                    sizeof(reqHdr) + reqHdr.tabletsLength,
-                                    reqHdr.serverListLength, backups);
+                                    downCast<uint32_t>(sizeof(reqHdr)) +
+                                    reqHdr.tabletsLength,
+                                    reqHdr.serverListLength,
+                                    backups);
         LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
             recoveryTablets.tablet_size(), *serverId);
         responder();
@@ -756,7 +758,7 @@ MasterServer::recoverSegmentPrefetcher(RecoverySegmentIterator& i)
  */
 void
 MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
-    uint64_t bufferLength)
+    uint32_t bufferLength)
 {
     uint64_t start = rdtsc();
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
@@ -850,9 +852,10 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                     localObj->dataLength(i.getLength());
 
                 // update the TabletProfiler
-                Table& t(getTable(recoverObj->id.tableId,
+                Table& t(getTable(downCast<uint32_t>(recoverObj->id.tableId),
                                   recoverObj->id.objectId));
-                t.profiler.track(recoverObj->id.objectId, lengthInLog, logTime);
+                t.profiler.track(recoverObj->id.objectId,
+                                 downCast<uint32_t>(lengthInLog), logTime);
 #endif
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_HT
@@ -967,7 +970,8 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 
     log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb),
         &lengthInLog, &logTime);
-    t.profiler.track(obj->id.objectId, lengthInLog, logTime);
+    t.profiler.track(obj->id.objectId,
+                     downCast<uint32_t>(lengthInLog), logTime);
     objectMap.remove(reqHdr.tableId, reqHdr.id);
 }
 
@@ -1009,7 +1013,7 @@ MasterServer::setTablets(const ProtoBuf::Tablets& newTablets)
 
     // create map from table ID to Table of pre-existing tables
     foreach (const ProtoBuf::Tablets::Tablet& oldTablet, tablets.tablet()) {
-        tables[oldTablet.table_id()] =
+        tables[downCast<uint32_t>(oldTablet.table_id())] =
             reinterpret_cast<Table*>(oldTablet.user_data());
     }
 
@@ -1047,10 +1051,10 @@ MasterServer::setTablets(const ProtoBuf::Tablets& newTablets)
         LOG(NOTICE, "table: %20lu, start: %20lu, end  : %20lu",
             newTablet.table_id(), newTablet.start_object_id(),
             newTablet.end_object_id());
-        Table* table = tables[newTablet.table_id()];
+        Table* table = tables[downCast<uint32_t>(newTablet.table_id())];
         if (table == NULL) {
             table = new Table(newTablet.table_id());
-            tables[newTablet.table_id()] = table;
+            tables[downCast<uint32_t>(newTablet.table_id())] = table;
         }
         newTablet.set_user_data(reinterpret_cast<uint64_t>(table));
     }
@@ -1187,7 +1191,8 @@ objectEvictionCallback(LogEntryHandle handle,
 
     Table *t = NULL;
     try {
-        t = &svr->getTable(evictObj->id.tableId, evictObj->id.objectId);
+        t = &svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
+                           evictObj->id.objectId);
     } catch (TableDoesntExistException& e) {
         // That tablet doesn't exist on this server anymore.
         // Just remove the hash table entry, if it exists.
@@ -1206,7 +1211,8 @@ objectEvictionCallback(LogEntryHandle handle,
         LogTime newLogTime;
         LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
             evictObj, handle->length(), &newLengthInLog, &newLogTime);
-        t->profiler.track(evictObj->id.objectId, newLengthInLog, newLogTime);
+        t->profiler.track(evictObj->id.objectId,
+                          downCast<uint32_t>(newLengthInLog), newLogTime);
         svr->objectMap.replace(newObjHandle);
     }
 
@@ -1246,7 +1252,8 @@ tombstoneEvictionCallback(LogEntryHandle handle,
 
     Table *t = NULL;
     try {
-        t = &svr->getTable(tomb->id.tableId, tomb->id.objectId);
+        t = &svr->getTable(downCast<uint32_t>(tomb->id.tableId),
+                           tomb->id.objectId);
     } catch (TableDoesntExistException& e) {
         // That tablet doesn't exist on this server anymore.
         return;
@@ -1258,7 +1265,9 @@ tombstoneEvictionCallback(LogEntryHandle handle,
         LogTime newLogTime;
         log.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb),
             &newLengthInLog, &newLogTime);
-        t->profiler.track(tomb->id.objectId, newLengthInLog, newLogTime);
+        t->profiler.track(tomb->id.objectId,
+                          downCast<uint32_t>(newLengthInLog),
+                          newLogTime);
     }
 
     // remove the evicted entry whether it is discarded or not
@@ -1271,7 +1280,7 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
                         uint32_t dataOffset, uint32_t dataLength,
                         uint64_t* newVersion, bool async)
 {
-    Table& t(getTable(tableId, id));
+    Table& t(getTable(downCast<uint32_t>(tableId), id));
 
     const Object *obj = NULL;
     LogEntryHandle handle = objectMap.lookup(tableId, id);
@@ -1316,12 +1325,12 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
         ObjectTombstone tomb(segmentId, obj);
         log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), &lengthInLog,
             &logTime, !async);
-        t.profiler.track(id, lengthInLog, logTime);
+        t.profiler.track(id, downCast<uint32_t>(lengthInLog), logTime);
     }
 
     LogEntryHandle objHandle = log.append(LOG_ENTRY_TYPE_OBJ, newObject,
         newObject->objectLength(dataLength), &lengthInLog, &logTime, !async);
-    t.profiler.track(id, lengthInLog, logTime);
+    t.profiler.track(id, downCast<uint32_t>(lengthInLog), logTime);
     objectMap.replace(objHandle);
 
     *newVersion = newObject->version;

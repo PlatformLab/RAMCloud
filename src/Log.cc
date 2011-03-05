@@ -96,9 +96,9 @@ Segment*
 Log::allocateHead()
 {
     Segment* newHead = new Segment(this, allocateSegmentId(), getFromFreeList(),
-        segmentCapacity, backup);
+        downCast<uint32_t>(segmentCapacity), backup);
 
-    uint32_t segmentCount = activeIdMap.size() + 1;
+    uint32_t segmentCount = downCast<uint32_t>(activeIdMap.size() + 1);
     uint32_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
     char temp[digestBytes];
     LogDigest ld(segmentCount, temp, digestBytes);
@@ -199,8 +199,9 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     uint64_t segmentOffset;
 
     if (head != NULL) {
-        seh = head->append(type, buffer, length, lengthInLog,
-            &segmentOffset, sync);
+        seh = head->append(type, buffer,
+                           downCast<uint32_t>(length), lengthInLog,
+                           &segmentOffset, sync);
         if (seh != NULL) {
             // entry was appended to head segment
             if (logTime != NULL)
@@ -224,7 +225,9 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     addToActiveMaps(head);
 
     // append the entry
-    seh = head->append(type, buffer, length, lengthInLog, &segmentOffset, sync);
+    seh = head->append(type, buffer,
+                       downCast<uint32_t>(length), lengthInLog,
+                       &segmentOffset, sync);
     assert(seh != NULL);
     if (logTime != NULL)
         *logTime = LogTime(head->getId(), segmentOffset);
@@ -333,7 +336,7 @@ Log::addSegmentMemory(void *p)
     addToFreeList(p);
 
     if (maximumAppendableBytes == 0) {
-        Segment s((uint64_t)0, 0, p, segmentCapacity);
+        Segment s((uint64_t)0, 0, p, downCast<uint32_t>(segmentCapacity));
         maximumAppendableBytes = s.appendableBytes();
     }
 }

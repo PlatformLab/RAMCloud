@@ -49,8 +49,8 @@ class SegmentIterator {
     bool         isDone() const;
     void         next();
     LogEntryType getType() const;
-    uint64_t     getLength() const;
-    uint64_t     getLengthInLog() const;
+    uint32_t     getLength() const;
+    uint32_t     getLengthInLog() const;
     LogTime      getLogTime() const;
 
     /**
@@ -88,7 +88,7 @@ class SegmentIterator {
 
     // current iteration state
     LogEntryType     type;
-    uint64_t         length;
+    uint32_t         length;
     const void      *blobPtr;
     bool             sawFooter;
 
