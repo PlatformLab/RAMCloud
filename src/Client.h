@@ -21,8 +21,10 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Common.h"
+#include "Dispatch.h"
 #include "Rpc.h"
 #include "Status.h"
+#include "Tub.h"
 #include "Transport.h"
 
 /**
@@ -39,6 +41,87 @@
     }
 
 namespace RAMCloud {
+
+/**
+ * A Concept used in #parallelRun.
+ */
+struct AsynchronousTaskConcept {
+    /**
+     * Return true if calling #wait() would make progress on this task without
+     * blocking. This should return false if #isDone() returns true.
+     */
+    bool isReady();
+    /**
+     * Return true if there is no more work to be done on this task.
+     */
+    bool isDone();
+    /**
+     * Start a new chunk of work, to be later completed in #wait().
+     */
+    void send();
+    /**
+     * Wait for a chunk of work previously started in #send() to complete.
+     * Note that, after calling #wait(), #isDone() may still return false. If
+     * this is the case, #wait() will be called again at some later time.
+     */
+    void wait();
+};
+
+/**
+ * Execute asynchronous tasks in parallel until they complete.
+ * This is useful for broadcasting RPCs, etc.
+ * \param tasks
+ *      An array of \a numTasks entries in length of objects having the
+ *      interface documented in #AsynchronousTaskConcept.
+ * \param numTasks
+ *      The number of entries in the \a tasks array.
+ * \param maxOutstanding
+ *      The maximum number of task to run in parallel with each other.
+ */
+template<typename T>
+void
+parallelRun(Tub<T>* tasks, uint32_t numTasks, uint32_t maxOutstanding)
+{
+    assert(maxOutstanding > 0 || numTasks == 0);
+
+    uint32_t firstNotIssued = 0;
+    uint32_t firstNotDone = 0;
+
+    // Start off first round of tasks
+    for (uint32_t i = 0; i < numTasks; ++i) {
+        auto& task = tasks[i];
+        task->send();
+        ++firstNotIssued;
+        if (i + 1 == maxOutstanding)
+            break;
+    }
+
+    // As tasks complete, kick off new ones
+    while (firstNotDone < numTasks) {
+        while (Dispatch::poll()) {
+            /* pass */;
+        }
+        for (uint32_t i = firstNotDone; i < firstNotIssued; ++i) {
+            auto& task = tasks[i];
+            if (task->isDone()) { // completed already
+                if (firstNotDone == i)
+                    ++firstNotDone;
+                continue;
+            }
+            if (!task->isReady()) // not started or reply hasn't arrived
+                continue;
+            task->wait();
+            if (!task->isDone())
+                continue;
+            if (firstNotDone == i)
+                ++firstNotDone;
+            if (firstNotIssued < numTasks) {
+                tasks[firstNotIssued]->send();
+                ++firstNotIssued;
+            }
+        }
+    }
+}
 
 /**
  * A base class for RPC clients.
