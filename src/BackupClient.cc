@@ -162,14 +162,25 @@ BackupClient::quiesce()
  * Signal to the backup server that recovery has completed. The backup server
  * will then free any resources it has for the recovered master.
  */
-void
-BackupClient::recoveryComplete(uint64_t masterId)
+BackupClient::RecoveryComplete::RecoveryComplete(BackupClient& client,
+                                                 uint64_t masterId)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
 {
-    Buffer req, resp;
-    auto& reqHdr = allocHeader<BackupRecoveryCompleteRpc>(req);
+    auto& reqHdr =
+        client.allocHeader<BackupRecoveryCompleteRpc>(requestBuffer);
     reqHdr.masterId = masterId;
-    sendRecv<BackupRecoveryCompleteRpc>(session, req, resp);
-    checkStatus(HERE);
+    state = client.send<BackupRecoveryCompleteRpc>(client.session,
+                                                   requestBuffer,
+                                                   responseBuffer);
+}
+void
+BackupClient::RecoveryComplete::operator()()
+{
+    client.recv<BackupRecoveryCompleteRpc>(state);
+    client.checkStatus(HERE);
 }
 
 /**
