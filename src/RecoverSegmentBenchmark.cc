@@ -101,7 +101,9 @@ class RecoverSegmentBenchmark {
             objectBytes, RAMCloud::cyclesToNanoseconds(ticks) / 1000 / 1000);
         printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
             "overhead)\n", numObjects, totalObjectBytes,
-            100.0 * (totalSegmentBytes - totalObjectBytes) / totalSegmentBytes);
+            100.0 *
+            static_cast<double>(totalSegmentBytes - totalObjectBytes) /
+            static_cast<double>(totalSegmentBytes));
 
         // clean up
         for (int i = 0; i < numSegments; i++) {

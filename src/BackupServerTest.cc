@@ -128,10 +128,12 @@ class BackupServerTest : public CppUnit::TestFixture {
         entry.type = type;
         entry.length = bytes;
         client->writeSegment(masterId, segmentId,
-                             offset, &entry, sizeof(entry));
-        client->writeSegment(masterId, segmentId, offset + sizeof(entry),
+                             offset, &entry,
+                             downCast<uint32_t>(sizeof(entry)));
+        client->writeSegment(masterId, segmentId,
+                             downCast<uint32_t>(offset + sizeof(entry)),
                              data, bytes);
-        return sizeof(entry) + bytes;
+        return downCast<uint32_t>(sizeof(entry)) + bytes;
     }
 
     uint32_t
@@ -675,16 +677,20 @@ class BackupServerTest : public CppUnit::TestFixture {
             char segBuf[1024 * 1024];
             Segment s((uint64_t)0, segmentId, segBuf, sizeof(segBuf));
 
-            char digestBuf[LogDigest::getBytesFromCount(digestIds.size())];
-            LogDigest src(digestIds.size(), digestBuf, sizeof(digestBuf));
+            char digestBuf[LogDigest::getBytesFromCount
+                                (downCast<uint32_t>(digestIds.size()))];
+            LogDigest src(downCast<uint32_t>(digestIds.size()),
+                          digestBuf,
+                          downCast<uint32_t>(sizeof(digestBuf)));
             for (uint32_t i = 0; i < digestIds.size(); i++)
                 src.addSegment(digestIds[i]);
 
             uint64_t lengthInSegment, offsetInSegment;
-            s.append(LOG_ENTRY_TYPE_LOGDIGEST, digestBuf, sizeof(digestBuf),
+            s.append(LOG_ENTRY_TYPE_LOGDIGEST, digestBuf,
+                     downCast<uint32_t>(sizeof(digestBuf)),
                 &lengthInSegment, &offsetInSegment);
             client->writeSegment(masterId, segmentId, 0, s.getBaseAddress(),
-                lengthInSegment + offsetInSegment);
+                downCast<uint32_t>(lengthInSegment + offsetInSegment));
     }
 
     void
@@ -813,7 +819,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->openSegment(99, 88);
         char junk[70000];
         CPPUNIT_ASSERT_THROW(
-            client->writeSegment(99, 88, 0, junk, sizeof(junk)),
+            client->writeSegment(99, 88, 0, junk,
+                                 downCast<uint32_t>(sizeof(junk))),
             BackupSegmentOverflowException);
         CPPUNIT_ASSERT_EQUAL(1,
             BackupStorage::Handle::getAllocatedHandlesCount());

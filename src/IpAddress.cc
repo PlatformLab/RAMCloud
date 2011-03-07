@@ -67,7 +67,7 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
         }
         memcpy(&addr->sin_addr, host.h_addr, sizeof(addr->sin_addr));
         uint16_t port = serviceLocator.getOption<uint16_t>("port");
-        addr->sin_port = htons(port);
+        addr->sin_port = HTONS(port);
     } catch (ServiceLocator::NoSuchKeyException& e) {
         throw BadIpAddressException(HERE, e.message, serviceLocator);
     } catch (boost::bad_lexical_cast& e) {
@@ -90,7 +90,7 @@ string
 IpAddress::toString() const {
     const sockaddr_in *addr = reinterpret_cast<const sockaddr_in*>(&address);
     uint32_t ip = ntohl(addr->sin_addr.s_addr);
-    uint32_t port = ntohs(addr->sin_port);
+    uint32_t port = NTOHS(addr->sin_port);
     return format("%d.%d.%d.%d:%d", (ip>>24)&0xff,
                   (ip>>16)&0xff, (ip>>8)&0xff, ip&0xff, port);
 }

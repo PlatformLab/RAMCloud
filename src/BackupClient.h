@@ -178,7 +178,20 @@ class BackupClient : public Client {
 
     void ping();
     void quiesce();
-    void recoveryComplete(uint64_t masterId);
+
+    class RecoveryComplete {
+      public:
+        RecoveryComplete(BackupClient& client, uint64_t masterId);
+        bool isReady() { return client.isReady(state); }
+        void operator()();
+      private:
+        BackupClient& client;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(RecoveryComplete);
+    };
+    DEF_SYNC_RPC_METHOD(recoveryComplete, RecoveryComplete);
 
   private:
     /**

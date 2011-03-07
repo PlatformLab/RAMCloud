@@ -30,6 +30,10 @@
 
 namespace RAMCloud {
 
+namespace RecoveryInternal {
+struct MasterStartTask;
+}
+
 /// Used to allow custom mocks of recovery in unit testing.
 class BaseRecovery {
   public:
@@ -71,8 +75,8 @@ class Recovery : public BaseRecovery {
 
   private:
     // Only used in Recovery::buildSegmentIdToBackups().
-    struct Task {
-        Task(const ProtoBuf::ServerList::Entry& backupHost,
+    struct BackupStartTask {
+        BackupStartTask(const ProtoBuf::ServerList::Entry& backupHost,
              uint64_t crashedMasterId,
              const ProtoBuf::Tablets& partitions)
             : backupHost(backupHost)
@@ -110,7 +114,7 @@ class Recovery : public BaseRecovery {
         Tub<BackupClient::StartReadingData> rpc;
         BackupClient::StartReadingData::Result result;
         bool done;
-        DISALLOW_COPY_AND_ASSIGN(Task);
+        DISALLOW_COPY_AND_ASSIGN(BackupStartTask);
     };
 
     class SegmentAndDigestTuple {
@@ -152,7 +156,7 @@ class Recovery : public BaseRecovery {
     const ProtoBuf::Tablets& will;
 
     /// List of asynchronous startReadingData tasks and their replies
-    Tub<Task> *tasks;
+    Tub<BackupStartTask> *tasks;
 
     /// List of serialised LogDigests from possible log heads, including
     /// the corresponding Segment IDs and lengths.
@@ -162,6 +166,7 @@ class Recovery : public BaseRecovery {
     boost::unordered_map<uint64_t, uint32_t> segmentMap;
 
     friend class RecoveryTest;
+    friend class RecoveryInternal::MasterStartTask;
     DISALLOW_COPY_AND_ASSIGN(Recovery);
 };
 

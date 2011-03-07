@@ -204,6 +204,41 @@ MasterClient::recover(uint64_t masterId, uint64_t partitionId,
     checkStatus(HERE);
 }
 
+MasterClient::Recover::Recover(MasterClient& client,
+                               uint64_t masterId, uint64_t partitionId,
+                               const ProtoBuf::Tablets& tablets,
+                               const char* backups, uint32_t backupsLen)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    RecoverRpc::Request& reqHdr(client.allocHeader<RecoverRpc>(requestBuffer));
+    reqHdr.masterId = masterId;
+    reqHdr.partitionId = partitionId;
+    reqHdr.tabletsLength = serializeToResponse(requestBuffer, tablets);
+    reqHdr.serverListLength = backupsLen;
+    Buffer::Chunk::appendToBuffer(&requestBuffer, backups, backupsLen);
+    state = client.send<RecoverRpc>(client.session,
+                                    requestBuffer,
+                                    responseBuffer);
+}
+
+void
+MasterClient::Recover::operator()()
+{
+    client.recv<RecoverRpc>(state);
+    client.checkStatus(HERE);
+}
+
+void
+MasterClient::recover(uint64_t masterId, uint64_t partitionId,
+                      const ProtoBuf::Tablets& tablets,
+                      const char* backups, uint32_t backupsLen)
+{
+    Recover(*this, masterId, partitionId, tablets, backups, backupsLen)();
+}
+
 /**
  * Read the current contents of an object.
  *

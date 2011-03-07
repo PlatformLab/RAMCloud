@@ -303,8 +303,9 @@ InfRcTransport<Infiniband>::serverRecv()
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
             ServerRpc *r = new ServerRpc(this, qp, header.nonce);
             PayloadChunk::appendToBuffer(&r->recvPayload,
-                bd->buffer + sizeof(header),
-                wc.byte_len - sizeof(header), this, serverSrq, bd);
+                bd->buffer + downCast<uint32_t>(sizeof(header)),
+                wc.byte_len - downCast<uint32_t>(sizeof(header)),
+                this, serverSrq, bd);
             LOG(DEBUG, "Received request with nonce %016lx", header.nonce);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
@@ -437,13 +438,13 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
                 if (errno != EINTR && errno != EAGAIN) {
                     LOG(ERROR, "%s: sendto returned error %d: %s",
                         __func__, errno, strerror(errno));
-                    throw TransportException(HERE, len);
+                    throw TransportException(HERE, errno);
                 }
             } else if (len != sizeof(*outgoingQpt)) {
                 LOG(ERROR, "%s: sendto returned bad length (%Zd) while "
                     "sending to ip: [%s] port: [%d]", __func__, len,
-                    inet_ntoa(sin->sin_addr), htons(sin->sin_port));
-                throw TransportException(HERE, len);
+                    inet_ntoa(sin->sin_addr), HTONS(sin->sin_port));
+                throw TransportException(HERE, errno);
             } else {
                 haveSent = true;
             }
@@ -457,13 +458,13 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
             if (errno != EINTR && errno != EAGAIN) {
                 LOG(ERROR, "%s: recvfrom returned error %d: %s",
                     __func__, errno, strerror(errno));
-                throw TransportException(HERE, len);
+                throw TransportException(HERE, errno);
             }
         } else if (len != sizeof(*incomingQpt)) {
             LOG(ERROR, "%s: recvfrom returned bad length (%Zd) while "
                 "receiving from ip: [%s] port: [%d]", __func__, len,
-                inet_ntoa(sin->sin_addr), htons(sin->sin_port));
-            throw TransportException(HERE, len);
+                inet_ntoa(sin->sin_addr), HTONS(sin->sin_port));
+            throw TransportException(HERE, errno);
         } else {
             if (outgoingQpt->getNonce() == incomingQpt->getNonce())
                 return true;
@@ -473,8 +474,8 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
                 __func__, outgoingQpt->getNonce(), incomingQpt->getNonce());
         }
 
-        uint64_t elapsedUs = startTime.stop() / 1000;
-        if (elapsedUs >= (uint64_t)usTimeout)
+        uint32_t elapsedUs = downCast<uint32_t>(startTime.stop() / 1000);
+        if (elapsedUs >= usTimeout)
             return false;
         usTimeout -= elapsedUs;
 
@@ -509,8 +510,9 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
                                                 MAX_SHARED_RX_QUEUE_DEPTH);
 
     for (uint32_t i = 0; i < QP_EXCHANGE_MAX_TIMEOUTS; i++) {
-        QueuePairTuple outgoingQpt(lid, qp->getLocalQpNumber(),
-            qp->getInitialPsn(), generateRandom());
+        QueuePairTuple outgoingQpt(downCast<uint16_t>(lid),
+                                   qp->getLocalQpNumber(),
+                                   qp->getInitialPsn(), generateRandom());
         QueuePairTuple incomingQpt;
         bool gotResponse;
 
@@ -590,8 +592,9 @@ InfRcTransport<Infiniband>::ServerConnectHandler::operator() ()
 
     // now send the client back our queue pair information so they can
     // complete the initialisation.
-    QueuePairTuple outgoingQpt(transport->lid, qp->getLocalQpNumber(),
-        qp->getInitialPsn(), incomingQpt.getNonce());
+    QueuePairTuple outgoingQpt(downCast<uint16_t>(transport->lid),
+                               qp->getLocalQpNumber(),
+                               qp->getInitialPsn(), incomingQpt.getNonce());
     len = sendto(transport->serverSetupSocket, &outgoingQpt,
             sizeof(outgoingQpt), 0, reinterpret_cast<sockaddr *>(&sin),
             sinlen);
@@ -904,7 +907,7 @@ InfRcTransport<Infiniband>::Poller::operator() ()
             if (rpc.nonce != header.nonce)
                 continue;
             t->outstandingRpcs.erase(t->outstandingRpcs.iterator_to(rpc));
-            uint32_t len = wc.byte_len - sizeof(header);
+            uint32_t len = wc.byte_len - downCast<uint32_t>(sizeof(header));
             if (t->numUsedClientSrqBuffers >= MAX_SHARED_RX_QUEUE_DEPTH / 2) {
                 // clientSrq is low on buffers, better return this one
                 LOG(DEBUG, "Copy and immediately return clientSrq buffer");

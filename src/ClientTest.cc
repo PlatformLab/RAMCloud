@@ -20,6 +20,124 @@
 
 namespace RAMCloud {
 
+class MockTask {
+  public:
+    MockTask()
+        : state(NOT_SENT)
+    {
+    }
+    bool isReady() {
+        if (state == SENT) {
+            // randomly make progress
+            if ((generateRandom() & 255) == 1)
+                state = READY;
+            return false;
+        }
+        return state == READY;
+    }
+    bool isDone() {
+        return state == DONE;
+    }
+    void send() {
+        EXPECT_EQ(NOT_SENT, state);
+        state = SENT;
+    }
+    void wait() {
+        EXPECT_EQ(READY, state);
+        state = DONE;
+    }
+  private:
+    enum { NOT_SENT, SENT, READY, DONE } state;
+    DISALLOW_COPY_AND_ASSIGN(MockTask);
+};
+
+class MockRestartingTask {
+  public:
+    MockRestartingTask()
+        : round(0)
+        , state(NOT_SENT)
+    {
+    }
+    bool isReady() {
+        if (state == SENT) {
+            // randomly make progress
+            if ((generateRandom() & 255) == 1)
+                state = READY;
+            return false;
+        }
+        return state == READY;
+    }
+    bool isDone() {
+        return state == DONE;
+    }
+    void send() {
+        EXPECT_EQ(NOT_SENT, state);
+        state = SENT;
+    }
+    void wait() {
+        EXPECT_EQ(READY, state);
+        if (round == 5) {
+            state = DONE;
+        } else {
+            ++round;
+            state = SENT;
+        }
+    }
+  private:
+    int round;
+    enum { NOT_SENT, SENT, READY, DONE } state;
+    DISALLOW_COPY_AND_ASSIGN(MockRestartingTask);
+};
+
+// maxOutstanding == 1
+TEST(parallelRun, sequential) {
+    for (uint32_t i = 0; i < 100; ++i) {
+        Tub<MockTask> tasks[5];
+        foreach (auto& task, tasks)
+            task.construct();
+        parallelRun(tasks, arrayLength(tasks), 1);
+        foreach (auto& task, tasks)
+            EXPECT_TRUE(task->isDone());
+    }
+}
+
+// numTasks <= maxOutstanding
+TEST(parallelRun, startAllInitially) {
+    for (uint32_t i = 0; i < 100; ++i) {
+        Tub<MockTask> tasks[5];
+        foreach (auto& task, tasks)
+            task.construct();
+        parallelRun(tasks, arrayLength(tasks), 5);
+        foreach (auto& task, tasks)
+            EXPECT_TRUE(task->isDone());
+    }
+}
+
+// numTasks > maxOutstanding
+TEST(parallelRun, normal) {
+    for (uint32_t i = 0; i < 100; ++i) {
+        Tub<MockTask> tasks[10];
+        foreach (auto& task, tasks)
+            task.construct();
+        parallelRun(tasks, arrayLength(tasks), 4);
+        foreach (auto& task, tasks)
+            EXPECT_TRUE(task->isDone());
+    }
+}
+
+TEST(parallelRun, restartingTasks) {
+    for (uint32_t i = 0; i < 20; ++i) {
+        Tub<MockRestartingTask> tasks[10];
+        foreach (auto& task, tasks)
+            task.construct();
+        parallelRun(tasks, arrayLength(tasks), 4);
+        foreach (auto& task, tasks)
+            EXPECT_TRUE(task->isDone());
+    }
+}
+
+/////
+
 struct TestRpc {
     static const RpcType type = PING;
     struct Request {

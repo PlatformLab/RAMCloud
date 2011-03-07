@@ -66,7 +66,8 @@ class RecoveryTest : public CppUnit::TestFixture {
             , segMem()
             , seg()
         {
-            mgr = new BackupManager(NULL, masterIdTub, locators.size());
+            mgr = new BackupManager(NULL, masterIdTub,
+                                    downCast<uint32_t>(locators.size()));
             foreach (const auto& locator, locators) {
                 ProtoBuf::ServerList::Entry& e(*backupList.add_server());
                 e.set_service_locator(locator);
@@ -77,11 +78,15 @@ class RecoveryTest : public CppUnit::TestFixture {
             segMem = new char[segmentSize];
             seg = new Segment(masterId, segmentId, segMem, segmentSize, mgr);
 
-            char temp[LogDigest::getBytesFromCount(digestIds.size())];
-            LogDigest ld(digestIds.size(), temp, sizeof(temp));
+            char temp[LogDigest::getBytesFromCount(
+                                        downCast<uint32_t>(digestIds.size()))];
+            LogDigest ld(downCast<uint32_t>(digestIds.size()),
+                         temp,
+                         downCast<uint32_t>(sizeof(temp)));
             for (unsigned int i = 0; i < digestIds.size(); i++)
                 ld.addSegment(digestIds[i]);
-            seg->append(LOG_ENTRY_TYPE_LOGDIGEST, temp, sizeof(temp));
+            seg->append(LOG_ENTRY_TYPE_LOGDIGEST, temp,
+                        downCast<uint32_t>(sizeof(temp)));
 
             if (close)
                 seg->close();
@@ -436,16 +441,13 @@ class RecoveryTest : public CppUnit::TestFixture {
         recovery.start();
         CPPUNIT_ASSERT_EQUAL(3, recovery.tabletsUnderRecovery);
         CPPUNIT_ASSERT_EQUAL(
-            "start: Trying partition recovery on mock:host=master1 with "
-            "2 tablets and 3 hosts | "
+            "start: Starting recovery for 2 partitions | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
             "partitionId 0 | "
             "getRecoveryData: getRecoveryData complete | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
             "partitionId 0 | "
             "getRecoveryData: getRecoveryData complete | "
-            "start: Trying partition recovery on mock:host=master2 with "
-            "1 tablets and 3 hosts | "
             "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
             "partitionId 1 | "
             "getRecoveryData: getRecoveryData complete | "
@@ -487,27 +489,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         Recovery recovery(99, tablets, *masterHosts, *backupHosts);
         MockRandom __(1); // triggers deterministic rand().
         TestLog::Enable _(&getRecoveryDataFilter);
-        recovery.start();
-        CPPUNIT_ASSERT_EQUAL(
-            "start: Trying partition recovery on mock:host=master1 with "
-            "1 tablets and 3 hosts | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
-            "partitionId 0 | "
-            "getRecoveryData: getRecoveryData complete | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
-            "partitionId 0 | "
-            "getRecoveryData: getRecoveryData complete | "
-            "start: Trying partition recovery on mock:host=master2 with "
-            "1 tablets and 3 hosts | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 89, "
-            "partitionId 1 | "
-            "getRecoveryData: getRecoveryData complete | "
-            "getRecoveryData: getRecoveryData masterId 99, segmentId 88, "
-            "partitionId 1 | "
-            "getRecoveryData: getRecoveryData complete | "
-            "start: Failed to recover all partitions for a crashed master, "
-            "your RAMCloud is now busted.",
-            TestLog::get());
+        CPPUNIT_ASSERT_THROW(recovery.start(), FatalError);
     }
 
   private:

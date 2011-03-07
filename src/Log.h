@@ -86,7 +86,9 @@ class Log {
                           uint64_t length,
                           uint64_t *lengthInLog = NULL,
                           LogTime *logTime = NULL,
-                          bool sync = true);
+                          bool sync = true,
+                          Tub<SegmentChecksum::ResultType> expectedChecksum =
+                            Tub<SegmentChecksum::ResultType>());
     void           free(LogEntryHandle entry);
     void           registerType(LogEntryType type,
                                 log_eviction_cb_t evictionCB,
@@ -240,7 +242,8 @@ class LogDigest {
     static uint32_t
     getBytesFromCount(uint32_t segmentCount)
     {
-        return sizeof(LogDigestData) + segmentCount * sizeof(uint64_t);
+        return downCast<uint32_t>(sizeof(LogDigestData) +
+                                  segmentCount * sizeof(uint64_t));
     }
 
     /**

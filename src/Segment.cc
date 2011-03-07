@@ -41,11 +41,21 @@ namespace RAMCloud {
  *      The size of the backing memory pointed to by baseAddress in bytes.
  * \param[in] backup
  *      The BackupManager responsible for this Segment's durability.
+ * \param[in] type
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
+ * \param[in] buffer
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
+ * \param[in] length
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
  * \return
  *      The newly constructed Segment object.
  */
 Segment::Segment(Log *log, uint64_t segmentId, void *baseAddress,
-    uint32_t capacity, BackupManager *backup)
+    uint32_t capacity, BackupManager *backup,
+    LogEntryType type, const void *buffer, uint32_t length)
     : backup(backup),
       baseAddress(baseAddress),
       log(log),
@@ -58,7 +68,7 @@ Segment::Segment(Log *log, uint64_t segmentId, void *baseAddress,
       closed(false),
       backupSegment(NULL)
 {
-    commonConstructor();
+    commonConstructor(type, buffer, length);
 }
 
 /**
@@ -90,24 +100,40 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
       closed(false),
       backupSegment(NULL)
 {
-    commonConstructor();
+    commonConstructor(LOG_ENTRY_TYPE_INVALID, NULL, 0);
 }
 
 /**
  * Perform actions common to all Segment constructors, including writing
  * the header and opening the backup.
+ * \param[in] type
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
+ * \param[in] buffer
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
+ * \param[in] length
+ *      See #append. Used for transmitting a LogDigest atomically with the RPC
+ *      that opens the segment.
  */
 void
-Segment::commonConstructor()
+Segment::commonConstructor(LogEntryType type,
+                           const void *buffer, uint32_t length)
 {
     assert(capacity >= sizeof(SegmentEntry) + sizeof(SegmentHeader) +
                        sizeof(SegmentEntry) + sizeof(SegmentFooter));
 
     SegmentHeader segHdr = { logId, id, capacity };
     SegmentEntryHandle h = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGHEADER,
-        &segHdr, sizeof(segHdr), false);
+                                                &segHdr, sizeof(segHdr),
+                                                NULL, false);
     assert(h != NULL);
-
+    if (length) {
+        SegmentEntryHandle h = forceAppendWithEntry(type,
+                                                    buffer, length,
+                                                    NULL, false);
+        assert(h != NULL);
+    }
     if (backup)
         backupSegment = backup->openSegment(id, baseAddress, tail);
 }
@@ -136,6 +162,10 @@ Segment::~Segment()
  *      otherwise the replication will happen on a subsequent append()
  *      where sync is true or when the segment is closed.  This defaults
  *      to true.
+ * \param[in] expectedChecksum
+ *      The checksum we expect this entry to have once appended. If the
+ *      actual calculated checksum does not match, an exception is
+ *      thrown and nothing is appended. This parameter is optional.
  * \param[out] lengthInSegment
  *      If non-NULL, the actual number of bytes consumed by this append to
  *      the Segment is stored to this address. Note that this size includes
@@ -153,7 +183,8 @@ Segment::~Segment()
  */
 SegmentEntryHandle
 Segment::append(LogEntryType type, const void *buffer, uint32_t length,
-    uint64_t *lengthInSegment, uint64_t *offsetInSegment, bool sync)
+    uint64_t *lengthInSegment, uint64_t *offsetInSegment, bool sync,
+    Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
     if (closed || type == LOG_ENTRY_TYPE_SEGFOOTER ||
       appendableBytes() < length)
@@ -162,7 +193,8 @@ Segment::append(LogEntryType type, const void *buffer, uint32_t length,
     if (offsetInSegment != NULL)
         *offsetInSegment = tail;
 
-    return forceAppendWithEntry(type, buffer, length, lengthInSegment, sync);
+    return forceAppendWithEntry(type, buffer, length,
+        lengthInSegment, sync, true, expectedChecksum);
 }
 
 /**
@@ -255,7 +287,7 @@ Segment::getId() const
 /**
  * Obtain the number of bytes of backing memory that this Segment represents.
  */
-uint64_t
+uint32_t
 Segment::getCapacity() const
 {
     return capacity;
@@ -266,21 +298,21 @@ Segment::getCapacity() const
  * using the #append method. Buffers equal to this size or smaller are
  * guaranteed to succeed, whereas buffers larger will fail to be appended.
  */
-uint64_t
+uint32_t
 Segment::appendableBytes() const
 {
     if (closed)
         return 0;
 
-    uint64_t freeBytes = capacity - tail;
-    uint64_t headRoom  = sizeof(SegmentEntry) + sizeof(SegmentFooter);
+    uint32_t freeBytes = capacity - tail;
+    uint32_t headRoom  = sizeof(SegmentEntry) + sizeof(SegmentFooter);
 
     assert(freeBytes >= headRoom);
 
     if ((freeBytes - headRoom) < sizeof(SegmentEntry))
         return 0;
 
-    return freeBytes - headRoom - sizeof(SegmentEntry);
+    return freeBytes - headRoom - downCast<uint32_t>(sizeof(SegmentEntry));
 }
 
 /**
@@ -291,7 +323,7 @@ Segment::appendableBytes() const
 int
 Segment::getUtilisation() const
 {
-    return (100ULL * (tail - bytesFreed)) / capacity;
+    return static_cast<int>((100UL * (tail - bytesFreed)) / capacity);
 }
 
 ////////////////////////////////////////
@@ -351,12 +383,19 @@ Segment::forceAppendBlob(const void *buffer, uint32_t length)
  *      Optional boolean to disable updates to the Segment checksum. The
  *      default is to update the running checksum while appending data, but
  *      this can be stopped when appending the SegmentFooter, for instance.
+ * \param[in] expectedChecksum
+ *      The expected checksum this new entry should have. If the calculated
+ *      checksum does not match, an exception is thrown. This exists mainly
+ *      for recovery to avoid calculating the checksum twice (once to check
+ *      the recovered object, and again when adding to the log). This
+ *      parameter is optional and is not normally used.
  * \return
  *      A SegmentEntryHandle corresponding to the data just written. 
  */
 SegmentEntryHandle
 Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
-    uint32_t length, uint64_t *lengthOfAppend, bool sync, bool updateChecksum)
+    uint32_t length, uint64_t *lengthOfAppend, bool sync, bool updateChecksum,
+    Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
     assert(!closed);
 
@@ -373,6 +412,11 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
         entryChecksum.update(&entry, sizeof(entry));
         entryChecksum.update(buffer, length);
         entry.checksum = entryChecksum.getResult();
+        if (expectedChecksum && *expectedChecksum != entry.checksum) {
+            throw SegmentException(HERE, format("checksum didn't match "
+                "expected (wanted: 0x%08x, got 0x%08x)", *expectedChecksum,
+                entry.checksum));
+        }
         checksum.update(&entry.checksum, sizeof(entry.checksum));
     }
 #endif

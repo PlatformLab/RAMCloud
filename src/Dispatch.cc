@@ -46,7 +46,7 @@ uint64_t Dispatch::earliestTriggerTime = 0;
  * Construct a Poller.
  */
 Dispatch::Poller::Poller()
-    : slot(Dispatch::pollers.size())
+    : slot(downCast<unsigned>(Dispatch::pollers.size()))
 {
     Dispatch::pollers.push_back(this);
 }
@@ -406,7 +406,7 @@ void Dispatch::Timer::startCycles(uint64_t cycles)
 {
     triggerTime = Dispatch::currentTime + cycles;
     if (slot < 0) {
-        slot = timers.size();
+        slot = downCast<unsigned>(timers.size());
         timers.push_back(this);
     }
     if (triggerTime < Dispatch::earliestTriggerTime) {

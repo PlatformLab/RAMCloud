@@ -24,6 +24,138 @@
 
 namespace RAMCloud {
 
+namespace RecoveryInternal {
+
+/// Used in #Recovery::start().
+struct MasterStartTask {
+    MasterStartTask(Recovery& recovery,
+                    uint32_t& recoveryMasterIndex,
+                    uint32_t partitionId,
+                    const char* backups, uint32_t backupsLen)
+        : recovery(recovery)
+        , recoveryMasterIndex(recoveryMasterIndex)
+        , backups(backups)
+        , backupsLen(backupsLen)
+        , partitionId(partitionId)
+        , tablets()
+        , masterHost()
+        , masterClient()
+        , rpc()
+        , done(false)
+    {}
+    bool isReady() { return rpc && rpc->isReady(); }
+    bool isDone() { return done; }
+    void send() {
+        if (recoveryMasterIndex ==
+            static_cast<uint32_t>(recovery.masterHosts.server_size())) {
+            // TODO(ongaro): this is not ok in a real system
+            DIE("not enough recovery masters to complete recovery");
+        }
+        masterHost = &recovery.masterHosts.server(recoveryMasterIndex++);
+        auto locator = masterHost->service_locator().c_str();
+        try {
+            masterClient.construct(transportManager.getSession(locator));
+            rpc.construct(*masterClient,
+                          recovery.masterId, partitionId,
+                          tablets,
+                          backups, backupsLen);
+        } catch (const TransportException& e) {
+            LOG(WARNING, "Couldn't contact %s, trying next master; "
+                "failure was: %s", locator, e.message.c_str());
+            send();
+        } catch (const ClientException& e) {
+            LOG(WARNING, "recover failed on %s, trying next master; "
+                "failure was: %s", locator, e.toString());
+            send();
+        }
+    }
+    void wait() {
+        try {
+            (*rpc)();
+        } catch (const TransportException& e) {
+            auto locator = masterHost->service_locator().c_str();
+            LOG(WARNING, "Couldn't contact %s, trying next master; "
+                "failure was: %s", locator, e.message.c_str());
+            send();
+            return;
+        } catch (const ClientException& e) {
+            auto locator = masterHost->service_locator().c_str();
+            LOG(WARNING, "recover failed on %s, trying next master; "
+                "failure was: %s", locator, e.toString());
+            send();
+            return;
+        }
+        recovery.tabletsUnderRecovery += tablets.tablet_size();
+        done = true;
+    }
+    Recovery& recovery;
+    uint32_t& recoveryMasterIndex;
+    const char* backups;
+    const uint32_t backupsLen;
+    const uint32_t partitionId;
+    ProtoBuf::Tablets tablets;
+    const ProtoBuf::ServerList::Entry* masterHost;
+    Tub<MasterClient> masterClient;
+    Tub<MasterClient::Recover> rpc;
+    bool done;
+    DISALLOW_COPY_AND_ASSIGN(MasterStartTask);
+};
+
+struct BackupEndTask {
+    BackupEndTask(const string& serviceLocator, uint64_t masterId)
+        : masterId(masterId)
+        , serviceLocator(serviceLocator)
+        , client()
+        , rpc()
+        , done(false)
+    {}
+    bool isReady() { return rpc && rpc->isReady(); }
+    bool isDone() { return done; }
+    void send() {
+        auto locator = serviceLocator.c_str();
+        try {
+            client.construct(transportManager.getSession(locator));
+            rpc.construct(*client, masterId);
+            return;
+        } catch (const TransportException& e) {
+            LOG(WARNING, "Couldn't contact %s, ignoring; "
+                "failure was: %s", locator, e.message.c_str());
+        } catch (const ClientException& e) {
+            LOG(WARNING, "recoveryComplete failed on %s, ignoring; "
+                "failure was: %s", locator, e.toString());
+        }
+        client.destroy();
+        rpc.destroy();
+        done = true;
+    }
+    void wait() {
+        if (!rpc)
+            return;
+        try {
+            (*rpc)();
+        } catch (const TransportException& e) {
+            auto locator = serviceLocator.c_str();
+            LOG(WARNING, "Couldn't contact %s, ignoring; "
+                "failure was: %s", locator, e.message.c_str());
+        } catch (const ClientException& e) {
+            auto locator = serviceLocator.c_str();
+            LOG(WARNING, "recoveryComplete failed on %s, ignoring; "
+                "failure was: %s", locator, e.toString());
+        }
+        done = true;
+    }
+    const uint64_t masterId;
+    const string& serviceLocator; // NOLINT
+    Tub<BackupClient> client;
+    Tub<BackupClient::RecoveryComplete> rpc;
+    bool done;
+    DISALLOW_COPY_AND_ASSIGN(BackupEndTask);
+};
+
+} // RecoveryInternal namespace
+using namespace RecoveryInternal; // NOLINT
+
+
 /**
  * Create a Recovery to coordinate a recovery from the perspective
  * of a CoordinatorServer.
@@ -57,7 +189,7 @@ Recovery::Recovery(uint64_t masterId,
     , masterId(masterId)
     , tabletsUnderRecovery()
     , will(will)
-    , tasks(new Tub<Task>[backupHosts.server_size()])
+    , tasks(new Tub<BackupStartTask>[backupHosts.server_size()])
     , digestList()
     , segmentMap()
 {
@@ -273,82 +405,59 @@ Recovery::verifyCompleteLog()
  * \bug Only tries each master once regardless of whether recovery
  *      failure could be avoided by doing multiple parition recoveries
  *      on a single master.
- * \bug Completely serial.  Needs to work asynchronously on all the
- *      masters at once.
  */
 void
 Recovery::start()
 {
     CycleCounter<Metric> _(&metrics->coordinator.recoveryStartTicks);
-    uint64_t partitionId = 0;
-    int hostIndexToRecoverOnNext = 0;
-    for (;;) {
-      continueToNextPartition:
-        // Split off a sub tablet from the will.
-        bool partitionExists = false;
-        ProtoBuf::Tablets tablets;
-        for (int willIndex = 0; willIndex < will.tablet_size(); willIndex++) {
-            const ProtoBuf::Tablets::Tablet& tablet(will.tablet(willIndex));
-            if (tablet.user_data() == partitionId) {
-                *tablets.add_tablet() = tablet;
-                partitionExists = true;
-            }
-        }
-        // If no partitions with the next higher id, then we are all done.
-        if (!partitionExists)
-            break;
-        // We now have a partitioned piece of the will, choose a master.
-        for (; hostIndexToRecoverOnNext < masterHosts.server_size();
-             hostIndexToRecoverOnNext++)
-        {
-            const ProtoBuf::ServerList::Entry&
-                host(masterHosts.server(hostIndexToRecoverOnNext));
-            // Make sure not to recover to a backup or to the crashed master
-            if (host.server_id() != masterId) {
-                const string& locator = host.service_locator();
-                LOG(DEBUG, "Trying partition recovery on %s with "
-                    "%u tablets and %u hosts", locator.c_str(),
-                    tablets.tablet_size(), backups.server_size());
-                try {
-                    MasterClient master(
-                            transportManager.getSession(locator.c_str()));
-                    master.recover(masterId, partitionId, tablets, backups);
-                } catch (const TransportException& e) {
-                    LOG(WARNING, "Couldn't contact %s, trying next master; "
-                        "failure was: %s", locator.c_str(), e.message.c_str());
-                    continue;
-                } catch (const ClientException& e) {
-                    LOG(WARNING, "recover failed on %s, trying next master; "
-                        "failure was: %s", locator.c_str(), e.toString());
-                    continue;
-                }
-                tabletsUnderRecovery += tablets.tablet_size();
-                // Success, next try next partiton with next host.
-                hostIndexToRecoverOnNext++;
-                partitionId++;
-                goto continueToNextPartition;
-            }
-        }
-        // If we fell out of the inner for loop then we ran out of hosts.
-        LOG(ERROR, "Failed to recover all partitions for a crashed master, "
-            "your RAMCloud is now busted.");
-        return;
+
+    // Pre-serialize the backup schedule, since this takes a while and is the
+    // same for each master.
+    Buffer backupsBuffer;
+    uint32_t backupsLen = serializeToRequest(backupsBuffer, backups);
+    const char* backupsBuf =
+        static_cast<const char*>(backupsBuffer.getRange(0, backupsLen));
+
+    // Figure out the number of partitions specified in the will.
+    uint32_t numPartitions = 0;
+    foreach (auto& tablet, will.tablet()) {
+        if (tablet.user_data() + 1 > numPartitions)
+            numPartitions = downCast<uint32_t>(tablet.user_data()) + 1;
     }
+
+    // Set up the tasks to execute the RPCs.
+    uint32_t recoveryMasterIndex = 0;
+    Tub<MasterStartTask> recoverTasks[numPartitions];
+    for (uint32_t i = 0; i < numPartitions; i++) {
+        auto& task = recoverTasks[i];
+        task.construct(*this, recoveryMasterIndex, i, backupsBuf, backupsLen);
+    }
+    foreach (auto& tablet, will.tablet()) {
+        auto& task = recoverTasks[tablet.user_data()];
+        *task->tablets.add_tablet() = tablet;
+    }
+
+    // Tell the recovery masters to begin recovery.
+    LOG(NOTICE, "Starting recovery for %u partitions", numPartitions);
+    parallelRun(recoverTasks, numPartitions, 10);
 }
 
 bool
 Recovery::tabletsRecovered(const ProtoBuf::Tablets& tablets)
 {
     tabletsUnderRecovery--;
-    if (tabletsUnderRecovery == 0) {
-        foreach (auto& backup, backupHosts.server()) {
-            auto session = transportManager.getSession(
-                                    backup.service_locator().c_str());
-            BackupClient(session).recoveryComplete(masterId);
-        }
-        return true;
+    if (tabletsUnderRecovery != 0)
+        return false;
+
+    // broadcast to backups that recovery is done
+    uint32_t numBackups = static_cast<uint32_t>(backupHosts.server_size());
+    Tub<BackupEndTask> tasks[numBackups];
+    for (uint32_t i = 0; i < numBackups; ++i) {
+        auto& backup = backupHosts.server(i);
+        tasks[i].construct(backup.service_locator(), masterId);
     }
-    return false;
+    parallelRun(tasks, numBackups, 10);
+    return true;
 }
 
 } // namespace RAMCloud

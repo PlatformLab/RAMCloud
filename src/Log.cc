@@ -97,10 +97,7 @@ Log::~Log()
 Segment*
 Log::allocateHead()
 {
-    Segment* newHead = new Segment(this, allocateSegmentId(), getFromFreeList(),
-        segmentCapacity, backup);
-
-    uint32_t segmentCount = activeIdMap.size() + 1;
+    uint32_t segmentCount = downCast<uint32_t>(activeIdMap.size() + 1);
     uint32_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
     char temp[digestBytes];
     LogDigest ld(segmentCount, temp, digestBytes);
@@ -109,13 +106,13 @@ Log::allocateHead()
         Segment* segment = idSegmentPair.second;
         ld.addSegment(segment->getId());
     }
-    ld.addSegment(newHead->getId());
 
-    SegmentEntryHandle seh = newHead->append(LOG_ENTRY_TYPE_LOGDIGEST,
-        temp, digestBytes);
-    assert(seh != NULL);
+    uint64_t newHeadId = allocateSegmentId();
+    ld.addSegment(newHeadId);
 
-    return newHead;
+    return new Segment(this, newHeadId, getFromFreeList(),
+        downCast<uint32_t>(segmentCapacity), backup,
+        LOG_ENTRY_TYPE_LOGDIGEST, temp, digestBytes);
 }
 
 /**
@@ -182,6 +179,10 @@ Log::getSegmentId(const void *p)
  *      otherwise the replication will happen on a subsequent append()
  *      where sync is true or when the segment is closed.  This defaults
  *      to true.
+ * \param[in] expectedChecksum
+ *      The checksum we expect this entry to have once appended. If the
+ *      actual calculated checksum does not match, an exception is
+ *      thrown and nothing is appended. This parameter is optional.
  * \return
  *      A LogEntryHandle is returned, which points to the ``buffer''
  *      written. The handle is guaranteed to be valid, i.e. non-NULL.
@@ -192,7 +193,8 @@ Log::getSegmentId(const void *p)
  */
 LogEntryHandle
 Log::append(LogEntryType type, const void *buffer, const uint64_t length,
-    uint64_t *lengthInLog, LogTime *logTime, bool sync)
+    uint64_t *lengthInLog, LogTime *logTime, bool sync,
+    Tub<SegmentChecksum::ResultType> expectedChecksum)
 {
     if (length > maximumAppendableBytes)
         throw LogException(HERE, "append exceeded maximum possible length");
@@ -201,8 +203,9 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     uint64_t segmentOffset;
 
     if (head != NULL) {
-        seh = head->append(type, buffer, length, lengthInLog,
-            &segmentOffset, sync);
+        seh = head->append(type, buffer,
+                           downCast<uint32_t>(length), lengthInLog,
+                           &segmentOffset, sync, expectedChecksum);
         if (seh != NULL) {
             // entry was appended to head segment
             if (logTime != NULL)
@@ -226,7 +229,9 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     addToActiveMaps(head);
 
     // append the entry
-    seh = head->append(type, buffer, length, lengthInLog, &segmentOffset, sync);
+    seh = head->append(type, buffer,
+                       downCast<uint32_t>(length), lengthInLog,
+                       &segmentOffset, sync, expectedChecksum);
     assert(seh != NULL);
     if (logTime != NULL)
         *logTime = LogTime(head->getId(), segmentOffset);
@@ -335,7 +340,7 @@ Log::addSegmentMemory(void *p)
     addToFreeList(p);
 
     if (maximumAppendableBytes == 0) {
-        Segment s((uint64_t)0, 0, p, segmentCapacity);
+        Segment s((uint64_t)0, 0, p, downCast<uint32_t>(segmentCapacity));
         maximumAppendableBytes = s.appendableBytes();
     }
 }

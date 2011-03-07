@@ -264,7 +264,7 @@ class FailureDetectorTest : public CppUnit::TestFixture {
         std::ostringstream ostream;
         localList.SerializePartialToOstream(&ostream);
         string str(ostream.str());
-        uint32_t length = str.length();
+        uint32_t length = downCast<uint32_t>(str.length());
 
         char buf[length + sizeof(GetServerListRpc::Response)];
         GetServerListRpc::Response* resp =

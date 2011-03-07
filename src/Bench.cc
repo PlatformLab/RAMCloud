@@ -170,9 +170,9 @@ void
 writeOne(uint64_t val)
 {
     char buf[size];
-    memset(&buf[0], val, size);
+    memset(&buf[0], downCast<uint32_t>(val), size);
     buf[size-1] = 0;
-    client->write(table, 0, &buf[0], size);
+    client->write(table, 0, &buf[0], downCast<uint32_t>(size));
 }
 
 void

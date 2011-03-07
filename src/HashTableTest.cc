@@ -129,7 +129,7 @@ class HashTableEntryTest : public CppUnit::TestFixture {
      */
     static bool
     packable(uint64_t hash, bool chain, uint64_t ptr, uint8_t type,
-        uint32_t typeBits)
+        uint8_t typeBits)
     {
         TestObjectMap::Entry e;
 

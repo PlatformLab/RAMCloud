@@ -472,11 +472,12 @@ class MasterTest : public CppUnit::TestFixture {
     }
 
     uint32_t
-    buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
+    buildRecoverySegment(char *segmentBuf, uint32_t segmentCapacity,
                          uint64_t tblId, uint64_t objId, uint64_t version,
                          string objContents)
     {
-        Segment s((uint64_t)0, 0, segmentBuf, segmentCapacity, NULL);
+        Segment s(0UL, 0, segmentBuf,
+                  downCast<uint32_t>(segmentCapacity), NULL);
 
         DECLARE_OBJECT(newObject, objContents.length() + 1);
         newObject->id.objectId = objId;
@@ -484,30 +485,32 @@ class MasterTest : public CppUnit::TestFixture {
         newObject->version = version;
         strcpy(newObject->data, objContents.c_str()); // NOLINT fuck off
 
+        uint32_t len = downCast<uint32_t>(objContents.length()) + 1;
         const void *p = s.append(LOG_ENTRY_TYPE_OBJ, newObject,
-            newObject->objectLength(objContents.length() + 1))->userData();
+            newObject->objectLength(len))->userData();
         assert(p != NULL);
         s.close();
-        return static_cast<const char*>(p) - segmentBuf;
+        return downCast<uint32_t>(static_cast<const char*>(p) - segmentBuf);
     }
 
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          ObjectTombstone *tomb)
     {
-        Segment s((uint64_t)0, 0, segmentBuf, segmentCapacity, NULL);
+        Segment s(0UL, 0, segmentBuf,
+                  downCast<uint32_t>(segmentCapacity), NULL);
         const void *p = s.append(LOG_ENTRY_TYPE_OBJTOMB,
             tomb, sizeof(*tomb))->userData();
         assert(p != NULL);
         s.close();
-        return static_cast<const char*>(p) - segmentBuf;
+        return downCast<uint32_t>(static_cast<const char*>(p) - segmentBuf);
     }
 
     void
     verifyRecoveryObject(uint64_t tblId, uint64_t objId, string contents)
     {
         Buffer value;
-        client->read(tblId, objId, &value);
+        client->read(downCast<uint32_t>(tblId), objId, &value);
         const char *s = reinterpret_cast<const char *>(
             value.getRange(0, value.getTotalLength()));
         CPPUNIT_ASSERT(strcmp(s, contents.c_str()) == 0);
@@ -823,7 +826,7 @@ class MasterTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_NO_THROW(server->getTable(0, 0));
 
         // Table doesn't exist.
-        Status status = Status(-1);
+        Status status = Status(0);
         try {
             server->getTable(1000, 0);
         } catch (TableDoesntExistException& e) {

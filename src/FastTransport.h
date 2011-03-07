@@ -1210,9 +1210,9 @@ class FastTransport : public Transport {
         T* get()
         {
             uint32_t sessionHint = firstFree;
-            if (sessionHint >= sessions.size()) {
+            if (sessionHint >= size()) {
                 // Invalid, no free sessions, so create a new one
-                sessionHint = sessions.size();
+                sessionHint = size();
                 T* session = new T(transport, sessionHint);
                 session->nextFree = TAIL;
                 sessions.push_back(session);
@@ -1273,7 +1273,7 @@ class FastTransport : public Transport {
          */
         uint32_t size()
         {
-            return sessions.size();
+            return downCast<uint32_t>(sessions.size());
         }
 
       private:

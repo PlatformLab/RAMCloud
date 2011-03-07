@@ -94,7 +94,7 @@ uint64_t FastTransport::sessionTimeoutCyclesOverride = 0;
 uint32_t
 FastTransport::dataPerFragment()
 {
-    return driver->getMaxPacketSize() - sizeof(Header);
+    return driver->getMaxPacketSize() - downCast<uint32_t>(sizeof(Header));
 }
 
 /**
@@ -550,11 +550,12 @@ void
 FastTransport::InboundMessage::sendAck()
 {
     Header header;
-    session->fillHeader(&header, channelId);
+    session->fillHeader(&header, downCast<uint8_t>(channelId));
     header.payloadType = Header::ACK;
     Buffer payloadBuffer;
     AckResponse *ackResponse =
-        new(&payloadBuffer, APPEND) AckResponse(firstMissingFrag);
+        new(&payloadBuffer, APPEND) AckResponse(
+                                        downCast<uint16_t>(firstMissingFrag));
     for (uint32_t i = 0; i < dataStagingWindow.getLength(); i++) {
         std::pair<char*, uint32_t> elt =
             dataStagingWindow[firstMissingFrag + 1 + i];
@@ -646,10 +647,10 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
         char *payload = received->steal(&length);
         // Give that responsibility to dataBuffer's destructor.
         PayloadChunk::appendToBuffer(dataBuffer,
-                                     payload + sizeof(Header),
-                                     length - sizeof(Header),
-                                     transport->driver,
-                                     payload);
+                                 payload + downCast<uint32_t>(sizeof(Header)),
+                                 length - downCast<uint32_t>(sizeof(Header)),
+                                 transport->driver,
+                                 payload);
 
         // Advance the staging window (and firstMissingFrag) to restore the
         // invariants:
@@ -670,10 +671,10 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
             // this responsibility was stolen on a prior method invocation
             // in the else block below.
             PayloadChunk::appendToBuffer(dataBuffer,
-                                         payload + sizeof(Header),
-                                         length - sizeof(Header),
-                                         transport->driver,
-                                         payload);
+                                 payload + downCast<uint32_t>(sizeof(Header)),
+                                 length - downCast<uint32_t>(sizeof(Header)),
+                                 transport->driver,
+                                 payload);
         }
     } else if (header->fragNumber > firstMissingFrag) {
         // If the fragNumber exceeds the firstMissingFrag of this message then
@@ -987,9 +988,9 @@ FastTransport::OutboundMessage::sendOneData(uint32_t fragNumber,
                                             bool requestAck)
 {
     Header header;
-    session->fillHeader(&header, channelId);
-    header.fragNumber = fragNumber;
-    header.totalFrags = totalFrags;
+    session->fillHeader(&header, downCast<uint8_t>(channelId));
+    header.fragNumber = downCast<uint16_t>(fragNumber);
+    header.totalFrags = downCast<uint16_t>(totalFrags);
     header.requestAck = requestAck;
     header.payloadType = Header::DATA;
     uint32_t dataPerFragment = transport->dataPerFragment();

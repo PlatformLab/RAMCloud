@@ -269,7 +269,8 @@ class BufferTest : public CppUnit::TestFixture {
                 numChunkDeletes++;
             }
             static TChunk* appendToBuffer(Buffer* buffer, const char* s) {
-                TChunk* chunk = new(buffer, CHUNK) TChunk(s, strlen(s));
+                TChunk* chunk = new(buffer, CHUNK)
+                                    TChunk(s, downCast<uint32_t>(strlen(s)));
                 buffer->appendChunk(chunk);
                 return chunk;
             }
