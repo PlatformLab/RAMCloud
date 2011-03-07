@@ -19,6 +19,7 @@
 
 #include "Log.h"
 #include "LogCleaner.h"
+#include "TransportManager.h" // for Log memory 0-copy registration hack
 
 namespace RAMCloud {
 
@@ -67,6 +68,7 @@ Log::Log(const Tub<uint64_t>& logId,
         addSegmentMemory(static_cast<char*>(segmentMemory.get()) +
                          i * segmentCapacity);
     }
+    transportManager.registerMemory(segmentMemory.get(), segmentMemory.length);
 }
 
 /**

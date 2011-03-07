@@ -319,6 +319,11 @@ class RealInfiniband {
              uint32_t remoteQKey = 0);
 
     void
+    postSendZeroCopy(QueuePair* qp, BufferDescriptor *bd,
+        uint32_t length, const void* zeroCopyBuf, uint32_t zeroCopyBytes,
+        ibv_mr* zeroCopyMemoryRegion);
+
+    void
     postSendAndWait(QueuePair* qp,
                     BufferDescriptor* bd,
                     uint32_t length,
@@ -345,7 +350,8 @@ class RealInfiniband {
                         int numEntries,
                         ibv_wc *retWcArray);
 
-  PRIVATE:
+// XXX- keep public for 0-copy hack. nothing to see here, move along.
+//  PRIVATE:
     Device device;
     ProtectionDomain pd;
     uint64_t totalAddressHandleAllocCalls;

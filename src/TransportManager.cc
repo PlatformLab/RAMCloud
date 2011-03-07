@@ -271,6 +271,16 @@ TransportManager::getListeningLocatorsString()
 }
 
 /**
+ * See #Transport::registerMemory.
+ */
+void
+TransportManager::registerMemory(void* base, size_t bytes)
+{
+    foreach (auto transport, transports)
+            transport->registerMemory(base, bytes);
+}
+
+/**
  * dumpStats() on all registered transports.
  */
 void

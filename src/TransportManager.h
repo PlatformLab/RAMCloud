@@ -48,6 +48,7 @@ class TransportManager {
     Transport::ServerRpc* serverRecv();
     ServiceLocatorList getListeningLocators();
     string getListeningLocatorsString();
+    void registerMemory(void* base, size_t bytes);
     void dumpStats();
 
 #if TESTING

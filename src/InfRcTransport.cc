@@ -133,7 +133,10 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
       outstandingRpcs(),
       locatorString(),
       poller(this),
-      serverConnectHandler()
+      serverConnectHandler(),
+      logMemoryBase(0),
+      logMemoryBytes(0),
+      logMemoryRegion(0)
 {
     const char *ibDeviceName = NULL;
 
@@ -793,6 +796,41 @@ InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
 }
 
 /**
+ * This is a hack for doing zero-copy sends of log data to backups
+ * during recovery. Diego has a cleaner solution, but we want this
+ * quickly for the paper. Afterwards we'll have to bulldoze the Inf
+ * stuff and write something clean.
+ */
+template<typename Infiniband>
+bool
+InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
+{
+    InfRcTransport* const t = transport;
+    if (t->logMemoryBase != 0 && request->getNumberChunks() == 2) {
+        Buffer::Iterator it(*request);
+        it.next();
+        const uintptr_t addr = reinterpret_cast<const uintptr_t>(it.getData());
+        if (addr >= t->logMemoryBase &&
+          (addr + it.getLength()) < (t->logMemoryBase + t->logMemoryBytes)) {
+            uint64_t hdrBytes = it.getTotalLength() - it.getLength();
+//LOG(NOTICE, "ZERO COPYING WRITE FROM LOG: total: %u bytes, hdr: %lu bytes, 0copy: %u bytes\n", request->getTotalLength(), hdrBytes, it.getLength()); 
+            BufferDescriptor* bd = t->getTransmitBuffer();
+            {
+                CycleCounter<Metric>
+                    copyTicks(&metrics->transport.transmit.copyTicks);
+                request->copy(0, hdrBytes, bd->buffer);
+            }
+            LOG(DEBUG, "Sending 0-copy request");
+            t->infiniband->postSendZeroCopy(session->qp, bd,
+                hdrBytes, it.getData(), it.getLength(), t->logMemoryRegion);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Send the RPC request out onto the network if there is a receive buffer
  * available for its response, or queue it for transmission otherwise.
  */
@@ -808,17 +846,20 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
         ++metrics->transport.transmit.messageCount;
         ++metrics->transport.transmit.packetCount;
         new(request, PREPEND) Header(nonce);
-        BufferDescriptor* bd = t->getTransmitBuffer();
-        {
-            CycleCounter<Metric>
-                copyTicks(&metrics->transport.transmit.copyTicks);
-            request->copy(0, request->getTotalLength(), bd->buffer);
+
+        if (!tryZeroCopy(request)) {
+            BufferDescriptor* bd = t->getTransmitBuffer();
+            {
+                CycleCounter<Metric>
+                    copyTicks(&metrics->transport.transmit.copyTicks);
+                request->copy(0, request->getTotalLength(), bd->buffer);
+            }
+            metrics->transport.transmit.iovecCount += request->getNumberChunks();
+            metrics->transport.transmit.byteCount += request->getTotalLength();
+            LOG(DEBUG, "Sending request with nonce %016lx", nonce);
+            t->infiniband->postSend(session->qp, bd,
+                                    request->getTotalLength());
         }
-        metrics->transport.transmit.iovecCount += request->getNumberChunks();
-        metrics->transport.transmit.byteCount += request->getTotalLength();
-        LOG(DEBUG, "Sending request with nonce %016lx", nonce);
-        t->infiniband->postSend(session->qp, bd,
-                                request->getTotalLength());
         request->truncateFront(sizeof(Header)); // for politeness
 
         t->outstandingRpcs.push_back(*this);

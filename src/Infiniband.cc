@@ -280,6 +280,47 @@ Infiniband::postSrqReceive(ibv_srq* srq, BufferDescriptor *bd)
     }
 }
 
+void
+Infiniband::postSendZeroCopy(QueuePair* qp, BufferDescriptor *bd,
+    uint32_t length, const void* zeroCopyBuf, uint32_t zeroCopyBytes,
+    ibv_mr* zeroCopyMemoryRegion)
+{
+    assert(qp->type == IBV_QPT_RC);
+
+    ibv_sge isge[2] = {
+        {
+            reinterpret_cast<uint64_t>(bd->buffer),
+            length,
+            bd->mr->lkey
+        },
+        {
+            reinterpret_cast<uint64_t>(const_cast<void*>(zeroCopyBuf)),
+            zeroCopyBytes,
+            zeroCopyMemoryRegion->lkey
+        }
+    };
+    ibv_send_wr txWorkRequest;
+
+    memset(&txWorkRequest, 0, sizeof(txWorkRequest));
+    txWorkRequest.wr_id = reinterpret_cast<uint64_t>(bd);// stash descriptor ptr
+    txWorkRequest.next = NULL;
+    txWorkRequest.sg_list = isge;
+    txWorkRequest.num_sge = 2;
+    txWorkRequest.opcode = IBV_WR_SEND;
+    txWorkRequest.send_flags = IBV_SEND_SIGNALED;
+
+    // We can get a substantial latency improvement (nearly 2usec less per RTT)
+    // by inlining data with the WQE for small messages. The Verbs library
+    // automatically takes care of copying from the SGEs to the WQE.
+    if ((length + zeroCopyBytes) <= MAX_INLINE_DATA)
+        txWorkRequest.send_flags |= IBV_SEND_INLINE;
+
+    ibv_send_wr *bad_txWorkRequest;
+    if (ibv_post_send(qp->qp, &txWorkRequest, &bad_txWorkRequest)) {
+        throw TransportException(HERE, "ibv_post_send failed");
+    }
+}
+
 /**
  * Asychronously transmit the packet described by 'bd' on queue pair 'qp'.
  * This function returns immediately. 
