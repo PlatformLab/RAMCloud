@@ -365,6 +365,9 @@ class Coordinator(Struct):
     recoveryConstructorTicks = u64(
         'total amount of time in Recovery constructor')
     recoveryStartTicks = u64('total amount of time in Recovery::start')
+    tabletsRecoveredTicks = u64('total amount of time in Recovery::start')
+    setWillTicks = u64('total amount of time in Recovery::setWill')
+    getTabletMapTicks = u64('total amount of time in Recovery::setWill')
     local = Local('local metrics', 'Local')
 
 class Master(Struct):
@@ -715,11 +718,26 @@ def textReport(data):
         coord.coordinator.recoveryStartTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
+    coordSection.ms('  Tablets recovered',
+        coord.coordinator.tabletsRecoveredTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    coordSection.ms('  Set will',
+        coord.coordinator.setWillTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    coordSection.ms('  Get tablet map',
+        coord.coordinator.getTabletMapTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
     coordSection.ms('  Other',
         ((coord.recoveryTicks -
           coord.idleTicks -
           coord.coordinator.recoveryConstructorTicks -
-          coord.coordinator.recoveryStartTicks) /
+          coord.coordinator.recoveryStartTicks -
+          coord.coordinator.setWillTicks -
+          coord.coordinator.getTabletMapTicks -
+          coord.coordinator.tabletsRecoveredTicks) /
          coord.clockFrequency),
         total=recoveryTime,
         fractionLabel='of total recovery')

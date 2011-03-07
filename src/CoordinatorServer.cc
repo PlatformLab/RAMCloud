@@ -294,6 +294,7 @@ CoordinatorServer::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
                                 GetTabletMapRpc::Response& respHdr,
                                 Transport::ServerRpc& rpc)
 {
+    CycleCounter<Metric> _(&metrics->coordinator.getTabletMapTicks);
     respHdr.tabletMapLength = serializeToResponse(rpc.replyPayload,
                                                   tabletMap);
 }
@@ -390,6 +391,7 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                                     TabletsRecoveredRpc::Response& respHdr,
                                     Transport::ServerRpc& rpc)
 {
+    CycleCounter<Metric> ticks(&metrics->coordinator.tabletsRecoveredTicks);
     if (reqHdr.status != STATUS_OK) {
         // we'll need to restart a recovery of that partition elsewhere
         // right now this just leaks the recovery object in the tabletMap
@@ -442,6 +444,7 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                     recovery->tabletsRecovered(recoveredTablets);
                 if (recoveryComplete) {
                     LOG(NOTICE, "Recovery completed");
+                    ticks.stop();
                     delete recovery;
                     // dump the tabletMap out for easy debugging
                     LOG(NOTICE, "Coordinator tabletMap:");
@@ -515,6 +518,7 @@ CoordinatorServer::setWill(const SetWillRpc::Request& reqHdr,
                            SetWillRpc::Response& respHdr,
                            Transport::ServerRpc& rpc)
 {
+    CycleCounter<Metric> _(&metrics->coordinator.setWillTicks);
     if (!setWill(reqHdr.masterId, rpc.recvPayload, sizeof(reqHdr),
         reqHdr.willLength)) {
         // TODO(ongaro): should be some other error or silent
