@@ -19,11 +19,20 @@
 #include <assert.h>
 
 #include "BenchUtil.h"
+#include "Crc32C.h"
 #include "RamCloud.h"
 #include "OptionParser.h"
 #include "Tub.h"
 
 using namespace RAMCloud;
+
+/*
+ * If true, add the table and object ids to every object, calculate and
+ * append a checksum, and verify the whole package when recovery is done.
+ * The crc is the first 4 bytes of the object. The tableId and objectId
+ * are the last 16 bytes.
+ */
+bool verify = false;
 
 void
 runRecovery(RamCloud& client,
@@ -31,6 +40,9 @@ runRecovery(RamCloud& client,
             int tableCount,
             int tableSkip)
 {
+    if (verify && objectDataSize < 20)
+        DIE("need >= 20 byte objects to do verification!");
+
     char tableName[20];
     int tables[tableCount];
 
@@ -52,6 +64,8 @@ runRecovery(RamCloud& client,
         count * tableCount, objectDataSize);
     char val[objectDataSize];
     memset(val, 0xcc, objectDataSize);
+    Crc32C checksumBasis;
+    checksumBasis.update(&val[4], objectDataSize - 20);
     Tub<RamCloud::Create> createRpcs[8];
     uint64_t b = rdtsc();
     for (int j = 0; j < count - 1; j++) {
@@ -60,6 +74,20 @@ runRecovery(RamCloud& client,
                                          arrayLength(createRpcs)];
             if (createRpc)
                 (*createRpc)();
+
+            if (verify) {
+                uint32_t *crcPtr = reinterpret_cast<uint32_t*>(&val[0]);
+                uint64_t *tableIdPtr =
+                    reinterpret_cast<uint64_t*>(&val[objectDataSize-16]);
+                uint64_t *objectIdPtr =
+                    reinterpret_cast<uint64_t*>(&val[objectDataSize-8]);
+                *tableIdPtr = tables[t];
+                *objectIdPtr = j;
+                Crc32C checksum = checksumBasis;
+                checksum.update(&val[objectDataSize-16], 16);
+                *crcPtr = checksum.getResult();
+            }
+
             createRpc.construct(client,
                                 tables[t],
                                 static_cast<void*>(val), objectDataSize,
@@ -74,8 +102,8 @@ runRecovery(RamCloud& client,
     client.create(tables[0], val, objectDataSize,
                   /* version = */ NULL,
                   /* async = */ false);
-    LOG(DEBUG, "%d inserts took %lu ticks", count * tableCount, rdtsc() - b);
-    LOG(DEBUG, "avg insert took %lu ticks",
+    LOG(NOTICE, "%d inserts took %lu ticks", count * tableCount, rdtsc() - b);
+    LOG(NOTICE, "avg insert took %lu ticks",
         (rdtsc() - b) / count / tableCount);
 
 
@@ -125,6 +153,50 @@ runRecovery(RamCloud& client,
     LOG(NOTICE, "Recovery completed in %lu ns",
         cyclesToNanoseconds(rdtsc() - b));
 
+    b = rdtsc();
+    if (verify) {
+        LOG(NOTICE, "Verifying all data.");
+
+        int total = count * tableCount; 
+        int tenPercent = total / 10;
+        int logCount = 0;
+        for (int j = 0; j < count - 1; j++) {
+            for (int t = 0; t < tableCount; t++) {
+                try {
+                    client.read(tables[t], j, &nb);
+                } catch (...) {
+                    LOG(ERROR, "Failed to access object (tbl %d, obj %d)!",
+                        tables[t], j);
+                    continue;
+                }
+                const char* objData = nb.getStart<char>();
+                uint32_t objBytes = nb.getTotalLength();
+
+                if (objBytes != objectDataSize) {
+                    LOG(ERROR, "Bad object size (tbl %d, obj %d)",
+                        tables[t], j);
+                } else {
+                    Crc32C checksum;
+                    checksum.update(&objData[4], objBytes - 4);
+                    if (checksum.getResult() != *nb.getStart<uint32_t>()) {
+                        LOG(ERROR, "Bad object checksum (tbl %d, obj %d)",
+                            tables[t], j);
+                    }
+                }
+            }
+
+            logCount += tableCount;
+            if (logCount >= tenPercent) {
+                LOG(DEBUG, " -- %.2f%% done",
+                    100.0 * (j * tableCount) / total);
+                logCount = 0;
+            }
+        }
+
+        LOG(NOTICE, "Verification took %lu ns",
+            cyclesToNanoseconds(rdtsc() - b));
+    }
+
     // dump out coordinator rpc info
     client.ping();
 }
@@ -160,7 +232,10 @@ try
         ("size,s",
          ProgramOptions::value<uint32_t>(&objectDataSize)->
             default_value(1024),
-         "Number of bytes to insert per object during insert phase.");
+         "Number of bytes to insert per object during insert phase.")
+        ("verify,v",
+         ProgramOptions::bool_switch(&verify),
+         "Verify the contents of all objects after recovery completes.");
 
     OptionParser optionParser(clientOptions, argc, argv);
 
