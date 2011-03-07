@@ -241,9 +241,7 @@ Recovery::buildSegmentIdToBackups()
 
     // As RPCs complete kick off new ones
     while (activeBackupHosts > 0) {
-        while (Dispatch::poll()) {
-            /* pass */;
-        }
+        Dispatch::handleEvent();
         for (uint32_t i = 0; i < numBackups; ++i) {
             auto& task = tasks[i];
             if (!task || !task->isReady() || task->isDone())

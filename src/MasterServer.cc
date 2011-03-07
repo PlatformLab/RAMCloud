@@ -275,8 +275,15 @@ MasterServer::removeTombstones()
 }
 
 namespace {
+
 // used in recover()
 struct Task {
+    struct ResendTimer : public Dispatch::Timer {
+        ResendTimer(Task& task) : task(task) {}
+        void operator() () { task.resend(); }
+        Task& task;
+    };
+
     Task(uint64_t masterId,
          uint64_t partitionId,
          ProtoBuf::ServerList::Entry& backupHost)
@@ -287,8 +294,8 @@ struct Task {
         , client(transportManager.getSession(
                     backupHost.service_locator().c_str()))
         , startTime(rdtsc())
-        , waitUntil(0)
         , rpc()
+        , resendTimer(*this)
     {
           rpc.construct(client, masterId, backupHost.segment_id(),
                         partitionId, response);
@@ -304,8 +311,8 @@ struct Task {
     Buffer response;
     BackupClient client;
     const uint64_t startTime;
-    uint64_t waitUntil;
     Tub<BackupClient::GetRecoveryData> rpc;
+    ResendTimer resendTimer;
     DISALLOW_COPY_AND_ASSIGN(Task);
 };
 }
@@ -489,24 +496,15 @@ MasterServer::recover(uint64_t masterId,
     Tub<CycleCounter<Metric>> readStallTicks;
     readStallTicks.construct(&metrics->master.segmentReadStallTicks);
 
-    bool someTaskWasReady = false;
     while (activeRequests) {
-        if (!someTaskWasReady)
-            while (Dispatch::poll());
-        someTaskWasReady = false;
+        Dispatch::handleEvent();
         foreach (auto& task, tasks) {
             if (!task)
                 continue;
-            if (task->waitUntil) {
-                if (task->waitUntil < rdtsc()) {
-                    task->waitUntil = 0;
-                    task->resend();
-                }
+            if (task->resendTimer.isRunning())
                 continue;
-            }
             if (!task->rpc->isReady())
                 continue;
-            someTaskWasReady = true;
             readStallTicks.destroy();
             LOG(DEBUG, "Waiting on recovery data for segment %lu from %s",
                 task->backupHost.segment_id(),
@@ -545,7 +543,7 @@ MasterServer::recover(uint64_t masterId,
                 }
             } catch (const RetryException& e) {
                 // The backup isn't ready yet, try back later.
-                task->waitUntil = rdtsc() + 3000000; // about 1ms
+                task->resendTimer.startCycles(3000000); // about 1ms
                 readStallTicks.construct(
                                     &metrics->master.segmentReadStallTicks);
                 continue;

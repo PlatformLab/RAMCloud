@@ -215,17 +215,22 @@ TransportManager::serverRecv()
 {
     if (!initialized || listening.empty())
         throw TransportException(HERE, "no transports to listen on");
-    CycleCounter<Metric> _(&metrics->idleTicks);
+    uint64_t startIdle = __is_empty(Metric) ? 0 : rdtsc();
     while (true) {
         if (nextToListen >= listening.size()) {
-            Dispatch::poll();
+            if (Dispatch::poll()) {
+                metrics->recvIdleTicks += Dispatch::currentTime - startIdle;
+                startIdle = __is_empty(Metric) ? 0 : rdtsc();
+            }
             nextToListen = 0;
         }
         auto transport = listening[nextToListen++];
-
+        uint64_t end = __is_empty(Metric) ? 0 : rdtsc();
         auto rpc = transport->serverRecv();
-        if (rpc != NULL)
+        if (rpc != NULL) {
+            metrics->recvIdleTicks += end - startIdle;
             return rpc;
+        }
     }
 }
 

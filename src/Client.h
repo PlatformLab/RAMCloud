@@ -98,9 +98,7 @@ parallelRun(Tub<T>* tasks, uint32_t numTasks, uint32_t maxOutstanding)
 
     // As tasks complete, kick off new ones
     while (firstNotDone < numTasks) {
-        while (Dispatch::poll()) {
-            /* pass */;
-        }
+        Dispatch::handleEvent();
         for (uint32_t i = firstNotDone; i < firstNotIssued; ++i) {
             auto& task = tasks[i];
             if (task->isDone()) { // completed already

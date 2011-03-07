@@ -15,6 +15,7 @@
 
 #include <sys/epoll.h>
 #include "BenchUtil.h"
+#include "Metrics.h"
 #include "Common.h"
 #include "Dispatch.h"
 
@@ -153,9 +154,14 @@ bool Dispatch::poll()
  */
 void Dispatch::handleEvent()
 {
+    if (poll())
+        return;
+    uint64_t startIdleTime = currentTime;
     while (!poll()) {
         // Empty loop body.
     }
+    uint64_t endIdleTime = currentTime;
+    metrics->dispatchIdleTicks += endIdleTime - startIdleTime;
 }
 
 /**

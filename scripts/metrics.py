@@ -444,7 +444,9 @@ class Recovery(Struct):
     serverRole = u64('0 = coordinator, 1 = master, 2 = backup')
     clockFrequency = u64('cycles per second for the cpu')
     recoveryTicks = u64('total time elapsed during recovery')
-    idleTicks = u64('total time spent idling')
+    dispatchIdleTicks = u64('total time spinning in Dispatch::handleEvent')
+    recvIdleTicks = u64(
+        'total time spent spinning in TransportManager::serverRecv')
     transport = Transport('transport docs', 'Transport')
     coordinator = Coordinator('coordinator docs', 'Coordinator')
     master = Master('master docs', 'Master')
@@ -706,8 +708,12 @@ def textReport(data):
         coord.recoveryTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
-    coordSection.ms('  Idle',
-        coord.idleTicks / coord.clockFrequency,
+    coordSection.ms('  Recv Idle',
+        coord.recvIdleTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    coordSection.ms('  Dispatch Idle',
+        coord.dispatchIdleTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
     coordSection.ms('  Starting recovery on backups',
@@ -732,7 +738,7 @@ def textReport(data):
         fractionLabel='of total recovery')
     coordSection.ms('  Other',
         ((coord.recoveryTicks -
-          coord.idleTicks -
+          coord.recvIdleTicks -
           coord.coordinator.recoveryConstructorTicks -
           coord.coordinator.recoveryStartTicks -
           coord.coordinator.setWillTicks -
@@ -741,10 +747,19 @@ def textReport(data):
          coord.clockFrequency),
         total=recoveryTime,
         fractionLabel='of total recovery')
+    coordSection.ms('Receiving in transport',
+        coord.transport.receive.ticks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
 
     masterSection = report.add(Section('Master Time'))
     masterSection.ms('Total',
         [master.recoveryTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    masterSection.ms('  Dispatch Idle',
+        [master.dispatchIdleTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -836,8 +851,8 @@ def textReport(data):
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    backupSection.ms('  Idle',
-        [backup.idleTicks / backup.clockFrequency
+    backupSection.ms('  Recv Idle',
+        [backup.recvIdleTicks / backup.clockFrequency
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -880,7 +895,7 @@ def textReport(data):
         fractionLabel='of total recovery')
     backupSection.ms('  Other',
         [(backup.recoveryTicks -
-          backup.idleTicks -
+          backup.recvIdleTicks -
           backup.backup.startReadingDataTicks -
           backup.backup.writeTicks -
           backup.backup.readStallTicks -

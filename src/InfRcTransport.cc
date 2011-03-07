@@ -955,7 +955,7 @@ void
 InfRcTransport<Infiniband>::ClientRpc::wait()
 {
     while (state != RESPONSE_RECEIVED)
-        Dispatch::poll();
+        Dispatch::handleEvent();
 }
 
 //-------------------------------------
