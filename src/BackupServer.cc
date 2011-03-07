@@ -882,6 +882,14 @@ BackupServer::BackupServer(const Config& config,
 #endif
 {
     recoveryTicks.construct(); // make unit tests happy
+
+    // Prime the segment pool. This removes an overhead that would otherwise be
+    // seen during the first recovery.
+    void* mem[100];
+    foreach(auto& m, mem)
+        m = pool.malloc();
+    foreach(auto& m, mem)
+        pool.free(m);
 }
 
 /**
