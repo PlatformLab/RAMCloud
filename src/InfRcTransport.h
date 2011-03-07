@@ -62,7 +62,7 @@ class InfRcTransport : public Transport {
     {
         assert(logMemoryRegion == NULL);
         logMemoryRegion = ibv_reg_mr(infiniband->pd.pd, base, bytes,
-            IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);      
+            IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
         assert(logMemoryRegion != NULL);
         logMemoryBase = reinterpret_cast<uintptr_t>(base);
         logMemoryBytes = bytes;
@@ -299,7 +299,7 @@ class InfRcTransport : public Transport {
     // This must go away after SOSP
     uintptr_t logMemoryBase;
     size_t logMemoryBytes;
-    ibv_mr* logMemoryRegion; 
+    ibv_mr* logMemoryRegion;
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };

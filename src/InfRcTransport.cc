@@ -816,7 +816,7 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
         if (addr >= t->logMemoryBase &&
           (addr + it.getLength()) < (t->logMemoryBase + t->logMemoryBytes)) {
             uint32_t hdrBytes = it.getTotalLength() - it.getLength();
-//LOG(NOTICE, "ZERO COPYING WRITE FROM LOG: total: %u bytes, hdr: %lu bytes, 0copy: %u bytes\n", request->getTotalLength(), hdrBytes, it.getLength()); 
+//LOG(NOTICE, "ZERO COPYING WRITE FROM LOG: total: %u bytes, hdr: %lu bytes, 0copy: %u bytes\n", request->getTotalLength(), hdrBytes, it.getLength()); //NOLINT 
             BufferDescriptor* bd = t->getTransmitBuffer();
             {
                 CycleCounter<Metric>
@@ -857,7 +857,8 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
                     copyTicks(&metrics->transport.transmit.copyTicks);
                 request->copy(0, request->getTotalLength(), bd->buffer);
             }
-            metrics->transport.transmit.iovecCount += request->getNumberChunks();
+            metrics->transport.transmit.iovecCount +=
+                request->getNumberChunks();
             metrics->transport.transmit.byteCount += request->getTotalLength();
             LOG(DEBUG, "Sending request with nonce %016lx", nonce);
             t->infiniband->postSend(session->qp, bd,
