@@ -815,7 +815,7 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
         const uintptr_t addr = reinterpret_cast<const uintptr_t>(it.getData());
         if (addr >= t->logMemoryBase &&
           (addr + it.getLength()) < (t->logMemoryBase + t->logMemoryBytes)) {
-            uint64_t hdrBytes = it.getTotalLength() - it.getLength();
+            uint32_t hdrBytes = it.getTotalLength() - it.getLength();
 //LOG(NOTICE, "ZERO COPYING WRITE FROM LOG: total: %u bytes, hdr: %lu bytes, 0copy: %u bytes\n", request->getTotalLength(), hdrBytes, it.getLength()); 
             BufferDescriptor* bd = t->getTransmitBuffer();
             {
