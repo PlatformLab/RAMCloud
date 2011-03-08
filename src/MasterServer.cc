@@ -279,7 +279,7 @@ namespace {
 // used in recover()
 struct Task {
     struct ResendTimer : public Dispatch::Timer {
-        ResendTimer(Task& task) : task(task) {}
+        explicit ResendTimer(Task& task) : task(task) {}
         void operator() () { task.resend(); }
         Task& task;
     };
@@ -301,6 +301,7 @@ struct Task {
                         partitionId, response);
     }
     void resend() {
+        LOG(DEBUG, "Resend %lu", backupHost.segment_id());
         response.reset();
         rpc.construct(client, masterId, backupHost.segment_id(),
                       partitionId, response);
@@ -456,6 +457,7 @@ MasterServer::recover(uint64_t masterId,
     Tub<Task> tasks[4];
 #endif
     uint32_t activeRequests = 0;
+    uint64_t lastEventTime = Dispatch::lastEventTime;
 
     auto notStarted = backups.mutable_server()->begin();
     auto backupsEnd = backups.mutable_server()->end();
@@ -497,7 +499,14 @@ MasterServer::recover(uint64_t masterId,
     readStallTicks.construct(&metrics->master.segmentReadStallTicks);
 
     while (activeRequests) {
-        Dispatch::handleEvent();
+        if (Dispatch::lastEventTime == lastEventTime) {
+            Dispatch::handleEvent();
+        } else {
+            // Some other piece of code has called Dispatch,
+            // so we might have work to do.
+        }
+        lastEventTime = Dispatch::lastEventTime;
+        this->backup.proceed();
         foreach (auto& task, tasks) {
             if (!task)
                 continue;
@@ -611,6 +620,7 @@ MasterServer::recover(uint64_t masterId,
 
     {
         CycleCounter<Metric> logSyncTicks(&metrics->master.logSyncTicks);
+        LOG(NOTICE, "Syncing the log");
         log.sync();
     }
 
@@ -773,8 +783,18 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
     for (; !i.isDone(); i.next());
     return;
 #endif
+    uint64_t lastOffsetBackupProgress = 0;
     while (!i.isDone()) {
         LogEntryType type = i.getType();
+
+        if (i.getOffset() > lastOffsetBackupProgress + 50000) {
+            lastOffsetBackupProgress = i.getOffset();
+            if (Dispatch::poll()) {
+                while (Dispatch::poll()) {
+                }
+                this->backup.proceed();
+            }
+        }
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH
         recoverSegmentPrefetcher(prefetch);
@@ -910,7 +930,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
         i.next();
     }
     uint64_t replayTime = cyclesToNanoseconds(rdtsc() - start);
-    LOG(NOTICE, "Segment %lu replay complete, took %lu ms",
+    LOG(DEBUG, "Segment %lu replay complete, took %lu ms",
         segmentId, replayTime / 1000 / 1000);
 }
 

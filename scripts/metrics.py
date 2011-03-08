@@ -494,7 +494,7 @@ def rawSample(data):
     print('Sample Master:')
     pprint(random.choice(data.masters))
     print()
-    print('Sample Master:')
+    print('Sample Backup:')
     pprint(random.choice(data.backups))
 
 def rawFull(data):
@@ -769,35 +769,30 @@ def textReport(data):
         total=recoveryTime,
         fractionLabel='of total recovery')
     masterSection.ms('  Backup opens, writes',
-        [master.master.backupManagerTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Approx. CPU',
-        [(master.master.recoverSegmentTicks - master.master.backupManagerTicks)
+        [(master.master.backupManagerTicks - master.master.logSyncTicks)
          / master.clockFrequency
          for master in masters],
         total=recoveryTime,
-        fractionLabel='of total recovery',
-        note='other')
-    masterSection.ms('    Verify checksum',
+        fractionLabel='of total recovery')
+    masterSection.ms('  Verify checksum',
         [master.master.verifyChecksumTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    masterSection.ms('    Segment append copy',
+    masterSection.ms('  Segment append copy',
         [master.master.segmentAppendCopyTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    masterSection.ms('    Segment append checksum',
+    masterSection.ms('  Segment append checksum',
         [master.master.segmentAppendChecksumTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    masterSection.ms('    HT, profiler, etc',
+    masterSection.ms('  HT, profiler, etc',
         [(master.master.recoverSegmentTicks -
-          master.master.backupManagerTicks -
+          master.master.backupManagerTicks +
+          master.master.logSyncTicks -
           master.master.verifyChecksumTicks -
           master.master.segmentAppendCopyTicks -
           master.master.segmentAppendChecksumTicks) /
@@ -807,20 +802,8 @@ def textReport(data):
         fractionLabel='of total recovery',
         note='other')
     masterSection.ms('Waiting for backups',
-        [(master.master.segmentOpenStallTicks +
-          master.master.segmentWriteStallTicks +
-          master.master.segmentReadStallTicks)
+        [(master.master.segmentReadStallTicks + master.master.logSyncTicks)
          / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Stalled on segment open',
-        [master.master.segmentOpenStallTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Stalled on segment write',
-        [master.master.segmentWriteStallTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -829,8 +812,18 @@ def textReport(data):
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
+    masterSection.ms('  Log sync',
+        [master.master.logSyncTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
     masterSection.ms('Removing tombstones',
         [master.master.removeTombstoneTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    masterSection.ms('Receiving in transport',
+        [master.transport.receive.ticks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -924,8 +917,7 @@ def textReport(data):
 
     # TODO(ongaro): get stddev among segments
     efficiencySection.avgStd('recoverSegment CPU',
-        (sum([(master.master.recoverSegmentTicks -
-               master.master.backupManagerTicks) / master.clockFrequency
+        (sum([master.master.recoverSegmentTicks / master.clockFrequency
               for master in masters]) * 1000 /
          sum([master.master.segmentReadCount
               for master in masters])),

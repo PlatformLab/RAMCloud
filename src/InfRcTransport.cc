@@ -823,6 +823,9 @@ InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
                     copyTicks(&metrics->transport.transmit.copyTicks);
                 request->copy(0, hdrBytes, bd->buffer);
             }
+            metrics->transport.transmit.iovecCount +=
+                request->getNumberChunks();
+            metrics->transport.transmit.byteCount += request->getTotalLength();
             LOG(DEBUG, "Sending 0-copy request");
             t->infiniband->postSendZeroCopy(session->qp, bd,
                 hdrBytes, it.getData(), it.getLength(), t->logMemoryRegion);

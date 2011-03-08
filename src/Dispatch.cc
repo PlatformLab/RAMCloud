@@ -41,6 +41,7 @@ volatile int Dispatch::readyFd = -1;
 int Dispatch::fileInvocationSerial = 0;
 std::vector<Dispatch::Timer*> Dispatch::timers;
 uint64_t Dispatch::currentTime = rdtsc();
+uint64_t Dispatch::lastEventTime = Dispatch::currentTime;
 uint64_t Dispatch::earliestTriggerTime = 0;
 
 /**
@@ -145,6 +146,8 @@ bool Dispatch::poll()
             }
         }
     }
+    if (result)
+        lastEventTime = currentTime;
     return result;
 }
 

@@ -86,6 +86,7 @@ parallelRun(Tub<T>* tasks, uint32_t numTasks, uint32_t maxOutstanding)
 
     uint32_t firstNotIssued = 0;
     uint32_t firstNotDone = 0;
+    uint64_t lastEventTime = Dispatch::lastEventTime;
 
     // Start off first round of tasks
     for (uint32_t i = 0; i < numTasks; ++i) {
@@ -98,7 +99,13 @@ parallelRun(Tub<T>* tasks, uint32_t numTasks, uint32_t maxOutstanding)
 
     // As tasks complete, kick off new ones
     while (firstNotDone < numTasks) {
-        Dispatch::handleEvent();
+        if (Dispatch::lastEventTime == lastEventTime) {
+            Dispatch::handleEvent();
+        } else {
+            // Some other piece of code has called Dispatch,
+            // so we might have work to do.
+        }
+        lastEventTime = Dispatch::lastEventTime;
         for (uint32_t i = firstNotDone; i < firstNotIssued; ++i) {
             auto& task = tasks[i];
             if (task->isDone()) { // completed already
