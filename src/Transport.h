@@ -288,7 +288,7 @@ class Transport {
      * \bug A real solution requires some means of locking the region (or
      *      a subset thereof) for updates so long as a Transport is using it.
      */
-    virtual void registerMemory(void* base, size_t bytes) = 0;
+    virtual void registerMemory(void* base, size_t bytes) {};
 
     /// Dump out performance and debugging statistics.
     virtual void dumpStats() {}

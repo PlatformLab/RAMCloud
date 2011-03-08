@@ -157,7 +157,7 @@ runRecovery(RamCloud& client,
     if (verify) {
         LOG(NOTICE, "Verifying all data.");
 
-        int total = count * tableCount; 
+        int total = count * tableCount;
         int tenPercent = total / 10;
         int logCount = 0;
         for (int j = 0; j < count - 1; j++) {
