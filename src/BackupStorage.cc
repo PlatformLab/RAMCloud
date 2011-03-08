@@ -33,7 +33,7 @@ namespace RAMCloud {
  *      A pair of storage read and write speeds in MB/s.
  */
 pair<uint32_t, uint32_t>
-BackupStorage::benchmark()
+BackupStorage::benchmark(BackupStrategy backupStrategy)
 {
     const uint32_t count = 16;
     uint32_t readSpeeds[count];
@@ -100,7 +100,23 @@ BackupStorage::benchmark()
     LOG(NOTICE, "Backup storage speeds (avg): %u MB/s read, %u MB/s write",
         avgRead, avgWrite);
 
-    return {avgRead, avgWrite};
+    if (backupStrategy == RANDOM_REFINE_MIN) {
+        LOG(NOTICE, "RANDOM_REFINE_MIN BackupStrategy selected");
+        return {minRead, minWrite};
+    } else if (backupStrategy == RANDOM_REFINE_AVG) {
+        LOG(NOTICE, "RANDOM_REFINE_AVG BackupStrategy selected");
+        return {avgRead, avgWrite};
+    } else if (backupStrategy == EVEN_DISTRIBUTION) {
+        LOG(NOTICE, "EVEN_SELECTION BackupStrategy selected");
+        return {100, 100};
+    } else if (backupStrategy == UNIFORM_RANDOM) {
+        LOG(NOTICE, "UNIFORM_RANDOM BackupStrategy selected");
+        // Magic value lets master know it should immediately
+        // accept this backup (i.e. use uniform random selection).
+        return {1, 1};
+    } else {
+        DIE("Bad BackupStrategy selected");
+    }
 }
 
 // --- BackupStorage::Handle ---
@@ -199,9 +215,9 @@ SingleFileStorage::allocate(uint64_t masterId,
  * wasting early segment frames on the disk which may be faster.
  */
 pair<uint32_t, uint32_t>
-SingleFileStorage::benchmark()
+SingleFileStorage::benchmark(BackupStrategy backupStrategy)
 {
-    auto r = BackupStorage::benchmark();
+    auto r = BackupStorage::benchmark(backupStrategy);
     lastAllocatedFrame = FreeMap::npos;
     return r;
 }

@@ -63,6 +63,8 @@ struct AbuserData{
     uint32_t getMs() {
         // unit tests, etc default to 100 MB/s
         uint32_t bandwidth = x.bandwidth ?: 100;
+        if (bandwidth == 1u)
+            return 1u;
         return downCast<uint32_t>((x.numSegments + 1) * 1000UL *
                                   Segment::SEGMENT_SIZE /
                                   1024 / 1024 / bandwidth);
@@ -114,6 +116,11 @@ BackupManager::OpenSegment::OpenSegment(BackupManager& backupManager,
             // Select the least loaded of 5 random backups:
             for (uint32_t i = 0; i < 4; ++i) {
                 auto candidate = pickRandomUnusedHost(hostList, usedHosts);
+                if (AbuserData(host).getMs() == 1u) {
+                    // if we saw magic value which means pick at uniform random
+                    host = candidate;
+                    break;
+                }
                 if (AbuserData(host).getMs() > AbuserData(candidate).getMs())
                     host = candidate;
             }

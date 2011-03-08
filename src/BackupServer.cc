@@ -933,7 +933,7 @@ BackupServer::getServerId() const
 void __attribute__ ((noreturn))
 BackupServer::run()
 {
-    auto speeds = storage.benchmark();
+    auto speeds = storage.benchmark(config.backupStrategy);
     serverId = coordinator.enlistServer(BACKUP, config.localLocator,
                                         speeds.first, speeds.second);
     LOG(NOTICE, "My server ID is %lu", serverId);
