@@ -206,6 +206,13 @@ Recovery::~Recovery()
     dump(metrics);
 }
 
+bool
+expectedLoadCmp(const ProtoBuf::ServerList::Entry& l,
+                const ProtoBuf::ServerList::Entry& r)
+{
+    return l.user_data() < r.user_data();
+}
+
 /**
  * Creates a flattened ServerList of backups describing for each copy
  * of each segment on some backup the service locator where that backup is
@@ -272,55 +279,55 @@ Recovery::buildSegmentIdToBackups()
         }
     }
 
-    // Create the ServerList 'script' that recovery masters will replay
-    // First add all primaries to the list, then all secondaries
-    for (bool primary = true;; primary = !primary) {
-        for (uint32_t slot = 0;; ++slot) {
-            // Keep working if some segment list had a value in offset 'slot'.
-            bool stillWorking = false;
-            // TODO(stutsman) we'll want to add some modular arithmetic here
-            // to generate unique replay scripts for each recovery master
-            for (int i = 0; i < backupHosts.server_size(); ++i) {
-                if (!tasks[i])
-                    continue;
-                const auto& task = tasks[i];
-
-                // Amount per result's segment array to compensate to
-                // skip over primaries in the list, only used when adding
-                // secondaries to the script, no effect on primary pass
-                uint32_t firstSecondary = primary ?
-                                            0 :
-                                            task->result.primarySegmentCount;
-                uint32_t adjustedSlot = slot + firstSecondary;
-                if (adjustedSlot >= task->result.segmentIdAndLength.size() ||
-                    (primary &&
-                     adjustedSlot >= task->result.primarySegmentCount))
-                    continue;
-                stillWorking = true;
-                ProtoBuf::ServerList::Entry& backupHost = *backups.add_server();
-                // Copy backup host into the new server list.
-                backupHost = task->backupHost;
-                // Augment it with the segment id.
-                uint64_t segmentId =
-                    task->result.segmentIdAndLength[adjustedSlot].first;
-                backupHost.set_segment_id(segmentId);
-                // Just for debugging for now so the debug print out can include
-                // whether or not each entry is a primary
-                backupHost.set_user_data(adjustedSlot <
-                                         task->result.primarySegmentCount);
-
-                // Keep count of each segmentId seen so we can cross check with
-                // the LogDigest.
-                ++segmentMap[segmentId];
+    // Create the ServerList 'script' that recovery masters will replay.
+    // First add all primaries to the list, then all secondaries.
+    // Order primaries (and even secondaries among themselves anyway) based
+    // on when they are expected to be loaded in from disk.
+    vector<ProtoBuf::ServerList::Entry> backupsToSort;
+    for (int j = 0; j < backupHosts.server_size(); ++j) {
+        if (!tasks[j])
+            continue;
+        const auto& task = tasks[j];
+        const auto& backup = backupHosts.server(j);
+        const uint64_t speed = backup.user_data();
+        LOG(DEBUG, "Adding all segments from %s with bench speed of %lu",
+            backup.service_locator().c_str(), speed);
+        for (size_t i = 0; i < task->result.segmentIdAndLength.size(); ++i) {
+            uint64_t expectedLoadTimeMs;
+            if (i < task->result.primarySegmentCount) {
+                // for primaries just estimate when they'll load
+                expectedLoadTimeMs = i * 8 * 1000 / (speed ?: 1);
+            } else {
+                // for secondaries estimate when they'll load
+                // but add a huge bias so secondaries don't overlap
+                // with primaries but are still interleaved
+                expectedLoadTimeMs = (i - task->result.primarySegmentCount) *
+                                     8 * 1000/ (speed ?: 1);
+                expectedLoadTimeMs += 1000000;
             }
-            if (!stillWorking)
-                break;
+            ProtoBuf::ServerList::Entry newEntry = backup;
+            uint64_t segmentId = task->result.segmentIdAndLength[i].first;
+            newEntry.set_user_data(expectedLoadTimeMs);
+            newEntry.set_segment_id(segmentId);
+            backupsToSort.push_back(newEntry);
+            // Keep count of each segmentId seen so we can cross check with
+            // the LogDigest.
+            ++segmentMap[segmentId];
         }
-        if (!primary)
-            break;
+    }
+    std::sort(backupsToSort.begin(), backupsToSort.end(), expectedLoadCmp);
+    foreach(const auto& backup, backupsToSort) {
+        LOG(DEBUG, "Load segment %lu from %s with expected load time of %lu",
+            backup.segment_id(), backup.service_locator().c_str(),
+            backup.user_data());
+        auto& entry = *backups.add_server();
+        entry = backup;
+        // Just for debugging for now so the debug print out can include
+        // whether or not each entry is a primary
+        entry.set_user_data(entry.user_data() < 1000000);
     }
 
-    LOG(DEBUG, "=== Replay script ===");
+    LOG(DEBUG, "--- Replay script ---");
     foreach (const auto& backup, backups.server()) {
         LOG(DEBUG, "backup: %lu, locator: %s, segmentId %lu, primary %lu",
             backup.server_id(), backup.service_locator().c_str(),
