@@ -43,7 +43,7 @@ for objectSize in [128, 256, 1024]:
             newMasterArgs='-m 1600',
             numObjects=int(numObjectsPerMb * partitionSize),
             **args)
-        print(' ->' , r['ns'] / 1e6, 'ms')
+        print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
         print(partitionSize, r['ns'] / 1e6, file=dat)
     print(file=dat)
     print(file=dat)
