@@ -196,6 +196,11 @@ MasterServer::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
         storeData(tables[t]->getId(), tables[t]->AllocateKey(&objectMap),
                   &rejectRules, &buffer, 0, reqHdr.objectSize,
                   &newVersion, true);
+        if ((objects % 50) == 0) {
+            while (Dispatch::poll()) {
+            }
+            backup.proceed();
+        }
     }
 
     log.sync();

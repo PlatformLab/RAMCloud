@@ -403,6 +403,12 @@ BackupManager::proceedNoMetrics()
                               backup->offsetSent,
                               (static_cast<const char*>(first.data) +
                                backup->offsetSent),
+#if SPEEDHACK
+    // Used to make recovery benchmarks faster:
+    // If you're feeling brave, this isn't a primary backup, and this is not on
+    // a recovery master, there's not a real need to replicate the object data.
+            (&backup - first.backups > 0 && !metrics->pid) ? 0 :
+#endif
                               first.offsetQueued - backup->offsetSent,
                               first.closeQueued ? BackupWriteRpc::CLOSE
                                                 : BackupWriteRpc::NONE);
