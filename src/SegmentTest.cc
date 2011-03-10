@@ -202,7 +202,7 @@ class SegmentTest : public CppUnit::TestFixture {
         TestLog::Enable _;
         s.close();
         CPPUNIT_ASSERT_EQUAL("write: 1, 2, 48, 1 | "
-                             "sync: Closed segment 1, 2",
+                             "proceedNoMetrics: Closed segment 1, 2",
                              TestLog::get());
 
         SegmentEntry *se = reinterpret_cast<SegmentEntry *>(

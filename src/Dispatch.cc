@@ -15,6 +15,7 @@
 
 #include <sys/epoll.h>
 #include "BenchUtil.h"
+#include "Metrics.h"
 #include "Common.h"
 #include "Dispatch.h"
 
@@ -40,6 +41,7 @@ volatile int Dispatch::readyFd = -1;
 int Dispatch::fileInvocationSerial = 0;
 std::vector<Dispatch::Timer*> Dispatch::timers;
 uint64_t Dispatch::currentTime = rdtsc();
+uint64_t Dispatch::lastEventTime = Dispatch::currentTime;
 uint64_t Dispatch::earliestTriggerTime = 0;
 
 /**
@@ -144,6 +146,8 @@ bool Dispatch::poll()
             }
         }
     }
+    if (result)
+        lastEventTime = currentTime;
     return result;
 }
 
@@ -153,9 +157,14 @@ bool Dispatch::poll()
  */
 void Dispatch::handleEvent()
 {
+    if (poll())
+        return;
+    uint64_t startIdleTime = currentTime;
     while (!poll()) {
         // Empty loop body.
     }
+    uint64_t endIdleTime = currentTime;
+    metrics->dispatchIdleTicks += endIdleTime - startIdleTime;
 }
 
 /**

@@ -41,9 +41,12 @@ for numBackups in range(3, 37):
     print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
     masterCpuMs = metrics.average(
         [(master.recoveryTicks -
-          master.master.segmentOpenStallTicks -
-          master.master.segmentWriteStallTicks -
+          master.master.logSyncTicks -
           master.master.segmentReadStallTicks) /
+         master.clockFrequency
+         for master in r['metrics'].masters]) * 1e3
+    masterCpu2Ms = metrics.average(
+        [(master.recoveryTicks - master.dispatchIdleTicks) /
          master.clockFrequency
          for master in r['metrics'].masters]) * 1e3
     diskBandwidth = sum([(backup.backup.storageReadBytes +
@@ -59,4 +62,8 @@ for numBackups in range(3, 37):
           metrics.average(diskActiveMsPoints),
           min(diskActiveMsPoints),
           max(diskActiveMsPoints),
+          masterCpu2Ms,
+          metrics.average([master.master.logSyncTicks * 1e3 /
+                           master.clockFrequency
+                           for master in r['metrics'].masters]),
           file=dat)

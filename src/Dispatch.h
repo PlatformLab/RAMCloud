@@ -45,8 +45,11 @@ class Dispatch {
 
     /// The return value from rdtsc at the beginning of the last call to
     /// #poll.
-
     static uint64_t currentTime;
+
+    /// The return value from rdtsc at the beginning of the last call to
+    /// #poll which returned true.
+    static uint64_t lastEventTime;
 
     /**
      * A Poller object is invoked once each time through the dispatcher's

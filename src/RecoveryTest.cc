@@ -102,6 +102,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         DISALLOW_COPY_AND_ASSIGN(WriteValidSegment);
     };
 
+    Tub<ProgressPoller> progressPoller;
     BackupClient* backup1;
     BackupClient* backup2;
     BackupClient* backup3;
@@ -123,7 +124,8 @@ class RecoveryTest : public CppUnit::TestFixture {
 
   public:
     RecoveryTest()
-        : backup1()
+        : progressPoller()
+        , backup1()
         , backup2()
         , backup3()
         , backupServer1()
@@ -151,6 +153,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         if (!enlist)
             tearDown();
 
+        progressPoller.construct();
         transport = new BindTransport;
         transportManager.registerMock(transport);
 
@@ -261,6 +264,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         delete transport;
         CPPUNIT_ASSERT_EQUAL(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
+        progressPoller.destroy();
     }
 
     void
