@@ -103,6 +103,18 @@ def recover(numBackups=1,
                                (run, coordinatorHost[0])), 'w'))
         ensureHosts(0)
 
+        # start dying master
+        oldMaster = sandbox.rsh(oldMasterHost[0],
+                        ('%s -r %d -C %s -L %s %s' %
+                         (masterBin, replicas,
+                          coordinatorLocator,
+                          oldMasterLocator,
+                          oldMasterArgs)),
+                        bg=True, stderr=subprocess.STDOUT,
+                        stdout=open(('%s/oldMaster.%s.log' %
+                                     (run, oldMasterHost[0])),
+                                    'w'))
+
         # start backups
         for i, (backupHost, backupLocator) in enumerate(zip(backupHosts,
                                                             backupLocators)):
@@ -116,19 +128,6 @@ def recover(numBackups=1,
                        bg=True, stderr=subprocess.STDOUT,
                        stdout=open('%s/backup.%s.log' % (run, backupHost[0]),
                                    'w')))
-        ensureHosts(len(backups))
-
-        # start dying master
-        oldMaster = sandbox.rsh(oldMasterHost[0],
-                        ('%s -r %d -C %s -L %s %s' %
-                         (masterBin, replicas,
-                          coordinatorLocator,
-                          oldMasterLocator,
-                          oldMasterArgs)),
-                        bg=True, stderr=subprocess.STDOUT,
-                        stdout=open(('%s/oldMaster.%s.log' %
-                                     (run, oldMasterHost[0])),
-                                    'w'))
         ensureHosts(len(backups) + 1)
 
         # start recovery masters
