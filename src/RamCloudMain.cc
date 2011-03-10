@@ -21,6 +21,7 @@
 #include "BenchUtil.h"
 #include "Crc32C.h"
 #include "RamCloud.h"
+#include "ObjectFinder.h"
 #include "OptionParser.h"
 #include "Tub.h"
 
@@ -34,6 +35,11 @@ using namespace RAMCloud;
  */
 bool verify = false;
 
+/*
+ * Speed up recovery insertion with the single-shot FillWithTestData RPC.
+ */
+bool fillWithTestData = false;
+
 void
 runRecovery(RamCloud& client,
             int count, uint32_t objectDataSize,
@@ -42,6 +48,8 @@ runRecovery(RamCloud& client,
 {
     if (verify && objectDataSize < 20)
         DIE("need >= 20 byte objects to do verification!");
+    if (verify && fillWithTestData)
+        DIE("verify not supported with fillWithTestData");
 
     char tableName[20];
     int tables[tableCount];
@@ -62,50 +70,62 @@ runRecovery(RamCloud& client,
 
     LOG(NOTICE, "Performing %u inserts of %u byte objects",
         count * tableCount, objectDataSize);
-    char val[objectDataSize];
-    memset(val, 0xcc, objectDataSize);
-    Crc32C checksumBasis;
-    checksumBasis.update(&val[4], objectDataSize - 20);
-    Tub<RamCloud::Create> createRpcs[8];
-    uint64_t b = rdtsc();
-    for (int j = 0; j < count - 1; j++) {
-        for (int t = 0; t < tableCount; t++) {
-            auto& createRpc = createRpcs[(j * tableCount + t) %
-                                         arrayLength(createRpcs)];
+
+    if (fillWithTestData) {
+        LOG(NOTICE, "Using the fillWithTestData rpc on a single master");
+        uint64_t b = rdtsc();
+        MasterClient master(client.objectFinder.lookup(0, 0));
+        master.fillWithTestData(count * tableCount, objectDataSize);
+        LOG(NOTICE, "%d inserts took %lu ticks",
+            count * tableCount, rdtsc() - b);
+        LOG(NOTICE, "avg insert took %lu ticks",
+                    (rdtsc() - b) / count / tableCount);
+    } else {
+        char val[objectDataSize];
+        memset(val, 0xcc, objectDataSize);
+        Crc32C checksumBasis;
+        checksumBasis.update(&val[4], objectDataSize - 20);
+        Tub<RamCloud::Create> createRpcs[8];
+        uint64_t b = rdtsc();
+        for (int j = 0; j < count - 1; j++) {
+            for (int t = 0; t < tableCount; t++) {
+                auto& createRpc = createRpcs[(j * tableCount + t) %
+                                             arrayLength(createRpcs)];
+                if (createRpc)
+                    (*createRpc)();
+
+                if (verify) {
+                    uint32_t *crcPtr = reinterpret_cast<uint32_t*>(&val[0]);
+                    uint64_t *tableIdPtr =
+                        reinterpret_cast<uint64_t*>(&val[objectDataSize-16]);
+                    uint64_t *objectIdPtr =
+                        reinterpret_cast<uint64_t*>(&val[objectDataSize-8]);
+                    *tableIdPtr = tables[t];
+                    *objectIdPtr = j;
+                    Crc32C checksum = checksumBasis;
+                    checksum.update(&val[objectDataSize-16], 16);
+                    *crcPtr = checksum.getResult();
+                }
+
+                createRpc.construct(client,
+                                    tables[t],
+                                    static_cast<void*>(val), objectDataSize,
+                                    /* version = */static_cast<uint64_t*>(NULL),
+                                    /* async = */ true);
+            }
+        }
+        foreach (auto& createRpc, createRpcs) {
             if (createRpc)
                 (*createRpc)();
-
-            if (verify) {
-                uint32_t *crcPtr = reinterpret_cast<uint32_t*>(&val[0]);
-                uint64_t *tableIdPtr =
-                    reinterpret_cast<uint64_t*>(&val[objectDataSize-16]);
-                uint64_t *objectIdPtr =
-                    reinterpret_cast<uint64_t*>(&val[objectDataSize-8]);
-                *tableIdPtr = tables[t];
-                *objectIdPtr = j;
-                Crc32C checksum = checksumBasis;
-                checksum.update(&val[objectDataSize-16], 16);
-                *crcPtr = checksum.getResult();
-            }
-
-            createRpc.construct(client,
-                                tables[t],
-                                static_cast<void*>(val), objectDataSize,
-                                /* version = */ static_cast<uint64_t*>(NULL),
-                                /* async = */ true);
         }
+        client.create(tables[0], val, objectDataSize,
+                      /* version = */ NULL,
+                      /* async = */ false);
+        LOG(NOTICE, "%d inserts took %lu ticks",
+            count * tableCount, rdtsc() - b);
+        LOG(NOTICE, "avg insert took %lu ticks",
+            (rdtsc() - b) / count / tableCount);
     }
-    foreach (auto& createRpc, createRpcs) {
-        if (createRpc)
-            (*createRpc)();
-    }
-    client.create(tables[0], val, objectDataSize,
-                  /* version = */ NULL,
-                  /* async = */ false);
-    LOG(NOTICE, "%d inserts took %lu ticks", count * tableCount, rdtsc() - b);
-    LOG(NOTICE, "avg insert took %lu ticks",
-        (rdtsc() - b) / count / tableCount);
-
 
     // dump the tablet map
     for (int t = 0; t < tableCount; t++) {
@@ -125,7 +145,7 @@ runRecovery(RamCloud& client,
     LOG(NOTICE, "--- hinting that the server is down: %s ---",
         session->getServiceLocator().c_str());
 
-    b = rdtsc();
+    uint64_t b = rdtsc();
     client.coordinator.hintServerDown(
         session->getServiceLocator().c_str());
 
@@ -157,7 +177,7 @@ runRecovery(RamCloud& client,
     if (verify) {
         LOG(NOTICE, "Verifying all data.");
 
-        int total = count * tableCount; 
+        int total = count * tableCount;
         int tenPercent = total / 10;
         int logCount = 0;
         for (int j = 0; j < count - 1; j++) {
@@ -216,6 +236,9 @@ try
         ("down,d",
          ProgramOptions::bool_switch(&hintServerDown),
          "Report the master we're talking to as down just before exit.")
+        ("fast,f",
+         ProgramOptions::bool_switch(&fillWithTestData),
+         "Use a single fillWithTestData rpc to insert recovery objects.")
         ("tables,t",
          ProgramOptions::value<uint32_t>(&tableCount)->
             default_value(1),

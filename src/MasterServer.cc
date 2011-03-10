@@ -88,6 +88,10 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             callHandler<CreateRpc, MasterServer,
                         &MasterServer::create>(rpc);
             break;
+        case FillWithTestDataRpc::type:
+            callHandler<FillWithTestDataRpc, MasterServer,
+                        &MasterServer::fillWithTestData>(rpc);
+            break;
         case PingRpc::type:
             callHandler<PingRpc, MasterServer,
                         &MasterServer::ping>(rpc);
@@ -156,6 +160,47 @@ MasterServer::create(const CreateRpc::Request& reqHdr,
               &respHdr.version,
               reqHdr.async);
     respHdr.id = id;
+}
+
+/**
+ * Fill this server with test data. Objects are added to all
+ * existing tables in a round-robin fashion.
+ * \copydetails Server::ping
+ */
+void
+MasterServer::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
+                               FillWithTestDataRpc::Response& respHdr,
+                               Transport::ServerRpc& rpc)
+{
+    LOG(NOTICE, "Filling with %u objects of %u bytes each in %u tablets",
+        reqHdr.numObjects, reqHdr.objectSize, tablets.tablet_size());
+
+    Table* tables[tablets.tablet_size()];
+    uint32_t i = 0;
+    foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet())
+        tables[i++] = reinterpret_cast<Table*>(tablet.user_data());
+
+    // safe? doubtful. simple? you bet.
+    char data[reqHdr.objectSize];
+    memset(data, 0xcc, reqHdr.objectSize);
+    Buffer buffer;
+    Buffer::Chunk::appendToBuffer(&buffer, data, reqHdr.objectSize);
+
+    RejectRules rejectRules;
+    memset(&rejectRules, 0, sizeof(RejectRules));
+    rejectRules.exists = 1;
+
+    for (uint32_t objects = 0; objects < reqHdr.numObjects; objects++) {
+        int t = objects % tablets.tablet_size();
+        uint64_t newVersion;
+        storeData(tables[t]->getId(), tables[t]->AllocateKey(&objectMap),
+                  &rejectRules, &buffer, 0, reqHdr.objectSize,
+                  &newVersion, true);
+    }
+
+    log.sync();
+
+    LOG(NOTICE, "Done writing objects.");
 }
 
 /**

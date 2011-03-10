@@ -123,6 +123,24 @@ MasterClient::RereplicateSegments::operator()()
 }
 
 /**
+ * Fill a master server with the given number of objects, each of the
+ * same given size. Objects are added to all tables in the master in
+ * a round-robin fashion.
+ *
+ * This method exists simply to quickly fill a master for experiments.
+ */
+void
+MasterClient::fillWithTestData(uint32_t numObjects, uint32_t objectSize)
+{
+    Buffer req, resp;
+    FillWithTestDataRpc::Request& reqHdr(allocHeader<FillWithTestDataRpc>(req));
+    reqHdr.numObjects = numObjects;
+    reqHdr.objectSize = objectSize;
+    sendRecv<FillWithTestDataRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
  * Create a new object in a table, with an id assigned by the server.
  *
  * \param tableId

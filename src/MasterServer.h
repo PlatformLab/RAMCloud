@@ -65,9 +65,6 @@ struct ServerConfig {
  */
 class MasterServer : public Server {
   public:
-    /// The max number of tables a Master will serve.
-    static const int NUM_TABLES = 4;
-
     MasterServer(const ServerConfig config,
                  CoordinatorClient* coordinator,
                  uint32_t replicas);
@@ -194,6 +191,9 @@ class MasterServer : public Server {
     void ping(const PingRpc::Request& reqHdr,
               PingRpc::Response& respHdr,
               Transport::ServerRpc& rpc);
+    void fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
+                          FillWithTestDataRpc::Response& respHdr,
+                          Transport::ServerRpc& rpc);
     void read(const ReadRpc::Request& reqHdr,
               ReadRpc::Response& respHdr,
               Transport::ServerRpc& rpc);
