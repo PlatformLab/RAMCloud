@@ -47,7 +47,7 @@ def recover(numBackups=1,
             backupArgs='',
             oldMasterArgs='-m 2048',
             newMasterArgs='-m 2048',
-            clientArgs=''):
+            clientArgs='-f'):
 
     coordinatorHost = hosts[0]
     coordinatorLocator = 'infrc:host=%s,port=12246' % coordinatorHost[1]
