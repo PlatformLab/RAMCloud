@@ -33,7 +33,7 @@ for numBackups in range(3, 37):
     args['numBackups'] = numBackups
     args['numPartitions'] = 1
     args['objectSize'] = 1024
-    args['disk'] = '/dev/sda2'
+    args['disk'] = 1
     args['numObjects'] = 626012 * 400 // 640
     args['oldMasterArgs'] = '-m 800'
     args['replicas'] = 3

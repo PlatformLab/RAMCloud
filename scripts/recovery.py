@@ -16,6 +16,7 @@
 
 """Runs a recovery of a master."""
 
+from __future__ import division
 from common import *
 import metrics
 import os
@@ -41,7 +42,7 @@ def recover(numBackups=1,
             objectSize=1024,
             numObjects=626012,
             replicas=1,
-            disk=False,
+            disk=1,
             timeout=60,
             coordinatorArgs='',
             backupArgs='',
@@ -55,6 +56,25 @@ def recover(numBackups=1,
     backupHosts = (hosts[1:] + [hosts[0]])[:numBackups]
     backupLocators = ['infrc:host=%s,port=12243' % host[1]
                       for host in backupHosts]
+    if disk == 0:
+        backupDisks = ['-m' for backup in backupHosts]
+    elif disk == 1:
+        backupDisks = ['-f /dev/sda2' for backup in backupHosts]
+    elif disk == 2:
+        backupDisks = ['-f /dev/sdb2' for backup in backupHosts]
+    elif disk == 3:
+        firstHalf = (numBackups + 1) // 2
+        secondHalf = numBackups // 2
+        backupHosts = ((hosts[1:] + [hosts[0]])[:firstHalf] +
+                       (hosts[1:] + [hosts[0]])[:secondHalf])
+        backupLocators = (['infrc:host=%s,port=12243' % host[1]
+                           for host in backupHosts[:firstHalf]] +
+                          ['infrc:host=%s,port=12244' % host[1]
+                           for host in backupHosts[:secondHalf]])
+        backupDisks = (['-f /dev/sda2' for i in backupHosts[:firstHalf]] +
+                       ['-f /dev/sdb2' for i in backupHosts[:secondHalf]])
+    else:
+        raise Exception('Disk should be an integer between 0 and 3')
 
     oldMasterHost = hosts[0]
     oldMasterLocator = 'infrc:host=%s,port=12242' % oldMasterHost[1]
@@ -116,18 +136,26 @@ def recover(numBackups=1,
                                     'w'))
 
         # start backups
-        for i, (backupHost, backupLocator) in enumerate(zip(backupHosts,
-                                                            backupLocators)):
+        for i, (backupHost,
+                backupLocator,
+                backupDisk) in enumerate(zip(backupHosts,
+                                             backupLocators,
+                                             backupDisks)):
+            if disk == 3:
+                filename = ('%s/backup.%s.%s.log' %
+                            (run, backupHost[0],
+                             backupDisk.split('/')[-1]))
+            else:
+                filename = '%s/backup.%s.log' % (run, backupHost[0])
             backups.append(sandbox.rsh(backupHost[0],
                        ('%s %s -C %s -L %s %s' %
                         (backupBin,
-                         '-f %s' % disk if disk else '-m',
+                         backupDisk,
                          coordinatorLocator,
                          backupLocator,
                          backupArgs)),
                        bg=True, stderr=subprocess.STDOUT,
-                       stdout=open('%s/backup.%s.log' % (run, backupHost[0]),
-                                   'w')))
+                       stdout=open(filename, 'w')))
         ensureHosts(len(backups) + 1)
 
         # start recovery masters

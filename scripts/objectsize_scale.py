@@ -33,7 +33,7 @@ for objectSize in [128, 256, 1024]:
         args['numBackups'] = 36
         args['numPartitions'] = 1
         args['objectSize'] = objectSize
-        args['disk'] = '/dev/sda2'
+        args['disk'] = 1
         args['replicas'] = 3
         numObjectsPerMb = 2**20 / (objectSize + 40)
         print('Running with objects of size %d for a %d MB partition' %

@@ -60,7 +60,7 @@ def main():
             args['numBackups'] = 36
             args['numPartitions'] = 12
             args['objectSize'] = 1024
-            args['disk'] = '/dev/sda2'
+            args['disk'] = 1
             args['replicas'] = 3
             args['numObjects'] = 626012 * 400 // 640
             args['backupArgs'] = '--backupStrategy=%d' % backupStrategy

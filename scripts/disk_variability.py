@@ -45,7 +45,7 @@ for trial in range(TRIALS):
     args['numBackups'] = NUMBACKUPS
     args['numPartitions'] = 12
     args['objectSize'] = 1024
-    args['disk'] = '/dev/sda2'
+    args['disk'] = 1
     args['replicas'] = 3
     args['numObjects'] = (626012 * args['numBackups'] * 80 //
                           args['numPartitions'] // 640)
