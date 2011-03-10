@@ -52,7 +52,7 @@ def recover(numBackups=1,
     coordinatorHost = hosts[0]
     coordinatorLocator = 'infrc:host=%s,port=12246' % coordinatorHost[1]
 
-    backupHosts = hosts[:numBackups]
+    backupHosts = (hosts[1:] + [hosts[0]])[:numBackups]
     backupLocators = ['infrc:host=%s,port=12243' % host[1]
                       for host in backupHosts]
 

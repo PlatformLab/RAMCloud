@@ -38,7 +38,7 @@ for numBackups in range(3, 37):
     args['oldMasterArgs'] = '-m 800'
     args['replicas'] = 3
     r = recovery.insist(**args)
-    print('->', r['ns'] / 1e6, 'ms')
+    print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
     masterCpuMs = metrics.average(
         [(master.recoveryTicks -
           master.master.segmentOpenStallTicks -

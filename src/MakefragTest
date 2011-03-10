@@ -130,6 +130,10 @@ $(OBJDIR)/BackupStorageBenchmark: $(OBJDIR)/BackupStorageBenchmark.o $(SHARED_OB
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
+$(OBJDIR)/HintServerDown: $(OBJDIR)/HintServerDown.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) $(LIBS) -o $@ $^
+
 # Do not remove.
 tests-clean:
 

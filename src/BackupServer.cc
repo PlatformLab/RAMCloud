@@ -882,6 +882,14 @@ BackupServer::BackupServer(const Config& config,
 #endif
 {
     recoveryTicks.construct(); // make unit tests happy
+
+    // Prime the segment pool. This removes an overhead that would otherwise be
+    // seen during the first recovery.
+    void* mem[100];
+    foreach(auto& m, mem)
+        m = pool.malloc();
+    foreach(auto& m, mem)
+        pool.free(m);
 }
 
 /**
@@ -925,7 +933,7 @@ BackupServer::getServerId() const
 void __attribute__ ((noreturn))
 BackupServer::run()
 {
-    auto speeds = storage.benchmark();
+    auto speeds = storage.benchmark(config.backupStrategy);
     serverId = coordinator.enlistServer(BACKUP, config.localLocator,
                                         speeds.first, speeds.second);
     LOG(NOTICE, "My server ID is %lu", serverId);
