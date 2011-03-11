@@ -129,10 +129,19 @@ void __attribute__ ((noreturn))
 MasterServer::run()
 {
     // Permit a NULL coordinator for testing/benchmark purposes.
-    if (coordinator)
+    if (coordinator) {
+        // Open a session with each of the backups so that this doesn't slow
+        // down replication later.
+        ProtoBuf::ServerList backups;
+        coordinator->getBackupList(backups);
+        foreach(auto& backup, backups.server())
+            transportManager.getSession(backup.service_locator().c_str());
+
+        // Enlist with the coordinator.
         serverId.construct(coordinator->enlistServer(MASTER,
                                                      config.localLocator));
-    LOG(NOTICE, "My server ID is %lu", *serverId);
+        LOG(NOTICE, "My server ID is %lu", *serverId);
+    }
     while (true)
         handleRpc<MasterServer>();
 }
