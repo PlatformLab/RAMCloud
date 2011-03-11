@@ -76,3 +76,8 @@ print(file=dat)
 for n in range(1, numHosts // 3 + 1):
     print('%d masters sharing hosts with 2 backups' % n)
     run(n, 6*n, disk=3, hostAllocationStrategy=0)
+print(file=dat)
+print(file=dat)
+for n in range(1, numHosts // 3 + 1):
+    print('%d masters sharing hosts with 1 RAID backup' % n)
+    run(n, 3*n, disk=4, hostAllocationStrategy=0)

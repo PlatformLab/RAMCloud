@@ -404,10 +404,16 @@ class Master(Struct):
     tombstoneDiscardCount = u64('total number of tombstones discarded')
     logSyncTicks = u64(
         'total amount of time syncing the log at the end of recovery')
+    logSyncBytes = u64(
+        'total bytes sent during log sync')
     recoveryWillTicks = u64(
         'total amount of time rebuilding will at the end of recovery')
     removeTombstoneTicks = u64(
         'total amount of time deleting tombstones at the end of recovery')
+    replicationTicks = u64(
+        'total time from first gRD response through log sync')
+    replicationBytes = u64(
+        'total bytes sent from first gRD response through log sync')
     local = Local('local metrics', 'Local')
 
 class Backup(Struct):

@@ -548,6 +548,8 @@ MasterServer::recover(uint64_t masterId,
     Tub<CycleCounter<Metric>> readStallTicks;
     readStallTicks.construct(&metrics->master.segmentReadStallTicks);
 
+    bool gotFirstGRD = false;
+
     while (activeRequests) {
         if (Dispatch::lastEventTime == lastEventTime) {
             Dispatch::handleEvent();
@@ -571,6 +573,15 @@ MasterServer::recover(uint64_t masterId,
             try {
                 (*task->rpc)();
                 uint64_t grdTime = rdtsc() - task->startTime;
+
+                if (!gotFirstGRD) {
+                    metrics->master.replicationTicks =
+                        0 - rdtsc();
+                    metrics->master.replicationBytes =
+                        0 - metrics->transport.transmit.byteCount;
+                    gotFirstGRD = true;
+                }
+
                 LOG(DEBUG, "Got getRecoveryData response, took %lu us "
                     "on channel %ld",
                     cyclesToNanoseconds(grdTime) / 1000,
@@ -671,8 +682,14 @@ MasterServer::recover(uint64_t masterId,
     {
         CycleCounter<Metric> logSyncTicks(&metrics->master.logSyncTicks);
         LOG(NOTICE, "Syncing the log");
+        metrics->master.logSyncBytes =
+            0 - metrics->transport.transmit.byteCount;
         log.sync();
+        metrics->master.logSyncBytes += metrics->transport.transmit.byteCount;
     }
+
+    metrics->master.replicationTicks += rdtsc();
+    metrics->master.replicationBytes += metrics->transport.transmit.byteCount;
 
     uint64_t totalTime = cyclesToNanoseconds(rdtsc() - start);
     usefulTime = cyclesToNanoseconds(usefulTime);
