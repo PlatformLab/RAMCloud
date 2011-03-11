@@ -528,6 +528,7 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
         if (!gotResponse) {
             LOG(WARNING, "%s: timed out waiting for response; retrying",
                 __func__);
+            ++metrics->transport.retrySessionOpenCount;
             continue;
         }
 

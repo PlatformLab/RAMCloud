@@ -360,6 +360,12 @@ class Transport(Struct):
     receive = TransmitReceiveCommon('receive docs', 'Receive')
     sessionOpenTicks = u64(
         'total amount of time opening sessions for RPCs')
+    sessionOpenCount = u64(
+        'total amount of sessions opened for RPCs')
+    sessionOpenSquaredTicks = u64(
+        'used for calculating the standard deviation of sessionOpenTicks')
+    retrySessionOpenCount = u64(
+        'total amount of timeouts during session open')
 
 class Coordinator(Struct):
     recoveryConstructorTicks = u64(
@@ -838,11 +844,40 @@ def textReport(data):
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    masterSection.ms('Opening sessions',
-        [master.transport.sessionOpenTicks / master.clockFrequency
-         for msater in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
+    if (any([master.transport.sessionOpenCount for master in masters])):
+        masterSection.ms('Opening sessions',
+            [master.transport.sessionOpenTicks / master.clockFrequency
+             for master in masters],
+            total=recoveryTime,
+            fractionLabel='of total recovery')
+        if sum([master.transport.retrySessionOpenCount for master in masters]):
+            masterSection.avgStd('  Timeouts:',
+                [master.transport.retrySessionOpenCount for master in masters],
+                label='!!!')
+        sessionOpens = []
+        for master in masters:
+            avg = (master.transport.sessionOpenTicks /
+                   master.transport.sessionOpenCount)
+            if avg**2 > 2**64 - 1:
+                stddev = -1.0 # 64-bit arithmetic could have overflowed
+            else:
+                variance = (master.transport.sessionOpenSquaredTicks /
+                            master.transport.sessionOpenCount) - avg**2
+                if variance < 0:
+                    # poor floating point arithmetic made variance negative
+                    assert variance > -0.1
+                    stddev = 0.0
+                else:
+                    stddev = math.sqrt(variance)
+                stddev /= master.clockFrequency / 1e3
+            avg /= master.clockFrequency / 1e3
+            sessionOpens.append((avg, stddev))
+        masterSection.avgStd('  Avg per session',
+                             [x[0] for x in sessionOpens],
+                             pointFormat='{0:6.1f} ms')
+        masterSection.avgStd('  Std dev per session',
+                             [x[1] for x in sessionOpens],
+                             pointFormat='{0:6.1f} ms')
 
     backupSection = report.add(Section('Backup Time'))
     backupSection.ms('Total in RPC thread',
@@ -965,6 +1000,18 @@ def textReport(data):
     networkSection.avgStdSum('Master out',
         [(master.transport.transmit.byteCount * 8 / 2**30) /
          recoveryTime for master in masters],
+        '{0:4.2f} Gb/s',
+        note='overall')
+    networkSection.avgStdSum('  Master out during replication',
+        [(master.master.replicationBytes * 8 / 2**30) /
+          (master.master.replicationTicks / master.clockFrequency)
+         for master in masters],
+        '{0:4.2f} Gb/s',
+        note='overall')
+    networkSection.avgStdSum('  Master out during log sync',
+        [(master.master.logSyncBytes * 8 / 2**30) /
+         (master.master.logSyncTicks / master.clockFrequency)
+         for master in masters],
         '{0:4.2f} Gb/s',
         note='overall')
     networkSection.avgStdSum('Backup in',
