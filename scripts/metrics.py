@@ -966,22 +966,29 @@ def textReport(data):
         note='per filtered segment')
 
     # TODO(ongaro): get stddev among segments
-    efficiencySection.avgStd('Writing a segment',
-        (sum([backup.backup.writeTicks / backup.clockFrequency
-              for backup in backups]) * 1000 /
-    # Divide count by 2 since each segment does two writes: one to open the segment
-    # and one to write the data.
-        sum([backup.backup.writeCount / 2
-             for backup in backups])),
-        pointFormat='{0:6.2f} ms avg',
-        note='backup RPC thread')
+    try:
+        efficiencySection.avgStd('Writing a segment',
+            (sum([backup.backup.writeTicks / backup.clockFrequency
+                  for backup in backups]) * 1000 /
+        # Divide count by 2 since each segment does two writes: one to open the segment
+        # and one to write the data.
+            sum([backup.backup.writeCount / 2
+                 for backup in backups])),
+            pointFormat='{0:6.2f} ms avg',
+            note='backup RPC thread')
+    except:
+        pass
+
     # TODO(ongaro): get stddev among segments
-    efficiencySection.avgStd('Filtering a segment',
-        sum([backup.backup.filterTicks / backup.clockFrequency * 1000
-              for backup in backups]) /
-        sum([backup.backup.storageReadCount
-             for backup in backups]),
-        pointFormat='{0:6.2f} ms avg')
+    try:
+        efficiencySection.avgStd('Filtering a segment',
+            sum([backup.backup.filterTicks / backup.clockFrequency * 1000
+                  for backup in backups]) /
+            sum([backup.backup.storageReadCount
+                 for backup in backups]),
+            pointFormat='{0:6.2f} ms avg')
+    except:
+        pass
 
     networkSection = report.add(Section('Network Utilization'))
     networkSection.avgStdFrac('Aggregate',
@@ -1031,15 +1038,18 @@ def textReport(data):
          2**20 / recoveryTime
          for backup in backups],
         '{0:6.2f} MB/s')
-    diskSection.avgStdSum('Active bandwidth',
-        [((backup.backup.storageReadBytes + backup.backup.storageWriteBytes) /
-          2**20) /
-         ((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) /
-          backup.clockFrequency)
-         for backup in backups
-         if (backup.backup.storageReadTicks +
-             backup.backup.storageWriteTicks)],
-        '{0:6.2f} MB/s')
+    try:
+        diskSection.avgStdSum('Active bandwidth',
+            [((backup.backup.storageReadBytes + backup.backup.storageWriteBytes) /
+              2**20) /
+             ((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) /
+              backup.clockFrequency)
+             for backup in backups
+             if (backup.backup.storageReadTicks +
+                 backup.backup.storageWriteTicks)],
+            '{0:6.2f} MB/s')
+    except:
+        pass
     diskSection.avgStd('Disk active',
         [((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) *
           100 / backup.clockFrequency) /
