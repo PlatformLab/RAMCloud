@@ -631,7 +631,7 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
     int ret = ibv_modify_qp(qp, &qpa, mask);
     if (ret) {
         ibv_destroy_qp(qp);
-        LOG(ERROR, "%s: failed to transition to INIT state", __func__);
+        LOG(ERROR, "%s: failed to transition to INIT state errno %d", __func__, errno);
         throw TransportException(HERE, ret);
     }
 }
