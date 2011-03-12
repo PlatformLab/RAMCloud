@@ -79,5 +79,30 @@ ObjectFinder::lookup(uint32_t table, uint64_t objectId) {
     }
 }
 
+/**
+ * Flush the tablet map and refresh it until it is non-empty and all of
+ * the tablets have normal status.
+ */
+void
+ObjectFinder::waitForAllTabletsNormal()
+{
+    LOG(NOTICE, "- flushing map\n");
+    flush();
+
+    for (;;) {
+        bool allNormal = true;
+        foreach (const ProtoBuf::Tablets::Tablet& tablet, tabletMap.tablet()) {
+            if (tablet.state() != ProtoBuf::Tablets_Tablet_State_NORMAL) {
+                allNormal = false;
+                break;
+            }
+        }
+        if (allNormal && tabletMap.tablet_size() > 0)
+            return;
+        usleep(1000);
+        refresher(tabletMap);
+    }
+}
+
 
 } // namespace RAMCloud

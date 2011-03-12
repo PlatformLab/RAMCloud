@@ -49,6 +49,8 @@ class ObjectFinder {
         tabletMap.Clear();
     }
 
+    void waitForAllTabletsNormal();
+
   private:
     /**
      * A cache of the coordinator's tablet map.

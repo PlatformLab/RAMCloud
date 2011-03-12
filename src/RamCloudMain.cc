@@ -149,8 +149,8 @@ runRecovery(RamCloud& client,
     client.coordinator.hintServerDown(
         session->getServiceLocator().c_str());
 
-    LOG(NOTICE, "- flushing map\n");
-    client.objectFinder.flush();
+    client.objectFinder.waitForAllTabletsNormal();
+    uint64_t stopTime = rdtsc();
 
     Buffer nb;
     session = client.objectFinder.lookup(tables[0], 0);
@@ -171,7 +171,7 @@ runRecovery(RamCloud& client,
         LOG(NOTICE, "read value has length %u", nb.getTotalLength());
     }
     LOG(NOTICE, "Recovery completed in %lu ns",
-        cyclesToNanoseconds(rdtsc() - b));
+        cyclesToNanoseconds(stopTime - b));
 
     b = rdtsc();
     if (verify) {
