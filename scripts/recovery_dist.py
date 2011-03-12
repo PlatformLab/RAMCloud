@@ -27,65 +27,109 @@ import sys
 
 strategies = 4
 
-def recreateCdf():
-    for strategyFilter in range(strategies):
-        indat = open('%s/recovery/recovery_dist.data' % top_path, 'r', 1)
-        cdfdat = open('%s/recovery/recovery_dist_cdf%d.data' % (top_path, strategyFilter), 'w', 1)
-        times = []
-        for line in indat.readlines():
-            time, diskMin, diskMax, diskAvg, strategy = line.split()
-            strategy = int(strategy)
-            if strategy == strategyFilter:
+def recreateCdf(inFileName):
+    cdfdat = open('%s/recovery/recovery_dist_cdf.data' % top_path, 'w', 1)
+    for tagFilter in (0, 1):
+        for strategyFilter in range(strategies):
+            indat = open(inFileName, 'r', 1)
+            times = []
+            for line in indat.readlines():
+                time, diskMin, diskMax, diskAvg, strategy, tag = line.split()
                 time = float(time)
-                if time > 5000:
+                diskMin = float(diskMin)
+                diskMax = float(diskMax)
+                diskAvg= float(diskAvg)
+                tag = int(tag)
+                strategy = int(strategy)
+                if tag != tagFilter:
+                    continue
+                if strategy != strategyFilter:
                     continue
                 times.append(time)
 
-        times.sort()
+            times.sort()
 
-        prob = 0.0
-        #print (0, 0, file=cdfdat)
-        for time in times:
-            prob += 1.0 / len(times)
-            print(prob, time, file=cdfdat)
-        indat.close()
-        cdfdat.close()
+            prob = 0.0
+            if len(times) == 0:
+                print (0, 0, file=cdfdat)
+            else:
+                print (0, times[0], file=cdfdat)
+            for time in times:
+                prob += 1.0 / len(times)
+                print(prob, time, file=cdfdat)
+            print(file=cdfdat)
+            print(file=cdfdat)
+    indat.close()
+    cdfdat.close()
 
-def main():
-    dat = open('%s/recovery/recovery_dist.data' % top_path, 'w', 1)
+def main(fileName, append=False, tag=0):
+    mode = 'a+' if append else 'w'
+    dat = open(fileName, mode, 1)
 
-    for i in range(10000000):
-        for backupStrategy in range(strategies):
-            args = {}
-            args['numBackups'] = 36
-            args['numPartitions'] = 12
-            args['objectSize'] = 1024
-            args['disk'] = 1
-            args['replicas'] = 3
-            args['numObjects'] = 626012 * 400 // 640
-            args['backupArgs'] = '--backupStrategy=%d' % backupStrategy
-            args['oldMasterArgs'] = '-m 17000'
-            args['newMasterArgs'] = '-m 600'
-            args['timeout'] = 60
-            print('iteration', i, 'strategy', backupStrategy)
-            r = recovery.insist(**args)
-            print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
-            diskReadingMsPoints = [backup.backup.readingDataTicks * 1e3 /
-                                   backup.clockFrequency
-                                   for backup in r['metrics'].backups]
-            print(r['ns'] / 1e6,
-                  min(diskReadingMsPoints),
-                  max(diskReadingMsPoints),
-                  sum(diskReadingMsPoints) / len(diskReadingMsPoints),
-                  backupStrategy,
-                  file=dat)
-            recreateCdf()
+    i = 1
+    # find the right strategy to resume on
+    if append:
+        d = open(fileName, mode, 1)
+        backupStrategy = strategies - 1
+        for line in d.readlines():
+            time, diskMin, diskMax, diskAvg, strategy, t = line.split()
+            if t == tag:
+                backupStrategy = int(strategy)
+            i += 1
+        d.close()
+        backupStrategy = (backupStrategy + 1) % strategies
+        print('Resuming measurements on strategy', backupStrategy)
+    else:
+        backupStrategy = 0
+
+    while True:
+        if backupStrategy == 0:
+            # skip the min strategy, we don't plot it anymore
+            backupStrategy = (backupStrategy + 1) % strategies
+
+        args = {}
+        args['numBackups'] = 72
+        args['numPartitions'] = 30
+        args['objectSize'] = 1024
+        args['disk'] = 3
+        args['replicas'] = 3
+        args['numObjects'] = 626012 * 400 // 640
+        args['backupArgs'] = '--backupStrategy=%d' % backupStrategy
+        args['oldMasterArgs'] = '-m 17000'
+        args['newMasterArgs'] = '-m 600'
+        args['timeout'] = 120
+        print('iteration', i, 'strategy', backupStrategy)
+        r = recovery.insist(**args)
+        print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
+        diskReadingMsPoints = [backup.backup.readingDataTicks * 1e3 /
+                               backup.clockFrequency
+                               for backup in r['metrics'].backups]
+        print(r['ns'] / 1e6,
+              min(diskReadingMsPoints),
+              max(diskReadingMsPoints),
+              sum(diskReadingMsPoints) / len(diskReadingMsPoints),
+              backupStrategy,
+              tag,
+              file=dat)
+        recreateCdf(fileName)
+        backupStrategy = (backupStrategy + 1) % strategies
+        i += 1
 
 if __name__ == '__main__':
+    tag=0
+    if len(sys.argv) > 2:
+        tag = int(sys.argv[2])
+        print('Tagging output files with %d' % tag)
+        if not tag in (0, 1):
+            raise Exception('Tag must be 0 for normal fans, 1 for high fans')
+
+    fileName = '%s/recovery/recovery_dist.data' % top_path
     if len(sys.argv) > 1:
         if sys.argv[1] == 'cdf':
-            recreateCdf()
+            recreateCdf(fileName)
         elif sys.argv[1] == 'run':
-            main()
+            main(fileName, False, tag)
+        elif sys.argv[1] == 'continue':
+            main(fileName, True, tag)
     else:
         raise Exception('Give a valid operation')
