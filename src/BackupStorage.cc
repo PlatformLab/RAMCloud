@@ -50,14 +50,10 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
         for (uint32_t i = 0; i < count; ++i)
             handles[i] = allocate(0, i + 1);
 
-        for (uint32_t i = 0; i < count; ++i) {
-            CycleCounter<> counter;
-            putSegment(handles[i], segment);
-            uint64_t ns = cyclesToNanoseconds(counter.stop());
-            writeSpeeds[i] = downCast<uint32_t>(
-                                Segment::SEGMENT_SIZE * 1000UL * 1000 * 1000 /
-                                (1 << 20) / ns);
-        }
+        // Measuring write speeds takes too long with fans on with
+        // commodity disks and we don't use the result.  Just fake it.
+        for (uint32_t i = 0; i < count; ++i)
+            writeSpeeds[i] = 100;
         for (uint32_t i = 0; i < count; ++i) {
             CycleCounter<> counter;
             getSegment(handles[i], segment);
