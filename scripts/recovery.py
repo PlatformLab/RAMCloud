@@ -63,6 +63,8 @@ def recover(numBackups=1,
         backupDisks = ['-f /dev/sda2' for backup in backupHosts]
     elif disk == 2:
         backupDisks = ['-f /dev/sdb2' for backup in backupHosts]
+    elif disk == 4:
+        backupDisks = ['-f /dev/md2' for backup in backupHosts]
     elif disk == 3:
         firstHalf = (numBackups + 1) // 2
         secondHalf = numBackups // 2
@@ -75,7 +77,7 @@ def recover(numBackups=1,
         backupDisks = (['-f /dev/sda2' for i in backupHosts[:firstHalf]] +
                        ['-f /dev/sdb2' for i in backupHosts[:secondHalf]])
     else:
-        raise Exception('Disk should be an integer between 0 and 3')
+        raise Exception('Disk should be an integer between 0 and 4')
 
     oldMasterHost = hosts[0]
     oldMasterLocator = 'infrc:host=%s,port=12242' % oldMasterHost[1]

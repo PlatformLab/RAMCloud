@@ -174,7 +174,7 @@ TransportManager::getSession(const char* serviceLocator)
     if (it != sessionCache.end())
         return it->second;
 
-    CycleCounter<Metric> _(&metrics->transport.sessionOpenTicks);
+    CycleCounter<Metric> counter;
 
     // Session was not found in the cache, a new one will be created
     auto locators = ServiceLocator::parseServiceLocators(serviceLocator);
@@ -191,6 +191,12 @@ TransportManager::getSession(const char* serviceLocator)
                 // No caching should occur if an exception is thrown.
                 sessionCache.insert({serviceLocator, session});
                 session->setServiceLocator(serviceLocator);
+
+                uint64_t elapsed = counter.stop();
+                metrics->transport.sessionOpenTicks += elapsed;
+                metrics->transport.sessionOpenSquaredTicks +=
+                    elapsed * elapsed;
+                ++metrics->transport.sessionOpenCount;
                 return session;
             } catch (TransportException& e) {
                 // TODO(ongaro): Transport::getName() would be nice here.

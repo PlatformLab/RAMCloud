@@ -57,11 +57,8 @@ struct SegmentAllocator
     static char*
     malloc(const size_type bytes)
     {
-        void* p;
-        int r = posix_memalign(&p, Segment::SEGMENT_SIZE, bytes);
-        if (r != 0)
-            throw std::bad_alloc();
-        return reinterpret_cast<char *>(p);
+        return reinterpret_cast<char *>(xmemalign(Segment::SEGMENT_SIZE,
+                                                  bytes));
     }
 
     static void

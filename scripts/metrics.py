@@ -360,6 +360,12 @@ class Transport(Struct):
     receive = TransmitReceiveCommon('receive docs', 'Receive')
     sessionOpenTicks = u64(
         'total amount of time opening sessions for RPCs')
+    sessionOpenCount = u64(
+        'total amount of sessions opened for RPCs')
+    sessionOpenSquaredTicks = u64(
+        'used for calculating the standard deviation of sessionOpenTicks')
+    retrySessionOpenCount = u64(
+        'total amount of timeouts during session open')
 
 class Coordinator(Struct):
     recoveryConstructorTicks = u64(
@@ -404,10 +410,16 @@ class Master(Struct):
     tombstoneDiscardCount = u64('total number of tombstones discarded')
     logSyncTicks = u64(
         'total amount of time syncing the log at the end of recovery')
+    logSyncBytes = u64(
+        'total bytes sent during log sync')
     recoveryWillTicks = u64(
         'total amount of time rebuilding will at the end of recovery')
     removeTombstoneTicks = u64(
         'total amount of time deleting tombstones at the end of recovery')
+    replicationTicks = u64(
+        'total time from first gRD response through log sync')
+    replicationBytes = u64(
+        'total bytes sent from first gRD response through log sync')
     local = Local('local metrics', 'Local')
 
 class Backup(Struct):
@@ -832,11 +844,40 @@ def textReport(data):
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    masterSection.ms('Opening sessions',
-        [master.transport.sessionOpenTicks / master.clockFrequency
-         for msater in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
+    if (any([master.transport.sessionOpenCount for master in masters])):
+        masterSection.ms('Opening sessions',
+            [master.transport.sessionOpenTicks / master.clockFrequency
+             for master in masters],
+            total=recoveryTime,
+            fractionLabel='of total recovery')
+        if sum([master.transport.retrySessionOpenCount for master in masters]):
+            masterSection.avgStd('  Timeouts:',
+                [master.transport.retrySessionOpenCount for master in masters],
+                label='!!!')
+        sessionOpens = []
+        for master in masters:
+            avg = (master.transport.sessionOpenTicks /
+                   master.transport.sessionOpenCount)
+            if avg**2 > 2**64 - 1:
+                stddev = -1.0 # 64-bit arithmetic could have overflowed
+            else:
+                variance = (master.transport.sessionOpenSquaredTicks /
+                            master.transport.sessionOpenCount) - avg**2
+                if variance < 0:
+                    # poor floating point arithmetic made variance negative
+                    assert variance > -0.1
+                    stddev = 0.0
+                else:
+                    stddev = math.sqrt(variance)
+                stddev /= master.clockFrequency / 1e3
+            avg /= master.clockFrequency / 1e3
+            sessionOpens.append((avg, stddev))
+        masterSection.avgStd('  Avg per session',
+                             [x[0] for x in sessionOpens],
+                             pointFormat='{0:6.1f} ms')
+        masterSection.avgStd('  Std dev per session',
+                             [x[1] for x in sessionOpens],
+                             pointFormat='{0:6.1f} ms')
 
     backupSection = report.add(Section('Backup Time'))
     backupSection.ms('Total in RPC thread',
@@ -925,22 +966,29 @@ def textReport(data):
         note='per filtered segment')
 
     # TODO(ongaro): get stddev among segments
-    efficiencySection.avgStd('Writing a segment',
-        (sum([backup.backup.writeTicks / backup.clockFrequency
-              for backup in backups]) * 1000 /
-    # Divide count by 2 since each segment does two writes: one to open the segment
-    # and one to write the data.
-        sum([backup.backup.writeCount / 2
-             for backup in backups])),
-        pointFormat='{0:6.2f} ms avg',
-        note='backup RPC thread')
+    try:
+        efficiencySection.avgStd('Writing a segment',
+            (sum([backup.backup.writeTicks / backup.clockFrequency
+                  for backup in backups]) * 1000 /
+        # Divide count by 2 since each segment does two writes: one to open the segment
+        # and one to write the data.
+            sum([backup.backup.writeCount / 2
+                 for backup in backups])),
+            pointFormat='{0:6.2f} ms avg',
+            note='backup RPC thread')
+    except:
+        pass
+
     # TODO(ongaro): get stddev among segments
-    efficiencySection.avgStd('Filtering a segment',
-        sum([backup.backup.filterTicks / backup.clockFrequency * 1000
-              for backup in backups]) /
-        sum([backup.backup.storageReadCount
-             for backup in backups]),
-        pointFormat='{0:6.2f} ms avg')
+    try:
+        efficiencySection.avgStd('Filtering a segment',
+            sum([backup.backup.filterTicks / backup.clockFrequency * 1000
+                  for backup in backups]) /
+            sum([backup.backup.storageReadCount
+                 for backup in backups]),
+            pointFormat='{0:6.2f} ms avg')
+    except:
+        pass
 
     networkSection = report.add(Section('Network Utilization'))
     networkSection.avgStdFrac('Aggregate',
@@ -961,6 +1009,18 @@ def textReport(data):
          recoveryTime for master in masters],
         '{0:4.2f} Gb/s',
         note='overall')
+    networkSection.avgStdSum('  Master out during replication',
+        [(master.master.replicationBytes * 8 / 2**30) /
+          (master.master.replicationTicks / master.clockFrequency)
+         for master in masters],
+        '{0:4.2f} Gb/s',
+        note='overall')
+    networkSection.avgStdSum('  Master out during log sync',
+        [(master.master.logSyncBytes * 8 / 2**30) /
+         (master.master.logSyncTicks / master.clockFrequency)
+         for master in masters],
+        '{0:4.2f} Gb/s',
+        note='overall')
     networkSection.avgStdSum('Backup in',
         [(backup.transport.receive.byteCount * 8 / 2**30) /
          recoveryTime for backup in backups],
@@ -978,15 +1038,18 @@ def textReport(data):
          2**20 / recoveryTime
          for backup in backups],
         '{0:6.2f} MB/s')
-    diskSection.avgStdSum('Active bandwidth',
-        [((backup.backup.storageReadBytes + backup.backup.storageWriteBytes) /
-          2**20) /
-         ((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) /
-          backup.clockFrequency)
-         for backup in backups
-         if (backup.backup.storageReadTicks +
-             backup.backup.storageWriteTicks)],
-        '{0:6.2f} MB/s')
+    try:
+        diskSection.avgStdSum('Active bandwidth',
+            [((backup.backup.storageReadBytes + backup.backup.storageWriteBytes) /
+              2**20) /
+             ((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) /
+              backup.clockFrequency)
+             for backup in backups
+             if (backup.backup.storageReadTicks +
+                 backup.backup.storageWriteTicks)],
+            '{0:6.2f} MB/s')
+    except:
+        pass
     diskSection.avgStd('Disk active',
         [((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) *
           100 / backup.clockFrequency) /
