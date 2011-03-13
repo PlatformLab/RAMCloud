@@ -1117,6 +1117,7 @@ BackupServer::recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
                                Responder& responder)
 {
     LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
+    responder();
     recoveryTicks.destroy();
     dump(metrics);
 }
