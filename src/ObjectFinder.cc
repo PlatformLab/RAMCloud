@@ -86,7 +86,6 @@ ObjectFinder::lookup(uint32_t table, uint64_t objectId) {
 void
 ObjectFinder::waitForAllTabletsNormal()
 {
-    LOG(NOTICE, "- flushing map\n");
     flush();
 
     for (;;) {

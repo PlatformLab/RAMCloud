@@ -150,22 +150,20 @@ runRecovery(RamCloud& client,
         session->getServiceLocator().c_str());
 
     client.objectFinder.waitForAllTabletsNormal();
-    uint64_t stopTime = rdtsc();
 
     Buffer nb;
-    session = client.objectFinder.lookup(tables[0], 0);
-    LOG(NOTICE, "- attempting read from recovery master: %s",
-        session->getServiceLocator().c_str());
-
+    uint64_t stopTime = rdtsc();
     // Check a value in each table to make sure we're good
     for (int t = 0; t < tableCount; t++) {
-        LOG(NOTICE, "reading recovered data  on %s",
-            session->getServiceLocator().c_str());
         int table = tables[t];
         try {
             client.read(table, 0, &nb);
+            if (t == 0)
+                stopTime = rdtsc();
         } catch (...) {
         }
+        LOG(NOTICE, "read recovered data on %s",
+            session->getServiceLocator().c_str());
 
         session = client.objectFinder.lookup(tables[t], 0);
         LOG(NOTICE, "read value has length %u", nb.getTotalLength());
