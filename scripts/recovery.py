@@ -200,7 +200,13 @@ def recover(numBackups=1,
                 raise Exception('timeout exceeded')
 
         stats = {}
-        stats['metrics'] = metrics.parseRecovery(run)
+        for i in range(100):
+            try:
+                stats['metrics'] = metrics.parseRecovery(run)
+            except:
+                time.sleep(0.1)
+                continue
+            break
         stats['run'] = run
         stats['count'] = numObjects
         stats['size'] = objectSize

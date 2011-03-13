@@ -374,6 +374,8 @@ class Coordinator(Struct):
     tabletsRecoveredTicks = u64('total amount of time in Recovery::start')
     setWillTicks = u64('total amount of time in Recovery::setWill')
     getTabletMapTicks = u64('total amount of time in Recovery::setWill')
+    recoveryCompleteTicks = u64(
+        'total amount of time sending recovery complete RPCs to backups')
     local = Local('local metrics', 'Local')
 
 class Master(Struct):
@@ -738,6 +740,10 @@ def textReport(data):
         fractionLabel='of total recovery')
     coordSection.ms('  Tablets recovered',
         coord.coordinator.tabletsRecoveredTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    coordSection.ms('    Completing recovery on backups',
+        coord.coordinator.recoveryCompleteTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
     coordSection.ms('  Set will',

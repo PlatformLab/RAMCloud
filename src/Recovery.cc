@@ -454,6 +454,7 @@ Recovery::tabletsRecovered(const ProtoBuf::Tablets& tablets)
     if (tabletsUnderRecovery != 0)
         return false;
 
+    CycleCounter<Metric> ticks(&metrics->coordinator.recoveryCompleteTicks);
     // broadcast to backups that recovery is done
     uint32_t numBackups = static_cast<uint32_t>(backupHosts.server_size());
     Tub<BackupEndTask> tasks[numBackups];
