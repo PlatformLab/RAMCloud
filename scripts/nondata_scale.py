@@ -31,12 +31,12 @@ print('Don\'t forget to set your segment size to 16 * 1024!')
 
 for numObjects in [1, 626012 * .8 // 640]:
     print('# numObjects=%d' % numObjects, file=dat)
-    for numPartitions in range(1, 36):
+    for numPartitions in range(1, 19):
         args = {}
         args['numBackups'] = min(numPartitions * 6, 35)
         args['numPartitions'] = numPartitions
         args['objectSize'] = 1024
-        args['disk'] = 3
+        args['disk'] = 0
         args['replicas'] = 3
         args['numObjects'] = numObjects
         args['oldMasterArgs'] = '-m 1200'
