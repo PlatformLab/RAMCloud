@@ -559,6 +559,11 @@ MasterServer::recover(uint64_t masterId,
 
     bool gotFirstGRD = false;
 
+    boost::unordered_multimap<uint64_t, ProtoBuf::ServerList::Entry*>
+        segmentIdToBackups;
+    foreach (auto& backup, *backups.mutable_server())
+        segmentIdToBackups.insert({backup.segment_id(), &backup});
+
     while (activeRequests) {
         if (Dispatch::lastEventTime == lastEventTime) {
             Dispatch::handleEvent();
@@ -590,7 +595,6 @@ MasterServer::recover(uint64_t masterId,
                         0 - metrics->transport.transmit.byteCount;
                     gotFirstGRD = true;
                 }
-
                 LOG(DEBUG, "Got getRecoveryData response, took %lu us "
                     "on channel %ld",
                     cyclesToNanoseconds(grdTime) / 1000,
@@ -612,13 +616,13 @@ MasterServer::recover(uint64_t masterId,
                     task->backupHost.service_locator().c_str(),
                     task->backupHost.segment_id());
                 task->backupHost.set_user_data(REC_REQ_OK);
-                for (auto backup = notStarted; backup != backupsEnd; ++backup) {
-                    if (backup->segment_id() == task->backupHost.segment_id()) {
-                        LOG(DEBUG, "Checking %s off the list for %lu",
-                            backup->service_locator().c_str(),
-                            backup->segment_id());
-                        backup->set_user_data(REC_REQ_OK);
-                    }
+                auto its = segmentIdToBackups.equal_range(
+                    task->backupHost.segment_id());
+                for (auto it = its.first; it != its.second; ++it) {
+                    LOG(DEBUG, "Checking %s off the list for %lu",
+                        it->second->service_locator().c_str(),
+                        it->second->segment_id());
+                    it->second->set_user_data(REC_REQ_OK);
                 }
             } catch (const RetryException& e) {
                 // The backup isn't ready yet, try back later.
