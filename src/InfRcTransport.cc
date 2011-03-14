@@ -131,6 +131,7 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
       clientSendQueue(),
       numUsedClientSrqBuffers(MAX_SHARED_RX_QUEUE_DEPTH),
       outstandingRpcs(),
+      clientRpcsActiveTime(),
       locatorString(),
       poller(this),
       serverConnectHandler(),
@@ -849,6 +850,10 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
     InfRcTransport* const t = transport;
     if (t->numUsedClientSrqBuffers < MAX_SHARED_RX_QUEUE_DEPTH) {
         // send out the request
+        if (t->outstandingRpcs.empty()) {
+            t->clientRpcsActiveTime.construct(
+                &metrics->transport.clientRpcsActiveTicks);
+        }
         CycleCounter<Metric> _(&metrics->transport.transmit.ticks);
         ++metrics->transport.transmit.messageCount;
         ++metrics->transport.transmit.packetCount;
@@ -937,6 +942,8 @@ InfRcTransport<Infiniband>::Poller::operator() ()
             metrics->transport.receive.byteCount +=
                 rpc.response->getTotalLength();
             metrics->transport.receive.ticks += receiveTicks.stop();
+            if (t->outstandingRpcs.empty())
+                t->clientRpcsActiveTime.destroy();
             goto next;
         }
         LOG(WARNING, "dropped packet because no nonce matched %016lx",

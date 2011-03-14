@@ -366,6 +366,8 @@ class Transport(Struct):
         'used for calculating the standard deviation of sessionOpenTicks')
     retrySessionOpenCount = u64(
         'total amount of timeouts during session open')
+    clientRpcsActiveTicks = u64(
+        'total amount of time with a client RPC active on the network')
 
 class Coordinator(Struct):
     recoveryConstructorTicks = u64(
@@ -932,6 +934,17 @@ def textReport(data):
          master.master.logSyncCloseCount
          for master in masters],
         note='for R-th replica')
+
+    masterSection.ms('Replication',
+        [master.master.replicationTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    masterSection.ms('Client RPCs Active',
+        [master.transport.clientRpcsActiveTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
 
     backupSection = report.add(Section('Backup Time'))
     backupSection.ms('Total in RPC thread',
