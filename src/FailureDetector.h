@@ -88,7 +88,7 @@ class FailureDetector {
         sockaddr_in sin;
         memcpy(&sin, &addr.address, sizeof(sin));
         sin.sin_family = PF_INET;
-        sin.sin_port = htons(ntohs(sin.sin_port) + 2111);
+        sin.sin_port = htons(downCast<uint16_t>(ntohs(sin.sin_port) + 2111));
         return sin;
     }
 

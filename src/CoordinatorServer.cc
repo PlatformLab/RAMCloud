@@ -849,7 +849,7 @@ CoordinatorServer::failureDetectorHandler(char* buf, ssize_t length,
 
         memcpy(&responseBuf[sizeof(*resp)], str.c_str(), str.length());
         resp->common.status = STATUS_OK;
-        resp->serverListLength = str.length();
+        resp->serverListLength = downCast<uint32_t>(str.length());
 
         ssize_t r = sendto(failureDetectorFd, responseBuf,
             sizeof(*resp) + str.length(), 0, reinterpret_cast<sockaddr*>(&sin),

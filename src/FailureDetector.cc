@@ -396,7 +396,7 @@ FailureDetector::handleTimeout(TimeoutQueue::TimeoutEntry* te)
             HintServerDownRpc::Request* rpc =
                 reinterpret_cast<HintServerDownRpc::Request*>(buf);
             rpc->common.type = HINT_SERVER_DOWN;
-            rpc->serviceLocatorLength = loc.length() + 1;
+            rpc->serviceLocatorLength = downCast<uint32_t>(loc.length() + 1);
             memcpy(&buf[sizeof(*rpc)], loc.c_str(), loc.length());
 
             sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);

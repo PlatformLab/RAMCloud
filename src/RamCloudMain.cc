@@ -145,7 +145,7 @@ runRecovery(RamCloud& client,
     LOG(NOTICE, "--- instructing server [%s] to kill itself ---",
         session->getServiceLocator().c_str());
 
-    b = rdtsc();
+    uint64_t b = rdtsc();
     try {
         MasterClient(session).commitSuicide();
     } catch (...) {

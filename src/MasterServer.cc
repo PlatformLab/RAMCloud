@@ -960,16 +960,11 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
             uint64_t objId = recoverTomb->id.objectId;
             uint64_t tblId = recoverTomb->id.tableId;
 
-<<<<<<< HEAD
-            CycleCounter<Metric> c(&metrics->master.verifyChecksumTicks);
-            if (!i.isChecksumValid()) {
-=======
             bool checksumIsValid = ({
                 CycleCounter<Metric> c(&metrics->master.verifyChecksumTicks);
                 i.isChecksumValid();
             });
             if (!checksumIsValid) {
->>>>>>> master
                 LOG(WARNING, "invalid tombstone checksum! tbl: %lu, obj: %lu, "
                     "ver: %lu", tblId, objId, recoverTomb->objectVersion);
             }
