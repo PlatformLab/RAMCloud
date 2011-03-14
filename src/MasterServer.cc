@@ -729,6 +729,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
     {
         CycleCounter<Metric> recoveryTicks(&metrics->recoveryTicks);
         reset(metrics, *serverId, 1);
+        metrics->master.replicas = backup.replicas;
 
         const auto& masterId = reqHdr.masterId;
         const auto& partitionId = reqHdr.partitionId;

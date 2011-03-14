@@ -170,9 +170,11 @@ class BackupManager {
     /// The host pool to schedule backups from.
     ProtoBuf::ServerList hosts;
 
+  PUBLIC:
     /// The number of backups to replicate each segment on.
     const uint32_t replicas;
 
+  PRIVATE:
     typedef std::unordered_multimap<uint64_t, Transport::SessionRef>
             SegmentMap;
     /// Tells which backup each segment is stored on.

@@ -423,6 +423,7 @@ class Master(Struct):
     replicationBytes = u64(
         'total bytes sent from first gRD response through log sync')
     local = Local('local metrics', 'Local')
+    replicas = u64('number of backups on which to replicate each segment')
 
 class Backup(Struct):
     startReadingDataTicks = u64('total amount of time in sRD')
@@ -461,6 +462,7 @@ class Recovery(Struct):
     dispatchIdleTicks = u64('total time spinning in Dispatch::handleEvent')
     recvIdleTicks = u64(
         'total time spent spinning in TransportManager::serverRecv')
+    segmentSize = u64('size in bytes of segments')
     transport = Transport('transport docs', 'Transport')
     coordinator = Coordinator('coordinator docs', 'Coordinator')
     master = Master('master docs', 'Master')
@@ -698,9 +700,14 @@ def textReport(data):
     summary.avgStd('Recovery time', recoveryTime, '{0:6.3f} s')
     summary.avgStd('Masters', len(masters))
     summary.avgStd('Backups', len(backups))
-    summary.avgStd('Number of objects',
+    summary.avgStd('Replicas',
+                   masters[0].master.replicas)
+    summary.avgStd('Total objects',
                    sum([master.master.liveObjectCount
                         for master in masters]))
+    summary.avgStd('Objects per master',
+                   [master.master.liveObjectCount
+                        for master in masters])
     summary.avgStd('Object size',
                    [master.master.liveObjectBytes /
                     master.master.liveObjectCount
@@ -884,6 +891,23 @@ def textReport(data):
         masterSection.avgStd('  Std dev per session',
                              [x[1] for x in sessionOpens],
                              pointFormat='{0:6.1f} ms')
+
+    masterSection.ms('Replicating one segment',
+        [(master.master.replicationTicks / master.clockFrequency) /
+         (master.master.replicationBytes / master.segmentSize /
+          master.master.replicas)
+         for master in masters])
+    masterSection.ms('  During replay',
+        [((master.master.replicationTicks - master.master.logSyncTicks) /
+          master.clockFrequency) /
+         ((master.master.replicationBytes - master.master.logSyncBytes) /
+           master.segmentSize / master.master.replicas)
+         for master in masters])
+    masterSection.ms('  During log sync',
+        [(master.master.logSyncTicks / master.clockFrequency) /
+         (master.master.logSyncBytes /
+          master.segmentSize / master.master.replicas)
+         for master in masters])
 
     backupSection = report.add(Section('Backup Time'))
     backupSection.ms('Total in RPC thread',
