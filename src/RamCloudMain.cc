@@ -162,11 +162,9 @@ runRecovery(RamCloud& client,
                 stopTime = rdtsc();
         } catch (...) {
         }
-        LOG(NOTICE, "read recovered data on %s",
-            session->getServiceLocator().c_str());
-
         session = client.objectFinder.lookup(tables[t], 0);
-        LOG(NOTICE, "read value has length %u", nb.getTotalLength());
+        LOG(NOTICE, "recovered value read from %s has length %u",
+            session->getServiceLocator().c_str(), nb.getTotalLength());
     }
     LOG(NOTICE, "Recovery completed in %lu ns",
         cyclesToNanoseconds(stopTime - b));
