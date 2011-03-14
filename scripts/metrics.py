@@ -424,6 +424,14 @@ class Master(Struct):
         'total bytes sent from first gRD response through log sync')
     local = Local('local metrics', 'Local')
     replicas = u64('number of backups on which to replicate each segment')
+    replayCloseTicks = u64(
+        'total amount of time R-th replica took to close during replay')
+    replayCloseCount = u64(
+        'total number of segments closed during replay')
+    logSyncCloseTicks = u64(
+        'total amount of time R-th replica took to close during log sync')
+    logSyncCloseCount = u64(
+        'total number of segments closed during log sync')
 
 class Backup(Struct):
     startReadingDataTicks = u64('total amount of time in sRD')
@@ -908,6 +916,22 @@ def textReport(data):
          (master.master.logSyncBytes /
           master.segmentSize / master.master.replicas)
          for master in masters])
+    masterSection.ms('RPC latency replicating one segment',
+        [(master.master.replayCloseTicks + master.master.logSyncCloseTicks) /
+         master.clockFrequency /
+         (master.master.replayCloseCount + master.master.logSyncCloseCount)
+         for master in masters],
+        note='for R-th replica')
+    masterSection.ms('  During replay',
+        [master.master.replayCloseTicks / master.clockFrequency /
+         master.master.replayCloseCount
+         for master in masters],
+        note='for R-th replica')
+    masterSection.ms('  During log sync',
+        [master.master.logSyncCloseTicks / master.clockFrequency /
+         master.master.logSyncCloseCount
+         for master in masters],
+        note='for R-th replica')
 
     backupSection = report.add(Section('Backup Time'))
     backupSection.ms('Total in RPC thread',

@@ -363,6 +363,8 @@ BackupManager::proceedNoMetrics()
                     (*backup->rpc)();
                     backup->rpc.destroy();
                     backup->openIsDone = true;
+                    if (backup->closeSent)
+                        backup->closeTicks.destroy();
                 }
                 closeDone &= (!backup->rpc && backup->closeSent);
             }
@@ -397,6 +399,18 @@ BackupManager::proceedNoMetrics()
         if (backup->closeSent == first.closeQueued &&
             backup->offsetSent == first.offsetQueued)
             continue; // already synced
+        if (first.closeQueued &&
+            &backup == first.backups + replicas - 1) {
+            if (metrics->master.logSyncBytes) {
+                backup->closeTicks.construct(
+                    &metrics->master.logSyncCloseTicks);
+                ++metrics->master.logSyncCloseCount;
+            } else {
+                backup->closeTicks.construct(
+                    &metrics->master.replayCloseTicks);
+                ++metrics->master.replayCloseCount;
+            }
+        }
         backup->rpc.construct(backup->client,
                               *masterId,
                               first.segmentId,

@@ -23,6 +23,7 @@
 #include "BoostIntrusive.h"
 #include "BackupClient.h"
 #include "Common.h"
+#include "Metrics.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -71,6 +72,7 @@ class BackupManager {
                 , openIsDone(false)
                 , offsetSent(0)
                 , closeSent(false)
+                , closeTicks()
                 , rpc()
             {}
             BackupClient client;
@@ -86,6 +88,10 @@ class BackupManager {
              * not necessarily acknowledged).
              */
             bool closeSent;
+
+            /// Measures the amount of time the close RPC is active.
+            Tub<CycleCounter<Metric>> closeTicks;
+
             /**
              * Space for an asynchronous RPC call.
              */
