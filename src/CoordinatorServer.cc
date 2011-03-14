@@ -81,7 +81,7 @@ CoordinatorServer::CoordinatorServer(string localLocator)
         throw Exception(HERE, "failed to bind failureDetector socket");
     }
     LOG(NOTICE, "listening for FailureDetector messages on %s:%d",
-        inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+        inet_ntoa(sin.sin_addr), NTOHS(sin.sin_port));
 
     pthread_t tid;
     if (pthread_create(&tid, NULL, failureDetectorServerThread, this))
@@ -802,7 +802,7 @@ CoordinatorServer::failureDetectorHandler(char* buf, ssize_t length,
         locatorBuf[hSDReq->serviceLocatorLength] = '\0';
 
         LOG(DEBUG, "HintServerDown [%s] from %s:%d", locatorBuf,
-            inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+            inet_ntoa(sin.sin_addr), NTOHS(sin.sin_port));
 
         // ignore HSDs for a recovering server
         // this needs to be much smarter, but should do for the moment
@@ -824,7 +824,7 @@ CoordinatorServer::failureDetectorHandler(char* buf, ssize_t length,
         }
     } else if (req->type == GET_SERVER_LIST) {
         LOG(DEBUG, "GetServerList request from %s:%d",
-            inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+            inet_ntoa(sin.sin_addr), NTOHS(sin.sin_port));
 
         GetServerListRpc::Request* getReq =
             reinterpret_cast<GetServerListRpc::Request*>(buf);
@@ -860,7 +860,7 @@ CoordinatorServer::failureDetectorHandler(char* buf, ssize_t length,
         }
     } else if (req->type == PING) {
         LOG(DEBUG, "Ping request from %s:%d",
-            inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+            inet_ntoa(sin.sin_addr), NTOHS(sin.sin_port));
 
         PingRpc::Request *req = reinterpret_cast<PingRpc::Request*>(buf);
         PingRpc::Response resp;

@@ -470,7 +470,7 @@ FailureDetector::requestServerList()
     rpc.serverType = type;
     sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);
     LOG(DEBUG, "requesting server list from %s:%d",
-        inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+        inet_ntoa(sin.sin_addr), NTOHS(sin.sin_port));
     ssize_t r = sys->sendto(coordFd, &rpc, sizeof(rpc), 0,
         reinterpret_cast<sockaddr*>(&sin), sizeof(sin));
     if (r != sizeof(rpc)) {
