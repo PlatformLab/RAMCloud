@@ -82,8 +82,13 @@ class ServerTest : public CppUnit::TestFixture {
         transport->setInput("0 0");
         Transport::ServerRpc& rpc(*transport->serverRecv());
         Server::Responder responder(*server, rpc);
+        union {
+            RpcType x;
+            int y;
+        } t;
+        t.y = 12345;
         CPPUNIT_ASSERT_THROW(
-            server->dispatch(static_cast<RpcType>(12345), rpc, responder),
+            server->dispatch(t.x, rpc, responder),
             UnimplementedRequestError);
     }
 
@@ -99,7 +104,7 @@ class ServerTest : public CppUnit::TestFixture {
     }
     void test_getString_lengthZero() {
         Buffer buffer;
-        Status status = Status(-1);
+        Status status = Status(0);
         try {
             server->getString(buffer, 0, 0);
         } catch (RequestFormatError& e) {
@@ -110,7 +115,7 @@ class ServerTest : public CppUnit::TestFixture {
     void test_getString_bufferTooShort() {
         Buffer buffer;
         buffer.fillFromString("abcde");
-        Status status = Status(-1);
+        Status status = Status(0);
         try {
             server->getString(buffer, 2, 5);
         } catch (MessageTooShortError& e) {
@@ -121,7 +126,7 @@ class ServerTest : public CppUnit::TestFixture {
     void test_getString_stringNotTerminated() {
         Buffer buffer;
         buffer.fillFromString("abcde");
-        Status status = Status(-1);
+        Status status = Status(0);
         try {
             server->getString(buffer, 1, 3);
         } catch (RequestFormatError& e) {

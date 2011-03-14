@@ -353,6 +353,7 @@ CoordinatorServer::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
                                 GetTabletMapRpc::Response& respHdr,
                                 Transport::ServerRpc& rpc)
 {
+    CycleCounter<Metric> _(&metrics->coordinator.getTabletMapTicks);
     respHdr.tabletMapLength = serializeToResponse(rpc.replyPayload,
                                                   tabletMap);
 }
@@ -521,6 +522,7 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                                     TabletsRecoveredRpc::Response& respHdr,
                                     Transport::ServerRpc& rpc)
 {
+    CycleCounter<Metric> ticks(&metrics->coordinator.tabletsRecoveredTicks);
     if (reqHdr.status != STATUS_OK) {
         // we'll need to restart a recovery of that partition elsewhere
         // right now this just leaks the recovery object in the tabletMap
@@ -528,11 +530,13 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
     }
 
     ProtoBuf::Tablets recoveredTablets;
-    ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
+    ProtoBuf::parseFromResponse(rpc.recvPayload,
+                                downCast<uint32_t>(sizeof(reqHdr)),
                                 reqHdr.tabletsLength, recoveredTablets);
     ProtoBuf::Tablets* newWill = new ProtoBuf::Tablets;
     ProtoBuf::parseFromResponse(rpc.recvPayload,
-                                sizeof(reqHdr) + reqHdr.tabletsLength,
+                                downCast<uint32_t>(sizeof(reqHdr)) +
+                                reqHdr.tabletsLength,
                                 reqHdr.willLength, *newWill);
 
     LOG(NOTICE, "called by masterId %lu with %u tablets, %u will entries",
@@ -541,7 +545,8 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
 
     // update the will
     setWill(reqHdr.masterId, rpc.recvPayload,
-        sizeof(reqHdr) + reqHdr.tabletsLength, reqHdr.willLength);
+        downCast<uint32_t>(sizeof(reqHdr)) + reqHdr.tabletsLength,
+        reqHdr.willLength);
 
     // update tablet map to point to new owner and mark as available
     foreach (const ProtoBuf::Tablets::Tablet& recoveredTablet,
@@ -570,13 +575,14 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                     recovery->tabletsRecovered(recoveredTablets);
                 if (recoveryComplete) {
                     LOG(NOTICE, "Recovery completed");
+                    ticks.stop();
                     delete recovery;
                     // dump the tabletMap out for easy debugging
-                    LOG(NOTICE, "Coordinator tabletMap:");
+                    LOG(DEBUG, "Coordinator tabletMap:");
 #ifndef __INTEL_COMPILER
                     foreach (const ProtoBuf::Tablets::Tablet& tablet,
                              tabletMap.tablet()) {
-                        LOG(NOTICE, "table: %lu [%lu:%lu] state: %u owner: %lu",
+                        LOG(DEBUG, "table: %lu [%lu:%lu] state: %u owner: %lu",
                             tablet.table_id(), tablet.start_object_id(),
                             tablet.end_object_id(), tablet.state(),
                             tablet.server_id());
@@ -649,9 +655,11 @@ CoordinatorServer::setWill(const SetWillRpc::Request& reqHdr,
                            SetWillRpc::Response& respHdr,
                            Transport::ServerRpc& rpc)
 {
+    CycleCounter<Metric> _(&metrics->coordinator.setWillTicks);
     if (!setWill(reqHdr.masterId, rpc.recvPayload, sizeof(reqHdr),
         reqHdr.willLength)) {
-        respHdr.common.status = Status(-1);
+        // TODO(ongaro): should be some other error or silent
+        throw RequestFormatError(HERE);
     }
 }
 

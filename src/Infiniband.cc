@@ -134,7 +134,7 @@ int
 Infiniband::getLid(int port)
 {
     ibv_port_attr ipa;
-    int ret = ibv_query_port(device.ctxt, port, &ipa);
+    int ret = ibv_query_port(device.ctxt, downCast<uint8_t>(port), &ipa);
     if (ret) {
         LOG(ERROR, "ibv_query_port failed on port %u\n", port);
         throw TransportException(HERE, ret);
@@ -280,6 +280,47 @@ Infiniband::postSrqReceive(ibv_srq* srq, BufferDescriptor *bd)
     }
 }
 
+void
+Infiniband::postSendZeroCopy(QueuePair* qp, BufferDescriptor *bd,
+    uint32_t length, const void* zeroCopyBuf, uint32_t zeroCopyBytes,
+    ibv_mr* zeroCopyMemoryRegion)
+{
+    assert(qp->type == IBV_QPT_RC);
+
+    ibv_sge isge[2] = {
+        {
+            reinterpret_cast<uint64_t>(bd->buffer),
+            length,
+            bd->mr->lkey
+        },
+        {
+            reinterpret_cast<uint64_t>(const_cast<void*>(zeroCopyBuf)),
+            zeroCopyBytes,
+            zeroCopyMemoryRegion->lkey
+        }
+    };
+    ibv_send_wr txWorkRequest;
+
+    memset(&txWorkRequest, 0, sizeof(txWorkRequest));
+    txWorkRequest.wr_id = reinterpret_cast<uint64_t>(bd);// stash descriptor ptr
+    txWorkRequest.next = NULL;
+    txWorkRequest.sg_list = isge;
+    txWorkRequest.num_sge = 2;
+    txWorkRequest.opcode = IBV_WR_SEND;
+    txWorkRequest.send_flags = IBV_SEND_SIGNALED;
+
+    // We can get a substantial latency improvement (nearly 2usec less per RTT)
+    // by inlining data with the WQE for small messages. The Verbs library
+    // automatically takes care of copying from the SGEs to the WQE.
+    if ((length + zeroCopyBytes) <= MAX_INLINE_DATA)
+        txWorkRequest.send_flags |= IBV_SEND_INLINE;
+
+    ibv_send_wr *bad_txWorkRequest;
+    if (ibv_post_send(qp->qp, &txWorkRequest, &bad_txWorkRequest)) {
+        throw TransportException(HERE, "ibv_post_send failed");
+    }
+}
+
 /**
  * Asychronously transmit the packet described by 'bd' on queue pair 'qp'.
  * This function returns immediately. 
@@ -396,7 +437,8 @@ Infiniband::allocateBufferDescriptorAndRegister(size_t bytes)
     if (mr == NULL)
         throw TransportException(HERE, "failed to register ring buffer", errno);
 
-    return new BufferDescriptor(reinterpret_cast<char *>(p), bytes, mr);
+    return new BufferDescriptor(reinterpret_cast<char *>(p),
+                                downCast<uint32_t>(bytes), mr);
 }
 
 /**
@@ -570,7 +612,7 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
     memset(&qpa, 0, sizeof(qpa));
     qpa.qp_state   = IBV_QPS_INIT;
     qpa.pkey_index = 0;
-    qpa.port_num   = ibPhysicalPort;
+    qpa.port_num   = downCast<uint8_t>(ibPhysicalPort);
     qpa.qp_access_flags = IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE;
     qpa.qkey       = QKey;
 
@@ -589,7 +631,8 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
     int ret = ibv_modify_qp(qp, &qpa, mask);
     if (ret) {
         ibv_destroy_qp(qp);
-        LOG(ERROR, "%s: failed to transition to INIT state", __func__);
+        LOG(ERROR, "%s: failed to transition to INIT state errno %d",
+            __func__, errno);
         throw TransportException(HERE, ret);
     }
 }
@@ -895,7 +938,7 @@ Infiniband::Address::getHandle() const
         attr.src_path_bits = 0;
         attr.is_global = 0;
         attr.sl = 0;
-        attr.port_num = physicalPort;
+        attr.port_num = downCast<uint8_t>(physicalPort);
         infiniband.totalAddressHandleAllocCalls += 1;
         uint64_t start = rdtsc();
         ah = ibv_create_ah(infiniband.pd.pd, &attr);

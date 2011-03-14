@@ -106,9 +106,14 @@ class Sandbox(object):
         return self
     def __exit__(self, exc_type, exc_value, exc_tb):
         with delayedInterrupts():
+            killers = []
             for p in self.processes:
                 # Assumes scripts are at same path on remote machine
-                self.rsh(p.host, '%s/killpid %s' % (scripts_path, p.sonce))
+                killers.append(subprocess.Popen(['ssh', p.host,
+                                                 '%s/killpid' % scripts_path,
+                                                 p.sonce]))
+            for killer in killers:
+                killer.wait()
         # a half-assed attempt to clean up zombies
         for p in self.processes:
             try:

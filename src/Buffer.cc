@@ -492,7 +492,7 @@ void
 Buffer::fillFromString(const char* s) {
     reset();
     uint32_t i, length;
-    length = strlen(s);
+    length = downCast<uint32_t>(strlen(s));
     for (i = 0; i < length; ) {
         char c = s[i];
         if ((c == '0') && (s[i+1] == 'x')) {
@@ -909,20 +909,21 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
              RAMCloud::PREPEND_T prepend)
 {
     using namespace RAMCloud;
-    if (numBytes == 0) {
+    uint32_t numBytes32 = downCast<uint32_t>(numBytes);
+    if (numBytes32 == 0) {
         // We want no visible effects but should return a unique pointer.
         return buffer->allocatePrepend(1);
     }
-    char* data = static_cast<char*>(buffer->allocatePrepend(numBytes));
+    char* data = static_cast<char*>(buffer->allocatePrepend(numBytes32));
     Buffer::Chunk* firstChunk = buffer->chunks;
     if (firstChunk != NULL && firstChunk->isRawChunk() &&
-        data + numBytes == firstChunk->data) {
+        data + numBytes32 == firstChunk->data) {
         // Grow the existing Chunk.
         firstChunk->data = data;
-        firstChunk->length += numBytes;
-        buffer->totalLength += numBytes;
+        firstChunk->length += numBytes32;
+        buffer->totalLength += numBytes32;
     } else {
-        Buffer::Chunk::prependToBuffer(buffer, data, numBytes);
+        Buffer::Chunk::prependToBuffer(buffer, data, numBytes32);
     }
     return data;
 }
@@ -946,21 +947,22 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
              RAMCloud::APPEND_T append)
 {
     using namespace RAMCloud;
-    if (numBytes == 0) {
+    uint32_t numBytes32 = downCast<uint32_t>(numBytes);
+    if (numBytes32 == 0) {
         // We want no visible effects but should return a unique pointer.
         return buffer->allocateAppend(1);
     }
-    char* data = static_cast<char*>(buffer->allocateAppend(numBytes));
+    char* data = static_cast<char*>(buffer->allocateAppend(numBytes32));
     Buffer::Chunk* lastChunk = buffer->getLastChunk();
     if (lastChunk != NULL && lastChunk->isRawChunk() &&
         data - lastChunk->length == lastChunk->data) {
         // Grow the existing Chunk.
-        lastChunk->length += numBytes;
-        buffer->totalLength += numBytes;
+        lastChunk->length += numBytes32;
+        buffer->totalLength += numBytes32;
     } else {
         // TODO(ongaro): We've already done the work to find lastChunk but are
         // wasting it.
-        Buffer::Chunk::appendToBuffer(buffer, data, numBytes);
+        Buffer::Chunk::appendToBuffer(buffer, data, numBytes32);
     }
     return data;
 }
@@ -985,7 +987,7 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
              RAMCloud::CHUNK_T chunk)
 {
     assert(numBytes >= sizeof(RAMCloud::Buffer::Chunk));
-    return buffer->allocateChunk(numBytes);
+    return buffer->allocateChunk(downCast<uint32_t>(numBytes));
 }
 
 /**
@@ -1012,7 +1014,7 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
         // We want no visible effects but should return a unique pointer.
         return buffer->allocateAppend(1);
     }
-    return buffer->allocateAppend(numBytes);
+    return buffer->allocateAppend(downCast<uint32_t>(numBytes));
 }
 
 /**

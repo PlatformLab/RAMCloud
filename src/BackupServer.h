@@ -467,10 +467,12 @@ class BackupServer : public Server {
 
   public:
     struct Config {
+        BackupStrategy backupStrategy;
         string coordinatorLocator;
         string localLocator;
         Config()
-            : coordinatorLocator()
+            : backupStrategy()
+            , coordinatorLocator()
             , localLocator()
         {
         }

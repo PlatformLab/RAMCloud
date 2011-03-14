@@ -46,6 +46,22 @@ class MasterClient : public Client {
         DISALLOW_COPY_AND_ASSIGN(Create);
     };
 
+    class Recover {
+      public:
+        Recover(MasterClient& client,
+                uint64_t masterId, uint64_t partitionId,
+                const ProtoBuf::Tablets& tablets,
+                const char* backups, uint32_t backupsLen);
+        bool isReady() { return client.isReady(state); }
+        void operator()();
+      private:
+        MasterClient& client;
+        Buffer requestBuffer;
+        Buffer responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(Recover);
+    };
+
     /// An asynchronous version of #write().
     class Write {
       public:
@@ -89,6 +105,7 @@ class MasterClient : public Client {
     void commitSuicide();
     uint64_t create(uint32_t tableId, const void* buf, uint32_t length,
                     uint64_t* version = NULL, bool async = false);
+    void fillWithTestData(uint32_t numObjects, uint32_t objectSize);
     void ping();
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,
@@ -96,6 +113,9 @@ class MasterClient : public Client {
     void recover(uint64_t masterId, uint64_t partitionId,
                  const ProtoBuf::Tablets& tablets,
                  const ProtoBuf::ServerList& backups);
+    void recover(uint64_t masterId, uint64_t partitionId,
+                 const ProtoBuf::Tablets& tablets,
+                 const char* backups, uint32_t backupsLen);
     void remove(uint32_t tableId, uint64_t id,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);

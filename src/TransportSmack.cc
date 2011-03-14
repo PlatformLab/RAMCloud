@@ -173,7 +173,7 @@ struct Echo : public CTest {
     Echo(const TestDescription& desc, Transport::SessionRef server)
         : CTest(desc, server)
         , size(desc.getOption("size", 16U))
-        , spinNs(desc.getOption("spin", 0UL))
+        , spinNs(desc.getOption("spin", 0))
     {
         init();
     }
@@ -183,7 +183,7 @@ struct Echo : public CTest {
          uint32_t size)
         : CTest(desc, server)
         , size(size)
-        , spinNs(desc.getOption("spin", 0UL))
+        , spinNs(desc.getOption("spin", 0))
     {
         init();
     }
@@ -257,7 +257,7 @@ struct Remote : public CTest {
         , command(desc.getOption("command"))
     {
         RemoteRpc::Request& reqHdr(allocHeader<RemoteRpc>(req));
-        reqHdr.commandLength = command.length() + 1;
+        reqHdr.commandLength = downCast<uint32_t>(command.length()) + 1;
         memcpy(new(&req, APPEND) char[reqHdr.commandLength],
                command.c_str(),
                reqHdr.commandLength);

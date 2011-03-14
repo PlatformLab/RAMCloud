@@ -53,6 +53,7 @@ class TcpTransport : public Transport {
     ServiceLocator getServiceLocator() {
         return ServiceLocator(locatorString);
     }
+    void registerMemory(void* base, size_t bytes) {}
 
   private:
     /**

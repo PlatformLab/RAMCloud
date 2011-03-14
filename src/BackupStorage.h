@@ -26,6 +26,18 @@
 
 namespace RAMCloud {
 
+/**
+ * Used for selecting various backup placement strategies at runtime.
+ * These are primarily used for testing weird segment placement
+ * and balancing ideas.
+ */
+enum BackupStrategy {
+    RANDOM_REFINE_MIN,
+    RANDOM_REFINE_AVG,
+    EVEN_DISTRIBUTION,
+    UNIFORM_RANDOM,
+};
+
 struct BackupStorageException : public Exception {
     explicit BackupStorageException(const CodeLocation& where)
         : Exception(where) {}
@@ -45,11 +57,8 @@ struct SegmentAllocator
     static char*
     malloc(const size_type bytes)
     {
-        void* p;
-        int r = posix_memalign(&p, Segment::SEGMENT_SIZE, bytes);
-        if (r != 0)
-            throw std::bad_alloc();
-        return reinterpret_cast<char *>(p);
+        return reinterpret_cast<char *>(xmemalign(Segment::SEGMENT_SIZE,
+                                                  bytes));
     }
 
     static void
@@ -70,7 +79,7 @@ class BackupStorage {
     {
     }
 
-    virtual pair<uint32_t, uint32_t> benchmark();
+    virtual pair<uint32_t, uint32_t> benchmark(BackupStrategy backupStrategy);
 
     /**
      * An opaque handle used to access a stored segment.  All concrete
@@ -236,7 +245,7 @@ class SingleFileStorage : public BackupStorage {
     virtual ~SingleFileStorage();
     virtual BackupStorage::Handle* allocate(uint64_t masterId,
                                             uint64_t segmentId);
-    virtual pair<uint32_t, uint32_t> benchmark();
+    virtual pair<uint32_t, uint32_t> benchmark(BackupStrategy backupStrategy);
     virtual void free(BackupStorage::Handle* handle);
     virtual void
     getSegment(const BackupStorage::Handle* handle,

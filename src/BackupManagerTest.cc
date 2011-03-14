@@ -33,10 +33,35 @@
 
 namespace RAMCloud {
 
+void
+BackupManager::dumpOpenSegments()
+{
+    BackupManager* mgr = const_cast<BackupManager*>(this);
+    LOG(ERROR, "%lu open segments:", mgr->openSegmentList.size());
+    foreach (auto& segment, mgr->openSegmentList) {
+        LOG(ERROR, "Segment %lu", segment.segmentId);
+        LOG(ERROR, "  data: %p", segment.data);
+        LOG(ERROR, "  openLen: %u", segment.openLen);
+        LOG(ERROR, "  offsetQueued: %u", segment.offsetQueued);
+        LOG(ERROR, "  closeQueued: %u", segment.closeQueued);
+        foreach (auto& backup, segment.backupIter()) {
+            LOG(ERROR, "  Backup:%s", backup ? "" : " inactive");
+            if (!backup)
+                continue;
+            LOG(ERROR, "    openIsDone: %u", backup->openIsDone);
+            LOG(ERROR, "    offsetSent: %u", backup->offsetSent);
+            LOG(ERROR, "    closeSent: %u", backup->closeSent);
+            LOG(ERROR, "    RPC: %s", backup->rpc ? "active" : "inactive");
+        }
+        LOG(ERROR, " ");
+    }
+}
+
 struct BackupManagerBaseTest : public ::testing::Test {
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     const char* coordinatorLocator;
+    ProgressPoller progressPoller;
     Tub<BindTransport> transport;
     Tub<TransportManager::MockRegistrar> mockRegistrar;
     Tub<CoordinatorServer> coordinatorServer;
@@ -55,6 +80,7 @@ struct BackupManagerBaseTest : public ::testing::Test {
         : segmentSize(1 << 16)
         , segmentFrames(4)
         , coordinatorLocator("mock:host=coordinator")
+        , progressPoller()
     {
         transport.construct();
         mockRegistrar.construct(*transport);
@@ -93,7 +119,9 @@ struct BackupManagerTest : public BackupManagerBaseTest {
 
 TEST_F(BackupManagerBaseTest, selectOpenHostsNotEnoughBackups) {
     logger.setLogLevels(SILENT_LOG_LEVEL);
-    EXPECT_THROW(IGNORE_RESULT(mgr->openSegment(88, NULL, 0)), FatalError);
+    auto seg = mgr->openSegment(88, NULL, 0);
+    EXPECT_THROW(mgr->proceed(), FatalError);
+    mgr->unopenSegment(seg); // so that destructor's sync is a no-op
 }
 
 TEST_F(BackupManagerTest, freeSegment) {
@@ -148,15 +176,16 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
     const char data[] = "Hello world!";
 
     auto openSegment = mgr->openSegment(88, data, arrayLength(data));
+    mgr->sync();
 
     // make sure we think data was written
     EXPECT_EQ(data, openSegment->data);
     EXPECT_EQ(arrayLength(data), openSegment->offsetQueued);
     EXPECT_FALSE(openSegment->closeQueued);
     foreach (auto& backup, openSegment->backupIter()) {
-        EXPECT_EQ(arrayLength(data), backup.offsetSent);
-        EXPECT_FALSE(backup.closeSent);
-        EXPECT_FALSE(backup.writeSegmentTub);
+        EXPECT_EQ(arrayLength(data), backup->offsetSent);
+        EXPECT_FALSE(backup->closeSent);
+        EXPECT_FALSE(backup->rpc);
     }
     EXPECT_EQ(arrayLength(data), backupServer1->bytesWritten);
     EXPECT_EQ(arrayLength(data), backupServer2->bytesWritten);
@@ -165,7 +194,7 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
     vector<string> backupLocators;
     foreach (auto& backup, openSegment->backupIter()) {
         backupLocators.push_back(
-            backup.client.getSession()->getServiceLocator());
+            backup->client.getSession()->getServiceLocator());
     }
     EXPECT_EQ((vector<string> {"mock:host=backup2", "mock:host=backup1"}),
               backupLocators);
@@ -198,13 +227,8 @@ TEST_F(BackupManagerTest, OpenSegmentwriteAssertNonAppending) {
     EXPECT_DEATH(openSegment->write(3, false), "Assertion");
 }
 
-TEST_F(BackupManagerTest, OpenSegmentwriteAssertPrevOpen) {
-    const char data[] = "Hello world!";
-    IGNORE_RESULT(mgr->openSegment(88, NULL, 0));
-    auto openSegment = mgr->openSegment(89, data, 0);
-    EXPECT_DEATH(openSegment->write(1, false), "Assertion");
-}
-
+#if 0 // the sync method was deleted,
+      // not sure if there's valuable stuff in here
 TEST_F(BackupManagerTest, OpenSegmentsync) {
     const char data[] = "Hello world!";
 
@@ -213,23 +237,23 @@ TEST_F(BackupManagerTest, OpenSegmentsync) {
     openSegment->sync();
     openSegment->write(4, false);
     foreach (auto& backup, openSegment->backupIter()) {
-        EXPECT_EQ(4U, backup.offsetSent);
-        EXPECT_FALSE(backup.closeSent);
-        EXPECT_TRUE(backup.writeSegmentTub);
+        EXPECT_EQ(4U, backup->offsetSent);
+        EXPECT_FALSE(backup->closeSent);
+        EXPECT_TRUE(backup->rpc);
     }
     openSegment->sync();
     foreach (auto& backup, openSegment->backupIter()) {
-        EXPECT_EQ(4U, backup.offsetSent);
-        EXPECT_FALSE(backup.closeSent);
-        EXPECT_FALSE(backup.writeSegmentTub);
+        EXPECT_EQ(4U, backup->offsetSent);
+        EXPECT_FALSE(backup->closeSent);
+        EXPECT_FALSE(backup->rpc);
     }
     openSegment->write(6, false);
     openSegment->write(8, false);
     openSegment->sync();
     foreach (auto& backup, openSegment->backupIter()) {
-        EXPECT_EQ(8U, backup.offsetSent);
-        EXPECT_FALSE(backup.closeSent);
-        EXPECT_FALSE(backup.writeSegmentTub);
+        EXPECT_EQ(8U, backup->offsetSent);
+        EXPECT_FALSE(backup->closeSent);
+        EXPECT_FALSE(backup->rpc);
     }
     EXPECT_EQ(8U, backupServer1->bytesWritten);
     EXPECT_EQ(8U, backupServer2->bytesWritten);
@@ -242,6 +266,7 @@ TEST_F(BackupManagerTest, OpenSegmentsync) {
     EXPECT_EQ(9U, backupServer2->bytesWritten);
     EXPECT_EQ(0U, mgr->openSegmentList.size());
 }
+#endif
 
 // TODO(ongaro): This is a test that really belongs in SegmentTest.cc, but the
 // setup overhead is too high.
@@ -256,6 +281,8 @@ TEST_F(BackupManagerTest, writeSegment) {
     object.version = 0;
     seg.append(LOG_ENTRY_TYPE_OBJ, &object, sizeof(object));
     seg.close();
+
+    ASSERT_EQ(0U, mgr->openSegmentList.size());
 
     ProtoBuf::Tablets will;
     ProtoBuf::Tablets::Tablet& tablet(*will.add_tablet());

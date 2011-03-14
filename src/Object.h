@@ -60,21 +60,21 @@ class Object {
      * contain a length field, since they typically exist in the Log, which
      * must record that information anyhow.
      */
-    uint64_t
-    objectLength(uint64_t dataBytes) const
+    uint32_t
+    objectLength(uint32_t dataBytes) const
     {
-        return sizeof(*this) + dataBytes;
+        return downCast<uint32_t>(sizeof(*this)) + dataBytes;
     }
 
     /**
      * Return the number of bytes of data an Object contains, given
      * the total size of the Object.
      */
-    uint64_t
-    dataLength(uint64_t totalObjectBytes) const
+    uint32_t
+    dataLength(uint32_t totalObjectBytes) const
     {
         assert(totalObjectBytes >= sizeof(*this));
-        return totalObjectBytes - sizeof(*this);
+        return totalObjectBytes - downCast<uint32_t>(sizeof(*this));
     }
 
     struct ObjectIdentifier id;

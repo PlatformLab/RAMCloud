@@ -162,14 +162,25 @@ BackupClient::quiesce()
  * Signal to the backup server that recovery has completed. The backup server
  * will then free any resources it has for the recovered master.
  */
-void
-BackupClient::recoveryComplete(uint64_t masterId)
+BackupClient::RecoveryComplete::RecoveryComplete(BackupClient& client,
+                                                 uint64_t masterId)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
 {
-    Buffer req, resp;
-    auto& reqHdr = allocHeader<BackupRecoveryCompleteRpc>(req);
+    auto& reqHdr =
+        client.allocHeader<BackupRecoveryCompleteRpc>(requestBuffer);
     reqHdr.masterId = masterId;
-    sendRecv<BackupRecoveryCompleteRpc>(session, req, resp);
-    checkStatus(HERE);
+    state = client.send<BackupRecoveryCompleteRpc>(client.session,
+                                                   requestBuffer,
+                                                   responseBuffer);
+}
+void
+BackupClient::RecoveryComplete::operator()()
+{
+    client.recv<BackupRecoveryCompleteRpc>(state);
+    client.checkStatus(HERE);
 }
 
 /**
@@ -231,13 +242,15 @@ BackupClient::StartReadingData::operator()(
 
     const void* digestPtr = NULL;
     if (digestBytes > 0) {
-        responseBuffer.truncateFront(segmentIdCount *
-            sizeof(pair<uint64_t, uint32_t>));
+        responseBuffer.truncateFront(downCast<uint32_t>(segmentIdCount *
+            sizeof(pair<uint64_t, uint32_t>)));
         digestPtr = responseBuffer.getStart<const void*>();
     }
 
-    result->set(segmentIdsRaw, segmentIdCount, primarySegmentCount,
-                digestPtr, digestBytes, digestSegmentId, digestSegmentLen);
+    result->set(segmentIdsRaw, segmentIdCount,
+                downCast<uint32_t>(primarySegmentCount),
+                digestPtr, digestBytes, digestSegmentId,
+                downCast<uint32_t>(digestSegmentLen));
 }
 
 /**

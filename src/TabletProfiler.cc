@@ -148,7 +148,7 @@ TabletProfiler::TabletProfiler()
       totalTrackedBytes(0)
 {
     root = new Subrange(
-        Subrange::BucketHandle(NULL, NULL), 0, ~0, LogTime(0, 0));
+        Subrange::BucketHandle(NULL, 0), 0, ~0, LogTime(0, 0));
 }
 
 /**
@@ -596,7 +596,7 @@ TabletProfiler::Subrange::Subrange(BucketHandle parent, uint64_t firstKey,
     : parent(parent),
       bucketWidth(0),
       buckets(NULL),
-      numBuckets(fastPower(2, BITS_PER_LEVEL)),
+      numBuckets(downCast<uint32_t>(fastPower(2, BITS_PER_LEVEL))),
       firstKey(firstKey),
       lastKey(lastKey),
       totalBytes(0),
@@ -617,7 +617,7 @@ TabletProfiler::Subrange::Subrange(BucketHandle parent, uint64_t firstKey,
         // always have a bucketWidth of 1) will have less than 2^BITS_PER_LEVEL
         // buckets.
         if (bucketWidth == 0) {
-            numBuckets = lastKey - firstKey + 1;
+            numBuckets = downCast<uint32_t>(lastKey - firstKey + 1);
             bucketWidth = 1;
         }
     }
@@ -632,10 +632,8 @@ TabletProfiler::Subrange::Subrange(BucketHandle parent, uint64_t firstKey,
  */
 TabletProfiler::Subrange::~Subrange()
 {
-    for (int i = 0; i < numBuckets; i++) {
-        if (buckets[i].child != NULL)
-            delete buckets[i].child;
-    }
+    for (uint32_t i = 0; i < numBuckets; i++)
+        delete buckets[i].child;
     free(buckets);
 }
 
@@ -674,7 +672,7 @@ TabletProfiler::Subrange::findBucket(uint64_t key, LogTime *time)
     if (recurse)
         return b->child->findBucket(key, time);
 
-    return BucketHandle(this, idx);
+    return BucketHandle(this, downCast<uint32_t>(idx));
 }
 
 /**
@@ -684,9 +682,9 @@ TabletProfiler::Subrange::findBucket(uint64_t key, LogTime *time)
  *      A pointer to the Bucket corresponding to the given index.
  */
 TabletProfiler::Bucket*
-TabletProfiler::Subrange::getBucket(int bucketIndex)
+TabletProfiler::Subrange::getBucket(uint32_t bucketIndex)
 {
-    assert(bucketIndex >= 0 && bucketIndex < numBuckets);
+    assert(bucketIndex < numBuckets);
     return &buckets[bucketIndex];
 }
 
@@ -702,7 +700,7 @@ TabletProfiler::Subrange::getBucket(int bucketIndex)
 uint64_t
 TabletProfiler::Subrange::getBucketFirstKey(BucketHandle bh)
 {
-    int bucketIndex = bh.getBucket() - bh.getSubrange()->buckets;
+    int64_t bucketIndex = bh.getBucket() - bh.getSubrange()->buckets;
     assert(bucketIndex >= 0 && bucketIndex < numBuckets);
     return firstKey + (bucketIndex * bucketWidth);
 }
@@ -719,7 +717,7 @@ TabletProfiler::Subrange::getBucketFirstKey(BucketHandle bh)
 uint64_t
 TabletProfiler::Subrange::getBucketLastKey(BucketHandle bh)
 {
-    int bucketIndex = bh.getBucket() - bh.getSubrange()->buckets;
+    int64_t bucketIndex = bh.getBucket() - bh.getSubrange()->buckets;
     assert(bucketIndex >= 0 && bucketIndex < numBuckets);
     return firstKey + (bucketIndex * bucketWidth) + bucketWidth - 1;
 }
@@ -769,7 +767,7 @@ TabletProfiler::Subrange::partitionWalk(PartitionCollector *pc,
     uint64_t parentBytes, uint64_t parentReferants)
 {
     bool noPartitionMade = true;
-    for (int i = 0; i < numBuckets; i++) {
+    for (uint32_t i = 0; i < numBuckets; i++) {
         if (buckets[i].child != NULL) {
             bool ret = buckets[i].child->partitionWalk(pc,
                 parentBytes + buckets[i].totalBytes,

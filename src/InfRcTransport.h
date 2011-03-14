@@ -58,6 +58,16 @@ class InfRcTransport : public Transport {
         infiniband->dumpStats();
     }
     uint32_t getMaxRpcSize() const;
+    void registerMemory(void* base, size_t bytes)
+    {
+        assert(logMemoryRegion == NULL);
+        logMemoryRegion = ibv_reg_mr(infiniband->pd.pd, base, bytes,
+            IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
+        assert(logMemoryRegion != NULL);
+        logMemoryBase = reinterpret_cast<uintptr_t>(base);
+        logMemoryBytes = bytes;
+        LOG(NOTICE, "Registered %Zd bytes at %p", bytes, base);
+    }
 
   private:
     class ServerRpc : public Transport::ServerRpc {
@@ -86,6 +96,9 @@ class InfRcTransport : public Transport {
             void wait();
 
         private:
+            bool
+            tryZeroCopy(Buffer* request);
+
             InfRcTransport*     transport;
             InfRCSession*       session;
             Buffer*             request;
@@ -124,9 +137,9 @@ class InfRcTransport : public Transport {
     // maximum RPC size we'll permit. we'll use the segment size plus a
     // little extra for header overhead, etc.
     static const uint32_t MAX_RPC_SIZE = Segment::SEGMENT_SIZE + 4096;
-    static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 16;
+    static const uint32_t MAX_SHARED_RX_QUEUE_DEPTH = 24;
     static const uint32_t MAX_SHARED_RX_SGE_COUNT = 8;
-    static const uint32_t MAX_TX_QUEUE_DEPTH = 8;
+    static const uint32_t MAX_TX_QUEUE_DEPTH = 12;
     static const uint32_t MAX_TX_SGE_COUNT = 8;
     static const uint32_t QP_EXCHANGE_USEC_TIMEOUT = 50000;
     static const uint32_t QP_EXCHANGE_MAX_TIMEOUTS = 10;
@@ -291,6 +304,12 @@ class InfRcTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(ServerConnectHandler);
     };
     Tub<ServerConnectHandler> serverConnectHandler;
+
+    // Hack for 0-copy from Log
+    // This must go away after SOSP
+    uintptr_t logMemoryBase;
+    size_t logMemoryBytes;
+    ibv_mr* logMemoryRegion;
 
     DISALLOW_COPY_AND_ASSIGN(InfRcTransport);
 };

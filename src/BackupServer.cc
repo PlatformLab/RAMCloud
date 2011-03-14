@@ -287,12 +287,12 @@ BackupServer::SegmentInfo::buildRecoverySegments(
 
     recoveryException.reset();
 
-    uint64_t partitionCount = 0;
+    uint32_t partitionCount = 0;
     for (int i = 0; i < partitions.tablet_size(); ++i) {
         partitionCount = std::max(partitionCount,
-                                  partitions.tablet(i).user_data() + 1);
+                  downCast<uint32_t>(partitions.tablet(i).user_data() + 1));
     }
-    LOG(NOTICE, "Building %lu recovery segments for %lu",
+    LOG(NOTICE, "Building %u recovery segments for %lu",
         partitionCount, segmentId);
     CycleCounter<Metric> _(&metrics->backup.filterTicks);
 
@@ -326,7 +326,8 @@ BackupServer::SegmentInfo::buildRecoverySegments(
             const SegmentEntry* entry = reinterpret_cast<const SegmentEntry*>(
                     reinterpret_cast<const char*>(it.getPointer()) -
                     sizeof(*entry));
-            const uint32_t len = sizeof(*entry) + it.getLength();
+            const uint32_t len = (downCast<uint32_t>(sizeof(*entry)) +
+                                  it.getLength());
 #ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
             auto& bufLen = recoverySegments[*partitionId];
             assert(bufLen.second + len <= Segment::SEGMENT_SIZE);
@@ -610,7 +611,7 @@ BackupServer::IoScheduler::load(SegmentInfo& info)
 #else
     Lock lock(queueMutex);
     loadQueue.push(&info);
-    uint32_t count = loadQueue.size() + storeQueue.size();
+    uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
     LOG(DEBUG, "Queued load of <%lu,%lu> (%u segments waiting for IO)",
         info.masterId, info.segmentId, count);
     queueCond.notify_all();
@@ -644,7 +645,7 @@ BackupServer::IoScheduler::store(SegmentInfo& info)
     ++outstandingStores;
     Lock lock(queueMutex);
     storeQueue.push(&info);
-    uint32_t count = loadQueue.size() + storeQueue.size();
+    uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
     LOG(DEBUG, "Queued store of <%lu,%lu> (%u segments waiting for IO)",
         info.masterId, info.segmentId, count);
     queueCond.notify_all();
@@ -667,7 +668,8 @@ BackupServer::IoScheduler::shutdown(boost::thread& ioThread)
     {
         Lock lock(queueMutex);
         LOG(DEBUG, "IoScheduler thread exiting");
-        uint32_t count = loadQueue.size() + storeQueue.size();
+        uint32_t count = downCast<uint32_t>(loadQueue.size() +
+                                            storeQueue.size());
         if (count)
             LOG(DEBUG, "IoScheduler must service %u pending IOs before exit",
                 count);
@@ -844,8 +846,8 @@ BackupServer::RecoverySegmentBuilder::operator()()
                "(%f MB/s)",
         totalTime / 1000 / 1000,
         infos.size(),
-        (Segment::SEGMENT_SIZE * infos.size() / (1 << 20)) /
-        (static_cast<double>(totalTime) / 1000000000lu));
+        static_cast<double>(Segment::SEGMENT_SIZE * infos.size() / (1 << 20)) /
+        static_cast<double>(totalTime) / 1e9);
 }
 
 
@@ -880,6 +882,14 @@ BackupServer::BackupServer(const Config& config,
 #endif
 {
     recoveryTicks.construct(); // make unit tests happy
+
+    // Prime the segment pool. This removes an overhead that would otherwise be
+    // seen during the first recovery.
+    void* mem[100];
+    foreach(auto& m, mem)
+        m = pool.malloc();
+    foreach(auto& m, mem)
+        pool.free(m);
 }
 
 /**
@@ -923,7 +933,7 @@ BackupServer::getServerId() const
 void __attribute__ ((noreturn))
 BackupServer::run()
 {
-    auto speeds = storage.benchmark();
+    auto speeds = storage.benchmark(config.backupStrategy);
     serverId = coordinator.enlistServer(BACKUP, config.localLocator,
                                         speeds.first, speeds.second);
     LOG(NOTICE, "My server ID is %lu", serverId);
@@ -1107,6 +1117,7 @@ BackupServer::recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
                                Responder& responder)
 {
     LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
+    responder();
     recoveryTicks.destroy();
     dump(metrics);
 }
@@ -1225,8 +1236,9 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
             info->masterId, info->segmentId);
         info->setRecovering(partitions);
     }
-    respHdr.segmentIdCount = primarySegments.size() + secondarySegments.size();
-    respHdr.primarySegmentCount = primarySegments.size();
+    respHdr.segmentIdCount = downCast<uint32_t>(primarySegments.size() +
+                                                secondarySegments.size());
+    respHdr.primarySegmentCount = downCast<uint32_t>(primarySegments.size());
     LOG(DEBUG, "Sending %u segment ids for this master (%u primary)",
         respHdr.segmentIdCount, respHdr.primarySegmentCount);
 

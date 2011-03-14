@@ -182,7 +182,7 @@ ServiceLocator::init(pcrecpp::StringPiece* remainingServiceLocator)
 
     // Set originalString from the first part of originalRemaining.
     originalRemaining.remove_suffix(remainingServiceLocator->size() +
-                                    sentinel.size());
+                                    downCast<uint32_t>(sentinel.size()));
     originalRemaining.CopyToString(&originalString);
 
     // Strip leading and trailing whitespace from originalString.

@@ -51,6 +51,7 @@ enum RpcType {
     SET_WILL                = 23,
     REREPLICATE_SEGMENTS    = 24,
     COMMIT_SUICIDE          = 25,
+    FILL_WITH_TEST_DATA     = 26,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -104,6 +105,19 @@ struct CreateRpc {
         RpcResponseCommon common;
         uint64_t id;
         uint64_t version;
+    };
+};
+
+struct FillWithTestDataRpc {
+    static const RpcType type = FILL_WITH_TEST_DATA;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t numObjects;        // Number of objects to add to tables
+                                    // in round-robin fashion.
+        uint32_t objectSize;        // Size of each object to add.
+    };
+    struct Response {
+        RpcResponseCommon common;
     };
 };
 

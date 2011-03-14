@@ -16,34 +16,36 @@
 
 """Generates data for a recovery performance graph.
 
-Keeps partition size constant and scales the number of objects.
+Keeps partition size constant and scales the number of recovery masters.
 """
 
 from __future__ import division, print_function
 from common import *
+import metrics
 import recovery
 import subprocess
 
-dat = open('%s/recovery/objectsize_scale.data' % top_path, 'w', 1)
+dat = open('%s/recovery/nondata_scale.data' % top_path, 'w', 1)
 
-for objectSize in [128, 256, 1024]:
-    print('# objectSize:', objectSize, file=dat)
-    for partitionSize in range(1, 1050, 100):
+print('Don\'t forget to set your segment size to 16 * 1024!')
+
+for numObjects in [1, 626012 * .8 // 640]:
+    print('# numObjects=%d' % numObjects, file=dat)
+    for numPartitions in range(1, 19):
         args = {}
-        args['numBackups'] = 36
-        args['numPartitions'] = 1
-        args['objectSize'] = objectSize
-        args['disk'] = 1
+        args['numBackups'] = min(numPartitions * 6, 35)
+        args['numPartitions'] = numPartitions
+        args['objectSize'] = 1024
+        args['disk'] = 0
         args['replicas'] = 3
-        numObjectsPerMb = 2**20 / (objectSize + 40)
-        print('Running with objects of size %d for a %d MB partition' %
-              (objectSize, partitionSize))
-        r = recovery.insist(
-            oldMasterArgs='-m 1600',
-            newMasterArgs='-m 1600',
-            numObjects=int(numObjectsPerMb * partitionSize),
-            **args)
+        args['numObjects'] = numObjects
+        args['oldMasterArgs'] = '-m 1200'
+        args['newMasterArgs'] = '-m 1200'
+        print(numPartitions, 'partitions')
+        r = recovery.insist(**args)
         print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
-        print(partitionSize, r['ns'] / 1e6, file=dat)
+        print(numPartitions,
+              r['ns'] / 1e6,
+              file=dat)
     print(file=dat)
     print(file=dat)

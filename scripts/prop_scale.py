@@ -16,7 +16,8 @@
 
 """Generates data for a recovery performance graph.
 
-Keeps partition size constant and scales the number of recovery masters.
+Keeps partition size constant and scales the number of recovery masters and
+backups.
 """
 
 from __future__ import division, print_function
@@ -25,20 +26,20 @@ import metrics
 import recovery
 import subprocess
 
-dat = open('%s/recovery/partition_scale.data' % top_path, 'w', 1)
+dat = open('%s/recovery/prop_scale.data' % top_path, 'w', 1)
 
-for numPartitions in range(1, 36):
+def run(numPartitions, numBackups, disk, hostAllocationStrategy):
     args = {}
-    args['numBackups'] = 36
+    args['numBackups'] = numBackups
     args['numPartitions'] = numPartitions
     args['objectSize'] = 1024
-    args['disk'] = 1
+    args['disk'] = disk
     args['replicas'] = 3
     args['numObjects'] = 626012 * 400 // 640
     args['oldMasterArgs'] = '-m 17000'
     args['newMasterArgs'] = '-m 600'
     args['timeout'] = 180
-    print(numPartitions, 'partitions')
+
     r = recovery.insist(**args)
     print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
     diskActiveMsPoints = [backup.backup.storageReadTicks * 1e3 /
@@ -60,3 +61,23 @@ for numPartitions in range(1, 36):
           min(masterRecoveryMs),
           max(masterRecoveryMs),
           file=dat)
+
+numHosts = 35
+for n in range(1, numHosts // 7 + 1):
+    print('%d masters sharing hosts with 0 backups' % n)
+    run(n, 6*n, disk=1, hostAllocationStrategy=1)
+print(file=dat)
+print(file=dat)
+for n in range(1, numHosts // 6 + 1):
+    print('%d masters sharing hosts with 1 backup' % n)
+    run(n, 6*n, disk=1, hostAllocationStrategy=0)
+print(file=dat)
+print(file=dat)
+for n in range(1, numHosts // 3 + 1):
+    print('%d masters sharing hosts with 2 backups' % n)
+    run(n, 6*n, disk=3, hostAllocationStrategy=0)
+print(file=dat)
+print(file=dat)
+for n in range(1, numHosts // 3 + 1):
+    print('%d masters sharing hosts with 1 RAID backup' % n)
+    run(n, 3*n, disk=4, hostAllocationStrategy=0)

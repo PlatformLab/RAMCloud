@@ -57,7 +57,7 @@ RecoverySegmentIterator::next()
 {
     if (isDone())
         return;
-    offset += getLength() + sizeof(SegmentEntry);
+    offset += getLength() + downCast<uint32_t>(sizeof(SegmentEntry));
     bool prefetching = true;
     if (prefetching) {
         const char* entry = &segment[offset +
@@ -93,7 +93,7 @@ RecoverySegmentIterator::getType() const
  * \return
  *      The length in bytes of the current entry.
  */
-uint64_t
+uint32_t
 RecoverySegmentIterator::getLength() const
 {
     return getEntry().length;

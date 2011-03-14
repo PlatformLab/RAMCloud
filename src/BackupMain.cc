@@ -55,6 +55,7 @@ try
     bool inMemory;
     uint32_t segmentCount;
     string backupFile;
+    int backupStrategy;
 
     OptionsDescription extraOptions("Backup");
     extraOptions.add_options()
@@ -72,11 +73,17 @@ try
         ("file,f",
          ProgramOptions::value<string>(&backupFile)->
             default_value("/var/tmp/backup.log"),
-         "The file path to the backup storage.");
+         "The file path to the backup storage.")
+        ("backupStrategy",
+         ProgramOptions::value<int>(&backupStrategy)->
+           default_value(RANDOM_REFINE_AVG),
+         "0 random refine min, 1 random refine avg, 2 even distribution, "
+         "3 uniform random");
 
     OptionParser optionParser(extraOptions, argc, argv);
     config.coordinatorLocator = optionParser.options.getCoordinatorLocator();
     config.localLocator = optionParser.options.getLocalLocator();
+    config.backupStrategy = static_cast<BackupStrategy>(backupStrategy);
 
     if (cpu != -1) {
         if (!pinToCpu(cpu))

@@ -38,6 +38,7 @@
 #include "Common.h"
 #include "Buffer.h"
 #include "ClientException.h"
+#include "Dispatch.h"
 #include "Transport.h"
 
 // The following redefinitions are based on CppUnit code, so they probably need
@@ -87,6 +88,12 @@ string toString(const char *buf, uint32_t length);
 string toString(Buffer* buffer);
 Transport::ServerRpc* waitForRpcRequest(Transport* transport,
         double timeoutSeconds);
+
+struct ProgressPoller : public Dispatch::Poller {
+    bool operator()() {
+        return (rand() & 1); // NOLINT
+    }
+};
 
 } // namespace RAMCloud
 

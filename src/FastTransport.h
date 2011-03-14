@@ -87,6 +87,7 @@ class FastTransport : public Transport {
     VIRTUAL_FOR_TESTING void handleIncomingPacket(Driver::Received *received);
 
     ServiceLocator getServiceLocator();
+    void registerMemory(void* base, size_t bytes) {}
 
     /**
      * Manages an entire request/response cycle from the client perspective.
@@ -1206,9 +1207,9 @@ class FastTransport : public Transport {
         T* get()
         {
             uint32_t sessionHint = firstFree;
-            if (sessionHint >= sessions.size()) {
+            if (sessionHint >= size()) {
                 // Invalid, no free sessions, so create a new one
-                sessionHint = sessions.size();
+                sessionHint = size();
                 T* session = new T(transport, sessionHint);
                 session->nextFree = TAIL;
                 sessions.push_back(session);
@@ -1269,7 +1270,7 @@ class FastTransport : public Transport {
          */
         uint32_t size()
         {
-            return sessions.size();
+            return downCast<uint32_t>(sessions.size());
         }
 
       private:

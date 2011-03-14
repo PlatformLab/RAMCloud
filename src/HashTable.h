@@ -890,8 +890,8 @@ class HashTable {
             ue.ptr   = this->value         & (0x00007fffffffffffUL >> typeBits);
             ue.type  = 0;
             if (typeBits != 0) {
-                ue.type = (this->value >> (47 - typeBits)) &
-                    ((1UL << typeBits) - 1);
+                ue.type = downCast<uint8_t>((this->value >> (47 - typeBits)) &
+                                            ((1UL << typeBits) - 1));
             }
             return ue;
         }

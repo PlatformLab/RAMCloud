@@ -19,6 +19,7 @@
 
 #include "Log.h"
 #include "LogCleaner.h"
+#include "TransportManager.h" // for Log memory 0-copy registration hack
 
 namespace RAMCloud {
 
@@ -67,6 +68,7 @@ Log::Log(const Tub<uint64_t>& logId,
         addSegmentMemory(static_cast<char*>(segmentMemory.get()) +
                          i * segmentCapacity);
     }
+    transportManager.registerMemory(segmentMemory.get(), segmentMemory.length);
 }
 
 /**
@@ -95,10 +97,7 @@ Log::~Log()
 Segment*
 Log::allocateHead()
 {
-    Segment* newHead = new Segment(this, allocateSegmentId(), getFromFreeList(),
-        segmentCapacity, backup);
-
-    uint32_t segmentCount = activeIdMap.size() + 1;
+    uint32_t segmentCount = downCast<uint32_t>(activeIdMap.size() + 1);
     uint32_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
     char temp[digestBytes];
     LogDigest ld(segmentCount, temp, digestBytes);
@@ -107,13 +106,13 @@ Log::allocateHead()
         Segment* segment = idSegmentPair.second;
         ld.addSegment(segment->getId());
     }
-    ld.addSegment(newHead->getId());
 
-    SegmentEntryHandle seh = newHead->append(LOG_ENTRY_TYPE_LOGDIGEST,
-        temp, digestBytes);
-    assert(seh != NULL);
+    uint64_t newHeadId = allocateSegmentId();
+    ld.addSegment(newHeadId);
 
-    return newHead;
+    return new Segment(this, newHeadId, getFromFreeList(),
+        downCast<uint32_t>(segmentCapacity), backup,
+        LOG_ENTRY_TYPE_LOGDIGEST, temp, digestBytes);
 }
 
 /**
@@ -204,8 +203,10 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     uint64_t segmentOffset;
 
     if (head != NULL) {
-        seh = head->append(type, buffer, length, lengthInLog,
-            &segmentOffset, sync, expectedChecksum);
+        seh = head->append(type, buffer,
+                           downCast<uint32_t>(length), lengthInLog,
+                           &segmentOffset, sync, expectedChecksum);
+
         if (seh != NULL) {
             // entry was appended to head segment
             if (logTime != NULL)
@@ -229,8 +230,10 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     addToActiveMaps(head);
 
     // append the entry
-    seh = head->append(type, buffer, length, lengthInLog,
-        &segmentOffset, sync, expectedChecksum);
+    seh = head->append(type, buffer,
+                       downCast<uint32_t>(length), lengthInLog,
+                       &segmentOffset, sync, expectedChecksum);
+
     assert(seh != NULL);
     if (logTime != NULL)
         *logTime = LogTime(head->getId(), segmentOffset);
@@ -339,7 +342,7 @@ Log::addSegmentMemory(void *p)
     addToFreeList(p);
 
     if (maximumAppendableBytes == 0) {
-        Segment s((uint64_t)0, 0, p, segmentCapacity);
+        Segment s((uint64_t)0, 0, p, downCast<uint32_t>(segmentCapacity));
         maximumAppendableBytes = s.appendableBytes();
     }
 }

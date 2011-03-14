@@ -99,7 +99,7 @@ FailureDetector::FailureDetector(string coordinatorLocatorString,
     }
 
     LOG(NOTICE, "listening on UDP socket %s:%d for incoming pings",
-        inet_ntoa(sin.sin_addr), ntohs(sin.sin_port));
+        inet_ntoa(sin.sin_addr), NTOHS(sin.sin_port));
 }
 
 /**
@@ -172,7 +172,7 @@ FailureDetector::handleIncomingRequest(char* buf, ssize_t bytes,
 {
     LOG(DEBUG, "incoming request from %s:%d",
         inet_ntoa(sourceAddress->sin_addr),
-        ntohs(sourceAddress->sin_port));
+        NTOHS(sourceAddress->sin_port));
 
     // there are just two types of requests: ping, and proxy ping.
     // the former requires us to send a reply to the sender.
@@ -231,7 +231,7 @@ FailureDetector::handleIncomingResponse(char* buf, ssize_t bytes,
     sockaddr_in* sourceAddress)
 {
     LOG(DEBUG, "incoming ping response from %s:%d",
-        inet_ntoa(sourceAddress->sin_addr), ntohs(sourceAddress->sin_port));
+        inet_ntoa(sourceAddress->sin_addr), NTOHS(sourceAddress->sin_port));
 
     if (bytes != sizeof(PingRpc::Response)) {
         LOG(WARNING, "payload isn't %u bytes, but %u!",
@@ -245,7 +245,7 @@ FailureDetector::handleIncomingResponse(char* buf, ssize_t bytes,
     auto tubTimeoutEntry = queue.dequeue(resp->nonce);
     if (tubTimeoutEntry) {
         LOG(DEBUG, "received response from %s:%d",
-            inet_ntoa(sourceAddress->sin_addr), ntohs(sourceAddress->sin_port));
+            inet_ntoa(sourceAddress->sin_addr), NTOHS(sourceAddress->sin_port));
 
         if (tubTimeoutEntry->type == COORD_PROBE) {
             uint64_t replyUsecs = (cyclesToNanoseconds(rdtsc()) / 1000) -
@@ -292,7 +292,7 @@ FailureDetector::handleCoordinatorResponse(char* buf, ssize_t bytes,
     sockaddr_in* sourceAddress)
 {
     LOG(DEBUG, "incoming coordinator response from %s:%d",
-        inet_ntoa(sourceAddress->sin_addr), ntohs(sourceAddress->sin_port));
+        inet_ntoa(sourceAddress->sin_addr), NTOHS(sourceAddress->sin_port));
 
     GetServerListRpc::Response* resp =
         reinterpret_cast<GetServerListRpc::Response*>(buf);
@@ -304,7 +304,7 @@ FailureDetector::handleCoordinatorResponse(char* buf, ssize_t bytes,
 
     serverList.Clear();
     Buffer b;
-    Buffer::Chunk::appendToBuffer(&b, buf, bytes);
+    Buffer::Chunk::appendToBuffer(&b, buf, downCast<uint32_t>(bytes));
     ProtoBuf::parseFromResponse(b, sizeof(*resp),
         resp->serverListLength, serverList);
 }
@@ -331,7 +331,8 @@ FailureDetector::pingRandomServer()
 
     const string* locator = &localLocator;
     while (*locator == localLocator) {
-        int index = generateRandom() % serverList.server_size();
+        uint32_t index = downCast<uint32_t>(generateRandom() %
+                                            serverList.server_size());
         locator = &serverList.server(index).service_locator();
     }
 
@@ -387,8 +388,8 @@ FailureDetector::handleTimeout(TimeoutQueue::TimeoutEntry* te)
         uint64_t nowUsec = cyclesToNanoseconds(rdtsc()) / 1000;
         if (lastHintServerDownTime.find(loc) == lastHintServerDownTime.end() ||
           lastHintServerDownTime[loc] + MINIMUM_HSD_INTERVAL_USECS < nowUsec) {
-            int bytesNeeded = loc.length() + 1 +
-                sizeof(HintServerDownRpc::Request);
+            int bytesNeeded = downCast<uint32_t>(loc.length() + 1 +
+                sizeof(HintServerDownRpc::Request));
             char buf[bytesNeeded];
             memset(buf, 0, bytesNeeded);
 

@@ -45,7 +45,7 @@ try
         optionParser.options.getCoordinatorLocator().c_str());
 
 
-    uint64_t quitTime = rdtsc() + nanosecondsToCycles(1e9 * timeout);
+    uint64_t quitTime = rdtsc() + nanosecondsToCycles(1000000000UL * timeout);
     int actual = -1;
     do {
         ProtoBuf::ServerList serverList;

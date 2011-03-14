@@ -15,6 +15,7 @@
 
 #include <sys/epoll.h>
 #include "BenchUtil.h"
+#include "Metrics.h"
 #include "Common.h"
 #include "Dispatch.h"
 
@@ -40,13 +41,14 @@ volatile int Dispatch::readyFd = -1;
 int Dispatch::fileInvocationSerial = 0;
 std::vector<Dispatch::Timer*> Dispatch::timers;
 uint64_t Dispatch::currentTime = rdtsc();
+uint64_t Dispatch::lastEventTime = Dispatch::currentTime;
 uint64_t Dispatch::earliestTriggerTime = 0;
 
 /**
  * Construct a Poller.
  */
 Dispatch::Poller::Poller()
-    : slot(Dispatch::pollers.size())
+    : slot(downCast<unsigned>(Dispatch::pollers.size()))
 {
     Dispatch::pollers.push_back(this);
 }
@@ -144,6 +146,8 @@ bool Dispatch::poll()
             }
         }
     }
+    if (result)
+        lastEventTime = currentTime;
     return result;
 }
 
@@ -153,9 +157,14 @@ bool Dispatch::poll()
  */
 void Dispatch::handleEvent()
 {
+    if (poll())
+        return;
+    uint64_t startIdleTime = currentTime;
     while (!poll()) {
         // Empty loop body.
     }
+    uint64_t endIdleTime = currentTime;
+    metrics->dispatchIdleTicks += endIdleTime - startIdleTime;
 }
 
 /**
@@ -406,7 +415,7 @@ void Dispatch::Timer::startCycles(uint64_t cycles)
 {
     triggerTime = Dispatch::currentTime + cycles;
     if (slot < 0) {
-        slot = timers.size();
+        slot = downCast<unsigned>(timers.size());
         timers.push_back(this);
     }
     if (triggerTime < Dispatch::earliestTriggerTime) {

@@ -242,7 +242,8 @@ class LogDigest {
     static uint32_t
     getBytesFromCount(uint32_t segmentCount)
     {
-        return sizeof(LogDigestData) + segmentCount * sizeof(uint64_t);
+        return downCast<uint32_t>(sizeof(LogDigestData) +
+                                  segmentCount * sizeof(uint64_t));
     }
 
     /**

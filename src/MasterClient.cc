@@ -136,6 +136,24 @@ MasterClient::commitSuicide()
 }
 
 /**
+ * Fill a master server with the given number of objects, each of the
+ * same given size. Objects are added to all tables in the master in
+ * a round-robin fashion.
+ *
+ * This method exists simply to quickly fill a master for experiments.
+ */
+void
+MasterClient::fillWithTestData(uint32_t numObjects, uint32_t objectSize)
+{
+    Buffer req, resp;
+    FillWithTestDataRpc::Request& reqHdr(allocHeader<FillWithTestDataRpc>(req));
+    reqHdr.numObjects = numObjects;
+    reqHdr.objectSize = objectSize;
+    sendRecv<FillWithTestDataRpc>(session, req, resp);
+    checkStatus(HERE);
+}
+
+/**
  * Create a new object in a table, with an id assigned by the server.
  *
  * \param tableId
@@ -215,6 +233,41 @@ MasterClient::recover(uint64_t masterId, uint64_t partitionId,
     reqHdr.serverListLength = serializeToResponse(req, backups);
     sendRecv<RecoverRpc>(session, req, resp);
     checkStatus(HERE);
+}
+
+MasterClient::Recover::Recover(MasterClient& client,
+                               uint64_t masterId, uint64_t partitionId,
+                               const ProtoBuf::Tablets& tablets,
+                               const char* backups, uint32_t backupsLen)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    RecoverRpc::Request& reqHdr(client.allocHeader<RecoverRpc>(requestBuffer));
+    reqHdr.masterId = masterId;
+    reqHdr.partitionId = partitionId;
+    reqHdr.tabletsLength = serializeToResponse(requestBuffer, tablets);
+    reqHdr.serverListLength = backupsLen;
+    Buffer::Chunk::appendToBuffer(&requestBuffer, backups, backupsLen);
+    state = client.send<RecoverRpc>(client.session,
+                                    requestBuffer,
+                                    responseBuffer);
+}
+
+void
+MasterClient::Recover::operator()()
+{
+    client.recv<RecoverRpc>(state);
+    client.checkStatus(HERE);
+}
+
+void
+MasterClient::recover(uint64_t masterId, uint64_t partitionId,
+                      const ProtoBuf::Tablets& tablets,
+                      const char* backups, uint32_t backupsLen)
+{
+    Recover(*this, masterId, partitionId, tablets, backups, backupsLen)();
 }
 
 /**
