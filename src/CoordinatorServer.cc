@@ -45,8 +45,9 @@
  * retried by the FailureDetector.
  */
 static pthread_mutex_t biglock = PTHREAD_MUTEX_INITIALIZER;
-#define bigLock()       pthread_mutex_lock(&biglock);
-#define bigUnlock()     pthread_mutex_unlock(&biglock);
+#define tryBigLock()    pthread_mutex_trylock(&biglock)
+#define bigLock()       pthread_mutex_lock(&biglock)
+#define bigUnlock()     pthread_mutex_unlock(&biglock)
 
 namespace RAMCloud {
 
@@ -832,8 +833,14 @@ CoordinatorServer::failureDetectorHandler(char* buf, ssize_t length,
         GetServerListRpc::Response* resp =
             reinterpret_cast<GetServerListRpc::Response*>(responseBuf);
 
+        // if we can't get the lock (e.g. if something long like quiesce() is
+        // running, we can't block here or people will think we've died.
+        if (tryBigLock()) {
+            LOG(DEBUG, "big lock is already held; aborting GetServerList");
+            return;
+        }
+
         std::ostringstream ostream;
-        bigLock();
         if (getReq->serverType == MASTER)
             masterList.SerializePartialToOstream(&ostream);
         else
