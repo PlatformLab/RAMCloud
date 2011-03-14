@@ -34,7 +34,7 @@ for numBackups in range(3, 37):
     args['numPartitions'] = 1
     args['objectSize'] = 1024
     args['disk'] = 1
-    args['numObjects'] = 626012 * 400 // 640
+    args['numObjects'] = 626012 * 600 // 640
     args['oldMasterArgs'] = '-m 800'
     args['replicas'] = 3
     r = recovery.insist(**args)
