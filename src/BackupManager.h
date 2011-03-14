@@ -23,6 +23,7 @@
 #include "BoostIntrusive.h"
 #include "BackupClient.h"
 #include "Common.h"
+#include "Metrics.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -71,6 +72,7 @@ class BackupManager {
                 , openIsDone(false)
                 , offsetSent(0)
                 , closeSent(false)
+                , closeTicks()
                 , rpc()
             {}
             BackupClient client;
@@ -86,6 +88,10 @@ class BackupManager {
              * not necessarily acknowledged).
              */
             bool closeSent;
+
+            /// Measures the amount of time the close RPC is active.
+            Tub<CycleCounter<Metric>> closeTicks;
+
             /**
              * Space for an asynchronous RPC call.
              */
@@ -170,9 +176,11 @@ class BackupManager {
     /// The host pool to schedule backups from.
     ProtoBuf::ServerList hosts;
 
+  PUBLIC:
     /// The number of backups to replicate each segment on.
     const uint32_t replicas;
 
+  PRIVATE:
     typedef std::unordered_multimap<uint64_t, Transport::SessionRef>
             SegmentMap;
     /// Tells which backup each segment is stored on.

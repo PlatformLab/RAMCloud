@@ -83,7 +83,8 @@ def recover(numBackups=1,
     oldMasterLocator = 'infrc:host=%s,port=12242' % oldMasterHost[1]
 
     if hostAllocationStrategy == 1:
-        newMasterHosts = reversed(hosts[1:] + [hosts[0]])[:numPartitions]
+        newMasterHosts = (list(reversed(hosts[1:])) +
+                          [hosts[0]])[:numPartitions]
         newMasterLocators = ['infrc:host=%s,port=12247' % host[1]
                              for host in newMasterHosts]
     else:

@@ -35,9 +35,9 @@ def run(numPartitions, numBackups, disk, hostAllocationStrategy):
     args['objectSize'] = 1024
     args['disk'] = disk
     args['replicas'] = 3
-    args['numObjects'] = 626012 * 400 // 640
+    args['numObjects'] = 626012 * 600 // 640
     args['oldMasterArgs'] = '-m 17000'
-    args['newMasterArgs'] = '-m 600'
+    args['newMasterArgs'] = '-m 800'
     args['timeout'] = 180
 
     r = recovery.insist(**args)
@@ -65,12 +65,14 @@ def run(numPartitions, numBackups, disk, hostAllocationStrategy):
 numHosts = 35
 for n in range(1, numHosts // 7 + 1):
     print('%d masters sharing hosts with 0 backups' % n)
-    run(n, 6*n, disk=1, hostAllocationStrategy=1)
+    #run(n, 6*n, disk=1, hostAllocationStrategy=1)
+    print(0, 0, file=dat)
 print(file=dat)
 print(file=dat)
 for n in range(1, numHosts // 6 + 1):
     print('%d masters sharing hosts with 1 backup' % n)
-    run(n, 6*n, disk=1, hostAllocationStrategy=0)
+    #run(n, 6*n, disk=1, hostAllocationStrategy=0)
+    print(0, 0, file=dat)
 print(file=dat)
 print(file=dat)
 for n in range(1, numHosts // 3 + 1):
@@ -80,4 +82,5 @@ print(file=dat)
 print(file=dat)
 for n in range(1, numHosts // 3 + 1):
     print('%d masters sharing hosts with 1 RAID backup' % n)
-    run(n, 3*n, disk=4, hostAllocationStrategy=0)
+    #run(n, 3*n, disk=4, hostAllocationStrategy=0)
+    print(0, 0, file=dat)

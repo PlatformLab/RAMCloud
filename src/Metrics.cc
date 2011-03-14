@@ -18,6 +18,7 @@
 #include "BenchUtil.h"
 #include "Common.h"
 #include "Metrics.h"
+#include "Segment.h"
 
 namespace RAMCloud {
 
@@ -65,6 +66,7 @@ reset(Metrics* metrics, uint64_t serverId, uint64_t serverRole)
     metrics->pid = getpid();
     metrics->serverId = serverId;
     metrics->serverRole = serverRole;
+    metrics->segmentSize = Segment::SEGMENT_SIZE;
 }
 
 }  // namespace RAMCloud

@@ -34,18 +34,12 @@ for numBackups in range(3, 37):
     args['numPartitions'] = 1
     args['objectSize'] = 1024
     args['disk'] = 1
-    args['numObjects'] = 626012 * 400 // 640
+    args['numObjects'] = 626012 * 600 // 640
     args['oldMasterArgs'] = '-m 800'
     args['replicas'] = 3
     r = recovery.insist(**args)
     print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
     masterCpuMs = metrics.average(
-        [(master.recoveryTicks -
-          master.master.logSyncTicks -
-          master.master.segmentReadStallTicks) /
-         master.clockFrequency
-         for master in r['metrics'].masters]) * 1e3
-    masterCpu2Ms = metrics.average(
         [(master.recoveryTicks - master.dispatchIdleTicks) /
          master.clockFrequency
          for master in r['metrics'].masters]) * 1e3
@@ -62,7 +56,6 @@ for numBackups in range(3, 37):
           metrics.average(diskActiveMsPoints),
           min(diskActiveMsPoints),
           max(diskActiveMsPoints),
-          masterCpu2Ms,
           metrics.average([master.master.logSyncTicks * 1e3 /
                            master.clockFrequency
                            for master in r['metrics'].masters]),
