@@ -36,7 +36,7 @@ for numPartitions in range(1, 36):
     args['replicas'] = 3
     args['numObjects'] = 626012 * 400 // 640
     args['oldMasterArgs'] = '-m 17000'
-    args['newMasterArgs'] = '-m 600'
+    args['newMasterArgs'] = '-m 16000'
     args['timeout'] = 180
     print(numPartitions, 'partitions')
     r = recovery.insist(**args)

@@ -30,7 +30,7 @@ dat = open('%s/recovery/nondata_scale.data' % top_path, 'w', 1)
 print('Don\'t forget to set your segment size to 16 * 1024!')
 
 for numObjects in [626012 * .8 // 640, 1]:
-    for numPartitions in reversed(range(1, 13)):
+    for numPartitions in reversed(range(1, 12)):
         args = {}
         args['numBackups'] = min(numPartitions * 6, 70)
         args['numPartitions'] = numPartitions
@@ -39,7 +39,7 @@ for numObjects in [626012 * .8 // 640, 1]:
         args['replicas'] = 3
         args['numObjects'] = numObjects
         args['oldMasterArgs'] = '-m 1200'
-        args['newMasterArgs'] = '-m 1200'
+        args['newMasterArgs'] = '-m 16000'
         print(numPartitions, 'partitions')
         trials = []
         for i in range(5):

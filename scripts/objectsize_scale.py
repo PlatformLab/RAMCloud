@@ -40,7 +40,7 @@ for objectSize in [128, 256, 1024]:
               (objectSize, partitionSize))
         r = recovery.insist(
             oldMasterArgs='-m 1600',
-            newMasterArgs='-m 1600',
+            newMasterArgs='-m 16000',
             numObjects=int(numObjectsPerMb * partitionSize),
             **args)
         print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])

@@ -50,7 +50,7 @@ for trial in range(TRIALS):
     args['numObjects'] = (626012 * args['numBackups'] * 80 //
                           args['numPartitions'] // 640)
     args['oldMasterArgs'] = '-m 17000'
-    args['newMasterArgs'] = '-m 800'
+    args['newMasterArgs'] = '-m 16000'
     r = recovery.insist(**args)
     print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
     for i, backup in enumerate(r['metrics'].backups):

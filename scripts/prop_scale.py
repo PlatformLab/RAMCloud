@@ -37,7 +37,7 @@ def run(numPartitions, numBackups, disk, hostAllocationStrategy):
     args['replicas'] = 3
     args['numObjects'] = 626012 * 600 // 640
     args['oldMasterArgs'] = '-m 17000'
-    args['newMasterArgs'] = '-m 800'
+    args['newMasterArgs'] = '-m 16000'
     args['timeout'] = 180
 
     r = recovery.insist(**args)
