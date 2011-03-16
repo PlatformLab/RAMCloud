@@ -1171,7 +1171,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.partitionsLength, partitions);
 
-    uint64_t logDigestLastId = 0;
+    uint64_t logDigestLastId = ~0UL;
     uint32_t logDigestLastLen = 0;
     uint32_t logDigestBytes = 0;
     const void* logDigestPtr = NULL;
@@ -1189,10 +1189,10 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                 primarySegments :
                 secondarySegments).push_back(info);
 
-            // Obtain the LogDigest from the highest Segment Id of any
+            // Obtain the LogDigest from the lowest Segment Id of any
             // #OPEN Segment.
             uint64_t segmentId = info->segmentId;
-            if (info->isOpen() && segmentId >= logDigestLastId) {
+            if (info->isOpen() && segmentId <= logDigestLastId) {
                 const void* newDigest = NULL;
                 uint32_t newDigestBytes;
                 newDigest = info->getLogDigest(&newDigestBytes);

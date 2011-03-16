@@ -60,6 +60,10 @@ def run(numPartitions, numBackups, disk, hostAllocationStrategy):
           metrics.average(masterRecoveryMs),
           min(masterRecoveryMs),
           max(masterRecoveryMs),
+          metrics.average([(master.master.replicationBytes * 8 / 2**30) /
+                           (master.master.replicationTicks /
+                            master.clockFrequency)
+                           for master in r['metrics'].masters]),
           file=dat)
 
 numHosts = 35

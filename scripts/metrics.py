@@ -929,11 +929,14 @@ def textReport(data):
          master.master.replayCloseCount
          for master in masters],
         note='for R-th replica')
-    masterSection.ms('  During log sync',
-        [master.master.logSyncCloseTicks / master.clockFrequency /
-         master.master.logSyncCloseCount
-         for master in masters],
-        note='for R-th replica')
+    try:
+        masterSection.ms('  During log sync',
+            [master.master.logSyncCloseTicks / master.clockFrequency /
+             master.master.logSyncCloseCount
+             for master in masters],
+            note='for R-th replica')
+    except:
+        pass
 
     masterSection.ms('Replication',
         [master.master.replicationTicks / master.clockFrequency

@@ -68,7 +68,6 @@ class Recovery : public BaseRecovery {
     ~Recovery();
 
     void buildSegmentIdToBackups();
-    void verifyCompleteLog();
     void createBackupList(ProtoBuf::ServerList& backups) const;
     void start();
     bool tabletsRecovered(const ProtoBuf::Tablets& tablets);
@@ -157,13 +156,6 @@ class Recovery : public BaseRecovery {
 
     /// List of asynchronous startReadingData tasks and their replies
     Tub<BackupStartTask> *tasks;
-
-    /// List of serialised LogDigests from possible log heads, including
-    /// the corresponding Segment IDs and lengths.
-    vector<SegmentAndDigestTuple> digestList;
-
-    /// Map of Segment Ids -> counts of backup copies that were found.
-    boost::unordered_map<uint64_t, uint32_t> segmentMap;
 
     friend class RecoveryTest;
     friend class RecoveryInternal::MasterStartTask;
