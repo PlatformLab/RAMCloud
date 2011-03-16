@@ -256,11 +256,10 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
     getTable(reqHdr.tableId, reqHdr.id);
 
     LogEntryHandle handle = objectMap.lookup(reqHdr.tableId, reqHdr.id);
-    if (handle == NULL) {
+    if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
         throw ObjectDoesntExistException(HERE);
     }
 
-    assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
     const Object* obj = handle->userData<Object>();
     respHdr.version = obj->version;
     rejectOperation(&reqHdr.rejectRules, obj->version);
@@ -327,6 +326,66 @@ recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type, void *cookie)
 }
 
 /**
+ * A Dispatch::Poller which lazily removes tombstones from the main HashTable.
+ */
+class RemoveTombstonePoller : public Dispatch::Poller {
+  public:
+    /**
+     * Clean tombstones from #objectMap lazily and in the background.
+     *
+     * Instances of this class must be allocated with new since they
+     * delete themselves when the #objectMap scan is completed which
+     * automatically deregisters it from Dispatch.
+     *
+     * \param masterServer
+     *      The instance of MasterServer which owns the #objectMap.
+     * \param objectMap
+     *      The HashTable which will be purged of tombstones.
+     */
+    RemoveTombstonePoller(MasterServer& masterServer,
+                          HashTable<LogEntryHandle>& objectMap)
+        : Dispatch::Poller()
+        , currentBucket(0)
+        , masterServer(masterServer)
+        , objectMap(objectMap)
+    {
+        LOG(NOTICE, "Starting cleanup of tombstones in background");
+    }
+
+    /**
+     * Remove tombstones from a single bucket and yield to other work
+     * in the system.
+     *
+     * \return
+     *      Always false in order to yield to important work.
+     */
+    virtual bool
+    operator()()
+    {
+        objectMap.forEachInBucket(
+            recoveryCleanup, &masterServer, currentBucket);
+        ++currentBucket;
+        if (currentBucket == objectMap.getNumBuckets()) {
+            LOG(NOTICE, "Cleanup of tombstones complete");
+            delete this;
+        }
+        return false;
+    }
+
+  private:
+    /// Which bucket of #objectMap should be cleaned out next.
+    uint64_t currentBucket;
+
+    /// The MasterServer used by the #recoveryCleanup callback.
+    MasterServer& masterServer;
+
+    /// The hash table to be purged of tombstones.
+    HashTable<LogEntryHandle>& objectMap;
+
+    DISALLOW_COPY_AND_ASSIGN(RemoveTombstonePoller);
+};
+
+/**
  * Remove leftover tombstones in the hash table added during recovery.
  * This method exists independently for testing purposes.
  */
@@ -334,7 +393,12 @@ void
 MasterServer::removeTombstones()
 {
     CycleCounter<Metric> _(&metrics->master.removeTombstoneTicks);
+#if TESTING
+    // Asynchronous tombstone removal raises hell in unit tests.
     objectMap.forEach(recoveryCleanup, this);
+#else
+    new RemoveTombstonePoller(*this, objectMap);
+#endif
 }
 
 namespace {
@@ -1030,12 +1094,11 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 {
     Table& t(getTable(reqHdr.tableId, reqHdr.id));
     LogEntryHandle handle = objectMap.lookup(reqHdr.tableId, reqHdr.id);
-    if (handle == NULL) {
+    if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
         rejectOperation(&reqHdr.rejectRules, VERSION_NONEXISTENT);
         return;
     }
 
-    assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
     const Object *obj = handle->userData<Object>();
     respHdr.version = obj->version;
 
@@ -1372,8 +1435,15 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
     const Object *obj = NULL;
     LogEntryHandle handle = objectMap.lookup(tableId, id);
     if (handle != NULL) {
-        assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
-        obj = handle->userData<Object>();
+        if (handle->type() == LOG_ENTRY_TYPE_OBJTOMB) {
+            recoveryCleanup(handle,
+                            static_cast<uint8_t>(LOG_ENTRY_TYPE_OBJTOMB),
+                            this);
+            handle = NULL;
+        } else {
+            assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
+            obj = handle->userData<Object>();
+        }
     }
 
     uint64_t version = (obj != NULL) ? obj->version : VERSION_NONEXISTENT;
@@ -1396,7 +1466,6 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
     else
         newObject->version = t.AllocateVersion();
     assert(obj == NULL || newObject->version > obj->version);
-    // TODO(stutsman): dm's super-fast checksum here
     data->copy(dataOffset, dataLength, newObject->data);
 
     // If the Object is being overwritten, we need to mark the previous space

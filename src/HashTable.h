@@ -428,6 +428,46 @@ class HashTable {
 
     /**
      * Apply the given callback function to each referant of type T stored
+     * in the HashTable in the specified bucket.
+     * \param callback
+     *      The callback to fire on each referant stored in the HashTable.
+     * \param cookie
+     *      An opaque parameter to pass to the callback function.
+     * \param bucket
+     *      An index into the HashTable's buckets.  Must be < #numBuckets.
+     * \return
+     *      The total number of callbacks fired (i.e. the number of referants
+     *      in the HashTable).
+     */
+    uint64_t
+    forEachInBucket(void (*callback)(T, uint8_t, void *),
+                    void *cookie,
+                    uint64_t bucket)
+    {
+        uint64_t numCalls = 0;
+        CacheLine *cl = &buckets.get()[bucket];
+        while (1) {
+            for (uint32_t j = 0; j < ENTRIES_PER_CACHE_LINE; j++) {
+                Entry *e = &cl->entries[j];
+                if (!e->isAvailable(typeBits) &&
+                    e->getChainPointer(typeBits) == NULL) {
+                    uint8_t type;
+                    T ptr = e->getReferant(typeBits, &type);
+                    callback(ptr, type, cookie);
+                    numCalls++;
+                }
+            }
+
+            Entry *entry = &cl->entries[ENTRIES_PER_CACHE_LINE - 1];
+            cl = entry->getChainPointer(typeBits);
+            if (cl == NULL)
+                break;
+        }
+        return numCalls;
+    }
+
+    /**
+     * Apply the given callback function to each referant of type T stored
      * in the HashTable.
      * \param[in] callback
      *      The callback to fire on each referant stored in the HashTable.
@@ -442,26 +482,8 @@ class HashTable {
     {
         uint64_t numCalls = 0;
 
-        for (uint64_t i = 0; i < numBuckets; i++) {
-            CacheLine *cl = &buckets.get()[i];
-            while (1) {
-                for (uint32_t j = 0; j < ENTRIES_PER_CACHE_LINE; j++) {
-                    Entry *e = &cl->entries[j];
-                    if (!e->isAvailable(typeBits) &&
-                        e->getChainPointer(typeBits) == NULL) {
-                        uint8_t type;
-                        T ptr = e->getReferant(typeBits, &type);
-                        callback(ptr, type, cookie);
-                        numCalls++;
-                    }
-                }
-
-                Entry *entry = &cl->entries[ENTRIES_PER_CACHE_LINE - 1];
-                cl = entry->getChainPointer(typeBits);
-                if (cl == NULL)
-                    break;
-            }
-        }
+        for (uint64_t i = 0; i < numBuckets; i++)
+            numCalls += forEachInBucket(callback, cookie, i);
 
         return numCalls;
     }
@@ -535,6 +557,15 @@ class HashTable {
     resetPerfCounters()
     {
         perfCounters.reset();
+    }
+
+    /**
+     * Returns the number of buckets allocated to the table.
+     */
+    uint64_t
+    getNumBuckets() const
+    {
+        return numBuckets;
     }
 
   private:

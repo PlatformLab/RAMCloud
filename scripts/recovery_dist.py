@@ -89,14 +89,14 @@ def main(fileName, append=False, tag=0):
 
         args = {}
         args['numBackups'] = 72
-        args['numPartitions'] = 30
+        args['numPartitions'] = 12
         args['objectSize'] = 1024
         args['disk'] = 3
         args['replicas'] = 3
-        args['numObjects'] = 626012 * 400 // 640
+        args['numObjects'] = 626012 * 600 // 640
         args['backupArgs'] = '--backupStrategy=%d' % backupStrategy
         args['oldMasterArgs'] = '-m 17000'
-        args['newMasterArgs'] = '-m 600'
+        args['newMasterArgs'] = '-m 800'
         args['timeout'] = 120
         print('iteration', i, 'strategy', backupStrategy)
         r = recovery.insist(**args)
