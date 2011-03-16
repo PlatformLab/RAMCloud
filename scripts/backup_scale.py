@@ -68,4 +68,10 @@ for numBackups in range(3, 37):
                            (master.master.logSyncTicks /
                             master.clockFrequency)
                            for master in r['metrics'].masters]),
+          metrics.average([master.master.replicationTicks * 1e3 /
+                           master.clockFrequency
+                           for master in r['metrics'].masters]),
+          metrics.average([master.transport.clientRpcsActiveTicks * 1e3 /
+                           master.clockFrequency
+                           for master in r['metrics'].masters]),
           file=dat)
