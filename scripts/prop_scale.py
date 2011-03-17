@@ -64,6 +64,9 @@ def run(numPartitions, numBackups, disk, hostAllocationStrategy):
                            (master.master.replicationTicks /
                             master.clockFrequency)
                            for master in r['metrics'].masters]),
+          metrics.average([master.transport.clientRpcsActiveTicks * 1e3 /
+                           master.clockFrequency
+                           for master in r['metrics'].masters]),
           file=dat)
 
 numHosts = 35
