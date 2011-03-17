@@ -24,8 +24,19 @@ import metrics
 import recovery
 import subprocess
 import sys
+import time
+import random
 
 strategies = 4
+
+def setFans(high):
+    with Sandbox() as sandbox:
+        for i in range(1, 41):
+            sandbox.rsh('root@rc%.2d' % i, 'echo 1 > /sys/devices/platform/w83627ehf.2576/pwm2_enable')
+            if high:
+                sandbox.rsh('root@rc%.2d' % i, 'echo 255 > /sys/devices/platform/w83627ehf.2576/pwm2')
+            else:
+                sandbox.rsh('root@rc%.2d' % i, 'echo 127 > /sys/devices/platform/w83627ehf.2576/pwm2')
 
 def recreateCdf(inFileName):
     cdfdat = open('%s/recovery/recovery_dist_cdf.data' % top_path, 'w', 1)
@@ -62,7 +73,7 @@ def recreateCdf(inFileName):
     indat.close()
     cdfdat.close()
 
-def main(fileName, append=False, tag=0):
+def main(fileName, append=False, tag=0, iterations=100000):
     mode = 'a+' if append else 'w'
     dat = open(fileName, mode, 1)
 
@@ -82,7 +93,7 @@ def main(fileName, append=False, tag=0):
     else:
         backupStrategy = 0
 
-    while True:
+    while iterations:
         if backupStrategy == 0:
             # skip the min strategy, we don't plot it anymore
             backupStrategy = (backupStrategy + 1) % strategies
@@ -100,10 +111,14 @@ def main(fileName, append=False, tag=0):
         args['timeout'] = 120
         print('iteration', i, 'strategy', backupStrategy)
         r = recovery.insist(**args)
+        try:
+            diskReadingMsPoints = [backup.backup.readingDataTicks * 1e3 /
+                                   backup.clockFrequency
+                                   for backup in r['metrics'].backups]
+        except:
+            print('No metrics, trying again')
+            continue
         print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
-        diskReadingMsPoints = [backup.backup.readingDataTicks * 1e3 /
-                               backup.clockFrequency
-                               for backup in r['metrics'].backups]
         print(r['ns'] / 1e6,
               min(diskReadingMsPoints),
               max(diskReadingMsPoints),
@@ -114,6 +129,18 @@ def main(fileName, append=False, tag=0):
         recreateCdf(fileName)
         backupStrategy = (backupStrategy + 1) % strategies
         i += 1
+        iterations -= 1
+
+def runTogglingFans():
+    iterations = (strategies - 1) * 20
+    #iterations = (strategies - 1)
+    fans = random.random() < 0.5
+    while True:
+        print('Setting fans to', fans)
+        setFans(fans)
+        time.sleep(30)
+        main(fileName, append=True, tag=1 if fans else 0, iterations=iterations)
+        fans = not fans
 
 if __name__ == '__main__':
     tag=0
@@ -131,5 +158,7 @@ if __name__ == '__main__':
             main(fileName, False, tag)
         elif sys.argv[1] == 'continue':
             main(fileName, True, tag)
+        elif sys.argv[1] == 'toggle':
+            runTogglingFans()
     else:
         raise Exception('Give a valid operation')
