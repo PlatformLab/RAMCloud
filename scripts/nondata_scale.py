@@ -27,9 +27,11 @@ import subprocess
 
 dat = open('%s/recovery/nondata_scale.data' % top_path, 'w', 1)
 
-print('Don\'t forget to set your segment size to 16 * 1024!')
+print("""Don\'t forget to set your segment size to 16 * 1024!
+Don\'t forget to set MAX_RPC_SIZE in InfRcTransport.h to 8 * 1024 * 1024 + 4096!
+Don\'t forget to set LogDigest::SegmentId to uint16_t!""")
 
-for numObjects in [626012 * .8 // 640, 1]:
+for numObjects in [-1, 1]:
     for numPartitions in reversed(range(1, 12)):
         args = {}
         args['numBackups'] = min(numPartitions * 6, 70)
@@ -37,6 +39,8 @@ for numObjects in [626012 * .8 // 640, 1]:
         args['objectSize'] = 1024
         args['disk'] = 3
         args['replicas'] = 3
+        if numObjects == -1:
+            numObjects = 626012 * (1.16 - .0075 * (numPartitions-1)) // 640
         args['numObjects'] = numObjects
         args['oldMasterArgs'] = '-m 1200'
         args['newMasterArgs'] = '-m 16000'
@@ -45,6 +49,10 @@ for numObjects in [626012 * .8 // 640, 1]:
         for i in range(5):
             r = recovery.insist(**args)
             print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])
+            print(sum([backup.backup.storageReadCount
+                       for backup in r['metrics'].backups]))
+            print(sum([backup.backup.storageReadCount
+                       for backup in r['metrics'].backups]) / numPartitions)
             trials.append(str(r['ns'] / 1e6))
         print(numPartitions,
               ' '.join(trials),

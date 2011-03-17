@@ -239,12 +239,14 @@ BackupClient::StartReadingData::operator()(
     responseBuffer.truncateFront(sizeof(respHdr));
     auto const* segmentIdsRaw =
         responseBuffer.getStart<pair<uint64_t, uint32_t>>();
+    // TODO(ongaro): It's not safe to get a pointer to something in a buffer
+    // and then modify that buffer.
 
     const void* digestPtr = NULL;
     if (digestBytes > 0) {
         responseBuffer.truncateFront(downCast<uint32_t>(segmentIdCount *
             sizeof(pair<uint64_t, uint32_t>)));
-        digestPtr = responseBuffer.getStart<const void*>();
+        digestPtr = responseBuffer.getRange(0, digestBytes);
     }
 
     result->set(segmentIdsRaw, segmentIdCount,

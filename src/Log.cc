@@ -104,11 +104,11 @@ Log::allocateHead()
 
     foreach (ActiveIdMap::value_type& idSegmentPair, activeIdMap) {
         Segment* segment = idSegmentPair.second;
-        ld.addSegment(segment->getId());
+        ld.addSegment(downCast<LogDigest::SegmentId>(segment->getId()));
     }
 
     uint64_t newHeadId = allocateSegmentId();
-    ld.addSegment(newHeadId);
+    ld.addSegment(downCast<LogDigest::SegmentId>(newHeadId));
 
     return new Segment(this, newHeadId, getFromFreeList(),
         downCast<uint32_t>(segmentCapacity), backup,

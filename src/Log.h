@@ -171,6 +171,7 @@ class Log {
 
 class LogDigest {
   public:
+    typedef uint64_t SegmentId;
     /**
      * Create a LogDigest that will contain ``segmentCount''
      * SegmentIDs and serialise it to the given buffer. This
@@ -193,7 +194,8 @@ class LogDigest {
         assert(length >= getBytesFromCount(segmentCount));
         ldd->segmentCount = segmentCount;
         for (uint32_t i = 0; i < segmentCount; i++)
-            ldd->segmentIds[i] = Segment::INVALID_SEGMENT_ID;
+            ldd->segmentIds[i] = static_cast<SegmentId>(
+                                            Segment::INVALID_SEGMENT_ID);
     }
 
     /**
@@ -218,7 +220,7 @@ class LogDigest {
      * Add a SegmentID to this LogDigest.
      */
     void
-    addSegment(uint64_t id)
+    addSegment(SegmentId id)
     {
         assert(currentSegment < ldd->segmentCount);
         ldd->segmentIds[currentSegment++] = id;
@@ -233,7 +235,7 @@ class LogDigest {
      * Get an array of SegmentIDs in this LogDigest. There
      * will be getSegmentCount() elements in the array.
      */
-    const uint64_t* getSegmentIds() { return ldd->segmentIds; }
+    const SegmentId* getSegmentIds() { return ldd->segmentIds; }
 
     /**
      * Return the number of bytes needed to store a LogDigest
@@ -243,7 +245,7 @@ class LogDigest {
     getBytesFromCount(uint32_t segmentCount)
     {
         return downCast<uint32_t>(sizeof(LogDigestData) +
-                                  segmentCount * sizeof(uint64_t));
+                                  segmentCount * sizeof(SegmentId));
     }
 
     /**
@@ -259,7 +261,7 @@ class LogDigest {
   private:
     struct LogDigestData {
         uint32_t segmentCount;
-        uint64_t segmentIds[0];
+        SegmentId segmentIds[0];
     } __attribute__((__packed__));
 
     LogDigestData* ldd;
