@@ -16,8 +16,6 @@
 #ifndef RAMCLOUD_HASHTABLE_H
 #define RAMCLOUD_HASHTABLE_H
 
-#include <xmmintrin.h>
-
 #include "Common.h"
 #include "CycleCounter.h"
 #include "LargeBlockOfMemory.h"
@@ -495,8 +493,7 @@ class HashTable {
     prefetchBucket(uint64_t key1, uint64_t key2)
     {
         uint64_t dummy;
-        _mm_prefetch(reinterpret_cast<char *>(findBucket(key1, key2, &dummy)),
-            _MM_HINT_T0);
+        prefetch(findBucket(key1, key2, &dummy));
     }
 
     /**
@@ -513,8 +510,8 @@ class HashTable {
         Entry *candidate = cl->entries;
         for (uint32_t i = 0; i < ENTRIES_PER_CACHE_LINE; i++, candidate++) {
             if (candidate->hashMatches(secondaryHash, typeBits)) {
-                _mm_prefetch(reinterpret_cast<const char *>(
-                    candidate->getReferant(typeBits, NULL)), _MM_HINT_T0);
+                prefetch(candidate->getReferant(typeBits, NULL),
+                         64 /* not really sure how many bytes to prefetch */);
                 return;
             }
         }

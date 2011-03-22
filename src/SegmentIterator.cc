@@ -198,9 +198,7 @@ SegmentIterator::next()
         nextEntry = (uintptr_t)currentEntry + sizeof(*currentEntry) +
             currentEntry->length;
         entry = (const SegmentEntry *)nextEntry;
-        _mm_prefetch(reinterpret_cast<const char *>(entry), _MM_HINT_T0);
-        _mm_prefetch(reinterpret_cast<const char *>(entry) + 64, _MM_HINT_T0);
-        _mm_prefetch(reinterpret_cast<const char *>(entry) + 128, _MM_HINT_T0);
+        prefetch(entry, 128);
     }
 }
 

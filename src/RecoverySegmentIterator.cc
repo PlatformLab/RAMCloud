@@ -63,9 +63,7 @@ RecoverySegmentIterator::next()
         const char* entry = &segment[offset +
                                      sizeof(SegmentEntry) +
                                      getLength()];
-        _mm_prefetch(entry, _MM_HINT_T0);
-        _mm_prefetch(entry + 64, _MM_HINT_T0);
-        _mm_prefetch(entry + 128, _MM_HINT_T0);
+        prefetch(entry, 128);
     }
 }
 
