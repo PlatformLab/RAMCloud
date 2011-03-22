@@ -173,7 +173,7 @@ void FastTransport::handleIncomingPacket(Driver::Received* received)
     Header* header = received->getOffset<Header>(0);
     if (header == NULL) {
         LOG(WARNING,
-            "packet too short (%d bytes)",
+            "packet too short (%u bytes)",
             received->len);
         return;
     }
