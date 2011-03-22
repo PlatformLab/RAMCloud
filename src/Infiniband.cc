@@ -410,7 +410,7 @@ Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
     ibv_wc wc;
     while (ibv_poll_cq(qp->txcq, 1, &wc) < 1) {}
     if (wc.status != IBV_WC_SUCCESS) {
-        LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
+        LOG(ERROR, "wc.status(%d:%s) != IBV_WC_SUCCESS",
             wc.status, wcStatusToString(wc.status));
         throw TransportException(HERE, "ibPostSend failed");
     }
@@ -603,7 +603,7 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
 
     qp = ibv_create_qp(pd, &qpia);
     if (qp == NULL) {
-        LOG(ERROR, "%s: ibv_create_qp failed", __func__);
+        LOG(ERROR, "ibv_create_qp failed");
         throw TransportException(HERE, "failed to create queue pair");
     }
 
@@ -631,8 +631,7 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
     int ret = ibv_modify_qp(qp, &qpa, mask);
     if (ret) {
         ibv_destroy_qp(qp);
-        LOG(ERROR, "%s: failed to transition to INIT state errno %d",
-            __func__, errno);
+        LOG(ERROR, "failed to transition to INIT state errno %d", errno);
         throw TransportException(HERE, ret);
     }
 }
@@ -672,7 +671,7 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
         throw TransportException(HERE, "plumb() called on wrong qp type");
 
     if (getState() != IBV_QPS_INIT) {
-        LOG(ERROR, "%s: plumb() on qp in state %d", __func__, getState());
+        LOG(ERROR, "plumb() on qp in state %d", getState());
         throw TransportException(HERE, "plumb() on qp not in INIT state");
     }
 
@@ -697,7 +696,7 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
                                 IBV_QP_MIN_RNR_TIMER |
                                 IBV_QP_MAX_DEST_RD_ATOMIC);
     if (r) {
-        LOG(ERROR, "%s: failed to transition to RTR state", __func__);
+        LOG(ERROR, "failed to transition to RTR state");
         throw TransportException(HERE, r);
     }
 
@@ -716,15 +715,15 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
                                 IBV_QP_SQ_PSN |
                                 IBV_QP_MAX_QP_RD_ATOMIC);
     if (r) {
-        LOG(ERROR, "%s: failed to transition to RTS state", __func__);
+        LOG(ERROR, "failed to transition to RTS state");
         throw TransportException(HERE, r);
     }
 
     // the queue pair should be ready to use once the client has finished
     // setting up their end.
-    LOG(DEBUG, "%s: infiniband qp plumbed: lid 0x%x, qpn 0x%x, psn 0x%x, "
+    LOG(DEBUG, "infiniband qp plumbed: lid 0x%x, qpn 0x%x, psn 0x%x, "
         "ibPhysicalPort %u to remote lid 0x%x, remote qpn 0x%x, "
-        "remote psn 0x%x", __func__, infiniband.getLid(ibPhysicalPort),
+        "remote psn 0x%x", infiniband.getLid(ibPhysicalPort),
         qp->qp_num, initialPsn, ibPhysicalPort, qpt->getLid(), qpt->getQpn(),
         qpt->getPsn());
 }
@@ -738,7 +737,7 @@ Infiniband::QueuePair::activate()
         throw TransportException(HERE, "activate() called on wrong qp type");
 
     if (getState() != IBV_QPS_INIT) {
-        LOG(ERROR, "%s: activate() on qp in state %d", __func__, getState());
+        LOG(ERROR, "activate() on qp in state %d", getState());
         throw TransportException(HERE, "activate() on qp not in INIT state");
     }
 
@@ -761,8 +760,8 @@ Infiniband::QueuePair::activate()
         throw TransportException(HERE, ret);
     }
 
-    LOG(DEBUG, "%s: infiniband qp activated: lid 0x%x, qpn 0x%x, "
-        "ibPhysicalPort %u", __func__,
+    LOG(DEBUG, "infiniband qp activated: lid 0x%x, qpn 0x%x, "
+        "ibPhysicalPort %u",
         infiniband.getLid(ibPhysicalPort), qp->qp_num, ibPhysicalPort);
 }
 

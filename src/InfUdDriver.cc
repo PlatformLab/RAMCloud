@@ -40,7 +40,7 @@
 #define error_check_null(x, s)                              \
     do {                                                    \
         if ((x) == NULL) {                                  \
-            LOG(ERROR, "%s: %s", __func__, s);              \
+            LOG(ERROR, "%s", s);                            \
             throw DriverException(HERE, errno);             \
         }                                                   \
     } while (0)
@@ -219,12 +219,12 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
     uint32_t length = static_cast<uint32_t>(p - bd->buffer);
 
     try {
-        LOG(DEBUG, "%s: sending %u bytes to %s...", __func__, length,
+        LOG(DEBUG, "sending %u bytes to %s...", length,
             infAddr->toString().c_str());
         infiniband->postSendAndWait(qp, bd, length, infAddr, QKEY);
-        LOG(DEBUG, "%s: sent successfully!", __func__);
+        LOG(DEBUG, "sent successfully!");
     } catch (...) {
-        LOG(DEBUG, "%s: send failed!", __func__);
+        LOG(DEBUG, "send failed!");
         throw;
     }
 }
@@ -253,12 +253,12 @@ InfUdDriver<Infiniband>::Poller::operator() ()
     }
 
     if (bd->messageBytes < 40) {
-        LOG(ERROR, "%s: received packet without GRH!", __func__);
+        LOG(ERROR, "received packet without GRH!");
         driver->packetBufPool.destroy(buffer);
         result = false;
     } else {
-        LOG(DEBUG, "%s: received %u byte packet (not including GRH) from %s",
-            __func__, bd->messageBytes - 40,
+        LOG(DEBUG, "received %u byte packet (not including GRH) from %s",
+            bd->messageBytes - 40,
             buffer->infAddress->toString().c_str());
 
         // copy from the infiniband buffer into our dynamically allocated

@@ -1003,8 +1003,7 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
                           BackupFreeRpc::Response& respHdr,
                           Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "Handling: %s %lu %lu",
-        __func__, reqHdr.masterId, reqHdr.segmentId);
+    LOG(DEBUG, "Handling: %lu %lu", reqHdr.masterId, reqHdr.segmentId);
 
     SegmentsMap::iterator it =
         segments.find(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
@@ -1160,7 +1159,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                                Transport::ServerRpc& rpc,
                                Responder& responder)
 {
-    LOG(DEBUG, "Handling: %s %lu", __func__, reqHdr.masterId);
+    LOG(DEBUG, "Handling: %lu", reqHdr.masterId);
     recoveryTicks.construct(&metrics->recoveryTicks);
     recoveryStart = rdtsc();
     reset(metrics, serverId, 2);

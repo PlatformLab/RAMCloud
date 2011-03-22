@@ -94,7 +94,7 @@
 #define check_error_null(x, s)                              \
     do {                                                    \
         if ((x) == NULL) {                                  \
-            LOG(ERROR, "%s: %s", __func__, s);              \
+            LOG(ERROR, "%s", s);                            \
             throw TransportException(HERE, errno);          \
         }                                                   \
     } while (0)
@@ -162,7 +162,7 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
     // first use.
     clientSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
     if (clientSetupSocket == -1) {
-        LOG(ERROR, "%s: failed to create client socket", __func__);
+        LOG(ERROR, "failed to create client socket");
         throw TransportException(HERE, "client socket failed");
     }
     try {
@@ -178,14 +178,14 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
 
         serverSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
         if (serverSetupSocket == -1) {
-            LOG(ERROR, "%s: failed ot create server socket", __func__);
+            LOG(ERROR, "failed to create server socket");
             throw TransportException(HERE, "server socket failed");
         }
 
         if (bind(serverSetupSocket, &address.address,
           sizeof(address.address))) {
             close(serverSetupSocket);
-            LOG(ERROR, "%s: failed to bind socket", __func__);
+            LOG(ERROR, "failed to bind socket");
             throw TransportException(HERE, "socket failed");
         }
 
@@ -266,11 +266,11 @@ InfRcTransport<Infiniband>::setNonBlocking(int fd)
 {
     int flags = fcntl(fd, F_GETFL);
     if (flags == -1) {
-        LOG(ERROR, "%s: fcntl F_GETFL failed", __func__);
+        LOG(ERROR, "fcntl F_GETFL failed");
         throw TransportException(HERE, "fnctl failed");
     }
     if (fcntl(fd, F_SETFL, flags | O_NONBLOCK)) {
-        LOG(ERROR, "%s: fcntl F_SETFL failed", __func__);
+        LOG(ERROR, "fcntl F_SETFL failed");
         throw TransportException(HERE, "fnctl failed");
     }
 }
@@ -291,7 +291,7 @@ InfRcTransport<Infiniband>::serverRecv()
     ibv_wc wc;
     if (infiniband->pollCompletionQueue(serverRxCq, 1, &wc) >= 1) {
         if (queuePairMap.find(wc.qp_num) == queuePairMap.end()) {
-            LOG(ERROR, "%s: failed to find qp_num in map", __func__);
+            LOG(ERROR, "failed to find qp_num in map");
             return NULL;
         }
 
@@ -318,7 +318,7 @@ InfRcTransport<Infiniband>::serverRecv()
             return r;
         }
 
-        LOG(ERROR, "%s: failed to receive rpc!", __func__);
+        LOG(ERROR, "failed to receive rpc!");
         postSrqReceiveAndKickTransmit(serverSrq, bd);
     }
 
@@ -437,13 +437,13 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
                 sizeof(*sin));
             if (len == -1) {
                 if (errno != EINTR && errno != EAGAIN) {
-                    LOG(ERROR, "%s: sendto returned error %d: %s",
-                        __func__, errno, strerror(errno));
+                    LOG(ERROR, "sendto returned error %d: %s",
+                        errno, strerror(errno));
                     throw TransportException(HERE, errno);
                 }
             } else if (len != sizeof(*outgoingQpt)) {
-                LOG(ERROR, "%s: sendto returned bad length (%Zd) while "
-                    "sending to ip: [%s] port: [%d]", __func__, len,
+                LOG(ERROR, "sendto returned bad length (%Zd) while "
+                    "sending to ip: [%s] port: [%d]", len,
                     inet_ntoa(sin->sin_addr), HTONS(sin->sin_port));
                 throw TransportException(HERE, errno);
             } else {
@@ -457,13 +457,13 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
             reinterpret_cast<sockaddr *>(&sin), &sinlen);
         if (len == -1) {
             if (errno != EINTR && errno != EAGAIN) {
-                LOG(ERROR, "%s: recvfrom returned error %d: %s",
-                    __func__, errno, strerror(errno));
+                LOG(ERROR, "recvfrom returned error %d: %s",
+                    errno, strerror(errno));
                 throw TransportException(HERE, errno);
             }
         } else if (len != sizeof(*incomingQpt)) {
-            LOG(ERROR, "%s: recvfrom returned bad length (%Zd) while "
-                "receiving from ip: [%s] port: [%d]", __func__, len,
+            LOG(ERROR, "recvfrom returned bad length (%Zd) while "
+                "receiving from ip: [%s] port: [%d]", len,
                 inet_ntoa(sin->sin_addr), HTONS(sin->sin_port));
             throw TransportException(HERE, errno);
         } else {
@@ -471,8 +471,8 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
                 return true;
 
             LOG(WARNING,
-                "%s: received nonce doesn't match (0x%016lx != 0x%016lx)",
-                __func__, outgoingQpt->getNonce(), incomingQpt->getNonce());
+                "received nonce doesn't match (0x%016lx != 0x%016lx)",
+                outgoingQpt->getNonce(), incomingQpt->getNonce());
         }
 
         uint32_t elapsedUs = downCast<uint32_t>(startTime.stop() / 1000);
@@ -527,8 +527,7 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
         }
 
         if (!gotResponse) {
-            LOG(WARNING, "%s: timed out waiting for response; retrying",
-                __func__);
+            LOG(WARNING, "timed out waiting for response; retrying");
             ++metrics->transport.retrySessionOpenCount;
             continue;
         }
@@ -538,8 +537,8 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
         return qp;
     }
 
-    LOG(WARNING, "%s: failed to exchange with server (%s) within allotted "
-        "%u microseconds (sent request %u times)\n", __func__,
+    LOG(WARNING, "failed to exchange with server (%s) within allotted "
+        "%u microseconds (sent request %u times)",
         address.toString().c_str(),
         QP_EXCHANGE_USEC_TIMEOUT * QP_EXCHANGE_MAX_TIMEOUTS,
         QP_EXCHANGE_MAX_TIMEOUTS);
@@ -565,12 +564,10 @@ InfRcTransport<Infiniband>::ServerConnectHandler::operator() ()
     if (len <= -1) {
         if (errno == EAGAIN)
             return;
-
-        LOG(ERROR, "%s: recvfrom failed", __func__);
+        LOG(ERROR, "recvfrom failed");
         throw TransportException(HERE, "recvfrom failed");
     } else if (len != sizeof(incomingQpt)) {
-        LOG(WARNING, "%s: recvfrom got a strange incoming size: %Zd",
-            __func__, len);
+        LOG(WARNING, "recvfrom got a strange incoming size: %Zd", len);
         return;
     }
 
@@ -601,7 +598,7 @@ InfRcTransport<Infiniband>::ServerConnectHandler::operator() ()
             sizeof(outgoingQpt), 0, reinterpret_cast<sockaddr *>(&sin),
             sinlen);
     if (len != sizeof(outgoingQpt)) {
-        LOG(WARNING, "%s: sendto failed, len = %Zd\n", __func__, len);
+        LOG(WARNING, "sendto failed, len = %Zd", len);
         delete qp;
         return;
     }
@@ -905,7 +902,7 @@ InfRcTransport<Infiniband>::Poller::operator() ()
         CycleCounter<Metric> receiveTicks;
         BufferDescriptor *bd = reinterpret_cast<BufferDescriptor *>(wc.wr_id);
         if (wc.status != IBV_WC_SUCCESS) {
-            LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
+            LOG(ERROR, "wc.status(%d:%s) != IBV_WC_SUCCESS",
                 wc.status, t->infiniband->wcStatusToString(wc.status));
             t->postSrqReceiveAndKickTransmit(t->clientSrq, bd);
             throw TransportException(HERE, wc.status);
