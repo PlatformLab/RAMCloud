@@ -1137,6 +1137,23 @@ BackupServer::segmentInfoLessThan(SegmentInfo* left,
     return *left < *right;
 }
 
+namespace {
+/**
+ * Make generateRandom model RandomNumberGenerator.
+ * This makes it easy to mock the calls for randomness during testing.
+ *
+ * \param n
+ *      Limits the result to the range [0, n).
+ * \return
+ *      Returns a pseudo-random number in the range [0, n).
+ */
+uint32_t
+randomNumberGenerator(uint32_t n)
+{
+    return static_cast<uint32_t>(generateRandom()) % n;
+}
+}
+
 /**
  * Begin reading disk data for a Master and bucketing the objects in the
  * Segments according to a requested TabletMap, returning a list of backed
@@ -1209,16 +1226,13 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
         }
     }
 
-    // sort the primary entries
-    std::sort(primarySegments.begin(),
-              primarySegments.end(),
-              &segmentInfoLessThan);
-    std::reverse(primarySegments.begin(), primarySegments.end());
-    // sort the secondary entries
-    std::sort(secondarySegments.begin(),
-              secondarySegments.end(),
-              &segmentInfoLessThan);
-    std::reverse(secondarySegments.begin(), secondarySegments.end());
+    // Shuffle the primary entries, this prevents this helps all recovery
+    // masters to stay busy even if the log contains long sequences of
+    // back-to-back segments that only have objects for a particular
+    // partition.  Secondary order is irrelevant.
+    std::random_shuffle(primarySegments.begin(),
+                        primarySegments.end(),
+                        randomNumberGenerator);
 
     foreach (auto info, primarySegments) {
         new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>

@@ -257,6 +257,7 @@ class RecoveryTest : public CppUnit::TestFixture {
     void
     test_buildSegmentIdToBackups()
     {
+        MockRandom _(1);
         // Two segs on backup1, one that overlaps with backup2
         segmentsToFree.push_back(
             new WriteValidSegment(99, 88, { 88 }, segmentSize,
@@ -430,6 +431,8 @@ class RecoveryTest : public CppUnit::TestFixture {
     void
     test_start()
     {
+        MockRandom __(1);
+
         // Two segs on backup1, one that overlaps with backup2
         segmentsToFree.push_back(
             new WriteValidSegment(99, 88, { 88 }, segmentSize,
@@ -471,7 +474,6 @@ class RecoveryTest : public CppUnit::TestFixture {
         }
 
         Recovery recovery(99, tablets, *masterHosts, *backupHosts);
-        MockRandom __(1); // triggers deterministic rand().
         TestLog::Enable _(&getRecoveryDataFilter);
         recovery.start();
         CPPUNIT_ASSERT_EQUAL(3, recovery.tabletsUnderRecovery);

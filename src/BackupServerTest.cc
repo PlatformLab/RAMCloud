@@ -605,6 +605,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_startReadingData()
     {
+        MockRandom _(1);
         client->openSegment(99, 88);
         client->writeSegment(99, 88, 0, "test", 4);
         client->openSegment(99, 89);
@@ -615,17 +616,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->startReadingData(99, ProtoBuf::Tablets(), &result);
         CPPUNIT_ASSERT_EQUAL(4, result.segmentIdAndLength.size());
 
-        CPPUNIT_ASSERT_EQUAL(89, result.segmentIdAndLength[0].first);
-        CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[0].second);
-        {
-            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 89);
-            BackupServer::SegmentInfo::Lock lock(info.mutex);
-            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
-                                 info.state);
-        }
-
-        CPPUNIT_ASSERT_EQUAL(88, result.segmentIdAndLength[1].first);
-        CPPUNIT_ASSERT_EQUAL(4, result.segmentIdAndLength[1].second);
+        CPPUNIT_ASSERT_EQUAL(88, result.segmentIdAndLength[0].first);
+        CPPUNIT_ASSERT_EQUAL(4, result.segmentIdAndLength[0].second);
         {
             BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 88);
             BackupServer::SegmentInfo::Lock lock(info.mutex);
@@ -633,21 +625,30 @@ class BackupServerTest : public CppUnit::TestFixture {
                                  info.state);
         }
 
-        CPPUNIT_ASSERT_EQUAL(99, result.segmentIdAndLength[2].first);
-        CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[2].second);
-        CPPUNIT_ASSERT(backup->findSegmentInfo(99, 99)->recoveryPartitions);
+        CPPUNIT_ASSERT_EQUAL(89, result.segmentIdAndLength[1].first);
+        CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[1].second);
         {
-            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 99);
+            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 89);
+            BackupServer::SegmentInfo::Lock lock(info.mutex);
+            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+                                 info.state);
+        }
+
+        CPPUNIT_ASSERT_EQUAL(98, result.segmentIdAndLength[2].first);
+        CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[2].second);
+        {
+            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 98);
             BackupServer::SegmentInfo::Lock lock(info.mutex);
             CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
                                  info.state);
             CPPUNIT_ASSERT(info.recoveryPartitions);
         }
 
-        CPPUNIT_ASSERT_EQUAL(98, result.segmentIdAndLength[3].first);
+        CPPUNIT_ASSERT_EQUAL(99, result.segmentIdAndLength[3].first);
         CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[3].second);
+        CPPUNIT_ASSERT(backup->findSegmentInfo(99, 99)->recoveryPartitions);
         {
-            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 98);
+            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 99);
             BackupServer::SegmentInfo::Lock lock(info.mutex);
             CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
                                  info.state);
