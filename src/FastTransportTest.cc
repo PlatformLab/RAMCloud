@@ -134,6 +134,7 @@ class FastTransportTest : public CppUnit::TestFixture {
     {}
 
     void test_sanityCheck() {
+#if !VALGRIND // RAM-260
         // Create a server and a client and verify that we can
         // send a request, receive it, send a reply, and receive it.
         // Then try a second request with bigger chunks of data.
@@ -171,6 +172,7 @@ class FastTransportTest : public CppUnit::TestFixture {
         serverRpc->sendReply();
         clientRpc->wait();
         CPPUNIT_ASSERT_EQUAL("ok", checkLargeBuffer(&reply, 50000));
+#endif
     }
 
     void
