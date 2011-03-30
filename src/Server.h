@@ -34,8 +34,7 @@ class Server {
 
     /**
      * A really annoying class that lets you respond to an RPC.
-     * It makes sure the response is only sent once and that the counterValue
-     * is set.
+     * It makes sure the response is only sent once.
      */
     class Responder {
       public:
