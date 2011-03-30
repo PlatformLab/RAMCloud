@@ -186,7 +186,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     test_closeSegment()
     {
         client->openSegment(99, 88);
-        client->writeSegment(99, 88, 10, "test", 4);
+        client->writeSegment(99, 88, 10, "test", 5);
         client->closeSegment(99, 88);
         BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
         char* storageAddress =
@@ -775,7 +775,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     test_writeSegment()
     {
         client->openSegment(99, 88);
-        client->writeSegment(99, 88, 10, "test", 4);
+        client->writeSegment(99, 88, 10, "test", 5);
         BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
         CPPUNIT_ASSERT(NULL != info.segment);
         CPPUNIT_ASSERT_EQUAL("test", &info.segment[10]);
