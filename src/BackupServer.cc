@@ -389,11 +389,14 @@ BackupServer::SegmentInfo::close()
 {
     Lock lock(mutex);
 
-    if (state != OPEN)
+    if (state == CLOSED)
+        return;
+    else if (state != OPEN)
         throw BackupBadSegmentIdException(HERE);
 
     state = CLOSED;
     rightmostWrittenOffset = BYTES_WRITTEN_CLOSED;
+    --metrics->backup.currentOpenSegmentCount;
 
     assert(storageHandle);
     ioScheduler.store(*this);
@@ -461,6 +464,8 @@ BackupServer::SegmentInfo::open()
     this->segment = segment;
     this->storageHandle = handle;
     state = OPEN;
+    ++metrics->backup.currentOpenSegmentCount;
+    ++metrics->backup.totalSegmentCount;
 }
 
 /**
@@ -1315,10 +1320,8 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
 
     SegmentInfo* info = findSegmentInfo(masterId, segmentId);
 
-    if (reqHdr.flags & BackupWriteRpc::OPEN) {
-        if (info)
-            throw BackupSegmentAlreadyOpenException(HERE);
-
+    // peform open, if any
+    if ((reqHdr.flags & BackupWriteRpc::OPEN) && !info) {
         try {
 #ifdef SINGLE_THREADED_BACKUP
             bool primary = false;
@@ -1331,35 +1334,38 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
             info->open();
         } catch (...) {
             segments.erase(MasterSegmentIdPair(masterId, segmentId));
-            if (info)
-                delete info;
+            delete info;
             throw;
         }
-        ++metrics->backup.currentOpenSegmentCount;
-        ++metrics->backup.totalSegmentCount;
     }
 
-    if (!info || !info->isOpen())
+    // peform write
+    if (!info) {
         throw BackupBadSegmentIdException(HERE);
+    } else if (info->isOpen()) {
+        // Need to check all three conditions because overflow is possible
+        // on the addition
+        if (reqHdr.length > segmentSize ||
+            reqHdr.offset > segmentSize ||
+            reqHdr.length + reqHdr.offset > segmentSize)
+            throw BackupSegmentOverflowException(HERE);
 
-    // Need to check all three conditions because overflow is possible
-    // on the addition
-    if (reqHdr.length > segmentSize ||
-        reqHdr.offset > segmentSize ||
-        reqHdr.length + reqHdr.offset > segmentSize)
-        throw BackupSegmentOverflowException(HERE);
-
-    {
-        CycleCounter<Metric> z(&metrics->backup.writeCopyTicks);
-        info->write(rpc.requestPayload, sizeof(reqHdr),
-                    reqHdr.length, reqHdr.offset);
+        {
+            CycleCounter<Metric> __(&metrics->backup.writeCopyTicks);
+            info->write(rpc.requestPayload, sizeof(reqHdr),
+                        reqHdr.length, reqHdr.offset);
+        }
+        bytesWritten += reqHdr.length;
+    } else {
+        if (!(reqHdr.flags & BackupWriteRpc::CLOSE))
+            throw BackupBadSegmentIdException(HERE);
+        LOG(WARNING, "Closing segment write after close, may have been "
+            "a redundant closing write, ignoring");
     }
-    bytesWritten += reqHdr.length;
 
-    if (reqHdr.flags & BackupWriteRpc::CLOSE) {
+    // peform close, if any
+    if (reqHdr.flags & BackupWriteRpc::CLOSE)
         info->close();
-        --metrics->backup.currentOpenSegmentCount;
-    }
 }
 
 } // namespace RAMCloud
