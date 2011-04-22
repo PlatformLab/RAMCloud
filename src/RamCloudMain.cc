@@ -19,11 +19,26 @@
 #include <assert.h>
 
 #include "BenchUtil.h"
+#include "Crc32C.h"
 #include "RamCloud.h"
+#include "ObjectFinder.h"
 #include "OptionParser.h"
 #include "Tub.h"
 
 using namespace RAMCloud;
+
+/*
+ * If true, add the table and object ids to every object, calculate and
+ * append a checksum, and verify the whole package when recovery is done.
+ * The crc is the first 4 bytes of the object. The tableId and objectId
+ * are the last 16 bytes.
+ */
+bool verify = false;
+
+/*
+ * Speed up recovery insertion with the single-shot FillWithTestData RPC.
+ */
+bool fillWithTestData = false;
 
 void
 runRecovery(RamCloud& client,
@@ -31,6 +46,11 @@ runRecovery(RamCloud& client,
             int tableCount,
             int tableSkip)
 {
+    if (verify && objectDataSize < 20)
+        DIE("need >= 20 byte objects to do verification!");
+    if (verify && fillWithTestData)
+        DIE("verify not supported with fillWithTestData");
+
     char tableName[20];
     int tables[tableCount];
 
@@ -50,34 +70,62 @@ runRecovery(RamCloud& client,
 
     LOG(NOTICE, "Performing %u inserts of %u byte objects",
         count * tableCount, objectDataSize);
-    char val[objectDataSize];
-    memset(val, 0xcc, objectDataSize);
-    Tub<RamCloud::Create> createRpcs[8];
-    uint64_t b = rdtsc();
-    for (int j = 0; j < count - 1; j++) {
-        for (int t = 0; t < tableCount; t++) {
-            auto& createRpc = createRpcs[(j * tableCount + t) %
-                                         arrayLength(createRpcs)];
+
+    if (fillWithTestData) {
+        LOG(NOTICE, "Using the fillWithTestData rpc on a single master");
+        uint64_t b = rdtsc();
+        MasterClient master(client.objectFinder.lookup(0, 0));
+        master.fillWithTestData(count * tableCount, objectDataSize);
+        LOG(NOTICE, "%d inserts took %lu ticks",
+            count * tableCount, rdtsc() - b);
+        LOG(NOTICE, "avg insert took %lu ticks",
+                    (rdtsc() - b) / count / tableCount);
+    } else {
+        char val[objectDataSize];
+        memset(val, 0xcc, objectDataSize);
+        Crc32C checksumBasis;
+        checksumBasis.update(&val[4], objectDataSize - 20);
+        Tub<RamCloud::Create> createRpcs[8];
+        uint64_t b = rdtsc();
+        for (int j = 0; j < count - 1; j++) {
+            for (int t = 0; t < tableCount; t++) {
+                auto& createRpc = createRpcs[(j * tableCount + t) %
+                                             arrayLength(createRpcs)];
+                if (createRpc)
+                    (*createRpc)();
+
+                if (verify) {
+                    uint32_t *crcPtr = reinterpret_cast<uint32_t*>(&val[0]);
+                    uint64_t *tableIdPtr =
+                        reinterpret_cast<uint64_t*>(&val[objectDataSize-16]);
+                    uint64_t *objectIdPtr =
+                        reinterpret_cast<uint64_t*>(&val[objectDataSize-8]);
+                    *tableIdPtr = tables[t];
+                    *objectIdPtr = j;
+                    Crc32C checksum = checksumBasis;
+                    checksum.update(&val[objectDataSize-16], 16);
+                    *crcPtr = checksum.getResult();
+                }
+
+                createRpc.construct(client,
+                                    tables[t],
+                                    static_cast<void*>(val), objectDataSize,
+                                    /* version = */static_cast<uint64_t*>(NULL),
+                                    /* async = */ true);
+            }
+        }
+        foreach (auto& createRpc, createRpcs) {
             if (createRpc)
                 (*createRpc)();
-            createRpc.construct(client,
-                                tables[t],
-                                static_cast<void*>(val), objectDataSize,
-                                /* version = */ static_cast<uint64_t*>(NULL),
-                                /* async = */ true);
         }
+        client.create(tables[0], val, objectDataSize,
+                      /* version = */ NULL,
+                      /* async = */ false);
+        LOG(NOTICE, "%d inserts took %lu ticks",
+            count * tableCount, rdtsc() - b);
+        LOG(NOTICE, "avg insert took %lu ticks",
+            (rdtsc() - b) / count / tableCount);
     }
-    foreach (auto& createRpc, createRpcs) {
-        if (createRpc)
-            (*createRpc)();
-    }
-    client.create(tables[0], val, objectDataSize,
-                  /* version = */ NULL,
-                  /* async = */ false);
-    LOG(DEBUG, "%d inserts took %lu ticks", count * tableCount, rdtsc() - b);
-    LOG(DEBUG, "avg insert took %lu ticks",
-        (rdtsc() - b) / count / tableCount);
-
 
     // dump the tablet map
     for (int t = 0; t < tableCount; t++) {
@@ -97,33 +145,73 @@ runRecovery(RamCloud& client,
     LOG(NOTICE, "--- hinting that the server is down: %s ---",
         session->getServiceLocator().c_str());
 
-    b = rdtsc();
+    uint64_t b = rdtsc();
     client.coordinator.hintServerDown(
         session->getServiceLocator().c_str());
 
-    LOG(NOTICE, "- flushing map\n");
-    client.objectFinder.flush();
+    client.objectFinder.waitForAllTabletsNormal();
 
     Buffer nb;
-    session = client.objectFinder.lookup(tables[0], 0);
-    LOG(NOTICE, "- attempting read from recovery master: %s",
-        session->getServiceLocator().c_str());
-
+    uint64_t stopTime = rdtsc();
     // Check a value in each table to make sure we're good
     for (int t = 0; t < tableCount; t++) {
-        LOG(NOTICE, "reading recovered data  on %s",
-            session->getServiceLocator().c_str());
         int table = tables[t];
         try {
             client.read(table, 0, &nb);
+            if (t == 0)
+                stopTime = rdtsc();
         } catch (...) {
         }
-
         session = client.objectFinder.lookup(tables[t], 0);
-        LOG(NOTICE, "read value has length %u", nb.getTotalLength());
+        LOG(NOTICE, "recovered value read from %s has length %u",
+            session->getServiceLocator().c_str(), nb.getTotalLength());
     }
     LOG(NOTICE, "Recovery completed in %lu ns",
-        cyclesToNanoseconds(rdtsc() - b));
+        cyclesToNanoseconds(stopTime - b));
+
+    b = rdtsc();
+    if (verify) {
+        LOG(NOTICE, "Verifying all data.");
+
+        int total = count * tableCount;
+        int tenPercent = total / 10;
+        int logCount = 0;
+        for (int j = 0; j < count - 1; j++) {
+            for (int t = 0; t < tableCount; t++) {
+                try {
+                    client.read(tables[t], j, &nb);
+                } catch (...) {
+                    LOG(ERROR, "Failed to access object (tbl %d, obj %d)!",
+                        tables[t], j);
+                    continue;
+                }
+                const char* objData = nb.getStart<char>();
+                uint32_t objBytes = nb.getTotalLength();
+
+                if (objBytes != objectDataSize) {
+                    LOG(ERROR, "Bad object size (tbl %d, obj %d)",
+                        tables[t], j);
+                } else {
+                    Crc32C checksum;
+                    checksum.update(&objData[4], objBytes - 4);
+                    if (checksum.getResult() != *nb.getStart<uint32_t>()) {
+                        LOG(ERROR, "Bad object checksum (tbl %d, obj %d)",
+                            tables[t], j);
+                    }
+                }
+            }
+
+            logCount += tableCount;
+            if (logCount >= tenPercent) {
+                LOG(DEBUG, " -- %.2f%% done",
+                    100.0 * (j * tableCount) / total);
+                logCount = 0;
+            }
+        }
+
+        LOG(NOTICE, "Verification took %lu ns",
+            cyclesToNanoseconds(rdtsc() - b));
+    }
 
     // dump out coordinator rpc info
     client.ping();
@@ -144,6 +232,9 @@ try
         ("down,d",
          ProgramOptions::bool_switch(&hintServerDown),
          "Report the master we're talking to as down just before exit.")
+        ("fast,f",
+         ProgramOptions::bool_switch(&fillWithTestData),
+         "Use a single fillWithTestData rpc to insert recovery objects.")
         ("tables,t",
          ProgramOptions::value<uint32_t>(&tableCount)->
             default_value(1),
@@ -160,7 +251,10 @@ try
         ("size,s",
          ProgramOptions::value<uint32_t>(&objectDataSize)->
             default_value(1024),
-         "Number of bytes to insert per object during insert phase.");
+         "Number of bytes to insert per object during insert phase.")
+        ("verify,v",
+         ProgramOptions::bool_switch(&verify),
+         "Verify the contents of all objects after recovery completes.");
 
     OptionParser optionParser(clientOptions, argc, argv);
 
@@ -193,7 +287,7 @@ try
     b = rdtsc();
     const char *value = "0123456789012345678901234567890"
         "123456789012345678901234567890123456789";
-    client.write(table, 43, value, strlen(value) + 1);
+    client.write(table, 43, value, downCast<uint32_t>(strlen(value) + 1));
     LOG(DEBUG, "write took %lu ticks", rdtsc() - b);
 
     Buffer buffer;
@@ -237,7 +331,7 @@ try
         count, objectDataSize);
     b = rdtsc();
     for (int j = 0; j < count; j++)
-        id = client.create(table, val, strlen(val) + 1);
+        id = client.create(table, val, downCast<uint32_t>(strlen(val) + 1));
     LOG(DEBUG, "%d inserts took %lu ticks", count, rdtsc() - b);
     LOG(DEBUG, "avg insert took %lu ticks", (rdtsc() - b) / count);
 

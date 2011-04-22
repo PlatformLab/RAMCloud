@@ -39,17 +39,10 @@ static inline uint32_t
 intelCrc32C(uint32_t crc, const void* buffer, uint64_t bytes)
 {
 #if __SSE4_2__
-#ifdef __INTEL_COMPILER
-#define CRC32Q _mm_crc32_u64 /* 8 bytes */
-#define CRC32L _mm_crc32_u32 /* 4 bytes */
-#define CRC32W _mm_crc32_u16 /* 2 bytes */
-#define CRC32B _mm_crc32_u8  /* 1 byte */
-#else /* !INTEL_COMPILER */
 #define CRC32Q __builtin_ia32_crc32di /* 8 bytes */
 #define CRC32L __builtin_ia32_crc32si /* 4 bytes */
 #define CRC32W __builtin_ia32_crc32hi /* 2 bytes */
 #define CRC32B __builtin_ia32_crc32qi /* 1 byte */
-#endif /* __INTEL_COMPILER */
     const uint64_t* p64 = static_cast<const uint64_t*>(buffer);
     uint64_t remainder = bytes;
     uint64_t chunk32 = 0;
@@ -59,10 +52,10 @@ intelCrc32C(uint32_t crc, const void* buffer, uint64_t bytes)
     chunk32 = remainder >> 5;
     remainder &= 31;
     while (chunk32-- > 0) {
-        crc = CRC32Q(crc, p64[0]);
-        crc = CRC32Q(crc, p64[1]);
-        crc = CRC32Q(crc, p64[2]);
-        crc = CRC32Q(crc, p64[3]);
+        crc = downCast<uint32_t>(CRC32Q(crc, p64[0]));
+        crc = downCast<uint32_t>(CRC32Q(crc, p64[1]));
+        crc = downCast<uint32_t>(CRC32Q(crc, p64[2]));
+        crc = downCast<uint32_t>(CRC32Q(crc, p64[3]));
         p64 += 4;
     }
 
@@ -70,7 +63,7 @@ intelCrc32C(uint32_t crc, const void* buffer, uint64_t bytes)
     chunk8 = remainder >> 3;
     remainder &= 7;
     while (chunk8-- > 0) {
-        crc = CRC32Q(crc, p64[0]);
+        crc = downCast<uint32_t>(CRC32Q(crc, p64[0]));
         p64++;
     }
 
@@ -79,14 +72,14 @@ intelCrc32C(uint32_t crc, const void* buffer, uint64_t bytes)
     uint64_t chunk2 = remainder >> 1;
     remainder &= 1;
     while (chunk2-- > 0) {
-        crc = CRC32W(crc, p16[0]);
+        crc = downCast<uint32_t>(CRC32W(crc, p16[0]));
         p16++;
     }
 
     // Finally, do any remaining byte.
     if (remainder) {
         const uint8_t* p8 = reinterpret_cast<const uint8_t*>(p16);
-        crc = CRC32B(crc, p8[0]);
+        crc = downCast<uint32_t>(CRC32B(crc, p8[0]));
     }
 #undef CRC32B
 #undef CRC32W

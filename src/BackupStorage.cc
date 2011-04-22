@@ -33,61 +33,86 @@ namespace RAMCloud {
  *      A pair of storage read and write speeds in MB/s.
  */
 pair<uint32_t, uint32_t>
-BackupStorage::benchmark()
+BackupStorage::benchmark(BackupStrategy backupStrategy)
 {
-    const uint64_t count = 16;
-    const uint64_t mb = Segment::SEGMENT_SIZE * count / 1024 / 1024;
-    vector<uint32_t> readSpeeds;
-    vector<uint32_t> writeSpeeds;
+    const uint32_t count = 16;
+    uint32_t readSpeeds[count];
+    uint32_t writeSpeeds[count];
     BackupStorage::Handle* handles[count];
 
-    void* p = NULL;
-    int r = posix_memalign(&p, Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
-    if (r != 0)
-        throw std::bad_alloc();
+    void* p = xmemalign(Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
     char* segment = static_cast<char*>(p);
 
     try {
-        for (uint64_t i = 0; i < count; ++i)
+        for (uint32_t i = 0; i < count; ++i)
             handles[i] = NULL;
-        for (uint64_t i = 0; i < count; ++i)
+
+        for (uint32_t i = 0; i < count; ++i)
             handles[i] = allocate(0, i + 1);
 
-        {
+        // Measuring write speeds takes too long with fans on with
+        // commodity disks and we don't use the result.  Just fake it.
+        for (uint32_t i = 0; i < count; ++i)
+            writeSpeeds[i] = 100;
+        for (uint32_t i = 0; i < count; ++i) {
             CycleCounter<> counter;
-            for (uint64_t i = 0; i < count; ++i)
-                putSegment(handles[i], segment);
+            getSegment(handles[i], segment);
             uint64_t ns = cyclesToNanoseconds(counter.stop());
-            writeSpeeds.push_back(mb * 1000 * 1000 * 1000 / ns);
-        }
-        {
-            CycleCounter<> counter;
-            for (uint64_t i = 0; i < count; ++i)
-                getSegment(handles[i], segment);
-            uint64_t ns = cyclesToNanoseconds(counter.stop());
-            readSpeeds.push_back(mb * 1000 * 1000 * 1000 / ns);
+            readSpeeds[i] = downCast<uint32_t>(
+                                Segment::SEGMENT_SIZE * 1000UL * 1000 * 1000 /
+                                (1 << 20) / ns);
         }
     } catch (...) {
         std::free(segment);
-        for (uint64_t i = 0; i < 16; ++i)
+        for (uint32_t i = 0; i < count; ++i)
             if (handles[i])
                 free(handles[i]);
         throw;
     }
 
     std::free(segment);
-    for (uint64_t i = 0; i < 16; ++i)
+    for (uint32_t i = 0; i < count; ++i)
         free(handles[i]);
 
-    uint32_t minRead = *std::min_element(readSpeeds.begin(),
-                                         readSpeeds.end());
-    uint32_t minWrite = *std::min_element(writeSpeeds.begin(),
-                                          writeSpeeds.end());
+    uint32_t minRead = *std::min_element(readSpeeds,
+                                         readSpeeds + count);
+    uint32_t minWrite = *std::min_element(writeSpeeds,
+                                          writeSpeeds + count);
+    uint32_t avgRead = ({
+        uint32_t sum = 0;
+        foreach (uint32_t speed, readSpeeds)
+            sum += speed;
+        sum / count;
+    });
+    uint32_t avgWrite = ({
+        uint32_t sum = 0;
+        foreach (uint32_t speed, writeSpeeds)
+            sum += speed;
+        sum / count;
+    });
 
     LOG(NOTICE, "Backup storage speeds (min): %u MB/s read, %u MB/s write",
         minRead, minWrite);
+    LOG(NOTICE, "Backup storage speeds (avg): %u MB/s read, %u MB/s write",
+        avgRead, avgWrite);
 
-    return {minRead, minWrite};
+    if (backupStrategy == RANDOM_REFINE_MIN) {
+        LOG(NOTICE, "RANDOM_REFINE_MIN BackupStrategy selected");
+        return {minRead, minWrite};
+    } else if (backupStrategy == RANDOM_REFINE_AVG) {
+        LOG(NOTICE, "RANDOM_REFINE_AVG BackupStrategy selected");
+        return {avgRead, avgWrite};
+    } else if (backupStrategy == EVEN_DISTRIBUTION) {
+        LOG(NOTICE, "EVEN_SELECTION BackupStrategy selected");
+        return {100, 100};
+    } else if (backupStrategy == UNIFORM_RANDOM) {
+        LOG(NOTICE, "UNIFORM_RANDOM BackupStrategy selected");
+        // Magic value lets master know it should immediately
+        // accept this backup (i.e. use uniform random selection).
+        return {1, 1};
+    } else {
+        DIE("Bad BackupStrategy selected");
+    }
 }
 
 // --- BackupStorage::Handle ---
@@ -186,9 +211,9 @@ SingleFileStorage::allocate(uint64_t masterId,
  * wasting early segment frames on the disk which may be faster.
  */
 pair<uint32_t, uint32_t>
-SingleFileStorage::benchmark()
+SingleFileStorage::benchmark(BackupStrategy backupStrategy)
 {
-    auto r = BackupStorage::benchmark();
+    auto r = BackupStorage::benchmark(backupStrategy);
     lastAllocatedFrame = FreeMap::npos;
     return r;
 }

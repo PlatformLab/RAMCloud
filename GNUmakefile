@@ -49,17 +49,15 @@ CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
 		-Wbad-function-cast
 CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 		-Wcast-qual \
-		-Wcast-align
+		-Wcast-align -Wconversion
 ifeq ($(COMPILER),gnu)
 CXXWARNS += -Weffc++
 endif
 # Too many false positives list:
 # -Wunreachable-code
-# Broken due to implicit promotion to int in g++ 4.4.4
-# -Wconversion
 # Failed deconstructor inlines are generating noise
 # -Winline
-LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lcryptopp -lrt \
+LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lrt \
         -lpthread -lboost_thread
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 

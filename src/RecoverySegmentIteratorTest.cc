@@ -82,7 +82,7 @@ TEST_F(RecoverySegmentIteratorTest, getPointer) {
 
     SegmentEntry* entry = reinterpret_cast<SegmentEntry*>(segment);
     entry->type = LOG_ENTRY_TYPE_OBJ;
-    entry->length = strlen(msg) + 1;
+    entry->length = downCast<uint32_t>(strlen(msg)) + 1;
     memcpy(segment + sizeof(SegmentEntry), msg, strlen(msg) + 1);
 
     RecoverySegmentIterator it(segment, segmentSize);

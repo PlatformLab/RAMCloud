@@ -75,7 +75,7 @@ try
 
     logger.setLogLevels(WARNING);
 
-    int serverCount = serverLocators.size();
+    int serverCount = downCast<uint32_t>(serverLocators.size());
     Transport::SessionRef session[serverCount];
     for (int i = 0; i < serverCount; i++)
         session[i] = transportManager.getSession(serverLocators[i].c_str());

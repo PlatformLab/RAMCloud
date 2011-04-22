@@ -16,6 +16,7 @@
 /**
  * \file
  * Benchmark for vmac as implemented in crytpo++ (cryptopp.com). 
+ * Link with -lcryptopp to use this.
  */
 
 // RAMCloud pragma [CPPLINT=0]

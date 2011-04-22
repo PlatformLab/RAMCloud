@@ -128,10 +128,12 @@ class BackupServerTest : public CppUnit::TestFixture {
         entry.type = type;
         entry.length = bytes;
         client->writeSegment(masterId, segmentId,
-                             offset, &entry, sizeof(entry));
-        client->writeSegment(masterId, segmentId, offset + sizeof(entry),
+                             offset, &entry,
+                             downCast<uint32_t>(sizeof(entry)));
+        client->writeSegment(masterId, segmentId,
+                             downCast<uint32_t>(offset + sizeof(entry)),
                              data, bytes);
-        return sizeof(entry) + bytes;
+        return downCast<uint32_t>(sizeof(entry)) + bytes;
     }
 
     uint32_t
@@ -184,7 +186,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     test_closeSegment()
     {
         client->openSegment(99, 88);
-        client->writeSegment(99, 88, 10, "test", 4);
+        client->writeSegment(99, 88, 10, "test", 5);
         client->closeSegment(99, 88);
         BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
         char* storageAddress =
@@ -603,6 +605,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     void
     test_startReadingData()
     {
+        MockRandom _(1);
         client->openSegment(99, 88);
         client->writeSegment(99, 88, 0, "test", 4);
         client->openSegment(99, 89);
@@ -613,17 +616,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->startReadingData(99, ProtoBuf::Tablets(), &result);
         CPPUNIT_ASSERT_EQUAL(4, result.segmentIdAndLength.size());
 
-        CPPUNIT_ASSERT_EQUAL(89, result.segmentIdAndLength[0].first);
-        CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[0].second);
-        {
-            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 89);
-            BackupServer::SegmentInfo::Lock lock(info.mutex);
-            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
-                                 info.state);
-        }
-
-        CPPUNIT_ASSERT_EQUAL(88, result.segmentIdAndLength[1].first);
-        CPPUNIT_ASSERT_EQUAL(4, result.segmentIdAndLength[1].second);
+        CPPUNIT_ASSERT_EQUAL(88, result.segmentIdAndLength[0].first);
+        CPPUNIT_ASSERT_EQUAL(4, result.segmentIdAndLength[0].second);
         {
             BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 88);
             BackupServer::SegmentInfo::Lock lock(info.mutex);
@@ -631,21 +625,30 @@ class BackupServerTest : public CppUnit::TestFixture {
                                  info.state);
         }
 
-        CPPUNIT_ASSERT_EQUAL(99, result.segmentIdAndLength[2].first);
-        CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[2].second);
-        CPPUNIT_ASSERT(backup->findSegmentInfo(99, 99)->recoveryPartitions);
+        CPPUNIT_ASSERT_EQUAL(89, result.segmentIdAndLength[1].first);
+        CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[1].second);
         {
-            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 99);
+            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 89);
+            BackupServer::SegmentInfo::Lock lock(info.mutex);
+            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+                                 info.state);
+        }
+
+        CPPUNIT_ASSERT_EQUAL(98, result.segmentIdAndLength[2].first);
+        CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[2].second);
+        {
+            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 98);
             BackupServer::SegmentInfo::Lock lock(info.mutex);
             CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
                                  info.state);
             CPPUNIT_ASSERT(info.recoveryPartitions);
         }
 
-        CPPUNIT_ASSERT_EQUAL(98, result.segmentIdAndLength[3].first);
+        CPPUNIT_ASSERT_EQUAL(99, result.segmentIdAndLength[3].first);
         CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[3].second);
+        CPPUNIT_ASSERT(backup->findSegmentInfo(99, 99)->recoveryPartitions);
         {
-            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 98);
+            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 99);
             BackupServer::SegmentInfo::Lock lock(info.mutex);
             CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
                                  info.state);
@@ -675,16 +678,20 @@ class BackupServerTest : public CppUnit::TestFixture {
             char segBuf[1024 * 1024];
             Segment s((uint64_t)0, segmentId, segBuf, sizeof(segBuf));
 
-            char digestBuf[LogDigest::getBytesFromCount(digestIds.size())];
-            LogDigest src(digestIds.size(), digestBuf, sizeof(digestBuf));
+            char digestBuf[LogDigest::getBytesFromCount
+                                (downCast<uint32_t>(digestIds.size()))];
+            LogDigest src(downCast<uint32_t>(digestIds.size()),
+                          digestBuf,
+                          downCast<uint32_t>(sizeof(digestBuf)));
             for (uint32_t i = 0; i < digestIds.size(); i++)
                 src.addSegment(digestIds[i]);
 
             uint64_t lengthInSegment, offsetInSegment;
-            s.append(LOG_ENTRY_TYPE_LOGDIGEST, digestBuf, sizeof(digestBuf),
+            s.append(LOG_ENTRY_TYPE_LOGDIGEST, digestBuf,
+                     downCast<uint32_t>(sizeof(digestBuf)),
                 &lengthInSegment, &offsetInSegment);
             client->writeSegment(masterId, segmentId, 0, s.getBaseAddress(),
-                lengthInSegment + offsetInSegment);
+                downCast<uint32_t>(lengthInSegment + offsetInSegment));
     }
 
     void
@@ -768,7 +775,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     test_writeSegment()
     {
         client->openSegment(99, 88);
-        client->writeSegment(99, 88, 10, "test", 4);
+        client->writeSegment(99, 88, 10, "test", 5);
         BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
         CPPUNIT_ASSERT(NULL != info.segment);
         CPPUNIT_ASSERT_EQUAL("test", &info.segment[10]);
@@ -813,7 +820,8 @@ class BackupServerTest : public CppUnit::TestFixture {
         client->openSegment(99, 88);
         char junk[70000];
         CPPUNIT_ASSERT_THROW(
-            client->writeSegment(99, 88, 0, junk, sizeof(junk)),
+            client->writeSegment(99, 88, 0, junk,
+                                 downCast<uint32_t>(sizeof(junk))),
             BackupSegmentOverflowException);
         CPPUNIT_ASSERT_EQUAL(1,
             BackupStorage::Handle::getAllocatedHandlesCount());

@@ -101,10 +101,10 @@ class TabletProfiler {
     static const uint64_t BUCKET_SPLIT_OBJS  = BUCKET_SPLIT_BYTES / 100;
 
     /// Max bytes a bucket and its parent can have before they are merged.
-    static const uint64_t BUCKET_MERGE_BYTES = BUCKET_SPLIT_BYTES * 0.75;
+    static const uint64_t BUCKET_MERGE_BYTES = BUCKET_SPLIT_BYTES * 3 / 4;
 
     /// Max referants a bucket and its parent can have before they are merged.
-    static const uint64_t BUCKET_MERGE_OBJS  = BUCKET_SPLIT_OBJS  * 0.75;
+    static const uint64_t BUCKET_MERGE_OBJS  = BUCKET_SPLIT_OBJS  * 3 / 4;
 
     class PartitionCollector {
       public:
@@ -197,7 +197,7 @@ class TabletProfiler {
         bool         untrack(BucketHandle bh, uint64_t key, uint32_t bytes,
                                   LogTime time);
         BucketHandle findBucket(uint64_t key, LogTime *time = NULL);
-        Bucket*      getBucket(int bucketIndex);
+        Bucket*      getBucket(uint32_t bucketIndex);
         uint64_t     getBucketFirstKey(BucketHandle bh);
         uint64_t     getBucketLastKey(BucketHandle bh);
         bool         isBottom();
@@ -212,7 +212,7 @@ class TabletProfiler {
         BucketHandle parent;            /// Handle to Subrange's parent Bucket
         uint64_t     bucketWidth;       /// Keyspace width of each Bucket
         Bucket      *buckets;           /// Array of Buckets
-        int          numBuckets;        /// Number of Buckets in buckets array
+        uint32_t     numBuckets;        /// Number of Buckets in buckets array
         uint64_t     firstKey;          /// First key of this Subrange
         uint64_t     lastKey;           /// Last key of this Subrange
         uint64_t     totalBytes;        /// Sum of all Buckets' totalBytes

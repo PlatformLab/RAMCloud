@@ -58,6 +58,7 @@ class {
 // so we'll go ahead and use the C header
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
+#include <xmmintrin.h>
 
 #ifndef __cplusplus
 #include <stdio.h>
@@ -187,6 +188,11 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
     return p;
 }
 
+// htons, ntohs cause warnings
+#define HTONS(x) \
+    static_cast<uint16_t>((((x) >> 8) & 0xff) | (((x) & 0xff) << 8))
+#define NTOHS HTONS
+
 #ifdef __cplusplus
 /**
  * Return the size in bytes of a struct, except consider the size of structs
@@ -215,6 +221,19 @@ static inline void * _xrealloc(void *ptr, size_t len, const char* file,
 #define unsafeArrayLength(array) (sizeof(array) / sizeof(array[0]))
 
 #ifdef __cplusplus
+
+/**
+ * Cast a bigger int down to a smaller one.
+ * Asserts that no precision is lost at runtime.
+ */
+template<typename Small, typename Large>
+Small
+downCast(const Large& large)
+{
+    Small small = static_cast<Small>(large);
+    assert(small == large);
+    return small;
+}
 
 /// Return the number of elements in a statically allocated array.
 template<typename T, size_t length>
@@ -571,6 +590,40 @@ T second(pair<_, T> p)
 #define OFFSET_OF(type, field) (reinterpret_cast<size_t> \
         (reinterpret_cast<char*>(&(reinterpret_cast<type*>(100)->field))) \
         - 100)
+
+/**
+ * Prefetch the cache lines containing [object, object + numBytes) into the
+ * processor's caches.
+ * The best docs for this are in the Intel instruction set reference under
+ * PREFETCHh.
+ * \param object
+ *      The start of the region of memory to prefetch.
+ * \param numBytes
+ *      The size of the region of memory to prefetch.
+ */
+static inline void
+prefetch(const void* object, uint64_t numBytes)
+{
+    uint64_t offset = reinterpret_cast<uint64_t>(object) & 0x3fUL;
+    const char* p = reinterpret_cast<const char*>(object) - offset;
+    for (uint64_t i = 0; i < offset + numBytes; i += 64)
+        _mm_prefetch(p + i, _MM_HINT_T0);
+}
+
+/**
+ * Prefetch the cache lines containing the given object into the
+ * processor's caches.
+ * The best docs for this are in the Intel instruction set reference under
+ * PREFETCHh.
+ * \param object
+ *      A pointer to the object in memory to prefetch.
+ */
+template<typename T>
+static inline void
+prefetch(const T* object)
+{
+    prefetch(object, sizeof(*object));
+}
 
 } // end RAMCloud
 #endif // RAMCLOUD_COMMON_H

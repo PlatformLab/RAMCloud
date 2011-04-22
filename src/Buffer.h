@@ -315,17 +315,8 @@ class Buffer {
             static const Buffer::Chunk rawChunk(NULL, 0);
 
             // no hacks here, move along...
-#ifdef __INTEL_COMPILER
-            // for icc the vptr is the first member of the object
-            const uintptr_t* vptr_this =
-                reinterpret_cast<const uintptr_t*>(this);
-            const uintptr_t* vptr_raw  =
-                reinterpret_cast<const uintptr_t*>(&rawChunk);
-            return (*vptr_this == *vptr_raw);
-#else
             // works with g++
             return (this->_vptr == rawChunk._vptr);
-#endif
         }
 
       protected:

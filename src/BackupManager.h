@@ -23,6 +23,7 @@
 #include "BoostIntrusive.h"
 #include "BackupClient.h"
 #include "Common.h"
+#include "Metrics.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -56,7 +57,7 @@ class BackupManager {
          * an OpenSegment instance.
          */
         static size_t sizeOf(uint32_t replicas) {
-            return sizeof(OpenSegment) + sizeof(Backup) * replicas;
+            return sizeof(OpenSegment) + sizeof(backups[0]) * replicas;
         }
         OpenSegment(BackupManager& backupManager, uint64_t segmentId,
                     const void* data, uint32_t len);
@@ -68,11 +69,15 @@ class BackupManager {
         struct Backup {
             explicit Backup(Transport::SessionRef session)
                 : client(session)
+                , openIsDone(false)
                 , offsetSent(0)
                 , closeSent(false)
-                , writeSegmentTub()
+                , closeTicks()
+                , rpc()
             {}
             BackupClient client;
+
+            bool openIsDone;
             /**
              * The number of bytes of #OpenSegment::data that have been
              * transmitted to the backup (but not necessarily acknowledged).
@@ -83,17 +88,21 @@ class BackupManager {
              * not necessarily acknowledged).
              */
             bool closeSent;
+
+            /// Measures the amount of time the close RPC is active.
+            Tub<CycleCounter<Metric>> closeTicks;
+
             /**
              * Space for an asynchronous RPC call.
              */
-            Tub<BackupClient::WriteSegment> writeSegmentTub;
+            Tub<BackupClient::WriteSegment> rpc;
         };
 
         /**
          * Return a range of iterators across #backups
          * for use in foreach loops.
          */
-        std::pair<Backup*, Backup*>
+        std::pair<Tub<Backup>*, Tub<Backup>*>
         backupIter() {
             return {&backups[0], &backups[backupManager.replicas]};
         }
@@ -110,6 +119,9 @@ class BackupManager {
          * The start of an array of bytes to be replicated.
          */
         const void* data;
+
+        uint32_t openLen;
+
         /**
          * The number of bytes of #data written by the user of this class (not
          * necessarily yet replicated).
@@ -128,7 +140,7 @@ class BackupManager {
          * An array of #BackupManager::replica backups on which to replicate
          * the segment.
          */
-        Backup backups[0]; // must be last member of class
+        Tub<Backup> backups[0]; // must be last member of class
         DISALLOW_COPY_AND_ASSIGN(OpenSegment);
     };
 
@@ -142,9 +154,13 @@ class BackupManager {
                              const void* data, uint32_t len);
         __attribute__((warn_unused_result));
     void sync();
+    void proceed();
+    void dumpOpenSegments(); // defined for testing only
 
   PRIVATE:
+    void proceedNoMetrics();
     void ensureSufficientHosts();
+    bool isSynced();
     void unopenSegment(OpenSegment* openSegment);
     void updateHostListFromCoordinator();
 
@@ -160,9 +176,11 @@ class BackupManager {
     /// The host pool to schedule backups from.
     ProtoBuf::ServerList hosts;
 
+  PUBLIC:
     /// The number of backups to replicate each segment on.
     const uint32_t replicas;
 
+  PRIVATE:
     typedef std::unordered_multimap<uint64_t, Transport::SessionRef>
             SegmentMap;
     /// Tells which backup each segment is stored on.

@@ -63,8 +63,11 @@ struct AbuserData{
     uint32_t getMs() {
         // unit tests, etc default to 100 MB/s
         uint32_t bandwidth = x.bandwidth ?: 100;
-        return ((x.numSegments + 1) * 1000UL * Segment::SEGMENT_SIZE /
-                1024 / 1024 / bandwidth);
+        if (bandwidth == 1u)
+            return 1u;
+        return downCast<uint32_t>((x.numSegments + 1) * 1000UL *
+                                  Segment::SEGMENT_SIZE /
+                                  1024 / 1024 / bandwidth);
     }
 };
 
@@ -75,7 +78,8 @@ pickRandomUnusedHost(HostList& hostList, const Set& usedHosts) ->
 {
     assert(static_cast<uint64_t>(hostList.server_size()) > usedHosts.size());
     while (true) {
-        uint32_t index = generateRandom() % hostList.server_size();
+        uint32_t index = downCast<uint32_t>(generateRandom() %
+                                            hostList.server_size());
         auto host = hostList.mutable_server(index);
         if (!contains(usedHosts, host))
             return host;
@@ -95,60 +99,21 @@ BackupManager::OpenSegment::OpenSegment(BackupManager& backupManager,
     : backupManager(backupManager)
     , segmentId(segmentId)
     , data(data)
+    , openLen(len)
     , offsetQueued(len)
     , closeQueued(false)
     , listEntries()
 {
-    // Select backups, initialize backups,
-    // and tell each of the backups to open the segment:
-    backupManager.ensureSufficientHosts();
-    auto flags = BackupWriteRpc::OPENPRIMARY;
-    auto& hostList = backupManager.hosts;
-    std::set<decltype(hostList.mutable_server(0))> usedHosts;
-
-    foreach (auto& backup, backupIter()) {
-        auto host = pickRandomUnusedHost(hostList, usedHosts);
-        if (flags == BackupWriteRpc::OPENPRIMARY) {
-            // Select the least loaded of 5 random backups:
-            for (uint32_t i = 0; i < 4; ++i) {
-                auto candidate = pickRandomUnusedHost(hostList, usedHosts);
-                if (AbuserData(host).getMs() > AbuserData(candidate).getMs())
-                    host = candidate;
-            }
-            AbuserData h(host);
-            LOG(DEBUG, "Chose backup with "
-                "%u segments and %u MB/s disk bandwidth "
-                "(expected time to read on recovery is %u ms)",
-                h->numSegments, h->bandwidth, h.getMs());
-            ++h->numSegments;
-            host->set_user_data(h->user_data);
-        }
-        usedHosts.insert(host);
-
-        LOG(DEBUG, "Opening segment %lu, %lu on backup %s",
-            *backupManager.masterId, segmentId,
-            host->service_locator().c_str());
-        auto session =
-            transportManager.getSession(host->service_locator().c_str());
-        new(&backup) Backup(session);
-        backupManager.segments.insert({segmentId, session});
-        backup.writeSegmentTub.construct(backup.client,
-                                         *backupManager.masterId, segmentId,
-                                         0, data, len, flags);
-        flags = BackupWriteRpc::OPEN;
-        backup.offsetSent = len;
-    }
-    // Wait for segment open acknowledgements from backups:
-    CycleCounter<Metric> _(&metrics->master.segmentOpenStallTicks);
-    waitForWriteRequests();
+    // Call constructors on Tub<Backup> array
+    foreach (auto& backup, backupIter())
+        new(&backup) Tub<Backup>();
 }
 
 BackupManager::OpenSegment::~OpenSegment()
 {
-    // Call destructors on Backup objects that were constructed
-    // with placement new:
+    // Call destructors on Tub<Backup> array
     foreach (auto& backup, backupIter())
-        backup.~Backup();
+        backup.~Tub();
 }
 
 /**
@@ -170,17 +135,8 @@ void
 BackupManager::OpenSegment::write(uint32_t offset,
                                   bool closeSegment)
 {
-    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
     TEST_LOG("%lu, %lu, %u, %d",
              *backupManager.masterId, segmentId, offset, closeSegment);
-
-    if (this != &backupManager.openSegmentList.front()) {
-        // If this isn't the earliest open segment, the one before must be the
-        // front and must have a close queued. Wait for its close to be
-        // acknowledged, then this must be at the front of the list.
-        backupManager.openSegmentList.front().sync();
-        assert(this == &backupManager.openSegmentList.front());
-    }
 
     // offset monotonically increases
     assert(offset >= offsetQueued);
@@ -191,69 +147,6 @@ BackupManager::OpenSegment::write(uint32_t offset,
     closeQueued = closeSegment;
     if (closeQueued)
         ++metrics->master.segmentCloseCount;
-
-    sendWriteRequests();
-}
-
-/**
- * Wait until all written data has been acknowledged by the backups for this
- * segment.
- */
-void
-BackupManager::OpenSegment::sync()
-{
-    {
-        CycleCounter<Metric> _(&metrics->master.segmentWriteStallTicks);
-        waitForWriteRequests();
-    }
-    sendWriteRequests();
-    {
-        CycleCounter<Metric> _(&metrics->master.segmentWriteStallTicks);
-        waitForWriteRequests();
-    }
-    if (closeQueued) {
-        LOG(DEBUG, "Closed segment %lu, %lu",
-            *backupManager.masterId, segmentId);
-        backupManager.unopenSegment(this);
-        return; // 'this' instance has been destroyed
-    }
-}
-
-/// Try to send all queued requests to the backups.
-void
-BackupManager::OpenSegment::sendWriteRequests()
-{
-    foreach (auto& backup, backupIter()) {
-        if (backup.writeSegmentTub)
-            continue;
-        if (backup.closeSent == closeQueued &&
-            backup.offsetSent == offsetQueued)
-            continue;
-        backup.writeSegmentTub.construct(backup.client,
-                                         *backupManager.masterId,
-                                         segmentId,
-                                         backup.offsetSent,
-                                         (static_cast<const char*>(data) +
-                                          backup.offsetSent),
-                                         offsetQueued - backup.offsetSent,
-                                         closeQueued ? BackupWriteRpc::CLOSE
-                                                     : BackupWriteRpc::NONE);
-        backup.offsetSent = offsetQueued;
-        backup.closeSent = closeQueued;
-    }
-}
-
-/// Wait for outstanding requests from the backups.
-void
-BackupManager::OpenSegment::waitForWriteRequests()
-{
-    foreach (auto& backup, backupIter()) {
-        if (!backup.writeSegmentTub)
-            continue;
-        // TODO(stutsman) Exception during one of the writes?
-        (*backup.writeSegmentTub)();
-        backup.writeSegmentTub.destroy();
-    }
 }
 
 // --- BackupManager ---
@@ -348,6 +241,25 @@ BackupManager::openSegment(uint64_t segmentId, const void* data, uint32_t len)
     return openSegment;
 }
 
+/// Internal helper for #sync().
+bool
+BackupManager::isSynced()
+{
+    foreach (auto& segment, openSegmentList) {
+        if (!replicas && segment.closeQueued)
+            return false;
+        foreach (auto& backup, segment.backupIter()) {
+            if (!backup || backup->rpc)
+                return false;
+            if (backup->closeSent != segment.closeQueued ||
+                backup->offsetSent != segment.offsetQueued) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 /**
  * Wait until all written data has been acknowledged by the backups for all
  * segments.
@@ -356,11 +268,190 @@ void
 BackupManager::sync()
 {
     CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
-    if (openSegmentList.empty())
-        return;
-    // At most one segment can have outstanding data,
-    // so it's sufficient to sync just the first segment.
-    openSegmentList.front().sync();
+    if (!isSynced())
+        proceedNoMetrics();
+    while (!isSynced()) {
+        Dispatch::handleEvent();
+        proceedNoMetrics();
+    }
+}
+
+/**
+ * Make progress on replicating the log to backups, bot don't block.
+ * The caller should call Dispatch::poll() between calls to this function.
+ */
+void
+BackupManager::proceed()
+{
+    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
+    proceedNoMetrics();
+}
+
+/// \copydoc proceed()
+void
+BackupManager::proceedNoMetrics()
+{
+    // reap all outstanding RPCs
+    auto it = openSegmentList.begin();
+    while (it != openSegmentList.end()) {
+        auto& segment = *it;
+        if (replicas && !segment.backups[0]) {
+            ++it;
+        } else {
+            bool closeDone = segment.closeQueued;
+            foreach (auto& backup, segment.backupIter()) {
+                if (backup->rpc && backup->rpc->isReady()) {
+                    LOG(DEBUG, "Wait %lu.%lu", segment.segmentId,
+                        &backup - segment.backups);
+                    (*backup->rpc)();
+                    backup->rpc.destroy();
+                    backup->openIsDone = true;
+                    if (backup->closeSent)
+                        backup->closeTicks.destroy();
+                }
+                closeDone &= (!backup->rpc && backup->closeSent);
+            }
+            ++it;
+            if (closeDone) {
+                 LOG(DEBUG, "Closed segment %lu, %lu",
+                     *masterId, segment.segmentId);
+                unopenSegment(&segment);
+            }
+        }
+    }
+
+    // send opens
+    uint32_t i = 0;
+    it = openSegmentList.begin();
+    while (it != openSegmentList.end()) {
+        if (i++ == 4) // pick something >= 3 to throttle number of open RPCs
+            break;
+        auto& segment = *it;
+
+        bool openDone = true;
+        foreach (auto& backup, segment.backupIter())
+            openDone &= backup && backup->openIsDone;
+        if (openDone) {
+            ++it;
+            continue;
+        }
+
+        if (replicas && !segment.backups[0]) { // no open request has been sent
+            // Select backups, initialize backups,
+            // and tell each of the backups to open the segment:
+            ensureSufficientHosts();
+            auto flags = BackupWriteRpc::OPENPRIMARY;
+            auto& hostList = hosts;
+            std::set<decltype(hostList.mutable_server(0))> usedHosts;
+
+            foreach (auto& backup, segment.backupIter()) {
+                auto host = pickRandomUnusedHost(hostList, usedHosts);
+                if (flags == BackupWriteRpc::OPENPRIMARY) {
+                    // Select the least loaded of 5 random backups:
+                    for (uint32_t j = 0; j < 4; ++j) {
+                        auto candidate = pickRandomUnusedHost(hostList,
+                                                              usedHosts);
+                        if (AbuserData(host).getMs() == 1u) {
+                            // if we saw magic value which means pick at
+                            // uniform random
+                            host = candidate;
+                            break;
+                        }
+                        if (AbuserData(host).getMs() >
+                            AbuserData(candidate).getMs()) {
+                            host = candidate;
+                        }
+                    }
+                    AbuserData h(host);
+                    LOG(DEBUG, "Chose backup with "
+                        "%u segments and %u MB/s disk bandwidth "
+                        "(expected time to read on recovery is %u ms)",
+                        h->numSegments, h->bandwidth, h.getMs());
+                    ++h->numSegments;
+                    host->set_user_data(h->user_data);
+                }
+                usedHosts.insert(host);
+
+                LOG(DEBUG, "Opening segment %lu, %lu on backup %s",
+                    *masterId, segment.segmentId,
+                    host->service_locator().c_str());
+                auto session = transportManager.getSession(
+                                        host->service_locator().c_str());
+                backup.construct(session);
+                segments.insert({segment.segmentId, session});
+                LOG(DEBUG, "Send open %lu.%lu", segment.segmentId,
+                    &backup - segment.backups);
+                backup->rpc.construct(backup->client,
+                                      *masterId, segment.segmentId,
+                                      0, segment.data, segment.openLen,
+                                      flags);
+                flags = BackupWriteRpc::OPEN;
+                backup->offsetSent = segment.openLen;
+            }
+        }
+        break; // opening segments should be serialized
+    }
+
+    // send writes+closes
+    i = 0;
+    it = openSegmentList.begin();
+    while (it != openSegmentList.end()) {
+        if (i++ == 2) // pick something to throttle the number of write RPCs
+            break;
+        // check if the 'it' segment can proceed with a write/close
+        bool nextOpenDone = true;
+        auto next = it;
+        ++next;
+        if (next != openSegmentList.end()) {
+            foreach (auto& backup, next->backupIter())
+                nextOpenDone &= backup && backup->openIsDone;
+        }
+        if (it->closeQueued && !nextOpenDone)
+            break; // waiting for next segment's open response
+
+        foreach (auto& backup, it->backupIter()) {
+            if (!backup)
+                break; // haven't started open yet
+            if (backup->rpc)
+                continue; // RPC already active
+            if (backup->closeSent == it->closeQueued &&
+                backup->offsetSent == it->offsetQueued)
+                continue; // already synced
+            if (it->closeQueued &&
+                &backup == it->backups + replicas - 1) {
+                if (metrics->master.logSyncBytes) {
+                    backup->closeTicks.construct(
+                        &metrics->master.logSyncCloseTicks);
+                    ++metrics->master.logSyncCloseCount;
+                } else {
+                    backup->closeTicks.construct(
+                        &metrics->master.replayCloseTicks);
+                    ++metrics->master.replayCloseCount;
+                }
+            }
+            backup->rpc.construct(backup->client,
+                                  *masterId,
+                                  it->segmentId,
+                                  backup->offsetSent,
+                                  (static_cast<const char*>(it->data) +
+                                   backup->offsetSent),
+#if SPEEDHACK
+                // Used to make recovery benchmarks faster:
+                // If you're feeling brave, this isn't a primary backup, and
+                // this is not on a recovery master, there's not a real need to
+                // replicate the object data.
+                (&backup - it->backups > 0 && !metrics->pid) ? 0 :
+#endif
+                                  it->offsetQueued - backup->offsetSent,
+                                  it->closeQueued ? BackupWriteRpc::CLOSE
+                                                    : BackupWriteRpc::NONE);
+            backup->offsetSent = it->offsetQueued;
+            backup->closeSent = it->closeQueued;
+            LOG(DEBUG, "Send write %lu.%lu (close=%d)", it->segmentId,
+                &backup - it->backups, it->closeQueued);
+        }
+        ++it;
+    }
 }
 
 // - private -

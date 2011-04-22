@@ -360,11 +360,24 @@ class Transport(Struct):
     receive = TransmitReceiveCommon('receive docs', 'Receive')
     sessionOpenTicks = u64(
         'total amount of time opening sessions for RPCs')
+    sessionOpenCount = u64(
+        'total amount of sessions opened for RPCs')
+    sessionOpenSquaredTicks = u64(
+        'used for calculating the standard deviation of sessionOpenTicks')
+    retrySessionOpenCount = u64(
+        'total amount of timeouts during session open')
+    clientRpcsActiveTicks = u64(
+        'total amount of time with a client RPC active on the network')
 
 class Coordinator(Struct):
     recoveryConstructorTicks = u64(
         'total amount of time in Recovery constructor')
     recoveryStartTicks = u64('total amount of time in Recovery::start')
+    tabletsRecoveredTicks = u64('total amount of time in Recovery::start')
+    setWillTicks = u64('total amount of time in Recovery::setWill')
+    getTabletMapTicks = u64('total amount of time in Recovery::setWill')
+    recoveryCompleteTicks = u64(
+        'total amount of time sending recovery complete RPCs to backups')
     local = Local('local metrics', 'Local')
 
 class Master(Struct):
@@ -401,11 +414,26 @@ class Master(Struct):
     tombstoneDiscardCount = u64('total number of tombstones discarded')
     logSyncTicks = u64(
         'total amount of time syncing the log at the end of recovery')
+    logSyncBytes = u64(
+        'total bytes sent during log sync')
     recoveryWillTicks = u64(
         'total amount of time rebuilding will at the end of recovery')
     removeTombstoneTicks = u64(
         'total amount of time deleting tombstones at the end of recovery')
+    replicationTicks = u64(
+        'total time from first gRD response through log sync')
+    replicationBytes = u64(
+        'total bytes sent from first gRD response through log sync')
     local = Local('local metrics', 'Local')
+    replicas = u64('number of backups on which to replicate each segment')
+    replayCloseTicks = u64(
+        'total amount of time R-th replica took to close during replay')
+    replayCloseCount = u64(
+        'total number of segments closed during replay')
+    logSyncCloseTicks = u64(
+        'total amount of time R-th replica took to close during log sync')
+    logSyncCloseCount = u64(
+        'total number of segments closed during log sync')
 
 class Backup(Struct):
     startReadingDataTicks = u64('total amount of time in sRD')
@@ -413,6 +441,8 @@ class Backup(Struct):
         'total number of getRecoveryData requests processed to completion')
     readStallTicks = u64(
         'total amount of time in gRD waiting for filtered segment')
+    readingDataTicks = u64(
+        'total amount of time between startReadingData to done reading')
     storageReadCount = u64('total number of segment reads from disk')
     storageReadBytes = u64('total amount of bytes read from disk')
     storageReadTicks = u64('total amount of time reading from disk')
@@ -439,7 +469,10 @@ class Recovery(Struct):
     serverRole = u64('0 = coordinator, 1 = master, 2 = backup')
     clockFrequency = u64('cycles per second for the cpu')
     recoveryTicks = u64('total time elapsed during recovery')
-    idleTicks = u64('total time spent idling')
+    dispatchIdleTicks = u64('total time spinning in Dispatch::handleEvent')
+    recvIdleTicks = u64(
+        'total time spent spinning in TransportManager::serverRecv')
+    segmentSize = u64('size in bytes of segments')
     transport = Transport('transport docs', 'Transport')
     coordinator = Coordinator('coordinator docs', 'Coordinator')
     master = Master('master docs', 'Master')
@@ -487,7 +520,7 @@ def rawSample(data):
     print('Sample Master:')
     pprint(random.choice(data.masters))
     print()
-    print('Sample Master:')
+    print('Sample Backup:')
     pprint(random.choice(data.backups))
 
 def rawFull(data):
@@ -677,9 +710,14 @@ def textReport(data):
     summary.avgStd('Recovery time', recoveryTime, '{0:6.3f} s')
     summary.avgStd('Masters', len(masters))
     summary.avgStd('Backups', len(backups))
-    summary.avgStd('Number of objects',
+    summary.avgStd('Replicas',
+                   masters[0].master.replicas)
+    summary.avgStd('Total objects',
                    sum([master.master.liveObjectCount
                         for master in masters]))
+    summary.avgStd('Objects per master',
+                   [master.master.liveObjectCount
+                        for master in masters])
     summary.avgStd('Object size',
                    [master.master.liveObjectBytes /
                     master.master.liveObjectCount
@@ -701,8 +739,12 @@ def textReport(data):
         coord.recoveryTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
-    coordSection.ms('  Idle',
-        coord.idleTicks / coord.clockFrequency,
+    coordSection.ms('  Recv Idle',
+        coord.recvIdleTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    coordSection.ms('  Dispatch Idle',
+        coord.dispatchIdleTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
     coordSection.ms('  Starting recovery on backups',
@@ -713,12 +755,35 @@ def textReport(data):
         coord.coordinator.recoveryStartTicks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
+    coordSection.ms('  Tablets recovered',
+        coord.coordinator.tabletsRecoveredTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    coordSection.ms('    Completing recovery on backups',
+        coord.coordinator.recoveryCompleteTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    coordSection.ms('  Set will',
+        coord.coordinator.setWillTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    coordSection.ms('  Get tablet map',
+        coord.coordinator.getTabletMapTicks / coord.clockFrequency,
+        total=recoveryTime,
+        fractionLabel='of total recovery')
     coordSection.ms('  Other',
         ((coord.recoveryTicks -
-          coord.idleTicks -
+          coord.recvIdleTicks -
           coord.coordinator.recoveryConstructorTicks -
-          coord.coordinator.recoveryStartTicks) /
+          coord.coordinator.recoveryStartTicks -
+          coord.coordinator.setWillTicks -
+          coord.coordinator.getTabletMapTicks -
+          coord.coordinator.tabletsRecoveredTicks) /
          coord.clockFrequency),
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    coordSection.ms('Receiving in transport',
+        coord.transport.receive.ticks / coord.clockFrequency,
         total=recoveryTime,
         fractionLabel='of total recovery')
 
@@ -728,41 +793,41 @@ def textReport(data):
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
+    masterSection.ms('  Dispatch Idle',
+        [master.dispatchIdleTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
     masterSection.ms('Inside recoverSegment',
         [master.master.recoverSegmentTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
     masterSection.ms('  Backup opens, writes',
-        [master.master.backupManagerTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Approx. CPU',
-        [(master.master.recoverSegmentTicks - master.master.backupManagerTicks)
+        [(master.master.backupManagerTicks - master.master.logSyncTicks)
          / master.clockFrequency
          for master in masters],
         total=recoveryTime,
-        fractionLabel='of total recovery',
-        note='other')
-    masterSection.ms('    Verify checksum',
+        fractionLabel='of total recovery')
+    masterSection.ms('  Verify checksum',
         [master.master.verifyChecksumTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    masterSection.ms('    Segment append copy',
+    masterSection.ms('  Segment append copy',
         [master.master.segmentAppendCopyTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    masterSection.ms('    Segment append checksum',
+    masterSection.ms('  Segment append checksum',
         [master.master.segmentAppendChecksumTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    masterSection.ms('    HT, profiler, etc',
+    masterSection.ms('  HT, profiler, etc',
         [(master.master.recoverSegmentTicks -
-          master.master.backupManagerTicks -
+          master.master.backupManagerTicks +
+          master.master.logSyncTicks -
           master.master.verifyChecksumTicks -
           master.master.segmentAppendCopyTicks -
           master.master.segmentAppendChecksumTicks) /
@@ -772,20 +837,8 @@ def textReport(data):
         fractionLabel='of total recovery',
         note='other')
     masterSection.ms('Waiting for backups',
-        [(master.master.segmentOpenStallTicks +
-          master.master.segmentWriteStallTicks +
-          master.master.segmentReadStallTicks)
+        [(master.master.segmentReadStallTicks + master.master.logSyncTicks)
          / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Stalled on segment open',
-        [master.master.segmentOpenStallTicks / master.clockFrequency
-         for master in masters],
-        total=recoveryTime,
-        fractionLabel='of total recovery')
-    masterSection.ms('  Stalled on segment write',
-        [master.master.segmentWriteStallTicks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -794,8 +847,18 @@ def textReport(data):
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
+    masterSection.ms('  Log sync',
+        [master.master.logSyncTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
     masterSection.ms('Removing tombstones',
         [master.master.removeTombstoneTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    masterSection.ms('Receiving in transport',
+        [master.transport.receive.ticks / master.clockFrequency
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -804,9 +867,85 @@ def textReport(data):
          for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    masterSection.ms('Opening sessions',
-        [master.transport.sessionOpenTicks / master.clockFrequency
-         for msater in masters],
+    if (any([master.transport.sessionOpenCount for master in masters])):
+        masterSection.ms('Opening sessions',
+            [master.transport.sessionOpenTicks / master.clockFrequency
+             for master in masters],
+            total=recoveryTime,
+            fractionLabel='of total recovery')
+        if sum([master.transport.retrySessionOpenCount for master in masters]):
+            masterSection.avgStd('  Timeouts:',
+                [master.transport.retrySessionOpenCount for master in masters],
+                label='!!!')
+        sessionOpens = []
+        for master in masters:
+            avg = (master.transport.sessionOpenTicks /
+                   master.transport.sessionOpenCount)
+            if avg**2 > 2**64 - 1:
+                stddev = -1.0 # 64-bit arithmetic could have overflowed
+            else:
+                variance = (master.transport.sessionOpenSquaredTicks /
+                            master.transport.sessionOpenCount) - avg**2
+                if variance < 0:
+                    # poor floating point arithmetic made variance negative
+                    assert variance > -0.1
+                    stddev = 0.0
+                else:
+                    stddev = math.sqrt(variance)
+                stddev /= master.clockFrequency / 1e3
+            avg /= master.clockFrequency / 1e3
+            sessionOpens.append((avg, stddev))
+        masterSection.avgStd('  Avg per session',
+                             [x[0] for x in sessionOpens],
+                             pointFormat='{0:6.1f} ms')
+        masterSection.avgStd('  Std dev per session',
+                             [x[1] for x in sessionOpens],
+                             pointFormat='{0:6.1f} ms')
+
+    masterSection.ms('Replicating one segment',
+        [(master.master.replicationTicks / master.clockFrequency) /
+         (master.master.replicationBytes / master.segmentSize /
+          master.master.replicas)
+         for master in masters])
+    masterSection.ms('  During replay',
+        [((master.master.replicationTicks - master.master.logSyncTicks) /
+          master.clockFrequency) /
+         ((master.master.replicationBytes - master.master.logSyncBytes) /
+           master.segmentSize / master.master.replicas)
+         for master in masters])
+    masterSection.ms('  During log sync',
+        [(master.master.logSyncTicks / master.clockFrequency) /
+         (master.master.logSyncBytes /
+          master.segmentSize / master.master.replicas)
+         for master in masters])
+    masterSection.ms('RPC latency replicating one segment',
+        [(master.master.replayCloseTicks + master.master.logSyncCloseTicks) /
+         master.clockFrequency /
+         (master.master.replayCloseCount + master.master.logSyncCloseCount)
+         for master in masters],
+        note='for R-th replica')
+    masterSection.ms('  During replay',
+        [master.master.replayCloseTicks / master.clockFrequency /
+         master.master.replayCloseCount
+         for master in masters],
+        note='for R-th replica')
+    try:
+        masterSection.ms('  During log sync',
+            [master.master.logSyncCloseTicks / master.clockFrequency /
+             master.master.logSyncCloseCount
+             for master in masters],
+            note='for R-th replica')
+    except:
+        pass
+
+    masterSection.ms('Replication',
+        [master.master.replicationTicks / master.clockFrequency
+         for master in masters],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    masterSection.ms('Client RPCs Active',
+        [master.transport.clientRpcsActiveTicks / master.clockFrequency
+         for master in masters],
         total=recoveryTime,
         fractionLabel='of total recovery')
 
@@ -816,8 +955,8 @@ def textReport(data):
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
-    backupSection.ms('  Idle',
-        [backup.idleTicks / backup.clockFrequency
+    backupSection.ms('  Recv Idle',
+        [backup.recvIdleTicks / backup.clockFrequency
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
@@ -860,7 +999,7 @@ def textReport(data):
         fractionLabel='of total recovery')
     backupSection.ms('  Other',
         [(backup.recoveryTicks -
-          backup.idleTicks -
+          backup.recvIdleTicks -
           backup.backup.startReadingDataTicks -
           backup.backup.writeTicks -
           backup.backup.readStallTicks -
@@ -874,13 +1013,22 @@ def textReport(data):
          for backup in backups],
         total=recoveryTime,
         fractionLabel='of total recovery')
+    backupSection.ms('Reading segments',
+        [backup.backup.readingDataTicks / backup.clockFrequency
+         for backup in backups],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
+    backupSection.ms('  Using disk',
+        [backup.backup.storageReadTicks / backup.clockFrequency
+         for backup in backups],
+        total=recoveryTime,
+        fractionLabel='of total recovery')
 
     efficiencySection = report.add(Section('Efficiency'))
 
     # TODO(ongaro): get stddev among segments
     efficiencySection.avgStd('recoverSegment CPU',
-        (sum([(master.master.recoverSegmentTicks -
-               master.master.backupManagerTicks) / master.clockFrequency
+        (sum([master.master.recoverSegmentTicks / master.clockFrequency
               for master in masters]) * 1000 /
          sum([master.master.segmentReadCount
               for master in masters])),
@@ -888,22 +1036,29 @@ def textReport(data):
         note='per filtered segment')
 
     # TODO(ongaro): get stddev among segments
-    efficiencySection.avgStd('Writing a segment',
-        (sum([backup.backup.writeTicks / backup.clockFrequency
-              for backup in backups]) * 1000 /
-    # Divide count by 2 since each segment does two writes: one to open the segment
-    # and one to write the data.
-        sum([backup.backup.writeCount / 2
-             for backup in backups])),
-        pointFormat='{0:6.2f} ms avg',
-        note='backup RPC thread')
+    try:
+        efficiencySection.avgStd('Writing a segment',
+            (sum([backup.backup.writeTicks / backup.clockFrequency
+                  for backup in backups]) * 1000 /
+        # Divide count by 2 since each segment does two writes: one to open the segment
+        # and one to write the data.
+            sum([backup.backup.writeCount / 2
+                 for backup in backups])),
+            pointFormat='{0:6.2f} ms avg',
+            note='backup RPC thread')
+    except:
+        pass
+
     # TODO(ongaro): get stddev among segments
-    efficiencySection.avgStd('Filtering a segment',
-        sum([backup.backup.filterTicks / backup.clockFrequency * 1000
-              for backup in backups]) /
-        sum([backup.backup.storageReadCount
-             for backup in backups]),
-        pointFormat='{0:6.2f} ms avg')
+    try:
+        efficiencySection.avgStd('Filtering a segment',
+            sum([backup.backup.filterTicks / backup.clockFrequency * 1000
+                  for backup in backups]) /
+            sum([backup.backup.storageReadCount
+                 for backup in backups]),
+            pointFormat='{0:6.2f} ms avg')
+    except:
+        pass
 
     networkSection = report.add(Section('Network Utilization'))
     networkSection.avgStdFrac('Aggregate',
@@ -924,6 +1079,18 @@ def textReport(data):
          recoveryTime for master in masters],
         '{0:4.2f} Gb/s',
         note='overall')
+    networkSection.avgStdSum('  Master out during replication',
+        [(master.master.replicationBytes * 8 / 2**30) /
+          (master.master.replicationTicks / master.clockFrequency)
+         for master in masters],
+        '{0:4.2f} Gb/s',
+        note='overall')
+    networkSection.avgStdSum('  Master out during log sync',
+        [(master.master.logSyncBytes * 8 / 2**30) /
+         (master.master.logSyncTicks / master.clockFrequency)
+         for master in masters],
+        '{0:4.2f} Gb/s',
+        note='overall')
     networkSection.avgStdSum('Backup in',
         [(backup.transport.receive.byteCount * 8 / 2**30) /
          recoveryTime for backup in backups],
@@ -941,15 +1108,18 @@ def textReport(data):
          2**20 / recoveryTime
          for backup in backups],
         '{0:6.2f} MB/s')
-    diskSection.avgStdSum('Active bandwidth',
-        [((backup.backup.storageReadBytes + backup.backup.storageWriteBytes) /
-          2**20) /
-         ((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) /
-          backup.clockFrequency)
-         for backup in backups
-         if (backup.backup.storageReadTicks +
-             backup.backup.storageWriteTicks)],
-        '{0:6.2f} MB/s')
+    try:
+        diskSection.avgStdSum('Active bandwidth',
+            [((backup.backup.storageReadBytes + backup.backup.storageWriteBytes) /
+              2**20) /
+             ((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) /
+              backup.clockFrequency)
+             for backup in backups
+             if (backup.backup.storageReadTicks +
+                 backup.backup.storageWriteTicks)],
+            '{0:6.2f} MB/s')
+    except:
+        pass
     diskSection.avgStd('Disk active',
         [((backup.backup.storageReadTicks + backup.backup.storageWriteTicks) *
           100 / backup.clockFrequency) /

@@ -31,8 +31,8 @@ class MockReceived : public Driver::Received {
         payload = new char[len];
         memcpy(getContents(), msg, len - sizeof(FastTransport::Header));
         FastTransport::Header *header = new(payload) FastTransport::Header;
-        header->fragNumber = fragNumber;
-        header->totalFrags = totalFrags;
+        header->fragNumber = downCast<uint16_t>(fragNumber);
+        header->totalFrags = downCast<uint16_t>(totalFrags);
     }
   public:
     MockReceived(uint32_t fragNumber,
@@ -42,7 +42,7 @@ class MockReceived : public Driver::Received {
         : Received()
         , stealCount(0)
     {
-        this->len = len + sizeof(FastTransport::Header);
+        this->len = len + downCast<uint32_t>(sizeof(FastTransport::Header));
         construct(fragNumber, totalFrags,
                   static_cast<const char*>(msg), this->len);
         getHeader()->payloadType = FastTransport::Header::ACK;
@@ -53,7 +53,7 @@ class MockReceived : public Driver::Received {
         : Received()
         , stealCount(0)
     {
-        len = strlen(msg) + sizeof(FastTransport::Header);
+        len = downCast<uint32_t>(strlen(msg) + sizeof(FastTransport::Header));
         construct(fragNumber, totalFrags, msg, len);
         getHeader()->payloadType = FastTransport::Header::DATA;
     }
@@ -134,6 +134,7 @@ class FastTransportTest : public CppUnit::TestFixture {
     {}
 
     void test_sanityCheck() {
+#if !VALGRIND // RAM-260
         // Create a server and a client and verify that we can
         // send a request, receive it, send a reply, and receive it.
         // Then try a second request with bigger chunks of data.
@@ -171,6 +172,7 @@ class FastTransportTest : public CppUnit::TestFixture {
         serverRpc->sendReply();
         clientRpc->wait();
         CPPUNIT_ASSERT_EQUAL("ok", checkLargeBuffer(&reply, 50000));
+#endif
     }
 
     void
@@ -642,7 +644,7 @@ class InboundMessageTest : public CppUnit::TestFixture {
         setUp(2, false);
     }
     void
-    setUp(uint32_t totalFrags, bool useTimer = false)
+    setUp(uint16_t totalFrags, bool useTimer = false)
     {
         tearDown();
 
@@ -847,7 +849,7 @@ class InboundMessageTest : public CppUnit::TestFixture {
     test_processReceivedData_fragmentBeyondWindow()
     {
         // test with longer connection
-        uint32_t totalFrags = 100;
+        uint16_t totalFrags = 100;
         setUp(totalFrags, false);
         TestLog::Enable _;
 
@@ -870,7 +872,7 @@ class InboundMessageTest : public CppUnit::TestFixture {
     test_processReceivedData_addToWindow()
     {
         // test with longer connection
-        uint32_t totalFrags = 100;
+        uint16_t totalFrags = 100;
         setUp(totalFrags, false);
 
         // first recvd packet - out of order - ensure in window in right place
@@ -897,7 +899,7 @@ class InboundMessageTest : public CppUnit::TestFixture {
     test_processReceivedData_duplicateFragment()
     {
         // test with longer connection
-        uint32_t totalFrags = 100;
+        uint16_t totalFrags = 100;
         setUp(totalFrags, false);
         TestLog::Enable _;
 
@@ -1411,7 +1413,7 @@ class ServerSessionTest: public CppUnit::TestFixture {
     {
         Dispatch::currentTime = 9898;
 
-        uint32_t channelId = 6;
+        uint8_t channelId = 6;
         // Just here to flip us into a state where
         // channel.rpcId == 0 and we have an RPC setup
         CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::
@@ -1634,7 +1636,7 @@ class ServerSessionTest: public CppUnit::TestFixture {
         channel->state =
                 FastTransport::ServerSession::ServerChannel::RECEIVING;
         channel->currentRpc.setup(session, 0);
-        uint32_t totalFrags = 2;
+        uint16_t totalFrags = 2;
         Buffer recvBuffer;
         channel->inboundMsg.init(totalFrags, &recvBuffer);
 

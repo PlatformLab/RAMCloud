@@ -31,6 +31,14 @@
 
 namespace RAMCloud {
 
+namespace {
+/**
+ * The TSC reading at the start of the last recovery.
+ * Used to update #Metrics::backup::readingDataTicks.
+ */
+uint64_t recoveryStart;
+} // anonymous namespace
+
 // --- BackupServer::SegmentInfo ---
 
 /**
@@ -279,12 +287,12 @@ BackupServer::SegmentInfo::buildRecoverySegments(
 
     recoveryException.reset();
 
-    uint64_t partitionCount = 0;
+    uint32_t partitionCount = 0;
     for (int i = 0; i < partitions.tablet_size(); ++i) {
         partitionCount = std::max(partitionCount,
-                                  partitions.tablet(i).user_data() + 1);
+                  downCast<uint32_t>(partitions.tablet(i).user_data() + 1));
     }
-    LOG(NOTICE, "Building %lu recovery segments for %lu",
+    LOG(NOTICE, "Building %u recovery segments for %lu",
         partitionCount, segmentId);
     CycleCounter<Metric> _(&metrics->backup.filterTicks);
 
@@ -318,7 +326,8 @@ BackupServer::SegmentInfo::buildRecoverySegments(
             const SegmentEntry* entry = reinterpret_cast<const SegmentEntry*>(
                     reinterpret_cast<const char*>(it.getPointer()) -
                     sizeof(*entry));
-            const uint32_t len = sizeof(*entry) + it.getLength();
+            const uint32_t len = (downCast<uint32_t>(sizeof(*entry)) +
+                                  it.getLength());
 #ifdef PERF_DEBUG_RECOVERY_CONTIGUOUS_RECOVERY_SEGMENTS
             auto& bufLen = recoverySegments[*partitionId];
             assert(bufLen.second + len <= Segment::SEGMENT_SIZE);
@@ -602,7 +611,7 @@ BackupServer::IoScheduler::load(SegmentInfo& info)
 #else
     Lock lock(queueMutex);
     loadQueue.push(&info);
-    uint32_t count = loadQueue.size() + storeQueue.size();
+    uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
     LOG(DEBUG, "Queued load of <%lu,%lu> (%u segments waiting for IO)",
         info.masterId, info.segmentId, count);
     queueCond.notify_all();
@@ -636,7 +645,7 @@ BackupServer::IoScheduler::store(SegmentInfo& info)
     ++outstandingStores;
     Lock lock(queueMutex);
     storeQueue.push(&info);
-    uint32_t count = loadQueue.size() + storeQueue.size();
+    uint32_t count = downCast<uint32_t>(loadQueue.size() + storeQueue.size());
     LOG(DEBUG, "Queued store of <%lu,%lu> (%u segments waiting for IO)",
         info.masterId, info.segmentId, count);
     queueCond.notify_all();
@@ -659,7 +668,8 @@ BackupServer::IoScheduler::shutdown(boost::thread& ioThread)
     {
         Lock lock(queueMutex);
         LOG(DEBUG, "IoScheduler thread exiting");
-        uint32_t count = loadQueue.size() + storeQueue.size();
+        uint32_t count = downCast<uint32_t>(loadQueue.size() +
+                                            storeQueue.size());
         if (count)
             LOG(DEBUG, "IoScheduler must service %u pending IOs before exit",
                 count);
@@ -716,6 +726,7 @@ BackupServer::IoScheduler::doLoad(SegmentInfo& info) const
     }
     info.segment = segment;
     info.condition.notify_all();
+    metrics->backup.readingDataTicks = rdtsc() - recoveryStart;
 }
 
 /**
@@ -835,8 +846,8 @@ BackupServer::RecoverySegmentBuilder::operator()()
                "(%f MB/s)",
         totalTime / 1000 / 1000,
         infos.size(),
-        (Segment::SEGMENT_SIZE * infos.size() / (1 << 20)) /
-        (static_cast<double>(totalTime) / 1000000000lu));
+        static_cast<double>(Segment::SEGMENT_SIZE * infos.size() / (1 << 20)) /
+        static_cast<double>(totalTime) / 1e9);
 }
 
 
@@ -871,6 +882,14 @@ BackupServer::BackupServer(const Config& config,
 #endif
 {
     recoveryTicks.construct(); // make unit tests happy
+
+    // Prime the segment pool. This removes an overhead that would otherwise be
+    // seen during the first recovery.
+    void* mem[100];
+    foreach(auto& m, mem)
+        m = pool.malloc();
+    foreach(auto& m, mem)
+        pool.free(m);
 }
 
 /**
@@ -914,7 +933,7 @@ BackupServer::getServerId() const
 void __attribute__ ((noreturn))
 BackupServer::run()
 {
-    auto speeds = storage.benchmark();
+    auto speeds = storage.benchmark(config.backupStrategy);
     serverId = coordinator.enlistServer(BACKUP, config.localLocator,
                                         speeds.first, speeds.second);
     LOG(NOTICE, "My server ID is %lu", serverId);
@@ -984,8 +1003,7 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
                           BackupFreeRpc::Response& respHdr,
                           Transport::ServerRpc& rpc)
 {
-    LOG(DEBUG, "Handling: %s %lu %lu",
-        __func__, reqHdr.masterId, reqHdr.segmentId);
+    LOG(DEBUG, "Handling: %lu %lu", reqHdr.masterId, reqHdr.segmentId);
 
     SegmentsMap::iterator it =
         segments.find(MasterSegmentIdPair(reqHdr.masterId, reqHdr.segmentId));
@@ -1098,6 +1116,7 @@ BackupServer::recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
                                Responder& responder)
 {
     LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
+    responder();
     recoveryTicks.destroy();
     dump(metrics);
 }
@@ -1116,6 +1135,23 @@ BackupServer::segmentInfoLessThan(SegmentInfo* left,
                                   SegmentInfo* right)
 {
     return *left < *right;
+}
+
+namespace {
+/**
+ * Make generateRandom model RandomNumberGenerator.
+ * This makes it easy to mock the calls for randomness during testing.
+ *
+ * \param n
+ *      Limits the result to the range [0, n).
+ * \return
+ *      Returns a pseudo-random number in the range [0, n).
+ */
+uint32_t
+randomNumberGenerator(uint32_t n)
+{
+    return static_cast<uint32_t>(generateRandom()) % n;
+}
 }
 
 /**
@@ -1140,8 +1176,9 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                                Transport::ServerRpc& rpc,
                                Responder& responder)
 {
-    LOG(DEBUG, "Handling: %s %lu", __func__, reqHdr.masterId);
+    LOG(DEBUG, "Handling: %lu", reqHdr.masterId);
     recoveryTicks.construct(&metrics->recoveryTicks);
+    recoveryStart = rdtsc();
     reset(metrics, serverId, 2);
     metrics->backup.storageType = static_cast<uint64_t>(storage.storageType);
     CycleCounter<Metric> srdTicks(&metrics->backup.startReadingDataTicks);
@@ -1150,7 +1187,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
                                 reqHdr.partitionsLength, partitions);
 
-    uint64_t logDigestLastId = 0;
+    uint64_t logDigestLastId = ~0UL;
     uint32_t logDigestLastLen = 0;
     uint32_t logDigestBytes = 0;
     const void* logDigestPtr = NULL;
@@ -1168,10 +1205,10 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                 primarySegments :
                 secondarySegments).push_back(info);
 
-            // Obtain the LogDigest from the highest Segment Id of any
+            // Obtain the LogDigest from the lowest Segment Id of any
             // #OPEN Segment.
             uint64_t segmentId = info->segmentId;
-            if (info->isOpen() && segmentId >= logDigestLastId) {
+            if (info->isOpen() && segmentId <= logDigestLastId) {
                 const void* newDigest = NULL;
                 uint32_t newDigestBytes;
                 newDigest = info->getLogDigest(&newDigestBytes);
@@ -1189,16 +1226,13 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
         }
     }
 
-    // sort the primary entries
-    std::sort(primarySegments.begin(),
-              primarySegments.end(),
-              &segmentInfoLessThan);
-    std::reverse(primarySegments.begin(), primarySegments.end());
-    // sort the secondary entries
-    std::sort(secondarySegments.begin(),
-              secondarySegments.end(),
-              &segmentInfoLessThan);
-    std::reverse(secondarySegments.begin(), secondarySegments.end());
+    // Shuffle the primary entries, this prevents this helps all recovery
+    // masters to stay busy even if the log contains long sequences of
+    // back-to-back segments that only have objects for a particular
+    // partition.  Secondary order is irrelevant.
+    std::random_shuffle(primarySegments.begin(),
+                        primarySegments.end(),
+                        randomNumberGenerator);
 
     foreach (auto info, primarySegments) {
         new(&rpc.replyPayload, APPEND) pair<uint64_t, uint32_t>
@@ -1215,8 +1249,9 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
             info->masterId, info->segmentId);
         info->setRecovering(partitions);
     }
-    respHdr.segmentIdCount = primarySegments.size() + secondarySegments.size();
-    respHdr.primarySegmentCount = primarySegments.size();
+    respHdr.segmentIdCount = downCast<uint32_t>(primarySegments.size() +
+                                                secondarySegments.size());
+    respHdr.primarySegmentCount = downCast<uint32_t>(primarySegments.size());
     LOG(DEBUG, "Sending %u segment ids for this master (%u primary)",
         respHdr.segmentIdCount, respHdr.primarySegmentCount);
 

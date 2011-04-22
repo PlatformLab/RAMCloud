@@ -124,7 +124,7 @@ class _SegmentEntryHandle {
     uint32_t
     totalLength() const
     {
-        return length() + sizeof(SegmentEntry);
+        return length() + downCast<uint32_t>(sizeof(SegmentEntry));
     }
 
     /**
@@ -225,23 +225,27 @@ class Segment {
     typedef SegmentChecksum Checksum;
 
     Segment(Log *log, uint64_t segmentId, void *baseAddress,
-            uint32_t capacity, BackupManager* backup = NULL);
+            uint32_t capacity, BackupManager* backup,
+            LogEntryType type, const void *buffer, uint32_t length);
     Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
             uint32_t capacity, BackupManager* backup = NULL);
     ~Segment();
 
-    SegmentEntryHandle append(LogEntryType type, const void *buffer,
-                              uint32_t length,
-                              uint64_t *lengthInSegment = NULL,
-                              uint64_t *offsetInSegment = NULL,
-                              bool sync = true);
+    SegmentEntryHandle append(LogEntryType type,
+                             const void *buffer,
+                             uint32_t length,
+                             uint64_t *lengthInSegment = NULL,
+                             uint64_t *offsetInSegment = NULL,
+                             bool sync = true,
+                             Tub<SegmentChecksum::ResultType> expectedChecksum =
+                                Tub<SegmentChecksum::ResultType>());
     void               free(SegmentEntryHandle entry);
     void               close(bool sync = true);
     void               sync();
     const void        *getBaseAddress() const;
     uint64_t           getId() const;
-    uint64_t           getCapacity() const;
-    uint64_t           appendableBytes() const;
+    uint32_t           getCapacity() const;
+    uint32_t           appendableBytes() const;
     int                getUtilisation() const;
 
 #ifdef VALGRIND
@@ -253,15 +257,18 @@ class Segment {
     static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
 
   private:
-    void               commonConstructor();
+    void               commonConstructor(LogEntryType type,
+                                         const void *buffer, uint32_t length);
     const void        *forceAppendBlob(const void *buffer,
                                        uint32_t length);
     SegmentEntryHandle forceAppendWithEntry(LogEntryType type,
-                                            const void *buffer,
-                                            uint32_t length,
-                                            uint64_t *lengthOfAppend = NULL,
-                                            bool sync = true,
-                                            bool updateChecksum = true);
+                             const void *buffer,
+                             uint32_t length,
+                             uint64_t *lengthOfAppend = NULL,
+                             bool sync = true,
+                             bool updateChecksum = true,
+                             Tub<SegmentChecksum::ResultType> expectedChecksum =
+                                 Tub<SegmentChecksum::ResultType>());
 
     BackupManager   *backup;         // makes operations on this segment durable
     void            *baseAddress;    // base address for the Segment
@@ -269,8 +276,8 @@ class Segment {
     uint64_t         logId;          // log this belongs to, passed to backups
     uint64_t         id;             // segment identification number
     const uint32_t   capacity;       // total byte length of segment when empty
-    uint64_t         tail;           // offset to the next free byte in Segment
-    uint64_t         bytesFreed;     // bytes free()'d in this Segment
+    uint32_t         tail;           // offset to the next free byte in Segment
+    uint32_t         bytesFreed;     // bytes free()'d in this Segment
     Checksum         checksum;       // Latest Segment checksum (crc32c)
     bool             closed;         // when true, no appends permitted
 

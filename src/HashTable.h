@@ -16,8 +16,6 @@
 #ifndef RAMCLOUD_HASHTABLE_H
 #define RAMCLOUD_HASHTABLE_H
 
-#include <xmmintrin.h>
-
 #include "Common.h"
 #include "CycleCounter.h"
 #include "LargeBlockOfMemory.h"
@@ -428,6 +426,46 @@ class HashTable {
 
     /**
      * Apply the given callback function to each referant of type T stored
+     * in the HashTable in the specified bucket.
+     * \param callback
+     *      The callback to fire on each referant stored in the HashTable.
+     * \param cookie
+     *      An opaque parameter to pass to the callback function.
+     * \param bucket
+     *      An index into the HashTable's buckets.  Must be < #numBuckets.
+     * \return
+     *      The total number of callbacks fired (i.e. the number of referants
+     *      in the HashTable).
+     */
+    uint64_t
+    forEachInBucket(void (*callback)(T, uint8_t, void *),
+                    void *cookie,
+                    uint64_t bucket)
+    {
+        uint64_t numCalls = 0;
+        CacheLine *cl = &buckets.get()[bucket];
+        while (1) {
+            for (uint32_t j = 0; j < ENTRIES_PER_CACHE_LINE; j++) {
+                Entry *e = &cl->entries[j];
+                if (!e->isAvailable(typeBits) &&
+                    e->getChainPointer(typeBits) == NULL) {
+                    uint8_t type;
+                    T ptr = e->getReferant(typeBits, &type);
+                    callback(ptr, type, cookie);
+                    numCalls++;
+                }
+            }
+
+            Entry *entry = &cl->entries[ENTRIES_PER_CACHE_LINE - 1];
+            cl = entry->getChainPointer(typeBits);
+            if (cl == NULL)
+                break;
+        }
+        return numCalls;
+    }
+
+    /**
+     * Apply the given callback function to each referant of type T stored
      * in the HashTable.
      * \param[in] callback
      *      The callback to fire on each referant stored in the HashTable.
@@ -442,26 +480,8 @@ class HashTable {
     {
         uint64_t numCalls = 0;
 
-        for (uint64_t i = 0; i < numBuckets; i++) {
-            CacheLine *cl = &buckets.get()[i];
-            while (1) {
-                for (uint32_t j = 0; j < ENTRIES_PER_CACHE_LINE; j++) {
-                    Entry *e = &cl->entries[j];
-                    if (!e->isAvailable(typeBits) &&
-                        e->getChainPointer(typeBits) == NULL) {
-                        uint8_t type;
-                        T ptr = e->getReferant(typeBits, &type);
-                        callback(ptr, type, cookie);
-                        numCalls++;
-                    }
-                }
-
-                Entry *entry = &cl->entries[ENTRIES_PER_CACHE_LINE - 1];
-                cl = entry->getChainPointer(typeBits);
-                if (cl == NULL)
-                    break;
-            }
-        }
+        for (uint64_t i = 0; i < numBuckets; i++)
+            numCalls += forEachInBucket(callback, cookie, i);
 
         return numCalls;
     }
@@ -473,8 +493,7 @@ class HashTable {
     prefetchBucket(uint64_t key1, uint64_t key2)
     {
         uint64_t dummy;
-        _mm_prefetch(reinterpret_cast<char *>(findBucket(key1, key2, &dummy)),
-            _MM_HINT_T0);
+        prefetch(findBucket(key1, key2, &dummy));
     }
 
     /**
@@ -491,8 +510,8 @@ class HashTable {
         Entry *candidate = cl->entries;
         for (uint32_t i = 0; i < ENTRIES_PER_CACHE_LINE; i++, candidate++) {
             if (candidate->hashMatches(secondaryHash, typeBits)) {
-                _mm_prefetch(reinterpret_cast<const char *>(
-                    candidate->getReferant(typeBits, NULL)), _MM_HINT_T0);
+                prefetch(candidate->getReferant(typeBits, NULL),
+                         64 /* not really sure how many bytes to prefetch */);
                 return;
             }
         }
@@ -535,6 +554,15 @@ class HashTable {
     resetPerfCounters()
     {
         perfCounters.reset();
+    }
+
+    /**
+     * Returns the number of buckets allocated to the table.
+     */
+    uint64_t
+    getNumBuckets() const
+    {
+        return numBuckets;
     }
 
   private:
@@ -890,8 +918,8 @@ class HashTable {
             ue.ptr   = this->value         & (0x00007fffffffffffUL >> typeBits);
             ue.type  = 0;
             if (typeBits != 0) {
-                ue.type = (this->value >> (47 - typeBits)) &
-                    ((1UL << typeBits) - 1);
+                ue.type = downCast<uint8_t>((this->value >> (47 - typeBits)) &
+                                            ((1UL << typeBits) - 1));
             }
             return ue;
         }

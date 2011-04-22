@@ -177,9 +177,10 @@ UdpDriver::ReadHandler::operator() ()
     PacketBuf* buffer;
     buffer = driver->packetBufPool.construct();
     socklen_t addrlen = sizeof(&buffer->ipAddress.address);
-    int r = sys->recvfrom(driver->socketFd, buffer->payload, MAX_PAYLOAD_SIZE,
-                     MSG_DONTWAIT,
-                     &buffer->ipAddress.address, &addrlen);
+    ssize_t r = sys->recvfrom(driver->socketFd, buffer->payload,
+                              MAX_PAYLOAD_SIZE,
+                              MSG_DONTWAIT,
+                              &buffer->ipAddress.address, &addrlen);
     if (r == -1) {
         driver->packetBufPool.destroy(buffer);
         if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -189,7 +190,7 @@ UdpDriver::ReadHandler::operator() ()
                               errno);
     }
     Received received;
-    received.len = r;
+    received.len = downCast<uint32_t>(r);
 
     driver->packetBufsUtilized++;
     received.payload = buffer->payload;

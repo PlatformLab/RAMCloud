@@ -395,7 +395,7 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
                 sizeof(header) - headerBytesReceived);
         if (len <= 0)
             return false;
-        headerBytesReceived += len;
+        headerBytesReceived += downCast<uint32_t>(len);
     }
 
     if (header.len > MAX_RPC_LEN) {
@@ -421,7 +421,7 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
                 header.len - messageBytesReceived);
         if (len <= 0)
             return false;
-        messageBytesReceived += len;
+        messageBytesReceived += downCast<uint32_t>(len);
     }
     return messageBytesReceived == header.len;
 }

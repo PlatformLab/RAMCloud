@@ -104,8 +104,9 @@ namespace {
 uint64_t
 cyclesToNanoseconds(uint64_t cycles)
 {
-    return (static_cast<__uint128_t>(cycles) * 1000 * 1000 * 1000 /
-            getCyclesPerSecond());
+    return downCast<uint64_t>(static_cast<__uint128_t>(cycles) *
+                              1000 * 1000 * 1000 /
+                              getCyclesPerSecond());
 }
 
 /**
@@ -114,7 +115,8 @@ cyclesToNanoseconds(uint64_t cycles)
 double
 cyclesToNanoseconds(double cycles)
 {
-    return (cycles * 1000 * 1000 * 1000 / getCyclesPerSecond());
+    return (cycles * 1000 * 1000 * 1000 /
+            static_cast<double>(getCyclesPerSecond()));
 }
 
 /**
@@ -128,8 +130,8 @@ cyclesToNanoseconds(double cycles)
 double
 cyclesToSeconds(uint64_t cycles)
 {
-    double result = cycles;
-    return result / getCyclesPerSecond();
+    double result = static_cast<double>(cycles);
+    return result / static_cast<double>(getCyclesPerSecond());
 }
 
 /**
@@ -143,8 +145,9 @@ cyclesToSeconds(uint64_t cycles)
 uint64_t
 nanosecondsToCycles(uint64_t ns)
 {
-    return (static_cast<__uint128_t>(ns) * getCyclesPerSecond() /
-            (1000UL * 1000 * 1000));
+    return downCast<uint64_t>(static_cast<__uint128_t>(ns) *
+                              getCyclesPerSecond() /
+                              (1000UL * 1000 * 1000));
 }
 
 /// Spin for the given number of nanoseconds.

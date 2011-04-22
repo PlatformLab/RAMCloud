@@ -84,6 +84,7 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
   public:
+    Tub<ProgressPoller> progressPoller;
     ServerConfig config;
     BackupServer::Config backupConfig;
     BackupServer* backupServer;
@@ -97,7 +98,8 @@ class MasterTest : public CppUnit::TestFixture {
     CoordinatorServer* coordinatorServer;
 
     MasterTest()
-        : config()
+        : progressPoller()
+        , config()
         , backupConfig()
         , backupServer()
         , storage(NULL)
@@ -116,6 +118,7 @@ class MasterTest : public CppUnit::TestFixture {
     }
 
     void setUp() {
+        progressPoller.construct();
         logger.setLogLevels(SILENT_LOG_LEVEL);
         transport = new BindTransport();
         transportManager.registerMock(transport);
@@ -150,6 +153,7 @@ class MasterTest : public CppUnit::TestFixture {
         delete coordinatorServer;
         transportManager.unregisterMock();
         delete transport;
+        progressPoller.destroy();
     }
 
     void test_create_basics() {
@@ -276,6 +280,7 @@ class MasterTest : public CppUnit::TestFixture {
         serverId.construct(123);
         BackupManager mgr(coordinator, serverId, 1);
         Segment _(123, 87, segMem, segmentSize, &mgr);
+        mgr.sync();
 
         ProtoBuf::Tablets tablets;
         createTabletList(tablets);
@@ -355,6 +360,7 @@ class MasterTest : public CppUnit::TestFixture {
         serverId.construct(123);
         BackupManager mgr(coordinator, serverId, 1);
         Segment __(123, 88, segMem, segmentSize, &mgr);
+        mgr.sync();
 
         InMemoryStorage storage2{segmentSize, segmentFrames};
         BackupServer backupServer2{backupConfig, *storage};
@@ -472,11 +478,12 @@ class MasterTest : public CppUnit::TestFixture {
     }
 
     uint32_t
-    buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
+    buildRecoverySegment(char *segmentBuf, uint32_t segmentCapacity,
                          uint64_t tblId, uint64_t objId, uint64_t version,
                          string objContents)
     {
-        Segment s((uint64_t)0, 0, segmentBuf, segmentCapacity, NULL);
+        Segment s(0UL, 0, segmentBuf,
+                  downCast<uint32_t>(segmentCapacity), NULL);
 
         DECLARE_OBJECT(newObject, objContents.length() + 1);
         newObject->id.objectId = objId;
@@ -484,30 +491,32 @@ class MasterTest : public CppUnit::TestFixture {
         newObject->version = version;
         strcpy(newObject->data, objContents.c_str()); // NOLINT fuck off
 
+        uint32_t len = downCast<uint32_t>(objContents.length()) + 1;
         const void *p = s.append(LOG_ENTRY_TYPE_OBJ, newObject,
-            newObject->objectLength(objContents.length() + 1))->userData();
+            newObject->objectLength(len))->userData();
         assert(p != NULL);
         s.close();
-        return static_cast<const char*>(p) - segmentBuf;
+        return downCast<uint32_t>(static_cast<const char*>(p) - segmentBuf);
     }
 
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          ObjectTombstone *tomb)
     {
-        Segment s((uint64_t)0, 0, segmentBuf, segmentCapacity, NULL);
+        Segment s(0UL, 0, segmentBuf,
+                  downCast<uint32_t>(segmentCapacity), NULL);
         const void *p = s.append(LOG_ENTRY_TYPE_OBJTOMB,
             tomb, sizeof(*tomb))->userData();
         assert(p != NULL);
         s.close();
-        return static_cast<const char*>(p) - segmentBuf;
+        return downCast<uint32_t>(static_cast<const char*>(p) - segmentBuf);
     }
 
     void
     verifyRecoveryObject(uint64_t tblId, uint64_t objId, string contents)
     {
         Buffer value;
-        client->read(tblId, objId, &value);
+        client->read(downCast<uint32_t>(tblId), objId, &value);
         const char *s = reinterpret_cast<const char *>(
             value.getRange(0, value.getTotalLength()));
         CPPUNIT_ASSERT(strcmp(s, contents.c_str()) == 0);
@@ -823,7 +832,7 @@ class MasterTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_NO_THROW(server->getTable(0, 0));
 
         // Table doesn't exist.
-        Status status = Status(-1);
+        Status status = Status(0);
         try {
             server->getTable(1000, 0);
         } catch (TableDoesntExistException& e) {
@@ -897,6 +906,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_recover_failedToRecoverAll);
     CPPUNIT_TEST_SUITE_END();
 
+    Tub<ProgressPoller> progressPoller;
     BackupServer* backupServer1;
     BackupServer* backupServer2;
     CoordinatorClient* coordinator;
@@ -910,7 +920,8 @@ class MasterRecoverTest : public CppUnit::TestFixture {
 
   public:
     MasterRecoverTest()
-        : backupServer1()
+        : progressPoller()
+        , backupServer1()
         , backupServer2()
         , coordinator()
         , coordinatorServer()
@@ -929,6 +940,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         if (!enlist)
             tearDown();
 
+        progressPoller.construct();
         transport = new BindTransport;
         transportManager.registerMock(transport);
 
@@ -976,6 +988,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         delete transport;
         CPPUNIT_ASSERT_EQUAL(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
+        progressPoller.destroy();
     }
     static bool
     recoverSegmentFilter(string s)

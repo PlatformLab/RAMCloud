@@ -277,6 +277,19 @@ class Transport {
      */
     virtual ServiceLocator getServiceLocator() = 0;
 
+    /**
+     * Register a permanently mapped region of memory. This is a hint to
+     * the transport that identifies regions of memory that can be used
+     * as zero-copy source buffer for transmission.
+     * \param[in] base
+     *      The base address of the region.
+     * \param[in] bytes
+     *      The length of the region in bytes.
+     * \bug A real solution requires some means of locking the region (or
+     *      a subset thereof) for updates so long as a Transport is using it.
+     */
+    virtual void registerMemory(void* base, size_t bytes) {};
+
     /// Dump out performance and debugging statistics.
     virtual void dumpStats() {}
 

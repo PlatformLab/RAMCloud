@@ -30,6 +30,10 @@
 
 namespace RAMCloud {
 
+namespace RecoveryInternal {
+struct MasterStartTask;
+}
+
 /// Used to allow custom mocks of recovery in unit testing.
 class BaseRecovery {
   public:
@@ -64,15 +68,14 @@ class Recovery : public BaseRecovery {
     ~Recovery();
 
     void buildSegmentIdToBackups();
-    void verifyCompleteLog();
     void createBackupList(ProtoBuf::ServerList& backups) const;
     void start();
     bool tabletsRecovered(const ProtoBuf::Tablets& tablets);
 
   private:
     // Only used in Recovery::buildSegmentIdToBackups().
-    struct Task {
-        Task(const ProtoBuf::ServerList::Entry& backupHost,
+    struct BackupStartTask {
+        BackupStartTask(const ProtoBuf::ServerList::Entry& backupHost,
              uint64_t crashedMasterId,
              const ProtoBuf::Tablets& partitions)
             : backupHost(backupHost)
@@ -110,7 +113,7 @@ class Recovery : public BaseRecovery {
         Tub<BackupClient::StartReadingData> rpc;
         BackupClient::StartReadingData::Result result;
         bool done;
-        DISALLOW_COPY_AND_ASSIGN(Task);
+        DISALLOW_COPY_AND_ASSIGN(BackupStartTask);
     };
 
     class SegmentAndDigestTuple {
@@ -152,16 +155,10 @@ class Recovery : public BaseRecovery {
     const ProtoBuf::Tablets& will;
 
     /// List of asynchronous startReadingData tasks and their replies
-    Tub<Task> *tasks;
-
-    /// List of serialised LogDigests from possible log heads, including
-    /// the corresponding Segment IDs and lengths.
-    vector<SegmentAndDigestTuple> digestList;
-
-    /// Map of Segment Ids -> counts of backup copies that were found.
-    boost::unordered_map<uint64_t, uint32_t> segmentMap;
+    Tub<BackupStartTask> *tasks;
 
     friend class RecoveryTest;
+    friend class RecoveryInternal::MasterStartTask;
     DISALLOW_COPY_AND_ASSIGN(Recovery);
 };
 

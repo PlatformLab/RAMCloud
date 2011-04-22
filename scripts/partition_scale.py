@@ -32,12 +32,12 @@ for numPartitions in range(1, 36):
     args['numBackups'] = 36
     args['numPartitions'] = numPartitions
     args['objectSize'] = 1024
-    args['disk'] = '/dev/sda2'
+    args['disk'] = 1
     args['replicas'] = 3
     args['numObjects'] = 626012 * 400 // 640
     args['oldMasterArgs'] = '-m 17000'
-    args['newMasterArgs'] = '-m 600'
-    args['timeout'] = 60
+    args['newMasterArgs'] = '-m 16000'
+    args['timeout'] = 180
     print(numPartitions, 'partitions')
     r = recovery.insist(**args)
     print('->', r['ns'] / 1e6, 'ms', '(run %s)' % r['run'])

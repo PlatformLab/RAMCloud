@@ -30,7 +30,7 @@ void
 CoordinatorClient::createTable(const char* name)
 {
     Buffer req;
-    uint32_t length = strlen(name) + 1;
+    uint32_t length = downCast<uint32_t>(strlen(name) + 1);
     CreateTableRpc::Request& reqHdr(allocHeader<CreateTableRpc>(req));
     reqHdr.nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
@@ -64,7 +64,7 @@ void
 CoordinatorClient::dropTable(const char* name)
 {
     Buffer req, resp;
-    uint32_t length = strlen(name) + 1;
+    uint32_t length = downCast<uint32_t>(strlen(name) + 1);
     DropTableRpc::Request& reqHdr(allocHeader<DropTableRpc>(req));
     reqHdr.nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
@@ -91,7 +91,7 @@ uint32_t
 CoordinatorClient::openTable(const char* name)
 {
     Buffer req, resp;
-    uint32_t length = strlen(name) + 1;
+    uint32_t length = downCast<uint32_t>(strlen(name) + 1);
     OpenTableRpc::Request& reqHdr(allocHeader<OpenTableRpc>(req));
     reqHdr.nameLength = length;
     memcpy(new(&req, APPEND) char[length], name, length);
@@ -129,7 +129,8 @@ CoordinatorClient::enlistServer(ServerType serverType,
             reqHdr.serverType = serverType;
             reqHdr.readSpeed = readSpeed;
             reqHdr.writeSpeed = writeSpeed;
-            reqHdr.serviceLocatorLength = localServiceLocator.length() + 1;
+            reqHdr.serviceLocatorLength =
+                downCast<uint32_t>(localServiceLocator.length() + 1);
             strncpy(new(&req, APPEND) char[reqHdr.serviceLocatorLength],
                     localServiceLocator.c_str(),
                     reqHdr.serviceLocatorLength);
@@ -243,7 +244,8 @@ CoordinatorClient::hintServerDown(string serviceLocator)
     Buffer resp;
     HintServerDownRpc::Request& reqHdr(
         allocHeader<HintServerDownRpc>(req));
-    reqHdr.serviceLocatorLength = serviceLocator.length() + 1;
+    reqHdr.serviceLocatorLength =
+        downCast<uint32_t>(serviceLocator.length() + 1);
     strncpy(new(&req, APPEND) char[reqHdr.serviceLocatorLength],
             serviceLocator.c_str(),
             reqHdr.serviceLocatorLength);

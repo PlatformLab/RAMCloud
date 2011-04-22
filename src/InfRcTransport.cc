@@ -94,7 +94,7 @@
 #define check_error_null(x, s)                              \
     do {                                                    \
         if ((x) == NULL) {                                  \
-            LOG(ERROR, "%s: %s", __func__, s);              \
+            LOG(ERROR, "%s", s);                            \
             throw TransportException(HERE, errno);          \
         }                                                   \
     } while (0)
@@ -131,9 +131,13 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
       clientSendQueue(),
       numUsedClientSrqBuffers(MAX_SHARED_RX_QUEUE_DEPTH),
       outstandingRpcs(),
+      clientRpcsActiveTime(),
       locatorString(),
       poller(this),
-      serverConnectHandler()
+      serverConnectHandler(),
+      logMemoryBase(0),
+      logMemoryBytes(0),
+      logMemoryRegion(0)
 {
     const char *ibDeviceName = NULL;
 
@@ -158,7 +162,7 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
     // first use.
     clientSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
     if (clientSetupSocket == -1) {
-        LOG(ERROR, "%s: failed to create client socket", __func__);
+        LOG(ERROR, "failed to create client socket");
         throw TransportException(HERE, "client socket failed");
     }
     try {
@@ -174,14 +178,14 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
 
         serverSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
         if (serverSetupSocket == -1) {
-            LOG(ERROR, "%s: failed ot create server socket", __func__);
+            LOG(ERROR, "failed to create server socket");
             throw TransportException(HERE, "server socket failed");
         }
 
         if (bind(serverSetupSocket, &address.address,
           sizeof(address.address))) {
             close(serverSetupSocket);
-            LOG(ERROR, "%s: failed to bind socket", __func__);
+            LOG(ERROR, "failed to bind socket");
             throw TransportException(HERE, "socket failed");
         }
 
@@ -262,11 +266,11 @@ InfRcTransport<Infiniband>::setNonBlocking(int fd)
 {
     int flags = fcntl(fd, F_GETFL);
     if (flags == -1) {
-        LOG(ERROR, "%s: fcntl F_GETFL failed", __func__);
+        LOG(ERROR, "fcntl F_GETFL failed");
         throw TransportException(HERE, "fnctl failed");
     }
     if (fcntl(fd, F_SETFL, flags | O_NONBLOCK)) {
-        LOG(ERROR, "%s: fcntl F_SETFL failed", __func__);
+        LOG(ERROR, "fcntl F_SETFL failed");
         throw TransportException(HERE, "fnctl failed");
     }
 }
@@ -287,7 +291,7 @@ InfRcTransport<Infiniband>::serverRecv()
     ibv_wc wc;
     if (infiniband->pollCompletionQueue(serverRxCq, 1, &wc) >= 1) {
         if (queuePairMap.find(wc.qp_num) == queuePairMap.end()) {
-            LOG(ERROR, "%s: failed to find qp_num in map", __func__);
+            LOG(ERROR, "failed to find qp_num in map");
             return NULL;
         }
 
@@ -300,8 +304,9 @@ InfRcTransport<Infiniband>::serverRecv()
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
             ServerRpc *r = new ServerRpc(this, qp, header.nonce);
             PayloadChunk::appendToBuffer(&r->recvPayload,
-                bd->buffer + sizeof(header),
-                wc.byte_len - sizeof(header), this, serverSrq, bd);
+                bd->buffer + downCast<uint32_t>(sizeof(header)),
+                wc.byte_len - downCast<uint32_t>(sizeof(header)),
+                this, serverSrq, bd);
             LOG(DEBUG, "Received request with nonce %016lx", header.nonce);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
@@ -313,7 +318,7 @@ InfRcTransport<Infiniband>::serverRecv()
             return r;
         }
 
-        LOG(ERROR, "%s: failed to receive rpc!", __func__);
+        LOG(ERROR, "failed to receive rpc!");
         postSrqReceiveAndKickTransmit(serverSrq, bd);
     }
 
@@ -432,15 +437,15 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
                 sizeof(*sin));
             if (len == -1) {
                 if (errno != EINTR && errno != EAGAIN) {
-                    LOG(ERROR, "%s: sendto returned error %d: %s",
-                        __func__, errno, strerror(errno));
-                    throw TransportException(HERE, len);
+                    LOG(ERROR, "sendto returned error %d: %s",
+                        errno, strerror(errno));
+                    throw TransportException(HERE, errno);
                 }
             } else if (len != sizeof(*outgoingQpt)) {
-                LOG(ERROR, "%s: sendto returned bad length (%Zd) while "
-                    "sending to ip: [%s] port: [%d]", __func__, len,
-                    inet_ntoa(sin->sin_addr), htons(sin->sin_port));
-                throw TransportException(HERE, len);
+                LOG(ERROR, "sendto returned bad length (%Zd) while "
+                    "sending to ip: [%s] port: [%d]", len,
+                    inet_ntoa(sin->sin_addr), HTONS(sin->sin_port));
+                throw TransportException(HERE, errno);
             } else {
                 haveSent = true;
             }
@@ -452,26 +457,26 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
             reinterpret_cast<sockaddr *>(&sin), &sinlen);
         if (len == -1) {
             if (errno != EINTR && errno != EAGAIN) {
-                LOG(ERROR, "%s: recvfrom returned error %d: %s",
-                    __func__, errno, strerror(errno));
-                throw TransportException(HERE, len);
+                LOG(ERROR, "recvfrom returned error %d: %s",
+                    errno, strerror(errno));
+                throw TransportException(HERE, errno);
             }
         } else if (len != sizeof(*incomingQpt)) {
-            LOG(ERROR, "%s: recvfrom returned bad length (%Zd) while "
-                "receiving from ip: [%s] port: [%d]", __func__, len,
-                inet_ntoa(sin->sin_addr), htons(sin->sin_port));
-            throw TransportException(HERE, len);
+            LOG(ERROR, "recvfrom returned bad length (%Zd) while "
+                "receiving from ip: [%s] port: [%d]", len,
+                inet_ntoa(sin->sin_addr), HTONS(sin->sin_port));
+            throw TransportException(HERE, errno);
         } else {
             if (outgoingQpt->getNonce() == incomingQpt->getNonce())
                 return true;
 
             LOG(WARNING,
-                "%s: received nonce doesn't match (0x%016lx != 0x%016lx)",
-                __func__, outgoingQpt->getNonce(), incomingQpt->getNonce());
+                "received nonce doesn't match (0x%016lx != 0x%016lx)",
+                outgoingQpt->getNonce(), incomingQpt->getNonce());
         }
 
-        uint64_t elapsedUs = startTime.stop() / 1000;
-        if (elapsedUs >= (uint64_t)usTimeout)
+        uint32_t elapsedUs = downCast<uint32_t>(startTime.stop() / 1000);
+        if (elapsedUs >= usTimeout)
             return false;
         usTimeout -= elapsedUs;
 
@@ -506,8 +511,9 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
                                                 MAX_SHARED_RX_QUEUE_DEPTH);
 
     for (uint32_t i = 0; i < QP_EXCHANGE_MAX_TIMEOUTS; i++) {
-        QueuePairTuple outgoingQpt(lid, qp->getLocalQpNumber(),
-            qp->getInitialPsn(), generateRandom());
+        QueuePairTuple outgoingQpt(downCast<uint16_t>(lid),
+                                   qp->getLocalQpNumber(),
+                                   qp->getInitialPsn(), generateRandom());
         QueuePairTuple incomingQpt;
         bool gotResponse;
 
@@ -521,8 +527,8 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
         }
 
         if (!gotResponse) {
-            LOG(WARNING, "%s: timed out waiting for response; retrying",
-                __func__);
+            LOG(WARNING, "timed out waiting for response; retrying");
+            ++metrics->transport.retrySessionOpenCount;
             continue;
         }
 
@@ -531,8 +537,8 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
         return qp;
     }
 
-    LOG(WARNING, "%s: failed to exchange with server (%s) within allotted "
-        "%u microseconds (sent request %u times)\n", __func__,
+    LOG(WARNING, "failed to exchange with server (%s) within allotted "
+        "%u microseconds (sent request %u times)",
         address.toString().c_str(),
         QP_EXCHANGE_USEC_TIMEOUT * QP_EXCHANGE_MAX_TIMEOUTS,
         QP_EXCHANGE_MAX_TIMEOUTS);
@@ -558,12 +564,10 @@ InfRcTransport<Infiniband>::ServerConnectHandler::operator() ()
     if (len <= -1) {
         if (errno == EAGAIN)
             return;
-
-        LOG(ERROR, "%s: recvfrom failed", __func__);
+        LOG(ERROR, "recvfrom failed");
         throw TransportException(HERE, "recvfrom failed");
     } else if (len != sizeof(incomingQpt)) {
-        LOG(WARNING, "%s: recvfrom got a strange incoming size: %Zd",
-            __func__, len);
+        LOG(WARNING, "recvfrom got a strange incoming size: %Zd", len);
         return;
     }
 
@@ -587,13 +591,14 @@ InfRcTransport<Infiniband>::ServerConnectHandler::operator() ()
 
     // now send the client back our queue pair information so they can
     // complete the initialisation.
-    QueuePairTuple outgoingQpt(transport->lid, qp->getLocalQpNumber(),
-        qp->getInitialPsn(), incomingQpt.getNonce());
+    QueuePairTuple outgoingQpt(downCast<uint16_t>(transport->lid),
+                               qp->getLocalQpNumber(),
+                               qp->getInitialPsn(), incomingQpt.getNonce());
     len = sendto(transport->serverSetupSocket, &outgoingQpt,
             sizeof(outgoingQpt), 0, reinterpret_cast<sockaddr *>(&sin),
             sinlen);
     if (len != sizeof(outgoingQpt)) {
-        LOG(WARNING, "%s: sendto failed, len = %Zd\n", __func__, len);
+        LOG(WARNING, "sendto failed, len = %Zd", len);
         delete qp;
         return;
     }
@@ -793,6 +798,44 @@ InfRcTransport<Infiniband>::ClientRpc::ClientRpc(InfRcTransport* transport,
 }
 
 /**
+ * This is a hack for doing zero-copy sends of log data to backups
+ * during recovery. Diego has a cleaner solution, but we want this
+ * quickly for the paper. Afterwards we'll have to bulldoze the Inf
+ * stuff and write something clean.
+ */
+template<typename Infiniband>
+bool
+InfRcTransport<Infiniband>::ClientRpc::tryZeroCopy(Buffer* request)
+{
+    InfRcTransport* const t = transport;
+    if (t->logMemoryBase != 0 && request->getNumberChunks() == 2) {
+        Buffer::Iterator it(*request);
+        it.next();
+        const uintptr_t addr = reinterpret_cast<const uintptr_t>(it.getData());
+        if (addr >= t->logMemoryBase &&
+          (addr + it.getLength()) < (t->logMemoryBase + t->logMemoryBytes)) {
+            uint32_t hdrBytes = it.getTotalLength() - it.getLength();
+//LOG(NOTICE, "ZERO COPYING WRITE FROM LOG: total: %u bytes, hdr: %lu bytes, 0copy: %u bytes\n", request->getTotalLength(), hdrBytes, it.getLength()); //NOLINT 
+            BufferDescriptor* bd = t->getTransmitBuffer();
+            {
+                CycleCounter<Metric>
+                    copyTicks(&metrics->transport.transmit.copyTicks);
+                request->copy(0, hdrBytes, bd->buffer);
+            }
+            metrics->transport.transmit.iovecCount +=
+                request->getNumberChunks();
+            metrics->transport.transmit.byteCount += request->getTotalLength();
+            LOG(DEBUG, "Sending 0-copy request");
+            t->infiniband->postSendZeroCopy(session->qp, bd,
+                hdrBytes, it.getData(), it.getLength(), t->logMemoryRegion);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Send the RPC request out onto the network if there is a receive buffer
  * available for its response, or queue it for transmission otherwise.
  */
@@ -804,21 +847,29 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
     InfRcTransport* const t = transport;
     if (t->numUsedClientSrqBuffers < MAX_SHARED_RX_QUEUE_DEPTH) {
         // send out the request
+        if (t->outstandingRpcs.empty()) {
+            t->clientRpcsActiveTime.construct(
+                &metrics->transport.clientRpcsActiveTicks);
+        }
         CycleCounter<Metric> _(&metrics->transport.transmit.ticks);
         ++metrics->transport.transmit.messageCount;
         ++metrics->transport.transmit.packetCount;
         new(request, PREPEND) Header(nonce);
-        BufferDescriptor* bd = t->getTransmitBuffer();
-        {
-            CycleCounter<Metric>
-                copyTicks(&metrics->transport.transmit.copyTicks);
-            request->copy(0, request->getTotalLength(), bd->buffer);
+
+        if (!tryZeroCopy(request)) {
+            BufferDescriptor* bd = t->getTransmitBuffer();
+            {
+                CycleCounter<Metric>
+                    copyTicks(&metrics->transport.transmit.copyTicks);
+                request->copy(0, request->getTotalLength(), bd->buffer);
+            }
+            metrics->transport.transmit.iovecCount +=
+                request->getNumberChunks();
+            metrics->transport.transmit.byteCount += request->getTotalLength();
+            LOG(DEBUG, "Sending request with nonce %016lx", nonce);
+            t->infiniband->postSend(session->qp, bd,
+                                    request->getTotalLength());
         }
-        metrics->transport.transmit.iovecCount += request->getNumberChunks();
-        metrics->transport.transmit.byteCount += request->getTotalLength();
-        LOG(DEBUG, "Sending request with nonce %016lx", nonce);
-        t->infiniband->postSend(session->qp, bd,
-                                request->getTotalLength());
         request->truncateFront(sizeof(Header)); // for politeness
 
         t->outstandingRpcs.push_back(*this);
@@ -851,7 +902,7 @@ InfRcTransport<Infiniband>::Poller::operator() ()
         CycleCounter<Metric> receiveTicks;
         BufferDescriptor *bd = reinterpret_cast<BufferDescriptor *>(wc.wr_id);
         if (wc.status != IBV_WC_SUCCESS) {
-            LOG(ERROR, "%s: wc.status(%d:%s) != IBV_WC_SUCCESS", __func__,
+            LOG(ERROR, "wc.status(%d:%s) != IBV_WC_SUCCESS",
                 wc.status, t->infiniband->wcStatusToString(wc.status));
             t->postSrqReceiveAndKickTransmit(t->clientSrq, bd);
             throw TransportException(HERE, wc.status);
@@ -863,7 +914,7 @@ InfRcTransport<Infiniband>::Poller::operator() ()
             if (rpc.nonce != header.nonce)
                 continue;
             t->outstandingRpcs.erase(t->outstandingRpcs.iterator_to(rpc));
-            uint32_t len = wc.byte_len - sizeof(header);
+            uint32_t len = wc.byte_len - downCast<uint32_t>(sizeof(header));
             if (t->numUsedClientSrqBuffers >= MAX_SHARED_RX_QUEUE_DEPTH / 2) {
                 // clientSrq is low on buffers, better return this one
                 LOG(DEBUG, "Copy and immediately return clientSrq buffer");
@@ -888,6 +939,8 @@ InfRcTransport<Infiniband>::Poller::operator() ()
             metrics->transport.receive.byteCount +=
                 rpc.response->getTotalLength();
             metrics->transport.receive.ticks += receiveTicks.stop();
+            if (t->outstandingRpcs.empty())
+                t->clientRpcsActiveTime.destroy();
             goto next;
         }
         LOG(WARNING, "dropped packet because no nonce matched %016lx",
@@ -910,7 +963,7 @@ void
 InfRcTransport<Infiniband>::ClientRpc::wait()
 {
     while (state != RESPONSE_RECEIVED)
-        Dispatch::poll();
+        Dispatch::handleEvent();
 }
 
 //-------------------------------------

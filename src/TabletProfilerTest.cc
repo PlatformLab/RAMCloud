@@ -468,7 +468,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         Subrange *c = new Subrange(BucketHandle(&s, 1), s.bucketWidth,
             s.bucketWidth * 2 - 1, LogTime(1, 12));
 
-        for (int i = 0; i < s.numBuckets; i++) {
+        for (uint32_t i = 0; i < s.numBuckets; i++) {
             if (i == 1) {
                 s.buckets[i].child = c;
                 s.buckets[i].totalBytes = 8 * 1024 * 1024;
@@ -478,7 +478,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
                 s.buckets[i].totalReferants = 0;
             }
         }
-        for (int i = 0; i < c->numBuckets; i++) {
+        for (uint32_t i = 0; i < c->numBuckets; i++) {
             c->buckets[i].totalBytes = 4 * 1024 * 1024;
             c->buckets[i].totalReferants = 1;
         }
@@ -547,7 +547,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
         TabletProfiler tp;
 
         // create a bucket and force it to split
-        uint64_t quarter = TabletProfiler::BUCKET_SPLIT_BYTES / 4;
+        uint32_t quarter = TabletProfiler::BUCKET_SPLIT_BYTES / 4;
         tp.track(0, quarter, LogTime(1, 1));
         tp.track(0, quarter, LogTime(1, 2));
         tp.track(0, quarter, LogTime(1, 3));
@@ -593,7 +593,7 @@ class TabletProfilerTest : public CppUnit::TestFixture {
     void
     test_Subrange_getters()
     {
-        BucketHandle bh(NULL, NULL);
+        BucketHandle bh(NULL, 0);
         Subrange s(bh, 51, 999, LogTime(134, 53));
 
         CPPUNIT_ASSERT(LogTime(134, 53) == s.getCreateTime());

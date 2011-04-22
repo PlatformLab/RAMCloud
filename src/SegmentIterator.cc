@@ -198,9 +198,7 @@ SegmentIterator::next()
         nextEntry = (uintptr_t)currentEntry + sizeof(*currentEntry) +
             currentEntry->length;
         entry = (const SegmentEntry *)nextEntry;
-        _mm_prefetch(reinterpret_cast<const char *>(entry), _MM_HINT_T0);
-        _mm_prefetch(reinterpret_cast<const char *>(entry) + 64, _MM_HINT_T0);
-        _mm_prefetch(reinterpret_cast<const char *>(entry) + 128, _MM_HINT_T0);
+        prefetch(entry, 128);
     }
 }
 
@@ -227,7 +225,7 @@ SegmentIterator::getType() const
  * \throw SegmentIteratorException
  *      An exception is thrown if the iterator has no more entries.
  */
-uint64_t
+uint32_t
 SegmentIterator::getLength() const
 {
     if (currentEntry == NULL)
@@ -243,10 +241,10 @@ SegmentIterator::getLength() const
  * \throw SegmentIteratorException
  *      An exception is thrown if the iterator has no more entries.
  */
-uint64_t
+uint32_t
 SegmentIterator::getLengthInLog() const
 {
-    return getLength() + sizeof(SegmentEntry);
+    return getLength() + downCast<uint32_t>(sizeof(SegmentEntry));
 }
 
 /**

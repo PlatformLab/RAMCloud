@@ -32,6 +32,79 @@
 #include "Common.h"
 #include "ClientException.h"
 
+namespace {
+
+/**
+ * Replaces gtest's PrettyUnitTestResultPrinter with something less verbose.
+ * This forwards callbacks to the default printer if and when they might be
+ * interesting.
+ */
+class QuietUnitTestResultPrinter : public testing::TestEventListener {
+  public:
+    /**
+     * Constructor.
+     * \param prettyPrinter
+     *      gtest's default unit test result printer. This object takes
+     *      ownership of prettyPrinter and will delete it later.
+     */
+    explicit QuietUnitTestResultPrinter(TestEventListener* prettyPrinter)
+        : prettyPrinter(prettyPrinter)
+        , currentTestCase(NULL)
+        , currentTestInfo(NULL)
+    {}
+    void OnTestProgramStart(const testing::UnitTest& unit_test) {
+        prettyPrinter->OnTestProgramStart(unit_test);
+    }
+    void OnTestIterationStart(const testing::UnitTest& unit_test,
+                              int iteration) {
+        prettyPrinter->OnTestIterationStart(unit_test, iteration);
+    }
+    void OnEnvironmentsSetUpStart(const testing::UnitTest& unit_test) {}
+    void OnEnvironmentsSetUpEnd(const testing::UnitTest& unit_test) {}
+    void OnTestCaseStart(const testing::TestCase& test_case) {
+        currentTestCase = &test_case;
+    }
+    void OnTestStart(const testing::TestInfo& test_info) {
+        currentTestInfo = &test_info;
+    }
+    void OnTestPartResult(const testing::TestPartResult& test_part_result) {
+        if (test_part_result.type() != testing::TestPartResult::kSuccess) {
+            if (currentTestCase != NULL) {
+                prettyPrinter->OnTestCaseStart(*currentTestCase);
+                currentTestCase = NULL;
+            }
+            if (currentTestInfo != NULL) {
+                prettyPrinter->OnTestStart(*currentTestInfo);
+                currentTestInfo = NULL;
+            }
+            prettyPrinter->OnTestPartResult(test_part_result);
+        }
+    }
+    void OnTestEnd(const testing::TestInfo& test_info) {
+        currentTestInfo = NULL;
+    }
+    void OnTestCaseEnd(const testing::TestCase& test_case) {
+        currentTestCase = NULL;
+    }
+    void OnEnvironmentsTearDownStart(const testing::UnitTest& unit_test) {}
+    void OnEnvironmentsTearDownEnd(const testing::UnitTest& unit_test) {}
+    void OnTestIterationEnd(const testing::UnitTest& unit_test,
+                            int iteration) {
+        prettyPrinter->OnTestIterationEnd(unit_test, iteration);
+    }
+    void OnTestProgramEnd(const testing::UnitTest& unit_test) {
+        prettyPrinter->OnTestProgramEnd(unit_test);
+    }
+  private:
+    /// gtest's default unit test result printer.
+    std::unique_ptr<TestEventListener> prettyPrinter;
+    /// The currently running TestCase that hasn't been printed, or NULL.
+    const testing::TestCase* currentTestCase;
+    /// The currently running TestInfo that hasn't been printed, or NULL.
+    const testing::TestInfo* currentTestInfo;
+    DISALLOW_COPY_AND_ASSIGN(QuietUnitTestResultPrinter);
+};
+
 char testName[256];
 bool progress = false;
 bool googleOnly = false;
@@ -80,6 +153,8 @@ cmdline(int argc, char *argv[])
     }
 }
 
+} // anonymous namespace
+
 // CppUnit doesn't put this in a public header
 struct CppUnit::ProtectorContext {
     CppUnit::Test *test;
@@ -106,8 +181,16 @@ main(int argc, char *argv[])
     ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
 
     int r = 0;
-    if (googleOnly || !strcmp(testName, defaultTest))
-        r += RUN_ALL_TESTS();
+    if (googleOnly || !strcmp(testName, defaultTest)) {
+        auto unitTest = ::testing::UnitTest::GetInstance();
+        if (!progress) {
+            auto& listeners = unitTest->listeners();
+            auto defaultPrinter = listeners.Release(
+                                    listeners.default_result_printer());
+            listeners.Append(new QuietUnitTestResultPrinter(defaultPrinter));
+        }
+        r += unitTest->Run();
+    }
 
     // Next run cppunit tests.
 

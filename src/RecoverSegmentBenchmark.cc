@@ -37,6 +37,7 @@ class RecoverSegmentBenchmark {
         config.coordinatorLocator = "bogus";
         MasterServer::sizeLogAndHashTable(logSize, hashTableSize, &config);
         server = new MasterServer(config, NULL, 0);
+        server->serverId.construct(1);
     }
 
     ~RecoverSegmentBenchmark()
@@ -56,7 +57,7 @@ class RecoverSegmentBenchmark {
         Segment *segments[numSegments];
         for (int i = 0; i < numSegments; i++) {
             void *p = xmalloc(Segment::SEGMENT_SIZE);
-            segments[i] = new Segment((uint64_t)0, 0, p,
+            segments[i] = new Segment((uint64_t)0, i, p,
                 Segment::SEGMENT_SIZE, NULL);
             while (1) {
                 DECLARE_OBJECT(o, objectBytes);
@@ -101,7 +102,9 @@ class RecoverSegmentBenchmark {
             objectBytes, RAMCloud::cyclesToNanoseconds(ticks) / 1000 / 1000);
         printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
             "overhead)\n", numObjects, totalObjectBytes,
-            100.0 * (totalSegmentBytes - totalObjectBytes) / totalSegmentBytes);
+            100.0 *
+            static_cast<double>(totalSegmentBytes - totalObjectBytes) /
+            static_cast<double>(totalSegmentBytes));
 
         // clean up
         for (int i = 0; i < numSegments; i++) {
