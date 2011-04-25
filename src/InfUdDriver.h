@@ -29,7 +29,6 @@
 #include "Tub.h"
 
 namespace RAMCloud {
-class FastTransport;
 
 /**
  * A Driver for Infiniband unreliable datagram (UD) communication.
@@ -53,7 +52,7 @@ class InfUdDriver : public Driver {
 
     explicit InfUdDriver(const ServiceLocator* localServiceLocator = NULL);
     virtual ~InfUdDriver();
-    virtual void connect(FastTransport* transport);
+    virtual void connect(IncomingPacketHandler* incomingPacketHandler);
     virtual void disconnect();
     virtual void dumpStats() { infiniband->dumpStats(); }
     virtual uint32_t getMaxPacketSize();
@@ -125,10 +124,9 @@ class InfUdDriver : public Driver {
     /// Our ServiceLocator, including the dynamic lid and qpn
     string              locatorString;
 
-    /// The FastTransport object that will handle all incoming packets
-    /// received by this driver.  NULL means #connect hasn't been called
-    /// yet.
-    FastTransport* transport;
+    /// Handler to invoke whenever packets arrive.
+    /// NULL means #connect hasn't been called yet.
+    std::unique_ptr<IncomingPacketHandler> incomingPacketHandler;
 
     /**
      * The following object is invoked by the dispatcher's polling loop;

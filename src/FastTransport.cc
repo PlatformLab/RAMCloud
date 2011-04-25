@@ -35,7 +35,14 @@ FastTransport::FastTransport(Driver* driver)
     , clientSessions(this)
     , serverSessions(this)
 {
-    driver->connect(this);
+    struct IncomingPacketHandler : Driver::IncomingPacketHandler {
+        explicit IncomingPacketHandler(FastTransport& t) : t(t) {}
+        void operator()(Driver::Received* received) {
+            t.handleIncomingPacket(received);
+        }
+        FastTransport& t;
+    };
+    driver->connect(new IncomingPacketHandler(*this));
 }
 
 FastTransport::~FastTransport()

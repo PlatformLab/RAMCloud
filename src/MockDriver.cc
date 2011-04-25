@@ -47,7 +47,8 @@ MockDriver::MockDriver(HeaderToString headerToString)
 }
 
 void
-MockDriver::connect(FastTransport* transport) {
+MockDriver::connect(IncomingPacketHandler* incomingPacketHandler) {
+    delete incomingPacketHandler;
 }
 
 void

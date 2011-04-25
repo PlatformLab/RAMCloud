@@ -73,7 +73,7 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
     , lid(0)
     , qpn(0)
     , locatorString()
-    , transport(NULL)
+    , incomingPacketHandler(NULL)
     , poller()
 {
     const char *ibDeviceName = NULL;
@@ -148,8 +148,9 @@ InfUdDriver<Infiniband>::~InfUdDriver()
  */
 template<typename Infiniband>
 void
-InfUdDriver<Infiniband>::connect(FastTransport* transport) {
-    this->transport = transport;
+InfUdDriver<Infiniband>::connect(IncomingPacketHandler*
+                                                incomingPacketHandler) {
+    this->incomingPacketHandler.reset(incomingPacketHandler);
     poller.construct(this);
 }
 
@@ -160,7 +161,7 @@ template<typename Infiniband>
 void
 InfUdDriver<Infiniband>::disconnect() {
     poller.destroy();
-    this->transport = NULL;
+    this->incomingPacketHandler.reset();
 }
 
 /*
@@ -274,7 +275,7 @@ InfUdDriver<Infiniband>::Poller::poll()
         received.len = bd->messageBytes - 40;
         received.sender = buffer->infAddress.get();
         received.driver = driver;
-        driver->transport->handleIncomingPacket(&received);
+        (*driver->incomingPacketHandler)(&received);
     }
 
     // post the original infiniband buffer back to the receive queue

@@ -37,7 +37,7 @@ class UdpDriver : public Driver {
 
     explicit UdpDriver(const ServiceLocator* localServiceLocator = NULL);
     virtual ~UdpDriver();
-    virtual void connect(FastTransport* transport);
+    virtual void connect(IncomingPacketHandler* incomingPacketHandler);
     virtual void disconnect();
     virtual uint32_t getMaxPacketSize();
     virtual void release(char *payload);
@@ -65,8 +65,8 @@ class UdpDriver : public Driver {
     /// File descriptor of the UDP socket this driver uses for communication.
     int socketFd;
 
-    /// FastTransport to invoke whenever packets arrive.
-    FastTransport* transport;
+    /// Handler to invoke whenever packets arrive.
+    std::unique_ptr<IncomingPacketHandler> incomingPacketHandler;
 
     /**
      * An event handler that reads incoming packets and passes them on to
