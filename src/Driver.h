@@ -106,6 +106,43 @@ class Driver {
         virtual void operator()(Received* received) = 0;
     };
 
+    /**
+     * A Buffer::Chunk that is comprised of memory for incoming packets,
+     * owned by the Driver but loaned to a Buffer during the processing of an
+     * incoming RPC so the message doesn't have to be copied.
+     *
+     * PayloadChunk behaves like any other Buffer::Chunk except it returns
+     * its memory to the Driver when the Buffer is deleted.
+     */
+    class PayloadChunk : public Buffer::Chunk {
+      public:
+        static PayloadChunk* prependToBuffer(Buffer* buffer,
+                                             char* data,
+                                             uint32_t dataLength,
+                                             Driver* driver,
+                                             char* payload);
+        static PayloadChunk* appendToBuffer(Buffer* buffer,
+                                            char* data,
+                                            uint32_t dataLength,
+                                            Driver* driver,
+                                            char* payload);
+        ~PayloadChunk();
+      private:
+        PayloadChunk(void* data,
+                     uint32_t dataLength,
+                     Driver* driver,
+                     char* const payload);
+
+        /// Return the PayloadChunk memory here.
+        Driver* const driver;
+
+        /// The memory backing the chunk and which is to be returned.
+        char* const payload;
+
+        DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
+    };
+
+
     virtual ~Driver();
 
     /// \copydoc Transport::dumpStats
