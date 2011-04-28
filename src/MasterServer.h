@@ -65,6 +65,8 @@ struct ServerConfig {
  */
 class MasterServer : public Server {
   public:
+    static const uint64_t TOTAL_READ_REQUESTS_OBJID = 100000UL;
+
     MasterServer(const ServerConfig config,
                  CoordinatorClient* coordinator,
                  uint32_t replicas);

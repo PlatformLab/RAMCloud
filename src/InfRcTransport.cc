@@ -85,6 +85,7 @@
 #include "Common.h"
 #include "CycleCounter.h"
 #include "Metrics.h"
+#include "BenchUtil.h"
 #include "TimeCounter.h"
 #include "Transport.h"
 #include "InfRcTransport.h"
@@ -652,12 +653,27 @@ template<typename Infiniband>
 typename Infiniband::BufferDescriptor*
 InfRcTransport<Infiniband>::getTransmitBuffer()
 {
+    CycleCounter<uint64_t> timeThis2;
     // if we've drained our free tx buffer pool, we must wait.
     while (txBuffers.empty()) {
+
         ibv_wc retArray[MAX_TX_QUEUE_DEPTH];
+        CycleCounter<uint64_t> timeThis;
         int n = infiniband->pollCompletionQueue(commonTxCq,
                                                 MAX_TX_QUEUE_DEPTH,
                                                 retArray);
+        uint64_t gtbPollNanos = cyclesToNanoseconds(timeThis.stop());
+        serverStats.gtbPollNanos += gtbPollNanos;
+        serverStats.gtbPollCount++;
+
+        if (0 >= n) {
+             serverStats.gtbPollZeroNCount++;
+             serverStats.gtbPollZeroNanos += gtbPollNanos;
+        } else {
+             serverStats.gtbPollNonZeroNAvg += n;
+             serverStats.gtbPollNonZeroNanos += gtbPollNanos;
+        }
+
         for (int i = 0; i < n; i++) {
             BufferDescriptor* bd =
                 reinterpret_cast<BufferDescriptor*>(retArray[i].wr_id);
@@ -668,10 +684,14 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
                     infiniband->wcStatusToString(retArray[i].status));
             }
         }
+
     }
+
 
     BufferDescriptor* bd = txBuffers.back();
     txBuffers.pop_back();
+
+    serverStats.infrcGetTxBufferNanos += timeThis2.stop();
     return bd;
 }
 
@@ -732,6 +752,7 @@ template<typename Infiniband>
 void
 InfRcTransport<Infiniband>::ServerRpc::sendReply()
 {
+    CycleCounter<uint64_t> timeThis1;
     CycleCounter<Metric> _(&metrics->transport.transmit.ticks);
     ++metrics->transport.transmit.messageCount;
     ++metrics->transport.transmit.packetCount;
@@ -750,6 +771,7 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     }
 
     BufferDescriptor* bd = t->getTransmitBuffer();
+    serverStats.infrcGetTxCount++;
     new(&replyPayload, PREPEND) Header(nonce);
     {
         CycleCounter<Metric> copyTicks(&metrics->transport.transmit.copyTicks);
@@ -760,6 +782,7 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
     LOG(DEBUG, "Sent response with nonce %016lx", nonce);
+    serverStats.infrcSendReplyNanos += cyclesToNanoseconds(timeThis1.stop());
 }
 
 //-------------------------------------

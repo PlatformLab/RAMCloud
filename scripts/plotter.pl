@@ -55,6 +55,8 @@ if (defined $size) {
   $output_png = basename($d1)."size.png";
 }
 
+print $output_png ."\n";
+
 my $chart = Chart::Gnuplot->
   new(
       imagesize => "2, 2",

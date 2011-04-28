@@ -246,6 +246,17 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
                    ReadRpc::Response& respHdr,
                    Transport::ServerRpc& rpc)
 {
+    if (reqHdr.id == TOTAL_READ_REQUESTS_OBJID) {
+        new(&rpc.replyPayload, APPEND) ServerStats(serverStats);
+        respHdr.length = sizeof(serverStats);
+        memset(&serverStats, 0, sizeof(serverStats));
+        return; // TODO(nandu) - if an actual object uses this objid
+                // then we do not return its real value back. Should
+                // change this to use an RPC other than read. Write to
+                // this object has undesirable behavior too.
+    }
+    CycleCounter<uint64_t> timeThisRead;
+
     // We must throw an exception if the table does not exist. Also, we might
     // have an entry in the hash table that's invalid because its tablet no
     // longer lives here.
@@ -264,6 +275,8 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
     // from scribbling over obj->data.
     respHdr.length = obj->dataLength(handle->length());
+    serverStats.totalReadRequests++;
+    serverStats.totalReadNanos += cyclesToNanoseconds(timeThisRead.stop());
 }
 
 /**
@@ -1218,10 +1231,13 @@ MasterServer::write(const WriteRpc::Request& reqHdr,
                     WriteRpc::Response& respHdr,
                     Transport::ServerRpc& rpc)
 {
+    CycleCounter<uint64_t> timeThis;
     storeData(reqHdr.tableId, reqHdr.id,
               &reqHdr.rejectRules, &rpc.recvPayload, sizeof(reqHdr),
               static_cast<uint32_t>(reqHdr.length), &respHdr.version,
               reqHdr.async);
+    serverStats.totalWriteRequests++;
+    serverStats.totalWriteNanos += cyclesToNanoseconds(timeThis.stop());
 }
 
 /**
@@ -1463,8 +1479,11 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
 
         uint64_t segmentId = log.getSegmentId(obj);
         ObjectTombstone tomb(segmentId, obj);
+        // Request an async append explicitly so that the tombstone
+        // and the object are sent out together to the backups.
+        bool sync = false;
         log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), &lengthInLog,
-            &logTime, !async);
+            &logTime, sync);
         t.profiler.track(id, downCast<uint32_t>(lengthInLog), logTime);
     }
 
