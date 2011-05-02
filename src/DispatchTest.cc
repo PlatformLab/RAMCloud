@@ -67,6 +67,20 @@ class DummyPoller : public Dispatch::Poller {
     DISALLOW_COPY_AND_ASSIGN(DummyPoller);
 };
 
+// The following class is used for testing: it increments a counter each
+// time it is invoked.
+class CountPoller : public Dispatch::Poller {
+  public:
+    CountPoller() : Dispatch::Poller(), count(0) { }
+    bool operator() () {
+        count++;
+        return true;
+    }
+    volatile int count;
+  private:
+    DISALLOW_COPY_AND_ASSIGN(CountPoller);
+};
+
 // The following class is used for testing: it generates a log message
 // identifying this timer whenever it is invoked.
 class DummyTimer : public Dispatch::Timer {
@@ -147,12 +161,14 @@ class DispatchTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_Poller_basics);
     CPPUNIT_TEST(test_Poller_destructor_updateSlot);
     CPPUNIT_TEST(test_Poller_reentrant);
+    CPPUNIT_TEST(test_poll_locking);
     CPPUNIT_TEST(test_poll_fileHandling);
     CPPUNIT_TEST(test_poll_fileDeletedDuringInvocation);
     CPPUNIT_TEST(test_poll_dontEvenCheckTimers);
     CPPUNIT_TEST(test_poll_triggerTimers);
     CPPUNIT_TEST(test_handleEvent);
     CPPUNIT_TEST(test_reset);
+    CPPUNIT_TEST(test_setDispatchThread);
     CPPUNIT_TEST(test_File_constructor_errorInEpollCreate);
     CPPUNIT_TEST(test_File_constructor_errorCreatingExitPipe);
     CPPUNIT_TEST(test_File_constructor_errorInEpollCtl);
@@ -173,6 +189,7 @@ class DispatchTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_Timer_startMillis);
     CPPUNIT_TEST(test_Timer_startSeconds);
     CPPUNIT_TEST(test_Timer_stop);
+    CPPUNIT_TEST(test_Lock_inDispatchThread);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -196,6 +213,7 @@ class DispatchTest : public CppUnit::TestFixture {
         }
         localLog->clear();
         Dispatch::reset();
+        Dispatch::setDispatchThread();
         Dispatch::currentTime = 0;
         sys = new MockSyscall();
         savedSyscall = Dispatch::sys;
@@ -210,6 +228,8 @@ class DispatchTest : public CppUnit::TestFixture {
         Dispatch::sys = savedSyscall;
         close(pipeFds[0]);
         close(pipeFds[1]);
+        Dispatch::reset();
+        Dispatch::setDispatchThread();
     }
 
     // Calls Dispatch::poll repeatedly until either it returns true
@@ -278,6 +298,49 @@ class DispatchTest : public CppUnit::TestFixture {
         Dispatch::poll();
         CPPUNIT_ASSERT_EQUAL("poller p1 invoked; poller p2 invoked",
                 *localLog);
+    }
+    
+
+    // Helper function that runs in a separate thread for the following test.
+    static void lockTestThread() {
+        Dispatch::setDispatchThread();
+        while (Dispatch::isDispatchThread())
+            Dispatch::poll();
+    }
+
+    void test_poll_locking() {
+        Tub<Dispatch::Lock> lock;
+        CountPoller* counter = new CountPoller();
+        boost::thread thread(lockTestThread);
+
+        // Wait for the child thread to start up and enter its polling loop.
+        for (int i = 0; (counter->count == 0) && (i < 1000); i++) {
+            usleep(100);
+        }
+        CPPUNIT_ASSERT(counter->count != 0);
+
+        // Create a lock and make sure that the dispatcher stops (e.g. make
+        // sure that pollers aren't being invoked).
+        lock.construct();
+        CPPUNIT_ASSERT_EQUAL(1, Dispatch::lockNeeded.load());
+        CPPUNIT_ASSERT_EQUAL(1, Dispatch::locked.load());
+        int oldCount = counter->count;
+        usleep(1000);
+        CPPUNIT_ASSERT_EQUAL(0, counter->count - oldCount);
+
+        // Delete the lock and make sure that the dispatcher starts working
+        // again.
+        lock.destroy();
+        CPPUNIT_ASSERT_EQUAL(0, Dispatch::locked.load());
+        CPPUNIT_ASSERT_EQUAL(0, Dispatch::lockNeeded.load());
+        for (int i = 0; (counter->count == oldCount) && (i < 1000); i++) {
+            usleep(100);
+        }
+        CPPUNIT_ASSERT(counter->count > oldCount);
+
+        Dispatch::setDispatchThread();
+        delete counter;
+        thread.join();
     }
 
     void test_poll_fileHandling() {
@@ -359,21 +422,52 @@ class DispatchTest : public CppUnit::TestFixture {
     }
 
     void test_reset() {
-        DummyPoller p1("p1", 0), p2("p2", 0);
-        DummyTimer t1("t1", 100), t2("t2", 200);
+        DummyPoller* p1 = new DummyPoller("p1", 0);
+        DummyPoller* p2 = new DummyPoller("p2", 0);
+        DummyTimer* t1 = new DummyTimer("t1", 100);
+        DummyTimer* t2 = new DummyTimer("t2", 200);
         int fds[2];
         CPPUNIT_ASSERT_EQUAL(0, pipe(fds));
-        DummyFile f1("f1", false, fds[0], Dispatch::FileEvent::READABLE);
+        DummyFile* f1 = new DummyFile("f1", false, fds[0],
+                Dispatch::FileEvent::READABLE);
         Dispatch::reset();
+        Dispatch::setDispatchThread();
         close(fds[0]);
         close(fds[1]);
-        CPPUNIT_ASSERT_EQUAL(-1, p1.slot);
+        CPPUNIT_ASSERT_EQUAL(-1, p1->slot);
         CPPUNIT_ASSERT_EQUAL(0, Dispatch::pollers.size());
-        CPPUNIT_ASSERT_EQUAL(-1, t2.slot);
+        CPPUNIT_ASSERT_EQUAL(-1, t2->slot);
         CPPUNIT_ASSERT_EQUAL(0, Dispatch::timers.size());
-        CPPUNIT_ASSERT_EQUAL(0, f1.active);
-        CPPUNIT_ASSERT_EQUAL(0, f1.event);
-        CPPUNIT_ASSERT_EQUAL(NULL, Dispatch::files[f1.fd]);
+        CPPUNIT_ASSERT_EQUAL(0, f1->active);
+        CPPUNIT_ASSERT_EQUAL(0, f1->event);
+        CPPUNIT_ASSERT_EQUAL(NULL, Dispatch::files[f1->fd]);
+        delete p1;
+        delete p2;
+        delete t1;
+        delete t2;
+        delete f1;
+        Dispatch::reset();
+        CPPUNIT_ASSERT_EQUAL(false, Dispatch::isDispatchThread());
+        CPPUNIT_ASSERT_EQUAL(0, Dispatch::epoch);
+    }
+
+    // Helper function that runs in a separate thread for the following test.
+
+    static void childThread(bool* result) {
+        *result = Dispatch::isDispatchThread();
+        Dispatch::setDispatchThread();
+    }
+
+    void test_setDispatchThread() {
+        bool isDispatchThread;
+        Dispatch::reset();
+        CPPUNIT_ASSERT_EQUAL(false, Dispatch::isDispatchThread());
+        Dispatch::setDispatchThread();
+        CPPUNIT_ASSERT_EQUAL(true, Dispatch::isDispatchThread());
+        boost::thread thread(childThread, &isDispatchThread);
+        thread.join();
+        CPPUNIT_ASSERT_EQUAL(false, isDispatchThread);
+        CPPUNIT_ASSERT_EQUAL(2, Dispatch::epoch);
     }
 
     void test_File_constructor_errorInEpollCreate() {
@@ -676,6 +770,17 @@ class DispatchTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(-1, t1.slot);
         CPPUNIT_ASSERT_EQUAL(2, Dispatch::timers.size());
     }
+
+    void test_Lock_inDispatchThread() {
+        // Creating a lock shouldn't stop the Dispatcher from polling.
+        DummyPoller p1("p1", 1000);
+        Dispatch::Lock lock;
+        Dispatch::poll();
+        CPPUNIT_ASSERT_EQUAL("poller p1 invoked", *localLog);
+    }
+
+    // No need to test the case of locking from a non-dispatch thread: this is
+    // already handled by the test case test_poll_locking.
 
   private:
     DISALLOW_COPY_AND_ASSIGN(DispatchTest);

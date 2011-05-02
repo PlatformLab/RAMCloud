@@ -17,6 +17,9 @@
 #define RAMCLOUD_DISPATCH_H
 
 #include <boost/thread.hpp>
+#include <boost/thread/locks.hpp>
+#include <cstdatomic>
+
 #include "Common.h"
 #include "Tub.h"
 #include "Syscall.h"
@@ -27,29 +30,30 @@ namespace RAMCloud {
  * The Dispatch class keeps track of interesting events such as open files
  * and timers, and arranges for particular methods to be invoked when the
  * events happen. The inner loop for the class is polling-based, and it
- * allows additional polling-based event handlers to be added.  The current
- * implementation does not support concurrent invocations from multiple
- * threads; for example:
- * - It is not safe for #poll to be invoked simultaneously in multiple threads.
- * - But, once #poll has invoked a handler it is safe to invoke #poll again
- *   in that thread or in another thread.
- * - It is not safe to create a new Dispatch::File while #poll is "active".
- * - But, if #poll has invoked a handler it is no longer active so it is safe
- *   for that handler, or another thread, to create/delete Dispatch::Files.
+ * allows additional polling-based event handlers to be added.  This
+ * implementation works in a multi-threaded environment, but with certain
+ * restrictions:
+ * - #poll should only be invoked in a single thread, and always in the
+ *   same thread; this thread is called the "dispatch thread"
+ * - Other threads can invoke Dispatch methods, but in most cases they hold
+ *   a Dispatch::Lock object at the time of the invocation, in order to avoid
+ *   synchronization problems.
  */
 class Dispatch {
   public:
     static bool poll();
     static void handleEvent();
     static void reset();
+    static void setDispatchThread();
+    static bool isDispatchThread();
 
     /// The return value from rdtsc at the beginning of the last call to
-    /// #poll.
-    static uint64_t currentTime;
+    /// #poll.  May be read from multiple threads, so must be volatile.
+    static volatile uint64_t currentTime;
 
     /// The return value from rdtsc at the beginning of the last call to
-    /// #poll which returned true.
-    static uint64_t lastEventTime;
+    /// #poll that returned true.
+    static volatile uint64_t lastEventTime;
 
     /**
      * A Poller object is invoked once each time through the dispatcher's
@@ -172,6 +176,31 @@ class Dispatch {
         DISALLOW_COPY_AND_ASSIGN(Timer);
     };
 
+    /**
+     * Lock objects are used to synchronize between the dispatch thread and
+     * other threads (non-dispatch threads must construct a Lock object
+     * before invoking Dispatch methods).  As long as the Lock object exists
+     * the following guarantees are in effect: either (a) the thread is
+     * the dispatch thread or (b) no other non-dispatch thread has a
+     * Lock object and the dispatch thread is in an idle state waiting
+     * for the Lock to be destroyed.  Although Locks are intended primarily
+     * for use in non-dispatch threads, they can also be used in the dispatch
+     * thread (e.g., if you can't tell which thread will run a particular
+     * piece of code).
+     */
+    class Lock {
+      public:
+        Lock();
+        ~Lock();
+      private:
+        /// Used to lock Dispatch::mutex, but only if the Lock object
+        /// is constructed in a thread other than the dispatch thread
+        /// (no mutual exclusion is needed if the Lock is created in
+        /// the dispatch thread).
+        Tub<boost::lock_guard<boost::mutex>> lock;
+        DISALLOW_COPY_AND_ASSIGN(Lock);
+    };
+
   private:
     static void epollThreadMain();
 
@@ -217,6 +246,27 @@ class Dispatch {
     // Optimization for timers: no timer will trigger sooner than this time
     // (measured in cycles).
     static uint64_t earliestTriggerTime;
+
+    // Thread-specific storage: if a thread is the dispatch thread then
+    // the pointer is non-null and the value it points to is the same as
+    // #epoch.
+    static boost::thread_specific_ptr<int> dispatchThread;
+
+    // The following variable is incremented whenever the current dispatch
+    // thread changes (e.g., incrementing this variable will invalidate any
+    // current dispatch thread).
+    static int epoch;
+
+    // Used to make sure that only one thread at a time attempts to lock
+    // the dispatcher.
+    static boost::mutex mutex;
+
+    // Nonzero means there is a (non-dispatch) thread trying to lock the
+    // dispatcher.
+    static atomic_int lockNeeded;
+
+    // Nonzero means the dispatch thread is locked.
+    static atomic_int locked;
 
     // The Dispatch class contains only static methods, so hide the constructor.
     Dispatch();

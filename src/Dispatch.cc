@@ -40,16 +40,27 @@ int Dispatch::exitPipeFds[2] = {-1, -1};
 volatile int Dispatch::readyFd = -1;
 int Dispatch::fileInvocationSerial = 0;
 std::vector<Dispatch::Timer*> Dispatch::timers;
-uint64_t Dispatch::currentTime = rdtsc();
-uint64_t Dispatch::lastEventTime = Dispatch::currentTime;
+volatile uint64_t Dispatch::currentTime = rdtsc();
+volatile uint64_t Dispatch::lastEventTime = Dispatch::currentTime;
 uint64_t Dispatch::earliestTriggerTime = 0;
+boost::thread_specific_ptr<int> Dispatch::dispatchThread;
+int Dispatch::epoch = 0;
+boost::mutex Dispatch::mutex;
+atomic_int Dispatch::lockNeeded(0);
+atomic_int Dispatch::locked(0);
+
+// The following is a debugging assertion used in many methods to make sure
+// that either (a) the method was invoked in the dispatch thread or (b) the
+// dispatcher was been locked before calling the method.
+#define CHECK_LOCK assert((Dispatch::locked.load() != 0) || isDispatchThread())
 
 /**
- * Construct a Poller.
+ * Construct a Poller. 
  */
 Dispatch::Poller::Poller()
     : slot(downCast<unsigned>(Dispatch::pollers.size()))
 {
+    CHECK_LOCK;
     Dispatch::pollers.push_back(this);
 }
 
@@ -58,6 +69,8 @@ Dispatch::Poller::Poller()
  */
 Dispatch::Poller::~Poller()
 {
+    CHECK_LOCK;
+
     // Erase this Poller from the vector by overwriting it with the
     // poller that used to be the last one in the vector.
     //
@@ -88,6 +101,15 @@ bool Dispatch::poll()
 {
     currentTime = rdtsc();
     bool result = false;
+    if (lockNeeded.load() != 0) {
+        // Someone wants us locked. Indicate that we are locked,
+        // then wait for the lock to be released.
+        locked.store(1);
+        while (lockNeeded.load() != 0) {
+            // Empty loop body.
+        }
+        locked.store(0);
+    }
     for (uint32_t i = 0; i < pollers.size(); i++) {
         result |= (*pollers[i])();
     }
@@ -204,6 +226,30 @@ void Dispatch::reset()
         timers.back()->stop();
     }
     earliestTriggerTime = 0;
+    epoch = 0;
+}
+
+/**
+ * Mark this thread as the dispatch thread.  Only a single thread should
+ * be marked this way, and Dispatch::poll should only be invoked in the
+ * dispatch thread.
+ */
+void
+Dispatch::setDispatchThread()
+{
+    epoch++;
+    dispatchThread.reset(new int(epoch));
+}
+
+/**
+ * Returns true if this thread has been marked as the dispatch thread by
+ * calling setDispatchThread, false otherwise.
+ */
+bool
+Dispatch::isDispatchThread()
+{
+    int *p = dispatchThread.get();
+    return (p != NULL) && (*p == epoch);
 }
 
 /**
@@ -221,6 +267,8 @@ void Dispatch::reset()
 Dispatch::File::File(int fd, Dispatch::FileEvent event)
         : fd(fd), event(NONE), active(false), invocationId(0)
 {
+    CHECK_LOCK;
+
     // Start the polling thread if it doesn't already exist (and also create
     // the epoll file descriptor and the exit pipe).
     if (!epollThread) {
@@ -268,6 +316,8 @@ Dispatch::File::File(int fd, Dispatch::FileEvent event)
  */
 Dispatch::File::~File()
 {
+    CHECK_LOCK;
+
     // Only clean up this file handler if it is "current": if Dispatch::reset
     // has been invoked (most likely in unit tests) we may already have
     // forgotten about this file.
@@ -290,6 +340,8 @@ Dispatch::File::~File()
  */
 void Dispatch::File::setEvent(FileEvent event)
 {
+    CHECK_LOCK;
+
     epoll_event epollEvent;
     // The following statement is not needed, but without it valgrind
     // will generate false errors about uninitialized data.
@@ -413,6 +465,8 @@ bool Dispatch::Timer::isRunning()
  */
 void Dispatch::Timer::startCycles(uint64_t cycles)
 {
+    CHECK_LOCK;
+
     triggerTime = Dispatch::currentTime + cycles;
     if (slot < 0) {
         slot = downCast<unsigned>(timers.size());
@@ -468,6 +522,8 @@ void Dispatch::Timer::startSeconds(uint64_t seconds)
  */
 void Dispatch::Timer::stop()
 {
+    CHECK_LOCK;
+
     // Remove this Timer from the timers vector by overwriting its slot
     // with the timer that used to be the last one in the vector.
     //
@@ -485,6 +541,46 @@ void Dispatch::Timer::stop()
     timers[slot]->slot = slot;
     timers.pop_back();
     slot = -1;
+}
+
+/**
+ * Construct a Lock object, which means we must lock the dispatch
+ * thread unless we are currently executing in the dispatch thread.
+ */
+Dispatch::Lock::Lock()
+    :lock()
+{
+    if (isDispatchThread()) {
+        return;
+    }
+    lock.construct(mutex);
+    lockNeeded.store(1);
+    while (locked.load() == 0) {
+        // Empty loop: spin-wait for the dispatch thread to lock itself.
+    }
+}
+
+/**
+ * Destructor for Lock objects: unlock the dispatch thread if we
+ * locked it.
+ */
+Dispatch::Lock::~Lock()
+{
+    if (!lock) {
+        // We never acquired the mutex; this means we're running in the
+        // dispatch thread so there's nothing for us to do here.
+        return;
+    }
+
+    lockNeeded.store(0);
+
+    // We must not return (which will release the mutex) until the
+    // dispatch thread has cleared the #locked variable. Otherwise
+    // there is a race where another thread could think the dispatch
+    // thread is locked when it is really about to unlock itself.
+    while (locked.load() != 0) {
+        // Empty loop: spin-wait for the dispatch thread to unlock.
+    }
 }
 
 } // namespace RAMCloud
