@@ -24,8 +24,6 @@ GTEST_DIR ?= $(TOP)/gtest
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
 OPTFLAG	 :=
-## Note: -DBOOST_DISABLE_ASSERTS is needed below because Dispatch performs
-## extraneous unlocks on mutexes, which pthreads doesn't really like.
 DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
 BASECFLAGS :=
