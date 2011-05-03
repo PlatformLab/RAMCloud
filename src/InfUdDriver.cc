@@ -25,9 +25,6 @@
  * following is the data transmitted. The interface is not symmetric:
  * Sending applications do not include a GRH in the buffers they pass
  * to the HCA.
- *
- * The code below has a few 40-byte constants sprinkled about to deal
- * with this phenomenon.
  */
 
 #include <errno.h>
@@ -87,10 +84,10 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
 
     // allocate rx and tx buffers
     rxBuffers.construct(realInfiniband->pd,
-                        getMaxPacketSize() + 40,
+                        getMaxPacketSize() + GRH_SIZE,
                         uint32_t(MAX_RX_QUEUE_DEPTH));
     txBuffers.construct(realInfiniband->pd,
-                        getMaxPacketSize() + 40,
+                        getMaxPacketSize() + GRH_SIZE,
                         uint32_t(MAX_TX_QUEUE_DEPTH));
 
     // create completion queues for receive and transmit
@@ -295,22 +292,24 @@ InfUdDriver<Infiniband>::Poller::poll()
         return;
     }
 
-    if (bd->messageBytes < 40) {
+    if (bd->messageBytes < GRH_SIZE) {
         LOG(ERROR, "received packet without GRH!");
         driver->packetBufPool.destroy(buffer);
     } else {
         LOG(DEBUG, "received %u byte packet (not including GRH) from %s",
-            bd->messageBytes - 40,
+            bd->messageBytes - GRH_SIZE,
             buffer->infAddress->toString().c_str());
 
         // copy from the infiniband buffer into our dynamically allocated
         // buffer.
-        memcpy(buffer->payload, bd->buffer + 40, bd->messageBytes - 40);
+        memcpy(buffer->payload,
+               bd->buffer + GRH_SIZE,
+               bd->messageBytes - GRH_SIZE);
 
         driver->packetBufsUtilized++;
         Received received;
         received.payload = buffer->payload;
-        received.len = bd->messageBytes - 40;
+        received.len = bd->messageBytes - GRH_SIZE;
         received.sender = buffer->infAddress.get();
         received.driver = driver;
         (*driver->incomingPacketHandler)(&received);

@@ -48,9 +48,6 @@ class InfUdDriver : public Driver {
     typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
-    /// The maximum number bytes we can stuff in a UDP packet payload.
-    static const uint32_t MAX_PAYLOAD_SIZE = 1024;
-
     explicit InfUdDriver(const ServiceLocator* localServiceLocator = NULL);
     virtual ~InfUdDriver();
     virtual void connect(IncomingPacketHandler* incomingPacketHandler);
@@ -76,6 +73,11 @@ class InfUdDriver : public Driver {
     static const uint32_t MAX_RX_SGE_COUNT = 1;
     static const uint32_t MAX_TX_SGE_COUNT = 1;
     static const uint32_t QKEY = 0xdeadbeef;
+    // see comment at top of src/InfUdDriver.cc
+    static const uint32_t GRH_SIZE = 40;
+    /// The maximum number bytes we can stuff in an Infiniband packet payload.
+    static const uint32_t MAX_PAYLOAD_SIZE = 2048 - GRH_SIZE;
+
 
     /**
      * Structure to hold an incoming packet.
