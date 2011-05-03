@@ -37,7 +37,8 @@ class MockSyscall : public Syscall {
                     connectErrno(0), epollCreateErrno(0), epollCtlErrno(0),
                     epollWaitCount(-1), epollWaitEvents(NULL),
                     epollWaitErrno(0),
-                    fcntlErrno(0), listenErrno(0),
+                    fcntlErrno(0), futexWaitErrno(0), futexWakeErrno(0),
+                    listenErrno(0),
                     pipeErrno(0), recvErrno(0), recvEof(false),
                     recvfromErrno(0), recvfromEof(false),
                     sendmsgErrno(0), sendmsgReturnCount(-1),
@@ -125,6 +126,27 @@ class MockSyscall : public Syscall {
             return ::fcntl(fd, cmd, arg1);
         }
         errno = fcntlErrno;
+        return -1;
+    }
+
+    int futexWaitErrno;
+    long futexWait(int *addr, int value) {
+        if (futexWaitErrno == 0) {
+            return ::syscall(SYS_futex, addr, FUTEX_WAIT, value,
+                    NULL, NULL, 0);
+        }
+        errno = futexWaitErrno;
+        futexWaitErrno = 0;
+        return -1;
+    }
+
+    int futexWakeErrno;
+    long futexWake(int *addr, int count) {
+        if (futexWakeErrno == 0) {
+            return ::syscall(SYS_futex, addr, FUTEX_WAKE, count,
+                    NULL, NULL, 0);
+        }
+        errno = futexWakeErrno;
         return -1;
     }
 
