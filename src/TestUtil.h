@@ -26,14 +26,12 @@
 #include <gtest/gtest.h>
 #include <regex.h>
 
-// These need to be defined before Common.h is included.
-// Uppercase versions are all defined to 'public' for white-box tests.
+// Arrange for private and protected structure members to be public so they
+// can easily be accessed by gtest tests (see Common.h for details).
 #ifdef RAMCLOUD_COMMON_H
 #error "TestUtil.h must be included before Common.h"
 #endif
-#define PRIVATE public
-#define PROTECTED public
-#define PUBLIC public
+#define EXPOSE_PRIVATES
 
 #include "Common.h"
 #include "Buffer.h"
