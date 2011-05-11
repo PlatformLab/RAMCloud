@@ -21,12 +21,11 @@
 #ifndef RAMCLOUD_INFUDDRIVER_H
 #define RAMCLOUD_INFUDDRIVER_H
 
-#include <boost/pool/object_pool.hpp>
-
 #include "Common.h"
 #include "Dispatch.h"
 #include "Driver.h"
 #include "Infiniband.h"
+#include "ObjectPool.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -107,7 +106,7 @@ class InfUdDriver : public Driver {
 
     /// Holds packet buffers that are no longer in use, for use any future
     /// requests; saves the overhead of calling malloc/free for each request.
-    boost::object_pool<PacketBuf> packetBufPool;
+    ObjectPool<PacketBuf> packetBufPool;
 
     /// Number of current allocations from packetBufPool.
     uint64_t            packetBufsUtilized;

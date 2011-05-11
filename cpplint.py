@@ -153,6 +153,7 @@ _ERROR_CATEGORIES = '''\
   ramcloud/include
   ramcloud/cppunit
   ramcloud/random
+  ramcloud/object_pool
   build/class
   build/deprecated
   build/endif_comment
@@ -2458,6 +2459,11 @@ def CheckLanguage(filename, clean_lines, linenum, file_extension, include_state,
       not Search(r'\bNOLINT\b', line)):
       error(filename, linenum, 'ramcloud/random', 5,
             'Use generateRandom() rather than random(), rand(), etc')
+
+  if (Search(r'\bboost::object_pool\b', line) and
+      not Search(r'\bNOLINT\b', line)):
+      error(filename, linenum, 'ramcloud/object_pool', 5,
+            'Use RAMCloud::ObjectPool rather than boost::object_pool')
 
   # Check if some verboten operator overloading is going on
   # TODO(unknown): catch out-of-line unary operator&:
