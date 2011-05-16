@@ -927,26 +927,11 @@ BackupServer::getServerId() const
     return serverId;
 }
 
-/**
- * Accept and dispatch RPCs until the end of time.
- */
-void __attribute__ ((noreturn))
-BackupServer::run()
-{
-    auto speeds = storage.benchmark(config.backupStrategy);
-    serverId = coordinator.enlistServer(BACKUP, config.localLocator,
-                                        speeds.first, speeds.second);
-    LOG(NOTICE, "My server ID is %lu", serverId);
-    while (true)
-        handleRpc<BackupServer>();
-}
-
 // - private -
 
 // See Server::dispatch.
 void
-BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
-                       Responder& responder)
+BackupServer::dispatch(RpcType type, Rpc& rpc)
 {
     switch (type) {
         case BackupFreeRpc::type:
@@ -958,8 +943,8 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
                         &BackupServer::getRecoveryData>(rpc);
             break;
         case PingRpc::type:
-            callHandler<PingRpc, Server,
-                        &Server::ping>(rpc);
+            callHandler<PingRpc, Service,
+                        &Service::ping>(rpc);
             break;
         case BackupQuiesceRpc::type:
             callHandler<BackupQuiesceRpc, BackupServer,
@@ -967,11 +952,11 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             break;
         case BackupRecoveryCompleteRpc::type:
             callHandler<BackupRecoveryCompleteRpc, BackupServer,
-                        &BackupServer::recoveryComplete>(rpc, responder);
+                        &BackupServer::recoveryComplete>(rpc);
             break;
         case BackupStartReadingDataRpc::type:
             callHandler<BackupStartReadingDataRpc, BackupServer,
-                        &BackupServer::startReadingData>(rpc, responder);
+                        &BackupServer::startReadingData>(rpc);
             break;
         case BackupWriteRpc::type:
             callHandler<BackupWriteRpc, BackupServer,
@@ -1001,7 +986,7 @@ BackupServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
 void
 BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
                           BackupFreeRpc::Response& respHdr,
-                          Transport::ServerRpc& rpc)
+                          Rpc& rpc)
 {
     LOG(DEBUG, "Handling: %lu %lu", reqHdr.masterId, reqHdr.segmentId);
 
@@ -1062,7 +1047,7 @@ BackupServer::findSegmentInfo(uint64_t masterId, uint64_t segmentId)
 void
 BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                               BackupGetRecoveryDataRpc::Response& respHdr,
-                              Transport::ServerRpc& rpc)
+                              Rpc& rpc)
 {
     LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
         reqHdr.masterId, reqHdr.segmentId, reqHdr.partitionId);
@@ -1093,7 +1078,7 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 void
 BackupServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
                       BackupQuiesceRpc::Response& respHdr,
-                      Transport::ServerRpc& rpc)
+                      Rpc& rpc)
 {
     ioScheduler.quiesce();
 }
@@ -1106,17 +1091,14 @@ BackupServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
  *      Header for the Rpc response.
  * \param rpc
  *      The Rpc being serviced.
- * \param responder
- *      Functor to respond to the RPC before returning from this method.
  */
 void
 BackupServer::recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
                                BackupRecoveryCompleteRpc::Response& respHdr,
-                               Transport::ServerRpc& rpc,
-                               Responder& responder)
+                               Rpc& rpc)
 {
     LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
-    responder();
+    rpc.sendReply();
     recoveryTicks.destroy();
     dump(metrics);
 }
@@ -1167,14 +1149,11 @@ randomNumberGenerator(uint32_t n)
  * \param rpc
  *      The Rpc being serviced.  A back-to-back list of uint64_t segmentIds
  *      follows the respHdr in this buffer of length respHdr->segmentIdCount.
- * \param responder
- *      Functor to respond to the RPC before returning from this method.
  */
 void
 BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                                BackupStartReadingDataRpc::Response& respHdr,
-                               Transport::ServerRpc& rpc,
-                               Responder& responder)
+                               Rpc& rpc)
 {
     LOG(DEBUG, "Handling: %lu", reqHdr.masterId);
     recoveryTicks.construct(&metrics->recoveryTicks);
@@ -1264,7 +1243,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
         LOG(DEBUG, "Sent %u bytes of LogDigest to coord", respHdr.digestBytes);
     }
 
-    responder();
+    rpc.sendReply();
     srdTicks.stop();
 
 #ifndef SINGLE_THREADED_BACKUP
@@ -1314,7 +1293,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
 void
 BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
                            BackupWriteRpc::Response& respHdr,
-                           Transport::ServerRpc& rpc)
+                           Rpc& rpc)
 {
     CycleCounter<Metric> _(&metrics->backup.writeTicks);
     uint64_t masterId = reqHdr.masterId;

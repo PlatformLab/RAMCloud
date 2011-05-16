@@ -21,8 +21,9 @@
 #include "BackupServer.h"
 #include "BackupStorage.h"
 #include "OptionParser.h"
-#include "TransportManager.h"
 #include "Segment.h"
+#include "ServiceManager.h"
+#include "TransportManager.h"
 
 /**
  * Instantiates a backup server.
@@ -92,9 +93,11 @@ try
                                             backupFile.c_str(),
                                             O_DIRECT | O_SYNC));
 
-    BackupServer server(config, *storage);
-    server.run();
-
+    BackupServer service(config, *storage);
+    ServiceManager manager(&service);
+    while (true) {
+        Dispatch::poll();
+    }
     return 0;
 } catch (std::exception& e) {
     using namespace RAMCloud;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -231,7 +231,8 @@ class InfRcTransport : public Transport {
     ibv_cq*      commonTxCq;        // common completion queue for all transmits
     int          ibPhysicalPort;    // physical port number on the HCA
     int          lid;               // local id for this HCA and physical port
-    int          serverSetupSocket; // UDP socket for incoming setup requests
+    int          serverSetupSocket; // UDP socket for incoming setup requests;
+                                    // -1 means we're not a server
     int          clientSetupSocket; // UDP socket for outgoing setup requests
 
     // ibv_wc.qp_num to QueuePair* lookup used to look up the QueuePair given

@@ -14,6 +14,7 @@
  */
 
 #include "FastTransport.h"
+#include "ServiceManager.h"
 
 namespace RAMCloud {
 
@@ -1286,7 +1287,7 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
         break;
     case ServerChannel::RECEIVING:
         if (channel->inboundMsg.processReceivedData(received)) {
-            transport->serverReadyQueue.push_back(channel->currentRpc);
+            ServiceManager::handleRpc(&channel->currentRpc);
             channel->state = ServerChannel::PROCESSING;
         }
         break;

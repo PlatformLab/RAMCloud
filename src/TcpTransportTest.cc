@@ -14,8 +14,9 @@
  */
 
 #include "TestUtil.h"
-#include "TcpTransport.h"
 #include "MockSyscall.h"
+#include "ServiceManager.h"
+#include "TcpTransport.h"
 #include "Tub.h"
 
 namespace RAMCloud {
@@ -60,21 +61,29 @@ class TcpTransportTest : public CppUnit::TestFixture {
 
     ServiceLocator* locator;
     MockSyscall* sys;
+    Syscall* savedSyscall;
     TestLog::Enable* logEnabler;
+    ServiceManager* serviceManager;
 
-    TcpTransportTest() : locator(NULL), sys(NULL), logEnabler(NULL)
+    TcpTransportTest()
+            : locator(NULL), sys(NULL), savedSyscall(NULL), logEnabler(NULL),
+              serviceManager(NULL)
     {}
 
     void setUp() {
         locator = new ServiceLocator("tcp+ip: host=localhost, port=11000");
         sys = new MockSyscall();
+        savedSyscall = TcpTransport::sys;
         TcpTransport::sys = sys;
         logEnabler = new TestLog::Enable();
+        serviceManager = new ServiceManager(NULL);
     }
 
     void tearDown() {
+        delete serviceManager;
         delete locator;
         delete sys;
+        TcpTransport::sys = savedSyscall;
         delete logEnabler;
     }
 
@@ -100,6 +109,17 @@ class TcpTransportTest : public CppUnit::TestFixture {
         return fd;
     }
 
+    // Return a count of the number of complete RPC requests waiting
+    // for service (also, discard all of these requests).
+    int countWaitingRequests()
+    {
+        int result = 0;
+        while (serviceManager->waitForRpc(0.0) != NULL) {
+            result++;
+        }
+        return result;
+    }
+
     void test_sanityCheck() {
         // Create a server and a client and verify that we can
         // send a request, receive it, send a reply, and receive it.
@@ -114,7 +134,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         request.fillFromString("abcdefg");
         Transport::ClientRpc* clientRpc = session->clientSend(&request,
                 &reply);
-        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
+        Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
         CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
@@ -127,7 +147,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         request.fillFromString("request2");
         reply.reset();
         clientRpc = session->clientSend(&request, &reply);
-        serverRpc = waitForRpcRequest(&server, 1.0);
+        serverRpc = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("request2/0", toString(&serverRpc->recvPayload));
         serverRpc->replyPayload.fillFromString("reply2");
@@ -190,9 +210,9 @@ class TcpTransportTest : public CppUnit::TestFixture {
                 &reply1);
         Transport::ClientRpc* clientRpc2 = session2->clientSend(&request2,
                 &reply2);
-        Transport::ServerRpc* serverRpc1 = waitForRpcRequest(server, 1.0);
+        Transport::ServerRpc* serverRpc1 = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc1 != NULL);
-        Transport::ServerRpc* serverRpc2 = waitForRpcRequest(server, 1.0);
+        Transport::ServerRpc* serverRpc2 = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc2 != NULL);
         CPPUNIT_ASSERT_EQUAL("request1/0", toString(&serverRpc1->recvPayload));
         CPPUNIT_ASSERT_EQUAL("request2/0", toString(&serverRpc2->recvPayload));
@@ -263,11 +283,11 @@ class TcpTransportTest : public CppUnit::TestFixture {
         if (server.sockets[serverFd]->rpc == 0) {
             CPPUNIT_FAIL("no rpc object allocated");
         }
-        CPPUNIT_ASSERT_EQUAL(0, server.waitingRequests.size());
+        CPPUNIT_ASSERT_EQUAL(0, countWaitingRequests());
 
         CPPUNIT_ASSERT_EQUAL(6, write(fd, "abcdef", 6));
         server.sockets[serverFd]->readHandler();
-        CPPUNIT_ASSERT_EQUAL(1, server.waitingRequests.size());
+        CPPUNIT_ASSERT_EQUAL(1, countWaitingRequests());
 
         close(fd);
     }
@@ -332,7 +352,7 @@ class TcpTransportTest : public CppUnit::TestFixture {
         Buffer::Chunk::appendToBuffer(&payload, "12345678", 8);
         TcpTransport::sendMessage(fd, payload);
 
-        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
+        Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("abcdexxx12345678",
                 toString(&serverRpc->recvPayload));

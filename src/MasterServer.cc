@@ -23,12 +23,9 @@
 #include "Metrics.h"
 #include "Tub.h"
 #include "ProtoBuf.h"
-#include "RecoverySegmentIterator.h"
 #include "Rpc.h"
 #include "Segment.h"
-#include "SegmentIterator.h"
 #include "Transport.h"
-#include "TransportManager.h"
 #include "Will.h"
 
 namespace RAMCloud {
@@ -80,8 +77,7 @@ MasterServer::~MasterServer()
 }
 
 void
-MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
-                       Responder& responder)
+MasterServer::dispatch(RpcType type, Rpc& rpc)
 {
     switch (type) {
         case CreateRpc::type:
@@ -102,7 +98,7 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
             break;
         case RecoverRpc::type:
             callHandler<RecoverRpc, MasterServer,
-                        &MasterServer::recover>(rpc, responder);
+                        &MasterServer::recover>(rpc);
             break;
         case RemoveRpc::type:
             callHandler<RemoveRpc, MasterServer,
@@ -125,8 +121,13 @@ MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
     }
 }
 
-void __attribute__ ((noreturn))
-MasterServer::run()
+
+/**
+ * Make connections with the coordinator and backups, so that the service
+ * is ready to begin handling requests.
+ */
+void
+MasterServer::init()
 {
     // Permit a NULL coordinator for testing/benchmark purposes.
     if (coordinator) {
@@ -142,8 +143,6 @@ MasterServer::run()
                                                      config.localLocator));
         LOG(NOTICE, "My server ID is %lu", *serverId);
     }
-    while (true)
-        handleRpc<MasterServer>();
 }
 
 /**
@@ -155,7 +154,7 @@ MasterServer::run()
 void
 MasterServer::create(const CreateRpc::Request& reqHdr,
                      CreateRpc::Response& respHdr,
-                     Transport::ServerRpc& rpc)
+                     Rpc& rpc)
 {
     Table& t(getTable(reqHdr.tableId, ~0UL));
     uint64_t id = t.AllocateKey(&objectMap);
@@ -179,7 +178,7 @@ MasterServer::create(const CreateRpc::Request& reqHdr,
 void
 MasterServer::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
                                FillWithTestDataRpc::Response& respHdr,
-                               Transport::ServerRpc& rpc)
+                               Rpc& rpc)
 {
     LOG(NOTICE, "Filling with %u objects of %u bytes each in %u tablets",
         reqHdr.numObjects, reqHdr.objectSize, tablets.tablet_size());
@@ -229,12 +228,12 @@ MasterServer::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
 void
 MasterServer::ping(const PingRpc::Request& reqHdr,
                    PingRpc::Response& respHdr,
-                   Transport::ServerRpc& rpc)
+                   Rpc& rpc)
 {
     LOG(NOTICE, "Bytes written: %lu", bytesWritten);
     LOG(NOTICE, "Bytes logged : %lu", log.getBytesAppended());
 
-    Server::ping(reqHdr, respHdr, rpc);
+    Service::ping(reqHdr, respHdr, rpc);
 }
 
 /**
@@ -244,7 +243,7 @@ MasterServer::ping(const PingRpc::Request& reqHdr,
 void
 MasterServer::read(const ReadRpc::Request& reqHdr,
                    ReadRpc::Response& respHdr,
-                   Transport::ServerRpc& rpc)
+                   Rpc& rpc)
 {
     // We must throw an exception if the table does not exist. Also, we might
     // have an entry in the hash table that's invalid because its tablet no
@@ -781,14 +780,11 @@ MasterServer::recover(uint64_t masterId,
 /**
  * Top-level server method to handle the RECOVER request.
  * \copydetails Server::ping
- * \param responder
- *      Functor to respond to the RPC before returning from this method.
  */
 void
 MasterServer::recover(const RecoverRpc::Request& reqHdr,
                       RecoverRpc::Response& respHdr,
-                      Transport::ServerRpc& rpc,
-                      Responder& responder)
+                      Rpc& rpc)
 {
     {
         CycleCounter<Metric> recoveryTicks(&metrics->recoveryTicks);
@@ -808,7 +804,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
                                     backups);
         LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
             recoveryTablets.tablet_size(), *serverId);
-        responder();
+        rpc.sendReply();
 
         // reqHdr, respHdr, and rpc are off-limits now
 
@@ -1086,7 +1082,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 void
 MasterServer::remove(const RemoveRpc::Request& reqHdr,
                      RemoveRpc::Response& respHdr,
-                     Transport::ServerRpc& rpc)
+                     Rpc& rpc)
 {
     Table& t(getTable(reqHdr.tableId, reqHdr.id));
     LogEntryHandle handle = objectMap.lookup(reqHdr.tableId, reqHdr.id);
@@ -1133,7 +1129,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 void
 MasterServer::rereplicateSegments(const RereplicateSegmentsRpc::Request& reqHdr,
                                   RereplicateSegmentsRpc::Response& respHdr,
-                                  Transport::ServerRpc& rpc)
+                                  Rpc& rpc)
 {
     const uint64_t failedBackupId = reqHdr.backupId;
     LOG(NOTICE, "Backup %lu failed, rereplicating segments elsewhere",
@@ -1201,7 +1197,7 @@ MasterServer::setTablets(const ProtoBuf::Tablets& newTablets)
 void
 MasterServer::setTablets(const SetTabletsRpc::Request& reqHdr,
                          SetTabletsRpc::Response& respHdr,
-                         Transport::ServerRpc& rpc)
+                         Rpc& rpc)
 {
     ProtoBuf::Tablets newTablets;
     ProtoBuf::parseFromRequest(rpc.recvPayload, sizeof(reqHdr),
@@ -1216,7 +1212,7 @@ MasterServer::setTablets(const SetTabletsRpc::Request& reqHdr,
 void
 MasterServer::write(const WriteRpc::Request& reqHdr,
                     WriteRpc::Response& respHdr,
-                    Transport::ServerRpc& rpc)
+                    Rpc& rpc)
 {
     storeData(reqHdr.tableId, reqHdr.id,
               &reqHdr.rejectRules, &rpc.recvPayload, sizeof(reqHdr),

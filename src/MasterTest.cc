@@ -123,16 +123,16 @@ class MasterTest : public CppUnit::TestFixture {
         transport = new BindTransport();
         transportManager.registerMock(transport);
         coordinatorServer = new CoordinatorServer();
-        transport->addServer(*coordinatorServer, "mock:host=coordinator");
+        transport->addService(*coordinatorServer, "mock:host=coordinator");
         coordinator = new CoordinatorClient("mock:host=coordinator");
 
         storage = new InMemoryStorage(segmentSize, segmentFrames);
         backupServer = new BackupServer(backupConfig, *storage);
-        transport->addServer(*backupServer, "mock:host=backup1");
+        transport->addService(*backupServer, "mock:host=backup1");
         coordinator->enlistServer(BACKUP, "mock:host=backup1");
 
         server = new MasterServer(config, coordinator, 1);
-        transport->addServer(*server, "mock:host=master");
+        transport->addService(*server, "mock:host=master");
         server->serverId.construct(
             coordinator->enlistServer(MASTER, config.localLocator));
         client =
@@ -364,7 +364,7 @@ class MasterTest : public CppUnit::TestFixture {
 
         InMemoryStorage storage2{segmentSize, segmentFrames};
         BackupServer backupServer2{backupConfig, *storage};
-        transport->addServer(backupServer2, "mock:host=backup2");
+        transport->addService(backupServer2, "mock:host=backup2");
         coordinator->enlistServer(BACKUP, "mock:host=backup2");
 
         ProtoBuf::Tablets tablets;
@@ -948,7 +948,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         config->coordinatorLocator = "mock:host=coordinator";
 
         coordinatorServer = new CoordinatorServer;
-        transport->addServer(*coordinatorServer, config->coordinatorLocator);
+        transport->addService(*coordinatorServer, config->coordinatorLocator);
 
         coordinator = new CoordinatorClient(config->coordinatorLocator.c_str());
 
@@ -958,8 +958,8 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         backupServer1 = new BackupServer(*config, *storage1);
         backupServer2 = new BackupServer(*config, *storage2);
 
-        transport->addServer(*backupServer1, "mock:host=backup1");
-        transport->addServer(*backupServer2, "mock:host=backup2");
+        transport->addService(*backupServer1, "mock:host=backup1");
+        transport->addService(*backupServer2, "mock:host=backup2");
 
         if (enlist) {
             coordinator->enlistServer(BACKUP, "mock:host=backup1");

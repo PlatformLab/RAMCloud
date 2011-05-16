@@ -84,10 +84,9 @@ void convertChar(char c, string *out);
 string bufferToDebugString(Buffer* buffer);
 string checkLargeBuffer(Buffer* buffer, int expectedLength);
 void fillLargeBuffer(Buffer* buffer, int size);
+const char *getStatus(Buffer* buffer);
 string toString(const char *buf, uint32_t length);
 string toString(Buffer* buffer);
-Transport::ServerRpc* waitForRpcRequest(Transport* transport,
-        double timeoutSeconds);
 
 struct ProgressPoller : public Dispatch::Poller {
     bool operator()() {

@@ -38,7 +38,7 @@
 #include "LogTypes.h"
 #include "Metrics.h"
 #include "Rpc.h"
-#include "Server.h"
+#include "Service.h"
 
 namespace RAMCloud {
 
@@ -52,7 +52,7 @@ Tub<uint64_t> whichPartition(const LogEntryType type,
  * Handles Rpc requests from Masters and the Coordinator to persistently store
  * Segments and to facilitate the recovery of object data when Masters crash.
  */
-class BackupServer : public Server {
+class BackupServer : public Service {
   PRIVATE:
 
     typedef std::atomic_int AtomicInt;
@@ -481,36 +481,31 @@ class BackupServer : public Server {
     explicit BackupServer(const Config& config,
                           BackupStorage& storage);
     virtual ~BackupServer();
-    void dispatch(RpcType type,
-                  Transport::ServerRpc& rpc,
-                  Responder& responder);
+    void dispatch(RpcType type, Rpc& rpc);
     uint64_t getServerId() const;
-    void run();
 
   PRIVATE:
     void freeSegment(const BackupFreeRpc::Request& reqHdr,
                      BackupFreeRpc::Response& respHdr,
-                     Transport::ServerRpc& rpc);
+                     Rpc& rpc);
     SegmentInfo* findSegmentInfo(uint64_t masterId, uint64_t segmentId);
     void getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
                          BackupGetRecoveryDataRpc::Response& respHdr,
-                         Transport::ServerRpc& rpc);
+                         Rpc& rpc);
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,
-                 Transport::ServerRpc& rpc);
+                 Rpc& rpc);
     void recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
                          BackupRecoveryCompleteRpc::Response& respHdr,
-                         Transport::ServerRpc& rpc,
-                         Responder& responder);
+                         Rpc& rpc);
     static bool segmentInfoLessThan(SegmentInfo* left,
                                     SegmentInfo* right);
     void startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
                           BackupStartReadingDataRpc::Response& respHdr,
-                          Transport::ServerRpc& rpc,
-                          Responder& responder);
+                          Rpc& rpc);
     void writeSegment(const BackupWriteRpc::Request& req,
                       BackupWriteRpc::Response& resp,
-                      Transport::ServerRpc& rpc);
+                      Rpc& rpc);
 
     /// Settings passed to the constructor
     const Config& config;

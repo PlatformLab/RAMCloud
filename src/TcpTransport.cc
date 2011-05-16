@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "ServiceManager.h"
 #include "TcpTransport.h"
 
 namespace RAMCloud {
@@ -234,9 +235,8 @@ TcpTransport::RequestReadHandler::operator() ()
             return;
         }
         if (socket->rpc->message.readMessage(fd)) {
-            // The incoming request is complete; make it available
-            // for servicing.
-            transport->waitingRequests.push(socket->rpc);
+            // The incoming request is complete; pass it off for servicing.
+            ServiceManager::handleRpc(socket->rpc);
             socket->rpc = NULL;
             socket->busy = true;
         }

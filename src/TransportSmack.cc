@@ -72,7 +72,7 @@
 #include "Common.h"
 #include "OptionParser.h"
 #include "Rpc.h"
-#include "Server.h"
+#include "Service.h"
 #include "ServiceLocator.h"
 #include "TransportManager.h"
 
@@ -336,32 +336,26 @@ struct Do : public Test {
 };
 
 /// RPC server for server side of tests.
-class TSServer : public Server {
+class TSService : public Service {
   public:
-    TSServer() {}
-    void dispatch(RpcType type,
-                  Transport::ServerRpc& rpc,
-                  Responder& responder) {
+    TSService() {}
+    void dispatch(RpcType type, Rpc& rpc) {
         switch (type) {
             case EchoRpc::type:
-                callHandler<EchoRpc, TSServer, &TSServer::echo>(rpc);
+                callHandler<EchoRpc, TSService, &TSService::echo>(rpc);
                 break;
             case RemoteRpc::type:
-                callHandler<RemoteRpc, TSServer, &TSServer::remote>(rpc);
+                callHandler<RemoteRpc, TSService, &TSService::remote>(rpc);
                 break;
             default:
                 throw UnimplementedRequestError(HERE);
         }
     }
-    void run() {
-        while (true)
-            handleRpc<TSServer>();
-    }
 
   private:
     void echo(const EchoRpc::Request& reqHdr,
               EchoRpc::Response& respHdr,
-              Transport::ServerRpc& rpc) {
+              Rpc& rpc) {
         spin(reqHdr.spinNs);
         Buffer::Iterator iter(rpc.recvPayload, sizeof(reqHdr), ~0U);
         while (!iter.isDone()) {
@@ -376,13 +370,14 @@ class TSServer : public Server {
     }
     void remote(const RemoteRpc::Request& reqHdr,
               RemoteRpc::Response& respHdr,
-              Transport::ServerRpc& rpc) {
-        const char* command = getString(rpc.recvPayload, sizeof(reqHdr),
-                                        reqHdr.commandLength);
+              Rpc& rpc) {
+        const char* command = Service::getString(rpc.recvPayload,
+                                                 sizeof(reqHdr),
+                                                 reqHdr.commandLength);
         Do(command).startWait();
     }
 
-    DISALLOW_COPY_AND_ASSIGN(TSServer);
+    DISALLOW_COPY_AND_ASSIGN(TSService);
 };
 
 } // anonymous namespace
@@ -423,7 +418,12 @@ main(int argc, char *argv[])
                 "Running TransportSmack server, listening on %s",
                 localLocator.c_str());
             transportManager.initialize(localLocator.c_str());
-            TSServer().run();
+
+            TSService service;
+            ServiceManager manager(&service);
+            while (true) {
+                Dispatch::poll();
+            }
         }
 
         return 0;

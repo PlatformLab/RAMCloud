@@ -161,7 +161,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         config->coordinatorLocator = "mock:host=coordinator";
 
         coordinatorServer = new CoordinatorServer;
-        transport->addServer(*coordinatorServer, config->coordinatorLocator);
+        transport->addService(*coordinatorServer, config->coordinatorLocator);
 
         coordinator = new CoordinatorClient(config->coordinatorLocator.c_str());
 
@@ -173,9 +173,9 @@ class RecoveryTest : public CppUnit::TestFixture {
         backupServer2 = new BackupServer(*config, *storage2);
         backupServer3 = new BackupServer(*config, *storage3);
 
-        transport->addServer(*backupServer1, "mock:host=backup1");
-        transport->addServer(*backupServer2, "mock:host=backup2");
-        transport->addServer(*backupServer3, "mock:host=backup3");
+        transport->addService(*backupServer1, "mock:host=backup1");
+        transport->addService(*backupServer2, "mock:host=backup2");
+        transport->addService(*backupServer3, "mock:host=backup3");
 
         if (enlist) {
             coordinator->enlistServer(BACKUP, "mock:host=backup1");
@@ -405,7 +405,7 @@ class RecoveryTest : public CppUnit::TestFixture {
             config.localLocator = locator;
             MasterServer::sizeLogAndHashTable("64", "8", &config);
             master = new MasterServer(config, &coordinator, 0);
-            transport.addServer(*master, locator);
+            transport.addService(*master, locator);
             master->serverId.construct(
                 coordinator.enlistServer(MASTER, locator));
         }

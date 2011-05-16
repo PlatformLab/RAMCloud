@@ -99,9 +99,9 @@ class BackupServerTest : public CppUnit::TestFixture {
         transport = new BindTransport();
         transportManager.registerMock(transport);
         coordinatorServer = new CoordinatorServer();
-        transport->addServer(*coordinatorServer, "mock:host=coordinator");
+        transport->addService(*coordinatorServer, "mock:host=coordinator");
         backup = new BackupServer(*config, *storage);
-        transport->addServer(*backup, "mock:host=backup");
+        transport->addService(*backup, "mock:host=backup");
         client =
             new BackupClient(transportManager.getSession("mock:host=backup"));
     }

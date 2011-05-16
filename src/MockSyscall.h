@@ -147,6 +147,7 @@ class MockSyscall : public Syscall {
                     NULL, NULL, 0);
         }
         errno = futexWakeErrno;
+        futexWakeErrno = 0;
         return -1;
     }
 

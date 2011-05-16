@@ -45,7 +45,8 @@ class MockTransport : public Transport {
 
     class MockServerRpc : public ServerRpc {
         public:
-            explicit MockServerRpc(MockTransport* transport);
+            explicit MockServerRpc(MockTransport* transport,
+                                   const char* message);
             void sendReply();
         private:
             MockTransport* transport;

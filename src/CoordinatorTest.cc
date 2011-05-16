@@ -63,13 +63,13 @@ class CoordinatorTest : public CppUnit::TestFixture {
         transportManager.registerMock(transport);
         server = new CoordinatorServer();
         server->nextServerId = 2;
-        transport->addServer(*server, "mock:host=coordinator");
+        transport->addService(*server, "mock:host=coordinator");
         client = new CoordinatorClient("mock:host=coordinator");
         // need to add the master as a transport destinaton before it is
         // created because under BindTransport it must service an rpc
         // just after its constructor is completes
         master = static_cast<MasterServer*>(malloc(sizeof(MasterServer)));
-        transport->addServer(*master, "mock:host=master");
+        transport->addService(*master, "mock:host=master");
         master = new(master) MasterServer(masterConfig, client, 0);
         master->serverId.construct(
             client->enlistServer(MASTER, masterConfig.localLocator));
@@ -88,7 +88,7 @@ class CoordinatorTest : public CppUnit::TestFixture {
 
     void test_createTable() {
         MasterServer master2(masterConfig, NULL, 0);
-        transport->addServer(master2, "mock:host=master2");
+        transport->addService(master2, "mock:host=master2");
         client->enlistServer(MASTER, "mock:host=master2");
         // master is already enlisted
         client->createTable("foo");

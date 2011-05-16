@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -90,6 +90,7 @@
 #include "InfRcTransport.h"
 #include "IpAddress.h"
 #include "ServiceLocator.h"
+#include "ServiceManager.h"
 
 #define check_error_null(x, s)                              \
     do {                                                    \
@@ -185,6 +186,7 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
         if (bind(serverSetupSocket, &address.address,
           sizeof(address.address))) {
             close(serverSetupSocket);
+            serverSetupSocket = -1;
             LOG(ERROR, "failed to bind socket");
             throw TransportException(HERE, "socket failed");
         }
@@ -193,6 +195,7 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
             setNonBlocking(serverSetupSocket);
         } catch (...) {
             close(serverSetupSocket);
+            serverSetupSocket = -1;
             throw;
         }
 
@@ -885,7 +888,7 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
 
 /**
  * This method is invoked by the dispatcher's inner polling loop; it
- * checks for incoming RPC responses and processes any that are available.
+ * checks for incoming RPC requests and responses and processes them.
  *
  * \return
  *      True if we were able to do anything useful, false if there was
@@ -898,6 +901,8 @@ InfRcTransport<Infiniband>::Poller::operator() ()
     bool result = false;
     InfRcTransport* t = transport;
     ibv_wc wc;
+
+    // First check for responses to requests that we have made.
     while (t->infiniband->pollCompletionQueue(t->clientRxCq, 1, &wc) > 0) {
         CycleCounter<Metric> receiveTicks;
         BufferDescriptor *bd = reinterpret_cast<BufferDescriptor *>(wc.wr_id);
@@ -947,6 +952,46 @@ InfRcTransport<Infiniband>::Poller::operator() ()
                      header.nonce);
   next: { /* pass */ }
     }
+    
+    // Next, check for incoming RPC requests (assuming that we are a server).
+    if (t->serverSetupSocket >= 0) {
+        CycleCounter<Metric> receiveTicks;
+        if (t->infiniband->pollCompletionQueue(t->serverRxCq, 1, &wc) >= 1) {
+            if (t->queuePairMap.find(wc.qp_num) == t->queuePairMap.end()) {
+                LOG(ERROR, "failed to find qp_num in map");
+                goto done;
+            }
+
+            QueuePair *qp = t->queuePairMap[wc.qp_num];
+
+            BufferDescriptor* bd =
+                reinterpret_cast<BufferDescriptor*>(wc.wr_id);
+
+            if (wc.status != IBV_WC_SUCCESS) {
+                LOG(ERROR, "failed to receive rpc!");
+                t->postSrqReceiveAndKickTransmit(t->serverSrq, bd);
+                goto done;
+            }
+
+            Header& header(*reinterpret_cast<Header*>(bd->buffer));
+            ServerRpc *r = new ServerRpc(t, qp, header.nonce);
+            PayloadChunk::appendToBuffer(&r->recvPayload,
+                bd->buffer + downCast<uint32_t>(sizeof(header)),
+                wc.byte_len - downCast<uint32_t>(sizeof(header)),
+                t, t->serverSrq, bd);
+            LOG(DEBUG, "Received request with nonce %016lx", header.nonce);
+            ServiceManager::handleRpc(r);
+            result = true;
+            ++metrics->transport.receive.messageCount;
+            ++metrics->transport.receive.packetCount;
+            metrics->transport.receive.iovecCount +=
+                r->recvPayload.getNumberChunks();
+            metrics->transport.receive.byteCount +=
+                r->recvPayload.getTotalLength();
+            metrics->transport.receive.ticks += receiveTicks.stop();
+        }
+    }
+  done:
     return result;
 }
 

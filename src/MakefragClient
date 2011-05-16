@@ -30,6 +30,7 @@ CLIENT_SRCFILES := \
 		   src/OptionParser.cc \
 		   src/RamCloud.cc \
 		   src/ServiceLocator.cc \
+		   src/ServiceManager.cc \
 		   src/Status.cc \
 		   src/TcpTransport.cc \
 		   src/TimeCounter.cc \

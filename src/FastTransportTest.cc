@@ -17,6 +17,7 @@
 #include "MockDriver.h"
 #include "MockTransport.h"
 #include "FastTransport.h"
+#include "ServiceManager.h"
 #include "UdpDriver.h"
 
 namespace RAMCloud {
@@ -109,6 +110,7 @@ class FastTransportTest : public CppUnit::TestFixture {
     {
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(driver);
+        serviceManager = new ServiceManager(NULL);
 
         logger.setLogLevels(SILENT_LOG_LEVEL);
 
@@ -120,6 +122,7 @@ class FastTransportTest : public CppUnit::TestFixture {
     void
     tearDown()
     {
+        delete serviceManager;
         delete transport;
         FastTransport::timeoutCyclesOverride = 0;
         FastTransport::sessionTimeoutCyclesOverride = 0;
@@ -131,6 +134,7 @@ class FastTransportTest : public CppUnit::TestFixture {
         , driver(NULL)
         , address("1.2.3.4")
         , port(1234)
+        , serviceManager(NULL)
     {}
 
     void test_sanityCheck() {
@@ -151,7 +155,7 @@ class FastTransportTest : public CppUnit::TestFixture {
         request.fillFromString("abcdefg");
         Transport::ClientRpc* clientRpc = session->clientSend(&request,
                 &reply);
-        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
+        Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
         CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
@@ -164,7 +168,7 @@ class FastTransportTest : public CppUnit::TestFixture {
         fillLargeBuffer(&request, 100000);
         reply.reset();
         clientRpc = session->clientSend(&request, &reply);
-        serverRpc = waitForRpcRequest(&server, 1.0);
+        serverRpc = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("ok",
                 checkLargeBuffer(&serverRpc->recvPayload, 100000));
@@ -449,6 +453,7 @@ class FastTransportTest : public CppUnit::TestFixture {
     MockDriver* driver;
     const char* address;
     uint16_t port;
+    ServiceManager *serviceManager;
 
     DISALLOW_COPY_AND_ASSIGN(FastTransportTest);
 };
@@ -1386,6 +1391,7 @@ class ServerSessionTest: public CppUnit::TestFixture {
         , driverAddress(NULL)
         , address("1.2.3.4")
         , port(12345)
+        , serviceManager(NULL)
     {
     }
 
@@ -1398,11 +1404,13 @@ class ServerSessionTest: public CppUnit::TestFixture {
         session = new FastTransport::ServerSession(transport, sessionId);
         ServiceLocator sl("mock: host=1.2.3.4, port=12345");
         driverAddress = driver->newAddress(sl);
+        serviceManager = new ServiceManager(NULL);
     }
 
     void
     tearDown()
     {
+        delete serviceManager;
         delete driverAddress;
         delete session;
         delete transport;
@@ -1654,7 +1662,7 @@ class ServerSessionTest: public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("first | last",
                              bufferToDebugString(&recvBuffer));
         CPPUNIT_ASSERT_EQUAL(&channel->currentRpc,
-                             &transport->serverReadyQueue.back());
+                             serviceManager->waitForRpc(0));
         CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::
                              ServerChannel::PROCESSING,
                              session->channels[0].state);
@@ -1686,6 +1694,7 @@ class ServerSessionTest: public CppUnit::TestFixture {
     Driver::Address* driverAddress;
     const char* address;
     const uint16_t port;
+    ServiceManager *serviceManager;
 
     DISALLOW_COPY_AND_ASSIGN(ServerSessionTest);
 };

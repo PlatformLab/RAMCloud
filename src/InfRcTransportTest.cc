@@ -15,6 +15,7 @@
 
 #include "TestUtil.h"
 #include "InfRcTransport.h"
+#include "ServiceManager.h"
 
 namespace RAMCloud {
 
@@ -25,15 +26,18 @@ class InfRcTransportTest : public CppUnit::TestFixture {
 
   public:
     ServiceLocator* locator;
+    ServiceManager* serviceManager;
 
-    InfRcTransportTest() : locator(NULL)
+    InfRcTransportTest() : locator(NULL), serviceManager(NULL)
     {}
 
     void setUp() {
         locator = new ServiceLocator("infrc: host=localhost, port=11000");
+        serviceManager = new ServiceManager(NULL);
     }
 
     void tearDown() {
+        delete serviceManager;
         delete locator;
     }
 
@@ -51,7 +55,7 @@ class InfRcTransportTest : public CppUnit::TestFixture {
         request.fillFromString("abcdefg");
         Transport::ClientRpc* clientRpc = session->clientSend(&request,
                 &reply);
-        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
+        Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
         CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
@@ -64,7 +68,7 @@ class InfRcTransportTest : public CppUnit::TestFixture {
         fillLargeBuffer(&request, 100000);
         reply.reset();
         clientRpc = session->clientSend(&request, &reply);
-        serverRpc = waitForRpcRequest(&server, 1.0);
+        serverRpc = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("ok",
                 checkLargeBuffer(&serverRpc->recvPayload, 100000));

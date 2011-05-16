@@ -43,16 +43,8 @@ CoordinatorServer::~CoordinatorServer()
 }
 
 void
-CoordinatorServer::run()
-{
-    while (true)
-        handleRpc<CoordinatorServer>();
-}
-
-void
 CoordinatorServer::dispatch(RpcType type,
-                            Transport::ServerRpc& rpc,
-                            Responder& responder)
+                            Rpc& rpc)
 {
     switch (type) {
         case CreateTableRpc::type:
@@ -81,7 +73,7 @@ CoordinatorServer::dispatch(RpcType type,
             break;
         case HintServerDownRpc::type:
             callHandler<HintServerDownRpc, CoordinatorServer,
-                        &CoordinatorServer::hintServerDown>(rpc, responder);
+                        &CoordinatorServer::hintServerDown>(rpc);
             break;
         case TabletsRecoveredRpc::type:
             callHandler<TabletsRecoveredRpc, CoordinatorServer,
@@ -111,7 +103,7 @@ CoordinatorServer::dispatch(RpcType type,
 void
 CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
                                CreateTableRpc::Response& respHdr,
-                               Transport::ServerRpc& rpc)
+                               Rpc& rpc)
 {
     if (masterList.server_size() == 0)
         throw RetryException(HERE);
@@ -173,7 +165,7 @@ CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
 void
 CoordinatorServer::dropTable(const DropTableRpc::Request& reqHdr,
                              DropTableRpc::Response& respHdr,
-                             Transport::ServerRpc& rpc)
+                             Rpc& rpc)
 {
     const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
@@ -209,7 +201,7 @@ CoordinatorServer::dropTable(const DropTableRpc::Request& reqHdr,
 void
 CoordinatorServer::openTable(const OpenTableRpc::Request& reqHdr,
                              OpenTableRpc::Response& respHdr,
-                             Transport::ServerRpc& rpc)
+                             Rpc& rpc)
 {
     const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
@@ -226,7 +218,7 @@ CoordinatorServer::openTable(const OpenTableRpc::Request& reqHdr,
 void
 CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
                                 EnlistServerRpc::Response& respHdr,
-                                Transport::ServerRpc& rpc)
+                                Rpc& rpc)
 {
     uint64_t serverId = nextServerId++;
     ProtoBuf::ServerType serverType =
@@ -267,7 +259,7 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
 void
 CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
                                  GetServerListRpc::Response& respHdr,
-                                 Transport::ServerRpc& rpc)
+                                 Rpc& rpc)
 {
     switch (reqHdr.serverType) {
     case MASTER:
@@ -292,7 +284,7 @@ CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
 void
 CoordinatorServer::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
                                 GetTabletMapRpc::Response& respHdr,
-                                Transport::ServerRpc& rpc)
+                                Rpc& rpc)
 {
     CycleCounter<Metric> _(&metrics->coordinator.getTabletMapTicks);
     respHdr.tabletMapLength = serializeToResponse(rpc.replyPayload,
@@ -302,19 +294,15 @@ CoordinatorServer::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
 /**
  * Handle the ENLIST_SERVER RPC.
  * \copydetails Server::ping
- * \param responder
- *      Functor to respond to the RPC before returning from this method. Used
- *      to avoid deadlock between first master and coordinator.
  */
 void
 CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
                                   HintServerDownRpc::Response& respHdr,
-                                  Transport::ServerRpc& rpc,
-                                  Responder& responder)
+                                  Rpc& rpc)
 {
     string serviceLocator(getString(rpc.recvPayload, sizeof(reqHdr),
                                     reqHdr.serviceLocatorLength));
-    responder();
+    rpc.sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
 
@@ -389,7 +377,7 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 void
 CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                                     TabletsRecoveredRpc::Response& respHdr,
-                                    Transport::ServerRpc& rpc)
+                                    Rpc& rpc)
 {
     CycleCounter<Metric> ticks(&metrics->coordinator.tabletsRecoveredTicks);
     if (reqHdr.status != STATUS_OK) {
@@ -474,7 +462,7 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
 void
 CoordinatorServer::ping(const PingRpc::Request& reqHdr,
                         PingRpc::Response& respHdr,
-                        Transport::ServerRpc& rpc)
+                        Rpc& rpc)
 {
     // dump out all the RPC stats for all the hosts so far
     foreach (const ProtoBuf::ServerList::Entry& server,
@@ -486,7 +474,7 @@ CoordinatorServer::ping(const PingRpc::Request& reqHdr,
         MasterClient(transportManager.getSession(
             server.service_locator().c_str())).ping();
 
-    Server::ping(reqHdr, respHdr, rpc);
+    Service::ping(reqHdr, respHdr, rpc);
 }
 
 /**
@@ -496,7 +484,7 @@ CoordinatorServer::ping(const PingRpc::Request& reqHdr,
 void
 CoordinatorServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
                            BackupQuiesceRpc::Response& respHdr,
-                           Transport::ServerRpc& rpc)
+                           Rpc& rpc)
 {
     foreach (auto& server, backupList.server()) {
         BackupClient(transportManager.getSession(
@@ -514,7 +502,7 @@ CoordinatorServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
 void
 CoordinatorServer::setWill(const SetWillRpc::Request& reqHdr,
                            SetWillRpc::Response& respHdr,
-                           Transport::ServerRpc& rpc)
+                           Rpc& rpc)
 {
     CycleCounter<Metric> _(&metrics->coordinator.setWillTicks);
     if (!setWill(reqHdr.masterId, rpc.recvPayload, sizeof(reqHdr),

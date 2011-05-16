@@ -13,6 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * \file
+ * This file provides the main program for RAMCloud storage servers.
+ */
+
 #include <stdlib.h>
 #include <getopt.h>
 #include <errno.h>
@@ -20,6 +25,7 @@
 #include "BackupClient.h"
 #include "OptionParser.h"
 #include "MasterServer.h"
+#include "ServiceManager.h"
 #include "TransportManager.h"
 
 static int cpu;
@@ -75,8 +81,12 @@ try
 
     CoordinatorClient coordinator(
         optionParser.options.getCoordinatorLocator().c_str());
-    MasterServer server(config, &coordinator, replicas);
-    server.run();
+    MasterServer service(config, &coordinator, replicas);
+    service.init();
+    ServiceManager manager(&service);
+    while (true) {
+        Dispatch::poll();
+    }
 
     return 0;
 } catch (std::exception& e) {

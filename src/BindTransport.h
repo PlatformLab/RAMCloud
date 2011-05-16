@@ -14,8 +14,8 @@
  */
 
 #include "Common.h"
-#include "Server.h"
-#include "Transport.h"
+#include "Service.h"
+#include "TransportManager.h"
 
 #ifndef RAMCLOUD_BINDTRANSPORT_H
 #define RAMCLOUD_BINDTRANSPORT_H
@@ -25,15 +25,14 @@ namespace RAMCloud {
 /**
  * This class defines an implementation of Transport that allows unit
  * tests to run without a network or a remote counterpart (it injects RPCs
- * directly into a Server instance's #Server::dispatch() method).
+ * directly into a Service instance's #dispatch() method).
  */
 struct BindTransport : public Transport {
-    explicit BindTransport(Server* server = NULL)
-        : servers()
-        , waitingRequest(NULL)
+    explicit BindTransport(Service* service = NULL)
+        : services()
     {
-        if (server)
-            addServer(*server, "mock:");
+        if (service)
+            addService(*service, "mock:");
     }
 
     ServiceLocator
@@ -43,21 +42,19 @@ struct BindTransport : public Transport {
     }
 
     ServerRpc* serverRecv() {
-        ServerRpc* ret = waitingRequest;
-        waitingRequest = NULL;
-        return ret;
+        return NULL;
     }
 
     void
-    addServer(Server& server, const string locator) {
-        servers[locator] = &server;
+    addService(Service& service, const string locator) {
+        services[locator] = &service;
     }
 
     Transport::SessionRef
     getSession(const ServiceLocator& serviceLocator) {
         const string& locator = serviceLocator.getOriginalString();
-        ServerMap::iterator it = servers.find(locator);
-        if (it == servers.end()) {
+        ServiceMap::iterator it = services.find(locator);
+        if (it == services.end()) {
             throw TransportException(HERE, format("Unknown mock host: %s",
                                                   locator.c_str()));
         }
@@ -78,39 +75,41 @@ struct BindTransport : public Transport {
     struct BindClientRpc : public ClientRpc {
         explicit BindClientRpc(BindTransport& transport,
                                Buffer& request, Buffer& response,
-                               Server& server)
+                               Service& service)
             : transport(transport), request(request), response(response),
-              server(server) {}
+              service(service) {}
         bool isReady() { return true; }
-        void wait();
+        void wait() {
+            Service::Rpc rpc(NULL, request, response);
+            service.handleRpc(rpc);
+        }
 
         BindTransport& transport;
         Buffer& request;
         Buffer& response;
-        Server& server;
+        Service& service;
         DISALLOW_COPY_AND_ASSIGN(BindClientRpc);
     };
 
     struct BindSession : public Session {
-        explicit BindSession(BindTransport& transport, Server& server,
+        explicit BindSession(BindTransport& transport, Service& service,
                              const string& locator)
-            : transport(transport), server(server), locator(locator) {}
+            : transport(transport), service(service), locator(locator) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
             return new(response, MISC) BindClientRpc(transport, *request,
-                                                     *response, server);
+                                                     *response, service);
         }
         void release() {
             delete this;
         }
         BindTransport& transport;
-        Server& server;
+        Service& service;
         const string locator;
         DISALLOW_COPY_AND_ASSIGN(BindSession);
     };
 
-    typedef std::map<const string, Server*> ServerMap;
-    ServerMap servers;
-    ServerRpc* waitingRequest;
+    typedef std::map<const string, Service*> ServiceMap;
+    ServiceMap services;
     DISALLOW_COPY_AND_ASSIGN(BindTransport);
 };
 

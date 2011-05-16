@@ -23,6 +23,7 @@
 #include "TestUtil.h"
 #include "BenchUtil.h"
 #include "Dispatch.h"
+#include "Rpc.h"
 
 using namespace RAMCloud;
 
@@ -450,31 +451,23 @@ checkLargeBuffer(Buffer* buffer, int expectedLength)
 }
 
 /**
- * Wait for an RPC request to arrive on a given transport, but give up if
- * it takes too long.
+ * Given a buffer containing the response from an RPC, extract the error status
+ * from the buffer and return the symbolic name for the status code.
  *
- * \param transport
- *      Wait for a request on this transport.
- * \param timeoutSeconds
- *      Request doesn't arrive within this many seconds, return NULL.
+ * \param buffer
+ *      Contains the response from an RPC.
  *
  * \result
- *      The incoming RPC request, or NULL if nothing arrived within the time
- *      limit.
+ *      A symbolic status value, such as "STATUS_OK", or "empty reply message"
+ *      if the buffer didn't contain a valid RPC response.
  */
-Transport::ServerRpc*
-waitForRpcRequest(Transport* transport, double timeoutSeconds) {
-    Transport::ServerRpc* result;
-    uint64_t start = rdtsc();
-    while (true) {
-        result = transport->serverRecv();
-        if (result != NULL)
-            return result;
-        if (cyclesToSeconds(rdtsc() - start) > timeoutSeconds) {
-            return NULL;
-        }
-        Dispatch::poll();
+const char *getStatus(Buffer* buffer)
+{
+    const RpcResponseCommon* responseCommon = buffer->getStart<RpcResponseCommon>();
+    if (responseCommon == NULL) {
+        return "empty reply message";
     }
+    return statusToSymbol(responseCommon->status);
 }
 
 } // namespace RAMCloud
