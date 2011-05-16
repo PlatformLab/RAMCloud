@@ -50,9 +50,11 @@ class TcpTransportTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_sessionConstructor_connectError);
     CPPUNIT_TEST(test_sessionDestructor);
     CPPUNIT_TEST(test_clientSend_sessionClosed);
+    CPPUNIT_TEST(test_clientSend_queueRequest);
     CPPUNIT_TEST(test_ReplyReadHandler_eof);
     CPPUNIT_TEST(test_ReplyReadHandler_eofOutsideRPC);
     CPPUNIT_TEST(test_ReplyReadHandler_unexpectedDataFromServer);
+    CPPUNIT_TEST(test_ReplyReadHandler_startNextRequest);
     CPPUNIT_TEST(test_ReplyReadHandler_ioError);
     CPPUNIT_TEST(test_wait_throwError);
     CPPUNIT_TEST_SUITE_END();
@@ -578,6 +580,24 @@ class TcpTransportTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("session closed", message);
     }
 
+    void test_clientSend_queueRequest() {
+        TcpTransport server(locator);
+        TcpTransport client;
+        Transport::SessionRef session = client.getSession(*locator);
+        TcpTransport::TcpSession* rawSession =
+                reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+        Buffer request1, request2;
+        Buffer reply1, reply2;
+        request1.fillFromString("abcdefg");
+        Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
+                &reply1);
+        Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
+                &reply2);
+        CPPUNIT_ASSERT_EQUAL(clientRpc1, rawSession->current);
+        CPPUNIT_ASSERT_EQUAL(1, rawSession->waitingRpcs.size());
+        CPPUNIT_ASSERT_EQUAL(clientRpc2, rawSession->waitingRpcs.back());
+    }
+
     void test_ReplyReadHandler_eof() {
         // In this test, arrange for the connection to get closed
         // while an RPC is outstanding and we are waiting for a response.
@@ -628,6 +648,42 @@ class TcpTransportTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("operator(): TcpTransport::ReplyReadHandler "
                 "discarding 6 unexpected bytes from server 127.0.0.1:11000",
                 TestLog::get());
+    }
+
+    void test_ReplyReadHandler_startNextRequest() {
+        TcpTransport server(locator);
+        TcpTransport client;
+        Transport::SessionRef session = client.getSession(*locator);
+        TcpTransport::TcpSession* rawSession =
+                reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+        Buffer request1, request2;
+        Buffer reply1, reply2;
+        request1.fillFromString("abcdefg");
+        request1.fillFromString("xyzzy");
+
+        // Start 2 requests (the second one will get queued).
+        Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
+                &reply1);
+        Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
+                &reply2);
+        CPPUNIT_ASSERT_EQUAL(1, rawSession->waitingRpcs.size());
+        Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+        CPPUNIT_ASSERT(serverRpc != NULL);
+        serverRpc->replyPayload.fillFromString("klmn");
+
+        // Reply to the first request, make sure the second one gets unqueued.
+        serverRpc->sendReply();
+        Dispatch::handleEvent();
+        CPPUNIT_ASSERT_EQUAL(0, rawSession->waitingRpcs.size());
+        serverRpc = serviceManager->waitForRpc(1.0);
+        CPPUNIT_ASSERT(serverRpc != NULL);
+        serverRpc->replyPayload.fillFromString("aaaaa");
+        serverRpc->sendReply();
+        Dispatch::handleEvent();
+        CPPUNIT_ASSERT_EQUAL(true, clientRpc1->isReady());
+        CPPUNIT_ASSERT_EQUAL(true, clientRpc2->isReady());
+        CPPUNIT_ASSERT_EQUAL("klmn/0", toString(&reply1));
+        CPPUNIT_ASSERT_EQUAL("aaaaa/0", toString(&reply2));
     }
 
     void test_ReplyReadHandler_ioError() {

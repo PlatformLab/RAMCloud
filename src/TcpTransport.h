@@ -124,12 +124,15 @@ class TcpTransport : public Transport {
       friend class TcpTransport;
       friend class TcpSession;
       public:
-        explicit TcpClientRpc(TcpSession* session, Buffer* reply)
-            : reply(reply), session(session), finished(false) { }
+        explicit TcpClientRpc(TcpSession* session, Buffer*request,
+                Buffer* reply)
+            : request(request), reply(reply), session(session),
+              finished(false) { }
         bool isReady();
         void wait();
-        Buffer* reply;
       private:
+        Buffer* request;          /// Contains request message.
+        Buffer* reply;            /// Client's buffer for response.
         TcpSession *session;      /// Session used for this RPC.
         bool finished;            /// True means that the response for this
                                   /// RPC has been received.
@@ -214,9 +217,12 @@ class TcpTransport : public Transport {
         int fd;                   /// File descriptor for the socket that
                                   /// connects to address  -1 means no socket
                                   /// open.
-        TcpClientRpc *current;    /// Only one RPC can be outstanding for
+        TcpClientRpc* current;    /// Only one RPC can be outstanding for
                                   /// a session at a time; this identifies
                                   /// the current RPC (NULL if there is none).
+        std::queue<TcpClientRpc*> waitingRpcs;
+                                  /// Holds requests that arrive when the
+                                  /// session is busy (current != NULL).
         IncomingMessage message;  /// Records state of partially-received
                                   /// reply for current.
         Tub<ReplyReadHandler> replyHandler;

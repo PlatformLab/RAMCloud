@@ -433,8 +433,8 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  *      Identifies the server to which RPCs on this session will be sent.
  */
 TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
-        : address(serviceLocator), fd(-1), current(NULL), message(NULL),
-        replyHandler(), errorInfo()
+        : address(serviceLocator), fd(-1), current(NULL), waitingRpcs(),
+          message(NULL), replyHandler(), errorInfo()
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -480,18 +480,20 @@ TcpTransport::TcpSession::close()
 TcpTransport::ClientRpc*
 TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* reply)
 {
-    while (current != NULL) {
-        // We can't handle more than one outstanding request at a time;
-        // wait for the previous request to complete.
-        Dispatch::handleEvent();
-    }
     if (fd == -1) {
         throw TransportException(HERE, errorInfo);
     }
-    current = new(reply, MISC) TcpClientRpc(this, reply);
-    message.reset(reply);
-    TcpTransport::sendMessage(fd, *request);
-    return current;
+    TcpClientRpc* rpc = new(reply, MISC) TcpClientRpc(this, request, reply);
+    if (current != NULL) {
+        // We can't handle more than one outstanding request at a time;
+        // save the new request until the previous one finishes.
+        waitingRpcs.push(rpc);
+    } else {
+        current = rpc;
+        message.reset(reply);
+        TcpTransport::sendMessage(fd, *request);
+    }
+    return rpc;
 }
 
 /**
@@ -540,6 +542,15 @@ TcpTransport::ReplyReadHandler::operator() ()
             // This RPC is finished.
             session->current->finished = true;
             session->current = NULL;
+            if (!session->waitingRpcs.empty()) {
+                // There is another RPC waiting to be sent on this transport;
+                // begin sending it.
+                TcpClientRpc* rpc = session->waitingRpcs.front();
+                session->waitingRpcs.pop();
+                session->current = rpc;
+                session->message.reset(rpc->reply);
+                TcpTransport::sendMessage(fd, *rpc->request);
+            }
         }
     } catch (TcpTransportEof& e) {
         // Close the session's socket in order to prevent an infinite loop of
