@@ -38,6 +38,15 @@
 
 namespace RAMCloud {
 
+/**
+ * Transport mechanism that uses Infiniband's reliable connections.
+ * This class is templated in order to simplify replacing some of the
+ * Infiniband guts for testing.  The "Infiniband" type name corresponds
+ * to various low-level Infiniband facilities used both here and in
+ * InfUdDriver.  "RealInfiniband" (the only instantiation that currently
+ * exists) corresponds to the actual Infiniband driver facilities in
+ * Infiniband.cc.
+ */
 template<typename Infiniband = RealInfiniband>
 class InfRcTransport : public Transport {
     // forward declarations

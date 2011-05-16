@@ -101,14 +101,17 @@ TransportManager::~TransportManager()
 }
 
 /**
- * Construct the individual transports that will be used to send and receive.
+ * This method is invoked on servers to construct the individual transports
+ * that will be used to send and receive.
  *
- * Calling this method is required before any calls to #serverRecv(), since the
- * receiving transports need to be instantiated with their local addresses
+ * Calling this method is required before any calls to #serverRecv(), since
+ * the receiving transports need to be instantiated with their local addresses
  * first. In this case, it must be called explicitly before any calls to
  * #getSession().
  *
- * Calling this method is not required if #serverRecv() will never be called.
+ * \param localServiceLocator
+ *      One or more locators that clients can use to send requests to this
+ *      server.
  */
 void
 TransportManager::initialize(const char* localServiceLocator)
@@ -152,8 +155,8 @@ TransportManager::initialize(const char* localServiceLocator)
 /**
  * Get a session on which to send RPC requests to a service.
  *
- * For now, multiple calls with the same argument will yield distinct sessions.
- * This will probably change later.
+ * \param serviceLocator
+ *      Desired service.
  *
  * \throw NoSuchKeyException
  *      A transport supporting one of the protocols claims a service locator
