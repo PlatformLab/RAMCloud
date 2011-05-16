@@ -223,13 +223,13 @@ class DispatchTest : public CppUnit::TestFixture {
     }
 
     void tearDown() {
-        delete sys;
-        sys = NULL;
-        Dispatch::sys = savedSyscall;
         close(pipeFds[0]);
         close(pipeFds[1]);
         Dispatch::reset();
         Dispatch::setDispatchThread();
+        delete sys;
+        sys = NULL;
+        Dispatch::sys = savedSyscall;
     }
 
     // Calls Dispatch::poll repeatedly until either it returns true
