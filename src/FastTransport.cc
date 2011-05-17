@@ -843,7 +843,7 @@ FastTransport::OutboundMessage::send()
                     oldest = sentTime;
         }
         if (oldest != ~(0lu))
-            timer.startCycles(timeoutCycles());
+            timer.startCycles(timeoutCycles() - (now - oldest));
     }
 }
 
