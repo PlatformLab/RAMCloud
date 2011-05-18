@@ -79,6 +79,58 @@ ObjectFinder::lookup(uint32_t table, uint64_t objectId) {
     }
 }
 
+
+/**
+ * Lookup the masters for a multiple object IDs in multiple tables.
+ * \param requests
+ *      Array listing the objects to be read/written
+ * \param numRequests
+ *      Length of requests array
+ * \throw TableDoesntExistException
+ *      The coordinator has no record of a table.
+ * \return requestBins
+ *      Bins requests according to the master they correspond to.
+ *      Each partition, called a requestBin, contains these requests
+ *      and the SessionRef corresponding to that master.
+ */
+
+std::vector<ObjectFinder::MasterRequests>
+ObjectFinder::multiLookup(MasterClient::ReadObject requests[],
+                          uint32_t numRequests) {
+
+    std::vector<ObjectFinder::MasterRequests> requestBins;
+
+    for (uint32_t i = 0; i < numRequests; i++){
+        try {
+            Transport::SessionRef currentSessionref =
+                ObjectFinder::lookup(requests[i].tableId, requests[i].id);
+
+            // if this master already exists in the requestBins, add the request
+            // to the requests corresponding to that master
+            bool masterFound = false;
+            for (uint32_t j = 0; j < requestBins.size(); j++){
+                if (currentSessionref == requestBins[j].sessionref){
+                    requestBins[j].requests.push_back(requests[i]);
+                    masterFound = true;
+                    break;
+                }
+            }
+            // else create a new requestBin corresponding to this master
+            if (!masterFound) {
+                ObjectFinder::MasterRequests currentRequestBin;
+                currentRequestBin.sessionref = currentSessionref;
+                currentRequestBin.requests.push_back(requests[i]);
+                requestBins.push_back(currentRequestBin);
+            }
+        }
+        catch (TableDoesntExistException &e) {
+            *requests[i].status = STATUS_TABLE_DOESNT_EXIST;
+        }
+    }
+
+    return requestBins;
+}
+
 /**
  * Flush the tablet map and refresh it until it is non-empty and all of
  * the tablets have normal status.

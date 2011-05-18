@@ -51,6 +51,7 @@ enum RpcType {
     SET_WILL                = 23,
     REREPLICATE_SEGMENTS    = 24,
     FILL_WITH_TEST_DATA     = 25,
+    MULTI_READ              = 26,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -159,8 +160,8 @@ struct ReadRpc {
     static const RpcType type = READ;
     struct Request {
         RpcRequestCommon common;
-        uint64_t id;
         uint32_t tableId;
+        uint64_t id;
         uint32_t pad1;
         RejectRules rejectRules;
     };
@@ -171,6 +172,36 @@ struct ReadRpc {
                                       // The actual bytes of the object follow
                                       // immediately after this header.
         uint32_t pad1;
+    };
+};
+
+struct MultiReadRequestPart {
+    uint32_t tableId;
+    uint64_t id;
+};
+
+struct MultiReadRpc {
+    static const RpcType type = MULTI_READ;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t count;
+        /*
+        * In buffer: MultiReadRequestPart for each request goes here
+        */
+    };
+    struct Response {
+        RpcResponseCommon common;
+        /*
+        * common refers to status. Not really used in multiRead since
+        * there is a separate status corresponding to each object.
+        * Included here to fulfill requirements in common code.
+        */
+        uint32_t count;
+        /*
+        * In buffer: Status, SegmentEntry and Object go here
+        * Object has variable number of bytes (depending on data size.)
+        * In case of an error, only Status goes here
+        */
     };
 };
 

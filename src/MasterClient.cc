@@ -17,6 +17,10 @@
 #include "MasterClient.h"
 #include "TransportManager.h"
 #include "ProtoBuf.h"
+#include "Segment.h"
+#include "Object.h"
+#include "Log.h"
+#include "Status.h"
 
 namespace RAMCloud {
 
@@ -285,8 +289,8 @@ MasterClient::read(uint32_t tableId, uint64_t id, Buffer* value,
     value->reset();
     Buffer req;
     ReadRpc::Request& reqHdr(allocHeader<ReadRpc>(req));
-    reqHdr.id = id;
     reqHdr.tableId = tableId;
+    reqHdr.id = id;
     reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     const ReadRpc::Response& respHdr(sendRecv<ReadRpc>(session, req, *value));
     if (version != NULL)
@@ -297,6 +301,75 @@ MasterClient::read(uint32_t tableId, uint64_t id, Buffer* value,
     value->truncateFront(sizeof(respHdr));
     assert(respHdr.length == value->getTotalLength());
     checkStatus(HERE);
+}
+
+/**
+ * Read the current contents of multiple objects.
+ *
+ * \param requests
+ *      Vector (of ReadObject's) listing the objects to be read
+ *      and where to place their values
+ */
+void
+MasterClient::multiRead(std::vector<ReadObject> requests)
+{
+    /* CREATE REQUEST */
+    Buffer req;
+    MultiReadRpc::Request& reqHdr(allocHeader<MultiReadRpc>(req));
+    reqHdr.count = downCast<uint32_t>(requests.size());
+
+    for (uint32_t i = 0; i < requests.size(); i++){
+        MultiReadRequestPart* currentReq =
+                    new(&req, APPEND) MultiReadRequestPart;
+        currentReq->tableId = requests[i].tableId;
+        currentReq->id = requests[i].id;
+    }
+
+    /* SEND AND RECEIVE RPC */
+
+    Buffer respBuffer;
+    const MultiReadRpc::Response& respHdr(sendRecv<MultiReadRpc>(
+                                          session, req, respBuffer));
+    checkStatus(HERE);
+
+    /* EXTRACT RESPONSE*/
+
+    uint32_t numObjs = respHdr.count;
+    // Increment respOffset to after "common" (status) AND "count".
+    uint32_t respOffset = downCast<uint32_t>(sizeof(respHdr));
+
+    for (uint32_t j = 0; j < numObjs; j++) {
+        const Status *status = respBuffer.getOffset<Status>(respOffset);
+        respOffset += downCast<uint32_t>(sizeof(Status));
+        *requests[j].status = *status;
+
+        if (*status == STATUS_OK){
+
+            const SegmentEntry* entry = respBuffer.getOffset<SegmentEntry>(
+                                                                respOffset);
+            respOffset += downCast<uint32_t>(sizeof(SegmentEntry));
+
+            /*
+            * Need to check checksum
+            * If computed checksum does not match stored checksum for a segment:
+            * Retry getting the data from server.
+            * If it is still bad, ensure (in some way) that data on the server
+            * is corrupted. Then crash that server.
+            * Wait for recovery and then return the data
+            */
+
+            const Object* obj = respBuffer.getOffset<Object>(respOffset);
+            respOffset += downCast<uint32_t>(sizeof(Object));
+
+            *requests[j].version = obj->version;
+
+            uint32_t dataLength = obj->dataLength(entry->length);
+            requests[j].value->construct();
+            respBuffer.copy(respOffset, dataLength, new(
+                            requests[j].value->get(), APPEND) char[dataLength]);
+            respOffset += dataLength;
+        }
+    }
 }
 
 /**

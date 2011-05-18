@@ -19,8 +19,10 @@
 
 #include "Client.h"
 #include "Common.h"
-#include "ObjectFinder.h"
+#include "CoordinatorClient.h"
 #include "Transport.h"
+#include "Buffer.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -29,6 +31,56 @@ namespace RAMCloud {
  */
 class MasterClient : public Client {
   public:
+
+    /*
+    * Format for requesting a read of an object as a part of multiRead 
+    */
+    struct ReadObject {
+        /*
+        * The table containing the desired object (return value from
+        * a previous call to openTable).
+        */
+        uint32_t tableId;
+        /*
+        * Identifier within tableId of the object to be read.
+        */
+        uint64_t id;
+        /*
+        * If the read for this object was successful, the Tub<Buffer>
+        * will hold the contents of the desired object. If not, it will
+        * not be initialized, giving "false" when the buffer is tested.
+        */
+        Tub<Buffer>* value;
+        /*
+        * The version number of the object is returned here
+        */
+        uint64_t* version;
+        /*
+        * The status of read (either that the read succeeded, or the 
+        * error in case it didn't) is returned here.
+        */
+        Status* status;
+
+        ReadObject(uint32_t tableId, uint64_t id, Tub<Buffer>* value,
+                   uint64_t* version, Status* status)
+            : tableId(tableId)
+            , id(id)
+            , value(value)
+            , version(version)
+            , status(status)
+        {
+        };
+
+        ReadObject()
+            : tableId()
+            , id()
+            , value()
+            , version()
+            , status()
+        {
+        };
+    };
+
     /// An asynchronous version of #create().
     class Create {
       public:
@@ -109,6 +161,7 @@ class MasterClient : public Client {
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
+    void multiRead(std::vector<ReadObject> requests);
     void recover(uint64_t masterId, uint64_t partitionId,
                  const ProtoBuf::Tablets& tablets,
                  const ProtoBuf::ServerList& backups);

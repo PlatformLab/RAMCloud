@@ -79,6 +79,32 @@ RamCloud::read(uint32_t tableId, uint64_t id, Buffer* value,
     master.read(tableId, id, value, rejectRules, version);
 }
 
+/**
+ * Read the current contents of multiple objects.
+ * \param requests
+ *      Array listing the objects to be read and where to place their values
+ * \param numRequests
+ *      Length of input array
+ */
+void
+RamCloud::multiRead(MasterClient::ReadObject requests[], uint32_t numRequests)
+{
+    /* 
+    * MasterRequests contains requests to be sent to one master
+    * requestBins contains all requests partitioned by masters
+    */
+    std::vector<ObjectFinder::MasterRequests> requestBins =
+                            objectFinder.multiLookup(requests, numRequests);
+    uint32_t numBins = downCast<uint32_t>(requestBins.size());
+
+    // Sequential requests for multiread to each master
+
+    for (uint32_t j = 0; j < numBins; j++){
+        MasterClient master(requestBins[j].sessionref);
+        master.multiRead(requestBins[j].requests);
+    }
+}
+
 /// \copydoc MasterClient::remove
 void
 RamCloud::remove(uint32_t tableId, uint64_t id,

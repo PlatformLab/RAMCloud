@@ -197,6 +197,9 @@ class MasterServer : public Server {
     void read(const ReadRpc::Request& reqHdr,
               ReadRpc::Response& respHdr,
               Transport::ServerRpc& rpc);
+    void multiRead(const MultiReadRpc::Request& reqHdr,
+                   MultiReadRpc::Response& respHdr,
+                   Transport::ServerRpc& rpc);
     void recover(const RecoverRpc::Request& reqHdr,
                  RecoverRpc::Response& respHdr,
                  Transport::ServerRpc& rpc,
