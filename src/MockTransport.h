@@ -74,6 +74,7 @@ class MockTransport : public Transport {
             MockSession(MockTransport* transport,
                         const ServiceLocator& serviceLocator)
                 : transport(transport), serviceLocator(serviceLocator) {}
+            virtual ~MockSession();
             virtual ClientRpc* clientSend(Buffer* payload, Buffer* response);
             virtual void release() {
                 delete this;
@@ -101,6 +102,7 @@ class MockTransport : public Transport {
     uint32_t serverSendCount;
     uint32_t clientSendCount;
     uint32_t clientRecvCount;
+    uint32_t sessionDeleteCount;
 
     // ServiceLocator string passed to constructor, or empty if the
     // constructor argument was NULL.

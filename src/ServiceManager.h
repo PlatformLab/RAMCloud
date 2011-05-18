@@ -61,28 +61,33 @@ class Worker {
 
     /// Values for #state:
     enum {
-        POLLING,                       /// Set by the worker thread to
-                                       /// indicate that it has finished
-                                       /// processing its current request
-                                       /// and is in a polling loop waiting
-                                       /// for more work to do.
-        WORKING,                       /// Set by the dispatch thread to
-                                       /// indicate that a new RPC is ready
-                                       /// to be processed.
-        POSTPROCESSING,                /// Set by the worker thread if it
-                                       /// invokes #sendReply on the RPC;
-                                       /// means that the RPC response is
-                                       /// ready to be returned to the client,
-                                       /// but the worker is still busy so
-                                       /// we can't give it anything else
-                                       /// to do.
-        SLEEPING                       /// Set by the worker thread to
-                                       /// indicate that it has been waiting
-                                       /// so long for new work that it put
-                                       /// itself to sleep; the dispatch
-                                       /// thread will need to wake it up the
-                                       /// next time it has an RPC for the
-                                       /// worker.
+        /// Set by the worker thread to indicate that it has finished
+        /// processing its current request and is in a polling loop waiting
+        /// for more work to do.  From this state 2 things can happen:
+        /// * dispatch thread can change state to WORKING
+        /// * worker can change state to SLEEPING.
+        /// Note: this is the only state where both threads may set a new
+        /// state (it requires special care!).
+        POLLING,
+
+        /// Set by the dispatch thread to indicate that a new RPC is ready
+        /// to be processed.  From this state the worker will change state
+        /// to either POSTPROCESSING or POLLING.
+        WORKING,
+
+        /// Set by the worker thread if it invokes #sendReply on the RPC;
+        /// means that the RPC response is ready to be returned to the client,
+        /// but the worker is still busy so we can't give it anything else
+        /// to do.  From the state the worker will eventually change the
+        /// state to POLLING.
+        POSTPROCESSING,
+
+        /// Set by the worker thread to indicate that it has been waiting
+        /// so long for new work that it put itself to sleep; the dispatch
+        /// thread will need to wake it up the next time it has an RPC for the
+        /// worker.  From the state the dispatch thread will eventually change
+        /// state to WORKING.
+        SLEEPING
     };
     bool exited;                       /// True means the worker is no longer
                                        /// running.

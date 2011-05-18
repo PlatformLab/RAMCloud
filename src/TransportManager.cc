@@ -72,6 +72,7 @@ TransportManager  __attribute__((init_priority(400))) transportManager;
 
 TransportManager::TransportManager()
     : initialized(false)
+    , isServer(false)
     , transportFactories()
     , transports()
     , listening()
@@ -101,17 +102,14 @@ TransportManager::~TransportManager()
 }
 
 /**
- * This method is invoked on servers to construct the individual transports
- * that will be used to send and receive.
- *
- * Calling this method is required before any calls to #serverRecv(), since
- * the receiving transports need to be instantiated with their local addresses
- * first. In this case, it must be called explicitly before any calls to
- * #getSession().
+ * Initialize information about available transports that is used by both
+ * servers and clients.
  *
  * \param localServiceLocator
- *      One or more locators that clients can use to send requests to this
- *      server.
+ *      If the application is a server, this specifies one or more locators
+ *      that clients can use to send requests to this server.  An empty
+ *      string indicates that this application is a client, so it will not be
+ *      receiving any requests.
  */
 void
 TransportManager::initialize(const char* localServiceLocator)
@@ -119,26 +117,32 @@ TransportManager::initialize(const char* localServiceLocator)
     assert(!initialized);
 
     auto locators = ServiceLocator::parseServiceLocators(localServiceLocator);
+    if (locators.size() != 0) {
+        isServer = true;
+    }
 
     foreach (auto factory, transportFactories) {
         Transport* transport = NULL;
         foreach (auto& locator, locators) {
             if (factory->supports(locator.getProtocol().c_str())) {
                 // The transport supports a protocol that we can receive
-                // packets on. Since it is expected that this transport
-                // work, we do not catch exceptions if it is unavailable.
+                // requests on. Since it is expected that this transport
+                // works, we do not catch exceptions if it is unavailable.
                 transport = factory->createTransport(&locator);
                 listening.push_back(transport);
                 goto insert_protocol_mappings;
             }
         }
 
-        // The transport doesn't support any protocols that we can receive
-        // packets on. Such transports need not be available, e.g. if the
-        // physical device (NIC) does not exist.
+        // The transport cannot be used to receive requests (it didn't
+        // support any of the desired locators), but it can still potentially
+        // be used for issuing requests to other servers.
         try {
             transport = factory->createTransport(NULL);
         } catch (TransportException &e) {
+            // Don't get upset if the transport isn't available; it could
+            // be something simple such as the physical device (NIC) does
+            // not exist.
         }
 
  insert_protocol_mappings:
@@ -188,6 +192,9 @@ TransportManager::getSession(const char* serviceLocator)
             auto transport = protocolTransport.second;
             try {
                 auto session = transport->getSession(locator);
+                if (isServer) {
+                    session = new WorkerSession(session);
+                }
 
                 // Only first protocol is used, but the cache is based
                 // on the complete initial service locator string.
@@ -302,6 +309,35 @@ TransportManager::dumpStats()
 {
     foreach (auto transport, transports)
         transport->dumpStats();
+}
+
+/**
+ * Construct a WorkerSession.
+ *
+ * \param wrapped
+ *      Another Session object, to which #clientSend requests will be
+ *      forwarded.
+ */
+TransportManager::WorkerSession::WorkerSession(Transport::SessionRef wrapped)
+    : wrapped(wrapped)
+{
+    TEST_LOG("created");
+}
+
+/**
+ * Construct a WorkerSession.
+ *
+ * \param wrapped
+ *      Another Session object, to which #clientSend requests will be
+ *      forwarded.
+ */
+Transport::ClientRpc*
+TransportManager::WorkerSession::clientSend(Buffer* request, Buffer* reply)
+{
+    // Must make sure that the dispatch thread isn't running when we
+    // invoked the real clientSend.
+    Dispatch::Lock lock;
+    return wrapped->clientSend(request, reply);
 }
 
 } // namespace RAMCloud

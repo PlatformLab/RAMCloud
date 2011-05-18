@@ -145,7 +145,7 @@ TEST_F(ServiceTest, sendReply) {
     service.delay = true;
     service.sendReply = true;
     MockTransport transport;
-    ServiceManager* manager = new ServiceManager(&service);
+    ServiceManager manager(&service);
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
             &transport, "3 4");
     ServiceManager::handleRpc(rpc);
@@ -154,13 +154,13 @@ TEST_F(ServiceTest, sendReply) {
     // returned yet.
     for (int i = 0; i < 1000; i++) {
         Dispatch::poll();
-        if (manager->worker.rpc == NULL) {
+        if (manager.worker.rpc == NULL) {
             break;
         }
         usleep(1000);
     }
-    EXPECT_EQ((Transport::ServerRpc*) NULL, manager->worker.rpc);
-    EXPECT_EQ(Worker::POSTPROCESSING, manager->worker.state.load());
+    EXPECT_EQ((Transport::ServerRpc*) NULL, manager.worker.rpc);
+    EXPECT_EQ(Worker::POSTPROCESSING, manager.worker.state.load());
     EXPECT_EQ("serverReply: 4 5", transport.outputLog);
     service.delay = false;
 }

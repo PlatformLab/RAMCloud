@@ -189,8 +189,7 @@ class Transport {
          * \throw TransportException
          *      If any errors occur while initiating the request.
          */
-        virtual ClientRpc* clientSend(Buffer* request, Buffer* response)
-            __attribute__((warn_unused_result)) = 0;
+        virtual ClientRpc* clientSend(Buffer* request, Buffer* response) = 0;
 
         /**
          * \return

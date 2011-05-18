@@ -26,13 +26,14 @@ namespace RAMCloud {
  * Construct a MockTransport.
  */
 MockTransport::MockTransport(const ServiceLocator *serviceLocator)
-            : outputLog(),
-              inputMessage(NULL),
-              serverRecvCount(0),
-              serverSendCount(0),
-              clientSendCount(0),
-              clientRecvCount(0),
-              locatorString()
+            : outputLog()
+            , inputMessage(NULL)
+            , serverRecvCount(0)
+            , serverSendCount(0)
+            , clientSendCount(0)
+            , clientRecvCount(0)
+            , sessionDeleteCount(0)
+            , locatorString()
 {
     if (serviceLocator != NULL)
         locatorString = serviceLocator->getOriginalString();
@@ -74,6 +75,13 @@ MockTransport::getSession()
     return new MockSession(this);
 }
 
+/**
+ * Destructor for MockSession: just log the destruction.
+ */
+MockTransport::MockSession::~MockSession()
+{
+    transport->sessionDeleteCount++;
+}
 
 /**
  * Issue an RPC request using this transport.
@@ -90,7 +98,8 @@ MockTransport::getSession()
  *          space in this Allocation.
  */
 Transport::ClientRpc*
-MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response) {
+MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response)
+{
     if (transport->outputLog.length() != 0) {
         transport->outputLog.append(" | ");
     }
@@ -109,7 +118,8 @@ MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response) {
  *      in the format expected by Buffer::fillFromString.
  */
 void
-MockTransport::setInput(const char* s) {
+MockTransport::setInput(const char* s)
+{
     inputMessage = s;
 }
 
@@ -139,7 +149,8 @@ MockTransport::MockServerRpc::MockServerRpc(MockTransport* transport,
  * the reply message and deletes this reply object.
  */
 void
-MockTransport::MockServerRpc::sendReply() {
+MockTransport::MockServerRpc::sendReply()
+{
     if (transport->outputLog.length() != 0) {
         transport->outputLog.append(" | ");
     }
@@ -170,7 +181,8 @@ MockTransport::MockClientRpc::MockClientRpc(MockTransport* transport,
  * by the current test (or an empty buffer, if nothing was supplied).
  */
 void
-MockTransport::MockClientRpc::wait() {
+MockTransport::MockClientRpc::wait()
+{
     // The call to fillFromString below will overwrite everything in the
     // response buffer, including this MockClientRpc object; pull out of
     // the object anything we will need.

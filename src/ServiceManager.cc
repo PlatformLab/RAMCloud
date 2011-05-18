@@ -175,12 +175,18 @@ ServiceManager::workerMain(Worker* worker)
         while (worker->state.load() != Worker::WORKING) {
             if (Dispatch::currentTime >= stopPollingTime) {
                 // It's been a long time since we've had any work to do; go
-                // to sleep so we don't waste any more CPU cycles.
-                worker->state.store(Worker::SLEEPING);
-                if (sys->futexWait(reinterpret_cast<int*>(&worker->state),
-                        Worker::SLEEPING) == -1) {
-                    LOG(ERROR, "futexWait failed in ServiceManager::workerMain: %s",
-                            strerror(errno));
+                // to sleep so we don't waste any more CPU cycles.  Tricky
+                // race condition: the dispatch thread could change the state
+                // to WORKING just before we change it to SLEEPING, so use an
+                // atomic op and only change to SLEEPING if the current value
+                // is POLLING.
+                int expected = Worker::POLLING;
+                if (worker->state.compare_exchange_weak(expected, Worker::SLEEPING)) {
+                    if (sys->futexWait(reinterpret_cast<int*>(&worker->state),
+                            Worker::SLEEPING) == -1) {
+                        LOG(ERROR, "futexWait failed in ServiceManager::workerMain: %s",
+                                strerror(errno));
+                    }
                 }
             }
             // Empty loop body.
