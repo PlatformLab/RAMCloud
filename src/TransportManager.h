@@ -93,8 +93,8 @@ class TransportManager {
 
   PRIVATE:
     /**
-     * Sessions of the following type are used as wrappers in worker threads
-     * on servers.  These are needed because "real" Session objects are owned
+     * Sessions of this type are used as wrappers in worker threads on
+     * servers.  These are needed because "real" Session objects are owned
      * by transports (which run in the dispatch thread) and hence cannot be
      * accessed in worker threads without synchronization.  WorkerSession
      * objects forward the #clientSend method to the actual Session object

@@ -63,7 +63,7 @@ class ServiceManagerTest : public ::testing::Test {
             }
             usleep(1000);
         }
-    }    
+    }
     DISALLOW_COPY_AND_ASSIGN(ServiceManagerTest);
 };
 
@@ -85,8 +85,8 @@ TEST_F(ServiceManagerTest, sanityCheck) {
 
 TEST_F(ServiceManagerTest, destructor) {
     TestLog::Enable _;
-    ServiceManager* manager1 = new ServiceManager((Service*) NULL);
-    ServiceManager* manager2 = new ServiceManager((Service*) NULL);
+    ServiceManager* manager1 = new ServiceManager(NULL);
+    ServiceManager* manager2 = new ServiceManager(NULL);
     EXPECT_EQ(manager2, ServiceManager::serviceManager);
     delete manager1;
     EXPECT_EQ(manager2, ServiceManager::serviceManager);
@@ -116,7 +116,7 @@ TEST_F(ServiceManagerTest, handleRpc) {
             &transport, "7 8 9");
     ServiceManager::handleRpc(rpc3);
     EXPECT_EQ(2U, serviceManager->waitingRpcs.size());
-    
+
     // Let all of the RPCs finish.
     serviceManager.destroy();
     EXPECT_EQ("serverReply: 4 5 | serverReply: 6 7 | serverReply: 8 9 10",

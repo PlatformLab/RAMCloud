@@ -952,7 +952,7 @@ InfRcTransport<Infiniband>::Poller::operator() ()
                      header.nonce);
   next: { /* pass */ }
     }
-    
+
     // Next, check for incoming RPC requests (assuming that we are a server).
     if (t->serverSetupSocket >= 0) {
         CycleCounter<Metric> receiveTicks;

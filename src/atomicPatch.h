@@ -15,7 +15,7 @@
 
 /**
  * \file
- * In gcc 4.4.4 the header file <stdatomic> omitted the bodies for
+ * In gcc 4.4.4 the cstdatomic header file omitted the bodies for
  * several functions. This header file supplies them.  Gcc is fixed
  * in later releases.
  */
@@ -25,8 +25,8 @@
 
 namespace std {
     template<typename _Tp>
-    void 
-    atomic<_Tp*>::store(_Tp* __v, memory_order __m) volatile
+    void
+    store(_Tp* __v, memory_order __m)
     { atomic_address::store(__v, __m); }
 
     template<typename _Tp>
@@ -39,7 +39,6 @@ namespace std {
     exchange(_Tp* __v, memory_order __m)
     { return static_cast<_Tp*>(atomic_address::exchange(__v, __m)); }
 }
-
 
 #endif // RAMCLOUD_ATOMICPATCH_H
 

@@ -68,14 +68,14 @@ class Service {
 
         /// The incoming request, which describes the desired operation.
         Buffer& recvPayload;
-        
+
         /// The response, which will eventually be returned to the client.
         Buffer& replyPayload;
 
       PRIVATE:
         /// True means that sendReply has been invoked.
         bool replied;
-        
+
         friend class ServiceManager;
         friend class ServiceTest;
         DISALLOW_COPY_AND_ASSIGN(Rpc);

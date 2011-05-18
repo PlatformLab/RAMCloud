@@ -463,7 +463,8 @@ checkLargeBuffer(Buffer* buffer, int expectedLength)
  */
 const char *getStatus(Buffer* buffer)
 {
-    const RpcResponseCommon* responseCommon = buffer->getStart<RpcResponseCommon>();
+    const RpcResponseCommon* responseCommon =
+            buffer->getStart<RpcResponseCommon>();
     if (responseCommon == NULL) {
         return "empty reply message";
     }

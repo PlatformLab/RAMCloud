@@ -49,7 +49,7 @@ TEST_F(TransportManagerTest, initialize) {
     manager.initialize("foo:; mock:; bar:");
     EXPECT_EQ(1U, manager.listening.size());
     EXPECT_TRUE(manager.isServer);
-    EXPECT_TRUE(manager.transports.size() > 0);
+    EXPECT_GT(manager.transports.size(), 0U);
 
     TransportManager manager2;
     manager2.transportFactories.insert(&mockThrowTransportFactory);

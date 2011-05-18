@@ -54,9 +54,9 @@ MockTransport::getServiceLocator()
  */
 Transport::ServerRpc*
 MockTransport::serverRecv() {
-    if (inputMessage == NULL)
+    if (inputMessage == NULL) {
         return NULL;
-    else {
+    } else {
         MockServerRpc* result = new MockServerRpc(this, inputMessage);
         inputMessage = NULL;
         return result;
@@ -134,6 +134,8 @@ MockTransport::setInput(const char* s)
  *
  * \param transport
  *      The MockTransport object that this RPC is associated with.
+ * \param message
+ *      Describes contents of message (parsed by #fillFromString).
  */
 MockTransport::MockServerRpc::MockServerRpc(MockTransport* transport,
                                             const char* message)

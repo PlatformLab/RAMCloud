@@ -43,9 +43,9 @@ int ServiceManager::pollMicros = 100;
 /**
  * Construct a ServiceManager.
  * 
- * \param master
- *      Server that will execute all incoming RPCs.  Eventually this class
- *      needs to support multiple servers of different types.  In test mode
+ * \param service
+ *      Service that will execute all incoming RPCs.  Eventually this class
+ *      needs to support multiple services of different types.  In test mode
  *      this is NULL; see documentation for #service member for details.
  */
 ServiceManager::ServiceManager(Service* service)
@@ -181,11 +181,12 @@ ServiceManager::workerMain(Worker* worker)
                 // atomic op and only change to SLEEPING if the current value
                 // is POLLING.
                 int expected = Worker::POLLING;
-                if (worker->state.compare_exchange_weak(expected, Worker::SLEEPING)) {
+                if (worker->state.compare_exchange_weak(expected,
+                        Worker::SLEEPING)) {
                     if (sys->futexWait(reinterpret_cast<int*>(&worker->state),
                             Worker::SLEEPING) == -1) {
-                        LOG(ERROR, "futexWait failed in ServiceManager::workerMain: %s",
-                                strerror(errno));
+                        LOG(ERROR, "futexWait failed in ServiceManager::"
+                                "workerMain: %s", strerror(errno));
                     }
                 }
             }
@@ -193,7 +194,7 @@ ServiceManager::workerMain(Worker* worker)
         }
         if (worker->rpc == WORKER_EXIT)
             break;
-    
+
         Service::Rpc rpc(worker, worker->rpc->recvPayload,
                 worker->rpc->replyPayload);
         worker->service->handleRpc(rpc);
@@ -208,9 +209,6 @@ ServiceManager::workerMain(Worker* worker)
  * Force this worker's thread to exit (and don't return until it has exited).
  * This method is only used during testing and ServiceManager destruction.
  * This method should be invoked only in the dispatch thread.
- *
- * \param worker
- *      Identifies the particular worker that should exit.
  */
 void
 Worker::exit()
@@ -227,7 +225,7 @@ Worker::exit()
     while (!idle) {
         Dispatch::poll();
     }
-    
+
     // Tell the worker thread to exit, and wait for it to actually exit
     // (don't want it referencing the Worker structure anymore, since
     // it could go away).

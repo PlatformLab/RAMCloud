@@ -92,7 +92,7 @@ class Worker {
     bool exited;                       /// True means the worker is no longer
                                        /// running.
 
-    Worker(Service* service)
+    explicit Worker(Service* service)
         : service(service), thread(), rpc(NULL), idle(true),
           state(POLLING), exited(false) {}
     ~Worker() {}
@@ -113,9 +113,9 @@ class Worker {
  */
 class ServiceManager : Dispatch::Poller {
   public:
-    ServiceManager(Service* service);
+    explicit ServiceManager(Service* service);
     ~ServiceManager();
-    
+
     void exitWorker();
     static void handleRpc(Transport::ServerRpc* rpc);
     bool operator() ();
@@ -147,7 +147,7 @@ class ServiceManager : Dispatch::Poller {
     std::queue<Transport::ServerRpc*> waitingRpcs;
 
     static Syscall *sys;
-    
+
     friend class Worker;
     friend class ServiceManagerTest;
     DISALLOW_COPY_AND_ASSIGN(ServiceManager);

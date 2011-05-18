@@ -324,13 +324,7 @@ TransportManager::WorkerSession::WorkerSession(Transport::SessionRef wrapped)
     TEST_LOG("created");
 }
 
-/**
- * Construct a WorkerSession.
- *
- * \param wrapped
- *      Another Session object, to which #clientSend requests will be
- *      forwarded.
- */
+// See Transport::Session::clientSend for documentation.
 Transport::ClientRpc*
 TransportManager::WorkerSession::clientSend(Buffer* request, Buffer* reply)
 {

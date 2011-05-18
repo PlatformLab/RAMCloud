@@ -16,9 +16,9 @@
 #ifndef RAMCLOUD_DISPATCH_H
 #define RAMCLOUD_DISPATCH_H
 
+#include <cstdatomic>
 #include <boost/thread.hpp>
 #include <boost/thread/locks.hpp>
-#include <cstdatomic>
 
 #include "Common.h"
 #include "Tub.h"

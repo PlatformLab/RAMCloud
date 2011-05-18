@@ -299,7 +299,6 @@ class DispatchTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("poller p1 invoked; poller p2 invoked",
                 *localLog);
     }
-    
 
     // Helper function that runs in a separate thread for the following test.
     static void lockTestThread() {

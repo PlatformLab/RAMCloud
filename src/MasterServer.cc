@@ -149,7 +149,7 @@ MasterServer::init()
  * Top-level server method to handle the CREATE request.
  * See the documentation for the corresponding method in RamCloudClient for
  * complete information about what this request does.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 MasterServer::create(const CreateRpc::Request& reqHdr,
@@ -173,7 +173,7 @@ MasterServer::create(const CreateRpc::Request& reqHdr,
 /**
  * Fill this server with test data. Objects are added to all
  * existing tables in a round-robin fashion.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 MasterServer::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
@@ -223,7 +223,7 @@ MasterServer::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
  * handled along with some stats on amount of data written to the
  * master.
  *
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 MasterServer::ping(const PingRpc::Request& reqHdr,
@@ -779,7 +779,7 @@ MasterServer::recover(uint64_t masterId,
 
 /**
  * Top-level server method to handle the RECOVER request.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 MasterServer::recover(const RecoverRpc::Request& reqHdr,
@@ -1124,7 +1124,7 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
  * rereplicates any live segments it had stored on that backup to new backups
  * in order to maintain any replication requirements after a backup failure.
  *
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 MasterServer::rereplicateSegments(const RereplicateSegmentsRpc::Request& reqHdr,

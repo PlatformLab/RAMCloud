@@ -130,10 +130,10 @@ class MockSyscall : public Syscall {
     }
 
     int futexWaitErrno;
-    long futexWait(int *addr, int value) {
+    int futexWait(int *addr, int value) {
         if (futexWaitErrno == 0) {
-            return ::syscall(SYS_futex, addr, FUTEX_WAIT, value,
-                    NULL, NULL, 0);
+            return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAIT,
+                    value, NULL, NULL, 0));
         }
         errno = futexWaitErrno;
         futexWaitErrno = 0;
@@ -141,10 +141,10 @@ class MockSyscall : public Syscall {
     }
 
     int futexWakeErrno;
-    long futexWake(int *addr, int count) {
+    int futexWake(int *addr, int count) {
         if (futexWakeErrno == 0) {
-            return ::syscall(SYS_futex, addr, FUTEX_WAKE, count,
-                    NULL, NULL, 0);
+            return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAKE,
+                    count, NULL, NULL, 0));
         }
         errno = futexWakeErrno;
         futexWakeErrno = 0;

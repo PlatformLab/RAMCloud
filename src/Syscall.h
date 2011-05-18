@@ -75,12 +75,14 @@ class Syscall {
         return ::fcntl(fd, cmd, arg1);
     }
     VIRTUAL_FOR_TESTING
-    long futexWait(int *addr, int value) {
-        return ::syscall(SYS_futex, addr, FUTEX_WAIT, value, NULL, NULL, 0);
+    int futexWait(int *addr, int value) {
+        return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAIT,
+                value, NULL, NULL, 0));
     }
     VIRTUAL_FOR_TESTING
-    long futexWake(int *addr, int count) {
-        return ::syscall(SYS_futex, addr, FUTEX_WAKE, count, NULL, NULL, 0);
+    int futexWake(int *addr, int count) {
+        return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAKE,
+                count, NULL, NULL, 0));
     }
     VIRTUAL_FOR_TESTING
     int listen(int sockfd, int backlog) {

@@ -98,7 +98,7 @@ CoordinatorServer::dispatch(RpcType type,
 
 /**
  * Top-level server method to handle the CREATE_TABLE request.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
@@ -160,7 +160,7 @@ CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
 
 /**
  * Top-level server method to handle the DROP_TABLE request.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 CoordinatorServer::dropTable(const DropTableRpc::Request& reqHdr,
@@ -196,7 +196,7 @@ CoordinatorServer::dropTable(const DropTableRpc::Request& reqHdr,
 
 /**
  * Top-level server method to handle the OPEN_TABLE request.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 CoordinatorServer::openTable(const OpenTableRpc::Request& reqHdr,
@@ -213,7 +213,7 @@ CoordinatorServer::openTable(const OpenTableRpc::Request& reqHdr,
 
 /**
  * Handle the ENLIST_SERVER RPC.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
@@ -254,7 +254,7 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
 
 /**
  * Handle the GET_SERVER_LIST RPC.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
@@ -279,7 +279,7 @@ CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
 
 /**
  * Handle the GET_TABLET_MAP RPC.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 CoordinatorServer::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
@@ -293,7 +293,7 @@ CoordinatorServer::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
 
 /**
  * Handle the ENLIST_SERVER RPC.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
@@ -372,7 +372,7 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
 /**
  * Handle the TABLETS_RECOVERED RPC.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
@@ -457,7 +457,7 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
  * handled and instructs all the machines in the RAMCloud to do
  * so also (by pinging them all).
  *
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 CoordinatorServer::ping(const PingRpc::Request& reqHdr,
@@ -479,7 +479,7 @@ CoordinatorServer::ping(const PingRpc::Request& reqHdr,
 
 /**
  * Have all backups flush their dirty segments to storage.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 CoordinatorServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
@@ -497,7 +497,7 @@ CoordinatorServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
  * by Masters to keep their partitions balanced for efficient
  * recovery.
  *
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
 CoordinatorServer::setWill(const SetWillRpc::Request& reqHdr,
