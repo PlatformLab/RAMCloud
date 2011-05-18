@@ -212,21 +212,6 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
               segmentLocators);
 }
 
-TEST_F(BackupManagerTest, OpenSegmentwriteAssertWriteAfterClose) {
-    const char data[] = "Hello world!";
-    auto openSegment = mgr->openSegment(88, data, 0);
-    openSegment->write(4, true);
-    EXPECT_DEATH(openSegment->write(5, true), "Assertion");
-}
-
-TEST_F(BackupManagerTest, OpenSegmentwriteAssertNonAppending) {
-    const char data[] = "Hello world!";
-    auto openSegment = mgr->openSegment(88, data, 0);
-    openSegment->write(4, false);
-    openSegment->write(4, false); // OK
-    EXPECT_DEATH(openSegment->write(3, false), "Assertion");
-}
-
 #if 0 // the sync method was deleted,
       // not sure if there's valuable stuff in here
 TEST_F(BackupManagerTest, OpenSegmentsync) {
