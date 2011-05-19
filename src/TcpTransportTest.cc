@@ -220,7 +220,7 @@ TEST_F(TcpTransportTest, AcceptHandlerSuccess) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
     (*server.acceptHandler)();
-    EXPECT_NE(server.sockets.size(), 0);
+    EXPECT_NE(server.sockets.size(), 0U);
     EXPECT_FALSE(server.sockets[server.sockets.size() - 1] == NULL);
     close(fd);
 }
@@ -229,7 +229,7 @@ TEST_F(TcpTransportTest, RequestReadHandler) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
     (*server.acceptHandler)();
-    EXPECT_NE(server.sockets.size(), 0);
+    EXPECT_NE(server.sockets.size(), 0U);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
 
     // Send a message in 2 chunks.
@@ -238,7 +238,7 @@ TEST_F(TcpTransportTest, RequestReadHandler) {
     EXPECT_EQ(static_cast<int>(sizeof(header)),
         write(fd, &header, sizeof(header)));
     server.sockets[serverFd]->readHandler();
-    EXPECT_NE(server.sockets[serverFd]->rpc, 0);
+    EXPECT_TRUE(server.sockets[serverFd]->rpc != NULL);
     EXPECT_EQ(0, countWaitingRequests());
 
     EXPECT_EQ(6, write(fd, "abcdef", 6));
@@ -252,7 +252,7 @@ TEST_F(TcpTransportTest, RequestReadHandlerUnexpectedData) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
     (*server.acceptHandler)();
-    EXPECT_NE(server.sockets.size(), 0);
+    EXPECT_NE(server.sockets.size(), 0U);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
 
     // Send a message to make the server busy.
