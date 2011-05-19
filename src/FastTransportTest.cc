@@ -464,10 +464,6 @@ CPPUNIT_TEST_SUITE_REGISTRATION(FastTransportTest);
 class ClientRpcTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(ClientRpcTest);
     CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_isReady);
-    CPPUNIT_TEST(test_wait_inProgress);
-    CPPUNIT_TEST(test_wait_completed);
-    CPPUNIT_TEST(test_wait_aborted);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -511,63 +507,7 @@ class ClientRpcTest : public CppUnit::TestFixture {
     {
         CPPUNIT_ASSERT_EQUAL(request, rpc->requestBuffer);
         CPPUNIT_ASSERT_EQUAL(response, rpc->responseBuffer);
-        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::IN_PROGRESS,
-                             rpc->state);
         CPPUNIT_ASSERT_EQUAL(transport, rpc->transport);
-    }
-
-    void
-    test_isReady()
-    {
-        rpc->state = FastTransport::ClientRpc::IN_PROGRESS;
-        CPPUNIT_ASSERT_EQUAL(false, rpc->isReady());
-        rpc->state = FastTransport::ClientRpc::COMPLETED;
-        CPPUNIT_ASSERT_EQUAL(true, rpc->isReady());
-    }
-
-    void
-    test_wait_inProgress()
-    {
-        // This test ensures that the dispatcher gets called if the
-        // RPC hasn't finished.
-
-        // Create a timer handler that will mark the RPC completed.
-        class RpcCompleter : public Dispatch::Timer {
-          public:
-            explicit RpcCompleter(FastTransport::ClientRpc* rpc)
-                    : Dispatch::Timer(), rpc(rpc), invoked(false) {
-            }
-            void operator() () {
-                rpc->state = FastTransport::ClientRpc::COMPLETED;
-                invoked = true;
-            }
-            FastTransport::ClientRpc* rpc;
-            bool invoked;
-          private:
-            DISALLOW_COPY_AND_ASSIGN(RpcCompleter);
-        };
-
-        mockTSCValue = 0;
-        RpcCompleter completer(rpc);
-        completer.startCycles(1000);
-        rpc->state = FastTransport::ClientRpc::IN_PROGRESS;
-        rpc->wait();
-        CPPUNIT_ASSERT_EQUAL(true, completer.invoked);
-    }
-
-    void
-    test_wait_completed()
-    {
-        rpc->state = FastTransport::ClientRpc::COMPLETED;
-        // Making sure this returns
-        rpc->wait();
-    }
-
-    void
-    test_wait_aborted()
-    {
-        rpc->state = FastTransport::ClientRpc::ABORTED;
-        CPPUNIT_ASSERT_THROW(rpc->wait(), TransportException);
     }
 
   private:
@@ -1828,10 +1768,12 @@ class ClientSessionTest: public CppUnit::TestFixture {
         session->channels[1].currentRpc = &rpc2;
 
         session->close();
-        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc1.state);
-        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc2.state);
+        CPPUNIT_ASSERT(rpc1.isReady());
+        CPPUNIT_ASSERT_EQUAL("RPC aborted", rpc1.errorMessage->c_str());
+        CPPUNIT_ASSERT(rpc2.isReady());
+        CPPUNIT_ASSERT_EQUAL("RPC aborted", rpc2.errorMessage->c_str());
         CPPUNIT_ASSERT(session->channelQueue.empty());
-        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc3.state);
+        CPPUNIT_ASSERT_EQUAL("RPC aborted", rpc3.errorMessage->c_str());
         CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::INVALID_HINT,
                              session->serverSessionHint);
         CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::INVALID_TOKEN,
@@ -1903,7 +1845,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
         Dispatch::poll();
         CPPUNIT_ASSERT_EQUAL(false, session->sessionOpenRequestInFlight);
 
-        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc.state);
+        CPPUNIT_ASSERT_EQUAL("RPC aborted", rpc.errorMessage->c_str());
         CPPUNIT_ASSERT(!rpc.channelQueueEntries.is_linked());
     }
 

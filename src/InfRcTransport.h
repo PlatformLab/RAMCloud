@@ -99,9 +99,7 @@ class InfRcTransport : public Transport {
                                Buffer* request,
                                Buffer* response,
                                uint64_t nonce);
-            bool isReady();
             void sendOrQueue();
-            void wait();
 
         private:
             bool

@@ -252,49 +252,9 @@ FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
                                     Buffer* response)
     : requestBuffer(request)
     , responseBuffer(response)
-    , state(IN_PROGRESS)
     , transport(transport)
     , channelQueueEntries()
 {
-}
-
-// See Transport::ClientRpc::isReady for documentation.
-bool
-FastTransport::ClientRpc::isReady()
-{
-    return (state != IN_PROGRESS);
-}
-
-// See Transport::ClientRpc::wait for documentation.
-void
-FastTransport::ClientRpc::wait()
-{
-    while (true) {
-        switch (state) {
-        case IN_PROGRESS:
-        default:
-            Dispatch::poll();
-            break;
-        case COMPLETED:
-            return;
-        case ABORTED:
-            throw TransportException(HERE, "RPC aborted");
-        }
-    }
-}
-
-/// Change state to ABORTED.  Internal to FastTransport.
-void
-FastTransport::ClientRpc::abort()
-{
-    state = ABORTED;
-}
-
-/// Change state to COMPLETED.  Internal to FastTransport.
-void
-FastTransport::ClientRpc::complete()
-{
-    state = COMPLETED;
 }
 
 // --- ServerRpc ---
@@ -1356,14 +1316,17 @@ FastTransport::ClientSession::close()
 {
     LOG(DEBUG, "closing session");
     for (uint32_t i = 0; i < numChannels; i++) {
-        if (channels[i].currentRpc)
-            channels[i].currentRpc->abort();
+        if (channels[i].currentRpc) {
+            string error("RPC aborted");
+            channels[i].currentRpc->markFinished(&error);
+        }
     }
     ChannelQueue::iterator iter(channelQueue.begin());
     while (iter != channelQueue.end()) {
         ClientRpc& rpc(*iter);
         iter = channelQueue.erase(iter);
-        rpc.abort();
+        string error("RPC aborted");
+        rpc.markFinished(&error);
     }
     resetChannels();
     serverSessionHint = INVALID_HINT;
@@ -1649,7 +1612,7 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
     }
     if (channel->inboundMsg.processReceivedData(received)) {
         // InboundMsg has gotten its last fragment
-        channel->currentRpc->complete();
+        channel->currentRpc->markFinished();
         channel->rpcId += 1;
         channel->outboundMsg.reset();
         channel->inboundMsg.reset();

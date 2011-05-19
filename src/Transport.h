@@ -16,12 +16,14 @@
 #ifndef RAMCLOUD_TRANSPORT_H
 #define RAMCLOUD_TRANSPORT_H
 
+#include <cstdatomic>
 #include <string>
 #include <boost/intrusive_ptr.hpp>
 
 #include "Common.h"
-#include "ServiceLocator.h"
 #include "Buffer.h"
+#include "ServiceLocator.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -61,11 +63,11 @@ class Transport {
      * must later call #wait() on it.
      */
     class ClientRpc {
-      protected:
+      PROTECTED:
         /**
          * Constructor for ClientRpc.
          */
-        ClientRpc() {}
+        ClientRpc() : finished(0), errorMessage() {}
 
       public:
 
@@ -84,7 +86,7 @@ class Transport {
          *      Something went wrong at the transport level (e.g. the
          *      server crashed).
          */
-        virtual void wait() = 0;
+        void wait();
 
         /**
          * Indicate whether a response or error has been received for
@@ -96,9 +98,26 @@ class Transport {
          *      be invoked so it can throw exceptions (this method will
          *      not throw any exceptions).
          */
-        virtual bool isReady() = 0;
+        bool isReady() {
+            return (finished.load() != 0);
+        }
 
-      private:
+      PROTECTED:
+        void markFinished(string* errorMessage = NULL);
+
+        /**
+         * Non-zero means that the RPC has completed (either with or without an
+         * error), so the next call to #wait should return immediately.
+         */
+        atomic_int finished;
+
+        /**
+         * If an error occurred in the RPC then this holds the error message;
+         * if the RPC completed normally than this has no value.
+         */
+        Tub<string> errorMessage;
+
+      PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(ClientRpc);
     };
 
@@ -108,7 +127,7 @@ class Transport {
      * must later call #sendReply() on it.
      */
     class ServerRpc {
-      protected:
+      PROTECTED:
         /**
          * Constructor for ServerRpc.
          */
@@ -141,7 +160,7 @@ class Transport {
          */
         Buffer replyPayload;
 
-      private:
+      PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
 
@@ -218,9 +237,9 @@ class Transport {
                 session->release();
         }
 
-      protected:
+      PROTECTED:
         uint32_t refCount;
-      private:
+      PRIVATE:
         string serviceLocator;
 
         DISALLOW_COPY_AND_ASSIGN(Session);
@@ -292,7 +311,7 @@ class Transport {
     /// Dump out performance and debugging statistics.
     virtual void dumpStats() {}
 
-  private:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(Transport);
 };
 

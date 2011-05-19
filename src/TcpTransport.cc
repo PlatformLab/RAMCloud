@@ -472,6 +472,17 @@ TcpTransport::TcpSession::close()
         sys->close(fd);
         fd = -1;
     }
+    if (errorInfo.size() == 0) {
+        errorInfo = "session closed";
+    }
+    if (current != NULL) {
+        current->markFinished(&errorInfo);
+        current = NULL;
+    }
+    while (!waitingRpcs.empty()) {
+        waitingRpcs.front()->markFinished(&errorInfo);
+        waitingRpcs.pop();
+    }
     if (replyHandler)
         replyHandler.destroy();
 }
@@ -540,7 +551,7 @@ TcpTransport::ReplyReadHandler::operator() ()
         }
         if (session->message.readMessage(fd)) {
             // This RPC is finished.
-            session->current->finished = true;
+            session->current->markFinished();
             session->current = NULL;
             if (!session->waitingRpcs.empty()) {
                 // There is another RPC waiting to be sent on this transport;
@@ -555,33 +566,13 @@ TcpTransport::ReplyReadHandler::operator() ()
     } catch (TcpTransportEof& e) {
         // Close the session's socket in order to prevent an infinite loop of
         // calls to this method.
-        session->close();
-        session->current = NULL;
         session->errorInfo = "socket closed by server";
+        session->close();
     } catch (TransportException& e) {
         LOG(ERROR, "TcpTransport::ReplyReadHandler closing session "
                 "socket: %s", e.message.c_str());
-        session->close();
-        session->current = NULL;
         session->errorInfo = e.message;
-    }
-}
-
-// See Transport::ClientRpc::isReady for documentation.
-bool
-TcpTransport::TcpClientRpc::isReady()
-{
-    return (finished || session->fd == -1);
-}
-
-// See Transport::ClientRpc::wait for documentation.
-void
-TcpTransport::TcpClientRpc::wait()
-{
-    while (!finished) {
-        if (session->fd == -1)
-            throw TransportException(HERE, session->errorInfo);
-        Dispatch::handleEvent();
+        session->close();
     }
 }
 

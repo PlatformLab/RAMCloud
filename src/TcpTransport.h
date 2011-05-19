@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -35,14 +35,6 @@ namespace RAMCloud {
  * fast as possible, given its use of kernel-based TCP/IP.
  */
 class TcpTransport : public Transport {
-  friend class TcpTransportTest;
-  friend class AcceptHandler;
-  friend class RequestReadHandler;
-  class IncomingMessage;
-  class ReplyReadHandler;
-  class Socket;
-  class TcpSession;
-
   public:
     explicit TcpTransport(const ServiceLocator* serviceLocator = NULL);
     ~TcpTransport();
@@ -55,7 +47,14 @@ class TcpTransport : public Transport {
     }
     void registerMemory(void* base, size_t bytes) {}
 
-  private:
+  PRIVATE:
+    friend class TcpTransportTest;
+    friend class AcceptHandler;
+    friend class RequestReadHandler;
+    class IncomingMessage;
+    class ReplyReadHandler;
+    class Socket;
+    class TcpSession;
     /**
      * Header for request and response messages: precedes the actual data
      * of the message in all transmissions.
@@ -78,7 +77,7 @@ class TcpTransport : public Transport {
         explicit IncomingMessage(Buffer* buffer);
         void reset(Buffer* buffer);
         bool readMessage(int fd);
-      private:
+      PRIVATE:
         Header header;
 
         /// The number of bytes of header that have been successfully
@@ -103,7 +102,7 @@ class TcpTransport : public Transport {
       friend class TcpTransport;
       public:
         void sendReply();
-      private:
+      PRIVATE:
         TcpServerRpc(Socket* socket, int fd, Buffer* buffer)
             : fd(fd), socket(socket), message(buffer) { }
 
@@ -120,26 +119,23 @@ class TcpTransport : public Transport {
      * The TCP implementation of Transport::ClientRpc.
      */
     class TcpClientRpc : public Transport::ClientRpc {
-      friend class TcpTransportTest;
-      friend class TcpTransport;
-      friend class TcpSession;
       public:
+        friend class TcpTransportTest;
+        friend class TcpTransport;
+        friend class TcpSession;
         explicit TcpClientRpc(TcpSession* session, Buffer*request,
                 Buffer* reply)
-            : request(request), reply(reply), session(session),
-              finished(false) { }
+            : request(request), reply(reply), session(session) { }
         bool isReady();
         void wait();
-      private:
+      PRIVATE:
         Buffer* request;          /// Contains request message.
         Buffer* reply;            /// Client's buffer for response.
         TcpSession *session;      /// Session used for this RPC.
-        bool finished;            /// True means that the response for this
-                                  /// RPC has been received.
         DISALLOW_COPY_AND_ASSIGN(TcpClientRpc);
     };
 
-  private:
+  PRIVATE:
     void closeSocket(int fd);
     static ssize_t recvCarefully(int fd, void* buffer, size_t length);
     static void sendMessage(int fd, Buffer& payload);
@@ -160,7 +156,7 @@ class TcpTransport : public Transport {
       public:
         AcceptHandler(int fd, TcpTransport* transport);
         virtual void operator() ();
-      private:
+      PRIVATE:
         // Transport that manages this socket.
         TcpTransport* transport;
         DISALLOW_COPY_AND_ASSIGN(AcceptHandler);
@@ -173,7 +169,7 @@ class TcpTransport : public Transport {
       public:
         RequestReadHandler(int fd, TcpTransport* transport);
         virtual void operator() ();
-      private:
+      PRIVATE:
         // The following variables are just copies of constructor arguments.
         int fd;
         TcpTransport* transport;
@@ -187,7 +183,7 @@ class TcpTransport : public Transport {
       public:
         ReplyReadHandler(int fd, TcpSession* session);
         virtual void operator() ();
-      private:
+      PRIVATE:
         // The following variables are just copies of constructor arguments.
         int fd;
         TcpSession* session;
@@ -209,7 +205,7 @@ class TcpTransport : public Transport {
         void release() {
             delete this;
         }
-      private:
+      PRIVATE:
         void close();
         static void tryReadReply(int fd, int16_t event, void *arg);
 

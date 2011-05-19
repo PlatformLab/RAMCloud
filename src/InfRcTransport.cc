@@ -936,6 +936,7 @@ InfRcTransport<Infiniband>::Poller::operator() ()
                                              len, t, t->clientSrq, bd);
             }
             rpc.state = ClientRpc::RESPONSE_RECEIVED;
+            rpc.markFinished();
             result = true;
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
@@ -993,22 +994,6 @@ InfRcTransport<Infiniband>::Poller::operator() ()
     }
   done:
     return result;
-}
-
-// See Transport::ClientRpc::isReady for documentation.
-template<typename Infiniband>
-bool
-InfRcTransport<Infiniband>::ClientRpc::isReady() {
-    return (state == RESPONSE_RECEIVED);
-}
-
-// See Transport::ClientRpc::wait for documentation.
-template<typename Infiniband>
-void
-InfRcTransport<Infiniband>::ClientRpc::wait()
-{
-    while (state != RESPONSE_RECEIVED)
-        Dispatch::handleEvent();
 }
 
 //-------------------------------------

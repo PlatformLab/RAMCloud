@@ -19,68 +19,60 @@
 
 namespace RAMCloud {
 
-class InfRcTransportTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(InfRcTransportTest);
-    CPPUNIT_TEST(test_sanityCheck);
-    CPPUNIT_TEST_SUITE_END();
-
+class InfRcTransportTest : public ::testing::Test {
   public:
     ServiceLocator* locator;
     ServiceManager* serviceManager;
 
     InfRcTransportTest() : locator(NULL), serviceManager(NULL)
-    {}
-
-    void setUp() {
+    {
         locator = new ServiceLocator("infrc: host=localhost, port=11000");
         serviceManager = new ServiceManager(NULL);
     }
 
-    void tearDown() {
+    ~InfRcTransportTest() {
         delete serviceManager;
         delete locator;
     }
-
-    void test_sanityCheck() {
-        // Create a server and a client and verify that we can
-        // send a request, receive it, send a reply, and receive it.
-        // Then try a second request with bigger chunks of data.
-
-        InfRcTransport<RealInfiniband> server(locator);
-        InfRcTransport<RealInfiniband> client;
-        Transport::SessionRef session = client.getSession(*locator);
-
-        Buffer request;
-        Buffer reply;
-        request.fillFromString("abcdefg");
-        Transport::ClientRpc* clientRpc = session->clientSend(&request,
-                &reply);
-        Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
-        CPPUNIT_ASSERT(serverRpc != NULL);
-        CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
-        CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
-        serverRpc->replyPayload.fillFromString("klmn");
-        serverRpc->sendReply();
-        Dispatch::handleEvent();
-        CPPUNIT_ASSERT_EQUAL(true, clientRpc->isReady());
-        CPPUNIT_ASSERT_EQUAL("klmn/0", toString(&reply));
-
-        fillLargeBuffer(&request, 100000);
-        reply.reset();
-        clientRpc = session->clientSend(&request, &reply);
-        serverRpc = serviceManager->waitForRpc(1.0);
-        CPPUNIT_ASSERT(serverRpc != NULL);
-        CPPUNIT_ASSERT_EQUAL("ok",
-                checkLargeBuffer(&serverRpc->recvPayload, 100000));
-        fillLargeBuffer(&serverRpc->replyPayload, 50000);
-        serverRpc->sendReply();
-        clientRpc->wait();
-        CPPUNIT_ASSERT_EQUAL("ok", checkLargeBuffer(&reply, 50000));
-    }
-
   private:
     DISALLOW_COPY_AND_ASSIGN(InfRcTransportTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(InfRcTransportTest);
+
+TEST_F(InfRcTransportTest, sanityCheck) {
+    // Create a server and a client and verify that we can
+    // send a request, receive it, send a reply, and receive it.
+    // Then try a second request with bigger chunks of data.
+
+    InfRcTransport<RealInfiniband> server(locator);
+    InfRcTransport<RealInfiniband> client;
+    Transport::SessionRef session = client.getSession(*locator);
+
+    Buffer request;
+    Buffer reply;
+    request.fillFromString("abcdefg");
+    Transport::ClientRpc* clientRpc = session->clientSend(&request,
+            &reply);
+    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    EXPECT_EQ("abcdefg/0", toString(&serverRpc->recvPayload));
+    EXPECT_FALSE(clientRpc->isReady());
+    serverRpc->replyPayload.fillFromString("klmn");
+    serverRpc->sendReply();
+    Dispatch::handleEvent();
+    EXPECT_TRUE(clientRpc->isReady());
+    EXPECT_EQ("klmn/0", toString(&reply));
+
+    fillLargeBuffer(&request, 100000);
+    reply.reset();
+    clientRpc = session->clientSend(&request, &reply);
+    serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    EXPECT_EQ("ok",
+            checkLargeBuffer(&serverRpc->recvPayload, 100000));
+    fillLargeBuffer(&serverRpc->replyPayload, 50000);
+    serverRpc->sendReply();
+    clientRpc->wait();
+    EXPECT_EQ("ok", checkLargeBuffer(&reply, 50000));
+}
 
 }  // namespace RAMCloud

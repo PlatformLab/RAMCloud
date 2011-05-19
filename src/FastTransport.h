@@ -99,28 +99,15 @@ class FastTransport : public Transport {
      * will block until the response is complete and valid.
      */
     class ClientRpc : public Transport::ClientRpc {
-      public:
-        void wait();
-        bool isReady();
-
       private:
         ClientRpc(FastTransport* transport,
                   Buffer* request, Buffer* response);
-        void abort();
-        void complete();
 
         /// Contains an RPC request payload including the RPC header.
         Buffer* const requestBuffer;
 
         /// The destination Buffer for the RPC response.
         Buffer* const responseBuffer;
-
-        /// Current state of the RPC.
-        enum {
-            IN_PROGRESS,    ///< State of an incomplete RPC.
-            COMPLETED,      ///< State of an RPC after request/response cycle.
-            ABORTED,        ///< State of an RPC after a failure.
-        } state;
 
         /// The Transport on which to send/receive the RPC.
         FastTransport* const transport;
@@ -130,6 +117,7 @@ class FastTransport : public Transport {
 
       private:
         friend class FastTransport;
+        friend class ClientSession;
         friend class FastTransportTest;
         friend class ClientRpcTest;
         friend class ClientSessionTest;

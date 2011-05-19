@@ -73,31 +73,23 @@ struct BindTransport : public Transport {
     };
 
     struct BindClientRpc : public ClientRpc {
-        explicit BindClientRpc(BindTransport& transport,
-                               Buffer& request, Buffer& response,
-                               Service& service)
-            : transport(transport), request(request), response(response),
-              service(service) {}
-        bool isReady() { return true; }
-        void wait() {
-            Service::Rpc rpc(NULL, request, response);
-            service.handleRpc(rpc);
-        }
-
-        BindTransport& transport;
-        Buffer& request;
-        Buffer& response;
-        Service& service;
+        BindClientRpc() {}
+        friend class BindTransport;
+        friend class BindSession;
         DISALLOW_COPY_AND_ASSIGN(BindClientRpc);
     };
 
     struct BindSession : public Session {
+      public:
         explicit BindSession(BindTransport& transport, Service& service,
                              const string& locator)
             : transport(transport), service(service), locator(locator) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
-            return new(response, MISC) BindClientRpc(transport, *request,
-                                                     *response, service);
+            Service::Rpc rpc(NULL, *request, *response);
+            service.handleRpc(rpc);
+            BindClientRpc* result = new(response, MISC) BindClientRpc;
+            result->markFinished();
+            return result;
         }
         void release() {
             delete this;

@@ -56,12 +56,7 @@ class MockTransport : public Transport {
     class MockClientRpc : public ClientRpc {
         public:
             explicit MockClientRpc(MockTransport* transport, Buffer* response);
-            void wait();
-            bool isReady() {
-                return true;
-            }
         private:
-            MockTransport* transport;
             Buffer* response;
             DISALLOW_COPY_AND_ASSIGN(MockClientRpc);
     };

@@ -53,6 +53,7 @@ TESTS_SRCFILES := \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
 		  src/TransportManagerTest.cc \
+		  src/TransportTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/WillTest.cc \

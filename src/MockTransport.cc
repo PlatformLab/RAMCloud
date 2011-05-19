@@ -129,8 +129,6 @@ MockTransport::setInput(const char* s)
 
 /**
  * Construct a MockServerRpc.
- * The input message is taken from transport->inputMessage, if
- * it contains data.
  *
  * \param transport
  *      The MockTransport object that this RPC is associated with.
@@ -175,24 +173,13 @@ MockTransport::MockServerRpc::sendReply()
  */
 MockTransport::MockClientRpc::MockClientRpc(MockTransport* transport,
                                             Buffer* response)
-        : transport(transport), response(response) { }
-
-/**
- * Wait for a response to arrive for this RPC. This is a fake implementation
- * that simply returns a prepared response supplied to us explicitly
- * by the current test (or an empty buffer, if nothing was supplied).
- */
-void
-MockTransport::MockClientRpc::wait()
+        : response(response)
 {
-    // The call to fillFromString below will overwrite everything in the
-    // response buffer, including this MockClientRpc object; pull out of
-    // the object anything we will need.
-    MockTransport* transport = this->transport;
     if (transport->inputMessage != NULL) {
         response->fillFromString(transport->inputMessage);
         transport->inputMessage = NULL;
     }
+    markFinished();
 }
 
 }  // namespace RAMCloud
