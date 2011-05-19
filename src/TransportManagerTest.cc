@@ -44,6 +44,7 @@ TEST_F(TransportManagerTest, initialize) {
     } mockThrowTransportFactory;
 
     TransportManager manager;
+    manager.transportFactories.clear();  /* Speeds up initialization. */
     manager.transportFactories.insert(&mockTransportFactory);
     manager.transportFactories.insert(&mockThrowTransportFactory);
     manager.initialize("foo:; mock:; bar:");
@@ -52,11 +53,13 @@ TEST_F(TransportManagerTest, initialize) {
     EXPECT_GT(manager.transports.size(), 0U);
 
     TransportManager manager2;
+    manager2.transportFactories.clear();  /* Speeds up initialization. */
     manager2.transportFactories.insert(&mockThrowTransportFactory);
     EXPECT_THROW(manager2.initialize(
         "foo:; mock:; bar:; mockThrow:"), TransportException);
 
     TransportManager manager3;
+    manager3.transportFactories.clear();  /* Speeds up initialization. */
     manager3.initialize("");
     EXPECT_FALSE(manager3.isServer);
 }
@@ -142,6 +145,7 @@ TEST_F(TransportManagerTest, getListeningLocatorsString) {
     MockTransport *mock1 = new MockTransport(&mock1sl);
     MockTransport *mock2 = new MockTransport(&mock2sl);
 
+    manager.transportFactories.clear();  /* Speeds up initialization. */
     manager.initialize("");
     EXPECT_STREQ("", manager.getListeningLocatorsString().c_str());
 
