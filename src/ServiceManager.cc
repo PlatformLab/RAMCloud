@@ -185,8 +185,12 @@ ServiceManager::workerMain(Worker* worker)
                         Worker::SLEEPING)) {
                     if (sys->futexWait(reinterpret_cast<int*>(&worker->state),
                             Worker::SLEEPING) == -1) {
-                        LOG(ERROR, "futexWait failed in ServiceManager::"
-                                "workerMain: %s", strerror(errno));
+                        // EWOULDBLOCK means that someone already changed
+                        // worker->state, so we didn't block; this is benign.
+                        if (errno != EWOULDBLOCK) {
+                            LOG(ERROR, "futexWait failed in ServiceManager::"
+                                    "workerMain: %s", strerror(errno));
+                        }
                     }
                 }
             }
