@@ -398,7 +398,7 @@ class MasterTest : public CppUnit::TestFixture {
         // 1,2,3) 87 was requested from the first server list entry.
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 87 on channel 0 (initial round of RPCs)",
+            "for segment 87 on channel . (initial round of RPCs)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(0).user_data());
@@ -415,7 +415,7 @@ class MasterTest : public CppUnit::TestFixture {
         //      OK status, preventing the launch of the forth entry
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 88 on channel 1 (initial round of RPCs)",
+            "for segment 88 on channel . (initial round of RPCs)",
             TestLog::get());
         assertMatchesPosixRegex(
             "recover: Checking mock:host=backup1 off the list for 88 | "
@@ -435,13 +435,13 @@ class MasterTest : public CppUnit::TestFixture {
         //    bad locator
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 89 on channel 2 (initial round of RPCs)",
+            "for segment 89 on channel . (initial round of RPCs)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(4).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup3 "
-            "for segment 90 on channel 3 (initial round of RPCs)",
+            "for segment 90 on channel . (initial round of RPCs)",
             TestLog::get());
         // 5) Checks bad locators for initial RPCs are handled
         assertMatchesPosixRegex(
@@ -451,7 +451,7 @@ class MasterTest : public CppUnit::TestFixture {
                              backups.server(5).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 91 on channel 3 (initial round of RPCs)",
+            "for segment 91 on channel . (initial round of RPCs)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(6).user_data());
@@ -467,7 +467,7 @@ class MasterTest : public CppUnit::TestFixture {
                              backups.server(7).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 93 on channel 1 (after RPC completion)",
+            "for segment 93 on channel . (after RPC completion)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(8).user_data());
