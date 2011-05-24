@@ -172,7 +172,7 @@ UdpDriver::sendPacket(const Address *addr,
  * to the associated FastTransport instance.
  */
 void
-UdpDriver::ReadHandler::operator() ()
+UdpDriver::ReadHandler::handleFileEvent()
 {
     PacketBuf* buffer;
     buffer = driver->packetBufPool.construct();

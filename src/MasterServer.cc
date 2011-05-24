@@ -205,8 +205,7 @@ MasterServer::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
                   &rejectRules, &buffer, 0, reqHdr.objectSize,
                   &newVersion, true);
         if ((objects % 50) == 0) {
-            while (Dispatch::poll()) {
-            }
+            RAMCloud::dispatch->poll();
             backup.proceed();
         }
     }
@@ -354,8 +353,8 @@ class RemoveTombstonePoller : public Dispatch::Poller {
      * \return
      *      Always false in order to yield to important work.
      */
-    virtual bool
-    operator()()
+    virtual void
+    poll()
     {
         objectMap.forEachInBucket(
             recoveryCleanup, &masterServer, currentBucket);
@@ -364,7 +363,6 @@ class RemoveTombstonePoller : public Dispatch::Poller {
             LOG(NOTICE, "Cleanup of tombstones complete");
             delete this;
         }
-        return false;
     }
 
   private:
@@ -402,7 +400,7 @@ namespace {
 struct Task {
     struct ResendTimer : public Dispatch::Timer {
         explicit ResendTimer(Task& task) : task(task) {}
-        void operator() () { task.resend(); }
+        void handleTimerEvent() { task.resend(); }
         Task& task;
     };
 
@@ -579,7 +577,7 @@ MasterServer::recover(uint64_t masterId,
     Tub<Task> tasks[4];
 #endif
     uint32_t activeRequests = 0;
-    uint64_t lastEventTime = Dispatch::lastEventTime;
+    uint64_t lastEventTime = RAMCloud::dispatch->currentTime;
 
     auto notStarted = backups.mutable_server()->begin();
     auto backupsEnd = backups.mutable_server()->end();
@@ -628,13 +626,13 @@ MasterServer::recover(uint64_t masterId,
         segmentIdToBackups.insert({backup.segment_id(), &backup});
 
     while (activeRequests) {
-        if (Dispatch::lastEventTime == lastEventTime) {
-            Dispatch::handleEvent();
+        if (RAMCloud::dispatch->currentTime == lastEventTime) {
+            RAMCloud::dispatch->poll();
         } else {
             // Some other piece of code has called Dispatch,
             // so we might have work to do.
         }
-        lastEventTime = Dispatch::lastEventTime;
+        lastEventTime = RAMCloud::dispatch->currentTime;
         this->backup.proceed();
         foreach (auto& task, tasks) {
             if (!task)
@@ -930,11 +928,8 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
         if (i.getOffset() > lastOffsetBackupProgress + 50000) {
             lastOffsetBackupProgress = i.getOffset();
-            if (Dispatch::poll()) {
-                while (Dispatch::poll()) {
-                }
-                this->backup.proceed();
-            }
+            RAMCloud::dispatch->poll();
+            this->backup.proceed();
         }
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH

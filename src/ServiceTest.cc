@@ -153,7 +153,7 @@ TEST_F(ServiceTest, sendReply) {
     // Verify that the reply has been sent even though the worker has not
     // returned yet.
     for (int i = 0; i < 1000; i++) {
-        Dispatch::poll();
+        dispatch->poll();
         if (manager.worker.rpc == NULL) {
             break;
         }

@@ -118,7 +118,7 @@ class ServiceManager : Dispatch::Poller {
 
     void exitWorker();
     static void handleRpc(Transport::ServerRpc* rpc);
-    bool operator() ();
+    void poll();
     Transport::ServerRpc* waitForRpc(double timeoutSeconds);
 
     /// How many microseconds worker threads should remain in their polling

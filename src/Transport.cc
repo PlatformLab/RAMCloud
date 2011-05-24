@@ -34,11 +34,11 @@ Transport::ClientRpc::wait()
     // When invoked in RAMCloud servers there is a separate dispatch thread,
     // so we just busy-wait here. When invoked on RAMCloud clients we're in
     // the dispatch thread so we have to invoke the dispatcher while waiting.
-    bool isDispatchThread = Dispatch::isDispatchThread();
+    bool isDispatchThread = dispatch->isDispatchThread();
 
     while (!finished.load()) {
         if (isDispatchThread)
-            Dispatch::poll();
+            dispatch->poll();
     }
 
     if (errorMessage) {

@@ -36,8 +36,8 @@ class ServiceManagerTest : public ::testing::Test {
         : serviceManager(), transport(), service(), logEnabler(),
           savedSyscall(NULL), sys()
     {
-        Dispatch::reset();
-        Dispatch::setDispatchThread();
+        delete dispatch;
+        dispatch = new Dispatch;
         serviceManager.construct(&service);
         savedSyscall = ServiceManager::sys;
         ServiceManager::sys = &sys;
@@ -74,7 +74,7 @@ TEST_F(ServiceManagerTest, sanityCheck) {
 
     // Wait for the request to be processed for (but don't wait forever).
     for (int i = 0; i < 1000; i++) {
-        Dispatch::poll();
+        dispatch->poll();
         if (!service.log.empty())
             break;
         usleep(1000);
@@ -127,7 +127,7 @@ TEST_F(ServiceManagerTest, handleRpc) {
 
 TEST_F(ServiceManagerTest, operatorInvokeBasics) {
     // First call: nothing to do.
-    EXPECT_FALSE((*serviceManager)());
+    serviceManager->poll();
 
     // Second call: one RPC has finished, another needs to be
     // scheduled.
@@ -138,13 +138,13 @@ TEST_F(ServiceManagerTest, operatorInvokeBasics) {
             &transport, "5 6");
     ServiceManager::handleRpc(rpc2);
     waitUntilDone();
-    EXPECT_TRUE((*serviceManager)());
+    serviceManager->poll();
     EXPECT_EQ("serverReply: 4 5", transport.outputLog);
     transport.outputLog.clear();
 
     // Third call: cleanup after the second RPC, but no new RPC to schedule.
     waitUntilDone();
-    EXPECT_TRUE((*serviceManager)());
+    serviceManager->poll();
     EXPECT_EQ("serverReply: 6 7", transport.outputLog);
     EXPECT_EQ(static_cast<Transport::ServerRpc*>(NULL),
               serviceManager->worker.rpc);
@@ -162,12 +162,12 @@ TEST_F(ServiceManagerTest, operatorInvokePostprocessing) {
     // Worker has "working": simulate a call to sendReply.
     serviceManager->worker.state.store(
             Worker::POSTPROCESSING);
-    EXPECT_TRUE((*serviceManager)());
+    serviceManager->poll();
     EXPECT_EQ("serverReply: ", transport.outputLog);
 
     // Now fake a finish for the RPC.
     serviceManager->worker.state.store(Worker::POLLING);
-    EXPECT_FALSE((*serviceManager)());
+    serviceManager->poll();
     EXPECT_EQ("serverReply: ", transport.outputLog);
 }
 
@@ -175,14 +175,14 @@ TEST_F(ServiceManagerTest, operatorInvokePostprocessing) {
 
 TEST_F(ServiceManagerTest, workerMainGoToSleep) {
     // Initially the worker should not go to sleep (time appears to
-    // stand still for it, because we aren't calling Dispatch::poll).
+    // stand still for it, because we aren't calling dispatch->poll).
     usleep(1000);
     EXPECT_EQ(Worker::POLLING,
               serviceManager->worker.state.load());
 
-    // Update Dispatch::currentTime. When the worker sees this it should
+    // Update dispatch->currentTime. When the worker sees this it should
     // go to sleep.
-    Dispatch::currentTime = rdtsc();
+    dispatch->currentTime = rdtsc();
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (serviceManager->worker.state.load() ==
@@ -207,7 +207,7 @@ TEST_F(ServiceManagerTest, workerMainFutexError) {
     // Wait for the worker to go to sleep, then make sure it logged
     // an error message.
     usleep(1000);
-    Dispatch::currentTime = rdtsc();
+    dispatch->currentTime = rdtsc();
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (serviceManager->worker.state.load() ==

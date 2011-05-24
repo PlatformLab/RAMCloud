@@ -58,8 +58,7 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     EXPECT_FALSE(clientRpc->isReady());
     serverRpc->replyPayload.fillFromString("klmn");
     serverRpc->sendReply();
-    Dispatch::handleEvent();
-    EXPECT_TRUE(clientRpc->isReady());
+    EXPECT_TRUE(waitForRpc(*clientRpc));
     EXPECT_EQ("klmn/0", toString(&reply));
 
     fillLargeBuffer(&request, 100000);

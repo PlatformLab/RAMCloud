@@ -87,10 +87,11 @@ void fillLargeBuffer(Buffer* buffer, int size);
 const char *getStatus(Buffer* buffer);
 string toString(const char *buf, uint32_t length);
 string toString(Buffer* buffer);
+bool waitForRpc(Transport::ClientRpc& rpc);
 
 struct ProgressPoller : public Dispatch::Poller {
-    bool operator()() {
-        return (rand() & 1); // NOLINT
+    void poll() {
+        // return (rand() & 1); // NOLINT
     }
 };
 

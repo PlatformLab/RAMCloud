@@ -41,7 +41,7 @@ class InfUdDriverTest : public CppUnit::TestFixture {
         transport->packetData.clear();
         uint64_t start = rdtsc();
         while (true) {
-            Dispatch::poll();
+            dispatch->poll();
             if (transport->packetData.size() != 0) {
                 return transport->packetData.c_str();
             }

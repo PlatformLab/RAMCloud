@@ -94,25 +94,23 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
  * This method is invoked by Dispatch during its polling loop.  It checks
  * for completion of outstanding RPCs.
  */
-bool
-ServiceManager::operator() ()
+void
+ServiceManager::poll()
 {
     if (worker.idle) {
         // Quick shortcut for the common case.
-        return false;
+        return;
     }
     int state = worker.state.load();
     if (state == Worker::WORKING) {
-        return false;
+        return;
     }
 
     // The worker is either post-processing or idle; in either case, if
     // there is an RPC that we haven't yet responded to, respond now.
-    bool result = false;
     if (worker.rpc != NULL) {
         worker.rpc->sendReply();
         worker.rpc = NULL;
-        result = true;
     }
 
     // If the worker is idle and there are waiting RPCs, start the next one.
@@ -121,10 +119,8 @@ ServiceManager::operator() ()
         if (!waitingRpcs.empty()) {
             worker.handoff(waitingRpcs.front());
             waitingRpcs.pop();
-            result = true;
         }
     }
-    return result;
 }
 
 /**
@@ -151,7 +147,7 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
         if (cyclesToSeconds(rdtsc() - start) > timeoutSeconds) {
             return NULL;
         }
-        Dispatch::poll();
+        dispatch->poll();
     }
 }
 
@@ -169,11 +165,11 @@ ServiceManager::workerMain(Worker* worker)
 {
     uint64_t pollCycles = nanosecondsToCycles(1000*pollMicros);
     while (true) {
-        uint64_t stopPollingTime = Dispatch::currentTime + pollCycles;
+        uint64_t stopPollingTime = dispatch->currentTime + pollCycles;
 
         // Wait for ServiceManager to supply us with some work to do.
         while (worker->state.load() != Worker::WORKING) {
-            if (Dispatch::currentTime >= stopPollingTime) {
+            if (dispatch->currentTime >= stopPollingTime) {
                 // It's been a long time since we've had any work to do; go
                 // to sleep so we don't waste any more CPU cycles.  Tricky
                 // race condition: the dispatch thread could change the state
@@ -217,7 +213,7 @@ ServiceManager::workerMain(Worker* worker)
 void
 Worker::exit()
 {
-    assert(Dispatch::isDispatchThread());
+    assert(dispatch->isDispatchThread());
     if (exited) {
         // Worker already exited; nothing to do.  This should only happen
         // during tests.
@@ -227,7 +223,7 @@ Worker::exit()
     // Wait for the worker thread to finish handling any RPCs already
     // queued for it.
     while (!idle) {
-        Dispatch::poll();
+        dispatch->poll();
     }
 
     // Tell the worker thread to exit, and wait for it to actually exit

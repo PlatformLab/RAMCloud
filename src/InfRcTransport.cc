@@ -489,7 +489,9 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
         // We need to call the dispatcher in order to let other event handlers
         // run (this is particularly important if the server we are trying to
         // connect to is us).
-        Dispatch::poll();
+        if (dispatch->isDispatchThread()) {
+            dispatch->poll();
+        }
     }
 }
 
@@ -556,7 +558,7 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
  */
 template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::ServerConnectHandler::operator() ()
+InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent()
 {
     sockaddr_in sin;
     socklen_t sinlen = sizeof(sin);
@@ -895,10 +897,9 @@ InfRcTransport<Infiniband>::ClientRpc::sendOrQueue()
  *      no meaningful data.
  */
 template<typename Infiniband>
-bool
-InfRcTransport<Infiniband>::Poller::operator() ()
+void
+InfRcTransport<Infiniband>::Poller::poll()
 {
-    bool result = false;
     InfRcTransport* t = transport;
     ibv_wc wc;
 
@@ -937,7 +938,6 @@ InfRcTransport<Infiniband>::Poller::operator() ()
             }
             rpc.state = ClientRpc::RESPONSE_RECEIVED;
             rpc.markFinished();
-            result = true;
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
             metrics->transport.receive.iovecCount +=
@@ -982,7 +982,6 @@ InfRcTransport<Infiniband>::Poller::operator() ()
                 t, t->serverSrq, bd);
             LOG(DEBUG, "Received request with nonce %016lx", header.nonce);
             ServiceManager::handleRpc(r);
-            result = true;
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
             metrics->transport.receive.iovecCount +=
@@ -992,8 +991,8 @@ InfRcTransport<Infiniband>::Poller::operator() ()
             metrics->transport.receive.ticks += receiveTicks.stop();
         }
     }
-  done:
-    return result;
+done:
+    return;
 }
 
 //-------------------------------------

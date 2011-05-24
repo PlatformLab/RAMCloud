@@ -557,7 +557,7 @@ class FastTransport : public Transport {
         class Timer : public Dispatch::Timer {
           public:
             explicit Timer(InboundMessage* const inboundMsg);
-            virtual void operator() ();
+            virtual void handleTimerEvent();
           private:
             /// The InboundMessage this timer sendAcks on or resets if fired.
             InboundMessage* const inboundMsg;
@@ -669,7 +669,7 @@ class FastTransport : public Transport {
         class Timer : public Dispatch::Timer {
           public:
             explicit Timer(OutboundMessage* const outboundMsg);
-            virtual void operator() ();
+            virtual void handleTimerEvent();
           private:
             /// Message this timer resends packets for or closes when fired.
             OutboundMessage* const outboundMsg;
@@ -715,7 +715,7 @@ class FastTransport : public Transport {
          */
         explicit Session(FastTransport* transport, uint32_t id)
             : id(id)
-            , lastActivityTime(Dispatch::currentTime)
+            , lastActivityTime(dispatch->currentTime)
             , transport(transport)
             , token(INVALID_TOKEN)
         {}
@@ -1062,7 +1062,7 @@ class FastTransport : public Transport {
         class Timer : public Dispatch::Timer {
           public:
             explicit Timer(ClientSession* session);
-            virtual void operator() ();
+            virtual void handleTimerEvent();
             /**
              * The ClientSession for which we're waiting for a response
              * to a SessionOpenRequest.
@@ -1235,7 +1235,7 @@ class FastTransport : public Transport {
         void expire()
         {
             const uint32_t sessionsToCheck = 5;
-            uint64_t now = Dispatch::currentTime;
+            uint64_t now = dispatch->currentTime;
             for (uint32_t i = 0; i < sessionsToCheck; i++) {
                 lastCleanedIndex++;
                 if (lastCleanedIndex >= sessions.size()) {

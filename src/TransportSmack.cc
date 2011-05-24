@@ -422,7 +422,7 @@ main(int argc, char *argv[])
             TSService service;
             ServiceManager manager(&service);
             while (true) {
-                Dispatch::poll();
+                dispatch->poll();
             }
         }
 

@@ -15,11 +15,16 @@
 
 #include <sys/epoll.h>
 #include "BenchUtil.h"
-#include "Metrics.h"
 #include "Common.h"
 #include "Dispatch.h"
+#include "Initialize.h"
+#include "Metrics.h"
 
 namespace RAMCloud {
+
+Dispatch *dispatch = NULL;
+Initialize _(dispatch);
+
 /**
  * Default object used to make system calls.
  */
@@ -32,62 +37,73 @@ static Syscall defaultSyscall;
  */
 Syscall* Dispatch::sys = &defaultSyscall;
 
-std::vector<Dispatch::Poller*> Dispatch::pollers;
-std::vector<Dispatch::File*> Dispatch::files;
-int Dispatch::epollFd = -1;
-Tub<boost::thread> Dispatch::epollThread;
-int Dispatch::exitPipeFds[2] = {-1, -1};
-volatile int Dispatch::readyFd = -1;
-int Dispatch::fileInvocationSerial = 0;
-std::vector<Dispatch::Timer*> Dispatch::timers;
-volatile uint64_t Dispatch::currentTime = rdtsc();
-volatile uint64_t Dispatch::lastEventTime = Dispatch::currentTime;
-uint64_t Dispatch::earliestTriggerTime = 0;
-boost::thread_specific_ptr<int> Dispatch::dispatchThread;
-int Dispatch::epoch = 0;
-boost::mutex Dispatch::mutex;
-atomic_int Dispatch::lockNeeded(0);
-atomic_int Dispatch::locked(0);
-
 // The following is a debugging assertion used in many methods to make sure
 // that either (a) the method was invoked in the dispatch thread or (b) the
 // dispatcher was been locked before calling the method.
-#define CHECK_LOCK assert((Dispatch::locked.load() != 0) || isDispatchThread())
+#define CHECK_LOCK assert((owner->locked.load() != 0) || \
+        owner->isDispatchThread())
 
 /**
- * Construct a Poller. 
+ * Constructor for Dispatch objects.
  */
-Dispatch::Poller::Poller()
-    : slot(downCast<unsigned>(Dispatch::pollers.size()))
+Dispatch::Dispatch()
+    : currentTime(rdtsc())
+    , pollers()
+    , files()
+    , epollFd(-1)
+    , epollThread()
+    , readyFd(-1)
+    , fileInvocationSerial(0)
+    , timers()
+    , earliestTriggerTime(0)
+    , dispatchThreadToken()
+    , mutex()
+    , lockNeeded(0)
+    , locked(0)
 {
-    CHECK_LOCK;
-    Dispatch::pollers.push_back(this);
+    exitPipeFds[0] = exitPipeFds[1] = -1;
+    dispatchThreadToken.reset(new int);
 }
 
 /**
- * Destroy a Poller.
+ * Destructor for Dispatch objects.  All existing Pollers, Timers, and Files
+ * become useless.
  */
-Dispatch::Poller::~Poller()
+Dispatch::~Dispatch()
 {
-    CHECK_LOCK;
-
-    // Erase this Poller from the vector by overwriting it with the
-    // poller that used to be the last one in the vector.
-    //
-    // Note: this approach using a vector is not thread-safe (it
-    // isn't safe to create or delete pollers simultaneously in
-    // multiple threads) but it is reentrant (it is safe to delete a
-    // poller from a poller callback, which means that the poll
-    // method is in the middle of scanning the list of all pollers;
-    // the worst that will happen is that the poller that got moved
-    // may not be invoked in the current scan).
-    if (slot < 0) {
-        return;
+    if (epollThread) {
+        // Writing data to the pipe below signals the epoll thread that it
+        // should exit.
+        sys->write(exitPipeFds[1], "x", 1);
+        epollThread->join();
+        epollThread.destroy();
+        sys->close(exitPipeFds[0]);
+        sys->close(exitPipeFds[1]);
+        exitPipeFds[1] = exitPipeFds[0] = -1;
     }
-    pollers[slot] = pollers.back();
-    pollers[slot]->slot = slot;
-    pollers.pop_back();
-    slot = -1;
+    if (epollFd >= 0) {
+        sys->close(epollFd);
+        epollFd = -1;
+    }
+    for (uint32_t i = 0; i < pollers.size(); i++) {
+        pollers[i]->owner = NULL;
+        pollers[i]->slot = -1;
+    }
+    pollers.clear();
+    for (uint32_t i = 0; i < files.size(); i++) {
+        if (files[i] != NULL) {
+            files[i]->owner = NULL;
+            files[i]->active = false;
+            files[i]->event = FileEvent::NONE;
+            files[i] = NULL;
+        }
+    }
+    readyFd = -1;
+    while (timers.size() > 0) {
+        Timer* t = timers.back();
+        t->stop();
+        t->owner = NULL;
+    }
 }
 
 /**
@@ -97,10 +113,11 @@ Dispatch::Poller::~Poller()
  *      True means that we found some work to do; false means we looked
  *      around but there was nothing to do.
  */
-bool Dispatch::poll()
+void
+Dispatch::poll()
 {
+    assert(isDispatchThread());
     currentTime = rdtsc();
-    bool result = false;
     if (lockNeeded.load() != 0) {
         // Someone wants us locked. Indicate that we are locked,
         // then wait for the lock to be released.
@@ -111,7 +128,7 @@ bool Dispatch::poll()
         locked.store(0);
     }
     for (uint32_t i = 0; i < pollers.size(); i++) {
-        result |= (*pollers[i])();
+        pollers[i]->poll();
     }
     if (readyFd >= 0) {
         int fd = readyFd;
@@ -124,7 +141,7 @@ bool Dispatch::poll()
             }
             fileInvocationSerial = id;
             file->invocationId = id;
-            (*file)();
+            file->handleFileEvent();
 
             // Must reenable the event for this file, since it was automatically
             // disabled by epoll.  However, it's possible that the handler
@@ -136,7 +153,6 @@ bool Dispatch::poll()
                 file->invocationId = 0;
                 file->setEvent(file->event);
             }
-            result = true;
         }
     }
     if (currentTime >= earliestTriggerTime) {
@@ -146,8 +162,7 @@ bool Dispatch::poll()
             Timer* timer = timers[i];
             if (timer->triggerTime <= currentTime) {
                 timer->stop();
-                (*timer)();
-                result = true;
+                timer->handleTimerEvent();
             } else {
                 // Only increment i if the current timer did not trigger.
                 // If it did trigger, it got removed from the vector and
@@ -168,88 +183,53 @@ bool Dispatch::poll()
             }
         }
     }
-    if (result)
-        lastEventTime = currentTime;
-    return result;
 }
 
 /**
- * Check repeatedly for events, and don't return until at least one event was
- * detected and handled.
- */
-void Dispatch::handleEvent()
-{
-    if (poll())
-        return;
-    uint64_t startIdleTime = currentTime;
-    while (!poll()) {
-        // Empty loop body.
-    }
-    uint64_t endIdleTime = currentTime;
-    metrics->dispatchIdleTicks += endIdleTime - startIdleTime;
-}
-
-/**
- * Clear all existing dispatch information; this method is intended for use
- * only in tests. All existing Pollers become useless; all Timers are stopped,
- * and all Files are set to FileEvent::NONE.
- */
-void Dispatch::reset()
-{
-    for (uint32_t i = 0; i < pollers.size(); i++) {
-        pollers[i]->slot = -1;
-    }
-    pollers.clear();
-    for (uint32_t i = 0; i < files.size(); i++) {
-        if (files[i] != NULL) {
-            files[i]->active = false;
-            files[i]->event = FileEvent::NONE;
-            files[i] = NULL;
-        }
-    }
-    if (epollThread) {
-        // Writing data to the pipe below signals the epoll thread that it
-        // should exit.
-        sys->write(exitPipeFds[1], "x", 1);
-        epollThread->join();
-        epollThread.destroy();
-        sys->close(exitPipeFds[0]);
-        sys->close(exitPipeFds[1]);
-        exitPipeFds[1] = exitPipeFds[0] = -1;
-    }
-    if (epollFd >= 0) {
-        sys->close(epollFd);
-        epollFd = -1;
-    }
-    readyFd = -1;
-    while (timers.size() > 0) {
-        timers.back()->stop();
-    }
-    earliestTriggerTime = 0;
-    epoch = 0;
-}
-
-/**
- * Mark this thread as the dispatch thread.  Only a single thread should
- * be marked this way, and Dispatch::poll should only be invoked in the
- * dispatch thread.
- */
-void
-Dispatch::setDispatchThread()
-{
-    epoch++;
-    dispatchThread.reset(new int(epoch));
-}
-
-/**
- * Returns true if this thread has been marked as the dispatch thread by
- * calling setDispatchThread, false otherwise.
+ * Returns true if this thread is the one in which the object was created.
  */
 bool
 Dispatch::isDispatchThread()
 {
-    int *p = dispatchThread.get();
-    return (p != NULL) && (*p == epoch);
+    return dispatchThreadToken.get() != NULL;
+}
+
+/**
+ * Construct a Poller.
+ *
+ * \param dispatch
+ *      Dispatch object through which the poller will be invoked (defaults
+ *      to the global #RAMCloud::dispatch object).
+ */
+Dispatch::Poller::Poller(Dispatch *dispatch)
+    : owner(dispatch), slot(downCast<unsigned>(owner->pollers.size()))
+{
+    CHECK_LOCK;
+    owner->pollers.push_back(this);
+}
+
+/**
+ * Destroy a Poller.
+ */
+Dispatch::Poller::~Poller()
+{
+    if (slot < 0) {
+        return;
+    }
+    CHECK_LOCK;
+
+    // Erase this Poller from the vector by overwriting it with the
+    // poller that used to be the last one in the vector.
+    //
+    // Note: this approach is reentrant (it is safe to delete a
+    // poller from a poller callback, which means that the poll
+    // method is in the middle of scanning the list of all pollers;
+    // the worst that will happen is that the poller that got moved
+    // may not be invoked in the current scan).
+    owner->pollers[slot] = owner->pollers.back();
+    owner->pollers[slot]->slot = slot;
+    owner->pollers.pop_back();
+    slot = -1;
 }
 
 /**
@@ -263,20 +243,27 @@ Dispatch::isDispatchThread()
  *      parameter occur. If this is NONE then the file handler starts
  *      off inactive; it will not trigger until setEvent has been
  *      called.
+ * \param dispatch
+ *      Dispatch object that will manage this file handler (defaults
+ *      to the global #RAMCloud::dispatch object).
  */
-Dispatch::File::File(int fd, Dispatch::FileEvent event)
-        : fd(fd), event(NONE), active(false), invocationId(0)
+Dispatch::File::File(int fd, Dispatch::FileEvent event, Dispatch* dispatch)
+        : owner(dispatch)
+        , fd(fd)
+        , event(NONE)
+        , active(false)
+        , invocationId(0)
 {
     CHECK_LOCK;
 
     // Start the polling thread if it doesn't already exist (and also create
     // the epoll file descriptor and the exit pipe).
-    if (!epollThread) {
-        epollFd = sys->epoll_create(10);
-        if (epollFd < 0) {
+    if (!owner->epollThread) {
+        owner->epollFd = sys->epoll_create(10);
+        if (owner->epollFd < 0) {
             throw FatalError(HERE, "epoll_create failed in Dispatch", errno);
         }
-        if (sys->pipe(exitPipeFds) != 0) {
+        if (sys->pipe(owner->exitPipeFds) != 0) {
             throw FatalError(HERE,
                     "Dispatch couldn't create exit pipe for epoll thread",
                     errno);
@@ -289,23 +276,23 @@ Dispatch::File::File(int fd, Dispatch::FileEvent event)
 
         // -1 fd signals to epoll thread to exit.
         epollEvent.data.fd = -1;
-        if (sys->epoll_ctl(epollFd, EPOLL_CTL_ADD, exitPipeFds[0],
-                &epollEvent) != 0) {
+        if (sys->epoll_ctl(owner->epollFd, EPOLL_CTL_ADD,
+                owner->exitPipeFds[0], &epollEvent) != 0) {
             throw FatalError(HERE,
                     "Dispatch couldn't set epoll event for exit pipe",
                     errno);
         }
-        epollThread.construct(Dispatch::epollThreadMain);
+        owner->epollThread.construct(Dispatch::epollThreadMain, owner);
     }
 
-    if (Dispatch::files.size() <= static_cast<uint32_t>(fd)) {
-        Dispatch::files.resize(2*fd);
+    if (owner->files.size() <= static_cast<uint32_t>(fd)) {
+        owner->files.resize(2*fd);
     }
-    if (Dispatch::files[fd] != NULL) {
+    if (owner->files[fd] != NULL) {
             throw FatalError(HERE, "can't have more than 1 Dispatch::File "
                     "for a file descriptor");
     }
-    Dispatch::files[fd] = this;
+    owner->files[fd] = this;
     if (event != NONE) {
         setEvent(event);
     }
@@ -316,20 +303,19 @@ Dispatch::File::File(int fd, Dispatch::FileEvent event)
  */
 Dispatch::File::~File()
 {
+    if (owner == NULL) {
+        // Dispatch object has already been deleted; don't do anything.
+        return;
+    }
     CHECK_LOCK;
 
-    // Only clean up this file handler if it is "current": if Dispatch::reset
-    // has been invoked (most likely in unit tests) we may already have
-    // forgotten about this file.
-    if (Dispatch::files[fd] == this) {
-        if (active) {
-            // Note: don't worry about errors here. For example, it's
-            // possible that the file was closed before this destructor
-            // was invoked, in which case EBADF will occur.
-            sys->epoll_ctl(Dispatch::epollFd, EPOLL_CTL_DEL, fd, NULL);
-        }
-        Dispatch::files[fd] = NULL;
+    if (active) {
+        // Note: don't worry about errors here. For example, it's
+        // possible that the file was closed before this destructor
+        // was invoked, in which case EBADF will occur.
+        sys->epoll_ctl(owner->epollFd, EPOLL_CTL_DEL, fd, NULL);
     }
+    owner->files[fd] = NULL;
 }
 
 /**
@@ -340,6 +326,10 @@ Dispatch::File::~File()
  */
 void Dispatch::File::setEvent(FileEvent event)
 {
+    if (owner == NULL) {
+        // Dispatch object has already been deleted; don't do anything.
+        return;
+    }
     CHECK_LOCK;
 
     epoll_event epollEvent;
@@ -365,7 +355,7 @@ void Dispatch::File::setEvent(FileEvent event)
         epollEvent.events = 0;
     }
     epollEvent.data.fd = fd;
-    if (sys->epoll_ctl(Dispatch::epollFd,
+    if (sys->epoll_ctl(owner->epollFd,
             active ? EPOLL_CTL_MOD : EPOLL_CTL_ADD, fd, &epollEvent) != 0) {
         throw FatalError(HERE, format("Dispatch couldn't set epoll event "
                 "for fd %d", fd), errno);
@@ -378,12 +368,15 @@ void Dispatch::File::setEvent(FileEvent event)
  * epoll and report back whenever epoll returns information about an
  * event.  By putting this functionality in a separate thread the main
  * poll loop never needs to incur the overhead of a kernel call.
+ *
+ * \param dispatch
+ *      The Dispatch object on whose behalf this thread is working.
  */
-void Dispatch::epollThreadMain() {
+void Dispatch::epollThreadMain(Dispatch* owner) {
 #define MAX_EVENTS 10
     struct epoll_event events[MAX_EVENTS];
     while (true) {
-        int count = sys->epoll_wait(epollFd, events, MAX_EVENTS, -1);
+        int count = sys->epoll_wait(owner->epollFd, events, MAX_EVENTS, -1);
         if (count <= 0) {
             if (count == 0) {
                 LOG(WARNING, "epoll_wait returned no events in "
@@ -404,16 +397,17 @@ void Dispatch::epollThreadMain() {
             if (fd == -1) {
                 // This is a special value associated with exitPipeFd[0],
                 // and indicates that this thread should exit.
+                TEST_LOG("done");
                 return;
             }
-            while (readyFd >= 0) {
+            while (owner->readyFd >= 0) {
                 // The main polling loop hasn't yet noticed the last file
                 // that became ready; wait for the shared memory location
                 // to clear again.  This loop busy-waits but yields the
                 // CPU to any other runnable threads.
                 sched_yield();
             }
-            readyFd = events[i].data.fd;
+            owner->readyFd = events[i].data.fd;
         }
     }
 }
@@ -421,20 +415,28 @@ void Dispatch::epollThreadMain() {
 /**
  * Construct a timer but do not start it: it will not fire until one of
  * the #startXXX methods is invoked.
+ *
+ * \param dispatch
+ *      Dispatch object that will manage this timer (defaults to the
+ *      global #RAMCloud::dispatch object).
  */
-Dispatch::Timer::Timer() : triggerTime(0), slot(-1)
+Dispatch::Timer::Timer(Dispatch* dispatch)
+    : owner(dispatch), triggerTime(0), slot(-1)
 {
 }
 
 /**
  * Construct a timer and start it running.
  *
+ * \param dispatch
+ *      Dispatch object that will manage this timer (defaults to the
+ *      global #RAMCloud::dispatch object).
  * \param cycles
  *      Time at which the timer should trigger, measured in cycles (the units
  *      returned by #rdtsc) from Dispatch::currentTime.
  */
-Dispatch::Timer::Timer(uint64_t cycles)
-        : triggerTime(0), slot(-1)
+Dispatch::Timer::Timer(uint64_t cycles, Dispatch* dispatch)
+        : owner(dispatch), triggerTime(0), slot(-1)
 {
     startCycles(cycles);
 }
@@ -444,7 +446,7 @@ Dispatch::Timer::Timer(uint64_t cycles)
  */
 Dispatch::Timer::~Timer()
 {
-    stop();
+    if (owner != NULL) stop();
 }
 
 /**
@@ -465,15 +467,19 @@ bool Dispatch::Timer::isRunning()
  */
 void Dispatch::Timer::startCycles(uint64_t cycles)
 {
+    if (owner == NULL) {
+        // Our Dispatch no longer exists, so there's nothing to do here.
+        return;
+    }
     CHECK_LOCK;
 
-    triggerTime = Dispatch::currentTime + cycles;
+    triggerTime = owner->currentTime + cycles;
     if (slot < 0) {
-        slot = downCast<unsigned>(timers.size());
-        timers.push_back(this);
+        slot = downCast<unsigned>(owner->timers.size());
+        owner->timers.push_back(this);
     }
-    if (triggerTime < Dispatch::earliestTriggerTime) {
-        Dispatch::earliestTriggerTime = triggerTime;
+    if (triggerTime < owner->earliestTriggerTime) {
+        owner->earliestTriggerTime = triggerTime;
     }
 }
 
@@ -522,40 +528,42 @@ void Dispatch::Timer::startSeconds(uint64_t seconds)
  */
 void Dispatch::Timer::stop()
 {
+    if (slot < 0) {
+        return;
+    }
     CHECK_LOCK;
 
     // Remove this Timer from the timers vector by overwriting its slot
     // with the timer that used to be the last one in the vector.
     //
-    // Note: this approach using a vector is not thread-safe (it
-    // isn't safe to create or delete timers simultaneously in
-    // multiple threads) but it is reentrant.  It is safe to delete
-    // a Timer while executing a timer callback, which means that the
-    // Dispatch::poll is in the middle of scanning the list of all
+    // Note: this approach using a vector is reentrant.  It is safe
+    // to delete a Timer while executing a timer callback, which means
+    // that Dispatch::poll is in the middle of scanning the list of all
     // Timers; the worst that will happen is that the Timer that got
     // moved may not be invoked in the current scan).
-    if (slot < 0) {
-        return;
-    }
-    timers[slot] = timers.back();
-    timers[slot]->slot = slot;
-    timers.pop_back();
+    owner->timers[slot] = owner->timers.back();
+    owner->timers[slot]->slot = slot;
+    owner->timers.pop_back();
     slot = -1;
 }
 
 /**
  * Construct a Lock object, which means we must lock the dispatch
  * thread unless we are currently executing in the dispatch thread.
+ *
+ * \param dispatch
+ *      Dispatch object to lock (defaults to the global #RAMCloud::dispatch
+ *      object).
  */
-Dispatch::Lock::Lock()
-    :lock()
+Dispatch::Lock::Lock(Dispatch* dispatch)
+    : dispatch(dispatch), lock()
 {
-    if (isDispatchThread()) {
+    if (dispatch->isDispatchThread()) {
         return;
     }
-    lock.construct(mutex);
-    lockNeeded.store(1);
-    while (locked.load() == 0) {
+    lock.construct(dispatch->mutex);
+    dispatch->lockNeeded.store(1);
+    while (dispatch->locked.load() == 0) {
         // Empty loop: spin-wait for the dispatch thread to lock itself.
     }
 }
@@ -572,13 +580,13 @@ Dispatch::Lock::~Lock()
         return;
     }
 
-    lockNeeded.store(0);
+    dispatch->lockNeeded.store(0);
 
     // We must not return (which will release the mutex) until the
     // dispatch thread has cleared the #locked variable. Otherwise
     // there is a race where another thread could think the dispatch
     // thread is locked when it is really about to unlock itself.
-    while (locked.load() != 0) {
+    while (dispatch->locked.load() != 0) {
         // Empty loop: spin-wait for the dispatch thread to unlock.
     }
 }

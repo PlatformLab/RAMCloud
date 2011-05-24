@@ -138,7 +138,7 @@ TcpTransport::AcceptHandler::AcceptHandler(int fd, TcpTransport* transport)
  * succeeds then we will begin listening on that socket for RPCs.
  */
 void
-TcpTransport::AcceptHandler::operator() ()
+TcpTransport::AcceptHandler::handleFileEvent()
 {
     int acceptedFd = sys->accept(transport->listenSocket, NULL, NULL);
     if (acceptedFd < 0) {
@@ -206,7 +206,7 @@ TcpTransport::RequestReadHandler::RequestReadHandler(int fd,
  * message is available, a TcpServerRpc object gets queued for service.
  */
 void
-TcpTransport::RequestReadHandler::operator() ()
+TcpTransport::RequestReadHandler::handleFileEvent()
 {
     Socket* socket = transport->sockets[fd];
     assert(socket != NULL);
@@ -451,6 +451,7 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
     }
 
     /// Arrange for notification whenever the server sends us data.
+    Dispatch::Lock lock;
     replyHandler.construct(fd, this);
 }
 
@@ -483,8 +484,10 @@ TcpTransport::TcpSession::close()
         waitingRpcs.front()->markFinished(&errorInfo);
         waitingRpcs.pop();
     }
-    if (replyHandler)
+    if (replyHandler) {
+        Dispatch::Lock lock;
         replyHandler.destroy();
+    }
 }
 
 // See Transport::Session::clientSend for documentation.
@@ -529,7 +532,7 @@ TcpTransport::ReplyReadHandler::ReplyReadHandler(int fd,
  * readable (because a reply is arriving). This method reads the reply.
  */
 void
-TcpTransport::ReplyReadHandler::operator() ()
+TcpTransport::ReplyReadHandler::handleFileEvent()
 {
     try {
         if (session->current == NULL) {

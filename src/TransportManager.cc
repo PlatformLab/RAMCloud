@@ -234,10 +234,9 @@ TransportManager::serverRecv()
     uint64_t startIdle = __is_empty(Metric) ? 0 : rdtsc();
     while (true) {
         if (nextToListen >= listening.size()) {
-            if (Dispatch::poll()) {
-                metrics->recvIdleTicks += Dispatch::currentTime - startIdle;
-                startIdle = __is_empty(Metric) ? 0 : rdtsc();
-            }
+            dispatch->poll();
+            metrics->recvIdleTicks += dispatch->currentTime - startIdle;
+            startIdle = __is_empty(Metric) ? 0 : rdtsc();
             nextToListen = 0;
         }
         auto transport = listening[nextToListen++];

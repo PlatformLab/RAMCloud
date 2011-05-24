@@ -138,7 +138,7 @@ class InfUdDriver : public Driver {
     class Poller : public Dispatch::Poller {
       public:
         explicit Poller(InfUdDriver* driver) : driver(driver) { }
-        virtual bool operator() ();
+        virtual void poll();
       private:
         // Driver on whose behalf this poller operates.
         InfUdDriver* driver;

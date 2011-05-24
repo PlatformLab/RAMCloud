@@ -188,8 +188,8 @@ void worker(Transport::SessionRef session) {
 }
 
 TEST_F(TransportManagerTest, workerSessionSyncWithDispatchThread) {
-    Dispatch::reset();
-    Dispatch::setDispatchThread();
+    delete dispatch;
+    dispatch = new Dispatch;
 
     MockTransport transport;
     Transport::SessionRef wrappedSession = new TransportManager::WorkerSession(
@@ -200,7 +200,7 @@ TEST_F(TransportManagerTest, workerSessionSyncWithDispatchThread) {
     usleep(1000);
     EXPECT_STREQ("", transport.outputLog.c_str());
     for (int i = 0; i < 1000; i++) {
-        Dispatch::poll();
+        dispatch->poll();
         if (transport.outputLog.size() > 0) {
             break;
         }

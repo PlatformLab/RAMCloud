@@ -696,11 +696,11 @@ FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
  * See FastTransport::Timer for general information on timers.
  */
 void
-FastTransport::InboundMessage::Timer::operator() ()
+FastTransport::InboundMessage::Timer::handleTimerEvent()
 {
     // NOTE: Kills the entire session if one message gets stalled.
     //       We could make this less aggressive if we think they might recover.
-    if (Dispatch::currentTime - inboundMsg->session->lastActivityTime
+    if (dispatch->currentTime - inboundMsg->session->lastActivityTime
             > sessionTimeoutCycles()) {
         inboundMsg->session->close();
     } else {
@@ -827,7 +827,7 @@ FastTransport::OutboundMessage::send()
      *  - If timers are enabled for this message then the timer is scheduled
      *    to fire when the next packet retransmit timeout occurs.
      */
-    uint64_t now = Dispatch::currentTime;
+    uint64_t now = dispatch->currentTime;
 
     // First, decide on candidate range of packets to send/resend
     // Only fragments less than stop will be considered for (re-)send
@@ -986,9 +986,9 @@ FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
  * otherwise resend unacked packets that were sent awhile ago.
  */
 void
-FastTransport::OutboundMessage::Timer::operator() ()
+FastTransport::OutboundMessage::Timer::handleTimerEvent()
 {
-    if (Dispatch::currentTime - outboundMsg->session->lastActivityTime
+    if (dispatch->currentTime - outboundMsg->session->lastActivityTime
             > sessionTimeoutCycles()) {
         LOG(DEBUG, "closing session due to timeout");
         outboundMsg->session->close();
@@ -1049,7 +1049,7 @@ FastTransport::ServerSession::beginSending(uint8_t channelId)
     channel->state = ServerChannel::SENDING_WAITING;
     Buffer* responseBuffer = &channel->currentRpc.replyPayload;
     channel->outboundMsg.beginSending(responseBuffer);
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
 }
 
 /// This shouldn't ever be called.
@@ -1114,7 +1114,7 @@ FastTransport::ServerSession::getAddress()
 void
 FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
 {
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
     Header* header = received->getOffset<Header>(0);
     if (header->channelId >= NUM_CHANNELS_PER_SESSION) {
         LOG(WARNING, "invalid channel id %d", header->channelId);
@@ -1197,7 +1197,7 @@ FastTransport::ServerSession::startSession(
     sessionOpen->numChannels = NUM_CHANNELS_PER_SESSION;
     Buffer::Iterator payloadIter(payload);
     transport->sendPacket(this->clientAddress.get(), &header, &payloadIter);
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
 }
 
 // - private -
@@ -1343,7 +1343,7 @@ FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
 
     // rpc will be performed immediately on the first available channel or
     // queued until a channel is idle if none are currently available.
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
     if (!isConnected()) {
         connect();
         LOG(DEBUG, "queueing RPC");
@@ -1443,7 +1443,7 @@ FastTransport::ClientSession::isConnected()
 void
 FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
 {
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
     Header* header = received->getOffset<Header>(0);
     if (header->channelId >= numChannels) {
         if (header->getPayloadType() == Header::SESSION_OPEN)
@@ -1506,7 +1506,7 @@ FastTransport::ClientSession::sendSessionOpenRequest()
     header.payloadType = Header::SESSION_OPEN;
     transport->sendPacket(serverAddress.get(),
                           &header, NULL);
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
     sessionOpenRequestInFlight = true;
 
     // Schedule the timer to resend if no response.
@@ -1677,9 +1677,9 @@ FastTransport::ClientSession::Timer::Timer(ClientSession* session)
 }
 
 void
-FastTransport::ClientSession::Timer::operator() ()
+FastTransport::ClientSession::Timer::handleTimerEvent()
 {
-    if (Dispatch::currentTime - session->lastActivityTime
+    if (dispatch->currentTime - session->lastActivityTime
             > sessionTimeoutCycles()) {
         session->sessionOpenRequestInFlight = false;
         session->close();

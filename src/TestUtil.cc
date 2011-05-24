@@ -471,4 +471,26 @@ const char *getStatus(Buffer* buffer)
     return statusToSymbol(responseCommon->status);
 }
 
+/**
+ * Wait for an RPC request to complete (but give up if it takes too long).
+ *
+ * \param rpc
+ *      RPC request that is expected to finish very soon.
+ *
+ * \result
+ *      True if the request finishes within a reasonable time period,
+ *      false if it doesn't.
+ */
+bool
+waitForRpc(Transport::ClientRpc& rpc)
+{
+    for (int i = 0; i < 1000; i++) {
+        dispatch->poll();
+        if (rpc.isReady())
+            return true;
+        usleep(1000);
+    }
+    return false;
+}
+
 } // namespace RAMCloud

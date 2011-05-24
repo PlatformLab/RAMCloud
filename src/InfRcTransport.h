@@ -278,7 +278,7 @@ class InfRcTransport : public Transport {
     class Poller : public Dispatch::Poller {
       public:
         explicit Poller(InfRcTransport* transport) : transport(transport) {}
-        virtual bool operator() ();
+        virtual void poll();
 
       private:
         /// Check this transport for packets every time we are invoked.
@@ -296,7 +296,7 @@ class InfRcTransport : public Transport {
         ServerConnectHandler(int fd, InfRcTransport* transport)
                 : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
                 fd(fd), transport(transport) { }
-        virtual void operator() ();
+        virtual void handleFileEvent();
       private:
         // The following variables are just copies of constructor arguments.
         int fd;

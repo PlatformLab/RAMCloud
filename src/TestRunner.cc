@@ -180,7 +180,6 @@ main(int argc, char *argv[])
         void SetUp()
         {
             RAMCloud::logger.setLogLevels(RAMCloud::WARNING);
-            RAMCloud::Dispatch::setDispatchThread();
         }
     };
     ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
@@ -210,7 +209,6 @@ main(int argc, char *argv[])
                      const CppUnit::ProtectorContext& context) {
             if (context.description == "setUp() failed") {
                 RAMCloud::logger.setLogLevels(RAMCloud::WARNING);
-                RAMCloud::Dispatch::setDispatchThread();
 #ifdef VALGRIND
                 // Since valgrind is slow, it's nice to have the test names
                 // output to your terminal while you wait.

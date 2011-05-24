@@ -271,14 +271,14 @@ BackupManager::sync()
     if (!isSynced())
         proceedNoMetrics();
     while (!isSynced()) {
-        Dispatch::handleEvent();
+        dispatch->poll();
         proceedNoMetrics();
     }
 }
 
 /**
  * Make progress on replicating the log to backups, bot don't block.
- * The caller should call Dispatch::poll() between calls to this function.
+ * The caller should call dispatch->poll() between calls to this function.
  */
 void
 BackupManager::proceed()

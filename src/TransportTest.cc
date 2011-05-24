@@ -26,12 +26,11 @@ class TransportTestPoller : public Dispatch::Poller {
     TransportTestPoller(int *count, Transport::ClientRpc* rpc,
             string* errorMessage)
         : count(count), rpc(rpc), errorMessage(errorMessage) { }
-    bool operator()() {
+    void poll() {
         (*count)--;
         if (*count <= 0) {
             rpc->markFinished(errorMessage);
         }
-        return true;
     }
     int *count;
     Transport::ClientRpc* rpc;
@@ -48,8 +47,8 @@ class TransportTest : public ::testing::Test {
 };
 
 TEST_F(TransportTest, wait_noError) {
-    Dispatch::reset();
-    Dispatch::setDispatchThread();
+    delete dispatch;
+    dispatch = new Dispatch;
     int count = 3;
     Transport::ClientRpc rpc;
     TransportTestPoller poller(&count, &rpc, NULL);
@@ -57,19 +56,19 @@ TEST_F(TransportTest, wait_noError) {
     EXPECT_EQ(0, count);
 }
 
-void waitForRpc(Transport::ClientRpc* rpc, const char** state) {
+void waitOnRpc(Transport::ClientRpc* rpc, const char** state) {
     rpc->wait();
     *state = "finished";
 };
 
 TEST_F(TransportTest, wait_notDispatchThread) {
-    Dispatch::reset();
-    Dispatch::setDispatchThread();
+    delete dispatch;
+    dispatch = new Dispatch;
     int count = 3;
     Transport::ClientRpc rpc;
     TransportTestPoller poller(&count, &rpc, NULL);
     const char *state = "not finished";
-    boost::thread(waitForRpc, &rpc, &state).detach();
+    boost::thread(waitOnRpc, &rpc, &state).detach();
 
     // Wait a while and make sure that the RPC hasn't finished, and
     // that the dispatcher hasn't been invoked.
@@ -91,8 +90,8 @@ TEST_F(TransportTest, wait_notDispatchThread) {
 }
 
 TEST_F(TransportTest, wait_error) {
-    Dispatch::reset();
-    Dispatch::setDispatchThread();
+    delete dispatch;
+    dispatch = new Dispatch;
     int count = 3;
     Transport::ClientRpc rpc;
     string error("test error message");

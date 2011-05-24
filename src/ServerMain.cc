@@ -85,7 +85,7 @@ try
     service.init();
     ServiceManager manager(&service);
     while (true) {
-        Dispatch::poll();
+        dispatch->poll();
     }
 
     return 0;
