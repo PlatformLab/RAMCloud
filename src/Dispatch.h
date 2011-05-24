@@ -150,7 +150,7 @@ class Dispatch {
      */
     class Timer {
       public:
-        Timer(Dispatch* dispatch = RAMCloud::dispatch);
+        explicit Timer(Dispatch* dispatch = RAMCloud::dispatch);
         explicit Timer(uint64_t cycles,
                 Dispatch* dispatch = RAMCloud::dispatch);
         virtual ~Timer();
@@ -202,7 +202,7 @@ class Dispatch {
      */
     class Lock {
       public:
-        Lock(Dispatch* dispatch = RAMCloud::dispatch);
+        explicit Lock(Dispatch* dispatch = RAMCloud::dispatch);
         ~Lock();
       PRIVATE:
         /// The Dispatch object associated with this Lock.

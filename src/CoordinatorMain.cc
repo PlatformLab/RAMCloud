@@ -38,7 +38,7 @@ main(int argc, char *argv[])
         CoordinatorServer service;
         ServiceManager manager(&service);
         while (true) {
-            Dispatch::poll();
+            dispatch->poll();
         }
         return 0;
     } catch (RAMCloud::Exception& e) {

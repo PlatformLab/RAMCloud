@@ -68,7 +68,8 @@ class DummyPoller : public Dispatch::Poller {
 // time it is invoked.
 class CountPoller : public Dispatch::Poller {
   public:
-    CountPoller(Dispatch* dispatch) : Dispatch::Poller(dispatch), count(0) { }
+    explicit CountPoller(Dispatch* dispatch)
+            : Dispatch::Poller(dispatch), count(0) { }
     void poll() {
         count++;
     }
@@ -280,7 +281,8 @@ TEST_F(DispatchTest, destructor) {
 }
 
 // Helper function that runs in a separate thread for the following test.
-static void lockTestThread(Dispatch** d, volatile int* flag, CountPoller** poller) {
+static void lockTestThread(Dispatch** d, volatile int* flag,
+        CountPoller** poller) {
     *d = new Dispatch();
     *poller = new CountPoller(*d);
     *flag = 1;

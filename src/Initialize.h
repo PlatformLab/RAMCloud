@@ -59,7 +59,7 @@ class Initialize {
      *      the given type.
      */
     template<typename T>
-    Initialize(T*& p) {
+    explicit Initialize(T*& p) {
         if (p == NULL) {
             p = new T;
         }

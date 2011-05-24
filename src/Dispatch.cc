@@ -369,7 +369,7 @@ void Dispatch::File::setEvent(FileEvent event)
  * event.  By putting this functionality in a separate thread the main
  * poll loop never needs to incur the overhead of a kernel call.
  *
- * \param dispatch
+ * \param owner
  *      The Dispatch object on whose behalf this thread is working.
  */
 void Dispatch::epollThreadMain(Dispatch* owner) {

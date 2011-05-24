@@ -96,7 +96,7 @@ try
     BackupServer service(config, *storage);
     ServiceManager manager(&service);
     while (true) {
-        Dispatch::poll();
+        dispatch->poll();
     }
     return 0;
 } catch (std::exception& e) {

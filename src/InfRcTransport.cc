@@ -991,7 +991,7 @@ InfRcTransport<Infiniband>::Poller::poll()
             metrics->transport.receive.ticks += receiveTicks.stop();
         }
     }
-done:
+  done:
     return;
 }
 
