@@ -118,7 +118,7 @@ TEST_F(TcpTransportTest, sanityCheck) {
     serverRpc->replyPayload.fillFromString("klmn");
     serverRpc->sendReply();
     dispatch->poll();
-    EXPECT_EQ(true, clientRpc->isReady());
+    EXPECT_TRUE(waitForRpc(*clientRpc));
     EXPECT_EQ("klmn/0", toString(&reply));
 
     request.fillFromString("request2");
