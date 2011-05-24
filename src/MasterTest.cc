@@ -84,7 +84,6 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    Tub<ProgressPoller> progressPoller;
     ServerConfig config;
     BackupServer::Config backupConfig;
     BackupServer* backupServer;
@@ -98,8 +97,7 @@ class MasterTest : public CppUnit::TestFixture {
     CoordinatorServer* coordinatorServer;
 
     MasterTest()
-        : progressPoller()
-        , config()
+        : config()
         , backupConfig()
         , backupServer()
         , storage(NULL)
@@ -118,7 +116,6 @@ class MasterTest : public CppUnit::TestFixture {
     }
 
     void setUp() {
-        progressPoller.construct();
         logger.setLogLevels(SILENT_LOG_LEVEL);
         transport = new BindTransport();
         transportManager.registerMock(transport);
@@ -153,7 +150,6 @@ class MasterTest : public CppUnit::TestFixture {
         delete coordinatorServer;
         transportManager.unregisterMock();
         delete transport;
-        progressPoller.destroy();
     }
 
     void test_create_basics() {
@@ -906,7 +902,6 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_recover_failedToRecoverAll);
     CPPUNIT_TEST_SUITE_END();
 
-    Tub<ProgressPoller> progressPoller;
     BackupServer* backupServer1;
     BackupServer* backupServer2;
     CoordinatorClient* coordinator;
@@ -920,8 +915,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
 
   public:
     MasterRecoverTest()
-        : progressPoller()
-        , backupServer1()
+        : backupServer1()
         , backupServer2()
         , coordinator()
         , coordinatorServer()
@@ -940,7 +934,6 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         if (!enlist)
             tearDown();
 
-        progressPoller.construct();
         transport = new BindTransport;
         transportManager.registerMock(transport);
 
@@ -988,7 +981,6 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         delete transport;
         CPPUNIT_ASSERT_EQUAL(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
-        progressPoller.destroy();
     }
     static bool
     recoverSegmentFilter(string s)

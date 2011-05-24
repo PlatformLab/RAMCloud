@@ -91,7 +91,6 @@ class MockRestartingTask {
 
 // maxOutstanding == 1
 TEST(ClientTest, sequential) {
-    ProgressPoller _;
     for (uint32_t i = 0; i < 100; ++i) {
         Tub<MockTask> tasks[5];
         foreach (auto& task, tasks)
@@ -104,7 +103,6 @@ TEST(ClientTest, sequential) {
 
 // numTasks <= maxOutstanding
 TEST(ClientTest, startAllInitially) {
-    ProgressPoller _;
     for (uint32_t i = 0; i < 100; ++i) {
         Tub<MockTask> tasks[5];
         foreach (auto& task, tasks)
@@ -117,7 +115,6 @@ TEST(ClientTest, startAllInitially) {
 
 // numTasks > maxOutstanding
 TEST(ClientTest, normal) {
-    ProgressPoller _;
     for (uint32_t i = 0; i < 100; ++i) {
         Tub<MockTask> tasks[10];
         foreach (auto& task, tasks)
@@ -129,7 +126,6 @@ TEST(ClientTest, normal) {
 }
 
 TEST(ClientTest, restartingTasks) {
-    ProgressPoller _;
     for (uint32_t i = 0; i < 20; ++i) {
         Tub<MockRestartingTask> tasks[10];
         foreach (auto& task, tasks)

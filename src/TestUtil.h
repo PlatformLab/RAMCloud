@@ -89,12 +89,6 @@ string toString(const char *buf, uint32_t length);
 string toString(Buffer* buffer);
 bool waitForRpc(Transport::ClientRpc& rpc);
 
-struct ProgressPoller : public Dispatch::Poller {
-    void poll() {
-        // return (rand() & 1); // NOLINT
-    }
-};
-
 } // namespace RAMCloud
 
 #endif  // RAMCLOUD_TESTUTIL_H

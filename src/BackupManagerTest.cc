@@ -61,7 +61,6 @@ struct BackupManagerBaseTest : public ::testing::Test {
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     const char* coordinatorLocator;
-    ProgressPoller progressPoller;
     Tub<BindTransport> transport;
     Tub<TransportManager::MockRegistrar> mockRegistrar;
     Tub<CoordinatorServer> coordinatorServer;
@@ -80,7 +79,6 @@ struct BackupManagerBaseTest : public ::testing::Test {
         : segmentSize(1 << 16)
         , segmentFrames(4)
         , coordinatorLocator("mock:host=coordinator")
-        , progressPoller()
     {
         transport.construct();
         mockRegistrar.construct(*transport);
