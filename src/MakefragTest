@@ -27,6 +27,7 @@ TESTS_SRCFILES := \
 		  src/InfAddressTest.cc \
 		  src/InfRcTransportTest.cc \
 		  src/InfUdDriverTest.cc \
+		  src/InitializeTest.cc \
 		  src/IpAddressTest.cc \
 		  src/LogTest.cc \
 		  src/LogCleanerTest.cc \
