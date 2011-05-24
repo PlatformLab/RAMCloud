@@ -457,7 +457,7 @@ class MasterTest : public CppUnit::TestFixture {
                              backups.server(6).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup4 "
-            "for segment 92 on channel 1 (after RPC completion)",
+            "for segment 92 on channel . (after RPC completion)",
             TestLog::get());
         // 5) Checks bad locators for non-initial RPCs are handled
         assertMatchesPosixRegex(
