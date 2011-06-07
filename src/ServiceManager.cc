@@ -91,6 +91,16 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
 }
 
 /**
+ * Returns true if there are currently no RPCs being serviced, false
+ * if at least one RPC is currently being executed by a worker.
+ */
+bool
+ServiceManager::idle()
+{
+    return serviceManager->worker.idle;
+}
+
+/**
  * This method is invoked by Dispatch during its polling loop.  It checks
  * for completion of outstanding RPCs.
  */

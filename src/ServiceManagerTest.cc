@@ -123,9 +123,21 @@ TEST_F(ServiceManagerTest, handleRpc) {
             transport.outputLog);
 }
 
-// Tests for the operator() method:
+TEST_F(ServiceManagerTest, idle) {
+    EXPECT_TRUE(ServiceManager::idle());
+    // Start one RPC.
+    MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
+            &transport, "3 4");
+    ServiceManager::handleRpc(rpc);
+    EXPECT_FALSE(ServiceManager::idle());
 
-TEST_F(ServiceManagerTest, operatorInvokeBasics) {
+    // Wait for it to finish.
+    waitUntilDone();
+    serviceManager->poll();
+    EXPECT_TRUE(ServiceManager::idle());
+}
+
+TEST_F(ServiceManagerTest, pollInvokeBasics) {
     // First call: nothing to do.
     serviceManager->poll();
 
@@ -149,7 +161,7 @@ TEST_F(ServiceManagerTest, operatorInvokeBasics) {
     EXPECT_EQ(static_cast<Transport::ServerRpc*>(NULL),
               serviceManager->worker.rpc);
 }
-TEST_F(ServiceManagerTest, operatorInvokePostprocessing) {
+TEST_F(ServiceManagerTest, pollInvokePostprocessing) {
     // This test make sure that the POSTPROCESSING state is handled
     // correctly (along with the subsequent POLLING state).  Exit
     // the worker thread so we can manipulate the worker's state without

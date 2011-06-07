@@ -118,6 +118,7 @@ class ServiceManager : Dispatch::Poller {
 
     void exitWorker();
     static void handleRpc(Transport::ServerRpc* rpc);
+    static bool idle();
     void poll();
     Transport::ServerRpc* waitForRpc(double timeoutSeconds);
 
