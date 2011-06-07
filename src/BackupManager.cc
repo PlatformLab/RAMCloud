@@ -268,17 +268,13 @@ void
 BackupManager::sync()
 {
     CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
-    if (!isSynced())
-        proceedNoMetrics();
     while (!isSynced()) {
-        dispatch->poll();
         proceedNoMetrics();
     }
 }
 
 /**
- * Make progress on replicating the log to backups, bot don't block.
- * The caller should call dispatch->poll() between calls to this function.
+ * Make progress on replicating the log to backups, but don't block.
  */
 void
 BackupManager::proceed()

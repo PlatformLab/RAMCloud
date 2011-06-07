@@ -349,13 +349,15 @@ class RemoveTombstonePoller : public Dispatch::Poller {
     /**
      * Remove tombstones from a single bucket and yield to other work
      * in the system.
-     *
-     * \return
-     *      Always false in order to yield to important work.
      */
     virtual void
     poll()
     {
+        // This method runs in the dispatch thread, so it isn't safe to
+        // manipulate any of the objectMap state if any RPCs are currently
+        // executing.
+        if (!ServiceManager::idle())
+            return;
         objectMap.forEachInBucket(
             recoveryCleanup, &masterServer, currentBucket);
         ++currentBucket;
@@ -398,12 +400,6 @@ namespace {
 
 // used in recover()
 struct Task {
-    struct ResendTimer : public Dispatch::Timer {
-        explicit ResendTimer(Task& task) : task(task) {}
-        void handleTimerEvent() { task.resend(); }
-        Task& task;
-    };
-
     Task(uint64_t masterId,
          uint64_t partitionId,
          ProtoBuf::ServerList::Entry& backupHost)
@@ -415,7 +411,7 @@ struct Task {
                     backupHost.service_locator().c_str()))
         , startTime(rdtsc())
         , rpc()
-        , resendTimer(*this)
+        , resendTime(0)
     {
           rpc.construct(client, masterId, backupHost.segment_id(),
                         partitionId, response);
@@ -433,7 +429,10 @@ struct Task {
     BackupClient client;
     const uint64_t startTime;
     Tub<BackupClient::GetRecoveryData> rpc;
-    ResendTimer resendTimer;
+
+    /// If we have to retry a request, this variable indicates the rdtsc time at
+    /// which we should retry.  0 means we're not waiting for a retry.
+    uint64_t resendTime;
     DISALLOW_COPY_AND_ASSIGN(Task);
 };
 }
@@ -577,7 +576,6 @@ MasterServer::recover(uint64_t masterId,
     Tub<Task> tasks[4];
 #endif
     uint32_t activeRequests = 0;
-    uint64_t lastEventTime = RAMCloud::dispatch->currentTime;
 
     auto notStarted = backups.mutable_server()->begin();
     auto backupsEnd = backups.mutable_server()->end();
@@ -626,19 +624,18 @@ MasterServer::recover(uint64_t masterId,
         segmentIdToBackups.insert({backup.segment_id(), &backup});
 
     while (activeRequests) {
-        if (RAMCloud::dispatch->currentTime == lastEventTime) {
-            RAMCloud::dispatch->poll();
-        } else {
-            // Some other piece of code has called Dispatch,
-            // so we might have work to do.
-        }
-        lastEventTime = RAMCloud::dispatch->currentTime;
         this->backup.proceed();
+        uint64_t currentTime = rdtsc();
         foreach (auto& task, tasks) {
             if (!task)
                 continue;
-            if (task->resendTimer.isRunning())
+            if (task->resendTime != 0) {
+                if (task->resendTime > currentTime) {
+                    task->resendTime = 0;
+                    task->resend();
+                }
                 continue;
+            }
             if (!task->rpc->isReady())
                 continue;
             readStallTicks.destroy();
@@ -686,8 +683,8 @@ MasterServer::recover(uint64_t masterId,
                     it->second->set_user_data(REC_REQ_OK);
                 }
             } catch (const RetryException& e) {
-                // The backup isn't ready yet, try back later.
-                task->resendTimer.startCycles(3000000); // about 1ms
+                // The backup isn't ready yet, try back in 1 ms.
+                task->resendTime = currentTime + getCyclesPerSecond()/1000;
                 readStallTicks.construct(
                                     &metrics->master.segmentReadStallTicks);
                 continue;
@@ -928,7 +925,6 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
         if (i.getOffset() > lastOffsetBackupProgress + 50000) {
             lastOffsetBackupProgress = i.getOffset();
-            RAMCloud::dispatch->poll();
             this->backup.proceed();
         }
 
