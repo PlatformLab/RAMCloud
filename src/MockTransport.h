@@ -97,7 +97,11 @@ class MockTransport : public Transport {
     uint32_t serverSendCount;
     uint32_t clientSendCount;
     uint32_t clientRecvCount;
-    uint32_t sessionDeleteCount;
+
+    // The following variable must be static: sessions can get deleted
+    // *after* their transport, so can't reference anything in a particular
+    // transport.
+    static uint32_t sessionDeleteCount;
 
     // ServiceLocator string passed to constructor, or empty if the
     // constructor argument was NULL.

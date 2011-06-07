@@ -163,6 +163,7 @@ TEST_F(TransportManagerTest, workerSession) {
     Buffer request;
     Buffer reply;
     request.fillFromString("abcdefg");
+    MockTransport::sessionDeleteCount = 0;
 
     Transport::Session* wrappedSession = new TransportManager::WorkerSession(
             transport.getSession());
@@ -170,11 +171,11 @@ TEST_F(TransportManagerTest, workerSession) {
     // Make sure that clientSend gets passed down to the underlying session.
     wrappedSession->clientSend(&request, &reply);
     EXPECT_STREQ("clientSend: abcdefg/0", transport.outputLog.c_str());
-    EXPECT_EQ(0U, transport.sessionDeleteCount);
+    EXPECT_EQ(0U, MockTransport::sessionDeleteCount);
 
     // Make sure that sessions get cleaned up properly.
     delete wrappedSession;
-    EXPECT_EQ(1U, transport.sessionDeleteCount);
+    EXPECT_EQ(1U, MockTransport::sessionDeleteCount);
 }
 
 // The next test makes sure that clientSend synchronizes properly with the

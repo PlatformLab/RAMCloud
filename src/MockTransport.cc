@@ -17,6 +17,7 @@
 #include "MockTransport.h"
 
 namespace RAMCloud {
+uint32_t RAMCloud::MockTransport::sessionDeleteCount = 0;
 
 //------------------------------
 // MockTransport class
@@ -32,7 +33,6 @@ MockTransport::MockTransport(const ServiceLocator *serviceLocator)
             , serverSendCount(0)
             , clientSendCount(0)
             , clientRecvCount(0)
-            , sessionDeleteCount(0)
             , locatorString()
 {
     if (serviceLocator != NULL)
@@ -80,7 +80,7 @@ MockTransport::getSession()
  */
 MockTransport::MockSession::~MockSession()
 {
-    transport->sessionDeleteCount++;
+    MockTransport::sessionDeleteCount++;
 }
 
 /**
