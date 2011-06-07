@@ -205,7 +205,6 @@ MasterServer::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
                   &rejectRules, &buffer, 0, reqHdr.objectSize,
                   &newVersion, true);
         if ((objects % 50) == 0) {
-            RAMCloud::dispatch->poll();
             backup.proceed();
         }
     }
