@@ -411,8 +411,12 @@ MasterServer::removeTombstones()
 }
 
 namespace {
-
-// used in recover()
+/**
+ * Each object of this class is responsible for fetching recovery data
+ * for a single segment from a single backup.  This class is defined
+ * in the anonymous namespace so it doesn't need to appear in the header
+ * file.
+ */
 struct Task {
     struct ResendTimer : public Dispatch::Timer {
         explicit ResendTimer(Task& task) : task(task) {}

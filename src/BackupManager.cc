@@ -285,8 +285,9 @@ BackupManager::sync()
 }
 
 /**
- * Make progress on replicating the log to backups, bot don't block.
- * The caller should call Dispatch::poll() between calls to this function.
+ * Make progress on replicating the log to backups, but don't block.
+ * This method checks for completion of outstanding backup operations and
+ * starts new ones when possible.
  */
 void
 BackupManager::proceed()
