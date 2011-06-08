@@ -58,7 +58,6 @@ class InfRcTransport : public Transport {
   public:
     explicit InfRcTransport(const ServiceLocator* sl = NULL);
     ~InfRcTransport();
-    ServerRpc* serverRecv() __attribute__((warn_unused_result));
     SessionRef getSession(const ServiceLocator& sl) {
         return new InfRCSession(this, sl);
     }
@@ -233,7 +232,7 @@ class InfRcTransport : public Transport {
 
     ibv_srq*     serverSrq;         // shared receive work queue for server
     ibv_srq*     clientSrq;         // shared receive work queue for client
-    ibv_cq*      serverRxCq;        // completion queue for serverRecv
+    ibv_cq*      serverRxCq;        // completion queue for incoming requests
     ibv_cq*      clientRxCq;        // completion queue for client wait
     ibv_cq*      commonTxCq;        // common completion queue for all transmits
     int          ibPhysicalPort;    // physical port number on the HCA

@@ -279,56 +279,6 @@ InfRcTransport<Infiniband>::setNonBlocking(int fd)
 }
 
 /**
- * Wait for an incoming request.
- *
- * The server polls the infiniband shared receive queue, as well as
- * the UDP setup socket. The former contains incoming RPCs, whereas
- * the latter is used to set up QueuePairs between clients and the
- * server, as an out-of-band handshake is needed.
- */
-template<typename Infiniband>
-Transport::ServerRpc*
-InfRcTransport<Infiniband>::serverRecv()
-{
-    CycleCounter<Metric> receiveTicks;
-    ibv_wc wc;
-    if (infiniband->pollCompletionQueue(serverRxCq, 1, &wc) >= 1) {
-        if (queuePairMap.find(wc.qp_num) == queuePairMap.end()) {
-            LOG(ERROR, "failed to find qp_num in map");
-            return NULL;
-        }
-
-        QueuePair *qp = queuePairMap[wc.qp_num];
-
-        BufferDescriptor* bd =
-            reinterpret_cast<BufferDescriptor*>(wc.wr_id);
-
-        if (wc.status == IBV_WC_SUCCESS) {
-            Header& header(*reinterpret_cast<Header*>(bd->buffer));
-            ServerRpc *r = new ServerRpc(this, qp, header.nonce);
-            PayloadChunk::appendToBuffer(&r->recvPayload,
-                bd->buffer + downCast<uint32_t>(sizeof(header)),
-                wc.byte_len - downCast<uint32_t>(sizeof(header)),
-                this, serverSrq, bd);
-            LOG(DEBUG, "Received request with nonce %016lx", header.nonce);
-            ++metrics->transport.receive.messageCount;
-            ++metrics->transport.receive.packetCount;
-            metrics->transport.receive.iovecCount +=
-                r->recvPayload.getNumberChunks();
-            metrics->transport.receive.byteCount +=
-                r->recvPayload.getTotalLength();
-            metrics->transport.receive.ticks += receiveTicks.stop();
-            return r;
-        }
-
-        LOG(ERROR, "failed to receive rpc!");
-        postSrqReceiveAndKickTransmit(serverSrq, bd);
-    }
-
-    return NULL;
-}
-
-/**
  * Construct a Session object for the public #getSession() interface.
  *
  * \param transport

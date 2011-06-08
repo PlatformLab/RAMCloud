@@ -35,7 +35,7 @@ class TransportFactory;
  * #transportManager instance. They do not need to call #initialize().
  *
  * Servers should first use #transportManager's #initialize(). Then, they may
- * use #getSession() and #serverRecv().
+ * use #getSession().
  *
  * The only instance of this class is #transportManager.
  */
@@ -45,8 +45,6 @@ class TransportManager {
     ~TransportManager();
     void initialize(const char* serviceLocator);
     Transport::SessionRef getSession(const char* serviceLocator);
-    Transport::ServerRpc* serverRecv();
-    ServiceLocatorList getListeningLocators();
     string getListeningLocatorsString();
     void registerMemory(void* base, size_t bytes);
     void dumpStats();
@@ -61,7 +59,9 @@ class TransportManager {
      */
     void registerMock(Transport* transport) {
         initialized = true;
-        listening.push_back(transport);
+        if (listeningLocators.size() != 0)
+            listeningLocators += ";";
+        listeningLocators += transport->getServiceLocator().getOriginalString();
         transports.push_back(transport);
         protocolTransportMap.insert({"mock", transport});
     }
@@ -72,8 +72,11 @@ class TransportManager {
      */
     void unregisterMock() {
         protocolTransportMap.erase("mock");
+        size_t newSize = listeningLocators.rfind(";");
+        if (newSize == listeningLocators.npos)
+            newSize = 0;
+        listeningLocators.resize(newSize);
         transports.pop_back();
-        listening.pop_back();
         // Invalidate cache because mock transports are ephemeral and
         // come and go.
         sessionCache.clear();
@@ -136,17 +139,11 @@ class TransportManager {
     std::vector<Transport*> transports;
 
     /**
-     * Transports on which to receive RPC requests. These are polled
-     * round-robin in #serverRecv().
+     * Contains the value that will be returned by getListeningLocatorsString:
+     * a string containing service locators for all of the ways we are prepared
+     * to receive incoming RPCs.
      */
-    std::vector<Transport*> listening;
-
-    /**
-     * The index into #listening of the next Transport that should be polled.
-     * This index may be out of bounds and should be checked before use.
-     * It is used exclusively in #serverRecv().
-     */
-    uint32_t nextToListen;
+    std::string listeningLocators;
 
     /**
      * A map from protocol string to Transport instances for #getSession().

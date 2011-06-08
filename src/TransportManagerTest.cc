@@ -29,9 +29,15 @@ TEST_F(TransportManagerTest, initialize) {
     static struct MockTransportFactory : public TransportFactory {
         MockTransportFactory() : TransportFactory("mock") {}
         Transport* createTransport(const ServiceLocator* local) {
-            return new MockTransport();
+            return new MockTransport(local);
         }
     } mockTransportFactory;
+    static struct FooTransportFactory : public TransportFactory {
+        FooTransportFactory() : TransportFactory("foo") {}
+        Transport* createTransport(const ServiceLocator* local) {
+            return new MockTransport(local);
+        }
+    } fooTransportFactory;
 
     // If "mockThrow:" is _not_ in the service locator, that should be
     // caught and the transport ignored. If it is, then any exception
@@ -46,9 +52,10 @@ TEST_F(TransportManagerTest, initialize) {
     TransportManager manager;
     manager.transportFactories.clear();  /* Speeds up initialization. */
     manager.transportFactories.insert(&mockTransportFactory);
+    manager.transportFactories.insert(&fooTransportFactory);
     manager.transportFactories.insert(&mockThrowTransportFactory);
     manager.initialize("foo:; mock:; bar:");
-    EXPECT_EQ(1U, manager.listening.size());
+    EXPECT_EQ("mock:;foo:", manager.listeningLocators);
     EXPECT_TRUE(manager.isServer);
     EXPECT_GT(manager.transports.size(), 0U);
 
@@ -86,59 +93,8 @@ TEST_F(TransportManagerTest, getSession) {
     EXPECT_STREQ("WorkerSession: created", TestLog::get().c_str());
 }
 
-TEST_F(TransportManagerTest, serverRecv) {
-    Transport::ServerRpc* rpc;
-
-    TransportManager manager;
-
-    EXPECT_THROW(manager.serverRecv(), TransportException);
-
-    MockTransport* mock1 = new MockTransport();
-    MockTransport* mock2 = new MockTransport();
-    MockTransport* mock3 = new MockTransport();
-    manager.registerMock(mock1);
-    manager.registerMock(mock2);
-    manager.registerMock(mock3);
-
-    mock3->setInput("y");
-    rpc = manager.serverRecv();
-    EXPECT_STREQ("y",
-        static_cast<const char*>(rpc->recvPayload.getRange(0, 2)));
-    delete rpc;
-
-    mock2->setInput("x");
-    rpc = manager.serverRecv();
-    EXPECT_STREQ("x",
-        static_cast<const char*>(rpc->recvPayload.getRange(0, 2)));
-    delete rpc;
-}
-
-TEST_F(TransportManagerTest, getListeningLocators) {
-    TransportManager manager;
-
-    EXPECT_THROW(manager.getListeningLocators(),
-        TransportException);
-
-    ServiceLocator mock1sl("hi:");
-    ServiceLocator mock2sl("there:");
-    MockTransport *mock1 = new MockTransport(&mock1sl);
-    MockTransport *mock2 = new MockTransport(&mock2sl);
-    manager.registerMock(mock1);
-    manager.registerMock(mock2);
-
-    EXPECT_EQ(2U, manager.listening.size());
-
-    ServiceLocatorList sll = manager.getListeningLocators();
-    EXPECT_EQ(2U, sll.size());
-    EXPECT_STREQ("hi:", sll[0].getOriginalString().c_str());
-    EXPECT_STREQ("there:", sll[1].getOriginalString().c_str());
-}
-
 TEST_F(TransportManagerTest, getListeningLocatorsString) {
     TransportManager manager;
-
-    EXPECT_THROW(manager.getListeningLocators(),
-        TransportException);
 
     ServiceLocator mock1sl("hi:");
     ServiceLocator mock2sl("there:");
@@ -147,14 +103,14 @@ TEST_F(TransportManagerTest, getListeningLocatorsString) {
 
     manager.transportFactories.clear();  /* Speeds up initialization. */
     manager.initialize("");
-    EXPECT_STREQ("", manager.getListeningLocatorsString().c_str());
+    EXPECT_EQ("", manager.getListeningLocatorsString());
 
     manager.registerMock(mock1);
-    EXPECT_STREQ("hi:", manager.getListeningLocatorsString().c_str());
+    EXPECT_EQ("hi:", manager.getListeningLocatorsString());
 
     manager.registerMock(mock2);
-    EXPECT_STREQ("hi:;there:",
-        manager.getListeningLocatorsString().c_str());
+    EXPECT_EQ("hi:;there:",
+        manager.getListeningLocatorsString());
 }
 
 // The following tests both the constructor and the clientSend method.

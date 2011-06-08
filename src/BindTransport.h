@@ -41,10 +41,6 @@ struct BindTransport : public Transport {
         return ServiceLocator("mock:");
     }
 
-    ServerRpc* serverRecv() {
-        return NULL;
-    }
-
     void
     addService(Service& service, const string locator) {
         services[locator] = &service;

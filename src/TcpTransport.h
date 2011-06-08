@@ -38,7 +38,6 @@ class TcpTransport : public Transport {
   public:
     explicit TcpTransport(const ServiceLocator* serviceLocator = NULL);
     ~TcpTransport();
-    ServerRpc* serverRecv() __attribute__((warn_unused_result));
     SessionRef getSession(const ServiceLocator& serviceLocator) {
         return new TcpSession(serviceLocator);
     }
@@ -264,10 +263,6 @@ class TcpTransport : public Transport {
     /// information about file descriptor i (NULL means no client
     /// is currently connected).
     std::vector<Socket*> sockets;
-
-    /// Keeps track of incoming RPC requests that have not yet been serviced
-    /// (i.e., have not been returned by a call to serverRecv).
-    std::queue<TcpServerRpc*> waitingRequests;
 
     DISALLOW_COPY_AND_ASSIGN(TcpTransport);
 };

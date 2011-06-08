@@ -75,12 +75,6 @@ class MockDriver : public Driver {
     HeaderToString headerToString;
 
     /**
-     * Used as the next input message required by either serverRecv
-     * or wait.
-     */
-    Driver::Received* inputReceived;
-
-    /**
      * Records information from each call to send/recv packets.
      */
     string outputLog;

@@ -34,7 +34,6 @@ FastTransport::FastTransport(Driver* driver)
     : driver(driver)
     , clientSessions(this)
     , serverSessions(this)
-    , serverReadyQueue()
 {
     driver->connect(this);
 }
@@ -68,18 +67,6 @@ FastTransport::getSession(const ServiceLocator& serviceLocator)
     ClientSession* session = clientSessions.get();
     session->init(serviceLocator);
     return session;
-}
-
-// See Transport::serverRecv().
-FastTransport::ServerRpc*
-FastTransport::serverRecv()
-{
-    if (serverReadyQueue.empty()) {
-        return NULL;
-    }
-    ServerRpc* rpc = &serverReadyQueue.front();
-    serverReadyQueue.pop_front();
-    return rpc;
 }
 
 // - private -
@@ -266,14 +253,12 @@ FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
 FastTransport::ServerRpc::ServerRpc()
     : session(NULL)
     , channelId(0)
-    , readyQueueEntries()
 {
 }
 
 /// Make sure this RPC isn't still in a list.  Only happens during testing.
 FastTransport::ServerRpc::~ServerRpc()
 {
-    maybeDequeue();
 }
 
 /**
@@ -282,27 +267,10 @@ FastTransport::ServerRpc::~ServerRpc()
 void
 FastTransport::ServerRpc::reset()
 {
-    maybeDequeue();
     recvPayload.reset();
     replyPayload.reset();
     session = NULL;
     channelId = 0;
-}
-
-/**
- * If queued in FastTransport::serverReadyQueue then dequeue it.
- *
- * Used internally to ensure this RPC isn't in a list still after reset()
- * or delete.
- */
-void
-FastTransport::ServerRpc::maybeDequeue()
-{
-    if (session) {
-        ServerReadyQueue* q = &session->transport->serverReadyQueue;
-        if (readyQueueEntries.is_linked())
-            q->erase(q->iterator_to(*this));
-    }
 }
 
 /**

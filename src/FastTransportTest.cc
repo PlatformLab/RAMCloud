@@ -88,7 +88,6 @@ class FastTransportTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_sanityCheck);
     CPPUNIT_TEST(test_getSession_noneExpirable);
     CPPUNIT_TEST(test_getSession_reuseExpired);
-    CPPUNIT_TEST(test_serverRecv);
     CPPUNIT_TEST(test_numFrags_fullPacket);
     CPPUNIT_TEST(test_numFrags_oneByteTooBig);
     CPPUNIT_TEST(test_sendBadSessionError);
@@ -205,17 +204,6 @@ class FastTransportTest : public CppUnit::TestFixture {
             transport->getSession(serviceLocator).get();
         CPPUNIT_ASSERT_EQUAL(firstSession, lastSession);
         CPPUNIT_ASSERT_EQUAL(1, transport->clientSessions.size());
-    }
-
-    void
-    test_serverRecv()
-    {
-        CPPUNIT_ASSERT_EQUAL(NULL, transport->serverRecv());
-        FastTransport::ServerRpc rpc;
-        rpc.setup(NULL, 0);
-        transport->serverReadyQueue.push_back(rpc);
-        CPPUNIT_ASSERT_EQUAL(&rpc, transport->serverRecv());
-        CPPUNIT_ASSERT_EQUAL(NULL, transport->serverRecv());
     }
 
     // Used in {add,remove,fire}Timer tests

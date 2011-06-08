@@ -122,9 +122,8 @@ class Transport {
     };
 
     /**
-     * An RPC request that has been received and is awaiting our response.
-     * #serverRecv() will return one of these, and the caller of that method
-     * must later call #sendReply() on it.
+     * An RPC request that has been received and is either being serviced or
+     * waiting for service.
      */
     class ServerRpc {
       PROTECTED:
@@ -262,16 +261,6 @@ class Transport {
      * Destructor for Transport.
      */
     virtual ~Transport() {}
-
-    /**
-     * Get the next RPC request that has arrived.
-     * \return
-     *      The RPC object through which to send a reply, or NULL of no RPC
-     *      requests were waiting. The caller must use either
-     *      #Transport::ServerRpc::sendReply() to release the resources
-     *      associated with this object (if it is not NULL).
-     */
-    virtual ServerRpc* serverRecv() __attribute__((warn_unused_result)) = 0;
 
     /**
      * Return a session that will communicate with the given service locator.

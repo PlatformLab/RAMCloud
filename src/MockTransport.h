@@ -33,7 +33,6 @@ class MockTransport : public Transport {
     explicit MockTransport(const ServiceLocator *serviceLocator = NULL);
     virtual ~MockTransport() { }
     virtual ServiceLocator getServiceLocator();
-    virtual ServerRpc* serverRecv();
 
     virtual Transport::SessionRef
     getSession(const ServiceLocator& serviceLocator);
@@ -86,14 +85,12 @@ class MockTransport : public Transport {
     string outputLog;
 
     /**
-     * Used as the next input message required by either serverRecv
-     * or wait.
+     * Used as the next input message required by wait.
      */
     const char* inputMessage;
 
     // The following variables count calls to various methods, for use
     // by tests.
-    uint32_t serverRecvCount;
     uint32_t serverSendCount;
     uint32_t clientSendCount;
     uint32_t clientRecvCount;

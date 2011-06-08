@@ -48,7 +48,6 @@ namespace RAMCloud {
  *  - OutboundMessage::sendOneData
  *
  * - Server Inbound
- *  - FastTransport::serverRecv
  *  - Dispatch::poll
  *  - Driver
  *  - FastTransport::handleIncomingPacket
@@ -63,7 +62,6 @@ namespace RAMCloud {
  *  - OutboundMessage::send
  *
  * - Client Inbound
- *  - ClientRpc::wait
  *  - Dispatch::poll
  *  - Driver
  *  - FastTransport::handleIncomingPacket
@@ -150,19 +148,11 @@ class FastTransport : public Transport {
          */
         uint8_t channelId;
 
-        /**
-         * Links for a list of RPCs waiting for service.
-         * See FastTransport::serverReadyQueue;
-         */
-        IntrusiveListHook readyQueueEntries;
-
         friend class FastTransport;
         friend class ServerSessionTest;
         friend class FastTransportTest;
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
-
-    virtual ServerRpc* serverRecv();
 
   private:
     /**
@@ -1299,10 +1289,6 @@ class FastTransport : public Transport {
 
     /// Contains state for all RPCs this transport participates in as server.
     SessionTable<ServerSession> serverSessions;
-
-    /// Holds incoming RPCs until the Server is ready (see serverRecv()).
-    INTRUSIVE_LIST_TYPEDEF(ServerRpc, readyQueueEntries) ServerReadyQueue;
-    ServerReadyQueue serverReadyQueue;
 
     // If non-zero, overrides the value of timeoutCycles during tests.
     static uint64_t timeoutCyclesOverride;

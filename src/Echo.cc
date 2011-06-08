@@ -22,6 +22,7 @@
 #include "Common.h"
 #include "Buffer.h"
 #include "OptionParser.h"
+#include "ServiceManager.h"
 #include "TransportManager.h"
 
 /**
@@ -48,10 +49,12 @@ try
 
     OptionParser optionParser(argc, argv);
     transportManager.initialize(optionParser.options.getLocalLocator().c_str());
+    ServiceManager manager(NULL);
 
     while (true) {
-        Buffer payload;
-        Transport::ServerRpc* rpc = transportManager.serverRecv();
+        Transport::ServerRpc* rpc = manager.waitForRpc(1);
+        if (rpc == NULL)
+            continue;
         Buffer::Iterator iter(rpc->recvPayload);
         while (!iter.isDone()) {
             Buffer::Chunk::appendToBuffer(&rpc->replyPayload,

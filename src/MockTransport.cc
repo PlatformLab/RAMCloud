@@ -29,14 +29,16 @@ uint32_t RAMCloud::MockTransport::sessionDeleteCount = 0;
 MockTransport::MockTransport(const ServiceLocator *serviceLocator)
             : outputLog()
             , inputMessage(NULL)
-            , serverRecvCount(0)
             , serverSendCount(0)
             , clientSendCount(0)
             , clientRecvCount(0)
             , locatorString()
 {
-    if (serviceLocator != NULL)
+    if (serviceLocator != NULL) {
         locatorString = serviceLocator->getOriginalString();
+    } else {
+        locatorString = "mock:";
+    }
 }
 
 /**
@@ -46,21 +48,6 @@ ServiceLocator
 MockTransport::getServiceLocator()
 {
     return ServiceLocator(locatorString);
-}
-
-/**
- * Return an incoming request. This is a fake method that uses a request
- * message explicitly provided by the test, or returns NULL.
- */
-Transport::ServerRpc*
-MockTransport::serverRecv() {
-    if (inputMessage == NULL) {
-        return NULL;
-    } else {
-        MockServerRpc* result = new MockServerRpc(this, inputMessage);
-        inputMessage = NULL;
-        return result;
-    }
 }
 
 Transport::SessionRef

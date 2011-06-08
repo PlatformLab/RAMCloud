@@ -40,8 +40,7 @@ Syscall* TcpTransport::sys = &defaultSyscall;
  *      If NULL this transport will be used only for outgoing requests.
  */
 TcpTransport::TcpTransport(const ServiceLocator* serviceLocator)
-        : locatorString(), listenSocket(-1), acceptHandler(), sockets(),
-        waitingRequests()
+        : locatorString(), listenSocket(-1), acceptHandler(), sockets()
 {
     if (serviceLocator == NULL)
         return;
@@ -577,18 +576,6 @@ TcpTransport::ReplyReadHandler::handleFileEvent()
         session->errorInfo = e.message;
         session->close();
     }
-}
-
-// See Transport::serverRecv for documentation.
-Transport::ServerRpc*
-TcpTransport::serverRecv()
-{
-    if (waitingRequests.empty()) {
-        return NULL;
-    }
-    ServerRpc* result = waitingRequests.front();
-    waitingRequests.pop();
-    return result;
 }
 
 // See Transport::ServerRpc::sendReply for documentation.

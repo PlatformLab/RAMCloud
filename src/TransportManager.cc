@@ -75,8 +75,7 @@ TransportManager::TransportManager()
     , isServer(false)
     , transportFactories()
     , transports()
-    , listening()
-    , nextToListen(0)
+    , listeningLocators()
     , protocolTransportMap()
     , sessionCache()
 {
@@ -129,7 +128,10 @@ TransportManager::initialize(const char* localServiceLocator)
                 // requests on. Since it is expected that this transport
                 // works, we do not catch exceptions if it is unavailable.
                 transport = factory->createTransport(&locator);
-                listening.push_back(transport);
+                if (listeningLocators.size() != 0)
+                    listeningLocators += ";";
+                listeningLocators +=
+                        transport->getServiceLocator().getOriginalString();
                 goto insert_protocol_mappings;
             }
         }
@@ -221,73 +223,16 @@ TransportManager::getSession(const char* serviceLocator)
 }
 
 /**
- * Receive an RPC request. This will block until receiving a packet from any
- * listening transport.
- * \throw TransportException
- *      There are no listening transports, so this call would block forever.
- */
-Transport::ServerRpc*
-TransportManager::serverRecv()
-{
-    if (!initialized || listening.empty())
-        throw TransportException(HERE, "no transports to listen on");
-    uint64_t startIdle = __is_empty(Metric) ? 0 : rdtsc();
-    while (true) {
-        if (nextToListen >= listening.size()) {
-            dispatch->poll();
-            metrics->recvIdleTicks += dispatch->currentTime - startIdle;
-            startIdle = __is_empty(Metric) ? 0 : rdtsc();
-            nextToListen = 0;
-        }
-        auto transport = listening[nextToListen++];
-        uint64_t end = __is_empty(Metric) ? 0 : rdtsc();
-        auto rpc = transport->serverRecv();
-        if (rpc != NULL) {
-            metrics->recvIdleTicks += end - startIdle;
-            return rpc;
-        }
-    }
-}
-
-/**
- * Obtain a list of listening ServiceLocators.
- * \return
- *      A vector of ServiceLocators that are listening for RPCs.
- * \throw TransportException
- *      if this TransportManager has not been initialized.
- */
-ServiceLocatorList
-TransportManager::getListeningLocators()
-{
-    if (!initialized)
-        throw TransportException(HERE, "TransportManager not initialized");
-
-    ServiceLocatorList list;
-    foreach (auto transport, listening)
-        list.push_back(transport->getServiceLocator());
-    return list;
-}
-
-/**
- * Obtain a ServiceLocator string corresponding to the listening
+ * Return a ServiceLocator string corresponding to the listening
  * ServiceLocators.
  * \return
  *      A semicolon-delimited, ServiceLocator string containing all
- *      ServiceLocators' strings that are listening to RPCs. 
- * \throw TransportException
- *      if this TransportManager has not been initialized.
+ *      ServiceLocators' strings that are listening to RPCs.
  */
 string
 TransportManager::getListeningLocatorsString()
 {
-    ServiceLocatorList sll = getListeningLocators();
-    string ret;
-    for (uint32_t i = 0; i < sll.size(); i++) {
-        if (i > 0)
-            ret += ";";
-        ret += sll[i].getOriginalString();
-    }
-    return ret;
+    return listeningLocators;
 }
 
 /**
