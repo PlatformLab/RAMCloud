@@ -27,9 +27,6 @@ TESTS_SRCFILES := \
 		  src/FailureDetectorTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
-		  src/InfAddressTest.cc \
-		  src/InfRcTransportTest.cc \
-		  src/InfUdDriverTest.cc \
 		  src/InitializeTest.cc \
 		  src/IpAddressTest.cc \
 		  src/LogCleanerTest.cc \
