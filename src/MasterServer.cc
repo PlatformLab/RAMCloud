@@ -629,7 +629,7 @@ MasterServer::recover(uint64_t masterId,
             if (!task)
                 continue;
             if (task->resendTime != 0) {
-                if (task->resendTime > currentTime) {
+                if (currentTime > task->resendTime) {
                     task->resendTime = 0;
                     task->resend();
                 }
