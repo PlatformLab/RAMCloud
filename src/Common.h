@@ -22,14 +22,19 @@
 #ifndef RAMCLOUD_COMMON_H
 #define RAMCLOUD_COMMON_H
 
-// Uppercase versions are all defined to 'public' for white-box tests.
-#ifndef PRIVATE
+// Unfortunately, unit tests based on gtest can't access private members
+// of classes.  If the following uppercase versions of "private" and
+// "protected" are used instead, it works around the problem:  when
+// compiling unit test files (anything that includes TestUtil.h)
+// everything becomes public.
+
+#ifdef EXPOSE_PRIVATES
+#define PRIVATE public
+#define PROTECTED public
+#define PUBLIC public
+#else
 #define PRIVATE private
-#endif
-#ifndef PROTECTED
 #define PROTECTED protected
-#endif
-#ifndef PUBLIC
 #define PUBLIC public
 #endif
 

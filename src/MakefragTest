@@ -3,6 +3,9 @@ OBJDIRS += tests
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
 	   src/MockInfiniband.cc \
+	   src/InfAddressTest.cc \
+	   src/InfRcTransportTest.cc \
+	   src/InfUdDriverTest.cc \
 	   $(NULL)
 else
 INFINIBAND_SRCFILES :=
@@ -29,9 +32,9 @@ TESTS_SRCFILES := \
 		  src/InfUdDriverTest.cc \
 		  src/InitializeTest.cc \
 		  src/IpAddressTest.cc \
-		  src/LogTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LoggingTest.cc \
+		  src/LogTest.cc \
 		  src/MasterTest.cc \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \

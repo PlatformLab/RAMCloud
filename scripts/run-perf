@@ -3,8 +3,8 @@
 # these scripts are intended to be run from the top level
 # of the project
 
-port=11113
-cport=$(( $port + 1 ))
+cport=11113
+port=$(( $cport + 1 ))
 
 source scripts/common.bash
 
@@ -23,14 +23,36 @@ atexit "portslay $cport"
 
 # Start a server and run tests
 $OBJDIR/coordinator -C $coordinatorLocator &
-$OBJDIR/server -L $masterLocator -C $coordinatorLocator &
 sleep .1
 
+# number of backups is loop end
+numBackups=1
+for ((i=1; i <= numBackups ; i++))
+do
+   port=$(( $port + 1 ))
+   bhost=rc0$((2+$i))ib
+   backupLocator=$transport:host=$bhost,port=$port
+   ssh $bhost "$PWD/$OBJDIR/backup -L $backupLocator -C $coordinatorLocator" &
+   echo "Started backup $i - $bhost"
+done
+sleep 2
+
+# backups need to be started before the master
+$OBJDIR/server -m17000 -r $numBackups -L $masterLocator -C $coordinatorLocator &
+sleep 2
+
+date=`date +"%Y%m%d.%H%M"`
+objSize=100
+
 # now call perl script to do the rest of the work
-# scripts/latencyVSsize.pl -co $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.size.dump
-# scripts/latencyVSload.pl -co $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $transport.load.dump -cl rc0[3,4,5,6].scs.stanford.edu 
-scripts/latencyVSload.pl -co $coordinatorLocator -b $OBJDIR/Bench --dump $transport.load.dump -cl 10.0.0.[2,3,4,5,6] --loadStart 0 --loadEnd 10 --objSize 100
+scripts/latencyVSload.pl -co $coordinatorLocator -b $OBJDIR/Bench -t $transport --dump $date.$objSize.$transport.load.dump -cl 'rc[01,07-35]ib.rccluster' --loadStart 2 --loadEnd 5 --objSize $objSize
 RETVAL=$?
 
-exit $RETVAL
+# kill backups now
+for ((i=1; i <= numBackups ; i++))
+do
+    bhost=rc0$((2+$i))ib
+    ssh $bhost "pkill backup"
+done
 
+exit $RETVAL
