@@ -854,7 +854,7 @@ BackupServer::RecoverySegmentBuilder::operator()()
 // --- BackupServer ---
 
 /**
- * Create a BackupServer which is ready to run().
+ * Create a BackupServer.
  *
  * \param config
  *      Settings for this instance. The caller guarantees that config will
@@ -1063,6 +1063,19 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
 
     ++metrics->backup.readCount;
     LOG(DEBUG, "getRecoveryData complete");
+}
+
+/**
+ * Perform once-only initialization for the backup server, such as enlisting
+ * with the coordinator.
+ */
+void
+BackupServer::init()
+{
+    auto speeds = storage.benchmark(config.backupStrategy);
+    serverId = coordinator.enlistServer(BACKUP, config.localLocator,
+                                        speeds.first, speeds.second);
+    LOG(NOTICE, "My server ID is %lu", serverId);
 }
 
 /**

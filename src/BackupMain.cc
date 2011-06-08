@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -94,6 +94,7 @@ try
                                             O_DIRECT | O_SYNC));
 
     BackupServer service(config, *storage);
+    service.init();
     ServiceManager manager(&service);
     while (true) {
         dispatch->poll();
