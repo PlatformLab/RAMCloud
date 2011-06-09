@@ -877,54 +877,58 @@ InfRcTransport<Infiniband>::Poller::poll()
     ibv_wc wc;
 
     // First check for responses to requests that we have made.
-    while (t->infiniband->pollCompletionQueue(t->clientRxCq, 1, &wc) > 0) {
-        CycleCounter<Metric> receiveTicks;
-        BufferDescriptor *bd = reinterpret_cast<BufferDescriptor *>(wc.wr_id);
-        if (wc.status != IBV_WC_SUCCESS) {
-            LOG(ERROR, "wc.status(%d:%s) != IBV_WC_SUCCESS",
-                wc.status, t->infiniband->wcStatusToString(wc.status));
-            t->postSrqReceiveAndKickTransmit(t->clientSrq, bd);
-            throw TransportException(HERE, wc.status);
-        }
-
-        Header& header(*reinterpret_cast<Header*>(bd->buffer));
-        LOG(DEBUG, "Received response with nonce %016lx", header.nonce);
-        foreach (ClientRpc& rpc, t->outstandingRpcs) {
-            if (rpc.nonce != header.nonce)
-                continue;
-            t->outstandingRpcs.erase(t->outstandingRpcs.iterator_to(rpc));
-            uint32_t len = wc.byte_len - downCast<uint32_t>(sizeof(header));
-            if (t->numUsedClientSrqBuffers >= MAX_SHARED_RX_QUEUE_DEPTH / 2) {
-                // clientSrq is low on buffers, better return this one
-                LOG(DEBUG, "Copy and immediately return clientSrq buffer");
-                memcpy(new(rpc.response, APPEND) char[len],
-                       bd->buffer + sizeof(header),
-                       len);
+    if (!t->outstandingRpcs.empty()) {
+        while (t->infiniband->pollCompletionQueue(t->clientRxCq, 1, &wc) > 0) {
+            CycleCounter<Metric> receiveTicks;
+            BufferDescriptor *bd =
+                        reinterpret_cast<BufferDescriptor *>(wc.wr_id);
+            if (wc.status != IBV_WC_SUCCESS) {
+                LOG(ERROR, "wc.status(%d:%s) != IBV_WC_SUCCESS",
+                    wc.status, t->infiniband->wcStatusToString(wc.status));
                 t->postSrqReceiveAndKickTransmit(t->clientSrq, bd);
-            } else {
-                // rpc will hold one of clientSrq's buffers until
-                // rpc.response is destroyed
-                LOG(DEBUG, "Hang onto clientSrq buffer");
-                PayloadChunk::appendToBuffer(rpc.response,
-                                             bd->buffer + sizeof(header),
-                                             len, t, t->clientSrq, bd);
+                throw TransportException(HERE, wc.status);
             }
-            rpc.state = ClientRpc::RESPONSE_RECEIVED;
-            rpc.markFinished();
-            ++metrics->transport.receive.messageCount;
-            ++metrics->transport.receive.packetCount;
-            metrics->transport.receive.iovecCount +=
-                rpc.response->getNumberChunks();
-            metrics->transport.receive.byteCount +=
-                rpc.response->getTotalLength();
-            metrics->transport.receive.ticks += receiveTicks.stop();
-            if (t->outstandingRpcs.empty())
-                t->clientRpcsActiveTime.destroy();
-            goto next;
+
+            Header& header(*reinterpret_cast<Header*>(bd->buffer));
+            LOG(DEBUG, "Received response with nonce %016lx", header.nonce);
+            foreach (ClientRpc& rpc, t->outstandingRpcs) {
+                if (rpc.nonce != header.nonce)
+                    continue;
+                t->outstandingRpcs.erase(t->outstandingRpcs.iterator_to(rpc));
+                uint32_t len = wc.byte_len - downCast<uint32_t>(sizeof(header));
+                if (t->numUsedClientSrqBuffers >=
+                        MAX_SHARED_RX_QUEUE_DEPTH / 2) {
+                    // clientSrq is low on buffers, better return this one
+                    LOG(DEBUG, "Copy and immediately return clientSrq buffer");
+                    memcpy(new(rpc.response, APPEND) char[len],
+                           bd->buffer + sizeof(header),
+                           len);
+                    t->postSrqReceiveAndKickTransmit(t->clientSrq, bd);
+                } else {
+                    // rpc will hold one of clientSrq's buffers until
+                    // rpc.response is destroyed
+                    LOG(DEBUG, "Hang onto clientSrq buffer");
+                    PayloadChunk::appendToBuffer(rpc.response,
+                                                 bd->buffer + sizeof(header),
+                                                 len, t, t->clientSrq, bd);
+                }
+                rpc.state = ClientRpc::RESPONSE_RECEIVED;
+                rpc.markFinished();
+                ++metrics->transport.receive.messageCount;
+                ++metrics->transport.receive.packetCount;
+                metrics->transport.receive.iovecCount +=
+                    rpc.response->getNumberChunks();
+                metrics->transport.receive.byteCount +=
+                    rpc.response->getTotalLength();
+                metrics->transport.receive.ticks += receiveTicks.stop();
+                if (t->outstandingRpcs.empty())
+                    t->clientRpcsActiveTime.destroy();
+                goto next;
+            }
+            LOG(WARNING, "dropped packet because no nonce matched %016lx",
+                         header.nonce);
+      next: { /* pass */ }
         }
-        LOG(WARNING, "dropped packet because no nonce matched %016lx",
-                     header.nonce);
-  next: { /* pass */ }
     }
 
     // Next, check for incoming RPC requests (assuming that we are a server).

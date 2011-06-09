@@ -66,7 +66,7 @@ static struct InfRcTransportFactory : public TransportFactory {
 
 /**
  * The single instance of #TransportManager.
- * It's priority ensures that it is initialized after the TestLog.
+ * Its priority ensures that it is initialized after the TestLog.
  */
 TransportManager  __attribute__((init_priority(400))) transportManager;
 
