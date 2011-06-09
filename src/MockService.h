@@ -34,12 +34,13 @@ class MockService : public Service {
              log.append(", ");
         }
         log.append("rpc: ");
-        log.append(toString(&rpc.recvPayload));
+        log.append(toString(&rpc.requestPayload));
 
         // Create a response that increments each of the (integer) values
         // in the request.
-        for (uint32_t i = 0; i < rpc.recvPayload.getTotalLength()-3; i += 4) {
-            int32_t inputValue = *(rpc.recvPayload.getOffset<int32_t>(i));
+        for (uint32_t i = 0; i < rpc.requestPayload.getTotalLength()-3;
+                i += 4) {
+            int32_t inputValue = *(rpc.requestPayload.getOffset<int32_t>(i));
             *(new(&rpc.replyPayload, APPEND) int32_t) = inputValue+1;
         }
 

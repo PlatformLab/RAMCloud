@@ -267,7 +267,7 @@ FastTransport::ServerRpc::~ServerRpc()
 void
 FastTransport::ServerRpc::reset()
 {
-    recvPayload.reset();
+    requestPayload.reset();
     replyPayload.reset();
     session = NULL;
     channelId = 0;
@@ -1116,7 +1116,7 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
             channel->inboundMsg.reset();
             channel->outboundMsg.reset();
             channel->currentRpc.setup(this, header->channelId);
-            Buffer* recvBuffer = &channel->currentRpc.recvPayload;
+            Buffer* recvBuffer = &channel->currentRpc.requestPayload;
             channel->inboundMsg.init(header->totalFrags, recvBuffer);
             TEST_LOG("processReceivedData");
             processReceivedData(channel, received);

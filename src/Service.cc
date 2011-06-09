@@ -136,7 +136,7 @@ Service::handleRpc(Rpc& rpc) {
     // such as keeping statistics. It then calls a service-specific dispatch
     // method to handle the details of performing the RPC.
     const RpcRequestCommon* header;
-    header = rpc.recvPayload.getStart<RpcRequestCommon>();
+    header = rpc.requestPayload.getStart<RpcRequestCommon>();
     if (header == NULL) {
         rpc.prepareErrorResponse(STATUS_MESSAGE_TOO_SHORT);
         return;

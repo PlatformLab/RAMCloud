@@ -52,10 +52,10 @@ class Service {
         /**
          * Constructor for Rpc.
          */
-        Rpc(Worker* worker, Buffer& recvPayload,
+        Rpc(Worker* worker, Buffer& requestPayload,
                 Buffer& replyPayload)
             : worker(worker)
-            , recvPayload(recvPayload)
+            , requestPayload(requestPayload)
             , replyPayload(replyPayload)
             , replied(false) {}
 
@@ -67,7 +67,7 @@ class Service {
         Worker* worker;
 
         /// The incoming request, which describes the desired operation.
-        Buffer& recvPayload;
+        Buffer& requestPayload;
 
         /// The response, which will eventually be returned to the client.
         Buffer& replyPayload;
@@ -117,7 +117,7 @@ class Service {
     callHandler(Rpc& rpc) {
         assert(rpc.replyPayload.getTotalLength() == 0);
         const typename Op::Request* reqHdr =
-            rpc.recvPayload.getStart<typename Op::Request>();
+            rpc.requestPayload.getStart<typename Op::Request>();
         if (reqHdr == NULL)
             throw MessageTooShortError(HERE);
         typename Op::Response* respHdr =

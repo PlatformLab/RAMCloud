@@ -949,7 +949,7 @@ InfRcTransport<Infiniband>::Poller::poll()
 
             Header& header(*reinterpret_cast<Header*>(bd->buffer));
             ServerRpc *r = new ServerRpc(t, qp, header.nonce);
-            PayloadChunk::appendToBuffer(&r->recvPayload,
+            PayloadChunk::appendToBuffer(&r->requestPayload,
                 bd->buffer + downCast<uint32_t>(sizeof(header)),
                 wc.byte_len - downCast<uint32_t>(sizeof(header)),
                 t, t->serverSrq, bd);
@@ -958,9 +958,9 @@ InfRcTransport<Infiniband>::Poller::poll()
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
             metrics->transport.receive.iovecCount +=
-                r->recvPayload.getNumberChunks();
+                r->requestPayload.getNumberChunks();
             metrics->transport.receive.byteCount +=
-                r->recvPayload.getTotalLength();
+                r->requestPayload.getTotalLength();
             metrics->transport.receive.ticks += receiveTicks.stop();
         }
     }

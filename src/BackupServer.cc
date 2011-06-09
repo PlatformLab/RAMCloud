@@ -1176,7 +1176,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
     CycleCounter<Metric> srdTicks(&metrics->backup.startReadingDataTicks);
 
     ProtoBuf::Tablets partitions;
-    ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
+    ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
                                 reqHdr.partitionsLength, partitions);
 
     uint64_t logDigestLastId = ~0UL;
@@ -1351,7 +1351,7 @@ BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
 
     {
         CycleCounter<Metric> z(&metrics->backup.writeCopyTicks);
-        info->write(rpc.recvPayload, sizeof(reqHdr),
+        info->write(rpc.requestPayload, sizeof(reqHdr),
                     reqHdr.length, reqHdr.offset);
     }
     bytesWritten += reqHdr.length;

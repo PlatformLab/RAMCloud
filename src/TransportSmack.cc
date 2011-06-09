@@ -357,7 +357,7 @@ class TSService : public Service {
               EchoRpc::Response& respHdr,
               Rpc& rpc) {
         spin(reqHdr.spinNs);
-        Buffer::Iterator iter(rpc.recvPayload, sizeof(reqHdr), ~0U);
+        Buffer::Iterator iter(rpc.requestPayload, sizeof(reqHdr), ~0U);
         while (!iter.isDone()) {
             Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
                                           iter.getData(),
@@ -371,7 +371,7 @@ class TSService : public Service {
     void remote(const RemoteRpc::Request& reqHdr,
               RemoteRpc::Response& respHdr,
               Rpc& rpc) {
-        const char* command = Service::getString(rpc.recvPayload,
+        const char* command = Service::getString(rpc.requestPayload,
                                                  sizeof(reqHdr),
                                                  reqHdr.commandLength);
         Do(command).startWait();

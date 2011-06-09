@@ -211,8 +211,8 @@ TcpTransport::RequestReadHandler::handleFileEvent()
     assert(socket != NULL);
     if (socket->rpc == NULL) {
         socket->rpc = new TcpServerRpc(socket, fd,
-                &socket->rpc->recvPayload);
-        socket->rpc->message.reset(&socket->rpc->recvPayload);
+                &socket->rpc->requestPayload);
+        socket->rpc->message.reset(&socket->rpc->requestPayload);
     }
     try {
         if (socket->busy) {

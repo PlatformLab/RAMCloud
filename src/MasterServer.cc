@@ -164,7 +164,7 @@ MasterServer::create(const CreateRpc::Request& reqHdr,
     rejectRules.exists = 1;
 
     storeData(reqHdr.tableId, id, &rejectRules,
-              &rpc.recvPayload, sizeof(reqHdr), reqHdr.length,
+              &rpc.requestPayload, sizeof(reqHdr), reqHdr.length,
               &respHdr.version,
               reqHdr.async);
     respHdr.id = id;
@@ -805,10 +805,10 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
         const auto& masterId = reqHdr.masterId;
         const auto& partitionId = reqHdr.partitionId;
         ProtoBuf::Tablets recoveryTablets;
-        ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
+        ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
                                     reqHdr.tabletsLength, recoveryTablets);
         ProtoBuf::ServerList backups;
-        ProtoBuf::parseFromResponse(rpc.recvPayload,
+        ProtoBuf::parseFromResponse(rpc.requestPayload,
                                     downCast<uint32_t>(sizeof(reqHdr)) +
                                     reqHdr.tabletsLength,
                                     reqHdr.serverListLength,
@@ -1207,7 +1207,7 @@ MasterServer::setTablets(const SetTabletsRpc::Request& reqHdr,
                          Rpc& rpc)
 {
     ProtoBuf::Tablets newTablets;
-    ProtoBuf::parseFromRequest(rpc.recvPayload, sizeof(reqHdr),
+    ProtoBuf::parseFromRequest(rpc.requestPayload, sizeof(reqHdr),
                                reqHdr.tabletsLength, newTablets);
     setTablets(newTablets);
 }
@@ -1223,7 +1223,7 @@ MasterServer::write(const WriteRpc::Request& reqHdr,
 {
     CycleCounter<uint64_t> timeThis;
     storeData(reqHdr.tableId, reqHdr.id,
-              &reqHdr.rejectRules, &rpc.recvPayload, sizeof(reqHdr),
+              &reqHdr.rejectRules, &rpc.requestPayload, sizeof(reqHdr),
               static_cast<uint32_t>(reqHdr.length), &respHdr.version,
               reqHdr.async);
     serverStats.totalWriteRequests++;

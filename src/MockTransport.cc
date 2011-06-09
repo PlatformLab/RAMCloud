@@ -127,7 +127,7 @@ MockTransport::MockServerRpc::MockServerRpc(MockTransport* transport,
         : transport(transport)
 {
     if (message != NULL) {
-        recvPayload.fillFromString(message);
+        requestPayload.fillFromString(message);
     }
 }
 

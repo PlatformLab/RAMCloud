@@ -113,7 +113,7 @@ TEST_F(TcpTransportTest, sanityCheck) {
             &reply);
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("abcdefg/0", toString(&serverRpc->recvPayload));
+    EXPECT_EQ("abcdefg/0", toString(&serverRpc->requestPayload));
     EXPECT_FALSE(clientRpc->isReady());
     serverRpc->replyPayload.fillFromString("klmn");
     serverRpc->sendReply();
@@ -126,7 +126,7 @@ TEST_F(TcpTransportTest, sanityCheck) {
     clientRpc = session->clientSend(&request, &reply);
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("request2/0", toString(&serverRpc->recvPayload));
+    EXPECT_EQ("request2/0", toString(&serverRpc->requestPayload));
     serverRpc->replyPayload.fillFromString("reply2");
     serverRpc->sendReply();
     clientRpc->wait();
@@ -191,8 +191,8 @@ TEST_F(TcpTransportTest, destructor) {
     EXPECT_TRUE(serverRpc1 != NULL);
     Transport::ServerRpc* serverRpc2 = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc2 != NULL);
-    EXPECT_EQ("request1/0", toString(&serverRpc1->recvPayload));
-    EXPECT_EQ("request2/0", toString(&serverRpc2->recvPayload));
+    EXPECT_EQ("request1/0", toString(&serverRpc1->requestPayload));
+    EXPECT_EQ("request2/0", toString(&serverRpc2->requestPayload));
     serverRpc1->replyPayload.fillFromString("reply1");
     serverRpc1->sendReply();
     serverRpc2->replyPayload.fillFromString("reply2");
@@ -322,7 +322,7 @@ TEST_F(TcpTransportTest, sendMessage_multipleChunks) {
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("abcdexxx12345678",
-            toString(&serverRpc->recvPayload));
+            toString(&serverRpc->requestPayload));
 
     close(fd);
 }

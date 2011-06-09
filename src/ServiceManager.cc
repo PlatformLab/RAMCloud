@@ -205,7 +205,7 @@ ServiceManager::workerMain(Worker* worker)
         if (worker->rpc == WORKER_EXIT)
             break;
 
-        Service::Rpc rpc(worker, worker->rpc->recvPayload,
+        Service::Rpc rpc(worker, worker->rpc->requestPayload,
                 worker->rpc->replyPayload);
         worker->service->handleRpc(rpc);
 

@@ -156,7 +156,7 @@ class FastTransportTest : public CppUnit::TestFixture {
                 &reply);
         Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc != NULL);
-        CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
+        CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->requestPayload));
         CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
         serverRpc->replyPayload.fillFromString("klmn");
         serverRpc->sendReply();
@@ -169,7 +169,7 @@ class FastTransportTest : public CppUnit::TestFixture {
         serverRpc = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("ok",
-                checkLargeBuffer(&serverRpc->recvPayload, 100000));
+                checkLargeBuffer(&serverRpc->requestPayload, 100000));
         fillLargeBuffer(&serverRpc->replyPayload, 50000);
         serverRpc->sendReply();
         clientRpc->wait();

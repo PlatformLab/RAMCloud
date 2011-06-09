@@ -130,7 +130,7 @@ class Transport {
         /**
          * Constructor for ServerRpc.
          */
-        ServerRpc() : recvPayload(), replyPayload() {}
+        ServerRpc() : requestPayload(), replyPayload() {}
 
       public:
         /**
@@ -150,9 +150,9 @@ class Transport {
         virtual void sendReply() = 0;
 
         /**
-         * The received RPC payload.
+         * The incoming RPC payload, which contains a request.
          */
-        Buffer recvPayload;
+        Buffer requestPayload;
 
         /**
          * The RPC payload to send as a response with #sendReply().

@@ -108,7 +108,7 @@ CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
     if (masterList.server_size() == 0)
         throw RetryException(HERE);
 
-    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
+    const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
     if (tables.find(name) != tables.end())
         return;
@@ -167,7 +167,7 @@ CoordinatorServer::dropTable(const DropTableRpc::Request& reqHdr,
                              DropTableRpc::Response& respHdr,
                              Rpc& rpc)
 {
-    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
+    const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
     Tables::iterator it = tables.find(name);
     if (it == tables.end())
@@ -203,7 +203,7 @@ CoordinatorServer::openTable(const OpenTableRpc::Request& reqHdr,
                              OpenTableRpc::Response& respHdr,
                              Rpc& rpc)
 {
-    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
+    const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
     Tables::iterator it(tables.find(name));
     if (it == tables.end())
@@ -225,7 +225,7 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
         static_cast<ProtoBuf::ServerType>(reqHdr.serverType);
     const uint32_t readSpeed = reqHdr.readSpeed;
     const uint32_t writeSpeed = reqHdr.writeSpeed;
-    const char *serviceLocator = getString(rpc.recvPayload, sizeof(reqHdr),
+    const char *serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
     ProtoBuf::ServerList& serverList(serverType == ProtoBuf::MASTER
@@ -300,7 +300,7 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
                                   HintServerDownRpc::Response& respHdr,
                                   Rpc& rpc)
 {
-    string serviceLocator(getString(rpc.recvPayload, sizeof(reqHdr),
+    string serviceLocator(getString(rpc.requestPayload, sizeof(reqHdr),
                                     reqHdr.serviceLocatorLength));
     rpc.sendReply();
 
@@ -387,11 +387,11 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
     }
 
     ProtoBuf::Tablets recoveredTablets;
-    ProtoBuf::parseFromResponse(rpc.recvPayload,
+    ProtoBuf::parseFromResponse(rpc.requestPayload,
                                 downCast<uint32_t>(sizeof(reqHdr)),
                                 reqHdr.tabletsLength, recoveredTablets);
     ProtoBuf::Tablets* newWill = new ProtoBuf::Tablets;
-    ProtoBuf::parseFromResponse(rpc.recvPayload,
+    ProtoBuf::parseFromResponse(rpc.requestPayload,
                                 downCast<uint32_t>(sizeof(reqHdr)) +
                                 reqHdr.tabletsLength,
                                 reqHdr.willLength, *newWill);
@@ -401,7 +401,7 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
         newWill->tablet_size());
 
     // update the will
-    setWill(reqHdr.masterId, rpc.recvPayload,
+    setWill(reqHdr.masterId, rpc.requestPayload,
         downCast<uint32_t>(sizeof(reqHdr)) + reqHdr.tabletsLength,
         reqHdr.willLength);
 
@@ -505,7 +505,7 @@ CoordinatorServer::setWill(const SetWillRpc::Request& reqHdr,
                            Rpc& rpc)
 {
     CycleCounter<Metric> _(&metrics->coordinator.setWillTicks);
-    if (!setWill(reqHdr.masterId, rpc.recvPayload, sizeof(reqHdr),
+    if (!setWill(reqHdr.masterId, rpc.requestPayload, sizeof(reqHdr),
         reqHdr.willLength)) {
         // TODO(ongaro): should be some other error or silent
         throw RequestFormatError(HERE);

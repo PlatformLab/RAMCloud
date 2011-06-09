@@ -54,7 +54,7 @@ TEST_F(InfRcTransportTest, sanityCheck) {
             &reply);
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("abcdefg/0", toString(&serverRpc->recvPayload));
+    EXPECT_EQ("abcdefg/0", toString(&serverRpc->requestPayload));
     EXPECT_FALSE(clientRpc->isReady());
     serverRpc->replyPayload.fillFromString("klmn");
     serverRpc->sendReply();
@@ -67,7 +67,7 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok",
-            checkLargeBuffer(&serverRpc->recvPayload, 100000));
+            checkLargeBuffer(&serverRpc->requestPayload, 100000));
     fillLargeBuffer(&serverRpc->replyPayload, 50000);
     serverRpc->sendReply();
     clientRpc->wait();
