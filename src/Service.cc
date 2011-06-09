@@ -53,11 +53,10 @@ Service::getString(Buffer& buffer, uint32_t offset, uint32_t length) {
     if (length == 0) {
         throw RequestFormatError(HERE);
     }
-    // TODO(ongaro): update to check result against NULL instead
-    if (buffer.getTotalLength() < (offset + length)) {
+    result = static_cast<const char*>(buffer.getRange(offset, length));
+    if (result == NULL) {
         throw MessageTooShortError(HERE);
     }
-    result = static_cast<const char*>(buffer.getRange(offset, length));
     if (result[length - 1] != '\0') {
         throw RequestFormatError(HERE);
     }
