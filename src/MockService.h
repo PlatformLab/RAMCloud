@@ -37,10 +37,13 @@ class MockService : public Service {
         log.append(toString(&rpc.requestPayload));
 
         // Create a response that increments each of the (integer) values
-        // in the request.
+        // in the request.  Throw an error if value 54321 appears.
         for (uint32_t i = 0; i < rpc.requestPayload.getTotalLength()-3;
                 i += 4) {
             int32_t inputValue = *(rpc.requestPayload.getOffset<int32_t>(i));
+            if (inputValue == 54321) {
+                throw ClientException(HERE, STATUS_REQUEST_FORMAT_ERROR);
+            }
             *(new(&rpc.replyPayload, APPEND) int32_t) = inputValue+1;
         }
 

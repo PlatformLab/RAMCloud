@@ -45,13 +45,13 @@ class ServiceTest : public ::testing::Test {
     }
 };
 
-TEST_F(ServiceTest, getStringBasics) {
+TEST_F(ServiceTest, getString_basics) {
     Buffer buffer;
     buffer.fillFromString("abcdefg");
     const char* result = Service::getString(buffer, 3, 5);
     EXPECT_STREQ("defg", result);
 }
-TEST_F(ServiceTest, getStringLengthZero) {
+TEST_F(ServiceTest, getString_lengthZero) {
     Buffer buffer;
     Status status = Status(0);
     try {
@@ -61,7 +61,7 @@ TEST_F(ServiceTest, getStringLengthZero) {
     }
     EXPECT_EQ(8, status);
 }
-TEST_F(ServiceTest, getStringBufferTooShort) {
+TEST_F(ServiceTest, getString_bufferTooShort) {
     Buffer buffer;
     buffer.fillFromString("abcde");
     Status status = Status(0);
@@ -72,7 +72,7 @@ TEST_F(ServiceTest, getStringBufferTooShort) {
     }
     EXPECT_EQ(6, status);
 }
-TEST_F(ServiceTest, getStringStringNotTerminated) {
+TEST_F(ServiceTest, getString_stringNotTerminated) {
     Buffer buffer;
     buffer.fillFromString("abcde");
     Status status = Status(0);
@@ -84,12 +84,12 @@ TEST_F(ServiceTest, getStringStringNotTerminated) {
     EXPECT_EQ(8, status);
 }
 
-TEST_F(ServiceTest, dispatchPing) {
+TEST_F(ServiceTest, dispatch_ping) {
     request.fillFromString("7 0 0 0");
     service.dispatch(PingRpc::type, rpc);
     assertMatchesPosixRegex("ping", TestLog::get());
 }
-TEST_F(ServiceTest, dispatchUnknown) {
+TEST_F(ServiceTest, dispatch_unknown) {
     request.fillFromString("0 0");
     union {
         RpcType x;
@@ -101,13 +101,25 @@ TEST_F(ServiceTest, dispatchUnknown) {
         UnimplementedRequestError);
 }
 
-TEST_F(ServiceTest, handleRpcMessageTooShortForCommon) {
+TEST_F(ServiceTest, handleRpc_messageTooShortForCommon) {
     request.fillFromString("x");
     service.handleRpc(rpc);
     EXPECT_STREQ("STATUS_MESSAGE_TOO_SHORT", getStatus(&response));
 }
+TEST_F(ServiceTest, handleRpc_undefinedType) {
+    request.fillFromString("1000 abcdef");
+    service.handleRpc(rpc);
+    EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST", getStatus(&response));
+    EXPECT_EQ(1U, service.rpcsHandled[ILLEGAL_RPC_TYPE]);
+}
+TEST_F(ServiceTest, handleRpc_clientException) {
+    MockService service;
+    request.fillFromString("1 2 54321 3 4");
+    service.handleRpc(rpc);
+    EXPECT_STREQ("STATUS_REQUEST_FORMAT_ERROR", getStatus(&response));
+}
 
-TEST_F(ServiceTest, prepareErrorResponseAlreadyReplied) {
+TEST_F(ServiceTest, prepareErrorResponse_alreadyReplied) {
     rpc.replied = true;
     rpc.prepareErrorResponse(STATUS_WRONG_VERSION);
     EXPECT_STREQ("prepareErrorResponse: reply already sent "
@@ -115,26 +127,26 @@ TEST_F(ServiceTest, prepareErrorResponseAlreadyReplied) {
                  TestLog::get().c_str());
     EXPECT_STREQ("empty reply message", getStatus(&response));
 }
-TEST_F(ServiceTest, prepareErrorResponseBufferNotEmpty) {
+TEST_F(ServiceTest, prepareErrorResponse_bufferNotEmpty) {
     response.fillFromString("1 abcdef");
     rpc.prepareErrorResponse(STATUS_WRONG_VERSION);
     EXPECT_STREQ("STATUS_WRONG_VERSION", getStatus(&response));
     EXPECT_STREQ("abcdef",
             static_cast<const char*>(response.getRange(4, 7)));
 }
-TEST_F(ServiceTest, prepareErrorResponseBufferEmpty) {
+TEST_F(ServiceTest, prepareErrorResponse_bufferEmpty) {
     rpc.prepareErrorResponse(STATUS_WRONG_VERSION);
     EXPECT_EQ(sizeof(RpcResponseCommon), response.getTotalLength());
     EXPECT_STREQ("STATUS_WRONG_VERSION", getStatus(&response));
 }
 
-TEST_F(ServiceTest, callHandlerMessageTooShort) {
+TEST_F(ServiceTest, callHandler_messageTooShort) {
     request.fillFromString("");
     EXPECT_THROW(
         (service.callHandler<PingRpc, Service, &Service::ping>(rpc)),
         MessageTooShortError);
 }
-TEST_F(ServiceTest, callHandlerNormal) {
+TEST_F(ServiceTest, callHandler_normal) {
     request.fillFromString("7 0 0 0");
     service.callHandler<PingRpc, Service, &Service::ping>(rpc);
     assertMatchesPosixRegex("ping", TestLog::get());

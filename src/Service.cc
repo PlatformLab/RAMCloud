@@ -140,6 +140,9 @@ Service::handleRpc(Rpc& rpc) {
         rpc.prepareErrorResponse(STATUS_MESSAGE_TOO_SHORT);
         return;
     }
+
+    // The check below is needed to avoid out-of-range accesses to
+    // rpcsHandled etc.
     uint32_t rpcIndex = header->type < ILLEGAL_RPC_TYPE ?
                     header->type : ILLEGAL_RPC_TYPE;
     rpcsHandled[rpcIndex]++;
