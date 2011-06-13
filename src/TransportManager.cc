@@ -71,20 +71,21 @@ static struct InfRcTransportFactory : public TransportFactory {
 TransportManager  __attribute__((init_priority(400))) transportManager;
 
 TransportManager::TransportManager()
-    : initialized(false)
-    , isServer(false)
+    : isServer(false)
     , transportFactories()
     , transports()
     , listeningLocators()
-    , protocolTransportMap()
     , sessionCache()
+    , registeredBases()
+    , registeredSizes()
 {
-    transportFactories.insert(&tcpTransportFactory);
-    transportFactories.insert(&fastUdpTransportFactory);
+    transportFactories.push_back(&tcpTransportFactory);
+    transportFactories.push_back(&fastUdpTransportFactory);
 #ifdef INFINIBAND
-    transportFactories.insert(&fastInfUdTransportFactory);
-    transportFactories.insert(&infRcTransportFactory);
+    transportFactories.push_back(&fastInfUdTransportFactory);
+    transportFactories.push_back(&infRcTransportFactory);
 #endif
+    transports.resize(transportFactories.size(), NULL);
 }
 
 TransportManager::~TransportManager()
@@ -101,65 +102,54 @@ TransportManager::~TransportManager()
 }
 
 /**
- * Initialize information about available transports that is used by both
- * servers and clients.
+ * This method is invoked only on servers; it creates transport(s) that will be
+ * used to receive RPC requests.  These transports can also be used for outgoing
+ * RPC requests, and additional transports for outgoing requests will be
+ * created on-demand by #getSession.
  *
  * \param localServiceLocator
- *      If the application is a server, this specifies one or more locators
- *      that clients can use to send requests to this server.  An empty
- *      string indicates that this application is a client, so it will not be
- *      receiving any requests.
+ *      Specifies one or more locators that clients can use to send requests to
+ *      this server.
  */
 void
 TransportManager::initialize(const char* localServiceLocator)
 {
-    assert(!initialized);
+    isServer = true;
+    std::vector<ServiceLocator> locators =
+            ServiceLocator::parseServiceLocators(localServiceLocator);
 
-    auto locators = ServiceLocator::parseServiceLocators(localServiceLocator);
-    if (locators.size() != 0) {
-        isServer = true;
-    }
-
-    foreach (auto factory, transportFactories) {
-        Transport* transport = NULL;
-        foreach (auto& locator, locators) {
+    foreach (auto& locator, locators) {
+        for (uint32_t i = 0; i < transportFactories.size(); i++) {
+            TransportFactory* factory = transportFactories[i];
             if (factory->supports(locator.getProtocol().c_str())) {
                 // The transport supports a protocol that we can receive
-                // requests on. Since it is expected that this transport
-                // works, we do not catch exceptions if it is unavailable.
-                transport = factory->createTransport(&locator);
+                // requests on.
+                Transport *transport = factory->createTransport(&locator);
+                for (uint32_t j = 0; j < registeredBases.size(); j++) {
+                    transport->registerMemory(registeredBases[j],
+                                              registeredSizes[j]);
+                }
+                if (transports[i] == NULL) {
+                    transports[i] = transport;
+                } else {
+                    // If we get here, it means we've already created at
+                    // least one transport for this factory.
+                    transports.push_back(transport);
+                }
                 if (listeningLocators.size() != 0)
                     listeningLocators += ";";
-                listeningLocators +=
-                        transport->getServiceLocator().getOriginalString();
-                goto insert_protocol_mappings;
-            }
-        }
-
-        // The transport cannot be used to receive requests (it didn't
-        // support any of the desired locators), but it can still potentially
-        // be used for issuing requests to other servers.
-        try {
-            transport = factory->createTransport(NULL);
-        } catch (TransportException &e) {
-            // Don't get upset if the transport isn't available; it could
-            // be something simple such as the physical device (NIC) does
-            // not exist.
-        }
-
- insert_protocol_mappings:
-        if (transport != NULL) {
-            transports.push_back(transport);
-            foreach (auto protocol, factory->getProtocols()) {
-                protocolTransportMap.insert({protocol, transport});
+                listeningLocators += locator.getOriginalString();
+                break;
             }
         }
     }
-    initialized = true;
 }
 
 /**
- * Get a session on which to send RPC requests to a service.
+ * Get a session on which to send RPC requests to a service.  This method
+ * keeps a cache of sessions and will reuse existing sessions whenever
+ * possible. If necessary, the method also instantiates new transports
+ * based on the service locator.
  *
  * \param serviceLocator
  *      Desired service.
@@ -176,31 +166,49 @@ TransportManager::initialize(const char* localServiceLocator)
 Transport::SessionRef
 TransportManager::getSession(const char* serviceLocator)
 {
-    if (!initialized)
-        initialize("");
-
+    // First check to see if we have already opened a session for the
+    // locator; this should almost always be true.
     auto it = sessionCache.find(serviceLocator);
     if (it != sessionCache.end())
         return it->second;
 
     CycleCounter<Metric> counter;
 
-    // Session was not found in the cache, a new one will be created
+    // Session was not found in the cache, so create a new one and add
+    // it to the cache.
+
+    // Iterate over all of the sub-locators, looking for a transport that
+    // can handle its protocol.
     auto locators = ServiceLocator::parseServiceLocators(serviceLocator);
-    // The first protocol specified in the locator that works is chosen
     foreach (auto& locator, locators) {
-        foreach (auto& protocolTransport,
-                 protocolTransportMap.equal_range(locator.getProtocol())) {
-            auto transport = protocolTransport.second;
+        for (uint32_t i = 0; i < transportFactories.size(); i++) {
+            TransportFactory* factory = transportFactories[i];
+            if (!factory->supports(locator.getProtocol().c_str())) {
+                continue;
+            }
+            if (transports[i] == NULL) {
+                // Try to create a new transport via this factory.
+                // It's OK if that doesn't work (e.g. the particular
+                // transport may depend on physical devices that don't
+                // exist on this machine).
+                try {
+                    transports[i] = factory->createTransport(NULL);
+                    for (uint32_t j = 0; j < registeredBases.size(); j++) {
+                        transports[i]->registerMemory(registeredBases[j],
+                                                      registeredSizes[j]);
+                    }
+                } catch (TransportException &e) {
+                    continue;
+                }
+            }
             try {
-                auto session = transport->getSession(locator);
+                auto session = transports[i]->getSession(locator);
                 if (isServer) {
                     session = new WorkerSession(session);
                 }
 
-                // Only first protocol is used, but the cache is based
-                // on the complete initial service locator string.
-                // No caching should occur if an exception is thrown.
+                // The cache is based on the complete initial service locator
+                // string.
                 sessionCache.insert({serviceLocator, session});
                 session->setServiceLocator(serviceLocator);
 
@@ -213,7 +221,7 @@ TransportManager::getSession(const char* serviceLocator)
             } catch (TransportException& e) {
                 // TODO(ongaro): Transport::getName() would be nice here.
                 LOG(DEBUG, "Transport %p refused to open session for %s",
-                    transport, locator.getOriginalString().c_str());
+                    transports[i], locator.getOriginalString().c_str());
             }
         }
     }
@@ -241,18 +249,24 @@ TransportManager::getListeningLocatorsString()
 void
 TransportManager::registerMemory(void* base, size_t bytes)
 {
-    foreach (auto transport, transports)
+    foreach (auto transport, transports) {
+        if (transport != NULL)
             transport->registerMemory(base, bytes);
+    }
+    registeredBases.push_back(base);
+    registeredSizes.push_back(bytes);
 }
 
 /**
- * dumpStats() on all registered transports.
+ * dumpStats() on all existing transports.
  */
 void
 TransportManager::dumpStats()
 {
-    foreach (auto transport, transports)
-        transport->dumpStats();
+    foreach (auto transport, transports) {
+        if (transport != NULL)
+            transport->dumpStats();
+    }
 }
 
 /**

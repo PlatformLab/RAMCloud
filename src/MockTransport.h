@@ -40,6 +40,13 @@ class MockTransport : public Transport {
     virtual Transport::SessionRef
     getSession();
 
+    void registerMemory(void* base, size_t bytes) {
+        TEST_LOG("register %d bytes at %lu for %s",
+                 static_cast<int>(bytes),
+                 reinterpret_cast<uint64_t>(base),
+                 locatorString.c_str());
+    }
+
     void setInput(const char* message);
 
     class MockServerRpc : public ServerRpc {

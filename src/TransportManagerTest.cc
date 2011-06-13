@@ -15,7 +15,7 @@
 
 #include "TestUtil.h"
 #include "TransportManager.h"
-#include "TransportFactory.h"
+#include "MockTransportFactory.h"
 #include "MockTransport.h"
 
 namespace RAMCloud {
@@ -26,18 +26,8 @@ class TransportManagerTest : public ::testing::Test {
 };
 
 TEST_F(TransportManagerTest, initialize) {
-    static struct MockTransportFactory : public TransportFactory {
-        MockTransportFactory() : TransportFactory("mock") {}
-        Transport* createTransport(const ServiceLocator* local) {
-            return new MockTransport(local);
-        }
-    } mockTransportFactory;
-    static struct FooTransportFactory : public TransportFactory {
-        FooTransportFactory() : TransportFactory("foo") {}
-        Transport* createTransport(const ServiceLocator* local) {
-            return new MockTransport(local);
-        }
-    } fooTransportFactory;
+    MockTransportFactory mockTransportFactory(NULL, "mock");
+    MockTransportFactory fooTransportFactory(NULL, "foo");
 
     // If "mockThrow:" is _not_ in the service locator, that should be
     // caught and the transport ignored. If it is, then any exception
@@ -51,66 +41,124 @@ TEST_F(TransportManagerTest, initialize) {
 
     TransportManager manager;
     manager.transportFactories.clear();  /* Speeds up initialization. */
-    manager.transportFactories.insert(&mockTransportFactory);
-    manager.transportFactories.insert(&fooTransportFactory);
-    manager.transportFactories.insert(&mockThrowTransportFactory);
-    manager.initialize("foo:; mock:; bar:");
-    EXPECT_EQ("mock:;foo:", manager.listeningLocators);
+    manager.transportFactories.push_back(&mockTransportFactory);
+    manager.transportFactories.push_back(&fooTransportFactory);
+    manager.transportFactories.push_back(&mockThrowTransportFactory);
+    manager.transports.resize(3, NULL);
+    manager.initialize("foo:; mock:; bar:; mock:x=14");
+    EXPECT_EQ("foo:;mock:;mock:x=14", manager.listeningLocators);
     EXPECT_TRUE(manager.isServer);
-    EXPECT_GT(manager.transports.size(), 0U);
-
-    TransportManager manager2;
-    manager2.transportFactories.clear();  /* Speeds up initialization. */
-    manager2.transportFactories.insert(&mockThrowTransportFactory);
-    EXPECT_THROW(manager2.initialize(
-        "foo:; mock:; bar:; mockThrow:"), TransportException);
-
-    TransportManager manager3;
-    manager3.transportFactories.clear();  /* Speeds up initialization. */
-    manager3.initialize("");
-    EXPECT_FALSE(manager3.isServer);
+    EXPECT_EQ(4U, manager.transports.size());
+    Transport* t = manager.transports[3];
+    EXPECT_EQ("mock:x=14", t->getServiceLocator().getOriginalString());
 }
 
-TEST_F(TransportManagerTest, getSession) {
+TEST_F(TransportManagerTest, initialize_registerExistingMemory) {
     TestLog::Enable _;
+    MockTransportFactory mockTransportFactory(NULL, "mock");
     TransportManager manager;
-    MockTransport* mock1 = new MockTransport();
-    manager.registerMock(mock1);
-    mock1->setInput("x");
-    EXPECT_THROW(manager.getSession("foo:"),
-                            TransportException);
+    manager.transportFactories.clear();  /* Speeds up initialization. */
+    manager.transportFactories.push_back(&mockTransportFactory);
+    manager.transports.resize(1, NULL);
+    manager.registerMemory(reinterpret_cast<void*>(11), 10);
+    manager.registerMemory(reinterpret_cast<void*>(22), 20);
+    manager.initialize("mock:");
+    EXPECT_EQ("registerMemory: register 10 bytes at 11 for mock: | "
+              "registerMemory: register 20 bytes at 22 for mock:",
+              TestLog::get());
+}
+
+TEST_F(TransportManagerTest, getSession_basics) {
+    TransportManager manager;
+    manager.registerMock(NULL);
+    Transport::SessionRef session(manager.getSession("foo:;mock:"));
+    EXPECT_TRUE(session.get() != NULL);
+    EXPECT_TRUE(manager.transports.back() != NULL);
+}
+
+TEST_F(TransportManagerTest, getSession_reuseCachedSession) {
+    TransportManager manager;
+    manager.registerMock(NULL);
     Transport::SessionRef session(manager.getSession("foo:;mock:"));
     EXPECT_TRUE(session.get() != NULL);
     Transport::SessionRef session2(manager.getSession("foo:;mock:"));
     EXPECT_TRUE(session.get() == session2.get());
-    EXPECT_STREQ("", TestLog::get().c_str());
-
-    // Verify that WorkerSessions are created when needed.
-    manager.sessionCache.clear();
-    manager.isServer = true;
-    Transport::SessionRef session3(manager.getSession("mock:"));
-    EXPECT_TRUE(session3.get() != NULL);
-    EXPECT_STREQ("WorkerSession: created", TestLog::get().c_str());
 }
 
-TEST_F(TransportManagerTest, getListeningLocatorsString) {
+TEST_F(TransportManagerTest, getSession_registerExistingMemory) {
+    TestLog::Enable _;
     TransportManager manager;
+    manager.registerMock(NULL, "mock");
+    manager.registerMemory(reinterpret_cast<void*>(11), 10);
+    manager.registerMemory(reinterpret_cast<void*>(22), 20);
+    Transport::SessionRef session(manager.getSession("mock:"));
+    EXPECT_TRUE(session.get() != NULL);
+    EXPECT_EQ("registerMemory: register 10 bytes at 11 for mock: | "
+              "registerMemory: register 20 bytes at 22 for mock:",
+              TestLog::get());
+}
 
-    ServiceLocator mock1sl("hi:");
-    ServiceLocator mock2sl("there:");
-    MockTransport *mock1 = new MockTransport(&mock1sl);
-    MockTransport *mock2 = new MockTransport(&mock2sl);
+TEST_F(TransportManagerTest, getSession_ignoreTransportCreateError) {
+    TestLog::Enable _;
+    TransportManager manager;
+    manager.registerMock(NULL, "error");
+    manager.registerMock(NULL, "mock");
+    Transport::SessionRef session(manager.getSession("error:;mock:"));
+    EXPECT_TRUE(session.get() != NULL);
+    EXPECT_TRUE(manager.transports.back() != NULL);
+    EXPECT_TRUE(manager.transports[manager.transports.size()-2] == NULL);
+    EXPECT_EQ("createTransport: exception thrown", TestLog::get());
+}
 
-    manager.transportFactories.clear();  /* Speeds up initialization. */
-    manager.initialize("");
-    EXPECT_EQ("", manager.getListeningLocatorsString());
+TEST_F(TransportManagerTest, getSession_createWorkerSession) {
+    TestLog::Enable _;
+    TransportManager manager;
+    manager.registerMock(NULL);
 
-    manager.registerMock(mock1);
-    EXPECT_EQ("hi:", manager.getListeningLocatorsString());
+    // First session: no need for WorkerSession
+    Transport::SessionRef session(manager.getSession("mock:"));
+    EXPECT_TRUE(session.get() != NULL);
+    EXPECT_STREQ("", TestLog::get().c_str());
 
-    manager.registerMock(mock2);
-    EXPECT_EQ("hi:;there:",
-        manager.getListeningLocatorsString());
+    // Second session: need a WorkerSession.
+    manager.sessionCache.clear();
+    manager.isServer = true;
+    Transport::SessionRef session2(manager.getSession("mock:"));
+    EXPECT_TRUE(session2.get() != NULL);
+    EXPECT_EQ("WorkerSession: created", TestLog::get());
+}
+
+TEST_F(TransportManagerTest, getSession_failure) {
+    TransportManager manager;
+    manager.registerMock(NULL);
+    EXPECT_THROW(manager.getSession("foo:"), TransportException);
+}
+
+// No tests for getListeningLocatorsString: it's trivial.
+
+TEST_F(TransportManagerTest, registerMemory) {
+    TestLog::Enable _;
+    TransportManager manager;
+    ServiceLocator s1("mock1:");
+    MockTransport t1(&s1);
+    manager.registerMock(&t1, "mock1");
+    ServiceLocator s2("mock2:");
+    MockTransport t2(&s2);
+    manager.registerMock(&t2, "mock2");
+    Transport::SessionRef session1(manager.getSession("mock1:"));
+    EXPECT_EQ("", TestLog::get());
+    manager.registerMemory(reinterpret_cast<void*>(11), 10);
+    EXPECT_EQ("registerMemory: register 10 bytes at 11 for mock1:",
+              TestLog::get());
+    TestLog::reset();
+    Transport::SessionRef session2(manager.getSession("mock2:"));
+    EXPECT_EQ("registerMemory: register 10 bytes at 11 for mock2:",
+              TestLog::get());
+    TestLog::reset();
+    manager.registerMemory(reinterpret_cast<void*>(22), 20);
+    EXPECT_EQ("registerMemory: register 20 bytes at 22 for mock1: | "
+              "registerMemory: register 20 bytes at 22 for mock2:",
+              TestLog::get());
 }
 
 // The following tests both the constructor and the clientSend method.
