@@ -72,7 +72,7 @@ class MasterServer : public Service {
                  uint32_t replicas);
     virtual ~MasterServer();
     void init();
-    void dispatch(RpcType type,
+    void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
 
     /**

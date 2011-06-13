@@ -82,7 +82,7 @@ namespace {
 
 /// RPC format used by #Echo.
 struct EchoRpc {
-    static const RpcType type = RpcType(0xd1);
+    static const RpcOpcode opcode = RpcOpcode(0xd1);
     struct Request {
         RpcRequestCommon common;
         uint64_t spinNs;
@@ -96,7 +96,7 @@ struct EchoRpc {
 
 /// RPC format used by #Remote.
 struct RemoteRpc {
-    static const RpcType type = RpcType(0xd2);
+    static const RpcOpcode opcode = RpcOpcode(0xd2);
     struct Request {
         RpcRequestCommon common;
         uint32_t commandLength;
@@ -339,12 +339,12 @@ struct Do : public Test {
 class TSService : public Service {
   public:
     TSService() {}
-    void dispatch(RpcType type, Rpc& rpc) {
-        switch (type) {
-            case EchoRpc::type:
+    void dispatch(RpcOpcode opcode, Rpc& rpc) {
+        switch (opcode) {
+            case EchoRpc::opcode:
                 callHandler<EchoRpc, TSService, &TSService::echo>(rpc);
                 break;
-            case RemoteRpc::type:
+            case RemoteRpc::opcode:
                 callHandler<RemoteRpc, TSService, &TSService::remote>(rpc);
                 break;
             default:

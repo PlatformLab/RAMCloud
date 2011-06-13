@@ -86,13 +86,13 @@ TEST_F(ServiceTest, getString_stringNotTerminated) {
 
 TEST_F(ServiceTest, dispatch_ping) {
     request.fillFromString("7 0 0 0");
-    service.dispatch(PingRpc::type, rpc);
+    service.dispatch(PingRpc::opcode, rpc);
     assertMatchesPosixRegex("ping", TestLog::get());
 }
 TEST_F(ServiceTest, dispatch_unknown) {
     request.fillFromString("0 0");
     union {
-        RpcType x;
+        RpcOpcode x;
         int y;
     } t;
     t.y = 12345;

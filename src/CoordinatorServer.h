@@ -36,7 +36,7 @@ class CoordinatorServer : public Service {
   public:
     CoordinatorServer();
     ~CoordinatorServer();
-    void dispatch(RpcType type,
+    void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
 
   private:

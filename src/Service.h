@@ -88,7 +88,7 @@ class Service {
     }
 
     virtual ~Service() {}
-    virtual void dispatch(RpcType type,
+    virtual void dispatch(RpcOpcode opcode,
                           Rpc& rpc);
     static const char* getString(Buffer& buffer, uint32_t offset,
                                  uint32_t length);

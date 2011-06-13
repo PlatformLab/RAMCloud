@@ -105,13 +105,13 @@ Service::ping(const PingRpc::Request& reqHdr,
 }
 
 /**
- * Dispatch an RPC to the right handler based on its type.
+ * Dispatch an RPC to the right handler based on its opcode.
  */
 void
-Service::dispatch(RpcType type, Rpc& rpc)
+Service::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
-    switch (type) {
-        case PingRpc::type:
+    switch (opcode) {
+        case PingRpc::opcode:
             callHandler<PingRpc, Service, &Service::ping>(rpc);
             break;
         default:
@@ -143,16 +143,17 @@ Service::handleRpc(Rpc& rpc) {
 
     // The check below is needed to avoid out-of-range accesses to
     // rpcsHandled etc.
-    uint32_t rpcIndex = header->type < ILLEGAL_RPC_TYPE ?
-                    header->type : ILLEGAL_RPC_TYPE;
-    rpcsHandled[rpcIndex]++;
+    uint32_t opcode = header->opcode;
+    if (opcode >= ILLEGAL_RPC_TYPE)
+        opcode = ILLEGAL_RPC_TYPE;
+    rpcsHandled[opcode]++;
     uint64_t start = rdtsc();
     try {
-        dispatch(header->type, rpc);
+        dispatch(RpcOpcode(header->opcode), rpc);
     } catch (ClientException& e) {
         rpc.prepareErrorResponse(e.status);
     }
-    rpcsTime[rpcIndex] += rdtsc() - start;
+    rpcsTime[opcode] += rdtsc() - start;
 }
 
 /**

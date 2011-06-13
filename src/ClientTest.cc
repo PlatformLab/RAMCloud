@@ -139,7 +139,7 @@ TEST(ClientTest, restartingTasks) {
 /////
 
 struct TestRpc {
-    static const RpcType type = PING;
+    static const RpcOpcode opcode = PING;
     struct Request {
         // set x to garbage to test that it's zeroed later
         Request() : common(), x(0xcccccccc) {}
@@ -184,7 +184,7 @@ class ClientTest : public CppUnit::TestFixture {
         Buffer req;
         TestRpc::Request& reqHdr = client.allocHeader<TestRpc>(req);
         CPPUNIT_ASSERT_EQUAL(0, reqHdr.x);
-        CPPUNIT_ASSERT_EQUAL(PING, reqHdr.common.type);
+        CPPUNIT_ASSERT_EQUAL(PING, reqHdr.common.opcode);
     }
 
     void test_sendRecv_normal() {

@@ -77,42 +77,42 @@ MasterServer::~MasterServer()
 }
 
 void
-MasterServer::dispatch(RpcType type, Rpc& rpc)
+MasterServer::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
-    switch (type) {
-        case CreateRpc::type:
+    switch (opcode) {
+        case CreateRpc::opcode:
             callHandler<CreateRpc, MasterServer,
                         &MasterServer::create>(rpc);
             break;
-        case FillWithTestDataRpc::type:
+        case FillWithTestDataRpc::opcode:
             callHandler<FillWithTestDataRpc, MasterServer,
                         &MasterServer::fillWithTestData>(rpc);
             break;
-        case PingRpc::type:
+        case PingRpc::opcode:
             callHandler<PingRpc, MasterServer,
                         &MasterServer::ping>(rpc);
             break;
-        case ReadRpc::type:
+        case ReadRpc::opcode:
             callHandler<ReadRpc, MasterServer,
                         &MasterServer::read>(rpc);
             break;
-        case RecoverRpc::type:
+        case RecoverRpc::opcode:
             callHandler<RecoverRpc, MasterServer,
                         &MasterServer::recover>(rpc);
             break;
-        case RemoveRpc::type:
+        case RemoveRpc::opcode:
             callHandler<RemoveRpc, MasterServer,
                         &MasterServer::remove>(rpc);
             break;
-        case RereplicateSegmentsRpc::type:
+        case RereplicateSegmentsRpc::opcode:
             callHandler<RereplicateSegmentsRpc, MasterServer,
                         &MasterServer::rereplicateSegments>(rpc);
             break;
-        case SetTabletsRpc::type:
+        case SetTabletsRpc::opcode:
             callHandler<SetTabletsRpc, MasterServer,
                         &MasterServer::setTablets>(rpc);
             break;
-        case WriteRpc::type:
+        case WriteRpc::opcode:
             callHandler<WriteRpc, MasterServer,
                         &MasterServer::write>(rpc);
             break;

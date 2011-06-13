@@ -30,7 +30,7 @@
 /**
  * Defines a synchronous RPC method in terms of an asynchronous RPC class.
  * Defines a method named methodName that constructs an AsyncClass with a
- * reference to its 'this' instance and the arguments it's given, then calls
+ * reference to its 'this' instance and the arguments its given, then calls
  * the AsyncClass's operator() method.
  */
 #define DEF_SYNC_RPC_METHOD(methodName, AsyncClass) \
@@ -150,7 +150,8 @@ class Client {
         typename Rpc::Request& requestHeader(
             *new(&requestBuffer, APPEND) typename Rpc::Request);
         memset(&requestHeader, 0, sizeof(requestHeader));
-        requestHeader.common.type = Rpc::type;
+        requestHeader.common.opcode = Rpc::opcode;
+        requestHeader.common.service = Rpc::opcode;
         return requestHeader;
     }
 

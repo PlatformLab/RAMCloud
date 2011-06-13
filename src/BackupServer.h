@@ -481,7 +481,7 @@ class BackupServer : public Service {
     explicit BackupServer(const Config& config,
                           BackupStorage& storage);
     virtual ~BackupServer();
-    void dispatch(RpcType type, Rpc& rpc);
+    void dispatch(RpcOpcode opcode, Rpc& rpc);
     uint64_t getServerId() const;
     void init();
 

@@ -28,7 +28,7 @@ class MockService : public Service {
 
     MockService() : log(), delay(false), sendReply(false) { }
     virtual ~MockService() {}
-    virtual void dispatch(RpcType type, Rpc& rpc)
+    virtual void dispatch(RpcOpcode opcode, Rpc& rpc)
     {
         if (!log.empty()) {
              log.append(", ");

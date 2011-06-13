@@ -931,34 +931,34 @@ BackupServer::getServerId() const
 
 // See Server::dispatch.
 void
-BackupServer::dispatch(RpcType type, Rpc& rpc)
+BackupServer::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
-    switch (type) {
-        case BackupFreeRpc::type:
+    switch (opcode) {
+        case BackupFreeRpc::opcode:
             callHandler<BackupFreeRpc, BackupServer,
                         &BackupServer::freeSegment>(rpc);
             break;
-        case BackupGetRecoveryDataRpc::type:
+        case BackupGetRecoveryDataRpc::opcode:
             callHandler<BackupGetRecoveryDataRpc, BackupServer,
                         &BackupServer::getRecoveryData>(rpc);
             break;
-        case PingRpc::type:
+        case PingRpc::opcode:
             callHandler<PingRpc, Service,
                         &Service::ping>(rpc);
             break;
-        case BackupQuiesceRpc::type:
+        case BackupQuiesceRpc::opcode:
             callHandler<BackupQuiesceRpc, BackupServer,
                         &BackupServer::quiesce>(rpc);
             break;
-        case BackupRecoveryCompleteRpc::type:
+        case BackupRecoveryCompleteRpc::opcode:
             callHandler<BackupRecoveryCompleteRpc, BackupServer,
                         &BackupServer::recoveryComplete>(rpc);
             break;
-        case BackupStartReadingDataRpc::type:
+        case BackupStartReadingDataRpc::opcode:
             callHandler<BackupStartReadingDataRpc, BackupServer,
                         &BackupServer::startReadingData>(rpc);
             break;
-        case BackupWriteRpc::type:
+        case BackupWriteRpc::opcode:
             callHandler<BackupWriteRpc, BackupServer,
                         &BackupServer::writeSegment>(rpc);
             break;

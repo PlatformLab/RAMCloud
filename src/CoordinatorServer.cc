@@ -43,51 +43,51 @@ CoordinatorServer::~CoordinatorServer()
 }
 
 void
-CoordinatorServer::dispatch(RpcType type,
+CoordinatorServer::dispatch(RpcOpcode opcode,
                             Rpc& rpc)
 {
-    switch (type) {
-        case CreateTableRpc::type:
+    switch (opcode) {
+        case CreateTableRpc::opcode:
             callHandler<CreateTableRpc, CoordinatorServer,
                         &CoordinatorServer::createTable>(rpc);
             break;
-        case DropTableRpc::type:
+        case DropTableRpc::opcode:
             callHandler<DropTableRpc, CoordinatorServer,
                         &CoordinatorServer::dropTable>(rpc);
             break;
-        case OpenTableRpc::type:
+        case OpenTableRpc::opcode:
             callHandler<OpenTableRpc, CoordinatorServer,
                         &CoordinatorServer::openTable>(rpc);
             break;
-        case EnlistServerRpc::type:
+        case EnlistServerRpc::opcode:
             callHandler<EnlistServerRpc, CoordinatorServer,
                         &CoordinatorServer::enlistServer>(rpc);
             break;
-        case GetServerListRpc::type:
+        case GetServerListRpc::opcode:
             callHandler<GetServerListRpc, CoordinatorServer,
                         &CoordinatorServer::getServerList>(rpc);
             break;
-        case GetTabletMapRpc::type:
+        case GetTabletMapRpc::opcode:
             callHandler<GetTabletMapRpc, CoordinatorServer,
                         &CoordinatorServer::getTabletMap>(rpc);
             break;
-        case HintServerDownRpc::type:
+        case HintServerDownRpc::opcode:
             callHandler<HintServerDownRpc, CoordinatorServer,
                         &CoordinatorServer::hintServerDown>(rpc);
             break;
-        case TabletsRecoveredRpc::type:
+        case TabletsRecoveredRpc::opcode:
             callHandler<TabletsRecoveredRpc, CoordinatorServer,
                         &CoordinatorServer::tabletsRecovered>(rpc);
             break;
-        case PingRpc::type:
+        case PingRpc::opcode:
             callHandler<PingRpc, CoordinatorServer,
                         &CoordinatorServer::ping>(rpc);
             break;
-        case BackupQuiesceRpc::type:
+        case BackupQuiesceRpc::opcode:
             callHandler<BackupQuiesceRpc, CoordinatorServer,
                         &CoordinatorServer::quiesce>(rpc);
             break;
-        case SetWillRpc::type:
+        case SetWillRpc::opcode:
             callHandler<SetWillRpc, CoordinatorServer,
                         &CoordinatorServer::setWill>(rpc);
             break;
