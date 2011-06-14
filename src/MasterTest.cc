@@ -87,7 +87,6 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    Tub<ProgressPoller> progressPoller;
     ServerConfig config;
     BackupServer::Config backupConfig;
     BackupServer* backupServer;
@@ -101,8 +100,7 @@ class MasterTest : public CppUnit::TestFixture {
     CoordinatorServer* coordinatorServer;
 
     MasterTest()
-        : progressPoller()
-        , config()
+        : config()
         , backupConfig()
         , backupServer()
         , storage(NULL)
@@ -121,21 +119,20 @@ class MasterTest : public CppUnit::TestFixture {
     }
 
     void setUp() {
-        progressPoller.construct();
         logger.setLogLevels(SILENT_LOG_LEVEL);
         transport = new BindTransport();
         transportManager.registerMock(transport);
         coordinatorServer = new CoordinatorServer();
-        transport->addServer(*coordinatorServer, "mock:host=coordinator");
+        transport->addService(*coordinatorServer, "mock:host=coordinator");
         coordinator = new CoordinatorClient("mock:host=coordinator");
 
         storage = new InMemoryStorage(segmentSize, segmentFrames);
         backupServer = new BackupServer(backupConfig, *storage);
-        transport->addServer(*backupServer, "mock:host=backup1");
+        transport->addService(*backupServer, "mock:host=backup1");
         coordinator->enlistServer(BACKUP, "mock:host=backup1");
 
         server = new MasterServer(config, coordinator, 1);
-        transport->addServer(*server, "mock:host=master");
+        transport->addService(*server, "mock:host=master");
         server->serverId.construct(
             coordinator->enlistServer(MASTER, config.localLocator));
         client =
@@ -156,7 +153,6 @@ class MasterTest : public CppUnit::TestFixture {
         delete coordinatorServer;
         transportManager.unregisterMock();
         delete transport;
-        progressPoller.destroy();
     }
 
     void test_create_basics() {
@@ -449,7 +445,7 @@ class MasterTest : public CppUnit::TestFixture {
 
         InMemoryStorage storage2{segmentSize, segmentFrames};
         BackupServer backupServer2{backupConfig, *storage};
-        transport->addServer(backupServer2, "mock:host=backup2");
+        transport->addService(backupServer2, "mock:host=backup2");
         coordinator->enlistServer(BACKUP, "mock:host=backup2");
 
         ProtoBuf::Tablets tablets;
@@ -487,7 +483,7 @@ class MasterTest : public CppUnit::TestFixture {
         // 1,2,3) 87 was requested from the first server list entry.
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 87 on channel 0 (initial round of RPCs)",
+            "for segment 87 on channel . (initial round of RPCs)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(0).user_data());
@@ -504,7 +500,7 @@ class MasterTest : public CppUnit::TestFixture {
         //      OK status, preventing the launch of the forth entry
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 88 on channel 1 (initial round of RPCs)",
+            "for segment 88 on channel . (initial round of RPCs)",
             TestLog::get());
         assertMatchesPosixRegex(
             "recover: Checking mock:host=backup1 off the list for 88 | "
@@ -524,13 +520,13 @@ class MasterTest : public CppUnit::TestFixture {
         //    bad locator
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 89 on channel 2 (initial round of RPCs)",
+            "for segment 89 on channel . (initial round of RPCs)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(4).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup3 "
-            "for segment 90 on channel 3 (initial round of RPCs)",
+            "for segment 90 on channel . (initial round of RPCs)",
             TestLog::get());
         // 5) Checks bad locators for initial RPCs are handled
         assertMatchesPosixRegex(
@@ -540,13 +536,13 @@ class MasterTest : public CppUnit::TestFixture {
                              backups.server(5).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 91 on channel 3 (initial round of RPCs)",
+            "for segment 91 on channel . (initial round of RPCs)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(6).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup4 "
-            "for segment 92 on channel 1 (after RPC completion)",
+            "for segment 92 on channel . (after RPC completion)",
             TestLog::get());
         // 5) Checks bad locators for non-initial RPCs are handled
         assertMatchesPosixRegex(
@@ -556,7 +552,7 @@ class MasterTest : public CppUnit::TestFixture {
                              backups.server(7).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 93 on channel 1 (after RPC completion)",
+            "for segment 93 on channel . (after RPC completion)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
                              backups.server(8).user_data());
@@ -991,7 +987,6 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_recover_failedToRecoverAll);
     CPPUNIT_TEST_SUITE_END();
 
-    Tub<ProgressPoller> progressPoller;
     BackupServer* backupServer1;
     BackupServer* backupServer2;
     CoordinatorClient* coordinator;
@@ -1005,8 +1000,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
 
   public:
     MasterRecoverTest()
-        : progressPoller()
-        , backupServer1()
+        : backupServer1()
         , backupServer2()
         , coordinator()
         , coordinatorServer()
@@ -1025,7 +1019,6 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         if (!enlist)
             tearDown();
 
-        progressPoller.construct();
         transport = new BindTransport;
         transportManager.registerMock(transport);
 
@@ -1033,7 +1026,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         config->coordinatorLocator = "mock:host=coordinator";
 
         coordinatorServer = new CoordinatorServer;
-        transport->addServer(*coordinatorServer, config->coordinatorLocator);
+        transport->addService(*coordinatorServer, config->coordinatorLocator);
 
         coordinator = new CoordinatorClient(config->coordinatorLocator.c_str());
 
@@ -1043,8 +1036,8 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         backupServer1 = new BackupServer(*config, *storage1);
         backupServer2 = new BackupServer(*config, *storage2);
 
-        transport->addServer(*backupServer1, "mock:host=backup1");
-        transport->addServer(*backupServer2, "mock:host=backup2");
+        transport->addService(*backupServer1, "mock:host=backup1");
+        transport->addService(*backupServer2, "mock:host=backup2");
 
         if (enlist) {
             coordinator->enlistServer(BACKUP, "mock:host=backup1");
@@ -1073,7 +1066,6 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         delete transport;
         CPPUNIT_ASSERT_EQUAL(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
-        progressPoller.destroy();
     }
     static bool
     recoverSegmentFilter(string s)

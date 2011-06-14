@@ -65,12 +65,13 @@ class RamCloudTest : public CppUnit::TestFixture {
         transport = new BindTransport();
         transportManager.registerMock(transport);
         coordinatorServer = new CoordinatorServer();
-        transport->addServer(*coordinatorServer, "mock:host=coordinatorServer");
+        transport->addService(*coordinatorServer,
+                              "mock:host=coordinatorServer");
 
         coordinatorClient1 = new CoordinatorClient(
                              "mock:host=coordinatorServer");
         master1 = new MasterServer(masterConfig1, coordinatorClient1, 0);
-        transport->addServer(*master1, "mock:host=master1");
+        transport->addService(*master1, "mock:host=master1");
         master1->serverId.construct(
             coordinatorClient1->enlistServer(MASTER,
                                              masterConfig1.localLocator));
@@ -78,7 +79,7 @@ class RamCloudTest : public CppUnit::TestFixture {
         coordinatorClient2 = new CoordinatorClient(
                              "mock:host=coordinatorServer");
         master2 = new MasterServer(masterConfig2, coordinatorClient2, 0);
-        transport->addServer(*master2, "mock:host=master2");
+        transport->addService(*master2, "mock:host=master2");
         master2->serverId.construct(
             coordinatorClient2->enlistServer(MASTER,
                                              masterConfig2.localLocator));

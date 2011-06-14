@@ -35,6 +35,11 @@ class FastTransport;
 /**
  * A Driver for Infiniband unreliable datagram (UD) communication.
  * Simple packet send/receive style interface. See Driver for more detail.
+ * This class is templated in order to simplify replacing some of the
+ * Infiniband guts for testing.  The "Infiniband" type name corresponds
+ * to various low-level Infiniband facilities used here.  "RealInfiniband"
+ * (the only instantiation that currently exists) corresponds to the actual
+ * Infiniband driver facilities in Infiniband.cc.
  */
 template<typename Infiniband = RealInfiniband>
 class InfUdDriver : public Driver {
@@ -133,7 +138,7 @@ class InfUdDriver : public Driver {
     class Poller : public Dispatch::Poller {
       public:
         explicit Poller(InfUdDriver* driver) : driver(driver) { }
-        virtual bool operator() ();
+        virtual void poll();
       private:
         // Driver on whose behalf this poller operates.
         InfUdDriver* driver;

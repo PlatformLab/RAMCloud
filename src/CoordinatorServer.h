@@ -24,7 +24,7 @@
 #include "Metrics.h"
 #include "Recovery.h"
 #include "Rpc.h"
-#include "Server.h"
+#include "Service.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -32,57 +32,54 @@ namespace RAMCloud {
 /**
  * Serves RPCs for the cluster coordinator.
  */
-class CoordinatorServer : public Server {
+class CoordinatorServer : public Service {
   public:
     CoordinatorServer();
     ~CoordinatorServer();
-    void run();
     void dispatch(RpcType type,
-                  Transport::ServerRpc& rpc,
-                  Responder& responder);
+                  Rpc& rpc);
 
   private:
     void createTable(const CreateTableRpc::Request& reqHdr,
                      CreateTableRpc::Response& respHdr,
-                     Transport::ServerRpc& rpc);
+                     Rpc& rpc);
     void dropTable(const DropTableRpc::Request& reqHdr,
                    DropTableRpc::Response& respHdr,
-                   Transport::ServerRpc& rpc);
+                   Rpc& rpc);
     void openTable(const OpenTableRpc::Request& reqHdr,
                    OpenTableRpc::Response& respHdr,
-                   Transport::ServerRpc& rpc);
+                   Rpc& rpc);
     void enlistServer(const EnlistServerRpc::Request& reqHdr,
                       EnlistServerRpc::Response& respHdr,
-                      Transport::ServerRpc& rpc);
+                      Rpc& rpc);
 
     void getServerList(const GetServerListRpc::Request& reqHdr,
                        GetServerListRpc::Response& respHdr,
-                       Transport::ServerRpc& rpc);
+                       Rpc& rpc);
 
     void getTabletMap(const GetTabletMapRpc::Request& reqHdr,
                       GetTabletMapRpc::Response& respHdr,
-                      Transport::ServerRpc& rpc);
+                      Rpc& rpc);
 
     void hintServerDown(const HintServerDownRpc::Request& reqHdr,
                         HintServerDownRpc::Response& respHdr,
-                        Transport::ServerRpc& rpc,
-                        Responder& responder);
+                        Rpc& rpc);
 
     void tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                           TabletsRecoveredRpc::Response& respHdr,
-                          Transport::ServerRpc& rpc);
+                          Rpc& rpc);
 
     void ping(const PingRpc::Request& reqHdr,
               PingRpc::Response& respHdr,
-              Transport::ServerRpc& rpc);
+              Rpc& rpc);
 
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,
-                 Transport::ServerRpc& rpc);
+                 Rpc& rpc);
 
     void setWill(const SetWillRpc::Request& reqHdr,
                  SetWillRpc::Response& respHdr,
-                 Transport::ServerRpc& rpc);
+                 Rpc& rpc);
 
     bool setWill(uint64_t masterId, Buffer& buffer,
                  uint32_t offset, uint32_t length);

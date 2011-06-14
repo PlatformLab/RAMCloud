@@ -9,7 +9,8 @@ use lib "scripts";
 use HostPattern;
 
 my ($help, $hostspattern);
-my $default_pattern = "rc0[1-6].scs.stanford.edu,10.0.0.[1-6]";
+#my $default_pattern = "rc0[1-6].scs.stanford.edu,10.0.0.[1-6]";
+my $default_pattern = "rc[01-36]ib.rccluster";
 $hostspattern = $default_pattern;
 
 my $result = GetOptions ("hosts=s" => \$hostspattern,

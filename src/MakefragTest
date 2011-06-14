@@ -3,6 +3,9 @@ OBJDIRS += tests
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
 	   src/MockInfiniband.cc \
+	   src/InfAddressTest.cc \
+	   src/InfRcTransportTest.cc \
+	   src/InfUdDriverTest.cc \
 	   $(NULL)
 else
 INFINIBAND_SRCFILES :=
@@ -13,7 +16,6 @@ TESTS_SRCFILES := \
 		  src/BackupServerTest.cc \
 		  src/BackupStorageTest.cc \
 		  src/BenchUtilTest.cc \
-		  src/BindTransport.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
 		  src/ClientExceptionTest.cc \
@@ -25,19 +27,16 @@ TESTS_SRCFILES := \
 		  src/FailureDetectorTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
-		  src/InfAddressTest.cc \
-		  src/InfRcTransportTest.cc \
-		  src/InfUdDriverTest.cc \
+		  src/InitializeTest.cc \
 		  src/IpAddressTest.cc \
-		  src/LogTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LoggingTest.cc \
+		  src/LogTest.cc \
 		  src/MasterTest.cc \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
 		  src/ObjectFinderTest.cc \
-		  src/TubTest.cc \
 		  src/OptionParserTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \
@@ -45,7 +44,8 @@ TESTS_SRCFILES := \
 		  src/RecoveryTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
-		  src/ServerTest.cc \
+		  src/ServiceTest.cc \
+		  src/ServiceManagerTest.cc \
 		  src/ServiceLocatorTest.cc \
 		  src/StatusTest.cc \
 		  src/TabletProfilerTest.cc \
@@ -54,6 +54,8 @@ TESTS_SRCFILES := \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
 		  src/TransportManagerTest.cc \
+		  src/TransportTest.cc \
+		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/WillTest.cc \
 		  src/WindowTest.cc \
@@ -119,7 +121,7 @@ $(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/TestUtil.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 
-$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Server.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Service.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 

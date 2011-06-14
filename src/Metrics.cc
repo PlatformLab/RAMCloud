@@ -69,4 +69,9 @@ reset(Metrics* metrics, uint64_t serverId, uint64_t serverRole)
     metrics->segmentSize = Segment::SEGMENT_SIZE;
 }
 
+/**
+ * Store metrics tracked on server side for Bench
+ */
+ServerStats serverStats;
+
 }  // namespace RAMCloud

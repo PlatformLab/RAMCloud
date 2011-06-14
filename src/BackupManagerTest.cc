@@ -61,7 +61,6 @@ struct BackupManagerBaseTest : public ::testing::Test {
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     const char* coordinatorLocator;
-    ProgressPoller progressPoller;
     Tub<BindTransport> transport;
     Tub<TransportManager::MockRegistrar> mockRegistrar;
     Tub<CoordinatorServer> coordinatorServer;
@@ -80,13 +79,12 @@ struct BackupManagerBaseTest : public ::testing::Test {
         : segmentSize(1 << 16)
         , segmentFrames(4)
         , coordinatorLocator("mock:host=coordinator")
-        , progressPoller()
     {
         transport.construct();
         mockRegistrar.construct(*transport);
 
         coordinatorServer.construct();
-        transport->addServer(*coordinatorServer, coordinatorLocator);
+        transport->addService(*coordinatorServer, coordinatorLocator);
 
         coordinator.construct(coordinatorLocator);
 
@@ -99,8 +97,8 @@ struct BackupManagerBaseTest : public ::testing::Test {
         backupServer1.construct(*backupServerConfig, *storage1);
         backupServer2.construct(*backupServerConfig, *storage2);
 
-        transport->addServer(*backupServer1, "mock:host=backup1");
-        transport->addServer(*backupServer2, "mock:host=backup2");
+        transport->addService(*backupServer1, "mock:host=backup1");
+        transport->addService(*backupServer2, "mock:host=backup2");
 
         backup1.construct(transportManager.getSession("mock:host=backup1"));
         backup2.construct(transportManager.getSession("mock:host=backup2"));
@@ -210,21 +208,6 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
     }
     EXPECT_EQ((std::set<string> {"mock:host=backup1", "mock:host=backup2"}),
               segmentLocators);
-}
-
-TEST_F(BackupManagerTest, OpenSegmentwriteAssertWriteAfterClose) {
-    const char data[] = "Hello world!";
-    auto openSegment = mgr->openSegment(88, data, 0);
-    openSegment->write(4, true);
-    EXPECT_DEATH(openSegment->write(5, true), "Assertion");
-}
-
-TEST_F(BackupManagerTest, OpenSegmentwriteAssertNonAppending) {
-    const char data[] = "Hello world!";
-    auto openSegment = mgr->openSegment(88, data, 0);
-    openSegment->write(4, false);
-    openSegment->write(4, false); // OK
-    EXPECT_DEATH(openSegment->write(3, false), "Assertion");
 }
 
 #if 0 // the sync method was deleted,

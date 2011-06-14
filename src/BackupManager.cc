@@ -17,6 +17,7 @@
 #include "BackupManager.h"
 #include "CycleCounter.h"
 #include "Metrics.h"
+#include "BenchUtil.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -267,18 +268,22 @@ BackupManager::isSynced()
 void
 BackupManager::sync()
 {
-    CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
-    if (!isSynced())
-        proceedNoMetrics();
-    while (!isSynced()) {
-        Dispatch::handleEvent();
-        proceedNoMetrics();
-    }
+    uint64_t initTicks = metrics->master.backupManagerTicks;
+    {
+        CycleCounter<Metric> _(&metrics->master.backupManagerTicks);
+        while (!isSynced()) {
+            proceedNoMetrics();
+        }
+    } // block ensures that _ is destroyed and counter stops
+    serverStats.totalBackupSyncNanos += cyclesToNanoseconds(
+            metrics->master.backupManagerTicks - initTicks);
+    serverStats.totalBackupSyncs++;
 }
 
 /**
- * Make progress on replicating the log to backups, bot don't block.
- * The caller should call Dispatch::poll() between calls to this function.
+ * Make progress on replicating the log to backups, but don't block.
+ * This method checks for completion of outstanding backup operations and
+ * starts new ones when possible.
  */
 void
 BackupManager::proceed()

@@ -26,14 +26,12 @@
 #include <gtest/gtest.h>
 #include <regex.h>
 
-// These need to be defined before Common.h is included.
-// Uppercase versions are all defined to 'public' for white-box tests.
+// Arrange for private and protected structure members to be public so they
+// can easily be accessed by gtest tests (see Common.h for details).
 #ifdef RAMCLOUD_COMMON_H
 #error "TestUtil.h must be included before Common.h"
 #endif
-#define PRIVATE public
-#define PROTECTED public
-#define PUBLIC public
+#define EXPOSE_PRIVATES
 
 #include "Common.h"
 #include "Buffer.h"
@@ -84,16 +82,10 @@ void convertChar(char c, string *out);
 string bufferToDebugString(Buffer* buffer);
 string checkLargeBuffer(Buffer* buffer, int expectedLength);
 void fillLargeBuffer(Buffer* buffer, int size);
+const char *getStatus(Buffer* buffer);
 string toString(const char *buf, uint32_t length);
 string toString(Buffer* buffer);
-Transport::ServerRpc* waitForRpcRequest(Transport* transport,
-        double timeoutSeconds);
-
-struct ProgressPoller : public Dispatch::Poller {
-    bool operator()() {
-        return (rand() & 1); // NOLINT
-    }
-};
+bool waitForRpc(Transport::ClientRpc& rpc);
 
 } // namespace RAMCloud
 

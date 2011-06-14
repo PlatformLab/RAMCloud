@@ -69,7 +69,8 @@ struct AsynchronousTaskConcept {
 
 /**
  * Execute asynchronous tasks in parallel until they complete.
- * This is useful for broadcasting RPCs, etc.
+ * This is useful for broadcasting RPCs, etc.  This method should be invoked
+ * only in worker threads (not in the dispatch thread).
  * \param tasks
  *      An array of \a numTasks entries in length of objects having the
  *      interface documented in #AsynchronousTaskConcept.
@@ -86,7 +87,6 @@ parallelRun(Tub<T>* tasks, uint32_t numTasks, uint32_t maxOutstanding)
 
     uint32_t firstNotIssued = 0;
     uint32_t firstNotDone = 0;
-    uint64_t lastEventTime = Dispatch::lastEventTime;
 
     // Start off first round of tasks
     for (uint32_t i = 0; i < numTasks; ++i) {
@@ -99,13 +99,6 @@ parallelRun(Tub<T>* tasks, uint32_t numTasks, uint32_t maxOutstanding)
 
     // As tasks complete, kick off new ones
     while (firstNotDone < numTasks) {
-        if (Dispatch::lastEventTime == lastEventTime) {
-            Dispatch::handleEvent();
-        } else {
-            // Some other piece of code has called Dispatch,
-            // so we might have work to do.
-        }
-        lastEventTime = Dispatch::lastEventTime;
         for (uint32_t i = firstNotDone; i < firstNotIssued; ++i) {
             auto& task = tasks[i];
             if (task->isDone()) { // completed already

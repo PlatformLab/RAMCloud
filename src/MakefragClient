@@ -30,9 +30,11 @@ CLIENT_SRCFILES := \
 		   src/OptionParser.cc \
 		   src/RamCloud.cc \
 		   src/ServiceLocator.cc \
+		   src/ServiceManager.cc \
 		   src/Status.cc \
 		   src/TcpTransport.cc \
 		   src/TimeCounter.cc \
+		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
 		   $(INFINIBAND_SRCFILES) \

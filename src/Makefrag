@@ -50,13 +50,14 @@ SHARED_SRCFILES := \
 		   src/RecoverySegmentIterator.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
-		   src/Server.cc \
+		   src/Service.cc \
 		   src/ServiceLocator.cc \
+		   src/ServiceManager.cc \
 		   src/Status.cc \
 		   src/TabletProfiler.cc \
 		   src/TcpTransport.cc \
-		   src/TcpTransport.cc \
 		   src/TimeCounter.cc \
+		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
 		   src/Will.cc \

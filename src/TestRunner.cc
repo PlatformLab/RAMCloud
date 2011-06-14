@@ -31,6 +31,7 @@
 
 #include "Common.h"
 #include "ClientException.h"
+#include "Dispatch.h"
 
 namespace {
 
@@ -69,8 +70,14 @@ class QuietUnitTestResultPrinter : public testing::TestEventListener {
     }
     void OnTestPartResult(const testing::TestPartResult& test_part_result) {
         if (test_part_result.type() != testing::TestPartResult::kSuccess) {
-            prettyPrinter->OnTestCaseStart(*currentTestCase);
-            prettyPrinter->OnTestStart(*currentTestInfo);
+            if (currentTestCase != NULL) {
+                prettyPrinter->OnTestCaseStart(*currentTestCase);
+                currentTestCase = NULL;
+            }
+            if (currentTestInfo != NULL) {
+                prettyPrinter->OnTestStart(*currentTestInfo);
+                currentTestInfo = NULL;
+            }
             prettyPrinter->OnTestPartResult(test_part_result);
         }
     }
@@ -92,9 +99,9 @@ class QuietUnitTestResultPrinter : public testing::TestEventListener {
   private:
     /// gtest's default unit test result printer.
     std::unique_ptr<TestEventListener> prettyPrinter;
-    /// The currently running TestCase, if any.
+    /// The currently running TestCase that hasn't been printed, or NULL.
     const testing::TestCase* currentTestCase;
-    /// The currently running TestInfo, if any.
+    /// The currently running TestInfo that hasn't been printed, or NULL.
     const testing::TestInfo* currentTestInfo;
     DISALLOW_COPY_AND_ASSIGN(QuietUnitTestResultPrinter);
 };
@@ -170,7 +177,10 @@ main(int argc, char *argv[])
     // First run gtest tests.
     // set log levels for gtest unit tests
     struct LoggerEnvironment : public ::testing::Environment {
-        void SetUp() { RAMCloud::logger.setLogLevels(RAMCloud::WARNING); }
+        void SetUp()
+        {
+            RAMCloud::logger.setLogLevels(RAMCloud::WARNING);
+        }
     };
     ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
 

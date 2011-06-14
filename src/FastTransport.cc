@@ -14,6 +14,7 @@
  */
 
 #include "FastTransport.h"
+#include "ServiceManager.h"
 
 namespace RAMCloud {
 
@@ -33,7 +34,6 @@ FastTransport::FastTransport(Driver* driver)
     : driver(driver)
     , clientSessions(this)
     , serverSessions(this)
-    , serverReadyQueue()
 {
     driver->connect(this);
 }
@@ -67,18 +67,6 @@ FastTransport::getSession(const ServiceLocator& serviceLocator)
     ClientSession* session = clientSessions.get();
     session->init(serviceLocator);
     return session;
-}
-
-// See Transport::serverRecv().
-FastTransport::ServerRpc*
-FastTransport::serverRecv()
-{
-    if (serverReadyQueue.empty()) {
-        return NULL;
-    }
-    ServerRpc* rpc = &serverReadyQueue.front();
-    serverReadyQueue.pop_front();
-    return rpc;
 }
 
 // - private -
@@ -251,49 +239,9 @@ FastTransport::ClientRpc::ClientRpc(FastTransport* transport,
                                     Buffer* response)
     : requestBuffer(request)
     , responseBuffer(response)
-    , state(IN_PROGRESS)
     , transport(transport)
     , channelQueueEntries()
 {
-}
-
-// See Transport::ClientRpc::isReady for documentation.
-bool
-FastTransport::ClientRpc::isReady()
-{
-    return (state != IN_PROGRESS);
-}
-
-// See Transport::ClientRpc::wait for documentation.
-void
-FastTransport::ClientRpc::wait()
-{
-    while (true) {
-        switch (state) {
-        case IN_PROGRESS:
-        default:
-            Dispatch::poll();
-            break;
-        case COMPLETED:
-            return;
-        case ABORTED:
-            throw TransportException(HERE, "RPC aborted");
-        }
-    }
-}
-
-/// Change state to ABORTED.  Internal to FastTransport.
-void
-FastTransport::ClientRpc::abort()
-{
-    state = ABORTED;
-}
-
-/// Change state to COMPLETED.  Internal to FastTransport.
-void
-FastTransport::ClientRpc::complete()
-{
-    state = COMPLETED;
 }
 
 // --- ServerRpc ---
@@ -305,14 +253,12 @@ FastTransport::ClientRpc::complete()
 FastTransport::ServerRpc::ServerRpc()
     : session(NULL)
     , channelId(0)
-    , readyQueueEntries()
 {
 }
 
 /// Make sure this RPC isn't still in a list.  Only happens during testing.
 FastTransport::ServerRpc::~ServerRpc()
 {
-    maybeDequeue();
 }
 
 /**
@@ -321,27 +267,10 @@ FastTransport::ServerRpc::~ServerRpc()
 void
 FastTransport::ServerRpc::reset()
 {
-    maybeDequeue();
-    recvPayload.reset();
+    requestPayload.reset();
     replyPayload.reset();
     session = NULL;
     channelId = 0;
-}
-
-/**
- * If queued in FastTransport::serverReadyQueue then dequeue it.
- *
- * Used internally to ensure this RPC isn't in a list still after reset()
- * or delete.
- */
-void
-FastTransport::ServerRpc::maybeDequeue()
-{
-    if (session) {
-        ServerReadyQueue* q = &session->transport->serverReadyQueue;
-        if (readyQueueEntries.is_linked())
-            q->erase(q->iterator_to(*this));
-    }
 }
 
 /**
@@ -735,11 +664,11 @@ FastTransport::InboundMessage::Timer::Timer(InboundMessage* const inboundMsg)
  * See FastTransport::Timer for general information on timers.
  */
 void
-FastTransport::InboundMessage::Timer::operator() ()
+FastTransport::InboundMessage::Timer::handleTimerEvent()
 {
     // NOTE: Kills the entire session if one message gets stalled.
     //       We could make this less aggressive if we think they might recover.
-    if (Dispatch::currentTime - inboundMsg->session->lastActivityTime
+    if (dispatch->currentTime - inboundMsg->session->lastActivityTime
             > sessionTimeoutCycles()) {
         inboundMsg->session->close();
     } else {
@@ -866,7 +795,7 @@ FastTransport::OutboundMessage::send()
      *  - If timers are enabled for this message then the timer is scheduled
      *    to fire when the next packet retransmit timeout occurs.
      */
-    uint64_t now = Dispatch::currentTime;
+    uint64_t now = dispatch->currentTime;
 
     // First, decide on candidate range of packets to send/resend
     // Only fragments less than stop will be considered for (re-)send
@@ -1025,9 +954,9 @@ FastTransport::OutboundMessage::Timer::Timer(OutboundMessage* const outboundMsg)
  * otherwise resend unacked packets that were sent awhile ago.
  */
 void
-FastTransport::OutboundMessage::Timer::operator() ()
+FastTransport::OutboundMessage::Timer::handleTimerEvent()
 {
-    if (Dispatch::currentTime - outboundMsg->session->lastActivityTime
+    if (dispatch->currentTime - outboundMsg->session->lastActivityTime
             > sessionTimeoutCycles()) {
         LOG(DEBUG, "closing session due to timeout");
         outboundMsg->session->close();
@@ -1088,7 +1017,7 @@ FastTransport::ServerSession::beginSending(uint8_t channelId)
     channel->state = ServerChannel::SENDING_WAITING;
     Buffer* responseBuffer = &channel->currentRpc.replyPayload;
     channel->outboundMsg.beginSending(responseBuffer);
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
 }
 
 /// This shouldn't ever be called.
@@ -1153,7 +1082,7 @@ FastTransport::ServerSession::getAddress()
 void
 FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
 {
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
     Header* header = received->getOffset<Header>(0);
     if (header->channelId >= NUM_CHANNELS_PER_SESSION) {
         LOG(WARNING, "invalid channel id %d", header->channelId);
@@ -1187,7 +1116,7 @@ FastTransport::ServerSession::processInboundPacket(Driver::Received* received)
             channel->inboundMsg.reset();
             channel->outboundMsg.reset();
             channel->currentRpc.setup(this, header->channelId);
-            Buffer* recvBuffer = &channel->currentRpc.recvPayload;
+            Buffer* recvBuffer = &channel->currentRpc.requestPayload;
             channel->inboundMsg.init(header->totalFrags, recvBuffer);
             TEST_LOG("processReceivedData");
             processReceivedData(channel, received);
@@ -1236,7 +1165,7 @@ FastTransport::ServerSession::startSession(
     sessionOpen->numChannels = NUM_CHANNELS_PER_SESSION;
     Buffer::Iterator payloadIter(payload);
     transport->sendPacket(this->clientAddress.get(), &header, &payloadIter);
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
 }
 
 // - private -
@@ -1286,7 +1215,7 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
         break;
     case ServerChannel::RECEIVING:
         if (channel->inboundMsg.processReceivedData(received)) {
-            transport->serverReadyQueue.push_back(channel->currentRpc);
+            ServiceManager::handleRpc(&channel->currentRpc);
             channel->state = ServerChannel::PROCESSING;
         }
         break;
@@ -1355,14 +1284,17 @@ FastTransport::ClientSession::close()
 {
     LOG(DEBUG, "closing session");
     for (uint32_t i = 0; i < numChannels; i++) {
-        if (channels[i].currentRpc)
-            channels[i].currentRpc->abort();
+        if (channels[i].currentRpc) {
+            string error("RPC aborted");
+            channels[i].currentRpc->markFinished(&error);
+        }
     }
     ChannelQueue::iterator iter(channelQueue.begin());
     while (iter != channelQueue.end()) {
         ClientRpc& rpc(*iter);
         iter = channelQueue.erase(iter);
-        rpc.abort();
+        string error("RPC aborted");
+        rpc.markFinished(&error);
     }
     resetChannels();
     serverSessionHint = INVALID_HINT;
@@ -1379,7 +1311,7 @@ FastTransport::ClientSession::clientSend(Buffer* request, Buffer* response)
 
     // rpc will be performed immediately on the first available channel or
     // queued until a channel is idle if none are currently available.
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
     if (!isConnected()) {
         connect();
         LOG(DEBUG, "queueing RPC");
@@ -1479,7 +1411,7 @@ FastTransport::ClientSession::isConnected()
 void
 FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
 {
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
     Header* header = received->getOffset<Header>(0);
     if (header->channelId >= numChannels) {
         if (header->getPayloadType() == Header::SESSION_OPEN)
@@ -1542,7 +1474,7 @@ FastTransport::ClientSession::sendSessionOpenRequest()
     header.payloadType = Header::SESSION_OPEN;
     transport->sendPacket(serverAddress.get(),
                           &header, NULL);
-    lastActivityTime = Dispatch::currentTime;
+    lastActivityTime = dispatch->currentTime;
     sessionOpenRequestInFlight = true;
 
     // Schedule the timer to resend if no response.
@@ -1648,7 +1580,7 @@ FastTransport::ClientSession::processReceivedData(ClientChannel* channel,
     }
     if (channel->inboundMsg.processReceivedData(received)) {
         // InboundMsg has gotten its last fragment
-        channel->currentRpc->complete();
+        channel->currentRpc->markFinished();
         channel->rpcId += 1;
         channel->outboundMsg.reset();
         channel->inboundMsg.reset();
@@ -1713,9 +1645,9 @@ FastTransport::ClientSession::Timer::Timer(ClientSession* session)
 }
 
 void
-FastTransport::ClientSession::Timer::operator() ()
+FastTransport::ClientSession::Timer::handleTimerEvent()
 {
-    if (Dispatch::currentTime - session->lastActivityTime
+    if (dispatch->currentTime - session->lastActivityTime
             > sessionTimeoutCycles()) {
         session->sessionOpenRequestInFlight = false;
         session->close();

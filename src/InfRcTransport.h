@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -38,6 +38,15 @@
 
 namespace RAMCloud {
 
+/**
+ * Transport mechanism that uses Infiniband's reliable connections.
+ * This class is templated in order to simplify replacing some of the
+ * Infiniband guts for testing.  The "Infiniband" type name corresponds
+ * to various low-level Infiniband facilities used both here and in
+ * InfUdDriver.  "RealInfiniband" (the only instantiation that currently
+ * exists) corresponds to the actual Infiniband driver facilities in
+ * Infiniband.cc.
+ */
 template<typename Infiniband = RealInfiniband>
 class InfRcTransport : public Transport {
     // forward declarations
@@ -49,7 +58,6 @@ class InfRcTransport : public Transport {
   public:
     explicit InfRcTransport(const ServiceLocator* sl = NULL);
     ~InfRcTransport();
-    ServerRpc* serverRecv() __attribute__((warn_unused_result));
     SessionRef getSession(const ServiceLocator& sl) {
         return new InfRCSession(this, sl);
     }
@@ -90,9 +98,7 @@ class InfRcTransport : public Transport {
                                Buffer* request,
                                Buffer* response,
                                uint64_t nonce);
-            bool isReady();
             void sendOrQueue();
-            void wait();
 
         private:
             bool
@@ -226,12 +232,13 @@ class InfRcTransport : public Transport {
 
     ibv_srq*     serverSrq;         // shared receive work queue for server
     ibv_srq*     clientSrq;         // shared receive work queue for client
-    ibv_cq*      serverRxCq;        // completion queue for serverRecv
+    ibv_cq*      serverRxCq;        // completion queue for incoming requests
     ibv_cq*      clientRxCq;        // completion queue for client wait
     ibv_cq*      commonTxCq;        // common completion queue for all transmits
     int          ibPhysicalPort;    // physical port number on the HCA
     int          lid;               // local id for this HCA and physical port
-    int          serverSetupSocket; // UDP socket for incoming setup requests
+    int          serverSetupSocket; // UDP socket for incoming setup requests;
+                                    // -1 means we're not a server
     int          clientSetupSocket; // UDP socket for outgoing setup requests
 
     // ibv_wc.qp_num to QueuePair* lookup used to look up the QueuePair given
@@ -270,7 +277,7 @@ class InfRcTransport : public Transport {
     class Poller : public Dispatch::Poller {
       public:
         explicit Poller(InfRcTransport* transport) : transport(transport) {}
-        virtual bool operator() ();
+        virtual void poll();
 
       private:
         /// Check this transport for packets every time we are invoked.
@@ -288,7 +295,7 @@ class InfRcTransport : public Transport {
         ServerConnectHandler(int fd, InfRcTransport* transport)
                 : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
                 fd(fd), transport(transport) { }
-        virtual void operator() ();
+        virtual void handleFileEvent();
       private:
         // The following variables are just copies of constructor arguments.
         int fd;

@@ -48,7 +48,6 @@ namespace RAMCloud {
  *  - OutboundMessage::sendOneData
  *
  * - Server Inbound
- *  - FastTransport::serverRecv
  *  - Dispatch::poll
  *  - Driver
  *  - FastTransport::handleIncomingPacket
@@ -63,7 +62,6 @@ namespace RAMCloud {
  *  - OutboundMessage::send
  *
  * - Client Inbound
- *  - ClientRpc::wait
  *  - Dispatch::poll
  *  - Driver
  *  - FastTransport::handleIncomingPacket
@@ -99,28 +97,15 @@ class FastTransport : public Transport {
      * will block until the response is complete and valid.
      */
     class ClientRpc : public Transport::ClientRpc {
-      public:
-        void wait();
-        bool isReady();
-
       private:
         ClientRpc(FastTransport* transport,
                   Buffer* request, Buffer* response);
-        void abort();
-        void complete();
 
         /// Contains an RPC request payload including the RPC header.
         Buffer* const requestBuffer;
 
         /// The destination Buffer for the RPC response.
         Buffer* const responseBuffer;
-
-        /// Current state of the RPC.
-        enum {
-            IN_PROGRESS,    ///< State of an incomplete RPC.
-            COMPLETED,      ///< State of an RPC after request/response cycle.
-            ABORTED,        ///< State of an RPC after a failure.
-        } state;
 
         /// The Transport on which to send/receive the RPC.
         FastTransport* const transport;
@@ -130,6 +115,7 @@ class FastTransport : public Transport {
 
       private:
         friend class FastTransport;
+        friend class ClientSession;
         friend class FastTransportTest;
         friend class ClientRpcTest;
         friend class ClientSessionTest;
@@ -162,19 +148,11 @@ class FastTransport : public Transport {
          */
         uint8_t channelId;
 
-        /**
-         * Links for a list of RPCs waiting for service.
-         * See FastTransport::serverReadyQueue;
-         */
-        IntrusiveListHook readyQueueEntries;
-
         friend class FastTransport;
         friend class ServerSessionTest;
         friend class FastTransportTest;
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
-
-    virtual ServerRpc* serverRecv();
 
   private:
     /**
@@ -569,7 +547,7 @@ class FastTransport : public Transport {
         class Timer : public Dispatch::Timer {
           public:
             explicit Timer(InboundMessage* const inboundMsg);
-            virtual void operator() ();
+            virtual void handleTimerEvent();
           private:
             /// The InboundMessage this timer sendAcks on or resets if fired.
             InboundMessage* const inboundMsg;
@@ -681,7 +659,7 @@ class FastTransport : public Transport {
         class Timer : public Dispatch::Timer {
           public:
             explicit Timer(OutboundMessage* const outboundMsg);
-            virtual void operator() ();
+            virtual void handleTimerEvent();
           private:
             /// Message this timer resends packets for or closes when fired.
             OutboundMessage* const outboundMsg;
@@ -727,7 +705,7 @@ class FastTransport : public Transport {
          */
         explicit Session(FastTransport* transport, uint32_t id)
             : id(id)
-            , lastActivityTime(Dispatch::currentTime)
+            , lastActivityTime(dispatch->currentTime)
             , transport(transport)
             , token(INVALID_TOKEN)
         {}
@@ -1074,7 +1052,7 @@ class FastTransport : public Transport {
         class Timer : public Dispatch::Timer {
           public:
             explicit Timer(ClientSession* session);
-            virtual void operator() ();
+            virtual void handleTimerEvent();
             /**
              * The ClientSession for which we're waiting for a response
              * to a SessionOpenRequest.
@@ -1247,7 +1225,7 @@ class FastTransport : public Transport {
         void expire()
         {
             const uint32_t sessionsToCheck = 5;
-            uint64_t now = Dispatch::currentTime;
+            uint64_t now = dispatch->currentTime;
             for (uint32_t i = 0; i < sessionsToCheck; i++) {
                 lastCleanedIndex++;
                 if (lastCleanedIndex >= sessions.size()) {
@@ -1311,10 +1289,6 @@ class FastTransport : public Transport {
 
     /// Contains state for all RPCs this transport participates in as server.
     SessionTable<ServerSession> serverSessions;
-
-    /// Holds incoming RPCs until the Server is ready (see serverRecv()).
-    INTRUSIVE_LIST_TYPEDEF(ServerRpc, readyQueueEntries) ServerReadyQueue;
-    ServerReadyQueue serverReadyQueue;
 
     // If non-zero, overrides the value of timeoutCycles during tests.
     static uint64_t timeoutCyclesOverride;

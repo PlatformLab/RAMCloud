@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,8 +21,9 @@
 #include "BackupServer.h"
 #include "BackupStorage.h"
 #include "OptionParser.h"
-#include "TransportManager.h"
 #include "Segment.h"
+#include "ServiceManager.h"
+#include "TransportManager.h"
 
 /**
  * Instantiates a backup server.
@@ -92,9 +93,12 @@ try
                                             backupFile.c_str(),
                                             O_DIRECT | O_SYNC));
 
-    BackupServer server(config, *storage);
-    server.run();
-
+    BackupServer service(config, *storage);
+    service.init();
+    ServiceManager manager(&service);
+    while (true) {
+        dispatch->poll();
+    }
     return 0;
 } catch (std::exception& e) {
     using namespace RAMCloud;

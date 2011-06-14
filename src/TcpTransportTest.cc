@@ -14,67 +14,38 @@
  */
 
 #include "TestUtil.h"
-#include "TcpTransport.h"
 #include "MockSyscall.h"
+#include "ServiceManager.h"
+#include "TcpTransport.h"
 #include "Tub.h"
 
 namespace RAMCloud {
 
-class TcpTransportTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(TcpTransportTest);
-    CPPUNIT_TEST(test_sanityCheck);
-    CPPUNIT_TEST(test_constructor_clientSideOnly);
-    CPPUNIT_TEST(test_constructor_socketError);
-    CPPUNIT_TEST(test_constructor_nonBlockError);
-    CPPUNIT_TEST(test_constructor_reuseAddrError);
-    CPPUNIT_TEST(test_constructor_bindError);
-    CPPUNIT_TEST(test_constructor_listenError);
-    CPPUNIT_TEST(test_destructor);
-    CPPUNIT_TEST(test_AcceptHandler_noConnection);
-    CPPUNIT_TEST(test_AcceptHandler_acceptFailure);
-    CPPUNIT_TEST(test_AcceptHandler_success);
-    CPPUNIT_TEST(test_RequestReadHandler);
-    CPPUNIT_TEST(test_RequestReadHandler_unexpectedData);
-    CPPUNIT_TEST(test_RequestReadHandler_eof);
-    CPPUNIT_TEST(test_RequestReadHandler_error);
-    CPPUNIT_TEST(test_sendMessage_multipleChunks);
-    CPPUNIT_TEST(test_sendMessage_errorOnSend);
-    CPPUNIT_TEST(test_sendMessage_brokenPipe);
-    CPPUNIT_TEST(test_sendMessage_shortCount);
-    CPPUNIT_TEST(test_recvCarefully_ioErrors);
-    CPPUNIT_TEST(test_readMessage_receiveHeaderInPieces);
-    CPPUNIT_TEST(test_readMessage_zeroLengthMessage);
-    CPPUNIT_TEST(test_readMessage_receiveBodyInPieces);
-    CPPUNIT_TEST(test_sessionConstructor_socketError);
-    CPPUNIT_TEST(test_sessionConstructor_connectError);
-    CPPUNIT_TEST(test_sessionDestructor);
-    CPPUNIT_TEST(test_clientSend_sessionClosed);
-    CPPUNIT_TEST(test_ReplyReadHandler_eof);
-    CPPUNIT_TEST(test_ReplyReadHandler_eofOutsideRPC);
-    CPPUNIT_TEST(test_ReplyReadHandler_unexpectedDataFromServer);
-    CPPUNIT_TEST(test_ReplyReadHandler_ioError);
-    CPPUNIT_TEST(test_wait_throwError);
-    CPPUNIT_TEST_SUITE_END();
-
+class TcpTransportTest : public ::testing::Test {
   public:
-
     ServiceLocator* locator;
     MockSyscall* sys;
+    Syscall* savedSyscall;
     TestLog::Enable* logEnabler;
+    ServiceManager* serviceManager;
 
-    TcpTransportTest() : locator(NULL), sys(NULL), logEnabler(NULL)
-    {}
-
-    void setUp() {
+    TcpTransportTest()
+            : locator(NULL), sys(NULL), savedSyscall(NULL), logEnabler(NULL),
+              serviceManager(NULL)
+    {
         locator = new ServiceLocator("tcp+ip: host=localhost, port=11000");
         sys = new MockSyscall();
+        savedSyscall = TcpTransport::sys;
         TcpTransport::sys = sys;
         logEnabler = new TestLog::Enable();
+        serviceManager = new ServiceManager(NULL);
     }
 
-    void tearDown() {
+    ~TcpTransportTest() {
+        delete serviceManager;
         delete locator;
         delete sys;
+        TcpTransport::sys = savedSyscall;
         delete logEnabler;
     }
 
@@ -93,570 +64,653 @@ class TcpTransportTest : public CppUnit::TestFixture {
     int connectToServer(const ServiceLocator& serviceLocator)
     {
         int fd = socket(PF_INET, SOCK_STREAM, 0);
-        CPPUNIT_ASSERT(fd >= 0);
+        EXPECT_GE(fd, 0);
         IpAddress address(serviceLocator);
         int r = sys->connect(fd, &address.address, sizeof(address.address));
-        CPPUNIT_ASSERT(r >= 0);
+        EXPECT_GE(r, 0);
         return fd;
     }
 
-    void test_sanityCheck() {
-        // Create a server and a client and verify that we can
-        // send a request, receive it, send a reply, and receive it.
-        // Then try a second request.
-
-        TcpTransport server(locator);
-        TcpTransport client;
-        Transport::SessionRef session = client.getSession(*locator);
-
-        Buffer request;
-        Buffer reply;
-        request.fillFromString("abcdefg");
-        Transport::ClientRpc* clientRpc = session->clientSend(&request,
-                &reply);
-        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
-        CPPUNIT_ASSERT(serverRpc != NULL);
-        CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
-        CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
-        serverRpc->replyPayload.fillFromString("klmn");
-        serverRpc->sendReply();
-        Dispatch::handleEvent();
-        CPPUNIT_ASSERT_EQUAL(true, clientRpc->isReady());
-        CPPUNIT_ASSERT_EQUAL("klmn/0", toString(&reply));
-
-        request.fillFromString("request2");
-        reply.reset();
-        clientRpc = session->clientSend(&request, &reply);
-        serverRpc = waitForRpcRequest(&server, 1.0);
-        CPPUNIT_ASSERT(serverRpc != NULL);
-        CPPUNIT_ASSERT_EQUAL("request2/0", toString(&serverRpc->recvPayload));
-        serverRpc->replyPayload.fillFromString("reply2");
-        serverRpc->sendReply();
-        clientRpc->wait();
-        CPPUNIT_ASSERT_EQUAL("reply2/0", toString(&reply));
+    // Return a count of the number of complete RPC requests waiting
+    // for service (also, discard all of these requests).
+    int countWaitingRequests()
+    {
+        int result = 0;
+        while (serviceManager->waitForRpc(0.0) != NULL)
+            result++;
+        return result;
     }
 
-    void test_constructor_clientSideOnly() {
-        sys->socketErrno = EPERM;
-        TcpTransport client;
-    }
-
-    void test_constructor_socketError() {
-        sys->socketErrno = EPERM;
-        CPPUNIT_ASSERT_EQUAL("TcpTransport couldn't create listen socket: "
-            "Operation not permitted", catchConstruct(locator));
-    }
-
-    void test_constructor_nonBlockError() {
-        sys->fcntlErrno = EPERM;
-        CPPUNIT_ASSERT_EQUAL("TcpTransport couldn't set nonblocking on "
-            "listen socket: Operation not permitted",
-            catchConstruct(locator));
-    }
-
-    void test_constructor_reuseAddrError() {
-        sys->setsockoptErrno = EPERM;
-        CPPUNIT_ASSERT_EQUAL("TcpTransport couldn't set SO_REUSEADDR "
-            "on listen socket: Operation not permitted",
-            catchConstruct(locator));
-    }
-
-    void test_constructor_bindError() {
-        sys->bindErrno = EPERM;
-        CPPUNIT_ASSERT_EQUAL("TcpTransport couldn't bind to 'tcp+ip: "
-            "host=localhost, port=11000': Operation not permitted",
-            catchConstruct(locator));
-    }
-
-    void test_constructor_listenError() {
-        sys->listenErrno = EPERM;
-        CPPUNIT_ASSERT_EQUAL("TcpTransport couldn't listen on socket: "
-            "Operation not permitted", catchConstruct(locator));
-    }
-
-    void test_destructor() {
-        // Connect 2 clients to 1 server, then delete them all and make
-        // sure that all of the sockets get closed.
-        TcpTransport* server = new TcpTransport(locator);
-        TcpTransport* client = new TcpTransport();
-        Transport::SessionRef session1 = client->getSession(*locator);
-        Transport::SessionRef session2 = client->getSession(*locator);
-
-        Buffer request1, request2;
-        Buffer reply1, reply2;
-        request1.fillFromString("request1");
-        request2.fillFromString("request2");
-        Transport::ClientRpc* clientRpc1 = session1->clientSend(&request1,
-                &reply1);
-        Transport::ClientRpc* clientRpc2 = session2->clientSend(&request2,
-                &reply2);
-        Transport::ServerRpc* serverRpc1 = waitForRpcRequest(server, 1.0);
-        CPPUNIT_ASSERT(serverRpc1 != NULL);
-        Transport::ServerRpc* serverRpc2 = waitForRpcRequest(server, 1.0);
-        CPPUNIT_ASSERT(serverRpc2 != NULL);
-        CPPUNIT_ASSERT_EQUAL("request1/0", toString(&serverRpc1->recvPayload));
-        CPPUNIT_ASSERT_EQUAL("request2/0", toString(&serverRpc2->recvPayload));
-        serverRpc1->replyPayload.fillFromString("reply1");
-        serverRpc1->sendReply();
-        serverRpc2->replyPayload.fillFromString("reply2");
-        serverRpc2->sendReply();
-        clientRpc1->wait();
-        clientRpc2->wait();
-        CPPUNIT_ASSERT_EQUAL("reply1/0", toString(&reply1));
-        CPPUNIT_ASSERT_EQUAL("reply2/0", toString(&reply2));
-
-        sys->closeCount = 0;
-        delete server;
-        CPPUNIT_ASSERT_EQUAL(3, sys->closeCount);
-        delete client;
-        CPPUNIT_ASSERT_EQUAL(3, sys->closeCount);
-        session1 = NULL;
-        session2 = NULL;
-        CPPUNIT_ASSERT_EQUAL(5, sys->closeCount);
-    }
-
-    void test_AcceptHandler_noConnection() {
-        TcpTransport server(locator);
-        (*server.acceptHandler)();
-        CPPUNIT_ASSERT_EQUAL(0, server.sockets.size());
-    }
-
-    void test_AcceptHandler_acceptFailure() {
-        TcpTransport server(locator);
-        sys->acceptErrno = EPERM;
-        (*server.acceptHandler)();
-        CPPUNIT_ASSERT_EQUAL("operator(): error in TcpTransport::AcceptHandler "
-                "accepting connection for 'tcp+ip: host=localhost, "
-                "port=11000': Operation not permitted", TestLog::get());
-        CPPUNIT_ASSERT_EQUAL(-1, server.listenSocket);
-        CPPUNIT_ASSERT_EQUAL(1, sys->closeCount);
-    }
-
-    void test_AcceptHandler_success() {
-        TcpTransport server(locator);
-        int fd = connectToServer(*locator);
-        (*server.acceptHandler)();
-        if (server.sockets.size() == 0) {
-            CPPUNIT_FAIL("socket vector doesn't have enough space");
+    // Run the dispatcher until a server-side session has been opened
+    // (but give up if it takes too long).  The return value is true
+    // if a session has been opened.
+    bool waitForSession(TcpTransport& transport)
+    {
+        for (int i = 0; i < 1000; i++) {
+            dispatch->poll();
+            if (transport.sockets.size() > 0)
+                return true;
+            usleep(1000);
         }
-        if (server.sockets[server.sockets.size() - 1] == NULL) {
-            CPPUNIT_FAIL("no socket allocated in server transport");
-        }
-        close(fd);
+        return false;
     }
-
-    void test_RequestReadHandler() {
-        TcpTransport server(locator);
-        int fd = connectToServer(*locator);
-        (*server.acceptHandler)();
-        if (server.sockets.size() == 0) {
-            CPPUNIT_FAIL("no socket allocated in server transport");
-        }
-        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
-
-        // Send a message in 2 chunks.
-        TcpTransport::Header header;
-        header.len = 6;
-        CPPUNIT_ASSERT_EQUAL(sizeof(header),
-            write(fd, &header, sizeof(header)));
-        server.sockets[serverFd]->readHandler();
-        if (server.sockets[serverFd]->rpc == 0) {
-            CPPUNIT_FAIL("no rpc object allocated");
-        }
-        CPPUNIT_ASSERT_EQUAL(0, server.waitingRequests.size());
-
-        CPPUNIT_ASSERT_EQUAL(6, write(fd, "abcdef", 6));
-        server.sockets[serverFd]->readHandler();
-        CPPUNIT_ASSERT_EQUAL(1, server.waitingRequests.size());
-
-        close(fd);
-    }
-
-    void test_RequestReadHandler_unexpectedData() {
-        TcpTransport server(locator);
-        int fd = connectToServer(*locator);
-        (*server.acceptHandler)();
-        if (server.sockets.size() == 0) {
-            CPPUNIT_FAIL("no socket allocated in server transport");
-        }
-        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
-
-        // Send a message to make the server busy.
-        TcpTransport::Header header;
-        header.len = 0;
-        write(fd, &header, sizeof(header));
-        server.sockets[serverFd]->readHandler();
-        CPPUNIT_ASSERT_EQUAL(true, server.sockets[serverFd]->busy);
-
-        // Send more junk to the server.
-        write(fd, "abcdef", 6);
-        server.sockets[serverFd]->readHandler();
-        CPPUNIT_ASSERT_EQUAL("operator(): TcpTransport::RequestReadHandler "
-                "discarding 6 unexpected bytes from client",
-                TestLog::get());
-
-        close(fd);
-    }
-
-    void test_RequestReadHandler_eof() {
-        TcpTransport server(locator);
-        int fd = connectToServer(*locator);
-        (*server.acceptHandler)();
-        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
-        close(fd);
-        server.sockets[serverFd]->readHandler();
-        CPPUNIT_ASSERT_EQUAL(NULL, server.sockets[serverFd]);
-    }
-
-    void test_RequestReadHandler_error() {
-        TcpTransport server(locator);
-        int fd = connectToServer(*locator);
-        (*server.acceptHandler)();
-        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
-        sys->recvErrno = EPERM;
-        server.sockets[serverFd]->readHandler();
-        CPPUNIT_ASSERT_EQUAL(NULL, server.sockets[serverFd]);
-        CPPUNIT_ASSERT_EQUAL("operator(): TcpTransport::RequestReadHandler "
-                "closing client connection: I/O read error in TcpTransport: "
-                "Operation not permitted", TestLog::get());
-
-        close(fd);
-    }
-
-    void test_sendMessage_multipleChunks() {
-        TcpTransport server(locator);
-        int fd = connectToServer(*locator);
-        Buffer payload;
-        Buffer::Chunk::appendToBuffer(&payload, "abcde", 5);
-        Buffer::Chunk::appendToBuffer(&payload, "xxx", 3);
-        Buffer::Chunk::appendToBuffer(&payload, "12345678", 8);
-        TcpTransport::sendMessage(fd, payload);
-
-        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
-        CPPUNIT_ASSERT(serverRpc != NULL);
-        CPPUNIT_ASSERT_EQUAL("abcdexxx12345678",
-                toString(&serverRpc->recvPayload));
-
-        close(fd);
-    }
-
-    void test_sendMessage_errorOnSend() {
-        TcpTransport server(locator);
-        int fd = connectToServer(*locator);
-        Buffer payload;
-        Buffer::Chunk::appendToBuffer(&payload, "test message", 5);
-
-        sys->sendmsgErrno = EPERM;
-        string message("no exception");
-        try {
-            TcpTransport::sendMessage(fd, payload);
-        } catch (TransportException& e) {
-            message = e.message;
-        }
-        CPPUNIT_ASSERT_EQUAL("I/O error in TcpTransport::sendMessage: "
-                "Operation not permitted", message);
-
-        close(fd);
-    }
-
-    void test_sendMessage_brokenPipe() {
-        // The main reason for this test is to make sure that
-        // broken pipe errors don't generate signals that kill
-        // the process.
-        TcpTransport server(locator);
-        TcpTransport client;
-        Transport::SessionRef session = client.getSession(*locator);
-        Dispatch::handleEvent();
-        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
-        server.closeSocket(serverFd);
-        string message("no exception");
-        try {
-            Buffer request;
-            Buffer::Chunk::appendToBuffer(&request, "message chunk", 13);
-            TcpTransport::TcpSession* rawSession =
-                    reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-            for (int i = 0; i < 1000; i++) {
-                TcpTransport::sendMessage(rawSession->fd, request);
-            }
-        } catch (TransportException& e) {
-            message = e.message;
-        }
-        CPPUNIT_ASSERT_EQUAL("I/O error in TcpTransport::sendMessage: "
-                "Broken pipe", message);
-    }
-
-    void test_sendMessage_shortCount() {
-        TcpTransport server(locator);
-        int fd = connectToServer(*locator);
-        Buffer payload;
-        Buffer::Chunk::appendToBuffer(&payload, "test message", 5);
-
-        sys->sendmsgReturnCount = 3;
-        string message("no exception");
-        try {
-            TcpTransport::sendMessage(fd, payload);
-        } catch (TransportException& e) {
-            message = e.message;
-        }
-        CPPUNIT_ASSERT_EQUAL("Incomplete sendmsg in "
-                "TcpTransport::sendMessage: 3 bytes sent out of 9",
-                message);
-
-        close(fd);
-    }
-
-    void test_recvCarefully_ioErrors() {
-        string message("no exception");
-        sys->recvEof = true;
-        try {
-            TcpTransport::recvCarefully(2, NULL, 100);
-        } catch (TcpTransport::TcpTransportEof& e) {
-            message = "eof";
-        }
-        CPPUNIT_ASSERT_EQUAL("eof", message);
-        sys->recvEof = false;
-        sys->recvErrno = EAGAIN;
-        CPPUNIT_ASSERT_EQUAL(0, TcpTransport::recvCarefully(2, NULL, 100));
-        sys->recvErrno = EPERM;
-        message = "no exception";
-        try {
-            TcpTransport::recvCarefully(2, NULL, 100);
-        } catch (TransportException& e) {
-            message = e.message;
-        }
-        CPPUNIT_ASSERT_EQUAL("I/O read error in TcpTransport: "
-                "Operation not permitted", message);
-    }
-
-    void test_readMessage_receiveHeaderInPieces() {
-        TcpTransport server(locator);
-        int fd = connectToServer(*locator);
-        (*server.acceptHandler)();
-        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
-
-        // Try to receive when there is no data at all.
-        Buffer buffer;
-        TcpTransport::IncomingMessage incoming(&buffer);
-        CPPUNIT_ASSERT_EQUAL(false, incoming.readMessage(serverFd));
-        CPPUNIT_ASSERT_EQUAL(0, incoming.headerBytesReceived);
-
-        // Send first part of header.
-        TcpTransport::Header header;
-        header.len = 123456789;
-        write(fd, &header, 3);
-        CPPUNIT_ASSERT_EQUAL(false, incoming.readMessage(serverFd));
-        CPPUNIT_ASSERT_EQUAL(3, incoming.headerBytesReceived);
-
-        // Send second part of header (oversize counter will generate
-        // exception).
-        write(fd, reinterpret_cast<char*>(&header)+3, sizeof(header)-3);
-        string message("no exception");
-        try {
-            incoming.readMessage(serverFd);
-        } catch (TransportException& e) {
-            message = e.message;
-        }
-        CPPUNIT_ASSERT_EQUAL("TcpTransport received oversize message "
-                "(123456789 bytes)", message);
-
-        close(fd);
-    }
-
-    void test_readMessage_zeroLengthMessage() {
-        TcpTransport server(locator);
-        int fd = connectToServer(*locator);
-        (*server.acceptHandler)();
-        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
-        Buffer buffer;
-        TcpTransport::IncomingMessage incoming(&buffer);
-        TcpTransport::Header header;
-        header.len = 0;
-        write(fd, &header, sizeof(header));
-        CPPUNIT_ASSERT_EQUAL(true, incoming.readMessage(serverFd));
-        CPPUNIT_ASSERT_EQUAL("", toString(&buffer));
-
-        close(fd);
-    }
-
-    void test_readMessage_receiveBodyInPieces() {
-        TcpTransport server(locator);
-        int fd = connectToServer(*locator);
-        (*server.acceptHandler)();
-        int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
-        Buffer buffer;
-        TcpTransport::IncomingMessage incoming(&buffer);
-        TcpTransport::Header header;
-        header.len = 11;
-        write(fd, &header, sizeof(header));
-
-        // First attempt: header present but no body bytes.
-        CPPUNIT_ASSERT_EQUAL(false, incoming.readMessage(serverFd));
-        CPPUNIT_ASSERT_EQUAL(0, incoming.messageBytesReceived);
-
-        // Second attempt: part of body present.
-        write(fd, "abcde", 5);
-        CPPUNIT_ASSERT_EQUAL(false, incoming.readMessage(serverFd));
-        CPPUNIT_ASSERT_EQUAL(5, incoming.messageBytesReceived);
-
-        // Third attempt: remainder of body present, plus extra bytes
-        // (don't read extras).
-        write(fd, "0123456789", 10);
-        CPPUNIT_ASSERT_EQUAL(true, incoming.readMessage(serverFd));
-        CPPUNIT_ASSERT_EQUAL("abcde012345", toString(&buffer));
-
-        close(fd);
-    }
-
-    void test_sessionConstructor_socketError() {
-        sys->socketErrno = EPERM;
-        string message("");
-        try {
-            TcpTransport::TcpSession session(*locator);
-        } catch (TransportException& e) {
-            message = e.message;
-        }
-        CPPUNIT_ASSERT_EQUAL("TcpTransport couldn't open socket "
-                "for session: Operation not permitted", message);
-    }
-
-    void test_sessionConstructor_connectError() {
-        sys->connectErrno = EPERM;
-        string message("no exception");
-        try {
-            TcpTransport::TcpSession session(*locator);
-        } catch (TransportException& e) {
-            message = e.message;
-        }
-        CPPUNIT_ASSERT_EQUAL("Session connect error in TcpTransport: "
-                "Operation not permitted", message);
-        CPPUNIT_ASSERT_EQUAL(1, sys->closeCount);
-    }
-
-    void test_sessionDestructor() {
-        TcpTransport server(locator);
-        TcpTransport client;
-        Transport::SessionRef session = client.getSession(*locator);
-        session = NULL;
-        CPPUNIT_ASSERT_EQUAL(1, sys->closeCount);
-    }
-
-    void test_clientSend_sessionClosed() {
-        TcpTransport server(locator);
-        TcpTransport client;
-        Transport::SessionRef session = client.getSession(*locator);
-        TcpTransport::TcpSession* rawSession =
-                reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-        rawSession->close();
-        rawSession->errorInfo = "session closed";
-        string message("no exception");
-        try {
-            Buffer request, reply;
-            delete session->clientSend(&request, &reply);
-        } catch (TransportException& e) {
-            message = e.message;
-        }
-        CPPUNIT_ASSERT_EQUAL("session closed", message);
-    }
-
-    void test_ReplyReadHandler_eof() {
-        // In this test, arrange for the connection to get closed
-        // while an RPC is outstanding and we are waiting for a response.
-        TcpTransport server(locator);
-        TcpTransport client;
-        Transport::SessionRef session = client.getSession(*locator);
-        Buffer request;
-        Buffer reply;
-        Buffer::Chunk::appendToBuffer(&request, "xxx", 3);
-        Transport::ClientRpc* clientRpc = session->clientSend(&request,
-                &reply);
-        // The following line serves only to avoid an "unused result"
-        // warning for the line above.
-        clientRpc->isReady();
-        TcpTransport::TcpSession* rawSession =
-                reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-        sys->recvEof = true;
-        (*rawSession->replyHandler)();
-        CPPUNIT_ASSERT_EQUAL(-1, rawSession->fd);
-        CPPUNIT_ASSERT_EQUAL("socket closed by server", rawSession->errorInfo);
-    }
-
-    void test_ReplyReadHandler_eofOutsideRPC() {
-        // In this test, close the connection when there is no RPC
-        // outstanding; this creates additional stress because not all
-        // data structures have been initialized.
-        TcpTransport server(locator);
-        TcpTransport client;
-        Transport::SessionRef session = client.getSession(*locator);
-        (*server.acceptHandler)();
-        server.closeSocket(downCast<unsigned>(server.sockets.size()) - 1);
-        TcpTransport::TcpSession* rawSession =
-                reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-        (*rawSession->replyHandler)();
-        CPPUNIT_ASSERT_EQUAL(-1, rawSession->fd);
-        CPPUNIT_ASSERT_EQUAL("socket closed by server", rawSession->errorInfo);
-    }
-
-    void test_ReplyReadHandler_unexpectedDataFromServer() {
-        TcpTransport server(locator);
-        TcpTransport client;
-        Transport::SessionRef session = client.getSession(*locator);
-        (*server.acceptHandler)();
-        write(downCast<unsigned>(server.sockets.size()) - 1, "abcdef", 6);
-        TcpTransport::TcpSession* rawSession =
-                reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-        (*rawSession->replyHandler)();
-        CPPUNIT_ASSERT_EQUAL("operator(): TcpTransport::ReplyReadHandler "
-                "discarding 6 unexpected bytes from server 127.0.0.1:11000",
-                TestLog::get());
-    }
-
-    void test_ReplyReadHandler_ioError() {
-        TcpTransport server(locator);
-        TcpTransport client;
-        Transport::SessionRef session = client.getSession(*locator);
-        Buffer request;
-        Buffer reply;
-        Buffer::Chunk::appendToBuffer(&request, "xxx", 3);
-        Transport::ClientRpc* clientRpc = session->clientSend(&request,
-                &reply);
-        // The following line serves only to avoid an "unused result"
-        // warning for the line above.
-        clientRpc->isReady();
-        TcpTransport::TcpSession* rawSession =
-                reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-        sys->recvErrno = EPERM;
-        (*rawSession->replyHandler)();
-        CPPUNIT_ASSERT_EQUAL(-1, rawSession->fd);
-        CPPUNIT_ASSERT_EQUAL("operator(): TcpTransport::ReplyReadHandler "
-                "closing session socket: I/O read error in TcpTransport: "
-                "Operation not permitted", TestLog::get());
-        CPPUNIT_ASSERT_EQUAL("I/O read error in TcpTransport: Operation "
-                "not permitted", rawSession->errorInfo);
-    }
-
-    void test_wait_throwError() {
-        TcpTransport server(locator);
-        TcpTransport client;
-        Transport::SessionRef session = client.getSession(*locator);
-        Buffer request, reply;
-        Transport::ClientRpc* clientRpc = session->clientSend(&request,
-                &reply);
-        TcpTransport::TcpSession* rawSession =
-                reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-        rawSession->close();
-        rawSession->errorInfo = "error message";
-        string message("no exception");
-        try {
-            clientRpc->wait();
-        } catch (TransportException& e) {
-            message = e.message;
-        }
-        CPPUNIT_ASSERT_EQUAL("error message", message);
-    }
-
-  private:
     DISALLOW_COPY_AND_ASSIGN(TcpTransportTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(TcpTransportTest);
+
+TEST_F(TcpTransportTest, sanityCheck) {
+    // Create a server and a client and verify that we can
+    // send a request, receive it, send a reply, and receive it.
+    // Then try a second request.
+
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+
+    Buffer request;
+    Buffer reply;
+    request.fillFromString("abcdefg");
+    Transport::ClientRpc* clientRpc = session->clientSend(&request,
+            &reply);
+    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    EXPECT_EQ("abcdefg/0", toString(&serverRpc->requestPayload));
+    EXPECT_FALSE(clientRpc->isReady());
+    serverRpc->replyPayload.fillFromString("klmn");
+    serverRpc->sendReply();
+    dispatch->poll();
+    EXPECT_TRUE(waitForRpc(*clientRpc));
+    EXPECT_EQ("klmn/0", toString(&reply));
+
+    request.fillFromString("request2");
+    reply.reset();
+    clientRpc = session->clientSend(&request, &reply);
+    serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    EXPECT_EQ("request2/0", toString(&serverRpc->requestPayload));
+    serverRpc->replyPayload.fillFromString("reply2");
+    serverRpc->sendReply();
+    clientRpc->wait();
+    EXPECT_EQ("reply2/0", toString(&reply));
+}
+
+TEST_F(TcpTransportTest, constructor_clientSideOnly) {
+    sys->socketErrno = EPERM;
+    TcpTransport client;
+}
+
+TEST_F(TcpTransportTest, constructor_socketError) {
+    sys->socketErrno = EPERM;
+    EXPECT_EQ("TcpTransport couldn't create listen socket: "
+        "Operation not permitted", catchConstruct(locator));
+}
+
+TEST_F(TcpTransportTest, constructor_nonBlockError) {
+    sys->fcntlErrno = EPERM;
+    EXPECT_EQ("TcpTransport couldn't set nonblocking on "
+        "listen socket: Operation not permitted",
+        catchConstruct(locator));
+}
+
+TEST_F(TcpTransportTest, constructor_reuseAddrError) {
+    sys->setsockoptErrno = EPERM;
+    EXPECT_EQ("TcpTransport couldn't set SO_REUSEADDR "
+        "on listen socket: Operation not permitted",
+        catchConstruct(locator));
+}
+
+TEST_F(TcpTransportTest, constructor_bindError) {
+    sys->bindErrno = EPERM;
+    EXPECT_EQ("TcpTransport couldn't bind to 'tcp+ip: "
+        "host=localhost, port=11000': Operation not permitted",
+        catchConstruct(locator));
+}
+
+TEST_F(TcpTransportTest, constructor_listenError) {
+    sys->listenErrno = EPERM;
+    EXPECT_EQ("TcpTransport couldn't listen on socket: "
+        "Operation not permitted", catchConstruct(locator));
+}
+
+TEST_F(TcpTransportTest, destructor) {
+    // Connect 2 clients to 1 server, then delete them all and make
+    // sure that all of the sockets get closed.
+    TcpTransport* server = new TcpTransport(locator);
+    TcpTransport* client = new TcpTransport();
+    Transport::SessionRef session1 = client->getSession(*locator);
+    Transport::SessionRef session2 = client->getSession(*locator);
+
+    Buffer request1, request2;
+    Buffer reply1, reply2;
+    request1.fillFromString("request1");
+    request2.fillFromString("request2");
+    Transport::ClientRpc* clientRpc1 = session1->clientSend(&request1,
+            &reply1);
+    Transport::ClientRpc* clientRpc2 = session2->clientSend(&request2,
+            &reply2);
+    Transport::ServerRpc* serverRpc1 = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc1 != NULL);
+    Transport::ServerRpc* serverRpc2 = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc2 != NULL);
+    EXPECT_EQ("request1/0", toString(&serverRpc1->requestPayload));
+    EXPECT_EQ("request2/0", toString(&serverRpc2->requestPayload));
+    serverRpc1->replyPayload.fillFromString("reply1");
+    serverRpc1->sendReply();
+    serverRpc2->replyPayload.fillFromString("reply2");
+    serverRpc2->sendReply();
+    clientRpc1->wait();
+    clientRpc2->wait();
+    EXPECT_EQ("reply1/0", toString(&reply1));
+    EXPECT_EQ("reply2/0", toString(&reply2));
+
+    sys->closeCount = 0;
+    delete server;
+    EXPECT_EQ(3, sys->closeCount);
+    delete client;
+    EXPECT_EQ(3, sys->closeCount);
+    session1 = NULL;
+    session2 = NULL;
+    EXPECT_EQ(5, sys->closeCount);
+}
+
+TEST_F(TcpTransportTest, AcceptHandler_noConnection) {
+    TcpTransport server(locator);
+    server.acceptHandler->handleFileEvent();
+    EXPECT_EQ(0U, server.sockets.size());
+}
+
+TEST_F(TcpTransportTest, AcceptHandler_acceptFailure) {
+    TcpTransport server(locator);
+    sys->acceptErrno = EPERM;
+    server.acceptHandler->handleFileEvent();
+    EXPECT_EQ("handleFileEvent: error in TcpTransport::AcceptHandler "
+            "accepting connection for 'tcp+ip: host=localhost, "
+            "port=11000': Operation not permitted", TestLog::get());
+    EXPECT_EQ(-1, server.listenSocket);
+    EXPECT_EQ(1, sys->closeCount);
+}
+
+TEST_F(TcpTransportTest, AcceptHandler_success) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    EXPECT_NE(server.sockets.size(), 0U);
+    EXPECT_FALSE(server.sockets[server.sockets.size() - 1] == NULL);
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, RequestReadHandler) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    EXPECT_NE(server.sockets.size(), 0U);
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+
+    // Send a message in 2 chunks.
+    TcpTransport::Header header;
+    header.len = 6;
+    EXPECT_EQ(static_cast<int>(sizeof(header)),
+        write(fd, &header, sizeof(header)));
+    server.sockets[serverFd]->readHandler.handleFileEvent();
+    EXPECT_TRUE(server.sockets[serverFd]->rpc != NULL);
+    EXPECT_EQ(0, countWaitingRequests());
+
+    EXPECT_EQ(6, write(fd, "abcdef", 6));
+    server.sockets[serverFd]->readHandler.handleFileEvent();
+    EXPECT_EQ(1, countWaitingRequests());
+
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, RequestReadHandler_unexpectedData) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    EXPECT_NE(server.sockets.size(), 0U);
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+
+    // Send a message to make the server busy.
+    TcpTransport::Header header;
+    header.len = 0;
+    write(fd, &header, sizeof(header));
+    server.sockets[serverFd]->readHandler.handleFileEvent();
+    EXPECT_TRUE(server.sockets[serverFd]->busy);
+
+    // Send more junk to the server.
+    write(fd, "abcdef", 6);
+    server.sockets[serverFd]->readHandler.handleFileEvent();
+    EXPECT_EQ("handleFileEvent: TcpTransport::RequestReadHandler "
+            "discarding 6 unexpected bytes from client",
+            TestLog::get());
+
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, RequestReadHandler_eof) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+    close(fd);
+    server.sockets[serverFd]->readHandler.handleFileEvent();
+    EXPECT_TRUE(server.sockets[serverFd] == NULL);
+}
+
+TEST_F(TcpTransportTest, RequestReadHandler_error) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+    sys->recvErrno = EPERM;
+    server.sockets[serverFd]->readHandler.handleFileEvent();
+    EXPECT_TRUE(server.sockets[serverFd] == NULL);
+    EXPECT_EQ("handleFileEvent: TcpTransport::RequestReadHandler "
+            "closing client connection: I/O read error in TcpTransport: "
+            "Operation not permitted", TestLog::get());
+
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, sendMessage_multipleChunks) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    Buffer payload;
+    Buffer::Chunk::appendToBuffer(&payload, "abcde", 5);
+    Buffer::Chunk::appendToBuffer(&payload, "xxx", 3);
+    Buffer::Chunk::appendToBuffer(&payload, "12345678", 8);
+    TcpTransport::sendMessage(fd, payload);
+
+    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    EXPECT_EQ("abcdexxx12345678",
+            toString(&serverRpc->requestPayload));
+
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, sendMessage_errorOnSend) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    Buffer payload;
+    Buffer::Chunk::appendToBuffer(&payload, "test message", 5);
+
+    sys->sendmsgErrno = EPERM;
+    string message("no exception");
+    try {
+        TcpTransport::sendMessage(fd, payload);
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("I/O error in TcpTransport::sendMessage: "
+            "Operation not permitted", message);
+
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, sendMessage_brokenPipe) {
+    // The main reason for this test is to make sure that
+    // broken pipe errors don't generate signals that kill
+    // the process.
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    ASSERT_TRUE(waitForSession(server));
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+    server.closeSocket(serverFd);
+    string message("no exception");
+    try {
+        Buffer request;
+        Buffer::Chunk::appendToBuffer(&request, "message chunk", 13);
+        TcpTransport::TcpSession* rawSession =
+                reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+        for (int i = 0; i < 1000; i++) {
+            TcpTransport::sendMessage(rawSession->fd, request);
+        }
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("I/O error in TcpTransport::sendMessage: "
+            "Broken pipe", message);
+}
+
+TEST_F(TcpTransportTest, sendMessage_shortCount) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    Buffer payload;
+    Buffer::Chunk::appendToBuffer(&payload, "test message", 5);
+
+    sys->sendmsgReturnCount = 3;
+    string message("no exception");
+    try {
+        TcpTransport::sendMessage(fd, payload);
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("Incomplete sendmsg in "
+            "TcpTransport::sendMessage: 3 bytes sent out of 9",
+            message);
+
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, recvCarefully_ioErrors) {
+    string message("no exception");
+    sys->recvEof = true;
+    try {
+        TcpTransport::recvCarefully(2, NULL, 100);
+    } catch (TcpTransport::TcpTransportEof& e) {
+        message = "eof";
+    }
+    EXPECT_EQ("eof", message);
+    sys->recvEof = false;
+    sys->recvErrno = EAGAIN;
+    EXPECT_EQ(0, TcpTransport::recvCarefully(2, NULL, 100));
+    sys->recvErrno = EPERM;
+    message = "no exception";
+    try {
+        TcpTransport::recvCarefully(2, NULL, 100);
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("I/O read error in TcpTransport: "
+            "Operation not permitted", message);
+}
+
+TEST_F(TcpTransportTest, readMessage_receiveHeaderInPieces) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+
+    // Try to receive when there is no data at all.
+    Buffer buffer;
+    TcpTransport::IncomingMessage incoming(&buffer);
+    EXPECT_FALSE(incoming.readMessage(serverFd));
+    EXPECT_EQ(0U, incoming.headerBytesReceived);
+
+    // Send first part of header.
+    TcpTransport::Header header;
+    header.len = 123456789;
+    write(fd, &header, 3);
+    EXPECT_FALSE(incoming.readMessage(serverFd));
+    EXPECT_EQ(3U, incoming.headerBytesReceived);
+
+    // Send second part of header (oversize counter will generate
+    // exception).
+    write(fd, reinterpret_cast<char*>(&header)+3, sizeof(header)-3);
+    string message("no exception");
+    try {
+        incoming.readMessage(serverFd);
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("TcpTransport received oversize message "
+            "(123456789 bytes)", message);
+
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, readMessage_zeroLengthMessage) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+    Buffer buffer;
+    TcpTransport::IncomingMessage incoming(&buffer);
+    TcpTransport::Header header;
+    header.len = 0;
+    write(fd, &header, sizeof(header));
+    EXPECT_TRUE(incoming.readMessage(serverFd));
+    EXPECT_EQ("", toString(&buffer));
+
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, readMessage_receiveBodyInPieces) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+    Buffer buffer;
+    TcpTransport::IncomingMessage incoming(&buffer);
+    TcpTransport::Header header;
+    header.len = 11;
+    write(fd, &header, sizeof(header));
+
+    // First attempt: header present but no body bytes.
+    EXPECT_FALSE(incoming.readMessage(serverFd));
+    EXPECT_EQ(0U, incoming.messageBytesReceived);
+
+    // Second attempt: part of body present.
+    write(fd, "abcde", 5);
+    EXPECT_FALSE(incoming.readMessage(serverFd));
+    EXPECT_EQ(5U, incoming.messageBytesReceived);
+
+    // Third attempt: remainder of body present, plus extra bytes
+    // (don't read extras).
+    write(fd, "0123456789", 10);
+    EXPECT_TRUE(incoming.readMessage(serverFd));
+    EXPECT_EQ("abcde012345", toString(&buffer));
+
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, sessionConstructor_socketError) {
+    sys->socketErrno = EPERM;
+    string message("");
+    try {
+        TcpTransport::TcpSession session(*locator);
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("TcpTransport couldn't open socket "
+            "for session: Operation not permitted", message);
+}
+
+TEST_F(TcpTransportTest, sessionConstructor_connectError) {
+    sys->connectErrno = EPERM;
+    string message("no exception");
+    try {
+        TcpTransport::TcpSession session(*locator);
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("Session connect error in TcpTransport: "
+            "Operation not permitted", message);
+    EXPECT_EQ(1, sys->closeCount);
+}
+
+TEST_F(TcpTransportTest, sessionDestructor) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    session = NULL;
+    EXPECT_EQ(1, sys->closeCount);
+}
+
+TEST_F(TcpTransportTest, sessionDestructor_finishRequestsInProgress) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request1, request2, request3;
+    Buffer reply1, reply2, reply3;
+
+    // Queue several requests.
+    Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
+            &reply1);
+    Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
+            &reply2);
+    Transport::ClientRpc* clientRpc3 = session->clientSend(&request3,
+            &reply3);
+
+    // Close the session and make sure all the requests terminate.
+
+    session = NULL;
+    EXPECT_TRUE(clientRpc1->isReady());
+    EXPECT_TRUE(clientRpc2->isReady());
+    EXPECT_TRUE(clientRpc3->isReady());
+    string message1("no exception");
+    try {
+        clientRpc1->wait();
+    } catch (TransportException& e) {
+        message1 = e.message;
+    }
+    EXPECT_EQ("session closed", message1);
+    string message3("no exception");
+    try {
+        clientRpc3->wait();
+    } catch (TransportException& e) {
+        message3 = e.message;
+    }
+    EXPECT_EQ("session closed", message3);
+}
+
+TEST_F(TcpTransportTest, clientSend_sessionClosed) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+    rawSession->close();
+    rawSession->errorInfo = "session closed";
+    string message("no exception");
+    try {
+        Buffer request, reply;
+        delete session->clientSend(&request, &reply);
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("session closed", message);
+}
+
+TEST_F(TcpTransportTest, clientSend_queueRequest) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+    Buffer request1, request2;
+    Buffer reply1, reply2;
+    request1.fillFromString("abcdefg");
+    Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
+            &reply1);
+    Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
+            &reply2);
+    EXPECT_EQ(clientRpc1, rawSession->current);
+    EXPECT_EQ(1U, rawSession->waitingRpcs.size());
+    EXPECT_EQ(clientRpc2, rawSession->waitingRpcs.back());
+}
+
+TEST_F(TcpTransportTest, ReplyReadHandler_unexpectedDataFromServer) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    server.acceptHandler->handleFileEvent();
+    write(downCast<unsigned>(server.sockets.size()) - 1, "abcdef", 6);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+    rawSession->replyHandler->handleFileEvent();
+    EXPECT_EQ("handleFileEvent: TcpTransport::ReplyReadHandler "
+            "discarding 6 unexpected bytes from server 127.0.0.1:11000",
+            TestLog::get());
+}
+
+TEST_F(TcpTransportTest, ReplyReadHandler_startNextRequest) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+    Buffer request1, request2;
+    Buffer reply1, reply2;
+    request1.fillFromString("abcdefg");
+    request1.fillFromString("xyzzy");
+
+    // Start 2 requests (the second one will get queued).
+    Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
+            &reply1);
+    Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
+            &reply2);
+    EXPECT_EQ(1U, rawSession->waitingRpcs.size());
+    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    serverRpc->replyPayload.fillFromString("klmn");
+
+    // Reply to the first request, make sure the second one gets unqueued.
+    serverRpc->sendReply();
+    EXPECT_TRUE(waitForRpc(*clientRpc1));
+    EXPECT_EQ("klmn/0", toString(&reply1));
+    EXPECT_EQ(0U, rawSession->waitingRpcs.size());
+    serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    serverRpc->replyPayload.fillFromString("aaaaa");
+    serverRpc->sendReply();
+    EXPECT_TRUE(waitForRpc(*clientRpc2));
+    EXPECT_EQ("aaaaa/0", toString(&reply2));
+}
+
+TEST_F(TcpTransportTest, ReplyReadHandler_eof) {
+    // In this test, arrange for the connection to get closed
+    // while an RPC is outstanding and we are waiting for a response.
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request;
+    Buffer reply;
+    Buffer::Chunk::appendToBuffer(&request, "xxx", 3);
+    Transport::ClientRpc* clientRpc = session->clientSend(&request,
+            &reply);
+    // The following line serves only to avoid an "unused result"
+    // warning for the line above.
+    clientRpc->isReady();
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+    sys->recvEof = true;
+    rawSession->replyHandler->handleFileEvent();
+    EXPECT_EQ(-1, rawSession->fd);
+    EXPECT_EQ("socket closed by server", rawSession->errorInfo);
+}
+
+TEST_F(TcpTransportTest, ReplyReadHandler_eofOutsideRPC) {
+    // In this test, close the connection when there is no RPC
+    // outstanding; this creates additional stress because not all
+    // data structures have been initialized.
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    server.acceptHandler->handleFileEvent();
+    server.closeSocket(downCast<unsigned>(server.sockets.size()) - 1);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+    rawSession->replyHandler->handleFileEvent();
+    EXPECT_EQ(-1, rawSession->fd);
+    EXPECT_EQ("socket closed by server", rawSession->errorInfo);
+}
+
+TEST_F(TcpTransportTest, ReplyReadHandler_ioError) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request;
+    Buffer reply;
+    Buffer::Chunk::appendToBuffer(&request, "xxx", 3);
+    Transport::ClientRpc* clientRpc = session->clientSend(&request,
+            &reply);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+    sys->recvErrno = EPERM;
+    rawSession->replyHandler->handleFileEvent();
+    EXPECT_EQ(-1, rawSession->fd);
+    EXPECT_EQ("handleFileEvent: TcpTransport::ReplyReadHandler "
+            "closing session socket: I/O read error in TcpTransport: "
+            "Operation not permitted", TestLog::get());
+    string message("no exception");
+    try {
+        clientRpc->wait();
+    } catch (TransportException& e) {
+        message = e.message;
+    }
+    EXPECT_EQ("I/O read error in TcpTransport: Operation not permitted",
+            message);
+}
 
 }  // namespace RAMCloud

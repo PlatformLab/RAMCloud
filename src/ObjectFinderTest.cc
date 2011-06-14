@@ -67,41 +67,41 @@ class ObjectFinderTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
-    CoordinatorServer* coordinatorServer;
+    CoordinatorServer* coordinatorService;
     CoordinatorClient* coordinatorClient;
-    Server* host1Server;
-    Server* host2Server;
+    Service* host1Service;
+    Service* host2Service;
     ObjectFinder* objectFinder;
 
   public:
     ObjectFinderTest()
         : transport()
-        , coordinatorServer()
+        , coordinatorService()
         , coordinatorClient()
-        , host1Server()
-        , host2Server()
+        , host1Service()
+        , host2Service()
         , objectFinder()
     {}
 
     void setUp() {
         transport = new BindTransport();
         transportManager.registerMock(transport);
-        coordinatorServer = new CoordinatorServer();
-        transport->addServer(*coordinatorServer, "mock:host=coordinator");
+        coordinatorService = new CoordinatorServer();
+        transport->addService(*coordinatorService, "mock:host=coordinator");
         coordinatorClient = new CoordinatorClient("mock:host=coordinator");
-        host1Server = new Server();
-        transport->addServer(*host1Server, "mock:host=host1");
-        host2Server = new Server();
-        transport->addServer(*host2Server, "mock:host=host2");
+        host1Service = new Service();
+        transport->addService(*host1Service, "mock:host=host1");
+        host2Service = new Service();
+        transport->addService(*host2Service, "mock:host=host2");
         objectFinder = new ObjectFinder(*coordinatorClient);
     }
 
     void tearDown() {
         delete objectFinder;
-        delete host1Server;
-        delete host2Server;
+        delete host1Service;
+        delete host2Service;
         delete coordinatorClient;
-        delete coordinatorServer;
+        delete coordinatorService;
         transportManager.unregisterMock();
         delete transport;
     }

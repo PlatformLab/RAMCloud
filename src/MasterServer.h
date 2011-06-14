@@ -26,7 +26,7 @@
 #include "BackupManager.h"
 #include "HashTable.h"
 #include "RecoverySegmentIterator.h"
-#include "Server.h"
+#include "Service.h"
 #include "SegmentIterator.h"
 #include "Table.h"
 
@@ -63,16 +63,17 @@ struct ServerConfig {
  * respond to client RPC requests to manipulate objects stored on the
  * server.
  */
-class MasterServer : public Server {
+class MasterServer : public Service {
   public:
+    static const uint64_t TOTAL_READ_REQUESTS_OBJID = 100000UL;
+
     MasterServer(const ServerConfig config,
                  CoordinatorClient* coordinator,
                  uint32_t replicas);
     virtual ~MasterServer();
-    void run();
+    void init();
     void dispatch(RpcType type,
-                  Transport::ServerRpc& rpc,
-                  Responder& responder);
+                  Rpc& rpc);
 
     /**
      * Figure out the Master Server's memory requirements. This means computing
@@ -187,23 +188,22 @@ class MasterServer : public Server {
   private:
     void create(const CreateRpc::Request& reqHdr,
                 CreateRpc::Response& respHdr,
-                Transport::ServerRpc& rpc);
+                Rpc& rpc);
     void ping(const PingRpc::Request& reqHdr,
               PingRpc::Response& respHdr,
-              Transport::ServerRpc& rpc);
+              Rpc& rpc);
     void fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
                           FillWithTestDataRpc::Response& respHdr,
-                          Transport::ServerRpc& rpc);
+                          Rpc& rpc);
     void read(const ReadRpc::Request& reqHdr,
               ReadRpc::Response& respHdr,
-              Transport::ServerRpc& rpc);
+              Rpc& rpc);
     void multiRead(const MultiReadRpc::Request& reqHdr,
                    MultiReadRpc::Response& respHdr,
-                   Transport::ServerRpc& rpc);
+                   Rpc& rpc);
     void recover(const RecoverRpc::Request& reqHdr,
                  RecoverRpc::Response& respHdr,
-                 Transport::ServerRpc& rpc,
-                 Responder& responder);
+                 Rpc& rpc);
 
     void recoverSegmentPrefetcher(RecoverySegmentIterator& i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
@@ -215,17 +215,17 @@ class MasterServer : public Server {
 
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
-                Transport::ServerRpc& rpc);
+                Rpc& rpc);
     void rereplicateSegments(const RereplicateSegmentsRpc::Request& reqHdr,
                              RereplicateSegmentsRpc::Response& respHdr,
-                             Transport::ServerRpc& rpc);
+                             Rpc& rpc);
     void setTablets(const ProtoBuf::Tablets& newTablets);
     void setTablets(const SetTabletsRpc::Request& reqHdr,
                     SetTabletsRpc::Response& respHdr,
-                    Transport::ServerRpc& rpc);
+                    Rpc& rpc);
     void write(const WriteRpc::Request& reqHdr,
                WriteRpc::Response& respHdr,
-               Transport::ServerRpc& rpc);
+               Rpc& rpc);
 
     // The following variables are copies of constructor arguments;
     // see constructor documentation for details.

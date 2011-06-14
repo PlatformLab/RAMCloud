@@ -24,7 +24,6 @@ namespace RAMCloud {
  */
 MockDriver::MockDriver()
             : headerToString(0)
-            , inputReceived(0)
             , outputLog()
             , sendPacketCount(0)
             , releaseCount(0)
@@ -41,7 +40,6 @@ MockDriver::MockDriver()
  */
 MockDriver::MockDriver(HeaderToString headerToString)
             : headerToString(headerToString)
-            , inputReceived(0)
             , outputLog()
             , sendPacketCount(0)
             , releaseCount(0)

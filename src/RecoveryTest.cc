@@ -102,7 +102,6 @@ class RecoveryTest : public CppUnit::TestFixture {
         DISALLOW_COPY_AND_ASSIGN(WriteValidSegment);
     };
 
-    Tub<ProgressPoller> progressPoller;
     BackupClient* backup1;
     BackupClient* backup2;
     BackupClient* backup3;
@@ -124,8 +123,7 @@ class RecoveryTest : public CppUnit::TestFixture {
 
   public:
     RecoveryTest()
-        : progressPoller()
-        , backup1()
+        : backup1()
         , backup2()
         , backup3()
         , backupServer1()
@@ -153,7 +151,6 @@ class RecoveryTest : public CppUnit::TestFixture {
         if (!enlist)
             tearDown();
 
-        progressPoller.construct();
         transport = new BindTransport;
         transportManager.registerMock(transport);
 
@@ -161,7 +158,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         config->coordinatorLocator = "mock:host=coordinator";
 
         coordinatorServer = new CoordinatorServer;
-        transport->addServer(*coordinatorServer, config->coordinatorLocator);
+        transport->addService(*coordinatorServer, config->coordinatorLocator);
 
         coordinator = new CoordinatorClient(config->coordinatorLocator.c_str());
 
@@ -173,9 +170,9 @@ class RecoveryTest : public CppUnit::TestFixture {
         backupServer2 = new BackupServer(*config, *storage2);
         backupServer3 = new BackupServer(*config, *storage3);
 
-        transport->addServer(*backupServer1, "mock:host=backup1");
-        transport->addServer(*backupServer2, "mock:host=backup2");
-        transport->addServer(*backupServer3, "mock:host=backup3");
+        transport->addService(*backupServer1, "mock:host=backup1");
+        transport->addService(*backupServer2, "mock:host=backup2");
+        transport->addService(*backupServer3, "mock:host=backup3");
 
         if (enlist) {
             coordinator->enlistServer(BACKUP, "mock:host=backup1");
@@ -251,7 +248,6 @@ class RecoveryTest : public CppUnit::TestFixture {
         delete transport;
         CPPUNIT_ASSERT_EQUAL(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
-        progressPoller.destroy();
     }
 
     void
@@ -405,7 +401,7 @@ class RecoveryTest : public CppUnit::TestFixture {
             config.localLocator = locator;
             MasterServer::sizeLogAndHashTable("64", "8", &config);
             master = new MasterServer(config, &coordinator, 0);
-            transport.addServer(*master, locator);
+            transport.addService(*master, locator);
             master->serverId.construct(
                 coordinator.enlistServer(MASTER, locator));
         }

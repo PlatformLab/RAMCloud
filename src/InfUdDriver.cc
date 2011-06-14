@@ -180,6 +180,10 @@ template<typename Infiniband>
 void
 InfUdDriver<Infiniband>::release(char *payload)
 {
+    // Must sync with the dispatch thread, since this method could potentially
+    // be invoked in a worker.
+    Dispatch::Lock _;
+
     // Note: the payload is actually contained in a PacketBuf structure,
     // which we return to a pool for reuse later.
     assert(packetBufsUtilized > 0);
@@ -233,12 +237,12 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
  * See docs in the ``Driver'' class.
  */
 template<typename Infiniband>
-bool
-InfUdDriver<Infiniband>::Poller::operator() ()
+void
+InfUdDriver<Infiniband>::Poller::poll()
 {
+    assert(dispatch->isDispatchThread());
     PacketBuf* buffer = driver->packetBufPool.construct();
     BufferDescriptor* bd = NULL;
-    bool result = true;
 
     try {
         bd = driver->infiniband->tryReceive(driver->qp, &buffer->infAddress);
@@ -249,13 +253,12 @@ InfUdDriver<Infiniband>::Poller::operator() ()
 
     if (bd == NULL) {
         driver->packetBufPool.destroy(buffer);
-        return false;
+        return;
     }
 
     if (bd->messageBytes < 40) {
         LOG(ERROR, "received packet without GRH!");
         driver->packetBufPool.destroy(buffer);
-        result = false;
     } else {
         LOG(DEBUG, "received %u byte packet (not including GRH) from %s",
             bd->messageBytes - 40,
@@ -276,7 +279,6 @@ InfUdDriver<Infiniband>::Poller::operator() ()
 
     // post the original infiniband buffer back to the receive queue
     driver->infiniband->postReceive(driver->qp, bd);
-    return result;
 }
 
 /**

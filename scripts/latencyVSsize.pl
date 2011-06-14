@@ -21,11 +21,13 @@ if (defined $help ||
     !defined $dump
    ) {
 	print "Usage: $0 --coordinatorLocator locator-string --benchBinary binary --dump <file-to-dump-data> [--transport <transport name>] [--help] --debug]\n";
+  print "          [--clienthost <host> - optional host to run client on, instead of default host - same as master.\n";
 	exit 1;
 }
 
 my %data;
 my @sizes;
+push @sizes, ($_ * 10) for (1, 10, 100);
 push @sizes, ($_ * 10) for (1 .. 9);
 push @sizes, ($_ * 100) for (1 .. 9);
 # push @sizes, ($_ * 1000) for (1 .. 9);
@@ -52,6 +54,7 @@ for my $size (@sizes) {
 		die "Close failed - $!";
 }
 
+$Data::Dumper::Sortkeys = 1;
 print Dumper \%data;
 store \%data, $dump;
 
