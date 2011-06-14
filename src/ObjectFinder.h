@@ -37,13 +37,13 @@ class ObjectFinder {
      * to one master in a multiRead / multiWrite operation.
      */
     struct MasterRequests {
-        MasterRequests() : sessionref(), requests() {}
-        Transport::SessionRef sessionref;
-        std::vector<MasterClient::ReadObject> requests;
+        MasterRequests() : sessionRef(), requests() {}
+        Transport::SessionRef sessionRef;
+        std::vector<MasterClient::ReadObject*> requests;
     };
 
     Transport::SessionRef lookup(uint32_t table, uint64_t objectId);
-    std::vector<MasterRequests> multiLookup(MasterClient::ReadObject input[],
+    std::vector<MasterRequests> multiLookup(MasterClient::ReadObject* input[],
                                             uint32_t numRequests);
 
 

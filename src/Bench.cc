@@ -31,6 +31,9 @@
 #include "BenchUtil.h"
 #include "OptionParser.h"
 
+#include "MasterClient.h"
+#include "Tub.h"
+
 namespace RC = RAMCloud;
 using std::map;
 using std::string;
@@ -78,6 +81,8 @@ class BenchMapper {
 std::string coordinatorLocator;
 std::string tableName("test");
 std::string controlTableName("test");
+uint32_t numTables;
+uint32_t multiread;
 bool multirow;
 bool randomReads;
 uint64_t count;
@@ -87,6 +92,8 @@ bool readOnly = false;
 std::string executionMode("standalone");
 int numWorkers = -1;
 int workerId = -1;
+
+std::vector<uint32_t> tables;
 
 RC::RamCloud *client;
 uint32_t table;
@@ -119,8 +126,15 @@ setup()
 
     assert(!atexit(cleanup));
 
-    client->createTable(tableName.c_str());
-    table = client->openTable(tableName.c_str());
+    if (numTables == 1) {
+        client->createTable(tableName.c_str());
+        table = client->openTable(tableName.c_str());
+    } else {
+        for (uint32_t i = 0; i < numTables; i++) {
+            client->createTable(RC::format("%u", i).c_str());
+            tables.push_back(client->openTable(RC::format("%u", i).c_str()));
+        }
+    }
 
     std::stringstream ss;
     ss << "control." << tableName;
@@ -167,12 +181,12 @@ readInt(uint32_t table, uint64_t key, uint64_t& val)
 }
 
 void
-writeOne(uint64_t val)
+writeOne(uint64_t val, uint64_t key = 0)
 {
     char buf[size];
     memset(&buf[0], downCast<uint32_t>(val), size);
     buf[size-1] = 0;
-    client->write(table, 0, &buf[0], downCast<uint32_t>(size));
+    client->write(table, key, &buf[0], downCast<uint32_t>(size));
 }
 
 void
@@ -184,8 +198,21 @@ writeOne()
 void
 writeMany(void)
 {
-    for (uint64_t i = 0; i < count; i++)
-        writeOne(0xFF);
+    if (numTables == 1) {
+        for (uint64_t i = 0; i < count; i++) {
+            uint64_t key = i;
+            writeOne(0xFF, key);
+        }
+    } else {
+        // Write one value in each table
+        for (uint32_t i = 0; i < numTables; i++) {
+            uint64_t val = 0xFF;
+            char buf[size];
+            memset(&buf[0], downCast<uint32_t>(val), size);
+            buf[size-1] = 0;
+            client->write(tables[i], 0, &buf[0], downCast<uint32_t>(size));
+        }
+    }
 }
 
 void
@@ -207,6 +234,72 @@ readMany()
             value_counter[1]++;
         } else {
             value_counter[0]++;
+        }
+    }
+}
+
+void
+multiRead_oneMaster()
+{
+    uint64_t iterations = count / multiread;
+
+    RC::MasterClient::ReadObject requestObjects[multiread];
+    RC::MasterClient::ReadObject* requests[multiread];
+
+    for (uint64_t i = 0; i < iterations; i++) {
+        RC::Tub<RC::Buffer> values[multiread];
+
+        for (uint32_t j = 0; j < multiread; j++) {
+            uint64_t key = randomReads ? generateRandom() % count : j;
+            requestObjects[j] = RC::MasterClient::ReadObject(
+                                table, (randomReads || multirow) ? key : 0,
+                                &values[j]);
+            requests[j] = &requestObjects[j];
+        }
+
+        client->multiRead(requests, multiread);
+
+        for (uint32_t k = 0; k < multiread; k++) {
+            RC::Buffer *valueBuffer = values[k].get();
+            uint64_t val = *valueBuffer->getStart<uint64_t>();
+            if (val) {
+                value_counter[1]++;
+            } else {
+                value_counter[0]++;
+            }
+        }
+    }
+}
+
+void
+multiRead_multiMaster()
+{
+    // Current implementation assumes that only one object is to be read
+    // from each table. i.e., when numTables > 1, multiread = 1
+
+    uint64_t iterations = count / numTables;
+
+    RC::MasterClient::ReadObject requestObjects[numTables];
+    RC::MasterClient::ReadObject* requests[numTables];
+
+    for (uint64_t i = 0; i < iterations; i++) {
+        RC::Tub<RC::Buffer> values[numTables];
+        for (uint32_t j = 0; j < numTables; j++) {
+            requestObjects[j] = RC::MasterClient::ReadObject(tables[j], 0,
+                                                             &values[j]);
+            requests[j] = &requestObjects[j];
+        }
+
+        client->multiRead(requests, numTables);
+
+        for (uint32_t j = 0; j < numTables; j++) {
+            RC::Buffer *valueBuffer = values[j].get();
+            uint64_t val = *valueBuffer->getStart<uint64_t>();
+            if (val) {
+                value_counter[1]++;
+            } else {
+                value_counter[0]++;
+            }
         }
     }
 }
@@ -264,6 +357,14 @@ try
          RC::ProgramOptions::value<int>(&cpu)->
            default_value(-1),
          "CPU mask to pin to")
+         ("multiread,d",
+          RC::ProgramOptions::value<uint32_t>(&multiread)->
+            default_value(0),
+          "Number of objects to be read in each multiread from each table.")
+        ("tables,b",
+         RC::ProgramOptions::value<uint32_t>(&numTables)->
+           default_value(1),
+         "Number of tables to be used.")
         ("multirow,m",
          RC::ProgramOptions::bool_switch(&multirow),
          "Write number of objects equal to number parameter.")
@@ -300,22 +401,32 @@ try
     coordinatorLocator = optionParser.options.getCoordinatorLocator();
     printf("client: Connecting to %s\n", coordinatorLocator.c_str());
 
-    printf("Reads: %lu, Size: %lu, Multirow: %d, RandomReads: %d\n",
+    fprintf(stderr, "Reads: %lu, Size: %lu, Multirow: %d, RandomReads: %d\n",
            count, size, multirow, randomReads);
+    fprintf(stderr, "ReadOnly: %d, Multiread: %u\n",
+            readOnly, multiread);
 
     setup();
-
     fprintf(stderr, "Started Benching!\n");
 
     if (executionMode.compare("standalone") == 0) {
-        if (!readOnly) {
-            if (multirow) {
-                BENCH(writeMany);
+        if ((!readOnly && (multirow || randomReads))
+            || (readOnly && randomReads)) {
+            BENCH(writeMany);
+        } else {
+            BENCH(writeOne);
+        }
+
+        if (multiread == 0) {
+            BENCH(readMany);
+        } else {
+            if (numTables == 1) {
+                BENCH(multiRead_oneMaster);
             } else {
-                BENCH(writeOne);
+                BENCH(multiRead_multiMaster);
             }
         }
-        BENCH(readMany);
+
     } else if (executionMode.compare("worker") == 0) {
         fprintf(stderr, "worker mode - workerId %d\n", workerId);
         stringstream k;

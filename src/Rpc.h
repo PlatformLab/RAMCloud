@@ -175,33 +175,26 @@ struct ReadRpc {
     };
 };
 
-struct MultiReadRequestPart {
-    uint32_t tableId;
-    uint64_t id;
-};
-
 struct MultiReadRpc {
     static const RpcType type = MULTI_READ;
     struct Request {
         RpcRequestCommon common;
         uint32_t count;
-        /*
-        * In buffer: MultiReadRequestPart for each request goes here
-        */
+        struct Part {
+            uint32_t tableId;
+            uint64_t id;
+            Part(uint32_t tableId, uint64_t id) : tableId(tableId), id(id) {}
+        };
     };
     struct Response {
+        // RpcResponseCommon contains a status field. But it is not used in
+        // multiRead since there is a separate status for each object returned.
+        // Included here to fulfill requirements in common code.
         RpcResponseCommon common;
-        /*
-        * common refers to status. Not really used in multiRead since
-        * there is a separate status corresponding to each object.
-        * Included here to fulfill requirements in common code.
-        */
         uint32_t count;
-        /*
-        * In buffer: Status, SegmentEntry and Object go here
-        * Object has variable number of bytes (depending on data size.)
-        * In case of an error, only Status goes here
-        */
+        // In buffer: Status, SegmentEntry and Object go here
+        // Object has variable number of bytes (depending on data size.)
+        // In case of an error, only Status goes here
     };
 };
 

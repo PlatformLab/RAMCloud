@@ -86,30 +86,25 @@ ObjectFinder::lookup(uint32_t table, uint64_t objectId) {
  *      Array listing the objects to be read/written
  * \param numRequests
  *      Length of requests array
- * \throw TableDoesntExistException
- *      The coordinator has no record of a table.
  * \return requestBins
  *      Bins requests according to the master they correspond to.
- *      Each partition, called a requestBin, contains these requests
- *      and the SessionRef corresponding to that master.
  */
 
 std::vector<ObjectFinder::MasterRequests>
-ObjectFinder::multiLookup(MasterClient::ReadObject requests[],
+ObjectFinder::multiLookup(MasterClient::ReadObject* requests[],
                           uint32_t numRequests) {
 
     std::vector<ObjectFinder::MasterRequests> requestBins;
-
     for (uint32_t i = 0; i < numRequests; i++){
         try {
-            Transport::SessionRef currentSessionref =
-                ObjectFinder::lookup(requests[i].tableId, requests[i].id);
+            Transport::SessionRef currentSessionRef =
+                ObjectFinder::lookup(requests[i]->tableId, requests[i]->id);
 
-            // if this master already exists in the requestBins, add the request
-            // to the requests corresponding to that master
+            // if this master already exists in the requestBins, add request
+            // to the requestBin corresponding to that master
             bool masterFound = false;
             for (uint32_t j = 0; j < requestBins.size(); j++){
-                if (currentSessionref == requestBins[j].sessionref){
+                if (currentSessionRef == requestBins[j].sessionRef){
                     requestBins[j].requests.push_back(requests[i]);
                     masterFound = true;
                     break;
@@ -117,14 +112,13 @@ ObjectFinder::multiLookup(MasterClient::ReadObject requests[],
             }
             // else create a new requestBin corresponding to this master
             if (!masterFound) {
-                ObjectFinder::MasterRequests currentRequestBin;
-                currentRequestBin.sessionref = currentSessionref;
-                currentRequestBin.requests.push_back(requests[i]);
-                requestBins.push_back(currentRequestBin);
+                requestBins.push_back(ObjectFinder::MasterRequests());
+                requestBins.back().sessionRef = currentSessionRef;
+                requestBins.back().requests.push_back(requests[i]);
             }
         }
         catch (TableDoesntExistException &e) {
-            *requests[i].status = STATUS_TABLE_DOESNT_EXIST;
+            requests[i]->status = STATUS_TABLE_DOESNT_EXIST;
         }
     }
 

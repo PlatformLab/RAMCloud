@@ -87,21 +87,30 @@ RamCloud::read(uint32_t tableId, uint64_t id, Buffer* value,
  *      Length of input array
  */
 void
-RamCloud::multiRead(MasterClient::ReadObject requests[], uint32_t numRequests)
+RamCloud::multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests)
 {
-    /* 
-    * MasterRequests contains requests to be sent to one master
-    * requestBins contains all requests partitioned by masters
-    */
     std::vector<ObjectFinder::MasterRequests> requestBins =
                             objectFinder.multiLookup(requests, numRequests);
-    uint32_t numBins = downCast<uint32_t>(requestBins.size());
 
-    // Sequential requests for multiread to each master
+    // By default multiRead is to be done in parallel. Can be changed here
+    // if we need to do it sequentially for benchmarking.
+    bool parallel = true;
 
-    for (uint32_t j = 0; j < numBins; j++){
-        MasterClient master(requestBins[j].sessionref);
-        master.multiRead(requestBins[j].requests);
+    if (parallel == true) {
+        uint32_t numBins = downCast<uint32_t>(requestBins.size());
+        Tub<MasterClient::MultiRead> multiReadInstances[numBins];
+        for (uint32_t i = 0; i < numBins; i++) {
+            MasterClient master(requestBins[i].sessionRef);
+            multiReadInstances[i].construct(master, requestBins[i].requests);
+        }
+        for (uint32_t i = 0; i < numBins; i++) {
+            multiReadInstances[i]->complete();
+        }
+    } else {
+        foreach (ObjectFinder::MasterRequests requestBin, requestBins) {
+            MasterClient master(requestBin.sessionRef);
+            master.multiRead(requestBin.requests);
+        }
     }
 }
 

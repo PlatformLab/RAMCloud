@@ -273,18 +273,7 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
 /**
  * Top-level server method to handle the MULTIREAD request.
  *
- * \param reqHdr
- *      Header from the incoming RPC request; contains parameters
- *      for read operation for multiple objects.
- * \param[out] respHdr
- *      Header for the response that will be returned to the client.
- *      The caller has pre-allocated the right amount of space in the
- *      response buffer for this type of request. It contains
- *      response corresponding to each requested object.
- * \param[out] rpc
- *      Complete information about the remote procedure call; can be
- *      used to read additional information beyond the request header
- *      and/or append additional information to the response buffer.
+ * \copydetails Server::ping
  */
 void
 MasterServer::multiRead(const MultiReadRpc::Request& reqHdr,
@@ -292,50 +281,40 @@ MasterServer::multiRead(const MultiReadRpc::Request& reqHdr,
                         Transport::ServerRpc& rpc)
 {
     uint32_t numRequests = reqHdr.count;
-    // Increment reqOffset to after "rpc type" AND "count"
     uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
 
-    respHdr.count = 0;
+    respHdr.count = numRequests;
 
-    // For each request in reqHdr
+    // Each iteration extracts one request from request rpc, finds the
+    // corresponding object, and appends the response to the response rpc.
     for (uint32_t i = 0; i < numRequests; i++) {
-        /* EXTRACT REQUEST */
+        const MultiReadRpc::Request::Part *currentReq =
+              rpc.recvPayload.getOffset<MultiReadRpc::Request::Part>(reqOffset);
+        reqOffset += downCast<uint32_t>(sizeof(MultiReadRpc::Request::Part));
 
-        const MultiReadRequestPart *currentReq =
-                rpc.recvPayload.getOffset<MultiReadRequestPart>(reqOffset);
-        reqOffset += downCast<uint32_t>(sizeof(MultiReadRequestPart));
-
-        /* CREATE RESPONSE */
-
-        Status* status = new(&rpc.replyPayload, APPEND) Status;
-        *status = STATUS_OK;
+        Status* status = new(&rpc.replyPayload, APPEND) Status(STATUS_OK);
         // We must note the status if the table does not exist. Also, we might
         // have an entry in the hash table that's invalid because its tablet no
         // longer lives here.
         try{
             getTable(currentReq->tableId, currentReq->id);
         }
-        catch(TableDoesntExistException &e){
+        catch(TableDoesntExistException &e) {
             *status = STATUS_TABLE_DOESNT_EXIST;
+            continue;
         }
         LogEntryHandle handle = objectMap.lookup(currentReq->tableId,
                                                  currentReq->id);
         if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
              *status = STATUS_OBJECT_DOESNT_EXIST;
+             continue;
         }
 
-        if (*status == STATUS_OK){
-            const SegmentEntry* entry = reinterpret_cast<
-                                        const SegmentEntry*>(handle);
-            Buffer::Chunk::appendToBuffer(&rpc.replyPayload, entry,
-                                          downCast<uint32_t>(sizeof(
-                                          SegmentEntry)));
-
-            const Object* obj = handle->userData<Object>();
-            Buffer::Chunk::appendToBuffer(&rpc.replyPayload, obj,
-                                          handle->length());
-        }
-        respHdr.count++;
+        const SegmentEntry* entry = reinterpret_cast<
+                                    const SegmentEntry*>(handle);
+        Buffer::Chunk::appendToBuffer(&rpc.replyPayload, entry,
+                                      downCast<uint32_t>(sizeof(SegmentEntry))
+                                      + handle->length());
     }
 }
 
