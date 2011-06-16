@@ -284,6 +284,7 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, b.totalLength);
         CPPUNIT_ASSERT_EQUAL(0, b.numberChunks);
         CPPUNIT_ASSERT_EQUAL(NULL, b.chunks);
+        CPPUNIT_ASSERT_EQUAL(NULL, b.chunksTail);
         CPPUNIT_ASSERT_EQUAL(&b.initialAllocationContainer.allocation,
                              b.allocations);
         CPPUNIT_ASSERT_EQUAL(2048, b.allocations->chunkTop);
@@ -369,9 +370,11 @@ class BufferTest : public CppUnit::TestFixture {
     void test_prepend() {
         Buffer b;
         Buffer::Chunk::prependToBuffer(&b, NULL, 0);
+        CPPUNIT_ASSERT_EQUAL(NULL, b.chunksTail->data);
         Buffer::Chunk::prependToBuffer(&b, testStr3, 10);
         Buffer::Chunk::prependToBuffer(&b, testStr2, 10);
         Buffer::Chunk::prependToBuffer(&b, testStr1, 10);
+        CPPUNIT_ASSERT_EQUAL(NULL, b.chunksTail->data);
         CPPUNIT_ASSERT_EQUAL("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
                 bufferToDebugString(&b));
     }
@@ -379,9 +382,11 @@ class BufferTest : public CppUnit::TestFixture {
     void test_append() {
         Buffer b;
         Buffer::Chunk::appendToBuffer(&b, NULL, 0);
+        CPPUNIT_ASSERT_EQUAL(NULL, b.chunksTail->data);
         Buffer::Chunk::appendToBuffer(&b, testStr1, 10);
         Buffer::Chunk::appendToBuffer(&b, testStr2, 10);
         Buffer::Chunk::appendToBuffer(&b, testStr3, 10);
+        CPPUNIT_ASSERT_EQUAL(testStr3, b.chunksTail->data);
         CPPUNIT_ASSERT_EQUAL("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
                 bufferToDebugString(&b));
     }
