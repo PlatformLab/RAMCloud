@@ -20,6 +20,7 @@
 
 #include "TcpTransport.h"
 #include "FastTransport.h"
+#include "UnreliableTransport.h"
 #include "UdpDriver.h"
 
 #ifdef INFINIBAND
@@ -45,6 +46,14 @@ static struct FastUdpTransportFactory : public TransportFactory {
     }
 } fastUdpTransportFactory;
 
+static struct UnreliableUdpTransportFactory : public TransportFactory {
+    UnreliableUdpTransportFactory()
+        : TransportFactory("unreliable+kernelUdp", "unreliable+udp") {}
+    Transport* createTransport(const ServiceLocator* localServiceLocator) {
+        return new UnreliableTransport(new UdpDriver(localServiceLocator));
+    }
+} unreliableUdpTransportFactory;
+
 #ifdef INFINIBAND
 static struct FastInfUdTransportFactory : public TransportFactory {
     FastInfUdTransportFactory()
@@ -54,6 +63,15 @@ static struct FastInfUdTransportFactory : public TransportFactory {
             new InfUdDriver<>(localServiceLocator));
     }
 } fastInfUdTransportFactory;
+
+static struct UnreliableInfUdTransportFactory : public TransportFactory {
+    UnreliableInfUdTransportFactory()
+        : TransportFactory("unreliable+infinibandud", "unreliable+infud") {}
+    Transport* createTransport(const ServiceLocator* localServiceLocator) {
+        return new UnreliableTransport(
+            new InfUdDriver<>(localServiceLocator));
+    }
+} unreliableInfUdTransportFactory;
 
 static struct InfRcTransportFactory : public TransportFactory {
     InfRcTransportFactory()
@@ -81,8 +99,10 @@ TransportManager::TransportManager()
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
+    transportFactories.push_back(&unreliableUdpTransportFactory);
 #ifdef INFINIBAND
     transportFactories.push_back(&fastInfUdTransportFactory);
+    transportFactories.push_back(&unreliableInfUdTransportFactory);
     transportFactories.push_back(&infRcTransportFactory);
 #endif
     transports.resize(transportFactories.size(), NULL);

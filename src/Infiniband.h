@@ -284,6 +284,7 @@ class RealInfiniband {
         uint16_t lid;       // local id (address)
         uint32_t qpn;       // queue pair number
         mutable ibv_ah* ah; // address handle, may be NULL
+        friend class UnreliableTransport; // address handle cache hack
     };
 
     QueuePair*
