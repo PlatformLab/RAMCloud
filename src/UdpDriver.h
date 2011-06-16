@@ -45,7 +45,7 @@ class UdpDriver : public Driver {
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
-    virtual ServiceLocator getServiceLocator();
+    virtual string getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator& serviceLocator) {
         return new IpAddress(serviceLocator);

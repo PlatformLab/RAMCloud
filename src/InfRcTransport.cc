@@ -665,10 +665,10 @@ InfRcTransport<Infiniband>::getMaxRpcSize() const
 
 
 template<typename Infiniband>
-ServiceLocator
+string
 InfRcTransport<Infiniband>::getServiceLocator()
 {
-    return ServiceLocator(locatorString);
+    return locatorString;
 }
 
 //-------------------------------------

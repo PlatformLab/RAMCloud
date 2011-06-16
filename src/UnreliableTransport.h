@@ -36,7 +36,7 @@ class UnreliableTransport : public Transport {
   public:
     explicit UnreliableTransport(Driver* driver);
     ~UnreliableTransport();
-    ServiceLocator getServiceLocator();
+    string getServiceLocator();
     SessionRef getSession(const ServiceLocator& serviceLocator);
 
   private:

@@ -87,7 +87,7 @@ class FastTransport : public Transport {
     }
     VIRTUAL_FOR_TESTING void handleIncomingPacket(Driver::Received *received);
 
-    ServiceLocator getServiceLocator();
+    string getServiceLocator();
     void registerMemory(void* base, size_t bytes) {}
 
     /**

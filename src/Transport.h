@@ -282,7 +282,7 @@ class Transport {
      * Enlisting the dynamic ServiceLocator with the Coordinator permits
      * other hosts to contact dynamically addressed services.
      */
-    virtual ServiceLocator getServiceLocator() = 0;
+    virtual string getServiceLocator() = 0;
 
     /**
      * Register a permanently mapped region of memory. This is a hint to

@@ -61,7 +61,7 @@ class InfRcTransport : public Transport {
     SessionRef getSession(const ServiceLocator& sl) {
         return new InfRCSession(this, sl);
     }
-    ServiceLocator getServiceLocator();
+    string getServiceLocator();
     void dumpStats() {
         infiniband->dumpStats();
     }

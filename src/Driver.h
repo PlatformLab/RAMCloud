@@ -224,7 +224,7 @@ class Driver {
      * Enlisting the dynamic ServiceLocator with the Coordinator permits
      * other hosts to contact dynamically addressed services.
      */
-    virtual ServiceLocator getServiceLocator() = 0;
+    virtual string getServiceLocator() = 0;
 };
 
 /**

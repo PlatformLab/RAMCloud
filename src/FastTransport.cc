@@ -60,7 +60,7 @@ FastTransport::~FastTransport()
 }
 
 // See Transport::getServiceLocator().
-ServiceLocator
+string
 FastTransport::getServiceLocator()
 {
     return driver->getServiceLocator();

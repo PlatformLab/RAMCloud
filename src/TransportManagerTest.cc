@@ -50,7 +50,7 @@ TEST_F(TransportManagerTest, initialize) {
     EXPECT_TRUE(manager.isServer);
     EXPECT_EQ(4U, manager.transports.size());
     Transport* t = manager.transports[3];
-    EXPECT_EQ("mock:x=14", t->getServiceLocator().getOriginalString());
+    EXPECT_EQ("mock:x=14", t->getServiceLocator());
 }
 
 TEST_F(TransportManagerTest, initialize_registerExistingMemory) {

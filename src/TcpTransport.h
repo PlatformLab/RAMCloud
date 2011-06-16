@@ -41,8 +41,8 @@ class TcpTransport : public Transport {
     SessionRef getSession(const ServiceLocator& serviceLocator) {
         return new TcpSession(serviceLocator);
     }
-    ServiceLocator getServiceLocator() {
-        return ServiceLocator(locatorString);
+    string getServiceLocator() {
+        return locatorString;
     }
     void registerMemory(void* base, size_t bytes) {}
 

@@ -119,10 +119,10 @@ MockDriver::sendPacket(const Address *addr,
 /**
  * See Driver::getServiceLocator. 
  */
-ServiceLocator
+string
 MockDriver::getServiceLocator()
 {
-    return ServiceLocator("mock:");
+    return "mock:";
 }
 
 }  // namespace RAMCloud

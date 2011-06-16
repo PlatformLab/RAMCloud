@@ -204,10 +204,10 @@ UdpDriver::ReadHandler::handleFileEvent()
 }
 
 // See docs in Driver class.
-ServiceLocator
+string
 UdpDriver::getServiceLocator()
 {
-    return ServiceLocator(locatorString);
+    return locatorString;
 }
 
 } // namespace RAMCloud

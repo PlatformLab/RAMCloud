@@ -62,7 +62,7 @@ class InfUdDriverTest : public CppUnit::TestFixture {
                 new InfUdDriver<RealInfiniband>();
         MockFastTransport clientTransport(client);
         Driver::Address* serverAddress =
-                client->newAddress(server->getServiceLocator());
+                client->newAddress(ServiceLocator(server->getServiceLocator()));
 
         Buffer message;
         const char *testString = "This is a sample message";

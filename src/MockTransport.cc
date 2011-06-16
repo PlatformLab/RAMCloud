@@ -44,10 +44,10 @@ MockTransport::MockTransport(const ServiceLocator *serviceLocator)
 /**
  * See Transport::getServiceLocator.
  */
-ServiceLocator
+string
 MockTransport::getServiceLocator()
 {
-    return ServiceLocator(locatorString);
+    return locatorString;
 }
 
 Transport::SessionRef

@@ -286,10 +286,10 @@ InfUdDriver<Infiniband>::Poller::poll()
  * See docs in the ``Driver'' class.
  */
 template<typename Infiniband>
-ServiceLocator
+string
 InfUdDriver<Infiniband>::getServiceLocator()
 {
-    return ServiceLocator(locatorString);
+    return locatorString;
 }
 
 template class InfUdDriver<RealInfiniband>;

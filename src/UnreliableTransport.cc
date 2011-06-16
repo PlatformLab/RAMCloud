@@ -91,7 +91,7 @@ UnreliableTransport::~UnreliableTransport()
     serverPendingList.clear();
 }
 
-ServiceLocator
+string
 UnreliableTransport::getServiceLocator()
 {
     return driver->getServiceLocator();
