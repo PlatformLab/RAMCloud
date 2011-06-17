@@ -37,14 +37,6 @@
 #include "FastTransport.h"
 #include "InfUdDriver.h"
 
-#define error_check_null(x, s)                              \
-    do {                                                    \
-        if ((x) == NULL) {                                  \
-            LOG(ERROR, "%s", s);                            \
-            throw DriverException(HERE, errno);             \
-        }                                                   \
-    } while (0)
-
 namespace RAMCloud {
 
 /**
@@ -103,10 +95,16 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
 
     // create completion queues for receive and transmit
     rxcq = infiniband->createCompletionQueue(MAX_RX_QUEUE_DEPTH);
-    error_check_null(rxcq, "failed to create receive completion queue");
+    if (rxcq == NULL) {
+        LOG(ERROR, "failed to create receive completion queue");
+        throw DriverException(HERE, errno);
+    }
 
     txcq = infiniband->createCompletionQueue(MAX_TX_QUEUE_DEPTH);
-    error_check_null(txcq, "failed to create transmit completion queue");
+    if (txcq == NULL) {
+        LOG(ERROR, "failed to create transmit completion queue");
+        throw DriverException(HERE, errno);
+    }
 
     qp = infiniband->createQueuePair(IBV_QPT_UD, ibPhysicalPort, NULL,
                                      txcq, rxcq, MAX_TX_QUEUE_DEPTH,
