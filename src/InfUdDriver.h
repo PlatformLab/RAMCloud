@@ -69,8 +69,10 @@ class InfUdDriver : public Driver {
     }
 
   private:
+    BufferDescriptor* getTransmitBuffer();
+
     static const uint32_t MAX_RX_QUEUE_DEPTH = 64;
-    static const uint32_t MAX_TX_QUEUE_DEPTH = 1;
+    static const uint32_t MAX_TX_QUEUE_DEPTH = 8;
     static const uint32_t MAX_RX_SGE_COUNT = 1;
     static const uint32_t MAX_TX_SGE_COUNT = 1;
     static const uint32_t QKEY = 0xdeadbeef;
@@ -114,8 +116,11 @@ class InfUdDriver : public Driver {
     /// Infiniband receive buffers, written directly by the HCA.
     Tub<RegisteredBuffers> rxBuffers;
 
-    /// Sole infiniband transmit buffer for now.
+    /// Infiniband transmit buffers
     Tub<RegisteredBuffers> txBuffers;
+
+    /// Infiniband transmit buffers that are not currently in use
+    vector<BufferDescriptor*> freeTxBuffers;
 
     int ibPhysicalPort;                 // our HCA's physical port index
     int lid;                            // our infiniband local id

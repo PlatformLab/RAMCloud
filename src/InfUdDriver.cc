@@ -69,6 +69,7 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
     , packetBufsUtilized(0)
     , rxBuffers()
     , txBuffers()
+    , freeTxBuffers()
     , ibPhysicalPort(1)
     , lid(0)
     , qpn(0)
@@ -123,6 +124,8 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
     // add receive buffers so we can transition to RTR
     foreach (auto& bd, *rxBuffers)
         infiniband->postReceive(qp, &bd);
+    foreach (auto& bd, *txBuffers)
+        freeTxBuffers.push_back(&bd);
 
     qp->activate();
 }
@@ -174,6 +177,44 @@ InfUdDriver<Infiniband>::getMaxPacketSize()
     return MAX_PAYLOAD_SIZE;
 }
 
+/**
+ * Return a free transmit buffer, wrapped by its corresponding
+ * BufferDescriptor. If there are none, block until one is available.
+ *
+ * TODO(rumble): Any errors from previous transmissions are basically
+ *               thrown on the floor, though we do log them. We need
+ *               to think a bit more about how this 'fire-and-forget'
+ *               behaviour impacts our Transport API.
+ * TODO(ongaro): This code is copied from InfRcTransport. It should probably
+ *               move in some form to the Infiniband class.
+ */
+template<typename Infiniband>
+typename Infiniband::BufferDescriptor*
+InfUdDriver<Infiniband>::getTransmitBuffer()
+{
+    // if we've drained our free tx buffer pool, we must wait.
+    while (freeTxBuffers.empty()) {
+        ibv_wc retArray[MAX_TX_QUEUE_DEPTH];
+        int n = infiniband->pollCompletionQueue(txcq,
+                                                MAX_TX_QUEUE_DEPTH,
+                                                retArray);
+        for (int i = 0; i < n; i++) {
+            BufferDescriptor* bd =
+                reinterpret_cast<BufferDescriptor*>(retArray[i].wr_id);
+            freeTxBuffers.push_back(bd);
+
+            if (retArray[i].status != IBV_WC_SUCCESS) {
+                LOG(ERROR, "Transmit failed: %s",
+                    infiniband->wcStatusToString(retArray[i].status));
+            }
+        }
+    }
+
+    BufferDescriptor* bd = freeTxBuffers.back();
+    freeTxBuffers.pop_back();
+    return bd;
+}
+
 /*
  * See docs in the ``Driver'' class.
  */
@@ -209,8 +250,7 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
 
     const Address *infAddr = static_cast<const Address *>(addr);
 
-    // use the sole TX buffer
-    BufferDescriptor* bd = txBuffers->begin();
+    BufferDescriptor* bd = getTransmitBuffer();
 
     // copy buffer over
     char *p = bd->buffer;
@@ -226,7 +266,7 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
     try {
         LOG(DEBUG, "sending %u bytes to %s...", length,
             infAddr->toString().c_str());
-        infiniband->postSendAndWait(qp, bd, length, infAddr, QKEY);
+        infiniband->postSend(qp, bd, length, infAddr, QKEY);
         LOG(DEBUG, "sent successfully!");
     } catch (...) {
         LOG(DEBUG, "send failed!");
