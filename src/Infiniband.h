@@ -61,22 +61,6 @@ class RealInfiniband {
                                  // for received requests
     } __attribute__((packed));
 
-    // wrap an RX or TX buffer registered with the HCA
-    // TODO(ongaro): memory management on mr member
-    struct BufferDescriptor {
-        char *          buffer;         // buf of ``bytes'' length
-        uint32_t        bytes;          // length of buffer in bytes
-        uint32_t        messageBytes;   // byte length of message in the buffer
-        ibv_mr *        mr;             // memory region of the buffer
-
-        BufferDescriptor(char *buffer, uint32_t bytes, ibv_mr *mr) :
-            buffer(buffer), bytes(bytes), messageBytes(0), mr(mr)
-        {
-        }
-        BufferDescriptor() : buffer(NULL), bytes(0), messageBytes(0),
-            mr(NULL) {}
-    };
-
     explicit RealInfiniband(const char* deviceName);
     ~RealInfiniband();
 
@@ -287,6 +271,150 @@ class RealInfiniband {
         friend class UnreliableTransport; // address handle cache hack
     };
 
+    // wrap an RX or TX buffer registered with the HCA
+    // TODO(ongaro): memory management on mr member
+    struct BufferDescriptor {
+        char *          buffer;         // buf of ``bytes'' length
+        uint32_t        bytes;          // length of buffer in bytes
+        uint32_t        messageBytes;   // byte length of message in the buffer
+        ibv_mr *        mr;             // memory region of the buffer
+
+        BufferDescriptor(char *buffer, uint32_t bytes, ibv_mr *mr)
+            : buffer(buffer), bytes(bytes), messageBytes(0), mr(mr) {}
+        BufferDescriptor()
+            : buffer(NULL), bytes(0), messageBytes(0), mr(NULL) {}
+
+      private:
+        DISALLOW_COPY_AND_ASSIGN(BufferDescriptor);
+    };
+
+    /**
+     * A region of memory registered with the HCA for DMA, split
+     * into fixed-size buffers with easy-to-access BufferDescriptors
+     * for each of them.
+     *
+     * RegisteredBuffers's purpose is twofold:
+     *  1) It performs a single allocation and registration of a large set
+     *     of buffers -- operations that have high per-call overheads.
+     *  2) It provides a mapping from pointers into the buffers back to
+     *     the BufferDescriptor which contains the details of the buffer.
+     *     This is important, for example, in InfUdDriver::release where a
+     *     pointer into the packet buffer is given to the driver which must then
+     *     reclaim the buffer (see getDescriptor()).
+     */
+    class RegisteredBuffers {
+      public:
+        /**
+         * Allocate BufferDescriptors and register the backing memory with the
+         * HCA. Note that the memory will be wired (i.e. cannot be swapped out)!
+         *
+         * \param pd
+         *      The ProtectionDomain this registered memory should be a part of.
+         * \param bufferSize
+         *      Size in bytes of each of the registered buffers this
+         *      allocator manages.
+         * \param bufferCount
+         *      The number of registered buffers of #bufferSize to allocate.
+         * \throw
+         *      TransportException if allocation or registration failed.
+         */
+        RegisteredBuffers(ProtectionDomain& pd,
+                          const uint32_t bufferSize,
+                          const uint32_t bufferCount)
+            : bufferSize(bufferSize)
+            , bufferCount(bufferCount)
+            , basePointer(NULL)
+            , descriptors()
+        {
+            const size_t bytes = bufferSize * bufferCount;
+            basePointer = xmemalign(4096, bytes);
+
+            ibv_mr *mr = ibv_reg_mr(pd.pd, basePointer, bytes,
+                IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
+            if (mr == NULL)
+                throw TransportException(HERE,
+                                         "failed to register buffer",
+                                         errno);
+
+            descriptors.reset(new BufferDescriptor[bufferCount]);
+            char* buffer = static_cast<char*>(basePointer);
+            for (uint32_t i = 0; i < bufferCount; ++i) {
+                descriptors[i].~BufferDescriptor();
+                new(&descriptors[i]) BufferDescriptor(buffer, bufferSize, mr);
+                buffer += bufferSize;
+            }
+        }
+
+        ~RegisteredBuffers()
+        {
+            free(basePointer);
+        }
+
+        /**
+         * Get the BufferDescriptor associated with the buffer that #buffer
+         * points into.
+         *
+         * \param buffer
+         *       A pointer into a buffer allocated from this RegisteredBuffers.
+         *       If #buffer does not point into a buffer from this
+         *       RegisteredBuffers the result is undefined.
+         * \return
+         *      The BufferDescriptor for the buffer which #buffer points into.
+         */
+        BufferDescriptor&
+        getDescriptor(const void* buffer)
+        {
+            size_t descriptorIndex = (static_cast<const char*>(buffer) -
+                                      static_cast<char*>(basePointer)) /
+                                     bufferSize;
+            return descriptors[descriptorIndex];
+        }
+
+        typedef BufferDescriptor* iterator;
+        typedef const BufferDescriptor* const_iterator;
+
+        /**
+         * Returns an iterator to the start of the BufferDescriptors in
+         * this RegisteredBuffers.
+         */
+        BufferDescriptor*
+        begin()
+        {
+            return descriptors.get();
+        }
+
+        /**
+         * Returns an iterator to the end of the BufferDescriptors in
+         * this RegisteredBuffers.
+         */
+        BufferDescriptor*
+        end()
+        {
+            return descriptors.get() + bufferCount;
+        }
+
+      private:
+
+        /// The size in bytes of each of the buffers.
+        const uint32_t bufferSize;
+
+        /// The count of buffers.
+        const uint32_t bufferCount;
+
+        /**
+         * Points to the start of the first registered buffer.
+         * Buffers are contiguous in memory, which means given a pointer
+         * to a registered buffer its index in the consective sequence of
+         * buffers is (ptr - basePointer) / bufferSize.
+         */
+        void* basePointer;
+
+        /// BufferDescriptors for each of the buffers.
+        std::unique_ptr<BufferDescriptor[]> descriptors;
+
+        DISALLOW_COPY_AND_ASSIGN(RegisteredBuffers);
+    };
+
     QueuePair*
     createQueuePair(ibv_qp_type type,
                     int ibPhysicalPort,
@@ -330,9 +458,6 @@ class RealInfiniband {
                     uint32_t length,
                     const Address* address = NULL,
                     uint32_t remoteQKey = 0);
-
-    BufferDescriptor*
-    allocateBufferDescriptorAndRegister(size_t bytes);
 
     ibv_cq*
     createCompletionQueue(int minimumEntries);

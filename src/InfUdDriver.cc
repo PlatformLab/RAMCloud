@@ -67,8 +67,8 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
     , qp(NULL)
     , packetBufPool()
     , packetBufsUtilized(0)
-    , currentRxBuffer(0)
-    , txBuffer(NULL)
+    , rxBuffers()
+    , txBuffers()
     , ibPhysicalPort(1)
     , lid(0)
     , qpn(0)
@@ -92,13 +92,13 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
 
     infiniband = realInfiniband.construct(ibDeviceName);
 
-    // XXX- for now we allocate one TX buffer and RX buffers as a ring.
-    for (uint32_t i = 0; i < MAX_RX_QUEUE_DEPTH; i++) {
-        rxBuffers[i] = infiniband->allocateBufferDescriptorAndRegister(
-            getMaxPacketSize() + 40);
-    }
-    txBuffer = infiniband->allocateBufferDescriptorAndRegister(
-        getMaxPacketSize() + 40);
+    // allocate rx and tx buffers
+    rxBuffers.construct(realInfiniband->pd,
+                        getMaxPacketSize() + 40,
+                        uint32_t(MAX_RX_QUEUE_DEPTH));
+    txBuffers.construct(realInfiniband->pd,
+                        getMaxPacketSize() + 40,
+                        uint32_t(MAX_TX_QUEUE_DEPTH));
 
     // create completion queues for receive and transmit
     rxcq = infiniband->createCompletionQueue(MAX_RX_QUEUE_DEPTH);
@@ -121,8 +121,8 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
         locatorString += format("lid=%u,qpn=%u", lid, qpn);
 
     // add receive buffers so we can transition to RTR
-    for (uint32_t i = 0; i < MAX_RX_QUEUE_DEPTH; i++)
-        infiniband->postReceive(qp, rxBuffers[i]);
+    foreach (auto& bd, *rxBuffers)
+        infiniband->postReceive(qp, &bd);
 
     qp->activate();
 }
@@ -210,7 +210,7 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
     const Address *infAddr = static_cast<const Address *>(addr);
 
     // use the sole TX buffer
-    BufferDescriptor* bd = txBuffer;
+    BufferDescriptor* bd = txBuffers->begin();
 
     // copy buffer over
     char *p = bd->buffer;

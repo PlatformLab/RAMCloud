@@ -54,6 +54,7 @@ class InfRcTransport : public Transport {
     typedef typename Infiniband::BufferDescriptor BufferDescriptor;
     typedef typename Infiniband::QueuePair QueuePair;
     typedef typename Infiniband::QueuePairTuple QueuePairTuple;
+    typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
     explicit InfRcTransport(const ServiceLocator* sl = NULL);
@@ -225,10 +226,12 @@ class InfRcTransport : public Transport {
      */
     Infiniband* infiniband;
 
-    BufferDescriptor*   serverRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
-    BufferDescriptor*   clientRxBuffers[MAX_SHARED_RX_QUEUE_DEPTH];
+    /// Infiniband receive buffers, written directly by the HCA.
+    Tub<RegisteredBuffers> rxBuffers;
 
-    vector<BufferDescriptor*> txBuffers;
+    /// Infiniband transmit buffers.
+    Tub<RegisteredBuffers> txBuffers;
+    vector<BufferDescriptor*> freeTxBuffers;
 
     ibv_srq*     serverSrq;         // shared receive work queue for server
     ibv_srq*     clientSrq;         // shared receive work queue for client

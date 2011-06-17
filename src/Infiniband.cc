@@ -417,31 +417,6 @@ Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
 }
 
 /**
- * Allocate a BufferDescriptor and register the backing memory with the
- * HCA. Note that the memory will be wired (i.e. cannot be swapped out)!
- *
- * \param[in] bytes
- *      Number of bytes to allocate.
- * \return
- *      A BufferDescriptor corresponding to the allocated memory.
- * \throw
- *      TransportException if allocation or registration failed.
- */
-Infiniband::BufferDescriptor*
-Infiniband::allocateBufferDescriptorAndRegister(size_t bytes)
-{
-    void *p = xmemalign(4096, bytes);
-
-    ibv_mr *mr = ibv_reg_mr(pd.pd, p, bytes,
-        IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
-    if (mr == NULL)
-        throw TransportException(HERE, "failed to register ring buffer", errno);
-
-    return new BufferDescriptor(reinterpret_cast<char *>(p),
-                                downCast<uint32_t>(bytes), mr);
-}
-
-/**
  * Create a completion queue. This simply wraps the verbs call.
  *
  * \param[in] minimumEntries

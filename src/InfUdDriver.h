@@ -45,6 +45,7 @@ class InfUdDriver : public Driver {
     typedef typename Infiniband::QueuePairTuple QueuePairTuple;
     typedef typename Infiniband::QueuePair QueuePair;
     typedef typename Infiniband::Address Address;
+    typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
     /// The maximum number bytes we can stuff in a UDP packet payload.
@@ -111,11 +112,10 @@ class InfUdDriver : public Driver {
     uint64_t            packetBufsUtilized;
 
     /// Infiniband receive buffers, written directly by the HCA.
-    BufferDescriptor*   rxBuffers[MAX_RX_QUEUE_DEPTH];
-    int                 currentRxBuffer;
+    Tub<RegisteredBuffers> rxBuffers;
 
-    /// Sole infiniband transmit buffer.
-    BufferDescriptor*   txBuffer;
+    /// Sole infiniband transmit buffer for now.
+    Tub<RegisteredBuffers> txBuffers;
 
     int ibPhysicalPort;                 // our HCA's physical port index
     int lid;                            // our infiniband local id
