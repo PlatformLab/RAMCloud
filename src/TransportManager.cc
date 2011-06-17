@@ -134,6 +134,7 @@ TransportManager::~TransportManager()
 void
 TransportManager::initialize(const char* localServiceLocator)
 {
+    Dispatch::Lock lock;
     isServer = true;
     std::vector<ServiceLocator> locators =
             ServiceLocator::parseServiceLocators(localServiceLocator);
@@ -158,7 +159,10 @@ TransportManager::initialize(const char* localServiceLocator)
                 }
                 if (listeningLocators.size() != 0)
                     listeningLocators += ";";
-                listeningLocators += locator.getOriginalString();
+                // Ask the transport for its service locator. This might be
+                // more specific than "locator", as the transport may have
+                // added information.
+                listeningLocators += transport->getServiceLocator();
                 break;
             }
         }
@@ -212,6 +216,7 @@ TransportManager::getSession(const char* serviceLocator)
                 // transport may depend on physical devices that don't
                 // exist on this machine).
                 try {
+                    Dispatch::Lock lock;
                     transports[i] = factory->createTransport(NULL);
                     for (uint32_t j = 0; j < registeredBases.size(); j++) {
                         transports[i]->registerMemory(registeredBases[j],
@@ -269,6 +274,7 @@ TransportManager::getListeningLocatorsString()
 void
 TransportManager::registerMemory(void* base, size_t bytes)
 {
+    Dispatch::Lock lock;
     foreach (auto transport, transports) {
         if (transport != NULL)
             transport->registerMemory(base, bytes);
@@ -283,6 +289,7 @@ TransportManager::registerMemory(void* base, size_t bytes)
 void
 TransportManager::dumpStats()
 {
+    Dispatch::Lock lock;
     foreach (auto transport, transports) {
         if (transport != NULL)
             transport->dumpStats();

@@ -70,6 +70,7 @@ FastTransport::getServiceLocator()
 Transport::SessionRef
 FastTransport::getSession(const ServiceLocator& serviceLocator)
 {
+    Dispatch::Lock lock;
     clientSessions.expire();
     ClientSession* session = clientSessions.get();
     session->init(serviceLocator);

@@ -178,6 +178,8 @@ class Driver {
     /**
      * Return a new Driver-specific network address for the given service
      * locator.
+     * This function may be called from worker threads and should contain any
+     * necessary synchronization.
      * \param serviceLocator
      *      See above.
      * \return

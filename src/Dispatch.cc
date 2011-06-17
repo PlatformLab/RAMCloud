@@ -19,6 +19,7 @@
 #include "Dispatch.h"
 #include "Initialize.h"
 #include "Metrics.h"
+#include "NoOp.h"
 
 namespace RAMCloud {
 
@@ -547,9 +548,22 @@ void Dispatch::Timer::stop()
     slot = -1;
 }
 
+#if TESTING
+/**
+ * A thread-local flag that says whether this thread is currently executing
+ * within a Dispatch::Lock. It is used to throw an assertion failure if a
+ * thread ever tries to acquire a second Dispatch::Lock, which is not allowed.
+ */
+static __thread bool thisThreadHasDispatchLock = false;
+#else
+static NoOp<int> thisThreadHasDispatchLock;
+#endif
+
 /**
  * Construct a Lock object, which means we must lock the dispatch
  * thread unless we are currently executing in the dispatch thread.
+ * These are not recursive (you can't safely create a Lock object if someone up
+ * the stack already has one).
  *
  * \param dispatch
  *      Dispatch object to lock (defaults to the global #RAMCloud::dispatch
@@ -561,6 +575,8 @@ Dispatch::Lock::Lock(Dispatch* dispatch)
     if (dispatch->isDispatchThread()) {
         return;
     }
+    assert(!thisThreadHasDispatchLock);
+    thisThreadHasDispatchLock = true;
     lock.construct(dispatch->mutex);
     dispatch->lockNeeded.store(1);
     while (dispatch->locked.load() == 0) {
@@ -589,6 +605,7 @@ Dispatch::Lock::~Lock()
     while (dispatch->locked.load() != 0) {
         // Empty loop: spin-wait for the dispatch thread to unlock.
     }
+    thisThreadHasDispatchLock = false;
 }
 
 } // namespace RAMCloud
