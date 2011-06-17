@@ -32,6 +32,7 @@ TESTS_SRCFILES := \
 		  src/LogCleanerTest.cc \
 		  src/LoggingTest.cc \
 		  src/LogTest.cc \
+		  src/MacAddressTest.cc \
 		  src/MasterTest.cc \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \

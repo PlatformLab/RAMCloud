@@ -25,6 +25,7 @@
 #include "Dispatch.h"
 #include "Driver.h"
 #include "Infiniband.h"
+#include "MacAddress.h"
 #include "ObjectPool.h"
 #include "Tub.h"
 
@@ -48,7 +49,8 @@ class InfUdDriver : public Driver {
     typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
-    explicit InfUdDriver(const ServiceLocator* localServiceLocator = NULL);
+    explicit InfUdDriver(const ServiceLocator* localServiceLocator,
+                         bool ethernet);
     virtual ~InfUdDriver();
     virtual void connect(IncomingPacketHandler* incomingPacketHandler);
     virtual void disconnect();
@@ -61,8 +63,13 @@ class InfUdDriver : public Driver {
                             Buffer::Iterator *payload);
     virtual string getServiceLocator();
 
-    virtual Address* newAddress(const ServiceLocator& serviceLocator) {
-        return new Address(*infiniband, ibPhysicalPort, serviceLocator);
+    virtual Driver::Address* newAddress(const ServiceLocator& serviceLocator) {
+        if (localMac) {
+            return new MacAddress(
+                serviceLocator.getOption<const char*>("mac"));
+        } else {
+            return new Address(*infiniband, ibPhysicalPort, serviceLocator);
+        }
     }
 
   private:
@@ -72,26 +79,32 @@ class InfUdDriver : public Driver {
     static const uint32_t MAX_TX_QUEUE_DEPTH = 8;
     static const uint32_t MAX_RX_SGE_COUNT = 1;
     static const uint32_t MAX_TX_SGE_COUNT = 1;
-    static const uint32_t QKEY = 0xdeadbeef;
     // see comment at top of src/InfUdDriver.cc
     static const uint32_t GRH_SIZE = 40;
-    /// The maximum number bytes we can stuff in an Infiniband packet payload.
-    static const uint32_t MAX_PAYLOAD_SIZE = 2048 - GRH_SIZE;
 
+    struct EthernetHeader {
+        uint8_t destAddress[6];
+        uint8_t sourceAddress[6];
+        uint16_t etherType;         // network order
+        uint16_t length;            // host order, length of payload,
+                                    // used to drop padding from end of short
+                                    // packets
+    } __attribute__((packed));
 
     /**
      * Structure to hold an incoming packet.
      */
     struct PacketBuf {
-        PacketBuf() : infAddress() {}
+        PacketBuf() : infAddress(), macAddress() {}
         /**
          * Address of sender (used to send reply).
          */
         Tub<Address> infAddress;
+        Tub<MacAddress> macAddress;
         /**
          * Packet data (may not fill all of the allocated space).
          */
-        char payload[MAX_PAYLOAD_SIZE];
+        char payload[2048 - GRH_SIZE];
     };
 
     /// See #infiniband.
@@ -103,6 +116,8 @@ class InfUdDriver : public Driver {
      * mock object.
      */
     Infiniband* infiniband;
+
+    const uint32_t QKEY;
 
     ibv_cq*                rxcq;           // verbs rx completion queue
     ibv_cq*                txcq;           // verbs tx completion queue
@@ -127,6 +142,7 @@ class InfUdDriver : public Driver {
     int ibPhysicalPort;                 // our HCA's physical port index
     int lid;                            // our infiniband local id
     int qpn;                            // our queue pair number
+    Tub<MacAddress> localMac;           // our MAC address (if Ethernet)
 
     /// Our ServiceLocator, including the dynamic lid and qpn
     string              locatorString;

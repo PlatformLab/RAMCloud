@@ -60,7 +60,7 @@ static struct FastInfUdTransportFactory : public TransportFactory {
         : TransportFactory("fast+infinibandud", "fast+infud") {}
     Transport* createTransport(const ServiceLocator* localServiceLocator) {
         return new FastTransport(
-            new InfUdDriver<>(localServiceLocator));
+            new InfUdDriver<>(localServiceLocator, false));
     }
 } fastInfUdTransportFactory;
 
@@ -69,9 +69,28 @@ static struct UnreliableInfUdTransportFactory : public TransportFactory {
         : TransportFactory("unreliable+infinibandud", "unreliable+infud") {}
     Transport* createTransport(const ServiceLocator* localServiceLocator) {
         return new UnreliableTransport(
-            new InfUdDriver<>(localServiceLocator));
+            new InfUdDriver<>(localServiceLocator, false));
     }
 } unreliableInfUdTransportFactory;
+
+static struct FastInfEthTransportFactory : public TransportFactory {
+    FastInfEthTransportFactory()
+        : TransportFactory("fast+infinibandethernet", "fast+infeth") {}
+    Transport* createTransport(const ServiceLocator* localServiceLocator) {
+        return new FastTransport(
+            new InfUdDriver<>(localServiceLocator, true));
+    }
+} fastInfEthTransportFactory;
+
+static struct UnreliableInfEthTransportFactory : public TransportFactory {
+    UnreliableInfEthTransportFactory()
+        : TransportFactory("unreliable+infinibandethernet",
+                           "unreliable+infeth") {}
+    Transport* createTransport(const ServiceLocator* localServiceLocator) {
+        return new UnreliableTransport(
+            new InfUdDriver<>(localServiceLocator, true));
+    }
+} unreliableInfEthTransportFactory;
 
 static struct InfRcTransportFactory : public TransportFactory {
     InfRcTransportFactory()
@@ -103,6 +122,8 @@ TransportManager::TransportManager()
 #ifdef INFINIBAND
     transportFactories.push_back(&fastInfUdTransportFactory);
     transportFactories.push_back(&unreliableInfUdTransportFactory);
+    transportFactories.push_back(&fastInfEthTransportFactory);
+    transportFactories.push_back(&unreliableInfEthTransportFactory);
     transportFactories.push_back(&infRcTransportFactory);
 #endif
     transports.resize(transportFactories.size(), NULL);

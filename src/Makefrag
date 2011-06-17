@@ -42,6 +42,7 @@ SHARED_SRCFILES := \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
 		   src/Logging.cc \
+		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/MasterServer.cc \
 		   src/Metrics.cc \

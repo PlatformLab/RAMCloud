@@ -35,8 +35,8 @@ transports = [
               'infrc',
               'fast+infud',
               'unreliable+infud',
-              #'fast+infeth',
-              #'unreliable+infeth',
+              'fast+infeth',
+              'unreliable+infeth',
               'tcp',
               'fast+udp',
               'unreliable+udp'

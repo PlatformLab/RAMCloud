@@ -24,6 +24,7 @@ CLIENT_SRCFILES := \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
 		   src/Logging.cc \
+		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/Metrics.cc \
 		   src/ObjectFinder.cc \

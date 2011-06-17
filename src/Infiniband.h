@@ -17,6 +17,7 @@
 
 #include "Common.h"
 #include "Driver.h"
+#include "MacAddress.h"
 #include "Tub.h"
 #include "Transport.h"
 
@@ -178,7 +179,7 @@ class RealInfiniband {
         uint16_t getRemoteLid() const;
         int      getState() const;
         void     plumb(QueuePairTuple *qpt);
-        void     activate();
+        void     activate(const Tub<MacAddress>& localMac);
 
       //private: XXXXX- move send/recv functionality into the queue pair shit
         Infiniband&  infiniband;     // Infiniband to which this QP belongs
