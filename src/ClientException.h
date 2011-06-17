@@ -143,6 +143,9 @@ DEFINE_EXCEPTION(SegmentRecoveryFailedException,
 DEFINE_EXCEPTION(RetryException,
                  STATUS_RETRY,
                  ClientException)
+DEFINE_EXCEPTION(ServiceNotAvailableException,
+                 STATUS_SERVICE_NOT_AVAILABLE,
+                 ClientException)
 
 } // namespace RAMCloud
 
