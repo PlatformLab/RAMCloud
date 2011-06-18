@@ -97,6 +97,23 @@ class MasterClient : public Client {
         DISALLOW_COPY_AND_ASSIGN(Create);
     };
 
+    /// An asynchronous version of #read().
+    class Read {
+      public:
+        Read(MasterClient& client,
+             uint32_t tableId, uint64_t id, Buffer* value,
+             const RejectRules* rejectRules, uint64_t* version);
+        bool isReady() { return client.isReady(state); }
+        void operator()();
+      private:
+        MasterClient& client;
+        uint64_t* version;
+        Buffer requestBuffer;
+        Buffer& responseBuffer;
+        AsyncState state;
+        DISALLOW_COPY_AND_ASSIGN(Read);
+    };
+
     class Recover {
       public:
         Recover(MasterClient& client,

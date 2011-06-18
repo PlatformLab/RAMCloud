@@ -261,6 +261,40 @@ MasterClient::recover(uint64_t masterId, uint64_t partitionId,
     Recover(*this, masterId, partitionId, tablets, backups, backupsLen)();
 }
 
+MasterClient::Read::Read(MasterClient& client,
+                         uint32_t tableId, uint64_t id, Buffer* value,
+                         const RejectRules* rejectRules, uint64_t* version)
+    : client(client)
+    , version(version)
+    , requestBuffer()
+    , responseBuffer(*value)
+    , state()
+{
+    responseBuffer.reset();
+    ReadRpc::Request& reqHdr(client.allocHeader<ReadRpc>(requestBuffer));
+    reqHdr.tableId = tableId;
+    reqHdr.id = id;
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    state = client.send<ReadRpc>(client.session,
+                                 requestBuffer,
+                                 responseBuffer);
+}
+
+void
+MasterClient::Read::operator()()
+{
+    const ReadRpc::Response& respHdr(client.recv<ReadRpc>(state));
+    if (version != NULL)
+        *version = respHdr.version;
+
+    // Truncate the response Buffer so that it consists of nothing
+    // but the object data.
+    responseBuffer.truncateFront(sizeof(respHdr));
+    assert(respHdr.length == responseBuffer.getTotalLength());
+    client.checkStatus(HERE);
+}
+
+
 /**
  * Read the current contents of an object.
  *
@@ -286,21 +320,7 @@ void
 MasterClient::read(uint32_t tableId, uint64_t id, Buffer* value,
         const RejectRules* rejectRules, uint64_t* version)
 {
-    value->reset();
-    Buffer req;
-    ReadRpc::Request& reqHdr(allocHeader<ReadRpc>(req));
-    reqHdr.tableId = tableId;
-    reqHdr.id = id;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    const ReadRpc::Response& respHdr(sendRecv<ReadRpc>(session, req, *value));
-    if (version != NULL)
-        *version = respHdr.version;
-
-    // Truncate the response Buffer so that it consists of nothing
-    // but the object data.
-    value->truncateFront(sizeof(respHdr));
-    assert(respHdr.length == value->getTotalLength());
-    checkStatus(HERE);
+    Read(*this, tableId, id, value, rejectRules, version)();
 }
 
 /**
