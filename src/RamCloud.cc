@@ -75,8 +75,7 @@ void
 RamCloud::read(uint32_t tableId, uint64_t id, Buffer* value,
                const RejectRules* rejectRules, uint64_t* version)
 {
-    MasterClient master(objectFinder.lookup(tableId, id));
-    master.read(tableId, id, value, rejectRules, version);
+    return Read(*this, tableId, id, value, rejectRules, version)();
 }
 
 /**
