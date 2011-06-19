@@ -236,7 +236,7 @@ class MasterServer : public Service {
 
     Tub<uint64_t> serverId;
 
-  private:
+  PRIVATE:
     /// Maximum number of bytes per partition. For Will calculation.
     static const uint64_t maxBytesPerPartition = 640UL * 1024 * 1024;
 

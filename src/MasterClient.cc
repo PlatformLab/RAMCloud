@@ -62,6 +62,32 @@ MasterClient::Create::operator()()
 /// Start a write RPC. See MasterClient::write.
 MasterClient::Write::Write(MasterClient& client,
                            uint32_t tableId, uint64_t id,
+                           Buffer& buffer,
+                           const RejectRules* rejectRules, uint64_t* version,
+                           bool async)
+    : client(client)
+    , version(version)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    WriteRpc::Request& reqHdr(client.allocHeader<WriteRpc>(requestBuffer));
+    reqHdr.id = id;
+    reqHdr.tableId = tableId;
+    reqHdr.length = buffer.getTotalLength();
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    reqHdr.async = async;
+    for (Buffer::Iterator it(buffer); !it.isDone(); it.next())
+        Buffer::Chunk::appendToBuffer(&requestBuffer,
+                                      it.getData(), it.getLength());
+    state = client.send<WriteRpc>(client.session,
+                                  requestBuffer,
+                                  responseBuffer);
+}
+
+/// Start a write RPC. See MasterClient::write.
+MasterClient::Write::Write(MasterClient& client,
+                           uint32_t tableId, uint64_t id,
                            const void* buf, uint32_t length,
                            const RejectRules* rejectRules, uint64_t* version,
                            bool async)

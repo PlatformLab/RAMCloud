@@ -49,6 +49,7 @@ TESTS_SRCFILES := \
 		  src/ServiceManagerTest.cc \
 		  src/ServiceLocatorTest.cc \
 		  src/StatusTest.cc \
+		  src/StringKeyAdapterTest.cc \
 		  src/TabletProfilerTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
@@ -139,6 +140,10 @@ $(OBJDIR)/BackupStorageBenchmark: $(OBJDIR)/BackupStorageBenchmark.o $(SHARED_OB
 	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/HintServerDown: $(OBJDIR)/HintServerDown.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) $(LIBS) -o $@ $^
+
+$(OBJDIR)/StringKeys: $(OBJDIR)/StringKeys.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 

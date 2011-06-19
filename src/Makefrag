@@ -46,7 +46,9 @@ SHARED_SRCFILES := \
 		   src/MasterClient.cc \
 		   src/MasterServer.cc \
 		   src/Metrics.cc \
+		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
+		   src/RamCloud.cc \
 		   src/Recovery.cc \
 		   src/RecoverySegmentIterator.cc \
 		   src/Segment.cc \
@@ -55,6 +57,7 @@ SHARED_SRCFILES := \
 		   src/ServiceLocator.cc \
 		   src/ServiceManager.cc \
 		   src/Status.cc \
+		   src/StringKeyAdapter.cc \
 		   src/TabletProfiler.cc \
 		   src/TcpTransport.cc \
 		   src/TimeCounter.cc \

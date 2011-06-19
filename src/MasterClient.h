@@ -150,6 +150,11 @@ class MasterClient : public Client {
     class Write {
       public:
         Write(MasterClient& client,
+              uint32_t tableId, uint64_t id,
+              Buffer& buffer,
+              const RejectRules* rejectRules, uint64_t* version,
+              bool async);
+        Write(MasterClient& client,
               uint32_t tableId, uint64_t id, const void* buf,
               uint32_t length, const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL, bool async = false);
