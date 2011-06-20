@@ -71,7 +71,7 @@ class TransportFactory {
 
     /**
      * Create a concrete #Transport instance.
-     * The Dispatch lock will be held by the caller for the duration of this
+     * The Dispatch lock must be held by the caller for the duration of this
      * function.
      * \param localServiceLocator
      *      The local address on which the transport should receive RPCs.

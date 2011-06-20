@@ -290,7 +290,7 @@ class Transport {
      * Register a permanently mapped region of memory. This is a hint to
      * the transport that identifies regions of memory that can be used
      * as zero-copy source buffer for transmission.
-     * The Dispatch lock will be held by the caller for the duration of this
+     * The Dispatch lock must be held by the caller for the duration of this
      * function.
      * \param[in] base
      *      The base address of the region.
