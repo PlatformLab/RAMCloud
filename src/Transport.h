@@ -264,6 +264,8 @@ class Transport {
 
     /**
      * Return a session that will communicate with the given service locator.
+     * This function may be called from worker threads and should contain any
+     * necessary synchronization.
      * \throw NoSuchKeyException
      *      Service locator option missing.
      * \throw BadValueException
@@ -282,12 +284,14 @@ class Transport {
      * Enlisting the dynamic ServiceLocator with the Coordinator permits
      * other hosts to contact dynamically addressed services.
      */
-    virtual ServiceLocator getServiceLocator() = 0;
+    virtual string getServiceLocator() = 0;
 
     /**
      * Register a permanently mapped region of memory. This is a hint to
      * the transport that identifies regions of memory that can be used
      * as zero-copy source buffer for transmission.
+     * The Dispatch lock must be held by the caller for the duration of this
+     * function.
      * \param[in] base
      *      The base address of the region.
      * \param[in] bytes

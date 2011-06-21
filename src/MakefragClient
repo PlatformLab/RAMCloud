@@ -24,6 +24,7 @@ CLIENT_SRCFILES := \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
 		   src/Logging.cc \
+		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/Metrics.cc \
 		   src/ObjectFinder.cc \
@@ -38,6 +39,7 @@ CLIENT_SRCFILES := \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
+		   src/UnreliableTransport.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \

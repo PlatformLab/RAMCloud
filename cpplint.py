@@ -153,6 +153,7 @@ _ERROR_CATEGORIES = '''\
   ramcloud/include
   ramcloud/cppunit
   ramcloud/random
+  ramcloud/object_pool
   build/class
   build/deprecated
   build/endif_comment
@@ -2369,24 +2370,6 @@ def CheckLanguage(filename, clean_lines, linenum, file_extension, include_state,
                 'If so, make const or use a pointer.')
   """
 
-  # Check to see if they're using an conversion function cast.
-  # I just try to capture the most common basic types, though there are more.
-  # Parameterless conversion functions, such as bool(), are allowed as they are
-  # probably a member operator declaration or default constructor.
-  match = Search(
-      r'(\bnew\s+)?\b'  # Grab 'new' operator, if it's there
-      r'(int|float|double|bool|char|int32|uint32|int64|uint64)\([^)]', line)
-  if match:
-    # gMock methods are defined using some variant of MOCK_METHODx(name, type)
-    # where type may be float(), int(string), etc.  Without context they are
-    # virtually indistinguishable from int(x) casts.
-    if (match.group(1) is None and  # If new operator, then this isn't a cast
-        not Match(r'^\s*MOCK_(CONST_)?METHOD\d+(_T)?\(', line)):
-      error(filename, linenum, 'readability/casting', 4,
-            'Using deprecated casting style.  '
-            'Use static_cast<%s>(...) instead' %
-            match.group(2))
-
   CheckCStyleCast(filename, linenum, line, clean_lines.raw_lines[linenum],
                   'static_cast',
                   r'\((int|float|double|bool|char|u?int(16|32|64))\)',
@@ -2476,6 +2459,11 @@ def CheckLanguage(filename, clean_lines, linenum, file_extension, include_state,
       not Search(r'\bNOLINT\b', line)):
       error(filename, linenum, 'ramcloud/random', 5,
             'Use generateRandom() rather than random(), rand(), etc')
+
+  if (Search(r'\bboost::object_pool\b', line) and
+      not Search(r'\bNOLINT\b', line)):
+      error(filename, linenum, 'ramcloud/object_pool', 5,
+            'Use RAMCloud::ObjectPool rather than boost::object_pool')
 
   # Check if some verboten operator overloading is going on
   # TODO(unknown): catch out-of-line unary operator&:

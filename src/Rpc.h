@@ -64,6 +64,7 @@ enum RpcOpcode {
     SET_WILL                = 23,
     REREPLICATE_SEGMENTS    = 24,
     FILL_WITH_TEST_DATA     = 25,
+    MULTI_READ              = 26,
     BACKUP_CLOSE            = 128,
     BACKUP_FREE             = 129,
     BACKUP_GETRECOVERYDATA  = 130,
@@ -139,6 +140,30 @@ struct FillWithTestDataRpc {
     };
 };
 
+struct MultiReadRpc {
+    static const RpcOpcode opcode = MULTI_READ;
+    static const RpcServiceType service = MASTER_SERVICE;
+    struct Request {
+        RpcRequestCommon common;
+        uint32_t count;
+        struct Part {
+            uint32_t tableId;
+            uint64_t id;
+            Part(uint32_t tableId, uint64_t id) : tableId(tableId), id(id) {}
+        };
+    };
+    struct Response {
+        // RpcResponseCommon contains a status field. But it is not used in
+        // multiRead since there is a separate status for each object returned.
+        // Included here to fulfill requirements in common code.
+        RpcResponseCommon common;
+        uint32_t count;
+        // In buffer: Status, SegmentEntry and Object go here
+        // Object has variable number of bytes (depending on data size.)
+        // In case of an error, only Status goes here
+    };
+};
+
 struct PingRpc {
     static const RpcOpcode opcode = RpcOpcode::PING;
     static const RpcServiceType service = MASTER_SERVICE;
@@ -181,8 +206,8 @@ struct ReadRpc {
     static const RpcServiceType service = MASTER_SERVICE;
     struct Request {
         RpcRequestCommon common;
-        uint64_t id;
         uint32_t tableId;
+        uint64_t id;
         uint32_t pad1;
         RejectRules rejectRules;
     };

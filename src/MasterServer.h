@@ -198,6 +198,9 @@ class MasterServer : public Service {
     void read(const ReadRpc::Request& reqHdr,
               ReadRpc::Response& respHdr,
               Rpc& rpc);
+    void multiRead(const MultiReadRpc::Request& reqHdr,
+                   MultiReadRpc::Response& respHdr,
+                   Rpc& rpc);
     void recover(const RecoverRpc::Request& reqHdr,
                  RecoverRpc::Response& respHdr,
                  Rpc& rpc);
@@ -233,7 +236,7 @@ class MasterServer : public Service {
 
     Tub<uint64_t> serverId;
 
-  private:
+  PRIVATE:
     /// Maximum number of bytes per partition. For Will calculation.
     static const uint64_t maxBytesPerPartition = 640UL * 1024 * 1024;
 

@@ -32,7 +32,7 @@ class MockTransport : public Transport {
   public:
     explicit MockTransport(const ServiceLocator *serviceLocator = NULL);
     virtual ~MockTransport() { }
-    virtual ServiceLocator getServiceLocator();
+    virtual string getServiceLocator();
 
     virtual Transport::SessionRef
     getSession(const ServiceLocator& serviceLocator);

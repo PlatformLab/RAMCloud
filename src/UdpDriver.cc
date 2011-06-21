@@ -49,7 +49,7 @@ Syscall* UdpDriver::sys = &defaultSyscall;
  *      drivers.
  */
 UdpDriver::UdpDriver(const ServiceLocator* localServiceLocator)
-    : socketFd(-1), transport(NULL), readHandler(),
+    : socketFd(-1), incomingPacketHandler(NULL), readHandler(),
       packetBufPool(), packetBufsUtilized(0), locatorString()
 {
     if (localServiceLocator != NULL)
@@ -90,8 +90,8 @@ UdpDriver::~UdpDriver()
 
 // See docs in Driver class.
 void
-UdpDriver::connect(FastTransport* transport) {
-    this->transport = transport;
+UdpDriver::connect(IncomingPacketHandler* incomingPacketHandler) {
+    this->incomingPacketHandler.reset(incomingPacketHandler);
     readHandler.construct(socketFd, this);
 }
 
@@ -99,7 +99,7 @@ UdpDriver::connect(FastTransport* transport) {
 void
 UdpDriver::disconnect() {
     readHandler.destroy();
-    this->transport = NULL;
+    this->incomingPacketHandler.reset();
 }
 
 // See docs in Driver class.
@@ -200,14 +200,14 @@ UdpDriver::ReadHandler::handleFileEvent()
     received.payload = buffer->payload;
     received.sender = &buffer->ipAddress;
     received.driver = driver;
-    driver->transport->handleIncomingPacket(&received);
+    (*driver->incomingPacketHandler)(&received);
 }
 
 // See docs in Driver class.
-ServiceLocator
+string
 UdpDriver::getServiceLocator()
 {
-    return ServiceLocator(locatorString);
+    return locatorString;
 }
 
 } // namespace RAMCloud

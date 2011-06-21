@@ -66,6 +66,9 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_read_badTable);
     CPPUNIT_TEST(test_read_noSuchObject);
     CPPUNIT_TEST(test_read_rejectRules);
+    CPPUNIT_TEST(test_multiRead_basics);
+    CPPUNIT_TEST(test_multiRead_badTable);
+    CPPUNIT_TEST(test_multiRead_noSuchObject);
     CPPUNIT_TEST(test_detectSegmentRecoveryFailure_success);
     CPPUNIT_TEST(test_detectSegmentRecoveryFailure_failure);
     CPPUNIT_TEST(test_recover_basics);
@@ -208,6 +211,88 @@ class MasterTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(client->read(0, 0, &value, &rules, &version),
                              WrongVersionException);
         CPPUNIT_ASSERT_EQUAL(1, version);
+    }
+
+    void test_multiRead_basics() {
+        client->create(0, "firstVal", 8);
+        client->create(0, "secondVal", 9);
+
+        std::vector<MasterClient::ReadObject*> requests;
+
+        Tub<Buffer> val1;
+        MasterClient::ReadObject request1(0, 0, &val1);
+        request1.status = STATUS_RETRY;
+        requests.push_back(&request1);
+        Tub<Buffer> val2;
+        MasterClient::ReadObject request2(0, 1, &val2);
+        request2.status = STATUS_RETRY;
+        requests.push_back(&request2);
+
+        client->multiRead(requests);
+
+        CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request1.status));
+        CPPUNIT_ASSERT_EQUAL(1, request1.version);
+        CPPUNIT_ASSERT_EQUAL("firstVal", toString(val1.get()));
+        CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request2.status));
+        CPPUNIT_ASSERT_EQUAL(2, request2.version);
+        CPPUNIT_ASSERT_EQUAL("secondVal", toString(val2.get()));
+    }
+    void test_multiRead_badTable() {
+        client->create(0, "value1", 6);
+
+        std::vector<MasterClient::ReadObject*> requests;
+
+        Tub<Buffer> val1;
+        MasterClient::ReadObject request1(0, 0, &val1);
+        request1.status = STATUS_RETRY;
+        requests.push_back(&request1);
+
+        Tub<Buffer> valError;
+        MasterClient::ReadObject requestError(10, 0, &valError);
+        requestError.status = STATUS_RETRY;
+        requests.push_back(&requestError);
+
+        client->multiRead(requests);
+
+        CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request1.status));
+        CPPUNIT_ASSERT_EQUAL(1, request1.version);
+        CPPUNIT_ASSERT_EQUAL("value1", toString(val1.get()));
+        CPPUNIT_ASSERT_EQUAL("STATUS_TABLE_DOESNT_EXIST",
+                             statusToSymbol(requestError.status));
+    }
+    void test_multiRead_noSuchObject() {
+        client->create(0, "firstVal", 8);
+        client->create(0, "secondVal", 9);
+
+        std::vector<MasterClient::ReadObject*> requests;
+
+        Tub<Buffer> val1;
+        MasterClient::ReadObject request1(0, 0, &val1);
+        request1.status = STATUS_RETRY;
+        requests.push_back(&request1);
+
+        Tub<Buffer> valError;
+        MasterClient::ReadObject requestError(0, 20, &valError);
+        requestError.status = STATUS_RETRY;
+        requests.push_back(&requestError);
+
+        Tub<Buffer> val2;
+        MasterClient::ReadObject request2(0, 1, &val2);
+        request2.status = STATUS_RETRY;
+        requests.push_back(&request2);
+
+        client->multiRead(requests);
+
+        CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request1.status));
+        CPPUNIT_ASSERT_EQUAL(1, request1.version);
+        CPPUNIT_ASSERT_EQUAL("firstVal", toString(val1.get()));
+
+        CPPUNIT_ASSERT_EQUAL("STATUS_OBJECT_DOESNT_EXIST",
+                             statusToSymbol(requestError.status));
+
+        CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request2.status));
+        CPPUNIT_ASSERT_EQUAL(2, request2.version);
+        CPPUNIT_ASSERT_EQUAL("secondVal", toString(val2.get()));
     }
 
     void

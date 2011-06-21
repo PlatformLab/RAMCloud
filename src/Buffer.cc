@@ -131,7 +131,7 @@ Buffer::Allocation::allocateChunk(uint32_t size) {
  * This constructor initializes an empty Buffer.
  */
 Buffer::Buffer()
-    : totalLength(0), numberChunks(0), chunks(NULL),
+    : totalLength(0), numberChunks(0), chunks(NULL), chunksTail(NULL),
       initialAllocationContainer(),
       allocations(&initialAllocationContainer.allocation),
       nextAllocationSize(INITIAL_ALLOCATION_SIZE << 1) {
@@ -180,6 +180,7 @@ Buffer::reset() {
     totalLength = 0;
     numberChunks = 0;
     chunks = NULL;
+    chunksTail = NULL;
     initialAllocationContainer.reset();
     allocations = &initialAllocationContainer.allocation;
     nextAllocationSize = INITIAL_ALLOCATION_SIZE << 1;
@@ -305,6 +306,9 @@ void Buffer::prependChunk(Chunk* newChunk) {
 
     newChunk->next = chunks;
     chunks = newChunk;
+
+    if (chunksTail == NULL)
+        chunksTail = newChunk;
 }
 
 
@@ -321,11 +325,11 @@ void Buffer::appendChunk(Chunk* newChunk) {
     totalLength += newChunk->length;
 
     newChunk->next = NULL;
-    Chunk* lastChunk = getLastChunk();
-    if (lastChunk == NULL)
+    if (chunksTail == NULL)
         chunks = newChunk;
     else
-        lastChunk->next = newChunk;
+        chunksTail->next = newChunk;
+    chunksTail = newChunk;
 }
 
 /**
@@ -613,25 +617,6 @@ Buffer::truncateEnd(uint32_t length)
         current->length = 0;
         current = current->next;
     }
-}
-
-/**
- * Find the last Chunk of the Buffer's chunks list.
- * \return
- *      The last Chunk of the Buffer's chunk list, or NULL if the buffer is
- *      empty.
- */
-// TODO(ongaro): Measure how long getLastChunk takes under real workloads.
-// We could easily add a chunksTail pointer to optimize it out.
-Buffer::Chunk*
-Buffer::getLastChunk() const
-{
-    Chunk* current = chunks;
-    if (current == NULL)
-        return NULL;
-    while (current->next != NULL)
-        current = current->next;
-    return current;
 }
 
 /**
@@ -953,15 +938,13 @@ operator new(size_t numBytes, RAMCloud::Buffer* buffer,
         return buffer->allocateAppend(1);
     }
     char* data = static_cast<char*>(buffer->allocateAppend(numBytes32));
-    Buffer::Chunk* lastChunk = buffer->getLastChunk();
+    Buffer::Chunk* const lastChunk = buffer->chunksTail;
     if (lastChunk != NULL && lastChunk->isRawChunk() &&
         data - lastChunk->length == lastChunk->data) {
         // Grow the existing Chunk.
         lastChunk->length += numBytes32;
         buffer->totalLength += numBytes32;
     } else {
-        // TODO(ongaro): We've already done the work to find lastChunk but are
-        // wasting it.
         Buffer::Chunk::appendToBuffer(buffer, data, numBytes32);
     }
     return data;

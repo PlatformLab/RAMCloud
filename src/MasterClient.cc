@@ -17,6 +17,10 @@
 #include "MasterClient.h"
 #include "TransportManager.h"
 #include "ProtoBuf.h"
+#include "Segment.h"
+#include "Object.h"
+#include "Log.h"
+#include "Status.h"
 
 namespace RAMCloud {
 
@@ -53,6 +57,32 @@ MasterClient::Create::operator()()
         *version = respHdr.version;
     client.checkStatus(HERE);
     return respHdr.id;
+}
+
+/// Start a write RPC. See MasterClient::write.
+MasterClient::Write::Write(MasterClient& client,
+                           uint32_t tableId, uint64_t id,
+                           Buffer& buffer,
+                           const RejectRules* rejectRules, uint64_t* version,
+                           bool async)
+    : client(client)
+    , version(version)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+{
+    WriteRpc::Request& reqHdr(client.allocHeader<WriteRpc>(requestBuffer));
+    reqHdr.id = id;
+    reqHdr.tableId = tableId;
+    reqHdr.length = buffer.getTotalLength();
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    reqHdr.async = async;
+    for (Buffer::Iterator it(buffer); !it.isDone(); it.next())
+        Buffer::Chunk::appendToBuffer(&requestBuffer,
+                                      it.getData(), it.getLength());
+    state = client.send<WriteRpc>(client.session,
+                                  requestBuffer,
+                                  responseBuffer);
 }
 
 /// Start a write RPC. See MasterClient::write.
@@ -257,6 +287,40 @@ MasterClient::recover(uint64_t masterId, uint64_t partitionId,
     Recover(*this, masterId, partitionId, tablets, backups, backupsLen)();
 }
 
+MasterClient::Read::Read(MasterClient& client,
+                         uint32_t tableId, uint64_t id, Buffer* value,
+                         const RejectRules* rejectRules, uint64_t* version)
+    : client(client)
+    , version(version)
+    , requestBuffer()
+    , responseBuffer(*value)
+    , state()
+{
+    responseBuffer.reset();
+    ReadRpc::Request& reqHdr(client.allocHeader<ReadRpc>(requestBuffer));
+    reqHdr.tableId = tableId;
+    reqHdr.id = id;
+    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    state = client.send<ReadRpc>(client.session,
+                                 requestBuffer,
+                                 responseBuffer);
+}
+
+void
+MasterClient::Read::operator()()
+{
+    const ReadRpc::Response& respHdr(client.recv<ReadRpc>(state));
+    if (version != NULL)
+        *version = respHdr.version;
+
+    // Truncate the response Buffer so that it consists of nothing
+    // but the object data.
+    responseBuffer.truncateFront(sizeof(respHdr));
+    assert(respHdr.length == responseBuffer.getTotalLength());
+    client.checkStatus(HERE);
+}
+
+
 /**
  * Read the current contents of an object.
  *
@@ -282,21 +346,134 @@ void
 MasterClient::read(uint32_t tableId, uint64_t id, Buffer* value,
         const RejectRules* rejectRules, uint64_t* version)
 {
-    value->reset();
-    Buffer req;
-    ReadRpc::Request& reqHdr(allocHeader<ReadRpc>(req));
-    reqHdr.id = id;
-    reqHdr.tableId = tableId;
-    reqHdr.rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    const ReadRpc::Response& respHdr(sendRecv<ReadRpc>(session, req, *value));
-    if (version != NULL)
-        *version = respHdr.version;
+    Read(*this, tableId, id, value, rejectRules, version)();
+}
 
-    // Truncate the response Buffer so that it consists of nothing
-    // but the object data.
-    value->truncateFront(sizeof(respHdr));
-    assert(respHdr.length == value->getTotalLength());
+/**
+ * Read the current contents of multiple objects.
+ *
+ * \param requests
+ *      Vector (of ReadObject's) listing the objects to be read
+ *      and where to place their values
+ */
+void
+MasterClient::multiRead(std::vector<ReadObject*> requests)
+{
+    // Create Request
+    Buffer req;
+    MultiReadRpc::Request& reqHdr(allocHeader<MultiReadRpc>(req));
+    reqHdr.count = downCast<uint32_t>(requests.size());
+
+    foreach (ReadObject *request, requests) {
+        new(&req, APPEND) MultiReadRpc::Request::Part(request->tableId,
+                                                      request->id);
+    }
+
+    // Send and Receive Rpc
+    Buffer respBuffer;
+    const MultiReadRpc::Response& respHdr(sendRecv<MultiReadRpc>(
+                                          session, req, respBuffer));
     checkStatus(HERE);
+
+    // Extract Response
+    uint32_t respOffset = downCast<uint32_t>(sizeof(respHdr));
+
+    // Each iteration extracts one object from the response
+    foreach (ReadObject *request, requests) {
+        const Status *status = respBuffer.getOffset<Status>(respOffset);
+        respOffset += downCast<uint32_t>(sizeof(Status));
+        request->status = *status;
+
+        if (*status == STATUS_OK) {
+            const SegmentEntry* entry = respBuffer.getOffset<SegmentEntry>(
+                                                                respOffset);
+            respOffset += downCast<uint32_t>(sizeof(SegmentEntry));
+
+            /*
+            * Need to check checksum
+            * If computed checksum does not match stored checksum for a segment:
+            * Retry getting the data from server.
+            * If it is still bad, ensure (in some way) that data on the server
+            * is corrupted. Then crash that server.
+            * Wait for recovery and then return the data
+            */
+
+            const Object* obj = respBuffer.getOffset<Object>(respOffset);
+            respOffset += downCast<uint32_t>(sizeof(Object));
+
+            request->version = obj->version;
+
+            uint32_t dataLength = obj->dataLength(entry->length);
+            request->value->construct();
+            respBuffer.copy(respOffset, dataLength, new(
+                            request->value->get(), APPEND) char[dataLength]);
+            respOffset += dataLength;
+        }
+    }
+}
+
+MasterClient::MultiRead::MultiRead(MasterClient& client,
+                                   std::vector<ReadObject*>& requests)
+    : client(client)
+    , requestBuffer()
+    , responseBuffer()
+    , state()
+    , requests(requests)
+{
+    MultiReadRpc::Request& reqHdr(client.allocHeader<MultiReadRpc>(
+                                                    requestBuffer));
+    reqHdr.count = downCast<uint32_t>(requests.size());
+
+    foreach (ReadObject *request, requests) {
+        new(&requestBuffer, APPEND) MultiReadRpc::Request::Part(
+                                  request->tableId, request->id);
+    }
+
+    state = client.send<MultiReadRpc>(client.session, requestBuffer,
+                                      responseBuffer);
+}
+
+void
+MasterClient::MultiRead::complete()
+{
+    const MultiReadRpc::Response& respHdr(client.recv<MultiReadRpc>(state));
+    client.checkStatus(HERE);
+
+    uint32_t respOffset = downCast<uint32_t>(sizeof(respHdr));
+
+    // Each iteration extracts one object from the response
+    foreach (ReadObject *request, requests) {
+        const Status *status = responseBuffer.getOffset<Status>(respOffset);
+        respOffset += downCast<uint32_t>(sizeof(Status));
+        request->status = *status;
+
+        if (*status == STATUS_OK) {
+
+            const SegmentEntry* entry = responseBuffer.getOffset<SegmentEntry>(
+                                                                    respOffset);
+            respOffset += downCast<uint32_t>(sizeof(SegmentEntry));
+
+            /*
+            * Need to check checksum
+            * If computed checksum does not match stored checksum for a segment:
+            * Retry getting the data from server.
+            * If it is still bad, ensure (in some way) that data on the server
+            * is corrupted. Then crash that server.
+            * Wait for recovery and then return the data
+            */
+
+            const Object* obj = responseBuffer.getOffset<Object>(respOffset);
+            respOffset += downCast<uint32_t>(sizeof(Object));
+
+            request->version = obj->version;
+
+            uint32_t dataLength = obj->dataLength(entry->length);
+            request->value->construct();
+            responseBuffer.copy(respOffset, dataLength, new(
+                            request->value->get(), APPEND) char[dataLength]);
+            respOffset += dataLength;
+        }
+    }
 }
 
 /**

@@ -264,7 +264,7 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
  */
 void
 ServiceManager::workerMain(Worker* worker)
-{
+try {
     uint64_t pollCycles = nanosecondsToCycles(1000*pollMicros);
     while (true) {
         uint64_t stopPollingTime = dispatch->currentTime + pollCycles;
@@ -305,6 +305,10 @@ ServiceManager::workerMain(Worker* worker)
         worker->state.store(Worker::POLLING);
     }
     TEST_LOG("exiting");
+} catch (std::exception& e) {
+    using namespace RAMCloud;
+    LOG(ERROR, "worker: %s", e.what());
+    throw; // will likely call std::terminate()
 }
 
 /**

@@ -47,7 +47,8 @@ MockDriver::MockDriver(HeaderToString headerToString)
 }
 
 void
-MockDriver::connect(FastTransport* transport) {
+MockDriver::connect(IncomingPacketHandler* incomingPacketHandler) {
+    delete incomingPacketHandler;
 }
 
 void
@@ -118,10 +119,10 @@ MockDriver::sendPacket(const Address *addr,
 /**
  * See Driver::getServiceLocator. 
  */
-ServiceLocator
+string
 MockDriver::getServiceLocator()
 {
-    return ServiceLocator("mock:");
+    return "mock:";
 }
 
 }  // namespace RAMCloud

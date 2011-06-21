@@ -35,10 +35,9 @@ struct BindTransport : public Transport {
             addService(*service, "mock:");
     }
 
-    ServiceLocator
-    getServiceLocator()
-    {
-        return ServiceLocator("mock:");
+    string
+    getServiceLocator() {
+        return "mock:";
     }
 
     void

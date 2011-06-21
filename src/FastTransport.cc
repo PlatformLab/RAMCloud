@@ -35,7 +35,14 @@ FastTransport::FastTransport(Driver* driver)
     , clientSessions(this)
     , serverSessions(this)
 {
-    driver->connect(this);
+    struct IncomingPacketHandler : Driver::IncomingPacketHandler {
+        explicit IncomingPacketHandler(FastTransport& t) : t(t) {}
+        void operator()(Driver::Received* received) {
+            t.handleIncomingPacket(received);
+        }
+        FastTransport& t;
+    };
+    driver->connect(new IncomingPacketHandler(*this));
 }
 
 FastTransport::~FastTransport()
@@ -53,7 +60,7 @@ FastTransport::~FastTransport()
 }
 
 // See Transport::getServiceLocator().
-ServiceLocator
+string
 FastTransport::getServiceLocator()
 {
     return driver->getServiceLocator();
@@ -63,6 +70,7 @@ FastTransport::getServiceLocator()
 Transport::SessionRef
 FastTransport::getSession(const ServiceLocator& serviceLocator)
 {
+    Dispatch::Lock lock;
     clientSessions.expire();
     ClientSession* session = clientSessions.get();
     session->init(serviceLocator);
@@ -299,115 +307,6 @@ FastTransport::ServerRpc::sendReply()
     session->beginSending(channelId);
 }
 
-// --- PayloadChunk ---
-
-/**
- * Append a subregion of payload data which releases the memory to the
- * Driver that allocated it when it's containing Buffer is destroyed.
- *
- * \param buffer
- *      The Buffer to append the data to.
- * \param data
- *      The address of the data to appear in the Buffer.  This must be
- *      inside the payload range specified later in the arguments.  The
- *      idea is that if there is some data at the front or end of the
- *      payload region that should be "stripped" before placing it in
- *      the Buffer that can be done here (i.e. Header).
- * \param dataLength
- *      The length in bytes of the region starting at data that is a
- *      subregion of the payload.
- * \param driver
- *      The Driver to release() this payload to on Buffer destruction.
- * \param payload
- *      The address to release() to the Driver on destruction.
- */
-FastTransport::PayloadChunk*
-FastTransport::PayloadChunk::prependToBuffer(Buffer* buffer,
-                                             char* data,
-                                             uint32_t dataLength,
-                                             Driver* driver,
-                                             char* payload)
-{
-    PayloadChunk* chunk =
-        new(buffer, CHUNK) PayloadChunk(data,
-                                        dataLength,
-                                        driver,
-                                        payload);
-    Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
-    return chunk;
-}
-
-/**
- * Prepend a subregion of payload data which releases the memory to the
- * Driver that allocated it when it's containing Buffer is destroyed.
- *
- * \param buffer
- *      The Buffer to prepend the data to.
- * \param data
- *      The address of the data to appear in the Buffer.  This must be
- *      inside the payload range specified later in the arguments.  The
- *      idea is that if there is some data at the front or end of the
- *      payload region that should be "stripped" before placing it in
- *      the Buffer that can be done here (i.e. Header).
- * \param dataLength
- *      The length in bytes of the region starting at data that is a
- *      subregion of the payload.
- * \param driver
- *      The Driver to release() this payload to on Buffer destruction.
- * \param payload
- *      The address to release() to the Driver on destruction.
- */
-FastTransport::PayloadChunk*
-FastTransport::PayloadChunk::appendToBuffer(Buffer* buffer,
-                                            char* data,
-                                            uint32_t dataLength,
-                                            Driver* driver,
-                                            char* payload)
-{
-    PayloadChunk* chunk =
-        new(buffer, CHUNK) PayloadChunk(data,
-                                        dataLength,
-                                        driver,
-                                        payload);
-    Buffer::Chunk::appendChunkToBuffer(buffer, chunk);
-    return chunk;
-}
-
-/// Returns memory to the Driver once the Chunk is discarded.
-FastTransport::PayloadChunk::~PayloadChunk()
-{
-    if (driver)
-        driver->release(payload);
-}
-
-/**
- * Construct a PayloadChunk which will release its resources to the
- * Driver that allocated it when it's containing Buffer is destroyed.
- *
- * \param data
- *      The address of the data to appear in the Buffer.  This must be
- *      inside the payload range specified later in the arguments.  The
- *      idea is that if there is some data at the front or end of the
- *      payload region that should be "stripped" before placing it in
- *      the Buffer that can be done here (i.e. Header).
- * \param dataLength
- *      The length in bytes of the region starting at data that is a
- *      subregion of the payload.
- * \param driver
- *      The Driver to release() this payload to on Buffer destruction.
- * \param payload
- *      The address to release() to the Driver on destruction.
- */
-FastTransport::PayloadChunk::PayloadChunk(void* data,
-                                          uint32_t dataLength,
-                                          Driver* driver,
-                                          char* const payload)
-    : Buffer::Chunk(data, dataLength)
-    , driver(driver)
-    , payload(payload)
-{
-}
-
 // --- InboundMessage ---
 
 /**
@@ -575,7 +474,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
         // Take responsibility for returning the memory to the Driver.
         char *payload = received->steal(&length);
         // Give that responsibility to dataBuffer's destructor.
-        PayloadChunk::appendToBuffer(dataBuffer,
+        Driver::PayloadChunk::appendToBuffer(dataBuffer,
                                  payload + downCast<uint32_t>(sizeof(Header)),
                                  length - downCast<uint32_t>(sizeof(Header)),
                                  transport->driver,
@@ -599,7 +498,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
             // Give that responsibility to dataBuffer's destructor, notice
             // this responsibility was stolen on a prior method invocation
             // in the else block below.
-            PayloadChunk::appendToBuffer(dataBuffer,
+            Driver::PayloadChunk::appendToBuffer(dataBuffer,
                                  payload + downCast<uint32_t>(sizeof(Header)),
                                  length - downCast<uint32_t>(sizeof(Header)),
                                  transport->driver,

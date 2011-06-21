@@ -54,7 +54,7 @@ class MockDriver : public Driver {
     MockDriver();
     explicit MockDriver(HeaderToString headerToString);
     virtual ~MockDriver() {}
-    virtual void connect(FastTransport* transport);
+    virtual void connect(IncomingPacketHandler* incomingPacketHandler);
     virtual void disconnect();
     virtual uint32_t getMaxPacketSize() { return 1400; }
     virtual void release(char *payload);
@@ -62,7 +62,7 @@ class MockDriver : public Driver {
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
-    virtual ServiceLocator getServiceLocator();
+    virtual string getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator& serviceLocator) {
         return new MockAddress(serviceLocator);

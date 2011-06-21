@@ -21,6 +21,7 @@
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "Transport.h"
+#include "MasterClient.h"
 
 namespace RAMCloud {
 
@@ -31,7 +32,20 @@ class ObjectFinder {
   public:
     explicit ObjectFinder(CoordinatorClient& coordinator);
 
+    /**
+     * A partition (or bin) corresponding to the requests to be sent
+     * to one master in a multiRead / multiWrite operation.
+     */
+    struct MasterRequests {
+        MasterRequests() : sessionRef(), requests() {}
+        Transport::SessionRef sessionRef;
+        std::vector<MasterClient::ReadObject*> requests;
+    };
+
     Transport::SessionRef lookup(uint32_t table, uint64_t objectId);
+    std::vector<MasterRequests> multiLookup(MasterClient::ReadObject* input[],
+                                            uint32_t numRequests);
+
 
     /**
      * Lookup the master that is in charge of assigning object IDs for create

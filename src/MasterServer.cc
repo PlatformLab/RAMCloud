@@ -89,6 +89,10 @@ MasterServer::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<FillWithTestDataRpc, MasterServer,
                         &MasterServer::fillWithTestData>(rpc);
             break;
+        case MultiReadRpc::opcode:
+            callHandler<MultiReadRpc, MasterServer,
+                        &MasterServer::multiRead>(rpc);
+            break;
         case PingRpc::opcode:
             callHandler<PingRpc, MasterServer,
                         &MasterServer::ping>(rpc);
@@ -275,6 +279,55 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
     respHdr.length = obj->dataLength(handle->length());
     serverStats.totalReadRequests++;
     serverStats.totalReadNanos += cyclesToNanoseconds(timeThisRead.stop());
+}
+
+/**
+ * Top-level server method to handle the MULTIREAD request.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterServer::multiRead(const MultiReadRpc::Request& reqHdr,
+                        MultiReadRpc::Response& respHdr,
+                        Rpc& rpc)
+{
+    uint32_t numRequests = reqHdr.count;
+    uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
+
+    respHdr.count = numRequests;
+
+    // Each iteration extracts one request from request rpc, finds the
+    // corresponding object, and appends the response to the response rpc.
+    for (uint32_t i = 0; i < numRequests; i++) {
+        const MultiReadRpc::Request::Part *currentReq =
+              rpc.requestPayload.getOffset<MultiReadRpc::Request::Part>(
+              reqOffset);
+        reqOffset += downCast<uint32_t>(sizeof(MultiReadRpc::Request::Part));
+
+        Status* status = new(&rpc.replyPayload, APPEND) Status(STATUS_OK);
+        // We must note the status if the table does not exist. Also, we might
+        // have an entry in the hash table that's invalid because its tablet no
+        // longer lives here.
+        try{
+            getTable(currentReq->tableId, currentReq->id);
+        }
+        catch(TableDoesntExistException &e) {
+            *status = STATUS_TABLE_DOESNT_EXIST;
+            continue;
+        }
+        LogEntryHandle handle = objectMap.lookup(currentReq->tableId,
+                                                 currentReq->id);
+        if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
+             *status = STATUS_OBJECT_DOESNT_EXIST;
+             continue;
+        }
+
+        const SegmentEntry* entry = reinterpret_cast<
+                                    const SegmentEntry*>(handle);
+        Buffer::Chunk::appendToBuffer(&rpc.replyPayload, entry,
+                                      downCast<uint32_t>(sizeof(SegmentEntry))
+                                      + handle->length());
+    }
 }
 
 /**

@@ -53,7 +53,7 @@ class Table {
     uint64_t AllocateKey(HashTable<LogEntryHandle>* hashTable) {
         while (hashTable->lookup(tableId, nextKey) != NULL)
             ++nextKey;
-        return nextKey;
+        return nextKey++;
     }
 
     /**

@@ -119,7 +119,9 @@ template<typename Infiniband>
 InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
     : realInfiniband(),
       infiniband(),
+      rxBuffers(),
       txBuffers(),
+      freeTxBuffers(),
       serverSrq(NULL),
       clientSrq(NULL),
       serverRxCq(NULL),
@@ -224,22 +226,24 @@ InfRcTransport<Infiniband>::InfRcTransport(const ServiceLocator *sl)
     check_error_null(clientSrq,
                      "failed to create client shared receive queue");
 
-    // XXX- for now we allocate TX and RX buffers and use them as a ring.
-    for (uint32_t i = 0; i < MAX_SHARED_RX_QUEUE_DEPTH; i++) {
-        serverRxBuffers[i] = infiniband->allocateBufferDescriptorAndRegister(
-            getMaxRpcSize());
-        postSrqReceiveAndKickTransmit(serverSrq, serverRxBuffers[i]);
-    }
-    for (uint32_t i = 0; i < MAX_SHARED_RX_QUEUE_DEPTH; i++) {
-        clientRxBuffers[i] = infiniband->allocateBufferDescriptorAndRegister(
-            getMaxRpcSize());
-        postSrqReceiveAndKickTransmit(clientSrq, clientRxBuffers[i]);
-    }
-    for (uint32_t i = 0; i < MAX_TX_QUEUE_DEPTH; i++) {
-        txBuffers.push_back(infiniband->allocateBufferDescriptorAndRegister(
-            getMaxRpcSize()));
+    rxBuffers.construct(infiniband->pd,
+                        getMaxRpcSize(),
+                        uint32_t(MAX_SHARED_RX_QUEUE_DEPTH * 2));
+    uint32_t i = 0;
+    foreach (auto& bd, *rxBuffers) {
+        if (i < MAX_SHARED_RX_QUEUE_DEPTH)
+            postSrqReceiveAndKickTransmit(serverSrq, &bd);
+        else
+            postSrqReceiveAndKickTransmit(clientSrq, &bd);
+        ++i;
     }
     assert(numUsedClientSrqBuffers == 0);
+
+    txBuffers.construct(infiniband->pd,
+                        getMaxRpcSize(),
+                        uint32_t(MAX_TX_QUEUE_DEPTH));
+    foreach (auto& bd, *txBuffers)
+        freeTxBuffers.push_back(&bd);
 
     // create completion queues for server receive, client receive, and
     // server/client transmit
@@ -610,7 +614,7 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
 {
     CycleCounter<uint64_t> timeThis2;
     // if we've drained our free tx buffer pool, we must wait.
-    while (txBuffers.empty()) {
+    while (freeTxBuffers.empty()) {
 
         ibv_wc retArray[MAX_TX_QUEUE_DEPTH];
         CycleCounter<uint64_t> timeThis;
@@ -632,7 +636,7 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
         for (int i = 0; i < n; i++) {
             BufferDescriptor* bd =
                 reinterpret_cast<BufferDescriptor*>(retArray[i].wr_id);
-            txBuffers.push_back(bd);
+            freeTxBuffers.push_back(bd);
 
             if (retArray[i].status != IBV_WC_SUCCESS) {
                 LOG(ERROR, "Transmit failed: %s",
@@ -642,9 +646,8 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
 
     }
 
-
-    BufferDescriptor* bd = txBuffers.back();
-    txBuffers.pop_back();
+    BufferDescriptor* bd = freeTxBuffers.back();
+    freeTxBuffers.pop_back();
 
     serverStats.infrcGetTxBufferNanos += timeThis2.stop();
     return bd;
@@ -665,10 +668,10 @@ InfRcTransport<Infiniband>::getMaxRpcSize() const
 
 
 template<typename Infiniband>
-ServiceLocator
+string
 InfRcTransport<Infiniband>::getServiceLocator()
 {
-    return ServiceLocator(locatorString);
+    return locatorString;
 }
 
 //-------------------------------------
