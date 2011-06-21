@@ -236,7 +236,9 @@ Small
 downCast(const Large& large)
 {
     Small small = static_cast<Small>(large);
-    assert(small == large);
+    // The following comparison (rather than "large==small") allows
+    // this method to convert between signed and unsigned values.
+    assert(large-small == 0);
     return small;
 }
 
