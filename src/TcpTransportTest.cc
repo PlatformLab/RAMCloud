@@ -27,22 +27,20 @@ class TcpTransportTest : public ::testing::Test {
     MockSyscall* sys;
     Syscall* savedSyscall;
     TestLog::Enable* logEnabler;
-    ServiceManager* serviceManager;
 
     TcpTransportTest()
-            : locator(NULL), sys(NULL), savedSyscall(NULL), logEnabler(NULL),
-              serviceManager(NULL)
+            : locator(NULL), sys(NULL), savedSyscall(NULL), logEnabler(NULL)
     {
         locator = new ServiceLocator("tcp+ip: host=localhost, port=11000");
         sys = new MockSyscall();
         savedSyscall = TcpTransport::sys;
         TcpTransport::sys = sys;
         logEnabler = new TestLog::Enable();
-        serviceManager = new ServiceManager(NULL);
+        delete serviceManager;
+        ServiceManager::init();
     }
 
     ~TcpTransportTest() {
-        delete serviceManager;
         delete locator;
         delete sys;
         TcpTransport::sys = savedSyscall;

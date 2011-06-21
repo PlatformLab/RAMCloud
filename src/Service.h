@@ -22,11 +22,11 @@
 #include "ClientException.h"
 #include "Buffer.h"
 #include "Rpc.h"
-#include "ServiceManager.h"
 
 namespace RAMCloud {
-// Forward references needed because of cross-dependencies between headers:
-class ServiceManager;
+// There are cross-dependencies between this header file and ServiceManager.h;
+// the declaration below is used instead of #including ServiceManager.h to
+// break the circularity.
 class Worker;
 
 /**
@@ -59,7 +59,6 @@ class Service {
             , replyPayload(replyPayload)
             , replied(false) {}
 
-        void prepareErrorResponse(Status status);
         void sendReply();
 
         /// Information about the worker thread that is executing
@@ -90,9 +89,21 @@ class Service {
     virtual ~Service() {}
     virtual void dispatch(RpcOpcode opcode,
                           Rpc& rpc);
+    static void prepareErrorResponse(Buffer& buffer, Status status);
+
     static const char* getString(Buffer& buffer, uint32_t offset,
                                  uint32_t length);
     virtual void handleRpc(Rpc& rpc);
+
+    /**
+     * Returns the maximum number of threads that may be executing in
+     * this service concurrently.  The default is one, which is for
+     * services that are not thread-safe.
+     */
+    virtual int maxThreads() {
+        return 1;
+    }
+
     void ping(const PingRpc::Request& reqHdr,
               PingRpc::Response& respHdr,
               Rpc& rpc);

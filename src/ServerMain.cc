@@ -83,7 +83,7 @@ try
         optionParser.options.getCoordinatorLocator().c_str());
     MasterServer service(config, &coordinator, replicas);
     service.init();
-    ServiceManager manager(&service);
+    serviceManager->addService(service, MASTER_SERVICE);
     while (true) {
         dispatch->poll();
     }

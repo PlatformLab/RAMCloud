@@ -49,10 +49,9 @@ try
 
     OptionParser optionParser(argc, argv);
     transportManager.initialize(optionParser.options.getLocalLocator().c_str());
-    ServiceManager manager(NULL);
 
     while (true) {
-        Transport::ServerRpc* rpc = manager.waitForRpc(1);
+        Transport::ServerRpc* rpc = serviceManager->waitForRpc(1);
         if (rpc == NULL)
             continue;
         Buffer::Iterator iter(rpc->requestPayload);

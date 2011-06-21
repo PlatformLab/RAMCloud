@@ -109,7 +109,8 @@ class FastTransportTest : public CppUnit::TestFixture {
     {
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(driver);
-        serviceManager = new ServiceManager(NULL);
+        delete serviceManager;
+        ServiceManager::init();
 
         logger.setLogLevels(SILENT_LOG_LEVEL);
 
@@ -121,7 +122,6 @@ class FastTransportTest : public CppUnit::TestFixture {
     void
     tearDown()
     {
-        delete serviceManager;
         delete transport;
         FastTransport::timeoutCyclesOverride = 0;
         FastTransport::sessionTimeoutCyclesOverride = 0;
@@ -133,7 +133,6 @@ class FastTransportTest : public CppUnit::TestFixture {
         , driver(NULL)
         , address("1.2.3.4")
         , port(1234)
-        , serviceManager(NULL)
     {}
 
     void test_sanityCheck() {
@@ -440,7 +439,6 @@ class FastTransportTest : public CppUnit::TestFixture {
     MockDriver* driver;
     const char* address;
     uint16_t port;
-    ServiceManager *serviceManager;
 
     DISALLOW_COPY_AND_ASSIGN(FastTransportTest);
 };
@@ -1318,7 +1316,6 @@ class ServerSessionTest: public CppUnit::TestFixture {
         , driverAddress(NULL)
         , address("1.2.3.4")
         , port(12345)
-        , serviceManager(NULL)
     {
     }
 
@@ -1331,13 +1328,13 @@ class ServerSessionTest: public CppUnit::TestFixture {
         session = new FastTransport::ServerSession(transport, sessionId);
         ServiceLocator sl("mock: host=1.2.3.4, port=12345");
         driverAddress = driver->newAddress(sl);
-        serviceManager = new ServiceManager(NULL);
+        delete serviceManager;
+        ServiceManager::init();
     }
 
     void
     tearDown()
     {
-        delete serviceManager;
         delete driverAddress;
         delete session;
         delete transport;
@@ -1621,7 +1618,6 @@ class ServerSessionTest: public CppUnit::TestFixture {
     Driver::Address* driverAddress;
     const char* address;
     const uint16_t port;
-    ServiceManager *serviceManager;
 
     DISALLOW_COPY_AND_ASSIGN(ServerSessionTest);
 };

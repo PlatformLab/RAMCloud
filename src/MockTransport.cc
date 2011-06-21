@@ -15,6 +15,7 @@
 
 #include "TestUtil.h"
 #include "MockTransport.h"
+#include "Rpc.h"
 
 namespace RAMCloud {
 uint32_t RAMCloud::MockTransport::sessionDeleteCount = 0;
@@ -28,6 +29,7 @@ uint32_t RAMCloud::MockTransport::sessionDeleteCount = 0;
  */
 MockTransport::MockTransport(const ServiceLocator *serviceLocator)
             : outputLog()
+            , status(Status(STATUS_MAX_VALUE+1))
             , inputMessage(NULL)
             , serverSendCount(0)
             , clientSendCount(0)
@@ -143,6 +145,10 @@ MockTransport::MockServerRpc::sendReply()
     }
     transport->outputLog.append("serverReply: ");
     transport->outputLog.append(toString(&replyPayload));
+    const RpcResponseCommon* responseHeader =
+        replyPayload.getStart<RpcResponseCommon>();
+    transport->status = (responseHeader != NULL) ? responseHeader->status :
+            Status(STATUS_MAX_VALUE+1);
     delete this;
 }
 

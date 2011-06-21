@@ -48,8 +48,9 @@ class Dispatch {
   public:
     Dispatch();
     ~Dispatch();
-    void poll();
+    static void init();
     bool isDispatchThread();
+    void poll();
 
     /// The return value from rdtsc at the beginning of the last call to
     /// #poll.  May be read from multiple threads, so must be volatile.

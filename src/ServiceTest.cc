@@ -32,7 +32,7 @@ class ServiceTest : public ::testing::Test {
         : service()
         , request()
         , response()
-        , worker(NULL)
+        , worker()
         , rpc(&worker, request, response)
     {
         TestLog::enable();
@@ -119,23 +119,15 @@ TEST_F(ServiceTest, handleRpc_clientException) {
     EXPECT_STREQ("STATUS_REQUEST_FORMAT_ERROR", getStatus(&response));
 }
 
-TEST_F(ServiceTest, prepareErrorResponse_alreadyReplied) {
-    rpc.replied = true;
-    rpc.prepareErrorResponse(STATUS_WRONG_VERSION);
-    EXPECT_STREQ("prepareErrorResponse: reply already sent "
-                 "(requested status: STATUS_WRONG_VERSION)",
-                 TestLog::get().c_str());
-    EXPECT_STREQ("empty reply message", getStatus(&response));
-}
 TEST_F(ServiceTest, prepareErrorResponse_bufferNotEmpty) {
     response.fillFromString("1 abcdef");
-    rpc.prepareErrorResponse(STATUS_WRONG_VERSION);
+    Service::prepareErrorResponse(response, STATUS_WRONG_VERSION);
     EXPECT_STREQ("STATUS_WRONG_VERSION", getStatus(&response));
     EXPECT_STREQ("abcdef",
             static_cast<const char*>(response.getRange(4, 7)));
 }
 TEST_F(ServiceTest, prepareErrorResponse_bufferEmpty) {
-    rpc.prepareErrorResponse(STATUS_WRONG_VERSION);
+    Service::prepareErrorResponse(response, STATUS_WRONG_VERSION);
     EXPECT_EQ(sizeof(RpcResponseCommon), response.getTotalLength());
     EXPECT_STREQ("STATUS_WRONG_VERSION", getStatus(&response));
 }
@@ -154,27 +146,28 @@ TEST_F(ServiceTest, callHandler_normal) {
 
 TEST_F(ServiceTest, sendReply) {
     MockService service;
-    service.delay = true;
+    service.gate = -1;
     service.sendReply = true;
     MockTransport transport;
-    ServiceManager manager(&service);
+    ServiceManager manager;
+    manager.addService(service, RpcServiceType(2));
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
-            &transport, "3 4");
-    ServiceManager::handleRpc(rpc);
+            &transport, "0x20000 3 4");
+    manager.handleRpc(rpc);
 
     // Verify that the reply has been sent even though the worker has not
     // returned yet.
     for (int i = 0; i < 1000; i++) {
         dispatch->poll();
-        if (manager.worker.rpc == NULL) {
+        if (manager.busyThreads[0]->rpc == NULL) {
             break;
         }
         usleep(1000);
     }
-    EXPECT_EQ((Transport::ServerRpc*) NULL, manager.worker.rpc);
-    EXPECT_EQ(Worker::POSTPROCESSING, manager.worker.state.load());
-    EXPECT_EQ("serverReply: 4 5", transport.outputLog);
-    service.delay = false;
+    EXPECT_EQ((Transport::ServerRpc*) NULL, manager.busyThreads[0]->rpc);
+    EXPECT_EQ(Worker::POSTPROCESSING, manager.busyThreads[0]->state.load());
+    EXPECT_EQ("serverReply: 0x20001 4 5", transport.outputLog);
+    service.gate = 3;
 }
 
 }  // namespace RAMCloud

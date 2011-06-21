@@ -843,7 +843,7 @@ FastTransport::OutboundMessage::send()
                     oldest = sentTime;
         }
         if (oldest != ~(0lu))
-            timer.startCycles(timeoutCycles());
+            timer.startCycles(timeoutCycles() - (now - oldest));
     }
 }
 
@@ -1215,8 +1215,8 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
         break;
     case ServerChannel::RECEIVING:
         if (channel->inboundMsg.processReceivedData(received)) {
-            ServiceManager::handleRpc(&channel->currentRpc);
             channel->state = ServerChannel::PROCESSING;
+            serviceManager->handleRpc(&channel->currentRpc);
         }
         break;
     case ServerChannel::PROCESSING:

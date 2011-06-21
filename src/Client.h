@@ -151,7 +151,7 @@ class Client {
             *new(&requestBuffer, APPEND) typename Rpc::Request);
         memset(&requestHeader, 0, sizeof(requestHeader));
         requestHeader.common.opcode = Rpc::opcode;
-        requestHeader.common.service = Rpc::opcode;
+        requestHeader.common.service = Rpc::service;
         return requestHeader;
     }
 

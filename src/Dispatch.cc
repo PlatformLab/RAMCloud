@@ -23,7 +23,7 @@
 namespace RAMCloud {
 
 Dispatch *dispatch = NULL;
-Initialize _(dispatch);
+static Initialize _(Dispatch::init);
 
 /**
  * Default object used to make system calls.
@@ -42,6 +42,20 @@ Syscall* Dispatch::sys = &defaultSyscall;
 // dispatcher was been locked before calling the method.
 #define CHECK_LOCK assert((owner->locked.load() != 0) || \
         owner->isDispatchThread())
+
+/**
+ * Perform once-only overall initialization for the Dispatch class, such
+ * as creating the global #dispatch object.  This method is invoked
+ * automatically during initialization, but it may be invoked explicitly
+ * by other modules to ensure that initialization occurs before those modules
+ * initialize themselves.
+ */
+void
+Dispatch::init() {
+    if (dispatch == NULL) {
+        dispatch = new Dispatch();
+    }
+}
 
 /**
  * Constructor for Dispatch objects.

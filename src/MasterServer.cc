@@ -25,6 +25,7 @@
 #include "ProtoBuf.h"
 #include "Rpc.h"
 #include "Segment.h"
+#include "ServiceManager.h"
 #include "Transport.h"
 #include "Will.h"
 
@@ -368,7 +369,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
         // This method runs in the dispatch thread, so it isn't safe to
         // manipulate any of the objectMap state if any RPCs are currently
         // executing.
-        if (!ServiceManager::idle())
+        if (!serviceManager->idle())
             return;
         objectMap.forEachInBucket(
             recoveryCleanup, &masterServer, currentBucket);

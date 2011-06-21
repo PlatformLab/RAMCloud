@@ -74,6 +74,7 @@
 #include "Rpc.h"
 #include "Service.h"
 #include "ServiceLocator.h"
+#include "ServiceManager.h"
 #include "TransportManager.h"
 
 using namespace RAMCloud;
@@ -83,6 +84,7 @@ namespace {
 /// RPC format used by #Echo.
 struct EchoRpc {
     static const RpcOpcode opcode = RpcOpcode(0xd1);
+    static const RpcServiceType service = RpcServiceType(0);
     struct Request {
         RpcRequestCommon common;
         uint64_t spinNs;
@@ -97,6 +99,7 @@ struct EchoRpc {
 /// RPC format used by #Remote.
 struct RemoteRpc {
     static const RpcOpcode opcode = RpcOpcode(0xd2);
+    static const RpcServiceType service = RpcServiceType(0);
     struct Request {
         RpcRequestCommon common;
         uint32_t commandLength;
@@ -420,7 +423,6 @@ main(int argc, char *argv[])
             transportManager.initialize(localLocator.c_str());
 
             TSService service;
-            ServiceManager manager(&service);
             while (true) {
                 dispatch->poll();
             }

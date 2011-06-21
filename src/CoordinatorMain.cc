@@ -36,7 +36,7 @@ main(int argc, char *argv[])
         localLocator = transportManager.getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
         CoordinatorServer service;
-        ServiceManager manager(&service);
+        serviceManager->addService(service, COORDINATOR_SERVICE);
         while (true) {
             dispatch->poll();
         }

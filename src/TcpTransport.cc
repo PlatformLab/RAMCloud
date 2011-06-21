@@ -235,9 +235,10 @@ TcpTransport::RequestReadHandler::handleFileEvent()
         }
         if (socket->rpc->message.readMessage(fd)) {
             // The incoming request is complete; pass it off for servicing.
-            ServiceManager::handleRpc(socket->rpc);
+            TcpServerRpc *rpc = socket->rpc;
             socket->rpc = NULL;
             socket->busy = true;
+            serviceManager->handleRpc(rpc);
         }
     } catch (TcpTransportEof& e) {
         // Close the socket in order to prevent an infinite loop of

@@ -25,36 +25,118 @@
 #include "Transport.h"
 
 namespace RAMCloud {
-// Forward reference (header files have circular dependencies):
-class Service;
 
 /**
-    * An object of this class describes a single worker thread and is used
-    * for communication between the thread and the ServiceManager poller
-    * running in the dispatch thread.  This structure is read-only to the
-    * worker except for the #state field.  In principle this class definition
-    * should be nested inside ServiceManager; however, we need to make forward
-    * references to it, and C++ doesn't seem to permit forward references to
-    * nested classes.
-    */
+ * This class manages a pool of worker threads that carry out RPCs for
+ * RAMCloud services.  It also implements an asynchronous interface between
+ * the dispatch thread (which manages all of the network connections for a
+ * server and runs Transport code) and the worker threads.
+ */
+class ServiceManager : Dispatch::Poller {
+  public:
+    explicit ServiceManager();
+    ~ServiceManager();
+
+    void addService(Service& service, RpcServiceType type);
+    void exitWorker();
+    void handleRpc(Transport::ServerRpc* rpc);
+    bool idle();
+    static void init();
+    void poll();
+    Transport::ServerRpc* waitForRpc(double timeoutSeconds);
+
+  PROTECTED:
+
+    /// How many microseconds worker threads should remain in their polling
+    /// loop waiting for work. If no new arrives during this period the
+    /// worker thread will put itself to sleep, which releases its core but
+    /// will result in additional delay for the next RPC while it wakes up.
+    /// The value of this variable is typically not modified except during
+    /// testing.
+    static int pollMicros;
+    static void workerMain(Worker* worker);
+
+    // Contains one entry for each possible RpcService value, which is used
+    // to dispatch requests to the service associated with that RpcService
+    // value (if there is one).
+    class ServiceInfo {
+      public:
+        Service& service;              /// The service to dispatch to.  NULL
+                                       /// means no service has been registered
+                                       /// for this RpcService.
+        int maxThreads;                /// Concurrency limit for this service.
+        int requestsRunning;           /// The number of RPCs currently being
+                                       /// executed by the service (each in a
+                                       /// separate thread); must never be
+                                       /// greater than maxThreads.
+        std::queue<Transport::ServerRpc*> waitingRpcs;
+                                       /// Requests that cannot execute until
+                                       /// an existing request completes
+                                       /// (requestsRunning == maxThreads).
+        explicit ServiceInfo(Service& service)
+            : service(service)
+            , maxThreads(service.maxThreads())
+            , requestsRunning(0)
+            , waitingRpcs()
+        {}
+        friend class Worker;
+        DISALLOW_COPY_AND_ASSIGN(ServiceInfo);
+    };
+    Tub<ServiceInfo> services[MAX_SERVICE+1];
+
+    // Worker threads that are currently executing RPCs (no particular order).
+    std::vector<Worker*> busyThreads;
+
+    // Worker threads that are available to execute incoming RPCs.  Threads
+    // are push_back'ed and pop_back'ed (the thread with highest index was
+    // the last one to go idle, so it's most likely to be POLLING and thus
+    // offer a fast wakeup).
+    std::vector<Worker*> idleThreads;
+
+    // Number of services that are currently registered.
+    int serviceCount;
+
+    // Holds requests that arrive when no services are registered.  Used
+    // primarily for testing.
+    std::queue<Transport::ServerRpc*> extraRpcs;
+
+    static Syscall *sys;
+
+    friend class Worker;
+    friend class ServiceManagerTest;
+    DISALLOW_COPY_AND_ASSIGN(ServiceManager);
+};
+
+// Singleton object, used by all calls to handleRpc and sendReply.
+extern ServiceManager* serviceManager;
+
+/**
+ * An object of this class describes a single worker thread and is used
+ * for communication between the thread and the ServiceManager poller
+ * running in the dispatch thread.  This structure is read-only to the
+ * worker except for the #state field.  In principle this class definition
+ * should be nested inside ServiceManager; however, we need to make forward
+ * references to it, and C++ doesn't seem to permit forward references to
+ * nested classes.
+ */
 class Worker {
   public:
     void sendReply();
 
   PRIVATE:
-    Service* service;                  /// All RPCs will be dispatched to
-                                       /// this server for execution.
+    ServiceManager::ServiceInfo *serviceInfo;
+                                       /// Service for the last request
+                                       /// executed by this worker (index into
+                                       /// #services).
     Tub<boost::thread> thread;         /// Thread that executes this worker.
     Transport::ServerRpc* rpc;         /// RPC being serviced by this worker.
                                        /// NULL means the last RPC given to
                                        /// the worker has been finished and a
                                        /// response sent (but the worker may
                                        /// still be in POSTPROCESSING state).
-    bool idle;                         /// True means we know the worker has
-                                       /// finished processing the last RPC
-                                       /// we gave it.  False means the worker
-                                       /// may still be working on an RPC:
-                                       /// check #state to be sure.
+    int busyIndex;                     /// Location of this worker in
+                                       /// #busyThreads, or -1 if this worker
+                                       /// is idle.
     atomic_int state;                  /// Shared variable used to pass RPCs
                                        /// between the dispatch thread and this
                                        /// worker.
@@ -92,8 +174,8 @@ class Worker {
     bool exited;                       /// True means the worker is no longer
                                        /// running.
 
-    explicit Worker(Service* service)
-        : service(service), thread(), rpc(NULL), idle(true),
+    explicit Worker()
+        : serviceInfo(NULL), thread(), rpc(NULL), busyIndex(-1),
           state(POLLING), exited(false) {}
     ~Worker() {}
     void exit();
@@ -103,55 +185,6 @@ class Worker {
     friend class ServiceManager;
     friend class ServiceManagerTest;
     DISALLOW_COPY_AND_ASSIGN(Worker);
-};
-
-/**
- * This class manages a pool of worker threads that carry out RPCs for
- * RAMCloud services.  It also implements an asynchronous interface between
- * the dispatch thread (which manages all of the network connections for a
- * server and runs Transport code) and the worker threads.
- */
-class ServiceManager : Dispatch::Poller {
-  public:
-    explicit ServiceManager(Service* service);
-    ~ServiceManager();
-
-    void exitWorker();
-    static void handleRpc(Transport::ServerRpc* rpc);
-    static bool idle();
-    void poll();
-    Transport::ServerRpc* waitForRpc(double timeoutSeconds);
-
-    /// How many microseconds worker threads should remain in their polling
-    /// loop waiting for work. If no new arrives during this period the
-    /// worker thread will put itself to sleep, which releases its core but
-    /// will result in additional delay for the next RPC while it wakes up.
-    /// The value of this variable is typically not modified except during
-    /// testing.
-    static int pollMicros;
-
-  PROTECTED:
-    static void workerMain(Worker* worker);
-
-    // Singleton object, used by all calls to handleRpc and sendReply.
-    static ServiceManager* serviceManager;
-
-    // All RPCs will be dispatched to this service for execution.  NULL
-    // means we are in a test mode where handlerRpc doesn't actually
-    // dispatch RPCs; it simply queues them.
-    Service* service;
-
-    // Information about the (single, for now) worker thread.
-    Worker worker;
-
-    // Holds requests that arrive when the worker is busy.
-    std::queue<Transport::ServerRpc*> waitingRpcs;
-
-    static Syscall *sys;
-
-    friend class Worker;
-    friend class ServiceManagerTest;
-    DISALLOW_COPY_AND_ASSIGN(ServiceManager);
 };
 
 }  // namespace RAMCloud

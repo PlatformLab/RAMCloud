@@ -958,7 +958,7 @@ InfRcTransport<Infiniband>::Poller::poll()
                 wc.byte_len - downCast<uint32_t>(sizeof(header)),
                 t, t->serverSrq, bd);
             LOG(DEBUG, "Received request with nonce %016lx", header.nonce);
-            ServiceManager::handleRpc(r);
+            serviceManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
             metrics->transport.receive.iovecCount +=

@@ -14,6 +14,7 @@
  */
 
 #include "Service.h"
+#include "ServiceManager.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -137,7 +138,7 @@ Service::handleRpc(Rpc& rpc) {
     const RpcRequestCommon* header;
     header = rpc.requestPayload.getStart<RpcRequestCommon>();
     if (header == NULL) {
-        rpc.prepareErrorResponse(STATUS_MESSAGE_TOO_SHORT);
+        prepareErrorResponse(rpc.replyPayload, STATUS_MESSAGE_TOO_SHORT);
         return;
     }
 
@@ -151,34 +152,27 @@ Service::handleRpc(Rpc& rpc) {
     try {
         dispatch(RpcOpcode(header->opcode), rpc);
     } catch (ClientException& e) {
-        rpc.prepareErrorResponse(e.status);
+        prepareErrorResponse(rpc.replyPayload, e.status);
     }
     rpcsTime[opcode] += rdtsc() - start;
 }
 
 /**
- * Fill in the response buffer for this RPC to indicate that the RPC
- * failed with a particular status.
+ * Fill in an RPC response buffer to indicate that the RPC failed with
+ * a particular status.
  *
+ * \param replyPayload
+ *      Buffer that should contain the response. If there is already a
+ *      header in the buffer, it is retained and this method simply overlays
+ *      a new status in it (the RPC may have placed additional error
+ *      information there, such as the actual version of an object when
+ *      a version match fails).
  * \param status
  *      The problem that caused the RPC to fail.
  */
 void
-Service::Rpc::prepareErrorResponse(Status status)
+Service::prepareErrorResponse(Buffer& replyPayload, Status status)
 {
-    if (replied) {
-        // Strange: we have already sent a response.  Just log the error
-        // and return.
-        LOG(WARNING, "reply already sent (requested status: %s)",
-                statusToSymbol(status));
-        return;
-    }
-
-    // In many cases there is already a response header in the buffer.
-    // If this happens, leave it there and just overlay a new status
-    // in it (the RPC may have placed additional error information
-    // there, such as the actual version of an object when a version
-    // match fails).
     RpcResponseCommon* responseCommon = const_cast<RpcResponseCommon*>(
         replyPayload.getStart<RpcResponseCommon>());
     if (responseCommon == NULL) {

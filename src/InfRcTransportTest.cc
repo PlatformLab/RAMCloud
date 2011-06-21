@@ -22,16 +22,15 @@ namespace RAMCloud {
 class InfRcTransportTest : public ::testing::Test {
   public:
     ServiceLocator* locator;
-    ServiceManager* serviceManager;
 
-    InfRcTransportTest() : locator(NULL), serviceManager(NULL)
+    InfRcTransportTest() : locator(NULL)
     {
         locator = new ServiceLocator("infrc: host=localhost, port=11000");
-        serviceManager = new ServiceManager(NULL);
+        delete serviceManager;
+        ServiceManager::init();
     }
 
     ~InfRcTransportTest() {
-        delete serviceManager;
         delete locator;
     }
   private:

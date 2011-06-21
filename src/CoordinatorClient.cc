@@ -262,6 +262,13 @@ CoordinatorClient::ping()
     Buffer req;
     Buffer resp;
     allocHeader<PingRpc>(req);
+
+    // Temporary hack: reset the service type to COORDINATOR (eventually
+    // ping should be in its own service).
+
+    RpcRequestCommon* common = const_cast<RpcRequestCommon*>(
+            req.getStart<RpcRequestCommon>());
+    common->service = COORDINATOR_SERVICE;
     sendRecv<PingRpc>(session, req, resp);
     checkStatus(HERE);
 }

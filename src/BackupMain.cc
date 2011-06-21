@@ -95,7 +95,7 @@ try
 
     BackupServer service(config, *storage);
     service.init();
-    ServiceManager manager(&service);
+    serviceManager->addService(service, BACKUP_SERVICE);
     while (true) {
         dispatch->poll();
     }

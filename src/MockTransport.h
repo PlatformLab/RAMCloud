@@ -91,6 +91,13 @@ class MockTransport : public Transport {
      */
     string outputLog;
 
+    /*
+     * Status from the most recent call to sendReply (STATUS_MAX_VALUE+1 means
+     * response was too short to hold a status, or we haven't yet received
+     * any responses).
+     */
+    Status status;
+
     /**
      * Used as the next input message required by wait.
      */

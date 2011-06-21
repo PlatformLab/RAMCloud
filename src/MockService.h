@@ -26,15 +26,19 @@ namespace RAMCloud {
 class MockService : public Service {
   public:
 
-    MockService() : log(), delay(false), sendReply(false) { }
+    MockService() : mutex(), log(), gate(0), sendReply(false),
+            threadLimit(3) { }
     virtual ~MockService() {}
     virtual void dispatch(RpcOpcode opcode, Rpc& rpc)
     {
-        if (!log.empty()) {
-             log.append(", ");
+        {
+            boost::unique_lock<boost::mutex> lock(mutex);
+            if (!log.empty()) {
+                 log.append(", ");
+            }
+            log.append("rpc: ");
+            log.append(toString(&rpc.requestPayload));
         }
-        log.append("rpc: ");
-        log.append(toString(&rpc.requestPayload));
 
         // Create a response that increments each of the (integer) values
         // in the request.  Throw an error if value 54321 appears.
@@ -46,26 +50,47 @@ class MockService : public Service {
             }
             *(new(&rpc.replyPayload, APPEND) int32_t) = inputValue+1;
         }
+        int secondWord = *(rpc.requestPayload.getOffset<int>(4));
 
         // The following code is used to test the sendReply Rpc method.
+        // Be careful not to access rpc after this point.
         if (sendReply)
             rpc.sendReply();
 
-        while (delay)
+        // The following code is used to delay completion of requests.
+        while (gate != 0) {
+            if (gate == secondWord)
+                break;
             usleep(1000);
+        }
+
+        // Wait for a random period of time from 1-64 us.  This causes
+        // variations in completion order when there are concurrent
+        // requests, in the hopes of flushing out any timing problems.
+        usleep(downCast<uint32_t>(generateRandom() & 0x3f));
     }
+    virtual int maxThreads() {
+        return threadLimit;
+    }
+
+    /// Used to serialize access to #log.
+    boost::mutex mutex;
 
     /// Records information about each request dispatched to this service.
     string log;
 
-    /// The following variable may be set to true to delay completion
-    /// of a request. You must clear the variable before the request will
-    /// complete.
-    bool delay;
+    /// The following variable is used to delay completion of requests.  If
+    /// the variable is nonzero, requests will not complete until the value
+    /// of the variable equals the second word of the request (#secondWord
+    /// in dispatch).
+    int gate;
 
     /// The following variable may be set to true to cause the service to
     /// invoke sendReply before returning.
     bool sendReply;
+
+    /// Return value from maxThreads.
+    int threadLimit;
 
     DISALLOW_COPY_AND_ASSIGN(MockService);
 };
