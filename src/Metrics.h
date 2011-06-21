@@ -40,7 +40,7 @@ void reset(Metrics* metrics, uint64_t serverId, uint64_t serverRole);
 
 // These metrics are used to track activity on the server
 // during BenchMarks. They are triggered and populated by magic keyid
-// RC::MasterServer::TOTAL_READ_REQUESTS_OBJID. Also see Bench.cc
+// RC::MasterService::TOTAL_READ_REQUESTS_OBJID. Also see Bench.cc
 struct ServerStats {
   uint64_t totalReadRequests;
   uint64_t totalReadNanos;

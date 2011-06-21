@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,7 +24,7 @@
 
 #include "BackupClient.h"
 #include "OptionParser.h"
-#include "MasterServer.h"
+#include "MasterService.h"
 #include "ServiceManager.h"
 #include "TransportManager.h"
 
@@ -72,7 +72,7 @@ try
         LOG(DEBUG, "server: Pinned to core %d", cpu);
     }
 
-    MasterServer::sizeLogAndHashTable(masterTotalMemory,
+    MasterService::sizeLogAndHashTable(masterTotalMemory,
                                       hashTableMemory, &config);
 
     transportManager.initialize(config.localLocator.c_str());
@@ -81,7 +81,7 @@ try
 
     CoordinatorClient coordinator(
         optionParser.options.getCoordinatorLocator().c_str());
-    MasterServer service(config, &coordinator, replicas);
+    MasterService service(config, &coordinator, replicas);
     service.init();
     serviceManager->addService(service, MASTER_SERVICE);
     while (true) {

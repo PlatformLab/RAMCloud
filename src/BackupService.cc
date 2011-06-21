@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,7 @@
 
 #include <boost/thread.hpp>
 
-#include "BackupServer.h"
+#include "BackupService.h"
 #include "BackupStorage.h"
 #include "BenchUtil.h"
 #include "Buffer.h"
@@ -39,7 +39,7 @@ namespace {
 uint64_t recoveryStart;
 } // anonymous namespace
 
-// --- BackupServer::SegmentInfo ---
+// --- BackupService::SegmentInfo ---
 
 /**
  * Construct a SegmentInfo to manage a segment.
@@ -62,13 +62,13 @@ uint64_t recoveryStart;
  *      who stored it.  Determines whether recovery segments are built
  *      at recovery start or on demand.
  */
-BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage,
-                                       ThreadSafePool& pool,
-                                       IoScheduler& ioScheduler,
-                                       uint64_t masterId,
-                                       uint64_t segmentId,
-                                       uint32_t segmentSize,
-                                       bool primary)
+BackupService::SegmentInfo::SegmentInfo(BackupStorage& storage,
+                                        ThreadSafePool& pool,
+                                        IoScheduler& ioScheduler,
+                                        uint64_t masterId,
+                                        uint64_t segmentId,
+                                        uint32_t segmentSize,
+                                        bool primary)
     : masterId(masterId)
     , primary(primary)
     , segmentId(segmentId)
@@ -94,7 +94,7 @@ BackupServer::SegmentInfo::SegmentInfo(BackupStorage& storage,
  * Store any open segments to storage and then release all resources
  * associate with them except permanent storage.
  */
-BackupServer::SegmentInfo::~SegmentInfo()
+BackupService::SegmentInfo::~SegmentInfo()
 {
     Lock lock(mutex);
     waitForOngoingOps(lock);
@@ -143,8 +143,8 @@ BackupServer::SegmentInfo::~SegmentInfo()
  *      recover.
  */
 void
-BackupServer::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
-                                                 Buffer& buffer)
+BackupService::SegmentInfo::appendRecoverySegment(uint64_t partitionId,
+                                                  Buffer& buffer)
 {
     Lock lock(mutex, boost::try_to_lock_t());
     if (!lock.owns_lock()) {
@@ -273,7 +273,7 @@ whichPartition(const LogEntryType type,
  *      the stored segment data into recovery segments.
  */
 void
-BackupServer::SegmentInfo::buildRecoverySegments(
+BackupService::SegmentInfo::buildRecoverySegments(
     const ProtoBuf::Tablets& partitions)
 {
     Lock lock(mutex);
@@ -385,7 +385,7 @@ BackupServer::SegmentInfo::buildRecoverySegments(
  *      If this segment is not open.
  */
 void
-BackupServer::SegmentInfo::close()
+BackupService::SegmentInfo::close()
 {
     Lock lock(mutex);
 
@@ -409,7 +409,7 @@ BackupServer::SegmentInfo::close()
  * freeing the storage resources.
  */
 void
-BackupServer::SegmentInfo::free()
+BackupService::SegmentInfo::free()
 {
     Lock lock(mutex);
     waitForOngoingOps(lock);
@@ -440,7 +440,7 @@ BackupServer::SegmentInfo::free()
  * its old contents.
  */
 void
-BackupServer::SegmentInfo::open()
+BackupService::SegmentInfo::open()
 {
     Lock lock(mutex);
     assert(state == UNINIT);
@@ -475,7 +475,7 @@ BackupServer::SegmentInfo::open()
  * #condition.
  */
 void
-BackupServer::SegmentInfo::startLoading()
+BackupService::SegmentInfo::startLoading()
 {
     Lock lock(mutex);
     waitForOngoingOps(lock);
@@ -501,10 +501,10 @@ BackupServer::SegmentInfo::startLoading()
  *      be copied.
  */
 void
-BackupServer::SegmentInfo::write(Buffer& src,
-                                 uint32_t srcOffset,
-                                 uint32_t length,
-                                 uint32_t destOffset)
+BackupService::SegmentInfo::write(Buffer& src,
+                                  uint32_t srcOffset,
+                                  uint32_t length,
+                                  uint32_t destOffset)
 {
     Lock lock(mutex);
     assert(state == OPEN && inMemory());
@@ -525,7 +525,7 @@ BackupServer::SegmentInfo::write(Buffer& src,
  *      NULL if no LogDigest exists in the Segment, else a valid pointer.
  */
 const void*
-BackupServer::SegmentInfo::getLogDigest(uint32_t* byteLength)
+BackupService::SegmentInfo::getLogDigest(uint32_t* byteLength)
 {
     // If the Segment is malformed somehow, just ignore it. The
     // coordinator will have to deal.
@@ -545,14 +545,14 @@ BackupServer::SegmentInfo::getLogDigest(uint32_t* byteLength)
     return NULL;
 }
 
-// --- BackupServer::IoScheduler ---
+// --- BackupService::IoScheduler ---
 
 /**
  * Construct an IoScheduler.  There is just one instance of this
  * with its operator() running in a new thread which is instantated
- * by the BackupServer.
+ * by the BackupService.
  */
-BackupServer::IoScheduler::IoScheduler()
+BackupService::IoScheduler::IoScheduler()
     : queueMutex()
     , queueCond()
     , loadQueue()
@@ -568,7 +568,7 @@ BackupServer::IoScheduler::IoScheduler()
  * over stores.
  */
 void
-BackupServer::IoScheduler::operator()()
+BackupService::IoScheduler::operator()()
 {
     while (true) {
         SegmentInfo* info = NULL;
@@ -609,7 +609,7 @@ BackupServer::IoScheduler::operator()()
  *      The SegmentInfo whose data will be loaded from storage.
  */
 void
-BackupServer::IoScheduler::load(SegmentInfo& info)
+BackupService::IoScheduler::load(SegmentInfo& info)
 {
 #ifdef SINGLE_THREADED_BACKUP
     doLoad(info);
@@ -628,7 +628,7 @@ BackupServer::IoScheduler::load(SegmentInfo& info)
  * Returns once all dirty buffers have been written to storage.
  */
 void
-BackupServer::IoScheduler::quiesce()
+BackupService::IoScheduler::quiesce()
 {
     while (outstandingStores > 0) {
         /* pass */;
@@ -642,7 +642,7 @@ BackupServer::IoScheduler::quiesce()
  *      The SegmentInfo whose data will be stored.
  */
 void
-BackupServer::IoScheduler::store(SegmentInfo& info)
+BackupService::IoScheduler::store(SegmentInfo& info)
 {
 #ifdef SINGLE_THREADED_BACKUP
     doStore(info);
@@ -668,7 +668,7 @@ BackupServer::IoScheduler::store(SegmentInfo& info)
  *      returns.
  */
 void
-BackupServer::IoScheduler::shutdown(boost::thread& ioThread)
+BackupService::IoScheduler::shutdown(boost::thread& ioThread)
 {
     {
         Lock lock(queueMutex);
@@ -695,7 +695,7 @@ BackupServer::IoScheduler::shutdown(boost::thread& ioThread)
  *      The SegmentInfo whose data will be loaded from storage.
  */
 void
-BackupServer::IoScheduler::doLoad(SegmentInfo& info) const
+BackupService::IoScheduler::doLoad(SegmentInfo& info) const
 {
 #ifndef SINGLE_THREADED_BACKUP
     SegmentInfo::Lock lock(info.mutex);
@@ -743,7 +743,7 @@ BackupServer::IoScheduler::doLoad(SegmentInfo& info) const
  *      The SegmentInfo whose data will be stored.
  */
 void
-BackupServer::IoScheduler::doStore(SegmentInfo& info) const
+BackupService::IoScheduler::doStore(SegmentInfo& info) const
 {
 #ifndef SINGLE_THREADED_BACKUP
     SegmentInfo::Lock lock(info.mutex);
@@ -777,7 +777,7 @@ BackupServer::IoScheduler::doStore(SegmentInfo& info) const
 }
 
 
-// --- BackupServer::RecoverySegmentBuilder ---
+// --- BackupService::RecoverySegmentBuilder ---
 
 /**
  * Constructs a RecoverySegmentBuilder which handles recovery
@@ -796,7 +796,7 @@ BackupServer::IoScheduler::doStore(SegmentInfo& info) const
  * \param recoveryThreadCount
  *      Reference to an atomic count for tracking number of running recoveries.
  */
-BackupServer::RecoverySegmentBuilder::RecoverySegmentBuilder(
+BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
         const vector<SegmentInfo*>& infos,
         const ProtoBuf::Tablets& partitions,
         AtomicInt& recoveryThreadCount)
@@ -817,7 +817,7 @@ BackupServer::RecoverySegmentBuilder::RecoverySegmentBuilder(
  * up any threads waiting for the recovery segments.
  */
 void
-BackupServer::RecoverySegmentBuilder::operator()()
+BackupService::RecoverySegmentBuilder::operator()()
 {
     uint64_t startTime = rdtsc();
     ReferenceDecrementer<AtomicInt> _(recoveryThreadCount);
@@ -856,19 +856,19 @@ BackupServer::RecoverySegmentBuilder::operator()()
 }
 
 
-// --- BackupServer ---
+// --- BackupService ---
 
 /**
- * Create a BackupServer.
+ * Create a BackupService.
  *
  * \param config
  *      Settings for this instance. The caller guarantees that config will
- *      exist for the duration of this BackupServer's lifetime.
+ *      exist for the duration of this BackupService's lifetime.
  * \param storage
  *      The storage backend used to persist segments.
  */
-BackupServer::BackupServer(const Config& config,
-                           BackupStorage& storage)
+BackupService::BackupService(const Config& config,
+                             BackupStorage& storage)
     : config(config)
     , coordinator(config.coordinatorLocator.c_str())
     , serverId(0)
@@ -900,13 +900,13 @@ BackupServer::BackupServer(const Config& config,
 /**
  * Flush open segments to disk and shutdown.
  */
-BackupServer::~BackupServer()
+BackupService::~BackupService()
 {
     int lastThreadCount = 0;
     while (recoveryThreadCount > 0) {
         if (lastThreadCount != recoveryThreadCount) {
             LOG(DEBUG, "Waiting for recovery threads to terminate before "
-                "deleting BackupServer, %d threads "
+                "deleting BackupService, %d threads "
                 "still running", static_cast<int>(recoveryThreadCount));
             lastThreadCount = recoveryThreadCount;
         }
@@ -927,7 +927,7 @@ BackupServer::~BackupServer()
 
 /// Returns the serverId granted to this backup by the coordinator.
 uint64_t
-BackupServer::getServerId() const
+BackupService::getServerId() const
 {
     return serverId;
 }
@@ -936,36 +936,36 @@ BackupServer::getServerId() const
 
 // See Server::dispatch.
 void
-BackupServer::dispatch(RpcOpcode opcode, Rpc& rpc)
+BackupService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
     switch (opcode) {
         case BackupFreeRpc::opcode:
-            callHandler<BackupFreeRpc, BackupServer,
-                        &BackupServer::freeSegment>(rpc);
+            callHandler<BackupFreeRpc, BackupService,
+                        &BackupService::freeSegment>(rpc);
             break;
         case BackupGetRecoveryDataRpc::opcode:
-            callHandler<BackupGetRecoveryDataRpc, BackupServer,
-                        &BackupServer::getRecoveryData>(rpc);
+            callHandler<BackupGetRecoveryDataRpc, BackupService,
+                        &BackupService::getRecoveryData>(rpc);
             break;
         case PingRpc::opcode:
             callHandler<PingRpc, Service,
                         &Service::ping>(rpc);
             break;
         case BackupQuiesceRpc::opcode:
-            callHandler<BackupQuiesceRpc, BackupServer,
-                        &BackupServer::quiesce>(rpc);
+            callHandler<BackupQuiesceRpc, BackupService,
+                        &BackupService::quiesce>(rpc);
             break;
         case BackupRecoveryCompleteRpc::opcode:
-            callHandler<BackupRecoveryCompleteRpc, BackupServer,
-                        &BackupServer::recoveryComplete>(rpc);
+            callHandler<BackupRecoveryCompleteRpc, BackupService,
+                        &BackupService::recoveryComplete>(rpc);
             break;
         case BackupStartReadingDataRpc::opcode:
-            callHandler<BackupStartReadingDataRpc, BackupServer,
-                        &BackupServer::startReadingData>(rpc);
+            callHandler<BackupStartReadingDataRpc, BackupService,
+                        &BackupService::startReadingData>(rpc);
             break;
         case BackupWriteRpc::opcode:
-            callHandler<BackupWriteRpc, BackupServer,
-                        &BackupServer::writeSegment>(rpc);
+            callHandler<BackupWriteRpc, BackupService,
+                        &BackupService::writeSegment>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);
@@ -989,9 +989,9 @@ BackupServer::dispatch(RpcOpcode opcode, Rpc& rpc)
  *      The Rpc being serviced.
  */
 void
-BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
-                          BackupFreeRpc::Response& respHdr,
-                          Rpc& rpc)
+BackupService::freeSegment(const BackupFreeRpc::Request& reqHdr,
+                           BackupFreeRpc::Response& respHdr,
+                           Rpc& rpc)
 {
     LOG(DEBUG, "Handling: %lu %lu", reqHdr.masterId, reqHdr.segmentId);
 
@@ -1020,8 +1020,8 @@ BackupServer::freeSegment(const BackupFreeRpc::Request& reqHdr,
  *      A pointer to the SegmentInfo for the specified segment or NULL if
  *      none exists.
  */
-BackupServer::SegmentInfo*
-BackupServer::findSegmentInfo(uint64_t masterId, uint64_t segmentId)
+BackupService::SegmentInfo*
+BackupService::findSegmentInfo(uint64_t masterId, uint64_t segmentId)
 {
     SegmentsMap::iterator it =
         segments.find(MasterSegmentIdPair(masterId, segmentId));
@@ -1050,9 +1050,9 @@ BackupServer::findSegmentInfo(uint64_t masterId, uint64_t segmentId)
  *      must have been called for its corresponding master id).
  */
 void
-BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
-                              BackupGetRecoveryDataRpc::Response& respHdr,
-                              Rpc& rpc)
+BackupService::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
+                               BackupGetRecoveryDataRpc::Response& respHdr,
+                               Rpc& rpc)
 {
     LOG(DEBUG, "getRecoveryData masterId %lu, segmentId %lu, partitionId %lu",
         reqHdr.masterId, reqHdr.segmentId, reqHdr.partitionId);
@@ -1075,7 +1075,7 @@ BackupServer::getRecoveryData(const BackupGetRecoveryDataRpc::Request& reqHdr,
  * with the coordinator.
  */
 void
-BackupServer::init()
+BackupService::init()
 {
     auto speeds = storage.benchmark(config.backupStrategy);
     serverId = coordinator.enlistServer(BACKUP, config.localLocator,
@@ -1094,9 +1094,9 @@ BackupServer::init()
  *      The Rpc being serviced.
  */
 void
-BackupServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
-                      BackupQuiesceRpc::Response& respHdr,
-                      Rpc& rpc)
+BackupService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
+                       BackupQuiesceRpc::Response& respHdr,
+                       Rpc& rpc)
 {
     ioScheduler.quiesce();
 }
@@ -1111,9 +1111,10 @@ BackupServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
  *      The Rpc being serviced.
  */
 void
-BackupServer::recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
-                               BackupRecoveryCompleteRpc::Response& respHdr,
-                               Rpc& rpc)
+BackupService::recoveryComplete(
+        const BackupRecoveryCompleteRpc::Request& reqHdr,
+        BackupRecoveryCompleteRpc::Response& respHdr,
+        Rpc& rpc)
 {
     LOG(DEBUG, "masterID: %lu", reqHdr.masterId);
     rpc.sendReply();
@@ -1131,8 +1132,8 @@ BackupServer::recoveryComplete(const BackupRecoveryCompleteRpc::Request& reqHdr,
  *      A pointer to a SegmentInfo to be compared to #left.
  */
 bool
-BackupServer::segmentInfoLessThan(SegmentInfo* left,
-                                  SegmentInfo* right)
+BackupService::segmentInfoLessThan(SegmentInfo* left,
+                                   SegmentInfo* right)
 {
     return *left < *right;
 }
@@ -1169,9 +1170,10 @@ randomNumberGenerator(uint32_t n)
  *      follows the respHdr in this buffer of length respHdr->segmentIdCount.
  */
 void
-BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
-                               BackupStartReadingDataRpc::Response& respHdr,
-                               Rpc& rpc)
+BackupService::startReadingData(
+        const BackupStartReadingDataRpc::Request& reqHdr,
+        BackupStartReadingDataRpc::Response& respHdr,
+        Rpc& rpc)
 {
     LOG(DEBUG, "Handling: %lu", reqHdr.masterId);
     recoveryTicks.construct(&metrics->recoveryTicks);
@@ -1279,7 +1281,7 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
  * Store an opaque string of bytes in a currently open segment on
  * this backup server.  This data is guaranteed to be considered on recovery
  * of the master to which this segment belongs to the best of the ability of
- * this BackupServer and will appear open unless it is closed
+ * this BackupService and will appear open unless it is closed
  * beforehand.
  *
  * If BackupWriteRpc::OPEN flag is set then space is allocated to receive
@@ -1309,9 +1311,9 @@ BackupServer::startReadingData(const BackupStartReadingDataRpc::Request& reqHdr,
  *      If the segment is not open.
  */
 void
-BackupServer::writeSegment(const BackupWriteRpc::Request& reqHdr,
-                           BackupWriteRpc::Response& respHdr,
-                           Rpc& rpc)
+BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
+                            BackupWriteRpc::Response& respHdr,
+                            Rpc& rpc)
 {
     CycleCounter<Metric> _(&metrics->backup.writeTicks);
     uint64_t masterId = reqHdr.masterId;

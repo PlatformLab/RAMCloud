@@ -14,7 +14,7 @@
  */
 
 #include "Common.h"
-#include "CoordinatorServer.h"
+#include "CoordinatorService.h"
 #include "OptionParser.h"
 #include "ServiceManager.h"
 #include "TransportManager.h"
@@ -35,7 +35,7 @@ main(int argc, char *argv[])
         transportManager.initialize(localLocator.c_str());
         localLocator = transportManager.getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
-        CoordinatorServer service;
+        CoordinatorService service;
         serviceManager->addService(service, COORDINATOR_SERVICE);
         while (true) {
             dispatch->poll();

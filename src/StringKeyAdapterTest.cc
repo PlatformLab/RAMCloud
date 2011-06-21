@@ -14,14 +14,14 @@
  */
 
 #include "TestUtil.h"
-#include "BackupServer.h"
+#include "BackupService.h"
 #include "BackupStorage.h"
 #include "BindTransport.h"
 #include "CoordinatorClient.h"
-#include "CoordinatorServer.h"
+#include "CoordinatorService.h"
 #include "Logging.h"
 #include "MasterClient.h"
-#include "MasterServer.h"
+#include "MasterService.h"
 #include "StringKeyAdapter.h"
 
 namespace RAMCloud {
@@ -31,9 +31,9 @@ class StringKeyAdapterTest : public ::testing::Test {
     StringKeyAdapterTest()
         : transport()
         , config()
-        , coordinatorServer()
+        , coordinatorService()
         , coordinator()
-        , masterServer()
+        , masterService()
         , master()
         , client()
         , sk()
@@ -41,20 +41,20 @@ class StringKeyAdapterTest : public ::testing::Test {
     {
         logger.setLogLevels(SILENT_LOG_LEVEL);
         transportManager.registerMock(&transport);
-        coordinatorServer.construct();
-        transport.addService(*coordinatorServer, "mock:host=coordinator");
+        coordinatorService.construct();
+        transport.addService(*coordinatorService, "mock:host=coordinator");
         coordinator.construct("mock:host=coordinator");
 
-        MasterServer::sizeLogAndHashTable("64", "8", &config);
+        MasterService::sizeLogAndHashTable("64", "8", &config);
         config.localLocator = "mock:host=master";
         config.coordinatorLocator = "mock:host=coordinator";
-        masterServer.construct(config, coordinator.get(), 0);
-        transport.addService(*masterServer, "mock:host=master");
-        masterServer->serverId.construct(
+        masterService.construct(config, coordinator.get(), 0);
+        transport.addService(*masterService, "mock:host=master");
+        masterService->serverId.construct(
             coordinator->enlistServer(MASTER, config.localLocator));
         master.construct(transportManager.getSession("mock:host=master"));
 
-        ProtoBuf::Tablets_Tablet& tablet(*masterServer->tablets.add_tablet());
+        ProtoBuf::Tablets_Tablet& tablet(*masterService->tablets.add_tablet());
         tablet.set_table_id(0);
         tablet.set_start_object_id(0);
         tablet.set_end_object_id(~0UL);
@@ -74,9 +74,9 @@ class StringKeyAdapterTest : public ::testing::Test {
 
     BindTransport transport;
     ServerConfig config;
-    Tub<CoordinatorServer> coordinatorServer;
+    Tub<CoordinatorService> coordinatorService;
     Tub<CoordinatorClient> coordinator;
-    Tub<MasterServer> masterServer;
+    Tub<MasterService> masterService;
     Tub<MasterClient> master;
     Tub<RamCloud> client;
     Tub<StringKeyAdapter> sk;

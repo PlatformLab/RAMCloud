@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,8 +16,8 @@
 #include "TestUtil.h"
 #include "BackupManager.h"
 #include "CoordinatorClient.h"
-#include "CoordinatorServer.h"
-#include "MasterServer.h"
+#include "CoordinatorService.h"
+#include "MasterService.h"
 #include "MockTransport.h"
 #include "TransportManager.h"
 #include "BindTransport.h"
@@ -32,19 +32,19 @@ class RamCloudTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
-    CoordinatorServer* coordinatorServer;
+    CoordinatorService* coordinatorService;
     CoordinatorClient* coordinatorClient1;
     CoordinatorClient* coordinatorClient2;
     ServerConfig masterConfig1;
     ServerConfig masterConfig2;
-    MasterServer* master1;
-    MasterServer* master2;
+    MasterService* master1;
+    MasterService* master2;
     RamCloud* ramcloud;
 
   public:
     RamCloudTest()
         : transport(NULL)
-        , coordinatorServer(NULL)
+        , coordinatorService(NULL)
         , coordinatorClient1(NULL)
         , coordinatorClient2(NULL)
         , masterConfig1()
@@ -53,38 +53,38 @@ class RamCloudTest : public CppUnit::TestFixture {
         , master2(NULL)
         , ramcloud(NULL)
     {
-        masterConfig1.coordinatorLocator = "mock:host=coordinatorServer";
+        masterConfig1.coordinatorLocator = "mock:host=coordinatorService";
         masterConfig1.localLocator = "mock:host=master1";
-        MasterServer::sizeLogAndHashTable("64", "8", &masterConfig1);
-        masterConfig2.coordinatorLocator = "mock:host=coordinatorServer";
+        MasterService::sizeLogAndHashTable("64", "8", &masterConfig1);
+        masterConfig2.coordinatorLocator = "mock:host=coordinatorService";
         masterConfig2.localLocator = "mock:host=master2";
-        MasterServer::sizeLogAndHashTable("64", "8", &masterConfig2);
+        MasterService::sizeLogAndHashTable("64", "8", &masterConfig2);
     }
 
     void setUp() {
         transport = new BindTransport();
         transportManager.registerMock(transport);
-        coordinatorServer = new CoordinatorServer();
-        transport->addService(*coordinatorServer,
-                              "mock:host=coordinatorServer");
+        coordinatorService = new CoordinatorService();
+        transport->addService(*coordinatorService,
+                              "mock:host=coordinatorService");
 
         coordinatorClient1 = new CoordinatorClient(
-                             "mock:host=coordinatorServer");
-        master1 = new MasterServer(masterConfig1, coordinatorClient1, 0);
+                             "mock:host=coordinatorService");
+        master1 = new MasterService(masterConfig1, coordinatorClient1, 0);
         transport->addService(*master1, "mock:host=master1");
         master1->serverId.construct(
             coordinatorClient1->enlistServer(MASTER,
                                              masterConfig1.localLocator));
 
         coordinatorClient2 = new CoordinatorClient(
-                             "mock:host=coordinatorServer");
-        master2 = new MasterServer(masterConfig2, coordinatorClient2, 0);
+                             "mock:host=coordinatorService");
+        master2 = new MasterService(masterConfig2, coordinatorClient2, 0);
         transport->addService(*master2, "mock:host=master2");
         master2->serverId.construct(
             coordinatorClient2->enlistServer(MASTER,
                                              masterConfig2.localLocator));
 
-        ramcloud = new RamCloud("mock:host=coordinatorServer");
+        ramcloud = new RamCloud("mock:host=coordinatorService");
         ramcloud->createTable("table1");
         ramcloud->createTable("table2");
         TestLog::enable();
@@ -97,7 +97,7 @@ class RamCloudTest : public CppUnit::TestFixture {
         delete master2;
         delete coordinatorClient1;
         delete coordinatorClient2;
-        delete coordinatorServer;
+        delete coordinatorService;
         transportManager.unregisterMock();
         delete transport;
     }

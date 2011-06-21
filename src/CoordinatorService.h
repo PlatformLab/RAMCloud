@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_COORDINATORSERVER_H
-#define RAMCLOUD_COORDINATORSERVER_H
+#ifndef RAMCLOUD_COORDINATORSERVICE_H
+#define RAMCLOUD_COORDINATORSERVICE_H
 
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
@@ -32,10 +32,10 @@ namespace RAMCloud {
 /**
  * Serves RPCs for the cluster coordinator.
  */
-class CoordinatorServer : public Service {
+class CoordinatorService : public Service {
   public:
-    CoordinatorServer();
-    ~CoordinatorServer();
+    CoordinatorService();
+    ~CoordinatorService();
     void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
 
@@ -131,10 +131,10 @@ class CoordinatorServer : public Service {
     /// Used in unit testing.
     BaseRecovery* mockRecovery;
 
-    friend class CoordinatorTest;
-    DISALLOW_COPY_AND_ASSIGN(CoordinatorServer);
+    friend class CoordinatorServiceTest;
+    DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };
 
 } // namespace RAMCloud
 
-#endif // RAMCLOUD_COORDINATORSERVER_H
+#endif // RAMCLOUD_COORDINATORSERVICE_H

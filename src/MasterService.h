@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_MASTERSERVER_H
-#define RAMCLOUD_MASTERSERVER_H
+#ifndef RAMCLOUD_MASTERSERVICE_H
+#define RAMCLOUD_MASTERSERVICE_H
 
 #include <boost/unordered_map.hpp>
 
@@ -63,14 +63,14 @@ struct ServerConfig {
  * respond to client RPC requests to manipulate objects stored on the
  * server.
  */
-class MasterServer : public Service {
+class MasterService : public Service {
   public:
     static const uint64_t TOTAL_READ_REQUESTS_OBJID = 100000UL;
 
-    MasterServer(const ServerConfig config,
-                 CoordinatorClient* coordinator,
-                 uint32_t replicas);
-    virtual ~MasterServer();
+    MasterService(const ServerConfig config,
+                  CoordinatorClient* coordinator,
+                  uint32_t replicas);
+    virtual ~MasterService();
     void init();
     void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
@@ -180,7 +180,7 @@ class MasterServer : public Service {
     }
 
     /**
-     * Used in detectSegmentRecoveryFailure() and MasterServer::recover() to
+     * Used in detectSegmentRecoveryFailure() and MasterService::recover() to
      * mark and check getRecoveryData() requests statuses.
      */
     enum { REC_REQ_NOT_STARTED, REC_REQ_WAITING, REC_REQ_FAILED, REC_REQ_OK };
@@ -287,13 +287,13 @@ class MasterServer : public Service {
                    const RejectRules* rejectRules, Buffer* data,
                    uint32_t dataOffset, uint32_t dataLength,
                    uint64_t* newVersion, bool async);
-    friend class MasterTest;
+    friend class MasterServiceTest;
     friend class MasterRecoverTest;
-    friend class CoordinatorTest;
+    friend class CoordinatorServiceTest;
     friend class RecoverSegmentBenchmark;
-    DISALLOW_COPY_AND_ASSIGN(MasterServer);
+    DISALLOW_COPY_AND_ASSIGN(MasterService);
 };
 
 } // namespace RAMCloud
 
-#endif // RAMCLOUD_MASTERSERVER_H
+#endif // RAMCLOUD_MASTERSERVICE_H

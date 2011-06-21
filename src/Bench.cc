@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,7 +29,7 @@
 #include "Metrics.h"
 #include "TestUtil.h"
 #include "RamCloud.h"
-#include "MasterServer.h"
+#include "MasterService.h"
 #include "BenchUtil.h"
 #include "OptionParser.h"
 
@@ -548,11 +548,11 @@ try
         // this read resets the serverStats objects so that we can
         // grab counts for totals on the server side like throughput.
         readInt(controlTable,
-                RC::MasterServer::TOTAL_READ_REQUESTS_OBJID,
+                RC::MasterService::TOTAL_READ_REQUESTS_OBJID,
                 wstats);
         w_nanos = BENCH(writeMany);
         readInt(controlTable,
-                RC::MasterServer::TOTAL_READ_REQUESTS_OBJID,
+                RC::MasterService::TOTAL_READ_REQUESTS_OBJID,
                 wstats);
         writeOne(0xFF); // Write non-zero to signal workers
 
@@ -590,11 +590,11 @@ try
         // this read resets the serverStats objects so that we can
         // grab counts for totals on the server side like throughput.
         readInt(controlTable,
-                RC::MasterServer::TOTAL_READ_REQUESTS_OBJID,
+                RC::MasterService::TOTAL_READ_REQUESTS_OBJID,
                 s);
         uint64_t nanos = BENCH(readMany);
         readInt(controlTable,
-                RC::MasterServer::TOTAL_READ_REQUESTS_OBJID,
+                RC::MasterService::TOTAL_READ_REQUESTS_OBJID,
                 s);
         writeOne(0xFF); // Write non-zero to signal workers
 

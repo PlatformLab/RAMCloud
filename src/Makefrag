@@ -44,7 +44,7 @@ SHARED_SRCFILES := \
 		   src/Logging.cc \
 		   src/MacAddress.cc \
 		   src/MasterClient.cc \
-		   src/MasterServer.cc \
+		   src/MasterService.cc \
 		   src/Metrics.cc \
 		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \

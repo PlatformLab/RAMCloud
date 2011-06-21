@@ -13,7 +13,7 @@ endif
 
 TESTS_SRCFILES := \
 		  src/BackupManagerTest.cc \
-		  src/BackupServerTest.cc \
+		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \
 		  src/BenchUtilTest.cc \
 		  src/BoostIntrusiveTest.cc \
@@ -21,7 +21,7 @@ TESTS_SRCFILES := \
 		  src/ClientExceptionTest.cc \
 		  src/ClientTest.cc \
 		  src/CommonTest.cc \
-		  src/CoordinatorTest.cc \
+		  src/CoordinatorServiceTest.cc \
 		  src/Crc32CTest.cc \
 		  src/DispatchTest.cc \
 		  src/FailureDetectorTest.cc \
@@ -33,7 +33,7 @@ TESTS_SRCFILES := \
 		  src/LoggingTest.cc \
 		  src/LogTest.cc \
 		  src/MacAddressTest.cc \
-		  src/MasterTest.cc \
+		  src/MasterServiceTest.cc \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \

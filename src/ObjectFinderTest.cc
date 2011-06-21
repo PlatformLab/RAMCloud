@@ -16,7 +16,7 @@
 #include "TestUtil.h"
 #include "BindTransport.h"
 #include "CoordinatorClient.h"
-#include "CoordinatorServer.h"
+#include "CoordinatorService.h"
 #include "ObjectFinder.h"
 
 namespace RAMCloud {
@@ -67,7 +67,7 @@ class ObjectFinderTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
     BindTransport* transport;
-    CoordinatorServer* coordinatorService;
+    CoordinatorService* coordinatorService;
     CoordinatorClient* coordinatorClient;
     Service* host1Service;
     Service* host2Service;
@@ -86,7 +86,7 @@ class ObjectFinderTest : public CppUnit::TestFixture {
     void setUp() {
         transport = new BindTransport();
         transportManager.registerMock(transport);
-        coordinatorService = new CoordinatorServer();
+        coordinatorService = new CoordinatorService();
         transport->addService(*coordinatorService, "mock:host=coordinator");
         coordinatorClient = new CoordinatorClient("mock:host=coordinator");
         host1Service = new Service();

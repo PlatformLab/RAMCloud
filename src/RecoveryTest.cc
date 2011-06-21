@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,12 +18,12 @@
 #include "TestUtil.h"
 #include "BindTransport.h"
 #include "BackupManager.h"
-#include "BackupServer.h"
+#include "BackupService.h"
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
-#include "CoordinatorServer.h"
+#include "CoordinatorService.h"
 #include "Logging.h"
-#include "MasterServer.h"
+#include "MasterService.h"
 #include "Tablets.pb.h"
 #include "TransportManager.h"
 #include "Recovery.h"
@@ -105,12 +105,12 @@ class RecoveryTest : public CppUnit::TestFixture {
     BackupClient* backup1;
     BackupClient* backup2;
     BackupClient* backup3;
-    BackupServer* backupServer1;
-    BackupServer* backupServer2;
-    BackupServer* backupServer3;
+    BackupService* backupService1;
+    BackupService* backupService2;
+    BackupService* backupService3;
     CoordinatorClient* coordinator;
-    CoordinatorServer* coordinatorServer;
-    BackupServer::Config* config;
+    CoordinatorService* coordinatorService;
+    BackupService::Config* config;
     ProtoBuf::ServerList* masterHosts;
     ProtoBuf::ServerList* backupHosts;
     const uint32_t segmentFrames;
@@ -126,11 +126,11 @@ class RecoveryTest : public CppUnit::TestFixture {
         : backup1()
         , backup2()
         , backup3()
-        , backupServer1()
-        , backupServer2()
-        , backupServer3()
+        , backupService1()
+        , backupService2()
+        , backupService3()
         , coordinator()
-        , coordinatorServer()
+        , coordinatorService()
         , config()
         , masterHosts()
         , backupHosts()
@@ -154,11 +154,11 @@ class RecoveryTest : public CppUnit::TestFixture {
         transport = new BindTransport;
         transportManager.registerMock(transport);
 
-        config = new BackupServer::Config;
+        config = new BackupService::Config;
         config->coordinatorLocator = "mock:host=coordinator";
 
-        coordinatorServer = new CoordinatorServer;
-        transport->addService(*coordinatorServer, config->coordinatorLocator);
+        coordinatorService = new CoordinatorService;
+        transport->addService(*coordinatorService, config->coordinatorLocator);
 
         coordinator = new CoordinatorClient(config->coordinatorLocator.c_str());
 
@@ -166,13 +166,13 @@ class RecoveryTest : public CppUnit::TestFixture {
         storage2 = new InMemoryStorage(segmentSize, segmentFrames);
         storage3 = new InMemoryStorage(segmentSize, segmentFrames);
 
-        backupServer1 = new BackupServer(*config, *storage1);
-        backupServer2 = new BackupServer(*config, *storage2);
-        backupServer3 = new BackupServer(*config, *storage3);
+        backupService1 = new BackupService(*config, *storage1);
+        backupService2 = new BackupService(*config, *storage2);
+        backupService3 = new BackupService(*config, *storage3);
 
-        transport->addService(*backupServer1, "mock:host=backup1");
-        transport->addService(*backupServer2, "mock:host=backup2");
-        transport->addService(*backupServer3, "mock:host=backup3");
+        transport->addService(*backupService1, "mock:host=backup1");
+        transport->addService(*backupService2, "mock:host=backup2");
+        transport->addService(*backupService3, "mock:host=backup3");
 
         if (enlist) {
             coordinator->enlistServer(BACKUP, "mock:host=backup1");
@@ -204,17 +204,17 @@ class RecoveryTest : public CppUnit::TestFixture {
         {
             ProtoBuf::ServerList::Entry& host(*backupHosts->add_server());
             host.set_server_type(ProtoBuf::BACKUP);
-            host.set_server_id(backupServer1->getServerId());
+            host.set_server_id(backupService1->getServerId());
             host.set_service_locator("mock:host=backup1");
         }{
             ProtoBuf::ServerList::Entry& host(*backupHosts->add_server());
             host.set_server_type(ProtoBuf::BACKUP);
-            host.set_server_id(backupServer2->getServerId());
+            host.set_server_id(backupService2->getServerId());
             host.set_service_locator("mock:host=backup2");
         }{
             ProtoBuf::ServerList::Entry& host(*backupHosts->add_server());
             host.set_server_type(ProtoBuf::BACKUP);
-            host.set_server_id(backupServer3->getServerId());
+            host.set_server_id(backupService3->getServerId());
             host.set_service_locator("mock:host=backup3");
         }
     }
@@ -235,14 +235,14 @@ class RecoveryTest : public CppUnit::TestFixture {
         delete backup3;
         delete backup2;
         delete backup1;
-        delete backupServer3;
-        delete backupServer2;
-        delete backupServer1;
+        delete backupService3;
+        delete backupService2;
+        delete backupService1;
         delete storage3;
         delete storage2;
         delete storage1;
         delete coordinator;
-        delete coordinatorServer;
+        delete coordinatorService;
         delete config;
         transportManager.unregisterMock();
         delete transport;
@@ -399,8 +399,8 @@ class RecoveryTest : public CppUnit::TestFixture {
         {
             config.coordinatorLocator = "mock:host=coordinator";
             config.localLocator = locator;
-            MasterServer::sizeLogAndHashTable("64", "8", &config);
-            master = new MasterServer(config, &coordinator, 0);
+            MasterService::sizeLogAndHashTable("64", "8", &config);
+            master = new MasterService(config, &coordinator, 0);
             transport.addService(*master, locator);
             master->serverId.construct(
                 coordinator.enlistServer(MASTER, locator));
@@ -412,7 +412,7 @@ class RecoveryTest : public CppUnit::TestFixture {
         }
 
         ServerConfig config;
-        MasterServer* master;
+        MasterService* master;
 
         DISALLOW_COPY_AND_ASSIGN(AutoMaster);
     };

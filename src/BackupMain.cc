@@ -18,7 +18,7 @@
  * Provides a way to launch a standalone backup server.
  */
 
-#include "BackupServer.h"
+#include "BackupService.h"
 #include "BackupStorage.h"
 #include "OptionParser.h"
 #include "Segment.h"
@@ -36,7 +36,7 @@ try
 {
     using namespace RAMCloud;
 
-    BackupServer::Config config;
+    BackupService::Config config;
     // CPU mask for binding the backup to a specific set of cores.
     int cpu;
     bool inMemory;
@@ -93,7 +93,7 @@ try
                                             backupFile.c_str(),
                                             O_DIRECT | O_SYNC));
 
-    BackupServer service(config, *storage);
+    BackupService service(config, *storage);
     service.init();
     serviceManager->addService(service, BACKUP_SERVICE);
     while (true) {

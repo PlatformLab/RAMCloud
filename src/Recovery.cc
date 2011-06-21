@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -158,7 +158,7 @@ using namespace RecoveryInternal; // NOLINT
 
 /**
  * Create a Recovery to coordinate a recovery from the perspective
- * of a CoordinatorServer.
+ * of a CoordinatorService.
  *
  * \param masterId
  *      The crashed master this Recovery will rebuild.

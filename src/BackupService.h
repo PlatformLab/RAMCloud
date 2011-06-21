@@ -15,13 +15,13 @@
 
 /**
  * \file
- * Declarations for the backup server, currently all backup RPC
+ * Declarations for the backup service, currently all backup RPC
  * requests are handled by this module including all the heavy lifting
  * to complete the work requested by the RPCs.
  */
 
-#ifndef RAMCLOUD_BACKUPSERVER_H
-#define RAMCLOUD_BACKUPSERVER_H
+#ifndef RAMCLOUD_BACKUPSERVICE_H
+#define RAMCLOUD_BACKUPSERVICE_H
 
 #include <cstdatomic>
 #include <boost/thread.hpp>
@@ -52,7 +52,7 @@ Tub<uint64_t> whichPartition(const LogEntryType type,
  * Handles Rpc requests from Masters and the Coordinator to persistently store
  * Segments and to facilitate the recovery of object data when Masters crash.
  */
-class BackupServer : public Service {
+class BackupService : public Service {
   PRIVATE:
 
     typedef std::atomic_int AtomicInt;
@@ -386,7 +386,7 @@ class BackupServer : public Service {
 
         friend class IoScheduler;
         friend class RecoverySegmentBuilder;
-        friend class BackupServerTest;
+        friend class BackupServiceTest;
         friend class SegmentInfoTest;
         DISALLOW_COPY_AND_ASSIGN(SegmentInfo);
     };
@@ -478,9 +478,9 @@ class BackupServer : public Service {
         }
     };
 
-    explicit BackupServer(const Config& config,
-                          BackupStorage& storage);
-    virtual ~BackupServer();
+    explicit BackupService(const Config& config,
+                           BackupStorage& storage);
+    virtual ~BackupService();
     void dispatch(RpcOpcode opcode, Rpc& rpc);
     uint64_t getServerId() const;
     void init();
@@ -514,7 +514,7 @@ class BackupServer : public Service {
     /// Handle to cluster coordinator
     CoordinatorClient coordinator;
 
-    /// Coordinator-assigned ID for this backup server
+    /// Coordinator-assigned ID for this backup service
     uint64_t serverId;
 
     /**
@@ -573,9 +573,9 @@ class BackupServer : public Service {
     /// The thread driving #ioScheduler.
     boost::thread ioThread;
 
-    friend class BackupServerTest;
+    friend class BackupServiceTest;
     friend class SegmentInfoTest;
-    DISALLOW_COPY_AND_ASSIGN(BackupServer);
+    DISALLOW_COPY_AND_ASSIGN(BackupService);
 };
 
 } // namespace RAMCloud
