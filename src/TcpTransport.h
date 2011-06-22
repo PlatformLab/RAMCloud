@@ -125,8 +125,6 @@ class TcpTransport : public Transport {
         explicit TcpClientRpc(TcpSession* session, Buffer*request,
                 Buffer* reply)
             : request(request), reply(reply), session(session) { }
-        bool isReady();
-        void wait();
       PRIVATE:
         Buffer* request;          /// Contains request message.
         Buffer* reply;            /// Client's buffer for response.
