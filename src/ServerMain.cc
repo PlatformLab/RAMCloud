@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,13 +13,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * \file
+ * This file provides the main program for RAMCloud storage servers.
+ */
+
 #include <stdlib.h>
 #include <getopt.h>
 #include <errno.h>
 
 #include "BackupClient.h"
 #include "OptionParser.h"
-#include "MasterServer.h"
+#include "MasterService.h"
+#include "ServiceManager.h"
 #include "TransportManager.h"
 
 static int cpu;
@@ -66,7 +72,7 @@ try
         LOG(DEBUG, "server: Pinned to core %d", cpu);
     }
 
-    MasterServer::sizeLogAndHashTable(masterTotalMemory,
+    MasterService::sizeLogAndHashTable(masterTotalMemory,
                                       hashTableMemory, &config);
 
     transportManager.initialize(config.localLocator.c_str());
@@ -75,8 +81,12 @@ try
 
     CoordinatorClient coordinator(
         optionParser.options.getCoordinatorLocator().c_str());
-    MasterServer server(config, &coordinator, replicas);
-    server.run();
+    MasterService service(config, &coordinator, replicas);
+    service.init();
+    serviceManager->addService(service, MASTER_SERVICE);
+    while (true) {
+        dispatch->poll();
+    }
 
     return 0;
 } catch (std::exception& e) {

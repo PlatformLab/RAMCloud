@@ -21,20 +21,24 @@
 #ifndef RAMCLOUD_INFUDDRIVER_H
 #define RAMCLOUD_INFUDDRIVER_H
 
-#include <boost/pool/object_pool.hpp>
-
 #include "Common.h"
 #include "Dispatch.h"
 #include "Driver.h"
 #include "Infiniband.h"
+#include "MacAddress.h"
+#include "ObjectPool.h"
 #include "Tub.h"
 
 namespace RAMCloud {
-class FastTransport;
 
 /**
  * A Driver for Infiniband unreliable datagram (UD) communication.
  * Simple packet send/receive style interface. See Driver for more detail.
+ * This class is templated in order to simplify replacing some of the
+ * Infiniband guts for testing.  The "Infiniband" type name corresponds
+ * to various low-level Infiniband facilities used here.  "RealInfiniband"
+ * (the only instantiation that currently exists) corresponds to the actual
+ * Infiniband driver facilities in Infiniband.cc.
  */
 template<typename Infiniband = RealInfiniband>
 class InfUdDriver : public Driver {
@@ -42,14 +46,13 @@ class InfUdDriver : public Driver {
     typedef typename Infiniband::QueuePairTuple QueuePairTuple;
     typedef typename Infiniband::QueuePair QueuePair;
     typedef typename Infiniband::Address Address;
+    typedef typename Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
-    /// The maximum number bytes we can stuff in a UDP packet payload.
-    static const uint32_t MAX_PAYLOAD_SIZE = 1024;
-
-    explicit InfUdDriver(const ServiceLocator* localServiceLocator = NULL);
+    explicit InfUdDriver(const ServiceLocator* localServiceLocator,
+                         bool ethernet);
     virtual ~InfUdDriver();
-    virtual void connect(FastTransport* transport);
+    virtual void connect(IncomingPacketHandler* incomingPacketHandler);
     virtual void disconnect();
     virtual void dumpStats() { infiniband->dumpStats(); }
     virtual uint32_t getMaxPacketSize();
@@ -58,32 +61,50 @@ class InfUdDriver : public Driver {
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
-    virtual ServiceLocator getServiceLocator();
+    virtual string getServiceLocator();
 
-    virtual Address* newAddress(const ServiceLocator& serviceLocator) {
-        return new Address(*infiniband, ibPhysicalPort, serviceLocator);
+    virtual Driver::Address* newAddress(const ServiceLocator& serviceLocator) {
+        if (localMac) {
+            return new MacAddress(
+                serviceLocator.getOption<const char*>("mac"));
+        } else {
+            return new Address(*infiniband, ibPhysicalPort, serviceLocator);
+        }
     }
 
   private:
+    BufferDescriptor* getTransmitBuffer();
+
     static const uint32_t MAX_RX_QUEUE_DEPTH = 64;
-    static const uint32_t MAX_TX_QUEUE_DEPTH = 1;
+    static const uint32_t MAX_TX_QUEUE_DEPTH = 8;
     static const uint32_t MAX_RX_SGE_COUNT = 1;
     static const uint32_t MAX_TX_SGE_COUNT = 1;
-    static const uint32_t QKEY = 0xdeadbeef;
+    // see comment at top of src/InfUdDriver.cc
+    static const uint32_t GRH_SIZE = 40;
+
+    struct EthernetHeader {
+        uint8_t destAddress[6];
+        uint8_t sourceAddress[6];
+        uint16_t etherType;         // network order
+        uint16_t length;            // host order, length of payload,
+                                    // used to drop padding from end of short
+                                    // packets
+    } __attribute__((packed));
 
     /**
      * Structure to hold an incoming packet.
      */
     struct PacketBuf {
-        PacketBuf() : infAddress() {}
+        PacketBuf() : infAddress(), macAddress() {}
         /**
          * Address of sender (used to send reply).
          */
         Tub<Address> infAddress;
+        Tub<MacAddress> macAddress;
         /**
          * Packet data (may not fill all of the allocated space).
          */
-        char payload[MAX_PAYLOAD_SIZE];
+        char payload[2048 - GRH_SIZE];
     };
 
     /// See #infiniband.
@@ -96,35 +117,39 @@ class InfUdDriver : public Driver {
      */
     Infiniband* infiniband;
 
+    const uint32_t QKEY;
+
     ibv_cq*                rxcq;           // verbs rx completion queue
     ibv_cq*                txcq;           // verbs tx completion queue
     QueuePair* qp;             // verbs queue pair wrapper
 
     /// Holds packet buffers that are no longer in use, for use any future
     /// requests; saves the overhead of calling malloc/free for each request.
-    boost::object_pool<PacketBuf> packetBufPool;
+    ObjectPool<PacketBuf> packetBufPool;
 
     /// Number of current allocations from packetBufPool.
     uint64_t            packetBufsUtilized;
 
     /// Infiniband receive buffers, written directly by the HCA.
-    BufferDescriptor*   rxBuffers[MAX_RX_QUEUE_DEPTH];
-    int                 currentRxBuffer;
+    Tub<RegisteredBuffers> rxBuffers;
 
-    /// Sole infiniband transmit buffer.
-    BufferDescriptor*   txBuffer;
+    /// Infiniband transmit buffers
+    Tub<RegisteredBuffers> txBuffers;
+
+    /// Infiniband transmit buffers that are not currently in use
+    vector<BufferDescriptor*> freeTxBuffers;
 
     int ibPhysicalPort;                 // our HCA's physical port index
     int lid;                            // our infiniband local id
     int qpn;                            // our queue pair number
+    Tub<MacAddress> localMac;           // our MAC address (if Ethernet)
 
     /// Our ServiceLocator, including the dynamic lid and qpn
     string              locatorString;
 
-    /// The FastTransport object that will handle all incoming packets
-    /// received by this driver.  NULL means #connect hasn't been called
-    /// yet.
-    FastTransport* transport;
+    /// Handler to invoke whenever packets arrive.
+    /// NULL means #connect hasn't been called yet.
+    std::unique_ptr<IncomingPacketHandler> incomingPacketHandler;
 
     /**
      * The following object is invoked by the dispatcher's polling loop;
@@ -133,7 +158,7 @@ class InfUdDriver : public Driver {
     class Poller : public Dispatch::Poller {
       public:
         explicit Poller(InfUdDriver* driver) : driver(driver) { }
-        virtual bool operator() ();
+        virtual void poll();
       private:
         // Driver on whose behalf this poller operates.
         InfUdDriver* driver;

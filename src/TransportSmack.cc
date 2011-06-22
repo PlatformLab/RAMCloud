@@ -72,8 +72,9 @@
 #include "Common.h"
 #include "OptionParser.h"
 #include "Rpc.h"
-#include "Server.h"
+#include "Service.h"
 #include "ServiceLocator.h"
+#include "ServiceManager.h"
 #include "TransportManager.h"
 
 using namespace RAMCloud;
@@ -82,7 +83,8 @@ namespace {
 
 /// RPC format used by #Echo.
 struct EchoRpc {
-    static const RpcType type = RpcType(0xd1);
+    static const RpcOpcode opcode = RpcOpcode(0xd1);
+    static const RpcServiceType service = RpcServiceType(0);
     struct Request {
         RpcRequestCommon common;
         uint64_t spinNs;
@@ -96,7 +98,8 @@ struct EchoRpc {
 
 /// RPC format used by #Remote.
 struct RemoteRpc {
-    static const RpcType type = RpcType(0xd2);
+    static const RpcOpcode opcode = RpcOpcode(0xd2);
+    static const RpcServiceType service = RpcServiceType(0);
     struct Request {
         RpcRequestCommon common;
         uint32_t commandLength;
@@ -336,34 +339,28 @@ struct Do : public Test {
 };
 
 /// RPC server for server side of tests.
-class TSServer : public Server {
+class TSService : public Service {
   public:
-    TSServer() {}
-    void dispatch(RpcType type,
-                  Transport::ServerRpc& rpc,
-                  Responder& responder) {
-        switch (type) {
-            case EchoRpc::type:
-                callHandler<EchoRpc, TSServer, &TSServer::echo>(rpc);
+    TSService() {}
+    void dispatch(RpcOpcode opcode, Rpc& rpc) {
+        switch (opcode) {
+            case EchoRpc::opcode:
+                callHandler<EchoRpc, TSService, &TSService::echo>(rpc);
                 break;
-            case RemoteRpc::type:
-                callHandler<RemoteRpc, TSServer, &TSServer::remote>(rpc);
+            case RemoteRpc::opcode:
+                callHandler<RemoteRpc, TSService, &TSService::remote>(rpc);
                 break;
             default:
                 throw UnimplementedRequestError(HERE);
         }
     }
-    void run() {
-        while (true)
-            handleRpc<TSServer>();
-    }
 
   private:
     void echo(const EchoRpc::Request& reqHdr,
               EchoRpc::Response& respHdr,
-              Transport::ServerRpc& rpc) {
+              Rpc& rpc) {
         spin(reqHdr.spinNs);
-        Buffer::Iterator iter(rpc.recvPayload, sizeof(reqHdr), ~0U);
+        Buffer::Iterator iter(rpc.requestPayload, sizeof(reqHdr), ~0U);
         while (!iter.isDone()) {
             Buffer::Chunk::appendToBuffer(&rpc.replyPayload,
                                           iter.getData(),
@@ -376,13 +373,14 @@ class TSServer : public Server {
     }
     void remote(const RemoteRpc::Request& reqHdr,
               RemoteRpc::Response& respHdr,
-              Transport::ServerRpc& rpc) {
-        const char* command = getString(rpc.recvPayload, sizeof(reqHdr),
-                                        reqHdr.commandLength);
+              Rpc& rpc) {
+        const char* command = Service::getString(rpc.requestPayload,
+                                                 sizeof(reqHdr),
+                                                 reqHdr.commandLength);
         Do(command).startWait();
     }
 
-    DISALLOW_COPY_AND_ASSIGN(TSServer);
+    DISALLOW_COPY_AND_ASSIGN(TSService);
 };
 
 } // anonymous namespace
@@ -423,7 +421,11 @@ main(int argc, char *argv[])
                 "Running TransportSmack server, listening on %s",
                 localLocator.c_str());
             transportManager.initialize(localLocator.c_str());
-            TSServer().run();
+
+            TSService service;
+            while (true) {
+                dispatch->poll();
+            }
         }
 
         return 0;

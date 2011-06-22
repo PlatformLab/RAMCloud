@@ -16,11 +16,11 @@
 #ifndef RAMCLOUD_UDPDRIVER_H
 #define RAMCLOUD_UDPDRIVER_H
 
-#include <boost/pool/object_pool.hpp>
 #include <vector>
 
 #include "FastTransport.h"
 #include "IpAddress.h"
+#include "ObjectPool.h"
 #include "Syscall.h"
 #include "Tub.h"
 
@@ -37,7 +37,7 @@ class UdpDriver : public Driver {
 
     explicit UdpDriver(const ServiceLocator* localServiceLocator = NULL);
     virtual ~UdpDriver();
-    virtual void connect(FastTransport* transport);
+    virtual void connect(IncomingPacketHandler* incomingPacketHandler);
     virtual void disconnect();
     virtual uint32_t getMaxPacketSize();
     virtual void release(char *payload);
@@ -45,7 +45,7 @@ class UdpDriver : public Driver {
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
-    virtual ServiceLocator getServiceLocator();
+    virtual string getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator& serviceLocator) {
         return new IpAddress(serviceLocator);
@@ -65,8 +65,8 @@ class UdpDriver : public Driver {
     /// File descriptor of the UDP socket this driver uses for communication.
     int socketFd;
 
-    /// FastTransport to invoke whenever packets arrive.
-    FastTransport* transport;
+    /// Handler to invoke whenever packets arrive.
+    std::unique_ptr<IncomingPacketHandler> incomingPacketHandler;
 
     /**
      * An event handler that reads incoming packets and passes them on to
@@ -78,7 +78,7 @@ class UdpDriver : public Driver {
                 : Dispatch::File(fd, Dispatch::FileEvent::READABLE)
                 , driver(driver)
         { }
-        virtual void operator() ();
+        virtual void handleFileEvent();
       private:
         // Driver that owns this handler.
         UdpDriver* driver;
@@ -88,7 +88,7 @@ class UdpDriver : public Driver {
 
     /// Holds packet buffers that are no longer in use, for use in future
     /// requests; saves the overhead of calling malloc/free for each request.
-    boost::object_pool<PacketBuf> packetBufPool;
+    ObjectPool<PacketBuf> packetBufPool;
 
     /// Tracks number of outstanding allocated payloads.  For detecting leaks.
     int packetBufsUtilized;

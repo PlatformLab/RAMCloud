@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,7 +16,7 @@
 #include "BenchUtil.h"
 #include "ClientException.h"
 #include "Logging.h"
-#include "MasterServer.h"
+#include "MasterService.h"
 #include "Tablets.pb.h"
 
 namespace RAMCloud {
@@ -25,24 +25,24 @@ class RecoverSegmentBenchmark {
 
   public:
     ServerConfig config;
-    MasterServer* server;
+    MasterService* service;
 
     RecoverSegmentBenchmark(string logSize, string hashTableSize,
         int numSegments)
         : config()
-        , server(NULL)
+        , service(NULL)
     {
         logger.setLogLevels(SILENT_LOG_LEVEL);
         config.localLocator = "bogus";
         config.coordinatorLocator = "bogus";
-        MasterServer::sizeLogAndHashTable(logSize, hashTableSize, &config);
-        server = new MasterServer(config, NULL, 0);
-        server->serverId.construct(1);
+        MasterService::sizeLogAndHashTable(logSize, hashTableSize, &config);
+        service = new MasterService(config, NULL, 0);
+        service->serverId.construct(1);
     }
 
     ~RecoverSegmentBenchmark()
     {
-        delete server;
+        delete service;
     }
 
     void
@@ -79,10 +79,10 @@ class RecoverSegmentBenchmark {
         tablet.set_start_object_id(0);
         tablet.set_end_object_id(nextObjId - 1);
         tablet.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
-        tablet.set_server_id(server->serverId);
+        tablet.set_server_id(service->serverId);
         ProtoBuf::Tablets tablets;
         *tablets.add_tablet() = tablet;
-        server->setTablets(tablets);
+        service->setTablets(tablets);
 
         /*
          * Now run a fake recovery.
@@ -90,7 +90,7 @@ class RecoverSegmentBenchmark {
         uint64_t before = rdtsc();
         for (int i = 0; i < numSegments; i++) {
             Segment *s = segments[i];
-            server->recoverSegment(s->getId(), s->getBaseAddress(),
+            service->recoverSegment(s->getId(), s->getBaseAddress(),
                 s->getCapacity());
         }
         uint64_t ticks = rdtsc() - before;

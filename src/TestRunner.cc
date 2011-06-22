@@ -31,6 +31,7 @@
 
 #include "Common.h"
 #include "ClientException.h"
+#include "Dispatch.h"
 
 namespace {
 
@@ -176,7 +177,10 @@ main(int argc, char *argv[])
     // First run gtest tests.
     // set log levels for gtest unit tests
     struct LoggerEnvironment : public ::testing::Environment {
-        void SetUp() { RAMCloud::logger.setLogLevels(RAMCloud::WARNING); }
+        void SetUp()
+        {
+            RAMCloud::logger.setLogLevels(RAMCloud::WARNING);
+        }
     };
     ::testing::AddGlobalTestEnvironment(new LoggerEnvironment());
 

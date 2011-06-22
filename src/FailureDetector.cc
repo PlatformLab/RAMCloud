@@ -164,7 +164,7 @@ FailureDetector::handleIncomingRequest(char* buf, ssize_t bytes,
     // can notify the coordinator if its unreachable.
 
     RpcRequestCommon* req = reinterpret_cast<RpcRequestCommon*>(buf);
-    if (req->type == PING) {
+    if (req->opcode == PING) {
         PingRpc::Request *req = reinterpret_cast<PingRpc::Request*>(buf);
         PingRpc::Response resp;
         resp.common.status = STATUS_OK;
@@ -173,7 +173,7 @@ FailureDetector::handleIncomingRequest(char* buf, ssize_t bytes,
             reinterpret_cast<sockaddr*>(sourceAddress), sizeof(*sourceAddress));
         if (r != sizeof(resp))
             LOG(WARNING, "sendto returned wrong number of bytes (%Zd)", r);
-    } else if (req->type == PROXY_PING) {
+    } else if (req->opcode == PROXY_PING) {
         ProxyPingRpc::Request *req =
             reinterpret_cast<ProxyPingRpc::Request*>(buf);
         uint32_t locLen = req->serviceLocatorLength;
@@ -189,7 +189,7 @@ FailureDetector::handleIncomingRequest(char* buf, ssize_t bytes,
 
         uint64_t nonce = generateRandom() | COORD_PROBE_FLAG;
         PingRpc::Request proxyReq;
-        proxyReq.common.type = PING;
+        proxyReq.common.opcode = PING;
         proxyReq.nonce = nonce;
         sockaddr_in sin = serviceLocatorStringToSockaddrIn(locator);
         ssize_t r = sys->sendto(clientFd, &proxyReq, sizeof(proxyReq), 0,
@@ -200,7 +200,7 @@ FailureDetector::handleIncomingRequest(char* buf, ssize_t bytes,
             queue.enqueue(locator, nonce);
     } else {
         LOG(WARNING, "unknown request encountered (%u); ignoring",
-            (uint32_t)req->type);
+            (uint32_t)req->opcode);
     }
 }
 
@@ -312,7 +312,7 @@ FailureDetector::pingRandomServer()
 
     uint64_t nonce = generateRandom() & ~COORD_PROBE_FLAG;
     PingRpc::Request req;
-    req.common.type = PING;
+    req.common.opcode = PING;
     req.nonce = nonce;
     sockaddr_in sin = serviceLocatorStringToSockaddrIn(*locator);
     ssize_t r = sys->sendto(clientFd, &req,
@@ -359,7 +359,7 @@ FailureDetector::alertCoordinator(TimeoutQueue::TimeoutEntry* te)
 
         HintServerDownRpc::Request* rpc =
             reinterpret_cast<HintServerDownRpc::Request*>(buf);
-        rpc->common.type = HINT_SERVER_DOWN;
+        rpc->common.opcode = HINT_SERVER_DOWN;
         rpc->serviceLocatorLength = downCast<uint32_t>(loc.length() + 1);
         memcpy(&buf[sizeof(*rpc)], loc.c_str(), loc.length());
 
@@ -416,7 +416,7 @@ FailureDetector::requestServerList()
     LOG(DEBUG, "requesting server list");
 
     GetServerListRpc::Request rpc;
-    rpc.common.type = GET_SERVER_LIST;
+    rpc.common.opcode = GET_SERVER_LIST;
     rpc.serverType = type;
     sockaddr_in sin = serviceLocatorStringToSockaddrIn(coordinator);
     ssize_t r = sys->sendto(coordFd, &rpc, sizeof(rpc), 0,

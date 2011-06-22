@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -22,6 +22,7 @@
 #include "Common.h"
 #include "Buffer.h"
 #include "OptionParser.h"
+#include "ServiceManager.h"
 #include "TransportManager.h"
 
 /**
@@ -50,9 +51,10 @@ try
     transportManager.initialize(optionParser.options.getLocalLocator().c_str());
 
     while (true) {
-        Buffer payload;
-        Transport::ServerRpc* rpc = transportManager.serverRecv();
-        Buffer::Iterator iter(rpc->recvPayload);
+        Transport::ServerRpc* rpc = serviceManager->waitForRpc(1);
+        if (rpc == NULL)
+            continue;
+        Buffer::Iterator iter(rpc->requestPayload);
         while (!iter.isDone()) {
             Buffer::Chunk::appendToBuffer(&rpc->replyPayload,
                                           iter.getData(),

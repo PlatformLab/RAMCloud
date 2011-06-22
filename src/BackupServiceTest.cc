@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,12 +16,12 @@
 #include <cstring>
 
 #include "TestUtil.h"
-#include "BackupServer.h"
+#include "BackupService.h"
 #include "BindTransport.h"
-#include "CoordinatorServer.h"
+#include "CoordinatorService.h"
 #include "Log.h"
 #include "Logging.h"
-#include "MasterServer.h"
+#include "MasterService.h"
 #include "MockTransport.h"
 #include "RecoverySegmentIterator.h"
 #include "Rpc.h"
@@ -31,14 +31,11 @@
 namespace RAMCloud {
 
 /**
- * Unit tests for BackupServer.
+ * Unit tests for BackupService.
  */
-class BackupServerTest : public CppUnit::TestFixture {
+class BackupServiceTest : public CppUnit::TestFixture {
 
-    CPPUNIT_TEST_SUITE(BackupServerTest);
-    CPPUNIT_TEST(test_closeSegment);
-    CPPUNIT_TEST(test_closeSegment_segmentNotOpen);
-    CPPUNIT_TEST(test_closeSegment_segmentClosed);
+    CPPUNIT_TEST_SUITE(BackupServiceTest);
     CPPUNIT_TEST(test_findSegmentInfo);
     CPPUNIT_TEST(test_findSegmentInfo_notIn);
     CPPUNIT_TEST(test_freeSegment);
@@ -47,10 +44,6 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_getRecoveryData_moreThanOneSegmentStored);
     CPPUNIT_TEST(test_getRecoveryData_malformedSegment);
     CPPUNIT_TEST(test_getRecoveryData_notRecovered);
-    CPPUNIT_TEST(test_openSegment);
-    CPPUNIT_TEST(test_openSegment_secondary);
-    CPPUNIT_TEST(test_openSegment_alreadyOpen);
-    CPPUNIT_TEST(test_openSegment_outOfStorage);
     CPPUNIT_TEST(test_recoverySegmentBuilder);
     CPPUNIT_TEST(test_startReadingData);
     CPPUNIT_TEST(test_startReadingData_empty);
@@ -61,24 +54,30 @@ class BackupServerTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_writeSegment_segmentNotOpen);
     CPPUNIT_TEST(test_writeSegment_segmentClosed);
     CPPUNIT_TEST(test_writeSegment_badOffset);
+    CPPUNIT_TEST(test_writeSegment_segmentClosedRedundantClosingWrite);
     CPPUNIT_TEST(test_writeSegment_badLength);
     CPPUNIT_TEST(test_writeSegment_badOffsetPlusLength);
+    CPPUNIT_TEST(test_writeSegment_closeSegment);
+    CPPUNIT_TEST(test_writeSegment_closeSegmentSegmentNotOpen);
+    CPPUNIT_TEST(test_writeSegment_openSegment);
+    CPPUNIT_TEST(test_writeSegment_openSegmentSecondary);
+    CPPUNIT_TEST(test_writeSegment_openSegmentOutOfStorage);
     CPPUNIT_TEST_SUITE_END();
 
-    BackupServer* backup;
+    BackupService* backup;
     BackupClient* client;
-    CoordinatorServer* coordinatorServer;
+    CoordinatorService* coordinatorService;
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     BackupStorage* storage;
-    BackupServer::Config* config;
+    BackupService::Config* config;
     BindTransport* transport;
 
   public:
-    BackupServerTest()
+    BackupServiceTest()
         : backup(NULL)
         , client(NULL)
-        , coordinatorServer(NULL)
+        , coordinatorService(NULL)
         , segmentSize(1 << 10)
         , segmentFrames(4)
         , storage(NULL)
@@ -92,16 +91,16 @@ class BackupServerTest : public CppUnit::TestFixture {
     setUp()
     {
         logger.setLogLevels(SILENT_LOG_LEVEL);
-        config = new BackupServer::Config();
+        config = new BackupService::Config();
         config->coordinatorLocator = "mock:host=coordinator";
         storage = new InMemoryStorage(segmentSize, segmentFrames);
 
         transport = new BindTransport();
         transportManager.registerMock(transport);
-        coordinatorServer = new CoordinatorServer();
-        transport->addServer(*coordinatorServer, "mock:host=coordinator");
-        backup = new BackupServer(*config, *storage);
-        transport->addServer(*backup, "mock:host=backup");
+        coordinatorService = new CoordinatorService();
+        transport->addService(*coordinatorService, "mock:host=coordinator");
+        backup = new BackupService(*config, *storage);
+        transport->addService(*backup, "mock:host=backup");
         client =
             new BackupClient(transportManager.getSession("mock:host=backup"));
     }
@@ -111,7 +110,7 @@ class BackupServerTest : public CppUnit::TestFixture {
     {
         delete client;
         delete backup;
-        delete coordinatorServer;
+        delete coordinatorService;
         transportManager.unregisterMock();
         delete transport;
         delete storage;
@@ -183,52 +182,12 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     void
-    test_closeSegment()
-    {
-        client->openSegment(99, 88);
-        client->writeSegment(99, 88, 10, "test", 5);
-        client->closeSegment(99, 88);
-        BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
-        char* storageAddress =
-            static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
-                getAddress();
-        {
-            BackupServer::SegmentInfo::Lock lock(info.mutex);
-            while (info.segment)
-                info.condition.wait(lock);
-        }
-        CPPUNIT_ASSERT(NULL != storageAddress);
-        CPPUNIT_ASSERT_EQUAL("test", &storageAddress[10]);
-        CPPUNIT_ASSERT_EQUAL(NULL, static_cast<void*>(info.segment));
-        CPPUNIT_ASSERT_EQUAL(1,
-            BackupStorage::Handle::getAllocatedHandlesCount());
-    }
-
-    void
-    test_closeSegment_segmentNotOpen()
-    {
-        CPPUNIT_ASSERT_THROW(client->closeSegment(99, 88),
-                             BackupBadSegmentIdException);
-    }
-
-    void
-    test_closeSegment_segmentClosed()
-    {
-        client->openSegment(99, 88);
-        client->closeSegment(99, 88);
-        CPPUNIT_ASSERT_THROW(client->closeSegment(99, 88),
-                             BackupBadSegmentIdException);
-        CPPUNIT_ASSERT_EQUAL(1,
-            BackupStorage::Handle::getAllocatedHandlesCount());
-    }
-
-    void
     test_findSegmentInfo()
     {
         CPPUNIT_ASSERT_EQUAL(NULL, backup->findSegmentInfo(99, 88));
         client->openSegment(99, 88);
         client->closeSegment(99, 88);
-        BackupServer::SegmentInfo* infop = backup->findSegmentInfo(99, 88);
+        BackupService::SegmentInfo* infop = backup->findSegmentInfo(99, 88);
         CPPUNIT_ASSERT(infop != NULL);
         CPPUNIT_ASSERT_EQUAL(1,
             BackupStorage::Handle::getAllocatedHandlesCount());
@@ -257,6 +216,8 @@ class BackupServerTest : public CppUnit::TestFixture {
             client->freeSegment(99, 88);
             CPPUNIT_ASSERT_EQUAL("free: called", TestLog::get());
         }
+        CPPUNIT_ASSERT_EQUAL(NULL, backup->findSegmentInfo(99, 88));
+        client->freeSegment(99, 88);
         CPPUNIT_ASSERT_EQUAL(NULL, backup->findSegmentInfo(99, 88));
     }
 
@@ -493,55 +454,6 @@ class BackupServerTest : public CppUnit::TestFixture {
     }
 
     void
-    test_openSegment()
-    {
-        client->openSegment(99, 88);
-        BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
-        CPPUNIT_ASSERT(NULL != info.segment);
-        CPPUNIT_ASSERT_EQUAL(0, *info.segment);
-        CPPUNIT_ASSERT(info.primary);
-        char* address =
-            static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
-                getAddress();
-        CPPUNIT_ASSERT(NULL != address);
-        CPPUNIT_ASSERT_EQUAL(1,
-            BackupStorage::Handle::getAllocatedHandlesCount());
-    }
-
-    void
-    test_openSegment_secondary()
-    {
-        client->openSegment(99, 88, false);
-        BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
-        CPPUNIT_ASSERT(!info.primary);
-    }
-
-    void
-    test_openSegment_alreadyOpen()
-    {
-        client->openSegment(99, 88);
-        CPPUNIT_ASSERT_THROW(
-            client->openSegment(99, 88),
-            BackupSegmentAlreadyOpenException);
-        CPPUNIT_ASSERT_EQUAL(1,
-            BackupStorage::Handle::getAllocatedHandlesCount());
-    }
-
-    void
-    test_openSegment_outOfStorage()
-    {
-        client->openSegment(99, 86);
-        client->openSegment(99, 87);
-        client->openSegment(99, 88);
-        client->openSegment(99, 89);
-        CPPUNIT_ASSERT_THROW(
-            client->openSegment(99, 90),
-            BackupStorageException);
-        CPPUNIT_ASSERT_EQUAL(4,
-            BackupStorage::Handle::getAllocatedHandlesCount());
-    }
-
-    void
     test_recoverySegmentBuilder()
     {
         uint32_t offset = 0;
@@ -557,7 +469,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         offset += writeFooter(99, 88, offset);
         client->closeSegment(99, 88);
 
-        vector<BackupServer::SegmentInfo*> toBuild;
+        vector<BackupService::SegmentInfo*> toBuild;
         auto info = backup->findSegmentInfo(99, 87);
         CPPUNIT_ASSERT(NULL != info);
         info->setRecovering();
@@ -571,13 +483,13 @@ class BackupServerTest : public CppUnit::TestFixture {
 
         ProtoBuf::Tablets partitions;
         createTabletList(partitions);
-        BackupServer::AtomicInt recoveryThreadCount{0};
-        BackupServer::RecoverySegmentBuilder builder(toBuild,
+        BackupService::AtomicInt recoveryThreadCount{0};
+        BackupService::RecoverySegmentBuilder builder(toBuild,
                                                      partitions,
                                                      recoveryThreadCount);
         builder();
 
-        CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+        CPPUNIT_ASSERT_EQUAL(BackupService::SegmentInfo::RECOVERING,
                              toBuild[0]->state);
         CPPUNIT_ASSERT(NULL != toBuild[0]->recoverySegments);
         Buffer* buf = &toBuild[0]->recoverySegments[0];
@@ -589,7 +501,7 @@ class BackupServerTest : public CppUnit::TestFixture {
         it.next();
         CPPUNIT_ASSERT(it.isDone());
 
-        CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+        CPPUNIT_ASSERT_EQUAL(BackupService::SegmentInfo::RECOVERING,
                              toBuild[1]->state);
         CPPUNIT_ASSERT(NULL != toBuild[1]->recoverySegments);
         buf = &toBuild[1]->recoverySegments[1];
@@ -619,27 +531,27 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(88, result.segmentIdAndLength[0].first);
         CPPUNIT_ASSERT_EQUAL(4, result.segmentIdAndLength[0].second);
         {
-            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 88);
-            BackupServer::SegmentInfo::Lock lock(info.mutex);
-            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+            BackupService::SegmentInfo& info = *backup->findSegmentInfo(99, 88);
+            BackupService::SegmentInfo::Lock lock(info.mutex);
+            CPPUNIT_ASSERT_EQUAL(BackupService::SegmentInfo::RECOVERING,
                                  info.state);
         }
 
         CPPUNIT_ASSERT_EQUAL(89, result.segmentIdAndLength[1].first);
         CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[1].second);
         {
-            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 89);
-            BackupServer::SegmentInfo::Lock lock(info.mutex);
-            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+            BackupService::SegmentInfo& info = *backup->findSegmentInfo(99, 89);
+            BackupService::SegmentInfo::Lock lock(info.mutex);
+            CPPUNIT_ASSERT_EQUAL(BackupService::SegmentInfo::RECOVERING,
                                  info.state);
         }
 
         CPPUNIT_ASSERT_EQUAL(98, result.segmentIdAndLength[2].first);
         CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[2].second);
         {
-            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 98);
-            BackupServer::SegmentInfo::Lock lock(info.mutex);
-            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+            BackupService::SegmentInfo& info = *backup->findSegmentInfo(99, 98);
+            BackupService::SegmentInfo::Lock lock(info.mutex);
+            CPPUNIT_ASSERT_EQUAL(BackupService::SegmentInfo::RECOVERING,
                                  info.state);
             CPPUNIT_ASSERT(info.recoveryPartitions);
         }
@@ -648,9 +560,9 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(0, result.segmentIdAndLength[3].second);
         CPPUNIT_ASSERT(backup->findSegmentInfo(99, 99)->recoveryPartitions);
         {
-            BackupServer::SegmentInfo& info = *backup->findSegmentInfo(99, 99);
-            BackupServer::SegmentInfo::Lock lock(info.mutex);
-            CPPUNIT_ASSERT_EQUAL(BackupServer::SegmentInfo::RECOVERING,
+            BackupService::SegmentInfo& info = *backup->findSegmentInfo(99, 99);
+            BackupService::SegmentInfo::Lock lock(info.mutex);
+            CPPUNIT_ASSERT_EQUAL(BackupService::SegmentInfo::RECOVERING,
                                  info.state);
             CPPUNIT_ASSERT(info.recoveryPartitions);
         }
@@ -775,12 +687,15 @@ class BackupServerTest : public CppUnit::TestFixture {
     test_writeSegment()
     {
         client->openSegment(99, 88);
-        client->writeSegment(99, 88, 10, "test", 5);
-        BackupServer::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
-        CPPUNIT_ASSERT(NULL != info.segment);
-        CPPUNIT_ASSERT_EQUAL("test", &info.segment[10]);
-        CPPUNIT_ASSERT_EQUAL(1,
-            BackupStorage::Handle::getAllocatedHandlesCount());
+        // test for idempotence
+        for (int i = 0; i < 2; ++i) {
+            client->writeSegment(99, 88, 10, "test", 5);
+            BackupService::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
+            CPPUNIT_ASSERT(NULL != info.segment);
+            CPPUNIT_ASSERT_EQUAL("test", &info.segment[10]);
+            CPPUNIT_ASSERT_EQUAL(1,
+                BackupStorage::Handle::getAllocatedHandlesCount());
+        }
     }
 
     void
@@ -799,6 +714,17 @@ class BackupServerTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(
             client->writeSegment(99, 88, 0, "test", 4),
             BackupBadSegmentIdException);
+        CPPUNIT_ASSERT_EQUAL(1,
+            BackupStorage::Handle::getAllocatedHandlesCount());
+    }
+
+    void
+    test_writeSegment_segmentClosedRedundantClosingWrite()
+    {
+        client->openSegment(99, 88);
+        client->closeSegment(99, 88);
+        BackupClient::WriteSegment::WriteSegment(*client, 99, 88, 0, "test", 4,
+                                                 BackupWriteRpc::CLOSE)();
         CPPUNIT_ASSERT_EQUAL(1,
             BackupStorage::Handle::getAllocatedHandlesCount());
     }
@@ -839,14 +765,87 @@ class BackupServerTest : public CppUnit::TestFixture {
             BackupStorage::Handle::getAllocatedHandlesCount());
     }
 
+    void
+    test_writeSegment_closeSegment()
+    {
+        client->openSegment(99, 88);
+        client->writeSegment(99, 88, 10, "test", 5);
+        // loop to test for idempotence
+        for (int i = 0; i > 2; ++i) {
+            client->closeSegment(99, 88);
+            BackupService::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
+            char* storageAddress =
+                static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
+                    getAddress();
+            {
+                BackupService::SegmentInfo::Lock lock(info.mutex);
+                while (info.segment)
+                    info.condition.wait(lock);
+            }
+            CPPUNIT_ASSERT(NULL != storageAddress);
+            CPPUNIT_ASSERT_EQUAL("test", &storageAddress[10]);
+            CPPUNIT_ASSERT_EQUAL(NULL, static_cast<void*>(info.segment));
+            CPPUNIT_ASSERT_EQUAL(1,
+                BackupStorage::Handle::getAllocatedHandlesCount());
+        }
+    }
+
+    void
+    test_writeSegment_closeSegmentSegmentNotOpen()
+    {
+        CPPUNIT_ASSERT_THROW(client->closeSegment(99, 88),
+                             BackupBadSegmentIdException);
+    }
+
+    void
+    test_writeSegment_openSegment()
+    {
+        // loop to test for idempotence
+        for (int i = 0; i < 2; ++i) {
+            client->openSegment(99, 88);
+            BackupService::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
+            CPPUNIT_ASSERT(NULL != info.segment);
+            CPPUNIT_ASSERT_EQUAL(0, *info.segment);
+            CPPUNIT_ASSERT(info.primary);
+            char* address =
+                static_cast<InMemoryStorage::Handle*>(info.storageHandle)->
+                    getAddress();
+            CPPUNIT_ASSERT(NULL != address);
+            CPPUNIT_ASSERT_EQUAL(1,
+                BackupStorage::Handle::getAllocatedHandlesCount());
+        }
+    }
+
+    void
+    test_writeSegment_openSegmentSecondary()
+    {
+        client->openSegment(99, 88, false);
+        BackupService::SegmentInfo &info = *backup->findSegmentInfo(99, 88);
+        CPPUNIT_ASSERT(!info.primary);
+    }
+
+    void
+    test_writeSegment_openSegmentOutOfStorage()
+    {
+        client->openSegment(99, 86);
+        client->openSegment(99, 87);
+        client->openSegment(99, 88);
+        client->openSegment(99, 89);
+        CPPUNIT_ASSERT_THROW(
+            client->openSegment(99, 90),
+            BackupStorageException);
+        CPPUNIT_ASSERT_EQUAL(4,
+            BackupStorage::Handle::getAllocatedHandlesCount());
+    }
+
   private:
-    DISALLOW_COPY_AND_ASSIGN(BackupServerTest);
+    DISALLOW_COPY_AND_ASSIGN(BackupServiceTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(BackupServerTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(BackupServiceTest);
 
 class SegmentInfoTest : public ::testing::Test {
   public:
-    typedef BackupServer::SegmentInfo SegmentInfo;
+    typedef BackupService::SegmentInfo SegmentInfo;
     typedef BackupStorage::Handle Handle;
     SegmentInfoTest()
         : segmentSize(64 * 1024)
@@ -865,9 +864,9 @@ class SegmentInfoTest : public ::testing::Test {
     }
 
     uint32_t segmentSize;
-    BackupServer::ThreadSafePool pool;
+    BackupService::ThreadSafePool pool;
     InMemoryStorage storage;
-    BackupServer::IoScheduler ioScheduler;
+    BackupService::IoScheduler ioScheduler;
     boost::thread ioThread;
     SegmentInfo info;
 };

@@ -24,17 +24,23 @@ CLIENT_SRCFILES := \
 		   src/FastTransport.cc \
 		   src/IpAddress.cc \
 		   src/Logging.cc \
+		   src/MacAddress.cc \
 		   src/MasterClient.cc \
 		   src/Metrics.cc \
 		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
 		   src/RamCloud.cc \
+		   src/Service.cc \
 		   src/ServiceLocator.cc \
+		   src/ServiceManager.cc \
 		   src/Status.cc \
 		   src/TcpTransport.cc \
+		   src/ThreadId.cc \
 		   src/TimeCounter.cc \
+		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
+		   src/UnreliableTransport.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/ServerList.pb.cc \
 		   $(OBJDIR)/Tablets.pb.cc \

@@ -24,8 +24,6 @@ GTEST_DIR ?= $(TOP)/gtest
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
 OPTFLAG	 :=
-## Note: -DBOOST_DISABLE_ASSERTS is needed below because Dispatch performs
-## extraneous unlocks on mutexes, which pthreads doesn't really like.
 DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
 BASECFLAGS :=
@@ -58,7 +56,7 @@ endif
 # Failed deconstructor inlines are generating noise
 # -Winline
 LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lrt \
-        -lpthread -lboost_thread
+        -lpthread -lboost_thread -lssl
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
 ifeq ($(INFINIBAND),yes)

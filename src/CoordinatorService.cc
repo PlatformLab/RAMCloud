@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,14 +16,14 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "BackupClient.h"
-#include "CoordinatorServer.h"
+#include "CoordinatorService.h"
 #include "MasterClient.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"
 
 namespace RAMCloud {
 
-CoordinatorServer::CoordinatorServer()
+CoordinatorService::CoordinatorService()
     : nextServerId(1)
     , backupList()
     , masterList()
@@ -35,7 +35,7 @@ CoordinatorServer::CoordinatorServer()
 {
 }
 
-CoordinatorServer::~CoordinatorServer()
+CoordinatorService::~CoordinatorService()
 {
     // delete wills
     foreach (const ProtoBuf::ServerList::Entry& master, masterList.server())
@@ -43,61 +43,53 @@ CoordinatorServer::~CoordinatorServer()
 }
 
 void
-CoordinatorServer::run()
+CoordinatorService::dispatch(RpcOpcode opcode,
+                             Rpc& rpc)
 {
-    while (true)
-        handleRpc<CoordinatorServer>();
-}
-
-void
-CoordinatorServer::dispatch(RpcType type,
-                            Transport::ServerRpc& rpc,
-                            Responder& responder)
-{
-    switch (type) {
-        case CreateTableRpc::type:
-            callHandler<CreateTableRpc, CoordinatorServer,
-                        &CoordinatorServer::createTable>(rpc);
+    switch (opcode) {
+        case CreateTableRpc::opcode:
+            callHandler<CreateTableRpc, CoordinatorService,
+                        &CoordinatorService::createTable>(rpc);
             break;
-        case DropTableRpc::type:
-            callHandler<DropTableRpc, CoordinatorServer,
-                        &CoordinatorServer::dropTable>(rpc);
+        case DropTableRpc::opcode:
+            callHandler<DropTableRpc, CoordinatorService,
+                        &CoordinatorService::dropTable>(rpc);
             break;
-        case OpenTableRpc::type:
-            callHandler<OpenTableRpc, CoordinatorServer,
-                        &CoordinatorServer::openTable>(rpc);
+        case OpenTableRpc::opcode:
+            callHandler<OpenTableRpc, CoordinatorService,
+                        &CoordinatorService::openTable>(rpc);
             break;
-        case EnlistServerRpc::type:
-            callHandler<EnlistServerRpc, CoordinatorServer,
-                        &CoordinatorServer::enlistServer>(rpc);
+        case EnlistServerRpc::opcode:
+            callHandler<EnlistServerRpc, CoordinatorService,
+                        &CoordinatorService::enlistServer>(rpc);
             break;
-        case GetServerListRpc::type:
-            callHandler<GetServerListRpc, CoordinatorServer,
-                        &CoordinatorServer::getServerList>(rpc);
+        case GetServerListRpc::opcode:
+            callHandler<GetServerListRpc, CoordinatorService,
+                        &CoordinatorService::getServerList>(rpc);
             break;
-        case GetTabletMapRpc::type:
-            callHandler<GetTabletMapRpc, CoordinatorServer,
-                        &CoordinatorServer::getTabletMap>(rpc);
+        case GetTabletMapRpc::opcode:
+            callHandler<GetTabletMapRpc, CoordinatorService,
+                        &CoordinatorService::getTabletMap>(rpc);
             break;
-        case HintServerDownRpc::type:
-            callHandler<HintServerDownRpc, CoordinatorServer,
-                        &CoordinatorServer::hintServerDown>(rpc, responder);
+        case HintServerDownRpc::opcode:
+            callHandler<HintServerDownRpc, CoordinatorService,
+                        &CoordinatorService::hintServerDown>(rpc);
             break;
-        case TabletsRecoveredRpc::type:
-            callHandler<TabletsRecoveredRpc, CoordinatorServer,
-                        &CoordinatorServer::tabletsRecovered>(rpc);
+        case TabletsRecoveredRpc::opcode:
+            callHandler<TabletsRecoveredRpc, CoordinatorService,
+                        &CoordinatorService::tabletsRecovered>(rpc);
             break;
-        case PingRpc::type:
-            callHandler<PingRpc, CoordinatorServer,
-                        &CoordinatorServer::ping>(rpc);
+        case PingRpc::opcode:
+            callHandler<PingRpc, CoordinatorService,
+                        &CoordinatorService::ping>(rpc);
             break;
-        case BackupQuiesceRpc::type:
-            callHandler<BackupQuiesceRpc, CoordinatorServer,
-                        &CoordinatorServer::quiesce>(rpc);
+        case BackupQuiesceRpc::opcode:
+            callHandler<BackupQuiesceRpc, CoordinatorService,
+                        &CoordinatorService::quiesce>(rpc);
             break;
-        case SetWillRpc::type:
-            callHandler<SetWillRpc, CoordinatorServer,
-                        &CoordinatorServer::setWill>(rpc);
+        case SetWillRpc::opcode:
+            callHandler<SetWillRpc, CoordinatorService,
+                        &CoordinatorService::setWill>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);
@@ -106,17 +98,17 @@ CoordinatorServer::dispatch(RpcType type,
 
 /**
  * Top-level server method to handle the CREATE_TABLE request.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
-                               CreateTableRpc::Response& respHdr,
-                               Transport::ServerRpc& rpc)
+CoordinatorService::createTable(const CreateTableRpc::Request& reqHdr,
+                                CreateTableRpc::Response& respHdr,
+                                Rpc& rpc)
 {
     if (masterList.server_size() == 0)
         throw RetryException(HERE);
 
-    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
+    const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
     if (tables.find(name) != tables.end())
         return;
@@ -168,14 +160,14 @@ CoordinatorServer::createTable(const CreateTableRpc::Request& reqHdr,
 
 /**
  * Top-level server method to handle the DROP_TABLE request.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-CoordinatorServer::dropTable(const DropTableRpc::Request& reqHdr,
-                             DropTableRpc::Response& respHdr,
-                             Transport::ServerRpc& rpc)
+CoordinatorService::dropTable(const DropTableRpc::Request& reqHdr,
+                              DropTableRpc::Response& respHdr,
+                              Rpc& rpc)
 {
-    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
+    const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
     Tables::iterator it = tables.find(name);
     if (it == tables.end())
@@ -204,14 +196,14 @@ CoordinatorServer::dropTable(const DropTableRpc::Request& reqHdr,
 
 /**
  * Top-level server method to handle the OPEN_TABLE request.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-CoordinatorServer::openTable(const OpenTableRpc::Request& reqHdr,
-                             OpenTableRpc::Response& respHdr,
-                             Transport::ServerRpc& rpc)
+CoordinatorService::openTable(const OpenTableRpc::Request& reqHdr,
+                              OpenTableRpc::Response& respHdr,
+                              Rpc& rpc)
 {
-    const char* name = getString(rpc.recvPayload, sizeof(reqHdr),
+    const char* name = getString(rpc.requestPayload, sizeof(reqHdr),
                                  reqHdr.nameLength);
     Tables::iterator it(tables.find(name));
     if (it == tables.end())
@@ -221,19 +213,19 @@ CoordinatorServer::openTable(const OpenTableRpc::Request& reqHdr,
 
 /**
  * Handle the ENLIST_SERVER RPC.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
-                                EnlistServerRpc::Response& respHdr,
-                                Transport::ServerRpc& rpc)
+CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
+                                 EnlistServerRpc::Response& respHdr,
+                                 Rpc& rpc)
 {
     uint64_t serverId = nextServerId++;
     ProtoBuf::ServerType serverType =
         static_cast<ProtoBuf::ServerType>(reqHdr.serverType);
     const uint32_t readSpeed = reqHdr.readSpeed;
     const uint32_t writeSpeed = reqHdr.writeSpeed;
-    const char *serviceLocator = getString(rpc.recvPayload, sizeof(reqHdr),
+    const char *serviceLocator = getString(rpc.requestPayload, sizeof(reqHdr),
                                            reqHdr.serviceLocatorLength);
 
     ProtoBuf::ServerList& serverList(serverType == ProtoBuf::MASTER
@@ -262,12 +254,12 @@ CoordinatorServer::enlistServer(const EnlistServerRpc::Request& reqHdr,
 
 /**
  * Handle the GET_SERVER_LIST RPC.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
-                                 GetServerListRpc::Response& respHdr,
-                                 Transport::ServerRpc& rpc)
+CoordinatorService::getServerList(const GetServerListRpc::Request& reqHdr,
+                                  GetServerListRpc::Response& respHdr,
+                                  Rpc& rpc)
 {
     switch (reqHdr.serverType) {
     case MASTER:
@@ -287,12 +279,12 @@ CoordinatorServer::getServerList(const GetServerListRpc::Request& reqHdr,
 
 /**
  * Handle the GET_TABLET_MAP RPC.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-CoordinatorServer::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
-                                GetTabletMapRpc::Response& respHdr,
-                                Transport::ServerRpc& rpc)
+CoordinatorService::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
+                                 GetTabletMapRpc::Response& respHdr,
+                                 Rpc& rpc)
 {
     CycleCounter<Metric> _(&metrics->coordinator.getTabletMapTicks);
     respHdr.tabletMapLength = serializeToResponse(rpc.replyPayload,
@@ -301,20 +293,16 @@ CoordinatorServer::getTabletMap(const GetTabletMapRpc::Request& reqHdr,
 
 /**
  * Handle the ENLIST_SERVER RPC.
- * \copydetails Server::ping
- * \param responder
- *      Functor to respond to the RPC before returning from this method. Used
- *      to avoid deadlock between first master and coordinator.
+ * \copydetails Service::ping
  */
 void
-CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
-                                  HintServerDownRpc::Response& respHdr,
-                                  Transport::ServerRpc& rpc,
-                                  Responder& responder)
+CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
+                                   HintServerDownRpc::Response& respHdr,
+                                   Rpc& rpc)
 {
-    string serviceLocator(getString(rpc.recvPayload, sizeof(reqHdr),
+    string serviceLocator(getString(rpc.requestPayload, sizeof(reqHdr),
                                     reqHdr.serviceLocatorLength));
-    responder();
+    rpc.sendReply();
 
     // reqHdr, respHdr, and rpc are off-limits now
 
@@ -384,12 +372,12 @@ CoordinatorServer::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
 /**
  * Handle the TABLETS_RECOVERED RPC.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
-                                    TabletsRecoveredRpc::Response& respHdr,
-                                    Transport::ServerRpc& rpc)
+CoordinatorService::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
+                                     TabletsRecoveredRpc::Response& respHdr,
+                                     Rpc& rpc)
 {
     CycleCounter<Metric> ticks(&metrics->coordinator.tabletsRecoveredTicks);
     if (reqHdr.status != STATUS_OK) {
@@ -399,11 +387,11 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
     }
 
     ProtoBuf::Tablets recoveredTablets;
-    ProtoBuf::parseFromResponse(rpc.recvPayload,
+    ProtoBuf::parseFromResponse(rpc.requestPayload,
                                 downCast<uint32_t>(sizeof(reqHdr)),
                                 reqHdr.tabletsLength, recoveredTablets);
     ProtoBuf::Tablets* newWill = new ProtoBuf::Tablets;
-    ProtoBuf::parseFromResponse(rpc.recvPayload,
+    ProtoBuf::parseFromResponse(rpc.requestPayload,
                                 downCast<uint32_t>(sizeof(reqHdr)) +
                                 reqHdr.tabletsLength,
                                 reqHdr.willLength, *newWill);
@@ -413,7 +401,7 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
         newWill->tablet_size());
 
     // update the will
-    setWill(reqHdr.masterId, rpc.recvPayload,
+    setWill(reqHdr.masterId, rpc.requestPayload,
         downCast<uint32_t>(sizeof(reqHdr)) + reqHdr.tabletsLength,
         reqHdr.willLength);
 
@@ -469,12 +457,12 @@ CoordinatorServer::tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
  * handled and instructs all the machines in the RAMCloud to do
  * so also (by pinging them all).
  *
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-CoordinatorServer::ping(const PingRpc::Request& reqHdr,
-                        PingRpc::Response& respHdr,
-                        Transport::ServerRpc& rpc)
+CoordinatorService::ping(const PingRpc::Request& reqHdr,
+                         PingRpc::Response& respHdr,
+                         Rpc& rpc)
 {
     // dump out all the RPC stats for all the hosts so far
     foreach (const ProtoBuf::ServerList::Entry& server,
@@ -486,17 +474,17 @@ CoordinatorServer::ping(const PingRpc::Request& reqHdr,
         MasterClient(transportManager.getSession(
             server.service_locator().c_str())).ping();
 
-    Server::ping(reqHdr, respHdr, rpc);
+    Service::ping(reqHdr, respHdr, rpc);
 }
 
 /**
  * Have all backups flush their dirty segments to storage.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-CoordinatorServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
-                           BackupQuiesceRpc::Response& respHdr,
-                           Transport::ServerRpc& rpc)
+CoordinatorService::quiesce(const BackupQuiesceRpc::Request& reqHdr,
+                            BackupQuiesceRpc::Response& respHdr,
+                            Rpc& rpc)
 {
     foreach (auto& server, backupList.server()) {
         BackupClient(transportManager.getSession(
@@ -509,15 +497,15 @@ CoordinatorServer::quiesce(const BackupQuiesceRpc::Request& reqHdr,
  * by Masters to keep their partitions balanced for efficient
  * recovery.
  *
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-CoordinatorServer::setWill(const SetWillRpc::Request& reqHdr,
-                           SetWillRpc::Response& respHdr,
-                           Transport::ServerRpc& rpc)
+CoordinatorService::setWill(const SetWillRpc::Request& reqHdr,
+                            SetWillRpc::Response& respHdr,
+                            Rpc& rpc)
 {
     CycleCounter<Metric> _(&metrics->coordinator.setWillTicks);
-    if (!setWill(reqHdr.masterId, rpc.recvPayload, sizeof(reqHdr),
+    if (!setWill(reqHdr.masterId, rpc.requestPayload, sizeof(reqHdr),
         reqHdr.willLength)) {
         // TODO(ongaro): should be some other error or silent
         throw RequestFormatError(HERE);
@@ -525,8 +513,8 @@ CoordinatorServer::setWill(const SetWillRpc::Request& reqHdr,
 }
 
 bool
-CoordinatorServer::setWill(uint64_t masterId, Buffer& buffer,
-    uint32_t offset, uint32_t length)
+CoordinatorService::setWill(uint64_t masterId, Buffer& buffer,
+                            uint32_t offset, uint32_t length)
 {
     foreach (auto& master, *masterList.mutable_server()) {
         if (master.server_id() == masterId) {

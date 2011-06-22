@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "ServiceManager.h"
 #include "TcpTransport.h"
 
 namespace RAMCloud {
@@ -39,8 +40,7 @@ Syscall* TcpTransport::sys = &defaultSyscall;
  *      If NULL this transport will be used only for outgoing requests.
  */
 TcpTransport::TcpTransport(const ServiceLocator* serviceLocator)
-        : locatorString(), listenSocket(-1), acceptHandler(), sockets(),
-        waitingRequests()
+        : locatorString(), listenSocket(-1), acceptHandler(), sockets()
 {
     if (serviceLocator == NULL)
         return;
@@ -137,7 +137,7 @@ TcpTransport::AcceptHandler::AcceptHandler(int fd, TcpTransport* transport)
  * succeeds then we will begin listening on that socket for RPCs.
  */
 void
-TcpTransport::AcceptHandler::operator() ()
+TcpTransport::AcceptHandler::handleFileEvent()
 {
     int acceptedFd = sys->accept(transport->listenSocket, NULL, NULL);
     if (acceptedFd < 0) {
@@ -205,14 +205,14 @@ TcpTransport::RequestReadHandler::RequestReadHandler(int fd,
  * message is available, a TcpServerRpc object gets queued for service.
  */
 void
-TcpTransport::RequestReadHandler::operator() ()
+TcpTransport::RequestReadHandler::handleFileEvent()
 {
     Socket* socket = transport->sockets[fd];
     assert(socket != NULL);
     if (socket->rpc == NULL) {
         socket->rpc = new TcpServerRpc(socket, fd,
-                &socket->rpc->recvPayload);
-        socket->rpc->message.reset(&socket->rpc->recvPayload);
+                &socket->rpc->requestPayload);
+        socket->rpc->message.reset(&socket->rpc->requestPayload);
     }
     try {
         if (socket->busy) {
@@ -234,11 +234,11 @@ TcpTransport::RequestReadHandler::operator() ()
             return;
         }
         if (socket->rpc->message.readMessage(fd)) {
-            // The incoming request is complete; make it available
-            // for servicing.
-            transport->waitingRequests.push(socket->rpc);
+            // The incoming request is complete; pass it off for servicing.
+            TcpServerRpc *rpc = socket->rpc;
             socket->rpc = NULL;
             socket->busy = true;
+            serviceManager->handleRpc(rpc);
         }
     } catch (TcpTransportEof& e) {
         // Close the socket in order to prevent an infinite loop of
@@ -433,8 +433,8 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  *      Identifies the server to which RPCs on this session will be sent.
  */
 TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
-        : address(serviceLocator), fd(-1), current(NULL), message(NULL),
-        replyHandler(), errorInfo()
+        : address(serviceLocator), fd(-1), current(NULL), waitingRpcs(),
+          message(NULL), replyHandler(), errorInfo()
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -451,6 +451,7 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
     }
 
     /// Arrange for notification whenever the server sends us data.
+    Dispatch::Lock lock;
     replyHandler.construct(fd, this);
 }
 
@@ -472,26 +473,41 @@ TcpTransport::TcpSession::close()
         sys->close(fd);
         fd = -1;
     }
-    if (replyHandler)
+    if (errorInfo.size() == 0) {
+        errorInfo = "session closed";
+    }
+    if (current != NULL) {
+        current->markFinished(&errorInfo);
+        current = NULL;
+    }
+    while (!waitingRpcs.empty()) {
+        waitingRpcs.front()->markFinished(&errorInfo);
+        waitingRpcs.pop();
+    }
+    if (replyHandler) {
+        Dispatch::Lock lock;
         replyHandler.destroy();
+    }
 }
 
 // See Transport::Session::clientSend for documentation.
 TcpTransport::ClientRpc*
 TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* reply)
 {
-    while (current != NULL) {
-        // We can't handle more than one outstanding request at a time;
-        // wait for the previous request to complete.
-        Dispatch::handleEvent();
-    }
     if (fd == -1) {
         throw TransportException(HERE, errorInfo);
     }
-    current = new(reply, MISC) TcpClientRpc(this, reply);
-    message.reset(reply);
-    TcpTransport::sendMessage(fd, *request);
-    return current;
+    TcpClientRpc* rpc = new(reply, MISC) TcpClientRpc(this, request, reply);
+    if (current != NULL) {
+        // We can't handle more than one outstanding request at a time;
+        // save the new request until the previous one finishes.
+        waitingRpcs.push(rpc);
+    } else {
+        current = rpc;
+        message.reset(reply);
+        TcpTransport::sendMessage(fd, *request);
+    }
+    return rpc;
 }
 
 /**
@@ -516,7 +532,7 @@ TcpTransport::ReplyReadHandler::ReplyReadHandler(int fd,
  * readable (because a reply is arriving). This method reads the reply.
  */
 void
-TcpTransport::ReplyReadHandler::operator() ()
+TcpTransport::ReplyReadHandler::handleFileEvent()
 {
     try {
         if (session->current == NULL) {
@@ -538,52 +554,29 @@ TcpTransport::ReplyReadHandler::operator() ()
         }
         if (session->message.readMessage(fd)) {
             // This RPC is finished.
-            session->current->finished = true;
+            session->current->markFinished();
             session->current = NULL;
+            if (!session->waitingRpcs.empty()) {
+                // There is another RPC waiting to be sent on this transport;
+                // begin sending it.
+                TcpClientRpc* rpc = session->waitingRpcs.front();
+                session->waitingRpcs.pop();
+                session->current = rpc;
+                session->message.reset(rpc->reply);
+                TcpTransport::sendMessage(fd, *rpc->request);
+            }
         }
     } catch (TcpTransportEof& e) {
         // Close the session's socket in order to prevent an infinite loop of
         // calls to this method.
-        session->close();
-        session->current = NULL;
         session->errorInfo = "socket closed by server";
+        session->close();
     } catch (TransportException& e) {
         LOG(ERROR, "TcpTransport::ReplyReadHandler closing session "
                 "socket: %s", e.message.c_str());
-        session->close();
-        session->current = NULL;
         session->errorInfo = e.message;
+        session->close();
     }
-}
-
-// See Transport::ClientRpc::isReady for documentation.
-bool
-TcpTransport::TcpClientRpc::isReady()
-{
-    return (finished || session->fd == -1);
-}
-
-// See Transport::ClientRpc::wait for documentation.
-void
-TcpTransport::TcpClientRpc::wait()
-{
-    while (!finished) {
-        if (session->fd == -1)
-            throw TransportException(HERE, session->errorInfo);
-        Dispatch::handleEvent();
-    }
-}
-
-// See Transport::serverRecv for documentation.
-Transport::ServerRpc*
-TcpTransport::serverRecv()
-{
-    if (waitingRequests.empty()) {
-        return NULL;
-    }
-    ServerRpc* result = waitingRequests.front();
-    waitingRequests.pop();
-    return result;
 }
 
 // See Transport::ServerRpc::sendReply for documentation.

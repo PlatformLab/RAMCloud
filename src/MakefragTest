@@ -3,6 +3,9 @@ OBJDIRS += tests
 ifeq ($(INFINIBAND),yes)
 INFINIBAND_SRCFILES := \
 	   src/MockInfiniband.cc \
+	   src/InfAddressTest.cc \
+	   src/InfRcTransportTest.cc \
+	   src/InfUdDriverTest.cc \
 	   $(NULL)
 else
 INFINIBAND_SRCFILES :=
@@ -10,34 +13,31 @@ endif
 
 TESTS_SRCFILES := \
 		  src/BackupManagerTest.cc \
-		  src/BackupServerTest.cc \
+		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \
 		  src/BenchUtilTest.cc \
-		  src/BindTransport.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClientTest.cc \
 		  src/CommonTest.cc \
-		  src/CoordinatorTest.cc \
+		  src/CoordinatorServiceTest.cc \
 		  src/Crc32CTest.cc \
 		  src/DispatchTest.cc \
 		  src/FailureDetectorTest.cc \
 		  src/FastTransportTest.cc \
 		  src/HashTableTest.cc \
-		  src/InfAddressTest.cc \
-		  src/InfRcTransportTest.cc \
-		  src/InfUdDriverTest.cc \
+		  src/InitializeTest.cc \
 		  src/IpAddressTest.cc \
-		  src/LogTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LoggingTest.cc \
-		  src/MasterTest.cc \
+		  src/LogTest.cc \
+		  src/MacAddressTest.cc \
+		  src/MasterServiceTest.cc \
 		  src/MetricsTest.cc \
 		  src/MockDriver.cc \
 		  src/MockTransport.cc \
 		  src/ObjectFinderTest.cc \
-		  src/TubTest.cc \
 		  src/OptionParserTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/Recovery.cc \
@@ -45,18 +45,24 @@ TESTS_SRCFILES := \
 		  src/RecoveryTest.cc \
 		  src/SegmentTest.cc \
 		  src/SegmentIteratorTest.cc \
-		  src/ServerTest.cc \
+		  src/ServiceTest.cc \
+		  src/ServiceManagerTest.cc \
 		  src/ServiceLocatorTest.cc \
 		  src/StatusTest.cc \
+		  src/StringKeyAdapterTest.cc \
 		  src/TabletProfilerTest.cc \
 		  src/TcpTransportTest.cc \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
+		  src/ThreadIdTest.cc \
 		  src/TransportManagerTest.cc \
+		  src/TransportTest.cc \
+		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/WillTest.cc \
 		  src/WindowTest.cc \
+		  src/RamCloudTest.cc \
 		  $(INFINIBAND_SRCFILES) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc
 
@@ -118,7 +124,11 @@ $(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/TestUtil.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
 
-$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Server.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
+$(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(TESTS_LIB) -o $@ $^
+
+$(OBJDIR)/TransportSmack: $(OBJDIR)/TransportSmack.o $(OBJDIR)/Service.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 
@@ -131,6 +141,10 @@ $(OBJDIR)/BackupStorageBenchmark: $(OBJDIR)/BackupStorageBenchmark.o $(SHARED_OB
 	$(CXX) $(LIBS) -o $@ $^
 
 $(OBJDIR)/HintServerDown: $(OBJDIR)/HintServerDown.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) $(LIBS) -o $@ $^
+
+$(OBJDIR)/StringKeys: $(OBJDIR)/StringKeys.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(LIBS) -o $@ $^
 

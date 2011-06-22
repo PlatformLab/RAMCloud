@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,7 +13,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Server.h"
+#include "Service.h"
+#include "ServiceManager.h"
+#include "TransportManager.h"
 
 namespace RAMCloud {
 
@@ -47,16 +49,15 @@ namespace RAMCloud {
  *      The string was not null-terminated or had zero length.
  */
 const char*
-Server::getString(Buffer& buffer, uint32_t offset, uint32_t length) const {
+Service::getString(Buffer& buffer, uint32_t offset, uint32_t length) {
     const char* result;
     if (length == 0) {
         throw RequestFormatError(HERE);
     }
-    // TODO(ongaro): update to check result against NULL instead
-    if (buffer.getTotalLength() < (offset + length)) {
+    result = static_cast<const char*>(buffer.getRange(offset, length));
+    if (result == NULL) {
         throw MessageTooShortError(HERE);
     }
-    result = static_cast<const char*>(buffer.getRange(offset, length));
     if (result[length - 1] != '\0') {
         throw RequestFormatError(HERE);
     }
@@ -64,7 +65,7 @@ Server::getString(Buffer& buffer, uint32_t offset, uint32_t length) const {
 }
 
 /**
- * Top-level server method to handle the PING request.
+ * Top-level service method to handle the PING request.
  *
  * \param reqHdr
  *      Header from the incoming RPC request; contains parameters
@@ -80,9 +81,9 @@ Server::getString(Buffer& buffer, uint32_t offset, uint32_t length) const {
  *      and/or append additional information to the response buffer.
  */
 void
-Server::ping(const PingRpc::Request& reqHdr,
+Service::ping(const PingRpc::Request& reqHdr,
              PingRpc::Response& respHdr,
-             Transport::ServerRpc& rpc)
+             Rpc& rpc)
 {
     // Nothing to do here.
     TEST_LOG("ping");
@@ -105,14 +106,14 @@ Server::ping(const PingRpc::Request& reqHdr,
 }
 
 /**
- * Dispatch an RPC to the right handler based on its type.
+ * Dispatch an RPC to the right handler based on its opcode.
  */
 void
-Server::dispatch(RpcType type, Transport::ServerRpc& rpc, Responder& responder)
+Service::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
-    switch (type) {
-        case PingRpc::type:
-            callHandler<PingRpc, Server, &Server::ping>(rpc);
+    switch (opcode) {
+        case PingRpc::opcode:
+            callHandler<PingRpc, Service, &Service::ping>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);
@@ -120,13 +121,84 @@ Server::dispatch(RpcType type, Transport::ServerRpc& rpc, Responder& responder)
 }
 
 /**
- * Serve RPCs forever.
+ * This method is invoked by ServiceManager to process an incoming
+ * RPC.  Under normal conditions, when this method returns the RPC has
+ * been serviced and a response has been prepared, but the response
+ * has not yet been sent back to the client (this will happen later on
+ * in the dispatch thread).
+ *
+ * \param rpc
+ *      An incoming RPC that is ready to be serviced.
  */
-void __attribute__ ((noreturn))
-Server::run()
+void
+Service::handleRpc(Rpc& rpc) {
+    // This method takes care of things that are the same in all services,
+    // such as keeping statistics. It then calls a service-specific dispatch
+    // method to handle the details of performing the RPC.
+    const RpcRequestCommon* header;
+    header = rpc.requestPayload.getStart<RpcRequestCommon>();
+    if (header == NULL) {
+        prepareErrorResponse(rpc.replyPayload, STATUS_MESSAGE_TOO_SHORT);
+        return;
+    }
+
+    // The check below is needed to avoid out-of-range accesses to
+    // rpcsHandled etc.
+    uint32_t opcode = header->opcode;
+    if (opcode >= ILLEGAL_RPC_TYPE)
+        opcode = ILLEGAL_RPC_TYPE;
+    rpcsHandled[opcode]++;
+    uint64_t start = rdtsc();
+    try {
+        dispatch(RpcOpcode(header->opcode), rpc);
+    } catch (ClientException& e) {
+        prepareErrorResponse(rpc.replyPayload, e.status);
+    }
+    rpcsTime[opcode] += rdtsc() - start;
+}
+
+/**
+ * Fill in an RPC response buffer to indicate that the RPC failed with
+ * a particular status.
+ *
+ * \param replyPayload
+ *      Buffer that should contain the response. If there is already a
+ *      header in the buffer, it is retained and this method simply overlays
+ *      a new status in it (the RPC may have placed additional error
+ *      information there, such as the actual version of an object when
+ *      a version match fails).
+ * \param status
+ *      The problem that caused the RPC to fail.
+ */
+void
+Service::prepareErrorResponse(Buffer& replyPayload, Status status)
 {
-    while (true)
-        handleRpc<Server>();
+    RpcResponseCommon* responseCommon = const_cast<RpcResponseCommon*>(
+        replyPayload.getStart<RpcResponseCommon>());
+    if (responseCommon == NULL) {
+        // Response is currently empty; add a header to it.
+        responseCommon =
+            new(&replyPayload, APPEND) RpcResponseCommon;
+    }
+    responseCommon->status = status;
+}
+
+/**
+ * A worker thread can invoke this method to start sending a reply to
+ * an RPC.  Normally a worker thread does not call this method; when it
+ * returns from handling the request the reply will be sent automatically.
+ * However, in some cases the worker may want to send the reply before
+ * returning, so that it can do additional work without delaying the
+ * reply.  In those cases it invokes this method.
+ */
+void
+Service::Rpc::sendReply()
+{
+    // The "if" statement below is only needed to simplify tests; it should
+    // never be needed in a real system.
+    if (worker != NULL) {
+        worker->sendReply();
+    }
 }
 
 } // namespace RAMCloud

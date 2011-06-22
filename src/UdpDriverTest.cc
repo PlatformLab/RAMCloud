@@ -110,7 +110,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
         transport->packetData.clear();
         uint64_t start = rdtsc();
         while (true) {
-            Dispatch::poll();
+            dispatch->poll();
             if (transport->packetData.size() != 0) {
                 return transport->packetData.c_str();
             }
@@ -221,7 +221,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
         sys->recvfromErrno = EPERM;
         Driver::Received received;
         try {
-            (*server->readHandler)();
+            server->readHandler->handleFileEvent();
         } catch (DriverException& e) {
             exceptionMessage = e.message;
         }
@@ -230,7 +230,7 @@ class UdpDriverTest : public CppUnit::TestFixture {
     }
 
     void test_ReadHandler_noPacketAvailable() {
-        (*server->readHandler)();
+        server->readHandler->handleFileEvent();
         CPPUNIT_ASSERT_EQUAL("", serverTransport->packetData);
     }
 

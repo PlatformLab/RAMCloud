@@ -25,9 +25,6 @@
  * following is the data transmitted. The interface is not symmetric:
  * Sending applications do not include a GRH in the buffers they pass
  * to the HCA.
- *
- * The code below has a few 40-byte constants sprinkled about to deal
- * with this phenomenon.
  */
 
 #include <errno.h>
@@ -37,15 +34,30 @@
 #include "FastTransport.h"
 #include "InfUdDriver.h"
 
-#define error_check_null(x, s)                              \
-    do {                                                    \
-        if ((x) == NULL) {                                  \
-            LOG(ERROR, "%s", s);                            \
-            throw DriverException(HERE, errno);             \
-        }                                                   \
-    } while (0)
-
 namespace RAMCloud {
+
+namespace {
+/**
+ * Find the nearest power of 2 that is greater than or equal to \a n.
+ * \param n
+ *      A minimum for the return value.
+ * \return
+ *      A power of two that is greater than or equal to \a n.
+ */
+template<typename T>
+T
+nearestPowerOfTwo(T n)
+{
+    if ((n & (n - 1)) == 0)
+        return n;
+
+    for (uint32_t i = 0; i < sizeof(T) * 8; ++i) {
+        if ((1U << i) >= n)
+            return (1U << i);
+    }
+    return 0;
+}
+}; // anonymous namespace
 
 /**
  * Construct an InfUdDriver.
@@ -57,29 +69,43 @@ namespace RAMCloud {
  *      queue pair numbers (ports). This makes this driver unsuitable
  *      for servers until we add some facility for dynamic addresses
  *      and resolution.
+ * \param ethernet
+ *      Whether to use the Ethernet port.
  */
 template<typename Infiniband>
-InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
+InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl,
+                                     bool ethernet)
     : realInfiniband()
     , infiniband()
+    , QKEY(ethernet ? 0 : 0xdeadbeef)
     , rxcq(0)
     , txcq(0)
     , qp(NULL)
     , packetBufPool()
     , packetBufsUtilized(0)
-    , currentRxBuffer(0)
-    , txBuffer(NULL)
-    , ibPhysicalPort(1)
+    , rxBuffers()
+    , txBuffers()
+    , freeTxBuffers()
+    , ibPhysicalPort(ethernet ? 2 : 1)
     , lid(0)
     , qpn(0)
+    , localMac()
     , locatorString()
-    , transport(NULL)
+    , incomingPacketHandler(NULL)
     , poller()
 {
     const char *ibDeviceName = NULL;
+    bool macAddressProvided = false;
 
     if (sl != NULL) {
         locatorString = sl->getOriginalString();
+
+        if (ethernet) {
+            try {
+                localMac.construct(sl->getOption<const char*>("mac"));
+                macAddressProvided = true;
+            } catch (ServiceLocator::NoSuchKeyException& e) {}
+        }
 
         try {
             ibDeviceName   = sl->getOption<const char *>("dev");
@@ -88,28 +114,43 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
         try {
             ibPhysicalPort = sl->getOption<int>("devport");
         } catch (ServiceLocator::NoSuchKeyException& e) {}
+
     }
+
+    if (ethernet && !macAddressProvided)
+        localMac.construct(MacAddress::RANDOM);
 
     infiniband = realInfiniband.construct(ibDeviceName);
 
-    // XXX- for now we allocate one TX buffer and RX buffers as a ring.
-    for (uint32_t i = 0; i < MAX_RX_QUEUE_DEPTH; i++) {
-        rxBuffers[i] = infiniband->allocateBufferDescriptorAndRegister(
-            getMaxPacketSize() + 40);
-    }
-    txBuffer = infiniband->allocateBufferDescriptorAndRegister(
-        getMaxPacketSize() + 40);
+    // allocate rx and tx buffers
+    uint32_t bufSize = (getMaxPacketSize() +
+        (localMac ? downCast<uint32_t>(sizeof(EthernetHeader))
+                  : GRH_SIZE));
+    bufSize = nearestPowerOfTwo(bufSize);
+    rxBuffers.construct(realInfiniband->pd, bufSize,
+                        uint32_t(MAX_RX_QUEUE_DEPTH));
+    txBuffers.construct(realInfiniband->pd, bufSize,
+                        uint32_t(MAX_TX_QUEUE_DEPTH));
 
     // create completion queues for receive and transmit
     rxcq = infiniband->createCompletionQueue(MAX_RX_QUEUE_DEPTH);
-    error_check_null(rxcq, "failed to create receive completion queue");
+    if (rxcq == NULL) {
+        LOG(ERROR, "failed to create receive completion queue");
+        throw DriverException(HERE, errno);
+    }
 
     txcq = infiniband->createCompletionQueue(MAX_TX_QUEUE_DEPTH);
-    error_check_null(txcq, "failed to create transmit completion queue");
+    if (txcq == NULL) {
+        LOG(ERROR, "failed to create transmit completion queue");
+        throw DriverException(HERE, errno);
+    }
 
-    qp = infiniband->createQueuePair(IBV_QPT_UD, ibPhysicalPort, NULL,
+    qp = infiniband->createQueuePair(localMac ? IBV_QPT_RAW_ETH
+                                              : IBV_QPT_UD,
+                                     ibPhysicalPort, NULL,
                                      txcq, rxcq, MAX_TX_QUEUE_DEPTH,
-                                     MAX_RX_QUEUE_DEPTH, QKEY);
+                                     MAX_RX_QUEUE_DEPTH,
+                                     QKEY);
 
     // cache these for easier access
     lid = infiniband->getLid(ibPhysicalPort);
@@ -117,14 +158,22 @@ InfUdDriver<Infiniband>::InfUdDriver(const ServiceLocator *sl)
 
     // update our locatorString, if one was provided, with the dynamic
     // address
-    if (!locatorString.empty())
-        locatorString += format("lid=%u,qpn=%u", lid, qpn);
+    if (!locatorString.empty()) {
+        if (localMac) {
+            if (!macAddressProvided)
+                locatorString += "mac=" + localMac->toString();
+        } else {
+            locatorString += format("lid=%u,qpn=%u", lid, qpn);
+        }
+    }
 
     // add receive buffers so we can transition to RTR
-    for (uint32_t i = 0; i < MAX_RX_QUEUE_DEPTH; i++)
-        infiniband->postReceive(qp, rxBuffers[i]);
+    foreach (auto& bd, *rxBuffers)
+        infiniband->postReceive(qp, &bd);
+    foreach (auto& bd, *txBuffers)
+        freeTxBuffers.push_back(&bd);
 
-    qp->activate();
+    qp->activate(localMac);
 }
 
 /**
@@ -148,8 +197,9 @@ InfUdDriver<Infiniband>::~InfUdDriver()
  */
 template<typename Infiniband>
 void
-InfUdDriver<Infiniband>::connect(FastTransport* transport) {
-    this->transport = transport;
+InfUdDriver<Infiniband>::connect(IncomingPacketHandler*
+                                                incomingPacketHandler) {
+    this->incomingPacketHandler.reset(incomingPacketHandler);
     poller.construct(this);
 }
 
@@ -160,7 +210,7 @@ template<typename Infiniband>
 void
 InfUdDriver<Infiniband>::disconnect() {
     poller.destroy();
-    this->transport = NULL;
+    this->incomingPacketHandler.reset();
 }
 
 /*
@@ -170,7 +220,52 @@ template<typename Infiniband>
 uint32_t
 InfUdDriver<Infiniband>::getMaxPacketSize()
 {
-    return MAX_PAYLOAD_SIZE;
+    const uint32_t eth = 1500 + 14 - sizeof(EthernetHeader);
+    const uint32_t inf = 2048 - GRH_SIZE;
+    const size_t payloadSize = sizeof(static_cast<PacketBuf*>(NULL)->payload);
+    static_assert(payloadSize >= eth,
+                  "InfUdDriver PacketBuf too small for Ethernet payload");
+    static_assert(payloadSize >= inf,
+                  "InfUdDriver PacketBuf too small for Infiniband payload");
+    return localMac ? eth : inf;
+}
+
+/**
+ * Return a free transmit buffer, wrapped by its corresponding
+ * BufferDescriptor. If there are none, block until one is available.
+ *
+ * TODO(rumble): Any errors from previous transmissions are basically
+ *               thrown on the floor, though we do log them. We need
+ *               to think a bit more about how this 'fire-and-forget'
+ *               behaviour impacts our Transport API.
+ * TODO(ongaro): This code is copied from InfRcTransport. It should probably
+ *               move in some form to the Infiniband class.
+ */
+template<typename Infiniband>
+typename Infiniband::BufferDescriptor*
+InfUdDriver<Infiniband>::getTransmitBuffer()
+{
+    // if we've drained our free tx buffer pool, we must wait.
+    while (freeTxBuffers.empty()) {
+        ibv_wc retArray[MAX_TX_QUEUE_DEPTH];
+        int n = infiniband->pollCompletionQueue(txcq,
+                                                MAX_TX_QUEUE_DEPTH,
+                                                retArray);
+        for (int i = 0; i < n; i++) {
+            BufferDescriptor* bd =
+                reinterpret_cast<BufferDescriptor*>(retArray[i].wr_id);
+            freeTxBuffers.push_back(bd);
+
+            if (retArray[i].status != IBV_WC_SUCCESS) {
+                LOG(ERROR, "Transmit failed: %s",
+                    infiniband->wcStatusToString(retArray[i].status));
+            }
+        }
+    }
+
+    BufferDescriptor* bd = freeTxBuffers.back();
+    freeTxBuffers.pop_back();
+    return bd;
 }
 
 /*
@@ -180,6 +275,10 @@ template<typename Infiniband>
 void
 InfUdDriver<Infiniband>::release(char *payload)
 {
+    // Must sync with the dispatch thread, since this method could potentially
+    // be invoked in a worker.
+    Dispatch::Lock _;
+
     // Note: the payload is actually contained in a PacketBuf structure,
     // which we return to a pool for reuse later.
     assert(packetBufsUtilized > 0);
@@ -202,13 +301,19 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
                            (payload ? payload->getTotalLength() : 0);
     assert(totalLength <= getMaxPacketSize());
 
-    const Address *infAddr = static_cast<const Address *>(addr);
-
-    // use the sole TX buffer
-    BufferDescriptor* bd = txBuffer;
+    BufferDescriptor* bd = getTransmitBuffer();
 
     // copy buffer over
     char *p = bd->buffer;
+    if (localMac) {
+        auto& ethHdr = *new(p) EthernetHeader;
+        memcpy(ethHdr.destAddress,
+               static_cast<const MacAddress*>(addr)->address, 6);
+        memcpy(ethHdr.sourceAddress, localMac->address, 6);
+        ethHdr.etherType = HTONS(0x8001);
+        ethHdr.length = downCast<uint16_t>(totalLength);
+        p += sizeof(ethHdr);
+    }
     memcpy(p, header, headerLen);
     p += headerLen;
     while (payload && !payload->isDone()) {
@@ -220,8 +325,11 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
 
     try {
         LOG(DEBUG, "sending %u bytes to %s...", length,
-            infAddr->toString().c_str());
-        infiniband->postSendAndWait(qp, bd, length, infAddr, QKEY);
+            addr->toString().c_str());
+        infiniband->postSend(qp, bd, length,
+                             localMac ? NULL
+                                      : static_cast<const Address*>(addr),
+                             QKEY);
         LOG(DEBUG, "sent successfully!");
     } catch (...) {
         LOG(DEBUG, "send failed!");
@@ -233,15 +341,17 @@ InfUdDriver<Infiniband>::sendPacket(const Driver::Address *addr,
  * See docs in the ``Driver'' class.
  */
 template<typename Infiniband>
-bool
-InfUdDriver<Infiniband>::Poller::operator() ()
+void
+InfUdDriver<Infiniband>::Poller::poll()
 {
+    assert(dispatch->isDispatchThread());
+
     PacketBuf* buffer = driver->packetBufPool.construct();
     BufferDescriptor* bd = NULL;
-    bool result = true;
 
     try {
-        bd = driver->infiniband->tryReceive(driver->qp, &buffer->infAddress);
+        bd = driver->infiniband->tryReceive(driver->qp,
+                            driver->localMac ? NULL : &buffer->infAddress);
     } catch (...) {
         driver->packetBufPool.destroy(buffer);
         throw;
@@ -249,44 +359,59 @@ InfUdDriver<Infiniband>::Poller::operator() ()
 
     if (bd == NULL) {
         driver->packetBufPool.destroy(buffer);
-        return false;
+        return;
     }
 
-    if (bd->messageBytes < 40) {
-        LOG(ERROR, "received packet without GRH!");
+    if (bd->messageBytes < (driver->localMac ? 60 : GRH_SIZE)) {
+        LOG(ERROR, "received impossibly short packet!");
         driver->packetBufPool.destroy(buffer);
-        result = false;
-    } else {
-        LOG(DEBUG, "received %u byte packet (not including GRH) from %s",
-            bd->messageBytes - 40,
-            buffer->infAddress->toString().c_str());
-
-        // copy from the infiniband buffer into our dynamically allocated
-        // buffer.
-        memcpy(buffer->payload, bd->buffer + 40, bd->messageBytes - 40);
-
-        driver->packetBufsUtilized++;
-        Received received;
-        received.payload = buffer->payload;
-        received.len = bd->messageBytes - 40;
-        received.sender = buffer->infAddress.get();
-        received.driver = driver;
-        driver->transport->handleIncomingPacket(&received);
+        driver->infiniband->postReceive(driver->qp, bd);
+        return;
     }
+
+    Received received;
+    received.driver = driver;
+    received.payload = buffer->payload;
+    // copy from the infiniband buffer into our dynamically allocated
+    // buffer.
+    if (driver->localMac) {
+        auto& ethHdr = *reinterpret_cast<EthernetHeader*>(bd->buffer);
+        received.sender = buffer->macAddress.construct(ethHdr.sourceAddress);
+        received.len = ethHdr.length;
+        if (received.len + sizeof(ethHdr) > bd->messageBytes) {
+            LOG(ERROR, "corrupt packet");
+            driver->packetBufPool.destroy(buffer);
+            driver->infiniband->postReceive(driver->qp, bd);
+            return;
+        }
+        memcpy(received.payload,
+               bd->buffer + sizeof(ethHdr),
+               received.len);
+    } else {
+        received.sender = buffer->infAddress.get();
+        received.len = bd->messageBytes - GRH_SIZE;
+        memcpy(received.payload,
+               bd->buffer + GRH_SIZE,
+               received.len);
+    }
+    driver->packetBufsUtilized++;
+    LOG(DEBUG, "received %u byte payload from %s",
+        received.len,
+        received.sender->toString().c_str());
+    (*driver->incomingPacketHandler)(&received);
 
     // post the original infiniband buffer back to the receive queue
     driver->infiniband->postReceive(driver->qp, bd);
-    return result;
 }
 
 /**
  * See docs in the ``Driver'' class.
  */
 template<typename Infiniband>
-ServiceLocator
+string
 InfUdDriver<Infiniband>::getServiceLocator()
 {
-    return ServiceLocator(locatorString);
+    return locatorString;
 }
 
 template class InfUdDriver<RealInfiniband>;

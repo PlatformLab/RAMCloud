@@ -17,6 +17,7 @@
 #include "MockDriver.h"
 #include "MockTransport.h"
 #include "FastTransport.h"
+#include "ServiceManager.h"
 #include "UdpDriver.h"
 
 namespace RAMCloud {
@@ -87,7 +88,6 @@ class FastTransportTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_sanityCheck);
     CPPUNIT_TEST(test_getSession_noneExpirable);
     CPPUNIT_TEST(test_getSession_reuseExpired);
-    CPPUNIT_TEST(test_serverRecv);
     CPPUNIT_TEST(test_numFrags_fullPacket);
     CPPUNIT_TEST(test_numFrags_oneByteTooBig);
     CPPUNIT_TEST(test_sendBadSessionError);
@@ -109,12 +109,14 @@ class FastTransportTest : public CppUnit::TestFixture {
     {
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(driver);
+        delete serviceManager;
+        ServiceManager::init();
 
         logger.setLogLevels(SILENT_LOG_LEVEL);
 
         // The following is necessary in case some other tests messed up
         // currentTime (e.g. by resetting it to 0).
-        Dispatch::currentTime = rdtsc();
+        dispatch->currentTime = rdtsc();
     }
 
     void
@@ -151,23 +153,22 @@ class FastTransportTest : public CppUnit::TestFixture {
         request.fillFromString("abcdefg");
         Transport::ClientRpc* clientRpc = session->clientSend(&request,
                 &reply);
-        Transport::ServerRpc* serverRpc = waitForRpcRequest(&server, 1.0);
+        Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc != NULL);
-        CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->recvPayload));
+        CPPUNIT_ASSERT_EQUAL("abcdefg/0", toString(&serverRpc->requestPayload));
         CPPUNIT_ASSERT_EQUAL(false, clientRpc->isReady());
         serverRpc->replyPayload.fillFromString("klmn");
         serverRpc->sendReply();
-        Dispatch::handleEvent();
-        CPPUNIT_ASSERT_EQUAL(true, clientRpc->isReady());
+        CPPUNIT_ASSERT_EQUAL(true, waitForRpc(*clientRpc));
         CPPUNIT_ASSERT_EQUAL("klmn/0", toString(&reply));
 
         fillLargeBuffer(&request, 100000);
         reply.reset();
         clientRpc = session->clientSend(&request, &reply);
-        serverRpc = waitForRpcRequest(&server, 1.0);
+        serverRpc = serviceManager->waitForRpc(1.0);
         CPPUNIT_ASSERT(serverRpc != NULL);
         CPPUNIT_ASSERT_EQUAL("ok",
-                checkLargeBuffer(&serverRpc->recvPayload, 100000));
+                checkLargeBuffer(&serverRpc->requestPayload, 100000));
         fillLargeBuffer(&serverRpc->replyPayload, 50000);
         serverRpc->sendReply();
         clientRpc->wait();
@@ -191,28 +192,17 @@ class FastTransportTest : public CppUnit::TestFixture {
     void
     test_getSession_reuseExpired()
     {
-        Dispatch::currentTime = 0;
+        dispatch->currentTime = 0;
         CPPUNIT_ASSERT_EQUAL(0, transport->clientSessions.size());
         Transport::Session* firstSession =
             transport->getSession(serviceLocator).get();
         FastTransport::sessionTimeoutCyclesOverride =
                 FastTransport::SESSION_TIMEOUT_NS;
-        Dispatch::currentTime = FastTransport::SESSION_TIMEOUT_NS;
+        dispatch->currentTime = FastTransport::SESSION_TIMEOUT_NS;
         Transport::Session* lastSession =
             transport->getSession(serviceLocator).get();
         CPPUNIT_ASSERT_EQUAL(firstSession, lastSession);
         CPPUNIT_ASSERT_EQUAL(1, transport->clientSessions.size());
-    }
-
-    void
-    test_serverRecv()
-    {
-        CPPUNIT_ASSERT_EQUAL(NULL, transport->serverRecv());
-        FastTransport::ServerRpc rpc;
-        rpc.setup(NULL, 0);
-        transport->serverReadyQueue.push_back(rpc);
-        CPPUNIT_ASSERT_EQUAL(&rpc, transport->serverRecv());
-        CPPUNIT_ASSERT_EQUAL(NULL, transport->serverRecv());
     }
 
     // Used in {add,remove,fire}Timer tests
@@ -230,7 +220,7 @@ class FastTransportTest : public CppUnit::TestFixture {
         virtual void operator() ()
         {
             if (expectWhen)
-                CPPUNIT_ASSERT_EQUAL(expectWhen, Dispatch::currentTime);
+                CPPUNIT_ASSERT_EQUAL(expectWhen, dispatch->currentTime);
             onTimerFiredCount++;
         }
         uint32_t onTimerFiredCount;
@@ -315,7 +305,7 @@ class FastTransportTest : public CppUnit::TestFixture {
         TestLog::Enable _(&tppPred);
 
         FastTransport::sessionTimeoutCyclesOverride = 2000;
-        Dispatch::currentTime = FastTransport::sessionTimeoutCycles() * 2;
+        dispatch->currentTime = FastTransport::sessionTimeoutCycles() * 2;
         FastTransport::SessionOpenResponse sessResp =
                 { FastTransport::NUM_CHANNELS_PER_SESSION };
         MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
@@ -459,10 +449,6 @@ CPPUNIT_TEST_SUITE_REGISTRATION(FastTransportTest);
 class ClientRpcTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(ClientRpcTest);
     CPPUNIT_TEST(test_constructor);
-    CPPUNIT_TEST(test_isReady);
-    CPPUNIT_TEST(test_wait_inProgress);
-    CPPUNIT_TEST(test_wait_completed);
-    CPPUNIT_TEST(test_wait_aborted);
     CPPUNIT_TEST_SUITE_END();
 
   public:
@@ -506,63 +492,7 @@ class ClientRpcTest : public CppUnit::TestFixture {
     {
         CPPUNIT_ASSERT_EQUAL(request, rpc->requestBuffer);
         CPPUNIT_ASSERT_EQUAL(response, rpc->responseBuffer);
-        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::IN_PROGRESS,
-                             rpc->state);
         CPPUNIT_ASSERT_EQUAL(transport, rpc->transport);
-    }
-
-    void
-    test_isReady()
-    {
-        rpc->state = FastTransport::ClientRpc::IN_PROGRESS;
-        CPPUNIT_ASSERT_EQUAL(false, rpc->isReady());
-        rpc->state = FastTransport::ClientRpc::COMPLETED;
-        CPPUNIT_ASSERT_EQUAL(true, rpc->isReady());
-    }
-
-    void
-    test_wait_inProgress()
-    {
-        // This test ensures that the dispatcher gets called if the
-        // RPC hasn't finished.
-
-        // Create a timer handler that will mark the RPC completed.
-        class RpcCompleter : public Dispatch::Timer {
-          public:
-            explicit RpcCompleter(FastTransport::ClientRpc* rpc)
-                    : Dispatch::Timer(), rpc(rpc), invoked(false) {
-            }
-            void operator() () {
-                rpc->state = FastTransport::ClientRpc::COMPLETED;
-                invoked = true;
-            }
-            FastTransport::ClientRpc* rpc;
-            bool invoked;
-          private:
-            DISALLOW_COPY_AND_ASSIGN(RpcCompleter);
-        };
-
-        mockTSCValue = 0;
-        RpcCompleter completer(rpc);
-        completer.startCycles(1000);
-        rpc->state = FastTransport::ClientRpc::IN_PROGRESS;
-        rpc->wait();
-        CPPUNIT_ASSERT_EQUAL(true, completer.invoked);
-    }
-
-    void
-    test_wait_completed()
-    {
-        rpc->state = FastTransport::ClientRpc::COMPLETED;
-        // Making sure this returns
-        rpc->wait();
-    }
-
-    void
-    test_wait_aborted()
-    {
-        rpc->state = FastTransport::ClientRpc::ABORTED;
-        CPPUNIT_ASSERT_THROW(rpc->wait(), TransportException);
     }
 
   private:
@@ -1053,7 +983,7 @@ class OutboundMessageTest: public CppUnit::TestFixture {
         msg->totalFrags = transport->numFrags(buffer);
 
         mockTSCValue = tsc;
-        Dispatch::currentTime = tsc;
+        dispatch->currentTime = tsc;
     }
 
     void tearDown()
@@ -1392,12 +1322,14 @@ class ServerSessionTest: public CppUnit::TestFixture {
     void
     setUp()
     {
-        Dispatch::currentTime = 1000;
+        dispatch->currentTime = 1000;
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(driver);
         session = new FastTransport::ServerSession(transport, sessionId);
         ServiceLocator sl("mock: host=1.2.3.4, port=12345");
         driverAddress = driver->newAddress(sl);
+        delete serviceManager;
+        ServiceManager::init();
     }
 
     void
@@ -1411,7 +1343,7 @@ class ServerSessionTest: public CppUnit::TestFixture {
     void
     test_beginSending()
     {
-        Dispatch::currentTime = 9898;
+        dispatch->currentTime = 9898;
 
         uint8_t channelId = 6;
         // Just here to flip us into a state where
@@ -1427,7 +1359,7 @@ class ServerSessionTest: public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::
                              ServerChannel::SENDING_WAITING,
                              session->channels[channelId].state);
-        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
+        CPPUNIT_ASSERT_EQUAL(dispatch->currentTime, session->lastActivityTime);
     }
 
     void
@@ -1487,13 +1419,13 @@ class ServerSessionTest: public CppUnit::TestFixture {
     test_processInboundPacket_badChannel()
     {
         TestLog::Enable dummy;
-        Dispatch::currentTime = 9898;
+        dispatch->currentTime = 9898;
 
         MockReceived recvd(0, 1, "");
         recvd.getHeader()->channelId = FastTransport::NUM_CHANNELS_PER_SESSION;
 
         session->processInboundPacket(&recvd);
-        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
+        CPPUNIT_ASSERT_EQUAL(dispatch->currentTime, session->lastActivityTime);
         CPPUNIT_ASSERT_EQUAL(
             "processInboundPacket: "
             "invalid channel id 8", TestLog::get());
@@ -1608,7 +1540,7 @@ class ServerSessionTest: public CppUnit::TestFixture {
     void
     test_startSession()
     {
-        Dispatch::currentTime = 9898;
+        dispatch->currentTime = 9898;
         const uint64_t rand = 0x7676UL;
         MockRandom __(rand);
 
@@ -1654,7 +1586,7 @@ class ServerSessionTest: public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("first | last",
                              bufferToDebugString(&recvBuffer));
         CPPUNIT_ASSERT_EQUAL(&channel->currentRpc,
-                             &transport->serverReadyQueue.back());
+                             serviceManager->waitForRpc(0));
         CPPUNIT_ASSERT_EQUAL(FastTransport::ServerSession::
                              ServerChannel::PROCESSING,
                              session->channels[0].state);
@@ -1787,7 +1719,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
     void
     test_clientSend_availableChannel()
     {
-        Dispatch::currentTime = 98328;
+        dispatch->currentTime = 98328;
 
         session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
@@ -1801,7 +1733,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
                              channel->state);
         CPPUNIT_ASSERT_EQUAL(rpc, channel->currentRpc);
         channel->currentRpc = NULL;
-        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
+        CPPUNIT_ASSERT_EQUAL(dispatch->currentTime, session->lastActivityTime);
     }
 
     void
@@ -1819,10 +1751,12 @@ class ClientSessionTest: public CppUnit::TestFixture {
         session->channels[1].currentRpc = &rpc2;
 
         session->close();
-        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc1.state);
-        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc2.state);
+        CPPUNIT_ASSERT(rpc1.isReady());
+        CPPUNIT_ASSERT_EQUAL("RPC aborted", rpc1.errorMessage->c_str());
+        CPPUNIT_ASSERT(rpc2.isReady());
+        CPPUNIT_ASSERT_EQUAL("RPC aborted", rpc2.errorMessage->c_str());
         CPPUNIT_ASSERT(session->channelQueue.empty());
-        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc3.state);
+        CPPUNIT_ASSERT_EQUAL("RPC aborted", rpc3.errorMessage->c_str());
         CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::INVALID_HINT,
                              session->serverSessionHint);
         CPPUNIT_ASSERT_EQUAL(FastTransport::ClientSession::INVALID_TOKEN,
@@ -1832,7 +1766,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
     void
     test_connect()
     {
-        Dispatch::currentTime = 91291;
+        dispatch->currentTime = 91291;
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
@@ -1847,13 +1781,13 @@ class ClientSessionTest: public CppUnit::TestFixture {
             "clientSessionHint:98765432 serverSessionHint:cccccccc "
             "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
             driver->outputLog);
-        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
+        CPPUNIT_ASSERT_EQUAL(dispatch->currentTime, session->lastActivityTime);
     }
 
     void
     test_connect_sessionOpenRequestRetransmit()
     {
-        Dispatch::currentTime = 91291;
+        dispatch->currentTime = 91291;
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
@@ -1862,8 +1796,8 @@ class ClientSessionTest: public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(true, session->sessionOpenRequestInFlight);
 
 
-        MockTSC _(Dispatch::currentTime + FastTransport::timeoutCycles() + 1);
-        Dispatch::poll();
+        MockTSC _(dispatch->currentTime + FastTransport::timeoutCycles() + 1);
+        dispatch->poll();
 
         CPPUNIT_ASSERT_EQUAL(
             "{ sessionToken:cccccccccccccccc rpcId:0 "
@@ -1878,7 +1812,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
     void
     test_connect_sessionOpenRequestTimeout()
     {
-        Dispatch::currentTime = 91291;
+        dispatch->currentTime = 91291;
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
@@ -1889,12 +1823,12 @@ class ClientSessionTest: public CppUnit::TestFixture {
         FastTransport::ClientRpc rpc(transport, request, response);
         session->channelQueue.push_back(rpc);
 
-        MockTSC _(Dispatch::currentTime +
+        MockTSC _(dispatch->currentTime +
                 2*FastTransport::sessionTimeoutCycles());
-        Dispatch::poll();
+        dispatch->poll();
         CPPUNIT_ASSERT_EQUAL(false, session->sessionOpenRequestInFlight);
 
-        CPPUNIT_ASSERT_EQUAL(FastTransport::ClientRpc::ABORTED, rpc.state);
+        CPPUNIT_ASSERT_EQUAL("RPC aborted", rpc.errorMessage->c_str());
         CPPUNIT_ASSERT(!rpc.channelQueueEntries.is_linked());
     }
 
@@ -1997,7 +1931,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
     void
     test_processInboundPacket_data()
     {
-        Dispatch::currentTime = 91291;
+        dispatch->currentTime = 91291;
 
         session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
         session->allocateChannels();
@@ -2015,7 +1949,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
                              ClientChannel::RECEIVING,
                              channel->state);
 
-        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
+        CPPUNIT_ASSERT_EQUAL(dispatch->currentTime, session->lastActivityTime);
         channel->currentRpc = NULL;
     }
 
@@ -2121,7 +2055,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
     void
     test_sendSessionOpenRequest()
     {
-        Dispatch::currentTime = 91291;
+        dispatch->currentTime = 91291;
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
@@ -2131,7 +2065,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
             "clientSessionHint:98765432 serverSessionHint:cccccccc "
             "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
             driver->outputLog);
-        CPPUNIT_ASSERT_EQUAL(Dispatch::currentTime, session->lastActivityTime);
+        CPPUNIT_ASSERT_EQUAL(dispatch->currentTime, session->lastActivityTime);
         session->timer.stop();
     }
 
@@ -2439,7 +2373,7 @@ class SessionTableTest : public CppUnit::TestFixture {
     void
     test_expire()
     {
-        Dispatch::currentTime = FastTransport::sessionTimeoutCycles();
+        dispatch->currentTime = FastTransport::sessionTimeoutCycles();
         FastTransport::SessionTable<MockSession> st(NULL);
 
         // Make sure it runs/doesn't segfault on 0 length
@@ -2449,7 +2383,7 @@ class SessionTableTest : public CppUnit::TestFixture {
         for (uint32_t i = 0; i < 3; i++) {
             st.get();
             // even numbered sessions are up for expire
-            st[i]->setLastActivityTime(i % 2 ? Dispatch::currentTime : 0);
+            st[i]->setLastActivityTime(i % 2 ? dispatch->currentTime : 0);
         }
 
         st.expire();

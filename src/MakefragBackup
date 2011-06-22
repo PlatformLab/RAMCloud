@@ -1,6 +1,6 @@
 BACKUP_SRCFILES := \
 		   src/BackupStorage.cc \
-		   src/BackupServer.cc \
+		   src/BackupService.cc \
 		   $(NULL)
 
 BACKUP_OBJFILES := $(BACKUP_SRCFILES)

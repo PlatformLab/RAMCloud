@@ -15,8 +15,10 @@
 
 #include "TestUtil.h"
 #include "MockTransport.h"
+#include "Rpc.h"
 
 namespace RAMCloud {
+uint32_t RAMCloud::MockTransport::sessionDeleteCount = 0;
 
 //------------------------------
 // MockTransport class
@@ -26,37 +28,28 @@ namespace RAMCloud {
  * Construct a MockTransport.
  */
 MockTransport::MockTransport(const ServiceLocator *serviceLocator)
-            : outputLog(),
-              inputMessage(NULL),
-              serverRecvCount(0),
-              serverSendCount(0),
-              clientSendCount(0),
-              clientRecvCount(0),
-              locatorString()
+            : outputLog()
+            , status(Status(STATUS_MAX_VALUE+1))
+            , inputMessage(NULL)
+            , serverSendCount(0)
+            , clientSendCount(0)
+            , clientRecvCount(0)
+            , locatorString()
 {
-    if (serviceLocator != NULL)
+    if (serviceLocator != NULL) {
         locatorString = serviceLocator->getOriginalString();
+    } else {
+        locatorString = "mock:";
+    }
 }
 
 /**
  * See Transport::getServiceLocator.
  */
-ServiceLocator
+string
 MockTransport::getServiceLocator()
 {
-    return ServiceLocator(locatorString);
-}
-
-/**
- * Return an incoming request. This is a fake method that uses a request
- * message explicitly provided by the test, or returns NULL.
- */
-Transport::ServerRpc*
-MockTransport::serverRecv() {
-    if (inputMessage == NULL)
-       return NULL;
-    else
-       return new MockServerRpc(this);
+    return locatorString;
 }
 
 Transport::SessionRef
@@ -71,6 +64,13 @@ MockTransport::getSession()
     return new MockSession(this);
 }
 
+/**
+ * Destructor for MockSession: just log the destruction.
+ */
+MockTransport::MockSession::~MockSession()
+{
+    MockTransport::sessionDeleteCount++;
+}
 
 /**
  * Issue an RPC request using this transport.
@@ -87,7 +87,8 @@ MockTransport::getSession()
  *          space in this Allocation.
  */
 Transport::ClientRpc*
-MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response) {
+MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response)
+{
     if (transport->outputLog.length() != 0) {
         transport->outputLog.append(" | ");
     }
@@ -106,7 +107,8 @@ MockTransport::MockSession::clientSend(Buffer* payload, Buffer* response) {
  *      in the format expected by Buffer::fillFromString.
  */
 void
-MockTransport::setInput(const char* s) {
+MockTransport::setInput(const char* s)
+{
     inputMessage = s;
 }
 
@@ -116,18 +118,18 @@ MockTransport::setInput(const char* s) {
 
 /**
  * Construct a MockServerRpc.
- * The input message is taken from transport->inputMessage, if
- * it contains data.
  *
  * \param transport
  *      The MockTransport object that this RPC is associated with.
+ * \param message
+ *      Describes contents of message (parsed by #fillFromString).
  */
-MockTransport::MockServerRpc::MockServerRpc(MockTransport* transport)
+MockTransport::MockServerRpc::MockServerRpc(MockTransport* transport,
+                                            const char* message)
         : transport(transport)
 {
-    if (transport->inputMessage != NULL) {
-        recvPayload.fillFromString(transport->inputMessage);
-        transport->inputMessage = NULL;
+    if (message != NULL) {
+        requestPayload.fillFromString(message);
     }
 }
 
@@ -136,12 +138,17 @@ MockTransport::MockServerRpc::MockServerRpc(MockTransport* transport)
  * the reply message and deletes this reply object.
  */
 void
-MockTransport::MockServerRpc::sendReply() {
+MockTransport::MockServerRpc::sendReply()
+{
     if (transport->outputLog.length() != 0) {
         transport->outputLog.append(" | ");
     }
     transport->outputLog.append("serverReply: ");
     transport->outputLog.append(toString(&replyPayload));
+    const RpcResponseCommon* responseHeader =
+        replyPayload.getStart<RpcResponseCommon>();
+    transport->status = (responseHeader != NULL) ? responseHeader->status :
+            Status(STATUS_MAX_VALUE+1);
     delete this;
 }
 
@@ -159,23 +166,13 @@ MockTransport::MockServerRpc::sendReply() {
  */
 MockTransport::MockClientRpc::MockClientRpc(MockTransport* transport,
                                             Buffer* response)
-        : transport(transport), response(response) { }
-
-/**
- * Wait for a response to arrive for this RPC. This is a fake implementation
- * that simply returns a prepared response supplied to us explicitly
- * by the current test (or an empty buffer, if nothing was supplied).
- */
-void
-MockTransport::MockClientRpc::wait() {
-    // The call to fillFromString below will overwrite everything in the
-    // response buffer, including this MockClientRpc object; pull out of
-    // the object anything we will need.
-    MockTransport* transport = this->transport;
+        : response(response)
+{
     if (transport->inputMessage != NULL) {
         response->fillFromString(transport->inputMessage);
         transport->inputMessage = NULL;
     }
+    markFinished();
 }
 
 }  // namespace RAMCloud

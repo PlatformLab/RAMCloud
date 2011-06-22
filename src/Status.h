@@ -49,7 +49,8 @@ enum Status {
     STATUS_BACKUP_MALFORMED_SEGMENT     = 14,
     STATUS_SEGMENT_RECOVERY_FAILED      = 15,
     STATUS_RETRY                        = 16,
-    STATUS_MAX_VALUE                    = 16
+    STATUS_SERVICE_NOT_AVAILABLE        = 17,
+    STATUS_MAX_VALUE                    = 17
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest

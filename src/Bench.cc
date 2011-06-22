@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -26,10 +26,15 @@
 #include <sstream>
 #include <map>
 
+#include "Metrics.h"
 #include "TestUtil.h"
 #include "RamCloud.h"
+#include "MasterService.h"
 #include "BenchUtil.h"
 #include "OptionParser.h"
+
+#include "MasterClient.h"
+#include "Tub.h"
 
 namespace RC = RAMCloud;
 using std::map;
@@ -62,8 +67,10 @@ class BenchMapper {
             s << ("worker");
             s << j;
             keymap[s.str() + "status"] = i++;
-            keymap[s.str() + "commandcount"] = i++;
-            keymap[s.str() + "timetaken"] = i++;
+            keymap[s.str() + "r_commandcount"] = i++;
+            keymap[s.str() + "r_timetaken"] = i++;
+            keymap[s.str() + "w_commandcount"] = i++;
+            keymap[s.str() + "w_timetaken"] = i++;
             keymap[s.str() + "valuecount0"] = i++;
             keymap[s.str() + "valuecount1"] = i++;
         }
@@ -78,6 +85,8 @@ class BenchMapper {
 std::string coordinatorLocator;
 std::string tableName("test");
 std::string controlTableName("test");
+uint32_t numTables;
+uint32_t multiread;
 bool multirow;
 bool randomReads;
 uint64_t count;
@@ -87,6 +96,9 @@ bool readOnly = false;
 std::string executionMode("standalone");
 int numWorkers = -1;
 int workerId = -1;
+int numCalls = 0;
+
+std::vector<uint32_t> tables;
 
 RC::RamCloud *client;
 uint32_t table;
@@ -119,8 +131,15 @@ setup()
 
     assert(!atexit(cleanup));
 
-    client->createTable(tableName.c_str());
-    table = client->openTable(tableName.c_str());
+    if (numTables == 1) {
+        client->createTable(tableName.c_str());
+        table = client->openTable(tableName.c_str());
+    } else {
+        for (uint32_t i = 0; i < numTables; i++) {
+            client->createTable(RC::format("%u", i).c_str());
+            tables.push_back(client->openTable(RC::format("%u", i).c_str()));
+        }
+    }
 
     std::stringstream ss;
     ss << "control." << tableName;
@@ -128,6 +147,13 @@ setup()
     client->createTable(controlTableName.c_str());
     controlTable = client->openTable(controlTableName.c_str());
 
+
+    // std::stringstream sss;
+    // sss << workerId << tableName;
+    // tableName = sss.str();
+
+    client->createTable(tableName.c_str());
+    table = client->openTable(tableName.c_str());
 }
 
 uint64_t
@@ -146,7 +172,7 @@ bench(const char *name, void (f)(void))
            RC::cyclesToNanoseconds(cycles) / count);
     fprintf(stderr, "Avg. Latency %s avgns  %12lu\n", name,
             RC::cyclesToNanoseconds(cycles) / count);
-    client->ping();
+    // client->ping();
     return RC::cyclesToNanoseconds(cycles);
 }
 
@@ -158,21 +184,22 @@ writeInt(uint32_t table, uint64_t key, uint64_t val)
     client->write(table, key, &val, sizeof(val));
 }
 
+template <class T>
 void
-readInt(uint32_t table, uint64_t key, uint64_t& val)
+readInt(uint32_t table, uint64_t key, T& val)
 {
     RC::Buffer value;
     client->read(table, key, &value);
-    val = *value.getStart<uint64_t>();
+    val = *value.getStart<T>();
 }
 
 void
-writeOne(uint64_t val)
+writeOne(uint64_t val, uint64_t key = 0)
 {
     char buf[size];
     memset(&buf[0], downCast<uint32_t>(val), size);
     buf[size-1] = 0;
-    client->write(table, 0, &buf[0], downCast<uint32_t>(size));
+    client->write(table, key, &buf[0], downCast<uint32_t>(size));
 }
 
 void
@@ -181,11 +208,30 @@ writeOne()
     writeOne(0xFF);
 }
 
+
 void
 writeMany(void)
 {
-    for (uint64_t i = 0; i < count; i++)
-        writeOne(0xFF);
+    if (numTables == 1) {
+        numCalls++;
+        for (uint64_t i = 0; i < count; i++) {
+            uint64_t key = randomReads ? generateRandom() %
+                                            (1000*1000*10*numCalls +
+                                             1000*1000*workerId + i)
+                                       : i;
+            writeOne(0xFF, key);
+        }
+    } else {
+        // Write one value in each table
+        // TODO(ankitak): Allow writing multiple objects in each table
+        for (uint32_t i = 0; i < numTables; i++) {
+            uint64_t val = 0xFF;
+            char buf[size];
+            memset(&buf[0], downCast<uint32_t>(val), size);
+            buf[size-1] = 0;
+            client->write(tables[i], 0, &buf[0], downCast<uint32_t>(size));
+        }
+    }
 }
 
 void
@@ -211,8 +257,76 @@ readMany()
     }
 }
 
+void
+multiRead_oneMaster()
+{
+    uint64_t iterations = count / multiread;
+
+    RC::MasterClient::ReadObject requestObjects[multiread];
+    RC::MasterClient::ReadObject* requests[multiread];
+
+    for (uint64_t i = 0; i < iterations; i++) {
+        RC::Tub<RC::Buffer> values[multiread];
+
+        for (uint32_t j = 0; j < multiread; j++) {
+            uint64_t key = randomReads ? generateRandom() % count : j;
+            requestObjects[j] = RC::MasterClient::ReadObject(
+                                table, (randomReads || multirow) ? key : 0,
+                                &values[j]);
+            requests[j] = &requestObjects[j];
+        }
+
+        client->multiRead(requests, multiread);
+
+        for (uint32_t k = 0; k < multiread; k++) {
+            RC::Buffer *valueBuffer = values[k].get();
+            uint64_t val = *valueBuffer->getStart<uint64_t>();
+            if (val) {
+                value_counter[1]++;
+            } else {
+                value_counter[0]++;
+            }
+        }
+    }
+}
+
+void
+multiRead_multiMaster()
+{
+    // Current implementation assumes that only one object is to be read
+    // from each table. i.e., when numTables > 1, multiread = 1
+    // TODO(ankitak): Allow for multiple objects from each table
+
+    uint64_t iterations = count / numTables;
+
+    RC::MasterClient::ReadObject requestObjects[numTables];
+    RC::MasterClient::ReadObject* requests[numTables];
+
+    for (uint64_t i = 0; i < iterations; i++) {
+        RC::Tub<RC::Buffer> values[numTables];
+        for (uint32_t j = 0; j < numTables; j++) {
+            requestObjects[j] = RC::MasterClient::ReadObject(tables[j], 0,
+                                                             &values[j]);
+            requests[j] = &requestObjects[j];
+        }
+
+        client->multiRead(requests, numTables);
+
+        for (uint32_t j = 0; j < numTables; j++) {
+            RC::Buffer *valueBuffer = values[j].get();
+            uint64_t val = *valueBuffer->getStart<uint64_t>();
+            if (val) {
+                value_counter[1]++;
+            } else {
+                value_counter[0]++;
+            }
+        }
+    }
+}
+
 bool
-checkAllWorkersInSameState(BenchMapper::WORKER_STATE state) {
+checkAllWorkersInSameState(BenchMapper::WORKER_STATE state)
+{
     bool allReady = true;
     for (int worker = 0; worker < numWorkers; worker++) {
         stringstream k;
@@ -239,7 +353,8 @@ checkAllWorkersInSameState(BenchMapper::WORKER_STATE state) {
 
 int
 waitForAllWorkersToHitState(BenchMapper::WORKER_STATE state,
-                            uint64_t timeout = 10) {
+                            uint64_t timeout = 10)
+{
         bool allReady = false;
         uint64_t timeoutmicros = 0;
         while (!allReady) {
@@ -264,6 +379,14 @@ try
          RC::ProgramOptions::value<int>(&cpu)->
            default_value(-1),
          "CPU mask to pin to")
+         ("multiread,d",
+          RC::ProgramOptions::value<uint32_t>(&multiread)->
+            default_value(0),
+          "Number of objects to be read in each multiread from each table.")
+        ("tables,b",
+         RC::ProgramOptions::value<uint32_t>(&numTables)->
+           default_value(1),
+         "Number of tables to be used.")
         ("multirow,m",
          RC::ProgramOptions::bool_switch(&multirow),
          "Write number of objects equal to number parameter.")
@@ -300,22 +423,32 @@ try
     coordinatorLocator = optionParser.options.getCoordinatorLocator();
     printf("client: Connecting to %s\n", coordinatorLocator.c_str());
 
-    printf("Reads: %lu, Size: %lu, Multirow: %d, RandomReads: %d\n",
+    fprintf(stderr, "Reads: %lu, Size: %lu, Multirow: %d, RandomReads: %d\n",
            count, size, multirow, randomReads);
+    fprintf(stderr, "ReadOnly: %d, Multiread: %u\n",
+            readOnly, multiread);
 
     setup();
-
     fprintf(stderr, "Started Benching!\n");
 
     if (executionMode.compare("standalone") == 0) {
-        if (!readOnly) {
-            if (multirow) {
-                BENCH(writeMany);
+        if ((!readOnly && (multirow || randomReads))
+            || (readOnly && randomReads)) {
+            BENCH(writeMany);
+        } else {
+            BENCH(writeOne);
+        }
+
+        if (multiread == 0) {
+            BENCH(readMany);
+        } else {
+            if (numTables == 1) {
+                BENCH(multiRead_oneMaster);
             } else {
-                BENCH(writeOne);
+                BENCH(multiRead_multiMaster);
             }
         }
-        BENCH(readMany);
+
     } else if (executionMode.compare("worker") == 0) {
         fprintf(stderr, "worker mode - workerId %d\n", workerId);
         stringstream k;
@@ -326,8 +459,10 @@ try
         // Set up initial objects for read loads.
         writeOne(0xFF);
 
-        uint64_t overallcount = 0;
-        uint64_t overalltimetaken = 0;
+        uint64_t r_overallcount = 0;
+        uint64_t r_overalltimetaken = 0;
+        uint64_t w_overallcount = 0;
+        uint64_t w_overalltimetaken = 0;
 
         while (1) {
             uint64_t v = -1;
@@ -345,12 +480,12 @@ try
                      v);
             switch (v) {
             case BenchMapper::READ:
-                overalltimetaken += (BENCH(readMany));
-                overallcount += count;
+                r_overalltimetaken += (BENCH(readMany));
+                r_overallcount += count;
                 break;
             case BenchMapper::WRITE:
-                overalltimetaken += (BENCH(writeMany));
-                overallcount += count;
+                w_overalltimetaken += (BENCH(writeMany));
+                w_overallcount += count;
                 break;
             case BenchMapper::IDLE:
                 usleep(10);
@@ -358,17 +493,23 @@ try
             case BenchMapper::EXIT:
                 fprintf(stderr, "worker exiting\n");
                 writeInt(controlTable,
-                         benchMapper.getKey(keyprefix + "commandcount"),
-                         overallcount);
+                         benchMapper.getKey(keyprefix + "r_commandcount"),
+                         r_overallcount);
                 writeInt(controlTable,
-                         benchMapper.getKey(keyprefix + "timetaken"),
-                         overalltimetaken);
+                         benchMapper.getKey(keyprefix + "r_timetaken"),
+                         r_overalltimetaken);
                 writeInt(controlTable,
                          benchMapper.getKey(keyprefix + "valuecount0"),
                          value_counter[0]);
                 writeInt(controlTable,
                          benchMapper.getKey(keyprefix + "valuecount1"),
                          value_counter[1]);
+                writeInt(controlTable,
+                         benchMapper.getKey(keyprefix + "w_commandcount"),
+                         w_overallcount);
+                writeInt(controlTable,
+                         benchMapper.getKey(keyprefix + "w_timetaken"),
+                         w_overalltimetaken);
                 return 0;
             }
         }
@@ -381,6 +522,53 @@ try
             return 1;
         }
         fprintf(stderr, "Expecting %d workers.\n", numWorkers);
+
+        RC::ServerStats wstats;
+        uint64_t w_nanos = 0;
+
+        /////// WRITE
+
+        writeInt(controlTable,
+                 benchMapper.getKey("command"),
+                 BenchMapper::WRITE);
+        fprintf(stderr, "command WRITE - %lu\n",
+                static_cast<uint64_t>(BenchMapper::WRITE));
+
+        if (waitForAllWorkersToHitState(BenchMapper::WRITE) != 0) {
+            fprintf(stderr, "Timed out waiting for workers to move to "
+                    "WRITE.\n");
+            return 1;
+        }
+        fprintf(stderr, "All workers in WRITE status\n");
+
+        writeOne(0x00); // Write 0 to signal to workers for latency
+                        // counts - this is a signal to readMany()
+
+
+        // this read resets the serverStats objects so that we can
+        // grab counts for totals on the server side like throughput.
+        readInt(controlTable,
+                RC::MasterService::TOTAL_READ_REQUESTS_OBJID,
+                wstats);
+        w_nanos = BENCH(writeMany);
+        readInt(controlTable,
+                RC::MasterService::TOTAL_READ_REQUESTS_OBJID,
+                wstats);
+        writeOne(0xFF); // Write non-zero to signal workers
+
+        bool stillWriting =
+            checkAllWorkersInSameState(BenchMapper::WRITE);
+        if (!stillWriting) {
+            fprintf(stderr, "Workers finished sooner than queen"
+                    " expected. Error!\n");
+            return 1;
+        }
+
+
+        fprintf(stderr, "Finished running write benchmark\n");
+
+
+        /////// READ
 
         writeInt(controlTable,
                  benchMapper.getKey("command"),
@@ -395,11 +583,20 @@ try
         }
         fprintf(stderr, "All workers in READ status\n");
 
-        writeOne(0x00); // Write 0 to signal to workers for latency counts
-        uint64_t nanos = BENCH(readMany);
-        writeOne(0xFF); // Write non-zero to signal workers
+        writeOne(0x00); // Write 0 to signal to workers for latency
+                        // counts - this is a signal to readMany()
+        RC::ServerStats s;
 
-        fprintf(stderr, "Finished running benchmark\n");
+        // this read resets the serverStats objects so that we can
+        // grab counts for totals on the server side like throughput.
+        readInt(controlTable,
+                RC::MasterService::TOTAL_READ_REQUESTS_OBJID,
+                s);
+        uint64_t nanos = BENCH(readMany);
+        readInt(controlTable,
+                RC::MasterService::TOTAL_READ_REQUESTS_OBJID,
+                s);
+        writeOne(0xFF); // Write non-zero to signal workers
 
         bool stillReading =
             checkAllWorkersInSameState(BenchMapper::READ);
@@ -408,6 +605,11 @@ try
                     " expected. Error!\n");
             return 1;
         }
+
+        fprintf(stderr, "Finished running read benchmark\n");
+
+
+        ///// CLEAN UP and get STATS
 
         writeInt(controlTable, benchMapper.getKey("command"),
                  BenchMapper::EXIT);
@@ -434,9 +636,9 @@ try
             uint64_t v1 = -1;
 
             readInt(controlTable, benchMapper.getKey(k.str() +
-                                                     "timetaken"), tt);
-            readInt(controlTable, benchMapper.getKey(k.str() +
-                                                     "commandcount"),
+                                                     "r_timetaken"), tt);
+            readInt(controlTable,
+                    benchMapper.getKey(k.str() + "r_commandcount"),
                     ct);
             readInt(controlTable, benchMapper.getKey(k.str() +
                                                      "valuecount0"), v0);
@@ -445,20 +647,109 @@ try
                                                      "valuecount1"), v1);
             total_v1 += v1;
             double nsperop = static_cast<double>(tt)/static_cast<double>(ct);
-            fprintf(stderr, "Worker %3d performed %12lu operations in %15lu "
-                    "nanoseconds @ %8.2f ns/op.\n", worker, ct, tt,
-                    nsperop);
+            fprintf(stderr,
+                    "Worker %3d performed %8lu  read operations in "
+                    "%15lu ns @ %12.2f ns/op.\n",
+                    worker, ct, tt, nsperop);
+
+            readInt(controlTable, benchMapper.getKey(k.str() +
+                                                     "w_timetaken"), tt);
+            readInt(controlTable,
+                    benchMapper.getKey(k.str() + "w_commandcount"),
+                    ct);
+            nsperop = static_cast<double>(tt)/static_cast<double>(ct);
+            fprintf(stderr,
+                    "Worker %3d performed %8lu write operations in "
+                    "%15lu ns @ %12.2f ns/op.\n",
+                    worker, ct, tt, nsperop);
         }
         fprintf(stderr, "Total count of read operations with value 0"
                 " is %15lu.\n", total_v0);
         fprintf(stderr, "Total count of read operations with value 1"
                 " is %15lu.\n", total_v1);
-        fprintf(stderr, "Total nanos seen"
+        fprintf(stderr, "Total read nanos seen"
                 " is %15lu ns.\n", nanos);
+        fprintf(stderr, "Total server-read-ops seen"
+                " is %15lu.\n", s.totalReadRequests);
+        fprintf(stderr, "Avg server-read-time seen"
+                " is %15lu ns.\n", s.totalReadNanos);
+        fprintf(stderr, "Total write nanos seen"
+                " is %15lu ns.\n", w_nanos);
+        fprintf(stderr, "Total server-write-ops seen"
+                " is %15lu.\n", wstats.totalWriteRequests);
+        fprintf(stderr, "Avg server-write-time seen"
+                " is %15lu ns.\n", wstats.totalWriteNanos);
+
+        fprintf(stderr, "Avg server-read "
+                " is %15lu ns/read.\n",
+                s.totalReadNanos/s.totalReadRequests);
+        fprintf(stderr, "Avg server-write "
+                " is %15lu ns/read.\n",
+                wstats.totalWriteNanos/wstats.totalWriteRequests);
+        fprintf(stderr, "Avg server-backup-sync "
+                " is %15lu ns/read.\n",
+                wstats.totalBackupSyncNanos/wstats.totalBackupSyncs);
+        fprintf(stderr, "Avg server-wait-time per rpc "
+                " is %15lu ns/read.\n",
+                s.serverWaitNanos/s.totalReadRequests);
+
 
         printf("tputread ops/sec  %12lu\n",
                total_v0 * 1000 * 1000 * 1000 / nanos);
+        printf("tputwrite ops/sec  %12lu\n",
+               wstats.totalWriteRequests * 1000 * 1000 * 1000 /
+               w_nanos);
+        printf("tputwrite bytes/sec  %12lu\n",
+               size * wstats.totalWriteRequests * 1000 * 1000 * 1000 /
+               w_nanos);
 
+        printf("tputgettx ops/sec  %12lu\n",
+               s.totalReadRequests * 1000 * 1000 * 1000 /
+               s.infrcGetTxBufferNanos);
+
+        printf("serverread avgns  %12lu\n",
+               s.totalReadNanos/s.totalReadRequests);
+        printf("serverwrite avgns  %12lu\n",
+               wstats.totalWriteNanos/wstats.totalWriteRequests);
+        printf("serversyncnanos avgns  %12lu\n",
+               wstats.totalBackupSyncNanos/wstats.totalBackupSyncs);
+        printf("serversynccount ct  %12lu\n",
+               wstats.totalBackupSyncs);
+        printf("serverwait avgns  %12lu\n",
+               s.serverWaitNanos/s.totalReadRequests);
+        printf("infrcGetTxBuffer avgns  %12lu\n",
+               s.infrcGetTxBufferNanos/s.infrcGetTxCount);
+        printf("infrcGetTxCount ct %12lu\n",
+               s.infrcGetTxCount);
+        printf("readCount ct %12lu\n",
+               s.totalReadRequests);
+        printf("writeCount ct %12lu\n",
+               wstats.totalWriteRequests);
+        printf("infrcSendReplyNanos avgns  %12lu\n",
+               s.infrcSendReplyNanos/s.totalReadRequests);
+        printf("gtbPollCount ct %12lu\n",
+               s.gtbPollCount);
+        printf("gtbPollZeroNCount ct %12lu\n",
+               s.gtbPollZeroNCount);
+        printf("gtbPollNanos avgns  %.4f\n",
+               double(s.gtbPollNanos)/double(s.gtbPollCount)); //NOLINT
+        if ( s.gtbPollZeroNCount == 0 ) { // divide by zero avoidance
+           s. gtbPollZeroNCount = 1;
+        }
+        printf("gtbPollZeroNanos avgns  %.4f\n",
+               double(s.gtbPollZeroNanos)/double(s.gtbPollZeroNCount)); //NOLINT
+        printf("gtbPollNonZeroNanos avgns  %.4f\n",
+               double(s.gtbPollNonZeroNanos)/               //NOLINT
+               double(s.gtbPollCount-s.gtbPollZeroNCount)); //NOLINT
+        printf("gtbPollNonZeroNAvg ct  %3.4f\n",
+               (double(s.gtbPollNonZeroNAvg))/              //NOLINT
+               double(s.gtbPollCount-s.gtbPollZeroNCount)); //NOLINT
+        printf("gtbPollNonZeroPct ct  %3.4f\n",
+               100.0 -
+               (double(s.gtbPollZeroNCount))/double(s.gtbPollCount)); //NOLINT
+        printf("gtbPollEffNanos avgns  %12lu\n",
+               long(double(s.gtbPollNanos)/      //NOLINT
+                    double(s.infrcGetTxCount))); //NOLINT 
         return 0;
 
     } else {

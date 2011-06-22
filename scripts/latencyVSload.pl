@@ -72,13 +72,16 @@ my $operation_count = 10000;
 
 my @loads = ( $loadStart .. $loadEnd );
 my $clienthosts = HostPattern::hosts(\@clientspattern);
-print STDERR join ("\n", @$clienthosts)."\n";
+#print STDERR join ("\n", @$clienthosts)."\n";
 
 # Assume remote code is in the same place as current machine.
 my $benchBinaryFull = abs_path($benchBinary);
 
-
 foreach my $clients (@loads) {
+  next if $clients % 2 == 0 && $clients > 10;
+  next if $clients % 3 == 0 && $clients > 10;
+  next if $clients % 5 == 0 && $clients > 10;
+
   print STDERR "Setting up a pre-existing load of $clients clients.\n";
   for (my $i=0; $i<$clients; $i++) {
     # Reserve 0th host for measurement gathering.
@@ -126,6 +129,7 @@ foreach my $clients (@loads) {
     die "Close failed - $!";
 }
 
+$Data::Dumper::Sortkeys = 1;
 print STDERR Dumper \%data;
 store \%data, $dump;
 print STDERR "Finished running latency vs load test! Output is in $dump.\n";

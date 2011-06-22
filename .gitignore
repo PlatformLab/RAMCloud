@@ -3,6 +3,8 @@
 *.pyc
 *.o
 *.hi
+*.dump
+*.log
 
 /docs/doxygen/
 /docs/epydoc/

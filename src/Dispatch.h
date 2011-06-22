@@ -16,40 +16,55 @@
 #ifndef RAMCLOUD_DISPATCH_H
 #define RAMCLOUD_DISPATCH_H
 
+#include <cstdatomic>
 #include <boost/thread.hpp>
+#include <boost/thread/locks.hpp>
+
 #include "Common.h"
+#include "ThreadId.h"
 #include "Tub.h"
 #include "Syscall.h"
 
 namespace RAMCloud {
 
+/// Singleton Dispatch object that is normally used for all operations,
+/// and defaults in many cases.
+class Dispatch;
+extern Dispatch* dispatch;
+
 /**
  * The Dispatch class keeps track of interesting events such as open files
  * and timers, and arranges for particular methods to be invoked when the
  * events happen. The inner loop for the class is polling-based, and it
- * allows additional polling-based event handlers to be added.  The current
- * implementation does not support concurrent invocations from multiple
- * threads; for example:
- * - It is not safe for #poll to be invoked simultaneously in multiple threads.
- * - But, once #poll has invoked a handler it is safe to invoke #poll again
- *   in that thread or in another thread.
- * - It is not safe to create a new Dispatch::File while #poll is "active".
- * - But, if #poll has invoked a handler it is no longer active so it is safe
- *   for that handler, or another thread, to create/delete Dispatch::Files.
+ * allows additional polling-based event handlers to be added.  This
+ * implementation works in a multi-threaded environment, but with certain
+ * restrictions:
+ * - #poll should only be invoked in the thread that created the Dispatch
+ *   object.  This thread is called the "dispatch thread".
+ * - Other threads can invoke Dispatch methods, but they must hold a
+ *   Dispatch::Lock object at the time of the invocation, in order to avoid
+ *   synchronization problems.
  */
 class Dispatch {
   public:
-    static bool poll();
-    static void handleEvent();
-    static void reset();
+    Dispatch();
+    ~Dispatch();
+    static void init();
+
+    /**
+     * Returns true if this thread is the one in which the object was created.
+     */
+    bool
+    isDispatchThread()
+    {
+        return (ownerId == ThreadId::get());
+    }
+
+    void poll();
 
     /// The return value from rdtsc at the beginning of the last call to
-    /// #poll.
-    static uint64_t currentTime;
-
-    /// The return value from rdtsc at the beginning of the last call to
-    /// #poll which returned true.
-    static uint64_t lastEventTime;
+    /// #poll.  May be read from multiple threads, so must be volatile.
+    volatile uint64_t currentTime;
 
     /**
      * A Poller object is invoked once each time through the dispatcher's
@@ -57,7 +72,7 @@ class Dispatch {
      */
     class Poller {
       public:
-        explicit Poller();
+        explicit Poller(Dispatch* dispatch = RAMCloud::dispatch);
         virtual ~Poller();
 
         /**
@@ -69,8 +84,11 @@ class Dispatch {
          *      call. False means that there was nothing for this particular
          *      poller to do.
          */
-        virtual bool operator() () = 0;
-      private:
+        virtual void poll() = 0;
+      PRIVATE:
+        /// The Dispatch object that owns this Poller.  NULL means the
+        /// Dispatch has been deleted.
+        Dispatch* owner;
 
         /// Index of this Poller in Dispatch::pollers.  Allows deletion
         /// without having to scan all the entries in pollers. -1 means
@@ -94,7 +112,8 @@ class Dispatch {
      */
     class File {
       public:
-        explicit File(int fd, FileEvent event = NONE);
+        explicit File(int fd, FileEvent event = NONE,
+                Dispatch* dispatch = RAMCloud::dispatch);
         virtual ~File();
         void setEvent(FileEvent event);
 
@@ -107,9 +126,13 @@ class Dispatch {
          * event is disabled (calling Dispatch::poll will not cause this
          * method to be invoked).
          */
-        virtual void operator() () = 0;
+        virtual void handleFileEvent() = 0;
 
-      protected:
+      PROTECTED:
+        /// The Dispatch object that owns this File.  NULL means the
+        /// Dispatch has been deleted.
+        Dispatch* owner;
+
         /// The file descriptor passed into the constructor.
         int fd;
 
@@ -119,14 +142,14 @@ class Dispatch {
         /// Indicates whether epoll_ctl(EPOLL_CTL_ADD) has been called.
         bool active;
 
-        /// Non-zero means that operator() has been invoked but hasn't
+        /// Non-zero means that handleFileEvent has been invoked but hasn't
         /// yet returned; the actual value is a (reasonably) unique identifier
-        /// for this particular invocation.  Zero means operator() is not
+        /// for this particular invocation.  Zero means handleFileEvent is not
         /// currently active.  This field is used to defer the effect of
-        /// setEvent until after operator() returns.
+        /// setEvent until after handleFileEvent returns.
         int invocationId;
 
-      private:
+      PRIVATE:
         friend class Dispatch;
         friend class DispatchTest;
         DISALLOW_COPY_AND_ASSIGN(File);
@@ -138,8 +161,9 @@ class Dispatch {
      */
     class Timer {
       public:
-        Timer();
-        explicit Timer(uint64_t cycles);
+        explicit Timer(Dispatch* dispatch = RAMCloud::dispatch);
+        explicit Timer(uint64_t cycles,
+                Dispatch* dispatch = RAMCloud::dispatch);
         virtual ~Timer();
         bool isRunning();
         void startCycles(uint64_t cycles);
@@ -152,8 +176,11 @@ class Dispatch {
          * This method is defined by a subclass and invoked when the
          * timer expires.
          */
-        virtual void operator() () = 0;
-      private:
+        virtual void handleTimerEvent() = 0;
+      PRIVATE:
+        /// The Dispatch object that owns this Timer.  NULL means the
+        /// Dispatch has been deleted.
+        Dispatch* owner;
 
         /// If the timer is running it will be invoked as soon as #rdtsc
         /// returns a value greater or equal to this. This value is only
@@ -172,54 +199,93 @@ class Dispatch {
         DISALLOW_COPY_AND_ASSIGN(Timer);
     };
 
-  private:
-    static void epollThreadMain();
+    /**
+     * Lock objects are used to synchronize between the dispatch thread and
+     * other threads.  As long as a Lock object exists the following guarantees
+     * are in effect: either (a) the thread is the dispatch thread or (b) no
+     * other non-dispatch thread has a Lock object and the dispatch thread is
+     * in an idle state waiting for the Lock to be destroyed.  Although Locks
+     * are intended primarily for use in non-dispatch threads, they can also be
+     * used in the dispatch hread (e.g., if you can't tell which thread will
+     * run a particular piece of code). Locks may not be used recursively: a
+     * single thread can only create a single Lock object at a time.
+     */
+    class Lock {
+      public:
+        explicit Lock(Dispatch* dispatch = RAMCloud::dispatch);
+        ~Lock();
+      PRIVATE:
+        /// The Dispatch object associated with this Lock.
+        Dispatch* dispatch;
+
+        /// Used to lock Dispatch::mutex, but only if the Lock object
+        /// is constructed in a thread other than the dispatch thread
+        /// (no mutual exclusion is needed if the Lock is created in
+        /// the dispatch thread).
+        Tub<boost::lock_guard<boost::mutex>> lock;
+        DISALLOW_COPY_AND_ASSIGN(Lock);
+    };
+
+  PRIVATE:
+    static void epollThreadMain(Dispatch* dispatch);
 
     // Keeps track of all of the pollers currently defined.  We don't
     // use an intrusive list here because it isn't reentrant: we need
     // to add/remove elements while the dispatcher is traversing the list.
-    static std::vector<Poller*> pollers;
+    std::vector<Poller*> pollers;
 
     // Keeps track of of all of the file handlers currently defined.
     // Maps from a file descriptor to the corresponding File, or NULL
     // if none.
-    static std::vector<File*> files;
+    std::vector<File*> files;
 
     // The file descriptor used for epoll.
-    static int epollFd;
+    int epollFd;
 
     // We start a separate thread to invoke epoll kernel calls, so the
     // main polling loop is not delayed by kernel calls.  This thread
     // is only used when there are active Files.
-    static Tub<boost::thread> epollThread;
+    Tub<boost::thread> epollThread;
 
     // Read and write descriptors for a pipe.  The epoll thread always has
     // the read fd for this pipe in its active set; writing data to the pipe
     // causes the epoll thread to exit.  These file descriptors are only
     // valid if #epollThread is non-null.
-    static int exitPipeFds[2];
+    int exitPipeFds[2];
 
     // Used for communication between the epoll thread and #poll: the
     // epoll thread stores a fd here when it becomes ready, and #poll
     // resets this back to -1 once it has retrieved the fd.
-    static volatile int readyFd;
+    volatile int readyFd;
 
     // Used to assign a (nearly) unique identifier to each invocation
     // of a File.
-    static int fileInvocationSerial;
+    int fileInvocationSerial;
 
     // Keeps track of all of the timers currently defined.  We don't
     // use an intrusive list here because it isn't reentrant: we need
     // to add/remove elements while the dispatcher is traversing the list.
     // List of all timers that are currently defined.
-    static std::vector<Timer*> timers;
+    std::vector<Timer*> timers;
 
     // Optimization for timers: no timer will trigger sooner than this time
     // (measured in cycles).
-    static uint64_t earliestTriggerTime;
+    uint64_t earliestTriggerTime;
 
-    // The Dispatch class contains only static methods, so hide the constructor.
-    Dispatch();
+    // Unique identifier (as returned by ThreadId::get) for the thread that
+    // created this object.
+    uint64_t ownerId;
+
+    // Used to make sure that only one thread at a time attempts to lock
+    // the dispatcher.
+    boost::mutex mutex;
+
+    // Nonzero means there is a (non-dispatch) thread trying to lock the
+    // dispatcher.
+    atomic_int lockNeeded;
+
+    // Nonzero means the dispatch thread is locked.
+    atomic_int locked;
 
     static Syscall *sys;
 

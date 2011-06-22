@@ -14,9 +14,15 @@
  */
 
 #include "Common.h"
-#include "CoordinatorServer.h"
+#include "CoordinatorService.h"
 #include "OptionParser.h"
+#include "ServiceManager.h"
 #include "TransportManager.h"
+
+/**
+ * \file
+ * This file provides the main program for the RAMCloud cluster coordinator.
+ */
 
 int
 main(int argc, char *argv[])
@@ -29,7 +35,11 @@ main(int argc, char *argv[])
         transportManager.initialize(localLocator.c_str());
         localLocator = transportManager.getListeningLocatorsString();
         LOG(NOTICE, "coordinator: Listening on %s", localLocator.c_str());
-        CoordinatorServer().run();
+        CoordinatorService service;
+        serviceManager->addService(service, COORDINATOR_SERVICE);
+        while (true) {
+            dispatch->poll();
+        }
         return 0;
     } catch (RAMCloud::Exception& e) {
         LOG(ERROR, "coordinator: %s", e.str().c_str());

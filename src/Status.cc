@@ -38,7 +38,8 @@ static const char* messages[] = {
     "segment overflow",                          // BACKUP_SEGMENT_OVERFLOW
     "malformed segment",                         // BACKUP_MALFORMED_SEGMENT
     "segment recovery failed",                   // SEGMENT_RECOVERY_FAILED
-    "retry",                                     // SEGMENT_RETRY
+    "retry",                                     // RETRY
+    "service not available",                     // SERVICE_NOT_AVAILABLE
 };
 
 // The following table maps from a Status value to the internal name
@@ -61,6 +62,7 @@ static const char* symbols[] = {
     "STATUS_BACKUP_MALFORMED_SEGMENT",
     "STATUS_SEGMENT_RECOVERY_FAILED",
     "STATUS_RETRY",
+    "STATUS_SERVICE_NOT_AVAILABLE",
 };
 
 /**

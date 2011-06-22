@@ -103,6 +103,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw SegmentRecoveryFailedException(where);
         case STATUS_RETRY:
             throw RetryException(where);
+        case STATUS_SERVICE_NOT_AVAILABLE:
+            throw ServiceNotAvailableException(where);
         default:
             throw InternalError(where, status);
     }

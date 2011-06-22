@@ -98,4 +98,114 @@ Driver::Received::steal(uint32_t *len)
     return p;
 }
 
+// --- PayloadChunk ---
+
+/**
+ * Append a subregion of payload data which releases the memory to the
+ * Driver that allocated it when it's containing Buffer is destroyed.
+ *
+ * \param buffer
+ *      The Buffer to append the data to.
+ * \param data
+ *      The address of the data to appear in the Buffer.  This must be
+ *      inside the payload range specified later in the arguments.  The
+ *      idea is that if there is some data at the front or end of the
+ *      payload region that should be "stripped" before placing it in
+ *      the Buffer that can be done here (i.e. Header).
+ * \param dataLength
+ *      The length in bytes of the region starting at data that is a
+ *      subregion of the payload.
+ * \param driver
+ *      The Driver to release() this payload to on Buffer destruction.
+ * \param payload
+ *      The address to release() to the Driver on destruction.
+ */
+Driver::PayloadChunk*
+Driver::PayloadChunk::prependToBuffer(Buffer* buffer,
+                                             char* data,
+                                             uint32_t dataLength,
+                                             Driver* driver,
+                                             char* payload)
+{
+    PayloadChunk* chunk =
+        new(buffer, CHUNK) PayloadChunk(data,
+                                        dataLength,
+                                        driver,
+                                        payload);
+    Buffer::Chunk::prependChunkToBuffer(buffer, chunk);
+    return chunk;
+}
+
+/**
+ * Prepend a subregion of payload data which releases the memory to the
+ * Driver that allocated it when it's containing Buffer is destroyed.
+ *
+ * \param buffer
+ *      The Buffer to prepend the data to.
+ * \param data
+ *      The address of the data to appear in the Buffer.  This must be
+ *      inside the payload range specified later in the arguments.  The
+ *      idea is that if there is some data at the front or end of the
+ *      payload region that should be "stripped" before placing it in
+ *      the Buffer that can be done here (i.e. Header).
+ * \param dataLength
+ *      The length in bytes of the region starting at data that is a
+ *      subregion of the payload.
+ * \param driver
+ *      The Driver to release() this payload to on Buffer destruction.
+ * \param payload
+ *      The address to release() to the Driver on destruction.
+ */
+Driver::PayloadChunk*
+Driver::PayloadChunk::appendToBuffer(Buffer* buffer,
+                                            char* data,
+                                            uint32_t dataLength,
+                                            Driver* driver,
+                                            char* payload)
+{
+    PayloadChunk* chunk =
+        new(buffer, CHUNK) PayloadChunk(data,
+                                        dataLength,
+                                        driver,
+                                        payload);
+    Buffer::Chunk::appendChunkToBuffer(buffer, chunk);
+    return chunk;
+}
+
+/// Returns memory to the Driver once the Chunk is discarded.
+Driver::PayloadChunk::~PayloadChunk()
+{
+    if (driver)
+        driver->release(payload);
+}
+
+/**
+ * Construct a PayloadChunk which will release its resources to the
+ * Driver that allocated it when it's containing Buffer is destroyed.
+ *
+ * \param data
+ *      The address of the data to appear in the Buffer.  This must be
+ *      inside the payload range specified later in the arguments.  The
+ *      idea is that if there is some data at the front or end of the
+ *      payload region that should be "stripped" before placing it in
+ *      the Buffer that can be done here (i.e. Header).
+ * \param dataLength
+ *      The length in bytes of the region starting at data that is a
+ *      subregion of the payload.
+ * \param driver
+ *      The Driver to release() this payload to on Buffer destruction.
+ * \param payload
+ *      The address to release() to the Driver on destruction.
+ */
+Driver::PayloadChunk::PayloadChunk(void* data,
+                                          uint32_t dataLength,
+                                          Driver* driver,
+                                          char* const payload)
+    : Buffer::Chunk(data, dataLength)
+    , driver(driver)
+    , payload(payload)
+{
+}
+
+
 } // namespace RAMCloud

@@ -16,8 +16,10 @@
 #ifndef RAMCLOUD_SYSCALL_H
 #define RAMCLOUD_SYSCALL_H
 
+#include <linux/futex.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/syscall.h>
 #include <netinet/in.h>
 #include <fcntl.h>
 
@@ -71,6 +73,16 @@ class Syscall {
     VIRTUAL_FOR_TESTING
     int fcntl(int fd, int cmd, int arg1) {
         return ::fcntl(fd, cmd, arg1);
+    }
+    VIRTUAL_FOR_TESTING
+    int futexWait(int *addr, int value) {
+        return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAIT,
+                value, NULL, NULL, 0));
+    }
+    VIRTUAL_FOR_TESTING
+    int futexWake(int *addr, int count) {
+        return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAKE,
+                count, NULL, NULL, 0));
     }
     VIRTUAL_FOR_TESTING
     int listen(int sockfd, int backlog) {

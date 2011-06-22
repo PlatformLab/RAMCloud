@@ -32,8 +32,7 @@ class MockTransport : public Transport {
   public:
     explicit MockTransport(const ServiceLocator *serviceLocator = NULL);
     virtual ~MockTransport() { }
-    virtual ServiceLocator getServiceLocator();
-    virtual ServerRpc* serverRecv();
+    virtual string getServiceLocator();
 
     virtual Transport::SessionRef
     getSession(const ServiceLocator& serviceLocator);
@@ -41,11 +40,19 @@ class MockTransport : public Transport {
     virtual Transport::SessionRef
     getSession();
 
+    void registerMemory(void* base, size_t bytes) {
+        TEST_LOG("register %d bytes at %lu for %s",
+                 static_cast<int>(bytes),
+                 reinterpret_cast<uint64_t>(base),
+                 locatorString.c_str());
+    }
+
     void setInput(const char* message);
 
     class MockServerRpc : public ServerRpc {
         public:
-            explicit MockServerRpc(MockTransport* transport);
+            explicit MockServerRpc(MockTransport* transport,
+                                   const char* message);
             void sendReply();
         private:
             MockTransport* transport;
@@ -55,12 +62,7 @@ class MockTransport : public Transport {
     class MockClientRpc : public ClientRpc {
         public:
             explicit MockClientRpc(MockTransport* transport, Buffer* response);
-            void wait();
-            bool isReady() {
-                return true;
-            }
         private:
-            MockTransport* transport;
             Buffer* response;
             DISALLOW_COPY_AND_ASSIGN(MockClientRpc);
     };
@@ -73,6 +75,7 @@ class MockTransport : public Transport {
             MockSession(MockTransport* transport,
                         const ServiceLocator& serviceLocator)
                 : transport(transport), serviceLocator(serviceLocator) {}
+            virtual ~MockSession();
             virtual ClientRpc* clientSend(Buffer* payload, Buffer* response);
             virtual void release() {
                 delete this;
@@ -88,18 +91,28 @@ class MockTransport : public Transport {
      */
     string outputLog;
 
+    /*
+     * Status from the most recent call to sendReply (STATUS_MAX_VALUE+1 means
+     * response was too short to hold a status, or we haven't yet received
+     * any responses).
+     */
+    Status status;
+
     /**
-     * Used as the next input message required by either serverRecv
-     * or wait.
+     * Used as the next input message required by wait.
      */
     const char* inputMessage;
 
     // The following variables count calls to various methods, for use
     // by tests.
-    uint32_t serverRecvCount;
     uint32_t serverSendCount;
     uint32_t clientSendCount;
     uint32_t clientRecvCount;
+
+    // The following variable must be static: sessions can get deleted
+    // *after* their transport, so can't reference anything in a particular
+    // transport.
+    static uint32_t sessionDeleteCount;
 
     // ServiceLocator string passed to constructor, or empty if the
     // constructor argument was NULL.

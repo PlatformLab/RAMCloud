@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,16 +16,16 @@
 #include <boost/scoped_ptr.hpp>
 #include "TestUtil.h"
 #include "BackupManager.h"
-#include "BackupServer.h"
+#include "BackupService.h"
 #include "BackupStorage.h"
 #include "BindTransport.h"
 #include "Buffer.h"
 #include "ClientException.h"
 #include "CoordinatorClient.h"
-#include "CoordinatorServer.h"
+#include "CoordinatorService.h"
 #include "Logging.h"
 #include "MasterClient.h"
-#include "MasterServer.h"
+#include "MasterService.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -57,8 +57,8 @@ struct ServerListBuilder {
 };
 }
 
-class MasterTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(MasterTest);
+class MasterServiceTest : public CppUnit::TestFixture {
+    CPPUNIT_TEST_SUITE(MasterServiceTest);
     CPPUNIT_TEST(test_create_basics);
     CPPUNIT_TEST(test_create_badTable);
     CPPUNIT_TEST(test_ping);
@@ -66,6 +66,9 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_read_badTable);
     CPPUNIT_TEST(test_read_noSuchObject);
     CPPUNIT_TEST(test_read_rejectRules);
+    CPPUNIT_TEST(test_multiRead_basics);
+    CPPUNIT_TEST(test_multiRead_badTable);
+    CPPUNIT_TEST(test_multiRead_noSuchObject);
     CPPUNIT_TEST(test_detectSegmentRecoveryFailure_success);
     CPPUNIT_TEST(test_detectSegmentRecoveryFailure_failure);
     CPPUNIT_TEST(test_recover_basics);
@@ -84,60 +87,57 @@ class MasterTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE_END();
 
   public:
-    Tub<ProgressPoller> progressPoller;
     ServerConfig config;
-    BackupServer::Config backupConfig;
-    BackupServer* backupServer;
+    BackupService::Config backupConfig;
+    BackupService* backupService;
     BackupStorage* storage;
     const uint32_t segmentFrames;
     const uint32_t segmentSize;
-    MasterServer* server;
+    MasterService* service;
     BindTransport* transport;
     MasterClient* client;
     CoordinatorClient* coordinator;
-    CoordinatorServer* coordinatorServer;
+    CoordinatorService* coordinatorService;
 
-    MasterTest()
-        : progressPoller()
-        , config()
+    MasterServiceTest()
+        : config()
         , backupConfig()
-        , backupServer()
+        , backupService()
         , storage(NULL)
         , segmentFrames(2)
         , segmentSize(1 << 16)
-        , server(NULL)
+        , service(NULL)
         , transport(NULL)
         , client(NULL)
         , coordinator(NULL)
-        , coordinatorServer(NULL)
+        , coordinatorService(NULL)
     {
         config.localLocator = "mock:host=master";
         config.coordinatorLocator = "mock:host=coordinator";
         backupConfig.coordinatorLocator = "mock:host=coordinator";
-        MasterServer::sizeLogAndHashTable("64", "8", &config);
+        MasterService::sizeLogAndHashTable("64", "8", &config);
     }
 
     void setUp() {
-        progressPoller.construct();
         logger.setLogLevels(SILENT_LOG_LEVEL);
         transport = new BindTransport();
         transportManager.registerMock(transport);
-        coordinatorServer = new CoordinatorServer();
-        transport->addServer(*coordinatorServer, "mock:host=coordinator");
+        coordinatorService = new CoordinatorService();
+        transport->addService(*coordinatorService, "mock:host=coordinator");
         coordinator = new CoordinatorClient("mock:host=coordinator");
 
         storage = new InMemoryStorage(segmentSize, segmentFrames);
-        backupServer = new BackupServer(backupConfig, *storage);
-        transport->addServer(*backupServer, "mock:host=backup1");
+        backupService = new BackupService(backupConfig, *storage);
+        transport->addService(*backupService, "mock:host=backup1");
         coordinator->enlistServer(BACKUP, "mock:host=backup1");
 
-        server = new MasterServer(config, coordinator, 1);
-        transport->addServer(*server, "mock:host=master");
-        server->serverId.construct(
+        service = new MasterService(config, coordinator, 1);
+        transport->addService(*service, "mock:host=master");
+        service->serverId.construct(
             coordinator->enlistServer(MASTER, config.localLocator));
         client =
             new MasterClient(transportManager.getSession("mock:host=master"));
-        ProtoBuf::Tablets_Tablet& tablet(*server->tablets.add_tablet());
+        ProtoBuf::Tablets_Tablet& tablet(*service->tablets.add_tablet());
         tablet.set_table_id(0);
         tablet.set_start_object_id(0);
         tablet.set_end_object_id(~0UL);
@@ -146,14 +146,13 @@ class MasterTest : public CppUnit::TestFixture {
 
     void tearDown() {
         delete client;
-        delete server;
-        delete backupServer;
+        delete service;
+        delete backupService;
         delete storage;
         delete coordinator;
-        delete coordinatorServer;
+        delete coordinatorService;
         transportManager.unregisterMock();
         delete transport;
-        progressPoller.destroy();
     }
 
     void test_create_basics() {
@@ -214,10 +213,92 @@ class MasterTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(1, version);
     }
 
+    void test_multiRead_basics() {
+        client->create(0, "firstVal", 8);
+        client->create(0, "secondVal", 9);
+
+        std::vector<MasterClient::ReadObject*> requests;
+
+        Tub<Buffer> val1;
+        MasterClient::ReadObject request1(0, 0, &val1);
+        request1.status = STATUS_RETRY;
+        requests.push_back(&request1);
+        Tub<Buffer> val2;
+        MasterClient::ReadObject request2(0, 1, &val2);
+        request2.status = STATUS_RETRY;
+        requests.push_back(&request2);
+
+        client->multiRead(requests);
+
+        CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request1.status));
+        CPPUNIT_ASSERT_EQUAL(1, request1.version);
+        CPPUNIT_ASSERT_EQUAL("firstVal", toString(val1.get()));
+        CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request2.status));
+        CPPUNIT_ASSERT_EQUAL(2, request2.version);
+        CPPUNIT_ASSERT_EQUAL("secondVal", toString(val2.get()));
+    }
+    void test_multiRead_badTable() {
+        client->create(0, "value1", 6);
+
+        std::vector<MasterClient::ReadObject*> requests;
+
+        Tub<Buffer> val1;
+        MasterClient::ReadObject request1(0, 0, &val1);
+        request1.status = STATUS_RETRY;
+        requests.push_back(&request1);
+
+        Tub<Buffer> valError;
+        MasterClient::ReadObject requestError(10, 0, &valError);
+        requestError.status = STATUS_RETRY;
+        requests.push_back(&requestError);
+
+        client->multiRead(requests);
+
+        CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request1.status));
+        CPPUNIT_ASSERT_EQUAL(1, request1.version);
+        CPPUNIT_ASSERT_EQUAL("value1", toString(val1.get()));
+        CPPUNIT_ASSERT_EQUAL("STATUS_TABLE_DOESNT_EXIST",
+                             statusToSymbol(requestError.status));
+    }
+    void test_multiRead_noSuchObject() {
+        client->create(0, "firstVal", 8);
+        client->create(0, "secondVal", 9);
+
+        std::vector<MasterClient::ReadObject*> requests;
+
+        Tub<Buffer> val1;
+        MasterClient::ReadObject request1(0, 0, &val1);
+        request1.status = STATUS_RETRY;
+        requests.push_back(&request1);
+
+        Tub<Buffer> valError;
+        MasterClient::ReadObject requestError(0, 20, &valError);
+        requestError.status = STATUS_RETRY;
+        requests.push_back(&requestError);
+
+        Tub<Buffer> val2;
+        MasterClient::ReadObject request2(0, 1, &val2);
+        request2.status = STATUS_RETRY;
+        requests.push_back(&request2);
+
+        client->multiRead(requests);
+
+        CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request1.status));
+        CPPUNIT_ASSERT_EQUAL(1, request1.version);
+        CPPUNIT_ASSERT_EQUAL("firstVal", toString(val1.get()));
+
+        CPPUNIT_ASSERT_EQUAL("STATUS_OBJECT_DOESNT_EXIST",
+                             statusToSymbol(requestError.status));
+
+        CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request2.status));
+        CPPUNIT_ASSERT_EQUAL(2, request2.version);
+        CPPUNIT_ASSERT_EQUAL("secondVal", toString(val2.get()));
+    }
+
     void
     test_detectSegmentRecoveryFailure_success()
     {
-        typedef MasterServer MS;
+        typedef MasterService MS;
         ProtoBuf::ServerList backups;
         ServerListBuilder{backups}
             (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
@@ -232,7 +313,7 @@ class MasterTest : public CppUnit::TestFixture {
     void
     test_detectSegmentRecoveryFailure_failure()
     {
-        typedef MasterServer MS;
+        typedef MasterService MS;
         ProtoBuf::ServerList backups;
         ServerListBuilder{backups}
             (ProtoBuf::BACKUP, 123, 87, "mock:host=backup1", MS::REC_REQ_FAILED)
@@ -363,8 +444,8 @@ class MasterTest : public CppUnit::TestFixture {
         mgr.sync();
 
         InMemoryStorage storage2{segmentSize, segmentFrames};
-        BackupServer backupServer2{backupConfig, *storage};
-        transport->addServer(backupServer2, "mock:host=backup2");
+        BackupService backupService2{backupConfig, *storage};
+        transport->addService(backupService2, "mock:host=backup2");
         coordinator->enlistServer(BACKUP, "mock:host=backup2");
 
         ProtoBuf::Tablets tablets;
@@ -397,14 +478,14 @@ class MasterTest : public CppUnit::TestFixture {
         ;
 
         TestLog::Enable _;
-        CPPUNIT_ASSERT_THROW(server->recover(123, 0, backups),
+        CPPUNIT_ASSERT_THROW(service->recover(123, 0, backups),
                              SegmentRecoveryFailedException);
         // 1,2,3) 87 was requested from the first server list entry.
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 87 on channel 0 (initial round of RPCs)",
+            "for segment 87 on channel . (initial round of RPCs)",
             TestLog::get());
-        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+        CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_FAILED,
                              backups.server(0).user_data());
         // 2,3) 87 was *not* requested a second time in the initial RPC round
         // but was requested later once the first failed.
@@ -412,14 +493,14 @@ class MasterTest : public CppUnit::TestFixture {
             "recover: Starting getRecoveryData from mock:host=backup2 "
             "for segment 87 .* (after RPC completion)",
             TestLog::get());
-        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+        CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_FAILED,
                              backups.server(0).user_data());
         // 1,4) 88 was requested from the third server list entry and
         //      succeeded, which knocks the third and forth entries into
         //      OK status, preventing the launch of the forth entry
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 88 on channel 1 (initial round of RPCs)",
+            "for segment 88 on channel . (initial round of RPCs)",
             TestLog::get());
         assertMatchesPosixRegex(
             "recover: Checking mock:host=backup1 off the list for 88 | "
@@ -430,50 +511,50 @@ class MasterTest : public CppUnit::TestFixture {
             "recover: Starting getRecoveryData from mock:host=backup2 "
             "for segment 88 .* (after RPC completion)",
             TestLog::get());
-        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_OK,
+        CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_OK,
                              backups.server(2).user_data());
-        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_OK,
+        CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_OK,
                              backups.server(3).user_data());
         // 1) Checking to ensure RPCs for 87, 88, 89, 90 went first round
         //    and that 91 got issued in place, first-found due to 90's
         //    bad locator
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 89 on channel 2 (initial round of RPCs)",
+            "for segment 89 on channel . (initial round of RPCs)",
             TestLog::get());
-        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+        CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_FAILED,
                              backups.server(4).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup3 "
-            "for segment 90 on channel 3 (initial round of RPCs)",
+            "for segment 90 on channel . (initial round of RPCs)",
             TestLog::get());
         // 5) Checks bad locators for initial RPCs are handled
         assertMatchesPosixRegex(
             "No transport found for this service locator: mock:host=backup3",
             TestLog::get());
-        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+        CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_FAILED,
                              backups.server(5).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 91 on channel 3 (initial round of RPCs)",
+            "for segment 91 on channel . (initial round of RPCs)",
             TestLog::get());
-        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+        CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_FAILED,
                              backups.server(6).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup4 "
-            "for segment 92 on channel 1 (after RPC completion)",
+            "for segment 92 on channel . (after RPC completion)",
             TestLog::get());
         // 5) Checks bad locators for non-initial RPCs are handled
         assertMatchesPosixRegex(
             "No transport found for this service locator: mock:host=backup4",
             TestLog::get());
-        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+        CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_FAILED,
                              backups.server(7).user_data());
         assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
-            "for segment 93 on channel 1 (after RPC completion)",
+            "for segment 93 on channel . (after RPC completion)",
             TestLog::get());
-        CPPUNIT_ASSERT_EQUAL(MasterServer::REC_REQ_FAILED,
+        CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_FAILED,
                              backups.server(8).user_data());
     }
 
@@ -548,53 +629,53 @@ class MasterTest : public CppUnit::TestFixture {
 
         // Case 1a: Newer object already there; ignore object.
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2000, 1, "newer guy");
-        server->recoverSegment(0, seg, len);
+        service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2000, "newer guy");
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2000, 0, "older guy");
-        server->recoverSegment(0, seg, len);
+        service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2000, "newer guy");
 
         // Case 1b: Older object already there; replace object.
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2001, 0, "older guy");
-        server->recoverSegment(0, seg, len);
+        service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2001, "older guy");
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2001, 1, "newer guy");
-        server->recoverSegment(0, seg, len);
+        service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2001, "newer guy");
 
         // Case 2a: Equal/newer tombstone already there; ignore object.
         ObjectTombstone t1(0, 0, 2002, 1);
-        LogEntryHandle logTomb1 = server->log.append(LOG_ENTRY_TYPE_OBJTOMB,
+        LogEntryHandle logTomb1 = service->log.append(LOG_ENTRY_TYPE_OBJTOMB,
             &t1, sizeof(t1), NULL, NULL, false);
-        ret = server->objectMap.replace(logTomb1);
+        ret = service->objectMap.replace(logTomb1);
         CPPUNIT_ASSERT_EQUAL(false, ret);
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2002, 1, "equal guy");
-        server->recoverSegment(0, seg, len);
+        service->recoverSegment(0, seg, len);
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2002, 0, "older guy");
-        server->recoverSegment(0, seg, len);
-        CPPUNIT_ASSERT_EQUAL(logTomb1, server->objectMap.lookup(0, 2002));
-        server->removeTombstones();
+        service->recoverSegment(0, seg, len);
+        CPPUNIT_ASSERT_EQUAL(logTomb1, service->objectMap.lookup(0, 2002));
+        service->removeTombstones();
         CPPUNIT_ASSERT_THROW(client->read(0, 2002, &value),
                              ObjectDoesntExistException);
 
         // Case 2b: Lesser tombstone already there; add object, remove tomb.
         ObjectTombstone t2(0, 0, 2003, 10);
-        LogEntryHandle logTomb2 = server->log.append(LOG_ENTRY_TYPE_OBJTOMB,
+        LogEntryHandle logTomb2 = service->log.append(LOG_ENTRY_TYPE_OBJTOMB,
             &t2, sizeof(t2), NULL, NULL, false);
-        ret = server->objectMap.replace(logTomb2);
+        ret = service->objectMap.replace(logTomb2);
         CPPUNIT_ASSERT_EQUAL(false, ret);
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2003, 11, "newer guy");
-        server->recoverSegment(0, seg, len);
+        service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2003, "newer guy");
-        CPPUNIT_ASSERT(server->objectMap.lookup(0, 2003) != NULL);
-        CPPUNIT_ASSERT(server->objectMap.lookup(0, 2003) != logTomb1);
-        CPPUNIT_ASSERT(server->objectMap.lookup(0, 2003) != logTomb2);
-        server->removeTombstones();
+        CPPUNIT_ASSERT(service->objectMap.lookup(0, 2003) != NULL);
+        CPPUNIT_ASSERT(service->objectMap.lookup(0, 2003) != logTomb1);
+        CPPUNIT_ASSERT(service->objectMap.lookup(0, 2003) != logTomb2);
+        service->removeTombstones();
 
         // Case 3: No tombstone, no object. Recovered object always added.
-        CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2004));
+        CPPUNIT_ASSERT_EQUAL(NULL, service->objectMap.lookup(0, 2004));
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2004, 0, "only guy");
-        server->recoverSegment(0, seg, len);
+        service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2004, "only guy");
 
         ////////////////////////////////////////////////////////////////////
@@ -613,70 +694,70 @@ class MasterTest : public CppUnit::TestFixture {
 
         // Case 1a: Newer object already there; ignore tombstone.
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2005, 1, "newer guy");
-        server->recoverSegment(0, seg, len);
+        service->recoverSegment(0, seg, len);
         ObjectTombstone t3(0, 0, 2005, 0);
         len = buildRecoverySegment(seg, sizeof(seg), &t3);
-        server->recoverSegment(0, seg, len);
+        service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2005, "newer guy");
 
         // Case 1b: Equal/older object already there; discard and add tombstone.
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2006, 0, "equal guy");
-        server->recoverSegment(0, seg, len);
+        service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2006, "equal guy");
         ObjectTombstone t4(0, 0, 2006, 0);
         len = buildRecoverySegment(seg, sizeof(seg), &t4);
-        server->recoverSegment(0, seg, len);
-        server->removeTombstones();
-        CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2006));
+        service->recoverSegment(0, seg, len);
+        service->removeTombstones();
+        CPPUNIT_ASSERT_EQUAL(NULL, service->objectMap.lookup(0, 2006));
         CPPUNIT_ASSERT_THROW(client->read(0, 2006, &value),
                              ObjectDoesntExistException);
 
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2007, 0, "older guy");
-        server->recoverSegment(0, seg, len);
+        service->recoverSegment(0, seg, len);
         verifyRecoveryObject(0, 2007, "older guy");
         ObjectTombstone t5(0, 0, 2007, 1);
         len = buildRecoverySegment(seg, sizeof(seg), &t5);
-        server->recoverSegment(0, seg, len);
-        server->removeTombstones();
-        CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2007));
+        service->recoverSegment(0, seg, len);
+        service->removeTombstones();
+        CPPUNIT_ASSERT_EQUAL(NULL, service->objectMap.lookup(0, 2007));
         CPPUNIT_ASSERT_THROW(client->read(0, 2007, &value),
                              ObjectDoesntExistException);
 
         // Case 2a: Newer tombstone already there; ignore.
         ObjectTombstone t6(0, 0, 2008, 1);
         len = buildRecoverySegment(seg, sizeof(seg), &t6);
-        server->recoverSegment(0, seg, len);
-        tomb1 = server->objectMap.lookup(0, 2008)->userData<ObjectTombstone>();
+        service->recoverSegment(0, seg, len);
+        tomb1 = service->objectMap.lookup(0, 2008)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT(tomb1 != NULL);
         CPPUNIT_ASSERT_EQUAL(1, tomb1->objectVersion);
         ObjectTombstone t7(0, 0, 2008, 0);
         len = buildRecoverySegment(seg, sizeof(seg), &t7);
-        server->recoverSegment(0, seg, len);
-        tomb2 = server->objectMap.lookup(0, 2008)->userData<ObjectTombstone>();
+        service->recoverSegment(0, seg, len);
+        tomb2 = service->objectMap.lookup(0, 2008)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT_EQUAL(tomb1, tomb2);
 
         // Case 2b: Older tombstone already there; replace.
         ObjectTombstone t8(0, 0, 2009, 0);
         len = buildRecoverySegment(seg, sizeof(seg), &t8);
-        server->recoverSegment(0, seg, len);
-        tomb1 = server->objectMap.lookup(0, 2009)->userData<ObjectTombstone>();
+        service->recoverSegment(0, seg, len);
+        tomb1 = service->objectMap.lookup(0, 2009)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT(tomb1 != NULL);
         CPPUNIT_ASSERT_EQUAL(0, tomb1->objectVersion);
         ObjectTombstone t9(0, 0, 2009, 1);
         len = buildRecoverySegment(seg, sizeof(seg), &t9);
-        server->recoverSegment(0, seg, len);
-        tomb2 = server->objectMap.lookup(0, 2009)->userData<ObjectTombstone>();
+        service->recoverSegment(0, seg, len);
+        tomb2 = service->objectMap.lookup(0, 2009)->userData<ObjectTombstone>();
         CPPUNIT_ASSERT_EQUAL(1, tomb2->objectVersion);
 
         // Case 3: No tombstone, no object. Recovered tombstone always added.
-        CPPUNIT_ASSERT_EQUAL(NULL, server->objectMap.lookup(0, 2010));
+        CPPUNIT_ASSERT_EQUAL(NULL, service->objectMap.lookup(0, 2010));
         ObjectTombstone t10(0, 0, 2010, 0);
         len = buildRecoverySegment(seg, sizeof(seg), &t10);
-        server->recoverSegment(0, seg, len);
-        CPPUNIT_ASSERT(server->objectMap.lookup(0, 2010) != NULL);
+        service->recoverSegment(0, seg, len);
+        CPPUNIT_ASSERT(service->objectMap.lookup(0, 2010) != NULL);
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJTOMB,
-            server->objectMap.lookup(0, 2010)->type());
-        CPPUNIT_ASSERT_EQUAL(0, memcmp(&t10, server->objectMap.lookup(
+            service->objectMap.lookup(0, 2010)->type());
+        CPPUNIT_ASSERT_EQUAL(0, memcmp(&t10, service->objectMap.lookup(
             0, 2010)->userData(), sizeof(t10)));
     }
 
@@ -736,18 +817,18 @@ class MasterTest : public CppUnit::TestFixture {
         { // clear out the tablets through client
             ProtoBuf::Tablets newTablets;
             client->setTablets(newTablets);
-            CPPUNIT_ASSERT_EQUAL("", server->tablets.ShortDebugString());
+            CPPUNIT_ASSERT_EQUAL("", service->tablets.ShortDebugString());
         }
 
         { // set t1 and t2 directly
-            ProtoBuf::Tablets_Tablet& t1(*server->tablets.add_tablet());
+            ProtoBuf::Tablets_Tablet& t1(*service->tablets.add_tablet());
             t1.set_table_id(1);
             t1.set_start_object_id(0);
             t1.set_end_object_id(1);
             t1.set_state(ProtoBuf::Tablets_Tablet_State_NORMAL);
             t1.set_user_data(reinterpret_cast<uint64_t>(table1.release()));
 
-            ProtoBuf::Tablets_Tablet& t2(*server->tablets.add_tablet());
+            ProtoBuf::Tablets_Tablet& t2(*service->tablets.add_tablet());
             t2.set_table_id(2);
             t2.set_start_object_id(0);
             t2.set_end_object_id(1);
@@ -760,7 +841,7 @@ class MasterTest : public CppUnit::TestFixture {
                 "tablet { table_id: 2 start_object_id: 0 end_object_id: 1 "
                     "state: NORMAL user_data: %lu }",
                 addrTable1, addrTable2),
-                                 server->tablets.ShortDebugString());
+                                 service->tablets.ShortDebugString());
         }
 
         { // set t2, t2b, and t3 through client
@@ -794,8 +875,8 @@ class MasterTest : public CppUnit::TestFixture {
                 "tablet { table_id: 3 start_object_id: 0 end_object_id: 1 "
                     "state: NORMAL user_data: %lu }",
                 addrTable2, addrTable2,
-                server->tablets.tablet(2).user_data()),
-                                 server->tablets.ShortDebugString());
+                service->tablets.tablet(2).user_data()),
+                                 service->tablets.ShortDebugString());
         }
     }
 
@@ -831,12 +912,12 @@ class MasterTest : public CppUnit::TestFixture {
 
     void test_getTable() {
         // Table exists.
-        CPPUNIT_ASSERT_NO_THROW(server->getTable(0, 0));
+        CPPUNIT_ASSERT_NO_THROW(service->getTable(0, 0));
 
         // Table doesn't exist.
         Status status = Status(0);
         try {
-            server->getTable(1000, 0);
+            service->getTable(1000, 0);
         } catch (TableDoesntExistException& e) {
             status = e.status;
         }
@@ -851,19 +932,19 @@ class MasterTest : public CppUnit::TestFixture {
         rules = empty;
         rules.doesntExist = 1;
         CPPUNIT_ASSERT_THROW(
-                server->rejectOperation(&rules, VERSION_NONEXISTENT),
+                service->rejectOperation(&rules, VERSION_NONEXISTENT),
                 ObjectDoesntExistException);
 
         // Succeed: object doesn't exist.
         rules = empty;
         rules.exists = rules.versionLeGiven = rules.versionNeGiven = 1;
         CPPUNIT_ASSERT_NO_THROW(
-                server->rejectOperation(&rules, VERSION_NONEXISTENT));
+                service->rejectOperation(&rules, VERSION_NONEXISTENT));
 
         // Fail: object exists.
         rules = empty;
         rules.exists = 1;
-        CPPUNIT_ASSERT_THROW(server->rejectOperation(&rules, 2),
+        CPPUNIT_ASSERT_THROW(service->rejectOperation(&rules, 2),
                              ObjectExistsException);
 
         // versionLeGiven.
@@ -871,31 +952,31 @@ class MasterTest : public CppUnit::TestFixture {
         rules.givenVersion = 0x400000001;
         rules.versionLeGiven = 1;
         CPPUNIT_ASSERT_THROW(
-                server->rejectOperation(&rules, 0x400000000),
+                service->rejectOperation(&rules, 0x400000000),
                 WrongVersionException);
         CPPUNIT_ASSERT_THROW(
-                server->rejectOperation(&rules, 0x400000001),
+                service->rejectOperation(&rules, 0x400000001),
                 WrongVersionException);
         CPPUNIT_ASSERT_NO_THROW(
-                server->rejectOperation(&rules, 0x400000002));
+                service->rejectOperation(&rules, 0x400000002));
 
         // versionNeGiven.
         rules = empty;
         rules.givenVersion = 0x400000001;
         rules.versionNeGiven = 1;
         CPPUNIT_ASSERT_THROW(
-                server->rejectOperation(&rules, 0x400000000),
+                service->rejectOperation(&rules, 0x400000000),
                 WrongVersionException);
         CPPUNIT_ASSERT_NO_THROW(
-                server->rejectOperation(&rules, 0x400000001));
+                service->rejectOperation(&rules, 0x400000001));
         CPPUNIT_ASSERT_THROW(
-                server->rejectOperation(&rules, 0x400000002),
+                service->rejectOperation(&rules, 0x400000002),
                 WrongVersionException);
     }
 
-    DISALLOW_COPY_AND_ASSIGN(MasterTest);
+    DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(MasterTest);
+CPPUNIT_TEST_SUITE_REGISTRATION(MasterServiceTest);
 
 
 /**
@@ -908,12 +989,11 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(test_recover_failedToRecoverAll);
     CPPUNIT_TEST_SUITE_END();
 
-    Tub<ProgressPoller> progressPoller;
-    BackupServer* backupServer1;
-    BackupServer* backupServer2;
+    BackupService* backupService1;
+    BackupService* backupService2;
     CoordinatorClient* coordinator;
-    CoordinatorServer* coordinatorServer;
-    BackupServer::Config* config;
+    CoordinatorService* coordinatorService;
+    BackupService::Config* config;
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     BackupStorage* storage1;
@@ -922,11 +1002,10 @@ class MasterRecoverTest : public CppUnit::TestFixture {
 
   public:
     MasterRecoverTest()
-        : progressPoller()
-        , backupServer1()
-        , backupServer2()
+        : backupService1()
+        , backupService2()
         , coordinator()
-        , coordinatorServer()
+        , coordinatorService()
         , config()
         , segmentSize(1 << 16)
         , segmentFrames(2)
@@ -942,26 +1021,25 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         if (!enlist)
             tearDown();
 
-        progressPoller.construct();
         transport = new BindTransport;
         transportManager.registerMock(transport);
 
-        config = new BackupServer::Config;
+        config = new BackupService::Config;
         config->coordinatorLocator = "mock:host=coordinator";
 
-        coordinatorServer = new CoordinatorServer;
-        transport->addServer(*coordinatorServer, config->coordinatorLocator);
+        coordinatorService = new CoordinatorService;
+        transport->addService(*coordinatorService, config->coordinatorLocator);
 
         coordinator = new CoordinatorClient(config->coordinatorLocator.c_str());
 
         storage1 = new InMemoryStorage(segmentSize, segmentFrames);
         storage2 = new InMemoryStorage(segmentSize, segmentFrames);
 
-        backupServer1 = new BackupServer(*config, *storage1);
-        backupServer2 = new BackupServer(*config, *storage2);
+        backupService1 = new BackupService(*config, *storage1);
+        backupService2 = new BackupService(*config, *storage2);
 
-        transport->addServer(*backupServer1, "mock:host=backup1");
-        transport->addServer(*backupServer2, "mock:host=backup2");
+        transport->addService(*backupService1, "mock:host=backup1");
+        transport->addService(*backupService2, "mock:host=backup2");
 
         if (enlist) {
             coordinator->enlistServer(BACKUP, "mock:host=backup1");
@@ -979,18 +1057,17 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     void
     tearDown()
     {
-        delete backupServer2;
-        delete backupServer1;
+        delete backupService2;
+        delete backupService1;
         delete storage2;
         delete storage1;
         delete coordinator;
-        delete coordinatorServer;
+        delete coordinatorService;
         delete config;
         transportManager.unregisterMock();
         delete transport;
         CPPUNIT_ASSERT_EQUAL(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
-        progressPoller.destroy();
     }
     static bool
     recoverSegmentFilter(string s)
@@ -998,13 +1075,13 @@ class MasterRecoverTest : public CppUnit::TestFixture {
         return (s == "recoverSegment" || s == "recover");
     }
 
-    MasterServer*
-    createMasterServer()
+    MasterService*
+    createMasterService()
     {
         ServerConfig config;
         config.coordinatorLocator = "mock:host=coordinator";
-        MasterServer::sizeLogAndHashTable("64", "8", &config);
-        return new MasterServer(config, coordinator, 2);
+        MasterService::sizeLogAndHashTable("64", "8", &config);
+        return new MasterService(config, coordinator, 2);
     }
 
     void
@@ -1033,7 +1110,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     void
     test_recover()
     {
-        boost::scoped_ptr<MasterServer> master(createMasterServer());
+        boost::scoped_ptr<MasterService> master(createMasterService());
 
         // Give them a name so that freeSegment doesn't get called on
         // destructor until after the test.
@@ -1082,7 +1159,7 @@ class MasterRecoverTest : public CppUnit::TestFixture {
     void
     test_recover_failedToRecoverAll()
     {
-        boost::scoped_ptr<MasterServer> master(createMasterServer());
+        boost::scoped_ptr<MasterService> master(createMasterService());
 
         ProtoBuf::Tablets tablets;
         ProtoBuf::ServerList backups;

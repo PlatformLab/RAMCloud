@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_MASTERSERVER_H
-#define RAMCLOUD_MASTERSERVER_H
+#ifndef RAMCLOUD_MASTERSERVICE_H
+#define RAMCLOUD_MASTERSERVICE_H
 
 #include <boost/unordered_map.hpp>
 
@@ -26,7 +26,7 @@
 #include "BackupManager.h"
 #include "HashTable.h"
 #include "RecoverySegmentIterator.h"
-#include "Server.h"
+#include "Service.h"
 #include "SegmentIterator.h"
 #include "Table.h"
 
@@ -63,16 +63,17 @@ struct ServerConfig {
  * respond to client RPC requests to manipulate objects stored on the
  * server.
  */
-class MasterServer : public Server {
+class MasterService : public Service {
   public:
-    MasterServer(const ServerConfig config,
-                 CoordinatorClient* coordinator,
-                 uint32_t replicas);
-    virtual ~MasterServer();
-    void run();
-    void dispatch(RpcType type,
-                  Transport::ServerRpc& rpc,
-                  Responder& responder);
+    static const uint64_t TOTAL_READ_REQUESTS_OBJID = 100000UL;
+
+    MasterService(const ServerConfig config,
+                  CoordinatorClient* coordinator,
+                  uint32_t replicas);
+    virtual ~MasterService();
+    void init();
+    void dispatch(RpcOpcode opcode,
+                  Rpc& rpc);
 
     /**
      * Figure out the Master Server's memory requirements. This means computing
@@ -179,7 +180,7 @@ class MasterServer : public Server {
     }
 
     /**
-     * Used in detectSegmentRecoveryFailure() and MasterServer::recover() to
+     * Used in detectSegmentRecoveryFailure() and MasterService::recover() to
      * mark and check getRecoveryData() requests statuses.
      */
     enum { REC_REQ_NOT_STARTED, REC_REQ_WAITING, REC_REQ_FAILED, REC_REQ_OK };
@@ -187,20 +188,22 @@ class MasterServer : public Server {
   private:
     void create(const CreateRpc::Request& reqHdr,
                 CreateRpc::Response& respHdr,
-                Transport::ServerRpc& rpc);
+                Rpc& rpc);
     void ping(const PingRpc::Request& reqHdr,
               PingRpc::Response& respHdr,
-              Transport::ServerRpc& rpc);
+              Rpc& rpc);
     void fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
                           FillWithTestDataRpc::Response& respHdr,
-                          Transport::ServerRpc& rpc);
+                          Rpc& rpc);
     void read(const ReadRpc::Request& reqHdr,
               ReadRpc::Response& respHdr,
-              Transport::ServerRpc& rpc);
+              Rpc& rpc);
+    void multiRead(const MultiReadRpc::Request& reqHdr,
+                   MultiReadRpc::Response& respHdr,
+                   Rpc& rpc);
     void recover(const RecoverRpc::Request& reqHdr,
                  RecoverRpc::Response& respHdr,
-                 Transport::ServerRpc& rpc,
-                 Responder& responder);
+                 Rpc& rpc);
 
     void recoverSegmentPrefetcher(RecoverySegmentIterator& i);
     void recoverSegment(uint64_t segmentId, const void *buffer,
@@ -212,17 +215,17 @@ class MasterServer : public Server {
 
     void remove(const RemoveRpc::Request& reqHdr,
                 RemoveRpc::Response& respHdr,
-                Transport::ServerRpc& rpc);
+                Rpc& rpc);
     void rereplicateSegments(const RereplicateSegmentsRpc::Request& reqHdr,
                              RereplicateSegmentsRpc::Response& respHdr,
-                             Transport::ServerRpc& rpc);
+                             Rpc& rpc);
     void setTablets(const ProtoBuf::Tablets& newTablets);
     void setTablets(const SetTabletsRpc::Request& reqHdr,
                     SetTabletsRpc::Response& respHdr,
-                    Transport::ServerRpc& rpc);
+                    Rpc& rpc);
     void write(const WriteRpc::Request& reqHdr,
                WriteRpc::Response& respHdr,
-               Transport::ServerRpc& rpc);
+               Rpc& rpc);
 
     // The following variables are copies of constructor arguments;
     // see constructor documentation for details.
@@ -233,7 +236,7 @@ class MasterServer : public Server {
 
     Tub<uint64_t> serverId;
 
-  private:
+  PRIVATE:
     /// Maximum number of bytes per partition. For Will calculation.
     static const uint64_t maxBytesPerPartition = 640UL * 1024 * 1024;
 
@@ -282,13 +285,13 @@ class MasterServer : public Server {
                    const RejectRules* rejectRules, Buffer* data,
                    uint32_t dataOffset, uint32_t dataLength,
                    uint64_t* newVersion, bool async);
-    friend class MasterTest;
+    friend class MasterServiceTest;
     friend class MasterRecoverTest;
-    friend class CoordinatorTest;
+    friend class CoordinatorServiceTest;
     friend class RecoverSegmentBenchmark;
-    DISALLOW_COPY_AND_ASSIGN(MasterServer);
+    DISALLOW_COPY_AND_ASSIGN(MasterService);
 };
 
 } // namespace RAMCloud
 
-#endif // RAMCLOUD_MASTERSERVER_H
+#endif // RAMCLOUD_MASTERSERVICE_H

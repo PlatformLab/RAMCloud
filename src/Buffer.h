@@ -466,7 +466,6 @@ class Buffer {
 
   private:
     void convertChar(char c, string *out);
-    Chunk* getLastChunk() const;
 
     /* For operator new's use only. */
     void* allocateChunk(uint32_t size);
@@ -504,6 +503,12 @@ class Buffer {
      * The linked list of chunks that make up this Buffer.
      */
     Chunk* chunks;
+
+    /**
+     * Pointer to the last chunk in the linked list starting at #chunks.
+     * Used for fast appends. NULL if #chunks is empty.
+     */
+    Chunk* chunksTail;
 
     enum {
         /**

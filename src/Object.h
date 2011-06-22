@@ -85,7 +85,7 @@ class Object {
     Object() : id(-1, -1), version(-1) { }
 
     // to use default constructor in arrays
-    friend class BackupServerTest;
+    friend class BackupServiceTest;
     friend class HashTableTest;
     friend void hashTableBenchmark(uint64_t, uint64_t);
 
@@ -115,8 +115,8 @@ class ObjectTombstone {
     {
     }
 
-    friend class BackupServerTest;
-    friend class MasterTest;
+    friend class BackupServiceTest;
+    friend class MasterServiceTest;
 } __attribute__((__packed__));
 
 } // namespace RAMCloud

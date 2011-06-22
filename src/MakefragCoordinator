@@ -1,5 +1,5 @@
 COORDINATOR_SRCFILES := \
-			src/CoordinatorServer.cc \
+			src/CoordinatorService.cc \
 			$(NULL)
 
 COORDINATOR_OBJFILES := $(COORDINATOR_SRCFILES)

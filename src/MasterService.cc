@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,21 +19,19 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Dispatch.h"
-#include "MasterServer.h"
+#include "MasterService.h"
 #include "Metrics.h"
 #include "Tub.h"
 #include "ProtoBuf.h"
-#include "RecoverySegmentIterator.h"
 #include "Rpc.h"
 #include "Segment.h"
-#include "SegmentIterator.h"
+#include "ServiceManager.h"
 #include "Transport.h"
-#include "TransportManager.h"
 #include "Will.h"
 
 namespace RAMCloud {
 
-// --- MasterServer ---
+// --- MasterService ---
 
 void objectEvictionCallback(LogEntryHandle handle,
                             const LogTime,
@@ -43,7 +41,7 @@ void tombstoneEvictionCallback(LogEntryHandle handle,
                                void* cookie);
 
 /**
- * Construct a MasterServer.
+ * Construct a MasterService.
  *
  * \param config
  *      Contains various parameters that configure the operation of
@@ -53,9 +51,9 @@ void tombstoneEvictionCallback(LogEntryHandle handle,
  * \param replicas
  *      The number of backups required before writes are considered safe.
  */
-MasterServer::MasterServer(const ServerConfig config,
-                           CoordinatorClient* coordinator,
-                           uint32_t replicas)
+MasterService::MasterService(const ServerConfig config,
+                             CoordinatorClient* coordinator,
+                             uint32_t replicas)
     : config(config)
     , coordinator(coordinator)
     , serverId()
@@ -70,7 +68,7 @@ MasterServer::MasterServer(const ServerConfig config,
     log.registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
 }
 
-MasterServer::~MasterServer()
+MasterService::~MasterService()
 {
     std::set<Table*> tables;
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet())
@@ -80,53 +78,61 @@ MasterServer::~MasterServer()
 }
 
 void
-MasterServer::dispatch(RpcType type, Transport::ServerRpc& rpc,
-                       Responder& responder)
+MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
 {
-    switch (type) {
-        case CreateRpc::type:
-            callHandler<CreateRpc, MasterServer,
-                        &MasterServer::create>(rpc);
+    switch (opcode) {
+        case CreateRpc::opcode:
+            callHandler<CreateRpc, MasterService,
+                        &MasterService::create>(rpc);
             break;
-        case FillWithTestDataRpc::type:
-            callHandler<FillWithTestDataRpc, MasterServer,
-                        &MasterServer::fillWithTestData>(rpc);
+        case FillWithTestDataRpc::opcode:
+            callHandler<FillWithTestDataRpc, MasterService,
+                        &MasterService::fillWithTestData>(rpc);
             break;
-        case PingRpc::type:
-            callHandler<PingRpc, MasterServer,
-                        &MasterServer::ping>(rpc);
+        case MultiReadRpc::opcode:
+            callHandler<MultiReadRpc, MasterService,
+                        &MasterService::multiRead>(rpc);
             break;
-        case ReadRpc::type:
-            callHandler<ReadRpc, MasterServer,
-                        &MasterServer::read>(rpc);
+        case PingRpc::opcode:
+            callHandler<PingRpc, MasterService,
+                        &MasterService::ping>(rpc);
             break;
-        case RecoverRpc::type:
-            callHandler<RecoverRpc, MasterServer,
-                        &MasterServer::recover>(rpc, responder);
+        case ReadRpc::opcode:
+            callHandler<ReadRpc, MasterService,
+                        &MasterService::read>(rpc);
             break;
-        case RemoveRpc::type:
-            callHandler<RemoveRpc, MasterServer,
-                        &MasterServer::remove>(rpc);
+        case RecoverRpc::opcode:
+            callHandler<RecoverRpc, MasterService,
+                        &MasterService::recover>(rpc);
             break;
-        case RereplicateSegmentsRpc::type:
-            callHandler<RereplicateSegmentsRpc, MasterServer,
-                        &MasterServer::rereplicateSegments>(rpc);
+        case RemoveRpc::opcode:
+            callHandler<RemoveRpc, MasterService,
+                        &MasterService::remove>(rpc);
             break;
-        case SetTabletsRpc::type:
-            callHandler<SetTabletsRpc, MasterServer,
-                        &MasterServer::setTablets>(rpc);
+        case RereplicateSegmentsRpc::opcode:
+            callHandler<RereplicateSegmentsRpc, MasterService,
+                        &MasterService::rereplicateSegments>(rpc);
             break;
-        case WriteRpc::type:
-            callHandler<WriteRpc, MasterServer,
-                        &MasterServer::write>(rpc);
+        case SetTabletsRpc::opcode:
+            callHandler<SetTabletsRpc, MasterService,
+                        &MasterService::setTablets>(rpc);
+            break;
+        case WriteRpc::opcode:
+            callHandler<WriteRpc, MasterService,
+                        &MasterService::write>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);
     }
 }
 
-void __attribute__ ((noreturn))
-MasterServer::run()
+
+/**
+ * Make connections with the coordinator and backups, so that the service
+ * is ready to begin handling requests.
+ */
+void
+MasterService::init()
 {
     // Permit a NULL coordinator for testing/benchmark purposes.
     if (coordinator) {
@@ -142,20 +148,18 @@ MasterServer::run()
                                                      config.localLocator));
         LOG(NOTICE, "My server ID is %lu", *serverId);
     }
-    while (true)
-        handleRpc<MasterServer>();
 }
 
 /**
  * Top-level server method to handle the CREATE request.
  * See the documentation for the corresponding method in RamCloudClient for
  * complete information about what this request does.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-MasterServer::create(const CreateRpc::Request& reqHdr,
-                     CreateRpc::Response& respHdr,
-                     Transport::ServerRpc& rpc)
+MasterService::create(const CreateRpc::Request& reqHdr,
+                      CreateRpc::Response& respHdr,
+                      Rpc& rpc)
 {
     Table& t(getTable(reqHdr.tableId, ~0UL));
     uint64_t id = t.AllocateKey(&objectMap);
@@ -165,7 +169,7 @@ MasterServer::create(const CreateRpc::Request& reqHdr,
     rejectRules.exists = 1;
 
     storeData(reqHdr.tableId, id, &rejectRules,
-              &rpc.recvPayload, sizeof(reqHdr), reqHdr.length,
+              &rpc.requestPayload, sizeof(reqHdr), reqHdr.length,
               &respHdr.version,
               reqHdr.async);
     respHdr.id = id;
@@ -174,12 +178,12 @@ MasterServer::create(const CreateRpc::Request& reqHdr,
 /**
  * Fill this server with test data. Objects are added to all
  * existing tables in a round-robin fashion.
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-MasterServer::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
-                               FillWithTestDataRpc::Response& respHdr,
-                               Transport::ServerRpc& rpc)
+MasterService::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
+                                FillWithTestDataRpc::Response& respHdr,
+                                Rpc& rpc)
 {
     LOG(NOTICE, "Filling with %u objects of %u bytes each in %u tablets",
         reqHdr.numObjects, reqHdr.objectSize, tablets.tablet_size());
@@ -206,8 +210,6 @@ MasterServer::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
                   &rejectRules, &buffer, 0, reqHdr.objectSize,
                   &newVersion, true);
         if ((objects % 50) == 0) {
-            while (Dispatch::poll()) {
-            }
             backup.proceed();
         }
     }
@@ -218,23 +220,72 @@ MasterServer::fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
 }
 
 /**
+ * Top-level server method to handle the MULTIREAD request.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
+                         MultiReadRpc::Response& respHdr,
+                         Rpc& rpc)
+{
+    uint32_t numRequests = reqHdr.count;
+    uint32_t reqOffset = downCast<uint32_t>(sizeof(reqHdr));
+
+    respHdr.count = numRequests;
+
+    // Each iteration extracts one request from request rpc, finds the
+    // corresponding object, and appends the response to the response rpc.
+    for (uint32_t i = 0; i < numRequests; i++) {
+        const MultiReadRpc::Request::Part *currentReq =
+              rpc.requestPayload.getOffset<MultiReadRpc::Request::Part>(
+              reqOffset);
+        reqOffset += downCast<uint32_t>(sizeof(MultiReadRpc::Request::Part));
+
+        Status* status = new(&rpc.replyPayload, APPEND) Status(STATUS_OK);
+        // We must note the status if the table does not exist. Also, we might
+        // have an entry in the hash table that's invalid because its tablet no
+        // longer lives here.
+        try{
+            getTable(currentReq->tableId, currentReq->id);
+        }
+        catch(TableDoesntExistException &e) {
+            *status = STATUS_TABLE_DOESNT_EXIST;
+            continue;
+        }
+        LogEntryHandle handle = objectMap.lookup(currentReq->tableId,
+                                                 currentReq->id);
+        if (handle == NULL || handle->type() != LOG_ENTRY_TYPE_OBJ) {
+             *status = STATUS_OBJECT_DOESNT_EXIST;
+             continue;
+        }
+
+        const SegmentEntry* entry = reinterpret_cast<
+                                    const SegmentEntry*>(handle);
+        Buffer::Chunk::appendToBuffer(&rpc.replyPayload, entry,
+                                      downCast<uint32_t>(sizeof(SegmentEntry))
+                                      + handle->length());
+    }
+}
+
+/**
  * Top-level server method to handle the PING request.
  *
  * For debugging it print out statistics on the RPCs that it has
  * handled along with some stats on amount of data written to the
  * master.
  *
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-MasterServer::ping(const PingRpc::Request& reqHdr,
+MasterService::ping(const PingRpc::Request& reqHdr,
                    PingRpc::Response& respHdr,
-                   Transport::ServerRpc& rpc)
+                   Rpc& rpc)
 {
     LOG(NOTICE, "Bytes written: %lu", bytesWritten);
     LOG(NOTICE, "Bytes logged : %lu", log.getBytesAppended());
 
-    Server::ping(reqHdr, respHdr, rpc);
+    Service::ping(reqHdr, respHdr, rpc);
 }
 
 /**
@@ -242,10 +293,21 @@ MasterServer::ping(const PingRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-MasterServer::read(const ReadRpc::Request& reqHdr,
+MasterService::read(const ReadRpc::Request& reqHdr,
                    ReadRpc::Response& respHdr,
-                   Transport::ServerRpc& rpc)
+                   Rpc& rpc)
 {
+    if (reqHdr.id == TOTAL_READ_REQUESTS_OBJID) {
+        new(&rpc.replyPayload, APPEND) ServerStats(serverStats);
+        respHdr.length = sizeof(serverStats);
+        memset(&serverStats, 0, sizeof(serverStats));
+        return; // TODO(nandu) - if an actual object uses this objid
+                // then we do not return its real value back. Should
+                // change this to use an RPC other than read. Write to
+                // this object has undesirable behavior too.
+    }
+    CycleCounter<uint64_t> timeThisRead;
+
     // We must throw an exception if the table does not exist. Also, we might
     // have an entry in the hash table that's invalid because its tablet no
     // longer lives here.
@@ -264,6 +326,8 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
     // TODO(ongaro): We'll need a new type of Chunk to block the cleaner
     // from scribbling over obj->data.
     respHdr.length = obj->dataLength(handle->length());
+    serverStats.totalReadRequests++;
+    serverStats.totalReadNanos += cyclesToNanoseconds(timeThisRead.stop());
 }
 
 /**
@@ -275,7 +339,7 @@ recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type, void *cookie)
 {
     if (maybeTomb->type() == LOG_ENTRY_TYPE_OBJTOMB) {
         const ObjectTombstone *tomb = maybeTomb->userData<ObjectTombstone>();
-        MasterServer *server = reinterpret_cast<MasterServer*>(cookie);
+        MasterService *server = reinterpret_cast<MasterService*>(cookie);
         bool r = server->objectMap.remove(tomb->id.tableId, tomb->id.objectId);
         assert(r);
     }
@@ -293,16 +357,16 @@ class RemoveTombstonePoller : public Dispatch::Poller {
      * delete themselves when the #objectMap scan is completed which
      * automatically deregisters it from Dispatch.
      *
-     * \param masterServer
-     *      The instance of MasterServer which owns the #objectMap.
+     * \param masterService
+     *      The instance of MasterService which owns the #objectMap.
      * \param objectMap
      *      The HashTable which will be purged of tombstones.
      */
-    RemoveTombstonePoller(MasterServer& masterServer,
+    RemoveTombstonePoller(MasterService& masterService,
                           HashTable<LogEntryHandle>& objectMap)
         : Dispatch::Poller()
         , currentBucket(0)
-        , masterServer(masterServer)
+        , masterService(masterService)
         , objectMap(objectMap)
     {
         LOG(NOTICE, "Starting cleanup of tombstones in background");
@@ -311,29 +375,30 @@ class RemoveTombstonePoller : public Dispatch::Poller {
     /**
      * Remove tombstones from a single bucket and yield to other work
      * in the system.
-     *
-     * \return
-     *      Always false in order to yield to important work.
      */
-    virtual bool
-    operator()()
+    virtual void
+    poll()
     {
+        // This method runs in the dispatch thread, so it isn't safe to
+        // manipulate any of the objectMap state if any RPCs are currently
+        // executing.
+        if (!serviceManager->idle())
+            return;
         objectMap.forEachInBucket(
-            recoveryCleanup, &masterServer, currentBucket);
+            recoveryCleanup, &masterService, currentBucket);
         ++currentBucket;
         if (currentBucket == objectMap.getNumBuckets()) {
             LOG(NOTICE, "Cleanup of tombstones complete");
             delete this;
         }
-        return false;
     }
 
   private:
     /// Which bucket of #objectMap should be cleaned out next.
     uint64_t currentBucket;
 
-    /// The MasterServer used by the #recoveryCleanup callback.
-    MasterServer& masterServer;
+    /// The MasterService used by the #recoveryCleanup callback.
+    MasterService& masterService;
 
     /// The hash table to be purged of tombstones.
     HashTable<LogEntryHandle>& objectMap;
@@ -346,7 +411,7 @@ class RemoveTombstonePoller : public Dispatch::Poller {
  * This method exists independently for testing purposes.
  */
 void
-MasterServer::removeTombstones()
+MasterService::removeTombstones()
 {
     CycleCounter<Metric> _(&metrics->master.removeTombstoneTicks);
 #if TESTING
@@ -358,15 +423,13 @@ MasterServer::removeTombstones()
 }
 
 namespace {
-
-// used in recover()
+/**
+ * Each object of this class is responsible for fetching recovery data
+ * for a single segment from a single backup.  This class is defined
+ * in the anonymous namespace so it doesn't need to appear in the header
+ * file.
+ */
 struct Task {
-    struct ResendTimer : public Dispatch::Timer {
-        explicit ResendTimer(Task& task) : task(task) {}
-        void operator() () { task.resend(); }
-        Task& task;
-    };
-
     Task(uint64_t masterId,
          uint64_t partitionId,
          ProtoBuf::ServerList::Entry& backupHost)
@@ -378,7 +441,7 @@ struct Task {
                     backupHost.service_locator().c_str()))
         , startTime(rdtsc())
         , rpc()
-        , resendTimer(*this)
+        , resendTime(0)
     {
           rpc.construct(client, masterId, backupHost.segment_id(),
                         partitionId, response);
@@ -396,7 +459,10 @@ struct Task {
     BackupClient client;
     const uint64_t startTime;
     Tub<BackupClient::GetRecoveryData> rpc;
-    ResendTimer resendTimer;
+
+    /// If we have to retry a request, this variable indicates the rdtsc time at
+    /// which we should retry.  0 means we're not waiting for a retry.
+    uint64_t resendTime;
     DISALLOW_COPY_AND_ASSIGN(Task);
 };
 }
@@ -426,14 +492,14 @@ detectSegmentRecoveryFailure(const uint64_t masterId,
     boost::unordered_set<uint64_t> failures;
     foreach (const auto& backup, backups.server()) {
         switch (backup.user_data()) {
-        case MasterServer::REC_REQ_OK:
+        case MasterService::REC_REQ_OK:
             failures.erase(backup.segment_id());
             break;
-        case MasterServer::REC_REQ_FAILED:
+        case MasterService::REC_REQ_FAILED:
             failures.insert(backup.segment_id());
             break;
-        case MasterServer::REC_REQ_WAITING:
-        case MasterServer::REC_REQ_NOT_STARTED:
+        case MasterService::REC_REQ_WAITING:
+        case MasterService::REC_REQ_NOT_STARTED:
         default:
             assert(false);
             break;
@@ -471,7 +537,7 @@ detectSegmentRecoveryFailure(const uint64_t masterId,
  *      a valid replacement for the crashed master.
  */
 void
-MasterServer::recover(uint64_t masterId,
+MasterService::recover(uint64_t masterId,
                       uint64_t partitionId,
                       ProtoBuf::ServerList& backups)
 {
@@ -540,7 +606,6 @@ MasterServer::recover(uint64_t masterId,
     Tub<Task> tasks[4];
 #endif
     uint32_t activeRequests = 0;
-    uint64_t lastEventTime = Dispatch::lastEventTime;
 
     auto notStarted = backups.mutable_server()->begin();
     auto backupsEnd = backups.mutable_server()->end();
@@ -589,19 +654,18 @@ MasterServer::recover(uint64_t masterId,
         segmentIdToBackups.insert({backup.segment_id(), &backup});
 
     while (activeRequests) {
-        if (Dispatch::lastEventTime == lastEventTime) {
-            Dispatch::handleEvent();
-        } else {
-            // Some other piece of code has called Dispatch,
-            // so we might have work to do.
-        }
-        lastEventTime = Dispatch::lastEventTime;
         this->backup.proceed();
+        uint64_t currentTime = rdtsc();
         foreach (auto& task, tasks) {
             if (!task)
                 continue;
-            if (task->resendTimer.isRunning())
+            if (task->resendTime != 0) {
+                if (currentTime > task->resendTime) {
+                    task->resendTime = 0;
+                    task->resend();
+                }
                 continue;
+            }
             if (!task->rpc->isReady())
                 continue;
             readStallTicks.destroy();
@@ -649,8 +713,8 @@ MasterServer::recover(uint64_t masterId,
                     it->second->set_user_data(REC_REQ_OK);
                 }
             } catch (const RetryException& e) {
-                // The backup isn't ready yet, try back later.
-                task->resendTimer.startCycles(3000000); // about 1ms
+                // The backup isn't ready yet, try back in 1 ms.
+                task->resendTime = currentTime + getCyclesPerSecond()/1000;
                 readStallTicks.construct(
                                     &metrics->master.segmentReadStallTicks);
                 continue;
@@ -740,15 +804,12 @@ MasterServer::recover(uint64_t masterId,
 
 /**
  * Top-level server method to handle the RECOVER request.
- * \copydetails Server::ping
- * \param responder
- *      Functor to respond to the RPC before returning from this method.
+ * \copydetails Service::ping
  */
 void
-MasterServer::recover(const RecoverRpc::Request& reqHdr,
-                      RecoverRpc::Response& respHdr,
-                      Transport::ServerRpc& rpc,
-                      Responder& responder)
+MasterService::recover(const RecoverRpc::Request& reqHdr,
+                       RecoverRpc::Response& respHdr,
+                       Rpc& rpc)
 {
     {
         CycleCounter<Metric> recoveryTicks(&metrics->recoveryTicks);
@@ -758,17 +819,17 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
         const auto& masterId = reqHdr.masterId;
         const auto& partitionId = reqHdr.partitionId;
         ProtoBuf::Tablets recoveryTablets;
-        ProtoBuf::parseFromResponse(rpc.recvPayload, sizeof(reqHdr),
+        ProtoBuf::parseFromResponse(rpc.requestPayload, sizeof(reqHdr),
                                     reqHdr.tabletsLength, recoveryTablets);
         ProtoBuf::ServerList backups;
-        ProtoBuf::parseFromResponse(rpc.recvPayload,
+        ProtoBuf::parseFromResponse(rpc.requestPayload,
                                     downCast<uint32_t>(sizeof(reqHdr)) +
                                     reqHdr.tabletsLength,
                                     reqHdr.serverListLength,
                                     backups);
         LOG(DEBUG, "Starting recovery of %u tablets on masterId %lu",
             recoveryTablets.tablet_size(), *serverId);
-        responder();
+        rpc.sendReply();
 
         // reqHdr, respHdr, and rpc are off-limits now
 
@@ -778,7 +839,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
         // and set ourself as open for business.
         setTablets(newTablets);
 
-        // Recover Segments, firing MasterServer::recoverSegment for each one.
+        // Recover Segments, firing MasterService::recoverSegment for each one.
         recover(masterId, partitionId, backups);
 
         // Free recovery tombstones left in the hash table.
@@ -831,7 +892,7 @@ MasterServer::recover(const RecoverRpc::Request& reqHdr,
  *      it for its own iteration.
  */
 void
-MasterServer::recoverSegmentPrefetcher(RecoverySegmentIterator& i)
+MasterService::recoverSegmentPrefetcher(RecoverySegmentIterator& i)
 {
     i.next();
 
@@ -872,8 +933,8 @@ MasterServer::recoverSegmentPrefetcher(RecoverySegmentIterator& i)
  *      Length of the buffer in bytes.
  */
 void
-MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
-    uint32_t bufferLength)
+MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
+                              uint32_t bufferLength)
 {
     uint64_t start = rdtsc();
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
@@ -894,11 +955,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
         if (i.getOffset() > lastOffsetBackupProgress + 50000) {
             lastOffsetBackupProgress = i.getOffset();
-            if (Dispatch::poll()) {
-                while (Dispatch::poll()) {
-                }
-                this->backup.proceed();
-            }
+            this->backup.proceed();
         }
 
 #ifndef PERF_DEBUG_RECOVERY_REC_SEG_NO_PREFETCH
@@ -1044,9 +1101,9 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
  * \copydetails create
  */
 void
-MasterServer::remove(const RemoveRpc::Request& reqHdr,
-                     RemoveRpc::Response& respHdr,
-                     Transport::ServerRpc& rpc)
+MasterService::remove(const RemoveRpc::Request& reqHdr,
+                      RemoveRpc::Response& respHdr,
+                      Rpc& rpc)
 {
     Table& t(getTable(reqHdr.tableId, reqHdr.id));
     LogEntryHandle handle = objectMap.lookup(reqHdr.tableId, reqHdr.id);
@@ -1084,16 +1141,17 @@ MasterServer::remove(const RemoveRpc::Request& reqHdr,
 
 /**
  * Top-level server method to handle the REREPLICATE_SEGMENTS request.
- * Using the server id of a crashed backup from #reqHdr this MasterServer
+ * Using the server id of a crashed backup from #reqHdr this MasterService
  * rereplicates any live segments it had stored on that backup to new backups
  * in order to maintain any replication requirements after a backup failure.
  *
- * \copydetails Server::ping
+ * \copydetails Service::ping
  */
 void
-MasterServer::rereplicateSegments(const RereplicateSegmentsRpc::Request& reqHdr,
-                                  RereplicateSegmentsRpc::Response& respHdr,
-                                  Transport::ServerRpc& rpc)
+MasterService::rereplicateSegments(
+    const RereplicateSegmentsRpc::Request& reqHdr,
+    RereplicateSegmentsRpc::Response& respHdr,
+    Rpc& rpc)
 {
     const uint64_t failedBackupId = reqHdr.backupId;
     LOG(NOTICE, "Backup %lu failed, rereplicating segments elsewhere",
@@ -1112,7 +1170,7 @@ MasterServer::rereplicateSegments(const RereplicateSegmentsRpc::Request& reqHdr,
  *      The new set of tablets this master is serving.
  */
 void
-MasterServer::setTablets(const ProtoBuf::Tablets& newTablets)
+MasterService::setTablets(const ProtoBuf::Tablets& newTablets)
 {
     typedef std::map<uint32_t, Table*> Tables;
     Tables tables;
@@ -1159,12 +1217,12 @@ MasterServer::setTablets(const ProtoBuf::Tablets& newTablets)
  * \copydetails create
  */
 void
-MasterServer::setTablets(const SetTabletsRpc::Request& reqHdr,
-                         SetTabletsRpc::Response& respHdr,
-                         Transport::ServerRpc& rpc)
+MasterService::setTablets(const SetTabletsRpc::Request& reqHdr,
+                          SetTabletsRpc::Response& respHdr,
+                          Rpc& rpc)
 {
     ProtoBuf::Tablets newTablets;
-    ProtoBuf::parseFromRequest(rpc.recvPayload, sizeof(reqHdr),
+    ProtoBuf::parseFromRequest(rpc.requestPayload, sizeof(reqHdr),
                                reqHdr.tabletsLength, newTablets);
     setTablets(newTablets);
 }
@@ -1174,14 +1232,17 @@ MasterServer::setTablets(const SetTabletsRpc::Request& reqHdr,
  * \copydetails create
  */
 void
-MasterServer::write(const WriteRpc::Request& reqHdr,
+MasterService::write(const WriteRpc::Request& reqHdr,
                     WriteRpc::Response& respHdr,
-                    Transport::ServerRpc& rpc)
+                    Rpc& rpc)
 {
+    CycleCounter<uint64_t> timeThis;
     storeData(reqHdr.tableId, reqHdr.id,
-              &reqHdr.rejectRules, &rpc.recvPayload, sizeof(reqHdr),
+              &reqHdr.rejectRules, &rpc.requestPayload, sizeof(reqHdr),
               static_cast<uint32_t>(reqHdr.length), &respHdr.version,
               reqHdr.async);
+    serverStats.totalWriteRequests++;
+    serverStats.totalWriteNanos += cyclesToNanoseconds(timeThis.stop());
 }
 
 /**
@@ -1202,7 +1263,7 @@ MasterServer::write(const WriteRpc::Request& reqHdr,
 // TODO(ongaro): Masters don't know whether tables exist.
 // This be something like ObjectNotHereException.
 Table&
-MasterServer::getTable(uint32_t tableId, uint64_t objectId) {
+MasterService::getTable(uint32_t tableId, uint64_t objectId) {
 
     foreach (const ProtoBuf::Tablets::Tablet& tablet, tablets.tablet()) {
         if (tablet.table_id() == tableId &&
@@ -1230,7 +1291,7 @@ MasterServer::getTable(uint32_t tableId, uint64_t objectId) {
  *      the return value indicates the reason for the rejection.
  */
 void
-MasterServer::rejectOperation(const RejectRules* rejectRules, uint64_t version)
+MasterService::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 {
     if (version == VERSION_NONEXISTENT) {
         if (rejectRules->doesntExist)
@@ -1275,7 +1336,7 @@ objectEvictionCallback(LogEntryHandle handle,
 {
     assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
 
-    MasterServer *svr = static_cast<MasterServer *>(cookie);
+    MasterService *svr = static_cast<MasterService *>(cookie);
     assert(svr != NULL);
 
     Log& log = svr->log;
@@ -1336,7 +1397,7 @@ tombstoneEvictionCallback(LogEntryHandle handle,
 {
     assert(handle->type() == LOG_ENTRY_TYPE_OBJTOMB);
 
-    MasterServer *svr = static_cast<MasterServer *>(cookie);
+    MasterService *svr = static_cast<MasterService *>(cookie);
     assert(svr != NULL);
 
     Log& log = svr->log;
@@ -1369,10 +1430,10 @@ tombstoneEvictionCallback(LogEntryHandle handle,
 }
 
 void
-MasterServer::storeData(uint64_t tableId, uint64_t id,
-                        const RejectRules* rejectRules, Buffer* data,
-                        uint32_t dataOffset, uint32_t dataLength,
-                        uint64_t* newVersion, bool async)
+MasterService::storeData(uint64_t tableId, uint64_t id,
+                         const RejectRules* rejectRules, Buffer* data,
+                         uint32_t dataOffset, uint32_t dataLength,
+                         uint64_t* newVersion, bool async)
 {
     Table& t(getTable(downCast<uint32_t>(tableId), id));
 
@@ -1423,8 +1484,11 @@ MasterServer::storeData(uint64_t tableId, uint64_t id,
 
         uint64_t segmentId = log.getSegmentId(obj);
         ObjectTombstone tomb(segmentId, obj);
+        // Request an async append explicitly so that the tombstone
+        // and the object are sent out together to the backups.
+        bool sync = false;
         log.append(LOG_ENTRY_TYPE_OBJTOMB, &tomb, sizeof(tomb), &lengthInLog,
-            &logTime, !async);
+            &logTime, sync);
         t.profiler.track(id, downCast<uint32_t>(lengthInLog), logTime);
     }
 

@@ -25,13 +25,12 @@
 
 namespace RAMCloud {
 
-class FastTransport;
 class ServiceLocator;
 
 /**
- * Used by FastTransport to send and receive unreliable datagrams. This
- * is an abstract class; see UdpDriver for an example of a concrete
- * implementation.
+ * Used by transports such as FastTransport to send and receive unreliable
+ * datagrams. This is an abstract class; see UdpDriver for an example of a
+ * concrete implementation.
  */
 class Driver {
   public:
@@ -101,6 +100,49 @@ class Driver {
         DISALLOW_COPY_AND_ASSIGN(Received);
     };
 
+    /// See #connect().
+    struct IncomingPacketHandler {
+        virtual ~IncomingPacketHandler() {}
+        virtual void operator()(Received* received) = 0;
+    };
+
+    /**
+     * A Buffer::Chunk that is comprised of memory for incoming packets,
+     * owned by the Driver but loaned to a Buffer during the processing of an
+     * incoming RPC so the message doesn't have to be copied.
+     *
+     * PayloadChunk behaves like any other Buffer::Chunk except it returns
+     * its memory to the Driver when the Buffer is deleted.
+     */
+    class PayloadChunk : public Buffer::Chunk {
+      public:
+        static PayloadChunk* prependToBuffer(Buffer* buffer,
+                                             char* data,
+                                             uint32_t dataLength,
+                                             Driver* driver,
+                                             char* payload);
+        static PayloadChunk* appendToBuffer(Buffer* buffer,
+                                            char* data,
+                                            uint32_t dataLength,
+                                            Driver* driver,
+                                            char* payload);
+        ~PayloadChunk();
+      private:
+        PayloadChunk(void* data,
+                     uint32_t dataLength,
+                     Driver* driver,
+                     char* const payload);
+
+        /// Return the PayloadChunk memory here.
+        Driver* const driver;
+
+        /// The memory backing the chunk and which is to be returned.
+        char* const payload;
+
+        DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
+    };
+
+
     virtual ~Driver();
 
     /// \copydoc Transport::dumpStats
@@ -115,18 +157,19 @@ class Driver {
     virtual void release(char *payload);
 
     /**
-     * Invoked by a FastTransport instance to associate itself with this
+     * Invoked by a transport to associate itself with this
      * driver, so that the driver can invoke the transport's
-     * #handleIncomingPacket method whenever packets arrived.
-     * \param transport
-     *      The FastTransport instance that should be invoked for each
-     *      incoming packet.
+     * incoming packet handler whenever packets arrive.
+     * \param incomingPacketHandler
+     *      A functor which will be invoked for each incoming packet.
+     *      This should be allocated with new and this Driver instance will
+     *      take care of deleting it.
      */
-    virtual void connect(FastTransport* transport) = 0;
+    virtual void connect(IncomingPacketHandler* incomingPacketHandler) = 0;
 
     /**
      * Breaks the association between this driver and a particular
-     * FastTransport instance, if there was one. Once this method has
+     * transport instance, if there was one. Once this method has
      * returned incoming packets will be ignored or discarded until
      * #connect is invoked again.
      */
@@ -135,6 +178,8 @@ class Driver {
     /**
      * Return a new Driver-specific network address for the given service
      * locator.
+     * This function may be called from worker threads and should contain any
+     * necessary synchronization.
      * \param serviceLocator
      *      See above.
      * \return
@@ -181,7 +226,7 @@ class Driver {
      * Enlisting the dynamic ServiceLocator with the Coordinator permits
      * other hosts to contact dynamically addressed services.
      */
-    virtual ServiceLocator getServiceLocator() = 0;
+    virtual string getServiceLocator() = 0;
 };
 
 /**

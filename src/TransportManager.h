@@ -21,6 +21,8 @@
 #include <set>
 
 #include "Common.h"
+#include "MockTransport.h"
+#include "MockTransportFactory.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -35,7 +37,7 @@ class TransportFactory;
  * #transportManager instance. They do not need to call #initialize().
  *
  * Servers should first use #transportManager's #initialize(). Then, they may
- * use #getSession() and #serverRecv().
+ * use #getSession().
  *
  * The only instance of this class is #transportManager.
  */
@@ -45,8 +47,6 @@ class TransportManager {
     ~TransportManager();
     void initialize(const char* serviceLocator);
     Transport::SessionRef getSession(const char* serviceLocator);
-    Transport::ServerRpc* serverRecv();
-    ServiceLocatorList getListeningLocators();
     string getListeningLocatorsString();
     void registerMemory(void* base, size_t bytes);
     void dumpStats();
@@ -57,13 +57,16 @@ class TransportManager {
      * The transport can be sent to using the service locator "mock:".
      * Must be paired with a call to #unregisterMock().
      * \param transport
-     *      Probably a #MockTransport instance. Owned by the caller.
+     *      Transport instance, owned by the caller.  If NULL, a new
+     *      MockTransport will be created on-demand.
+     * \param protocol
+     *      #GetSession will return #transport whenever this protocol
+     *      is requested.
      */
-    void registerMock(Transport* transport) {
-        initialized = true;
-        listening.push_back(transport);
-        transports.push_back(transport);
-        protocolTransportMap.insert({"mock", transport});
+    void registerMock(Transport* transport, const char* protocol = "mock") {
+        transportFactories.push_back(
+                new MockTransportFactory(transport, protocol));
+        transports.push_back(NULL);
     }
 
     /**
@@ -71,11 +74,9 @@ class TransportManager {
      * Must be paired with a call to #registerMock().
      */
     void unregisterMock() {
-        protocolTransportMap.erase("mock");
+        delete transportFactories.back();
+        transportFactories.pop_back();
         transports.pop_back();
-        listening.pop_back();
-        // Invalidate cache because mock transports are ephemeral and
-        // come and go.
         sessionCache.clear();
     }
 
@@ -91,39 +92,59 @@ class TransportManager {
     };
 #endif
 
-  private:
+  PRIVATE:
     /**
-     * Whether #initialize() has been called.
+     * Sessions of this type are used as wrappers in worker threads on
+     * servers.  These are needed because "real" Session objects are owned
+     * by transports (which run in the dispatch thread) and hence cannot be
+     * accessed in worker threads without synchronization.  WorkerSession
+     * objects forward the #clientSend method to the actual Session object
+     * after synchronizing appropriately with the dispatch thread.
      */
-    bool initialized;
+    class WorkerSession : public Transport::Session {
+      public:
+        explicit WorkerSession(Transport::SessionRef wrapped);
+        ~WorkerSession() {}
+        Transport::ClientRpc* clientSend(Buffer* request, Buffer* reply)
+            __attribute__((warn_unused_result));
+        void release() {
+            delete this;
+        }
+      PRIVATE:
+        Transport::SessionRef wrapped; /// clientSend calls must be forwarded
+                                       /// to this underlying object.
+        DISALLOW_COPY_AND_ASSIGN(WorkerSession);
+    };
 
     /**
-     * A set of factories to create all possible transports.
+     * True means this is a server application, false means this is a client only.
      */
-    std::set<TransportFactory*> transportFactories;
+    bool isServer;
 
     /**
-     * The set of all Transport instances.
+     * Factories to create all possible transports.  The order in this vector
+     * matches that in transports.
+     */
+    std::vector<TransportFactory*> transportFactories;
+
+    /**
+     * A transport instance corresponding to each factory. These instances are
+     * created on demand (only if needed), so some entries may be NULL.  This
+     * vector may be longer than #transportFactories if we end up creating
+     * multiple transports from a single factory (e.g., to serve incoming RPCs
+     * via multiple locators corresponding to the same transport). In this case
+     * the first transport from a factory is in the slot corresponding to that
+     * factory, and additional transports for that factory are appended at the
+     * end.
      */
     std::vector<Transport*> transports;
 
     /**
-     * Transports on which to receive RPC requests. These are polled
-     * round-robin in #serverRecv().
+     * Contains the value that will be returned by getListeningLocatorsString:
+     * a string containing service locators for all of the ways we are prepared
+     * to receive incoming RPCs.
      */
-    std::vector<Transport*> listening;
-
-    /**
-     * The index into #listening of the next Transport that should be polled.
-     * This index may be out of bounds and should be checked before use.
-     * It is used exclusively in #serverRecv().
-     */
-    uint32_t nextToListen;
-
-    /**
-     * A map from protocol string to Transport instances for #getSession().
-     */
-    std::multimap<string, Transport*> protocolTransportMap;
+    std::string listeningLocators;
 
     /**
      * A map from service locator to SessionRef instances for #getSession().
@@ -131,6 +152,14 @@ class TransportManager {
      * #getSession() is called on an existing service locator string.
      */
     std::map<string, Transport::SessionRef> sessionCache;
+
+    /**
+     * The following variables record the parameters for all previous calls
+     * to #registerMemory, so that we can pass them to any new transports
+     * that are created after the calls occurred.
+     */
+    std::vector<void*> registeredBases;
+    std::vector<size_t> registeredSizes;
 
     friend class TransportManagerTest;
     DISALLOW_COPY_AND_ASSIGN(TransportManager);

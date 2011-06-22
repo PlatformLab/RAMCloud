@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_COORDINATORSERVER_H
-#define RAMCLOUD_COORDINATORSERVER_H
+#ifndef RAMCLOUD_COORDINATORSERVICE_H
+#define RAMCLOUD_COORDINATORSERVICE_H
 
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
@@ -24,7 +24,7 @@
 #include "Metrics.h"
 #include "Recovery.h"
 #include "Rpc.h"
-#include "Server.h"
+#include "Service.h"
 #include "TransportManager.h"
 
 namespace RAMCloud {
@@ -32,57 +32,54 @@ namespace RAMCloud {
 /**
  * Serves RPCs for the cluster coordinator.
  */
-class CoordinatorServer : public Server {
+class CoordinatorService : public Service {
   public:
-    CoordinatorServer();
-    ~CoordinatorServer();
-    void run();
-    void dispatch(RpcType type,
-                  Transport::ServerRpc& rpc,
-                  Responder& responder);
+    CoordinatorService();
+    ~CoordinatorService();
+    void dispatch(RpcOpcode opcode,
+                  Rpc& rpc);
 
   private:
     void createTable(const CreateTableRpc::Request& reqHdr,
                      CreateTableRpc::Response& respHdr,
-                     Transport::ServerRpc& rpc);
+                     Rpc& rpc);
     void dropTable(const DropTableRpc::Request& reqHdr,
                    DropTableRpc::Response& respHdr,
-                   Transport::ServerRpc& rpc);
+                   Rpc& rpc);
     void openTable(const OpenTableRpc::Request& reqHdr,
                    OpenTableRpc::Response& respHdr,
-                   Transport::ServerRpc& rpc);
+                   Rpc& rpc);
     void enlistServer(const EnlistServerRpc::Request& reqHdr,
                       EnlistServerRpc::Response& respHdr,
-                      Transport::ServerRpc& rpc);
+                      Rpc& rpc);
 
     void getServerList(const GetServerListRpc::Request& reqHdr,
                        GetServerListRpc::Response& respHdr,
-                       Transport::ServerRpc& rpc);
+                       Rpc& rpc);
 
     void getTabletMap(const GetTabletMapRpc::Request& reqHdr,
                       GetTabletMapRpc::Response& respHdr,
-                      Transport::ServerRpc& rpc);
+                      Rpc& rpc);
 
     void hintServerDown(const HintServerDownRpc::Request& reqHdr,
                         HintServerDownRpc::Response& respHdr,
-                        Transport::ServerRpc& rpc,
-                        Responder& responder);
+                        Rpc& rpc);
 
     void tabletsRecovered(const TabletsRecoveredRpc::Request& reqHdr,
                           TabletsRecoveredRpc::Response& respHdr,
-                          Transport::ServerRpc& rpc);
+                          Rpc& rpc);
 
     void ping(const PingRpc::Request& reqHdr,
               PingRpc::Response& respHdr,
-              Transport::ServerRpc& rpc);
+              Rpc& rpc);
 
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,
-                 Transport::ServerRpc& rpc);
+                 Rpc& rpc);
 
     void setWill(const SetWillRpc::Request& reqHdr,
                  SetWillRpc::Response& respHdr,
-                 Transport::ServerRpc& rpc);
+                 Rpc& rpc);
 
     bool setWill(uint64_t masterId, Buffer& buffer,
                  uint32_t offset, uint32_t length);
@@ -134,10 +131,10 @@ class CoordinatorServer : public Server {
     /// Used in unit testing.
     BaseRecovery* mockRecovery;
 
-    friend class CoordinatorTest;
-    DISALLOW_COPY_AND_ASSIGN(CoordinatorServer);
+    friend class CoordinatorServiceTest;
+    DISALLOW_COPY_AND_ASSIGN(CoordinatorService);
 };
 
 } // namespace RAMCloud
 
-#endif // RAMCLOUD_COORDINATORSERVER_H
+#endif // RAMCLOUD_COORDINATORSERVICE_H

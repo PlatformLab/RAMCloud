@@ -16,12 +16,14 @@
 #ifndef RAMCLOUD_TRANSPORT_H
 #define RAMCLOUD_TRANSPORT_H
 
+#include <cstdatomic>
 #include <string>
 #include <boost/intrusive_ptr.hpp>
 
 #include "Common.h"
-#include "ServiceLocator.h"
 #include "Buffer.h"
+#include "ServiceLocator.h"
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -61,11 +63,11 @@ class Transport {
      * must later call #wait() on it.
      */
     class ClientRpc {
-      protected:
+      PROTECTED:
         /**
          * Constructor for ClientRpc.
          */
-        ClientRpc() {}
+        ClientRpc() : finished(0), errorMessage() {}
 
       public:
 
@@ -84,7 +86,7 @@ class Transport {
          *      Something went wrong at the transport level (e.g. the
          *      server crashed).
          */
-        virtual void wait() = 0;
+        void wait();
 
         /**
          * Indicate whether a response or error has been received for
@@ -96,23 +98,39 @@ class Transport {
          *      be invoked so it can throw exceptions (this method will
          *      not throw any exceptions).
          */
-        virtual bool isReady() = 0;
+        bool isReady() {
+            return (finished.load() != 0);
+        }
 
-      private:
+      PROTECTED:
+        void markFinished(string* errorMessage = NULL);
+
+        /**
+         * Non-zero means that the RPC has completed (either with or without an
+         * error), so the next call to #wait should return immediately.
+         */
+        atomic_int finished;
+
+        /**
+         * If an error occurred in the RPC then this holds the error message;
+         * if the RPC completed normally than this has no value.
+         */
+        Tub<string> errorMessage;
+
+      PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(ClientRpc);
     };
 
     /**
-     * An RPC request that has been received and is awaiting our response.
-     * #serverRecv() will return one of these, and the caller of that method
-     * must later call #sendReply() on it.
+     * An RPC request that has been received and is either being serviced or
+     * waiting for service.
      */
     class ServerRpc {
-      protected:
+      PROTECTED:
         /**
          * Constructor for ServerRpc.
          */
-        ServerRpc() : recvPayload(), replyPayload() {}
+        ServerRpc() : requestPayload(), replyPayload() {}
 
       public:
         /**
@@ -132,16 +150,16 @@ class Transport {
         virtual void sendReply() = 0;
 
         /**
-         * The received RPC payload.
+         * The incoming RPC payload, which contains a request.
          */
-        Buffer recvPayload;
+        Buffer requestPayload;
 
         /**
          * The RPC payload to send as a response with #sendReply().
          */
         Buffer replyPayload;
 
-      private:
+      PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);
     };
 
@@ -189,8 +207,7 @@ class Transport {
          * \throw TransportException
          *      If any errors occur while initiating the request.
          */
-        virtual ClientRpc* clientSend(Buffer* request, Buffer* response)
-            __attribute__((warn_unused_result)) = 0;
+        virtual ClientRpc* clientSend(Buffer* request, Buffer* response) = 0;
 
         /**
          * \return
@@ -219,9 +236,9 @@ class Transport {
                 session->release();
         }
 
-      protected:
+      PROTECTED:
         uint32_t refCount;
-      private:
+      PRIVATE:
         string serviceLocator;
 
         DISALLOW_COPY_AND_ASSIGN(Session);
@@ -246,17 +263,9 @@ class Transport {
     virtual ~Transport() {}
 
     /**
-     * Get the next RPC request that has arrived.
-     * \return
-     *      The RPC object through which to send a reply, or NULL of no RPC
-     *      requests were waiting. The caller must use either
-     *      #Transport::ServerRpc::sendReply() to release the resources
-     *      associated with this object (if it is not NULL).
-     */
-    virtual ServerRpc* serverRecv() __attribute__((warn_unused_result)) = 0;
-
-    /**
      * Return a session that will communicate with the given service locator.
+     * This function may be called from worker threads and should contain any
+     * necessary synchronization.
      * \throw NoSuchKeyException
      *      Service locator option missing.
      * \throw BadValueException
@@ -275,12 +284,14 @@ class Transport {
      * Enlisting the dynamic ServiceLocator with the Coordinator permits
      * other hosts to contact dynamically addressed services.
      */
-    virtual ServiceLocator getServiceLocator() = 0;
+    virtual string getServiceLocator() = 0;
 
     /**
      * Register a permanently mapped region of memory. This is a hint to
      * the transport that identifies regions of memory that can be used
      * as zero-copy source buffer for transmission.
+     * The Dispatch lock must be held by the caller for the duration of this
+     * function.
      * \param[in] base
      *      The base address of the region.
      * \param[in] bytes
@@ -293,7 +304,7 @@ class Transport {
     /// Dump out performance and debugging statistics.
     virtual void dumpStats() {}
 
-  private:
+  PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(Transport);
 };
 

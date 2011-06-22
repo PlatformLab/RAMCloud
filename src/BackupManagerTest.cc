@@ -1,4 +1,4 @@
-/* Copyright (c) 2009 Stanford University
+/* Copyright (c) 2009-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,14 +21,14 @@
 #include "TestUtil.h"
 #include "Common.h"
 #include "CoordinatorClient.h"
-#include "CoordinatorServer.h"
+#include "CoordinatorService.h"
 #include "BackupClient.h"
 #include "BackupManager.h"
-#include "BackupServer.h"
+#include "BackupService.h"
 #include "BackupStorage.h"
 #include "BindTransport.h"
 #include "Logging.h"
-#include "MasterServer.h"
+#include "MasterService.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -61,16 +61,15 @@ struct BackupManagerBaseTest : public ::testing::Test {
     const uint32_t segmentSize;
     const uint32_t segmentFrames;
     const char* coordinatorLocator;
-    ProgressPoller progressPoller;
     Tub<BindTransport> transport;
     Tub<TransportManager::MockRegistrar> mockRegistrar;
-    Tub<CoordinatorServer> coordinatorServer;
+    Tub<CoordinatorService> coordinatorService;
     Tub<CoordinatorClient> coordinator;
     Tub<InMemoryStorage> storage1;
     Tub<InMemoryStorage> storage2;
-    Tub<BackupServer::Config> backupServerConfig;
-    Tub<BackupServer> backupServer1;
-    Tub<BackupServer> backupServer2;
+    Tub<BackupService::Config> backupServiceConfig;
+    Tub<BackupService> backupService1;
+    Tub<BackupService> backupService2;
     Tub<BackupClient> backup1;
     Tub<BackupClient> backup2;
     Tub<uint64_t> serverId;
@@ -80,27 +79,26 @@ struct BackupManagerBaseTest : public ::testing::Test {
         : segmentSize(1 << 16)
         , segmentFrames(4)
         , coordinatorLocator("mock:host=coordinator")
-        , progressPoller()
     {
         transport.construct();
         mockRegistrar.construct(*transport);
 
-        coordinatorServer.construct();
-        transport->addServer(*coordinatorServer, coordinatorLocator);
+        coordinatorService.construct();
+        transport->addService(*coordinatorService, coordinatorLocator);
 
         coordinator.construct(coordinatorLocator);
 
         storage1.construct(segmentSize, segmentFrames);
         storage2.construct(segmentSize, segmentFrames);
 
-        backupServerConfig.construct();
-        backupServerConfig->coordinatorLocator = coordinatorLocator;
+        backupServiceConfig.construct();
+        backupServiceConfig->coordinatorLocator = coordinatorLocator;
 
-        backupServer1.construct(*backupServerConfig, *storage1);
-        backupServer2.construct(*backupServerConfig, *storage2);
+        backupService1.construct(*backupServiceConfig, *storage1);
+        backupService2.construct(*backupServiceConfig, *storage2);
 
-        transport->addServer(*backupServer1, "mock:host=backup1");
-        transport->addServer(*backupServer2, "mock:host=backup2");
+        transport->addService(*backupService1, "mock:host=backup1");
+        transport->addService(*backupService2, "mock:host=backup2");
 
         backup1.construct(transportManager.getSession("mock:host=backup1"));
         backup2.construct(transportManager.getSession("mock:host=backup2"));
@@ -187,8 +185,8 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
         EXPECT_FALSE(backup->closeSent);
         EXPECT_FALSE(backup->rpc);
     }
-    EXPECT_EQ(arrayLength(data), backupServer1->bytesWritten);
-    EXPECT_EQ(arrayLength(data), backupServer2->bytesWritten);
+    EXPECT_EQ(arrayLength(data), backupService1->bytesWritten);
+    EXPECT_EQ(arrayLength(data), backupService2->bytesWritten);
 
     // make sure OpenSegment::backups point to reasonable service locators
     vector<string> backupLocators;
@@ -210,21 +208,6 @@ TEST_F(BackupManagerTest, OpenSegmentConstructor) {
     }
     EXPECT_EQ((std::set<string> {"mock:host=backup1", "mock:host=backup2"}),
               segmentLocators);
-}
-
-TEST_F(BackupManagerTest, OpenSegmentwriteAssertWriteAfterClose) {
-    const char data[] = "Hello world!";
-    auto openSegment = mgr->openSegment(88, data, 0);
-    openSegment->write(4, true);
-    EXPECT_DEATH(openSegment->write(5, true), "Assertion");
-}
-
-TEST_F(BackupManagerTest, OpenSegmentwriteAssertNonAppending) {
-    const char data[] = "Hello world!";
-    auto openSegment = mgr->openSegment(88, data, 0);
-    openSegment->write(4, false);
-    openSegment->write(4, false); // OK
-    EXPECT_DEATH(openSegment->write(3, false), "Assertion");
 }
 
 #if 0 // the sync method was deleted,
@@ -255,15 +238,15 @@ TEST_F(BackupManagerTest, OpenSegmentsync) {
         EXPECT_FALSE(backup->closeSent);
         EXPECT_FALSE(backup->rpc);
     }
-    EXPECT_EQ(8U, backupServer1->bytesWritten);
-    EXPECT_EQ(8U, backupServer2->bytesWritten);
+    EXPECT_EQ(8U, backupService1->bytesWritten);
+    EXPECT_EQ(8U, backupService2->bytesWritten);
 
     openSegment->write(9, true);
     openSegment = NULL;
 
     mgr->sync();
-    EXPECT_EQ(9U, backupServer1->bytesWritten);
-    EXPECT_EQ(9U, backupServer2->bytesWritten);
+    EXPECT_EQ(9U, backupService1->bytesWritten);
+    EXPECT_EQ(9U, backupService2->bytesWritten);
     EXPECT_EQ(0U, mgr->openSegmentList.size());
 }
 #endif

@@ -161,7 +161,7 @@ class FailureDetectorTest : public CppUnit::TestFixture {
 
         {
             PingRpc::Request req;
-            req.common.type = PING;
+            req.common.opcode = PING;
             req.nonce = 0x1122334455667788UL;
             fd.handleIncomingRequest(reinterpret_cast<char*>(&req),
                 sizeof(req), &sin);
@@ -179,7 +179,7 @@ class FailureDetectorTest : public CppUnit::TestFixture {
             char buf[500];
             ProxyPingRpc::Request* req =
                 reinterpret_cast<ProxyPingRpc::Request*>(buf);
-            req->common.type = PROXY_PING;
+            req->common.opcode = PROXY_PING;
             req->timeoutNanoseconds = -1;    // we ignore this
             req->serviceLocatorLength = 31;
             memcpy(&buf[sizeof(*req)], "tcp:host=71.53.23.21,port=5723\0", 31);
@@ -191,7 +191,7 @@ class FailureDetectorTest : public CppUnit::TestFixture {
                 TestLog::get());
             PingRpc::Request* proxiedReq =
                 reinterpret_cast<PingRpc::Request*>(saveSendtoBuf);
-            CPPUNIT_ASSERT_EQUAL(PING, proxiedReq->common.type);
+            CPPUNIT_ASSERT_EQUAL(PING, proxiedReq->common.opcode);
             CPPUNIT_ASSERT(proxiedReq->nonce & 0x8000000000000000UL);
             CPPUNIT_ASSERT_EQUAL(true, fd.queue.dequeue(proxiedReq->nonce));
         }
@@ -323,8 +323,8 @@ class FailureDetectorTest : public CppUnit::TestFixture {
         fd.pingRandomServer();
         PingRpc::Request* req =
             reinterpret_cast<PingRpc::Request*>(saveSendtoBuf);
-        CPPUNIT_ASSERT_EQUAL(PING, req->common.type);
-        CPPUNIT_ASSERT_EQUAL(0, req->common.type & 0x8000000000000000UL);
+        CPPUNIT_ASSERT_EQUAL(PING, req->common.opcode);
+        CPPUNIT_ASSERT_EQUAL(0, req->common.opcode & 0x8000000000000000UL);
         CPPUNIT_ASSERT_EQUAL(1, fd.queue.entries.size());
     }
 
@@ -342,7 +342,7 @@ class FailureDetectorTest : public CppUnit::TestFixture {
         fd.alertCoordinator(&te);
         HintServerDownRpc::Request* rpc =
             reinterpret_cast<HintServerDownRpc::Request*>(saveSendtoBuf);
-        CPPUNIT_ASSERT_EQUAL(HINT_SERVER_DOWN, rpc->common.type);
+        CPPUNIT_ASSERT_EQUAL(HINT_SERVER_DOWN, rpc->common.opcode);
         CPPUNIT_ASSERT_EQUAL(33, rpc->serviceLocatorLength);
         CPPUNIT_ASSERT_EQUAL(32, strlen(&saveSendtoBuf[sizeof(*rpc)]));
         CPPUNIT_ASSERT_EQUAL('\0', saveSendtoBuf[sizeof(*rpc) + 32]);
@@ -389,7 +389,7 @@ class FailureDetectorTest : public CppUnit::TestFixture {
         fd.processPacket(fd.coordFd);
         CPPUNIT_ASSERT_EQUAL("handleIncomingRequest: incoming request from "
             "204.204.204.204:52428 | handleIncomingRequest: unknown request "
-            "encountered (3435973836); ignoring | handleIncomingResponse: "
+            "encountered (52428); ignoring | handleIncomingResponse: "
             "incoming ping response from 204.204.204.204:52428 | "
             "handleIncomingResponse: payload isn't 16 bytes, but 0! | "
             "handleCoordinatorResponse: incoming coordinator response from "
@@ -410,7 +410,7 @@ class FailureDetectorTest : public CppUnit::TestFixture {
             TestLog::get());
         GetServerListRpc::Request* req =
             reinterpret_cast<GetServerListRpc::Request*>(saveSendtoBuf);
-        CPPUNIT_ASSERT_EQUAL(GET_SERVER_LIST, req->common.type);
+        CPPUNIT_ASSERT_EQUAL(GET_SERVER_LIST, req->common.opcode);
         CPPUNIT_ASSERT_EQUAL(MASTER, req->serverType);
     }
 

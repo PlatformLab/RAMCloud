@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,26 +13,32 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "BindTransport.h"
+/**
+ * \file
+ * In gcc 4.4.4 the cstdatomic header file omitted the bodies for
+ * several functions. This header file supplies them.  Gcc is fixed
+ * in later releases.
+ */
 
-namespace RAMCloud {
+#ifndef RAMCLOUD_ATOMICPATCH_H
+#define RAMCLOUD_ATOMICPATCH_H
 
-void
-BindTransport::BindClientRpc::wait()
-{
-    BindServerRpc serverRpc;
+namespace std {
+    template<typename _Tp>
+    void
+    store(_Tp* __v, memory_order __m)
+    { atomic_address::store(__v, __m); }
 
-    uint32_t reqLength = request.getTotalLength();
-    request.copy(0, reqLength,
-                 new(&serverRpc.recvPayload, APPEND) char[reqLength]);
+    template<typename _Tp>
+    _Tp*
+    load(memory_order __m)
+    { return static_cast<_Tp*>(atomic_address::load(__m)); }
 
-    transport.waitingRequest = &serverRpc;
-    server.handleRpc<Server>();
-    assert(transport.waitingRequest == NULL);
-
-    uint32_t respLength = serverRpc.replyPayload.getTotalLength();
-    serverRpc.replyPayload.copy(0, respLength,
-                                new(&response, APPEND) char[respLength]);
+    template<typename _Tp>
+    _Tp*
+    exchange(_Tp* __v, memory_order __m)
+    { return static_cast<_Tp*>(atomic_address::exchange(__v, __m)); }
 }
 
-} // namespace RAMCloud
+#endif // RAMCLOUD_ATOMICPATCH_H
+

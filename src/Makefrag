@@ -42,23 +42,30 @@ SHARED_SRCFILES := \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
 		   src/Logging.cc \
+		   src/MacAddress.cc \
 		   src/MasterClient.cc \
-		   src/MasterServer.cc \
+		   src/MasterService.cc \
 		   src/Metrics.cc \
+		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
+		   src/RamCloud.cc \
 		   src/Recovery.cc \
 		   src/RecoverySegmentIterator.cc \
 		   src/Segment.cc \
 		   src/SegmentIterator.cc \
-		   src/Server.cc \
+		   src/Service.cc \
 		   src/ServiceLocator.cc \
+		   src/ServiceManager.cc \
 		   src/Status.cc \
+		   src/StringKeyAdapter.cc \
 		   src/TabletProfiler.cc \
 		   src/TcpTransport.cc \
-		   src/TcpTransport.cc \
+		   src/ThreadId.cc \
 		   src/TimeCounter.cc \
+		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
+		   src/UnreliableTransport.cc \
 		   src/Will.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/ServerList.pb.cc \

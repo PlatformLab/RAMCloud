@@ -417,31 +417,6 @@ Infiniband::postSendAndWait(QueuePair* qp, BufferDescriptor *bd,
 }
 
 /**
- * Allocate a BufferDescriptor and register the backing memory with the
- * HCA. Note that the memory will be wired (i.e. cannot be swapped out)!
- *
- * \param[in] bytes
- *      Number of bytes to allocate.
- * \return
- *      A BufferDescriptor corresponding to the allocated memory.
- * \throw
- *      TransportException if allocation or registration failed.
- */
-Infiniband::BufferDescriptor*
-Infiniband::allocateBufferDescriptorAndRegister(size_t bytes)
-{
-    void *p = xmemalign(4096, bytes);
-
-    ibv_mr *mr = ibv_reg_mr(pd.pd, p, bytes,
-        IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
-    if (mr == NULL)
-        throw TransportException(HERE, "failed to register ring buffer", errno);
-
-    return new BufferDescriptor(reinterpret_cast<char *>(p),
-                                downCast<uint32_t>(bytes), mr);
-}
-
-/**
  * Create a completion queue. This simply wraps the verbs call.
  *
  * \param[in] minimumEntries
@@ -584,7 +559,7 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
       rxcq(rxcq),
       initialPsn(generateRandom() & 0xffffff)
 {
-    if (type != IBV_QPT_RC && type != IBV_QPT_UD)
+    if (type != IBV_QPT_RC && type != IBV_QPT_UD && type != IBV_QPT_RAW_ETH)
         throw TransportException(HERE, "invalid queue pair type");
 
     ibv_qp_init_attr qpia;
@@ -594,6 +569,7 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
     qpia.srq = srq;                    // use the same shared receive queue
     qpia.cap.max_send_wr  = maxSendWr; // max outstanding send requests
     qpia.cap.max_recv_wr  = maxRecvWr; // max outstanding recv requests
+// TODO(ongaro): This can't work...
     qpia.cap.max_send_sge = 1;         // max send scatter-gather elements
     qpia.cap.max_recv_sge = 1;         // max recv scatter-gather elements
     qpia.cap.max_inline_data =         // max bytes of immediate data on send q
@@ -616,13 +592,17 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
     qpa.qp_access_flags = IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE;
     qpa.qkey       = QKey;
 
-    int mask = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT;
+    int mask = IBV_QP_STATE | IBV_QP_PORT;
     switch (type) {
     case IBV_QPT_RC:
         mask |= IBV_QP_ACCESS_FLAGS;
+        mask |= IBV_QP_PKEY_INDEX;
         break;
     case IBV_QPT_UD:
         mask |= IBV_QP_QKEY;
+        mask |= IBV_QP_PKEY_INDEX;
+        break;
+    case IBV_QPT_RAW_ETH:
         break;
     default:
         assert(0);
@@ -729,11 +709,10 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
 }
 
 void
-Infiniband::QueuePair::activate()
+Infiniband::QueuePair::activate(const Tub<MacAddress>& localMac)
 {
     ibv_qp_attr qpa;
-
-    if (type != IBV_QPT_UD)
+    if (type != IBV_QPT_UD && type != IBV_QPT_RAW_ETH)
         throw TransportException(HERE, "activate() called on wrong qp type");
 
     if (getState() != IBV_QPS_INIT) {
@@ -753,16 +732,31 @@ Infiniband::QueuePair::activate()
 
     // now move to RTS state
     qpa.qp_state = IBV_QPS_RTS;
-    qpa.sq_psn = initialPsn;
-    ret = ibv_modify_qp(qp, &qpa, IBV_QP_STATE | IBV_QP_SQ_PSN);
+    int flags = IBV_QP_STATE;
+    if (type != IBV_QPT_RAW_ETH) {
+        qpa.sq_psn = initialPsn;
+        flags |= IBV_QP_SQ_PSN;
+    }
+    ret = ibv_modify_qp(qp, &qpa, flags);
     if (ret) {
         LOG(ERROR, "failed to transition to RTS state");
         throw TransportException(HERE, ret);
     }
 
+    if (type == IBV_QPT_RAW_ETH) {
+        ibv_gid mgid;
+        memset(&mgid, 0, sizeof(mgid));
+        memcpy(&mgid.raw[10], localMac->address, 6);
+        if (ibv_attach_mcast(qp, &mgid, 0)) {
+            LOG(ERROR, "failed to bind to mac address");
+            throw TransportException(HERE, ret);
+        }
+    }
+
     LOG(DEBUG, "infiniband qp activated: lid 0x%x, qpn 0x%x, "
         "ibPhysicalPort %u",
         infiniband.getLid(ibPhysicalPort), qp->qp_num, ibPhysicalPort);
+
 }
 
 /**

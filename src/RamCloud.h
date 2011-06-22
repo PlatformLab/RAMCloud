@@ -52,9 +52,40 @@ class RamCloud {
         DISALLOW_COPY_AND_ASSIGN(Create);
     };
 
+    /// An asynchronous version of #read().
+    class Read {
+      public:
+        /// Start a read RPC. See RamCloud::read.
+        Read(RamCloud& ramCloud,
+             uint32_t tableId, uint64_t id, Buffer* value,
+             const RejectRules* rejectRules = NULL,
+             uint64_t* version = NULL)
+            : master(ramCloud.objectFinder.lookup(tableId, id))
+            , masterRead(master, tableId, id, value, rejectRules, version)
+        {
+        }
+        bool isReady() { return masterRead.isReady(); }
+        /// Wait for the read RPC to complete.
+        void operator()() { masterRead(); }
+      private:
+        MasterClient master;
+        MasterClient::Read masterRead;
+        DISALLOW_COPY_AND_ASSIGN(Read);
+    };
+
     /// An asynchronous version of #write().
     class Write {
       public:
+        /// Start a write RPC. See RamCloud::write.
+        Write(RamCloud& ramCloud,
+              uint32_t tableId, uint64_t id, Buffer& buffer,
+              const RejectRules* rejectRules = NULL,
+              uint64_t* version = NULL, bool async = false)
+            : master(ramCloud.objectFinder.lookup(tableId, id))
+            , masterWrite(master, tableId, id, buffer,
+                          rejectRules, version, async)
+        {
+        }
         /// Start a write RPC. See RamCloud::write.
         Write(RamCloud& ramCloud,
               uint32_t tableId, uint64_t id, const void* buf,
@@ -84,6 +115,7 @@ class RamCloud {
     void read(uint32_t tableId, uint64_t id, Buffer* value,
               const RejectRules* rejectRules = NULL,
               uint64_t* version = NULL);
+    void multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests);
     void remove(uint32_t tableId, uint64_t id,
                 const RejectRules* rejectRules = NULL,
                 uint64_t* version = NULL);
