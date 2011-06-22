@@ -168,7 +168,9 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
 
 /**
  * Returns true if there are currently no RPCs being serviced, false
- * if at least one RPC is currently being executed by a worker.
+ * if at least one RPC is currently being executed by a worker.  If true
+ * is returned, it also means that any changes to memory made by any
+ * worker threads will be visible to the caller.
  */
 bool
 ServiceManager::idle()

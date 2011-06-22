@@ -19,30 +19,43 @@
 namespace RAMCloud {
 
 /**
- * This class is used to manage the initialization of static variables.
- * In normal use objects of this class are declared at a static level.
- * When an instance of the class is constructed it causes a particular
- * function to be invoked, or it causes a new object to be dynamically
- * allocated and assigned to a pointer. This makes it easier to control
- * the order of initialization (e.g., an initialization function can
- * initialize objects in a particular order, and explicitly invoke other
- * initialization functions to make sure dependent classes are properly
- * initialized).  The pointer form allows the creation of static objects
+ * This class is used to manage once-only initialization that should occur
+ * before main() is invoked, such as the creation of static variables.  It
+ * also provides a mechanism for handling dependencies (where one class
+ * needs to perform its once-only initialization before another).
+ * 
+ * The simplest way to use an Initialize object is to define a static
+ * initialization method for a class, say Foo::init().  Then, declare
+ * a static Initialize object in the class:
+ * "static Initialize initializer(Foo::init);".
+ * The result is that Foo::init will be invoked when the object is
+ * constructed (before main() is invoked).  Foo::init can create static
+ * objects and perform any other once-only initialization needed by the
+ * class.  Furthermore, if some other class needs to ensure that Foo has
+ * been initialized (e.g. as part of its own initialization) it can invoke
+ * Foo::init directly (Foo::init should contain an internal guard so that
+ * it only performs its functions once, even if invoked several times).
+ *
+ * There is also a second form of constructor for Initialize that causes a
+ * new object to be dynamically allocated and assigned to a pointer, instead
+ * of invoking a function. This form allows for the creation of static objects
  * that are never destructed (thereby avoiding issues with the order of
  * destruction).
  */
 class Initialize {
   public:
     /**
-     * This form of constructor causes a function to be invoked when the
-     * object is constructed.  Typically the function will create static
-     * objects and/or invoke other initialization methods.  The function
-     * should normally contain an internal guard so that it only performs
-     * its initialization is the first time it is invoked.
+     * This form of constructor causes its function argument to be invoked
+     * when the object is constructed.  When used with a static Initialize
+     * object, this will cause #func to run before main() runs, so that
+     * #func can perform once-only initialization.
      *
      * \param func
      *      This function is invoked with no arguments when the object is
-     *      constructed.
+     *      constructed.  Typically the function will create static
+     *      objects and/or invoke other initialization functions.  The
+     *      function should normally contain an internal guard so that it
+     *      only performs its initialization the first time it is invoked.
      */
     Initialize(void (*func)()) {
         (*func)();
@@ -51,7 +64,9 @@ class Initialize {
     /**
      * This form of constructor causes a new object of a particular class
      * to be constructed with a no-argument constructor and assigned to a
-     * given pointer.
+     * given pointer.  This form is typically used with a static Initialize
+     * object: the result is that the object will be created and assigned
+     * to the pointer before main() runs.
      *
      * \param p
      *      Pointer to an object of any type. If the pointer is NULL then
