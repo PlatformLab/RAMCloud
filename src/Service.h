@@ -54,16 +54,12 @@ class Service {
          */
         Rpc(Worker* worker, Buffer& requestPayload,
                 Buffer& replyPayload)
-            : worker(worker)
-            , requestPayload(requestPayload)
+            : requestPayload(requestPayload)
             , replyPayload(replyPayload)
+            , worker(worker)
             , replied(false) {}
 
         void sendReply();
-
-        /// Information about the worker thread that is executing
-        /// this request.
-        Worker* worker;
 
         /// The incoming request, which describes the desired operation.
         Buffer& requestPayload;
@@ -72,6 +68,10 @@ class Service {
         Buffer& replyPayload;
 
       PRIVATE:
+        /// Information about the worker thread that is executing
+        /// this request.
+        Worker* worker;
+
         /// True means that sendReply has been invoked.
         bool replied;
 
