@@ -126,8 +126,7 @@ class Worker {
   PRIVATE:
     ServiceManager::ServiceInfo *serviceInfo;
                                        /// Service for the last request
-                                       /// executed by this worker (index into
-                                       /// #services).
+                                       /// executed by this worker.
     Tub<boost::thread> thread;         /// Thread that executes this worker.
     Transport::ServerRpc* rpc;         /// RPC being serviced by this worker.
                                        /// NULL means the last RPC given to
