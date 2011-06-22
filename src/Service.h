@@ -93,7 +93,7 @@ class Service {
 
     static const char* getString(Buffer& buffer, uint32_t offset,
                                  uint32_t length);
-    virtual void handleRpc(Rpc& rpc);
+    void handleRpc(Rpc& rpc);
 
     /**
      * Returns the maximum number of threads that may be executing in
