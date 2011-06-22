@@ -266,9 +266,7 @@ class MasterServer : public Server {
      */
     ProtoBuf::Tablets tablets;
 
-    /* Temporary tombstone methods used during recovery. */
-    LogEntryHandle allocRecoveryTombstone(const ObjectTombstone* srcTomb);
-    void freeRecoveryTombstone(LogEntryHandle handle);
+    /* Tombstone cleanup method used after recovery. */
     void removeTombstones();
 
     friend void recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type,

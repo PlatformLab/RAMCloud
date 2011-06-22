@@ -564,7 +564,8 @@ class MasterTest : public CppUnit::TestFixture {
 
         // Case 2a: Equal/newer tombstone already there; ignore object.
         ObjectTombstone t1(0, 0, 2002, 1);
-        LogEntryHandle logTomb1 = server->allocRecoveryTombstone(&t1);
+        LogEntryHandle logTomb1 = server->log.append(LOG_ENTRY_TYPE_OBJTOMB,
+            &t1, sizeof(t1), NULL, NULL, false);
         ret = server->objectMap.replace(logTomb1);
         CPPUNIT_ASSERT_EQUAL(false, ret);
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2002, 1, "equal guy");
@@ -578,7 +579,8 @@ class MasterTest : public CppUnit::TestFixture {
 
         // Case 2b: Lesser tombstone already there; add object, remove tomb.
         ObjectTombstone t2(0, 0, 2003, 10);
-        LogEntryHandle logTomb2 = server->allocRecoveryTombstone(&t2);
+        LogEntryHandle logTomb2 = server->log.append(LOG_ENTRY_TYPE_OBJTOMB,
+            &t2, sizeof(t2), NULL, NULL, false);
         ret = server->objectMap.replace(logTomb2);
         CPPUNIT_ASSERT_EQUAL(false, ret);
         len = buildRecoverySegment(seg, sizeof(seg), 0, 2003, 11, "newer guy");

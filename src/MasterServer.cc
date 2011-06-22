@@ -267,45 +267,6 @@ MasterServer::read(const ReadRpc::Request& reqHdr,
 }
 
 /**
- * This method allocates an ObjectTombstone on the heap, initialises it
- * to the given ``srcTomb'', and prepends a SegmentEntry structure to make
- * it look as though it's a valid Log entry. The purpose is so that we can
- * avoid writing ObjectTombstones to the Log on recovery while still being
- * able to put them in the regular HashTable.
- *
- * This is an ugly hack, but I don't see a better way right now. In the
- * future, we may want to use a temporary backup-less Log and write into
- * that, but we'd need that Log, as well as our main Log, to use a common
- * pool of Segments, since we don't know how many tombstones we might
- * encounter.
- *
- * \param[in] srcTomb
- *      A source ObjectTombstone to copy into our allocated tombstone.
- * \return
- *      A valid LogEntryHandle to the ObjectTombstone allocated.
- */
-LogEntryHandle
-MasterServer::allocRecoveryTombstone(const ObjectTombstone* srcTomb)
-{
-    uint8_t* buf = new uint8_t[sizeof(SegmentEntry) + sizeof(ObjectTombstone)];
-    SegmentEntry* se = reinterpret_cast<SegmentEntry*>(buf);
-    se->type = LOG_ENTRY_TYPE_OBJTOMB;
-    se->length = sizeof(ObjectTombstone);
-    memcpy(buf + sizeof(SegmentEntry), srcTomb, sizeof(ObjectTombstone));
-    return reinterpret_cast<LogEntryHandle>(buf);
-}
-
-/**
- * Free the tombstone allocated in #allocRecoveryTombstone().
- */
-void
-MasterServer::freeRecoveryTombstone(LogEntryHandle handle)
-{
-    const uint8_t* p = reinterpret_cast<const uint8_t*>(handle);
-    delete[] p;
-}
-
-/**
  * Callback used to purge the tombstones from the hash table. Invoked by
  * HashTable::forEach.
  */
@@ -317,7 +278,6 @@ recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type, void *cookie)
         MasterServer *server = reinterpret_cast<MasterServer*>(cookie);
         bool r = server->objectMap.remove(tomb->id.tableId, tomb->id.objectId);
         assert(r);
-        server->freeRecoveryTombstone(maybeTomb);
     }
 }
 
@@ -1002,7 +962,7 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
 
                 // nuke the tombstone, if it existed
                 if (tomb != NULL)
-                    freeRecoveryTombstone(handle);
+                    log.free(handle);
 
                 // nuke the old object, if it existed
                 if (localObj != NULL) {
@@ -1050,15 +1010,15 @@ MasterServer::recoverSegment(uint64_t segmentId, const void *buffer,
                 minSuccessor = tomb->objectVersion + 1;
 
             if (recoverTomb->objectVersion >= minSuccessor) {
-                // allocate memory for the tombstone & update hash table
-                // TODO(ongaro): Change to new with copy constructor?
-                LogEntryHandle newTomb = allocRecoveryTombstone(recoverTomb);
                 ++metrics->master.tombstoneAppendCount;
+                LogEntryHandle newTomb = log.append(
+                    LOG_ENTRY_TYPE_OBJTOMB, recoverTomb, sizeof(*recoverTomb),
+                    NULL, NULL, false, i.checksum());
                 objectMap.replace(newTomb);
 
                 // nuke the old tombstone, if it existed
                 if (tomb != NULL)
-                    freeRecoveryTombstone(handle);
+                    log.free(handle);
 
                 // nuke the object, if it existed
                 if (localObj != NULL) {
