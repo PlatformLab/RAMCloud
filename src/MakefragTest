@@ -55,6 +55,7 @@ TESTS_SRCFILES := \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
+		  src/ThreadIdTest.cc \
 		  src/TransportManagerTest.cc \
 		  src/TransportTest.cc \
 		  src/TubTest.cc \

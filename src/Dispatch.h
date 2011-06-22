@@ -21,6 +21,7 @@
 #include <boost/thread/locks.hpp>
 
 #include "Common.h"
+#include "ThreadId.h"
 #include "Tub.h"
 #include "Syscall.h"
 
@@ -49,7 +50,16 @@ class Dispatch {
     Dispatch();
     ~Dispatch();
     static void init();
-    bool isDispatchThread();
+
+    /**
+     * Returns true if this thread is the one in which the object was created.
+     */
+    bool
+    isDispatchThread()
+    {
+        return (ownerId == ThreadId::get());
+    }
+
     void poll();
 
     /// The return value from rdtsc at the beginning of the last call to
@@ -191,15 +201,14 @@ class Dispatch {
 
     /**
      * Lock objects are used to synchronize between the dispatch thread and
-     * other threads (non-dispatch threads must construct a Lock object
-     * before invoking Dispatch methods).  As long as the Lock object exists
-     * the following guarantees are in effect: either (a) the thread is
-     * the dispatch thread or (b) no other non-dispatch thread has a
-     * Lock object and the dispatch thread is in an idle state waiting
-     * for the Lock to be destroyed.  Although Locks are intended primarily
-     * for use in non-dispatch threads, they can also be used in the dispatch
-     * thread (e.g., if you can't tell which thread will run a particular
-     * piece of code).
+     * other threads.  As long as a Lock object exists the following guarantees
+     * are in effect: either (a) the thread is the dispatch thread or (b) no
+     * other non-dispatch thread has a Lock object and the dispatch thread is
+     * in an idle state waiting for the Lock to be destroyed.  Although Locks
+     * are intended primarily for use in non-dispatch threads, they can also be
+     * used in the dispatch hread (e.g., if you can't tell which thread will
+     * run a particular piece of code). Locks may not be used recursively: a
+     * single thread can only create a single Lock object at a time.
      */
     class Lock {
       public:
@@ -263,9 +272,9 @@ class Dispatch {
     // (measured in cycles).
     uint64_t earliestTriggerTime;
 
-    // Thread-specific storage: if a thread is the dispatch thread then
-    // the pointer is non-null.
-    boost::thread_specific_ptr<int> dispatchThreadToken;
+    // Unique identifier (as returned by ThreadId::get) for the thread that
+    // created this object.
+    uint64_t ownerId;
 
     // Used to make sure that only one thread at a time attempts to lock
     // the dispatcher.

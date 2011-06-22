@@ -71,13 +71,12 @@ Dispatch::Dispatch()
     , fileInvocationSerial(0)
     , timers()
     , earliestTriggerTime(0)
-    , dispatchThreadToken()
+    , ownerId(ThreadId::get())
     , mutex()
     , lockNeeded(0)
     , locked(0)
 {
     exitPipeFds[0] = exitPipeFds[1] = -1;
-    dispatchThreadToken.reset(new int);
 }
 
 /**
@@ -198,15 +197,6 @@ Dispatch::poll()
             }
         }
     }
-}
-
-/**
- * Returns true if this thread is the one in which the object was created.
- */
-bool
-Dispatch::isDispatchThread()
-{
-    return dispatchThreadToken.get() != NULL;
 }
 
 /**
@@ -576,8 +566,8 @@ static NoOp<int> thisThreadHasDispatchLock;
 /**
  * Construct a Lock object, which means we must lock the dispatch
  * thread unless we are currently executing in the dispatch thread.
- * These are not recursive (you can't safely create a Lock object if someone up
- * the stack already has one).
+ * These are not recursive (you can't safely create a Lock object if
+ * someone up the stack already has one).
  *
  * \param dispatch
  *      Dispatch object to lock (defaults to the global #RAMCloud::dispatch
@@ -589,6 +579,7 @@ Dispatch::Lock::Lock(Dispatch* dispatch)
     if (dispatch->isDispatchThread()) {
         return;
     }
+
     assert(!thisThreadHasDispatchLock);
     thisThreadHasDispatchLock = true;
     lock.construct(dispatch->mutex);

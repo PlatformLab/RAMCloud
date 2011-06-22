@@ -35,6 +35,7 @@ CLIENT_SRCFILES := \
 		   src/ServiceManager.cc \
 		   src/Status.cc \
 		   src/TcpTransport.cc \
+		   src/ThreadId.cc \
 		   src/TimeCounter.cc \
 		   src/Transport.cc \
 		   src/TransportManager.cc \

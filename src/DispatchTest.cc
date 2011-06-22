@@ -752,7 +752,7 @@ TEST_F(DispatchTest, Lock_inDispatchThread) {
     EXPECT_EQ("poller p1 invoked", *localLog);
 }
 
-// No need to test the case of locking from a non-dispatch thread: this is
-// already handled by the test case test_poll_locking.
+// The test case test_poll_locking has already tested the
+// functionality of locking from a non-dispatch thread.
 
 }  // namespace RAMCloud

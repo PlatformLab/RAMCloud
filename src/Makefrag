@@ -60,6 +60,7 @@ SHARED_SRCFILES := \
 		   src/StringKeyAdapter.cc \
 		   src/TabletProfiler.cc \
 		   src/TcpTransport.cc \
+		   src/ThreadId.cc \
 		   src/TimeCounter.cc \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
