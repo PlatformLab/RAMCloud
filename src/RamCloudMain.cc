@@ -42,10 +42,14 @@ bool fillWithTestData = false;
 
 void
 runRecovery(RamCloud& client,
-            int count, uint32_t objectDataSize,
+            int count,
+            int removeCount,
+            uint32_t objectDataSize,
             int tableCount,
             int tableSkip)
 {
+    if (removeCount > count)
+        DIE("cannot remove more objects than I create!");
     if (verify && objectDataSize < 20)
         DIE("need >= 20 byte objects to do verification!");
     if (verify && fillWithTestData)
@@ -125,6 +129,13 @@ runRecovery(RamCloud& client,
             count * tableCount, rdtsc() - b);
         LOG(NOTICE, "avg insert took %lu ticks",
             (rdtsc() - b) / count / tableCount);
+    }
+
+    // remove objects if we've been instructed. just start from table 0, obj 0.
+    for (int t = 0; t < tableCount; t++) {
+        for (int j = 0; removeCount > 0; j++, removeCount--)
+            client.remove(tables[t], j);
+
     }
 
     // dump the tablet map
@@ -222,7 +233,7 @@ main(int argc, char *argv[])
 try
 {
     bool hintServerDown;
-    int count;
+    int count, removeCount;
     uint32_t objectDataSize;
     uint32_t tableCount;
     uint32_t skipCount;
@@ -248,6 +259,9 @@ try
          ProgramOptions::value<int>(&count)->
             default_value(1024),
          "The number of values to insert.")
+        ("removals,r",
+         ProgramOptions::value<int>(&removeCount)->default_value(0),
+         "The number of values inserted to remove (creating tombstones).")
         ("size,s",
          ProgramOptions::value<uint32_t>(&objectDataSize)->
             default_value(1024),
@@ -264,7 +278,8 @@ try
     RamCloud client(optionParser.options.getCoordinatorLocator().c_str());
 
     if (hintServerDown) {
-        runRecovery(client, count, objectDataSize, tableCount, skipCount);
+        runRecovery(client, count, removeCount,
+            objectDataSize, tableCount, skipCount);
         return 0;
     }
 
