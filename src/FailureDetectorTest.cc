@@ -439,7 +439,7 @@ class FailureDetectorTest : public CppUnit::TestFixture {
     test_tq_enqueue()
     {
         TimeoutQueue q(523);
-        mockTSCValue = nanosecondsToCycles(12 * 1000);
+        mockTSCValue = nanosecondsToCycles(12 * 1000 + 100);
         q.enqueue("hello, there", 8734723);
         CPPUNIT_ASSERT_EQUAL(1, q.entries.size());
         CPPUNIT_ASSERT_EQUAL("hello, there", q.entries.front().locator);
