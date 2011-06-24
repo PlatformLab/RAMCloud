@@ -281,8 +281,7 @@ try {
                 // atomic op and only change to SLEEPING if the current value
                 // is POLLING.
                 int expected = Worker::POLLING;
-                if (worker->state.compare_exchange_weak(expected,
-                        Worker::SLEEPING)) {
+                if (worker->state.compareExchange(expected, Worker::SLEEPING)) {
                     if (sys->futexWait(reinterpret_cast<int*>(&worker->state),
                             Worker::SLEEPING) == -1) {
                         // EWOULDBLOCK means that someone already changed

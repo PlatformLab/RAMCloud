@@ -599,6 +599,13 @@ T second(pair<_, T> p)
         - 100)
 
 /**
+ * The length of a cache line in bytes (or upper-bound estimate). Used to
+ * insert padding into structures in order to ensure that some fields are
+ * on different cache lines than others.
+ */
+#define CACHE_LINE_SIZE 64
+
+/**
  * Prefetch the cache lines containing [object, object + numBytes) into the
  * processor's caches.
  * The best docs for this are in the Intel instruction set reference under

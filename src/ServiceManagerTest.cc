@@ -407,6 +407,7 @@ TEST_F(ServiceManagerTest, Worker_handoff_callFutex) {
             message = "";
             break;
         }
+        usleep(1000);
         dispatch->poll();
     }
     EXPECT_STREQ("", message);

@@ -33,6 +33,7 @@ CLIENT_SRCFILES := \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \
 		   src/ServiceManager.cc \
+		   src/SpinLock.cc \
 		   src/Status.cc \
 		   src/TcpTransport.cc \
 		   src/ThreadId.cc \

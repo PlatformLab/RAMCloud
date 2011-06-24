@@ -12,6 +12,7 @@ INFINIBAND_SRCFILES :=
 endif
 
 TESTS_SRCFILES := \
+		  src/AtomicIntTest.cc \
 		  src/BackupManagerTest.cc \
 		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \
@@ -48,6 +49,7 @@ TESTS_SRCFILES := \
 		  src/ServiceTest.cc \
 		  src/ServiceManagerTest.cc \
 		  src/ServiceLocatorTest.cc \
+		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
 		  src/StringKeyAdapterTest.cc \
 		  src/TabletProfilerTest.cc \
@@ -98,8 +100,10 @@ $(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
 
 # TODO(ongaro) The unit tests don't actually call HashTableBenchmark, Echo,
 # Telnet, or RecoverSegmentBenchmark. I just wanted to make sure it continues to build over time.
-test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet $(OBJDIR)/Bench $(OBJDIR)/RecoverSegmentBenchmark $(OBJDIR)/TransportSmack $(OBJDIR)/WillBenchmark
+test: $(OBJDIR)/test $(OBJDIR)/HashTableBenchmark $(OBJDIR)/Echo $(OBJDIR)/Telnet $(OBJDIR)/Bench $(OBJDIR)/Perf $(OBJDIR)/RecoverSegmentBenchmark $(OBJDIR)/TransportSmack $(OBJDIR)/WillBenchmark
 	$(OBJDIR)/test
+
+all: $(OBJDIR)/Perf
 
 ftest: $(OBJDIR)/test
 	scripts/forking_test_runner.py
@@ -123,6 +127,10 @@ $(OBJDIR)/RecoverSegmentBenchmark: $(OBJDIR)/RecoverSegmentBenchmark.o $(SHARED_
 $(OBJDIR)/Bench: $(OBJDIR)/Bench.o $(OBJDIR)/TestUtil.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(TESTS_LIB) -o $@ $^
+
+$(OBJDIR)/Perf: $(OBJDIR)/Perf.o $(SERVER_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -o $@ $^
 
 $(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/Metrics.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)

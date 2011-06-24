@@ -583,6 +583,15 @@ Dispatch::Lock::Lock(Dispatch* dispatch)
     assert(!thisThreadHasDispatchLock);
     thisThreadHasDispatchLock = true;
     lock.construct(dispatch->mutex);
+
+    // It's possible that when we arrive here the dispatch thread hasn't
+    // finished unlocking itself after the previous lock-unlock cycle.
+    // We need to make sure for this to complete; otherwise we could
+    // get confused below and return before the dispatch thread has
+    // re-locked itself.
+    while (dispatch->locked.load() != 0) {
+        // Empty loop.
+    }
     dispatch->lockNeeded.store(1);
     while (dispatch->locked.load() == 0) {
         // Empty loop: spin-wait for the dispatch thread to lock itself.
@@ -602,14 +611,6 @@ Dispatch::Lock::~Lock()
     }
 
     dispatch->lockNeeded.store(0);
-
-    // We must not return (which will release the mutex) until the
-    // dispatch thread has cleared the #locked variable. Otherwise
-    // there is a race where another thread could think the dispatch
-    // thread is locked when it is really about to unlock itself.
-    while (dispatch->locked.load() != 0) {
-        // Empty loop: spin-wait for the dispatch thread to unlock.
-    }
     thisThreadHasDispatchLock = false;
 }
 

@@ -322,11 +322,11 @@ TEST_F(DispatchTest, poll_locking) {
     // Delete the lock and make sure that the dispatcher starts working
     // again.
     lock.destroy();
-    EXPECT_EQ(0, dispatch->locked.load());
-    EXPECT_EQ(0, dispatch->lockNeeded.load());
     for (int i = 0; (counter->count == oldCount) && (i < 1000); i++) {
         usleep(100);
     }
+    EXPECT_EQ(0, dispatch->locked.load());
+    EXPECT_EQ(0, dispatch->lockNeeded.load());
     EXPECT_GT(counter->count, oldCount);
 
     flag = 0;
