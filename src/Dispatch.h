@@ -66,6 +66,11 @@ class Dispatch {
 
     /// The return value from rdtsc at the beginning of the last call to
     /// #poll.  May be read from multiple threads, so must be volatile.
+    /// This value is relatively accurate for any code running in a Dispatch
+    /// handler (Timer, Poller, etc.), and it is much cheaper than calling
+    /// rdtsc(). However, on clients, if no RPCs are invoked for a while then
+    /// #currentTime may be out of date, since #poll is only invoked while
+    /// waiting for RPCs to complete.
     volatile uint64_t currentTime;
 
     /**
@@ -168,10 +173,7 @@ class Dispatch {
                 Dispatch* dispatch = RAMCloud::dispatch);
         virtual ~Timer();
         bool isRunning();
-        void startCycles(uint64_t cycles);
-        void startMicros(uint64_t micros);
-        void startMillis(uint64_t ms);
-        void startSeconds(uint64_t seconds);
+        void start(uint64_t cycles);
         void stop();
 
         /**

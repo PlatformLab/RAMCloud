@@ -438,12 +438,12 @@ Dispatch::Timer::Timer(Dispatch* dispatch)
  *      global #RAMCloud::dispatch object).
  * \param cycles
  *      Time at which the timer should trigger, measured in cycles (the units
- *      returned by #rdtsc) from Dispatch::currentTime.
+ *      returned by #rdtsc).
  */
 Dispatch::Timer::Timer(uint64_t cycles, Dispatch* dispatch)
         : owner(dispatch), triggerTime(0), slot(-1)
 {
-    startCycles(cycles);
+    start(cycles);
 }
 
 /**
@@ -465,12 +465,12 @@ bool Dispatch::Timer::isRunning()
 /**
  * Start this timer running.
  *
- * \param cycles
- *      Time at which the timer should trigger, measured in cycles (the units
- *      returned by #rdtsc) from Dispatch::currentTime.  If the timer was
- *      already running the old trigger time is forgotten
+ * \param rdtscTime
+ *      The timer will trigger when #rdtsc() returns a value at least this
+ *      large.  If the timer was already running, the old trigger time is
+ *      forgotten.
  */
-void Dispatch::Timer::startCycles(uint64_t cycles)
+void Dispatch::Timer::start(uint64_t rdtscTime)
 {
     if (owner == NULL) {
         // Our Dispatch no longer exists, so there's nothing to do here.
@@ -478,7 +478,7 @@ void Dispatch::Timer::startCycles(uint64_t cycles)
     }
     CHECK_LOCK;
 
-    triggerTime = owner->currentTime + cycles;
+    triggerTime = rdtscTime;
     if (slot < 0) {
         slot = downCast<unsigned>(owner->timers.size());
         owner->timers.push_back(this);
@@ -486,45 +486,6 @@ void Dispatch::Timer::startCycles(uint64_t cycles)
     if (triggerTime < owner->earliestTriggerTime) {
         owner->earliestTriggerTime = triggerTime;
     }
-}
-
-/**
- * Start this timer running.
- *
- * \param micros
- *      Time at which the timer should trigger, measured in microseconds from
- *      Dispatch::currentTime.  If the timer was already running the old
- *      trigger time is forgotten
- */
-void Dispatch::Timer::startMicros(uint64_t micros)
-{
-    startCycles(nanosecondsToCycles(1000*micros));
-}
-
-/**
- * Start this timer running.
- *
- * \param millis
- *      Time at which the timer should trigger, measured in milliseconds from
- *      Dispatch::currentTime.  If the timer was already running the old
- *      trigger time is forgotten
- */
-void Dispatch::Timer::startMillis(uint64_t millis)
-{
-    startCycles(nanosecondsToCycles(1000*1000*millis));
-}
-
-/**
- * Start this timer running.
- *
- * \param seconds
- *      Time at which the timer should trigger, measured in seconds from
- *      Dispatch::currentTime.  If the timer was already running the old
- *      trigger time is forgotten
- */
-void Dispatch::Timer::startSeconds(uint64_t seconds)
-{
-    startCycles(nanosecondsToCycles(1000*1000*1000*seconds));
 }
 
 /**

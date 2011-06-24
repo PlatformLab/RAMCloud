@@ -663,7 +663,7 @@ class InboundMessageTest : public CppUnit::TestFixture {
         uint32_t channelId = 5;
         setUp(2, useTimer);
 
-        msg->timer.startCycles(999);
+        msg->timer.start(999);
 
         FastTransport::ClientSession* clientSession =
             static_cast<FastTransport::ClientSession*>(session.get());
@@ -687,7 +687,7 @@ class InboundMessageTest : public CppUnit::TestFixture {
         setUp(2, true);
 
         char junk[0];
-        msg->timer.startCycles(1000);
+        msg->timer.start(1000);
         msg->dataStagingWindow[11] = std::pair<char*, uint32_t>(junk, 1);
         msg->dataStagingWindow[14] = std::pair<char*, uint32_t>(junk, 1);
 
@@ -1005,7 +1005,7 @@ class OutboundMessageTest: public CppUnit::TestFixture {
     test_reset()
     {
         setUp(1600, true);
-        msg->timer.startCycles(999);
+        msg->timer.start(999);
 
         msg->reset();
 
@@ -1788,7 +1788,8 @@ class ClientSessionTest: public CppUnit::TestFixture {
     void
     test_connect_sessionOpenRequestRetransmit()
     {
-        dispatch->currentTime = 91291;
+        Tub<MockTSC> tsc;
+        tsc.construct(91291);
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
@@ -1797,7 +1798,8 @@ class ClientSessionTest: public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(true, session->sessionOpenRequestInFlight);
 
 
-        MockTSC _(dispatch->currentTime + FastTransport::timeoutCycles() + 1);
+        tsc.construct(dispatch->currentTime + FastTransport::timeoutCycles()
+            + 1);
         dispatch->poll();
 
         CPPUNIT_ASSERT_EQUAL(
@@ -1814,6 +1816,8 @@ class ClientSessionTest: public CppUnit::TestFixture {
     test_connect_sessionOpenRequestTimeout()
     {
         dispatch->currentTime = 91291;
+        Tub<MockTSC> tsc;
+        tsc.construct(dispatch->currentTime);
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
         session->init(serviceLocator);
@@ -1824,7 +1828,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
         FastTransport::ClientRpc rpc(transport, request, response);
         session->channelQueue.push_back(rpc);
 
-        MockTSC _(dispatch->currentTime +
+        tsc.construct(dispatch->currentTime +
                 2*FastTransport::sessionTimeoutCycles());
         dispatch->poll();
         CPPUNIT_ASSERT_EQUAL(false, session->sessionOpenRequestInFlight);

@@ -181,7 +181,7 @@ class DispatchTest : public ::testing::Test {
         }
         localLog->clear();
         td = new Dispatch;
-        td->currentTime = 0;
+        td->currentTime = 100;
         sys = new MockSyscall();
         savedSyscall = Dispatch::sys;
         Dispatch::sys = sys;
@@ -382,9 +382,9 @@ TEST_F(DispatchTest, poll_fileDeletedDuringInvocation) {
 
 TEST_F(DispatchTest, poll_dontEvenCheckTimers) {
     DummyTimer t1("t1", td);
-    t1.startCycles(50);
-    mockTSCValue = 100;
-    td->earliestTriggerTime = 101;
+    t1.start(150);
+    mockTSCValue = 200;
+    td->earliestTriggerTime = 201;
     td->poll();
     EXPECT_EQ("", *localLog);
     td->earliestTriggerTime = 0;
@@ -394,15 +394,15 @@ TEST_F(DispatchTest, poll_dontEvenCheckTimers) {
 
 TEST_F(DispatchTest, poll_triggerTimers) {
     DummyTimer t1("t1", td), t2("t2", td), t3("t3", td), t4("t4", td);
-    t1.startCycles(50);
-    t2.startCycles(60);
-    t3.startCycles(80);
-    t4.startCycles(70);
-    mockTSCValue = 75;
+    t1.start(150);
+    t2.start(160);
+    t3.start(180);
+    t4.start(170);
+    mockTSCValue = 175;
     td->poll();
     EXPECT_EQ("timer t1 invoked; timer t4 invoked; "
                 "timer t2 invoked", *localLog);
-    EXPECT_EQ(80UL, td->earliestTriggerTime);
+    EXPECT_EQ(180UL, td->earliestTriggerTime);
 }
 
 
@@ -684,7 +684,7 @@ TEST_F(DispatchTest, Timer_reentrant) {
     t2->deleteWhenInvoked(t2);
     t2->deleteWhenInvoked(new DummyTimer("t3", td));
     t2->deleteWhenInvoked(new DummyTimer("t4", td));
-    mockTSCValue = 200;
+    mockTSCValue = 300;
     td->poll();
     CPPUNIT_ASSERT_EQUAL("timer t2 invoked", *localLog);
     CPPUNIT_ASSERT_EQUAL(1U, td->timers.size());
@@ -693,42 +693,26 @@ TEST_F(DispatchTest, Timer_reentrant) {
 TEST_F(DispatchTest, Timer_isRunning) {
     DummyTimer t1("t1", td);
     EXPECT_FALSE(t1.isRunning());
-    t1.startCycles(100);
+    t1.start(200);
     EXPECT_TRUE(t1.isRunning());
     t1.stop();
     EXPECT_FALSE(t1.isRunning());
 }
 
-TEST_F(DispatchTest, Timer_startCycles) {
+TEST_F(DispatchTest, Timer_start) {
     DummyTimer t1("t1", td);
-    td->earliestTriggerTime = 100;
-    t1.startCycles(110);
-    EXPECT_EQ(110UL, t1.triggerTime);
+    DummyTimer t2("t2", td);
+    td->earliestTriggerTime = 200;
+    t1.start(210);
+    EXPECT_EQ(210UL, t1.triggerTime);
     EXPECT_EQ(0, t1.slot);
-    EXPECT_EQ(100UL, td->earliestTriggerTime);
-    t1.startCycles(90);
-    EXPECT_EQ(90UL, td->earliestTriggerTime);
-}
-
-TEST_F(DispatchTest, Timer_startMicros) {
-    cyclesPerSec = 2000000000;
-    DummyTimer t1("t1", td);
-    t1.startMicros(15);
-    EXPECT_EQ(30000UL, t1.triggerTime);
-}
-
-TEST_F(DispatchTest, Timer_startMillis) {
-    cyclesPerSec = 2000000000;
-    DummyTimer t1("t1", td);
-    t1.startMillis(6);
-    EXPECT_EQ(12000000UL, t1.triggerTime);
-}
-
-TEST_F(DispatchTest, Timer_startSeconds) {
-    cyclesPerSec = 2000000000;
-    DummyTimer t1("t1", td);
-    t1.startSeconds(3);
-    EXPECT_EQ(6000000000UL, t1.triggerTime);
+    EXPECT_EQ(200UL, td->earliestTriggerTime);
+    t2.start(190);
+    EXPECT_EQ(190UL, td->earliestTriggerTime);
+    EXPECT_EQ(1, t2.slot);
+    t1.start(300);
+    EXPECT_EQ(300UL, t1.triggerTime);
+    EXPECT_EQ(0, t1.slot);
 }
 
 TEST_F(DispatchTest, Timer_stop) {

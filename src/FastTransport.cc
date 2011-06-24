@@ -437,7 +437,7 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
     this->totalFrags = totalFrags;
     this->dataBuffer = dataBuffer;
     if (useTimer)
-        timer.startCycles(timeoutCycles());
+        timer.start(dispatch->currentTime + timeoutCycles());
 }
 
 /**
@@ -534,7 +534,7 @@ FastTransport::InboundMessage::processReceivedData(Driver::Received* received)
     if (header->requestAck)
         sendAck();
     if (useTimer)
-        timer.startCycles(timeoutCycles());
+        timer.start(dispatch->currentTime + timeoutCycles());
 
     return firstMissingFrag == totalFrags;
 }
@@ -571,7 +571,7 @@ FastTransport::InboundMessage::Timer::handleTimerEvent()
             > sessionTimeoutCycles()) {
         inboundMsg->session->close();
     } else {
-        startCycles(timeoutCycles());
+        start(dispatch->currentTime + timeoutCycles());
         inboundMsg->sendAck();
     }
 }
@@ -742,7 +742,7 @@ FastTransport::OutboundMessage::send()
                     oldest = sentTime;
         }
         if (oldest != ~(0lu))
-            timer.startCycles(timeoutCycles() - (now - oldest));
+            timer.start(rdtsc() + timeoutCycles() - (now - oldest));
     }
 }
 
@@ -1384,7 +1384,7 @@ FastTransport::ClientSession::sendSessionOpenRequest()
     sessionOpenRequestInFlight = true;
 
     // Schedule the timer to resend if no response.
-    timer.startCycles(timeoutCycles());
+    timer.start(rdtsc() + timeoutCycles());
 }
 
 // - private -
