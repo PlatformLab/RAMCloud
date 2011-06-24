@@ -715,6 +715,16 @@ TEST_F(DispatchTest, Timer_start) {
     EXPECT_EQ(0, t1.slot);
 }
 
+TEST_F(DispatchTest, Timer_start_dispatchDeleted) {
+    Tub<Dispatch> dispatch;
+    dispatch.construct();
+    DummyTimer t1("t1", dispatch.get());
+    t1.start(1000);
+    dispatch.destroy();
+    t1.start(2000);
+    EXPECT_EQ(1000UL, t1.triggerTime);
+}
+
 TEST_F(DispatchTest, Timer_stop) {
     DummyTimer t1("t1", 100, td);
     DummyTimer t2("t2", 100, td);

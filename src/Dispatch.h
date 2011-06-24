@@ -269,7 +269,7 @@ class Dispatch {
     // Keeps track of all of the timers currently defined.  We don't
     // use an intrusive list here because it isn't reentrant: we need
     // to add/remove elements while the dispatcher is traversing the list.
-    // List of all timers that are currently defined.
+    // BUG?? This list currently contains only the active timers.
     std::vector<Timer*> timers;
 
     // Optimization for timers: no timer will trigger sooner than this time
