@@ -136,7 +136,7 @@ class Worker {
     int busyIndex;                     /// Location of this worker in
                                        /// #busyThreads, or -1 if this worker
                                        /// is idle.
-    atomic_int state;                  /// Shared variable used to pass RPCs
+    AtomicInt state;                   /// Shared variable used to pass RPCs
                                        /// between the dispatch thread and this
                                        /// worker.
 

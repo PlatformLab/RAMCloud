@@ -31,6 +31,7 @@
 #include <queue>
 
 #include "Common.h"
+#include "AtomicInt.h"
 #include "BackupClient.h"
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
@@ -54,8 +55,6 @@ Tub<uint64_t> whichPartition(const LogEntryType type,
  */
 class BackupService : public Service {
   PRIVATE:
-
-    typedef std::atomic_int AtomicInt;
 
     /**
      * Decrement the value referred to on the constructor on

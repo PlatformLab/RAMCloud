@@ -483,7 +483,7 @@ class BackupServiceTest : public CppUnit::TestFixture {
 
         ProtoBuf::Tablets partitions;
         createTabletList(partitions);
-        BackupService::AtomicInt recoveryThreadCount{0};
+        AtomicInt recoveryThreadCount{0};
         BackupService::RecoverySegmentBuilder builder(toBuild,
                                                      partitions,
                                                      recoveryThreadCount);

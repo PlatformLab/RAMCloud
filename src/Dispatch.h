@@ -21,8 +21,10 @@
 #include <boost/thread/locks.hpp>
 
 #include "Common.h"
+#include "AtomicInt.h"
 #include "ThreadId.h"
 #include "Tub.h"
+#include "SpinLock.h"
 #include "Syscall.h"
 
 namespace RAMCloud {
@@ -222,7 +224,7 @@ class Dispatch {
         /// is constructed in a thread other than the dispatch thread
         /// (no mutual exclusion is needed if the Lock is created in
         /// the dispatch thread).
-        Tub<boost::lock_guard<boost::mutex>> lock;
+        Tub<boost::lock_guard<SpinLock>> lock;
         DISALLOW_COPY_AND_ASSIGN(Lock);
     };
 
@@ -278,14 +280,19 @@ class Dispatch {
 
     // Used to make sure that only one thread at a time attempts to lock
     // the dispatcher.
-    boost::mutex mutex;
+    SpinLock mutex;
+
+    // Insert extra space in order to ensure that fields below this are on a
+    // different cache line from mutex (saves 30ns in creating and deleting a
+    // Lock as of 6/2011).
+    char pad[CACHE_LINE_SIZE];
 
     // Nonzero means there is a (non-dispatch) thread trying to lock the
     // dispatcher.
-    atomic_int lockNeeded;
+    AtomicInt lockNeeded;
 
     // Nonzero means the dispatch thread is locked.
-    atomic_int locked;
+    AtomicInt locked;
 
     static Syscall *sys;
 
