@@ -1645,6 +1645,7 @@ class ClientSessionTest: public CppUnit::TestFixture {
     CPPUNIT_TEST(test_processInboundPacket_data);
     CPPUNIT_TEST(test_processInboundPacket_ack);
     CPPUNIT_TEST(test_processInboundPacket_badSession);
+    CPPUNIT_TEST(test_processInboundPacket_redundantOpenResponse);
     CPPUNIT_TEST(test_processInboundPacket_badPayloadType);
     CPPUNIT_TEST(test_processInboundPacket_stalePacket);
     CPPUNIT_TEST(test_sendSessionOpenRequest);
@@ -2004,6 +2005,20 @@ class ClientSessionTest: public CppUnit::TestFixture {
             "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
             driver->outputLog);
         session->channelQueue.pop_front();
+    }
+
+    void
+    test_processInboundPacket_redundantOpenResponse()
+    {
+        TestLog::Enable _;
+        session->numChannels = FastTransport::MAX_NUM_CHANNELS_PER_SESSION;
+        session->allocateChannels();
+        FastTransport::SessionOpenResponse sessResp =
+                { FastTransport::NUM_CHANNELS_PER_SESSION };
+        MockReceived recvd(0, 1, &sessResp, sizeof(sessResp));
+        recvd.getHeader()->payloadType = FastTransport::Header::SESSION_OPEN;
+        session->processInboundPacket(&recvd);
+        CPPUNIT_ASSERT_EQUAL("", TestLog::get());
     }
 
     void

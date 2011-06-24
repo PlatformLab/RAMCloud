@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -1341,6 +1341,13 @@ FastTransport::ClientSession::processInboundPacket(Driver::Received* received)
             serverSessionHint = INVALID_HINT;
             token = INVALID_TOKEN;
             connect();
+            break;
+        case Header::SESSION_OPEN:
+            // We get here if the server is slow to respond to a SESSION_OPEN
+            // request, so we retransmit the request, but the server eventually
+            // responds to both the original and the retransmitted requests.
+            // The second response ends up here.  This is benign, so just
+            // ignore this packet.
             break;
         default:
             LOG(WARNING, "bad payload type %d", header->getPayloadType());
