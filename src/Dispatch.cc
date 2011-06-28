@@ -418,8 +418,8 @@ void Dispatch::epollThreadMain(Dispatch* owner) {
 }
 
 /**
- * Construct a timer but do not start it: it will not fire until one of
- * the #startXXX methods is invoked.
+ * Construct a timer but do not start it: it will not fire until #start
+ * is invoked.
  *
  * \param dispatch
  *      Dispatch object that will manage this timer (defaults to the
@@ -490,7 +490,7 @@ void Dispatch::Timer::start(uint64_t rdtscTime)
 
 /**
  * Stop this timer, if it was running. After this call, the timer won't
- * trigger until a #startXXX method is invoked again.
+ * trigger until #start is invoked again.
  */
 void Dispatch::Timer::stop()
 {
