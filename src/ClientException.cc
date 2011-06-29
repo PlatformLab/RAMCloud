@@ -105,6 +105,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw RetryException(where);
         case STATUS_SERVICE_NOT_AVAILABLE:
             throw ServiceNotAvailableException(where);
+        case STATUS_TIMEOUT:
+            throw TimeoutException(where);
         default:
             throw InternalError(where, status);
     }

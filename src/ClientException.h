@@ -146,6 +146,9 @@ DEFINE_EXCEPTION(RetryException,
 DEFINE_EXCEPTION(ServiceNotAvailableException,
                  STATUS_SERVICE_NOT_AVAILABLE,
                  ClientException)
+DEFINE_EXCEPTION(TimeoutException,
+                 STATUS_TIMEOUT,
+                 ClientException)
 
 } // namespace RAMCloud
 
