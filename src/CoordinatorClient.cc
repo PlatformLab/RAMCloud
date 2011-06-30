@@ -254,26 +254,6 @@ CoordinatorClient::hintServerDown(string serviceLocator)
 }
 
 /**
- * \copydoc MasterClient::ping
- */
-void
-CoordinatorClient::ping()
-{
-    Buffer req;
-    Buffer resp;
-    allocHeader<PingRpc>(req);
-
-    // Temporary hack: reset the service type to COORDINATOR (eventually
-    // ping should be in its own service).
-
-    RpcRequestCommon* common = const_cast<RpcRequestCommon*>(
-            req.getStart<RpcRequestCommon>());
-    common->service = COORDINATOR_SERVICE;
-    sendRecv<PingRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/**
  * Have all backups flush their dirty segments to storage.
  * This is useful for measuring recovery performance accurately.
  */

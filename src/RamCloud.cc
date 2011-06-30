@@ -16,6 +16,7 @@
 
 #include "RamCloud.h"
 #include "MasterClient.h"
+#include "PingClient.h"
 
 namespace RAMCloud {
 
@@ -63,11 +64,56 @@ RamCloud::create(uint32_t tableId, const void* buf, uint32_t length,
     return Create(*this, tableId, buf, length, version, async)();
 }
 
-/// \copydoc CoordinatorClient::ping
-void
-RamCloud::ping()
+/// \copydoc PingClient::ping
+uint64_t
+RamCloud::ping(const char* serviceLocator, uint64_t nonce,
+               uint64_t timeoutNanoseconds)
 {
-    coordinator.ping();
+    PingClient client;
+    return client.ping(serviceLocator, nonce, timeoutNanoseconds);
+}
+
+/**
+ * Issue a trivial RPC to the server that manages a particular object,
+ * to make sure that it exists and is responsive.
+ *
+ * \param table
+ *      Identifier for a table.
+ * \param objectId
+ *      Identifier for an object within \c tableId; the server that manages
+ *      this object is the one that will be pinged.
+ * \param nonce
+ *      Arbitrary 64-bit value to pass to the server; the server will return
+ *      this value in its response.
+ * \param timeoutNanoseconds
+ *      The maximum amount of time to wait for a response (in nanoseconds).
+ * \result
+ *      The value returned by the server, which should be the same as \c nonce
+ *      (this method does not verify that the value does in fact match).
+ *
+ * \throw TimeoutException
+ *      The server did not respond within \c timeoutNanoseconds.
+ */
+uint64_t
+RamCloud::ping(uint32_t table, uint64_t objectId, uint64_t nonce,
+               uint64_t timeoutNanoseconds)
+{
+    PingClient client;
+    const char *serviceLocator = objectFinder.lookup(table, objectId)->
+            getServiceLocator().c_str();
+    return client.ping(serviceLocator, nonce, timeoutNanoseconds);
+}
+
+/// \copydoc PingClient::proxyPing
+uint64_t
+RamCloud::proxyPing(const char* serviceLocator1,
+                    const char* serviceLocator2,
+                    uint64_t timeoutNanoseconds1,
+                    uint64_t timeoutNanoseconds2)
+{
+    PingClient client;
+    return client.proxyPing(serviceLocator1, serviceLocator2,
+                            timeoutNanoseconds1, timeoutNanoseconds2);
 }
 
 /// \copydoc MasterClient::read
@@ -80,10 +126,12 @@ RamCloud::read(uint32_t tableId, uint64_t id, Buffer* value,
 
 /**
  * Read the current contents of multiple objects.
+ *
  * \param requests
- *      Array listing the objects to be read and where to place their values
+ *      Array (of ReadObject's) listing the objects to be read
+ *      and where to place their values
  * \param numRequests
- *      Length of input array
+ *      Number of valid entries in \c requests.
  */
 void
 RamCloud::multiRead(MasterClient::ReadObject* requests[], uint32_t numRequests)

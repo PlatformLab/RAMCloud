@@ -44,7 +44,10 @@ RAMCloud::Status    rc_dropTable(struct rc_client* client, const char* name);
 RAMCloud::Status    rc_getStatus(struct rc_client* client);
 RAMCloud::Status    rc_openTable(struct rc_client* client, const char* name,
                             uint32_t* tableId);
-RAMCloud::Status    rc_ping(struct rc_client* client);
+RAMCloud::Status    rc_ping(struct rc_client* client,
+                            const char* serviceLocator,
+                            uint64_t nonce, uint64_t timeoutNanoseconds,
+                            uint64_t* result);
 RAMCloud::Status    rc_read(struct rc_client* client, uint32_t tableId,
                             uint64_t id,
                             const struct RAMCloud::RejectRules* rejectRules,

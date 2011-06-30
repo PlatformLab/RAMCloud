@@ -176,7 +176,6 @@ class BackupClient : public Client {
                              : BackupWriteRpc::OPEN);
     }
 
-    void ping();
     void quiesce();
 
     class RecoveryComplete {

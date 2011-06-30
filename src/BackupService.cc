@@ -947,10 +947,6 @@ BackupService::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<BackupGetRecoveryDataRpc, BackupService,
                         &BackupService::getRecoveryData>(rpc);
             break;
-        case PingRpc::opcode:
-            callHandler<PingRpc, Service,
-                        &Service::ping>(rpc);
-            break;
         case BackupQuiesceRpc::opcode:
             callHandler<BackupQuiesceRpc, BackupService,
                         &BackupService::quiesce>(rpc);

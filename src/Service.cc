@@ -85,7 +85,9 @@ Service::ping(const PingRpc::Request& reqHdr,
              PingRpc::Response& respHdr,
              Rpc& rpc)
 {
-    // Nothing to do here.
+    // This method no longer serves any useful purpose (as of 6/2011) and
+    // shouldn't get invoked except during tests.  It stays around mostly
+    // so that other methods can \copydoc its documentation.
     TEST_LOG("ping");
     LOG(DEBUG, "RPCs serviced");
     uint64_t totalCount = 0;

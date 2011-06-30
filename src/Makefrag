@@ -48,6 +48,8 @@ SHARED_SRCFILES := \
 		   src/Metrics.cc \
 		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
+		   src/PingClient.cc \
+		   src/PingService.cc \
 		   src/RamCloud.cc \
 		   src/Recovery.cc \
 		   src/RecoverySegmentIterator.cc \

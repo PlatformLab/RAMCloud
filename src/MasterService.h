@@ -189,9 +189,6 @@ class MasterService : public Service {
     void create(const CreateRpc::Request& reqHdr,
                 CreateRpc::Response& respHdr,
                 Rpc& rpc);
-    void ping(const PingRpc::Request& reqHdr,
-              PingRpc::Response& respHdr,
-              Rpc& rpc);
     void fillWithTestData(const FillWithTestDataRpc::Request& reqHdr,
                           FillWithTestDataRpc::Response& respHdr,
                           Rpc& rpc);

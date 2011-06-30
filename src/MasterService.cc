@@ -93,10 +93,6 @@ MasterService::dispatch(RpcOpcode opcode, Rpc& rpc)
             callHandler<MultiReadRpc, MasterService,
                         &MasterService::multiRead>(rpc);
             break;
-        case PingRpc::opcode:
-            callHandler<PingRpc, MasterService,
-                        &MasterService::ping>(rpc);
-            break;
         case ReadRpc::opcode:
             callHandler<ReadRpc, MasterService,
                         &MasterService::read>(rpc);
@@ -266,26 +262,6 @@ MasterService::multiRead(const MultiReadRpc::Request& reqHdr,
                                       downCast<uint32_t>(sizeof(SegmentEntry))
                                       + handle->length());
     }
-}
-
-/**
- * Top-level server method to handle the PING request.
- *
- * For debugging it print out statistics on the RPCs that it has
- * handled along with some stats on amount of data written to the
- * master.
- *
- * \copydetails Service::ping
- */
-void
-MasterService::ping(const PingRpc::Request& reqHdr,
-                   PingRpc::Response& respHdr,
-                   Rpc& rpc)
-{
-    LOG(NOTICE, "Bytes written: %lu", bytesWritten);
-    LOG(NOTICE, "Bytes logged : %lu", log.getBytesAppended());
-
-    Service::ping(reqHdr, respHdr, rpc);
 }
 
 /**

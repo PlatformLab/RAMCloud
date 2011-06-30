@@ -17,6 +17,7 @@
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
 #include "MasterService.h"
+#include "PingService.h"
 #include "TransportManager.h"
 #include "BindTransport.h"
 #include "RamCloud.h"
@@ -33,6 +34,8 @@ class RamCloudTest : public ::testing::Test {
     ServerConfig masterConfig2;
     MasterService* master1;
     MasterService* master2;
+    PingService ping1;
+    PingService ping2;
     RamCloud* ramcloud;
 
   public:
@@ -45,6 +48,8 @@ class RamCloudTest : public ::testing::Test {
         , masterConfig2()
         , master1(NULL)
         , master2(NULL)
+        , ping1()
+        , ping2()
         , ramcloud(NULL)
     {
         masterConfig1.coordinatorLocator = "mock:host=coordinatorService";
@@ -73,6 +78,9 @@ class RamCloudTest : public ::testing::Test {
         master2->serverId.construct(
             coordinatorClient2->enlistServer(MASTER,
                                              masterConfig2.localLocator));
+
+        transport.addService(ping1, "mock:ping=1");
+        transport.addService(ping2, "mock:ping=2");
 
         ramcloud = new RamCloud("mock:host=coordinatorService");
         ramcloud->createTable("table1");
@@ -135,6 +143,15 @@ TEST_F(RamCloudTest, multiRead) {
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request3.status));
     EXPECT_EQ(2U, request3.version);
     EXPECT_EQ("thirdVal", toString(readValue3.get()));
+}
+
+TEST_F(RamCloudTest, ping) {
+    EXPECT_EQ(12345U, ramcloud->ping("mock:ping=1", 12345U, 100000));
+}
+
+TEST_F(RamCloudTest, proxyPing) {
+    EXPECT_NE(0xffffffffffffffffU, ramcloud->proxyPing("mock:ping=1",
+                "mock:ping=2", 100000, 100000));
 }
 
 }  // namespace RAMCloud

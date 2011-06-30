@@ -69,10 +69,6 @@ class CoordinatorService : public Service {
                           TabletsRecoveredRpc::Response& respHdr,
                           Rpc& rpc);
 
-    void ping(const PingRpc::Request& reqHdr,
-              PingRpc::Response& respHdr,
-              Rpc& rpc);
-
     void quiesce(const BackupQuiesceRpc::Request& reqHdr,
                  BackupQuiesceRpc::Response& respHdr,
                  Rpc& rpc);

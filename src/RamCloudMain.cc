@@ -136,7 +136,9 @@ runRecovery(RamCloud& client,
     }
 
     // dump out coordinator rpc info
-    client.ping();
+    // As of 6/2011 this needs to be reworked: ping no longer contains the
+    // hack to print statistics.
+    // client.ping();
 
     LOG(NOTICE, "- quiescing writes");
     client.coordinator.quiesce();
@@ -214,7 +216,9 @@ runRecovery(RamCloud& client,
     }
 
     // dump out coordinator rpc info
-    client.ping();
+    // As of 6/2011 this needs to be reworked: ping no longer contains the
+    // hack to print statistics.
+    // client.ping();
 }
 
 int
@@ -274,52 +278,57 @@ try
     client.createTable("test");
     uint32_t table;
     table = client.openTable("test");
-    LOG(DEBUG, "create+open table took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "create+open table took %lu ticks", rdtsc() - b);
 
     b = rdtsc();
-    client.ping();
-    LOG(DEBUG, "ping took %lu ticks on the client", rdtsc() - b);
+    client.ping(optionParser.options.getCoordinatorLocator().c_str(),
+                12345, 100000000);
+    LOG(NOTICE, "coordinator ping took %lu ticks", rdtsc() - b);
+
+    b = rdtsc();
+    client.ping(table, 42, 12345, 100000000);
+    LOG(NOTICE, "master ping took %lu ticks", rdtsc() - b);
 
     b = rdtsc();
     client.write(table, 42, "Hello, World!", 14);
-    LOG(DEBUG, "write took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "write took %lu ticks", rdtsc() - b);
 
     b = rdtsc();
     const char *value = "0123456789012345678901234567890"
         "123456789012345678901234567890123456789";
     client.write(table, 43, value, downCast<uint32_t>(strlen(value) + 1));
-    LOG(DEBUG, "write took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "write took %lu ticks", rdtsc() - b);
 
     Buffer buffer;
     b = rdtsc();
     uint32_t length;
 
     client.read(table, 43, &buffer);
-    LOG(DEBUG, "read took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "read took %lu ticks", rdtsc() - b);
 
     length = buffer.getTotalLength();
-    LOG(DEBUG, "Got back [%s] len %u",
+    LOG(NOTICE, "Got back [%s] len %u",
         static_cast<const char*>(buffer.getRange(0, length)),
         length);
 
     client.read(table, 42, &buffer);
-    LOG(DEBUG, "read took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "read took %lu ticks", rdtsc() - b);
     length = buffer.getTotalLength();
-    LOG(DEBUG, "Got back [%s] len %u",
+    LOG(NOTICE, "Got back [%s] len %u",
         static_cast<const char*>(buffer.getRange(0, length)),
         length);
 
     b = rdtsc();
     uint64_t id = 0xfffffff;
     id = client.create(table, "Hello, World?", 14);
-    LOG(DEBUG, "insert took %lu ticks", rdtsc() - b);
-    LOG(DEBUG, "Got back [%lu] id", id);
+    LOG(NOTICE, "insert took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "Got back [%lu] id", id);
 
     b = rdtsc();
     client.read(table, id, &buffer);
-    LOG(DEBUG, "read took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "read took %lu ticks", rdtsc() - b);
     length = buffer.getTotalLength();
-    LOG(DEBUG, "Got back [%s] len %u",
+    LOG(NOTICE, "Got back [%s] len %u",
         static_cast<const char*>(buffer.getRange(0, length)),
         length);
 
@@ -332,8 +341,8 @@ try
     b = rdtsc();
     for (int j = 0; j < count; j++)
         id = client.create(table, val, downCast<uint32_t>(strlen(val) + 1));
-    LOG(DEBUG, "%d inserts took %lu ticks", count, rdtsc() - b);
-    LOG(DEBUG, "avg insert took %lu ticks", (rdtsc() - b) / count);
+    LOG(NOTICE, "%d inserts took %lu ticks", count, rdtsc() - b);
+    LOG(NOTICE, "avg insert took %lu ticks", (rdtsc() - b) / count);
 
     client.dropTable("test");
 

@@ -22,6 +22,7 @@
 #include "BackupStorage.h"
 #include "OptionParser.h"
 #include "Segment.h"
+#include "PingService.h"
 #include "ServiceManager.h"
 #include "TransportManager.h"
 
@@ -93,9 +94,11 @@ try
                                             backupFile.c_str(),
                                             O_DIRECT | O_SYNC));
 
-    BackupService service(config, *storage);
-    service.init();
-    serviceManager->addService(service, BACKUP_SERVICE);
+    BackupService backupService(config, *storage);
+    backupService.init();
+    serviceManager->addService(backupService, BACKUP_SERVICE);
+    PingService pingService;
+    serviceManager->addService(pingService, PING_SERVICE);
     while (true) {
         dispatch->poll();
     }

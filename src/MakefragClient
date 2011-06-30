@@ -29,6 +29,7 @@ CLIENT_SRCFILES := \
 		   src/Metrics.cc \
 		   src/ObjectFinder.cc \
 		   src/OptionParser.cc \
+		   src/PingClient.cc \
 		   src/RamCloud.cc \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \

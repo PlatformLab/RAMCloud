@@ -61,7 +61,6 @@ class MasterServiceTest : public CppUnit::TestFixture {
     CPPUNIT_TEST_SUITE(MasterServiceTest);
     CPPUNIT_TEST(test_create_basics);
     CPPUNIT_TEST(test_create_badTable);
-    CPPUNIT_TEST(test_ping);
     CPPUNIT_TEST(test_read_basics);
     CPPUNIT_TEST(test_read_badTable);
     CPPUNIT_TEST(test_read_noSuchObject);
@@ -174,10 +173,6 @@ class MasterServiceTest : public CppUnit::TestFixture {
     void test_create_badTable() {
         CPPUNIT_ASSERT_THROW(client->create(4, "", 1),
                              TableDoesntExistException);
-    }
-
-    void test_ping() {
-        client->ping();
     }
 
     void test_read_basics() {

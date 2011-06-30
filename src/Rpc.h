@@ -166,7 +166,7 @@ struct MultiReadRpc {
 
 struct PingRpc {
     static const RpcOpcode opcode = RpcOpcode::PING;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const RpcServiceType service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t nonce;             // The nonce may be used to identify
@@ -182,7 +182,7 @@ struct PingRpc {
 
 struct ProxyPingRpc {
     static const RpcOpcode opcode = PROXY_PING;
-    static const RpcServiceType service = MASTER_SERVICE;
+    static const RpcServiceType service = PING_SERVICE;
     struct Request {
         RpcRequestCommon common;
         uint64_t timeoutNanoseconds;   // Number of nanoseconds to wait for a

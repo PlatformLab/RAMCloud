@@ -25,6 +25,7 @@
 #include "BackupClient.h"
 #include "OptionParser.h"
 #include "MasterService.h"
+#include "PingService.h"
 #include "ServiceManager.h"
 #include "TransportManager.h"
 
@@ -81,9 +82,11 @@ try
 
     CoordinatorClient coordinator(
         optionParser.options.getCoordinatorLocator().c_str());
-    MasterService service(config, &coordinator, replicas);
-    service.init();
-    serviceManager->addService(service, MASTER_SERVICE);
+    MasterService masterService(config, &coordinator, replicas);
+    masterService.init();
+    serviceManager->addService(masterService, MASTER_SERVICE);
+    PingService pingService;
+    serviceManager->addService(pingService, PING_SERVICE);
     while (true) {
         dispatch->poll();
     }

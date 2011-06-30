@@ -29,7 +29,7 @@ namespace RAMCloud {
  */
 struct BindTransport : public Transport {
     explicit BindTransport(Service* service = NULL)
-        : services()
+        : services(), abortCounter(0)
     {
         if (service)
             addService(*service, "mock:");
@@ -80,9 +80,16 @@ struct BindTransport : public Transport {
                              const string& locator)
             : transport(transport), service(service), locator(locator) {}
         ClientRpc* clientSend(Buffer* request, Buffer* response) {
-            Service::Rpc rpc(NULL, *request, *response);
-            service.handleRpc(rpc);
             BindClientRpc* result = new(response, MISC) BindClientRpc;
+            Service::Rpc rpc(NULL, *request, *response);
+            if (transport.abortCounter > 0) {
+                transport.abortCounter--;
+                if (transport.abortCounter == 0) {
+                    // Simulate a failure of the server to respond.
+                    return result;
+                }
+            }
+            service.handleRpc(rpc);
             result->markFinished();
             return result;
         }
@@ -97,6 +104,9 @@ struct BindTransport : public Transport {
 
     typedef std::map<const string, Service*> ServiceMap;
     ServiceMap services;
+
+    // The following value is used to simulate server timeouts.
+    int abortCounter;
     DISALLOW_COPY_AND_ASSIGN(BindTransport);
 };
 

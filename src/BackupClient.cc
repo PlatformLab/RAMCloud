@@ -125,24 +125,6 @@ BackupClient::getSession()
 }
 
 /**
- * Test that a server exists and is responsive.
- *
- * This operation issues a no-op RPC request, which causes
- * communication with the given server but doesn't actually do
- * anything on the server.
- *
- * \exception InternalError
- */
-void
-BackupClient::ping()
-{
-    Buffer req, resp;
-    allocHeader<PingRpc>(req);
-    sendRecv<PingRpc>(session, req, resp);
-    checkStatus(HERE);
-}
-
-/**
  * Flush all data to storage.
  * Returns once all dirty buffers have been written to storage.
  * This is useful for measuring recovery performance accurately.
