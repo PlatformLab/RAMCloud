@@ -119,6 +119,7 @@ TEST_F(TcpTransportTest, sanityCheck) {
     EXPECT_TRUE(waitForRpc(*clientRpc));
     EXPECT_EQ("klmn/0", toString(&reply));
 
+    request.reset();
     request.fillFromString("request2");
     reply.reset();
     clientRpc = session->clientSend(&request, &reply);

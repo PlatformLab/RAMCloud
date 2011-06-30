@@ -491,10 +491,12 @@ class BufferTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL("0xafaf0900 10", toString(&b));
 
         // Decimal numbers
+        b.reset();
         b.fillFromString("123 -456");
         CPPUNIT_ASSERT_EQUAL("123 -456", toString(&b));
 
         // Strings
+        b.reset();
         b.fillFromString("abc def");
         CPPUNIT_ASSERT_EQUAL("abc/0 def/0", toString(&b));
     }

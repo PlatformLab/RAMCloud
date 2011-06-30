@@ -476,9 +476,9 @@ uint32_t Buffer::copy(uint32_t offset, uint32_t length,
 }
 
 /**
- * Replace the contents of the buffer with data specified in a string.
- * This method was designed primarily for use in tests (e.g. to specify
- * network packets).
+ * Add data specified in a string to the end of a buffer.  This method
+ * was designed primarily for use in tests (e.g. to specify network
+ * packets).
  *
  * \param s
  *      Describes what to put in the buffer. Consists of one or more
@@ -494,7 +494,10 @@ uint32_t Buffer::copy(uint32_t offset, uint32_t length,
  */
 void
 Buffer::fillFromString(const char* s) {
-    reset();
+    // Note: this method used to clear the buffer before adding the
+    // new data, but this breaks some uses, such as when MockTransport
+    // calls it (the buffer contains an RPC object in its MISC area,
+    // which get overwritten after a reset).
     uint32_t i, length;
     length = downCast<uint32_t>(strlen(s));
     for (i = 0; i < length; ) {

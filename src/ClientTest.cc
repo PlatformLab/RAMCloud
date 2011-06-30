@@ -224,6 +224,7 @@ class ClientTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(9, status);
 
         // Valid RpcResponseCommon with error status.
+        b.reset();
         b.fillFromString("7 0");
         status = STATUS_OK;
         try {
@@ -234,6 +235,7 @@ class ClientTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(7, status);
 
         // Response too short for RpcResponseCommon.
+        b.reset();
         b.fillFromString("a");
         status = STATUS_OK;
         try {
