@@ -115,6 +115,7 @@ TransportManager::TransportManager()
     , sessionCache()
     , registeredBases()
     , registeredSizes()
+    , mutex()
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
@@ -211,6 +212,13 @@ TransportManager::initialize(const char* localServiceLocator)
 Transport::SessionRef
 TransportManager::getSession(const char* serviceLocator)
 {
+    // If we're running on a server (i.e., multithreaded) must exclude
+    // other threads.
+    Tub<boost::lock_guard<SpinLock>> lock;
+    if (isServer) {
+        lock.construct(mutex);
+    }
+
     // First check to see if we have already opened a session for the
     // locator; this should almost always be true.
     auto it = sessionCache.find(serviceLocator);
