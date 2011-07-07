@@ -78,7 +78,7 @@ class UdpDriver : public Driver {
                 : Dispatch::File(fd, Dispatch::FileEvent::READABLE)
                 , driver(driver)
         { }
-        virtual void handleFileEvent();
+        virtual void handleFileEvent(int events);
       private:
         // Driver that owns this handler.
         UdpDriver* driver;

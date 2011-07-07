@@ -174,9 +174,13 @@ UdpDriver::sendPacket(const Address *addr,
  * Invoked by the dispatcher when our socket becomes readable.
  * Reads a packet from the socket, if there is one, and passes it on
  * to the associated FastTransport instance.
+ *
+ * \param events
+ *      Indicates whether the socket was readable, writable, or both
+ *      (OR-ed combination of Dispatch::FileEvent bits).
  */
 void
-UdpDriver::ReadHandler::handleFileEvent()
+UdpDriver::ReadHandler::handleFileEvent(int events)
 {
     PacketBuf* buffer;
     buffer = driver->packetBufPool.construct();

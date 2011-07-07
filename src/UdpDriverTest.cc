@@ -221,7 +221,8 @@ class UdpDriverTest : public CppUnit::TestFixture {
         sys->recvfromErrno = EPERM;
         Driver::Received received;
         try {
-            server->readHandler->handleFileEvent();
+            server->readHandler->handleFileEvent(
+                    Dispatch::FileEvent::READABLE);
         } catch (DriverException& e) {
             exceptionMessage = e.message;
         }
@@ -230,7 +231,8 @@ class UdpDriverTest : public CppUnit::TestFixture {
     }
 
     void test_ReadHandler_noPacketAvailable() {
-        server->readHandler->handleFileEvent();
+        server->readHandler->handleFileEvent(
+                Dispatch::FileEvent::READABLE);
         CPPUNIT_ASSERT_EQUAL("", serverTransport->packetData);
     }
 

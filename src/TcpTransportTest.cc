@@ -217,7 +217,7 @@ TEST_F(TcpTransportTest, Socket_destructor) {
     // ensure that the TcpServerRpc was deleted.
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_NE(server.sockets.size(), 0U);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
 
@@ -225,7 +225,8 @@ TEST_F(TcpTransportTest, Socket_destructor) {
     header.len = 6;
     EXPECT_EQ(static_cast<int>(sizeof(header)),
         write(fd, &header, sizeof(header)));
-    server.sockets[serverFd]->readHandler.handleFileEvent();
+    server.sockets[serverFd]->readHandler.handleFileEvent(
+            Dispatch::FileEvent::READABLE);
     EXPECT_TRUE(server.sockets[serverFd]->rpc != NULL);
     server.closeSocket(serverFd);
     EXPECT_EQ("~TcpServerRpc: deleted", TestLog::get());
@@ -233,14 +234,14 @@ TEST_F(TcpTransportTest, Socket_destructor) {
 
 TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_noConnection) {
     TcpTransport server(locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_EQ(0U, server.sockets.size());
 }
 
 TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_acceptFailure) {
     TcpTransport server(locator);
     sys->acceptErrno = EPERM;
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_EQ("handleFileEvent: error in TcpTransport::AcceptHandler "
             "accepting connection for 'tcp+ip: host=localhost, "
             "port=11000': Operation not permitted", TestLog::get());
@@ -251,7 +252,7 @@ TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_acceptFailure) {
 TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_success) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_NE(server.sockets.size(), 0U);
     EXPECT_FALSE(server.sockets[server.sockets.size() - 1] == NULL);
     close(fd);
@@ -260,7 +261,7 @@ TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_success) {
 TEST_F(TcpTransportTest, RequestReadHandler_handleFileEvent) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_NE(server.sockets.size(), 0U);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
 
@@ -269,12 +270,14 @@ TEST_F(TcpTransportTest, RequestReadHandler_handleFileEvent) {
     header.len = 6;
     EXPECT_EQ(static_cast<int>(sizeof(header)),
         write(fd, &header, sizeof(header)));
-    server.sockets[serverFd]->readHandler.handleFileEvent();
+    server.sockets[serverFd]->readHandler.handleFileEvent(
+            Dispatch::FileEvent::READABLE);
     EXPECT_TRUE(server.sockets[serverFd]->rpc != NULL);
     EXPECT_EQ(0, countWaitingRequests());
 
     EXPECT_EQ(6, write(fd, "abcdef", 6));
-    server.sockets[serverFd]->readHandler.handleFileEvent();
+    server.sockets[serverFd]->readHandler.handleFileEvent(
+            Dispatch::FileEvent::READABLE);
     EXPECT_EQ(1, countWaitingRequests());
 
     close(fd);
@@ -283,20 +286,22 @@ TEST_F(TcpTransportTest, RequestReadHandler_handleFileEvent) {
 TEST_F(TcpTransportTest, RequestReadHandler_handleFileEvent_eof) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     close(fd);
-    server.sockets[serverFd]->readHandler.handleFileEvent();
+    server.sockets[serverFd]->readHandler.handleFileEvent(
+            Dispatch::FileEvent::READABLE);
     EXPECT_TRUE(server.sockets[serverFd] == NULL);
 }
 
 TEST_F(TcpTransportTest, RequestReadHandler_handleFileEvent_error) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     sys->recvErrno = EPERM;
-    server.sockets[serverFd]->readHandler.handleFileEvent();
+    server.sockets[serverFd]->readHandler.handleFileEvent(
+            Dispatch::FileEvent::READABLE);
     EXPECT_TRUE(server.sockets[serverFd] == NULL);
     EXPECT_EQ("handleFileEvent: TcpTransport::RequestReadHandler "
             "closing client connection: I/O read error in TcpTransport: "
@@ -416,7 +421,7 @@ TEST_F(TcpTransportTest, recvCarefully_ioErrors) {
 TEST_F(TcpTransportTest, readMessage_receiveHeaderInPieces) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
 
     // Try to receive when there is no data at all.
@@ -444,7 +449,7 @@ TEST_F(TcpTransportTest, readMessage_receiveHeaderInPieces) {
 TEST_F(TcpTransportTest, readMessage_messageTooLong) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     Buffer buffer;
     TcpTransport::IncomingMessage incoming(&buffer, NULL);
@@ -465,7 +470,7 @@ TEST_F(TcpTransportTest, readMessage_getBufferFromSession) {
     // initialize the IncomingMessage to receive a client-side reply.
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     Buffer request, reply;
     TcpTransport::TcpSession session;
@@ -487,7 +492,7 @@ TEST_F(TcpTransportTest, readMessage_getBufferFromSession) {
 TEST_F(TcpTransportTest, readMessage_findRpcReturnsNull) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     TcpTransport::TcpSession session;
     TcpTransport::IncomingMessage incoming(NULL, &session);
@@ -503,7 +508,7 @@ TEST_F(TcpTransportTest, readMessage_findRpcReturnsNull) {
 TEST_F(TcpTransportTest, readMessage_receiveBodyInPieces) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     Buffer buffer;
     TcpTransport::IncomingMessage incoming(&buffer, NULL);
@@ -532,7 +537,7 @@ TEST_F(TcpTransportTest, readMessage_receiveBodyInPieces) {
 TEST_F(TcpTransportTest, readMessage_discardExtraneousBytes) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     Buffer buffer;
     TcpTransport::IncomingMessage incoming(&buffer, NULL);
@@ -728,7 +733,7 @@ TEST_F(TcpTransportTest, ReplyReadHandler_eof) {
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
     sys->recvEof = true;
-    rawSession->replyHandler->handleFileEvent();
+    rawSession->replyHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_EQ(-1, rawSession->fd);
     EXPECT_EQ("socket closed by server", rawSession->errorInfo);
 }
@@ -740,11 +745,11 @@ TEST_F(TcpTransportTest, ReplyReadHandler_eofOutsideRPC) {
     TcpTransport server(locator);
     TcpTransport client;
     Transport::SessionRef session = client.getSession(*locator);
-    server.acceptHandler->handleFileEvent();
+    server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     server.closeSocket(downCast<unsigned>(server.sockets.size()) - 1);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-    rawSession->replyHandler->handleFileEvent();
+    rawSession->replyHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_EQ(-1, rawSession->fd);
     EXPECT_EQ("socket closed by server", rawSession->errorInfo);
 }
@@ -761,7 +766,7 @@ TEST_F(TcpTransportTest, ReplyReadHandler_ioError) {
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
     sys->recvErrno = EPERM;
-    rawSession->replyHandler->handleFileEvent();
+    rawSession->replyHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_EQ(-1, rawSession->fd);
     EXPECT_EQ("handleFileEvent: TcpTransport::ReplyReadHandler "
             "closing session socket: I/O read error in TcpTransport: "

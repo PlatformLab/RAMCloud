@@ -124,18 +124,29 @@ class DummyTimer : public Dispatch::Timer {
 class DummyFile : public Dispatch::File {
   public:
     explicit DummyFile(const char *name, bool readData, int fd,
-            Dispatch::FileEvent event, Dispatch* dispatch)
-            : Dispatch::File(fd, event, dispatch), myName(name),
-            readData(readData), lastInvocationId(0), deleteThis(false) { }
+            int events, Dispatch* dispatch)
+            : Dispatch::File(fd, events, dispatch), myName(name),
+            readData(readData), lastInvocationId(0), deleteThis(false),
+            eventInfo() { }
     explicit DummyFile(const char *name, bool readData, int fd,
             Dispatch* dispatch)
-            : Dispatch::File(fd, Dispatch::FileEvent::NONE, dispatch),
+            : Dispatch::File(fd, 0, dispatch),
             myName(name), readData(readData), lastInvocationId(0),
-            deleteThis(false) { }
-    void handleFileEvent() {
+            deleteThis(false), eventInfo() { }
+    void handleFileEvent(int events) {
         char buffer[11];
         if (localLog->length() != 0) {
             localLog->append("; ");
+        }
+        eventInfo.clear();
+        if (events & Dispatch::FileEvent::READABLE) {
+            eventInfo.append("READABLE");
+        }
+        if (events & Dispatch::FileEvent::WRITABLE) {
+            if (eventInfo.size() > 0) {
+                eventInfo.append("|");
+            }
+            eventInfo.append("WRITABLE");
         }
         if (readData) {
             size_t count = read(fd, buffer, sizeof(buffer) - 1);
@@ -155,6 +166,7 @@ class DummyFile : public Dispatch::File {
     bool readData;
     int lastInvocationId;
     bool deleteThis;
+    string eventInfo;
   private:
     DISALLOW_COPY_AND_ASSIGN(DummyFile);
 };
@@ -231,14 +243,13 @@ class DispatchTest : public ::testing::Test {
 
     // Utility method: create a DummyFile for a particular file descriptor
     // and see if it gets invoked.
-    bool checkReady(int fd, Dispatch::FileEvent event) {
+    string checkReady(int fd, int events) {
         // Flush any stale events.
         for (int i = 0; i < 100; i++) td->poll();
-        localLog->clear();
-        DummyFile f("f1", false, fd, event, td);
+        DummyFile f("f1", false, fd, events, td);
         usleep(5000);
         td->poll();
-        return localLog->size() > 0;
+        return f.eventInfo;
     }
   private:
     DISALLOW_COPY_AND_ASSIGN(DispatchTest);
@@ -272,7 +283,7 @@ TEST_F(DispatchTest, destructor) {
     EXPECT_EQ(-1, t2->slot);
     EXPECT_TRUE(t2->owner == NULL);
     EXPECT_EQ(0, f1->active);
-    EXPECT_EQ(0, f1->event);
+    EXPECT_EQ(0, f1->events);
     delete p1;
     delete p2;
     delete t1;
@@ -544,15 +555,15 @@ TEST_F(DispatchTest, File_checkInvocationId) {
     f.invocationId = 99;
     try {
         sys->epollCtlErrno = EPERM;
-        f.setEvent(Dispatch::FileEvent::READABLE);
+        f.setEvents(Dispatch::FileEvent::READABLE);
     } catch (FatalError& e) {
         exceptionMessage = e.message;
     }
     EXPECT_EQ("no exception", exceptionMessage);
-    EXPECT_EQ(Dispatch::FileEvent::READABLE, f.event);
+    EXPECT_EQ(Dispatch::FileEvent::READABLE, f.events);
 }
 
-TEST_F(DispatchTest, File_setEvent_variousEvents) {
+TEST_F(DispatchTest, File_setEvents_variousEvents) {
     // Create a pipe that is ready for reading but not writing, and
     // make sure all the correct events fire.
     int readable[2];
@@ -568,18 +579,16 @@ TEST_F(DispatchTest, File_setEvent_variousEvents) {
         }
         EXPECT_LT(i, 100);
     }
-    EXPECT_FALSE(checkReady(readable[0],
-        Dispatch::FileEvent::NONE));
-    EXPECT_TRUE(checkReady(readable[0],
+    EXPECT_EQ("", checkReady(readable[0], 0));
+    EXPECT_EQ("READABLE", checkReady(readable[0],
         Dispatch::FileEvent::READABLE));
-    EXPECT_TRUE(checkReady(readable[0],
-        Dispatch::FileEvent::READABLE_OR_WRITABLE));
-    EXPECT_FALSE(checkReady(readable[1],
-        Dispatch::FileEvent::NONE));
-    EXPECT_FALSE(checkReady(readable[1],
+    EXPECT_EQ("READABLE", checkReady(readable[0],
+        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE));
+    EXPECT_EQ("", checkReady(readable[1], 0));
+    EXPECT_EQ("", checkReady(readable[1],
         Dispatch::FileEvent::WRITABLE));
-    EXPECT_FALSE(checkReady(readable[1],
-        Dispatch::FileEvent::READABLE_OR_WRITABLE));
+    EXPECT_EQ("", checkReady(readable[1],
+        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE));
     close(readable[0]);
     close(readable[1]);
 
@@ -587,27 +596,25 @@ TEST_F(DispatchTest, File_setEvent_variousEvents) {
     // and make sure all the correct events fire.
     int writable[2];
     EXPECT_EQ(0, pipe(writable));
-    EXPECT_FALSE(checkReady(writable[0],
-        Dispatch::FileEvent::NONE));
-    EXPECT_FALSE(checkReady(writable[0],
+    EXPECT_EQ("", checkReady(writable[0], 0));
+    EXPECT_EQ("", checkReady(writable[0],
         Dispatch::FileEvent::READABLE));
-    EXPECT_FALSE(checkReady(writable[0],
-        Dispatch::FileEvent::READABLE_OR_WRITABLE));
-    EXPECT_FALSE(checkReady(writable[1],
-        Dispatch::FileEvent::NONE));
-    EXPECT_TRUE(checkReady(writable[1],
+    EXPECT_EQ("", checkReady(writable[0],
+        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE));
+    EXPECT_EQ("", checkReady(writable[1], 0));
+    EXPECT_EQ("WRITABLE", checkReady(writable[1],
         Dispatch::FileEvent::WRITABLE));
-    EXPECT_TRUE(checkReady(writable[1],
-        Dispatch::FileEvent::READABLE_OR_WRITABLE));
+    EXPECT_EQ("WRITABLE", checkReady(writable[1],
+        Dispatch::FileEvent::READABLE | Dispatch::FileEvent::WRITABLE));
     close(writable[0]);
     close(writable[1]);
 }
 
-TEST_F(DispatchTest, File_setEvent_errorInEpollCtl) {
+TEST_F(DispatchTest, File_setEvents_errorInEpollCtl) {
     DummyFile f("f", false, 22, td);
     try {
         sys->epollCtlErrno = EPERM;
-        f.setEvent(Dispatch::FileEvent::READABLE);
+        f.setEvents(Dispatch::FileEvent::READABLE);
     } catch (FatalError& e) {
         exceptionMessage = e.message;
     }
@@ -635,11 +642,13 @@ static void epollThreadWrapper(Dispatch* dispatch) {
 TEST_F(DispatchTest, epollThreadMain_signalEventsAndExit) {
     // This unit test tests several things:
     // * Several files becoming ready simultaneously
-    // * Using readyFd to synchronize with the poll loop.
+    // * Using readyFd and readyEvents to synchronize with the poll loop.
     // * Exiting when fd -1 is seen.
     epoll_event events[3];
     events[0].data.fd = 43;
+    events[0].events = EPOLLOUT;
     events[1].data.fd = 19;
+    events[1].events = EPOLLIN|EPOLLOUT;
     events[2].data.fd = -1;
     sys->epollWaitEvents = events;
     sys->epollWaitCount = 3;
@@ -649,12 +658,15 @@ TEST_F(DispatchTest, epollThreadMain_signalEventsAndExit) {
     boost::thread(epollThreadWrapper, td).detach();
     waitForReadyFd(1.0);
     EXPECT_EQ(43, td->readyFd);
+    EXPECT_EQ(Dispatch::FileEvent::WRITABLE, td->readyEvents);
 
     // The polling thread should already be waiting on readyFd,
     // so clearing it should cause another fd to appear immediately.
     td->readyFd = -1;
     waitForReadyFd(1.0);
     EXPECT_EQ(19, td->readyFd);
+    EXPECT_EQ(Dispatch::FileEvent::READABLE|Dispatch::FileEvent::WRITABLE,
+            td->readyEvents);
 
     // Let the polling thread see the next ready file, which should
     // cause it to exit.

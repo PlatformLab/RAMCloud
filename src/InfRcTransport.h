@@ -301,7 +301,7 @@ class InfRcTransport : public Transport {
         ServerConnectHandler(int fd, InfRcTransport* transport)
                 : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
                 fd(fd), transport(transport) { }
-        virtual void handleFileEvent();
+        virtual void handleFileEvent(int events);
       private:
         // The following variables are just copies of constructor arguments.
         int fd;

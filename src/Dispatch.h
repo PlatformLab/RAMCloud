@@ -111,7 +111,10 @@ class Dispatch {
      * Defines the kinds of events for which File handlers can be defined
      * (some combination of readable and writable).
      */
-    enum FileEvent {NONE, READABLE, WRITABLE, READABLE_OR_WRITABLE};
+    enum FileEvent {
+        READABLE = 1,
+        WRITABLE = 2
+    };
 
     /**
      * A File object is invoked whenever its associated fd is readable
@@ -119,21 +122,25 @@ class Dispatch {
      */
     class File {
       public:
-        explicit File(int fd, FileEvent event = NONE,
+        explicit File(int fd, int events = 0,
                 Dispatch* dispatch = RAMCloud::dispatch);
         virtual ~File();
-        void setEvent(FileEvent event);
+        void setEvents(int events);
 
         /**
          * This method is defined by a subclass and invoked by the dispatcher
-         * whenever the event associated with the object has occurred. If
+         * whenever an event associated with the object has occurred. If
          * the event still exists when this method returns (e.g., the file
          * is readable but the method did not read the data), then the method
-         * will be invoked again. During the execution of this method the
-         * event is disabled (calling Dispatch::poll will not cause this
-         * method to be invoked).
+         * will be invoked again. During the execution of this method events
+         * for this object are disabled (calling Dispatch::poll will not cause
+         * this method to be invoked).
+         *
+         * \param events
+         *      Indicates whether the file is readable or writable or both
+         *      (OR'ed combination of FileEvent values).
          */
-        virtual void handleFileEvent() = 0;
+        virtual void handleFileEvent(int events) = 0;
 
       PROTECTED:
         /// The Dispatch object that owns this File.  NULL means the
@@ -144,7 +151,7 @@ class Dispatch {
         int fd;
 
         /// The events that are currently being watched for this file.
-        FileEvent event;
+        int events;
 
         /// Indicates whether epoll_ctl(EPOLL_CTL_ADD) has been called.
         bool active;
@@ -153,7 +160,7 @@ class Dispatch {
         /// yet returned; the actual value is a (reasonably) unique identifier
         /// for this particular invocation.  Zero means handleFileEvent is not
         /// currently active.  This field is used to defer the effect of
-        /// setEvent until after handleFileEvent returns.
+        /// setEvents until after handleFileEvent returns.
         int invocationId;
 
       PRIVATE:
@@ -261,6 +268,12 @@ class Dispatch {
     // epoll thread stores a fd here when it becomes ready, and #poll
     // resets this back to -1 once it has retrieved the fd.
     volatile int readyFd;
+
+    // Also used for communication between epoll thread and #poll:
+    // before setting readyFd the epoll thread stores information here
+    // about which events fired for readyFd (OR'ed combination of
+    // FileEvent values).
+    volatile int readyEvents;
 
     // Used to assign a (nearly) unique identifier to each invocation
     // of a File.

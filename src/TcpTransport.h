@@ -185,7 +185,7 @@ class TcpTransport : public Transport {
     class AcceptHandler : public Dispatch::File {
       public:
         AcceptHandler(int fd, TcpTransport* transport);
-        virtual void handleFileEvent();
+        virtual void handleFileEvent(int events);
       PRIVATE:
         // Transport that manages this socket.
         TcpTransport* transport;
@@ -198,7 +198,7 @@ class TcpTransport : public Transport {
     class RequestReadHandler : public Dispatch::File {
       public:
         RequestReadHandler(int fd, TcpTransport* transport);
-        virtual void handleFileEvent();
+        virtual void handleFileEvent(int events);
       PRIVATE:
         // The following variables are just copies of constructor arguments.
         int fd;
@@ -212,7 +212,7 @@ class TcpTransport : public Transport {
     class ReplyReadHandler : public Dispatch::File {
       public:
         ReplyReadHandler(int fd, TcpSession* session);
-        virtual void handleFileEvent();
+        virtual void handleFileEvent(int events);
       PRIVATE:
         // The following variables are just copies of constructor arguments.
         int fd;

@@ -147,9 +147,13 @@ TcpTransport::AcceptHandler::AcceptHandler(int fd, TcpTransport* transport)
  * This method is invoked by Dispatch when a listening socket becomes
  * readable; it tries to open a new connection with a client. If that
  * succeeds then we will begin listening on that socket for RPCs.
+ *
+ * \param events
+ *      Indicates whether the socket was readable, writable, or both
+ *      (OR-ed combination of Dispatch::FileEvent bits).
  */
 void
-TcpTransport::AcceptHandler::handleFileEvent()
+TcpTransport::AcceptHandler::handleFileEvent(int events)
 {
     int acceptedFd = sys->accept(transport->listenSocket, NULL, NULL);
     if (acceptedFd < 0) {
@@ -179,7 +183,7 @@ TcpTransport::AcceptHandler::handleFileEvent()
         LOG(ERROR, "error in TcpTransport::AcceptHandler accepting "
                 "connection for '%s': %s",
                 transport->locatorString.c_str(), strerror(errno));
-        setEvent(Dispatch::FileEvent::NONE);
+        setEvents(0);
         sys->close(transport->listenSocket);
         transport->listenSocket = -1;
         return;
@@ -215,9 +219,13 @@ TcpTransport::RequestReadHandler::RequestReadHandler(int fd,
  * This method is invoked by Dispatch when a client socket becomes readable.
  * It attempts to read an incoming message from the socket. If a full
  * message is available, a TcpServerRpc object gets queued for service.
+ *
+ * \param events
+ *      Indicates whether the socket was readable, writable, or both
+ *      (OR-ed combination of Dispatch::FileEvent bits).
  */
 void
-TcpTransport::RequestReadHandler::handleFileEvent()
+TcpTransport::RequestReadHandler::handleFileEvent(int events)
 {
     Socket* socket = transport->sockets[fd];
     assert(socket != NULL);
@@ -585,9 +593,13 @@ TcpTransport::ReplyReadHandler::ReplyReadHandler(int fd,
 /**
  * This method is invoked when the socket connecting to a server becomes
  * readable (because a reply is arriving). This method reads the reply.
+ *
+ * \param events
+ *      Indicates whether the socket was readable, writable, or both
+ *      (OR-ed combination of Dispatch::FileEvent bits).
  */
 void
-TcpTransport::ReplyReadHandler::handleFileEvent()
+TcpTransport::ReplyReadHandler::handleFileEvent(int events)
 {
     try {
         if (session->message->readMessage(fd)) {

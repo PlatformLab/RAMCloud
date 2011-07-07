@@ -521,10 +521,14 @@ InfRcTransport<Infiniband>::clientTrySetupQueuePair(IpAddress& address)
  * This method is invoked by the dispatcher when #serverSetupSocket becomes
  * readable. It attempts to set up QueuePair with a connecting remote
  * client.
+ *
+ * \param events
+ *      Indicates whether the socket was readable, writable, or both
+ *      (OR-ed combination of Dispatch::FileEvent bits).
  */
 template<typename Infiniband>
 void
-InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent()
+InfRcTransport<Infiniband>::ServerConnectHandler::handleFileEvent(int events)
 {
     sockaddr_in sin;
     socklen_t sinlen = sizeof(sin);
