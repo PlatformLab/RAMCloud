@@ -342,6 +342,28 @@ TEST_F(TcpTransportTest, sendMessage_errorOnSend) {
     close(fd);
 }
 
+TEST_F(TcpTransportTest, sendMessage_largeBuffer) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    Buffer request;
+    Buffer reply;
+    fillLargeBuffer(&request, 2000000);
+    TcpTransport::messageChunks = 0;
+    Transport::ClientRpc* clientRpc = session->clientSend(&request,
+            &reply);
+    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc != NULL);
+    EXPECT_GT(TcpTransport::messageChunks, 0);
+    EXPECT_EQ("ok", checkLargeBuffer(&serverRpc->requestPayload, 2000000));
+    fillLargeBuffer(&serverRpc->replyPayload, 1500000);
+    TcpTransport::messageChunks = 0;
+    serverRpc->sendReply();
+    EXPECT_TRUE(waitForRpc(*clientRpc));
+    EXPECT_EQ("ok", checkLargeBuffer(&reply, 1500000));
+    EXPECT_GT(TcpTransport::messageChunks, 0);
+}
+
 TEST_F(TcpTransportTest, sendMessage_brokenPipe) {
     // The main reason for this test is to make sure that
     // broken pipe errors don't generate signals that kill
@@ -366,26 +388,6 @@ TEST_F(TcpTransportTest, sendMessage_brokenPipe) {
     }
     EXPECT_EQ("I/O error in TcpTransport::sendMessage: "
             "Broken pipe", message);
-}
-
-TEST_F(TcpTransportTest, sendMessage_shortCount) {
-    TcpTransport server(locator);
-    int fd = connectToServer(*locator);
-    Buffer payload;
-    Buffer::Chunk::appendToBuffer(&payload, "test message", 5);
-
-    sys->sendmsgReturnCount = 3;
-    string message("no exception");
-    try {
-        TcpTransport::sendMessage(fd, 111, payload);
-    } catch (TransportException& e) {
-        message = e.message;
-    }
-    EXPECT_EQ("Incomplete sendmsg in "
-            "TcpTransport::sendMessage: 3 bytes sent out of 17",
-            message);
-
-    close(fd);
 }
 
 TEST_F(TcpTransportTest, recvCarefully_ioErrors) {

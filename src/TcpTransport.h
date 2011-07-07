@@ -305,6 +305,10 @@ class TcpTransport : public Transport {
     /// is currently connected).
     std::vector<Socket*> sockets;
 
+    /// Counts the number of nonzero-size partial messages sent by
+    /// sendMessage (for testing only).
+    static int messageChunks;
+
     DISALLOW_COPY_AND_ASSIGN(TcpTransport);
 };
 

@@ -19,6 +19,8 @@
 
 namespace RAMCloud {
 
+int TcpTransport::messageChunks = 0;
+
 /**
  * Default object used to make system calls.
  */
@@ -242,10 +244,13 @@ TcpTransport::RequestReadHandler::handleFileEvent()
 
 /**
  * Transmit an RPC request or response on a socket; this method does
- * not return until the kernel has accepted all of the data.
+ * not return until the kernel has accepted all of the data.  In order
+ * to avoid deadlocks, this method uses nonblocking I/O and calls
+ * dispatch->poll while waiting, so that we can receive responses
+ * and handle other events.
  *
  * \param fd
- *      File descriptor to write (must be in blocking mode)
+ *      File descriptor to write.
  * \param nonce
  *      Unique identifier for the RPC; must never have been used
  *      before on this socket.
@@ -285,16 +290,46 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer& payload)
     msg.msg_iov = iov;
     msg.msg_iovlen = iovecs;
 
-    ssize_t r = sys->sendmsg(fd, &msg, MSG_NOSIGNAL);
-    if (static_cast<size_t>(r) != (sizeof(header) + header.len)) {
+    // We try to send the message all at once, but if that would block
+    // then we send the message in pieces, updating the iovec after each
+    // piece to reflect data already sent.
+    int bytesToSend = downCast<int>(sizeof(header) + header.len);
+    while (true) {
+        int r = downCast<int>(sys->sendmsg(fd, &msg,
+                MSG_NOSIGNAL|MSG_DONTWAIT));
+        if (r == bytesToSend)
+            return;
         if (r == -1) {
-            throw TransportException(HERE,
-                    "I/O error in TcpTransport::sendMessage", errno);
+            if ((errno != EAGAIN) && (errno != EWOULDBLOCK)) {
+                throw TransportException(HERE,
+                        "I/O error in TcpTransport::sendMessage", errno);
+            }
+            r = 0;
         }
-        throw TransportException(HERE, format("Incomplete sendmsg in "
-                "TcpTransport::sendMessage: %lu bytes sent out of %lu",
-                static_cast<uint64_t>(r),
-                static_cast<uint64_t>(sizeof(header) + header.len)));
+        if (r > 0) {
+            messageChunks++;
+        }
+        bytesToSend -= r;
+        while (r > 0) {
+            struct iovec* curVec = msg.msg_iov;
+            int length = downCast<int>(curVec->iov_len);
+            if (length <= r) {
+                // The current entry has been sent completely.
+                r -= length;
+                msg.msg_iov++;
+                msg.msg_iovlen--;
+            } else {
+                // Didn't get all the way through this entry.
+                curVec->iov_base = static_cast<char*>(curVec->iov_base) + r;
+                curVec->iov_len -= r;
+                break;
+            }
+        }
+
+        // Allow other event handlers to execute, in order to avoid deadlocks
+        // (for example, the server might be trying to send a very large message
+        // to us as the response for another RPC).
+        dispatch->poll();
     }
 }
 
