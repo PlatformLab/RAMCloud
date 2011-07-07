@@ -19,6 +19,7 @@
 #include <event.h>
 #include <queue>
 
+#include "BoostIntrusive.h"
 #include "Dispatch.h"
 #include "IpAddress.h"
 #include "Tub.h"
@@ -46,6 +47,7 @@ class TcpTransport : public Transport {
     }
     void registerMemory(void* base, size_t bytes) {}
 
+    class TcpServerRpc;
   PRIVATE:
     friend class TcpTransportTest;
     friend class AcceptHandler;
@@ -59,12 +61,16 @@ class TcpTransport : public Transport {
      * of the message in all transmissions.
      */
     struct Header {
-        /**
-         * The size in bytes of the payload (which follows immediately).
-         * Must be less than or equal to #MAX_RPC_LEN.
-         */
+        /// Unique identifier for this RPC: generated on the client, and
+        /// returned by the server in responses.  This field makes it
+        /// possible for a client to have multiple outstanding RPCs to
+        /// the same server.
+        uint64_t nonce;
+
+        /// The size in bytes of the payload (which follows immediately).
+        /// Must be less than or equal to #MAX_RPC_LEN.
         uint32_t len;
-    };
+    } __attribute__((packed));
 
     /**
      * Used to manage the receipt of a message (on either client or server)
@@ -72,9 +78,9 @@ class TcpTransport : public Transport {
      */
     class IncomingMessage {
       friend class TcpTransportTest;
+      friend class TcpServerRpc;
       public:
-        explicit IncomingMessage(Buffer* buffer);
-        void reset(Buffer* buffer);
+        IncomingMessage(Buffer* buffer, TcpSession* session);
         bool readMessage(int fd);
       PRIVATE:
         Header header;
@@ -88,8 +94,22 @@ class TcpTransport : public Transport {
         /// received so far.
         uint32_t messageBytesReceived;
 
-        /// Holds the contents of the actual message (not including header).
+        /// The number of bytes of input message that we will actually retain
+        /// (normally this is the same as header.len, but it may be less
+        /// if header.len is illegally large or if the entire message is being
+        /// discarded).
+        uint32_t messageLength;
+
+        /// Buffer in which incoming message will be stored (not including
+        /// transport-specific header).  NULL means the message will be
+        /// discarded.
         Buffer *buffer;
+
+        /// Session that will find the buffer to use for this message once
+        /// the header has arrived (or NULL).
+        TcpSession* session;
+
+        DISALLOW_COPY_AND_ASSIGN(IncomingMessage);
     };
 
   public:
@@ -100,10 +120,14 @@ class TcpTransport : public Transport {
       friend class TcpTransportTest;
       friend class TcpTransport;
       public:
+        virtual ~TcpServerRpc()
+        {
+            TEST_LOG("deleted");
+        }
         void sendReply();
       PRIVATE:
-        TcpServerRpc(Socket* socket, int fd, Buffer* buffer)
-            : fd(fd), socket(socket), message(buffer) { }
+        TcpServerRpc(Socket* socket, int fd)
+            : fd(fd), socket(socket), message(&requestPayload, NULL) { }
 
         int fd;                   /// File descriptor of the socket on
                                   /// which the request was received.
@@ -123,19 +147,28 @@ class TcpTransport : public Transport {
         friend class TcpTransport;
         friend class TcpSession;
         explicit TcpClientRpc(TcpSession* session, Buffer*request,
-                Buffer* reply)
-            : request(request), reply(reply), session(session) { }
+                Buffer* reply, uint64_t nonce)
+            : request(request), reply(reply), nonce(nonce),
+              session(session), queueEntries()
+               { }
+      PROTECTED:
+        virtual void cancelCleanup();
       PRIVATE:
         Buffer* request;          /// Contains request message.
         Buffer* reply;            /// Client's buffer for response.
+        uint64_t nonce;           /// Unique identifier for this RPC; used
+                                  /// to pair the RPC with its response.
         TcpSession *session;      /// Session used for this RPC.
+        IntrusiveListHook queueEntries;
+                                  /// Used to link this RPC onto the
+                                  /// outstandingRpcs list of session.
         DISALLOW_COPY_AND_ASSIGN(TcpClientRpc);
     };
 
   PRIVATE:
     void closeSocket(int fd);
     static ssize_t recvCarefully(int fd, void* buffer, size_t length);
-    static void sendMessage(int fd, Buffer& payload);
+    static void sendMessage(int fd, uint64_t nonce, Buffer& payload);
 
     /**
      * An exception that is thrown when a socket has been closed by the peer.
@@ -188,9 +221,11 @@ class TcpTransport : public Transport {
     };
 
     /**
-     * The TCP implementation of Sessions.
+     * The TCP implementation of Sessions (stored on a client to manage its
+     * interactions with a particular server).
      */
     class TcpSession : public Session {
+      friend class ClientIncomingMessage;
       friend class TcpTransportTest;
       friend class TcpClientRpc;
       friend class ReplyReadHandler;
@@ -199,10 +234,15 @@ class TcpTransport : public Transport {
         ~TcpSession();
         ClientRpc* clientSend(Buffer* request, Buffer* reply)
             __attribute__((warn_unused_result));
+        Buffer* findRpc(Header& header);
         void release() {
             delete this;
         }
       PRIVATE:
+#if TESTING
+        TcpSession() : address(), fd(-1), serial(0), outstandingRpcs(),
+            current(NULL), message(), replyHandler(), errorInfo() { }
+#endif
         void close();
         static void tryReadReply(int fd, int16_t event, void *arg);
 
@@ -210,13 +250,18 @@ class TcpTransport : public Transport {
         int fd;                   /// File descriptor for the socket that
                                   /// connects to address  -1 means no socket
                                   /// open.
-        TcpClientRpc* current;    /// Only one RPC can be outstanding for
-                                  /// a session at a time; this identifies
-                                  /// the current RPC (NULL if there is none).
-        std::queue<TcpClientRpc*> waitingRpcs;
-                                  /// Holds requests that arrive when the
-                                  /// session is busy (current != NULL).
-        IncomingMessage message;  /// Records state of partially-received
+        uint64_t serial;          /// Used to generate nonces for RPCs: starts
+                                  /// at 1 and increments with each outgoing
+                                  /// RPC.
+
+        INTRUSIVE_LIST_TYPEDEF(TcpClientRpc, queueEntries) ClientRpcList;
+        ClientRpcList outstandingRpcs;
+                                  /// RPCs associated with this session
+                                  /// that are waiting for responses.
+        TcpClientRpc* current;    /// RPC for which we are currently receiving
+                                  /// a response (NULL if none).
+        Tub<IncomingMessage> message;
+                                  /// Records state of partially-received
                                   /// reply for current.
         Tub<ReplyReadHandler> replyHandler;
                                   /// Used to get notified when response data
@@ -245,12 +290,10 @@ class TcpTransport : public Transport {
     class Socket {
         public:
         Socket(int fd, TcpTransport *transport)
-                : rpc(NULL), busy(false), readHandler(fd, transport) { }
+                : rpc(NULL), readHandler(fd, transport) { }
+        ~Socket();
         TcpServerRpc *rpc;        /// Incoming RPC that is in progress for
                                   /// this fd, or NULL if none.
-        bool busy;                /// True means we have received a request
-                                  /// and are in the middle of processing it,
-                                  /// so no additional requests should arrive.
         RequestReadHandler readHandler;
                                   /// Used to get notified whenever data
                                   /// arrives on this fd.

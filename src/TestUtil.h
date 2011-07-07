@@ -83,6 +83,8 @@ string bufferToDebugString(Buffer* buffer);
 string checkLargeBuffer(Buffer* buffer, int expectedLength);
 void fillLargeBuffer(Buffer* buffer, int size);
 const char *getStatus(Buffer* buffer);
+::testing::AssertionResult matchesPosixRegex(const string& pattern,
+        const string& subject);
 string toString(const char *buf, uint32_t length);
 string toString(Buffer* buffer);
 bool waitForRpc(Transport::ClientRpc& rpc);

@@ -26,7 +26,7 @@ class TcpTransportTest : public ::testing::Test {
     ServiceLocator* locator;
     MockSyscall* sys;
     Syscall* savedSyscall;
-    TestLog::Enable* logEnabler;
+    TestLog::Enable logEnabler;
 
     TcpTransportTest()
             : locator(NULL), sys(NULL), savedSyscall(NULL), logEnabler(NULL)
@@ -35,7 +35,6 @@ class TcpTransportTest : public ::testing::Test {
         sys = new MockSyscall();
         savedSyscall = TcpTransport::sys;
         TcpTransport::sys = sys;
-        logEnabler = new TestLog::Enable();
         delete serviceManager;
         ServiceManager::init();
     }
@@ -44,7 +43,6 @@ class TcpTransportTest : public ::testing::Test {
         delete locator;
         delete sys;
         TcpTransport::sys = savedSyscall;
-        delete logEnabler;
     }
 
     string catchConstruct(ServiceLocator* locator) {
@@ -96,40 +94,43 @@ class TcpTransportTest : public ::testing::Test {
 };
 
 TEST_F(TcpTransportTest, sanityCheck) {
-    // Create a server and a client and verify that we can
-    // send a request, receive it, send a reply, and receive it.
-    // Then try a second request.
-
     TcpTransport server(locator);
     TcpTransport client;
     Transport::SessionRef session = client.getSession(*locator);
 
-    Buffer request;
-    Buffer reply;
-    request.fillFromString("abcdefg");
-    Transport::ClientRpc* clientRpc = session->clientSend(&request,
-            &reply);
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
-    EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("abcdefg/0", toString(&serverRpc->requestPayload));
-    EXPECT_FALSE(clientRpc->isReady());
-    serverRpc->replyPayload.fillFromString("klmn");
-    serverRpc->sendReply();
-    dispatch->poll();
-    EXPECT_TRUE(waitForRpc(*clientRpc));
-    EXPECT_EQ("klmn/0", toString(&reply));
+    // Send two requests from the client.
+    Buffer request1;
+    Buffer reply1;
+    request1.fillFromString("request1");
+    Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
+            &reply1);
+    Buffer request2;
+    Buffer reply2;
+    request2.fillFromString("request2");
+    Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
+            &reply2);
 
-    request.reset();
-    request.fillFromString("request2");
-    reply.reset();
-    clientRpc = session->clientSend(&request, &reply);
-    serverRpc = serviceManager->waitForRpc(1.0);
-    EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("request2/0", toString(&serverRpc->requestPayload));
-    serverRpc->replyPayload.fillFromString("reply2");
-    serverRpc->sendReply();
-    clientRpc->wait();
-    EXPECT_EQ("reply2/0", toString(&reply));
+    // Receive the two requests on the server.
+    Transport::ServerRpc* serverRpc1 = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc1 != NULL);
+    EXPECT_EQ("request1/0", toString(&serverRpc1->requestPayload));
+    Transport::ServerRpc* serverRpc2 = serviceManager->waitForRpc(1.0);
+    EXPECT_TRUE(serverRpc2 != NULL);
+    EXPECT_EQ("request2/0", toString(&serverRpc2->requestPayload));
+
+    // Reply to the requests in backwards order.
+    serverRpc2->replyPayload.fillFromString("response2");
+    serverRpc2->sendReply();
+    serverRpc1->replyPayload.fillFromString("response1");
+    serverRpc1->sendReply();
+
+    // Receive the responses in the client.
+    EXPECT_FALSE(clientRpc1->isReady());
+    EXPECT_FALSE(clientRpc2->isReady());
+    EXPECT_TRUE(waitForRpc(*clientRpc1));
+    EXPECT_EQ("response1/0", toString(&reply1));
+    EXPECT_TRUE(clientRpc2->isReady());
+    EXPECT_EQ("response2/0", toString(&reply2));
 }
 
 TEST_F(TcpTransportTest, constructor_clientSideOnly) {
@@ -211,13 +212,32 @@ TEST_F(TcpTransportTest, destructor) {
     EXPECT_EQ(5, sys->closeCount);
 }
 
-TEST_F(TcpTransportTest, AcceptHandler_noConnection) {
+TEST_F(TcpTransportTest, Socket_destructor) {
+    // Send a partial message to a server, then close its socket and
+    // ensure that the TcpServerRpc was deleted.
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    EXPECT_NE(server.sockets.size(), 0U);
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+
+    TcpTransport::Header header;
+    header.len = 6;
+    EXPECT_EQ(static_cast<int>(sizeof(header)),
+        write(fd, &header, sizeof(header)));
+    server.sockets[serverFd]->readHandler.handleFileEvent();
+    EXPECT_TRUE(server.sockets[serverFd]->rpc != NULL);
+    server.closeSocket(serverFd);
+    EXPECT_EQ("~TcpServerRpc: deleted", TestLog::get());
+}
+
+TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_noConnection) {
     TcpTransport server(locator);
     server.acceptHandler->handleFileEvent();
     EXPECT_EQ(0U, server.sockets.size());
 }
 
-TEST_F(TcpTransportTest, AcceptHandler_acceptFailure) {
+TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_acceptFailure) {
     TcpTransport server(locator);
     sys->acceptErrno = EPERM;
     server.acceptHandler->handleFileEvent();
@@ -228,7 +248,7 @@ TEST_F(TcpTransportTest, AcceptHandler_acceptFailure) {
     EXPECT_EQ(1, sys->closeCount);
 }
 
-TEST_F(TcpTransportTest, AcceptHandler_success) {
+TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_success) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
     server.acceptHandler->handleFileEvent();
@@ -237,7 +257,7 @@ TEST_F(TcpTransportTest, AcceptHandler_success) {
     close(fd);
 }
 
-TEST_F(TcpTransportTest, RequestReadHandler) {
+TEST_F(TcpTransportTest, RequestReadHandler_handleFileEvent) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
     server.acceptHandler->handleFileEvent();
@@ -260,31 +280,7 @@ TEST_F(TcpTransportTest, RequestReadHandler) {
     close(fd);
 }
 
-TEST_F(TcpTransportTest, RequestReadHandler_unexpectedData) {
-    TcpTransport server(locator);
-    int fd = connectToServer(*locator);
-    server.acceptHandler->handleFileEvent();
-    EXPECT_NE(server.sockets.size(), 0U);
-    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
-
-    // Send a message to make the server busy.
-    TcpTransport::Header header;
-    header.len = 0;
-    write(fd, &header, sizeof(header));
-    server.sockets[serverFd]->readHandler.handleFileEvent();
-    EXPECT_TRUE(server.sockets[serverFd]->busy);
-
-    // Send more junk to the server.
-    write(fd, "abcdef", 6);
-    server.sockets[serverFd]->readHandler.handleFileEvent();
-    EXPECT_EQ("handleFileEvent: TcpTransport::RequestReadHandler "
-            "discarding 6 unexpected bytes from client",
-            TestLog::get());
-
-    close(fd);
-}
-
-TEST_F(TcpTransportTest, RequestReadHandler_eof) {
+TEST_F(TcpTransportTest, RequestReadHandler_handleFileEvent_eof) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
     server.acceptHandler->handleFileEvent();
@@ -294,7 +290,7 @@ TEST_F(TcpTransportTest, RequestReadHandler_eof) {
     EXPECT_TRUE(server.sockets[serverFd] == NULL);
 }
 
-TEST_F(TcpTransportTest, RequestReadHandler_error) {
+TEST_F(TcpTransportTest, RequestReadHandler_handleFileEvent_error) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
     server.acceptHandler->handleFileEvent();
@@ -304,7 +300,8 @@ TEST_F(TcpTransportTest, RequestReadHandler_error) {
     EXPECT_TRUE(server.sockets[serverFd] == NULL);
     EXPECT_EQ("handleFileEvent: TcpTransport::RequestReadHandler "
             "closing client connection: I/O read error in TcpTransport: "
-            "Operation not permitted", TestLog::get());
+            "Operation not permitted | ~TcpServerRpc: deleted",
+            TestLog::get());
 
     close(fd);
 }
@@ -316,7 +313,7 @@ TEST_F(TcpTransportTest, sendMessage_multipleChunks) {
     Buffer::Chunk::appendToBuffer(&payload, "abcde", 5);
     Buffer::Chunk::appendToBuffer(&payload, "xxx", 3);
     Buffer::Chunk::appendToBuffer(&payload, "12345678", 8);
-    TcpTransport::sendMessage(fd, payload);
+    TcpTransport::sendMessage(fd, 111, payload);
 
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
@@ -335,7 +332,7 @@ TEST_F(TcpTransportTest, sendMessage_errorOnSend) {
     sys->sendmsgErrno = EPERM;
     string message("no exception");
     try {
-        TcpTransport::sendMessage(fd, payload);
+        TcpTransport::sendMessage(fd, 111, payload);
     } catch (TransportException& e) {
         message = e.message;
     }
@@ -362,7 +359,7 @@ TEST_F(TcpTransportTest, sendMessage_brokenPipe) {
         TcpTransport::TcpSession* rawSession =
                 reinterpret_cast<TcpTransport::TcpSession*>(session.get());
         for (int i = 0; i < 1000; i++) {
-            TcpTransport::sendMessage(rawSession->fd, request);
+            TcpTransport::sendMessage(rawSession->fd, 111, request);
         }
     } catch (TransportException& e) {
         message = e.message;
@@ -380,12 +377,12 @@ TEST_F(TcpTransportTest, sendMessage_shortCount) {
     sys->sendmsgReturnCount = 3;
     string message("no exception");
     try {
-        TcpTransport::sendMessage(fd, payload);
+        TcpTransport::sendMessage(fd, 111, payload);
     } catch (TransportException& e) {
         message = e.message;
     }
     EXPECT_EQ("Incomplete sendmsg in "
-            "TcpTransport::sendMessage: 3 bytes sent out of 9",
+            "TcpTransport::sendMessage: 3 bytes sent out of 17",
             message);
 
     close(fd);
@@ -422,45 +419,82 @@ TEST_F(TcpTransportTest, readMessage_receiveHeaderInPieces) {
 
     // Try to receive when there is no data at all.
     Buffer buffer;
-    TcpTransport::IncomingMessage incoming(&buffer);
+    TcpTransport::IncomingMessage incoming(&buffer, NULL);
     EXPECT_FALSE(incoming.readMessage(serverFd));
     EXPECT_EQ(0U, incoming.headerBytesReceived);
 
     // Send first part of header.
     TcpTransport::Header header;
-    header.len = 123456789;
+    header.len = 240;
     write(fd, &header, 3);
     EXPECT_FALSE(incoming.readMessage(serverFd));
     EXPECT_EQ(3U, incoming.headerBytesReceived);
 
-    // Send second part of header (oversize counter will generate
-    // exception).
+    // Send second part of header.
     write(fd, reinterpret_cast<char*>(&header)+3, sizeof(header)-3);
-    string message("no exception");
-    try {
-        incoming.readMessage(serverFd);
-    } catch (TransportException& e) {
-        message = e.message;
-    }
-    EXPECT_EQ("TcpTransport received oversize message "
-            "(123456789 bytes)", message);
+    EXPECT_FALSE(incoming.readMessage(serverFd));
+    EXPECT_EQ(12U, incoming.headerBytesReceived);
+    EXPECT_EQ(240U, incoming.messageLength);
 
     close(fd);
 }
 
-TEST_F(TcpTransportTest, readMessage_zeroLengthMessage) {
+TEST_F(TcpTransportTest, readMessage_messageTooLong) {
     TcpTransport server(locator);
     int fd = connectToServer(*locator);
     server.acceptHandler->handleFileEvent();
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     Buffer buffer;
-    TcpTransport::IncomingMessage incoming(&buffer);
+    TcpTransport::IncomingMessage incoming(&buffer, NULL);
     TcpTransport::Header header;
-    header.len = 0;
+    header.len = 999999999;
     write(fd, &header, sizeof(header));
-    EXPECT_TRUE(incoming.readMessage(serverFd));
-    EXPECT_EQ("", toString(&buffer));
+    EXPECT_FALSE(incoming.readMessage(serverFd));
+    EXPECT_EQ("readMessage: TcpTransport received oversize message "
+            "(999999999 bytes); discarding extra bytes",
+            TestLog::get());
+    EXPECT_EQ(0x1000000U, incoming.messageLength);
 
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, readMessage_getBufferFromSession) {
+    // This test is a bit goofy, and that we set up a server, then
+    // initialize the IncomingMessage to receive a client-side reply.
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+    Buffer request, reply;
+    TcpTransport::TcpSession session;
+    TcpTransport::TcpClientRpc rpc(&session, &request, &reply, 66UL);
+    session.outstandingRpcs.push_back(rpc);
+    TcpTransport::IncomingMessage incoming(NULL, &session);
+    TcpTransport::Header header;
+    header.nonce = 66UL;
+    header.len = 5;
+    write(fd, &header, sizeof(header));
+    write(fd, "abcde", 5);
+    EXPECT_TRUE(incoming.readMessage(serverFd));
+    EXPECT_EQ("abcde", toString(&reply));
+    session.close();
+
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, readMessage_findRpcReturnsNull) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+    TcpTransport::TcpSession session;
+    TcpTransport::IncomingMessage incoming(NULL, &session);
+    TcpTransport::Header header;
+    header.nonce = 66UL;
+    header.len = 5;
+    write(fd, &header, sizeof(header));
+    EXPECT_FALSE(incoming.readMessage(serverFd));
+    EXPECT_EQ(0U, incoming.messageLength);
     close(fd);
 }
 
@@ -470,7 +504,7 @@ TEST_F(TcpTransportTest, readMessage_receiveBodyInPieces) {
     server.acceptHandler->handleFileEvent();
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     Buffer buffer;
-    TcpTransport::IncomingMessage incoming(&buffer);
+    TcpTransport::IncomingMessage incoming(&buffer, NULL);
     TcpTransport::Header header;
     header.len = 11;
     write(fd, &header, sizeof(header));
@@ -489,6 +523,48 @@ TEST_F(TcpTransportTest, readMessage_receiveBodyInPieces) {
     write(fd, "0123456789", 10);
     EXPECT_TRUE(incoming.readMessage(serverFd));
     EXPECT_EQ("abcde012345", toString(&buffer));
+
+    close(fd);
+}
+
+TEST_F(TcpTransportTest, readMessage_discardExtraneousBytes) {
+    TcpTransport server(locator);
+    int fd = connectToServer(*locator);
+    server.acceptHandler->handleFileEvent();
+    int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
+    Buffer buffer;
+    TcpTransport::IncomingMessage incoming(&buffer, NULL);
+    TcpTransport::Header header;
+    header.len = 5000;
+    char body[5000];
+    write(fd, &header, sizeof(header));
+
+    // Read the header and modify the message to ignore most of the body.
+    EXPECT_FALSE(incoming.readMessage(serverFd));
+    EXPECT_EQ(5000U, incoming.messageLength);
+    incoming.messageLength = 5;
+    buffer.reset();
+
+    // Read the body and make sure the correct bytes are ignored
+    snprintf(body, sizeof(body), "abcdefghijklmnop");
+    write(fd, body, sizeof(body));
+    EXPECT_FALSE(incoming.readMessage(serverFd));
+    EXPECT_EQ(4101U, incoming.messageBytesReceived);
+    TestLog::reset();
+    EXPECT_TRUE(incoming.readMessage(serverFd));
+    EXPECT_EQ(5000U, incoming.messageBytesReceived);
+    EXPECT_EQ("abcde", toString(&buffer));
+
+    // One more check to make sure exactly the right number of bytes were
+    // read from the socket.  Also tests zero-length message bodies.
+    header.nonce = 0xaaaabbbbccccddddUL;
+    header.len = 0;
+    buffer.reset();
+    write(fd, &header, sizeof(header));
+    TcpTransport::IncomingMessage incoming2(&buffer, NULL);
+    EXPECT_TRUE(incoming2.readMessage(serverFd));
+    EXPECT_EQ(0xaaaabbbbccccddddUL, incoming2.header.nonce);
+    EXPECT_EQ("", toString(&buffer));
 
     close(fd);
 }
@@ -526,7 +602,7 @@ TEST_F(TcpTransportTest, sessionDestructor) {
     EXPECT_EQ(1, sys->closeCount);
 }
 
-TEST_F(TcpTransportTest, sessionDestructor_finishRequestsInProgress) {
+TEST_F(TcpTransportTest, TcpSession_close_cancelRequestsInProgress) {
     TcpTransport server(locator);
     TcpTransport client;
     Transport::SessionRef session = client.getSession(*locator);
@@ -553,14 +629,14 @@ TEST_F(TcpTransportTest, sessionDestructor_finishRequestsInProgress) {
     } catch (TransportException& e) {
         message1 = e.message;
     }
-    EXPECT_EQ("session closed", message1);
+    EXPECT_EQ("RPC cancelled: session closed", message1);
     string message3("no exception");
     try {
         clientRpc3->wait();
     } catch (TransportException& e) {
         message3 = e.message;
     }
-    EXPECT_EQ("session closed", message3);
+    EXPECT_EQ("RPC cancelled: session closed", message3);
 }
 
 TEST_F(TcpTransportTest, clientSend_sessionClosed) {
@@ -581,70 +657,56 @@ TEST_F(TcpTransportTest, clientSend_sessionClosed) {
     EXPECT_EQ("session closed", message);
 }
 
-TEST_F(TcpTransportTest, clientSend_queueRequest) {
-    TcpTransport server(locator);
-    TcpTransport client;
-    Transport::SessionRef session = client.getSession(*locator);
-    TcpTransport::TcpSession* rawSession =
-            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-    Buffer request1, request2;
-    Buffer reply1, reply2;
-    request1.fillFromString("abcdefg");
-    Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
-            &reply1);
-    Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
-            &reply2);
-    EXPECT_EQ(clientRpc1, rawSession->current);
-    EXPECT_EQ(1U, rawSession->waitingRpcs.size());
-    EXPECT_EQ(clientRpc2, rawSession->waitingRpcs.back());
+TEST_F(TcpTransportTest, findRpc) {
+    // This test is a bit goofy, and that we set up a server, then
+    // initialize the IncomingMessage to receive a client-side reply.
+    TcpTransport::TcpSession session;
+    Buffer request1, reply1, request2, reply2, request3, reply3;
+    reply1.fillFromString("1111");
+    reply2.fillFromString("2222");
+    reply3.fillFromString("3333");
+    TcpTransport::TcpClientRpc rpc1(&session, &request1, &reply1, 111UL);
+    session.outstandingRpcs.push_back(rpc1);
+    TcpTransport::TcpClientRpc rpc2(&session, &request2, &reply2, 222UL);
+    session.outstandingRpcs.push_back(rpc2);
+    TcpTransport::TcpClientRpc rpc3(&session, &request3, &reply3, 333UL);
+    session.outstandingRpcs.push_back(rpc3);
+    TcpTransport::Header header;
+    header.nonce = 111UL;
+    EXPECT_EQ("1111", toString(session.findRpc(header)));
+    header.nonce = 222UL;
+    EXPECT_EQ("2222", toString(session.findRpc(header)));
+    header.nonce = 333UL;
+    EXPECT_EQ("3333", toString(session.findRpc(header)));
+    header.nonce = 334UL;
+    EXPECT_TRUE(session.findRpc(header) == NULL);
+    session.close();
 }
 
-TEST_F(TcpTransportTest, ReplyReadHandler_unexpectedDataFromServer) {
-    TcpTransport server(locator);
-    TcpTransport client;
-    Transport::SessionRef session = client.getSession(*locator);
-    server.acceptHandler->handleFileEvent();
-    write(downCast<unsigned>(server.sockets.size()) - 1, "abcdef", 6);
-    TcpTransport::TcpSession* rawSession =
-            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-    rawSession->replyHandler->handleFileEvent();
-    EXPECT_EQ("handleFileEvent: TcpTransport::ReplyReadHandler "
-            "discarding 6 unexpected bytes from server 127.0.0.1:11000",
-            TestLog::get());
-}
-
-TEST_F(TcpTransportTest, ReplyReadHandler_startNextRequest) {
+TEST_F(TcpTransportTest, ReplyReadHandler_handleFileEvent_finishRpc) {
     TcpTransport server(locator);
     TcpTransport client;
     Transport::SessionRef session = client.getSession(*locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
-    Buffer request1, request2;
-    Buffer reply1, reply2;
-    request1.fillFromString("abcdefg");
-    request1.fillFromString("xyzzy");
-
-    // Start 2 requests (the second one will get queued).
-    Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
-            &reply1);
-    Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
-            &reply2);
-    EXPECT_EQ(1U, rawSession->waitingRpcs.size());
+    Buffer request;
+    Buffer reply;
+    request.fillFromString("request1");
+    Transport::ClientRpc* clientRpc = session->clientSend(&request,
+            &reply);
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    serverRpc->replyPayload.fillFromString("klmn");
+    serverRpc->replyPayload.fillFromString("response1");
 
-    // Reply to the first request, make sure the second one gets unqueued.
+    // Reply to the first request, make sure the session state gets
+    // cleaned up.
+    EXPECT_EQ(1U, rawSession->outstandingRpcs.size());
     serverRpc->sendReply();
-    EXPECT_TRUE(waitForRpc(*clientRpc1));
-    EXPECT_EQ("klmn/0", toString(&reply1));
-    EXPECT_EQ(0U, rawSession->waitingRpcs.size());
-    serverRpc = serviceManager->waitForRpc(1.0);
-    EXPECT_TRUE(serverRpc != NULL);
-    serverRpc->replyPayload.fillFromString("aaaaa");
-    serverRpc->sendReply();
-    EXPECT_TRUE(waitForRpc(*clientRpc2));
-    EXPECT_EQ("aaaaa/0", toString(&reply2));
+    EXPECT_TRUE(waitForRpc(*clientRpc));
+    EXPECT_EQ("response1/0", toString(&reply));
+    EXPECT_TRUE(rawSession->current == NULL);
+    EXPECT_TRUE(clientRpc->isReady());
+    EXPECT_TRUE(rawSession->message->buffer == NULL);
 }
 
 TEST_F(TcpTransportTest, ReplyReadHandler_eof) {
@@ -708,8 +770,28 @@ TEST_F(TcpTransportTest, ReplyReadHandler_ioError) {
     } catch (TransportException& e) {
         message = e.message;
     }
-    EXPECT_EQ("I/O read error in TcpTransport: Operation not permitted",
-            message);
+    EXPECT_EQ("RPC cancelled: I/O read error in TcpTransport: "
+            "Operation not permitted", message);
+}
+
+TEST_F(TcpTransportTest, TcpClientRpc_cancelCleanup) {
+    TcpTransport server(locator);
+    TcpTransport client;
+    Transport::SessionRef session = client.getSession(*locator);
+    TcpTransport::TcpSession* rawSession =
+            reinterpret_cast<TcpTransport::TcpSession*>(session.get());
+    Buffer request1, reply1, request2, reply2;
+    request1.fillFromString("request1");
+    Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
+            &reply1);
+    request2.fillFromString("request2");
+    Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
+            &reply2);
+    EXPECT_EQ(2U, rawSession->outstandingRpcs.size());
+    clientRpc2->cancel();
+    EXPECT_EQ(1U, rawSession->outstandingRpcs.size());
+    clientRpc1->cancel();
+    EXPECT_EQ(0U, rawSession->outstandingRpcs.size());
 }
 
 }  // namespace RAMCloud

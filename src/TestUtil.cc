@@ -370,6 +370,42 @@ assertNotMatchesPosixRegex(const string& pattern, const string& subject)
 }
 
 /**
+ * Fail a gtest test case if the given string doesn't match the given POSIX
+ * regular expression.
+ * \param pattern
+ *      A POSIX regular expression.
+ * \param subject
+ *      The string that should match \a pattern.
+ * \return
+ *      A value that can be tested with EXPECT_TRUE.
+ */
+::testing::AssertionResult
+matchesPosixRegex(const string& pattern, const string& subject)
+{
+    regex_t pregStorage;
+    int r;
+
+    r = regcomp(&pregStorage, pattern.c_str(), 0);
+    if (r != 0) {
+        string message(format("Pattern '%s' failed to compile: %s",
+                pattern.c_str(),
+                friendlyRegerror(r, &pregStorage).c_str()));
+        regfree(&pregStorage);
+        return ::testing::AssertionFailure() << message;
+    }
+
+    r = regexec(&pregStorage, subject.c_str(), 0, NULL, 0);
+    if (r != 0) {
+        string message(format("Pattern '%s' did not match subject '%s'",
+                pattern.c_str(), subject.c_str()));
+        regfree(&pregStorage);
+        return ::testing::AssertionFailure() << message;
+    }
+    regfree(&pregStorage);
+    return ::testing::AssertionSuccess();
+}
+
+/**
  * This method fills a buffer with a given amount of data, in a form that
  * can be checked easily by #checkLargeBuffer. It's intended for testing
  * proper handling of large amounts of data.

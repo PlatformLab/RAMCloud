@@ -50,6 +50,7 @@ namespace RAMCloud {
 template<typename Infiniband = RealInfiniband>
 class InfRcTransport : public Transport {
     // forward declarations
+  PRIVATE:
     class InfRCSession;
     typedef typename Infiniband::BufferDescriptor BufferDescriptor;
     typedef typename Infiniband::QueuePair QueuePair;
@@ -78,7 +79,7 @@ class InfRcTransport : public Transport {
         LOG(NOTICE, "Registered %Zd bytes at %p", bytes, base);
     }
 
-  private:
+  PRIVATE:
     class ServerRpc : public Transport::ServerRpc {
         public:
             explicit ServerRpc(InfRcTransport* transport, QueuePair* qp,
@@ -100,6 +101,8 @@ class InfRcTransport : public Transport {
                                Buffer* response,
                                uint64_t nonce);
             void sendOrQueue();
+        protected:
+            virtual void cancelCleanup();
 
         private:
             bool

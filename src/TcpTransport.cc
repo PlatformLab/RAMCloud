@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -117,6 +117,16 @@ TcpTransport::closeSocket(int fd) {
 }
 
 /**
+ * Destructor for Sockets.
+ */
+TcpTransport::Socket::~Socket() {
+    if (rpc != NULL) {
+        delete rpc;
+    }
+}
+
+
+/**
  * Constructor for AcceptHandlers.
  *
  * \param fd
@@ -210,34 +220,13 @@ TcpTransport::RequestReadHandler::handleFileEvent()
     Socket* socket = transport->sockets[fd];
     assert(socket != NULL);
     if (socket->rpc == NULL) {
-        socket->rpc = new TcpServerRpc(socket, fd,
-                &socket->rpc->requestPayload);
-        socket->rpc->message.reset(&socket->rpc->requestPayload);
+        socket->rpc = new TcpServerRpc(socket, fd);
     }
     try {
-        if (socket->busy) {
-            // We're already working on serving an RPC from the socket
-            // so were not expecting more data now. There are 2 possible
-            // explanations: either the client closed its socket, or it
-            // sent us data when it shouldn't have (or perhaps sent too
-            // long a request message?). Try to read the unwanted data.
-            // If it doesn't throw TcpTransportEof and there is actually
-            // data, discard the data.
-            char buffer[2000];
-            ssize_t length = TcpTransport::recvCarefully(fd, buffer,
-                    sizeof(buffer));
-            if (length > 0) {
-                LOG(WARNING, "TcpTransport::RequestReadHandler discarding "
-                        "%lu unexpected bytes from client",
-                        static_cast<uint64_t>(length));
-            }
-            return;
-        }
         if (socket->rpc->message.readMessage(fd)) {
             // The incoming request is complete; pass it off for servicing.
             TcpServerRpc *rpc = socket->rpc;
             socket->rpc = NULL;
-            socket->busy = true;
             serviceManager->handleRpc(rpc);
         }
     } catch (TcpTransportEof& e) {
@@ -257,6 +246,9 @@ TcpTransport::RequestReadHandler::handleFileEvent()
  *
  * \param fd
  *      File descriptor to write (must be in blocking mode)
+ * \param nonce
+ *      Unique identifier for the RPC; must never have been used
+ *      before on this socket.
  * \param payload
  *      Message to transmit on fd; this method adds on a header.
  *
@@ -264,11 +256,12 @@ TcpTransport::RequestReadHandler::handleFileEvent()
  *      An I/O error occurred.
  */
 void
-TcpTransport::sendMessage(int fd, Buffer& payload)
+TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer& payload)
 {
     assert(fd >= 0);
 
     Header header;
+    header.nonce = nonce;
     header.len = payload.getTotalLength();
 
     // Use an iovec to send everything in one kernel call: one iov
@@ -344,29 +337,21 @@ TcpTransport::recvCarefully(int fd, void* buffer, size_t length) {
 /**
  * Constructor for IncomingMessages.
  * \param buffer
- *      The contents of the message (not including transport-specific
- *      header) will be placed in this buffer; caller should ensure that
- *      the buffer is empty.
+ *      If non-NULL, specifies a buffer in which to place the body of
+ *      the incoming message; the caller should ensure that the buffer
+ *      is empty.  This parameter is used on servers, where the buffer
+ *      is known before any part of the message has been received.
+ * \param session
+ *      If non-NULL, specifies a TcpSession whose findRpc method should
+ *      be invoked once the header for the message has been received.
+ *      FindRpc will provide a buffer to use for the body of the message.
+ *      This argument is typically used on clients.
  */
-TcpTransport::IncomingMessage::IncomingMessage(Buffer* buffer)
+TcpTransport::IncomingMessage::IncomingMessage(Buffer* buffer,
+        TcpSession* session)
     : header(), headerBytesReceived(0), messageBytesReceived(0),
-    buffer(buffer)
+      messageLength(0), buffer(buffer), session(session)
 {
-}
-
-/**
- * This method is called before beginning a message transfer to
- * reinitialize the state of the object.
- * \param buffer
- *      The contents of the message (not including transport-specific
- *      header) will be placed in this buffer; caller should ensure that
- *      the buffer is empty.
- */
-void TcpTransport::IncomingMessage::reset(Buffer* buffer)
-{
-    headerBytesReceived = 0;
-    messageBytesReceived= 0;
-    this->buffer = buffer;
 }
 
 /**
@@ -389,41 +374,60 @@ bool
 TcpTransport::IncomingMessage::readMessage(int fd) {
     // First make sure we have received the header (it may arrive in
     // multiple chunks).
-    while (headerBytesReceived < sizeof(Header)) {
+    if (headerBytesReceived < sizeof(Header)) {
         ssize_t len = TcpTransport::recvCarefully(fd,
                 reinterpret_cast<char*>(&header) + headerBytesReceived,
                 sizeof(header) - headerBytesReceived);
-        if (len <= 0)
-            return false;
         headerBytesReceived += downCast<uint32_t>(len);
-    }
+        if (headerBytesReceived < sizeof(Header))
+            return false;
 
-    if (header.len > MAX_RPC_LEN) {
-        throw TransportException(HERE,
-                format("TcpTransport received oversize message (%d bytes)",
-                header.len));
-    }
+        // Header is complete; check for various errors and set up for
+        // reading the body.
+        messageLength = header.len;
+        if (header.len > MAX_RPC_LEN) {
+            LOG(WARNING, "TcpTransport received oversize message (%d bytes); "
+                    "discarding extra bytes", header.len);
+            messageLength = MAX_RPC_LEN;
+        }
 
-    if (header.len == 0)
-        return true;
+        if ((buffer == NULL) && (session != NULL)) {
+            buffer = session->findRpc(header);
+        }
+        if (buffer == NULL)
+            messageLength = 0;
+    }
 
     // We have the header; now receive the message body (it may take several
     // calls to this method before we get all of it).
-    {
+    if (messageBytesReceived < messageLength) {
         void *dest;
         if (buffer->getTotalLength() == 0) {
-            dest = new(buffer, APPEND) char[header.len];
+            dest = new(buffer, APPEND) char[messageLength];
         } else {
             buffer->peek(messageBytesReceived,
                     const_cast<const void**>(&dest));
         }
         ssize_t len = TcpTransport::recvCarefully(fd, dest,
-                header.len - messageBytesReceived);
-        if (len <= 0)
-            return false;
+                messageLength - messageBytesReceived);
         messageBytesReceived += downCast<uint32_t>(len);
+        if (messageBytesReceived < messageLength)
+            return false;
     }
-    return messageBytesReceived == header.len;
+
+    // We have the header and the message body, but we may have to discard
+    // extraneous bytes.
+    if (messageBytesReceived < header.len) {
+        char buffer[4096];
+        uint32_t maxLength = header.len - messageBytesReceived;
+        if (maxLength > sizeof(buffer))
+            maxLength = sizeof(buffer);
+        ssize_t len = TcpTransport::recvCarefully(fd, buffer, maxLength);
+        messageBytesReceived += downCast<uint32_t>(len);
+        if (messageBytesReceived < header.len)
+            return false;
+    }
+    return true;
 }
 
 /**
@@ -433,8 +437,8 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  *      Identifies the server to which RPCs on this session will be sent.
  */
 TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
-        : address(serviceLocator), fd(-1), current(NULL), waitingRpcs(),
-          message(NULL), replyHandler(), errorInfo()
+        : address(serviceLocator), fd(-1), serial(0), outstandingRpcs(),
+          current(NULL), message(), replyHandler(), errorInfo()
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -453,6 +457,7 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
     /// Arrange for notification whenever the server sends us data.
     Dispatch::Lock lock;
     replyHandler.construct(fd, this);
+    message.construct(static_cast<Buffer*>(NULL), this);
 }
 
 /**
@@ -476,13 +481,8 @@ TcpTransport::TcpSession::close()
     if (errorInfo.size() == 0) {
         errorInfo = "session closed";
     }
-    if (current != NULL) {
-        current->markFinished(&errorInfo);
-        current = NULL;
-    }
-    while (!waitingRpcs.empty()) {
-        waitingRpcs.front()->markFinished(&errorInfo);
-        waitingRpcs.pop();
+    while (!outstandingRpcs.empty()) {
+        outstandingRpcs.front().cancel(errorInfo);
     }
     if (replyHandler) {
         Dispatch::Lock lock;
@@ -497,17 +497,37 @@ TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* reply)
     if (fd == -1) {
         throw TransportException(HERE, errorInfo);
     }
-    TcpClientRpc* rpc = new(reply, MISC) TcpClientRpc(this, request, reply);
-    if (current != NULL) {
-        // We can't handle more than one outstanding request at a time;
-        // save the new request until the previous one finishes.
-        waitingRpcs.push(rpc);
-    } else {
-        current = rpc;
-        message.reset(reply);
-        TcpTransport::sendMessage(fd, *request);
-    }
+    serial++;
+    TcpClientRpc* rpc = new(reply, MISC) TcpClientRpc(this, request,
+            reply, serial);
+    TcpTransport::sendMessage(fd, serial, *request);
+    outstandingRpcs.push_back(*rpc);
     return rpc;
+}
+
+/**
+ * This method is invoked once the header has been received for an RPC response.
+ * It uses information in the header to locate the corresponding TcpClientRpc
+ * object, and returns the Buffer to use for the response.
+ *
+ * \param header
+ *      The header from the incoming RPC.
+ *
+ * \return
+ *      If the nonce in the header refers to an active RPC, then the return
+ *      value is the reply payload for that RPC.  If no matching RPC can be
+ *      found (perhaps the RPC was canceled?) then NULL is returned to indicate
+ *      that the input message should be dropped.
+ */
+Buffer*
+TcpTransport::TcpSession::findRpc(Header& header) {
+    foreach (TcpClientRpc& rpc, outstandingRpcs) {
+        if (rpc.nonce == header.nonce) {
+            current = &rpc;
+            return rpc.reply;
+        }
+    }
+    return NULL;
 }
 
 /**
@@ -535,36 +555,16 @@ void
 TcpTransport::ReplyReadHandler::handleFileEvent()
 {
     try {
-        if (session->current == NULL) {
-            // We can get here under 2 conditions: either the server closed
-            // its connection (most likely), or it violated the protocol and
-            // sent us data when there was no request pending.  Try to read
-            // data (most likely generating TcpTransportEof); if there is any
-            // data, discard it.
-            char buffer[2000];
-            ssize_t length = TcpTransport::recvCarefully(fd, buffer,
-                    sizeof(buffer));
-            if (length > 0) {
-                LOG(WARNING, "TcpTransport::ReplyReadHandler discarding %lu "
-                        "unexpected bytes from server %s",
-                        static_cast<uint64_t>(length),
-                        session->address.toString().c_str());
-            }
-            return;
-        }
-        if (session->message.readMessage(fd)) {
+        if (session->message->readMessage(fd)) {
             // This RPC is finished.
-            session->current->markFinished();
-            session->current = NULL;
-            if (!session->waitingRpcs.empty()) {
-                // There is another RPC waiting to be sent on this transport;
-                // begin sending it.
-                TcpClientRpc* rpc = session->waitingRpcs.front();
-                session->waitingRpcs.pop();
-                session->current = rpc;
-                session->message.reset(rpc->reply);
-                TcpTransport::sendMessage(fd, *rpc->request);
+            if (session->current != NULL) {
+                session->current->markFinished();
+                session->outstandingRpcs.erase(
+                        session->outstandingRpcs.iterator_to(
+                        *session->current));
+                session->current = NULL;
             }
+            session->message.construct(static_cast<Buffer*>(NULL), session);
         }
     } catch (TcpTransportEof& e) {
         // Close the session's socket in order to prevent an infinite loop of
@@ -583,13 +583,18 @@ TcpTransport::ReplyReadHandler::handleFileEvent()
 void
 TcpTransport::TcpServerRpc::sendReply()
 {
-    assert(socket->busy);
-
     // "delete this;" on our way out of the method
     std::auto_ptr<TcpServerRpc> suicide(this);
 
-    TcpTransport::sendMessage(fd, replyPayload);
-    socket->busy = false;
+    TcpTransport::sendMessage(fd, message.header.nonce, replyPayload);
+}
+
+// See Transport::ClientRpc::cancelCleanup for documentation.
+void
+TcpTransport::TcpClientRpc::cancelCleanup()
+{
+    session->outstandingRpcs.erase(
+            session->outstandingRpcs.iterator_to(*this));
 }
 
 }  // namespace RAMCloud

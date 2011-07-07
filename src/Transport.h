@@ -102,8 +102,19 @@ class Transport {
             return (finished.load() != 0);
         }
 
+        void cancel(string& message);
+        void cancel(const char* message = "");
+
       PROTECTED:
-        void markFinished(string* errorMessage = NULL);
+        /**
+         * This method provides a hook for individual transports to unwind RPCs
+         * in progress as part of cancellation.  It is invoked by #cancel with
+         * the Dispatch lock held  (and only if the RPC isn't already finished);
+         * once it returns #cancel will mark the RPC finished.
+         */
+        virtual void cancelCleanup() {}
+        void markFinished(string& errorMessage);
+        void markFinished(const char* errorMessage = NULL);
 
         /**
          * Non-zero means that the RPC has completed (either with or without an
