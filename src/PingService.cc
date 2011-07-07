@@ -53,6 +53,8 @@ PingService::proxyPing(const ProxyPingRpc::Request& reqHdr,
         uint64_t result = client.ping(serviceLocator, 99999,
                                       reqHdr.timeoutNanoseconds);
         if (result == 99999U) {
+            // We got an incorrect response; treat this as if there were
+            // no response.
             respHdr.replyNanoseconds = cyclesToNanoseconds(rdtsc() - start);
         } else {
             respHdr.replyNanoseconds = -1;

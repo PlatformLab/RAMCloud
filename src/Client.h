@@ -158,6 +158,8 @@ class Client {
     /// An opaque handle returned by #send() and passed into #recv().
     struct AsyncState {
         AsyncState() : rpc(NULL), responseBuffer(NULL) {}
+        bool isReady() { return rpc->isReady(); }
+        void cancel() { rpc->cancel(); }
       private:
         Transport::ClientRpc* rpc;
         Buffer* responseBuffer;
@@ -175,12 +177,6 @@ class Client {
         state.responseBuffer = &responseBuffer;
         state.rpc = session->clientSend(&requestBuffer, &responseBuffer);
         return state;
-    }
-
-    bool
-    isReady(AsyncState& state) const
-    {
-        return state.rpc->isReady();
     }
 
     /// Second half of sendRecv. Call #send() before this.

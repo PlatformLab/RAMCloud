@@ -55,10 +55,12 @@ PingClient::ping(const char* serviceLocator, uint64_t nonce,
     while (true) {
         if (dispatch->isDispatchThread())
             dispatch->poll();
-        if (isReady(state))
+        if (state.isReady())
             break;
-        if (rdtsc() >= abortTime)
+        if (rdtsc() >= abortTime) {
+            state.cancel();
             throw TimeoutException(HERE);
+        }
     }
     const PingRpc::Response& respHdr(recv<PingRpc>(state));
 
@@ -114,10 +116,12 @@ PingClient::proxyPing(const char* serviceLocator1,
     while (true) {
         if (dispatch->isDispatchThread())
             dispatch->poll();
-        if (isReady(state))
+        if (state.isReady())
             break;
-        if (rdtsc() >= abortTime)
+        if (rdtsc() >= abortTime) {
+            state.cancel();
             throw TimeoutException(HERE);
+        }
     }
     const ProxyPingRpc::Response& respHdr(recv<ProxyPingRpc>(state));
 
