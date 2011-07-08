@@ -432,6 +432,7 @@ fillLargeBuffer(Buffer* buffer, int size)
         }
         memcpy(new(buffer, APPEND) char[chunkLength], chunk, chunkLength);
         bytesLeft -= chunkLength;
+        i += 5;
     }
 }
 

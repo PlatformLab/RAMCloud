@@ -125,6 +125,11 @@ TcpTransport::Socket::~Socket() {
     if (rpc != NULL) {
         delete rpc;
     }
+    while (!rpcsWaitingToReply.empty()) {
+        TcpServerRpc& rpc = rpcsWaitingToReply.front();
+        rpcsWaitingToReply.pop_front();
+        delete &rpc;
+    }
 }
 
 
@@ -200,62 +205,90 @@ TcpTransport::AcceptHandler::handleFileEvent(int events)
 }
 
 /**
- * Constructor for RequestReadHandlers.
+ * Constructor for ServerSocketHandlers.
  *
  * \param fd
  *      File descriptor for a client socket on which RPC requests may arrive.
  * \param transport
  *      The TcpTransport that manages this socket.
+ * \param socket
+ *      Socket object corresponding to fd.
  */
-TcpTransport::RequestReadHandler::RequestReadHandler(int fd,
-        TcpTransport* transport)
+TcpTransport::ServerSocketHandler::ServerSocketHandler(int fd,
+        TcpTransport* transport, Socket* socket)
         : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
-        fd(fd), transport(transport)
+        fd(fd), transport(transport), socket(socket)
 {
     // Empty constructor body.
 }
 
 /**
- * This method is invoked by Dispatch when a client socket becomes readable.
- * It attempts to read an incoming message from the socket. If a full
- * message is available, a TcpServerRpc object gets queued for service.
+ * This method is invoked by Dispatch when a client socket becomes readable
+ * or writable.  It attempts to read incoming messages from the socket.  If
+ * a full message is available, a TcpServerRpc object gets queued for service.
+ * It also attempts to write responses to the socket (if there are responses
+ * waiting for transmission).
  *
  * \param events
  *      Indicates whether the socket was readable, writable, or both
  *      (OR-ed combination of Dispatch::FileEvent bits).
  */
 void
-TcpTransport::RequestReadHandler::handleFileEvent(int events)
+TcpTransport::ServerSocketHandler::handleFileEvent(int events)
 {
     Socket* socket = transport->sockets[fd];
     assert(socket != NULL);
-    if (socket->rpc == NULL) {
-        socket->rpc = new TcpServerRpc(socket, fd);
-    }
     try {
-        if (socket->rpc->message.readMessage(fd)) {
-            // The incoming request is complete; pass it off for servicing.
-            TcpServerRpc *rpc = socket->rpc;
-            socket->rpc = NULL;
-            serviceManager->handleRpc(rpc);
+        if (events & Dispatch::FileEvent::READABLE) {
+            if (socket->rpc == NULL) {
+                socket->rpc = new TcpServerRpc(socket, fd);
+            }
+            if (socket->rpc->message.readMessage(fd)) {
+                // The incoming request is complete; pass it off for servicing.
+                TcpServerRpc *rpc = socket->rpc;
+                socket->rpc = NULL;
+                serviceManager->handleRpc(rpc);
+            }
+        }
+        if (events & Dispatch::FileEvent::WRITABLE) {
+            // We should only get here if a reply could not be transmitted in
+            // its entirety because it would have blocked on I/O.
+            assert(!socket->rpcsWaitingToReply.empty());
+            while (true) {
+                TcpServerRpc& rpc = socket->rpcsWaitingToReply.front();
+                socket->bytesLeftToSend = TcpTransport::sendMessage(fd,
+                        rpc.message.header.nonce, rpc.replyPayload,
+                        socket->bytesLeftToSend);
+                if (socket->bytesLeftToSend != 0) {
+                    break;
+                }
+                // The current reply is finished; start the next one, if
+                // there is one.
+                socket->rpcsWaitingToReply.pop_front();
+                delete &rpc;
+                socket->bytesLeftToSend = -1;
+                if (socket->rpcsWaitingToReply.empty()) {
+                    setEvents(Dispatch::FileEvent::READABLE);
+                    break;
+                }
+            }
         }
     } catch (TcpTransportEof& e) {
         // Close the socket in order to prevent an infinite loop of
         // calls to this method.
         transport->closeSocket(fd);
     } catch (TransportException& e) {
-        LOG(ERROR, "TcpTransport::RequestReadHandler closing client "
+        LOG(ERROR, "TcpTransport::ServerSocketHandler closing client "
                 "connection: %s", e.message.c_str());
         transport->closeSocket(fd);
     }
 }
 
 /**
- * Transmit an RPC request or response on a socket; this method does
- * not return until the kernel has accepted all of the data.  In order
- * to avoid deadlocks, this method uses nonblocking I/O and calls
- * dispatch->poll while waiting, so that we can receive responses
- * and handle other events.
+ * Transmit an RPC request or response on a socket.  This method uses
+ * a nonblocking approach: if entire message cannot be transmitted,
+ * entrances as many bytes as possible and returns information about
+ * how much more work is still left to do.
  *
  * \param fd
  *      File descriptor to write.
@@ -264,81 +297,80 @@ TcpTransport::RequestReadHandler::handleFileEvent(int events)
  *      before on this socket.
  * \param payload
  *      Message to transmit on fd; this method adds on a header.
+ * \param bytesToSend
+ *      -1 means the entire message must still be transmitted;
+ *      Anything else means that part of the message was transmitted
+ *      in a previous call, and the value of this parameter is the
+ *      result returned by that call (always greater than 0).
+ *
+ * \return
+ *      The number of (trailing) bytes that could not be transmitted.
+ *      0 means the entire message was sent successfully.
  *
  * \throw TransportException
  *      An I/O error occurred.
  */
-void
-TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer& payload)
+int
+TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer& payload,
+        int bytesToSend)
 {
     assert(fd >= 0);
 
     Header header;
     header.nonce = nonce;
     header.len = payload.getTotalLength();
+    int totalLength = downCast<int>(sizeof(header) + header.len);
+    if (bytesToSend < 0) {
+        bytesToSend = totalLength;
+    }
+    int alreadySent = totalLength - bytesToSend;
 
     // Use an iovec to send everything in one kernel call: one iov
-    // for header, the rest for payload
+    // for header, the rest for payload.  Skip parts that have
+    // already been sent.
     uint32_t iovecs = 1 + payload.getNumberChunks();
     struct iovec iov[iovecs];
-    iov[0].iov_base = &header;
-    iov[0].iov_len = sizeof(header);
-
-    Buffer::Iterator iter(payload);
-    int i = 1;
+    int offset;
+    int iovecIndex;
+    if (alreadySent < downCast<int>(sizeof(header))) {
+        iov[0].iov_base = reinterpret_cast<char*>(&header) + alreadySent;
+        iov[0].iov_len = sizeof(header) - alreadySent;
+        iovecIndex = 1;
+        offset = 0;
+    } else {
+        iovecIndex = 0;
+        offset = alreadySent - downCast<int>(sizeof(header));
+    }
+    Buffer::Iterator iter(payload, offset, header.len - offset);
     while (!iter.isDone()) {
-        iov[i].iov_base = const_cast<void*>(iter.getData());
-        iov[i].iov_len = iter.getLength();
-        ++i;
+        iov[iovecIndex].iov_base = const_cast<void*>(iter.getData());
+        iov[iovecIndex].iov_len = iter.getLength();
+        ++iovecIndex;
         iter.next();
     }
 
     struct msghdr msg;
     memset(&msg, 0, sizeof(msg));
     msg.msg_iov = iov;
-    msg.msg_iovlen = iovecs;
+    msg.msg_iovlen = iovecIndex;
 
-    // We try to send the message all at once, but if that would block
-    // then we send the message in pieces, updating the iovec after each
-    // piece to reflect data already sent.
-    int bytesToSend = downCast<int>(sizeof(header) + header.len);
-    while (true) {
-        int r = downCast<int>(sys->sendmsg(fd, &msg,
-                MSG_NOSIGNAL|MSG_DONTWAIT));
-        if (r == bytesToSend)
-            return;
-        if (r == -1) {
-            if ((errno != EAGAIN) && (errno != EWOULDBLOCK)) {
-                throw TransportException(HERE,
-                        "I/O error in TcpTransport::sendMessage", errno);
-            }
-            r = 0;
-        }
-        if (r > 0) {
-            messageChunks++;
-        }
-        bytesToSend -= r;
-        while (r > 0) {
-            struct iovec* curVec = msg.msg_iov;
-            int length = downCast<int>(curVec->iov_len);
-            if (length <= r) {
-                // The current entry has been sent completely.
-                r -= length;
-                msg.msg_iov++;
-                msg.msg_iovlen--;
-            } else {
-                // Didn't get all the way through this entry.
-                curVec->iov_base = static_cast<char*>(curVec->iov_base) + r;
-                curVec->iov_len -= r;
-                break;
-            }
-        }
-
-        // Allow other event handlers to execute, in order to avoid deadlocks
-        // (for example, the server might be trying to send a very large message
-        // to us as the response for another RPC).
-        dispatch->poll();
+    int r = downCast<int>(sys->sendmsg(fd, &msg,
+            MSG_NOSIGNAL|MSG_DONTWAIT));
+    if (r == bytesToSend)
+        return 0;
+#if TESTING
+    if ((r > 0) && (r < totalLength)) {
+        messageChunks++;
     }
+#endif
+    if (r == -1) {
+        if ((errno != EAGAIN) && (errno != EWOULDBLOCK)) {
+            throw TransportException(HERE,
+                    "I/O error in TcpTransport::sendMessage", errno);
+        }
+        r = 0;
+    }
+    return bytesToSend - r;
 }
 
 /**
@@ -480,8 +512,9 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  *      Identifies the server to which RPCs on this session will be sent.
  */
 TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
-        : address(serviceLocator), fd(-1), serial(0), outstandingRpcs(),
-          current(NULL), message(), replyHandler(), errorInfo()
+        : address(serviceLocator), fd(-1), serial(1), rpcsWaitingToSend(),
+          bytesLeftToSend(0), rpcsWaitingForResponse(), current(NULL),
+          message(), clientIoHandler(), errorInfo()
 {
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -499,7 +532,7 @@ TcpTransport::TcpSession::TcpSession(const ServiceLocator& serviceLocator)
 
     /// Arrange for notification whenever the server sends us data.
     Dispatch::Lock lock;
-    replyHandler.construct(fd, this);
+    clientIoHandler.construct(fd, this);
     message.construct(static_cast<Buffer*>(NULL), this);
 }
 
@@ -524,12 +557,15 @@ TcpTransport::TcpSession::close()
     if (errorInfo.size() == 0) {
         errorInfo = "session closed";
     }
-    while (!outstandingRpcs.empty()) {
-        outstandingRpcs.front().cancel(errorInfo);
+    while (!rpcsWaitingForResponse.empty()) {
+        rpcsWaitingForResponse.front().cancel(errorInfo);
     }
-    if (replyHandler) {
+    while (!rpcsWaitingToSend.empty()) {
+        rpcsWaitingToSend.front().cancel(errorInfo);
+    }
+    if (clientIoHandler) {
         Dispatch::Lock lock;
-        replyHandler.destroy();
+        clientIoHandler.destroy();
     }
 }
 
@@ -540,11 +576,28 @@ TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* reply)
     if (fd == -1) {
         throw TransportException(HERE, errorInfo);
     }
-    serial++;
     TcpClientRpc* rpc = new(reply, MISC) TcpClientRpc(this, request,
             reply, serial);
-    TcpTransport::sendMessage(fd, serial, *request);
-    outstandingRpcs.push_back(*rpc);
+    serial++;
+    if (!rpcsWaitingToSend.empty()) {
+        // Can't transmit this request yet; there are already other
+        // requests that haven't yet been sent.
+        rpcsWaitingToSend.push_back(*rpc);
+        return rpc;
+    }
+
+    // Try to transmit the request.
+    bytesLeftToSend = TcpTransport::sendMessage(fd, rpc->nonce, *request, -1);
+    if (bytesLeftToSend == 0) {
+        // The whole request was sent immediately (this should be the
+        // common case).
+        rpcsWaitingForResponse.push_back(*rpc);
+        rpc->sent = true;
+    } else {
+        rpcsWaitingToSend.push_back(*rpc);
+        clientIoHandler->setEvents(Dispatch::FileEvent::READABLE |
+                Dispatch::FileEvent::WRITABLE);
+    }
     return rpc;
 }
 
@@ -564,7 +617,7 @@ TcpTransport::TcpSession::clientSend(Buffer* request, Buffer* reply)
  */
 Buffer*
 TcpTransport::TcpSession::findRpc(Header& header) {
-    foreach (TcpClientRpc& rpc, outstandingRpcs) {
+    foreach (TcpClientRpc& rpc, rpcsWaitingForResponse) {
         if (rpc.nonce == header.nonce) {
             current = &rpc;
             return rpc.reply;
@@ -574,7 +627,7 @@ TcpTransport::TcpSession::findRpc(Header& header) {
 }
 
 /**
- * Constructor for ReplyReadHandlers.
+ * Constructor for ClientSocketHandlers.
  *
  * \param fd
  *      File descriptor for a socket on which the the response for
@@ -582,7 +635,7 @@ TcpTransport::TcpSession::findRpc(Header& header) {
  * \param session
  *      The TcpSession that is controlling this request and its response.
  */
-TcpTransport::ReplyReadHandler::ReplyReadHandler(int fd,
+TcpTransport::ClientSocketHandler::ClientSocketHandler(int fd,
         TcpSession* session)
         : Dispatch::File(fd, Dispatch::FileEvent::READABLE),
         fd(fd), session(session)
@@ -592,26 +645,53 @@ TcpTransport::ReplyReadHandler::ReplyReadHandler(int fd,
 
 /**
  * This method is invoked when the socket connecting to a server becomes
- * readable (because a reply is arriving). This method reads the reply.
+ * readable or writable. This method reads or writes the socket as
+ * appropriate.
  *
  * \param events
  *      Indicates whether the socket was readable, writable, or both
  *      (OR-ed combination of Dispatch::FileEvent bits).
  */
 void
-TcpTransport::ReplyReadHandler::handleFileEvent(int events)
+TcpTransport::ClientSocketHandler::handleFileEvent(int events)
 {
     try {
-        if (session->message->readMessage(fd)) {
-            // This RPC is finished.
-            if (session->current != NULL) {
-                session->current->markFinished();
-                session->outstandingRpcs.erase(
-                        session->outstandingRpcs.iterator_to(
-                        *session->current));
-                session->current = NULL;
+        if (events & Dispatch::FileEvent::READABLE) {
+            if (session->message->readMessage(fd)) {
+                // This RPC is finished.
+                if (session->current != NULL) {
+                    session->current->markFinished();
+                    session->rpcsWaitingForResponse.erase(
+                            session->rpcsWaitingForResponse.iterator_to(
+                            *session->current));
+                    session->current = NULL;
+                }
+                session->message.construct(static_cast<Buffer*>(NULL), session);
             }
-            session->message.construct(static_cast<Buffer*>(NULL), session);
+        }
+        if (events & Dispatch::FileEvent::WRITABLE) {
+            // We should only get here if an RPC could not be transmitted in
+            // its entirety because it would have blocked on I/O.
+            assert(!session->rpcsWaitingToSend.empty());
+            while (true) {
+                TcpClientRpc& rpc = session->rpcsWaitingToSend.front();
+                session->bytesLeftToSend = TcpTransport::sendMessage(
+                        session->fd, rpc.nonce, *(rpc.request),
+                        session->bytesLeftToSend);
+                if (session->bytesLeftToSend != 0) {
+                    break;
+                }
+                // The current RPC is finished; start the next one, if
+                // there is one.
+                session->rpcsWaitingToSend.pop_front();
+                session->rpcsWaitingForResponse.push_back(rpc);
+                rpc.sent = true;
+                session->bytesLeftToSend = -1;
+                if (session->rpcsWaitingToSend.empty()) {
+                    setEvents(Dispatch::FileEvent::READABLE);
+                    break;
+                }
+            }
         }
     } catch (TcpTransportEof& e) {
         // Close the session's socket in order to prevent an infinite loop of
@@ -619,7 +699,7 @@ TcpTransport::ReplyReadHandler::handleFileEvent(int events)
         session->errorInfo = "socket closed by server";
         session->close();
     } catch (TransportException& e) {
-        LOG(ERROR, "TcpTransport::ReplyReadHandler closing session "
+        LOG(ERROR, "TcpTransport::ClientSocketHandler closing session "
                 "socket: %s", e.message.c_str());
         session->errorInfo = e.message;
         session->close();
@@ -630,18 +710,37 @@ TcpTransport::ReplyReadHandler::handleFileEvent(int events)
 void
 TcpTransport::TcpServerRpc::sendReply()
 {
-    // "delete this;" on our way out of the method
-    std::auto_ptr<TcpServerRpc> suicide(this);
+    if (!socket->rpcsWaitingToReply.empty()) {
+        // Can't transmit the response yet; the socket is backed up.
+        socket->rpcsWaitingToReply.push_back(*this);
+        return;
+    }
 
-    TcpTransport::sendMessage(fd, message.header.nonce, replyPayload);
+    // Try to transmit the response.
+    socket->bytesLeftToSend = TcpTransport::sendMessage(fd,
+            message.header.nonce, replyPayload, -1);
+    if (socket->bytesLeftToSend > 0) {
+        socket->rpcsWaitingToReply.push_back(*this);
+        socket->ioHandler.setEvents(Dispatch::FileEvent::READABLE |
+                Dispatch::FileEvent::WRITABLE);
+        return;
+    }
+    // The whole response was sent immediately (this should be the
+    // common case).  Delete the RPC object on the way out of this method.
+    std::auto_ptr<TcpServerRpc> suicide(this);
 }
 
 // See Transport::ClientRpc::cancelCleanup for documentation.
 void
 TcpTransport::TcpClientRpc::cancelCleanup()
 {
-    session->outstandingRpcs.erase(
-            session->outstandingRpcs.iterator_to(*this));
+    if (sent) {
+        session->rpcsWaitingForResponse.erase(
+                session->rpcsWaitingForResponse.iterator_to(*this));
+    } else {
+        session->rpcsWaitingToSend.erase(
+                session->rpcsWaitingToSend.iterator_to(*this));
+    }
 }
 
 }  // namespace RAMCloud
