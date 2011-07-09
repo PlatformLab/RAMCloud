@@ -194,7 +194,7 @@ class LoggingTest : public CppUnit::TestFixture {
                               "in LoggingTest::test_LOG "
                               "default ERROR\\[[[:digit:]]\\{1,5\\}\\]: "
                               "rofl: 3\n$";
-        assertMatchesPosixRegex(pattern, buf);
+        TestUtil::assertMatchesPosixRegex(pattern, buf);
 
         fclose(logger.stream);
         free(buf);

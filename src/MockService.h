@@ -37,7 +37,7 @@ class MockService : public Service {
                  log.append(", ");
             }
             log.append("rpc: ");
-            log.append(toString(&rpc.requestPayload));
+            log.append(TestUtil::toString(&rpc.requestPayload));
         }
 
         // Create a response that increments each of the (integer) values

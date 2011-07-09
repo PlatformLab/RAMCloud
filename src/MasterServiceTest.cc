@@ -164,11 +164,11 @@ class MasterServiceTest : public CppUnit::TestFixture {
 
         Buffer value;
         client->read(0, 0, &value);
-        CPPUNIT_ASSERT_EQUAL("item0", toString(&value));
+        CPPUNIT_ASSERT_EQUAL("item0", TestUtil::toString(&value));
         client->read(0, 1, &value);
-        CPPUNIT_ASSERT_EQUAL("item1", toString(&value));
+        CPPUNIT_ASSERT_EQUAL("item1", TestUtil::toString(&value));
         client->read(0, 2, &value);
-        CPPUNIT_ASSERT_EQUAL("item2", toString(&value));
+        CPPUNIT_ASSERT_EQUAL("item2", TestUtil::toString(&value));
     }
     void test_create_badTable() {
         CPPUNIT_ASSERT_THROW(client->create(4, "", 1),
@@ -182,7 +182,7 @@ class MasterServiceTest : public CppUnit::TestFixture {
         uint64_t version;
         client->read(0, 0, &value, NULL, &version);
         CPPUNIT_ASSERT_EQUAL(1, version);
-        CPPUNIT_ASSERT_EQUAL("abcdef", toString(&value));
+        CPPUNIT_ASSERT_EQUAL("abcdef", TestUtil::toString(&value));
     }
     void test_read_badTable() {
         Buffer value;
@@ -227,10 +227,10 @@ class MasterServiceTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request1.status));
         CPPUNIT_ASSERT_EQUAL(1, request1.version);
-        CPPUNIT_ASSERT_EQUAL("firstVal", toString(val1.get()));
+        CPPUNIT_ASSERT_EQUAL("firstVal", TestUtil::toString(val1.get()));
         CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request2.status));
         CPPUNIT_ASSERT_EQUAL(2, request2.version);
-        CPPUNIT_ASSERT_EQUAL("secondVal", toString(val2.get()));
+        CPPUNIT_ASSERT_EQUAL("secondVal", TestUtil::toString(val2.get()));
     }
     void test_multiRead_badTable() {
         client->create(0, "value1", 6);
@@ -251,7 +251,7 @@ class MasterServiceTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request1.status));
         CPPUNIT_ASSERT_EQUAL(1, request1.version);
-        CPPUNIT_ASSERT_EQUAL("value1", toString(val1.get()));
+        CPPUNIT_ASSERT_EQUAL("value1", TestUtil::toString(val1.get()));
         CPPUNIT_ASSERT_EQUAL("STATUS_TABLE_DOESNT_EXIST",
                              statusToSymbol(requestError.status));
     }
@@ -280,14 +280,14 @@ class MasterServiceTest : public CppUnit::TestFixture {
 
         CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request1.status));
         CPPUNIT_ASSERT_EQUAL(1, request1.version);
-        CPPUNIT_ASSERT_EQUAL("firstVal", toString(val1.get()));
+        CPPUNIT_ASSERT_EQUAL("firstVal", TestUtil::toString(val1.get()));
 
         CPPUNIT_ASSERT_EQUAL("STATUS_OBJECT_DOESNT_EXIST",
                              statusToSymbol(requestError.status));
 
         CPPUNIT_ASSERT_EQUAL("STATUS_OK", statusToSymbol(request2.status));
         CPPUNIT_ASSERT_EQUAL(2, request2.version);
-        CPPUNIT_ASSERT_EQUAL("secondVal", toString(val2.get()));
+        CPPUNIT_ASSERT_EQUAL("secondVal", TestUtil::toString(val2.get()));
     }
 
     void
@@ -370,7 +370,7 @@ class MasterServiceTest : public CppUnit::TestFixture {
 
         TestLog::Enable __(&recoverSegmentFilter);
         client->recover(123, 0, tablets, backups);
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Starting recovery of 4 tablets on masterId 2 | "
             "setTablets: Now serving tablets: | "
             "setTablets: table:                    0, "
@@ -394,15 +394,15 @@ class MasterServiceTest : public CppUnit::TestFixture {
             "recover: Waiting on recovery data for segment 87 from "
             "mock:host=backup1 | ",
             TestLog::get());
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Recovering segment 87 with size 0 | "
             "recoverSegment: recoverSegment 87, ... | ",
             TestLog::get());
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Checking mock:host=backup1 off the list for 87 | "
             "recover: Checking mock:host=backup1 off the list for 87 | ",
             TestLog::get());
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: set tablet 123 0 9 to locator mock:host=master, id 2 | "
             "recover: set tablet 123 10 19 to locator mock:host=master, id 2 | "
             "recover: set tablet 123 20 29 to locator mock:host=master, id 2 | "
@@ -476,7 +476,7 @@ class MasterServiceTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_THROW(service->recover(123, 0, backups),
                              SegmentRecoveryFailedException);
         // 1,2,3) 87 was requested from the first server list entry.
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
             "for segment 87 on channel . (initial round of RPCs)",
             TestLog::get());
@@ -484,7 +484,7 @@ class MasterServiceTest : public CppUnit::TestFixture {
                              backups.server(0).user_data());
         // 2,3) 87 was *not* requested a second time in the initial RPC round
         // but was requested later once the first failed.
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup2 "
             "for segment 87 .* (after RPC completion)",
             TestLog::get());
@@ -493,16 +493,16 @@ class MasterServiceTest : public CppUnit::TestFixture {
         // 1,4) 88 was requested from the third server list entry and
         //      succeeded, which knocks the third and forth entries into
         //      OK status, preventing the launch of the forth entry
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
             "for segment 88 on channel . (initial round of RPCs)",
             TestLog::get());
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Checking mock:host=backup1 off the list for 88 | "
             "recover: Checking mock:host=backup2 off the list for 88",
             TestLog::get());
         // 1,4) 88 was requested NOT from the forth server list entry.
-        assertNotMatchesPosixRegex(
+        TestUtil::assertNotMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup2 "
             "for segment 88 .* (after RPC completion)",
             TestLog::get());
@@ -513,39 +513,39 @@ class MasterServiceTest : public CppUnit::TestFixture {
         // 1) Checking to ensure RPCs for 87, 88, 89, 90 went first round
         //    and that 91 got issued in place, first-found due to 90's
         //    bad locator
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
             "for segment 89 on channel . (initial round of RPCs)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_FAILED,
                              backups.server(4).user_data());
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup3 "
             "for segment 90 on channel . (initial round of RPCs)",
             TestLog::get());
         // 5) Checks bad locators for initial RPCs are handled
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "No transport found for this service locator: mock:host=backup3",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_FAILED,
                              backups.server(5).user_data());
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
             "for segment 91 on channel . (initial round of RPCs)",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_FAILED,
                              backups.server(6).user_data());
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup4 "
             "for segment 92 on channel . (after RPC completion)",
             TestLog::get());
         // 5) Checks bad locators for non-initial RPCs are handled
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "No transport found for this service locator: mock:host=backup4",
             TestLog::get());
         CPPUNIT_ASSERT_EQUAL(MasterService::REC_REQ_FAILED,
                              backups.server(7).user_data());
-        assertMatchesPosixRegex(
+        TestUtil::assertMatchesPosixRegex(
             "recover: Starting getRecoveryData from mock:host=backup1 "
             "for segment 93 on channel . (after RPC completion)",
             TestLog::get());
@@ -879,18 +879,18 @@ class MasterServiceTest : public CppUnit::TestFixture {
         client->write(0, 3, "item0", 5, NULL, &version);
         CPPUNIT_ASSERT_EQUAL(1, version);
         client->read(0, 3, &value, NULL, &version);
-        CPPUNIT_ASSERT_EQUAL("item0", toString(&value));
+        CPPUNIT_ASSERT_EQUAL("item0", TestUtil::toString(&value));
         CPPUNIT_ASSERT_EQUAL(1, version);
 
         client->write(0, 3, "item0-v2", 8, NULL, &version);
         CPPUNIT_ASSERT_EQUAL(2, version);
         client->read(0, 3, &value);
-        CPPUNIT_ASSERT_EQUAL("item0-v2", toString(&value));
+        CPPUNIT_ASSERT_EQUAL("item0-v2", TestUtil::toString(&value));
 
         client->write(0, 3, "item0-v3", 8, NULL, &version);
         CPPUNIT_ASSERT_EQUAL(3, version);
         client->read(0, 3, &value, NULL, &version);
-        CPPUNIT_ASSERT_EQUAL("item0-v3", toString(&value));
+        CPPUNIT_ASSERT_EQUAL("item0-v3", TestUtil::toString(&value));
         CPPUNIT_ASSERT_EQUAL(3, version);
     }
     void test_write_rejectRules() {

@@ -165,7 +165,8 @@ friendlyRegerror(int errorCode, const regex_t* storage)
  *      if used in a C string, such as backslashes or quotes.
  */
 void
-convertChar(char c, string *out) {
+TestUtil::convertChar(char c, string *out)
+{
     if ((c >= 0x20) && (c < 0x7f) && (c != '"') && (c != '\\'))
         out->append(&c, 1);
     else if (c == '\0')
@@ -186,7 +187,7 @@ convertChar(char c, string *out) {
  *      The length of the data in buf.
  */
 string
-toString(const char *buf, uint32_t length)
+TestUtil::toString(const char *buf, uint32_t length)
 {
     string s;
     uint32_t i = 0;
@@ -244,7 +245,7 @@ toString(const char *buf, uint32_t length)
  *      are printed in decimal if they are small, otherwise hexadecimal.
  */
 string
-toString(Buffer* buffer)
+TestUtil::toString(Buffer* buffer)
 {
     uint32_t length = buffer->getTotalLength();
     const char* buf = static_cast<const char*>(buffer->getRange(0, length));
@@ -261,7 +262,7 @@ toString(Buffer* buffer)
  *         characters converted to something printable.
  */
 string
-bufferToDebugString(Buffer* buffer)
+TestUtil::bufferToDebugString(Buffer* buffer)
 {
     // The following declaration defines the maximum number of characters
     // to display from each chunk.
@@ -300,7 +301,7 @@ bufferToDebugString(Buffer* buffer)
  *      The string that should match \a pattern.
  */
 void
-assertMatchesPosixRegex(const string& pattern, const string& subject)
+TestUtil::assertMatchesPosixRegex(const string& pattern, const string& subject)
 {
     regex_t pregStorage;
     int r;
@@ -337,7 +338,8 @@ assertMatchesPosixRegex(const string& pattern, const string& subject)
  *      The string that should not match \a pattern.
  */
 void
-assertNotMatchesPosixRegex(const string& pattern, const string& subject)
+TestUtil::assertNotMatchesPosixRegex(const string& pattern,
+        const string& subject)
 {
     regex_t pregStorage;
     int r;
@@ -380,7 +382,7 @@ assertNotMatchesPosixRegex(const string& pattern, const string& subject)
  *      A value that can be tested with EXPECT_TRUE.
  */
 ::testing::AssertionResult
-matchesPosixRegex(const string& pattern, const string& subject)
+TestUtil::matchesPosixRegex(const string& pattern, const string& subject)
 {
     regex_t pregStorage;
     int r;
@@ -416,7 +418,7 @@ matchesPosixRegex(const string& pattern, const string& subject)
  *      Number of bytes of data to add to the buffer.
  */
 void
-fillLargeBuffer(Buffer* buffer, int size)
+TestUtil::fillLargeBuffer(Buffer* buffer, int size)
 {
     char chunk[200];
     buffer->reset();
@@ -451,7 +453,7 @@ fillLargeBuffer(Buffer* buffer, int size)
  *      what was wrong with the buffer.
  */
 string
-checkLargeBuffer(Buffer* buffer, int expectedLength)
+TestUtil::checkLargeBuffer(Buffer* buffer, int expectedLength)
 {
     int length = buffer->getTotalLength();
     if (length != expectedLength) {
@@ -498,7 +500,7 @@ checkLargeBuffer(Buffer* buffer, int expectedLength)
  *      A symbolic status value, such as "STATUS_OK", or "empty reply message"
  *      if the buffer didn't contain a valid RPC response.
  */
-const char *getStatus(Buffer* buffer)
+const char *TestUtil::getStatus(Buffer* buffer)
 {
     const RpcResponseCommon* responseCommon =
             buffer->getStart<RpcResponseCommon>();
@@ -519,7 +521,7 @@ const char *getStatus(Buffer* buffer)
  *      false if it doesn't.
  */
 bool
-waitForRpc(Transport::ClientRpc& rpc)
+TestUtil::waitForRpc(Transport::ClientRpc& rpc)
 {
     for (int i = 0; i < 1000; i++) {
         dispatch->poll();

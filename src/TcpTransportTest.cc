@@ -113,10 +113,10 @@ TEST_F(TcpTransportTest, sanityCheck) {
     // Receive the two requests on the server.
     Transport::ServerRpc* serverRpc1 = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc1 != NULL);
-    EXPECT_EQ("request1/0", toString(&serverRpc1->requestPayload));
+    EXPECT_EQ("request1/0", TestUtil::toString(&serverRpc1->requestPayload));
     Transport::ServerRpc* serverRpc2 = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc2 != NULL);
-    EXPECT_EQ("request2/0", toString(&serverRpc2->requestPayload));
+    EXPECT_EQ("request2/0", TestUtil::toString(&serverRpc2->requestPayload));
 
     // Reply to the requests in backwards order.
     serverRpc2->replyPayload.fillFromString("response2");
@@ -127,10 +127,10 @@ TEST_F(TcpTransportTest, sanityCheck) {
     // Receive the responses in the client.
     EXPECT_FALSE(clientRpc1->isReady());
     EXPECT_FALSE(clientRpc2->isReady());
-    EXPECT_TRUE(waitForRpc(*clientRpc1));
-    EXPECT_EQ("response1/0", toString(&reply1));
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc1));
+    EXPECT_EQ("response1/0", TestUtil::toString(&reply1));
     EXPECT_TRUE(clientRpc2->isReady());
-    EXPECT_EQ("response2/0", toString(&reply2));
+    EXPECT_EQ("response2/0", TestUtil::toString(&reply2));
 }
 
 TEST_F(TcpTransportTest, constructor_clientSideOnly) {
@@ -191,16 +191,16 @@ TEST_F(TcpTransportTest, destructor) {
     EXPECT_TRUE(serverRpc1 != NULL);
     Transport::ServerRpc* serverRpc2 = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc2 != NULL);
-    EXPECT_EQ("request1/0", toString(&serverRpc1->requestPayload));
-    EXPECT_EQ("request2/0", toString(&serverRpc2->requestPayload));
+    EXPECT_EQ("request1/0", TestUtil::toString(&serverRpc1->requestPayload));
+    EXPECT_EQ("request2/0", TestUtil::toString(&serverRpc2->requestPayload));
     serverRpc1->replyPayload.fillFromString("reply1");
     serverRpc1->sendReply();
     serverRpc2->replyPayload.fillFromString("reply2");
     serverRpc2->sendReply();
     clientRpc1->wait();
     clientRpc2->wait();
-    EXPECT_EQ("reply1/0", toString(&reply1));
-    EXPECT_EQ("reply2/0", toString(&reply2));
+    EXPECT_EQ("reply1/0", TestUtil::toString(&reply1));
+    EXPECT_EQ("reply2/0", TestUtil::toString(&reply2));
 
     sys->closeCount = 0;
     delete server;
@@ -253,7 +253,7 @@ TEST_F(TcpTransportTest, Socket_destructor_clearRpcsWaitingToReply) {
     // Receive the requests on the server and respond to each.
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    fillLargeBuffer(&serverRpc->replyPayload, 1000000);
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 1000000);
     serverRpc->sendReply();
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
@@ -347,7 +347,7 @@ TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_writes) {
     // Send replies.
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    fillLargeBuffer(&serverRpc->replyPayload, 199999);
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 199999);
     serverRpc->sendReply();
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
@@ -359,12 +359,12 @@ TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_writes) {
     serverRpc->sendReply();
 
     // Receive and check replies.
-    EXPECT_TRUE(waitForRpc(*clientRpc1));
-    EXPECT_EQ("ok", checkLargeBuffer(&reply1, 199999));
-    EXPECT_TRUE(waitForRpc(*clientRpc2));
-    EXPECT_EQ("response2/0", toString(&reply2));
-    EXPECT_TRUE(waitForRpc(*clientRpc3));
-    EXPECT_EQ("response3/0", toString(&reply3));
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc1));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply1, 199999));
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc2));
+    EXPECT_EQ("response2/0", TestUtil::toString(&reply2));
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc3));
+    EXPECT_EQ("response3/0", TestUtil::toString(&reply3));
     EXPECT_EQ("~TcpServerRpc: deleted | ~TcpServerRpc: deleted "
             "| ~TcpServerRpc: deleted", TestLog::get());
     EXPECT_NE(server.sockets.size(), 0U);
@@ -419,7 +419,7 @@ TEST_F(TcpTransportTest, sendMessage_sendPartOfHeader) {
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("20 30 40",
-            toString(&serverRpc->requestPayload));
+            TestUtil::toString(&serverRpc->requestPayload));
 
     close(fd);
 }
@@ -436,7 +436,7 @@ TEST_F(TcpTransportTest, sendMessage_multipleChunks) {
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("abcdexxx12345678",
-            toString(&serverRpc->requestPayload));
+            TestUtil::toString(&serverRpc->requestPayload));
 
     close(fd);
 }
@@ -466,19 +466,20 @@ TEST_F(TcpTransportTest, sendMessage_largeBuffer) {
     Transport::SessionRef session = client.getSession(*locator);
     Buffer request;
     Buffer reply;
-    fillLargeBuffer(&request, 300000);
+    TestUtil::fillLargeBuffer(&request, 300000);
     TcpTransport::messageChunks = 0;
     Transport::ClientRpc* clientRpc = session->clientSend(&request,
             &reply);
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_GT(TcpTransport::messageChunks, 0);
-    EXPECT_EQ("ok", checkLargeBuffer(&serverRpc->requestPayload, 300000));
-    fillLargeBuffer(&serverRpc->replyPayload, 250000);
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&serverRpc->requestPayload,
+            300000));
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 250000);
     TcpTransport::messageChunks = 0;
     serverRpc->sendReply();
-    EXPECT_TRUE(waitForRpc(*clientRpc));
-    EXPECT_EQ("ok", checkLargeBuffer(&reply, 250000));
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply, 250000));
     EXPECT_GT(TcpTransport::messageChunks, 0);
 }
 
@@ -596,7 +597,7 @@ TEST_F(TcpTransportTest, readMessage_getBufferFromSession) {
     write(fd, &header, sizeof(header));
     write(fd, "abcde", 5);
     EXPECT_TRUE(incoming.readMessage(serverFd));
-    EXPECT_EQ("abcde", toString(&reply));
+    EXPECT_EQ("abcde", TestUtil::toString(&reply));
     session.close();
 
     close(fd);
@@ -642,7 +643,7 @@ TEST_F(TcpTransportTest, readMessage_receiveBodyInPieces) {
     // (don't read extras).
     write(fd, "0123456789", 10);
     EXPECT_TRUE(incoming.readMessage(serverFd));
-    EXPECT_EQ("abcde012345", toString(&buffer));
+    EXPECT_EQ("abcde012345", TestUtil::toString(&buffer));
 
     close(fd);
 }
@@ -673,7 +674,7 @@ TEST_F(TcpTransportTest, readMessage_discardExtraneousBytes) {
     TestLog::reset();
     EXPECT_TRUE(incoming.readMessage(serverFd));
     EXPECT_EQ(5000U, incoming.messageBytesReceived);
-    EXPECT_EQ("abcde", toString(&buffer));
+    EXPECT_EQ("abcde", TestUtil::toString(&buffer));
 
     // One more check to make sure exactly the right number of bytes were
     // read from the socket.  Also tests zero-length message bodies.
@@ -684,7 +685,7 @@ TEST_F(TcpTransportTest, readMessage_discardExtraneousBytes) {
     TcpTransport::IncomingMessage incoming2(&buffer, NULL);
     EXPECT_TRUE(incoming2.readMessage(serverFd));
     EXPECT_EQ(0xaaaabbbbccccddddUL, incoming2.header.nonce);
-    EXPECT_EQ("", toString(&buffer));
+    EXPECT_EQ("", TestUtil::toString(&buffer));
 
     close(fd);
 }
@@ -731,7 +732,7 @@ TEST_F(TcpTransportTest, TcpSession_close_cancelRpcsWaitingToSend) {
 
     // Queue several requests (make the first one long, so they
     // all block on rpcsWaitingToSend.
-    fillLargeBuffer(&request1, 300000);
+    TestUtil::fillLargeBuffer(&request1, 300000);
     Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
             &reply1);
     Transport::ClientRpc* clientRpc2 = session->clientSend(&request2,
@@ -777,7 +778,7 @@ TEST_F(TcpTransportTest, TcpSession_close_cancelRequestsInProgress) {
 
     // Now send a large request, which will queue on rpcsWaitingToSend,
     // followed by a couple more smaller ones, which will queue behind it.
-    fillLargeBuffer(&request3, 777777);
+    TestUtil::fillLargeBuffer(&request3, 777777);
     Transport::ClientRpc* clientRpc3 = session->clientSend(&request3,
             &reply3);
     Transport::ClientRpc* clientRpc4 = session->clientSend(&request4,
@@ -842,7 +843,7 @@ TEST_F(TcpTransportTest, clientSend_shortAndLongMessages) {
     // Send a short request followed by one that's too long to be sent
     // all at once, followed by another short request.
     session->clientSend(&request1, &reply1);
-    fillLargeBuffer(&request2, 300000);
+    TestUtil::fillLargeBuffer(&request2, 300000);
     session->clientSend(&request2, &reply2);
     session->clientSend(&request3, &reply3);
 
@@ -878,11 +879,11 @@ TEST_F(TcpTransportTest, findRpc) {
     session.rpcsWaitingForResponse.push_back(rpc3);
     TcpTransport::Header header;
     header.nonce = 111UL;
-    EXPECT_EQ("1111", toString(session.findRpc(header)));
+    EXPECT_EQ("1111", TestUtil::toString(session.findRpc(header)));
     header.nonce = 222UL;
-    EXPECT_EQ("2222", toString(session.findRpc(header)));
+    EXPECT_EQ("2222", TestUtil::toString(session.findRpc(header)));
     header.nonce = 333UL;
-    EXPECT_EQ("3333", toString(session.findRpc(header)));
+    EXPECT_EQ("3333", TestUtil::toString(session.findRpc(header)));
     header.nonce = 334UL;
     EXPECT_TRUE(session.findRpc(header) == NULL);
     session.close();
@@ -907,8 +908,8 @@ TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_readResponse) {
     // cleaned up.
     EXPECT_EQ(1U, rawSession->rpcsWaitingForResponse.size());
     serverRpc->sendReply();
-    EXPECT_TRUE(waitForRpc(*clientRpc));
-    EXPECT_EQ("response1/0", toString(&reply));
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc));
+    EXPECT_EQ("response1/0", TestUtil::toString(&reply));
     EXPECT_TRUE(rawSession->current == NULL);
     EXPECT_TRUE(clientRpc->isReady());
     EXPECT_TRUE(rawSession->message->buffer == NULL);
@@ -925,7 +926,7 @@ TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_sendRequests) {
     // short requests.
     Buffer request1, request2, request3;
     Buffer reply1, reply2, reply3;
-    fillLargeBuffer(&request1, 300000);
+    TestUtil::fillLargeBuffer(&request1, 300000);
     session->clientSend(&request1, &reply1);
     request2.fillFromString("request2");
     session->clientSend(&request2, &reply2);
@@ -936,13 +937,14 @@ TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_sendRequests) {
     // Receive requests on the server and make sure they are all okay.
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("ok", checkLargeBuffer(&serverRpc->requestPayload, 300000));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&serverRpc->requestPayload,
+            300000));
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("request2/0", toString(&serverRpc->requestPayload));
+    EXPECT_EQ("request2/0", TestUtil::toString(&serverRpc->requestPayload));
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("request3/0", toString(&serverRpc->requestPayload));
+    EXPECT_EQ("request3/0", TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_EQ(0U, rawSession->rpcsWaitingToSend.size());
     EXPECT_EQ(3U, rawSession->rpcsWaitingForResponse.size());
     EXPECT_TRUE(rawSession->rpcsWaitingForResponse.front().sent);
@@ -1042,7 +1044,7 @@ TEST_F(TcpTransportTest, sendReply) {
     serverRpc->sendReply();
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    fillLargeBuffer(&serverRpc->replyPayload, 199999);
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 199999);
     serverRpc->sendReply();
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
@@ -1057,12 +1059,12 @@ TEST_F(TcpTransportTest, sendReply) {
     TestLog::reset();
 
     // Make sure the responses eventually get through.
-    EXPECT_TRUE(waitForRpc(*clientRpc1));
-    EXPECT_EQ("response1/0", toString(&reply1));
-    EXPECT_TRUE(waitForRpc(*clientRpc2));
-    EXPECT_EQ("ok", checkLargeBuffer(&reply2, 199999));
-    EXPECT_TRUE(waitForRpc(*clientRpc3));
-    EXPECT_EQ("response3/0", toString(&reply3));
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc1));
+    EXPECT_EQ("response1/0", TestUtil::toString(&reply1));
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc2));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply2, 199999));
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc3));
+    EXPECT_EQ("response3/0", TestUtil::toString(&reply3));
     EXPECT_EQ("~TcpServerRpc: deleted | ~TcpServerRpc: deleted",
             TestLog::get());
     EXPECT_EQ(0U, socket->rpcsWaitingToReply.size());
@@ -1095,7 +1097,7 @@ TEST_F(TcpTransportTest, TcpClientRpc_cancelCleanup_rpcsWaitingToSend) {
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
     Buffer request1, reply1, request2, reply2;
-    fillLargeBuffer(&request1, 500000);
+    TestUtil::fillLargeBuffer(&request1, 500000);
     Transport::ClientRpc* clientRpc1 = session->clientSend(&request1,
             &reply1);
     request2.fillFromString("request2");

@@ -86,7 +86,7 @@ class TestUtilTest : public CppUnit::TestFixture {
         ip = new(&b, APPEND) int32_t;
         *ip = 99;
         CPPUNIT_ASSERT_EQUAL("-45 0x1020304 abcdefghi/0 99",
-                             toString(&b));
+                             TestUtil::toString(&b));
     }
 
     void
@@ -95,7 +95,7 @@ class TestUtilTest : public CppUnit::TestFixture {
         Buffer b;
         char *p = new(&b, APPEND) char[5];
         memcpy(p, "abcdefghi", 5);
-        CPPUNIT_ASSERT_EQUAL("abcde", toString(&b));
+        CPPUNIT_ASSERT_EQUAL("abcde", TestUtil::toString(&b));
     }
 
     void
@@ -109,7 +109,7 @@ class TestUtilTest : public CppUnit::TestFixture {
         Buffer::Chunk::appendToBuffer(&b, "xyz", 3);
         CPPUNIT_ASSERT_EQUAL("abc/nxyz | 01234567890123456789(+17 chars) "
                              "| xyz",
-                             bufferToDebugString(&b));
+                             TestUtil::bufferToDebugString(&b));
     }
 
     void
@@ -121,7 +121,7 @@ class TestUtilTest : public CppUnit::TestFixture {
         memcpy(static_cast<char*>(new(&b, APPEND) char[length]),
                 test, length);
         CPPUNIT_ASSERT_EQUAL("abc /x17--/x80--/x03--/n--/x7f--/x5c--/x22--/0",
-                toString(&b));
+                TestUtil::toString(&b));
     }
 
     DISALLOW_COPY_AND_ASSIGN(TestUtilTest);

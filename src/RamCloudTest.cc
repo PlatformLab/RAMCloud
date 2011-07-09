@@ -136,13 +136,13 @@ TEST_F(RamCloudTest, multiRead) {
 
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request1.status));
     EXPECT_EQ(1U, request1.version);
-    EXPECT_EQ("firstVal", toString(readValue1.get()));
+    EXPECT_EQ("firstVal", TestUtil::toString(readValue1.get()));
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request2.status));
     EXPECT_EQ(1U, request2.version);
-    EXPECT_EQ("secondVal", toString(readValue2.get()));
+    EXPECT_EQ("secondVal", TestUtil::toString(readValue2.get()));
     EXPECT_STREQ("STATUS_OK", statusToSymbol(request3.status));
     EXPECT_EQ(2U, request3.version);
-    EXPECT_EQ("thirdVal", toString(readValue3.get()));
+    EXPECT_EQ("thirdVal", TestUtil::toString(readValue3.get()));
 }
 
 TEST_F(RamCloudTest, ping) {

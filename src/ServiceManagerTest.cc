@@ -259,7 +259,7 @@ TEST_F(ServiceManagerTest, poll_basics) {
     waitUntilDone(1);
     manager->poll();
     EXPECT_EQ("serverReply: 0x20001 6", transport.outputLog);
-    EXPECT_EQ("0x20000 3", toString(
+    EXPECT_EQ("0x20000 3", TestUtil::toString(
               &manager->busyThreads[0]->rpc->requestPayload));
 
     // Allow the remaining requests to complete.

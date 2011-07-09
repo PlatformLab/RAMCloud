@@ -87,7 +87,7 @@ TEST_F(ServiceTest, getString_stringNotTerminated) {
 TEST_F(ServiceTest, dispatch_ping) {
     request.fillFromString("7 0 0 0");
     service.dispatch(PingRpc::opcode, rpc);
-    assertMatchesPosixRegex("ping", TestLog::get());
+    TestUtil::assertMatchesPosixRegex("ping", TestLog::get());
 }
 TEST_F(ServiceTest, dispatch_unknown) {
     request.fillFromString("0 0");
@@ -104,32 +104,33 @@ TEST_F(ServiceTest, dispatch_unknown) {
 TEST_F(ServiceTest, handleRpc_messageTooShortForCommon) {
     request.fillFromString("x");
     service.handleRpc(rpc);
-    EXPECT_STREQ("STATUS_MESSAGE_TOO_SHORT", getStatus(&response));
+    EXPECT_STREQ("STATUS_MESSAGE_TOO_SHORT", TestUtil::getStatus(&response));
 }
 TEST_F(ServiceTest, handleRpc_undefinedType) {
     request.fillFromString("1000 abcdef");
     service.handleRpc(rpc);
-    EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST", getStatus(&response));
+    EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST",
+            TestUtil::getStatus(&response));
     EXPECT_EQ(1U, service.rpcsHandled[ILLEGAL_RPC_TYPE]);
 }
 TEST_F(ServiceTest, handleRpc_clientException) {
     MockService service;
     request.fillFromString("1 2 54321 3 4");
     service.handleRpc(rpc);
-    EXPECT_STREQ("STATUS_REQUEST_FORMAT_ERROR", getStatus(&response));
+    EXPECT_STREQ("STATUS_REQUEST_FORMAT_ERROR", TestUtil::getStatus(&response));
 }
 
 TEST_F(ServiceTest, prepareErrorResponse_bufferNotEmpty) {
     response.fillFromString("1 abcdef");
     Service::prepareErrorResponse(response, STATUS_WRONG_VERSION);
-    EXPECT_STREQ("STATUS_WRONG_VERSION", getStatus(&response));
+    EXPECT_STREQ("STATUS_WRONG_VERSION", TestUtil::getStatus(&response));
     EXPECT_STREQ("abcdef",
             static_cast<const char*>(response.getRange(4, 7)));
 }
 TEST_F(ServiceTest, prepareErrorResponse_bufferEmpty) {
     Service::prepareErrorResponse(response, STATUS_WRONG_VERSION);
     EXPECT_EQ(sizeof(RpcResponseCommon), response.getTotalLength());
-    EXPECT_STREQ("STATUS_WRONG_VERSION", getStatus(&response));
+    EXPECT_STREQ("STATUS_WRONG_VERSION", TestUtil::getStatus(&response));
 }
 
 TEST_F(ServiceTest, callHandler_messageTooShort) {
@@ -141,7 +142,7 @@ TEST_F(ServiceTest, callHandler_messageTooShort) {
 TEST_F(ServiceTest, callHandler_normal) {
     request.fillFromString("7 0 0 0");
     service.callHandler<PingRpc, Service, &Service::ping>(rpc);
-    assertMatchesPosixRegex("ping", TestLog::get());
+    TestUtil::assertMatchesPosixRegex("ping", TestLog::get());
 }
 
 TEST_F(ServiceTest, sendReply) {

@@ -53,24 +53,24 @@ TEST_F(InfRcTransportTest, sanityCheck) {
             &reply);
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("abcdefg/0", toString(&serverRpc->requestPayload));
+    EXPECT_EQ("abcdefg/0", TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_FALSE(clientRpc->isReady());
     serverRpc->replyPayload.fillFromString("klmn");
     serverRpc->sendReply();
-    EXPECT_TRUE(waitForRpc(*clientRpc));
-    EXPECT_EQ("klmn/0", toString(&reply));
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc));
+    EXPECT_EQ("klmn/0", TestUtil::toString(&reply));
 
-    fillLargeBuffer(&request, 100000);
+    TestUtil::fillLargeBuffer(&request, 100000);
     reply.reset();
     clientRpc = session->clientSend(&request, &reply);
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok",
-            checkLargeBuffer(&serverRpc->requestPayload, 100000));
-    fillLargeBuffer(&serverRpc->replyPayload, 50000);
+            TestUtil::checkLargeBuffer(&serverRpc->requestPayload, 100000));
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 50000);
     serverRpc->sendReply();
     clientRpc->wait();
-    EXPECT_EQ("ok", checkLargeBuffer(&reply, 50000));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply, 50000));
 }
 
 TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup) {
@@ -116,15 +116,15 @@ TEST_F(InfRcTransportTest, ClientRpc_cancelCleanup) {
     // Note: the log entry for the unrecognized response to the canceled
     // RPC only appears here (InfRc doesn't check for responses unless
     // there are active RPCs).
-    EXPECT_TRUE(matchesPosixRegex(
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
                 " incoming data doesn't match active RPC (nonce .*)",
                 TestLog::get()));
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("xyzzy/0", toString(&serverRpc->requestPayload));
+    EXPECT_EQ("xyzzy/0", TestUtil::toString(&serverRpc->requestPayload));
     serverRpc->replyPayload.fillFromString("response2");
     serverRpc->sendReply();
     clientRpc->wait();
-    EXPECT_EQ("response2/0", toString(&reply));
+    EXPECT_EQ("response2/0", TestUtil::toString(&reply));
 }
 
 }  // namespace RAMCloud

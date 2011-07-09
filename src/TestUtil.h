@@ -76,18 +76,26 @@ void assertEquals(void *expected, const void *actual,
 
 namespace RAMCloud {
 
-void assertMatchesPosixRegex(const string& pattern, const string& subject);
-void assertNotMatchesPosixRegex(const string& pattern, const string& subject);
-void convertChar(char c, string *out);
-string bufferToDebugString(Buffer* buffer);
-string checkLargeBuffer(Buffer* buffer, int expectedLength);
-void fillLargeBuffer(Buffer* buffer, int size);
-const char *getStatus(Buffer* buffer);
-::testing::AssertionResult matchesPosixRegex(const string& pattern,
-        const string& subject);
-string toString(const char *buf, uint32_t length);
-string toString(Buffer* buffer);
-bool waitForRpc(Transport::ClientRpc& rpc);
+/**
+ * Various utilities that are useful in writing unit tests.
+ */
+class TestUtil {
+  public:
+    static void assertMatchesPosixRegex(const string& pattern,
+            const string& subject);
+    static void assertNotMatchesPosixRegex(const string& pattern,
+            const string& subject);
+    static void convertChar(char c, string *out);
+    static string bufferToDebugString(Buffer* buffer);
+    static string checkLargeBuffer(Buffer* buffer, int expectedLength);
+    static void fillLargeBuffer(Buffer* buffer, int size);
+    static const char *getStatus(Buffer* buffer);
+    static ::testing::AssertionResult matchesPosixRegex(
+            const string& pattern, const string& subject);
+    static string toString(const char *buf, uint32_t length);
+    static string toString(Buffer* buffer);
+    static bool waitForRpc(Transport::ClientRpc& rpc);
+};
 
 } // namespace RAMCloud
 

@@ -198,24 +198,24 @@ TEST_F(FastTransportTest, sanityCheck) {
             &reply);
     Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    EXPECT_EQ("abcdefg/0", toString(&serverRpc->requestPayload));
+    EXPECT_EQ("abcdefg/0", TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_FALSE(clientRpc->isReady());
     serverRpc->replyPayload.fillFromString("klmn");
     serverRpc->sendReply();
-    EXPECT_TRUE(waitForRpc(*clientRpc));
-    EXPECT_EQ("klmn/0", toString(&reply));
+    EXPECT_TRUE(TestUtil::waitForRpc(*clientRpc));
+    EXPECT_EQ("klmn/0", TestUtil::toString(&reply));
 
-    fillLargeBuffer(&request, 100000);
+    TestUtil::fillLargeBuffer(&request, 100000);
     reply.reset();
     clientRpc = session->clientSend(&request, &reply);
     serverRpc = serviceManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok",
-          checkLargeBuffer(&serverRpc->requestPayload, 100000));
-    fillLargeBuffer(&serverRpc->replyPayload, 50000);
+          TestUtil::checkLargeBuffer(&serverRpc->requestPayload, 100000));
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 50000);
     serverRpc->sendReply();
     clientRpc->wait();
-    EXPECT_EQ("ok", checkLargeBuffer(&reply, 50000));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&reply, 50000));
 #endif
 }
 
@@ -554,7 +554,7 @@ class InboundMessageTest : public ::testing::Test {
             if (!payload) {
                 snprintf(tmp, max, "-, ");
             } else {
-                string payloadStr = toString(payload, payloadLen);
+                string payloadStr = TestUtil::toString(payload, payloadLen);
                 payloadStr.resize(10);
 
                 snprintf(tmp, max, "(%s, %u), ",
@@ -663,7 +663,7 @@ TEST_F(InboundMessageTest, processReceivedData_totalFragMismatch) {
     MockReceived recvd(0, msg->totalFrags + 1, "God hates ponies.");
     bool result = msg->processReceivedData(&recvd);
     EXPECT_FALSE(result);
-    EXPECT_EQ("", bufferToDebugString(msg->dataBuffer));
+    EXPECT_EQ("", TestUtil::bufferToDebugString(msg->dataBuffer));
     EXPECT_EQ(0U, msg->firstMissingFrag);
     EXPECT_EQ(0, recvd.stealCount);
     EXPECT_EQ(
@@ -681,7 +681,7 @@ TEST_F(InboundMessageTest, processReceivedData_addFirstMissing) {
     bool result = msg->processReceivedData(&recvd);
     EXPECT_FALSE(result);
     EXPECT_EQ("God hates ponies.",
-                            bufferToDebugString(msg->dataBuffer));
+                            TestUtil::bufferToDebugString(msg->dataBuffer));
     EXPECT_EQ(1U, msg->firstMissingFrag);
     EXPECT_EQ(2U, msg->dataStagingWindow[2].second);
     EXPECT_EQ(1, recvd.stealCount);
@@ -691,7 +691,7 @@ TEST_F(InboundMessageTest, processReceivedData_addFirstMissing) {
     result = msg->processReceivedData(&nextRecvd);
     EXPECT_TRUE(result);
     EXPECT_EQ("God hates ponies. | I hate ponies, also.",
-              bufferToDebugString(msg->dataBuffer));
+              TestUtil::bufferToDebugString(msg->dataBuffer));
     EXPECT_EQ(msg->totalFrags, msg->firstMissingFrag);
     EXPECT_EQ(3U, msg->dataStagingWindow[msg->totalFrags+1].second);
     EXPECT_EQ(1, nextRecvd.stealCount);
@@ -706,7 +706,7 @@ TEST_F(InboundMessageTest, processReceivedData_addRunFromWindow) {
     MockReceived recvd(1, msg->totalFrags, "I hate ponies, also.");
     bool result = msg->processReceivedData(&recvd);
     EXPECT_FALSE(result);
-    EXPECT_EQ("", bufferToDebugString(msg->dataBuffer));
+    EXPECT_EQ("", TestUtil::bufferToDebugString(msg->dataBuffer));
     EXPECT_EQ(recvd.payload, msg->dataStagingWindow[1].first);
     EXPECT_EQ(recvd.len, msg->dataStagingWindow[1].second);
 
@@ -715,7 +715,7 @@ TEST_F(InboundMessageTest, processReceivedData_addRunFromWindow) {
     result = msg->processReceivedData(&nextRecvd);
     EXPECT_TRUE(result);
     EXPECT_EQ("God hates ponies. | I hate ponies, also.",
-              bufferToDebugString(msg->dataBuffer));
+              TestUtil::bufferToDebugString(msg->dataBuffer));
     EXPECT_EQ(3U, msg->dataStagingWindow[3].second);
 }
 
@@ -729,7 +729,7 @@ TEST_F(InboundMessageTest, processReceivedData_fragmentBeyondWindow) {
     MockReceived recvd(33, totalFrags, "packet");
     bool result = msg->processReceivedData(&recvd);
     EXPECT_FALSE(result);
-    EXPECT_EQ("", bufferToDebugString(msg->dataBuffer));
+    EXPECT_EQ("", TestUtil::bufferToDebugString(msg->dataBuffer));
     EXPECT_EQ(0, recvd.stealCount);
     EXPECT_EQ(
         "processReceivedData: "
@@ -749,7 +749,7 @@ TEST_F(InboundMessageTest, processReceivedData_addToWindow) {
     MockReceived recvd(2, totalFrags, "pkt two");
     bool result = msg->processReceivedData(&recvd);
     EXPECT_FALSE(result);
-    EXPECT_EQ("", bufferToDebugString(msg->dataBuffer));
+    EXPECT_EQ("", TestUtil::bufferToDebugString(msg->dataBuffer));
     EXPECT_EQ(recvd.payload, msg->dataStagingWindow[2].first);
     EXPECT_EQ(recvd.len, msg->dataStagingWindow[2].second);
     EXPECT_EQ(1, recvd.stealCount);
@@ -758,7 +758,7 @@ TEST_F(InboundMessageTest, processReceivedData_addToWindow) {
     MockReceived nextRecvd(1, totalFrags, "pkt one");
     result = msg->processReceivedData(&nextRecvd);
     EXPECT_FALSE(result);
-    EXPECT_EQ("", bufferToDebugString(msg->dataBuffer));
+    EXPECT_EQ("", TestUtil::bufferToDebugString(msg->dataBuffer));
     EXPECT_EQ(nextRecvd.payload, msg->dataStagingWindow[1].first);
     EXPECT_EQ(nextRecvd.len, msg->dataStagingWindow[1].second);
     EXPECT_EQ(1, nextRecvd.stealCount);
@@ -778,7 +778,7 @@ TEST_F(InboundMessageTest, _processReceivedData_duplicateFragment) {
     MockReceived nextRecvd(2, totalFrags, "second is longer");
     result = msg->processReceivedData(&nextRecvd);
     EXPECT_FALSE(result);
-    EXPECT_EQ("", bufferToDebugString(msg->dataBuffer));
+    EXPECT_EQ("", TestUtil::bufferToDebugString(msg->dataBuffer));
     EXPECT_EQ(recvd.len, msg->dataStagingWindow[2].second);
     EXPECT_EQ(0, nextRecvd.stealCount);
     EXPECT_EQ(
@@ -1404,7 +1404,7 @@ TEST_F(ServerSessionTest, processReceivedData_receiving) {
     // if not taken (not last fragment)
     MockReceived firstRecvd(0, totalFrags, "first");
     session->processReceivedData(channel, &firstRecvd);
-    EXPECT_EQ("first", bufferToDebugString(&recvBuffer));
+    EXPECT_EQ("first", TestUtil::bufferToDebugString(&recvBuffer));
     EXPECT_EQ(FastTransport::ServerSession::
                             ServerChannel::RECEIVING,
                             session->channels[0].state);
@@ -1413,7 +1413,7 @@ TEST_F(ServerSessionTest, processReceivedData_receiving) {
     MockReceived lastRecvd(1, totalFrags, "last");
     session->processReceivedData(channel, &lastRecvd);
     EXPECT_EQ("first | last",
-              bufferToDebugString(&recvBuffer));
+              TestUtil::bufferToDebugString(&recvBuffer));
     EXPECT_EQ(&channel->currentRpc,
               serviceManager->waitForRpc(0));
     EXPECT_EQ(FastTransport::ServerSession::

@@ -228,7 +228,7 @@ TEST_F(BufferTest, reset) {
     Buffer b;
     TChunk::appendToBuffer(&b, "abcd");
     TChunk::appendToBuffer(&b, "12345");
-    EXPECT_EQ("abcd12345", toString(&b));
+    EXPECT_EQ("abcd12345", TestUtil::toString(&b));
     b.reset();
     EXPECT_EQ(2, numChunkDeletes);
     EXPECT_EQ(0U, b.totalLength);
@@ -326,7 +326,7 @@ TEST_F(BufferTest, prepend) {
     Buffer::Chunk::prependToBuffer(&b, testStr1, 10);
     EXPECT_TRUE(NULL == b.chunksTail->data);
     EXPECT_EQ("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
-            bufferToDebugString(&b));
+            TestUtil::bufferToDebugString(&b));
 }
 
 TEST_F(BufferTest, append) {
@@ -338,7 +338,7 @@ TEST_F(BufferTest, append) {
     Buffer::Chunk::appendToBuffer(&b, testStr3, 10);
     EXPECT_EQ(testStr3, b.chunksTail->data);
     EXPECT_EQ("ABCDEFGHIJ | abcdefghij | klmnopqrs/0",
-            bufferToDebugString(&b));
+            TestUtil::bufferToDebugString(&b));
 }
 
 TEST_F(BufferTest, peek_normal) {
@@ -439,17 +439,17 @@ TEST_F(BufferTest, fillFromString) {
 
     // Hexadecimal numbers
     b.fillFromString("0xAFaf0900 0xa");
-    EXPECT_EQ("0xafaf0900 10", toString(&b));
+    EXPECT_EQ("0xafaf0900 10", TestUtil::toString(&b));
 
     // Decimal numbers
     b.reset();
     b.fillFromString("123 -456");
-    EXPECT_EQ("123 -456", toString(&b));
+    EXPECT_EQ("123 -456", TestUtil::toString(&b));
 
     // Strings
     b.reset();
     b.fillFromString("abc def");
-    EXPECT_EQ("abc/0 def/0", toString(&b));
+    EXPECT_EQ("abc/0 def/0", TestUtil::toString(&b));
 }
 
 TEST_F(BufferTest, truncateFront) {
@@ -460,16 +460,16 @@ TEST_F(BufferTest, truncateFront) {
     Buffer::Chunk::appendToBuffer(&b, "def", 3);
     Buffer::Chunk::appendToBuffer(&b, "ghi", 3);
     b.truncateFront(0);
-    EXPECT_EQ("abc | def | ghi", bufferToDebugString(&b));
+    EXPECT_EQ("abc | def | ghi", TestUtil::bufferToDebugString(&b));
     EXPECT_EQ(9U, b.getTotalLength());
     b.truncateFront(4);
-    EXPECT_EQ("ef | ghi", bufferToDebugString(&b));
+    EXPECT_EQ("ef | ghi", TestUtil::bufferToDebugString(&b));
     EXPECT_EQ(5U, b.getTotalLength());
     b.truncateFront(2);
-    EXPECT_EQ("ghi", bufferToDebugString(&b));
+    EXPECT_EQ("ghi", TestUtil::bufferToDebugString(&b));
     EXPECT_EQ(3U, b.getTotalLength());
     b.truncateFront(5);
-    EXPECT_EQ("", bufferToDebugString(&b));
+    EXPECT_EQ("", TestUtil::bufferToDebugString(&b));
     EXPECT_EQ(0U, b.getTotalLength());
 }
 
@@ -481,16 +481,16 @@ TEST_F(BufferTest, truncateEnd) {
     Buffer::Chunk::appendToBuffer(&b, "def", 3);
     Buffer::Chunk::appendToBuffer(&b, "ghi", 3);
     b.truncateEnd(0);
-    EXPECT_EQ("abc | def | ghi", bufferToDebugString(&b));
+    EXPECT_EQ("abc | def | ghi", TestUtil::bufferToDebugString(&b));
     EXPECT_EQ(9U, b.getTotalLength());
     b.truncateEnd(4);
-    EXPECT_EQ("abc | de", bufferToDebugString(&b));
+    EXPECT_EQ("abc | de", TestUtil::bufferToDebugString(&b));
     EXPECT_EQ(5U, b.getTotalLength());
     b.truncateEnd(2);
-    EXPECT_EQ("abc", bufferToDebugString(&b));
+    EXPECT_EQ("abc", TestUtil::bufferToDebugString(&b));
     EXPECT_EQ(3U, b.getTotalLength());
     b.truncateEnd(5);
-    EXPECT_EQ("", bufferToDebugString(&b));
+    EXPECT_EQ("", TestUtil::bufferToDebugString(&b));
     EXPECT_EQ(0U, b.getTotalLength());
 }
 
@@ -682,7 +682,7 @@ TEST_F(BufferAllocatorTest, new_prepend) {
     *y = 'y';
     NotARawChunk::prependToBuffer(&buf, y, sizeof(*y));
     *(new(&buf, PREPEND) char) = 'x';
-    EXPECT_EQ("x | y | yz", bufferToDebugString(&buf));
+    EXPECT_EQ("x | y | yz", TestUtil::bufferToDebugString(&buf));
 }
 
 TEST_F(BufferAllocatorTest, new_append) {
@@ -696,7 +696,7 @@ TEST_F(BufferAllocatorTest, new_append) {
     *y = 'y';
     NotARawChunk::appendToBuffer(&buf, y, sizeof(*y));
     *(new(&buf, APPEND) char) = 'x';
-    EXPECT_EQ("zy | y | x", bufferToDebugString(&buf));
+    EXPECT_EQ("zy | y | x", TestUtil::bufferToDebugString(&buf));
 }
 
 TEST_F(BufferAllocatorTest, new_chunk) {

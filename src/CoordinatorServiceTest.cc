@@ -137,7 +137,8 @@ class CoordinatorServiceTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(2, *master->serverId);
         CPPUNIT_ASSERT_EQUAL(3,
                              client->enlistServer(BACKUP, "mock:host=backup"));
-        assertMatchesPosixRegex("server { server_type: MASTER server_id: 2 "
+        TestUtil::assertMatchesPosixRegex(
+                                "server { server_type: MASTER server_id: 2 "
                                 "service_locator: \"mock:host=master\" "
                                 "user_data: [0-9]\\+ }",
                                 service->masterList.ShortDebugString());
@@ -216,7 +217,8 @@ class CoordinatorServiceTest : public CppUnit::TestFixture {
                                      "end_object_id: 18446744073709551615 "
                                      "state: NORMAL user_data: 0 }",
                                      will.ShortDebugString());
-                assertMatchesPosixRegex("server { server_type: MASTER "
+                TestUtil::assertMatchesPosixRegex(
+                                        "server { server_type: MASTER "
                                         "server_id: 3 service_locator: "
                                         "\"mock:host=master2\" "
                                         "user_data: [0-9]\\+ }",
