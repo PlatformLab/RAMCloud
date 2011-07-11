@@ -149,6 +149,17 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
         serviceInfo->waitingRpcs.push(rpc);
         return;
     }
+    // Temporary code to test how much faster things would be without threads.
+#if 0
+    if ((header->opcode == RpcOpcode::READ) &&
+            (header->service == MASTER_SERVICE)) {
+        Service::Rpc serviceRpc(NULL, rpc->requestPayload, rpc->replyPayload);
+        services[MASTER_SERVICE]->service.handleRpc(serviceRpc);
+        rpc->sendReply();
+        return;
+    }
+#endif
+
     serviceInfo->requestsRunning++;
 
     // Find a thread to execute the RPC, and hand off the RPC.
