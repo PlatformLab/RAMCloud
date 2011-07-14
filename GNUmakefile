@@ -56,7 +56,7 @@ endif
 # Failed deconstructor inlines are generating noise
 # -Winline
 LIBS := -lpcrecpp -lboost_program_options -lprotobuf -lrt \
-        -lpthread -lboost_thread -lssl
+        -lpthread -lboost_thread -lssl $(EXTRALIBS)
 INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include
 
 ifeq ($(INFINIBAND),yes)
@@ -72,11 +72,11 @@ CFLAGS_BASE := $(COMFLAGS) -std=gnu0x $(LIBS) $(INCLUDES)
 CFLAGS_NOWERROR := $(CFLAGS_BASE) $(CWARNS)
 CFLAGS := $(CFLAGS_BASE) -Werror $(CWARNS)
 
-CXXFLAGS_BASE := $(COMFLAGS) -std=c++0x $(LIBS) $(INCLUDES)
+CXXFLAGS_BASE := $(COMFLAGS) -std=c++0x $(LIBS) $(INCLUDES) $(EXTRACXXFLAGS)
 CXXFLAGS_NOWERROR := $(CXXFLAGS_BASE) $(CXXWARNS)
-CXXFLAGS := $(CXXFLAGS_BASE) -Werror $(CXXWARNS) $(EXTRACXXFLAGS)
+CXXFLAGS := $(CXXFLAGS_BASE) $(CXXWARNS)
 ifeq ($(COMPILER),intel)
-CXXFLAGS = $(CXXFLAGS_BASE) $(CXXWARNS) $(EXTRACXXFLAGS)
+CXXFLAGS = $(CXXFLAGS_BASE) $(CXXWARNS)
 endif
 
 CC := gcc
