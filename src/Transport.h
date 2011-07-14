@@ -120,7 +120,7 @@ class Transport {
          * Non-zero means that the RPC has completed (either with or without an
          * error), so the next call to #wait should return immediately.
          */
-        atomic_int finished;
+        std::atomic_int finished;
 
         /**
          * If an error occurred in the RPC then this holds the error message;
