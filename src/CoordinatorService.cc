@@ -231,6 +231,9 @@ CoordinatorService::enlistServer(const EnlistServerRpc::Request& reqHdr,
     server.set_server_type(serverType);
     server.set_server_id(serverId);
     server.set_service_locator(serviceLocator);
+    LOG(NOTICE, "Enlisting new %s at %s (server id %ld)",
+            (serverType == ProtoBuf::MASTER) ? "master" : "backup",
+            serviceLocator, serverId);
 
     if (server.server_type() == ProtoBuf::MASTER) {
         // create empty will
@@ -302,7 +305,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
 
     // reqHdr, respHdr, and rpc are off-limits now
 
-    LOG(DEBUG, "Hint server down: %s", serviceLocator.c_str());
+    LOG(NOTICE, "Hint server down: %s", serviceLocator.c_str());
 
     // is it a master?
     for (int32_t i = 0; i < masterList.server_size(); i++) {
@@ -324,7 +327,7 @@ CoordinatorService::hintServerDown(const HintServerDownRpc::Request& reqHdr,
                     tablet.set_state(ProtoBuf::Tablets_Tablet::RECOVERING);
             }
 
-            LOG(DEBUG, "Trying partition recovery on %lu with %u masters "
+            LOG(NOTICE, "Trying partition recovery on %lu with %u masters "
                 "and %u backups", serverId, masterList.server_size(),
                 backupList.server_size());
 
