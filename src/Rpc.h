@@ -490,6 +490,7 @@ struct BackupGetRecoveryDataRpc {
     };
 };
 
+// Note: this RPC is supported by the coordinator service as well as backups.
 struct BackupQuiesceRpc {
     static const RpcOpcode opcode = BACKUP_QUIESCE;
     static const RpcServiceType service = BACKUP_SERVICE;
