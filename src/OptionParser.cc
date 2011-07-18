@@ -104,74 +104,83 @@ void
 OptionParser::setup(int argc, char* argv[])
 {
     namespace po = ProgramOptions;
+    try {
+        string defaultLogLevel;
+        vector<string> logLevels;
+        string configFile(".ramcloud");
 
-    string defaultLogLevel;
-    vector<string> logLevels;
-    string configFile(".ramcloud");
+        // Basic options supported on the command line of all apps
+        OptionsDescription commonOptions("Common");
+        commonOptions.add_options()
+            ("help", "Produce help message")
+            ("c,config",
+             po::value<string>(&configFile)->
+                default_value(".ramcloud"),
+             "Specify a path to a config file");
 
-    // Basic options supported on the command line of all apps
-    OptionsDescription commonOptions("Common");
-    commonOptions.add_options()
-        ("help", "Produce help message")
-        ("c,config",
-         po::value<string>(&configFile)->
-            default_value(".ramcloud"),
-         "Specify a path to a config file");
+        // Options allowed on command line and in config file for all apps
+        OptionsDescription configOptions("RAMCloud");
+        configOptions.add_options()
+            ("logLevel,l",
+             po::value<string>(&defaultLogLevel)->
+                default_value("NOTICE"),
+             "Default log level for all modules, see LogLevel")
+            ("logModule",
+             po::value<vector<string> >(&logLevels),
+             "One or more module-specific log levels, specified in the form "
+             "moduleName=level")
+            ("local,L",
+             po::value<string>(&options.localLocator)->
+               default_value("fast+udp:host=0.0.0.0,port=12242"),
+             "Service locator to listen on")
+            ("coordinator,C",
+             po::value<string>(&options.coordinatorLocator)->
+               default_value("fast+udp:host=0.0.0.0,port=12246"),
+             "Service locator where the coordinator can be contacted");
 
-    // Options allowed on command line and in config file for all apps
-    OptionsDescription configOptions("RAMCloud");
-    configOptions.add_options()
-        ("logLevel,l",
-         po::value<string>(&defaultLogLevel)->
-            default_value("NOTICE"),
-         "Default log level for all modules, see LogLevel")
-        ("logModule",
-         po::value<vector<string> >(&logLevels))
-        ("local,L",
-         po::value<string>(&options.localLocator)->
-           default_value("fast+udp:host=0.0.0.0,port=12242"),
-         "Service locator to listen on")
-        ("coordinator,C",
-         po::value<string>(&options.coordinatorLocator)->
-           default_value("fast+udp:host=0.0.0.0,port=12246"),
-         "Service locator where the coordinator can be contacted");
+        // Do one pass with just help/config file options so we can get
+        // the alternate config file location, if specified.  Then
+        // do a second pass with all the options for real.
+        po::variables_map throwAway;
+        // Need to skip unknown parameters since we'll repeat the parsing
+        // once we know which config file to read in.
+        po::store(po::command_line_parser(argc, argv).options(commonOptions)
+                                                     .allow_unregistered()
+                                                     .run(),
+                  throwAway);
+        po::notify(throwAway);
 
-    // Do one pass with just help/config file options so we can get
-    // the alternate config file location, if specified.  Then
-    // do a second pass with all the options for real.
-    po::variables_map throwAway;
-    // Need to skip unknown parameters since we'll repeat the parsing
-    // once we know which config file to read in.
-    po::store(po::command_line_parser(argc, argv).options(commonOptions)
-                                                 .allow_unregistered()
-                                                 .run(),
-              throwAway);
-    po::notify(throwAway);
+        allOptions.add(commonOptions).add(configOptions).add(appOptions);
 
-    allOptions.add(commonOptions).add(configOptions).add(appOptions);
+        po::variables_map vm;
+        std::ifstream configInput(configFile.c_str());
+        po::store(po::parse_command_line(argc, argv, allOptions), vm);
+        // true here lets config files contain unknown key/value pairs
+        // this lets a config file be used for multiple programs
+        po::store(po::parse_config_file(configInput, allOptions, true), vm);
+        po::notify(vm);
 
-    po::variables_map vm;
-    std::ifstream configInput(configFile.c_str());
-    po::store(po::parse_command_line(argc, argv, allOptions), vm);
-    // true here lets config files contain unknown key/value pairs
-    // this lets a config file be used for multiple programs
-    po::store(po::parse_config_file(configInput, allOptions, true), vm);
-    po::notify(vm);
+        if (vm.count("help"))
+            usageAndExit();
 
-    if (vm.count("help"))
-        usageAndExit();
-
-    logger.setLogLevels(defaultLogLevel);
-    foreach (auto moduleLevel, logLevels) {
-        auto pos = moduleLevel.find("=");
-        if (pos == string::npos) {
-            LOG(WARNING, "Bad log module level format: %s, "
-                "example moduleName=3", moduleLevel.c_str());
-            continue;
+        logger.setLogLevels(defaultLogLevel);
+        foreach (auto moduleLevel, logLevels) {
+            auto pos = moduleLevel.find("=");
+            if (pos == string::npos) {
+                LOG(WARNING, "Bad log module level format: %s, "
+                    "example moduleName=3", moduleLevel.c_str());
+                continue;
+            }
+            auto name = moduleLevel.substr(0, pos);
+            auto level = moduleLevel.substr(pos + 1);
+            logger.setLogLevel(name, level);
         }
-        auto name = moduleLevel.substr(0, pos);
-        auto level = moduleLevel.substr(pos + 1);
-        logger.setLogLevel(name, level);
+    }
+    catch (po::multiple_occurrences& e) {
+        // This clause could provides a more understandable error message
+        // (the default is fairly opaque).
+        throw po::error(format("command-line option '%s' occurs multiple times",
+                e.get_option_name().c_str()));
     }
 }
 
