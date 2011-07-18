@@ -81,13 +81,11 @@ namespace RAMCloud {
  */
 class TestUtil {
   public:
-    static void assertMatchesPosixRegex(const string& pattern,
-            const string& subject);
-    static void assertNotMatchesPosixRegex(const string& pattern,
-            const string& subject);
-    static void convertChar(char c, string *out);
     static string bufferToDebugString(Buffer* buffer);
     static string checkLargeBuffer(Buffer* buffer, int expectedLength);
+    static void convertChar(char c, string *out);
+    static ::testing::AssertionResult doesNotMatchPosixRegex(
+            const string& pattern, const string& subject);
     static void fillLargeBuffer(Buffer* buffer, int size);
     static const char *getStatus(Buffer* buffer);
     static ::testing::AssertionResult matchesPosixRegex(

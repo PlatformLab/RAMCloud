@@ -39,7 +39,7 @@ class CoordinatorService : public Service {
     void dispatch(RpcOpcode opcode,
                   Rpc& rpc);
 
-  private:
+  PRIVATE:
     void createTable(const CreateTableRpc::Request& reqHdr,
                      CreateTableRpc::Response& respHdr,
                      Rpc& rpc);

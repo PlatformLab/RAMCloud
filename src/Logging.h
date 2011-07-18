@@ -95,7 +95,7 @@ class Logger {
         return (level <= logLevels[module]);
     }
 
-  private:
+  PRIVATE:
     /**
      * The stream on which to log messages.
      */

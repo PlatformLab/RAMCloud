@@ -578,7 +578,7 @@ struct BackupWriteRpc {
  * Version number that indicates "object doesn't exist": this
  * version will never be used in an actual object.
  */
-#define VERSION_NONEXISTENT 0
+#define VERSION_NONEXISTENT 0U
 
 } // namespace RAMCloud
 

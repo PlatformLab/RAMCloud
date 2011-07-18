@@ -293,85 +293,6 @@ TestUtil::bufferToDebugString(Buffer* buffer)
 }
 
 /**
- * Fail the CPPUNIT test case if the given string doesn't match the given POSIX
- * regular expression.
- * \param pattern
- *      A POSIX regular expression.
- * \param subject
- *      The string that should match \a pattern.
- */
-void
-TestUtil::assertMatchesPosixRegex(const string& pattern, const string& subject)
-{
-    regex_t pregStorage;
-    int r;
-
-    r = regcomp(&pregStorage, pattern.c_str(), 0);
-    if (r != 0) {
-        string errorMsg = "Pattern '";
-        errorMsg += pattern;
-        errorMsg += "' failed to compile: ";
-        errorMsg += friendlyRegerror(r, &pregStorage);
-        CPPUNIT_FAIL(errorMsg);
-    }
-
-    r = regexec(&pregStorage, subject.c_str(), 0, NULL, 0);
-    if (r != 0) {
-        string errorMsg = "Pattern '";
-        errorMsg += pattern;
-        errorMsg += "' did not match subject '";
-        errorMsg += subject;
-        errorMsg += "'";
-        regfree(&pregStorage);
-        CPPUNIT_FAIL(errorMsg);
-    }
-
-    regfree(&pregStorage);
-}
-
-/**
- * Fail the CPPUNIT test case if the given string does match the given POSIX
- * regular expression.
- * \param pattern
- *      A POSIX regular expression.
- * \param subject
- *      The string that should not match \a pattern.
- */
-void
-TestUtil::assertNotMatchesPosixRegex(const string& pattern,
-        const string& subject)
-{
-    regex_t pregStorage;
-    int r;
-    bool fail = true;
-    string errorMsg;
-
-    r = regcomp(&pregStorage, pattern.c_str(), 0);
-    if (r != 0) {
-        errorMsg = "Pattern '";
-        errorMsg += pattern;
-        errorMsg += "' failed to compile: ";
-        errorMsg += friendlyRegerror(r, &pregStorage);
-    }
-
-    r = regexec(&pregStorage, subject.c_str(), 0, NULL, 0);
-    if (r != 0) {
-        errorMsg = "Pattern '";
-        errorMsg += pattern;
-        errorMsg += "' did not match subject '";
-        errorMsg += subject;
-        errorMsg += "'";
-        regfree(&pregStorage);
-        fail = false;
-    }
-
-    regfree(&pregStorage);
-
-    if (fail)
-        CPPUNIT_FAIL(errorMsg);
-}
-
-/**
  * Fail a gtest test case if the given string doesn't match the given POSIX
  * regular expression.
  * \param pattern
@@ -399,6 +320,42 @@ TestUtil::matchesPosixRegex(const string& pattern, const string& subject)
     r = regexec(&pregStorage, subject.c_str(), 0, NULL, 0);
     if (r != 0) {
         string message(format("Pattern '%s' did not match subject '%s'",
+                pattern.c_str(), subject.c_str()));
+        regfree(&pregStorage);
+        return ::testing::AssertionFailure() << message;
+    }
+    regfree(&pregStorage);
+    return ::testing::AssertionSuccess();
+}
+
+/**
+ * Fail a gtest test case if the given string matches the given POSIX
+ * regular expression.
+ * \param pattern
+ *      A POSIX regular expression.
+ * \param subject
+ *      The string that should *not* match \a pattern.
+ * \return
+ *      A value that can be tested with EXPECT_TRUE.
+ */
+::testing::AssertionResult
+TestUtil::doesNotMatchPosixRegex(const string& pattern, const string& subject)
+{
+    regex_t pregStorage;
+    int r;
+
+    r = regcomp(&pregStorage, pattern.c_str(), 0);
+    if (r != 0) {
+        string message(format("Pattern '%s' failed to compile: %s",
+                pattern.c_str(),
+                friendlyRegerror(r, &pregStorage).c_str()));
+        regfree(&pregStorage);
+        return ::testing::AssertionFailure() << message;
+    }
+
+    r = regexec(&pregStorage, subject.c_str(), 0, NULL, 0);
+    if (r == 0) {
+        string message(format("Pattern '%s' matched subject '%s'",
                 pattern.c_str(), subject.c_str()));
         regfree(&pregStorage);
         return ::testing::AssertionFailure() << message;

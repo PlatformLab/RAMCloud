@@ -185,7 +185,7 @@ class MasterService : public Service {
      */
     enum { REC_REQ_NOT_STARTED, REC_REQ_WAITING, REC_REQ_FAILED, REC_REQ_OK };
 
-  private:
+  PRIVATE:
     void create(const CreateRpc::Request& reqHdr,
                 CreateRpc::Response& respHdr,
                 Rpc& rpc);
