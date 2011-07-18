@@ -83,7 +83,7 @@ TEST_F(ServiceManagerTest, sanityCheck) {
     // Wait for the request to be processed for (but don't wait forever).
     for (int i = 0; i < 1000; i++) {
         dispatch->poll();
-        if (!service.log.empty())
+        if (!transport.outputLog.empty())
             break;
         usleep(1000);
     }
