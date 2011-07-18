@@ -146,8 +146,10 @@ BackupManager::OpenSegment::write(uint32_t offset,
     // immutable after close
     assert(!closeQueued);
     closeQueued = closeSegment;
-    if (closeQueued)
+    if (closeQueued) {
+        LOG(DEBUG, "Segment %lu closed (length %d)", segmentId, offsetQueued);
         ++metrics->master.segmentCloseCount;
+    }
 }
 
 // --- BackupManager ---
@@ -452,8 +454,9 @@ BackupManager::proceedNoMetrics()
                                                     : BackupWriteRpc::NONE);
             backup->offsetSent = it->offsetQueued;
             backup->closeSent = it->closeQueued;
-            LOG(DEBUG, "Send write %lu.%lu (close=%d)", it->segmentId,
-                &backup - it->backups, it->closeQueued);
+            LOG(DEBUG, "Send write %lu.%lu (close=%d, offset=%d)",
+                it->segmentId, &backup - it->backups, it->closeQueued,
+                it->offsetQueued);
         }
         ++it;
     }

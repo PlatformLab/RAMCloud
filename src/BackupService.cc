@@ -1320,6 +1320,7 @@ BackupService::writeSegment(const BackupWriteRpc::Request& reqHdr,
 
     // peform open, if any
     if ((reqHdr.flags & BackupWriteRpc::OPEN) && !info) {
+        LOG(DEBUG, "Opening <%lu,%lu>", masterId, segmentId);
         try {
 #ifdef SINGLE_THREADED_BACKUP
             bool primary = false;

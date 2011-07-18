@@ -152,6 +152,7 @@ runRecovery(RamCloud& client,
         session->getServiceLocator().c_str());
 
     client.objectFinder.waitForAllTabletsNormal();
+    LOG(NOTICE, "all tablets now normal");
 
     Buffer nb;
     uint64_t stopTime = rdtsc();
