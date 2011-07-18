@@ -526,7 +526,7 @@ detectSegmentRecoveryFailure(const uint64_t masterId,
         LOG(ERROR, "Recovery master failed to recover master %lu "
             "partition %lu", masterId, partitionId);
         foreach (auto segmentId, failures)
-            LOG(ERROR, "Unable to recovery segment %lu", segmentId);
+            LOG(ERROR, "Unable to recover segment %lu", segmentId);
         throw SegmentRecoveryFailedException(HERE);
     }
 }
