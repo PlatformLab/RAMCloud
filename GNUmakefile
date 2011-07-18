@@ -145,7 +145,6 @@ test: python-test
 include src/Makefrag
 include src/MakefragClient
 include src/MakefragServer
-include src/MakefragBackup
 include src/MakefragCoordinator
 include src/MakefragTest
 include src/misc/Makefrag
