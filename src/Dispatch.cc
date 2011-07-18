@@ -17,6 +17,7 @@
 #include "BenchUtil.h"
 #include "Common.h"
 #include "Dispatch.h"
+#include "Fence.h"
 #include "Initialize.h"
 #include "Metrics.h"
 #include "NoOp.h"
@@ -136,11 +137,13 @@ Dispatch::poll()
     if (lockNeeded.load() != 0) {
         // Someone wants us locked. Indicate that we are locked,
         // then wait for the lock to be released.
+        Fence::leave();
         locked.store(1);
         while (lockNeeded.load() != 0) {
             // Empty loop body.
         }
         locked.store(0);
+        Fence::enter();
     }
     for (uint32_t i = 0; i < pollers.size(); i++) {
         pollers[i]->poll();
@@ -572,10 +575,16 @@ Dispatch::Lock::Lock(Dispatch* dispatch)
     while (dispatch->locked.load() != 0) {
         // Empty loop.
     }
+
+    // The following statements ensure that the preceding load completes
+    // before the following store (reordering could cause deadlock).
+    Fence::sfence();
+    Fence::lfence();
     dispatch->lockNeeded.store(1);
     while (dispatch->locked.load() == 0) {
         // Empty loop: spin-wait for the dispatch thread to lock itself.
     }
+    Fence::enter();
 }
 
 /**
@@ -590,6 +599,7 @@ Dispatch::Lock::~Lock()
         return;
     }
 
+    Fence::leave();
     dispatch->lockNeeded.store(0);
     thisThreadHasDispatchLock = false;
 }

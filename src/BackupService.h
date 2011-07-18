@@ -36,6 +36,7 @@
 #include "BackupStorage.h"
 #include "CoordinatorClient.h"
 #include "CycleCounter.h"
+#include "Fence.h"
 #include "LogTypes.h"
 #include "Metrics.h"
 #include "Rpc.h"
@@ -81,6 +82,9 @@ class BackupService : public Service {
         /// Decrement the value referred to by #value.
         ~ReferenceDecrementer()
         {
+            // The following statement is really only needed when value
+            // is an AtomicInt.
+            Fence::leave();
             --value;
         }
 

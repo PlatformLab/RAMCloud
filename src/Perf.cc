@@ -36,6 +36,7 @@
 #include "AtomicInt.h"
 #include "BenchUtil.h"
 #include "Dispatch.h"
+#include "Fence.h"
 #include "SpinLock.h"
 
 using namespace RAMCloud;
@@ -63,7 +64,7 @@ void bindThreadToCpu(int cpu)
 // Measure the cost of AtomicInt::compareExchange.
 double atomicIntCmpX()
 {
-    int count = 100000;
+    int count = 1000000;
     AtomicInt value(11);
     int test = 11;
     uint64_t start = rdtsc();
@@ -78,7 +79,7 @@ double atomicIntCmpX()
 // Measure the cost of AtomicInt::inc.
 double atomicIntInc()
 {
-    int count = 100000;
+    int count = 1000000;
     AtomicInt value(11);
     uint64_t start = rdtsc();
     for (int i = 0; i < count; i++) {
@@ -92,7 +93,7 @@ double atomicIntInc()
 // Measure the cost of reading an AtomicInt.
 double atomicIntLoad()
 {
-    int count = 100000;
+    int count = 1000000;
     AtomicInt value(11);
     int total = 0;
     uint64_t start = rdtsc();
@@ -107,7 +108,7 @@ double atomicIntLoad()
 // Measure the cost of AtomicInt::exchange.
 double atomicIntXchg()
 {
-    int count = 100000;
+    int count = 1000000;
     AtomicInt value(11);
     int total = 0;
     uint64_t start = rdtsc();
@@ -122,7 +123,7 @@ double atomicIntXchg()
 // Measure the cost of storing a new value in a AtomicInt.
 double atomicIntStore()
 {
-    int count = 100000;
+    int count = 1000000;
     AtomicInt value(11);
     uint64_t start = rdtsc();
     for (int i = 0; i < count; i++) {
@@ -136,7 +137,7 @@ double atomicIntStore()
 // fast case where the mutex is free.
 double bMutexNoBlock()
 {
-    int count = 100000;
+    int count = 1000000;
     boost::mutex m;
     uint64_t start = rdtsc();
     for (int i = 0; i < count; i++) {
@@ -150,7 +151,7 @@ double bMutexNoBlock()
 // Measure the cost of the exchange method on a C++ atomic_int.
 double cppAtomicExchange()
 {
-    int count = 100000;
+    int count = 1000000;
     atomic_int value(11);
     int other = 22;
     uint64_t start = rdtsc();
@@ -165,7 +166,7 @@ double cppAtomicExchange()
 // 2 mfence operations!).
 double cppAtomicLoad()
 {
-    int count = 100000;
+    int count = 1000000;
     atomic_int value(11);
     int total = 0;
     uint64_t start = rdtsc();
@@ -181,7 +182,7 @@ double cppAtomicLoad()
 // Pollers and no Timers.
 double dispatchPoll()
 {
-    int count = 50;
+    int count = 1000000;
     Dispatch dispatch;
     uint64_t start = rdtsc();
     for (int i = 0; i < count; i++) {
@@ -194,7 +195,7 @@ double dispatchPoll()
 // Measure the cost of calling ThreadId::get.
 double getThreadId()
 {
-    int count = 100000;
+    int count = 1000000;
     int64_t result = 0;
     uint64_t start = rdtsc();
     for (int i = 0; i < count; i++) {
@@ -205,11 +206,24 @@ double getThreadId()
     return cyclesToSeconds(stop - start)/count;
 }
 
+// Measure the cost of an lfence instruction.
+double lfence()
+{
+    int count = 1000000;
+    Dispatch dispatch;
+    uint64_t start = rdtsc();
+    for (int i = 0; i < count; i++) {
+        Fence::lfence();
+    }
+    uint64_t stop = rdtsc();
+    return cyclesToSeconds(stop - start)/count;
+}
+
 // Measure the cost of creating and deleting a Dispatch::Lock from within
 // the dispatch thread.
 double lockInDispThrd()
 {
-    int count = 100000;
+    int count = 1000000;
     Dispatch dispatch;
     uint64_t start = rdtsc();
     for (int i = 0; i < count; i++) {
@@ -255,11 +269,24 @@ double lockNonDispThrd()
     return cyclesToSeconds(stop - start)/count;
 }
 
+// Measure the cost of an sfence instruction.
+double sfence()
+{
+    int count = 1000000;
+    Dispatch dispatch;
+    uint64_t start = rdtsc();
+    for (int i = 0; i < count; i++) {
+        Fence::sfence();
+    }
+    uint64_t stop = rdtsc();
+    return cyclesToSeconds(stop - start)/count;
+}
+
 // Measure the cost of acquiring and releasing a SpinLock (assuming the
 // lock is initially free).
 double spinLock()
 {
-    int count = 100000;
+    int count = 1000000;
     SpinLock lock;
     uint64_t start = rdtsc();
     for (int i = 0; i < count; i++) {
@@ -304,10 +331,14 @@ TestInfo tests[] = {
      "Dispatch::poll (no timers or pollers)"},
     {"getThreadId", getThreadId,
      "Retrieve thread id via ThreadId::get"},
+    {"lfence", lfence,
+     "Lfence instruction"},
     {"lockInDispThrd", lockInDispThrd,
      "Acquire/release Dispatch::Lock (in dispatch thread)"},
     {"lockNonDispThrd", lockNonDispThrd,
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
+    {"sfence", sfence,
+     "Sfence instruction"},
     {"spinLock", spinLock,
      "Acquire/release SpinLock"},
 };

@@ -14,6 +14,7 @@
  */
 
 #include "BenchUtil.h"
+#include "Fence.h"
 #include "Initialize.h"
 #include "ServiceManager.h"
 
@@ -207,6 +208,7 @@ ServiceManager::poll()
         if (state == Worker::WORKING) {
             continue;
         }
+        Fence::enter();
 
         // The worker is either post-processing or idle; in either case, if
         // there is an RPC that we haven't yet responded to, respond now.
@@ -306,6 +308,7 @@ try {
             }
             // Empty loop body.
         }
+        Fence::enter();
         if (worker->rpc == WORKER_EXIT)
             break;
 
@@ -314,6 +317,7 @@ try {
         worker->serviceInfo->service.handleRpc(rpc);
 
         // Pass the RPC back to ServiceManager for completion.
+        Fence::leave();
         worker->state.store(Worker::POLLING);
     }
     TEST_LOG("exiting");
@@ -367,6 +371,7 @@ Worker::handoff(Transport::ServerRpc* newRpc)
 {
     assert(rpc == NULL);
     rpc = newRpc;
+    Fence::leave();
     int prevState = state.exchange(WORKING);
     if (prevState == SLEEPING) {
         // The worker got tired of polling and went to sleep, so we
@@ -391,6 +396,7 @@ Worker::handoff(Transport::ServerRpc* newRpc)
 void
 Worker::sendReply()
 {
+    Fence::leave();
     state.store(POSTPROCESSING);
 }
 

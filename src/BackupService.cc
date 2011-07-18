@@ -911,6 +911,7 @@ BackupService::~BackupService()
             lastThreadCount = recoveryThreadCount;
         }
     }
+    Fence::enter();
 
     ioScheduler.shutdown(ioThread);
 
