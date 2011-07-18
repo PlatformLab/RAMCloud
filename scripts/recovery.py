@@ -32,8 +32,7 @@ for i in range(1, 37):
 
 obj_path = '%s/%s' % (top_path, obj_dir)
 coordinatorBin = '%s/coordinator' % obj_path
-backupBin = '%s/backup' % obj_path
-masterBin = '%s/server' % obj_path
+serverBin = '%s/server' % obj_path
 clientBin = '%s/client' % obj_path
 ensureHostsBin = '%s/ensureHosts' % obj_path
 
@@ -46,51 +45,49 @@ def recover(numBackups=1,
             timeout=60,
             coordinatorArgs='',
             backupArgs='',
-            oldMasterArgs='-m 2048',
-            newMasterArgs='-m 2048',
+            oldMasterArgs='-t 2048',
+            newMasterArgs='-t 2048',
             clientArgs='-f',
-            hostAllocationStrategy=0):
+            hostAllocationStrategy=0,
+            debug=0):
 
     coordinatorHost = hosts[0]
     coordinatorLocator = 'infrc:host=%s,port=12246' % coordinatorHost[1]
 
-    backupHosts = (hosts[1:] + [hosts[0]])[:numBackups]
-    backupLocators = ['infrc:host=%s,port=12243' % host[1]
-                      for host in backupHosts]
+    # use the coordinator host as server too, but only as a last resort
+    serverHosts = (hosts[1:] + [hosts[0]])
+
+    # Figure out which ranges of serverHosts will serve as backups, as
+    # recovery masters, and as dual-backups (if we're using two disks
+    # on each backup).
+    if disk != 3:
+        doubleBackupEnd = 0;
+    else:
+        doubleBackupEnd = numBackups
+    if hostAllocationStrategy == 1:
+        masterEnd = len(serverHosts) - 1
+    else:
+        masterEnd = numPartitions
+    masterStart = masterEnd - numPartitions
+
+    # Figure out which disk will be used by each of primary and secondary
+    # backup
     if disk == 0:
-        backupDisks = ['-m' for backup in backupHosts]
+        primaryDisk = '-m'
     elif disk == 1:
-        backupDisks = ['-f /dev/sda2' for backup in backupHosts]
+        primaryDisk = '-f /dev/sda2'
     elif disk == 2:
-        backupDisks = ['-f /dev/sdb2' for backup in backupHosts]
+        primaryDisk = '-f /dev/sdb2'
     elif disk == 4:
-        backupDisks = ['-f /dev/md2' for backup in backupHosts]
+        primaryDisk = '-f /dev/md2'
     elif disk == 3:
-        firstHalf = (numBackups + 1) // 2
-        secondHalf = numBackups // 2
-        backupHosts = ((hosts[1:] + [hosts[0]])[:firstHalf] +
-                       (hosts[1:] + [hosts[0]])[:secondHalf])
-        backupLocators = (['infrc:host=%s,port=12243' % host[1]
-                           for host in backupHosts[:firstHalf]] +
-                          ['infrc:host=%s,port=12244' % host[1]
-                           for host in backupHosts[:secondHalf]])
-        backupDisks = (['-f /dev/sda2' for i in backupHosts[:firstHalf]] +
-                       ['-f /dev/sdb2' for i in backupHosts[:secondHalf]])
+        primaryDisk = '-f /dev/sda2'
+        secondaryDisk = '-f /dev/sdb2'
     else:
         raise Exception('Disk should be an integer between 0 and 4')
 
     oldMasterHost = hosts[0]
     oldMasterLocator = 'infrc:host=%s,port=12242' % oldMasterHost[1]
-
-    if hostAllocationStrategy == 1:
-        newMasterHosts = (list(reversed(hosts[1:])) +
-                          [hosts[0]])[:numPartitions]
-        newMasterLocators = ['infrc:host=%s,port=12247' % host[1]
-                             for host in newMasterHosts]
-    else:
-        newMasterHosts = (hosts[1:] + [hosts[0]])[:numPartitions]
-        newMasterLocators = ['infrc:host=%s,port=12247' % host[1]
-                             for host in newMasterHosts]
 
     clientHost = hosts[0]
 
@@ -108,9 +105,9 @@ def recover(numBackups=1,
     os.symlink(datetime, 'recovery/latest')
 
     coordinator = None
-    backups = []
     oldMaster = None
-    newMasters = []
+    servers = []
+    extraBackups = []
     client = None
     with Sandbox() as sandbox:
         def ensureHosts(qty):
@@ -134,64 +131,66 @@ def recover(numBackups=1,
 
         # start dying master
         oldMaster = sandbox.rsh(oldMasterHost[0],
-                        ('%s -r %d -C %s -L %s %s' %
-                         (masterBin, replicas,
-                          coordinatorLocator,
-                          oldMasterLocator,
-                          oldMasterArgs)),
-                        bg=True, stderr=subprocess.STDOUT,
-                        stdout=open(('%s/oldMaster.%s.log' %
-                                     (run, oldMasterHost[0])),
-                                    'w'))
+                ('%s -C %s -L %s -r %d %s -M' %
+                 (serverBin, coordinatorLocator, oldMasterLocator, replicas,
+                  oldMasterArgs)),
+                 bg=True, stderr=subprocess.STDOUT,
+                 stdout=open(('%s/oldMaster.%s.log' %
+                              (run, oldMasterHost[0])), 'w'))
+        ensureHosts(1)
 
-        # start backups
-        for i, (backupHost,
-                backupLocator,
-                backupDisk) in enumerate(zip(backupHosts,
-                                             backupLocators,
-                                             backupDisks)):
-            if disk == 3:
-                filename = ('%s/backup.%s.%s.log' %
-                            (run, backupHost[0],
-                             backupDisk.split('/')[-1]))
+        # start other servers
+        totalServers = 1
+        for i in range(len(serverHosts)):
+            # first start the main server on this host, which runs either or
+            # both of recovery master & backup
+            host = serverHosts[i]
+            command = ('%s -C %s -L infrc:host=%s,port=12243' %
+                       (serverBin, coordinatorLocator, host[1]))
+            isBackup = isMaster = False
+            if (i >= masterStart) and (i < masterEnd):
+                isMaster = True
+                command += ' -r %d %s' % (replicas, newMasterArgs)
+                totalServers += 1
             else:
-                filename = '%s/backup.%s.log' % (run, backupHost[0])
-            backups.append(sandbox.rsh(backupHost[0],
-                       ('%s %s -C %s -L %s %s' %
-                        (backupBin,
-                         backupDisk,
-                         coordinatorLocator,
-                         backupLocator,
-                         backupArgs)),
-                       bg=True, stderr=subprocess.STDOUT,
-                       stdout=open(filename, 'w')))
-        ensureHosts(len(backups) + 1)
+                command += ' -B'
+            if i < numBackups:
+                isBackup = True
+                command += ' %s %s' % (primaryDisk, backupArgs)
+                totalServers += 1
+            else:
+                command += ' -M'
+            if isMaster or isBackup:
+                servers.append(sandbox.rsh(host[0], command, bg=True,
+                               stderr=subprocess.STDOUT,
+                               stdout=open('%s/server.%s.log' %
+                                           (run, host[0]), 'w')))
 
-        # start recovery masters
-        for i, (newMasterHost,
-                newMasterLocator) in enumerate(zip(newMasterHosts,
-                                                   newMasterLocators)):
-            newMasters.append(sandbox.rsh(newMasterHost[0],
-                                  ('%s -r %d -C %s -L %s %s' %
-                                   (masterBin,
-                                    replicas,
-                                    coordinatorLocator,
-                                    newMasterLocator,
-                                    newMasterArgs)),
-                                  bg=True, stderr=subprocess.STDOUT,
-                                  stdout=open(('%s/newMaster.%s.log' %
-                                               (run, newMasterHost[0])),
-                                              'w')))
-        ensureHosts(len(backups) + 1 + len(newMasters))
+            # start extra backup server on this host, if we are using
+            # dual disks.
+            if isBackup and disk == 3:
+                command = ('%s -C %s -L infrc:host=%s,port=12244 -B %s %s' %
+                           (serverBin, coordinatorLocator, host[1],
+                            secondaryDisk, backupArgs))
+                extraBackups.append(sandbox.rsh(host[0], command, bg=True,
+                                             stderr=subprocess.STDOUT,
+                                             stdout=open('%s/backup.%s.log' %
+                                                         (run, host[0]), 'w')))
+                totalServers += 1
+        ensureHosts(totalServers)
+
+        # pause for debugging setup, if requested
+        if debug:
+            print "Servers started; pausing for debug setup."
+            raw_input("Type <Enter> to continue: ")
 
         # start client
         client = sandbox.rsh(clientHost[0],
-                     ('%s -d -C %s -n %d -s %d -t %d -k %d %s' %
-                      (clientBin, coordinatorLocator, numObjects, objectSize,
-                      numPartitions, numPartitions, clientArgs)),
-                     bg=True, stderr=subprocess.STDOUT,
-                     stdout=open('%s/client.%s.log' % (run, clientHost[0]),
-                                 'w'))
+                 ('%s -d -C %s -n %d -s %d -t %d -k %d %s' %
+                  (clientBin, coordinatorLocator, numObjects, objectSize,
+                   numPartitions, numPartitions, clientArgs)),
+                  bg=True, stderr=subprocess.STDOUT,
+                  stdout=open('%s/client.%s.log' % (run, clientHost[0]), 'w'))
 
         start = time.time()
         while client.returncode is None:
@@ -215,7 +214,7 @@ def recover(numBackups=1,
         return stats
 
 def insist(*args, **kwargs):
-    """Keep insistly trying recoveries until the damn thing succeeds"""
+    """Keep trying recoveries until the damn thing succeeds"""
     while True:
         try:
             return recover(*args, **kwargs)
