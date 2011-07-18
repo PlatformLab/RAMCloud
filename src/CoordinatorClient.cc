@@ -262,7 +262,12 @@ CoordinatorClient::quiesce()
 {
     Buffer req;
     Buffer resp;
-    allocHeader<BackupQuiesceRpc>(req);
+    BackupQuiesceRpc::Request& reqHdr(
+        allocHeader<BackupQuiesceRpc>(req));
+    // By default this RPC is since the backup service; retarget it
+    // for the coordinator service (which will forward it on to all
+    // backups).
+    reqHdr.common.service = COORDINATOR_SERVICE;
     sendRecv<BackupQuiesceRpc>(session, req, resp);
     checkStatus(HERE);
 }
