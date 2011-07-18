@@ -226,4 +226,13 @@ def insist(*args, **kwargs):
             print 'Trying again...'
 
 if __name__ == '__main__':
-    pprint.pprint(recover())
+    args = {}
+    args['numBackups'] = 33
+    args['numPartitions'] = 11
+    args['objectSize'] = 1024
+    args['disk'] = 3
+    args['numObjects'] = 626012 * 600 // 640
+    args['oldMasterArgs'] = '-t %d' % (900 * args['numPartitions'])
+    args['newMasterArgs'] = '-t 16000'
+    args['replicas'] = 3
+    pprint.pprint(recover(**args))
