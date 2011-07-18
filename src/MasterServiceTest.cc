@@ -166,7 +166,7 @@ class MasterServiceTest : public ::testing::Test {
         client->read(downCast<uint32_t>(tblId), objId, &value);
         const char *s = reinterpret_cast<const char *>(
             value.getRange(0, value.getTotalLength()));
-        CPPUNIT_ASSERT(strcmp(s, contents.c_str()) == 0);
+        EXPECT_EQ(0, strcmp(s, contents.c_str()));
     }
 
     static bool
@@ -891,8 +891,8 @@ TEST_F(MasterServiceTest, rejectOperation) {
     // Fail: object exists.
     rules = empty;
     rules.exists = 1;
-    CPPUNIT_ASSERT_THROW(service->rejectOperation(&rules, 2),
-                            ObjectExistsException);
+    EXPECT_THROW(service->rejectOperation(&rules, 2),
+                 ObjectExistsException);
 
     // versionLeGiven.
     rules = empty;
@@ -994,7 +994,7 @@ class MasterRecoverTest : public ::testing::Test {
         delete config;
         transportManager.unregisterMock();
         delete transport;
-        CPPUNIT_ASSERT_EQUAL(0,
+        EXPECT_EQ(0,
             BackupStorage::Handle::resetAllocatedHandlesCount());
     }
     static bool
