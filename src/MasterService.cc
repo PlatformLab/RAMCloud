@@ -434,6 +434,7 @@ MasterService::removeTombstones()
     // Asynchronous tombstone removal raises hell in unit tests.
     objectMap.forEach(recoveryCleanup, this);
 #else
+    Dispatch::Lock lock;
     new RemoveTombstonePoller(*this, objectMap);
 #endif
 }
