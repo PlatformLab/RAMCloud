@@ -213,7 +213,7 @@ class Client {
      */
     void checkStatus(const CodeLocation& where) const
     {
-        TEST_LOG("status: %d", STATUS_OK);
+        RAMCLOUD_TEST_LOG("status: %d", STATUS_OK);
         if (status != STATUS_OK)
             ClientException::throwException(where, status);
     }

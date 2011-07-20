@@ -90,8 +90,8 @@ class Recovery : public BaseRecovery {
                 transportManager.getSession(
                     backupHost.service_locator().c_str()));
             rpc.construct(*client, crashedMasterId, partitions);
-            LOG(DEBUG, "Starting startReadingData on %s",
-                backupHost.service_locator().c_str());
+            RAMCLOUD_LOG(DEBUG, "Starting startReadingData on %s",
+                         backupHost.service_locator().c_str());
         }
 
         bool isDone() const { return done; }

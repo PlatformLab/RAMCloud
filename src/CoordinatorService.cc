@@ -17,6 +17,7 @@
 
 #include "BackupClient.h"
 #include "CoordinatorService.h"
+#include "ShortMacros.h"
 #include "MasterClient.h"
 #include "ProtoBuf.h"
 #include "Recovery.h"

@@ -19,6 +19,7 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Dispatch.h"
+#include "ShortMacros.h"
 #include "MasterService.h"
 #include "Metrics.h"
 #include "Tub.h"

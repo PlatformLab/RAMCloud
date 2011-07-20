@@ -17,6 +17,7 @@
 #include <boost/ref.hpp>
 
 #include "ObjectFinder.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 

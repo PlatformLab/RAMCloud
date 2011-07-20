@@ -151,7 +151,7 @@ double bMutexNoBlock()
 double cppAtomicExchange()
 {
     int count = 100000;
-    atomic_int value(11);
+    std::atomic_int value(11);
     int other = 22;
     uint64_t start = rdtsc();
     for (int i = 0; i < count; i++) {
@@ -166,7 +166,7 @@ double cppAtomicExchange()
 double cppAtomicLoad()
 {
     int count = 100000;
-    atomic_int value(11);
+    std::atomic_int value(11);
     int total = 0;
     uint64_t start = rdtsc();
     for (int i = 0; i < count; i++) {

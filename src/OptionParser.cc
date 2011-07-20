@@ -19,9 +19,9 @@
 #include <fstream>
 
 #include "Common.h"
-#include "Logging.h"
 #include "Transport.h"
 #include "OptionParser.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 

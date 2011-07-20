@@ -125,7 +125,7 @@ class TcpTransport : public Transport {
       public:
         virtual ~TcpServerRpc()
         {
-            TEST_LOG("deleted");
+            RAMCLOUD_TEST_LOG("deleted");
         }
         void sendReply();
       PRIVATE:

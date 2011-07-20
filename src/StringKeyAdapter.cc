@@ -13,11 +13,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <openssl/sha.h>
-
 #include "Common.h"
+
+#include <openssl/sha.h> // NOLINT openssl botch - size_t not defined otherwise
+
 #include "Buffer.h"
 #include "ClientException.h"
+#include "ShortMacros.h"
 #include "RamCloud.h"
 #include "StringKeyAdapter.h"
 

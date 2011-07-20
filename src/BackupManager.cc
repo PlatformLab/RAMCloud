@@ -16,6 +16,7 @@
 #include "BackupClient.h"
 #include "BackupManager.h"
 #include "CycleCounter.h"
+#include "ShortMacros.h"
 #include "Metrics.h"
 #include "BenchUtil.h"
 #include "Segment.h"

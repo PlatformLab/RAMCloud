@@ -14,6 +14,7 @@
  */
 
 #include "CoordinatorClient.h"
+#include "ShortMacros.h"
 #include "ProtoBuf.h"
 
 namespace RAMCloud {

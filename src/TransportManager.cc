@@ -14,6 +14,7 @@
  */
 
 #include "CycleCounter.h"
+#include "ShortMacros.h"
 #include "Metrics.h"
 #include "TransportManager.h"
 #include "TransportFactory.h"

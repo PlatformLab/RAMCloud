@@ -123,8 +123,8 @@ setup()
 {
     if (cpu != -1) {
         if (!RC::pinToCpu(cpu))
-            DIE("bench: Couldn't pin to core %d", cpu);
-        LOG(RC::DEBUG, "bench: Pinned to core %d", cpu);
+            RAMCLOUD_DIE("bench: Couldn't pin to core %d", cpu);
+        RAMCLOUD_LOG(RC::DEBUG, "bench: Pinned to core %d", cpu);
     }
 
     client = new RC::RamCloud(coordinatorLocator.c_str());

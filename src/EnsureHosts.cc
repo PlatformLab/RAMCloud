@@ -19,6 +19,7 @@
  */
 
 #include "BenchUtil.h"
+#include "ShortMacros.h"
 #include "OptionParser.h"
 #include "RamCloud.h"
 

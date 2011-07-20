@@ -21,6 +21,7 @@
 
 #include "Common.h"
 #include "BackupStorage.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 

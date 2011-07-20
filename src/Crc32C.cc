@@ -16,6 +16,7 @@
 // RAMCloud pragma [CPPLINT=0]
 
 #include "Crc32C.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 

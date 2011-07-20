@@ -59,19 +59,20 @@ class {
 #define __STDC_LIMIT_MACROS
 #include <cstdint>
 
-// #include <cinttypes> // this requires c++0x support because it's c99
-// so we'll go ahead and use the C header
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
-#include <inttypes.h>
+#endif
 #include <xmmintrin.h>
 
 #ifndef __cplusplus
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <assert.h>
 #else
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -89,9 +90,11 @@ using std::vector;
 #endif
 
 // A macro to disallow the copy constructor and operator= functions
+#ifndef DISALLOW_COPY_AND_ASSIGN
 #define DISALLOW_COPY_AND_ASSIGN(TypeName) \
     TypeName(const TypeName&) = delete;             \
     TypeName& operator=(const TypeName&) = delete;
+#endif
 
 #include "Logging.h"
 #include "Status.h"

@@ -14,6 +14,7 @@
  */
 
 #include "TestUtil.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -176,7 +177,7 @@ TEST_F(LoggingTest, LOG) { // also tests logMessage
     LOG(ERROR, "rofl: %d", 3);
     const char* pattern = "^[[:digit:]]\\{10\\}\\.[[:digit:]]\\{9\\} "
                             "src/LoggingTest.cc:[[:digit:]]\\{1,4\\} "
-                            "in LoggingTest_LOG_Test::TestBody "
+                            "in LoggingTest_RAMCLOUD_LOG_Test::TestBody "
                             "default ERROR\\[[[:digit:]]\\{1,5\\}\\]: "
                             "rofl: 3\n$";
     EXPECT_TRUE(TestUtil::matchesPosixRegex(pattern, buf));

@@ -24,6 +24,7 @@
 
 #include "BackupClient.h"
 #include "BackupService.h"
+#include "ShortMacros.h"
 #include "OptionParser.h"
 #include "MasterService.h"
 #include "PingService.h"

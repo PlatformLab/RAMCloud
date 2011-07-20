@@ -20,7 +20,7 @@
 #include "BindTransport.h"
 #include "CoordinatorService.h"
 #include "Log.h"
-#include "Logging.h"
+#include "ShortMacros.h"
 #include "MasterService.h"
 #include "MockTransport.h"
 #include "RecoverySegmentIterator.h"

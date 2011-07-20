@@ -14,6 +14,8 @@
  */
 
 #include <sys/epoll.h>
+
+#include "ShortMacros.h"
 #include "BenchUtil.h"
 #include "Common.h"
 #include "Dispatch.h"
