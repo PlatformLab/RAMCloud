@@ -15,9 +15,9 @@
 
 #include <boost/unordered_set.hpp>
 
-#include "BenchUtil.h"
 #include "Buffer.h"
 #include "ClientException.h"
+#include "Cycles.h"
 #include "Dispatch.h"
 #include "ShortMacros.h"
 #include "MasterService.h"
@@ -304,7 +304,7 @@ MasterService::read(const ReadRpc::Request& reqHdr,
     // from scribbling over obj->data.
     respHdr.length = obj->dataLength(handle->length());
     serverStats.totalReadRequests++;
-    serverStats.totalReadNanos += cyclesToNanoseconds(timeThisRead.stop());
+    serverStats.totalReadNanos += Cycles::toNanoseconds(timeThisRead.stop());
 }
 
 /**
@@ -457,7 +457,7 @@ struct Task {
         , response()
         , client(transportManager.getSession(
                     backupHost.service_locator().c_str()))
-        , startTime(rdtsc())
+        , startTime(Cycles::rdtsc())
         , rpc()
         , resendTime(0)
     {
@@ -610,7 +610,7 @@ MasterService::recover(uint64_t masterId,
      * possible).
      */
     uint64_t usefulTime = 0;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     LOG(NOTICE, "Recovering master %lu, partition %lu, %u hosts",
         masterId, partitionId, backups.server_size());
 
@@ -673,7 +673,7 @@ MasterService::recover(uint64_t masterId,
 
     while (activeRequests) {
         this->backup.proceed();
-        uint64_t currentTime = rdtsc();
+        uint64_t currentTime = Cycles::rdtsc();
         foreach (auto& task, tasks) {
             if (!task)
                 continue;
@@ -692,29 +692,29 @@ MasterService::recover(uint64_t masterId,
                 task->backupHost.service_locator().c_str());
             try {
                 (*task->rpc)();
-                uint64_t grdTime = rdtsc() - task->startTime;
+                uint64_t grdTime = Cycles::rdtsc() - task->startTime;
 
                 if (!gotFirstGRD) {
                     metrics->master.replicationTicks =
-                        0 - rdtsc();
+                        0 - Cycles::rdtsc();
                     metrics->master.replicationBytes =
                         0 - metrics->transport.transmit.byteCount;
                     gotFirstGRD = true;
                 }
-                LOG(DEBUG, "Got getRecoveryData response, took %lu us "
+                LOG(DEBUG, "Got getRecoveryData response, took %.1f us "
                     "on channel %ld",
-                    cyclesToNanoseconds(grdTime) / 1000,
+                    Cycles::toSeconds(grdTime)*1e06,
                     &task - &tasks[0]);
 
                 uint32_t responseLen = task->response.getTotalLength();
                 metrics->master.segmentReadByteCount += responseLen;
                 LOG(DEBUG, "Recovering segment %lu with size %u",
                     task->backupHost.segment_id(), responseLen);
-                uint64_t startUseful = rdtsc();
+                uint64_t startUseful = Cycles::rdtsc();
                 recoverSegment(task->backupHost.segment_id(),
                                task->response.getRange(0, responseLen),
                                responseLen);
-                usefulTime += rdtsc() - startUseful;
+                usefulTime += Cycles::rdtsc() - startUseful;
 
                 runningSet.erase(task->backupHost.segment_id());
                 // Mark this and any other entries for this segment as OK.
@@ -732,7 +732,8 @@ MasterService::recover(uint64_t masterId,
                 }
             } catch (const RetryException& e) {
                 // The backup isn't ready yet, try back in 1 ms.
-                task->resendTime = currentTime + getCyclesPerSecond()/1000;
+                task->resendTime = currentTime +
+                    static_cast<int>(Cycles::perSecond()/1000.0);
                 readStallTicks.construct(
                                     &metrics->master.segmentReadStallTicks);
                 continue;
@@ -807,17 +808,16 @@ MasterService::recover(uint64_t masterId,
         metrics->master.logSyncBytes += metrics->transport.transmit.byteCount;
     }
 
-    metrics->master.replicationTicks += rdtsc();
+    metrics->master.replicationTicks += Cycles::rdtsc();
     metrics->master.replicationBytes += metrics->transport.transmit.byteCount;
 
-    uint64_t totalTime = cyclesToNanoseconds(rdtsc() - start);
-    usefulTime = cyclesToNanoseconds(usefulTime);
-    LOG(NOTICE, "Recovery complete, took %lu ms, useful replaying time %lu "
-        "(%.1f%% effective)",
-        totalTime / 1000 / 1000,
-        usefulTime / 1000 / 1000,
-        (static_cast<double>(usefulTime) /
-         static_cast<double>(totalTime)) * 100.);
+    double totalSecs = Cycles::toSeconds(Cycles::rdtsc() - start);
+    double usefulSecs = Cycles::toSeconds(usefulTime);
+    LOG(NOTICE, "Recovery complete, took %.1f ms, useful replaying "
+        "time %.1f ms (%.1f%% effective)",
+        totalSecs * 1e03,
+        usefulSecs * 1e03,
+        100 * usefulSecs / totalSecs);
 }
 
 /**
@@ -954,7 +954,7 @@ void
 MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
                               uint32_t bufferLength)
 {
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     LOG(DEBUG, "recoverSegment %lu, ...", segmentId);
     CycleCounter<Metric> _(&metrics->master.recoverSegmentTicks);
 
@@ -1109,9 +1109,9 @@ MasterService::recoverSegment(uint64_t segmentId, const void *buffer,
 
         i.next();
     }
-    uint64_t replayTime = cyclesToNanoseconds(rdtsc() - start);
-    LOG(DEBUG, "Segment %lu replay complete, took %lu ms",
-        segmentId, replayTime / 1000 / 1000);
+    double replayTime = Cycles::toSeconds(Cycles::rdtsc() - start);
+    LOG(DEBUG, "Segment %lu replay complete, took %.1f ms",
+        segmentId, replayTime*1e03);
 }
 
 /**
@@ -1260,7 +1260,7 @@ MasterService::write(const WriteRpc::Request& reqHdr,
               static_cast<uint32_t>(reqHdr.length), &respHdr.version,
               reqHdr.async);
     serverStats.totalWriteRequests++;
-    serverStats.totalWriteNanos += cyclesToNanoseconds(timeThis.stop());
+    serverStats.totalWriteNanos += Cycles::toNanoseconds(timeThis.stop());
 }
 
 /**

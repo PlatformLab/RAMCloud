@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "Log.h"
 #include "Logging.h"
 #include "Table.h"
@@ -91,15 +91,15 @@ class WillBenchmark {
             memset(foo, 0, 100 * 1024 * 1024);
             free(foo);
 
-            uint64_t b = rdtsc();
+            uint64_t b = Cycles::rdtsc();
             Will w(tablets, maxBytesPerPartition, maxReferantsPerPartition);
             willLength += w.entries.size();
-            totalTicks += rdtsc() - b;
+            totalTicks += Cycles::rdtsc() - b;
         }
         printf("%luMB, %lu tablets, %d bytes/object, %lu will entries: "
-            "%lu usec\n", serverBytes / 1024 / 1024, serverTablets,
+            "%.0f usec\n", serverBytes / 1024 / 1024, serverTablets,
             objectBytes, willLength / loops,
-            RAMCloud::cyclesToNanoseconds(totalTicks / loops) / 1000);
+            RAMCloud::Cycles::toSeconds(totalTicks / loops) * 1e06);
 
         destroyTables(tablets);
     }

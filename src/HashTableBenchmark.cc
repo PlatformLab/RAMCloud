@@ -21,7 +21,7 @@
 #include <math.h>
 
 #include "Common.h"
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "HashTable.h"
 #include "OptionParser.h"
 
@@ -71,10 +71,10 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     fflush(stdout);
 
     // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
-    uint64_t replaceCycles = rdtsc();
+    uint64_t replaceCycles = Cycles::rdtsc();
     for (i = 0; i < nkeys; i++)
         ht.replace(values[i]);
-    i = rdtsc() - replaceCycles;
+    i = Cycles::rdtsc() - replaceCycles;
     printf("done!\n");
 
     free(values);
@@ -85,11 +85,11 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     printf("== replace() ==\n");
 
     printf("    external avg: %lu ticks, %lu nsec\n",
-           i / nkeys, cyclesToNanoseconds(i / nkeys));
+           i / nkeys, Cycles::toNanoseconds(i / nkeys));
 
     printf("    internal avg: %lu ticks, %lu nsec\n",
            pc.replaceCycles / nkeys,
-           cyclesToNanoseconds(pc.replaceCycles / nkeys));
+           Cycles::toNanoseconds(pc.replaceCycles / nkeys));
 
     printf("    multi-cacheline accesses: %lu / %lu\n",
            pc.insertChainsFollowed, nkeys);
@@ -101,22 +101,22 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
     fflush(stdout);
 
     // don't use a CycleCounter, as we may want to run without PERF_COUNTERS
-    uint64_t lookupCycles = rdtsc();
+    uint64_t lookupCycles = Cycles::rdtsc();
     for (i = 0; i < nkeys; i++) {
         TestObject *p = ht.lookup(0, i);
         assert(p != NULL);
     }
-    i = rdtsc() - lookupCycles;
+    i = Cycles::rdtsc() - lookupCycles;
     printf("done!\n");
 
     printf("== lookup() ==\n");
 
     printf("    external avg: %lu ticks, %lu nsec\n", i / nkeys,
-        cyclesToNanoseconds(i / nkeys));
+        Cycles::toNanoseconds(i / nkeys));
 
     printf("    internal avg: %lu ticks, %lu nsec\n",
            pc.lookupEntryCycles / nkeys,
-           cyclesToNanoseconds(pc.lookupEntryCycles / nkeys));
+           Cycles::toNanoseconds(pc.lookupEntryCycles / nkeys));
 
     printf("    multi-cacheline accesses: %lu / %lu\n",
            pc.lookupEntryChainsFollowed, nkeys);
@@ -125,11 +125,11 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
 
     printf("    min ticks: %lu, %lu nsec\n",
            pc.lookupEntryDist.min,
-           cyclesToNanoseconds(pc.lookupEntryDist.min));
+           Cycles::toNanoseconds(pc.lookupEntryDist.min));
 
     printf("    max ticks: %lu, %lu nsec\n",
            pc.lookupEntryDist.max,
-           cyclesToNanoseconds(pc.lookupEntryDist.max));
+           Cycles::toNanoseconds(pc.lookupEntryDist.max));
 
     uint64_t *histogram = static_cast<uint64_t *>(
         xmalloc(nlines * sizeof(histogram[0])));
@@ -175,8 +175,8 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
             continue;
         printf("%5lu to %5lu ticks / %5lu to %5lu nsec: (%6.2f%%) ",
                i * lcd.BIN_WIDTH, (i + 1) * lcd.BIN_WIDTH - 1,
-               cyclesToNanoseconds(i * lcd.BIN_WIDTH),
-               cyclesToNanoseconds((i + 1) * lcd.BIN_WIDTH - 1),
+               Cycles::toNanoseconds(i * lcd.BIN_WIDTH),
+               Cycles::toNanoseconds((i + 1) * lcd.BIN_WIDTH - 1),
                percent);
         int j;
         for (j = 0; j < static_cast<int>(round(percent)); j++)
@@ -194,7 +194,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         total += percent;
         printf(" <= %5lu ticks (%lu nsec): %6.2f%%\n",
                (i + 1) * lcd.BIN_WIDTH - 1,
-               cyclesToNanoseconds((i + 1) * lcd.BIN_WIDTH - 1), total);
+               Cycles::toNanoseconds((i + 1) * lcd.BIN_WIDTH - 1), total);
         if (total >= 99.99)
             break;
     }

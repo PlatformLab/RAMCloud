@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "Cycles.h"
 #include "Service.h"
 #include "ShortMacros.h"
 #include "ServiceManager.h"
@@ -151,13 +152,13 @@ Service::handleRpc(Rpc& rpc) {
     if (opcode >= ILLEGAL_RPC_TYPE)
         opcode = ILLEGAL_RPC_TYPE;
     rpcsHandled[opcode]++;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     try {
         dispatch(RpcOpcode(header->opcode), rpc);
     } catch (ClientException& e) {
         prepareErrorResponse(rpc.replyPayload, e.status);
     }
-    rpcsTime[opcode] += rdtsc() - start;
+    rpcsTime[opcode] += Cycles::rdtsc() - start;
 }
 
 /**

@@ -17,9 +17,9 @@
 
 #include "BackupService.h"
 #include "BackupStorage.h"
-#include "BenchUtil.h"
 #include "Buffer.h"
 #include "ClientException.h"
+#include "Cycles.h"
 #include "Log.h"
 #include "ShortMacros.h"
 #include "LogTypes.h"
@@ -284,7 +284,7 @@ BackupService::SegmentInfo::buildRecoverySegments(
 
     assert(inMemory());
 
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
 
     recoveryException.reset();
 
@@ -370,7 +370,7 @@ BackupService::SegmentInfo::buildRecoverySegments(
     LOG(DEBUG, "<%lu,%lu> recovery segments took %lu ms to construct, "
                "notifying other threads",
         masterId, segmentId,
-        cyclesToNanoseconds(rdtsc() - start) / 1000 / 1000);
+        Cycles::toNanoseconds(Cycles::rdtsc() - start) / 1000 / 1000);
     condition.notify_all();
 }
 
@@ -716,9 +716,10 @@ BackupService::IoScheduler::doLoad(SegmentInfo& info) const
         CycleCounter<Metric> _(&metrics->backup.storageReadTicks);
         ++metrics->backup.storageReadCount;
         metrics->backup.storageReadBytes += info.segmentSize;
-        uint64_t startTime = rdtsc();
+        uint64_t startTime = Cycles::rdtsc();
         info.storage.getSegment(info.storageHandle, segment);
-        uint64_t transferTime = cyclesToNanoseconds(rdtsc() - startTime);
+        uint64_t transferTime = Cycles::toNanoseconds(Cycles::rdtsc() -
+            startTime);
         LOG(DEBUG, "Load of <%lu,%lu> took %lu us (%f MB/s)",
             info.masterId, info.segmentId,
             transferTime / 1000,
@@ -732,7 +733,7 @@ BackupService::IoScheduler::doLoad(SegmentInfo& info) const
     }
     info.segment = segment;
     info.condition.notify_all();
-    metrics->backup.readingDataTicks = rdtsc() - recoveryStart;
+    metrics->backup.readingDataTicks = Cycles::rdtsc() - recoveryStart;
 }
 
 /**
@@ -756,9 +757,10 @@ BackupService::IoScheduler::doStore(SegmentInfo& info) const
         CycleCounter<Metric> _(&metrics->backup.storageWriteTicks);
         ++metrics->backup.storageWriteCount;
         metrics->backup.storageWriteBytes += info.segmentSize;
-        uint64_t startTime = rdtsc();
+        uint64_t startTime = Cycles::rdtsc();
         info.storage.putSegment(info.storageHandle, info.segment);
-        uint64_t transferTime = cyclesToNanoseconds(rdtsc() - startTime);
+        uint64_t transferTime = Cycles::toNanoseconds(Cycles::rdtsc() -
+            startTime);
         LOG(DEBUG, "Store of <%lu,%lu> took %lu us (%f MB/s)",
             info.masterId, info.segmentId,
             transferTime / 1000,
@@ -820,7 +822,7 @@ BackupService::RecoverySegmentBuilder::RecoverySegmentBuilder(
 void
 BackupService::RecoverySegmentBuilder::operator()()
 {
-    uint64_t startTime = rdtsc();
+    uint64_t startTime = Cycles::rdtsc();
     ReferenceDecrementer<AtomicInt> _(recoveryThreadCount);
     LOG(DEBUG, "Building recovery segments on new thread");
 
@@ -847,7 +849,7 @@ BackupService::RecoverySegmentBuilder::operator()()
             break;
     }
     LOG(DEBUG, "Done building recovery segments, thread exiting");
-    uint64_t totalTime = cyclesToNanoseconds(rdtsc() - startTime);
+    uint64_t totalTime = Cycles::toNanoseconds(Cycles::rdtsc() - startTime);
     LOG(DEBUG, "RecoverySegmentBuilder took %lu ms to filter %lu segments "
                "(%f MB/s)",
         totalTime / 1000 / 1000,
@@ -1175,7 +1177,7 @@ BackupService::startReadingData(
 {
     LOG(DEBUG, "Handling: %lu", reqHdr.masterId);
     recoveryTicks.construct(&metrics->recoveryTicks);
-    recoveryStart = rdtsc();
+    recoveryStart = Cycles::rdtsc();
     reset(metrics, serverId, 2);
     metrics->backup.storageType = static_cast<uint64_t>(storage.storageType);
     CycleCounter<Metric> srdTicks(&metrics->backup.startReadingDataTicks);

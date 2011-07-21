@@ -18,7 +18,7 @@
 #include "RamCloud.h"
 #include "OptionParser.h"
 #include "ClientException.h"
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "CycleCounter.h"
 #include "Metrics.h"
 
@@ -90,7 +90,7 @@ bench(RamCloud& client,
         client.remove(table, 0, &rr, &version);
     }
 
-    uint64_t ns = cyclesToNanoseconds(recoveryTicks);
+    uint64_t ns = Cycles::toNanoseconds(recoveryTicks);
     cerr << "Took " << (ns / 1000000) << " ms"  << endl;
     cerr << "Throughput: "
          << double(readCount * size * 1000000000l) / double(ns * (1 << 20))

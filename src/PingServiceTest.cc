@@ -15,7 +15,6 @@
 
 #include "TestUtil.h"
 #include "Common.h"
-#include "BenchUtil.h"
 #include "PingClient.h"
 #include "BindTransport.h"
 #include "PingService.h"
@@ -50,11 +49,11 @@ TEST_F(PingServiceTest, ping_basics) {
               TestLog::get());
 }
 TEST_F(PingServiceTest, ping_timeout) {
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     transport.abortCounter = 1;
     EXPECT_THROW(client.ping("mock:host=ping", 0x1234512345, 100000),
                  TimeoutException);
-    double elapsedMicros = 1e06* cyclesToSeconds(rdtsc() - start);
+    double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
     EXPECT_GE(elapsedMicros, 100.0);
 }
 
@@ -66,12 +65,12 @@ TEST_F(PingServiceTest, proxyPing_basics) {
 }
 TEST_F(PingServiceTest, proxyPing_timeout2) {
     // Test the situation where the target (serviceLocator2) times out.
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     transport.abortCounter = 2;
     EXPECT_EQ(0xffffffffffffffffU,
               client.proxyPing("mock:host=ping", "mock:host=ping",
                                2000000, 1000000));
-    double elapsedMicros = 1e06* cyclesToSeconds(rdtsc() - start);
+    double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
     EXPECT_GE(elapsedMicros, 1000.0);
     EXPECT_LE(elapsedMicros, 2000.0);
 }
@@ -87,12 +86,12 @@ TEST_F(PingServiceTest, proxyPing_pingReturnsBadValue) {
 }
 TEST_F(PingServiceTest, proxyPing_timeout1) {
     // Test the situation where the proxy (serviceLocator1) times out.
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     transport.abortCounter = 1;
     EXPECT_THROW(client.proxyPing("mock:host=ping", "mock:host=ping",
                                   2000000, 1000000),
                  TimeoutException);
-    double elapsedMicros = 1e06* cyclesToSeconds(rdtsc() - start);
+    double elapsedMicros = 1e06* Cycles::toSeconds(Cycles::rdtsc() - start);
     EXPECT_GE(elapsedMicros, 2000.0);
 }
 

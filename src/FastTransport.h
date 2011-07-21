@@ -22,9 +22,9 @@
 
 #include <vector>
 
-#include "BenchUtil.h"
 #include "BoostIntrusive.h"
 #include "Common.h"
+#include "Cycles.h"
 #include "Dispatch.h"
 #include "Driver.h"
 #include "Transport.h"
@@ -219,7 +219,7 @@ class FastTransport : public Transport {
 #endif
         static uint64_t value = 0;
         if (value == 0)
-            value = nanosecondsToCycles(TIMEOUT_NS);
+            value = Cycles::fromNanoseconds(TIMEOUT_NS);
         return value;
     }
 
@@ -236,7 +236,7 @@ class FastTransport : public Transport {
 #endif
         static uint64_t value = 0;
         if (value == 0)
-            value = nanosecondsToCycles(SESSION_TIMEOUT_NS);
+            value = Cycles::fromNanoseconds(SESSION_TIMEOUT_NS);
         return value;
     }
 

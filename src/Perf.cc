@@ -34,7 +34,7 @@
 
 #include "Common.h"
 #include "AtomicInt.h"
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "Dispatch.h"
 #include "Fence.h"
 #include "SpinLock.h"
@@ -67,27 +67,27 @@ double atomicIntCmpX()
     int count = 1000000;
     AtomicInt value(11);
     int test = 11;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
          value.compareExchange(test, test+2);
          test += 2;
     }
-    uint64_t stop = rdtsc();
+    uint64_t stop = Cycles::rdtsc();
     // printf("Final value: %d\n", value.load());
-    return cyclesToSeconds(stop - start)/count;
+    return Cycles::toSeconds(stop - start)/count;
 }
 // Measure the cost of AtomicInt::inc.
 double atomicIntInc()
 {
     int count = 1000000;
     AtomicInt value(11);
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
          value.inc();
     }
-    uint64_t stop = rdtsc();
+    uint64_t stop = Cycles::rdtsc();
     // printf("Final value: %d\n", value.load());
-    return cyclesToSeconds(stop - start)/count;
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of reading an AtomicInt.
@@ -96,13 +96,13 @@ double atomicIntLoad()
     int count = 1000000;
     AtomicInt value(11);
     int total = 0;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
          total += value.load();
     }
-    uint64_t stop = rdtsc();
+    uint64_t stop = Cycles::rdtsc();
     // printf("Total: %d\n", total);
-    return cyclesToSeconds(stop - start)/count;
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of AtomicInt::exchange.
@@ -111,13 +111,13 @@ double atomicIntXchg()
     int count = 1000000;
     AtomicInt value(11);
     int total = 0;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
          total += value.exchange(i);
     }
-    uint64_t stop = rdtsc();
+    uint64_t stop = Cycles::rdtsc();
     // printf("Total: %d\n", total);
-    return cyclesToSeconds(stop - start)/count;
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of storing a new value in a AtomicInt.
@@ -125,12 +125,12 @@ double atomicIntStore()
 {
     int count = 1000000;
     AtomicInt value(11);
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         value.store(88);
     }
-    uint64_t stop = rdtsc();
-    return cyclesToSeconds(stop - start)/count;
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of acquiring and releasing a boost mutex in the
@@ -139,13 +139,13 @@ double bMutexNoBlock()
 {
     int count = 1000000;
     boost::mutex m;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         m.lock();
         m.unlock();
     }
-    uint64_t stop = rdtsc();
-    return cyclesToSeconds(stop - start)/count;
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of the exchange method on a C++ atomic_int.
@@ -154,12 +154,12 @@ double cppAtomicExchange()
     int count = 100000;
     std::atomic_int value(11);
     int other = 22;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
          other = value.exchange(other);
     }
-    uint64_t stop = rdtsc();
-    return cyclesToSeconds(stop - start)/count;
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of the load method on a C++ atomic_int (seems to have
@@ -169,13 +169,13 @@ double cppAtomicLoad()
     int count = 100000;
     std::atomic_int value(11);
     int total = 0;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         total += value.load();
     }
-    uint64_t stop = rdtsc();
+    uint64_t stop = Cycles::rdtsc();
     // printf("Total: %d\n", total);
-    return cyclesToSeconds(stop - start)/count;
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the minimum cost of Dispatch::poll, when there are no
@@ -184,12 +184,12 @@ double dispatchPoll()
 {
     int count = 1000000;
     Dispatch dispatch;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         dispatch.poll();
     }
-    uint64_t stop = rdtsc();
-    return cyclesToSeconds(stop - start)/count;
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of calling ThreadId::get.
@@ -197,13 +197,13 @@ double getThreadId()
 {
     int count = 1000000;
     int64_t result = 0;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         result += ThreadId::get();
     }
-    uint64_t stop = rdtsc();
+    uint64_t stop = Cycles::rdtsc();
     // printf("Result: %d\n", downCast<int>(result));
-    return cyclesToSeconds(stop - start)/count;
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of an lfence instruction.
@@ -211,12 +211,12 @@ double lfence()
 {
     int count = 1000000;
     Dispatch dispatch;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         Fence::lfence();
     }
-    uint64_t stop = rdtsc();
-    return cyclesToSeconds(stop - start)/count;
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of creating and deleting a Dispatch::Lock from within
@@ -225,12 +225,12 @@ double lockInDispThrd()
 {
     int count = 1000000;
     Dispatch dispatch;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         Dispatch::Lock lock(&dispatch);
     }
-    uint64_t stop = rdtsc();
-    return cyclesToSeconds(stop - start)/count;
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of creating and deleting a Dispatch::Lock from a thread
@@ -259,14 +259,46 @@ double lockNonDispThrd()
         usleep(100);
     }
 
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         Dispatch::Lock lock(dispatch);
     }
-    uint64_t stop = rdtsc();
+    uint64_t stop = Cycles::rdtsc();
     flag = 0;
     thread.join();
-    return cyclesToSeconds(stop - start)/count;
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of the Cylcles::toNanoseconds method.
+double perfCyclesToNanoseconds()
+{
+    int count = 1000000;
+    std::atomic_int value(11);
+    uint64_t total = 0;
+    uint64_t cycles = 994261;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        total += Cycles::toNanoseconds(cycles);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    // printf("Result: %lu\n", total/count);
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of the Cycles::toSeconds method.
+double perfCyclesToSeconds()
+{
+    int count = 1000000;
+    std::atomic_int value(11);
+    double total = 0;
+    uint64_t cycles = 994261;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        total += Cycles::toSeconds(cycles);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    // printf("Result: %.4f\n", total/count);
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of an sfence instruction.
@@ -274,12 +306,12 @@ double sfence()
 {
     int count = 1000000;
     Dispatch dispatch;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         Fence::sfence();
     }
-    uint64_t stop = rdtsc();
-    return cyclesToSeconds(stop - start)/count;
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of acquiring and releasing a SpinLock (assuming the
@@ -288,13 +320,13 @@ double spinLock()
 {
     int count = 1000000;
     SpinLock lock;
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         lock.lock();
         lock.unlock();
     }
-    uint64_t stop = rdtsc();
-    return cyclesToSeconds(stop - start)/count;
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // The following struct and table define each performance test in terms of
@@ -327,6 +359,10 @@ TestInfo tests[] = {
      "Exchange method on a C++ atomic_int"},
     {"cppAtomicLoad", cppAtomicLoad,
      "Read a C++ atomic_int"},
+    {"cyclesToSeconds", perfCyclesToSeconds,
+     "Convert a rdtsc result to (double) seconds"},
+    {"cyclesToNanos", perfCyclesToNanoseconds,
+     "Convert a rdtsc result to (uint64_t) nanoseconds"},
     {"dispatchPoll", dispatchPoll,
      "Dispatch::poll (no timers or pollers)"},
     {"getThreadId", getThreadId,

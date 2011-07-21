@@ -165,7 +165,7 @@ class FastTransportTest : public ::testing::Test {
 
         // The following is necessary in case some other tests messed up
         // currentTime (e.g. by resetting it to 0).
-        dispatch->currentTime = rdtsc();
+        dispatch->currentTime = Cycles::rdtsc();
     }
 
     ~FastTransportTest()
@@ -861,7 +861,7 @@ class OutboundMessageTest: public ::testing::Test {
         msg->sendBuffer = buffer;
         msg->totalFrags = transport->numFrags(buffer);
 
-        mockTSCValue = tsc;
+        Cycles::mockTscValue = tsc;
         dispatch->currentTime = tsc;
     }
 
@@ -873,7 +873,7 @@ class OutboundMessageTest: public ::testing::Test {
             delete buffer;
         if (transport)
             delete transport;
-        mockTSCValue = 0;
+        Cycles::mockTscValue = 0;
     }
 
     static void sentTimesWindowToString(
@@ -1569,8 +1569,7 @@ TEST_F(ClientSessionTest, connect) {
 }
 
 TEST_F(ClientSessionTest, connect_sessionOpenRequestRetransmit) {
-    Tub<MockTSC> tsc;
-    tsc.construct(91291);
+    Cycles::mockTscValue = 91291;
 
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
     session->init(serviceLocator);
@@ -1579,8 +1578,8 @@ TEST_F(ClientSessionTest, connect_sessionOpenRequestRetransmit) {
     EXPECT_TRUE(session->sessionOpenRequestInFlight);
 
 
-    tsc.construct(dispatch->currentTime + FastTransport::timeoutCycles()
-        + 1);
+    Cycles::mockTscValue = dispatch->currentTime +
+            FastTransport::timeoutCycles() + 1;
     dispatch->poll();
 
     EXPECT_EQ(
@@ -1591,12 +1590,12 @@ TEST_F(ClientSessionTest, connect_sessionOpenRequestRetransmit) {
         "clientSessionHint:98765432 serverSessionHint:cccccccc "
         "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
         driver->outputLog);
+    Cycles::mockTscValue = 0;
 }
 
 TEST_F(ClientSessionTest, connect_sessionOpenRequestTimeout) {
     dispatch->currentTime = 91291;
-    Tub<MockTSC> tsc;
-    tsc.construct(dispatch->currentTime);
+    Cycles::mockTscValue = 91291;
 
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
     session->init(serviceLocator);
@@ -1607,13 +1606,14 @@ TEST_F(ClientSessionTest, connect_sessionOpenRequestTimeout) {
     FastTransport::ClientRpc rpc(session, request, response);
     session->channelQueue.push_back(rpc);
 
-    tsc.construct(dispatch->currentTime +
-            2*FastTransport::sessionTimeoutCycles());
+    Cycles::mockTscValue = dispatch->currentTime +
+            2*FastTransport::sessionTimeoutCycles();
     dispatch->poll();
     EXPECT_FALSE(session->sessionOpenRequestInFlight);
 
     EXPECT_EQ("RPC aborted (session closed)", *rpc.errorMessage);
     EXPECT_FALSE(rpc.channelQueueEntries.is_linked());
+    Cycles::mockTscValue = 0;
 }
 
 TEST_F(ClientSessionTest, expire_activeRef) {

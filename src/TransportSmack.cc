@@ -67,7 +67,7 @@
 #include <boost/iterator/transform_iterator.hpp>
 #include <boost/shared_ptr.hpp>
 
-#include "BenchUtil.h"
+#include "TestUtil.h"
 #include "Client.h"
 #include "Common.h"
 #include "OptionParser.h"
@@ -170,7 +170,7 @@ struct Echo : public CTest {
     void init() {
         EchoRpc::Request& reqHdr(allocHeader<EchoRpc>(req));
         reqHdr.spinNs = spinNs;
-        fillRandom(new(&req, APPEND) char[size], size);
+        TestUtil::fillRandom(new(&req, APPEND) char[size], size);
     }
   public:
     Echo(const TestDescription& desc, Transport::SessionRef server)
@@ -359,7 +359,10 @@ class TSService : public Service {
     void echo(const EchoRpc::Request& reqHdr,
               EchoRpc::Response& respHdr,
               Rpc& rpc) {
-        spin(reqHdr.spinNs);
+        uint64_t stop = Cycles::rdtsc() + reqHdr.spinNs;
+        while (Cycles::rdtsc() < stop) {
+            // Empty loop body.
+        }
         Buffer::Iterator iter(rpc.requestPayload, sizeof(reqHdr), ~0U);
         while (!iter.isDone()) {
             Buffer::Chunk::appendToBuffer(&rpc.replyPayload,

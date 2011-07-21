@@ -58,7 +58,7 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
         for (uint32_t i = 0; i < count; ++i) {
             CycleCounter<> counter;
             getSegment(handles[i], segment);
-            uint64_t ns = cyclesToNanoseconds(counter.stop());
+            uint64_t ns = Cycles::toNanoseconds(counter.stop());
             readSpeeds[i] = downCast<uint32_t>(
                                 Segment::SEGMENT_SIZE * 1000UL * 1000 * 1000 /
                                 (1 << 20) / ns);

@@ -316,7 +316,7 @@ TEST_F(ServiceManagerTest, workerMain_goToSleep) {
 
     // Update dispatch->currentTime. When the worker sees this it should
     // go to sleep.
-    dispatch->currentTime = rdtsc();
+    dispatch->currentTime = Cycles::rdtsc();
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (worker->state.load() == Worker::SLEEPING) {
@@ -345,7 +345,7 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
     // Wait for the worker to go to sleep, then make sure it logged
     // an error message.
     usleep(1000);
-    dispatch->currentTime = rdtsc();
+    dispatch->currentTime = Cycles::rdtsc();
     for (int i = 0; i < 1000; i++) {
         usleep(100);
         if (worker->state.load() == Worker::SLEEPING) {

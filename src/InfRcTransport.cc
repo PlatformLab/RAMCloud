@@ -85,7 +85,6 @@
 #include "Common.h"
 #include "CycleCounter.h"
 #include "Metrics.h"
-#include "BenchUtil.h"
 #include "TimeCounter.h"
 #include "Transport.h"
 #include "InfRcTransport.h"
@@ -636,7 +635,7 @@ InfRcTransport<Infiniband>::getTransmitBuffer()
         int n = infiniband->pollCompletionQueue(commonTxCq,
                                                 MAX_TX_QUEUE_DEPTH,
                                                 retArray);
-        uint64_t gtbPollNanos = cyclesToNanoseconds(timeThis.stop());
+        uint64_t gtbPollNanos = Cycles::toNanoseconds(timeThis.stop());
         serverStats.gtbPollNanos += gtbPollNanos;
         serverStats.gtbPollCount++;
 
@@ -753,7 +752,7 @@ InfRcTransport<Infiniband>::ServerRpc::sendReply()
     metrics->transport.transmit.byteCount += replyPayload.getTotalLength();
     t->infiniband->postSend(qp, bd, replyPayload.getTotalLength());
     replyPayload.truncateFront(sizeof(Header)); // for politeness
-    serverStats.infrcSendReplyNanos += cyclesToNanoseconds(timeThis1.stop());
+    serverStats.infrcSendReplyNanos += Cycles::toNanoseconds(timeThis1.stop());
 }
 
 //-------------------------------------

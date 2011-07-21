@@ -16,7 +16,7 @@
 #include <boost/thread/thread.hpp>
 
 #include "BackupStorage.h"
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "Logging.h"
 #include "Segment.h"
 
@@ -35,10 +35,10 @@ struct Store {
     void
     operator()()
     {
-        uint64_t startTime = rdtsc();
+        uint64_t startTime = Cycles::rdtsc();
         storage.putSegment(handle, segment);
         LOG(DEBUG, "StoreOp took %lu us",
-            cyclesToNanoseconds(rdtsc() - startTime) / 1000);
+            Cycles::toNanoseconds(Cycles::rdtsc() - startTime) / 1000);
     }
 
     SingleFileStorage& storage;
@@ -72,12 +72,10 @@ struct Bench {
         for (uint32_t i = 0; i < count; i++) {
             auto* handle = storage.allocate(0, i);
             allocated.push_back(handle);
-            uint64_t start = rdtsc();
+            uint64_t start = Cycles::rdtsc();
             storage.putSegment(handle, scratch);
-            uint64_t putTime = rdtsc() - start;
-            double mbSec = mb /
-                           (static_cast<double>(cyclesToNanoseconds(putTime)) /
-                            1000000000);
+            uint64_t putTime = Cycles::rdtsc() - start;
+            double mbSec = mb / Cycles::toSeconds(putTime);
             LOG(NOTICE, "Stored segment at %.1f MB/s", mbSec);
             sum += mbSec;
             max = std::max(max, mbSec);
@@ -97,12 +95,10 @@ struct Bench {
 
         double sum = 0., min = 100000.0, max = 0.;
         foreach (auto* handle, allocated) {
-            uint64_t start = rdtsc();
+            uint64_t start = Cycles::rdtsc();
             storage.getSegment(handle, scratch);
-            uint64_t getTime = rdtsc() - start;
-            double mbSec = mb /
-                           (static_cast<double>(cyclesToNanoseconds(getTime)) /
-                           1000000000);
+            uint64_t getTime = Cycles::rdtsc() - start;
+            double mbSec = mb / Cycles::toSeconds(getTime);
             LOG(NOTICE, "Fetched segment at %.1f MB/s", mbSec);
             sum += mbSec;
             max = std::max(max, mbSec);
@@ -130,12 +126,10 @@ struct Bench {
         foreach (auto* handle, allocated) {
             if (!(i++ % 3))
                 boost::thread(Store(storage, scratch, *(writeHandle++)));
-            uint64_t start = rdtsc();
+            uint64_t start = Cycles::rdtsc();
             storage.getSegment(handle, scratch);
-            uint64_t getTime = rdtsc() - start;
-            double mbSec = mb /
-                           (static_cast<double>(cyclesToNanoseconds(getTime)) /
-                           1000000000);
+            uint64_t getTime = Cycles::rdtsc() - start;
+            double mbSec = mb / Cycles::toSeconds(getTime);
             LOG(NOTICE, "Fetched segment at %.1f MB/s", mbSec);
             sum += mbSec;
             max = std::max(max, mbSec);

@@ -18,7 +18,6 @@
 #include "CycleCounter.h"
 #include "ShortMacros.h"
 #include "Metrics.h"
-#include "BenchUtil.h"
 #include "Segment.h"
 
 namespace RAMCloud {
@@ -278,7 +277,7 @@ BackupManager::sync()
             proceedNoMetrics();
         }
     } // block ensures that _ is destroyed and counter stops
-    serverStats.totalBackupSyncNanos += cyclesToNanoseconds(
+    serverStats.totalBackupSyncNanos += Cycles::toNanoseconds(
             metrics->master.backupManagerTicks - initTicks);
     serverStats.totalBackupSyncs++;
 }

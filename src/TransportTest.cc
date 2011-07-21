@@ -14,7 +14,6 @@
  */
 
 #include "TestUtil.h"
-#include "BenchUtil.h"
 #include "Transport.h"
 
 namespace RAMCloud {

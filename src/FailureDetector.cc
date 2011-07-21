@@ -21,7 +21,7 @@
 #include <arpa/inet.h>
 
 #include "Common.h"
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "FailureDetector.h"
 #include "IpAddress.h"
 #include "ShortMacros.h"
@@ -233,8 +233,8 @@ FailureDetector::handleIncomingResponse(char* buf, ssize_t bytes,
             inet_ntoa(sourceAddress->sin_addr), NTOHS(sourceAddress->sin_port));
 
         if (resp->nonce & COORD_PROBE_FLAG) {
-            uint64_t replyUsecs = (cyclesToNanoseconds(rdtsc()) / 1000) -
-                tubTimeoutEntry->startUsec;
+            uint64_t replyUsecs = (Cycles::toNanoseconds(Cycles::rdtsc()) /
+                1000) - tubTimeoutEntry->startUsec;
 
             ProxyPingRpc::Response resp;
             resp.common.status = STATUS_OK;
@@ -437,7 +437,7 @@ FailureDetector::mainLoop()
 
     while (!terminate) {
         // check if time to ping again
-        uint64_t nowUsec = cyclesToNanoseconds(rdtsc()) / 1000;
+        uint64_t nowUsec = Cycles::toNanoseconds(Cycles::rdtsc()) / 1000;
         if (nowUsec >= (lastPingUsec + PROBE_INTERVAL_USECS)) {
             pingRandomServer();
             lastPingUsec = nowUsec;
@@ -514,7 +514,7 @@ FailureDetector::TimeoutQueue::TimeoutQueue(uint64_t timeoutUsecs)
 void
 FailureDetector::TimeoutQueue::enqueue(string locator, uint64_t nonce)
 {
-    uint64_t now = cyclesToNanoseconds(rdtsc()) / 1000;
+    uint64_t now = Cycles::toNanoseconds(Cycles::rdtsc()) / 1000;
     entries.push_back(TimeoutEntry(now, locator, nonce));
 }
 
@@ -526,7 +526,7 @@ FailureDetector::TimeoutQueue::enqueue(string locator, uint64_t nonce)
 Tub<FailureDetector::TimeoutQueue::TimeoutEntry>
 FailureDetector::TimeoutQueue::dequeue()
 {
-    uint64_t now = cyclesToNanoseconds(rdtsc()) / 1000;
+    uint64_t now = Cycles::toNanoseconds(Cycles::rdtsc()) / 1000;
     auto it = entries.begin();
     while (it != entries.end()) {
         if (now >= (it->startUsec + timeoutUsecs)) {
@@ -579,7 +579,7 @@ FailureDetector::TimeoutQueue::dequeue(uint64_t nonce)
 uint64_t
 FailureDetector::TimeoutQueue::microsUntilNextTimeout()
 {
-    uint64_t now = cyclesToNanoseconds(rdtsc()) / 1000;
+    uint64_t now = Cycles::toNanoseconds(Cycles::rdtsc()) / 1000;
     auto it = entries.begin();
     if (it == entries.end())
         return ~(uint64_t)0;

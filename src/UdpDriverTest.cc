@@ -92,13 +92,13 @@ class UdpDriverTest : public ::testing::Test {
     // no data.
     const char *receivePacket(MockFastTransport *transport) {
         transport->packetData.clear();
-        uint64_t start = rdtsc();
+        uint64_t start = Cycles::rdtsc();
         while (true) {
             dispatch->poll();
             if (transport->packetData.size() != 0) {
                 return transport->packetData.c_str();
             }
-            if (cyclesToSeconds(rdtsc() - start) > .1) {
+            if (Cycles::toSeconds(Cycles::rdtsc() - start) > .1) {
                 return "no packet arrived";
             }
         }

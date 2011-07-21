@@ -14,7 +14,7 @@
  */
 
 #include "Common.h"
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "ShortMacros.h"
 #include "PingClient.h"
 #include "PingService.h"
@@ -49,14 +49,15 @@ PingService::proxyPing(const ProxyPingRpc::Request& reqHdr,
     const char* serviceLocator = getString(rpc.requestPayload,
                                            sizeof(ProxyPingRpc::Request),
                                            reqHdr.serviceLocatorLength);
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     try {
         uint64_t result = client.ping(serviceLocator, 99999,
                                       reqHdr.timeoutNanoseconds);
         if (result == 99999U) {
             // We got an incorrect response; treat this as if there were
             // no response.
-            respHdr.replyNanoseconds = cyclesToNanoseconds(rdtsc() - start);
+            respHdr.replyNanoseconds = Cycles::toNanoseconds(Cycles::rdtsc() -
+                    start);
         } else {
             respHdr.replyNanoseconds = -1;
         }

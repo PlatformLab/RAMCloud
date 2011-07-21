@@ -14,7 +14,7 @@
  */
 
 #include "Common.h"
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "Dispatch.h"
 #include "PingClient.h"
 #include "TransportManager.h"
@@ -51,13 +51,14 @@ PingClient::ping(const char* serviceLocator, uint64_t nonce,
     Transport::SessionRef session =
             transportManager.getSession(serviceLocator);
     AsyncState state = send<PingRpc>(session, req, resp);
-    uint64_t abortTime = rdtsc() + nanosecondsToCycles(timeoutNanoseconds);
+    uint64_t abortTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
+            timeoutNanoseconds);
     while (true) {
         if (dispatch->isDispatchThread())
             dispatch->poll();
         if (state.isReady())
             break;
-        if (rdtsc() >= abortTime) {
+        if (Cycles::rdtsc() >= abortTime) {
             state.cancel();
             throw TimeoutException(HERE);
         }
@@ -112,13 +113,14 @@ PingClient::proxyPing(const char* serviceLocator1,
     Transport::SessionRef session =
             transportManager.getSession(serviceLocator1);
     AsyncState state = send<ProxyPingRpc>(session, req, resp);
-    uint64_t abortTime = rdtsc() + nanosecondsToCycles(timeoutNanoseconds1);
+    uint64_t abortTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
+            timeoutNanoseconds1);
     while (true) {
         if (dispatch->isDispatchThread())
             dispatch->poll();
         if (state.isReady())
             break;
-        if (rdtsc() >= abortTime) {
+        if (Cycles::rdtsc() >= abortTime) {
             state.cancel();
             throw TimeoutException(HERE);
         }

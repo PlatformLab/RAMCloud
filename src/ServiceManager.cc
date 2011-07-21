@@ -13,7 +13,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "Fence.h"
 #include "Initialize.h"
 #include "ShortMacros.h"
@@ -255,14 +255,14 @@ ServiceManager::poll()
  */
 Transport::ServerRpc*
 ServiceManager::waitForRpc(double timeoutSeconds) {
-    uint64_t start = rdtsc();
+    uint64_t start = Cycles::rdtsc();
     while (true) {
         if (!extraRpcs.empty()) {
             Transport::ServerRpc* result = extraRpcs.front();
             extraRpcs.pop();
             return result;
         }
-        if (cyclesToSeconds(rdtsc() - start) > timeoutSeconds) {
+        if (Cycles::toSeconds(Cycles::rdtsc() - start) > timeoutSeconds) {
             return NULL;
         }
         dispatch->poll();
@@ -281,7 +281,7 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
 void
 ServiceManager::workerMain(Worker* worker)
 try {
-    uint64_t pollCycles = nanosecondsToCycles(1000*pollMicros);
+    uint64_t pollCycles = Cycles::fromNanoseconds(1000*pollMicros);
     while (true) {
         uint64_t stopPollingTime = dispatch->currentTime + pollCycles;
 

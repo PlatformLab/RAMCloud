@@ -11,7 +11,6 @@ INFINIBAND_SRCFILES :=
 endif
 
 CLIENT_SRCFILES := \
-		   src/BenchUtil.cc \
 		   src/Buffer.cc \
 		   src/CRamCloud.cc \
 		   src/Client.cc \
@@ -19,6 +18,7 @@ CLIENT_SRCFILES := \
 		   src/CoordinatorClient.cc \
 		   src/Crc32C.cc \
 		   src/Common.cc \
+		   src/Cycles.cc \
 		   src/Dispatch.cc \
 		   src/Driver.cc \
 		   src/FastTransport.cc \

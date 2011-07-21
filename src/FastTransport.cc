@@ -16,6 +16,7 @@
 #include "FastTransport.h"
 
 #include "ShortMacros.h"
+#include "Cycles.h"
 #include "ServiceManager.h"
 
 namespace RAMCloud {
@@ -750,7 +751,7 @@ FastTransport::OutboundMessage::send()
                     oldest = sentTime;
         }
         if (oldest != ~(0lu))
-            timer.start(rdtsc() + timeoutCycles() - (now - oldest));
+            timer.start(Cycles::rdtsc() + timeoutCycles() - (now - oldest));
     }
 }
 
@@ -1391,7 +1392,7 @@ FastTransport::ClientSession::sendSessionOpenRequest()
     sessionOpenRequestInFlight = true;
 
     // Schedule the timer to resend if no response.
-    timer.start(rdtsc() + timeoutCycles());
+    timer.start(Cycles::rdtsc() + timeoutCycles());
 }
 
 /**

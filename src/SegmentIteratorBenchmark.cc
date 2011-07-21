@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "BenchUtil.h"
 #include "ClientException.h"
+#include "Cycles.h"
 #include "Logging.h"
 #include "MasterService.h"
 
@@ -59,7 +59,7 @@ class SegmentIteratorBenchmark {
         // scan through the segments
         uint64_t totalBytes = 0;
         uint64_t totalObjects = 0;
-        uint64_t b = rdtsc();
+        uint64_t b = Cycles::rdtsc();
         for (int i = 0; i < numSegments; i++) {
             Segment *s = segments[i];
             SegmentIterator si(s);
@@ -69,14 +69,14 @@ class SegmentIteratorBenchmark {
                 si.next();
             }
         }
-        uint64_t total = rdtsc() - b;
+        uint64_t total = Cycles::rdtsc() - b;
 
         printf("Minimum Object %d bytes, Maximum Object %d bytes, "
             "Total Objects %lu bytes\n", minObjectBytes, maxObjectBytes,
             totalBytes);
-        printf("Scanned %lu objects in %lu usec (%lu usec/Segment)\n",
-            totalObjects, cyclesToNanoseconds(total) / 1000,
-            cyclesToNanoseconds(total) / 1000 / numSegments);
+        printf("Scanned %lu objects in %.1f usec (%.1f usec/Segment)\n",
+            totalObjects, Cycles::toSeconds(total) * 1e06,
+            Cycles::toSeconds(total) * 1d06 / numSegments);
 
         // clean up
         for (int i = 0; i < numSegments; i++) {

@@ -14,7 +14,7 @@
  */
 
 #include "TestUtil.h"
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "Dispatch.h"
 #include "MockSyscall.h"
 
@@ -212,7 +212,7 @@ class DispatchTest : public ::testing::Test {
         Dispatch::sys = savedSyscall;
         delete sys;
         sys = NULL;
-        mockTSCValue = 0;
+        Cycles::mockTscValue = 0;
 
         // Restart the main dispatcher.
         RAMCloud::dispatch = new Dispatch;
@@ -221,11 +221,11 @@ class DispatchTest : public ::testing::Test {
     // Calls td->poll repeatedly until either a log entry is
     // generated or a given amount of time has elapsed.
     void waitForPollSuccess(double timeoutSeconds) {
-        uint64_t start = rdtsc();
+        uint64_t start = Cycles::rdtsc();
         while (localLog->size() == 0) {
             usleep(100);
             td->poll();
-            if (cyclesToSeconds(rdtsc() - start) > timeoutSeconds)
+            if (Cycles::toSeconds(Cycles::rdtsc() - start) > timeoutSeconds)
                 return;
         }
     }
@@ -233,10 +233,10 @@ class DispatchTest : public ::testing::Test {
     // Waits for a file to become ready, but gives up after a given
     // elapsed time.
     void waitForReadyFd(double timeoutSeconds) {
-        uint64_t start = rdtsc();
+        uint64_t start = Cycles::rdtsc();
         while (td->readyFd < 0) {
             usleep(1000);
-            if (cyclesToSeconds(rdtsc() - start) > timeoutSeconds)
+            if (Cycles::toSeconds(Cycles::rdtsc() - start) > timeoutSeconds)
                 return;
         }
     }
@@ -394,7 +394,7 @@ TEST_F(DispatchTest, poll_fileDeletedDuringInvocation) {
 TEST_F(DispatchTest, poll_dontEvenCheckTimers) {
     DummyTimer t1("t1", td);
     t1.start(150);
-    mockTSCValue = 200;
+    Cycles::mockTscValue = 200;
     td->earliestTriggerTime = 201;
     td->poll();
     EXPECT_EQ("", *localLog);
@@ -409,7 +409,7 @@ TEST_F(DispatchTest, poll_triggerTimers) {
     t2.start(160);
     t3.start(180);
     t4.start(170);
-    mockTSCValue = 175;
+    Cycles::mockTscValue = 175;
     td->poll();
     EXPECT_EQ("timer t1 invoked; timer t4 invoked; "
                 "timer t2 invoked", *localLog);
@@ -696,7 +696,7 @@ TEST_F(DispatchTest, Timer_reentrant) {
     t2->deleteWhenInvoked(t2);
     t2->deleteWhenInvoked(new DummyTimer("t3", td));
     t2->deleteWhenInvoked(new DummyTimer("t4", td));
-    mockTSCValue = 300;
+    Cycles::mockTscValue = 300;
     td->poll();
     CPPUNIT_ASSERT_EQUAL("timer t2 invoked", *localLog);
     CPPUNIT_ASSERT_EQUAL(1U, td->timers.size());

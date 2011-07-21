@@ -16,8 +16,8 @@
 #include <sys/epoll.h>
 
 #include "ShortMacros.h"
-#include "BenchUtil.h"
 #include "Common.h"
+#include "Cycles.h"
 #include "Dispatch.h"
 #include "Fence.h"
 #include "Initialize.h"
@@ -65,7 +65,7 @@ Dispatch::init() {
  * Constructor for Dispatch objects.
  */
 Dispatch::Dispatch()
-    : currentTime(rdtsc())
+    : currentTime(Cycles::rdtsc())
     , pollers()
     , files()
     , epollFd(-1)
@@ -135,7 +135,7 @@ void
 Dispatch::poll()
 {
     assert(isDispatchThread());
-    currentTime = rdtsc();
+    currentTime = Cycles::rdtsc();
     if (lockNeeded.load() != 0) {
         // Someone wants us locked. Indicate that we are locked,
         // then wait for the lock to be released.
@@ -462,7 +462,7 @@ Dispatch::Timer::Timer(Dispatch* dispatch)
  *      global #RAMCloud::dispatch object).
  * \param cycles
  *      Time at which the timer should trigger, measured in cycles (the units
- *      returned by #rdtsc).
+ *      returned by #Cycles::rdtsc).
  */
 Dispatch::Timer::Timer(uint64_t cycles, Dispatch* dispatch)
         : owner(dispatch), triggerTime(0), slot(-1)
@@ -490,7 +490,7 @@ bool Dispatch::Timer::isRunning()
  * Start this timer running.
  *
  * \param rdtscTime
- *      The timer will trigger when #rdtsc() returns a value at least this
+ *      The timer will trigger when #Cycles::rdtsc() returns a value at least this
  *      large.  If the timer was already running, the old trigger time is
  *      forgotten.
  */

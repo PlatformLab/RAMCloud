@@ -18,7 +18,7 @@
  * Makes sure a given number of hosts have registered with the coordinator.
  */
 
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "ShortMacros.h"
 #include "OptionParser.h"
 #include "RamCloud.h"
@@ -46,7 +46,8 @@ try
         optionParser.options.getCoordinatorLocator().c_str());
 
 
-    uint64_t quitTime = rdtsc() + nanosecondsToCycles(1000000000UL * timeout);
+    uint64_t quitTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
+        1000000000UL * timeout);
     int actual = -1;
     do {
         ProtoBuf::ServerList serverList;
@@ -61,7 +62,7 @@ try
         if (number == actual)
             return 0;
         usleep(10000);
-    } while (rdtsc() < quitTime);
+    } while (Cycles::rdtsc() < quitTime);
     return (actual - number);
 } catch (const ClientException& e) {
     fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());

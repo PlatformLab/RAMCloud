@@ -18,7 +18,7 @@
 #include <getopt.h>
 #include <assert.h>
 
-#include "BenchUtil.h"
+#include "Cycles.h"
 #include "ShortMacros.h"
 #include "Crc32C.h"
 #include "RamCloud.h"
@@ -74,20 +74,20 @@ runRecovery(RamCloud& client,
 
     if (fillWithTestData) {
         LOG(NOTICE, "Using the fillWithTestData rpc on a single master");
-        uint64_t b = rdtsc();
+        uint64_t b = Cycles::rdtsc();
         MasterClient master(client.objectFinder.lookup(0, 0));
         master.fillWithTestData(count * tableCount, objectDataSize);
         LOG(NOTICE, "%d inserts took %lu ticks",
-            count * tableCount, rdtsc() - b);
+            count * tableCount, Cycles::rdtsc() - b);
         LOG(NOTICE, "avg insert took %lu ticks",
-                    (rdtsc() - b) / count / tableCount);
+                    (Cycles::rdtsc() - b) / count / tableCount);
     } else {
         char val[objectDataSize];
         memset(val, 0xcc, objectDataSize);
         Crc32C checksumBasis;
         checksumBasis.update(&val[4], objectDataSize - 20);
         Tub<RamCloud::Create> createRpcs[8];
-        uint64_t b = rdtsc();
+        uint64_t b = Cycles::rdtsc();
         for (int j = 0; j < count - 1; j++) {
             for (int t = 0; t < tableCount; t++) {
                 auto& createRpc = createRpcs[(j * tableCount + t) %
@@ -123,9 +123,9 @@ runRecovery(RamCloud& client,
                       /* version = */ NULL,
                       /* async = */ false);
         LOG(NOTICE, "%d inserts took %lu ticks",
-            count * tableCount, rdtsc() - b);
+            count * tableCount, Cycles::rdtsc() - b);
         LOG(NOTICE, "avg insert took %lu ticks",
-            (rdtsc() - b) / count / tableCount);
+            (Cycles::rdtsc() - b) / count / tableCount);
     }
 
     // dump the tablet map
@@ -148,7 +148,7 @@ runRecovery(RamCloud& client,
     LOG(NOTICE, "--- hinting that the server is down: %s ---",
         session->getServiceLocator().c_str());
 
-    uint64_t b = rdtsc();
+    uint64_t b = Cycles::rdtsc();
     client.coordinator.hintServerDown(
         session->getServiceLocator().c_str());
 
@@ -156,14 +156,14 @@ runRecovery(RamCloud& client,
     LOG(NOTICE, "all tablets now normal");
 
     Buffer nb;
-    uint64_t stopTime = rdtsc();
+    uint64_t stopTime = Cycles::rdtsc();
     // Check a value in each table to make sure we're good
     for (int t = 0; t < tableCount; t++) {
         int table = tables[t];
         try {
             client.read(table, 0, &nb);
             if (t == 0)
-                stopTime = rdtsc();
+                stopTime = Cycles::rdtsc();
         } catch (...) {
         }
         session = client.objectFinder.lookup(tables[t], 0);
@@ -171,9 +171,9 @@ runRecovery(RamCloud& client,
             session->getServiceLocator().c_str(), nb.getTotalLength());
     }
     LOG(NOTICE, "Recovery completed in %lu ns",
-        cyclesToNanoseconds(stopTime - b));
+        Cycles::toNanoseconds(stopTime - b));
 
-    b = rdtsc();
+    b = Cycles::rdtsc();
     if (verify) {
         LOG(NOTICE, "Verifying all data.");
 
@@ -214,7 +214,7 @@ runRecovery(RamCloud& client,
         }
 
         LOG(NOTICE, "Verification took %lu ns",
-            cyclesToNanoseconds(rdtsc() - b));
+            Cycles::toNanoseconds(Cycles::rdtsc() - b));
     }
 
     // dump out coordinator rpc info
@@ -276,37 +276,37 @@ try
 
     uint64_t b;
 
-    b = rdtsc();
+    b = Cycles::rdtsc();
     client.createTable("test");
     uint32_t table;
     table = client.openTable("test");
-    LOG(NOTICE, "create+open table took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "create+open table took %lu ticks", Cycles::rdtsc() - b);
 
-    b = rdtsc();
+    b = Cycles::rdtsc();
     client.ping(optionParser.options.getCoordinatorLocator().c_str(),
                 12345, 100000000);
-    LOG(NOTICE, "coordinator ping took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "coordinator ping took %lu ticks", Cycles::rdtsc() - b);
 
-    b = rdtsc();
+    b = Cycles::rdtsc();
     client.ping(table, 42, 12345, 100000000);
-    LOG(NOTICE, "master ping took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "master ping took %lu ticks", Cycles::rdtsc() - b);
 
-    b = rdtsc();
+    b = Cycles::rdtsc();
     client.write(table, 42, "Hello, World!", 14);
-    LOG(NOTICE, "write took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "write took %lu ticks", Cycles::rdtsc() - b);
 
-    b = rdtsc();
+    b = Cycles::rdtsc();
     const char *value = "0123456789012345678901234567890"
         "123456789012345678901234567890123456789";
     client.write(table, 43, value, downCast<uint32_t>(strlen(value) + 1));
-    LOG(NOTICE, "write took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "write took %lu ticks", Cycles::rdtsc() - b);
 
     Buffer buffer;
-    b = rdtsc();
+    b = Cycles::rdtsc();
     uint32_t length;
 
     client.read(table, 43, &buffer);
-    LOG(NOTICE, "read took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "read took %lu ticks", Cycles::rdtsc() - b);
 
     length = buffer.getTotalLength();
     LOG(NOTICE, "Got back [%s] len %u",
@@ -314,21 +314,21 @@ try
         length);
 
     client.read(table, 42, &buffer);
-    LOG(NOTICE, "read took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "read took %lu ticks", Cycles::rdtsc() - b);
     length = buffer.getTotalLength();
     LOG(NOTICE, "Got back [%s] len %u",
         static_cast<const char*>(buffer.getRange(0, length)),
         length);
 
-    b = rdtsc();
+    b = Cycles::rdtsc();
     uint64_t id = 0xfffffff;
     id = client.create(table, "Hello, World?", 14);
-    LOG(NOTICE, "insert took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "insert took %lu ticks", Cycles::rdtsc() - b);
     LOG(NOTICE, "Got back [%lu] id", id);
 
-    b = rdtsc();
+    b = Cycles::rdtsc();
     client.read(table, id, &buffer);
-    LOG(NOTICE, "read took %lu ticks", rdtsc() - b);
+    LOG(NOTICE, "read took %lu ticks", Cycles::rdtsc() - b);
     length = buffer.getTotalLength();
     LOG(NOTICE, "Got back [%s] len %u",
         static_cast<const char*>(buffer.getRange(0, length)),
@@ -340,11 +340,11 @@ try
 
     LOG(NOTICE, "Performing %u inserts of %u byte objects",
         count, objectDataSize);
-    b = rdtsc();
+    b = Cycles::rdtsc();
     for (int j = 0; j < count; j++)
         id = client.create(table, val, downCast<uint32_t>(strlen(val) + 1));
-    LOG(NOTICE, "%d inserts took %lu ticks", count, rdtsc() - b);
-    LOG(NOTICE, "avg insert took %lu ticks", (rdtsc() - b) / count);
+    LOG(NOTICE, "%d inserts took %lu ticks", count, Cycles::rdtsc() - b);
+    LOG(NOTICE, "avg insert took %lu ticks", (Cycles::rdtsc() - b) / count);
 
     client.dropTable("test");
 

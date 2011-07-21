@@ -934,9 +934,9 @@ Infiniband::Address::getHandle() const
         attr.sl = 0;
         attr.port_num = downCast<uint8_t>(physicalPort);
         infiniband.totalAddressHandleAllocCalls += 1;
-        uint64_t start = rdtsc();
+        uint64_t start = Cycles::rdtsc();
         ah = ibv_create_ah(infiniband.pd.pd, &attr);
-        infiniband.totalAddressHandleAllocTime += rdtsc() - start;
+        infiniband.totalAddressHandleAllocTime += Cycles::rdtsc() - start;
         if (ah == NULL)
             throw TransportException(HERE, "failed to create ah", errno);
     }

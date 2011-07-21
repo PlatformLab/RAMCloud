@@ -254,34 +254,6 @@ arrayLength(const T (&array)[length])
 }
 
 __inline __attribute__((always_inline, no_instrument_function))
-uint64_t _rdtsc();
-uint64_t
-_rdtsc()
-{
-    uint32_t lo, hi;
-
-#ifdef __GNUC__
-    __asm__ __volatile__("rdtsc" : "=a" (lo), "=d" (hi));
-#else
-    asm("rdtsc" : "=a" (lo), "=d" (hi));
-#endif
-
-    return (((uint64_t)hi << 32) | lo);
-}
-
-
-__inline __attribute__((always_inline, no_instrument_function))
-uint64_t _rdtscp();
-uint64_t
-_rdtscp()
-{
-    uint32_t aux;
-    uint32_t lo, hi;
-    __asm__ __volatile__("rdtscp" : "=a" (lo), "=d" (hi), "=c" (aux));
-    return (((uint64_t)hi << 32) | lo);
-}
-
-__inline __attribute__((always_inline, no_instrument_function))
 uint64_t _rdpmc(uint32_t counter);
 uint64_t
 _rdpmc(uint32_t counter)
@@ -306,27 +278,8 @@ yield()
 }
 
 #if TESTING
-extern uint64_t mockTSCValue;
 extern uint64_t mockPMCValue;
 extern uint64_t mockRandomValue;
-__inline __attribute__((always_inline, no_instrument_function))
-uint64_t rdtsc();
-uint64_t
-rdtsc()
-{
-    if (mockTSCValue)
-        return mockTSCValue;
-    return _rdtsc();
-}
-__inline __attribute__((always_inline, no_instrument_function))
-uint64_t rdtscp();
-uint64_t
-rdtscp()
-{
-    if (mockTSCValue)
-        return mockTSCValue;
-    return _rdtscp();
-}
 __inline __attribute__((always_inline, no_instrument_function))
 uint64_t rdpmc(uint32_t counter);
 uint64_t
@@ -336,19 +289,6 @@ rdpmc(uint32_t counter)
         return mockPMCValue;
     return _rdpmc(counter);
 }
-class MockTSC {
-    uint64_t original;
-  public:
-    explicit MockTSC(uint64_t value)
-        : original(mockTSCValue)
-    {
-        mockTSCValue = value;
-    }
-    ~MockTSC()
-    {
-        mockTSCValue = original;
-    }
-};
 __inline __attribute__((always_inline, no_instrument_function))
 uint64_t generateRandom(void);
 uint64_t
@@ -372,8 +312,6 @@ class MockRandom {
     }
 };
 #else
-#define rdtsc() _rdtsc()
-#define rdtscp() _rdtscp()
 #define rdpmc(c) _rdpmc(c)
 #define generateRandom() RAMCloud::_generateRandom()
 #endif

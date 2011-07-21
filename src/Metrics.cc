@@ -15,7 +15,6 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "BenchUtil.h"
 #include "Common.h"
 #include "ShortMacros.h"
 #include "Metrics.h"
@@ -63,7 +62,7 @@ reset(Metrics* metrics, uint64_t serverId, uint64_t serverRole)
 {
     metrics->~Metrics();
     new(metrics) Metrics();
-    metrics->clockFrequency = getCyclesPerSecond();
+    metrics->clockFrequency = (uint64_t) Cycles::perSecond();
     metrics->pid = getpid();
     metrics->serverId = serverId;
     metrics->serverRole = serverRole;

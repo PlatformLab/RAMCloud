@@ -34,6 +34,7 @@
 #define EXPOSE_PRIVATES
 
 #include "Common.h"
+#include "Cycles.h"
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Dispatch.h"
@@ -86,6 +87,8 @@ class TestUtil {
     static void convertChar(char c, string *out);
     static ::testing::AssertionResult doesNotMatchPosixRegex(
             const string& pattern, const string& subject);
+    static void fillPrintableRandom(void* buf, uint32_t size);
+    static void fillRandom(void* buf, uint32_t size);
     static void fillLargeBuffer(Buffer* buffer, int size);
     static const char *getStatus(Buffer* buffer);
     static ::testing::AssertionResult matchesPosixRegex(
