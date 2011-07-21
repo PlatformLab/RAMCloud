@@ -19,6 +19,7 @@
 #include "Common.h"
 #include "Log.h"
 #include "LogCleaner.h"
+#include "ShortMacros.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
 

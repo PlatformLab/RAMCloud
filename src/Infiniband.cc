@@ -22,6 +22,7 @@
 #include "CycleCounter.h"
 #include "Infiniband.h"
 #include "Metrics.h"
+#include "ShortMacros.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -52,9 +53,9 @@ Infiniband::~RealInfiniband()
 void
 Infiniband::dumpStats()
 {
-    LOG(NOTICE, "totalAddressHandleAllocCalls: %lu (count)",
+    RAMCLOUD_LOG(NOTICE, "totalAddressHandleAllocCalls: %lu (count)",
         totalAddressHandleAllocCalls);
-    LOG(NOTICE, "totalAddressHandleAllocTime: %lu (ticks)",
+    RAMCLOUD_LOG(NOTICE, "totalAddressHandleAllocTime: %lu (ticks)",
         totalAddressHandleAllocTime);
     totalAddressHandleAllocCalls = 0;
     totalAddressHandleAllocTime = 0;
@@ -136,7 +137,7 @@ Infiniband::getLid(int port)
     ibv_port_attr ipa;
     int ret = ibv_query_port(device.ctxt, downCast<uint8_t>(port), &ipa);
     if (ret) {
-        LOG(ERROR, "ibv_query_port failed on port %u\n", port);
+        RAMCLOUD_LOG(ERROR, "ibv_query_port failed on port %u\n", port);
         throw TransportException(HERE, ret);
     }
     return ipa.lid;
@@ -166,7 +167,7 @@ Infiniband::tryReceive(QueuePair *qp, Tub<Address>* sourceAddress)
         return NULL;
 
     if (r < 0) {
-        LOG(ERROR, "ibv_poll_cq failed: %d", r);
+        RAMCLOUD_LOG(ERROR, "ibv_poll_cq failed: %d", r);
         throw TransportException(HERE, r);
     }
 

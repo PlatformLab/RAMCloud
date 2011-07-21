@@ -116,8 +116,9 @@ struct LargeBlockOfMemory {
         unlink(path);
         close(fd);
 
-        LOG(NOTICE, "Mmapped %lu-byte region from [%s] at %p\n",
-            length, path, reinterpret_cast<void*>(block));
+        RAMCLOUD_LOG(NOTICE,
+                     "Mmapped %lu-byte region from [%s] at %p\n",
+                     length, path, reinterpret_cast<void*>(block));
 
         // Fault in each mapping.
         uint64_t pageSize = sysconf(_SC_PAGESIZE);
@@ -128,7 +129,8 @@ struct LargeBlockOfMemory {
     ~LargeBlockOfMemory()
     {
         if (block != NULL && munmap(block, length) != 0)
-            LOG(WARNING, "munmap of large block failed with %d", errno);
+            RAMCLOUD_LOG(WARNING, "munmap of large block failed with %d",
+                         errno);
     }
 
     void swap(LargeBlockOfMemory<T>& other) {

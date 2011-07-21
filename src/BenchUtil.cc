@@ -24,6 +24,7 @@
 #include <sys/time.h>
 
 #include "BenchUtil.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 

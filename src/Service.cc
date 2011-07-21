@@ -14,6 +14,7 @@
  */
 
 #include "Service.h"
+#include "ShortMacros.h"
 #include "ServiceManager.h"
 #include "TransportManager.h"
 

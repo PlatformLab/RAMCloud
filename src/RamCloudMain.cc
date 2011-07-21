@@ -19,6 +19,7 @@
 #include <assert.h>
 
 #include "BenchUtil.h"
+#include "ShortMacros.h"
 #include "Crc32C.h"
 #include "RamCloud.h"
 #include "ObjectFinder.h"

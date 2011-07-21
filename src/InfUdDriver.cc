@@ -33,6 +33,7 @@
 #include "Common.h"
 #include "FastTransport.h"
 #include "InfUdDriver.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 

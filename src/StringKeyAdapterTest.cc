@@ -19,7 +19,7 @@
 #include "BindTransport.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
-#include "Logging.h"
+#include "ShortMacros.h"
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "StringKeyAdapter.h"

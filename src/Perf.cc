@@ -151,8 +151,8 @@ double bMutexNoBlock()
 // Measure the cost of the exchange method on a C++ atomic_int.
 double cppAtomicExchange()
 {
-    int count = 1000000;
-    atomic_int value(11);
+    int count = 100000;
+    std::atomic_int value(11);
     int other = 22;
     uint64_t start = rdtsc();
     for (int i = 0; i < count; i++) {
@@ -166,8 +166,8 @@ double cppAtomicExchange()
 // 2 mfence operations!).
 double cppAtomicLoad()
 {
-    int count = 1000000;
-    atomic_int value(11);
+    int count = 100000;
+    std::atomic_int value(11);
     int total = 0;
     uint64_t start = rdtsc();
     for (int i = 0; i < count; i++) {

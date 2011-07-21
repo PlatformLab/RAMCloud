@@ -27,7 +27,7 @@
 #include "BackupService.h"
 #include "BackupStorage.h"
 #include "BindTransport.h"
-#include "Logging.h"
+#include "ShortMacros.h"
 #include "MasterService.h"
 #include "Segment.h"
 

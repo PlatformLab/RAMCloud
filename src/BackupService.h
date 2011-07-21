@@ -118,8 +118,10 @@ class BackupService : public Service {
         {
             Lock _(mutex);
             if (allocatedChunks)
-                LOG(WARNING, "Backup segment pool destroyed with %u chunks "
-                             "still allocated", allocatedChunks);
+                RAMCLOUD_LOG(WARNING,
+                             "Backup segment pool destroyed with "
+                             "%u chunks still allocated",
+                             allocatedChunks);
         }
 
         // See boost::pool<>.
@@ -298,9 +300,10 @@ class BackupService : public Service {
             int lastThreadCount = 0;
             while (storageOpCount > 0) {
                 if (storageOpCount != lastThreadCount) {
-                    LOG(DEBUG, "Waiting for storage threads to terminate "
-                        "for a segment, %d threads still running",
-                        static_cast<int>(storageOpCount));
+                    RAMCLOUD_LOG(DEBUG,
+                                 "Waiting for storage threads to terminate "
+                                 "for a segment, %d threads still running",
+                                 static_cast<int>(storageOpCount));
                     lastThreadCount = storageOpCount;
                 }
                 condition.wait(lock);

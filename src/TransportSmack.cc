@@ -209,7 +209,7 @@ struct Echo : public CTest {
             throw FatalError(HERE, "Server echo response differs from "
                                    "client echo request");
         }
-        LOG(DEBUG, "Echoed %u bytes", size);
+        RAMCLOUD_LOG(DEBUG, "Echoed %u bytes", size);
     }
     uint32_t size;
     uint32_t spinNs;
@@ -276,7 +276,7 @@ struct Remote : public CTest {
                              format("Remote response was %d to command %s",
                                     respHdr.rc, command.c_str()));
         }
-        LOG(DEBUG, "Executed %s", command.c_str());
+        RAMCLOUD_LOG(DEBUG, "Executed %s", command.c_str());
     }
     const string& command; // NOLINT
 };
@@ -331,7 +331,7 @@ struct Do : public Test {
             asyncTests.pop_back();
             test->wait();
         }
-        LOG(DEBUG, "Executed %s", command.c_str());
+        RAMCLOUD_LOG(DEBUG, "Executed %s", command.c_str());
     }
     const string command;
     vector<TestDescription> descriptions;
@@ -412,12 +412,13 @@ main(int argc, char *argv[])
         }
 
         if (isClient) {
-            LOG(NOTICE, "Running TransportSmack client, %s", testStr.c_str());
+            RAMCLOUD_LOG(NOTICE,
+                         "Running TransportSmack client, %s", testStr.c_str());
             // there's an implicit "do" command around testStr
             Do(testStr.c_str()).startWait();
-            LOG(NOTICE, "Done");
+            RAMCLOUD_LOG(NOTICE, "Done");
         } else {
-            LOG(NOTICE,
+            RAMCLOUD_LOG(NOTICE,
                 "Running TransportSmack server, listening on %s",
                 localLocator.c_str());
             transportManager.initialize(localLocator.c_str());
@@ -430,10 +431,10 @@ main(int argc, char *argv[])
 
         return 0;
     } catch (RAMCloud::ClientException& e) {
-        LOG(ERROR, "TransportSmack: %s", e.str().c_str());
+        RAMCLOUD_LOG(ERROR, "TransportSmack: %s", e.str().c_str());
         return 1;
     } catch (RAMCloud::Exception& e) {
-        LOG(ERROR, "TransportSmack: %s", e.str().c_str());
+        RAMCLOUD_LOG(ERROR, "TransportSmack: %s", e.str().c_str());
         return 1;
     }
 }

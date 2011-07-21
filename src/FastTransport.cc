@@ -14,6 +14,8 @@
  */
 
 #include "FastTransport.h"
+
+#include "ShortMacros.h"
 #include "ServiceManager.h"
 
 namespace RAMCloud {

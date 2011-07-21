@@ -16,6 +16,7 @@
 #include "BenchUtil.h"
 #include "Fence.h"
 #include "Initialize.h"
+#include "ShortMacros.h"
 #include "ServiceManager.h"
 
 namespace RAMCloud {

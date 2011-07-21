@@ -21,6 +21,7 @@
 #include "Buffer.h"
 #include "ClientException.h"
 #include "Log.h"
+#include "ShortMacros.h"
 #include "LogTypes.h"
 #include "RecoverySegmentIterator.h"
 #include "Rpc.h"

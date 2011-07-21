@@ -20,6 +20,7 @@
 #include <sys/socket.h>
 
 #include "Common.h"
+#include "ShortMacros.h"
 #include "UdpDriver.h"
 #include "ServiceLocator.h"
 

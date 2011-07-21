@@ -76,7 +76,7 @@ class InfRcTransport : public Transport {
         assert(logMemoryRegion != NULL);
         logMemoryBase = reinterpret_cast<uintptr_t>(base);
         logMemoryBytes = bytes;
-        LOG(NOTICE, "Registered %Zd bytes at %p", bytes, base);
+        RAMCLOUD_LOG(NOTICE, "Registered %Zd bytes at %p", bytes, base);
     }
 
   PRIVATE:

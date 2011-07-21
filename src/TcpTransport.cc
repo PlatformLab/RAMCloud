@@ -14,6 +14,7 @@
  */
 
 #include "Common.h"
+#include "ShortMacros.h"
 #include "ServiceManager.h"
 #include "TcpTransport.h"
 

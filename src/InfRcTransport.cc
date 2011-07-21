@@ -92,6 +92,7 @@
 #include "IpAddress.h"
 #include "ServiceLocator.h"
 #include "ServiceManager.h"
+#include "ShortMacros.h"
 
 #define check_error_null(x, s)                              \
     do {                                                    \

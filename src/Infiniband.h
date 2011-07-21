@@ -122,7 +122,7 @@ class RealInfiniband {
         ~Device() {
             int rc = ibv_close_device(ctxt);
             if (rc != 0)
-                LOG(WARNING, "ibv_close_device failed");
+                RAMCLOUD_LOG(WARNING, "ibv_close_device failed");
         }
 
         ibv_context* ctxt; // const after construction
@@ -143,7 +143,7 @@ class RealInfiniband {
             int rc = ibv_dealloc_pd(pd);
             if (rc != 0) {
                 // TODO(ongaro): Change to WARNING after closing RAM-195.
-                LOG(DEBUG, "ibv_dealloc_pd failed");
+                RAMCLOUD_LOG(DEBUG, "ibv_dealloc_pd failed");
             }
         }
         ibv_pd* const pd;

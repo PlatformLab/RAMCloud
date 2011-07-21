@@ -20,6 +20,7 @@
 #include <boost/thread/thread.hpp>
 
 #include "Logging.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -101,16 +102,17 @@ namespace TestLog {
     }
 
     /**
-     * Don't call this directly, see TEST_LOG instead.
+     * Don't call this directly, see RAMCLOUD_TEST_LOG instead.
      *
      * Log a message to the test log for unit testing.
      *
      * \param[in] where
      *      The result of #HERE.
      * \param[in] format
-     *      See #LOG except the string should end with a newline character.
+     *      See #RAMCLOUD_LOG except the string should end with a newline
+     *      character.
      * \param[in] ...
-     *      See #LOG.
+     *      See #RAMCLOUD_LOG.
      */
     void
     log(const CodeLocation& where,
@@ -140,9 +142,10 @@ namespace TestLog {
      *
      * \param[in] pred
      *      A predicate which is passed the value of __PRETTY_FUNCTION__
-     *      from the TEST_LOG call site.  The predicate should return true
-     *      precisely when the test log entry for the corresponding TEST_LOG
-     *      invocation should be included in the test log.
+     *      from the RAMCLOUD_TEST_LOG call site.  The predicate should
+     *      return true precisely when the test log entry for the
+     *      corresponding RAMCLOUD_TEST_LOG invocation should be included
+     *      in the test log.
      */
     void
     setPredicate(bool (*pred)(string))

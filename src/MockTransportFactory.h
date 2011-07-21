@@ -43,7 +43,7 @@ class MockTransportFactory : public TransportFactory {
     {}
     Transport* createTransport(const ServiceLocator* local) {
         if (strcmp(protocol, "error") == 0) {
-            TEST_LOG("exception thrown");
+            RAMCLOUD_TEST_LOG("exception thrown");
             throw TransportException(HERE, "boom!");
         }
         if (transport == NULL) {

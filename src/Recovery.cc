@@ -17,6 +17,7 @@
 #include "Dispatch.h"
 #include "BackupClient.h"
 #include "Buffer.h"
+#include "ShortMacros.h"
 #include "MasterClient.h"
 #include "Tub.h"
 #include "ProtoBuf.h"

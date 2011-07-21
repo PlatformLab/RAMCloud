@@ -15,6 +15,7 @@
 
 #include "Common.h"
 #include "CoordinatorService.h"
+#include "ShortMacros.h"
 #include "OptionParser.h"
 #include "PingService.h"
 #include "ServiceManager.h"

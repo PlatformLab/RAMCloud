@@ -21,7 +21,9 @@
 #include "Common.h"
 #include "BoostIntrusive.h"
 #include "Driver.h"
+#ifdef INFINIBAND
 #include "Infiniband.h"
+#endif
 #include "ObjectPool.h"
 #include "Transport.h"
 
@@ -115,8 +117,10 @@ class UnreliableTransport : public Transport {
     /// Hold server RPCs that are waiting for a complete request.
     ServerRpcList serverPendingList;
 
+#ifdef INFINIBAND
     /// work-around for cost of allocating Infiniband address handles
     std::unordered_map<uint64_t, ibv_ah*> infinibandAddressHandleCache;
+#endif
 
     DISALLOW_COPY_AND_ASSIGN(UnreliableTransport);
 };

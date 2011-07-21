@@ -15,6 +15,7 @@
 
 #include "Common.h"
 #include "BenchUtil.h"
+#include "ShortMacros.h"
 #include "PingClient.h"
 #include "PingService.h"
 

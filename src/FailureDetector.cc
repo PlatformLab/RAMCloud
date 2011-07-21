@@ -24,6 +24,7 @@
 #include "BenchUtil.h"
 #include "FailureDetector.h"
 #include "IpAddress.h"
+#include "ShortMacros.h"
 #include "ProtoBuf.h"
 #include "Rpc.h"
 #include "Syscall.h"
