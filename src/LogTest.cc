@@ -53,7 +53,7 @@ class LogTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(57, *l.logId);
         CPPUNIT_ASSERT_EQUAL(2 * 8192, l.logCapacity);
         CPPUNIT_ASSERT_EQUAL(8192, l.segmentCapacity);
-        CPPUNIT_ASSERT_EQUAL(2, l.segmentFreeList.size());
+        CPPUNIT_ASSERT_EQUAL(2, l.freeList.size());
         CPPUNIT_ASSERT_EQUAL(0, l.nextSegmentId);
         CPPUNIT_ASSERT_EQUAL(8192 - 3 * sizeof(SegmentEntry) -
             sizeof(SegmentHeader) - sizeof(SegmentFooter),
@@ -69,8 +69,8 @@ class LogTest : public CppUnit::TestFixture {
         Log l(serverId, 2 * 8192, 8192);
 
         {
-            Segment* s = l.allocateHead();
-            l.addToActiveMaps(s);
+            l.allocateHead();
+            Segment* s = l.head;
             CPPUNIT_ASSERT(s != NULL);
             const SegmentEntry *se = reinterpret_cast<const SegmentEntry*>(
                 (const char *)s->getBaseAddress() + sizeof(SegmentEntry) +
@@ -86,8 +86,8 @@ class LogTest : public CppUnit::TestFixture {
         }
 
         {
-            Segment* s = l.allocateHead();
-            l.addToActiveMaps(s);
+            l.allocateHead();
+            Segment* s = l.head;
             CPPUNIT_ASSERT(s != NULL);
             const SegmentEntry *se = reinterpret_cast<const SegmentEntry*>(
                 (const char *)s->getBaseAddress() + sizeof(SegmentEntry) +
@@ -116,8 +116,8 @@ class LogTest : public CppUnit::TestFixture {
         l.addSegmentMemory(p);
         Segment s((uint64_t)0, 0, p, 8192);
 
-        CPPUNIT_ASSERT_EQUAL(2, l.segmentFreeList.size());
-        CPPUNIT_ASSERT_EQUAL(p, l.segmentFreeList[1]);
+        CPPUNIT_ASSERT_EQUAL(2, l.freeList.size());
+        CPPUNIT_ASSERT_EQUAL(p, l.freeList[1]);
         CPPUNIT_ASSERT_EQUAL(s.appendableBytes(), l.maximumAppendableBytes);
     }
 
@@ -155,18 +155,15 @@ class LogTest : public CppUnit::TestFixture {
     {
         Tub<uint64_t> serverId;
         serverId.construct(57);
-        Log l(serverId, 2 * 8192, 8192);
+        Log l(serverId, 2 * 8192, 8192, NULL, Log::CLEANER_DISABLED);
         uint64_t lengthInLog;
         LogTime logTime;
         static char buf[13];
         char fillbuf[l.getMaximumAppendableBytes()];
         memset(fillbuf, 'A', sizeof(fillbuf));
 
-        // keep the cleaner from dumping our objects
-        l.useCleaner = false;
-
         CPPUNIT_ASSERT(l.head == NULL);
-        CPPUNIT_ASSERT_EQUAL(2, l.segmentFreeList.size());
+        CPPUNIT_ASSERT_EQUAL(2, l.freeList.size());
 
         // exercise head == NULL path
         const void *p = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf),
@@ -181,7 +178,7 @@ class LogTest : public CppUnit::TestFixture {
             l.activeIdMap.end());
         CPPUNIT_ASSERT(l.activeBaseAddressMap.find(l.head->getBaseAddress()) !=
             l.activeBaseAddressMap.end());
-        CPPUNIT_ASSERT_EQUAL(1, l.segmentFreeList.size());
+        CPPUNIT_ASSERT_EQUAL(1, l.freeList.size());
 
         // assert that the LogDigest is written out correctly
         const void* ldp = (const char *)l.head->getBaseAddress() +
@@ -213,7 +210,7 @@ class LogTest : public CppUnit::TestFixture {
 
         // fill the log and get an exception. we should be on the 3rd Segment
         // now.
-        CPPUNIT_ASSERT_EQUAL(0, l.segmentFreeList.size());
+        CPPUNIT_ASSERT_EQUAL(0, l.freeList.size());
         p = l.append(LOG_ENTRY_TYPE_OBJ,
             fillbuf, l.head->appendableBytes())->userData();
         CPPUNIT_ASSERT(p != NULL);
@@ -231,15 +228,30 @@ class LogTest : public CppUnit::TestFixture {
 
         LogEntryHandle h = l.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         l.free(h);
-        Segment *s = l.activeIdMap[0];
+        Segment *s = l.head;
         CPPUNIT_ASSERT_EQUAL(sizeof(buf) + sizeof(SegmentEntry), s->bytesFreed);
 
         CPPUNIT_ASSERT_THROW(l.free(LogEntryHandle(NULL)), LogException);
     }
 
-    static void
-    evictionCallback(LogEntryHandle handle, const LogTime logTime, void *cookie)
+    static bool
+    livenessCallback(LogEntryHandle handle, void* cookie)
     {
+        return true;
+    }
+
+    static bool 
+    relocationCallback(LogEntryHandle oldHandle,
+                       LogEntryHandle newHandle,
+                       void* cookie)
+    {
+        return true;
+    }
+
+    static uint32_t
+    timestampCallback(LogEntryHandle handle)
+    {
+        return 57;
     }
 
     void
@@ -249,16 +261,27 @@ class LogTest : public CppUnit::TestFixture {
         serverId.construct(57);
         Log l(serverId, 1 * 8192, 8192);
 
-        l.registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL);
+        l.registerType(LOG_ENTRY_TYPE_OBJ,
+                       livenessCallback, NULL,
+                       relocationCallback, NULL,
+                       timestampCallback);
         CPPUNIT_ASSERT_THROW(
-            l.registerType(LOG_ENTRY_TYPE_OBJ, evictionCallback, NULL),
+            l.registerType(LOG_ENTRY_TYPE_OBJ,
+                           livenessCallback, NULL,
+                           relocationCallback, NULL,
+                           timestampCallback),
             LogException);
 
         LogTypeCallback *cb = l.callbackMap[LOG_ENTRY_TYPE_OBJ];
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, cb->type);
-        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void *>(evictionCallback),
-                             reinterpret_cast<void *>(cb->evictionCB));
-        CPPUNIT_ASSERT_EQUAL(NULL, cb->evictionArg);
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void *>(livenessCallback),
+                             reinterpret_cast<void *>(cb->livenessCB));
+        CPPUNIT_ASSERT_EQUAL(NULL, cb->livenessArg);
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void *>(relocationCallback),
+                             reinterpret_cast<void *>(cb->relocationCB));
+        CPPUNIT_ASSERT_EQUAL(NULL, cb->relocationArg);
+        CPPUNIT_ASSERT_EQUAL(reinterpret_cast<void *>(timestampCallback),
+                             reinterpret_cast<void *>(cb->timestampCB));
     }
 
     void
@@ -268,17 +291,17 @@ class LogTest : public CppUnit::TestFixture {
         serverId.construct(57);
         Log l(serverId, 1 * 128, 128);
         CPPUNIT_ASSERT_EQUAL(128,
-            reinterpret_cast<uintptr_t>(l.getSegmentBaseAddress(
-            reinterpret_cast<void *>(128))));
+            reinterpret_cast<uintptr_t>(Segment::getSegmentBaseAddress(
+            reinterpret_cast<void *>(128), 128)));
         CPPUNIT_ASSERT_EQUAL(128,
-            reinterpret_cast<uintptr_t>(l.getSegmentBaseAddress(
-            reinterpret_cast<void *>(129))));
+            reinterpret_cast<uintptr_t>(Segment::getSegmentBaseAddress(
+            reinterpret_cast<void *>(129), 128)));
         CPPUNIT_ASSERT_EQUAL(128,
-            reinterpret_cast<uintptr_t>(l.getSegmentBaseAddress(
-            reinterpret_cast<void *>(255))));
+            reinterpret_cast<uintptr_t>(Segment::getSegmentBaseAddress(
+            reinterpret_cast<void *>(255), 128)));
         CPPUNIT_ASSERT_EQUAL(256,
-            reinterpret_cast<uintptr_t>(l.getSegmentBaseAddress(
-            reinterpret_cast<void *>(256))));
+            reinterpret_cast<uintptr_t>(Segment::getSegmentBaseAddress(
+            reinterpret_cast<void *>(256), 128)));
     }
 
 };

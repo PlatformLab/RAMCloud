@@ -587,8 +587,8 @@ class BackupServiceTest : public CppUnit::TestFixture {
     writeDigestedSegment(uint64_t masterId, uint64_t segmentId,
         vector<uint64_t> digestIds)
     {
-            char segBuf[1024 * 1024];
-            Segment s((uint64_t)0, segmentId, segBuf, sizeof(segBuf));
+            void* segBuf = xmemalign(1024 * 1024, 1024 * 1024);
+            Segment s((uint64_t)0, segmentId, segBuf, 1024 * 1024);
 
             char digestBuf[LogDigest::getBytesFromCount
                                 (downCast<uint32_t>(digestIds.size()))];
@@ -604,6 +604,8 @@ class BackupServiceTest : public CppUnit::TestFixture {
                 &lengthInSegment, &offsetInSegment);
             client->writeSegment(masterId, segmentId, 0, s.getBaseAddress(),
                 downCast<uint32_t>(lengthInSegment + offsetInSegment));
+
+            free(segBuf);
     }
 
     void

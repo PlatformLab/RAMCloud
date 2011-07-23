@@ -82,6 +82,7 @@ class SegmentTest : public CppUnit::TestFixture {
         CPPUNIT_ASSERT_EQUAL(sizeof(SegmentEntry) + sizeof(SegmentHeader),
             s.tail);
         CPPUNIT_ASSERT_EQUAL(0UL, s.bytesFreed);
+        CPPUNIT_ASSERT_EQUAL(0UL, s.spaceTimeSum);
 
         SegmentEntry *se = reinterpret_cast<SegmentEntry *>(s.baseAddress);
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_SEGHEADER, se->type);
@@ -178,16 +179,50 @@ class SegmentTest : public CppUnit::TestFixture {
             memcmp(buf, reinterpret_cast<char *>(se) + sizeof(*se), bytes));
     }
 
+    static bool
+    livenessCallback(LogEntryHandle oldHandle,
+                     void* cookie)
+    {
+        return true;
+    }
+
+    static bool
+    relocationCallback(LogEntryHandle oldHandle,
+                       LogEntryHandle newHandle,
+                       void* cookie)
+    {
+        return true;
+    }
+
+    static uint32_t
+    timestampCallback(LogEntryHandle h)
+    {
+        return h->userData<Object>()->timestamp;
+    }
+
     void
     test_free()
     {
+        // create a fake log so we can use the timestamp callback
+        // (the Log-less segment constructor won't result in the
+        // spaceTimeSum value being altered otherwise.
+        Log l({0}, 8192, 8192);
+        l.registerType(LOG_ENTRY_TYPE_OBJ,
+                       livenessCallback, NULL,
+                       relocationCallback, NULL,
+                       timestampCallback);
+
         char alignedBuf[8192] __attribute__((aligned(8192)));
-        static char buf[12];
+        static char buf[64];
+
+        reinterpret_cast<Object*>(buf)->timestamp = 0xf00f1234U;
 
         Segment s(1, 2, alignedBuf, sizeof(alignedBuf));
+        *const_cast<Log**>(&s.log) = &l;
         SegmentEntryHandle h = s.append(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         s.free(h);
         CPPUNIT_ASSERT_EQUAL(sizeof(buf) + sizeof(SegmentEntry), s.bytesFreed);
+        CPPUNIT_ASSERT_EQUAL(0UL, s.spaceTimeSum);
     }
 
     void
@@ -270,6 +305,13 @@ class SegmentTest : public CppUnit::TestFixture {
     void
     test_forceAppendWithEntry()
     {
+        // create a fake log; see comment in test_free 
+        Log l({0}, 8192, 8192);
+        l.registerType(LOG_ENTRY_TYPE_OBJ,
+                       livenessCallback, NULL,
+                       relocationCallback, NULL,
+                       timestampCallback);
+
         char alignedBuf[8192] __attribute__((aligned(8192)));
         SegmentEntryHandle seh;
 
@@ -277,13 +319,17 @@ class SegmentTest : public CppUnit::TestFixture {
         for (unsigned int i = 0; i < sizeof(buf); i++)
             buf[i] = static_cast<char>(i);
 
+        reinterpret_cast<Object*>(buf)->timestamp = 0xf00f1234U;
+
         Segment s(112233, 445566, alignedBuf, sizeof(alignedBuf));
+        *const_cast<Log**>(&s.log) = &l;
         seh = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         CPPUNIT_ASSERT(seh != NULL);
 
         CPPUNIT_ASSERT_EQUAL(LOG_ENTRY_TYPE_OBJ, seh->type());
         CPPUNIT_ASSERT_EQUAL(sizeof(buf), seh->length());
         CPPUNIT_ASSERT_EQUAL(0, memcmp(buf, seh->userData(), sizeof(buf)));
+        CPPUNIT_ASSERT_EQUAL(s.spaceTimeSum, seh->totalLength() * 0xf00f1234UL);
 
         s.tail = downCast<uint32_t>(s.capacity - sizeof(SegmentEntry) -
                                     sizeof(buf) + 1);
@@ -293,6 +339,8 @@ class SegmentTest : public CppUnit::TestFixture {
         s.tail--;
         seh = s.forceAppendWithEntry(LOG_ENTRY_TYPE_OBJ, buf, sizeof(buf));
         CPPUNIT_ASSERT(seh != NULL);
+        CPPUNIT_ASSERT_EQUAL(s.spaceTimeSum,
+            (seh->totalLength() * 0xf00f1234UL) * 2);
     }
 
     void

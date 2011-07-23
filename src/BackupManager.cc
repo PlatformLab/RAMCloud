@@ -175,6 +175,30 @@ BackupManager::BackupManager(CoordinatorClient* coordinator,
 {
 }
 
+/**
+ * Create a BackupManager, initially with no backup hosts to communicate
+ * with. This manager is constructed the same way as a previous manager.
+ * This is used, for instance, by the LogCleaner to obtain a private
+ * BackupManager that is configured equivalently to the Log's own
+ * manager (without having to share the two).
+ * 
+ * \param prototype
+ *      The BackupManager that serves as a prototype for this newly
+ *      created one. The same masterId, number of replicas, and
+ *      coordinator are used.
+ */
+BackupManager::BackupManager(BackupManager* prototype)
+    : coordinator(prototype->coordinator)
+    , masterId(prototype->masterId)
+    , hosts()
+    , replicas(prototype->replicas)
+    , segments()
+    , openSegmentPool(OpenSegment::sizeOf(replicas))
+    , openSegmentList()
+
+{
+}
+
 BackupManager::~BackupManager()
 {
     sync();

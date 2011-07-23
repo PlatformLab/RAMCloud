@@ -67,6 +67,7 @@ SHARED_SRCFILES := \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
 		   src/UnreliableTransport.cc \
+           src/WallTime.cc \
 		   src/Will.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(OBJDIR)/ServerList.pb.cc \

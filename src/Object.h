@@ -18,6 +18,7 @@
 
 #include "Common.h"
 #include "HashTable.h"
+#include "WallTime.h"
 
 namespace RAMCloud {
 
@@ -48,9 +49,10 @@ class Object {
      */
     explicit Object(size_t buf_size)
         : id(-1, -1),
-          version(-1)
+          version(-1),
+          timestamp(secondsTimestamp())
     {
-        static_assert(sizeof(*this) == 24, "bad Object size!");
+        static_assert(sizeof(*this) == 28, "bad Object size!");
         assert(buf_size >= sizeof(*this));
     }
 
@@ -79,10 +81,11 @@ class Object {
 
     struct ObjectIdentifier id;
     uint64_t version;
+    uint32_t timestamp;         // see WallTime.cc
     char data[0];
 
   private:
-    Object() : id(-1, -1), version(-1) { }
+    Object() : id(-1, -1), version(-1), timestamp(secondsTimestamp()) { }
 
     // to use default constructor in arrays
     friend class BackupServiceTest;

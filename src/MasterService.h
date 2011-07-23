@@ -274,10 +274,14 @@ class MasterService : public Service {
 
     friend void recoveryCleanup(LogEntryHandle maybeTomb, uint8_t type,
         void *cookie);
-    friend void objectEvictionCallback(LogEntryHandle handle, LogTime logTime,
-        void* cookie);
-    friend void tombstoneEvictionCallback(LogEntryHandle handle,
-        LogTime logTime, void* cookie);
+    friend bool objectLivenessCallback(LogEntryHandle handle, void* cookie);
+    friend bool objectRelocationCallback(LogEntryHandle oldHandle,
+                                         LogEntryHandle newHandle,
+                                         void* cookie);
+    friend bool tombstoneLivenessCallback(LogEntryHandle handle, void* cookie);
+    friend bool tombstoneRelocationCallback(LogEntryHandle oldHandle,
+                                            LogEntryHandle newHandle,
+                                            void* cookie);
     friend void segmentReplayCallback(Segment* seg, void* cookie);
     Table& getTable(uint32_t tableId, uint64_t objectId);
     void rejectOperation(const RejectRules* rejectRules, uint64_t version);

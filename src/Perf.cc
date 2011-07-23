@@ -36,7 +36,12 @@
 #include "AtomicInt.h"
 #include "BenchUtil.h"
 #include "Dispatch.h"
+#include "Object.h"
+#include "Segment.h"
+#include "SegmentIterator.h"
 #include "SpinLock.h"
+
+#include <vector>
 
 using namespace RAMCloud;
 
@@ -255,6 +260,57 @@ double lockNonDispThrd()
     return cyclesToSeconds(stop - start)/count;
 }
 
+// Sorting functor for #segmentEntrySort.
+struct SegmentEntryLessThan {
+  public:
+    bool
+    operator()(const SegmentEntryHandle a, const SegmentEntryHandle b)
+    {
+        return a->userData<Object>()->timestamp <
+               b->userData<Object>()->timestamp;
+    }
+};
+
+// Measure the time it takes to walk a Segment full of small objects,
+// populate a vector with their entries, and sort it by age.
+double segmentEntrySort()
+{
+    void *block = xmemalign(Segment::SEGMENT_SIZE, Segment::SEGMENT_SIZE);
+    Segment s(0, 0, block, Segment::SEGMENT_SIZE, NULL);
+    const int avgObjectSize = 100;
+
+    DECLARE_OBJECT(obj, 2 * avgObjectSize);
+    vector<SegmentEntryHandle> entries;
+
+    int count;
+    for (count = 0; ; count++) {
+        obj->timestamp = static_cast<uint32_t>(generateRandom());
+        uint32_t size = obj->timestamp % (2 * avgObjectSize);
+        if (s.append(LOG_ENTRY_TYPE_OBJ, obj, obj->objectLength(size)) == NULL)
+            break;
+    }
+
+    // doesn't appear to help
+    entries.reserve(count);
+
+    uint64_t start = rdtsc();
+
+    // appears to take about 1/8th the time
+    for (SegmentIterator i(&s); !i.isDone(); i.next()) {
+        if (i.getType() == LOG_ENTRY_TYPE_OBJ)
+            entries.push_back(i.getHandle());
+    }
+
+    // the rest is, unsurprisingly, here
+    std::sort(entries.begin(), entries.end(), SegmentEntryLessThan());
+
+    uint64_t stop = rdtsc();
+
+    free(block);
+
+    return cyclesToSeconds(stop - start);
+}
+
 // Measure the cost of acquiring and releasing a SpinLock (assuming the
 // lock is initially free).
 double spinLock()
@@ -308,6 +364,8 @@ TestInfo tests[] = {
      "Acquire/release Dispatch::Lock (in dispatch thread)"},
     {"lockNonDispThrd", lockNonDispThrd,
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
+    {"segmentEntrySort", segmentEntrySort,
+     "Sort a Segment full of avg. 100-byte Objects by age"},
     {"spinLock", spinLock,
      "Acquire/release SpinLock"},
 };

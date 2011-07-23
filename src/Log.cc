@@ -36,29 +36,40 @@ namespace RAMCloud {
  * \param[in] backup
  *      The BackupManager that will be used to make each of this Log's
  *      Segments durable.
+ * \param[in] disableCleaner
+ *      For purposes testing only: never run the cleaner.
  * \throw LogException
  *      An exception is thrown if #logCapacity is not sufficient for
  *      a single segment's worth of log.
  */
 Log::Log(const Tub<uint64_t>& logId,
          uint64_t logCapacity,
-         uint64_t segmentCapacity,
-         BackupManager *backup)
+         uint32_t segmentCapacity,
+         BackupManager *backup,
+         CleanerOption cleanerOption)
     : stats(),
       logId(logId),
       logCapacity((logCapacity / segmentCapacity) * segmentCapacity),
       segmentCapacity(segmentCapacity),
       segmentMemory(this->logCapacity),
-      segmentFreeList(),
       nextSegmentId(0),
       maximumAppendableBytes(0),
-      useCleaner(true),
-      cleaner(this),
       head(NULL),
-      callbackMap(),
+      freeList(),
+      cleanableNewList(),
+      cleanableList(),
+      cleanablePendingDigestList(),
+      freePendingDigestAndReferenceList(),
+      freePendingReferenceList(),
       activeIdMap(),
       activeBaseAddressMap(),
-      backup(backup)
+      callbackMap(),
+      listLock(),
+      backup(backup),
+      cleanerOption(cleanerOption),
+      cleaner(this,
+              (backup == NULL) ? NULL : new BackupManager(backup),
+              cleanerOption == CONCURRENT_CLEANER)
 {
     if (logCapacity == 0) {
         throw LogException(HERE,
@@ -76,43 +87,90 @@ Log::Log(const Tub<uint64_t>& logId,
  */
 Log::~Log()
 {
-    foreach (ActiveIdMap::value_type& idSegmentPair, activeIdMap) {
-        Segment* segment = idSegmentPair.second;
-        if (segment == head)
-            segment->close(true);
-        delete segment;
-    }
+    cleaner.halt();
 
     foreach (CallbackMap::value_type& typeCallbackPair, callbackMap)
         delete typeCallbackPair.second;
+
+    cleanableNewList.clear_and_dispose(SegmentDisposer());
+    cleanableList.clear_and_dispose(SegmentDisposer());
+    cleanablePendingDigestList.clear_and_dispose(SegmentDisposer());
+    freePendingDigestAndReferenceList.clear_and_dispose(SegmentDisposer());
+    freePendingReferenceList.clear_and_dispose(SegmentDisposer());
+
+    if (head) {
+        head->close();
+        delete head;
+    }
 }
 
 /**
  * Allocate a new head Segment and write the LogDigest before returning.
- * The current head is not replaced; that is up to the caller.
+ * The current head is closed and replaced with the new one, though closure
+ * does not occur until after the new head has been opened on backups.
  *
  * \throw LogException
  *      If no Segments are free.
  */
-Segment*
+void
 Log::allocateHead()
 {
-    uint32_t segmentCount = downCast<uint32_t>(activeIdMap.size() + 1);
-    uint32_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
-    char temp[digestBytes];
-    LogDigest ld(segmentCount, temp, digestBytes);
+    // these currently also take listLock, so rather than have
+    // unlocked versions of those methods or duplicating code,
+    // just do them before taking the big lock for this method.
+    LogDigest::SegmentId newHeadId = allocateSegmentId();
+    void* baseAddress = getFromFreeList();
 
-    foreach (ActiveIdMap::value_type& idSegmentPair, activeIdMap) {
-        Segment* segment = idSegmentPair.second;
-        ld.addSegment(downCast<LogDigest::SegmentId>(segment->getId()));
+    boost::lock_guard<SpinLock> lock(listLock);
+
+    if (head != NULL)
+        cleanableNewList.push_back(*head);
+
+    // new Log head + active Segments + cleaner pending Segments
+    size_t segmentCount = 1;
+    segmentCount += cleanableList.size() + cleanableNewList.size();
+    segmentCount += cleanablePendingDigestList.size();
+
+    size_t digestBytes = LogDigest::getBytesFromCount(segmentCount);
+    char temp[digestBytes];
+    LogDigest digest(segmentCount, temp, digestBytes);
+
+    while (!cleanablePendingDigestList.empty()) {
+        Segment& s = cleanablePendingDigestList.front();
+        cleanablePendingDigestList.pop_front();
+        cleanableNewList.push_back(s);
     }
 
-    uint64_t newHeadId = allocateSegmentId();
-    ld.addSegment(downCast<LogDigest::SegmentId>(newHeadId));
+    foreach (Segment& s, cleanableList)
+        digest.addSegment(s.getId());
 
-    return new Segment(this, newHeadId, getFromFreeList(),
-        downCast<uint32_t>(segmentCapacity), backup,
-        LOG_ENTRY_TYPE_LOGDIGEST, temp, digestBytes);
+    foreach (Segment& s, cleanableNewList)
+        digest.addSegment(s.getId());
+
+    digest.addSegment(newHeadId);
+
+    while(!freePendingDigestAndReferenceList.empty()) {
+        Segment& s = freePendingDigestAndReferenceList.front();
+        freePendingDigestAndReferenceList.pop_front();
+        freePendingReferenceList.push_back(s);
+    }
+
+    Segment* nextHead = new Segment(this, newHeadId, baseAddress,
+        segmentCapacity, backup, LOG_ENTRY_TYPE_LOGDIGEST, temp,
+        downCast<uint32_t>(digestBytes));
+
+    activeIdMap[nextHead->getId()] = nextHead;
+    activeBaseAddressMap[nextHead->getBaseAddress()] = nextHead;
+
+    // only close the old head _after_ we've opened up the new head!
+    if (head) {
+        head->close(false); // an exception here would be problematic...
+#ifdef PERF_DEBUG_RECOVERY_SYNC_BACKUP
+        head->sync();
+#endif
+    }
+
+    head = nextHead;
 }
 
 /**
@@ -144,13 +202,7 @@ Log::isSegmentLive(uint64_t segmentId) const
 uint64_t
 Log::getSegmentId(const void *p)
 {
-    const void *base = getSegmentBaseAddress(p);
-
-    BaseAddressMap::const_iterator it = activeBaseAddressMap.find(base);
-    if (it == activeBaseAddressMap.end())
-        throw LogException(HERE, "getSegmentId on invalid pointer");
-    Segment *s = it->second;
-    return s->getId();
+    return getSegmentFromAddress(p)->getId();
 }
 
 /**
@@ -213,20 +265,10 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
             stats.totalAppends++;
             return seh;
         }
-        // head segment is full
-        // allocate the next segment, /then/ close this one
-        Segment* nextHead = allocateHead();
-
-        head->close(false); // an exception here would be problematic...
-#ifdef PERF_DEBUG_RECOVERY_SYNC_BACKUP
-        head->sync();
-#endif
-        head = nextHead;
-    } else {
-        // allocate the first segment
-        head = allocateHead();
     }
-    addToActiveMaps(head);
+
+    // either the head Segment is full, or we've never allocated one
+    allocateHead();
 
     // append the entry
     seh = head->append(type, buffer,
@@ -236,8 +278,9 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
     if (logTime != NULL)
         *logTime = LogTime(head->getId(), segmentOffset);
 
-    if (useCleaner)
-        cleaner.clean(1);
+    if (cleanerOption == INLINED_CLEANER)
+        cleaner.clean();
+
     stats.totalAppends++;
     return seh;
 }
@@ -253,21 +296,14 @@ Log::append(LogEntryType type, const void *buffer, const uint64_t length,
 void
 Log::free(LogEntryHandle entry)
 {
-    const void *base = getSegmentBaseAddress(
-        reinterpret_cast<const void*>(entry));
-
-    BaseAddressMap::const_iterator it = activeBaseAddressMap.find(base);
-    if (it == activeBaseAddressMap.end())
-        throw LogException(HERE, "free on invalid pointer");
-    Segment *s = it->second;
-    s->free(entry);
+    getSegmentFromAddress(reinterpret_cast<const void*>(entry))->free(entry);
     stats.totalFrees++;
 }
 
 /**
  * Register a type with the Log. Types are used to differentiate data written
  * to the Log. When Segments are cleaned, all entries are scanned and the
- * eviction callback for each is fired to notify the owner that the data
+ * relocation callback for each is fired to notify the owner that the data
  * previously appended will be removed from the system. Is it up to the
  * callback to re-append it to the Log and invalidate pointers to the old
  * location.
@@ -278,21 +314,55 @@ Log::free(LogEntryHandle entry)
  * \param[in] type
  *      The type to be registered with the Log. Types may only be registered
  *      once.
- * \param[in] evictionCB
- *      The eviction callback to be registered with the provided type.
- * \param[in] evictionArg
- *      A void* argument to be passed to the eviction callback.
+ * \param[in] livenessCB
+ *      The liveness callback to be registered with the provided type.
+ * \param[in] livenessArg
+ *      A void* argument to be passed to the liveness callback.
+ * \param[in] relocationCB
+ *      The relocation callback to be registered with the provided type.
+ * \param[in] relocationArg
+ *      A void* argument to be passed to the relocation callback.
+ * \param[in] timestampCB
+ *      The callback to determine the modification time of objects of this
+ *      type in RAMCloud seconds (see #secondsTimestamp).
  * \throw LogException
  *      An exception is thrown if the type has already been registered.
  */
 void
 Log::registerType(LogEntryType type,
-                  log_eviction_cb_t evictionCB, void *evictionArg)
+                  log_liveness_cb_t livenessCB,
+                  void *livenessArg,
+                  log_relocation_cb_t relocationCB,
+                  void *relocationArg,
+                  log_timestamp_cb_t timestampCB)
 {
     if (contains(callbackMap, type))
         throw LogException(HERE, "type already registered with the Log");
 
-    callbackMap[type] = new LogTypeCallback(type, evictionCB, evictionArg);
+    callbackMap[type] = new LogTypeCallback(type,
+                                            livenessCB,
+                                            livenessArg,
+                                            relocationCB,
+                                            relocationArg,
+                                            timestampCB);
+}
+
+/**
+ * Return the callbacks associated with a particular type.
+ *
+ * \param[in] type
+ *      The type registered with the log.
+ * \return
+ *      NULL if 'type' was not registered, else a pointer to the
+ *      associated LogTypeCallback.
+ */
+const LogTypeCallback*
+Log::getCallbacks(LogEntryType type)
+{
+    if (contains(callbackMap, type))
+        return callbackMap[type];
+
+    return NULL;
 }
 
 /// Wait for all segments to be fully replicated.
@@ -322,63 +392,10 @@ Log::getBytesAppended() const
     return stats.totalBytesAppended;
 }
 
-////////////////////////////////////
-/// Private Methods
-////////////////////////////////////
-
-/**
- * Provide the Log with a single contiguous piece of backing Segment memory.
- * The memory provided must of at least as large as the #segmentCapacity
- * parameter provided to the Log constructor. This function must be called
- * once for each Segment.
- * \param[in] p
- *      Memory to be added to the Log for use as segments.
- */
-void
-Log::addSegmentMemory(void *p)
+uint64_t
+Log::getBytesFreed() const
 {
-    addToFreeList(p);
-
-    if (maximumAppendableBytes == 0) {
-        Segment s((uint64_t)0, 0, p, downCast<uint32_t>(segmentCapacity));
-        maximumAppendableBytes = s.appendableBytes();
-    }
-}
-
-/**
- * Add a Segment to various structures tracking live Segments in the Log.
- * \param[in] s
- *      The new Segment to be added.
- */
-void
-Log::addToActiveMaps(Segment *s)
-{
-    activeIdMap[s->getId()] = s;
-    activeBaseAddressMap[s->getBaseAddress()] = s;
-}
-
-/**
- * Remove a Segment from various structures tracing live Segments in the Log.
- * \param[in] s
- *      The Segment to be removed.
- */
-void
-Log::eraseFromActiveMaps(Segment *s)
-{
-    activeIdMap.erase(s->getId());
-    activeBaseAddressMap.erase(s->getBaseAddress());
-}
-
-/**
- * Add Segment backing memory to the free list.
- * \param[in] p
- *      Pointer to the memory to be added. The allocated memory must be
- *      at least #segmentCapacity bytes in length.
- */
-void
-Log::addToFreeList(void *p)
-{
-    segmentFreeList.push_back(p);
+    return stats.totalBytesFreed;
 }
 
 /**
@@ -392,13 +409,55 @@ Log::addToFreeList(void *p)
 void *
 Log::getFromFreeList()
 {
-    if (segmentFreeList.empty())
+    boost::lock_guard<SpinLock> lock(listLock);
+
+    if (freeList.empty())
         throw LogException(HERE, "Log is out of space");
 
-    void *p = segmentFreeList.back();
-    segmentFreeList.pop_back();
+    void *p = freeList.back();
+    freeList.pop_back();
 
     return p;
+}
+
+void
+Log::getNewActiveSegments(SegmentVector& out)
+{
+    boost::lock_guard<SpinLock> lock(listLock);
+
+    while (!cleanableNewList.empty()) {
+        Segment& s = cleanableNewList.front();
+        cleanableNewList.pop_front();
+        cleanableList.push_back(s);
+        out.push_back(&s);
+    }
+}
+
+void
+Log::cleaningComplete(SegmentVector& live, SegmentVector& clean)
+{
+    boost::lock_guard<SpinLock> lock(listLock);
+
+    // XXX- allocated Segments aren't on any list...
+    //      should we create a list for them just so they're
+    //      tracked?
+
+    foreach (Segment* s, live)
+        cleanablePendingDigestList.push_back(*s);
+
+    foreach (Segment* s, clean) { 
+        cleanableList.erase(cleanableList.iterator_to(*s));
+        freePendingDigestAndReferenceList.push_back(*s);
+    }
+
+    // XXX- this is a good time to check the 'freePendingReferenceList'
+    //      and move any of those guys on to the freeList, if possible.
+    foreach (Segment& s, freePendingReferenceList) {
+        (void)s;
+
+        //activeIdMap.erase(s.getId());
+        //activeBaseAddressMap.erase(s.getBaseAddress());
+    }
 }
 
 /**
@@ -410,20 +469,56 @@ Log::getFromFreeList()
 uint64_t
 Log::allocateSegmentId()
 {
+    // XXX- could just be an atomic op
+    boost::lock_guard<SpinLock> lock(listLock);
     return nextSegmentId++;
 }
 
+////////////////////////////////////
+/// Private Methods
+////////////////////////////////////
+
 /**
- * Given a pointer anywhere into a Segment's backing memeory that's part of
- * this Log, obtain the base address of that memory. This function returns
- * a pointer to an element that either is, or was on the segmentFreeList.
+ * Provide the Log with a single contiguous piece of backing Segment memory.
+ * The memory provided must of at least as large as #segmentCapacity. 
+ * This function must be called once for each Segment.
+ * \param[in] p
+ *      Memory to be added to the Log for use as segments.
  */
-const void *
-Log::getSegmentBaseAddress(const void *p)
+void
+Log::addSegmentMemory(void *p)
 {
-    const char* logStart = reinterpret_cast<const char*>(segmentMemory.get());
-    const char* base = reinterpret_cast<const char*>(p);
-    return base - ((base - logStart) % segmentCapacity);
+    boost::lock_guard<SpinLock> lock(listLock);
+
+    freeList.push_back(p);
+
+    if (maximumAppendableBytes == 0) {
+        Segment s((uint64_t)0, 0, p, segmentCapacity);
+        maximumAppendableBytes = s.appendableBytes();
+    }
+}
+
+/**
+ * Given a pointer into the backing memory of some Segment, return
+ * the Segment object associated with it.
+ *
+ * \throw LogException 
+ *      An exception is thrown if no corresponding Segment could be
+ *      found (i.e. the pointer is bogus).
+ */
+Segment*
+Log::getSegmentFromAddress(const void* address)
+{
+    const void *base = Segment::getSegmentBaseAddress(address, segmentCapacity);
+
+    if (head != NULL && base == head->getBaseAddress())
+        return head;
+
+    BaseAddressMap::const_iterator it = activeBaseAddressMap.find(base);
+    if (it == activeBaseAddressMap.end())
+        throw LogException(HERE, "getSegmentId on invalid pointer");
+
+    return it->second;
 }
 
 /**
@@ -444,6 +539,24 @@ Log::getCapacity() const
     return logCapacity;
 }
 
+/**
+ * Obtain the capacity of the Log Segments in bytes.
+ */
+uint32_t
+Log::getSegmentCapacity() const
+{
+    return segmentCapacity;
+}
+
+/**
+ * Obtain the maximum number of Segments in the Log.
+ */
+size_t
+Log::getNumberOfSegments() const
+{
+    return logCapacity / segmentCapacity;
+}
+
 ////////////////////////////////////
 // LogStats subclass
 ////////////////////////////////////
@@ -451,6 +564,7 @@ Log::getCapacity() const
 Log::LogStats::LogStats()
     : totalBytesAppended(0),
       totalAppends(0),
+      totalBytesFreed(0),
       totalFrees(0)
 {
 }
@@ -465,6 +579,12 @@ uint64_t
 Log::LogStats::getAppends() const
 {
     return totalAppends;
+}
+
+uint64_t
+Log::LogStats::getBytesFreed() const
+{
+    return totalBytesFreed;
 }
 
 uint64_t

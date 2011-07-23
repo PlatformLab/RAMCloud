@@ -20,10 +20,12 @@
 #include <boost/unordered_map.hpp>
 #include <vector>
 
+#include "BoostIntrusive.h"
 #include "LargeBlockOfMemory.h"
 #include "LogCleaner.h"
 #include "LogTypes.h"
 #include "Segment.h"
+#include "SpinLock.h"
 #include "BackupManager.h"
 
 namespace RAMCloud {
@@ -46,28 +48,33 @@ struct LogException : public Exception {
 // Use the same handle for Segments and the Log.
 typedef SegmentEntryHandle LogEntryHandle;
 
-/**
- * LogTime is a (Segment #, Segment Offset) tuple that represents the logical
- * time at which something was appended to the Log. It is currently only used
- * for computing table partitions.
- */
-typedef std::pair<uint64_t, uint64_t> LogTime;
-
-typedef void (*log_eviction_cb_t)(LogEntryHandle, const LogTime, void *);
+typedef bool (*log_liveness_cb_t)(LogEntryHandle, void *);
+typedef bool (*log_relocation_cb_t)(LogEntryHandle, LogEntryHandle, void *);
+typedef uint32_t (*log_timestamp_cb_t)(LogEntryHandle);
 
 class LogTypeCallback {
   public:
     LogTypeCallback(LogEntryType type,
-                     log_eviction_cb_t evictionCB, void *evictionArg)
+                    log_liveness_cb_t livenessCB,
+                    void *livenessArg,
+                    log_relocation_cb_t relocationCB,
+                    void *relocationArg,
+                    log_timestamp_cb_t timestampCB)
         : type(type),
-          evictionCB(evictionCB),
-          evictionArg(evictionArg)
+          livenessCB(livenessCB),
+          livenessArg(livenessArg),
+          relocationCB(relocationCB),
+          relocationArg(relocationArg),
+          timestampCB(timestampCB)
     {
     }
 
     const LogEntryType        type;
-    const log_eviction_cb_t   evictionCB;
-    void                     *evictionArg;
+    const log_liveness_cb_t   livenessCB;
+    void                     *livenessArg;
+    const log_relocation_cb_t relocationCB;
+    void                     *relocationArg;
+    const log_timestamp_cb_t  timestampCB;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(LogTypeCallback);
@@ -75,12 +82,24 @@ class LogTypeCallback {
 
 class Log {
   public:
+    /// We have various options for cleaning. We can disable it entirely,
+    /// run the cleaner in a separate thread, or run the cleaner on demand
+    /// in the same thread as the Log (i.e. inlined). In the future, we may
+    /// want to support choosing different cleaning policies entirely, in
+    /// addition to concurrent/inlined operation.
+    typedef enum {
+        CLEANER_DISABLED   = 0,
+        CONCURRENT_CLEANER = 1,
+        INLINED_CLEANER    = 2
+    } CleanerOption;
+
     Log(const Tub<uint64_t>& logId,
         uint64_t logCapacity,
-        uint64_t segmentCapacity,
-        BackupManager *backup = NULL);
+        uint32_t segmentCapacity,
+        BackupManager *backup = NULL,
+        CleanerOption cleanerOption = CONCURRENT_CLEANER);
     ~Log();
-    Segment*       allocateHead();
+    void           allocateHead();
     LogEntryHandle append(LogEntryType type,
                           const void *buffer,
                           uint64_t length,
@@ -91,15 +110,28 @@ class Log {
                             Tub<SegmentChecksum::ResultType>());
     void           free(LogEntryHandle entry);
     void           registerType(LogEntryType type,
-                                log_eviction_cb_t evictionCB,
-                                void *evictionArg);
+                                log_liveness_cb_t livenessCB,
+                                void *livenessArg,
+                                log_relocation_cb_t relocationCB,
+                                void *relocationArg,
+                                log_timestamp_cb_t timestampCB);
+    const LogTypeCallback* getCallbacks(LogEntryType type);
     void           sync();
     uint64_t       getSegmentId(const void *p);
     bool           isSegmentLive(uint64_t segmentId) const;
     uint64_t       getMaximumAppendableBytes() const;
     uint64_t       getBytesAppended() const;
+    uint64_t       getBytesFreed() const;
     uint64_t       getId() const;
     uint64_t       getCapacity() const;
+    uint32_t       getSegmentCapacity() const;
+    size_t         getNumberOfSegments() const;
+
+    // These public methods are only to be externally used by the cleaner.
+    void           getNewActiveSegments(SegmentVector& out);
+    void           cleaningComplete(SegmentVector& live, SegmentVector &clean);
+    void          *getFromFreeList();
+    uint64_t       allocateSegmentId();
 
     // This class is shared between the Log and its consituent Segments
     // to maintain various counters.
@@ -108,11 +140,13 @@ class Log {
         LogStats();
         uint64_t getBytesAppended() const;
         uint64_t getAppends() const;
+        uint64_t getBytesFreed() const;
         uint64_t getFrees() const;
 
       private:
         uint64_t totalBytesAppended;
         uint64_t totalAppends;
+        uint64_t totalBytesFreed;
         uint64_t totalFrees;
 
         // permit direct twiddling of counters by authorised classes
@@ -124,47 +158,123 @@ class Log {
     LogStats    stats;
 
   private:
+    class SegmentDisposer {
+      public:
+        void
+        operator()(Segment* segment)
+        {
+            delete segment;
+        }
+    };
+
+    // typedefs for various lists and maps
+    INTRUSIVE_LIST_TYPEDEF(Segment, listEntries) SegmentList;
+    typedef std::vector<void*> FreeList;
+    typedef boost::unordered_map<LogEntryType, LogTypeCallback *> CallbackMap;
+    typedef boost::unordered_map<uint64_t, Segment *> ActiveIdMap;
+    typedef boost::unordered_map<const void *, Segment *> BaseAddressMap;
+
     void        addSegmentMemory(void *p);
-    void        addToActiveMaps(Segment *s);
-    void        eraseFromActiveMaps(Segment *s);
-    void        addToFreeList(void *p);
-    void       *getFromFreeList();
-    uint64_t    allocateSegmentId();
-    const void *getSegmentBaseAddress(const void *p);
+    void        markActive(Segment *s);
+    Segment*    getSegmentFromAddress(const void*);
 
     const Tub<uint64_t>& logId;
     uint64_t       logCapacity;
-    uint64_t       segmentCapacity;
+    uint32_t       segmentCapacity;
 
     /// A very large memory allocation that backs all segments.
     LargeBlockOfMemory<> segmentMemory;
 
-    vector<void *> segmentFreeList;
     uint64_t       nextSegmentId;
     uint64_t       maximumAppendableBytes;
-    bool           useCleaner;      // allow tests to disable cleaner
-    LogCleaner     cleaner;
 
-    /// Current head of the log
+    /*
+     * The following members track all Segments in the system. At any point
+     * when #listInterlock is not held, every Segment is in one and only
+     * one of the below states. In addition, any free Segment backing
+     * memory is on the freeList.
+     */
+
+    /// Current head of the log.
     Segment *head;
 
-    typedef boost::unordered_map<LogEntryType, LogTypeCallback *> CallbackMap;
-    /// Per-LogEntryType callbacks (e.g. for eviction)
-    CallbackMap callbackMap;
+    /// List of free #segmentCapacity blocks of memory that aren't associated
+    /// with a Segment object. These can be used to create new Segments by
+    /// either the Log or the LogCleaner.
+    FreeList freeList;
 
-    typedef boost::unordered_map<uint64_t, Segment *> ActiveIdMap;
-    /// Segment Id -> Segment * lookup within the active list
+    /// List of Segments the log has just written to and closed, but which
+    /// the cleaner is not yet aware of. The cleaner obtains a list of
+    /// newly closed head Segments when updating its internal structures in
+    /// preparation for a cleaning pass.
+    SegmentList cleanableNewList;
+
+    /// List of closed Segments that are part of the Log. This includes all
+    /// Segments the LogCleaner is aware of (Segments the Log has written,
+    /// as well as Segments the LogCleaner has generated during cleaning).
+    /// Every Segment on this list was previously on the #cleanableNewList.
+    /// Segments transition to this list when the LogCleaner learns about
+    /// them via the #getNewActiveSegments() method.
+    SegmentList cleanableList;
+
+    /// List of new Segments generated by the cleaner that need to be added
+    /// to the Log. Once a LogDigest containing these Segment's identifiers
+    /// has been persisted, these are transferred to the cleanableNewList.
+    SegmentList cleanablePendingDigestList;
+
+    /// List of Segments with no live data (any live data has been written
+    /// to Segments and added to the #cleanablePendingDigestList). Once this
+    //  list and the #cleanablePendingDigestList have been emptied and applied
+    //  to a LogDigest, these Segments are moved to the
+    //  #freePendingReferenceList.
+    SegmentList freePendingDigestAndReferenceList;
+
+    /// List of Segments that contain no live data, but which may have
+    /// outstanding references (e.g. in Buffers deep within the various
+    /// Transports). Once it has been determined that no data is referenced
+    /// in a Segment of this list it can be destroyed and the backing memory
+    /// returned to the freeList.
+    SegmentList freePendingReferenceList;
+
+    /// Segment Id -> Segment * lookup within the active Segments (any Segment
+    /// that exists in the system, including the log head). This is used
+    /// during cleaning to check if a given SegmentId is currently valid in
+    /// the system (e.g. does the Segment a Tombstone refers to still exist?).
     ActiveIdMap activeIdMap;
 
-    typedef boost::unordered_map<const void *, Segment *> BaseAddressMap;
-    /// Segment base address -> Segment * lookup within the active list
+    /// Segment base address -> Segment * lookup within the active Segments (any
+    /// Segment that exists in the system, including the log head). This is used
+    /// during object deletion to obtain a reference to the associated Segment
+    /// so that utilisation statistics can be updated.
+
+    // XXX- We can do away with this at least two different ways. The first is
+    //      to not update stats as we go, but have the LogCleaner do so by
+    //      checking if each object is live. Alternatively, we can just ensure
+    //      that Segment objects are allocated contiguously and compute the
+    //      offset. If we do that, we can then just add space to the backing
+    //      memory for a Segment and do placement new on that.
     BaseAddressMap activeBaseAddressMap;
+
+    /// Per-LogEntryType callbacks (e.g. for relocation).
+    CallbackMap callbackMap;
+
+    /// Used to serialise access between the Log code and the LogCleaner
+    /// (which only interacts with the Log vi Log methods). The interlock
+    /// protects Segments are they are added to and removed from the
+    /// various lists and maps that represent their current state.
+    SpinLock listLock;
 
     /// Given to Segments to make them durable
     BackupManager *backup;
 
+    /// If true, never run the cleaner. Only ever used for testing.
+    CleanerOption  cleanerOption;
+
+    /// Cleaner. Must come after backup so that it can create its own
+    /// BackupManager from the Log's.
+    LogCleaner     cleaner;
+
     friend class LogTest;
-    friend class LogCleaner;
 
     DISALLOW_COPY_AND_ASSIGN(Log);
 };
@@ -187,13 +297,13 @@ class LogDigest {
      * \param[in] length
      *      Length of the buffer pointed to by ``base'' in bytes.
      */
-    LogDigest(uint32_t segmentCount, void* base, uint32_t length)
+    LogDigest(size_t segmentCount, void* base, size_t length)
         : ldd(static_cast<LogDigestData*>(base)),
           currentSegment(0)
     {
         assert(length >= getBytesFromCount(segmentCount));
-        ldd->segmentCount = segmentCount;
-        for (uint32_t i = 0; i < segmentCount; i++)
+        ldd->segmentCount = downCast<uint32_t>(segmentCount);
+        for (size_t i = 0; i < segmentCount; i++)
             ldd->segmentIds[i] = static_cast<SegmentId>(
                                             Segment::INVALID_SEGMENT_ID);
     }
@@ -210,9 +320,9 @@ class LogDigest {
      * \param[in] length
      *      Length of the buffer pointed to by ``base'' in bytes.
      */
-    LogDigest(const void* base, uint32_t length)
+    LogDigest(const void* base, size_t length)
         : ldd(static_cast<LogDigestData*>(const_cast<void*>(base))),
-          currentSegment(ldd->segmentCount)
+          currentSegment(downCast<uint32_t>(ldd->segmentCount))
     {
     }
 
@@ -241,11 +351,10 @@ class LogDigest {
      * Return the number of bytes needed to store a LogDigest
      * that contains ``segmentCount'' Segment IDs.
      */
-    static uint32_t
-    getBytesFromCount(uint32_t segmentCount)
+    static size_t
+    getBytesFromCount(size_t segmentCount)
     {
-        return downCast<uint32_t>(sizeof(LogDigestData) +
-                                  segmentCount * sizeof(SegmentId));
+        return sizeof(LogDigestData) + (segmentCount * sizeof(SegmentId));
     }
 
     /**
@@ -256,7 +365,7 @@ class LogDigest {
     /**
      * Return the number of bytes this LogDigest uses.
      */
-    uint32_t getBytes() { return getBytesFromCount(ldd->segmentCount); }
+    size_t getBytes() { return getBytesFromCount(ldd->segmentCount); }
 
   private:
     struct LogDigestData {

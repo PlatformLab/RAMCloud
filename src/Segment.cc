@@ -36,9 +36,11 @@ namespace RAMCloud {
  * \param[in] segmentId
  *      The unique identifier for this Segment.
  * \param[in] baseAddress
- *      A pointer to memory that will back this Segment.
+ *      A pointer to memory that will back this Segment. The memory must be at
+ *      least #capacity bytes in length as well as power-of-two aligned.
  * \param[in] capacity
- *      The size of the backing memory pointed to by baseAddress in bytes.
+ *      The size of the backing memory pointed to by baseAddress in bytes. Must
+ *      be a power of two.
  * \param[in] backup
  *      The BackupManager responsible for this Segment's durability.
  * \param[in] type
@@ -53,9 +55,14 @@ namespace RAMCloud {
  * \return
  *      The newly constructed Segment object.
  */
-Segment::Segment(Log *log, uint64_t segmentId, void *baseAddress,
-    uint32_t capacity, BackupManager *backup,
-    LogEntryType type, const void *buffer, uint32_t length)
+Segment::Segment(Log *log,
+                 uint64_t segmentId,
+                 void *baseAddress,
+                 uint32_t capacity,
+                 BackupManager *backup,
+                 LogEntryType type,
+                 const void *buffer,
+                 uint32_t length)
     : backup(backup),
       baseAddress(baseAddress),
       log(log),
@@ -64,8 +71,12 @@ Segment::Segment(Log *log, uint64_t segmentId, void *baseAddress,
       capacity(capacity),
       tail(0),
       bytesFreed(0),
+      spaceTimeSum(0),
       checksum(),
+      prevChecksum(),
+      canRollBack(false),
       closed(false),
+      listEntries(),
       backupSegment(NULL)
 {
     commonConstructor(type, buffer, length);
@@ -78,16 +89,21 @@ Segment::Segment(Log *log, uint64_t segmentId, void *baseAddress,
  * \param[in] segmentId
  *      The unique identifier for this Segment.
  * \param[in] baseAddress
- *      A pointer to memory that will back this Segment.
+ *      A pointer to memory that will back this Segment. The memory must be at
+ *      least #capacity bytes in length as well as power-of-two aligned.
  * \param[in] capacity
- *      The size of the backing memory pointed to by baseAddress in bytes.
+ *      The size of the backing memory pointed to by baseAddress in bytes. Must
+ *      be a power of two.
  * \param[in] backup
  *      The BackupManager responsible for this Segment's durability.
  * \return
  *      The newly constructed Segment object.
  */
-Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
-    uint32_t capacity, BackupManager *backup)
+Segment::Segment(uint64_t logId,
+                 uint64_t segmentId,
+                 void *baseAddress,
+                 uint32_t capacity,
+                 BackupManager *backup)
     : backup(backup),
       baseAddress(baseAddress),
       log(NULL),
@@ -96,8 +112,12 @@ Segment::Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
       capacity(capacity),
       tail(0),
       bytesFreed(0),
+      spaceTimeSum(0),
       checksum(),
+      prevChecksum(),
+      canRollBack(false),
       closed(false),
+      listEntries(),
       backupSegment(NULL)
 {
     commonConstructor(LOG_ENTRY_TYPE_INVALID, NULL, 0);
@@ -120,8 +140,16 @@ void
 Segment::commonConstructor(LogEntryType type,
                            const void *buffer, uint32_t length)
 {
-    assert(capacity >= sizeof(SegmentEntry) + sizeof(SegmentHeader) +
-                       sizeof(SegmentEntry) + sizeof(SegmentFooter));
+    if (!isPowerOfTwo(capacity))
+        throw SegmentException(HERE, "segment capacity must be a power of two");
+
+    if (capacity < (sizeof(SegmentEntry) + sizeof(SegmentHeader) +
+                    sizeof(SegmentEntry) + sizeof(SegmentFooter))) {
+        throw SegmentException(HERE, "segment capacity is too small");
+    }
+
+    if ((reinterpret_cast<uintptr_t>(baseAddress) % capacity) != 0)
+        throw SegmentException(HERE, "segment memory not aligned to capacity");
 
     SegmentHeader segHdr = { logId, id, capacity };
     SegmentEntryHandle h = forceAppendWithEntry(LOG_ENTRY_TYPE_SEGHEADER,
@@ -157,15 +185,6 @@ Segment::~Segment()
  *      Data to be appended to this Segment.
  * \param[in] length
  *      Length of the data to be appended in bytes.
- * \param[in] sync
- *      If true then this write to replicated to backups before return,
- *      otherwise the replication will happen on a subsequent append()
- *      where sync is true or when the segment is closed.  This defaults
- *      to true.
- * \param[in] expectedChecksum
- *      The checksum we expect this entry to have once appended. If the
- *      actual calculated checksum does not match, an exception is
- *      thrown and nothing is appended. This parameter is optional.
  * \param[out] lengthInSegment
  *      If non-NULL, the actual number of bytes consumed by this append to
  *      the Segment is stored to this address. Note that this size includes
@@ -176,6 +195,15 @@ Segment::~Segment()
  *      performed is returned here. Note that this offset does not correspond
  *      to where the contents of ``buffer'' was written, but to the preceding
  *      metadata for this operation.
+ * \param[in] sync
+ *      If true then this write to replicated to backups before return,
+ *      otherwise the replication will happen on a subsequent append()
+ *      where sync is true or when the segment is closed.  This defaults
+ *      to true.
+ * \param[in] expectedChecksum
+ *      The checksum we expect this entry to have once appended. If the
+ *      actual calculated checksum does not match, an exception is
+ *      thrown and nothing is appended. This parameter is optional.
  * \return
  *      On success, a SegmentEntryHandle is returned, which points to the
  *      ``buffer'' written. On failure, the handle is NULL. We avoid using
@@ -198,8 +226,80 @@ Segment::append(LogEntryType type, const void *buffer, uint32_t length,
 }
 
 /**
+ * Append an entry described by a given SegmentEntryHandle. This method is used
+ * exclusively by the cleaner as a simple way to write existing entries to a
+ * new Segment.
+ *
+ * \param[in] handle
+ *      Handle to the object we want to append to this Segment.
+ * \param[out] offsetInSegment
+ *      If non-NULL, the offset in this Segment at which the operation was
+ *      performed is returned here. Note that this offset does not correspond
+ *      to where the contents of ``buffer'' was written, but to the preceding
+ *      metadata for this operation.
+ * \param[in] sync
+ *      If true then this write to replicated to backups before return,
+ *      otherwise the replication will happen on a subsequent append()
+ *      where sync is true or when the segment is closed.  This defaults
+ *      to true.
+ */
+SegmentEntryHandle
+Segment::append(SegmentEntryHandle handle, uint64_t *offsetInSegment, bool sync)
+{
+    return append(handle->type(),
+                  handle->userData<void*>(),
+                  handle->length(),
+                  NULL,
+                  offsetInSegment,
+                  sync,
+                  Tub<SegmentChecksum::ResultType>(handle->checksum()));
+}
+
+/**
+ * Undo the previous append operation. This function exists for the cleaning
+ * code: we need to store an entry in a new Segment before we know whether it
+ * will actually be used (it may have been overwritten/deleted since). If its
+ * not used, it must be rolled back, otherwise we could recover a dead object
+ * on recovery.
+ *
+ * \param[in] handle
+ *      Handle to the entry returned by the previous #append() operation.
+ *      The previous append must not have synced the data to backups.
+ * \throw SegmentException
+ *      A SegmentException is thrown if rolling back is not possible This
+ *      can be due to several reasons: the Segment has since been closed,
+ *      the handle is invalid or does not refer to the last entry in the
+ *      Segment (other appends may have taken place), or the append
+ *      operation that wrote the entry was synchronous (i.e. replicated
+ *      the data to backups). Currently only asynchronous appends may be
+ *      rolled back. 
+ */
+void
+Segment::rollBack(SegmentEntryHandle handle)
+{
+    if (closed)
+        throw SegmentException(HERE, "Cannot roll back on closed Segment");
+
+    if (!canRollBack)
+        throw SegmentException(HERE, "Cannot roll back any further!");
+
+    uintptr_t handleBase  = reinterpret_cast<uintptr_t>(handle->userData());
+    uintptr_t currentBase = reinterpret_cast<uintptr_t>(baseAddress);
+    if (handleBase + handle->length() != currentBase + tail)
+        throw SegmentException(HERE, "Invalid handle to last appended entry");
+
+    checksum = prevChecksum;
+    canRollBack = false;
+    tail -= handle->totalLength();
+    decrementSpaceTimeSum(handle);
+}
+
+/**
  * Mark bytes used by a single entry in this Segment as freed. This simply
- * maintains a tally that can be used to compute utilisation of the Segment.
+ * maintains counters that can be used to compute utilisation of the Segment,
+ * as well as a space-weighted age of entries (for computing a mean age of
+ * data in the segment).
+ *
  * \param[in] entry
  *      A SegmentEntryHandle as returned by an #append call.
  */
@@ -215,6 +315,8 @@ Segment::free(SegmentEntryHandle entry)
     assert((bytesFreed + length) <= tail);
 
     bytesFreed += length;
+
+    decrementSpaceTimeSum(entry);
 }
 
 /**
@@ -326,9 +428,92 @@ Segment::getUtilisation() const
     return static_cast<int>((100UL * (tail - bytesFreed)) / capacity);
 }
 
+/**
+ * Return the number of bytes that aren't being used in the Segment. This is
+ * the number of bytes that could be freed up if this Segment were to be
+ * cleaned.
+ */
+uint32_t
+Segment::getFreeBytes() const
+{
+    uint32_t liveBytes = tail - bytesFreed;
+    return capacity - liveBytes;
+}
+
+/**
+ * Return a RAMCloud timestamp that's indicates the average time each byte
+ * was written in this Segment. This can be used to tell the average age
+ * of data in the Segment.
+ *
+ * \throw SegmentException
+ *      A SegmentException is thrown if this method is called on a Segment
+ *      that isn't part of a Log (i.e. if an alternate constructor was used
+ *      that did not take in a Log pointer). Access to Log callbacks is
+ *      needed to obtain ages for registered types.
+ */
+uint64_t
+Segment::getAverageTimestamp() const
+{
+    if (!log) {
+        throw SegmentException(HERE, format("%s() is only valid "
+                                     "if Segment is part of a log", __func__));
+    }
+
+    uint64_t liveBytes = tail - bytesFreed;
+    if (liveBytes == 0)
+        return 0;
+
+    return spaceTimeSum / liveBytes;
+}
+
 ////////////////////////////////////////
 /// Private Methods
 ////////////////////////////////////////
+
+/**
+ * Increment the spaceTime product sum in light of a new entry.
+ *
+ * \param[in] handle
+ *      Handle of the entry appended.
+ */
+void
+Segment::incrementSpaceTimeSum(SegmentEntryHandle handle)
+{
+    adjustSpaceTimeSum(handle, false);
+}
+
+/**
+ * Decrement the spaceTime product sum in light of a dead entry.
+ *
+ * \param[in] handle
+ *      Handle of the entry freed.
+ */
+void
+Segment::decrementSpaceTimeSum(SegmentEntryHandle handle)
+{
+    adjustSpaceTimeSum(handle, true);
+}
+
+/**
+ * Helper for #incrementSpaceTimeSum and #decrementSpaceTimeSum.
+ */
+void
+Segment::adjustSpaceTimeSum(SegmentEntryHandle handle, bool subtract)
+{
+    if (log) {
+        const LogTypeCallback *cb = log->getCallbacks(handle->type());
+        if (cb != NULL) {
+            uint32_t timestamp = cb->timestampCB(handle);
+            uint64_t product = (uint64_t)timestamp * handle->totalLength();
+            if (subtract) {
+                assert(product <= spaceTimeSum);
+                spaceTimeSum -= product;
+            } else {
+                spaceTimeSum += product;
+            }
+        }
+    }
+}
 
 /**
  * Append exactly the provided raw bytes to the memory backing this Segment.
@@ -417,6 +602,7 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
                 "expected (wanted: 0x%08x, got 0x%08x)", *expectedChecksum,
                 entry.checksum));
         }
+        prevChecksum = checksum;
         checksum.update(&entry.checksum, sizeof(entry.checksum));
     }
 #endif
@@ -433,7 +619,15 @@ Segment::forceAppendWithEntry(LogEntryType type, const void *buffer,
     if (lengthOfAppend != NULL)
         *lengthOfAppend = needBytes;
 
-    return reinterpret_cast<SegmentEntryHandle>(entryPointer);
+    SegmentEntryHandle handle =
+        reinterpret_cast<SegmentEntryHandle>(entryPointer);
+
+    incrementSpaceTimeSum(handle);
+
+    // If we haven't synced it yet, we can roll it back.
+    canRollBack = !sync;
+
+    return handle;
 }
 
 } // namespace

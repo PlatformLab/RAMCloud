@@ -27,18 +27,24 @@
 #include "Segment.h"
 #include "ServiceManager.h"
 #include "Transport.h"
+#include "WallTime.h"
 #include "Will.h"
 
 namespace RAMCloud {
 
 // --- MasterService ---
 
-void objectEvictionCallback(LogEntryHandle handle,
-                            const LogTime,
-                            void* cookie);
-void tombstoneEvictionCallback(LogEntryHandle handle,
-                               const LogTime,
-                               void* cookie);
+bool objectLivenessCallback(LogEntryHandle handle, void*);
+bool objectRelocationCallback(LogEntryHandle oldHandle,
+                              LogEntryHandle newHandle,
+                              void* cookie);
+uint32_t objectTimestampCallback(LogEntryHandle handle);
+
+bool tombstoneLivenessCallback(LogEntryHandle handle, void*);
+bool tombstoneRelocationCallback(LogEntryHandle oldHandle,
+                                 LogEntryHandle newHandle,
+                                 void* cookie);
+uint32_t tombstoneTimestampCallback(LogEntryHandle handle);
 
 /**
  * Construct a MasterService.
@@ -64,8 +70,18 @@ MasterService::MasterService(const ServerConfig config,
         HashTable<LogEntryHandle>::bytesPerCacheLine())
     , tablets()
 {
-    log.registerType(LOG_ENTRY_TYPE_OBJ, objectEvictionCallback, this);
-    log.registerType(LOG_ENTRY_TYPE_OBJTOMB, tombstoneEvictionCallback, this);
+    log.registerType(LOG_ENTRY_TYPE_OBJ,
+                     objectLivenessCallback,
+                     this,
+                     objectRelocationCallback,
+                     this,
+                     objectTimestampCallback);
+    log.registerType(LOG_ENTRY_TYPE_OBJTOMB,
+                     tombstoneLivenessCallback,
+                     this,
+                     tombstoneRelocationCallback,
+                     this,
+                     tombstoneTimestampCallback);
 }
 
 MasterService::~MasterService()
@@ -1312,47 +1328,23 @@ MasterService::rejectOperation(const RejectRules* rejectRules, uint64_t version)
 // and there are no unit tests for it.
 //-----------------------------------------------------------------------
 
-/**
- * Callback used by the LogCleaner when it's cleaning a Segment and evicts
- * an Object (i.e. an entry of type LOG_ENTRY_TYPE_OBJ).
- *
- * Upon return, the object will be discarded. Objects must therefore be
- * perpetuated when the object being evicted is exactly the object referenced
- * by the hash table. Otherwise, it's an old object and a tombstone for it
- * exists.
- *
- * \param[in]  handle
- *      LogEntryHandle to the entry being evicted.
- * \param[in]  logTime
- *      The LogTime corresponding to the append operation that wrote this
- *      entry.
- * \param[in]  cookie
- *      The opaque state pointer registered with the callback.
- */
-void
-objectEvictionCallback(LogEntryHandle handle,
-                       const LogTime logTime,
-                       void* cookie)
+bool
+objectLivenessCallback(LogEntryHandle handle, void* cookie)
 {
     assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
 
-    MasterService *svr = static_cast<MasterService *>(cookie);
+    MasterService* svr = static_cast<MasterService *>(cookie);
     assert(svr != NULL);
 
-    Log& log = svr->log;
-
-    const Object *evictObj = handle->userData<Object>();
+    const Object* evictObj = handle->userData<Object>();
     assert(evictObj != NULL);
 
-    Table *t = NULL;
+    Table* t = NULL;
     try {
         t = &svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
                            evictObj->id.objectId);
     } catch (TableDoesntExistException& e) {
-        // That tablet doesn't exist on this server anymore.
-        // Just remove the hash table entry, if it exists.
-        svr->objectMap.remove(evictObj->id.tableId, evictObj->id.objectId);
-        return;
+        return false;
     }
 
     LogEntryHandle hashTblHandle =
@@ -1361,72 +1353,197 @@ objectEvictionCallback(LogEntryHandle handle,
     const Object *hashTblObj = hashTblHandle->userData<Object>();
 
     // simple pointer comparison suffices
-    if (hashTblObj == evictObj) {
-        uint64_t newLengthInLog;
-        LogTime newLogTime;
-        LogEntryHandle newObjHandle = log.append(LOG_ENTRY_TYPE_OBJ,
-            evictObj, handle->length(), &newLengthInLog, &newLogTime);
-        t->profiler.track(evictObj->id.objectId,
-                          downCast<uint32_t>(newLengthInLog), newLogTime);
-        svr->objectMap.replace(newObjHandle);
-    }
-
-    // remove the evicted entry whether it is discarded or not
-    t->profiler.untrack(evictObj->id.objectId, handle->totalLength(), logTime);
+    return (hashTblObj == evictObj);
 }
 
 /**
- * Callback used by the LogCleaner when it's cleaning a Segment and evicts
- * an ObjectTombstone (i.e. an entry of type LOG_ENTRY_TYPE_OBJTOMB).
+ * Callback used by the LogCleaner when it's cleaning a Segment and moves
+ * an Object to a new Segment (i.e. an entry of type LOG_ENTRY_TYPE_OBJ).
  *
- * Tombstones are perpetuated when the Segment they reference is still
- * valid in the system.
+ * The cleaner will have already invoked the liveness callback to see whether
+ * or not the Object was recently live. Since it could no longer be live (it
+ * may have been deleted or overwritten since the check), this callback must
+ * decide if it is still live, atomically update any structures if needed, and
+ * return whether or not any action has been taken so the caller will know
+ * whether or not the new copy should be retained.
  *
- * \param[in]  handle
- *      LogEntryHandle to the entry being evicted.
- * \param[in]  logTime
- *      The LogTime corresponding to the append operation that wrote this
- *      entry.
- * \param[in]  cookie
+ * \param[in] oldHandle
+ *      LogEntryHandle to the object's old location that will soon be
+ *      invalid.
+ * \param[in] newHandle
+ *      LogEntryHandle to the object's new location that already exists
+ *      as a possible replacement, if needed.
+ * \param[in] cookie
  *      The opaque state pointer registered with the callback.
+ * \return
+ *      True if newHandle is needed (i.e. it replaced oldHandle). False
+ *      indicates that newHandle wasn't needed and can be immediately
+ *      deleted.
  */
-void
-tombstoneEvictionCallback(LogEntryHandle handle,
-                          const LogTime logTime,
-                          void* cookie)
+bool
+objectRelocationCallback(LogEntryHandle oldHandle,
+                         LogEntryHandle newHandle, 
+                         void* cookie)
+{
+    assert(oldHandle->type() == LOG_ENTRY_TYPE_OBJ);
+
+    MasterService* svr = static_cast<MasterService *>(cookie);
+    assert(svr != NULL);
+
+    const Object* evictObj = oldHandle->userData<Object>();
+    assert(evictObj != NULL);
+
+    Table* t = NULL;
+    try {
+        t = &svr->getTable(downCast<uint32_t>(evictObj->id.tableId),
+                           evictObj->id.objectId);
+    } catch (TableDoesntExistException& e) {
+        // That tablet doesn't exist on this server anymore.
+        // Just remove the hash table entry, if it exists.
+        svr->objectMap.remove(evictObj->id.tableId, evictObj->id.objectId);
+        return false;
+    }
+
+    LogEntryHandle hashTblHandle =
+        svr->objectMap.lookup(evictObj->id.tableId, evictObj->id.objectId);
+    assert(hashTblHandle->type() == LOG_ENTRY_TYPE_OBJ);
+    const Object *hashTblObj = hashTblHandle->userData<Object>();
+
+    // simple pointer comparison suffices
+    bool keepNewObject = (hashTblObj == evictObj);
+    if (keepNewObject) {
+        t->profiler.track(evictObj->id.objectId,
+                          newHandle->totalLength(),
+                          newHandle->logTime());
+        svr->objectMap.replace(newHandle);
+    }
+
+    // remove the evicted entry whether it is discarded or not
+    t->profiler.untrack(evictObj->id.objectId,
+                        oldHandle->totalLength(),
+                        oldHandle->logTime());
+
+    return keepNewObject;
+}
+
+/**
+ * Callback used by the Log to determine the modification timestamp of an
+ * Object. Timestamps are stored in the Object itself, rather than in the
+ * Log, since not all Log entries need timestamps and other parts of the
+ * system (or clients) may care about Object modification times.
+ * 
+ * \param[in]  handle
+ *      LogEntryHandle to the entry being examined.
+ * \return
+ *      The Object's modification timestamp.
+ */
+uint32_t
+objectTimestampCallback(LogEntryHandle handle)
+{
+    assert(handle->type() == LOG_ENTRY_TYPE_OBJ);
+    return handle->userData<Object>()->timestamp;
+}
+
+bool
+tombstoneLivenessCallback(LogEntryHandle handle, void* cookie)
 {
     assert(handle->type() == LOG_ENTRY_TYPE_OBJTOMB);
 
-    MasterService *svr = static_cast<MasterService *>(cookie);
+    MasterService* svr = static_cast<MasterService *>(cookie);
+    assert(svr != NULL);
+
+    const ObjectTombstone* tomb = handle->userData<ObjectTombstone>();
+    assert(tomb != NULL);
+
+    Table* t = NULL;
+    try {
+        t = &svr->getTable(downCast<uint32_t>(tomb->id.tableId),
+                           tomb->id.objectId);
+    } catch (TableDoesntExistException& e) {
+        return false;
+    }
+
+    return svr->log.isSegmentLive(tomb->segmentId);
+}
+
+/**
+ * Callback used by the LogCleaner when it's cleaning a Segment and moves
+ * a Tombstone to a new Segment (i.e. an entry of type LOG_ENTRY_TYPE_OBJTOMB).
+ *
+ * The cleaner will have already invoked the liveness callback to see whether
+ * or not the Tombstone was recently live. Since it could no longer be live (it
+ * may have been deleted or overwritten since the check), this callback must
+ * decide if it is still live, atomically update any structures if needed, and
+ * return whether or not any action has been taken so the caller will know
+ * whether or not the new copy should be retained.
+ *
+ * \param[in] oldHandle
+ *      LogEntryHandle to the Tombstones's old location that will soon be
+ *      invalid.
+ * \param[in] newHandle
+ *      LogEntryHandle to the Tombstones's new location that already exists
+ *      as a possible replacement, if needed.
+ * \param[in] cookie
+ *      The opaque state pointer registered with the callback.
+ * \return
+ *      True if newHandle is needed (i.e. it replaced oldHandle). False
+ *      indicates that newHandle wasn't needed and can be immediately
+ *      deleted.
+ */
+bool
+tombstoneRelocationCallback(LogEntryHandle oldHandle,
+                            LogEntryHandle newHandle, 
+                            void* cookie)
+{
+    assert(oldHandle->type() == LOG_ENTRY_TYPE_OBJTOMB);
+
+    MasterService* svr = static_cast<MasterService *>(cookie);
     assert(svr != NULL);
 
     Log& log = svr->log;
 
-    const ObjectTombstone *tomb = handle->userData<ObjectTombstone>();
+    const ObjectTombstone* tomb = oldHandle->userData<ObjectTombstone>();
     assert(tomb != NULL);
 
-    Table *t = NULL;
+    Table* t = NULL;
     try {
         t = &svr->getTable(downCast<uint32_t>(tomb->id.tableId),
                            tomb->id.objectId);
     } catch (TableDoesntExistException& e) {
         // That tablet doesn't exist on this server anymore.
-        return;
+        return false;
     }
 
     // see if the referant is still there
-    if (log.isSegmentLive(tomb->segmentId)) {
-        uint64_t newLengthInLog;
-        LogTime newLogTime;
-        log.append(LOG_ENTRY_TYPE_OBJTOMB, tomb, sizeof(*tomb),
-            &newLengthInLog, &newLogTime);
+    bool keepNewTomb = log.isSegmentLive(tomb->segmentId);
+    if (keepNewTomb) {
         t->profiler.track(tomb->id.objectId,
-                          downCast<uint32_t>(newLengthInLog),
-                          newLogTime);
+                          newHandle->totalLength(),
+                          newHandle->logTime());
     }
 
     // remove the evicted entry whether it is discarded or not
-    t->profiler.untrack(tomb->id.objectId, handle->totalLength(), logTime);
+    t->profiler.untrack(tomb->id.objectId,
+                        oldHandle->totalLength(),
+                        oldHandle->logTime());
+
+    return keepNewTomb;
+}
+
+/**
+ * Callback used by the Log to determine the age of Tombstone. We don't
+ * current store tombstone ages, so just return -1 (they're always young).
+ * 
+ * \param[in]  handle
+ *      LogEntryHandle to the entry being examined.
+ * \return
+ *      The current timestamp always.
+ */
+uint32_t
+tombstoneTimestampCallback(LogEntryHandle handle)
+{
+    assert(handle->type() == LOG_ENTRY_TYPE_OBJTOMB);
+    return secondsTimestamp();  // XXX- will this be too expensive?
 }
 
 void
@@ -1472,6 +1589,16 @@ MasterService::storeData(uint64_t tableId, uint64_t id,
         newObject->version = t.AllocateVersion();
     assert(obj == NULL || newObject->version > obj->version);
     data->copy(dataOffset, dataLength, newObject->data);
+
+    //// XXXXX- I think that the following is broken. If we write the tombstone
+    //          and crash before writing the new object, we've just lost data.
+    //          We probably want to atomically replace. A failure should either
+    //          result in seeing the old data, or the new data, but not have it
+    //          go missing.
+    //
+    //          I guess this just means writing the object first, but this code
+    //          had tricky cleaner interactions before, so I need to think about
+    //          it.
 
     // If the Object is being overwritten, we need to mark the previous space
     // used as free and add a tombstone that references it.

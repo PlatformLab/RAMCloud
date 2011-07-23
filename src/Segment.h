@@ -17,10 +17,13 @@
 #define RAMCLOUD_SEGMENT_H
 
 #include "BackupManager.h"
+#include "BoostIntrusive.h"
 #include "Common.h"
 #include "Crc32C.h"
 #include "LogTypes.h"
 #include "Object.h"
+
+#include <vector>
 
 namespace RAMCloud {
 
@@ -67,8 +70,120 @@ struct SegmentException : public Exception {
         : Exception(where, msg, errNo) {}
 };
 
-// forward decl
+// forward decls
 class Log;
+class Segment;
+class _SegmentEntryHandle;
+
+/// SegmentEntryHandle structs should never exist. The class should only be
+/// used as a const pointer to a SegmentEntry.
+typedef const _SegmentEntryHandle* SegmentEntryHandle;
+
+/// Vector of Segment pointers.
+typedef std::vector<Segment*> SegmentVector;
+
+class Segment {
+  public:
+    /// The class used to calculate segment checksums.
+    typedef SegmentChecksum Checksum;
+
+    Segment(Log *log, uint64_t segmentId, void *baseAddress,
+            uint32_t capacity, BackupManager* backup, LogEntryType type,
+            const void *buffer, uint32_t length);
+    Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
+            uint32_t capacity, BackupManager* backup = NULL);
+    ~Segment();
+
+    SegmentEntryHandle append(LogEntryType type,
+                             const void *buffer,
+                             uint32_t length,
+                             uint64_t *lengthInSegment = NULL,
+                             uint64_t *offsetInSegment = NULL,
+                             bool sync = true,
+                             Tub<SegmentChecksum::ResultType> expectedChecksum =
+                                Tub<SegmentChecksum::ResultType>());
+    SegmentEntryHandle append(SegmentEntryHandle handle,
+                              uint64_t *offsetInSegment,
+                              bool sync);
+    void               rollBack(SegmentEntryHandle handle);
+    void               free(SegmentEntryHandle entry);
+    void               close(bool sync = true);
+    void               sync();
+    const void        *getBaseAddress() const;
+    uint64_t           getId() const;
+    uint32_t           getCapacity() const;
+    uint32_t           appendableBytes() const;
+    int                getUtilisation() const;
+    uint32_t           getFreeBytes() const;
+    uint64_t           getAverageTimestamp() const;
+
+    /**
+     * Given a pointer anywhere into a Segment's backing memory, obtain the base
+     * address (the first byte) of that Segment.
+     */
+    static const void*
+    getSegmentBaseAddress(const void* p, uint32_t capacity)
+    {
+        assert(isPowerOfTwo(capacity));
+        // Segments are always capacity aligned, which must be a power of two.
+        uintptr_t addr = reinterpret_cast<uintptr_t>(p);
+        return reinterpret_cast<const void*>(addr & ~(capacity - 1));
+    }
+
+#ifdef VALGRIND
+    // can't use more than 1M, see http://bugs.kde.org/show_bug.cgi?id=203877
+    static const uint32_t  SEGMENT_SIZE = 1024 * 1024;
+#else
+    static const uint32_t  SEGMENT_SIZE = 8 * 1024 * 1024;
+#endif
+    static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
+
+  private:
+    void               commonConstructor(LogEntryType type,
+                                         const void *buffer, uint32_t length);
+    void               incrementSpaceTimeSum(SegmentEntryHandle handle);
+    void               decrementSpaceTimeSum(SegmentEntryHandle handle);
+    void               adjustSpaceTimeSum(SegmentEntryHandle handle,
+                                          bool subtract);
+    const void        *forceAppendBlob(const void *buffer,
+                                       uint32_t length);
+    SegmentEntryHandle forceAppendWithEntry(LogEntryType type,
+                             const void *buffer,
+                             uint32_t length,
+                             uint64_t *lengthOfAppend = NULL,
+                             bool sync = true,
+                             bool updateChecksum = true,
+                             Tub<SegmentChecksum::ResultType> expectedChecksum =
+                                 Tub<SegmentChecksum::ResultType>());
+
+    BackupManager    *backup;         // makes operations on this segment durable
+    void             *baseAddress;    // base address for the Segment
+    Log              *const log;      // optional pointer to Log (for stats, CBs)
+    uint64_t          logId;          // log this belongs to, passed to backups
+    uint64_t          id;             // segment identification number
+    const uint32_t    capacity;       // total byte length of segment when empty
+    uint32_t          tail;           // offset to the next free byte in Segment
+    uint32_t          bytesFreed;     // bytes free()'d in this Segment
+    uint64_t          spaceTimeSum;   // sum of live datas' space-time products
+    Checksum          checksum;       // Latest Segment checksum (crc32c)
+    Checksum          prevChecksum;   // Checksum as of the penultimate append
+    bool              canRollBack;    // Can we roll back the last entry?
+    bool              closed;         // when true, no appends permitted
+    IntrusiveListHook listEntries;    // list ptr for Log code to track state
+
+    /**
+     * A handle to the open segment on backups,
+     * or NULL if the segment is closed.
+     */
+    BackupManager::OpenSegment* backupSegment;
+
+    friend class SegmentTest;
+    friend class SegmentIteratorTest;
+    friend class LogTest;
+    friend class Log;       // XXX- just for listEntries!
+
+    DISALLOW_COPY_AND_ASSIGN(Segment);
+};
 
 /**
  * SegmentEntryHandle is used to refer to an entry written into a Segment.
@@ -172,6 +287,29 @@ class _SegmentEntryHandle {
     }
 
     /**
+     * Return the LogTime assocated with this entry. To do so we need
+     * to calculate the base address of the Segment. This lets us access
+     * the SegmentHeader, which contains the SegmentId, as well as determine
+     * our offset.
+     */
+    LogTime
+    logTime() const
+    {
+        uintptr_t entryAddress = reinterpret_cast<uintptr_t>(this);
+        uintptr_t segmentBase = entryAddress & ~(Segment::SEGMENT_SIZE - 1);
+
+        const _SegmentEntryHandle* headerHandle =
+            reinterpret_cast<const _SegmentEntryHandle*>(segmentBase);
+
+        if (headerHandle->type() != LOG_ENTRY_TYPE_SEGHEADER)
+            throw Exception(HERE, "segment is corrupt or unaligned");
+
+        const SegmentHeader* header = headerHandle->userData<SegmentHeader>();
+
+        return LogTime(header->segmentId, entryAddress - segmentBase);
+    }
+
+    /**
      * Used by HashTable to get the first uint64_t key for supported
      * types.
      */
@@ -216,82 +354,6 @@ class _SegmentEntryHandle {
             throw Exception(HERE, "NULL SegmentEntryHandle dereference");
         return reinterpret_cast<const SegmentEntry*>(this);
     }
-};
-typedef const _SegmentEntryHandle* SegmentEntryHandle;
-
-class Segment {
-  public:
-    /// The class used to calculate segment checksums.
-    typedef SegmentChecksum Checksum;
-
-    Segment(Log *log, uint64_t segmentId, void *baseAddress,
-            uint32_t capacity, BackupManager* backup,
-            LogEntryType type, const void *buffer, uint32_t length);
-    Segment(uint64_t logId, uint64_t segmentId, void *baseAddress,
-            uint32_t capacity, BackupManager* backup = NULL);
-    ~Segment();
-
-    SegmentEntryHandle append(LogEntryType type,
-                             const void *buffer,
-                             uint32_t length,
-                             uint64_t *lengthInSegment = NULL,
-                             uint64_t *offsetInSegment = NULL,
-                             bool sync = true,
-                             Tub<SegmentChecksum::ResultType> expectedChecksum =
-                                Tub<SegmentChecksum::ResultType>());
-    void               free(SegmentEntryHandle entry);
-    void               close(bool sync = true);
-    void               sync();
-    const void        *getBaseAddress() const;
-    uint64_t           getId() const;
-    uint32_t           getCapacity() const;
-    uint32_t           appendableBytes() const;
-    int                getUtilisation() const;
-
-#ifdef VALGRIND
-    // can't use more than 1M, see http://bugs.kde.org/show_bug.cgi?id=203877
-    static const uint32_t  SEGMENT_SIZE = 1024 * 1024;
-#else
-    static const uint32_t  SEGMENT_SIZE = 8 * 1024 * 1024;
-#endif
-    static const uint64_t  INVALID_SEGMENT_ID = ~(0ull);
-
-  private:
-    void               commonConstructor(LogEntryType type,
-                                         const void *buffer, uint32_t length);
-    const void        *forceAppendBlob(const void *buffer,
-                                       uint32_t length);
-    SegmentEntryHandle forceAppendWithEntry(LogEntryType type,
-                             const void *buffer,
-                             uint32_t length,
-                             uint64_t *lengthOfAppend = NULL,
-                             bool sync = true,
-                             bool updateChecksum = true,
-                             Tub<SegmentChecksum::ResultType> expectedChecksum =
-                                 Tub<SegmentChecksum::ResultType>());
-
-    BackupManager   *backup;         // makes operations on this segment durable
-    void            *baseAddress;    // base address for the Segment
-    Log             *const log;      // optional pointer to Log (for stats)
-    uint64_t         logId;          // log this belongs to, passed to backups
-    uint64_t         id;             // segment identification number
-    const uint32_t   capacity;       // total byte length of segment when empty
-    uint32_t         tail;           // offset to the next free byte in Segment
-    uint32_t         bytesFreed;     // bytes free()'d in this Segment
-    Checksum         checksum;       // Latest Segment checksum (crc32c)
-    bool             closed;         // when true, no appends permitted
-
-    /**
-     * A handle to the open segment on backups,
-     * or NULL if the segment is closed.
-     */
-    BackupManager::OpenSegment* backupSegment;
-
-    friend class SegmentTest;
-    friend class SegmentIteratorTest;
-    friend class LogTest;
-
-    DISALLOW_COPY_AND_ASSIGN(Segment);
 };
 
 } // namespace

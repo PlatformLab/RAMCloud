@@ -254,7 +254,7 @@ TEST_F(BackupManagerTest, OpenSegmentsync) {
 // TODO(ongaro): This is a test that really belongs in SegmentTest.cc, but the
 // setup overhead is too high.
 TEST_F(BackupManagerTest, writeSegment) {
-    char segMem[segmentSize];
+    void* segMem = xmemalign(segmentSize, segmentSize);
     Segment seg(99, 88, segMem, segmentSize, mgr.get());
     SegmentHeader header = { 99, 88, segmentSize };
     seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
@@ -297,6 +297,8 @@ TEST_F(BackupManagerTest, writeSegment) {
         EXPECT_EQ(10U, obj->id.objectId);
         EXPECT_EQ(123U, obj->id.tableId);
     }
+
+    free(segMem);
 }
 
 } // namespace RAMCloud

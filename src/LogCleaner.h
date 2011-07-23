@@ -17,9 +17,14 @@
 #define RAMCLOUD_LOGCLEANER_H
 
 #include "Common.h"
+#include "BackupManager.h"
 #include "LogTypes.h"
 #include "Log.h"
 #include "Segment.h"
+
+#include <boost/thread.hpp>
+
+#include <vector>
 
 namespace RAMCloud {
 
@@ -28,18 +33,55 @@ class Log;
 
 class LogCleaner {
   public:
-    explicit LogCleaner(Log *log);
-    uint64_t clean(uint64_t numSegments);
-    ~LogCleaner() {}
+    explicit LogCleaner(Log* log, BackupManager* backup, bool startThread);
+    ~LogCleaner();
+    void clean();
+    void halt();
 
   private:
-    bool needsCleaning();
-    void cleanSegment(Segment *segment);
+    typedef std::vector<SegmentEntryHandle> SegmentEntryHandleVector;
 
-    /// Only clean when <= this percentage of segments are free.
-    static const uint64_t FREELIST_LOW_WATERMARK_PCT = 5;
+    // cleaner thread entry point
+    static void cleanerThreadEntry(LogCleaner* logCleaner);
 
-    Log *log;
+    void getSegmentsToClean(SegmentVector&);
+    void getSortedLiveEntries(SegmentVector& segments,
+                              SegmentEntryHandleVector& liveEntries);
+    void segregateEntries(SegmentEntryHandleVector& liveEntries,
+                          SegmentEntryHandleVector* buckets,
+                          int numBuckets);
+    void moveLiveData(SegmentEntryHandleVector& data,
+                      SegmentVector& segmentsAdded);
+
+    /// After cleaning, wake the cleaner again after this many microseconds.
+    static const size_t CLEANER_POLL_USEC = 50000;
+
+    /// Don't bother cleaning unless so many bytes have been freed in the Log
+    /// since the last cleaning operation.
+    static const size_t MIN_CLEANING_DELTA = 2 * Segment::SEGMENT_SIZE;
+
+    /// The number of bytes that have been freed in the Log since the last
+    /// cleaning operation completed. This is used to avoid invoking the
+    /// cleaner if there isn't likely any work to be done.
+    uint64_t        bytesFreedBeforeLastCleaning;
+
+    /// Closed segments that are part of the Log - these may be cleaned
+    /// at any time.
+    SegmentVector   cleanableSegments;
+
+    /// The Log we're cleaning.
+    Log*            log;
+
+    /// Our own private BackupManager (not the Log's). BackupManager isn't
+    /// reentrant, and there's little reason for it to be, so use this one
+    // to manage the Segments we create while cleaning.
+    BackupManager*  backup;
+
+    // Tub containing our cleaning thread, if we're told to instantiate one
+    // by whoever constructs this object.
+    Tub<boost::thread> thread;
+
+    friend class LogCleanerTest;
 
     DISALLOW_COPY_AND_ASSIGN(LogCleaner);
 };

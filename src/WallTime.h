@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2011 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,23 +14,19 @@
  */
 
 /**
- * \file Unit tests for LogCleaner.
+ * \file
+ * Prototypes for RAMCloud wall clock time functions.
  */
 
-#include "TestUtil.h"
-
-#include "Segment.h"
-#include "Log.h"
-#include "LogTypes.h"
-#include "LogCleaner.h"
+#ifndef RAMCLOUD_WALLTIME_H
+#define RAMCLOUD_WALLTIME_H
 
 namespace RAMCloud {
 
-TEST(LogCleanerTest, constructor) {
-    Log log(Tub<uint64_t>(0), 8192, 8192, NULL, Log::INLINED_CLEANER);
-    LogCleaner cleaner(&log, NULL, false);
-
+uint32_t secondsTimestamp(void);
+time_t secondsTimestampToUnix(uint32_t timestamp);
 
 }
 
-} // namespace RAMCloud
+#endif // RAMCLOUD_WALLTIME_H
+
