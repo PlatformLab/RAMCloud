@@ -106,6 +106,20 @@ Cycles::toSeconds(uint64_t cycles)
 }
 
 /**
+ * Given a time in seconds, return the number of cycles that it
+ * corresponds to.
+ * \param seconds
+ *      Time in seconds.
+ * \return
+ *      The approximate number of cycles corresponding to #seconds.
+ */
+uint64_t
+Cycles::fromSeconds(double seconds)
+{
+    return (uint64_t) (seconds*cyclesPerSec + 0.5);
+}
+
+/**
  * Given an elapsed time measured in cycles, return an integer
  * giving the corresponding time in nanoseconds.  Note: cyclesToSeconds
  * is faster than this method.

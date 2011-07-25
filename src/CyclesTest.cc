@@ -65,6 +65,11 @@ TEST_F(CyclesTest, toSeconds) {
     EXPECT_GT(.50001, seconds);
 }
 
+TEST_F(CyclesTest, fromSeconds) {
+    Cycles::cyclesPerSec = 1000;
+    EXPECT_EQ(20UL, Cycles::fromSeconds(.01999));
+}
+
 TEST_F(CyclesTest, toNanoseconds) {
     Cycles::cyclesPerSec = 3e09;
     EXPECT_EQ(3UL, Cycles::toNanoseconds(10));
