@@ -396,10 +396,9 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
     uint32_t usTimeout)
 {
     bool haveSent = false;
+    uint64_t startTime = Cycles::rdtsc();
 
     while (1) {
-        TimeCounter startTime;
-
         if (!haveSent) {
             ssize_t len = sendto(clientSetupSocket, outgoingQpt,
                 sizeof(*outgoingQpt), 0, reinterpret_cast<sockaddr *>(sin),
@@ -444,10 +443,10 @@ InfRcTransport<Infiniband>::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
                 outgoingQpt->getNonce(), incomingQpt->getNonce());
         }
 
-        uint32_t elapsedUs = downCast<uint32_t>(startTime.stop() / 1000);
-        if (elapsedUs >= usTimeout)
+        double timeLeft = usTimeout - Cycles::toSeconds(Cycles::rdtsc() -
+                startTime)*1e06;
+        if (timeLeft < 0)
             return false;
-        usTimeout -= elapsedUs;
 
         // TODO(ongaro): The following isn't safe, at a minimum because some
         // other stack frame can start using clientSetupSocket.
