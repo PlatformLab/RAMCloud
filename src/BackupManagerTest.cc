@@ -118,7 +118,7 @@ struct BackupManagerTest : public BackupManagerBaseTest {
 TEST_F(BackupManagerBaseTest, selectOpenHostsNotEnoughBackups) {
     logger.setLogLevels(SILENT_LOG_LEVEL);
     auto seg = mgr->openSegment(88, NULL, 0);
-    EXPECT_THROW(mgr->proceed(), FatalError);
+    EXPECT_THROW(mgr->proceed(), InternalError);
     mgr->unopenSegment(seg); // so that destructor's sync is a no-op
 }
 

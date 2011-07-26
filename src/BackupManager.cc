@@ -478,9 +478,11 @@ BackupManager::ensureSufficientHosts()
         LOG(NOTICE, "Need backups, fetching server list from coordinator");
         updateHostListFromCoordinator();
         numHosts = hosts.server_size();
-        if (numHosts < replicas)
-            DIE("Not enough backups to meet replication requirement "
+        if (numHosts < replicas) {
+            LOG(ERROR, "Not enough backups to meet replication requirement "
                 "(have %u, need %u)", numHosts, replicas);
+            throw InternalError(HERE, STATUS_INTERNAL_ERROR);
+        }
     }
 }
 
@@ -504,8 +506,11 @@ BackupManager::unopenSegment(OpenSegment* openSegment)
 void
 BackupManager::updateHostListFromCoordinator()
 {
-    if (!coordinator)
-        DIE("No coordinator given, replication requirements can't be met.");
+    if (!coordinator) {
+        LOG(ERROR, "No coordinator given, replication requirements "
+            "can't be met.");
+        throw InternalError(HERE, STATUS_INTERNAL_ERROR);
+    }
     coordinator->getBackupList(hosts);
 }
 
