@@ -107,6 +107,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw ServiceNotAvailableException(where);
         case STATUS_TIMEOUT:
             throw TimeoutException(where);
+        case STATUS_INTERNAL_ERROR:
+            throw InternalError(where, status);
         default:
             throw InternalError(where, status);
     }

@@ -41,6 +41,7 @@ static const char* messages[] = {
     "retry",                                     // RETRY
     "service not available",                     // SERVICE_NOT_AVAILABLE
     "operation took too long",                   // STATUS_TIMEOUT
+    "internal RAMCloud error",                   // STATUS_INTERNAL_ERROR
 };
 
 // The following table maps from a Status value to the internal name
@@ -65,6 +66,7 @@ static const char* symbols[] = {
     "STATUS_RETRY",
     "STATUS_SERVICE_NOT_AVAILABLE",
     "STATUS_TIMEOUT",
+    "STATUS_INTERNAL_ERROR",
 };
 
 /**

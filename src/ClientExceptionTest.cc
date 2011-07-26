@@ -75,7 +75,8 @@ class ClientExceptionTest : public CppUnit::TestFixture {
                 "STATUS_OBJECT_EXISTS STATUS_WRONG_VERSION", reject);
         CPPUNIT_ASSERT_EQUAL("STATUS_MESSAGE_TOO_SHORT "
                 "STATUS_UNIMPLEMENTED_REQUEST STATUS_REQUEST_FORMAT_ERROR "
-                "STATUS_RESPONSE_FORMAT_ERROR", internal);
+                "STATUS_RESPONSE_FORMAT_ERROR STATUS_INTERNAL_ERROR",
+                internal);
     }
     void test_throwException_useSubclass() {
         // Make sure that a specific subclass is used, for at least one
