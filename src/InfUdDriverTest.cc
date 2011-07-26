@@ -19,20 +19,10 @@
 #include "MockFastTransport.h"
 
 namespace RAMCloud {
-class InfUdDriverTest : public CppUnit::TestFixture {
-    CPPUNIT_TEST_SUITE(InfUdDriverTest);
-    CPPUNIT_TEST(test_basics);
-    CPPUNIT_TEST_SUITE_END();
-
+class InfUdDriverTest : public ::testing::Test {
   public:
 
     InfUdDriverTest() {}
-
-    void setUp() {
-    }
-
-    void tearDown() {
-    }
 
     // Used to wait for data to arrive on a driver by invoking the
     // dispatcher's polling loop; gives up if a long time goes by with
@@ -51,40 +41,39 @@ class InfUdDriverTest : public CppUnit::TestFixture {
         }
     }
 
-    void test_basics() {
-        // Send a packet from a client-style driver to a server-style
-        // driver.
-        ServiceLocator serverLocator("fast+infud:");
-        InfUdDriver<RealInfiniband> *server =
-                new InfUdDriver<RealInfiniband>(&serverLocator, false);
-        MockFastTransport serverTransport(server);
-        InfUdDriver<RealInfiniband> *client =
-                new InfUdDriver<RealInfiniband>(NULL, false);
-        MockFastTransport clientTransport(client);
-        Driver::Address* serverAddress =
-                client->newAddress(ServiceLocator(server->getServiceLocator()));
-
-        Buffer message;
-        const char *testString = "This is a sample message";
-        Buffer::Chunk::appendToBuffer(&message, testString,
-                downCast<uint32_t>(strlen(testString)));
-        Buffer::Iterator iterator(message);
-        client->sendPacket(serverAddress, "header:", 7, &iterator);
-        CPPUNIT_ASSERT_EQUAL("header:This is a sample message",
-                receivePacket(&serverTransport));
-
-        // Send a response back in the other direction.
-        message.reset();
-        Buffer::Chunk::appendToBuffer(&message, "response", 8);
-        Buffer::Iterator iterator2(message);
-        server->sendPacket(serverTransport.sender, "h:", 2, &iterator2);
-        CPPUNIT_ASSERT_EQUAL("h:response", receivePacket(&clientTransport));
-        delete serverAddress;
-    }
-
   private:
     DISALLOW_COPY_AND_ASSIGN(InfUdDriverTest);
 };
-CPPUNIT_TEST_SUITE_REGISTRATION(InfUdDriverTest);
+
+TEST_F(InfUdDriverTest, basics) {
+    // Send a packet from a client-style driver to a server-style
+    // driver.
+    ServiceLocator serverLocator("fast+infud:");
+    InfUdDriver<RealInfiniband> *server =
+            new InfUdDriver<RealInfiniband>(&serverLocator, false);
+    MockFastTransport serverTransport(server);
+    InfUdDriver<RealInfiniband> *client =
+            new InfUdDriver<RealInfiniband>(NULL, false);
+    MockFastTransport clientTransport(client);
+    Driver::Address* serverAddress =
+            client->newAddress(ServiceLocator(server->getServiceLocator()));
+
+    Buffer message;
+    const char *testString = "This is a sample message";
+    Buffer::Chunk::appendToBuffer(&message, testString,
+            downCast<uint32_t>(strlen(testString)));
+    Buffer::Iterator iterator(message);
+    client->sendPacket(serverAddress, "header:", 7, &iterator);
+    EXPECT_STREQ("header:This is a sample message",
+            receivePacket(&serverTransport));
+
+    // Send a response back in the other direction.
+    message.reset();
+    Buffer::Chunk::appendToBuffer(&message, "response", 8);
+    Buffer::Iterator iterator2(message);
+    server->sendPacket(serverTransport.sender, "h:", 2, &iterator2);
+    EXPECT_STREQ("h:response", receivePacket(&clientTransport));
+    delete serverAddress;
+}
 
 }  // namespace RAMCloud
