@@ -125,7 +125,8 @@ try
     if (!backupOnly) {
         masterConfig.coordinatorLocator =
                 optionParser.options.getCoordinatorLocator();
-        masterConfig.localLocator = optionParser.options.getLocalLocator();
+        masterConfig.localLocator =
+                transportManager.getListeningLocatorsString();
         LOG(NOTICE, "Using %u backups", replicas);
         MasterService::sizeLogAndHashTable(masterTotalMemory,
                                           hashTableMemory, &masterConfig);
