@@ -698,8 +698,8 @@ TEST_F(DispatchTest, Timer_reentrant) {
     t2->deleteWhenInvoked(new DummyTimer("t4", td));
     Cycles::mockTscValue = 300;
     td->poll();
-    CPPUNIT_ASSERT_EQUAL("timer t2 invoked", *localLog);
-    CPPUNIT_ASSERT_EQUAL(1U, td->timers.size());
+    EXPECT_EQ("timer t2 invoked", *localLog);
+    EXPECT_EQ(1U, td->timers.size());
 }
 
 TEST_F(DispatchTest, Timer_isRunning) {
