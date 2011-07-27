@@ -69,9 +69,6 @@ ObjectFinder::lookup(uint32_t table, uint64_t objectId) {
         }
         // tablet not found in local tablet map cache
         if (haveRefreshed) {
-            LOG(ERROR, "table doesnt exist: %u %lu %d %s",
-                table, objectId, haveRefreshed,
-                tabletMap.DebugString().c_str());
             throw TableDoesntExistException(HERE);
         }
   refresh_and_retry:
