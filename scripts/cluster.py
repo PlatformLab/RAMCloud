@@ -256,7 +256,8 @@ if __name__ == '__main__':
     parser = OptionParser(description=
             'Start RAMCloud servers and run a client application.',
             conflict_handler='resolve')
-    parser.add_option('--backup_args', metavar='ARGS', default='',
+    parser.add_option('--backupArgs', metavar='ARGS', default='',
+            dest='backup_args',
             help='Additional command-line arguments to pass to '
                  'each backup')
     parser.add_option('-b', '--backups', type=int, default=1,
@@ -271,7 +272,8 @@ if __name__ == '__main__':
             metavar='N', dest='num_clients',
             help='Number of instances of the client application '
                  'to run')
-    parser.add_option('--coordinator_args', metavar='ARGS', default='',
+    parser.add_option('--coordinatorArgs', metavar='ARGS', default='',
+            dest='coordinator_args',
             help='Additional command-line arguments to pass to the '
                  'cluster coordinator')
     parser.add_option('--debug', action='store_true', default=False,
@@ -281,14 +283,16 @@ if __name__ == '__main__':
             help='Server arguments to specify disk for first backup')
     parser.add_option('--disk2', default=default_disk2,
             help='Server arguments to specify disk for second backup')
-    parser.add_option('-l', '--log_level', default='NOTICE',
+    parser.add_option('-l', '--logLevel', default='NOTICE',
             choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
-            metavar='L',
+            metavar='L', dest='log_level',
             help='Controls degree of logging in servers')
-    parser.add_option('-d', '--log_dir', default='logs', metavar='DIR',
+    parser.add_option('-d', '--logDir', default='logs', metavar='DIR',
+            dest='log_dir',
             help='Top level directory for log files; the files for '
                  'each invocation will go in a subdirectory.')
-    parser.add_option('--master_args', metavar='ARGS', default='',
+    parser.add_option('--masterArgs', metavar='ARGS', default='',
+            dest='master_args',
             help='Additional command-line arguments to pass to '
                  'each master')
     parser.add_option('-r', '--replicas', type=int, default=3,
@@ -297,7 +301,8 @@ if __name__ == '__main__':
     parser.add_option('-s', '--servers', type=int, default=4,
             metavar='N', dest='num_servers',
             help='Number of hosts on which to run servers')
-    parser.add_option('--share_hosts', action='store_true', default=False,
+    parser.add_option('--shareHosts', action='store_true', default=False,
+            dest='share_hosts',
             help='Allow clients to run on machines running servers '
                  '(by default clients run on different machines than '
                  'the servers, though multiple clients may run on a '
