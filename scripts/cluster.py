@@ -16,12 +16,13 @@
 
 """Runs a RAMCloud.
 
-Starts a coordinator, some masters, and optionally some backups.
-It has a pluggable interface so it can be used to run a variety of clients.
+Used to exercise a RAMCloud cluster (e.g., for performance measurements)
+by running a collection of servers and clients.
 """
 
 from __future__ import division
 from common import *
+from config import *
 import itertools
 import metrics
 import os
@@ -30,218 +31,291 @@ import re
 import subprocess
 import sys
 import time
+from optparse import OptionParser
 
-hosts = []
-for i in range(1, 37):
-    hosts.append(('rc%02d' % i,
-                  '192.168.1.%d' % (100 + i)))
+#------------------------------------------------------------------
+# End of site-specific configuration.
+#------------------------------------------------------------------
 
-obj_path = '%s/%s' % (top_path, obj_dir)
-coordinatorBin = '%s/coordinator' % obj_path
-backupBin = '%s/backup' % obj_path
-masterBin = '%s/server' % obj_path
-ensureHostsBin = '%s/ensureHosts' % obj_path
+# Locations of various RAMCloud executables.
+coordinator_binary = '%s/coordinator' % obj_path
+server_binary = '%s/server' % obj_path
+ensure_hosts_bin = '%s/ensureHosts' % obj_path
 
-locators = {
-    'coordinator': {
-        'tcp': 'tcp:host=%(host)s,port=12246',
-        'fast+udp': 'fast+udp:host=%(host)s,port=12246',
-        'unreliable+udp': 'unreliable+udp:host=%(host)s,port=12246',
-        'infrc': 'infrc:host=%(host)s,port=12246',
-        # Coordinator uses udp even when rest of cluster uses infud
-        'fast+infud': 'fast+udp:host=%(host)s,port=12246',
-        'unreliable+infud': 'fast+udp:host=%(host)s,port=12246',
-        'fast+infeth': 'fast+udp:host=%(host)s,port=12246',
-        'unreliable+infeth': 'fast+udp:host=%(host)s,port=12246',
-    },
-    'backup': {
-        'tcp': 'tcp:host=%(host)s,port=%(port)d',
-        'fast+udp': 'fast+udp:host=%(host)s,port=%(port)d',
-        'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
-        'infrc': 'infrc:host=%(host)s,port=%(port)d',
-        'fast+infud': 'fast+infud:',
-        'unreliable+infud': 'unreliable+infud:',
-        'fast+infeth': 'fast+infeth:mac=00:11:22:33:44:%(id)02x',
-        'unreliable+infeth': 'unreliable+infeth:mac=00:11:22:33:44:%(id)02x',
-    },
-    'master': {
-        'tcp': 'tcp:host=%(host)s,port=%(port)d',
-        'fast+udp': 'fast+udp:host=%(host)s,port=%(port)d',
-        'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
-        'infrc': 'infrc:host=%(host)s,port=%(port)d',
-        'fast+infud': 'fast+infud:',
-        'unreliable+infud': 'unreliable+infud:',
-        'fast+infeth': 'fast+infeth:mac=00:11:22:33:44:%(id)02x',
-        'unreliable+infeth': 'unreliable+infeth:mac=00:11:22:33:44:%(id)02x',
-    },
+# Info used to construct service locators for each of the transports
+# supported by RAMCloud.  In some cases the locator for the coordinator
+# needs to be different from that for the servers.
+server_locator_templates = {
+    'tcp': 'tcp:host=%(host)s,port=%(port)d',
+    'fast+udp': 'fast+udp:host=%(host)s,port=%(port)d',
+    'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
+    'infrc': 'infrc:host=%(host)s,port=%(port)d',
+    'fast+infud': 'fast+infud:',
+    'unreliable+infud': 'unreliable+infud:',
+    'fast+infeth': 'fast+infeth:mac=00:11:22:33:44:%(id)02x',
+    'unreliable+infeth': 'unreliable+infeth:mac=00:11:22:33:44:%(id)02x',
+}
+coord_locator_templates = {
+    'tcp': 'tcp:host=%(host)s,port=%(port)d',
+    'fast+udp': 'fast+udp:host=%(host)s,port=%(port)d',
+    'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
+    'infrc': 'infrc:host=%(host)s,port=%(port)d',
+    # Coordinator uses udp even when rest of cluster uses infud
+    # or infeth.
+    'fast+infud': 'fast+udp:host=%(host)s,port=%(port)d',
+    'unreliable+infud': 'fast+udp:host=%(host)s,port=%(port)d',
+    'fast+infeth': 'fast+udp:host=%(host)s,port=%(port)d',
+    'unreliable+infeth': 'fast+udp:host=%(host)s,port=%(port)d',
 }
 
-def cluster(runClients,
-            numBackups=1,
-            numMasters=1,
-            replicas=1,
-            disk=1,
-            timeout=60,
-            coordinatorArgs='',
-            backupArgs='',
-            masterArgs='-m 2048',
-            hostAllocationStrategy=0,
-            transport='infrc'):
+def cluster(num_servers=1,             # Number of hosts on which to start
+                                       # servers (not including coordinator).
+            num_backups=1,             # Number of backups to run on each
+                                       # server host (0, 1, or 2).
+            replicas=3,                # Replication factor to use for each
+                                       # log segment.
+            disk1=default_disk1,       # Server arguments specifying the
+                                       # backing device for the first backup
+                                       # on each server.
+            disk2=default_disk2,       # Server arguments specifying the
+                                       # backing device for the first backup
+                                       # on each server (if num_backups = 2).
+            timeout=20,                # How many seconds to wait for the
+                                       # clients to complete.
+            coordinator_args='',       # Additional arguments for the
+                                       # coordinator.
+            master_args='-t 16000',    # Additional arguments for each server
+                                       # that runs a master
+            backup_args='',            # Additional arguments for each server
+                                       # that runs a backup.
+            log_level='NOTICE',        # Log level to use for all servers.
+            log_dir='logs',            # Top-level directory in which to write
+                                       # log files.  A separate subdirectory
+                                       # will be created in this directory
+                                       # for the log files from this run.
+            client='echo',             # Command-line to invoke for each client
+                                       # additional arguments will be prepended
+                                       # with configuration information such as
+                                       # -C.
+            num_clients=1,             # Number of client processes to run.
+                                       # They will all run on separate
+                                       # machines, if possible, but if there
+                                       # aren't enough available machines then
+                                       # multiple clients will run on some
+                                       # machines.
+            share_hosts=False,         # True means clients can be run on
+                                       # machines running servers, if needed.
+            transport='infrc',         # Name of transport to use for servers.
+            verbose=False,             # Print information about progress in
+                                       # starting clients and servers
+            debug=False                # If True, pause after starting all
+                                       # to allow for debugging setup such as
+                                       # attaching gdb.
+            ):       
+    """
+    Start a coordinator and servers, as indicated by the arguments.
+    Then start one or more client processes and wait for them to complete.
+    """
 
-    ids = itertools.count().next
+    if num_servers > len(hosts):
+        raise Exception("num_servers (%d) exceeds the available hosts (%d)"
+                        % (num_servers, len(hosts)))
 
-    coordinatorHost = hosts[0]
-    coordinatorLocator = (locators['coordinator'][transport] %
-                            {'host': coordinatorHost[1],
-                             'id': ids()})
-
-    backupHosts = (hosts[1:] + [hosts[0]])[:numBackups]
-    backupLocators = [(locators['backup'][transport] %
-                       {'host': host[1], 'port': 12243, 'id': ids()})
-                      for host in backupHosts]
-    if disk == 0:
-        backupDisks = ['-m' for backup in backupHosts]
-    elif disk == 1:
-        backupDisks = ['-f /dev/sda2' for backup in backupHosts]
-    elif disk == 2:
-        backupDisks = ['-f /dev/sdb2' for backup in backupHosts]
-    elif disk == 4:
-        backupDisks = ['-f /dev/md2' for backup in backupHosts]
-    elif disk == 3:
-        firstHalf = (numBackups + 1) // 2
-        secondHalf = numBackups // 2
-        backupHosts = ((hosts[1:] + [hosts[0]])[:firstHalf] +
-                       (hosts[1:] + [hosts[0]])[:secondHalf])
-        backupLocators = ([(locators['backup'][transport] %
-                            {'host': host[1], 'port': 12243, 'id': ids()})
-                           for host in backupHosts[:firstHalf]] +
-                          [(locators['backup'][transport] %
-                            {'host': host[1], 'port': 12242})
-                           for host in backupHosts[:secondHalf]])
-        backupDisks = (['-f /dev/sda2' for i in backupHosts[:firstHalf]] +
-                       ['-f /dev/sdb2' for i in backupHosts[:secondHalf]])
-    else:
-        raise Exception('Disk should be an integer between 0 and 4')
-
-    if hostAllocationStrategy == 1:
-        masterHosts = (list(reversed(hosts[1:])) +
-                          [hosts[0]])[:numMasters]
-        masterLocators = [(locators['master'][transport] %
-                           {'host': host[1], 'port': 12247, 'id': ids()})
-                          for host in masterHosts]
-    else:
-        masterHosts = (hosts[1:] + [hosts[0]])[:numMasters]
-        masterLocators = [(locators['master'][transport] %
-                           {'host': host[1], 'port': 12247, 'id': ids()})
-                          for host in masterHosts]
-
+    # Create a subdirectory of the log directory for this run
     try:
-        os.mkdir('run')
+        os.mkdir(log_dir)
     except:
         pass
     datetime = time.strftime('%Y%m%d%H%M%S')
-    run = 'run/%s' % datetime
-    os.mkdir(run)
+    logSubDir = '%s/%s' % (log_dir, datetime)
+    latest = '%s/latest' % log_dir
+    os.mkdir(logSubDir)
     try:
-        os.remove('run/latest')
+        os.remove('%s/latest' % log_dir)
     except:
         pass
-    os.symlink(datetime, 'run/latest')
+    os.symlink(datetime, latest)
 
     coordinator = None
-    backups = []
-    masters = []
-    client = None
+    servers = []
+    clients = []
     with Sandbox() as sandbox:
-        def ensureHosts(qty):
+        def ensure_hosts(qty):
             sandbox.checkFailures()
             try:
                 sandbox.rsh(hosts[0][0], '%s -C %s -n %d -l 1' %
-                            (ensureHostsBin, coordinatorLocator, qty))
+                            (ensure_hosts_bin, coordinator_locator, qty))
             except:
                 # prefer exceptions from dead processes to timeout error
                 sandbox.checkFailures()
                 raise
 
-        # start coordinator
-        coordinator = sandbox.rsh(coordinatorHost[0],
-                  ('%s -C %s %s' %
-                   (coordinatorBin, coordinatorLocator, coordinatorArgs)),
-                  bg=True, stderr=subprocess.STDOUT,
-                  stdout=open(('%s/coordinator.%s.log' %
-                               (run, coordinatorHost[0])), 'w'))
-        ensureHosts(0)
+        # Start coordinator
+        if num_servers > 0:
+            coordinator_host = hosts[0]
+            coordinator_locator = (coord_locator_templates[transport] %
+                                    {'host': coordinator_host[1],
+                                     'port': coordinator_port,
+                                     'id': coordinator_host[2]})
+            coordinator = sandbox.rsh(coordinator_host[0],
+                      ('%s -C %s -l %s %s' %
+                       (coordinator_binary, coordinator_locator, log_level,
+                        coordinator_args)),
+                      bg=True, stderr=subprocess.STDOUT,
+                      stdout=open(('%s/coordinator.%s.log' %
+                                   (logSubDir, coordinator_host[0])), 'w'))
+            ensure_hosts(0)
+            if verbose:
+                print "Coordinator started on %s at %s" % (coordinator_host[0],
+                        coordinator_locator)
 
-        # start backups
-        for i, (backupHost,
-                backupLocator,
-                backupDisk) in enumerate(zip(backupHosts,
-                                             backupLocators,
-                                             backupDisks)):
-            if disk == 3:
-                filename = ('%s/backup.%s.%s.log' %
-                            (run, backupHost[0],
-                             backupDisk.split('/')[-1]))
+        # Start servers
+        for i in range(num_servers):
+            # First start the main server on this host, which runs a master
+            # and possibly a backup.  The first server shares the same machine
+            # as the coordinator.
+            host = hosts[i];
+            server_locator = (server_locator_templates[transport] %
+                              {'host': host[1],
+                               'port': server_port,
+                               'id': host[2]})
+            command = ('%s -C %s -L %s -r %d -l %s %s' %
+                       (server_binary, coordinator_locator, server_locator,
+                        replicas, log_level, master_args))
+            if num_backups > 0:
+                command += ' %s %s' % (disk1, backup_args)
             else:
-                filename = '%s/backup.%s.log' % (run, backupHost[0])
-            backups.append(sandbox.rsh(backupHost[0],
-                       ('%s %s -C %s -L %s %s' %
-                        (backupBin,
-                         backupDisk,
-                         coordinatorLocator,
-                         backupLocator,
-                         backupArgs)),
-                       bg=True, stderr=subprocess.STDOUT,
-                       stdout=open(filename, 'w')))
-        ensureHosts(len(backups))
+                command += ' -M'
+            servers.append(sandbox.rsh(host[0], command, bg=True,
+                           stderr=subprocess.STDOUT,
+                           stdout=open('%s/server.%s.log' %
+                                       (logSubDir, host[0]), 'w')))
+            if verbose:
+                print "Server started on %s at %s" % (host[0], server_locator)
+            
+            # Start an extra backup server in this host, if needed.
+            if num_backups == 2:
+                server_locator = (server_locator_templates[transport] %
+                                  {'host': host[1],
+                                   'port': second_backup_port,
+                                   'id': host[2]})
+                command = ('%s -C %s -L %s -B %s -l %s %s' %
+                           (server_binary, coordinator_locator, host[1],
+                            disk2, log_level, backup_args))
+                servers.append(sandbox.rsh(host[0], command, bg=True,
+                                           stderr=subprocess.STDOUT,
+                                           stdout=open('%s/backup.%s.log' %
+                                                       (logSubDir, host[0]), 'w')))
+                if verbose:
+                    print "Extra backup started on %s at %s" % (host[0],
+                            server_locator)
+        if num_servers > 0:
+            ensure_hosts(num_servers*(1 + num_backups))
+            if verbose:
+                print "All servers running"
 
-        # start masters
-        for i, (masterHost,
-                masterLocator) in enumerate(zip(masterHosts,
-                                                masterLocators)):
-            masters.append(sandbox.rsh(masterHost[0],
-                                  ('%s -r %d -C %s -L %s %s' %
-                                   (masterBin,
-                                    replicas,
-                                    coordinatorLocator,
-                                    masterLocator,
-                                    masterArgs)),
-                                  bg=True, stderr=subprocess.STDOUT,
-                                  stdout=open(('%s/master.%s.log' %
-                                               (run, masterHost[0])),
-                                              'w')))
-        ensureHosts(len(backups) + len(masters))
+        if debug:
+            print "Servers started; pausing for debug setup."
+            raw_input("Type <Enter> to continue: ")
 
-        # start clients
-        client = runClients(sandbox, run, coordinatorLocator, ensureHosts)
+        # Start clients
+        args = client.split(" ")
+        client_bin = args[0]
+        client_args = " ".join(args[1:])
+        host_index = num_servers
+        for i in range(num_clients):
+            if host_index >= len(hosts):
+                if share_hosts or num_servers >= len(hosts):
+                    host_index = 0
+                else:
+                    host_index = num_servers
+            client_host = hosts[host_index]
+            command = ('%s -C %s --numClients %d --clientIndex %d %s' %
+                           (client_bin, coordinator_locator, num_clients,
+                            i, client_args))
+            clients.append(sandbox.rsh(client_host[0], command, bg=True,
+                                       stderr=subprocess.STDOUT,
+                                       stdout=open('%s/client%d.%s.log' %
+                                                   (logSubDir, i,
+                                                    client_host[0]), 'w')))
+            if verbose:
+                print "Client %d started on %s" % (i, client_host[0])
+            host_index += 1
 
+        # Wait for all of the clients to complete
         start = time.time()
-        while client.returncode is None:
-            sandbox.checkFailures()
-            time.sleep(.1)
-            if time.time() - start > timeout:
-                raise Exception('timeout exceeded')
-
-        stats = {}
-        for i in range(10):
-            try:
-                stats['metrics'] = metrics.parseRecovery(run)
-            except:
-                time.sleep(0.1)
-                continue
-            break
-        stats['run'] = run
-        return stats
+        for i in range(num_clients):
+            while clients[i].returncode is None:
+                sandbox.checkFailures()
+                time.sleep(.1)
+                if time.time() - start > timeout:
+                    raise Exception('timeout exceeded')
+            if verbose:
+                print "Client %d finished" % i
 
 if __name__ == '__main__':
-    def runClients(sandbox, run, coordinator, ensureHosts):
-        host = hosts[0][0]
-        binary = os.path.abspath(sys.argv[1])
-        return sandbox.rsh(host,
-                     ('%s -C %s %s' %
-                      (binary,
-                       coordinator,
-                       ' '.join(sys.argv[2:]))),
-                     bg=True, stderr=subprocess.STDOUT,
-                     stdout=open('%s/client.%s.log' % (run, host), 'w'))
-    print(cluster(runClients))
+    parser = OptionParser(description=
+            'Start RAMCloud servers and run a client application.',
+            conflict_handler='resolve')
+    parser.add_option('--backup_args', metavar='ARGS', default='',
+            help='Additional command-line arguments to pass to '
+                 'each backup')
+    parser.add_option('-b', '--backups', type=int, default=1,
+            metavar='N', dest='num_backups',
+            help='Number of backups to run on each server host '
+                 '(0, 1, or 2)')
+    parser.add_option('--client', metavar='ARGS', default='echo',
+            help='Command line to invoke the client application '
+                 '(additional arguments will be inserted at the beginning '
+                 'of the argument list)')
+    parser.add_option('-n', '--clients', type=int, default=1,
+            metavar='N', dest='num_clients',
+            help='Number of instances of the client application '
+                 'to run')
+    parser.add_option('--coordinator_args', metavar='ARGS', default='',
+            help='Additional command-line arguments to pass to the '
+                 'cluster coordinator')
+    parser.add_option('--debug', action='store_true', default=False,
+            help='Pause after starting servers but before running '
+                 'clients to enable debugging setup')
+    parser.add_option('--disk1', default=default_disk1,
+            help='Server arguments to specify disk for first backup')
+    parser.add_option('--disk2', default=default_disk2,
+            help='Server arguments to specify disk for second backup')
+    parser.add_option('-l', '--log_level', default='NOTICE',
+            choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
+            metavar='L',
+            help='Controls degree of logging in servers')
+    parser.add_option('-d', '--log_dir', default='logs', metavar='DIR',
+            help='Top level directory for log files; the files for '
+                 'each invocation will go in a subdirectory.')
+    parser.add_option('--master_args', metavar='ARGS', default='',
+            help='Additional command-line arguments to pass to '
+                 'each master')
+    parser.add_option('-r', '--replicas', type=int, default=3,
+            metavar='N',
+            help='Number of disk backup copies for each segment')
+    parser.add_option('-s', '--servers', type=int, default=4,
+            metavar='N', dest='num_servers',
+            help='Number of hosts on which to run servers')
+    parser.add_option('--share_hosts', action='store_true', default=False,
+            help='Allow clients to run on machines running servers '
+                 '(by default clients run on different machines than '
+                 'the servers, though multiple clients may run on a '
+                 'single machine)')
+    parser.add_option('-t', '--timeout', type=int, default=20,
+            metavar='SECS',
+            help="Abort if the client application doesn't finish within "
+            'SECS seconds')
+    parser.add_option('-T', '--transport', default='infrc',
+            help='Transport to use for communication with servers')
+    parser.add_option('-v', '--verbose', action='store_true', default=False,
+            help='Print progress messages')
+    (options, args) = parser.parse_args()
+
+    try:
+        cluster(**vars(options))
+    finally:
+        logInfo = scanLogs("logs/latest", ["WARNING", "ERROR"])
+        if len(logInfo) > 0:
+            print logInfo

@@ -24,9 +24,10 @@ import signal
 import subprocess
 import sys
 import time
+import glob
 
 __all__ = ['git_branch', 'obj_dir', 'sh', 'captureSh', 'Sandbox',
-           'scripts_path', 'top_path']
+           'scripts_path', 'top_path', 'scanLogs']
 
 scripts_path = os.path.dirname(os.path.abspath(__file__))
 top_path = os.path.abspath(scripts_path + '/..')
@@ -150,3 +151,24 @@ def delayedInterrupts():
         if quit:
             raise KeyboardInterrupt(
                 'Signal received while in delayed interrupts section')
+
+def scanLogs(dir, strings):
+    """
+    Read all .log files in dir, searching for lines that contain any
+    strings in strings.  Return all of the matching lines, along with
+    info about which log file they were in.
+    """
+    
+    result = ""
+    for name in glob.iglob(dir + '/*.log'):
+        matchesThisFile = False
+        for line in open(name, 'r'):
+            for s in strings:
+                if line.find(s) >= 0:
+                    if not matchesThisFile:
+                        result += '**** %s:\n' % os.path.basename(name)
+                        matchesThisFile = True
+                    result += line
+                    break;
+    return result
+
