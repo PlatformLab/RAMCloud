@@ -22,7 +22,6 @@ by running a collection of servers and clients.
 
 from __future__ import division
 from common import *
-from config import *
 import itertools
 import metrics
 import os
