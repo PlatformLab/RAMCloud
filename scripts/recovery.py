@@ -34,7 +34,7 @@ obj_path = '%s/%s' % (top_path, obj_dir)
 coordinatorBin = '%s/coordinator' % obj_path
 serverBin = '%s/server' % obj_path
 clientBin = '%s/client' % obj_path
-ensureHostsBin = '%s/ensureHosts' % obj_path
+ensureServersBin = '%s/ensureServers' % obj_path
 
 def recover(numBackups=1,
             numPartitions=1,
@@ -110,11 +110,11 @@ def recover(numBackups=1,
     extraBackups = []
     client = None
     with Sandbox() as sandbox:
-        def ensureHosts(qty):
+        def ensureServers(qty):
             sandbox.checkFailures()
             try:
                 sandbox.rsh(clientHost[0], '%s -C %s -n %d -l 1' %
-                            (ensureHostsBin, coordinatorLocator, qty))
+                            (ensureServersBin, coordinatorLocator, qty))
             except:
                 # prefer exceptions from dead processes to timeout error
                 sandbox.checkFailures()
@@ -127,7 +127,7 @@ def recover(numBackups=1,
                   bg=True, stderr=subprocess.STDOUT,
                   stdout=open(('%s/coordinator.%s.log' %
                                (run, coordinatorHost[0])), 'w'))
-        ensureHosts(0)
+        ensureServers(0)
 
         # start dying master
         oldMaster = sandbox.rsh(oldMasterHost[0],
@@ -137,7 +137,7 @@ def recover(numBackups=1,
                  bg=True, stderr=subprocess.STDOUT,
                  stdout=open(('%s/oldMaster.%s.log' %
                               (run, oldMasterHost[0])), 'w'))
-        ensureHosts(1)
+        ensureServers(1)
 
         # start other servers
         totalServers = 1
@@ -177,7 +177,7 @@ def recover(numBackups=1,
                                              stdout=open('%s/backup.%s.log' %
                                                          (run, host[0]), 'w')))
                 totalServers += 1
-        ensureHosts(totalServers)
+        ensureServers(totalServers)
 
         # pause for debugging setup, if requested
         if debug:

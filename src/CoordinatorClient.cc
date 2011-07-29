@@ -174,7 +174,7 @@ CoordinatorClient::getServerList(ServerType type,
 
 /**
  * List all live servers.
- * Used in ensureHosts.
+ * Used in ensureServers.
  * \param[out] serverList
  *      An empty ServerList that will be filled with current servers.
  */

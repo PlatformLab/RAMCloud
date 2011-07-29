@@ -20,7 +20,7 @@ from functools import *
 from optparse import OptionParser
 
 def runTransportBench(numObjects, objectSize, uncached,
-                      sandbox, run, coordinator, ensureHosts):
+                      sandbox, run, coordinator, ensureServers):
     host = hosts[0][0]
     binary = os.path.join(obj_path, 'TransportBench')
     return sandbox.rsh(host,

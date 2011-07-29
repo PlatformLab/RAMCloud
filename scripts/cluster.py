@@ -39,7 +39,7 @@ from optparse import OptionParser
 # Locations of various RAMCloud executables.
 coordinator_binary = '%s/coordinator' % obj_path
 server_binary = '%s/server' % obj_path
-ensure_hosts_bin = '%s/ensureHosts' % obj_path
+ensure_servers_bin = '%s/ensureServers' % obj_path
 
 # Info used to construct service locators for each of the transports
 # supported by RAMCloud.  In some cases the locator for the coordinator
@@ -139,11 +139,11 @@ def cluster(num_servers=1,             # Number of hosts on which to start
     servers = []
     clients = []
     with Sandbox() as sandbox:
-        def ensure_hosts(qty):
+        def ensure_servers(qty):
             sandbox.checkFailures()
             try:
                 sandbox.rsh(hosts[0][0], '%s -C %s -n %d -l 1' %
-                            (ensure_hosts_bin, coordinator_locator, qty))
+                            (ensure_servers_bin, coordinator_locator, qty))
             except:
                 # prefer exceptions from dead processes to timeout error
                 sandbox.checkFailures()
@@ -163,7 +163,7 @@ def cluster(num_servers=1,             # Number of hosts on which to start
                       bg=True, stderr=subprocess.STDOUT,
                       stdout=open(('%s/coordinator.%s.log' %
                                    (logSubDir, coordinator_host[0])), 'w'))
-            ensure_hosts(0)
+            ensure_servers(0)
             if verbose:
                 print "Coordinator started on %s at %s" % (coordinator_host[0],
                         coordinator_locator)
@@ -209,7 +209,7 @@ def cluster(num_servers=1,             # Number of hosts on which to start
                     print "Extra backup started on %s at %s" % (host[0],
                             server_locator)
         if num_servers > 0:
-            ensure_hosts(num_servers*(1 + num_backups))
+            ensure_servers(num_servers*(1 + num_backups))
             if verbose:
                 print "All servers running"
 

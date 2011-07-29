@@ -47,7 +47,7 @@ startfg() {
 }
 
 ensure() {
-    ssh ${host[0]} $remoteprecmd $(pwd)/$OBJDIR/ensureHosts -C $C -n $1 -l 1 || exit 1
+    ssh ${host[0]} $remoteprecmd $(pwd)/$OBJDIR/ensureServers -C $C -n $1 -l 1 || exit 1
 }
 
 suffix=.$$.log
