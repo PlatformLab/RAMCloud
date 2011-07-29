@@ -154,4 +154,15 @@ TEST_F(RamCloudTest, proxyPing) {
                 "mock:ping=2", 100000, 100000));
 }
 
+TEST_F(RamCloudTest, writeString) {
+    uint32_t tableId1 = ramcloud->openTable("table1");
+    ramcloud->write(tableId1, 99, "abcdef");
+    Buffer value;
+    ramcloud->read(tableId1, 99, &value);
+    EXPECT_EQ(6U, value.getTotalLength());
+    char buffer[200];
+    value.copy(0, value.getTotalLength(), buffer);
+    EXPECT_STREQ("abcdef", buffer);
+}
+
 }  // namespace RAMCloud

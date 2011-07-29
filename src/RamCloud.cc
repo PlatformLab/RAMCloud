@@ -180,4 +180,25 @@ RamCloud::write(uint32_t tableId, uint64_t id,
     Write(*this, tableId, id, buf, length, rejectRules, version, async)();
 }
 
+/**
+ * Write a specific object in a table with a string value; overwrite any
+ * existing object, or create a new object if none existed.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from a
+ *      previous call to openTable).
+ * \param id
+ *      Identifier within tableId of the object to be written; may or
+ *      may not refer to an existing object.
+ * \param s
+ *      NULL-terminated string; its contents (not including the
+ *      terminating NULL character) are stored in the object.
+ */
+void
+RamCloud::write(uint32_t tableId, uint64_t id, const char* s)
+{
+    Write(*this, tableId, id, s, downCast<int>(strlen(s)), NULL,
+          NULL, false)();
+}
+
 }  // namespace RAMCloud

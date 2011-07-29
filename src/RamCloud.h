@@ -129,6 +129,7 @@ class RamCloud {
     void write(uint32_t tableId, uint64_t id, const void* buf,
                uint32_t length, const RejectRules* rejectRules = NULL,
                uint64_t* version = NULL, bool async = false);
+    void write(uint32_t tableId, uint64_t id, const char* s);
 
     /// \copydoc Client::status
     Status status;
