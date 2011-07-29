@@ -379,8 +379,8 @@ BackupManager::proceedNoMetrics()
                 }
                 usedHosts.insert(host);
 
-                LOG(DEBUG, "Opening segment %lu, %lu on backup %s",
-                    *masterId, segment.segmentId,
+                LOG(DEBUG, "Opening segment %lu, %lu.%lu on backup %s",
+                    *masterId, segment.segmentId, &backup - segment.backups,
                     host->service_locator().c_str());
                 auto session = transportManager.getSession(
                                         host->service_locator().c_str());
