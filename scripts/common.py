@@ -71,7 +71,7 @@ class Sandbox(object):
             # Assumes scripts are at same path on remote machine
             sh_command = ['ssh', host,
                           '%s/regexec' % scripts_path, sonce,
-                          "'%s'" % command]
+                          os.getcwd(), "'%s'" % command]
             p = subprocess.Popen(sh_command, **kwargs)
             self.processes.append(self.Process(host, command,
                                                kwargs, sonce, p))
