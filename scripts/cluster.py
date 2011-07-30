@@ -23,6 +23,7 @@ by running a collection of servers and clients.
 from __future__ import division
 from common import *
 import itertools
+import log
 import metrics
 import os
 import pprint
@@ -121,19 +122,7 @@ def cluster(num_servers=1,             # Number of hosts on which to start
                         % (num_servers, len(hosts)))
 
     # Create a subdirectory of the log directory for this run
-    try:
-        os.mkdir(log_dir)
-    except:
-        pass
-    datetime = time.strftime('%Y%m%d%H%M%S')
-    logSubDir = '%s/%s' % (log_dir, datetime)
-    latest = '%s/latest' % log_dir
-    os.mkdir(logSubDir)
-    try:
-        os.remove('%s/latest' % log_dir)
-    except:
-        pass
-    os.symlink(datetime, latest)
+    log_subdir = log.createDir(log_dir)
 
     coordinator = None
     servers = []
@@ -162,7 +151,7 @@ def cluster(num_servers=1,             # Number of hosts on which to start
                         coordinator_args)),
                       bg=True, stderr=subprocess.STDOUT,
                       stdout=open(('%s/coordinator.%s.log' %
-                                   (logSubDir, coordinator_host[0])), 'w'))
+                                   (log_subdir, coordinator_host[0])), 'w'))
             ensure_servers(0)
             if verbose:
                 print "Coordinator started on %s at %s" % (coordinator_host[0],
@@ -188,7 +177,7 @@ def cluster(num_servers=1,             # Number of hosts on which to start
             servers.append(sandbox.rsh(host[0], command, bg=True,
                            stderr=subprocess.STDOUT,
                            stdout=open('%s/server.%s.log' %
-                                       (logSubDir, host[0]), 'w')))
+                                       (log_subdir, host[0]), 'w')))
             if verbose:
                 print "Server started on %s at %s" % (host[0], server_locator)
             
@@ -204,7 +193,7 @@ def cluster(num_servers=1,             # Number of hosts on which to start
                 servers.append(sandbox.rsh(host[0], command, bg=True,
                                            stderr=subprocess.STDOUT,
                                            stdout=open('%s/backup.%s.log' %
-                                                       (logSubDir, host[0]), 'w')))
+                                                       (log_subdir, host[0]), 'w')))
                 if verbose:
                     print "Extra backup started on %s at %s" % (host[0],
                             server_locator)
@@ -235,7 +224,7 @@ def cluster(num_servers=1,             # Number of hosts on which to start
             clients.append(sandbox.rsh(client_host[0], command, bg=True,
                                        stderr=subprocess.STDOUT,
                                        stdout=open('%s/client%d.%s.log' %
-                                                   (logSubDir, i,
+                                                   (log_subdir, i,
                                                     client_host[0]), 'w')))
             if verbose:
                 print "Client %d started on %s" % (i, client_host[0])
@@ -317,9 +306,12 @@ if __name__ == '__main__':
             help='Print progress messages')
     (options, args) = parser.parse_args()
 
+    status = 0
     try:
         cluster(**vars(options))
     finally:
-        logInfo = scanLogs("logs/latest", ["WARNING", "ERROR"])
+        logInfo = log.scan("logs/latest", ["WARNING", "ERROR"])
         if len(logInfo) > 0:
-            print logInfo
+            print >>sys.stderr, logInfo
+            status = 1
+    quit(status)

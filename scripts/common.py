@@ -24,9 +24,8 @@ import signal
 import subprocess
 import sys
 import time
-import glob
 
-__all__ = ['sh', 'captureSh', 'Sandbox', 'scanLogs']
+__all__ = ['sh', 'captureSh', 'Sandbox']
 
 def sh(command, bg=False, **kwargs):
     """Execute a local command."""
@@ -129,26 +128,6 @@ def delayedInterrupts():
         if quit:
             raise KeyboardInterrupt(
                 'Signal received while in delayed interrupts section')
-
-def scanLogs(dir, strings):
-    """
-    Read all .log files in dir, searching for lines that contain any
-    strings in strings.  Return all of the matching lines, along with
-    info about which log file they were in.
-    """
-    
-    result = ""
-    for name in glob.iglob(dir + '/*.log'):
-        matchesThisFile = False
-        for line in open(name, 'r'):
-            for s in strings:
-                if line.find(s) >= 0:
-                    if not matchesThisFile:
-                        result += '**** %s:\n' % os.path.basename(name)
-                        matchesThisFile = True
-                    result += line
-                    break;
-    return result
 
 # This stuff has to be here, rather than at the beginning of the file,
 # because config needs some of the functions defined above.

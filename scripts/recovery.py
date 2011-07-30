@@ -18,6 +18,7 @@
 
 from __future__ import division
 from common import *
+import log
 import metrics
 import os
 import pprint
@@ -91,18 +92,7 @@ def recover(numBackups=1,
 
     clientHost = hosts[0]
 
-    try:
-        os.mkdir('recovery')
-    except:
-        pass
-    datetime = time.strftime('%Y%m%d%H%M%S')
-    run = 'recovery/%s' % datetime
-    os.mkdir(run)
-    try:
-        os.remove('recovery/latest')
-    except:
-        pass
-    os.symlink(datetime, 'recovery/latest')
+    run = log.createDir('recovery')
 
     coordinator = None
     oldMaster = None
