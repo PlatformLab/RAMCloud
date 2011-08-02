@@ -47,7 +47,9 @@ ensure_servers_bin = '%s/ensureServers' % obj_path
 # needs to be different from that for the servers.
 server_locator_templates = {
     'tcp': 'tcp:host=%(host)s,port=%(port)d',
+    'tcp-1g': 'tcp:host=%(host1g)s,port=%(port)d',
     'fast+udp': 'fast+udp:host=%(host)s,port=%(port)d',
+    'fast+udp-1g': 'fast+udp:host=%(host1g)s,port=%(port)d',
     'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
     'infrc': 'infrc:host=%(host)s,port=%(port)d',
     'fast+infud': 'fast+infud:',
@@ -57,7 +59,9 @@ server_locator_templates = {
 }
 coord_locator_templates = {
     'tcp': 'tcp:host=%(host)s,port=%(port)d',
+    'tcp-1g': 'tcp:host=%(host1g)s,port=%(port)d',
     'fast+udp': 'fast+udp:host=%(host)s,port=%(port)d',
+    'fast+udp-1g': 'fast+udp:host=%(host1g)s,port=%(port)d',
     'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
     'infrc': 'infrc:host=%(host)s,port=%(port)d',
     # Coordinator uses udp even when rest of cluster uses infud
@@ -143,6 +147,7 @@ def cluster(num_servers=1,             # Number of hosts on which to start
             coordinator_host = hosts[0]
             coordinator_locator = (coord_locator_templates[transport] %
                                     {'host': coordinator_host[1],
+                                     'host1g': coordinator_host[0],
                                      'port': coordinator_port,
                                      'id': coordinator_host[2]})
             coordinator = sandbox.rsh(coordinator_host[0],
@@ -165,6 +170,7 @@ def cluster(num_servers=1,             # Number of hosts on which to start
             host = hosts[i];
             server_locator = (server_locator_templates[transport] %
                               {'host': host[1],
+                               'host1g': host[0],
                                'port': server_port,
                                'id': host[2]})
             command = ('%s -C %s -L %s -r %d -l %s %s' %
@@ -185,6 +191,7 @@ def cluster(num_servers=1,             # Number of hosts on which to start
             if num_backups == 2:
                 server_locator = (server_locator_templates[transport] %
                                   {'host': host[1],
+                                   'host1g': host[0],
                                    'port': second_backup_port,
                                    'id': host[2]})
                 command = ('%s -C %s -L %s -B %s -l %s %s' %
