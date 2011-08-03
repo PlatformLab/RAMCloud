@@ -23,7 +23,7 @@
 #ifndef RAMCLOUD_BACKUPSERVICE_H
 #define RAMCLOUD_BACKUPSERVICE_H
 
-#include <cstdatomic>
+#include <atomic>
 #include <boost/thread.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/pool/pool.hpp>

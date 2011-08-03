@@ -149,5 +149,9 @@ do
 
 		local udp_encap_table = DissectorTable.get("udp.port")
 		udp_encap_table:add(12242, p_proto)
+        local eth_dissector_table = DissectorTable.get("ethertype")
+        if eth_dissector_table ~= nil then
+            eth_dissector_table:add(0x8001, p_proto)
+        end
 	end
 end
