@@ -10,7 +10,7 @@ SSE ?= sse4.2
 COMPILER ?= gnu
 VALGRIND ?= no
 
-INFINIBAND := no
+INFINIBAND := $(shell [ -e /usr/lib/libibverbs.so ] && echo -n "yes")
 
 ## Create a separate build directory for each git branch and for each arch
 OBJSUFFIX := $(shell git symbolic-ref -q HEAD | \
